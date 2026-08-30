@@ -1,0 +1,47 @@
+[package]
+name = "maya-wallet-ui"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Leptos client-side frontend for the Maya wallet"
+
+# Deliberately NOT a workspace member. It builds only for
+# wasm32-unknown-unknown; pulling it into the host workspace would make
+# `cargo test --workspace` try to compile web-sys for the host and fail.
+[workspace]
+
+[dependencies]
+# Client-side rendering. The wallet is a local application, so there is no
+# server to render on — and no server that could ever see a key.
+leptos = { version = "0.8", features = ["csr"] }
+serde = { version = "1", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+console_error_panic_hook = "0.1"
+
+[dependencies.web-sys]
+version = "0.3"
+features = [
+  "Window",
+  "Navigator",
+  "MediaDevices",
+  "MediaStream",
+  "MediaStreamTrack",
+  "MediaStreamConstraints",
+  "HtmlVideoElement",
+  "HtmlCanvasElement",
+  "CanvasRenderingContext2d",
+  "Blob",
+  "FileReader",
+  "Document",
+  "Element",
+]
+
+[profile.release]
+# The bundle ships inside the installer, so size is a shipping cost.
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"

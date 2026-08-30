@@ -1,0 +1,26 @@
+# Chain configuration shared by every node in a region.
+#
+# genesis.json is consensus: two nodes with different genesis compute different
+# state roots and silently fork rather than failing to connect. It is mounted
+# from a ConfigMap so that a mismatch is a deployment-time diff rather than a
+# discovery made hours into a chain split.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: maya-chain-config
+  labels:
+    app.kubernetes.io/name: maya-node
+    app.kubernetes.io/part-of: maya2c
+data:
+  # Replaced per environment by the kustomize overlays. The chain id here is
+  # deliberately NOT "mainnet": the node refuses to start on a value-bearing
+  # chain while the shielded pool's proving parameters come from a reproducible
+  # setup. See src/bin/node.rs VALUE_BEARING_CHAINS.
+  genesis.json: |
+    {
+      "chain_id": "maya-testnet",
+      "timestamp": 1756252800,
+      "difficulty_bits": 20,
+      "pow_limit_bits": 8,
+      "allocations": []
+    }

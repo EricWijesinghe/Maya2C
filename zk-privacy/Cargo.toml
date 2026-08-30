@@ -1,0 +1,31 @@
+[package]
+name = "maya-zk-privacy"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Shielded pool primitives: Poseidon note commitments, nullifiers, and Groth16 joinsplit proofs"
+
+[dependencies]
+# Pinned exactly, for the same reason the VM pins wasmtime: the verifying key
+# is consensus. A different arkworks release can reorder constraints or change
+# the serialization of a proof, and either one silently invalidates every proof
+# ever produced. Bumping these is a hard fork.
+ark-bls12-381 = "=0.6.0"
+ark-ff = "=0.6.0"
+ark-ec = "=0.6.0"
+ark-std = "=0.6.0"
+ark-serialize = "=0.6.0"
+ark-relations = "=0.6.0"
+ark-r1cs-std = "=0.6.0"
+ark-snark = "=0.6.0"
+ark-groth16 = { version = "=0.6.0", features = ["r1cs"] }
+ark-crypto-primitives = { version = "=0.6.0", features = [
+    "sponge",
+    "crh",
+    "constraints",
+    "snark",
+] }
+
+blake3 = "1.8"
+thiserror = "2.0"
+hex = "0.4"

@@ -1,0 +1,41 @@
+[package]
+name = "maya-crypto-pq"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+
+# Why this is a crate and not a module in `custom-l1-node::crypto`.
+#
+# `slh-dsa` is generic over `ParameterSet`, so its hot code monomorphizes into
+# whichever crate *instantiates* it. A `[profile.dev.package.slh-dsa]` override
+# — the trick that keeps `fips204` usable in dev builds — therefore does nothing
+# here: it optimizes a crate that contains none of the work. Measured on a dev
+# build, signing cost 4468 ms with that override in place and 140 ms once the
+# instantiating crate was optimized instead.
+#
+# So the instantiation is confined to this crate, behind a concrete, non-generic
+# API, and the root Cargo.toml optimizes *this* crate in dev. That keeps the
+# node's own code unoptimized and debuggable, which is the property the root
+# profile overrides exist to preserve.
+[dependencies]
+# Pure Rust, which the Dockerfile's static-musl build depends on. The PQClean
+# bindings (pqcrypto-sphincsplus) would add a C toolchain and an unsafe FFI
+# surface to a build that currently links only RocksDB's C++ — the same trade
+# that was declined for fips204.
+#
+# Pinned exactly. This is a release candidate on a pre-1.0 line, and it sits in
+# the consensus path: a patch bump that changed an encoding would silently fork
+# the chain. The pin is what makes that a build failure instead.
+slh-dsa = { version = "=0.2.0-rc.5", features = ["zeroize"] }
+
+# ML-KEM-768 (FIPS 203), the transport's key encapsulation.
+#
+# `ml-kem`, not `pqcrypto-kyber`: the latter implements round-3 Kyber, whose
+# last release predates FIPS 203 and whose shared-secret derivation, encodings
+# and key format the standard changed. It is not ML-KEM and must not be labelled
+# as such. Pure Rust, for the same static-musl reason as the rest of this crate.
+ml-kem = { version = "=0.3.2", features = ["getrandom", "zeroize"] }
+blake3 = "1.8"
+zeroize = "1"
+getrandom = "0.4"
+thiserror = "2.0"

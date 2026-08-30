@@ -1,0 +1,2 @@
+cargo:rustc-cfg=rustc_nightly
+cargo:rustc-cfg=getrandom_backend="wasm_js"

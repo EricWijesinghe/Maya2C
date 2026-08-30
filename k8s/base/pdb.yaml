@@ -1,0 +1,22 @@
+# Keep a quorum of seeds reachable during voluntary disruption.
+#
+# `minAvailable: 2` of 3 rather than `maxUnavailable: 1`: the two are equivalent
+# at three replicas but diverge if the replica count is ever lowered, and the
+# floor is what actually matters. One reachable seed is a bootstrap
+# single-point-of-failure during exactly the window when nodes are restarting
+# and most need to find peers.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: maya-seed
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: maya-node
+      app.kubernetes.io/component: seed
+#
+# The `maya-retain` StorageClass the volumeClaimTemplate names is deliberately
+# NOT here. Its provisioner is cloud-specific, and keeping it in the base would
+# make the base AWS-only. Each overlay pulls in `../../storage/<cloud>`, which
+# defines the same class name over the right CSI driver.

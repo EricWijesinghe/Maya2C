@@ -1,0 +1,18 @@
+﻿apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# The StorageClass is deliberately not here — it is cloud-specific, and each
+# overlay pulls in ../../storage/aws or ../../storage/gcp instead.
+resources:
+  - configmap.yaml
+  - statefulset.yaml
+  - service.yaml
+  - seed-p2p-service.yaml
+  - ingress.yaml
+  - pdb.yaml
+  - servicemonitor.yaml
+
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: maya2c

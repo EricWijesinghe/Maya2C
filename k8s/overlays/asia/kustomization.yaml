@@ -1,0 +1,56 @@
+﻿apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: maya-asia
+
+resources:
+  - ../../base
+  - ../../storage/aws
+
+patches:
+  - path: bootnodes.yaml
+
+  - target:
+      kind: Ingress
+      name: maya-rpc
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: rpc-asia.example.invalid
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: rpc-asia.example.invalid
+  # Same host as the RPC Ingress; a separate object only so the two can carry
+  # different rate limits.
+  - target:
+      kind: Ingress
+      name: maya-market
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: rpc-asia.example.invalid
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: rpc-asia.example.invalid
+
+  - target:
+      kind: Service
+      name: maya-seed-p2p-0
+    patch: |-
+      - op: replace
+        path: /metadata/annotations/external-dns.alpha.kubernetes.io~1hostname
+        value: seed-0-asia.p2p.example.invalid
+  - target:
+      kind: Service
+      name: maya-seed-p2p-1
+    patch: |-
+      - op: replace
+        path: /metadata/annotations/external-dns.alpha.kubernetes.io~1hostname
+        value: seed-1-asia.p2p.example.invalid
+  - target:
+      kind: Service
+      name: maya-seed-p2p-2
+    patch: |-
+      - op: replace
+        path: /metadata/annotations/external-dns.alpha.kubernetes.io~1hostname
+        value: seed-2-asia.p2p.example.invalid

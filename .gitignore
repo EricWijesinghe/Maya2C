@@ -1,0 +1,42 @@
+# Rust build output.
+/target/
+/wallet-gui/src-tauri/target/
+
+# Terraform.
+#
+# `.terraform/` is a provider cache — it holds a ~700 MB vendored provider
+# binary per platform, and `terraform init` rebuilds it from the lock file on
+# any machine. `.terraform.lock.hcl` is the opposite: it pins the provider
+# versions everyone resolves to and belongs in version control, so it is
+# deliberately not ignored here.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+
+# Terraform variable files routinely carry account ids, project names, and
+# occasionally credentials. The example file is the one meant to be shared.
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+
+# Node identities. A seed's key file is the identity every bootnode address in
+# the fleet points at; it belongs in a secret store, never in a repository.
+node_key
+*.node_key
+/seeds/
+
+# Local chain state written by deploy.sh and docker-compose.
+/data/
+genesis.json
+
+# rustc internal compiler error dumps.
+rustc-ice-*.txt
+
+# Editor and OS noise.
+.DS_Store
+.idea/
+.vscode/
+*.swp

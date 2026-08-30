@@ -1,0 +1,11 @@
+D:\Maya2C\wallet-gui\ui\target\wasm32-unknown-unknown\release\build\erased/12406b43079d4b59\out\erased-12406b43079d4b59.d: C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\lib.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\erased_box.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\erased_mut_ref.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\erased_ref.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\../README.md
+
+D:\Maya2C\wallet-gui\ui\target\wasm32-unknown-unknown\release\build\erased/12406b43079d4b59\out\liberased-12406b43079d4b59.rlib: C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\lib.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\erased_box.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\erased_mut_ref.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\erased_ref.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\../README.md
+
+D:\Maya2C\wallet-gui\ui\target\wasm32-unknown-unknown\release\build\erased/12406b43079d4b59\out\liberased-12406b43079d4b59.rmeta: C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\lib.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\erased_box.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\erased_mut_ref.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\erased_ref.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\../README.md
+
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\lib.rs:
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\erased_box.rs:
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\erased_mut_ref.rs:
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\erased_ref.rs:
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\erased-0.1.2\src\../README.md:

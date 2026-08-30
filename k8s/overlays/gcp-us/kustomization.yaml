@@ -1,0 +1,61 @@
+﻿apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: maya-gcp-us
+
+resources:
+  - ../../base
+  # Supplies `maya-retain` over the GKE persistent disk CSI driver. Same class
+  # name as the AWS variant, so the StatefulSet stays cloud-agnostic.
+  - ../../storage/gcp
+
+components:
+  - ../../components/gcp-p2p
+
+patches:
+  - path: bootnodes.yaml
+
+  - target:
+      kind: Ingress
+      name: maya-rpc
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: rpc-gcp-us.example.invalid
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: rpc-gcp-us.example.invalid
+  # Same host as the RPC Ingress; a separate object only so the two can carry
+  # different rate limits.
+  - target:
+      kind: Ingress
+      name: maya-market
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: rpc-gcp-us.example.invalid
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: rpc-gcp-us.example.invalid
+
+  - target:
+      kind: Service
+      name: maya-seed-p2p-0
+    patch: |-
+      - op: replace
+        path: /metadata/annotations/external-dns.alpha.kubernetes.io~1hostname
+        value: seed-0-gcp-us.p2p.example.invalid
+  - target:
+      kind: Service
+      name: maya-seed-p2p-1
+    patch: |-
+      - op: replace
+        path: /metadata/annotations/external-dns.alpha.kubernetes.io~1hostname
+        value: seed-1-gcp-us.p2p.example.invalid
+  - target:
+      kind: Service
+      name: maya-seed-p2p-2
+    patch: |-
+      - op: replace
+        path: /metadata/annotations/external-dns.alpha.kubernetes.io~1hostname
+        value: seed-2-gcp-us.p2p.example.invalid

@@ -1,0 +1,38 @@
+# Cross-region bootnodes for the GCP US region.
+#
+# See k8s/overlays/us/bootnodes.yaml for why these are external names carrying a
+# /p2p/ component, and why the values below are placeholders.
+#
+# A GCP region dials its two GCP siblings, not the AWS fleet. The two clouds form
+# one chain through the seeds they share in each region's bootnode list once the
+# real addresses are filled in; wiring every region to every other region up
+# front would make the placeholder list six entries long without teaching
+# anything the two below do not.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: maya-seed
+spec:
+  template:
+    spec:
+      nodeSelector:
+        topology.kubernetes.io/region: us-central1
+      containers:
+        - name: node
+          args:
+            - --genesis
+            - /config/genesis.json
+            - --data-dir
+            - /data
+            - --rpc-addr
+            - 0.0.0.0:8545
+            - --metrics-addr
+            - 0.0.0.0:9600
+            - --market-addr
+            - 0.0.0.0:8546
+            - --p2p-port
+            - "30333"
+            - --bootnode
+            - /dns4/seed-0-gcp-eu.p2p.example.invalid/tcp/30333/p2p/12D3KooWQmmmNvE2WEMBpCtqsHC1PeMRvu1nimsRDjo9V9RG9rbp
+            - --bootnode
+            - /dns4/seed-0-gcp-asia.p2p.example.invalid/tcp/30333/p2p/12D3KooWNSEWcRFyRx7mwM4HnaUFNJaNzD6PzAih4o7Kqarsg6Si

@@ -1,0 +1,34 @@
+# RocksDB volumes on AWS.
+#
+# ## Why not `kubernetes.io/aws-ebs`
+#
+# That is the in-tree provisioner. It was removed in Kubernetes 1.27, and the
+# clusters this chart targets run 1.31 (see terraform/modules/node-pool). A
+# PersistentVolumeClaim naming a class whose provisioner does not exist does not
+# fail — it sits in `Pending` forever while the StatefulSet reports nothing more
+# specific than "0/3 pods ready". The CSI driver name is the only working one,
+# and it requires the `aws-ebs-csi-driver` EKS addon that the node-pool module
+# installs.
+#
+# ## Why Retain
+#
+# PVCs must outlive their pods. With the default Delete policy a StatefulSet
+# scale-down destroys both the chain data and `<data-dir>/node_key` — and the
+# identity loss is the worse half, because it invalidates every bootnode address
+# in the fleet that points at that seed.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: maya-retain
+provisioner: ebs.csi.aws.com
+reclaimPolicy: Retain
+# Bind only once a pod is scheduled. Provisioning early would pick a zone before
+# the scheduler has applied the seeds' zone anti-affinity rule, and a volume in
+# the wrong zone pins its pod there permanently.
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+parameters:
+  type: gp3
+  # Chain state is not public until it is gossiped, and the key material beside
+  # it never is. Encryption at rest costs nothing on gp3.
+  encrypted: "true"

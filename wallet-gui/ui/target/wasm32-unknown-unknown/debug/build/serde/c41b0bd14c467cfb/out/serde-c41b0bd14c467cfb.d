@@ -1,0 +1,14 @@
+D:\Maya2C\wallet-gui\ui\target\wasm32-unknown-unknown\debug\build\serde/c41b0bd14c467cfb\out\serde-c41b0bd14c467cfb.d: C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\lib.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\integer128.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\private\mod.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\private\de.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\private\ser.rs D:\Maya2C\wallet-gui\ui\target\wasm32-unknown-unknown\debug\build\serde/39cdcf1aee42453d\out/private.rs
+
+D:\Maya2C\wallet-gui\ui\target\wasm32-unknown-unknown\debug\build\serde/c41b0bd14c467cfb\out\libserde-c41b0bd14c467cfb.rlib: C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\lib.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\integer128.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\private\mod.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\private\de.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\private\ser.rs D:\Maya2C\wallet-gui\ui\target\wasm32-unknown-unknown\debug\build\serde/39cdcf1aee42453d\out/private.rs
+
+D:\Maya2C\wallet-gui\ui\target\wasm32-unknown-unknown\debug\build\serde/c41b0bd14c467cfb\out\libserde-c41b0bd14c467cfb.rmeta: C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\lib.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\integer128.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\private\mod.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\private\de.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\private\ser.rs D:\Maya2C\wallet-gui\ui\target\wasm32-unknown-unknown\debug\build\serde/39cdcf1aee42453d\out/private.rs
+
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\lib.rs:
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\integer128.rs:
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\private\mod.rs:
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\private\de.rs:
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.229\src\private\ser.rs:
+D:\Maya2C\wallet-gui\ui\target\wasm32-unknown-unknown\debug\build\serde/39cdcf1aee42453d\out/private.rs:
+
+# env-dep:OUT_DIR=D:\\Maya2C\\wallet-gui\\ui\\target\\wasm32-unknown-unknown\\debug\\build\\serde/39cdcf1aee42453d\\out

@@ -1,0 +1,9 @@
+D:\Maya2C\wallet-gui\ui\target\wasm32-unknown-unknown\debug\build\futures-executor/7ab1e389b46bf6a5\out\futures_executor-7ab1e389b46bf6a5.d: C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.34\src\lib.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.34\src\local_pool.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.34\src\thread_pool.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.34\src\unpark_mutex.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.34\src\enter.rs
+
+D:\Maya2C\wallet-gui\ui\target\wasm32-unknown-unknown\debug\build\futures-executor/7ab1e389b46bf6a5\out\libfutures_executor-7ab1e389b46bf6a5.rmeta: C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.34\src\lib.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.34\src\local_pool.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.34\src\thread_pool.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.34\src\unpark_mutex.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.34\src\enter.rs
+
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.34\src\lib.rs:
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.34\src\local_pool.rs:
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.34\src\thread_pool.rs:
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.34\src\unpark_mutex.rs:
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\futures-executor-0.3.34\src\enter.rs:

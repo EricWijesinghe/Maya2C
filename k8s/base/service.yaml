@@ -1,0 +1,89 @@
+# Headless service backing the StatefulSet's stable DNS.
+#
+# `publishNotReadyAddresses` is on deliberately: peers must be able to dial a
+# seed that is still syncing, or a fleet restarted together could never
+# bootstrap — every node would be unready, so no node would be resolvable, so no
+# node could ever become ready.
+apiVersion: v1
+kind: Service
+metadata:
+  name: maya-seed
+  labels:
+    app.kubernetes.io/name: maya-node
+    app.kubernetes.io/component: seed
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: maya-node
+    app.kubernetes.io/component: seed
+  ports:
+    - name: p2p
+      port: 30333
+      targetPort: p2p
+      protocol: TCP
+---
+# RPC traffic, load balanced across ready nodes only.
+apiVersion: v1
+kind: Service
+metadata:
+  name: maya-rpc
+  labels:
+    app.kubernetes.io/name: maya-node
+    app.kubernetes.io/component: rpc
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: maya-node
+    app.kubernetes.io/component: seed
+  ports:
+    - name: rpc
+      port: 8545
+      targetPort: rpc
+      protocol: TCP
+---
+# Supply and ticker endpoints for listing aggregators.
+#
+# A separate Service from maya-rpc because the two are read by different people
+# under different rules: RPC is an application interface behind a tight rate
+# limit, and this is a handful of cacheable public numbers that CoinGecko and
+# CoinMarketCap poll on their own schedule. Splitting them lets the ingress give
+# each its own limit rather than forcing one compromise.
+apiVersion: v1
+kind: Service
+metadata:
+  name: maya-market
+  labels:
+    app.kubernetes.io/name: maya-node
+    app.kubernetes.io/component: market
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: maya-node
+    app.kubernetes.io/component: seed
+  ports:
+    - name: market
+      port: 8546
+      targetPort: market
+      protocol: TCP
+---
+# Metrics, scraped in-cluster. There is deliberately no ingress for this
+# service: the exporter publishes peer topology and mempool contents, which are
+# operational data rather than public data.
+apiVersion: v1
+kind: Service
+metadata:
+  name: maya-metrics
+  labels:
+    app.kubernetes.io/name: maya-node
+    app.kubernetes.io/component: metrics
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: maya-node
+    app.kubernetes.io/component: seed
+  ports:
+    - name: metrics
+      port: 9600
+      targetPort: metrics
+      protocol: TCP

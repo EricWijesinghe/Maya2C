@@ -1,0 +1,13 @@
+target/
+node_modules/
+dist/
+build/
+*.log
+*.lock
+*.svg
+*.png
+*.jpg
+.git/
+.vscode/
+.idea/
+.claude/

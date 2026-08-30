@@ -1,0 +1,153 @@
+# Three-node L1 testnet: one seed plus two peers.
+#
+# ## Topology
+#
+# Both peers dial the seed by DNS name. libp2p accepts a bootnode address
+# without a `/p2p/<PeerId>` suffix, so the compose file does not need to know
+# peer ids ahead of time — which matters because they are only established the
+# first time each node writes its `node_key`.
+#
+# ## Genesis
+#
+# All three nodes bind-mount the *same* read-only `genesis.json`. That is the
+# point: a node whose genesis differs by one byte derives a different genesis
+# hash and silently forms its own network. `deploy.sh` generates the file once
+# before starting anything.
+#
+# ## Multi-region
+#
+# This file models the fleet on one host. Running it across real VPS instances
+# means one node per host, `L1_BOOTNODE` pointing at the seed's public address,
+# and the P2P port reachable through each provider's firewall. The service
+# definitions are otherwise unchanged — the bootnode address is the only value
+# that has to differ, which is why it is an environment variable rather than
+# hard-coded.
+
+x-node-base: &node-base
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: custom-l1-node:latest
+  restart: unless-stopped
+  # The state directory is the node's identity and history. Losing it means
+  # resyncing from genesis and generating a new peer id.
+  stop_grace_period: 30s
+  healthcheck:
+    # busybox wget, already present in the Alpine runtime.
+    test:
+      - CMD
+      - wget
+      - --quiet
+      - --tries=1
+      - --timeout=3
+      - --post-data={"jsonrpc":"2.0","id":1,"method":"get_mining_candidate","params":[]}
+      - --header=Content-Type: application/json
+      - --output-document=-
+      - http://127.0.0.1:8545
+    interval: 10s
+    timeout: 5s
+    # Generous: the first start seeds state and opens RocksDB.
+    start_period: 30s
+    retries: 5
+  networks:
+    - l1
+
+services:
+  seed-node:
+    <<: *node-base
+    container_name: l1-seed-node
+    volumes:
+      - seed-data:/data
+      - ./genesis.json:/config/genesis.json:ro
+    ports:
+      - "8545:8545"
+      - "30333:30333"
+    command:
+      - --genesis
+      - /config/genesis.json
+      - --data-dir
+      - /data
+      - --rpc-addr
+      - 0.0.0.0:8545
+      - --p2p-port
+      - "30333"
+      # The seed mines, so a fresh network produces blocks with no other
+      # participants required.
+      - --mine
+      - --threads
+      - "2"
+
+  peer-1:
+    <<: *node-base
+    container_name: l1-peer-1
+    depends_on:
+      seed-node:
+        condition: service_healthy
+    volumes:
+      - peer1-data:/data
+      - ./genesis.json:/config/genesis.json:ro
+    ports:
+      - "8546:8545"
+      - "30334:30333"
+    command:
+      - --genesis
+      - /config/genesis.json
+      - --data-dir
+      - /data
+      - --rpc-addr
+      - 0.0.0.0:8545
+      - --p2p-port
+      - "30333"
+      - --bootnode
+      - ${L1_BOOTNODE:-/dns4/seed-node/tcp/30333}
+      # Gossip only carries blocks minted after a node joins. A peer starting
+      # from genesis against a chain already in progress needs an explicit pull
+      # to cover the gap, or it sits at height 0 forever.
+      - --sync-from
+      - ${L1_SYNC_FROM:-http://seed-node:8545}
+      - --mine
+      - --threads
+      - "1"
+
+  peer-2:
+    <<: *node-base
+    container_name: l1-peer-2
+    depends_on:
+      seed-node:
+        condition: service_healthy
+    volumes:
+      - peer2-data:/data
+      - ./genesis.json:/config/genesis.json:ro
+    ports:
+      - "8547:8545"
+      - "30335:30333"
+    command:
+      - --genesis
+      - /config/genesis.json
+      - --data-dir
+      - /data
+      - --rpc-addr
+      - 0.0.0.0:8545
+      - --p2p-port
+      - "30333"
+      - --bootnode
+      - ${L1_BOOTNODE:-/dns4/seed-node/tcp/30333}
+      # Gossip only carries blocks minted after a node joins. A peer starting
+      # from genesis against a chain already in progress needs an explicit pull
+      # to cover the gap, or it sits at height 0 forever.
+      - --sync-from
+      - ${L1_SYNC_FROM:-http://seed-node:8545}
+      # Deliberately a non-mining verifier: it must reach the same tip purely by
+      # validating what it receives, which is what proves propagation works.
+
+networks:
+  l1:
+    driver: bridge
+
+volumes:
+  # Named volumes, one per node. Sharing a volume would mean two processes
+  # opening one RocksDB directory, and RocksDB takes an exclusive lock — the
+  # second node would fail to start.
+  seed-data:
+  peer1-data:
+  peer2-data:

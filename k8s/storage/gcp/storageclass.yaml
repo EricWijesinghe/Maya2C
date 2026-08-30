@@ -1,0 +1,20 @@
+# RocksDB volumes on GKE.
+#
+# Same class name as the AWS variant on purpose: the StatefulSet in the base
+# names `maya-retain` and must not know which cloud it landed on. Only the
+# provisioner and the parameter names differ.
+#
+# `pd-balanced` rather than `pd-ssd`: RocksDB's read path is dominated by block
+# cache hits and its write path by sequential WAL appends, neither of which
+# needs the IOPS ceiling that pd-ssd charges for. Raise it per region if the
+# import-duration histogram (maya_block_import_duration_seconds) says otherwise.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: maya-retain
+provisioner: pd.csi.storage.gke.io
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+parameters:
+  type: pd-balanced

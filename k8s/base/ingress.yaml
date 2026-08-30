@@ -1,0 +1,122 @@
+# Public RPC ingress.
+#
+# Rate limits are not optional here. `get_block_by_height` and `get_balance`
+# both hit RocksDB, and an unmetered public endpoint is a free denial-of-service
+# against every node behind the load balancer.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: maya-rpc
+  labels:
+    app.kubernetes.io/name: maya-node
+    app.kubernetes.io/component: rpc
+  annotations:
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "3"
+    nginx.ingress.kubernetes.io/limit-connections: "10"
+    # Bounded so a large paste cannot be used to make every node allocate.
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "30"
+    # Least-connections rather than round-robin: RPC calls vary by orders of
+    # magnitude in cost, so round-robin piles slow queries onto one node.
+    nginx.ingress.kubernetes.io/load-balance: "ewma"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - rpc.example.invalid
+      secretName: maya-rpc-tls
+  rules:
+    - host: rpc.example.invalid
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: maya-rpc
+                port:
+                  name: rpc
+---
+# Aggregator supply and ticker endpoints.
+#
+# A second Ingress rather than another path on the one above, because nginx
+# applies rate limits per Ingress object. The two need different ones: RPC calls
+# hit RocksDB and are metered tightly, while these are a handful of numbers that
+# are cached on the node and polled on CoinGecko's and CoinMarketCap's own
+# schedule. Forcing both through one limit means either throttling the
+# aggregators or loosening RPC.
+#
+# The TLS secret is shared with the RPC Ingress — same host, same certificate.
+# Only that one carries the cert-manager annotation; two issuers racing to write
+# one secret is a renewal loop nobody enjoys debugging.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: maya-market
+  labels:
+    app.kubernetes.io/name: maya-node
+    app.kubernetes.io/component: market
+  annotations:
+    # Generous next to RPC. The response is cached on the node until the tip
+    # moves, so the cost of a request is a serialisation rather than a scan.
+    nginx.ingress.kubernetes.io/limit-rps: "50"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "4"
+    nginx.ingress.kubernetes.io/proxy-body-size: 1k
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "15"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - rpc.example.invalid
+      secretName: maya-rpc-tls
+  rules:
+    - host: rpc.example.invalid
+      http:
+        paths:
+          # Longer prefix than the RPC Ingress's `/`, so nginx routes it here.
+          - path: /api/v1
+            pathType: Prefix
+            backend:
+              service:
+                name: maya-market
+                port:
+                  name: market
+---
+# Only Prometheus may reach the exporter, and only the ingress controller may
+# reach RPC. Without this, any pod in the cluster can read the mempool.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: maya-node
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: maya-node
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 9600
+          protocol: TCP
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 8545
+          protocol: TCP
+        # The market endpoints serve public data, but they still reach it
+        # through the ingress controller so the rate limit above is on the only
+        # path in.
+        - port: 8546
+          protocol: TCP
+    # P2P is open by design: a chain whose peers cannot dial in is a chain with
+    # one participant.
+    - ports:
+        - port: 30333
+          protocol: TCP

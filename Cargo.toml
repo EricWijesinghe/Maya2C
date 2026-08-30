@@ -1,0 +1,179 @@
+[package]
+name = "custom-l1-node"
+version = "0.1.0"
+edition = "2024"
+# Edition 2024 needs 1.85, but the code also uses `u64::is_multiple_of` (1.87)
+# and `slice::as_chunks` (1.88). Declaring the real floor makes a stale
+# toolchain fail with a clear message instead of a wall of errors.
+rust-version = "1.88"
+
+# The root package is a workspace member alongside the wallet CLI, so both
+# share one lockfile, one target directory, and the profile overrides below.
+[workspace]
+members = [
+    "wallet",
+    "l2-flash",
+    "vm",
+    "explorer",
+    "wallet-gui/core",
+    "zk-privacy",
+    "crypto-pq",
+]
+
+[dependencies]
+blake3 = "1.8"
+argon2 = "0.5"
+# Entropy comes straight from the OS rather than through an RNG trait crate.
+# rand_core 0.10 is traits-only — it no longer ships OsRng — and routing key
+# generation through a trait crate would mean keeping dalek's rand_core version
+# in lockstep with every other crate that wants one. getrandom is the source
+# those RNGs wrap anyway, and it is already in the tree transitively.
+getrandom = "0.4"
+# ML-DSA-65 (FIPS 204), the transaction signature scheme.
+#
+# Pure Rust, which the Dockerfile's static-musl build depends on: the PQClean
+# bindings (pqcrypto-mldsa) would add a C toolchain and an unsafe FFI surface to
+# a build that currently links only RocksDB's C++.
+#
+# Only the 65 parameter set is compiled. The 44 and 87 sets are dead weight, and
+# a set that is present is a set some future caller can pick by accident — the
+# security level of a chain should not be a function of which import someone
+# reached for.
+fips204 = { version = "0.4", default-features = false, features = ["ml-dsa-65", "default-rng"] }
+# SLH-DSA-SHA2-128s (FIPS 205), the second half of every transaction signature.
+#
+# Its own crate rather than a module here, because `slh-dsa` is generic over its
+# parameter set and monomorphizes into whichever crate instantiates it — see
+# crypto-pq/Cargo.toml for the measurement that forced this.
+maya-crypto-pq = { path = "crypto-pq" }
+# The AEAD sealing every frame of the post-quantum transport layer. Already in
+# the tree via the wallet keystore, so this adds no new dependency.
+chacha20poly1305 = "0.10"
+zeroize = "1"
+hex = "0.4"
+thiserror = "2.0"
+rocksdb = "0.25"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+maya-vm = { path = "vm" }
+maya-zk-privacy = { path = "zk-privacy" }
+jsonrpsee = { version = "0.26", features = ["server", "http-client"] }
+# The official Prometheus client. hyper and its util/body crates are already in
+# the tree via jsonrpsee, so the exporter adds no new transport dependency.
+prometheus-client = "0.25"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net", "io-util"] }
+futures = "0.3"
+libp2p = { version = "0.56", features = [
+    "tokio",
+    "gossipsub",
+    "kad",
+    "identify",
+    "noise",
+    "yamux",
+    "tcp",
+    "macros",
+] }
+
+[dev-dependencies]
+tempfile = "3"
+# In-memory duplex streams, for driving the two halves of the ML-KEM handshake
+# against each other without a socket. What libp2p uses for the same job.
+futures_ringbuf = "0.4"
+criterion = "0.7"
+# Shielded tests build joinsplits directly, which means constructing field
+# elements and seeding a deterministic RNG.
+ark-bls12-381 = "=0.6.0"
+ark-std = "=0.6.0"
+# Contract tests assemble small modules from WAT so they exercise the
+# transaction path without depending on a wasm toolchain being installed.
+wat = "1"
+jsonrpsee = { version = "0.26", features = ["server", "http-client"] }
+
+# Argon2id over 32 MiB is unusably slow when compiled without optimization:
+# an unoptimized hash runs on the order of seconds, which makes `cargo test`
+# look hung rather than slow. Optimize the hash crates even in dev/test while
+# leaving our own code unoptimized and debuggable.
+[[bench]]
+name = "argon_blake"
+harness = false
+
+[[bench]]
+name = "hybrid_signing"
+harness = false
+
+[[bench]]
+name = "mlkem_handshake"
+harness = false
+
+# No criterion here. This one installs a counting `#[global_allocator]` to
+# measure bytes rather than time, and criterion's own allocations would be
+# counted alongside the work being measured.
+[[bench]]
+name = "hybrid_footprint"
+harness = false
+
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake3]
+opt-level = 3
+
+# Same reasoning for signatures, and more urgently than before. ML-DSA-65 is
+# an NTT and a rejection-sampling loop over 256-coefficient polynomials; the
+# L2 settlement tests perform tens of thousands of sign/verify operations, and
+# unoptimized lattice arithmetic turns a seconds-long test into one that reads
+# as a hang. This override is what keeps `cargo test` usable at all.
+[profile.dev.package.fips204]
+opt-level = 3
+
+# And for the hash-based half, but not the same way. `slh-dsa` is generic over
+# its parameter set, so an override on that package optimizes a crate holding
+# none of the work: measured on a dev build, signing cost 4468 ms with
+# `[profile.dev.package.slh-dsa]` set and 140 ms once the *instantiating* crate
+# was optimized instead. `maya-crypto-pq` exists to be that crate, and this is
+# the override that matters. `sha2` is where SLH-DSA spends nearly all of its
+# time once the wrapper itself is optimized.
+[profile.dev.package.maya-crypto-pq]
+opt-level = 3
+
+[profile.dev.package.slh-dsa]
+opt-level = 3
+
+[profile.dev.package.sha2]
+opt-level = 3
+
+# And again for the SNARK stack. A joinsplit proof is ~17k constraints of
+# field arithmetic; unoptimized it takes tens of seconds instead of a fraction
+# of one, which makes the shielded tests look hung rather than slow.
+[profile.dev.package.ark-ff]
+opt-level = 3
+
+[profile.dev.package.ark-ec]
+opt-level = 3
+
+[profile.dev.package.ark-poly]
+opt-level = 3
+
+[profile.dev.package.ark-bls12-381]
+opt-level = 3
+
+[profile.dev.package.ark-groth16]
+opt-level = 3
+
+[profile.dev.package.ark-crypto-primitives]
+opt-level = 3
+
+[profile.dev.package.ark-r1cs-std]
+opt-level = 3
+
+[profile.dev.package.ark-relations]
+opt-level = 3
+
+[profile.dev.package.ark-serialize]
+opt-level = 3
+
+[profile.dev.package.ark-std]
+opt-level = 3

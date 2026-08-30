@@ -1,0 +1,29 @@
+# Strips the AWS load balancer annotations from the per-seed p2p Services.
+#
+# The base carries them because the AWS regions are the majority case, but on
+# GKE they are dead weight at best: `service.beta.kubernetes.io/aws-*` keys are
+# ignored by Google's controller, and leaving them in place tells the next
+# reader that this cluster runs something it does not.
+#
+# GKE needs no replacement annotation. A `type: LoadBalancer` Service with
+# `externalTrafficPolicy: Local` already provisions a regional external
+# passthrough load balancer that preserves the client address, which is exactly
+# what the NLB configuration on the AWS side is spelling out by hand.
+#
+# A Component rather than three copies of the same patch: the ops are identical
+# in all three GCP regions, and three copies is three chances for one to drift.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  - target:
+      kind: Service
+      # Every per-seed p2p Service, whatever the ordinal.
+      name: maya-seed-p2p-.*
+    patch: |-
+      - op: remove
+        path: /metadata/annotations/service.beta.kubernetes.io~1aws-load-balancer-type
+      - op: remove
+        path: /metadata/annotations/service.beta.kubernetes.io~1aws-load-balancer-nlb-target-type
+      - op: remove
+        path: /metadata/annotations/service.beta.kubernetes.io~1aws-load-balancer-scheme

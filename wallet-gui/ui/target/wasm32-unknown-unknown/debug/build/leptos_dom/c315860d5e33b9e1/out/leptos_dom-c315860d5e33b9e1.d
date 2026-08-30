@@ -1,0 +1,10 @@
+D:\Maya2C\wallet-gui\ui\target\wasm32-unknown-unknown\debug\build\leptos_dom/c315860d5e33b9e1\out\leptos_dom-c315860d5e33b9e1.d: C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_dom-0.8.8\src\lib.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_dom-0.8.8\src\helpers.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_dom-0.8.8\src\macro_helpers\mod.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_dom-0.8.8\src\logging.rs
+
+D:\Maya2C\wallet-gui\ui\target\wasm32-unknown-unknown\debug\build\leptos_dom/c315860d5e33b9e1\out\libleptos_dom-c315860d5e33b9e1.rlib: C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_dom-0.8.8\src\lib.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_dom-0.8.8\src\helpers.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_dom-0.8.8\src\macro_helpers\mod.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_dom-0.8.8\src\logging.rs
+
+D:\Maya2C\wallet-gui\ui\target\wasm32-unknown-unknown\debug\build\leptos_dom/c315860d5e33b9e1\out\libleptos_dom-c315860d5e33b9e1.rmeta: C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_dom-0.8.8\src\lib.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_dom-0.8.8\src\helpers.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_dom-0.8.8\src\macro_helpers\mod.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_dom-0.8.8\src\logging.rs
+
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_dom-0.8.8\src\lib.rs:
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_dom-0.8.8\src\helpers.rs:
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_dom-0.8.8\src\macro_helpers\mod.rs:
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_dom-0.8.8\src\logging.rs:

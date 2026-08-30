@@ -1,0 +1,96 @@
+# Prometheus Operator scrape configuration and alerts.
+#
+# Requires the Prometheus Operator CRDs. `kubectl apply --dry-run=client` cannot
+# validate these against a schema it does not have, so they are checked as YAML
+# only until a cluster with the CRDs installed is available.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: maya-node
+  labels:
+    app.kubernetes.io/name: maya-node
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: maya-node
+      app.kubernetes.io/component: metrics
+  endpoints:
+    - port: metrics
+      path: /metrics
+      # Comfortably longer than the node's 5s gauge resampling, so no scrape
+      # reads a sample it has already seen.
+      interval: 15s
+      scrapeTimeout: 10s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: maya-node
+  labels:
+    app.kubernetes.io/name: maya-node
+spec:
+  groups:
+    - name: maya-node
+      rules:
+        # Isolation is the failure that looks like health: the process is up,
+        # RPC answers, and the chain quietly stops advancing.
+        - alert: MayaNodeIsolated
+          expr: maya_peers_connected < 2
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Node has fewer than two peers"
+            description: >-
+              The node cannot learn about new blocks. It will keep answering RPC
+              with an increasingly stale tip.
+
+        # Watches height, not the import counter. `blocks_imported` counts only
+        # blocks received from peers, so a healthy solo miner reports zero
+        # imports forever and an import-based rule would page on it.
+        - alert: MayaChainStalled
+          expr: increase(maya_chain_height[30m]) == 0
+          for: 30m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Chain height has not advanced in 30 minutes"
+
+        # Alerting on import rather than observed age: import is measured
+        # against one clock, so it cannot fire because an operator's NTP drifted.
+        - alert: MayaSlowBlockImport
+          expr: |
+            histogram_quantile(
+              0.95,
+              rate(maya_block_import_duration_seconds_bucket[10m])
+            ) > 1
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "p95 block import above one second"
+            description: >-
+              Validation or the RocksDB commit is falling behind. If this keeps
+              rising the node will start losing gossip.
+
+        - alert: MayaMempoolBacklog
+          expr: maya_mempool_transactions > 5000
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Mempool depth sustained above 5000"
+
+        # Fires only on a soundness break in the shielded circuit: the pool
+        # balance is the sum of public flows and must never fall below zero.
+        - alert: MayaShieldedSupplyAnomaly
+          expr: delta(maya_shielded_balance[1h]) < -1e12
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Large unexplained drop in shielded pool balance"
+            description: >-
+              Investigate immediately. The pool balance is derived from public
+              flows, so a large negative delta suggests either a reorg of
+              unusual depth or a proof-system failure.

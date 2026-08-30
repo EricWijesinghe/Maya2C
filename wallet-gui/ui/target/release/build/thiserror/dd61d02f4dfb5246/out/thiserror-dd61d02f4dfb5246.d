@@ -1,0 +1,15 @@
+D:\Maya2C\wallet-gui\ui\target\release\build\thiserror/dd61d02f4dfb5246\out\thiserror-dd61d02f4dfb5246.d: C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.20\src\lib.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.20\src\aserror.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.20\src\display.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.20\src\provide.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.20\src\var.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.20\src\private.rs D:\Maya2C\wallet-gui\ui\target\release\build\thiserror/4b57ef8b148a71f1\out/private.rs
+
+D:\Maya2C\wallet-gui\ui\target\release\build\thiserror/dd61d02f4dfb5246\out\libthiserror-dd61d02f4dfb5246.rlib: C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.20\src\lib.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.20\src\aserror.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.20\src\display.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.20\src\provide.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.20\src\var.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.20\src\private.rs D:\Maya2C\wallet-gui\ui\target\release\build\thiserror/4b57ef8b148a71f1\out/private.rs
+
+D:\Maya2C\wallet-gui\ui\target\release\build\thiserror/dd61d02f4dfb5246\out\libthiserror-dd61d02f4dfb5246.rmeta: C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.20\src\lib.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.20\src\aserror.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.20\src\display.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.20\src\provide.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.20\src\var.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.20\src\private.rs D:\Maya2C\wallet-gui\ui\target\release\build\thiserror/4b57ef8b148a71f1\out/private.rs
+
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.20\src\lib.rs:
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.20\src\aserror.rs:
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.20\src\display.rs:
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.20\src\provide.rs:
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.20\src\var.rs:
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\thiserror-2.0.20\src\private.rs:
+D:\Maya2C\wallet-gui\ui\target\release\build\thiserror/4b57ef8b148a71f1\out/private.rs:
+
+# env-dep:OUT_DIR=D:\\Maya2C\\wallet-gui\\ui\\target\\release\\build\\thiserror/4b57ef8b148a71f1\\out

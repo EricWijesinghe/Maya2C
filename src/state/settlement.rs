@@ -1,0 +1,422 @@
+//! On-chain settlement of Maya Flash channels.
+//!
+//! Implements the six channel operations against the block-execution overlay,
+//! so channel writes are as atomic as account writes: a block that fails at any
+//! transaction leaves neither balances nor channel records touched.
+//!
+//! ## The rule every operation shares
+//!
+//! A channel may never pay out more or less than it escrowed. Every closure is
+//! checked against the recorded capacity before a single unit moves. Without
+//! that check a channel would be a mint: two parties could sign any balances
+//! they liked and the chain would honour them.
+//!
+//! ## Why a unilateral close does not pay out
+//!
+//! [`TxKind::DisputeClose`] only *records* the claimed state and starts a
+//! timer. Paying out immediately would make fraud free — publish a stale state
+//! showing yourself richer and walk away before anyone can object. The window
+//! exists so the counterparty can present the revocation secret and take
+//! everything instead.
+
+use crate::core::payload::{
+    ChannelClosure, ChannelId, ChannelOpen, RevocationProof, derive_channel_id,
+    revocation_commitment,
+};
+use crate::core::{Transaction, TxKind};
+use crate::crypto::hybrid::{HybridVerifyingKey, address_of};
+use crate::error::{NodeError, Result};
+use crate::state::account::{Account, Address};
+use crate::state::channel::{ChannelRecord, ChannelStatus};
+use crate::state::context::BlockContext;
+use crate::state::db::{Overlay, StateDB, channel_key};
+
+impl StateDB {
+    /// Reads a channel record from committed state.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Storage`] on a read failure.
+    pub fn get_channel(&self, channel_id: &ChannelId) -> Result<Option<ChannelRecord>> {
+        match self.raw_get(&channel_key(channel_id))? {
+            Some(bytes) => Ok(Some(ChannelRecord::decode(&bytes)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Reads a channel through the overlay, falling back to committed state.
+    fn load_channel(
+        &self,
+        overlay: &Overlay,
+        channel_id: &ChannelId,
+    ) -> Result<Option<ChannelRecord>> {
+        match overlay.channels.get(channel_id) {
+            Some(record) => Ok(Some(record.clone())),
+            None => self.get_channel(channel_id),
+        }
+    }
+
+    /// Requires an existing channel.
+    fn require_channel(&self, overlay: &Overlay, channel_id: &ChannelId) -> Result<ChannelRecord> {
+        self.load_channel(overlay, channel_id)?
+            .ok_or_else(|| NodeError::UnknownChannel(hex::encode(channel_id)))
+    }
+
+    /// Credits an account through the overlay.
+    fn credit(&self, overlay: &mut Overlay, address: &Address, amount: u64) -> Result<()> {
+        let mut account = match overlay.accounts.get(address) {
+            Some(existing) => *existing,
+            None => self.get_account(address)?,
+        };
+        account.balance = account
+            .balance
+            .checked_add(amount)
+            .ok_or(NodeError::BalanceOverflow)?;
+        overlay.accounts.insert(*address, account);
+        Ok(())
+    }
+
+    /// Dispatches a transaction's typed payload.
+    pub(crate) fn apply_kind(
+        &self,
+        overlay: &mut Overlay,
+        tx: &Transaction,
+        context: BlockContext,
+    ) -> Result<()> {
+        // Value flow must come from exactly one mechanism. A channel operation
+        // that also carried transfer outputs would have two, and reasoning
+        // about conservation would stop being local.
+        if tx.kind.has_payload() && !tx.outputs.is_empty() {
+            return Err(NodeError::MixedTransactionKind(tx.kind.label()));
+        }
+
+        // Derived once. Every arm below that needs the sender wants its
+        // *address*, and under ML-DSA the address is a hash of the key rather
+        // than the key itself, so this is a computation and not a field read.
+        let sender = tx.sender();
+
+        match &tx.kind {
+            TxKind::Transfer => Ok(()),
+            TxKind::OpenChannel(open) => self.open_channel(overlay, tx, open),
+            TxKind::CooperativeClose(closure) => self.cooperative_close(overlay, closure),
+            TxKind::DisputeClose(closure) => self.dispute_close(overlay, &sender, closure, context),
+            TxKind::PenaltyClaim(proof) => self.penalty_claim(overlay, &sender, proof),
+            TxKind::SettleBatch(closures) => {
+                // Sequential, sharing the overlay: two closures naming the same
+                // channel cannot both succeed, because the first marks it
+                // closed and the second sees that.
+                for closure in closures {
+                    self.cooperative_close(overlay, closure)?;
+                }
+                Ok(())
+            }
+            TxKind::FinalizeDispute(channel_id) => {
+                self.finalize_dispute(overlay, channel_id, context)
+            }
+            TxKind::DeployContract(deploy) => self
+                .deploy_contract(overlay, &sender, tx.nonce, deploy)
+                .map(|_| ()),
+            TxKind::CallContract(call) => self
+                .call_contract(overlay, &sender, call, context)
+                .map(|_| ()),
+            TxKind::Shielded(joinsplit) => self.apply_joinsplit(overlay, &sender, joinsplit),
+        }
+    }
+
+    /// Escrows the opener's funding into a new channel.
+    fn open_channel(
+        &self,
+        overlay: &mut Overlay,
+        tx: &Transaction,
+        open: &ChannelOpen,
+    ) -> Result<()> {
+        let opener = tx.sender();
+        let channel_id = derive_channel_id(&opener, &open.counterparty, open.funding, tx.nonce);
+
+        if self.load_channel(overlay, &channel_id)?.is_some() {
+            return Err(NodeError::ChannelExists(hex::encode(channel_id)));
+        }
+
+        // The nonce has already been advanced by the caller, so re-derive the
+        // opener's staged account rather than re-reading committed state.
+        let mut account = match overlay.accounts.get(&opener) {
+            Some(existing) => *existing,
+            None => self.get_account(&opener)?,
+        };
+
+        if account.balance < open.funding {
+            return Err(NodeError::InsufficientBalance {
+                address: hex::encode(opener),
+                required: open.funding,
+                available: account.balance,
+            });
+        }
+
+        // Funds leave the opener's account and live in the channel record until
+        // it closes. They are escrowed, not spent.
+        account.balance -= open.funding;
+        overlay.accounts.insert(opener, account);
+
+        overlay.channels.insert(
+            channel_id,
+            ChannelRecord::new(opener, open.counterparty, open.funding, open.dispute_window),
+        );
+
+        Ok(())
+    }
+
+    /// Verifies a closure against a channel's registered participants.
+    ///
+    /// This is the check that makes third-party batch submission safe: the
+    /// submitter's own signature is irrelevant to whether value may move.
+    /// ## Binding a supplied key to a recorded participant
+    ///
+    /// Under ed25519 the recorded address *was* the verifying key, so this
+    /// function could simply decode it. An ML-DSA address is a hash, so the key
+    /// has to come from the closure — and a key the submitter chose is worth
+    /// nothing until it is pinned to the participant the channel actually
+    /// records.
+    ///
+    /// That pinning is the `address_of(pubkey) != address` check below, and it
+    /// runs *before* the signatures. Reversing the order would still be correct
+    /// but would let anyone spend two full verifications, the expensive part, by
+    /// submitting an unrelated key; hashing first rejects that for the price of
+    /// one BLAKE3. The argument only got stronger with hybrid signing — the
+    /// work being skipped is now a lattice verification *and* a hash-based one.
+    ///
+    /// Note also what `address_of` covers: both keys. A closure that named the
+    /// victim's ML-DSA key beside an attacker's SLH-DSA key hashes to neither
+    /// party's address and dies at this check.
+    fn verify_closure(closure: &ChannelClosure, record: &ChannelRecord) -> Result<()> {
+        let message = closure.signing_bytes();
+        let channel = hex::encode(closure.channel_id);
+
+        for (address, public_key, signature, party) in [
+            (&record.party_a, &closure.pubkey_a, &closure.sig_a, "a"),
+            (&record.party_b, &closure.pubkey_b, &closure.sig_b, "b"),
+        ] {
+            let mismatch = || NodeError::ClosureSignature {
+                channel: channel.clone(),
+                party,
+            };
+
+            if &address_of(public_key) != address {
+                return Err(mismatch());
+            }
+
+            let key = HybridVerifyingKey::from_public_key(public_key).map_err(|_| mismatch())?;
+            // Both halves, or the closure does not settle.
+            key.verify(&message, signature).map_err(|_| mismatch())?;
+        }
+
+        Ok(())
+    }
+
+    /// Checks that a closure distributes exactly the escrowed capacity.
+    fn check_conservation(closure: &ChannelClosure, record: &ChannelRecord) -> Result<()> {
+        let total = closure.total()?;
+        if total != record.capacity {
+            return Err(NodeError::ChannelCapacityMismatch {
+                channel: hex::encode(closure.channel_id),
+                expected: record.capacity,
+                actual: total,
+            });
+        }
+        Ok(())
+    }
+
+    /// Closes a channel on a state both parties signed, paying out immediately.
+    ///
+    /// No dispute window: a mutually signed final state has no defrauded party
+    /// to protect.
+    fn cooperative_close(&self, overlay: &mut Overlay, closure: &ChannelClosure) -> Result<()> {
+        let mut record = self.require_channel(overlay, &closure.channel_id)?;
+
+        if record.status == ChannelStatus::Closed {
+            return Err(NodeError::ChannelState {
+                channel: hex::encode(closure.channel_id),
+                actual: "closed",
+                expected: "open or disputed",
+            });
+        }
+
+        // A cooperative close may pre-empt a running dispute, but only with a
+        // state that actually supersedes the disputed one.
+        if record.status == ChannelStatus::Disputed && closure.seq <= record.dispute_seq {
+            return Err(NodeError::StaleChannelState {
+                channel: hex::encode(closure.channel_id),
+                current: record.dispute_seq,
+                proposed: closure.seq,
+            });
+        }
+
+        Self::verify_closure(closure, &record)?;
+        Self::check_conservation(closure, &record)?;
+
+        self.credit(overlay, &record.party_a, closure.balance_a)?;
+        self.credit(overlay, &record.party_b, closure.balance_b)?;
+
+        record.status = ChannelStatus::Closed;
+        overlay.channels.insert(closure.channel_id, record);
+        Ok(())
+    }
+
+    /// Records a unilaterally submitted state and starts the dispute window.
+    fn dispute_close(
+        &self,
+        overlay: &mut Overlay,
+        submitter: &Address,
+        closure: &ChannelClosure,
+        context: BlockContext,
+    ) -> Result<()> {
+        let mut record = self.require_channel(overlay, &closure.channel_id)?;
+        let channel = hex::encode(closure.channel_id);
+
+        if record.status == ChannelStatus::Closed {
+            return Err(NodeError::ChannelState {
+                channel,
+                actual: "closed",
+                expected: "open or disputed",
+            });
+        }
+
+        if !record.is_participant(submitter) {
+            return Err(NodeError::NotAParticipant {
+                channel,
+                address: hex::encode(submitter),
+            });
+        }
+
+        // A second dispute is allowed only with a newer state — that is how an
+        // honest party overrides a stale submission without needing a penalty.
+        if record.status == ChannelStatus::Disputed && closure.seq <= record.dispute_seq {
+            return Err(NodeError::StaleChannelState {
+                channel,
+                current: record.dispute_seq,
+                proposed: closure.seq,
+            });
+        }
+
+        Self::verify_closure(closure, &record)?;
+        Self::check_conservation(closure, &record)?;
+
+        record.status = ChannelStatus::Disputed;
+        record.dispute_seq = closure.seq;
+        record.dispute_balance_a = closure.balance_a;
+        record.dispute_balance_b = closure.balance_b;
+        record.dispute_closer = *submitter;
+        record.dispute_commitment = closure.revocation_commitment;
+        record.dispute_deadline = context
+            .height
+            .checked_add(record.dispute_window)
+            .ok_or(NodeError::BalanceOverflow)?;
+
+        overlay.channels.insert(closure.channel_id, record);
+        Ok(())
+    }
+
+    /// Punishes a party that submitted a revoked state.
+    ///
+    /// The claimant takes the entire channel capacity. A partial penalty would
+    /// leave fraud with positive expected value whenever the attempt is cheap.
+    fn penalty_claim(
+        &self,
+        overlay: &mut Overlay,
+        claimant: &Address,
+        proof: &RevocationProof,
+    ) -> Result<()> {
+        let mut record = self.require_channel(overlay, &proof.channel_id)?;
+        let channel = hex::encode(proof.channel_id);
+
+        if record.status != ChannelStatus::Disputed {
+            return Err(NodeError::ChannelState {
+                channel,
+                actual: match record.status {
+                    ChannelStatus::Open => "open",
+                    ChannelStatus::Closed => "closed",
+                    ChannelStatus::Disputed => "disputed",
+                },
+                expected: "disputed",
+            });
+        }
+
+        if !record.is_participant(claimant) {
+            return Err(NodeError::NotAParticipant {
+                channel,
+                address: hex::encode(claimant),
+            });
+        }
+
+        // The closer cannot punish itself; otherwise submitting a revoked state
+        // and immediately "catching" it would drain the counterparty.
+        if &record.dispute_closer == claimant {
+            return Err(NodeError::PenaltyByCloser { channel });
+        }
+
+        if proof.revoked_seq != record.dispute_seq
+            || revocation_commitment(&proof.secret) != record.dispute_commitment
+        {
+            return Err(NodeError::InvalidRevocationProof { channel });
+        }
+
+        // Everything to the victim.
+        self.credit(overlay, claimant, record.capacity)?;
+        record.status = ChannelStatus::Closed;
+        overlay.channels.insert(proof.channel_id, record);
+        Ok(())
+    }
+
+    /// Pays out a dispute whose window elapsed without a penalty claim.
+    fn finalize_dispute(
+        &self,
+        overlay: &mut Overlay,
+        channel_id: &ChannelId,
+        context: BlockContext,
+    ) -> Result<()> {
+        let mut record = self.require_channel(overlay, channel_id)?;
+        let channel = hex::encode(channel_id);
+
+        if record.status != ChannelStatus::Disputed {
+            return Err(NodeError::ChannelState {
+                channel,
+                actual: match record.status {
+                    ChannelStatus::Open => "open",
+                    ChannelStatus::Closed => "closed",
+                    ChannelStatus::Disputed => "disputed",
+                },
+                expected: "disputed",
+            });
+        }
+
+        // Finalizing early would close the very window the penalty depends on.
+        if context.height < record.dispute_deadline {
+            return Err(NodeError::DisputeWindowOpen {
+                channel,
+                deadline: record.dispute_deadline,
+                height: context.height,
+            });
+        }
+
+        self.credit(overlay, &record.party_a, record.dispute_balance_a)?;
+        self.credit(overlay, &record.party_b, record.dispute_balance_b)?;
+
+        record.status = ChannelStatus::Closed;
+        overlay.channels.insert(*channel_id, record);
+        Ok(())
+    }
+
+    /// Writes a channel record directly. For genesis fixtures and tests.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Storage`] on a write failure.
+    pub fn put_channel(&self, channel_id: &ChannelId, record: &ChannelRecord) -> Result<()> {
+        self.raw_put(&channel_key(channel_id), &record.encode())
+    }
+}
+
+/// Convenience for tests and callers assembling settlement transactions.
+#[must_use]
+pub fn account_for(balance: u64, nonce: u64) -> Account {
+    Account { balance, nonce }
+}

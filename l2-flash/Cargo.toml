@@ -1,0 +1,20 @@
+﻿[package]
+name = "l2-flash"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Maya Flash — state-channel network for micro-payments over the Maya2C L1"
+
+[lib]
+name = "l2_flash"
+path = "src/lib.rs"
+
+[dependencies]
+custom-l1-node = { path = ".." }
+blake3 = "1.8"
+hex = "0.4"
+thiserror = "2.0"
+
+[dev-dependencies]
+getrandom = "0.4"
+tempfile = "3"

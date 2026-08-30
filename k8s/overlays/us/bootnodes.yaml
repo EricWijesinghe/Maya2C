@@ -1,0 +1,56 @@
+# Cross-region bootnodes for the US region.
+#
+# Each region dials the other two rather than a single global seed: one shared
+# bootstrap point makes every region's ability to join depend on one region
+# staying up.
+#
+# ## Addresses are external, not cluster-local
+#
+# These used to be `*.svc.cluster.local` names. That is a cluster-scoped domain
+# and the three regions are three separate clusters in three separate VPCs, so
+# every cross-region dial failed to resolve and each region quietly formed its
+# own chain. The names below are the public endpoints published by the per-seed
+# LoadBalancer Services in k8s/base/seed-p2p-service.yaml.
+#
+# ## The /p2p/ component is not optional
+#
+# Without it a dial authenticates nothing: the node connects to whatever answers
+# on that address and accepts the identity it is handed. With it, the noise
+# handshake must produce this exact PeerId or the connection is dropped — which
+# is what makes a hijacked DNS record a failed dial rather than a hostile peer.
+#
+# PLACEHOLDER IDENTITIES. The PeerIds below belong to throwaway keys and the
+# hosts are RFC 2606 `.invalid` names, so nothing here can resolve or connect as
+# written. Before a real deployment, generate the seed keys, read their PeerIds
+# with `peerid`, and substitute both halves. See docs/mainnet-readiness.md.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: maya-seed
+spec:
+  template:
+    spec:
+      nodeSelector:
+        topology.kubernetes.io/region: us-east-1
+      containers:
+        - name: node
+          # Space-separated. The node's parser matches flags by exact string, so
+          # `--genesis=/config/genesis.json` is an unknown argument and the
+          # process exits before binding anything.
+          args:
+            - --genesis
+            - /config/genesis.json
+            - --data-dir
+            - /data
+            - --rpc-addr
+            - 0.0.0.0:8545
+            - --metrics-addr
+            - 0.0.0.0:9600
+            - --market-addr
+            - 0.0.0.0:8546
+            - --p2p-port
+            - "30333"
+            - --bootnode
+            - /dns4/seed-0-eu.p2p.example.invalid/tcp/30333/p2p/12D3KooWQmmmNvE2WEMBpCtqsHC1PeMRvu1nimsRDjo9V9RG9rbp
+            - --bootnode
+            - /dns4/seed-0-asia.p2p.example.invalid/tcp/30333/p2p/12D3KooWNSEWcRFyRx7mwM4HnaUFNJaNzD6PzAih4o7Kqarsg6Si

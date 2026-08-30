@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Minimal capability set. The wallet needs no filesystem, shell, or network permission from the webview: every privileged action goes through a Rust command, so widening this file is the thing to think hardest about.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

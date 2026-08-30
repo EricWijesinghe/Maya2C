@@ -1,0 +1,38 @@
+[package]
+name = "maya-wallet-gui"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Maya2C zero-trust wallet"
+
+# Standalone, not a host workspace member: `tauri::generate_context!` validates
+# `../ui/dist` at compile time, so including it would make `cargo test
+# --workspace` fail whenever the frontend had not been built yet.
+[workspace]
+
+# Tauri's mobile targets build the app as a library and call into it from a
+# platform entry point, so the logic lives in lib.rs and main.rs is a thin
+# desktop shim.
+[lib]
+name = "maya_wallet_gui_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "maya-wallet-gui"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+maya-wallet-core = { path = "../core" }
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+hex = "0.4"
+zeroize = "1"
+
+[features]
+# Enabled by `tauri dev` to allow devtools.
+custom-protocol = ["tauri/custom-protocol"]

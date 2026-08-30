@@ -1,0 +1,118 @@
+# Per-seed public p2p endpoints.
+#
+# ## Why one Service per pod
+#
+# The headless `maya-seed` Service gives seeds stable in-cluster DNS, and the
+# overlays used to point cross-region bootnode addresses at it:
+#
+#   /dns4/maya-seed-0.maya-seed.maya-eu.svc.cluster.local/tcp/30333
+#
+# That address cannot resolve. `cluster.local` is scoped to one cluster, and the
+# terraform in this repo builds three separate clusters in three non-peered VPCs.
+# Every cross-region dial failed name resolution, so each region gossiped only
+# with itself: three chains that agree on genesis, diverge immediately, and each
+# report a healthy peer count. The topology looked fine from inside any one
+# region, which is why it needed a service object rather than a doc fix.
+#
+# A load balancer per seed is the smallest thing that fixes it. Peers must dial a
+# *specific* node — a `PeerId` is pinned to one identity — so a single Service
+# round-robining across three pods cannot work: the noise handshake would fail
+# whenever the balancer picked a pod other than the one named in the multiaddr.
+# Hence `statefulset.kubernetes.io/pod-name` selectors, which Kubernetes sets on
+# every StatefulSet pod.
+#
+# ## Cost
+#
+# Three network load balancers per region, nine across the fleet, plus
+# inter-region data transfer on every gossiped block. That is the standing price
+# of a multi-region mesh over the public internet; the alternative is VPC peering
+# plus cross-cluster DNS, which is cheaper to run and considerably harder to
+# operate across two cloud providers.
+apiVersion: v1
+kind: Service
+metadata:
+  name: maya-seed-p2p-0
+  labels:
+    app.kubernetes.io/name: maya-node
+    app.kubernetes.io/component: p2p
+  annotations:
+    # Provisioned by the AWS Load Balancer Controller (see the prerequisites in
+    # docs/mainnet-readiness.md). GKE overlays strip these and rely on the
+    # default L4 balancer.
+    service.beta.kubernetes.io/aws-load-balancer-type: external
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+    # external-dns publishes the name the overlays' multiaddrs are written
+    # against. Overlays patch the hostname per region.
+    external-dns.alpha.kubernetes.io/hostname: seed-0.p2p.example.invalid
+spec:
+  type: LoadBalancer
+  # Preserves the peer's source address. Without it every inbound connection
+  # appears to originate from a node in the cluster, which makes both the peer
+  # table and any future rate limit meaningless.
+  externalTrafficPolicy: Local
+  # A seed that is still syncing must remain dialable, for the same reason the
+  # headless Service publishes not-ready addresses: a fleet restarted together
+  # would otherwise have no reachable bootstrap point.
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: maya-node
+    app.kubernetes.io/component: seed
+    statefulset.kubernetes.io/pod-name: maya-seed-0
+  ports:
+    - name: p2p
+      port: 30333
+      targetPort: p2p
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: maya-seed-p2p-1
+  labels:
+    app.kubernetes.io/name: maya-node
+    app.kubernetes.io/component: p2p
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: external
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+    external-dns.alpha.kubernetes.io/hostname: seed-1.p2p.example.invalid
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: maya-node
+    app.kubernetes.io/component: seed
+    statefulset.kubernetes.io/pod-name: maya-seed-1
+  ports:
+    - name: p2p
+      port: 30333
+      targetPort: p2p
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: maya-seed-p2p-2
+  labels:
+    app.kubernetes.io/name: maya-node
+    app.kubernetes.io/component: p2p
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: external
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+    external-dns.alpha.kubernetes.io/hostname: seed-2.p2p.example.invalid
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: maya-node
+    app.kubernetes.io/component: seed
+    statefulset.kubernetes.io/pod-name: maya-seed-2
+  ports:
+    - name: p2p
+      port: 30333
+      targetPort: p2p
+      protocol: TCP

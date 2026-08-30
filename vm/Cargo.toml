@@ -1,0 +1,35 @@
+[package]
+name = "maya-vm"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Sandboxed, deterministic WebAssembly execution for the Maya2C chain"
+
+[lib]
+name = "maya_vm"
+path = "src/lib.rs"
+
+[dependencies]
+# Deliberately NOT depending on custom-l1-node. The node depends on this crate
+# to execute contracts, so the reverse would be a cycle. Chain state reaches the
+# VM through the `HostState` trait instead.
+thiserror = "2.0"
+hex = "0.4"
+
+# Pinned exactly, not caret. wasmtime does not guarantee stable fuel accounting
+# across releases, so the version is consensus-critical: two validators on
+# different wasmtime versions can compute different gas for the same call and
+# disagree about whether it succeeded. Bumping this is a hard fork.
+#
+# default-features = false drops gc, component-model, threads, and
+# stack-switching, each of which is a determinism or attack-surface liability
+# in a consensus VM.
+wasmtime = { version = "=48.0.1", default-features = false, features = [
+    "cranelift",
+    "runtime",
+    "std",
+] }
+
+[dev-dependencies]
+wat = "1"
+tempfile = "3"

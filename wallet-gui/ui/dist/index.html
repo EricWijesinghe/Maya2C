@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Maya Wallet</title>
+    
+<script type="module">
+import init, * as bindings from '/maya-wallet-ui-91543df46fae3e9a.js';
+const wasm = await init({ module_or_path: '/maya-wallet-ui-91543df46fae3e9a_bg.wasm' });
+
+
+window.wasmBindings = bindings;
+
+
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+
+</script>
+    <link rel="stylesheet" href="/styles-d92cea5bb324e7dd.css" integrity="sha384-kgjZ3ZBnvLJjVyUtIjY9pDNVUxCx8y9VP6fHMEz8pcfEyo8UmmjW5O7cva2D2suv"/>
+  <link rel="modulepreload" href="/maya-wallet-ui-91543df46fae3e9a.js" crossorigin="anonymous" integrity="sha384-vC5coFV201bSiR8BWOD+jhR97oRrIPN0nRQFZAJrVkwgSIv8mTF7W6xbEBvploFH"><link rel="preload" href="/maya-wallet-ui-91543df46fae3e9a_bg.wasm" crossorigin="anonymous" integrity="sha384-250wNOQPIRoD/yDnHQnp611QJkFnU3My1qSKGqeDXvwtHlD9QboBgHjnUbJM8AMC" as="fetch" type="application/wasm"></head>
+  <body></body>
+</html>

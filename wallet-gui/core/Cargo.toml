@@ -1,0 +1,52 @@
+﻿[package]
+name = "maya-wallet-core"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Zero-trust wallet core: BIP-39, SLIP-0010, OS keychain, offline signing"
+
+[lib]
+name = "maya_wallet_core"
+path = "src/lib.rs"
+
+[dependencies]
+custom-l1-node = { path = "../.." }
+
+# BIP-39 mnemonics. Wordlist only — seed derivation is PBKDF2 per the spec.
+bip39 = { version = "2.2", default-features = false, features = ["std"] }
+
+# The keychain backend is selected by target at compile time:
+#   windows -> Credential Manager, macos/ios -> Apple Keychain,
+#   android -> Android Keystore, linux -> secret-service / keyutils.
+# Default features already pull in the Windows, Apple, and secret-service
+# stores. The Android Keystore backend is a target-gated dependency, so it is
+# selected automatically when building for Android — there is no feature to
+# enable, and enabling one here would fail to resolve.
+keyring = "4"
+
+argon2 = "0.5"
+chacha20poly1305 = "0.11"
+hmac = "0.12"
+sha2 = "0.10"
+pbkdf2 = { version = "0.12", default-features = false }
+zeroize = { version = "1", features = ["zeroize_derive"] }
+getrandom = "0.4"
+hex = "0.4"
+thiserror = "2.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# QR payloads are decoded and parsed in Rust, never in the frontend: a payment
+# URI is untrusted input and parsing it in JS would put an attacker's string
+# inside the trust boundary.
+rqrr = "0.10"
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+jsonrpsee = { version = "0.26", features = ["http-client"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[dev-dependencies]
+tempfile = "3"
+# Encodes real QR images for the decode tests. A parser exercised only on
+# hand-written strings has never seen the input a camera actually produces.
+qrcode = "0.14"

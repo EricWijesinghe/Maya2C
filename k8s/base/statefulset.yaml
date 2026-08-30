@@ -1,0 +1,235 @@
+# Seed nodes.
+#
+# ## Why a StatefulSet and not a Deployment
+#
+# Two pieces of state must survive a restart, and both are identity-bearing.
+#
+# RocksDB holds the chain; losing it means resyncing from genesis. And
+# `<data-dir>/node_key` holds the libp2p keypair, which determines the PeerId
+# that every bootnode address in the fleet points at. A Deployment would give
+# each replacement pod a fresh volume and therefore a fresh PeerId, so every
+# peer's bootnode list would break on the first restart — the failure would look
+# like a network partition rather than a storage decision.
+#
+# StatefulSets also give stable DNS (`maya-seed-0.maya-seed`), which is what the
+# bootnode multiaddrs below resolve against.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: maya-seed
+  labels:
+    app.kubernetes.io/name: maya-node
+    app.kubernetes.io/component: seed
+    app.kubernetes.io/part-of: maya2c
+spec:
+  serviceName: maya-seed
+  replicas: 3
+  # Seeds bootstrap from each other, so bringing them up together converges
+  # faster than the default one-at-a-time ordering.
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: maya-node
+      app.kubernetes.io/component: seed
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: maya-node
+        app.kubernetes.io/component: seed
+        app.kubernetes.io/part-of: maya2c
+    spec:
+      # A seed set confined to one node or one AZ is a seed set with a single
+      # failure domain. Required rather than preferred: silently colocating
+      # every seed would defeat the point of running three.
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: maya-node
+                  app.kubernetes.io/component: seed
+              topologyKey: topology.kubernetes.io/zone
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 60
+      # Seed identities are pre-generated, not discovered.
+      #
+      # A seed's PeerId comes from <data-dir>/node_key, and cross-region
+      # bootnode multiaddrs name that PeerId — they are written into the
+      # overlays before the pod that owns the key has ever run. Letting each pod
+      # mint its own identity on first boot would mean the multiaddrs could only
+      # be filled in after the fact, and would go stale the moment a PVC was
+      # ever replaced.
+      #
+      # So an operator generates the keys up front (`peerid --data-dir ...
+      # --create`), ships them as a Secret, and this container installs the one
+      # matching the pod's ordinal.
+      #
+      # The Secret is optional. Without it the node falls back to generating its
+      # own key, which is the right behaviour for a local or throwaway network
+      # where nothing has pinned the PeerIds yet.
+      initContainers:
+        - name: install-identity
+          image: ghcr.io/maya2c/node:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            # Never overwrite. Once a seed has run, the PVC holds the identity
+            # the rest of the fleet dials, and clobbering it from a stale Secret
+            # would silently orphan that seed.
+            - |
+              set -eu
+              if [ -f /data/node_key ]; then
+                echo "identity: keeping the key already on the volume"
+                exit 0
+              fi
+              if [ -f "/identity/${POD_NAME}" ]; then
+                cp "/identity/${POD_NAME}" /data/node_key
+                chmod 600 /data/node_key
+                echo "identity: installed the pre-generated key for ${POD_NAME}"
+              else
+                echo "identity: no pre-generated key for ${POD_NAME}; the node will create one"
+              fi
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: seed-identity
+              mountPath: /identity
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 32Mi
+      containers:
+        - name: node
+          image: ghcr.io/maya2c/node:latest
+          imagePullPolicy: IfNotPresent
+          # Space-separated, never `--flag=value`. The node's parser matches
+          # flags by exact string (src/bin/node.rs), so `--genesis=/config/...`
+          # falls through to the unknown-argument arm and the process exits
+          # before it ever binds a port. That failure reads as a CrashLoopBackOff
+          # with no useful event, so the form matters more than it looks.
+          #
+          # Numbers are quoted because YAML would otherwise emit an integer,
+          # and the container args array only accepts strings.
+          args:
+            - --genesis
+            - /config/genesis.json
+            - --data-dir
+            - /data
+            - --rpc-addr
+            - 0.0.0.0:8545
+            - --metrics-addr
+            - 0.0.0.0:9600
+            # Supply and ticker endpoints for listing aggregators. Public by
+            # design, unlike the exporter above.
+            - --market-addr
+            - 0.0.0.0:8546
+            - --p2p-port
+            - "30333"
+          ports:
+            - name: p2p
+              containerPort: 30333
+              protocol: TCP
+            - name: rpc
+              containerPort: 8545
+              protocol: TCP
+            - name: market
+              containerPort: 8546
+              protocol: TCP
+            - name: metrics
+              containerPort: 9600
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: chain-config
+              mountPath: /config
+              readOnly: true
+          # Readiness is scoped to the exporter rather than to RPC: a node that
+          # is still backfilling answers RPC with stale heights, and routing
+          # traffic to it would serve users a chain tip from hours ago.
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            # Deliberately slack. A node under a heavy reorg can stall its
+            # event loop for a while; restarting it mid-reorg turns a slow
+            # block into a resync.
+            failureThreshold: 6
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            # Opening RocksDB and replaying state can take minutes on a large
+            # chain, so startup gets its own budget rather than borrowing
+            # liveness's.
+            periodSeconds: 10
+            failureThreshold: 60
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              # No CPU limit: throttling a node mid-validation causes missed
+              # gossip rather than graceful degradation. Memory is capped
+              # because RocksDB will grow into whatever it is given.
+              memory: 4Gi
+      volumes:
+        - name: chain-config
+          configMap:
+            name: maya-chain-config
+        - name: seed-identity
+          secret:
+            secretName: maya-seed-identity
+            # Absent on a network whose PeerIds nobody has pinned yet. Marking
+            # it optional keeps that case a working deployment rather than an
+            # unschedulable pod.
+            optional: true
+            # 0440, not 0400. Kubernetes gives secret volume files to
+            # root:<fsGroup>, and the init container runs as uid 10001 — so with
+            # owner-only permissions the file is present, `test -f` passes, and
+            # the `cp` fails with EACCES. Group read is what actually makes it
+            # readable by the pod.
+            defaultMode: 0440
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: maya-retain
+        resources:
+          requests:
+            storage: 200Gi

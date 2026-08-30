@@ -1,0 +1,28 @@
+[package]
+name = "token-swap"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Constant-product token swap contract for the Maya VM"
+
+# Deliberately NOT a workspace member. It builds for wasm32-unknown-unknown with
+# a different profile and no std; pulling it into the host workspace would drag
+# the node's dependency graph into a target that cannot compile it.
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+
+[profile.release]
+# Contracts are stored on chain and metered per instruction, so size and
+# instruction count both matter more than compile time.
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+# Overflow checks stay ON despite the release profile. A silent wrap in an AMM
+# is a drained pool; trapping is strictly the safer failure.
+overflow-checks = true

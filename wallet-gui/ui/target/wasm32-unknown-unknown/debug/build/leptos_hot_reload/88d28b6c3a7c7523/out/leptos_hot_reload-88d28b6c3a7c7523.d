@@ -1,0 +1,9 @@
+D:\Maya2C\wallet-gui\ui\target\wasm32-unknown-unknown\debug\build\leptos_hot_reload/88d28b6c3a7c7523\out\leptos_hot_reload-88d28b6c3a7c7523.d: C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_hot_reload-0.8.6\src\lib.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_hot_reload-0.8.6\src\diff.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_hot_reload-0.8.6\src\node.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_hot_reload-0.8.6\src\parsing.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_hot_reload-0.8.6\src\patch.js
+
+D:\Maya2C\wallet-gui\ui\target\wasm32-unknown-unknown\debug\build\leptos_hot_reload/88d28b6c3a7c7523\out\libleptos_hot_reload-88d28b6c3a7c7523.rmeta: C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_hot_reload-0.8.6\src\lib.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_hot_reload-0.8.6\src\diff.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_hot_reload-0.8.6\src\node.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_hot_reload-0.8.6\src\parsing.rs C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_hot_reload-0.8.6\src\patch.js
+
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_hot_reload-0.8.6\src\lib.rs:
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_hot_reload-0.8.6\src\diff.rs:
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_hot_reload-0.8.6\src\node.rs:
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_hot_reload-0.8.6\src\parsing.rs:
+C:\Users\EricW\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\leptos_hot_reload-0.8.6\src\patch.js:
