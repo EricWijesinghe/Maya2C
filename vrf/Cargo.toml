@@ -1,0 +1,29 @@
+[package]
+name = "maya-vrf"
+version = "0.1.0"
+# Not published. cargo-deny reads this: `allow-wildcard-paths` and
+# `[licenses.private] ignore` both apply only to unpublished crates, so
+# without it every internal path dependency reads as a wildcard and every
+# workspace crate reads as unlicensed.
+publish = false
+edition = "2024"
+rust-version = "1.88"
+description = "RFC 9381 ECVRF-EDWARDS25519-SHA512-TAI, the chain's verifiable random function"
+
+[dependencies]
+# The curve. Pure Rust with no C backend, which the Dockerfile's static-musl
+# build depends on, and the only new cryptographic dependency this crate adds.
+#
+# Pinned to a major version rather than an exact one: unlike the `ark-*` stack
+# in `zk-privacy`, nothing here is a proving key that a patch release could
+# invalidate. What pins the *behaviour* is `tests/rfc9381_vectors.rs` — if a
+# curve update ever changed an encoding, the RFC's own vectors fail.
+curve25519-dalek = "4"
+sha2 = "0.10"
+zeroize = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+hex = "0.4"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }

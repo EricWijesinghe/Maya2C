@@ -1,0 +1,32 @@
+[package]
+name = "maya-blockgraph"
+version = "0.1.0"
+# Not published. cargo-deny reads this: `allow-wildcard-paths` and
+# `[licenses.private] ignore` both apply only to unpublished crates, so
+# without it every internal path dependency reads as a wildcard and every
+# workspace crate reads as unlicensed.
+publish = false
+edition = "2024"
+rust-version = "1.88"
+description = "Batch references and deterministic shard scheduling, isolated so they can be formally verified"
+
+# Deliberately empty, and it must stay that way — the same rule that governs
+# `maya-ledger-math`, `maya-dex`, and `maya-lattice-pow`.
+#
+# Two things live here. One decides which transactions a block commits to; the
+# other decides the order they execute in. Both are consensus, and Kani compiles
+# a crate together with its whole dependency graph — one dependency on `rocksdb`
+# (C++) or `libp2p` and `cargo kani -p maya-blockgraph` stops being possible.
+#
+# The consequence is visible in the API: nothing here hashes, so batch
+# identifiers arrive as opaque 32-byte values rather than being derived.
+# Derivation lives in `custom-l1-node`, which already depends on BLAKE3.
+[dependencies]
+
+# No `[features]` section, on purpose. `no_std` unconditionally outside tests; a
+# `std` feature would be a platform the proofs could start depending on.
+
+[lints.rust]
+# `kani` is set by the Kani compiler, not by cargo, so a plain `cargo check`
+# would flag `#[cfg(kani)]` as an unexpected condition.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }

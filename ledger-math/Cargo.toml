@@ -1,0 +1,31 @@
+[package]
+name = "maya-ledger-math"
+version = "0.1.0"
+# Not published. cargo-deny reads this: `allow-wildcard-paths` and
+# `[licenses.private] ignore` both apply only to unpublished crates, so
+# without it every internal path dependency reads as a wildcard and every
+# workspace crate reads as unlicensed.
+publish = false
+edition = "2024"
+rust-version = "1.88"
+description = "Ledger value arithmetic, isolated so it can be formally verified"
+
+# Deliberately empty, and it must stay that way.
+#
+# This crate exists to be model-checked. Kani compiles a crate *and its entire
+# dependency graph* to a CBMC goto-binary, and it has no semantics for the C and
+# C++ that `librocksdb-sys` links or for the FFI boundaries `libp2p` reaches
+# through. Verifying `custom-l1-node` directly is therefore not slow, it is not
+# possible; verifying a dependency-free leaf that the node calls into is.
+#
+# A dependency added here is a dependency added to every proof.
+[dependencies]
+
+# No `[features]` section, on purpose. The crate is `no_std` unconditionally; a
+# `std` feature would be a platform the proofs could start depending on.
+
+[lints.rust]
+# `kani` is set by the Kani compiler, not by cargo, so a plain `cargo check`
+# would flag `#[cfg(kani)]` as an unexpected condition. Declaring it here keeps
+# the lint on for every *other* cfg while telling it this one is real.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }

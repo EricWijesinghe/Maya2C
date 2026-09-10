@@ -1,0 +1,27 @@
+[package]
+name = "maya-governance"
+version = "0.1.0"
+# Not published. cargo-deny reads this: `allow-wildcard-paths` and
+# `[licenses.private] ignore` both apply only to unpublished crates, so
+# without it every internal path dependency reads as a wildcard and every
+# workspace crate reads as unlicensed.
+publish = false
+edition = "2024"
+rust-version = "1.88"
+description = "Proposal lifecycle, vote tallying, and the bounds a proposal may never escape"
+
+# Deliberately empty, and it must stay that way — the same rule that governs
+# `maya-ledger-math` and `maya-dex`.
+#
+# What this crate decides is which changes to the chain's own rules are
+# permissible. That is the last place a bug should be hard to check, and Kani
+# compiles a crate together with its whole dependency graph. One dependency on
+# `rocksdb` (C++) or the `ark-*` stack and `cargo kani -p maya-governance` stops
+# being possible rather than merely slow.
+#
+# The visible consequence: nothing here hashes or stores. Proposal identifiers
+# are derived in `custom-l1-node` and arrive as opaque bytes.
+[dependencies]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }

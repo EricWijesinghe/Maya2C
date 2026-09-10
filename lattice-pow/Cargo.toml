@@ -1,0 +1,35 @@
+[package]
+name = "maya-lattice-pow"
+version = "0.1.0"
+# Not published. cargo-deny reads this: `allow-wildcard-paths` and
+# `[licenses.private] ignore` both apply only to unpublished crates, so
+# without it every internal path dependency reads as a wildcard and every
+# workspace crate reads as unlicensed.
+publish = false
+edition = "2024"
+rust-version = "1.88"
+description = "Lattice proof-of-work verification, isolated so it can be formally verified"
+
+# Deliberately empty, and it must stay that way — the same rule that governs
+# `maya-ledger-math` and `maya-dex`, for the same reason.
+#
+# Every function here decides whether a block is valid. That is exactly the
+# class of code worth model-checking, and Kani compiles a crate together with
+# its whole dependency graph. One dependency on `rocksdb` (C++), `libp2p`, or
+# the `ark-*` stack and `cargo kani -p maya-lattice-pow` stops being possible
+# rather than merely slow.
+#
+# The consequence is visible in the API: nothing here hashes, so the basis
+# coefficients arrive as plain integers rather than being expanded from a
+# header seed. That expansion lives in `custom-l1-node`, which already depends
+# on BLAKE3.
+[dependencies]
+
+# No `[features]` section, on purpose. `no_std` unconditionally outside tests; a
+# `std` feature would be a platform the proofs could start depending on.
+
+[lints.rust]
+# `kani` is set by the Kani compiler, not by cargo, so a plain `cargo check`
+# would flag `#[cfg(kani)]` as an unexpected condition. Declaring it here keeps
+# the lint on for every *other* cfg while telling it this one is real.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
