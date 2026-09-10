@@ -71,6 +71,11 @@ async fn harness(blocks: i64) -> Harness {
         store: Arc::clone(&store) as Arc<dyn BlockStore>,
         events: events.clone(),
         node_rpc: None,
+        // The real directory, resolved from the manifest rather than the
+        // working directory, so the asset routes are exercised as deployed
+        // rather than skipped. `cargo test` and `cargo nextest` do not agree
+        // on the cwd of a test binary; `CARGO_MANIFEST_DIR` is fixed.
+        assets: Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets")),
     };
 
     // Port 0: the OS assigns one, so concurrent tests never collide.
@@ -129,6 +134,9 @@ async fn the_dashboard_renders_with_live_figures() {
     let (status, body) = get(&format!("{}/", h.base)).await;
 
     assert_eq!(status, 200);
+    // The brand is an image now, so this passes on its `alt` text. That is not
+    // a loophole — an image that is the entire content of the home link needs
+    // alt text or the link announces itself as unlabelled.
     assert!(body.contains("Maya2C"));
     assert!(body.contains("Hash rate"));
     // Height 9 is the tip of ten blocks.
@@ -454,4 +462,84 @@ async fn indexing_continues_after_a_client_disconnects() {
         .await
         .expect("indexing continues");
     assert_eq!(h.store.latest_height().await.expect("tip"), Some(1));
+}
+
+// ---------------------------------------------------------------------------
+// branding assets
+// ---------------------------------------------------------------------------
+//
+// The explorer builds its HTML from a Rust string, so unlike the trunk-built
+// frontends nothing checks its asset references at build time. These tests are
+// that check: they assert the paths the pages emit are paths the server serves.
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn every_asset_the_page_references_is_served() {
+    // Parsed out of the rendered page rather than listed by hand, so adding a
+    // reference to `ui.rs` without deploying the file fails here instead of in
+    // somebody's browser console.
+    let h = harness(1).await;
+    let (_, body) = get(&format!("{}/", h.base)).await;
+
+    let mut checked = 0;
+    for value in body.split('"') {
+        // A `srcset` is a comma-separated list of `url descriptor` pairs, not a
+        // single URL, so every attribute value is split the same way and the
+        // descriptor dropped. The first draft of this test treated the whole
+        // srcset as one path and failed with a 400 — which is the test working.
+        for candidate in value.split(',') {
+            let path = candidate.split_whitespace().next().unwrap_or("");
+            if !path.starts_with("/assets/") && path != "/favicon.ico" {
+                continue;
+            }
+            let (status, _) = get(&format!("{}{path}", h.base)).await;
+            assert_eq!(status, 200, "{path} is referenced but not served");
+            checked += 1;
+        }
+    }
+
+    assert!(
+        checked >= 8,
+        "expected the favicon set, manifest, logo and social card; found {checked}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_bare_favicon_path_is_served() {
+    // Browsers request `/favicon.ico` on their own, whatever the `<link>` tags
+    // say, so it is routed at the root as well as under `/assets`.
+    let h = harness(1).await;
+    let (status, _) = get(&format!("{}/favicon.ico", h.base)).await;
+    assert_eq!(status, 200);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_deployment_without_an_assets_directory_still_serves_pages() {
+    // `assets: None` is what the binary sets when the directory is missing. The
+    // icons 404, which is unavoidable, but the explorer itself must keep
+    // working — a missing logo is not a reason for the chain explorer to be
+    // down.
+    let store = Arc::new(MemoryStore::new());
+    let (events, _) = broadcast::channel(64);
+    let server = serve(
+        "127.0.0.1:0".parse().expect("addr"),
+        AppState {
+            store: store as Arc<dyn BlockStore>,
+            events,
+            node_rpc: None,
+            assets: None,
+        },
+    )
+    .await
+    .expect("serve");
+
+    let base = format!("http://{}", server.address);
+    let (status, body) = get(&format!("{base}/")).await;
+    assert_eq!(status, 200);
+    assert!(body.contains("Hash rate"));
+
+    let (status, _) = get(&format!("{base}/favicon.ico")).await;
+    assert_eq!(
+        status, 404,
+        "no route is mounted when there is nothing to serve"
+    );
 }

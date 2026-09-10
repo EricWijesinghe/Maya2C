@@ -1,0 +1,46 @@
+[package]
+name = "maya-api-gateway"
+version = "0.1.0"
+# Not published. cargo-deny reads this: `allow-wildcard-paths` and
+# `[licenses.private] ignore` both apply only to unpublished crates.
+publish = false
+edition = "2024"
+rust-version = "1.88"
+description = "REST and GraphQL gateway in front of a Maya2C node"
+
+[dependencies]
+# The gateway talks to a node over its JSON-RPC port rather than opening the
+# state database. That is what `explorer` does, and it is what lets the gateway
+# be deployed on a different host from the node it serves — and what keeps
+# RocksDB's C++ out of a process that terminates untrusted HTTP.
+jsonrpsee = { version = "0.26", features = ["http-client"] }
+axum = { version = "0.8", features = ["macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
+tower-http = { version = "0.6", features = ["trace", "limit", "cors"] }
+# GraphQL. Depth and complexity limits are configured at schema build time —
+# see `graphql::schema` for why that is not optional.
+async-graphql = { version = "7", default-features = false }
+async-graphql-axum = "7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+hex = "0.4"
+async-trait = "0.1"
+# OpenAPI. Annotated on the REST routes only: the node's own interface is
+# JSON-RPC -- one endpoint with the method named in the body -- which OpenAPI
+# cannot describe usefully. A generated client would get a single `post`
+# function and no type safety.
+utoipa = { version = "5", features = ["axum_extras"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+async-trait = "0.1"
+# OpenAPI. Annotated on the REST routes only: the node's own interface is
+# JSON-RPC -- one endpoint with the method named in the body -- which OpenAPI
+# cannot describe usefully. A generated client would get a single `post`
+# function and no type safety.
+utoipa = { version = "5", features = ["axum_extras"] }
+serde_json = "1"

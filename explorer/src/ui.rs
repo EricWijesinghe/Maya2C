@@ -63,11 +63,48 @@ pub fn Shell(
                 <meta charset="utf-8"/>
                 <meta name="viewport" content="width=device-width, initial-scale=1"/>
                 <title>{format!("{title} · Maya2C Explorer")}</title>
+
+                // `og:title` is the site name rather than the per-page title,
+                // which the `<title>` above does carry. Leptos compiles a
+                // static `property=` to an attribute but a dynamic one to a
+                // `.property()` DOM call, which `<meta>` has no such thing for
+                // — so a per-page value here does not build. Worth knowing
+                // before someone tries again.
+                //
+                // Root-absolute paths, unlike the trunk-built frontends: the explorer
+                // serves every page from its own origin root, and a relative
+                // path would resolve against `/blocks/1234` on a detail page.
+                <link rel="icon" type="image/png" sizes="48x48" href="/assets/favicon-48x48.png"/>
+                <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32x32.png"/>
+                <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon-16x16.png"/>
+                <link rel="shortcut icon" href="/favicon.ico"/>
+                <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png"/>
+                <link rel="manifest" href="/assets/site.webmanifest"/>
+                <meta name="theme-color" content="#ffffff"/>
+
+                <meta property="og:type" content="website"/>
+                <meta property="og:site_name" content="Maya2C Explorer"/>
+                <meta property="og:title" content="Maya2C Explorer"/>
+                <meta property="og:image" content="/assets/og-image.png"/>
+                <meta name="twitter:card" content="summary_large_image"/>
+                <meta name="twitter:image" content="/assets/og-image.png"/>
+
                 <style>{STYLES}</style>
             </head>
             <body>
                 <nav class="nav">
-                    <a class="brand" href="/">"Maya2C"</a>
+                    <a class="brand" href="/">
+                        // Not decorative here: this is the only content of the
+                        // link, so without alt text the home link announces
+                        // itself as an unlabelled image.
+                        <img
+                            src="/assets/logo.png"
+                            srcset="/assets/logo.png 1x, /assets/logo@2x.png 2x"
+                            alt="Maya2C"
+                            width="250"
+                            height="100"
+                        />
+                    </a>
                     <a href="/">"Dashboard"</a>
                     <a href="/blocks">"Blocks"</a>
                     <a href="/tx">"Transactions"</a>
@@ -401,7 +438,11 @@ body { margin:0; font:14px/1.5 ui-sans-serif,system-ui,sans-serif;
        border-bottom:1px solid var(--border); background:var(--panel); }
 .nav a { color:var(--muted); text-decoration:none; }
 .nav a:hover { color:var(--fg); }
-.nav .brand { color:var(--accent); font-weight:600; margin-right:0.5rem; }
+.nav .brand { display:flex; align-items:center; margin-right:0.5rem; }
+/* Height-constrained, width auto, so the 5:2 wordmark is never stretched. The
+   intrinsic size is on the element itself, so the nav does not reflow when the
+   image finishes loading. */
+.nav .brand img { height:1.6rem; width:auto; display:block; }
 main { max-width:1100px; margin:0 auto; padding:1.5rem; }
 h1 { font-size:1.4rem; margin:0 0 1rem; }
 h2 { font-size:1rem; margin:0 0 0.75rem; color:var(--muted);

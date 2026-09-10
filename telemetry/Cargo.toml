@@ -1,0 +1,70 @@
+[package]
+name = "maya-telemetry"
+version = "0.1.0"
+publish = false
+edition = "2024"
+rust-version = "1.88"
+description = "Network telemetry collector: propagation, peers, hash rate, height"
+
+[features]
+# The collector daemon. Default, because that is what this crate is usually
+# built for.
+default = ["server"]
+server = ["dep:axum", "dep:tower-http", "dep:tracing-subscriber", "dep:futures-util", "dep:tokio"]
+# The miner-side reporter. Split out so `wgpu-miner` and `cuda-miner` can post
+# a hash rate without linking a web framework they never serve from — the same
+# reason `stratum-v2` has no chain dependency.
+client = ["dep:hyper", "dep:hyper-util", "dep:tokio"]
+
+[dependencies]
+# Always present: the wire types, the region rules, and the meter. All three
+# are needed by both halves, and the meter is the reason a miner links this
+# crate at all.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2.0"
+tracing = "0.1"
+
+# Optional so that the wire types, the region rules, and the meter compile for
+# `wasm32-unknown-unknown` — the browser dashboard deserializes `Snapshot` from
+# this crate rather than from a hand-written copy, and tokio does not build for
+# that target with a multi-thread runtime.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"], optional = true }
+
+axum = { version = "0.8", features = ["macros", "ws"], optional = true }
+tower-http = { version = "0.6", features = ["trace", "limit", "cors"], optional = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
+futures-util = { version = "0.3", optional = true }
+
+# Hyper directly rather than a client crate: the workspace already links it
+# through jsonrpsee, so the miner-side reporter costs no new dependency. The
+# same reasoning as `src/metrics/server.rs`.
+hyper = { version = "1", features = ["client", "http1"], optional = true }
+hyper-util = { version = "0.1", features = ["client", "client-legacy", "http1", "tokio"], optional = true }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+
+# The crate's own tests exercise both halves, which is the point of them
+# sharing a crate: a wire-format change that breaks the miner breaks a test
+# here rather than in production.
+maya-telemetry = { path = ".", features = ["server", "client"] }
+# The end-to-end test drives the collector over a real socket, so it needs the
+# client half of hyper unconditionally — the optional deps above are only
+# enabled by the `client` feature, which a dev-dependency on self does enable,
+# but naming them here keeps the test honest about what it uses.
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["client", "client-legacy", "http1", "tokio"] }
+
+# The daemon is the server half. Declared with `required-features` so that
+# `--no-default-features` (which is how the browser dashboard depends on this
+# crate) does not try to build a binary whose whole body is behind a feature.
+[[bin]]
+name = "maya-telemetry"
+path = "src/main.rs"
+required-features = ["server"]
+
+[lib]
+name = "maya_telemetry"
+path = "src/lib.rs"

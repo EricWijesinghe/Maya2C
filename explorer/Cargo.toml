@@ -1,6 +1,11 @@
 [package]
 name = "maya-explorer"
 version = "0.1.0"
+# Not published. cargo-deny reads this: `allow-wildcard-paths` and
+# `[licenses.private] ignore` both apply only to unpublished crates, so
+# without it every internal path dependency reads as a wildcard and every
+# workspace crate reads as unlicensed.
+publish = false
 edition = "2024"
 rust-version = "1.88"
 description = "Web explorer for the Maya2C chain: Leptos SSR over Axum, indexed into PostgreSQL"
@@ -24,7 +29,11 @@ leptos = { version = "0.8", features = ["ssr"] }
 
 axum = { version = "0.8", features = ["ws", "macros"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
-tower-http = { version = "0.6", features = ["trace"] }
+# `fs` for the branding assets under /assets. The explorer server-renders its
+# HTML from a Rust string, so unlike the trunk-built frontends it has no
+# build-time asset validation — `tests/server_tests.rs` checks the routes
+# instead.
+tower-http = { version = "0.6", features = ["trace", "fs"] }
 
 # Runtime queries, not the `query!` macros: those need a live DATABASE_URL at
 # build time (or committed offline metadata), which would make the crate

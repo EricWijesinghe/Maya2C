@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Maya2C network</title>
+
+    <!-- Trunk copies this directory into `dist/` and fails the build if it is
+         missing, so every reference below is checked at build time. -->
+    <link data-trunk rel="copy-dir" href="assets"/>
+
+    <link rel="icon" type="image/png" sizes="48x48" href="assets/favicon-48x48.png"/>
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32x32.png"/>
+    <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16x16.png"/>
+    <link rel="shortcut icon" href="assets/favicon.ico"/>
+    <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png"/>
+    <link rel="manifest" href="assets/site.webmanifest"/>
+    <meta name="theme-color" content="#ffffff"/>
+
+    <meta property="og:type" content="website"/>
+    <meta property="og:title" content="Maya2C network"/>
+    <meta property="og:description" content="Live hash rate, height, and propagation across the Maya2C network. Every figure but difficulty is a claim by whoever reported it."/>
+    <meta property="og:image" content="assets/og-image.png"/>
+    <meta name="twitter:card" content="summary_large_image"/>
+    <meta name="twitter:image" content="assets/og-image.png"/>
+    <!-- `data-bin` is required: the crate builds both a cdylib and a bin, and
+         trunk cannot pick between two artifacts on its own. -->
+    <link data-trunk rel="rust" data-bin="maya-dashboard" data-wasm-opt="z"/>
+    <link data-trunk rel="css" href="style.css"/>
+  </head>
+  <body></body>
+</html>

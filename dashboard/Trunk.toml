@@ -1,0 +1,12 @@
+[build]
+target = "index.html"
+
+[serve]
+# Reads and the live feed both go to the collector. Proxying in development
+# means the page derives its own WebSocket URL from `window.location` exactly
+# as it does in production — a dashboard that only works when pointed at a
+# hardcoded host is a dashboard that breaks on deploy.
+port = 8081
+
+[[proxy]]
+backend = "http://127.0.0.1:9100/api"

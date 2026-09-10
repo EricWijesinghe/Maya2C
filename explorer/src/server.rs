@@ -8,6 +8,7 @@
 //! wedged tab would otherwise stop the explorer indexing the chain.
 
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
@@ -18,6 +19,7 @@ use axum::routing::get;
 use axum::{Json, Router};
 use serde::Deserialize;
 use tokio::sync::broadcast;
+use tower_http::services::{ServeDir, ServeFile};
 
 use crate::error::{ExplorerError, Result};
 use crate::indexer::IndexEvent;
@@ -47,6 +49,13 @@ pub struct AppState {
     /// indexed balance is a balance as of the last indexed block, and showing
     /// a stale balance as current is worse than showing none.
     pub node_rpc: Option<String>,
+    /// Directory holding the branding assets, if one was supplied.
+    ///
+    /// `None` mounts no `/assets` route at all, which is the honest state for a
+    /// deployment that shipped no asset directory: the icons 404 either way, and
+    /// a mounted route over a missing directory would only make the failure
+    /// harder to find.
+    pub assets: Option<PathBuf>,
 }
 
 /// Renders an HTML response.
@@ -87,7 +96,7 @@ impl IntoResponse for ExplorerError {
 
 /// Builds the router.
 pub fn router(state: AppState) -> Router {
-    Router::new()
+    let router = Router::new()
         .route("/", get(dashboard))
         .route("/blocks", get(blocks))
         .route("/blocks/{height}", get(block_detail))
@@ -101,8 +110,20 @@ pub fn router(state: AppState) -> Router {
         .route("/api/hashrate", get(api_hashrate))
         .route("/ws/blocks", get(ws_blocks))
         .route("/ws/txs", get(ws_txs))
-        .route("/health", get(health))
-        .with_state(state)
+        .route("/health", get(health));
+
+    // `/favicon.ico` is served at the root as well as under `/assets`, because
+    // browsers request that exact path on their own regardless of what the
+    // document's `<link>` tags say, and a 404 there shows up in every visitor's
+    // console.
+    let router = match &state.assets {
+        Some(dir) => router
+            .nest_service("/assets", ServeDir::new(dir))
+            .route_service("/favicon.ico", ServeFile::new(dir.join("favicon.ico"))),
+        None => router,
+    };
+
+    router.with_state(state)
 }
 
 // ---------------------------------------------------------------------------

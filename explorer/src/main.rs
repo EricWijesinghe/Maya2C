@@ -13,6 +13,7 @@
 
 use std::error::Error;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use maya_explorer::indexer::{Indexer, RpcSource};
@@ -26,6 +27,15 @@ struct Args {
     listen: SocketAddr,
     database_url: Option<String>,
     max_connections: u32,
+    /// Directory holding the branding assets.
+    ///
+    /// A flag rather than a compiled-in path, because this resolves against the
+    /// process's working directory. The explorer is a standalone binary — the
+    /// root `Dockerfile` packages only `node`, `genesis` and `peerid` — so a
+    /// hardcoded relative path would serve silent 404s for every icon the
+    /// moment somebody started it from anywhere but the repository root, with
+    /// nothing in the logs to say why.
+    assets: PathBuf,
 }
 
 impl Default for Args {
@@ -35,6 +45,7 @@ impl Default for Args {
             listen: "0.0.0.0:3000".parse().expect("valid default address"),
             database_url: std::env::var("DATABASE_URL").ok(),
             max_connections: 5,
+            assets: PathBuf::from("assets"),
         }
     }
 }
@@ -50,6 +61,7 @@ fn print_usage() {
          --database-url <URL>   PostgreSQL URL; falls back to $DATABASE_URL,\n                         \
          then to an in-memory index\n  \
          --max-connections <N>  database pool size (default 5)\n  \
+         --assets <DIR>         branding assets directory (default ./assets)\n  \
          -h, --help             show this message"
     );
 }
@@ -68,6 +80,7 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--listen" => args.listen = value()?.parse()?,
             "--database-url" => args.database_url = Some(value()?),
             "--max-connections" => args.max_connections = value()?.parse()?,
+            "--assets" => args.assets = PathBuf::from(value()?),
             "-h" | "--help" => {
                 print_usage();
                 std::process::exit(0);
@@ -100,10 +113,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let indexer = Indexer::new(source, Arc::clone(&store));
     let events = indexer.events();
 
+    // Checked once, at startup. Mounting the route over a directory that is not
+    // there would turn every icon into a 404 that looks like a browser problem;
+    // saying so here makes it a deployment problem, which is what it is.
+    let assets = if args.assets.is_dir() {
+        println!("assets: {}", args.assets.display());
+        Some(args.assets.clone())
+    } else {
+        eprintln!(
+            "assets: {} not found - serving no icons, favicon or social card. \
+             Pass --assets <DIR> pointing at the explorer's assets directory.",
+            args.assets.display()
+        );
+        None
+    };
+
     let state = AppState {
         store: Arc::clone(&store),
         events,
         node_rpc: Some(args.node_rpc.clone()),
+        assets,
     };
 
     let server = serve(args.listen, state).await?;
