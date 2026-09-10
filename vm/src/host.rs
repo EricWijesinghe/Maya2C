@@ -16,6 +16,7 @@
 //! engine configuration takes.
 
 use crate::error::{Result, VmError};
+use crate::zkml::{ZKML_MODEL_ID_LEN, ZkmlVerdict};
 
 /// A 32-byte account address.
 pub type Address = [u8; 32];
@@ -49,15 +50,86 @@ pub struct Event {
     pub data: Vec<u8>,
 }
 
+/// Bytes in a randomness value handed to a contract.
+pub const RANDOMNESS_LEN: usize = 32;
+
+/// A price feed as a contract may observe it.
+///
+/// Carries the height it was set at rather than a timestamp. That is not a
+/// simplification: on this chain a block timestamp is used only for difficulty
+/// retargeting and carries no validity rule, so a miner may write whatever it
+/// likes in one. A freshness check against a timestamp would read as safety and
+/// provide none.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OracleValue {
+    /// The agreed price, in units of `1 / FEED_SCALE`.
+    pub value: u64,
+    /// Height at which the chain accepted it.
+    pub updated_height: u64,
+    /// Round the value came from.
+    pub round: u64,
+    /// How many authorities signed that round.
+    pub observations: u8,
+}
+
 /// Chain state as a contract may observe and modify it.
 ///
-/// Implementors must be deterministic; see the module documentation.
+/// Implementors must be deterministic; see the module documentation. The two
+/// oracle methods are the ones most likely to tempt an implementor away from
+/// that — a "current price" wants to come from somewhere live. It must not.
+/// Both read committed chain state and nothing else.
 pub trait HostState {
     /// Balance of `address` in committed state.
     fn balance_of(&self, address: &Address) -> u64;
 
     /// Height of the block currently executing.
     fn block_height(&self) -> u64;
+
+    /// The randomness beacon as of the previous block.
+    ///
+    /// `None` on a chain with no oracle configured. The *previous* block's
+    /// value, not this one's: the accumulator folds after execution, so a value
+    /// available here is one this block's transactions could not have been
+    /// written against.
+    ///
+    /// Unpredictable is not the same as unmanipulable. A miner has one bit of
+    /// influence over each block it mines — see the beacon documentation in the
+    /// node crate before using this for anything whose payout exceeds a block
+    /// reward.
+    fn block_randomness(&self) -> Option<[u8; RANDOMNESS_LEN]> {
+        None
+    }
+
+    /// A price feed, or `None` if no such feed exists.
+    ///
+    /// Returns the value without judging its age. Freshness is enforced one
+    /// level up, in the host function, where it cannot be skipped — see
+    /// `register_host_functions`.
+    fn oracle_feed(&self, _feed_id: &[u8; 32]) -> Option<OracleValue> {
+        None
+    }
+
+    /// Verifies a zkML proof: that the model with verifying key `vk`, which
+    /// must hash to `model_id`, maps `public[..n]` to class `public[n]`.
+    ///
+    /// Absent by default, like the oracle and the beacon: a host that has not
+    /// wired a verifier in answers [`ZkmlVerdict::Unavailable`] and the call
+    /// traps. The node's host answers `Unavailable` below the activation height
+    /// too, so the import exists everywhere and works nowhere until a height is
+    /// chosen.
+    ///
+    /// Fuel has already been charged when this is called; see
+    /// [`crate::zkml`]. An implementation must not do work proportional to
+    /// anything the charge did not cover.
+    fn verify_zkml(
+        &self,
+        _model_id: &[u8; ZKML_MODEL_ID_LEN],
+        _vk: &[u8],
+        _public: &[i64],
+        _proof: &[u8],
+    ) -> ZkmlVerdict {
+        ZkmlVerdict::Unavailable
+    }
 
     /// Reads a key from the executing contract's storage.
     fn storage_get(&self, contract: &ContractId, key: &[u8]) -> Option<Vec<u8>>;
@@ -83,6 +155,10 @@ pub struct MemoryState {
     pub events: Vec<Event>,
     /// Height reported to contracts.
     pub height: u64,
+    /// Randomness reported to contracts, if any.
+    pub randomness: Option<[u8; RANDOMNESS_LEN]>,
+    /// Price feeds reported to contracts.
+    pub feeds: std::collections::BTreeMap<[u8; 32], OracleValue>,
 }
 
 impl MemoryState {
@@ -129,6 +205,14 @@ impl HostState for MemoryState {
 
     fn emit(&mut self, event: Event) {
         self.events.push(event);
+    }
+
+    fn block_randomness(&self) -> Option<[u8; RANDOMNESS_LEN]> {
+        self.randomness
+    }
+
+    fn oracle_feed(&self, feed_id: &[u8; 32]) -> Option<OracleValue> {
+        self.feeds.get(feed_id).copied()
     }
 }
 

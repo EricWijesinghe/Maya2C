@@ -78,6 +78,16 @@ pub enum VmError {
         /// Permitted maximum.
         limit: usize,
     },
+
+    /// A contract called `host_verify_zkml_proof` where no verifier is wired
+    /// in: below the activation height, or under a host that has none.
+    ///
+    /// A trap rather than a `0`. Returning "invalid" would let a contract
+    /// written for a live verifier silently treat every proof as bad on a node
+    /// where the feature is off — a divergence in behaviour that looks like a
+    /// divergence in data.
+    #[error("zkML verification is not available at this height")]
+    ZkmlUnavailable,
 }
 
 /// Convenience alias.

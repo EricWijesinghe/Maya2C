@@ -35,7 +35,7 @@ use crate::config::{MAX_MEMORY_PAGES, MAX_MODULE_BYTES, PAGE_SIZE, deterministic
 use crate::error::{Result, VmError};
 use crate::host::{
     Address, ContractId, Event, HostState, MAX_EVENT_BYTES, MAX_EVENTS, MAX_KEY_BYTES,
-    MAX_VALUE_BYTES, check_size,
+    MAX_VALUE_BYTES, RANDOMNESS_LEN, check_size,
 };
 
 /// A completed execution: the host state, plus what happened.
@@ -67,8 +67,8 @@ pub struct Outcome {
 /// `T: 'static`, so a borrow cannot live here. [`Vm::execute`] takes the state
 /// by value and returns it, which also makes it impossible to observe a
 /// half-updated state after a trap — the caller decides whether to keep it.
-struct CallContext<S: HostState> {
-    state: S,
+pub(crate) struct CallContext<S: HostState> {
+    pub(crate) state: S,
     contract: ContractId,
     events: Vec<Event>,
     /// First host-side failure. Host functions cannot return `Result` through
@@ -80,7 +80,7 @@ struct CallContext<S: HostState> {
 
 impl<S: HostState> CallContext<S> {
     /// Records a host-side failure, keeping the first.
-    fn fail(&mut self, error: VmError) {
+    pub(crate) fn fail(&mut self, error: VmError) {
         if self.failure.is_none() {
             self.failure = Some(error);
         }
@@ -117,7 +117,7 @@ impl<S: HostState + Send + 'static> wasmtime::ResourceLimiter for CallContext<S>
 }
 
 /// Reads a guest slice, refusing out-of-bounds offsets.
-fn read_guest(
+pub(crate) fn read_guest(
     memory: &Memory,
     store: &impl wasmtime::AsContext,
     ptr: u32,
@@ -166,7 +166,7 @@ fn write_guest(
 }
 
 /// Fetches the guest's exported memory.
-fn caller_memory<S: HostState + Send + 'static>(
+pub(crate) fn caller_memory<S: HostState + Send + 'static>(
     caller: &mut Caller<'_, CallContext<S>>,
 ) -> Option<Memory> {
     match caller.get_export("memory") {
@@ -546,6 +546,145 @@ fn register_host_functions<S: HostState + Send + 'static>(
         )
         .map_err(wrap)?;
 
+    // block_randomness(out_ptr) -> i32
+    // Writes 32 bytes and returns 0, or returns -1 when the chain has no
+    // beacon. Nothing is written on failure, so a contract that ignores the
+    // return value reads whatever was already in its buffer rather than a value
+    // that looks like randomness.
+    linker
+        .func_wrap(
+            "env",
+            "block_randomness",
+            |mut caller: Caller<'_, CallContext<S>>, out_ptr: i32| -> i32 {
+                let Some(memory) = caller_memory(&mut caller) else {
+                    caller
+                        .data_mut()
+                        .fail(VmError::MissingExport("memory".into()));
+                    return -1;
+                };
+                let Some(randomness) = caller.data().state.block_randomness() else {
+                    return -1;
+                };
+                if let Err(error) = write_guest(&memory, &mut caller, out_ptr as u32, &randomness) {
+                    caller.data_mut().fail(error);
+                    return -1;
+                }
+                RANDOMNESS_LEN as i32
+            },
+        )
+        .map_err(wrap)?;
+
+    // oracle_read(feed_ptr, max_age_blocks, out_ptr) -> i32
+    //
+    // `max_age_blocks` is a *parameter*, not a field of the result, and that is
+    // the whole design. A contract cannot read a price without stating how
+    // stale a price it will accept, so the failure mode where an author forgets
+    // to check the age is unreachable rather than merely discouraged.
+    //
+    // Returns 8 on success, -1 for an unknown feed, and -2 for a stale one. The
+    // two failures are distinguished because they call for different handling:
+    // an unknown feed is a bug in the contract, a stale one is a fact about the
+    // world that may resolve on its own.
+    linker
+        .func_wrap(
+            "env",
+            "oracle_read",
+            |mut caller: Caller<'_, CallContext<S>>,
+             feed_ptr: i32,
+             max_age_blocks: i64,
+             out_ptr: i32|
+             -> i32 {
+                let Some(memory) = caller_memory(&mut caller) else {
+                    caller
+                        .data_mut()
+                        .fail(VmError::MissingExport("memory".into()));
+                    return -1;
+                };
+                let feed_id = match read_guest(&memory, &caller, feed_ptr as u32, 32) {
+                    Ok(bytes) => {
+                        let mut id = [0u8; 32];
+                        id.copy_from_slice(&bytes);
+                        id
+                    }
+                    Err(error) => {
+                        caller.data_mut().fail(error);
+                        return -1;
+                    }
+                };
+
+                let Some(feed) = caller.data().state.oracle_feed(&feed_id) else {
+                    return -1;
+                };
+
+                // Saturating, so a feed somehow ahead of the chain — a reorg in
+                // flight — reads as fresh rather than as a wrapped, enormous
+                // age that would pass any bound.
+                let age = caller
+                    .data()
+                    .state
+                    .block_height()
+                    .saturating_sub(feed.updated_height);
+                // A negative bound is not "no bound": it is a caller who got
+                // their arithmetic wrong, and answering it would be answering a
+                // question nobody asked.
+                if max_age_blocks < 0 || age > max_age_blocks as u64 {
+                    return -2;
+                }
+
+                if let Err(error) = write_guest(
+                    &memory,
+                    &mut caller,
+                    out_ptr as u32,
+                    &feed.value.to_le_bytes(),
+                ) {
+                    caller.data_mut().fail(error);
+                    return -1;
+                }
+                8
+            },
+        )
+        .map_err(wrap)?;
+
+    // oracle_feed_age(feed_ptr) -> i64
+    // Blocks since the feed last moved, or -1 if it does not exist. For a
+    // contract that wants to log or branch on staleness rather than simply be
+    // refused by `oracle_read`.
+    linker
+        .func_wrap(
+            "env",
+            "oracle_feed_age",
+            |mut caller: Caller<'_, CallContext<S>>, feed_ptr: i32| -> i64 {
+                let Some(memory) = caller_memory(&mut caller) else {
+                    caller
+                        .data_mut()
+                        .fail(VmError::MissingExport("memory".into()));
+                    return -1;
+                };
+                let feed_id = match read_guest(&memory, &caller, feed_ptr as u32, 32) {
+                    Ok(bytes) => {
+                        let mut id = [0u8; 32];
+                        id.copy_from_slice(&bytes);
+                        id
+                    }
+                    Err(error) => {
+                        caller.data_mut().fail(error);
+                        return -1;
+                    }
+                };
+
+                match caller.data().state.oracle_feed(&feed_id) {
+                    Some(feed) => caller
+                        .data()
+                        .state
+                        .block_height()
+                        .saturating_sub(feed.updated_height)
+                        as i64,
+                    None => -1,
+                }
+            },
+        )
+        .map_err(wrap)?;
+
     // emit_event(topic_ptr, topic_len, data_ptr, data_len)
     linker
         .func_wrap(
@@ -595,6 +734,9 @@ fn register_host_functions<S: HostState + Send + 'static>(
             },
         )
         .map_err(wrap)?;
+
+    // host_verify_zkml_proof(...) -> i32. In its own module, with its price.
+    crate::zkml::register(linker)?;
 
     Ok(())
 }
