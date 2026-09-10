@@ -1,6 +1,11 @@
 [package]
 name = "custom-l1-node"
 version = "0.1.0"
+# Not published. cargo-deny reads this: `allow-wildcard-paths` and
+# `[licenses.private] ignore` both apply only to unpublished crates, so
+# without it every internal path dependency reads as a wildcard and every
+# workspace crate reads as unlicensed.
+publish = false
 edition = "2024"
 # Edition 2024 needs 1.85, but the code also uses `u64::is_multiple_of` (1.87)
 # and `slice::as_chunks` (1.88). Declaring the real floor makes a stale
@@ -18,6 +23,99 @@ members = [
     "wallet-gui/core",
     "zk-privacy",
     "crypto-pq",
+    "ledger-math",
+    # GPU miner. A member so it cannot rot, but its `cuda` feature is off by
+    # default: with no feature selected it compiles to host-side Rust and needs
+    # no CUDA toolkit, which is what keeps `cargo build --workspace` green on
+    # the GPU-less CI runners.
+    "cuda-miner",
+    # Pool protocol. No chain dependency, so it can be fuzzed and reviewed on
+    # its own; the daemon that joins it to chain types is a separate member.
+    "stratum-v2",
+    # That daemon. Share validation, PPLNS accounting, and treasury payouts —
+    # the layer where a protocol value becomes a chain type.
+    "pool-service",
+    # Trading arithmetic: the constant-product curve and the order book
+    # matcher. A dependency-free leaf for the same reason `ledger-math` is one —
+    # every function in it decides how much value a trade moves, and Kani
+    # cannot compile a crate whose graph reaches RocksDB's C++.
+    "dex",
+    # The verifiable random function behind the randomness beacon. A member so
+    # a beacon operator or the wallet can produce proofs without linking
+    # RocksDB, libp2p, and the SNARK stack — see `vrf/src/lib.rs`.
+    "vrf",
+    # The proposal lifecycle, the vote tally, and the bounds a proposal may
+    # never escape. Dependency-free for the same reason `ledger-math` is: it
+    # decides which changes to the chain's own rules are permissible, and that
+    # is the last place a bug should be hard to check.
+    "governance",
+    # Adaptive base fee, fee split, supply bound. A research branch at
+    # activation u64::MAX, called by nothing in consensus. Dependency-free for
+    # the reason `governance` is: every function decides how much value moves.
+    "fee-market",
+    # SPV light client: header fork choice and state-proof verification, for
+    # anything that must check Maya2C state without running a full node.
+    "light-client",
+    # Threshold encryption for the mempool, so a miner orders transactions it
+    # cannot read. Curve arithmetic and an AEAD only — no chain types — so it
+    # can be reviewed and fuzzed without the node, like `stratum-v2`.
+    "mev",
+    # Lattice proof-of-work verification. A research branch: nothing in
+    # consensus calls it, and the open question is in its own documentation.
+    # Dependency-free for the same reason `ledger-math` and `dex` are — the
+    # rules that decide whether a block is admissible are worth model-checking.
+    "lattice-pow",
+    # Batch references and deterministic shard scheduling. A research branch:
+    # nothing in consensus references a batch yet. Dependency-free for the same
+    # reason `ledger-math` and `dex` are — it decides which transactions a block
+    # commits to and what order they execute in.
+    "blockgraph",
+    # REST and GraphQL gateway. Talks to a node over JSON-RPC rather than
+    # opening the state database, so it deploys separately and keeps RocksDB's
+    # C++ out of the process terminating untrusted HTTP.
+    "api-gateway",
+    # uniffi bindings over the hybrid signing primitives. A member so it cannot
+    # rot; note that it links `custom-l1-node` for `HybridSigningKey` and so
+    # pulls RocksDB into the cdylib — see `sdk-ffi/README.md`.
+    "sdk-ffi",
+    # Browser bindings. Cannot depend on the node — RocksDB is C++ and does not
+    # target wasm32 — so it composes the hybrid construction from the same two
+    # primitives, and `tests/hybrid_parity_tests.rs` pins the two together.
+    "sdk-wasm",
+    # Generates the LaTeX technical reference from module documentation.
+    # Dependency-free: it reads Rust source and writes LaTeX, and neither needs
+    # a crate.
+    "docgen",
+    # Cross-platform GPU miner for the hashimoto proof of work. Its `gpu`
+    # feature is off by default for the same reason `cuda-miner`'s `cuda`
+    # feature is: the workspace must build on a runner with no adapter.
+    "wgpu-miner",
+    # Testnet faucet. A member so its rate limiting cannot rot, and because it
+    # is the one service in the workspace that holds a funded key behind a
+    # public endpoint — the code that decides who gets funds should be reviewed
+    # alongside the code that decides what a block is.
+    "faucet",
+    # Threshold custody of a chain key. A member so its sharing arithmetic and
+    # its quorum rules cannot rot, and because the one thing it must never do —
+    # let a sub-threshold set of shares reconstruct anything — is a property a
+    # test suite has to keep asserting. It links no chain types and no RocksDB;
+    # `tests/custody_parity_tests.rs` in the node's own suite is what pins its
+    # key derivation to `crypto::hybrid`.
+    "custody-mpc",
+    # zkML proof verification. A member so the circuit's soundness tests run in
+    # the workspace suite. `vm` does not depend on it: the node supplies
+    # verification through `HostState`, the same seam that keeps chain types out
+    # of the VM. `tract-onnx` is behind the `prover` feature and never reaches
+    # the consensus path -- see docs/zkml.md.
+    "zkml",
+    # Its off-chain half: ONNX import via tract, key generation, proving. A
+    # separate member rather than a feature so the node cannot reach tract even
+    # through feature unification, and so its higher rust-version stays its own.
+    "zkml-prover",
+    # Network telemetry collector. No chain dependency — it aggregates what
+    # nodes and miners report, and verifies none of it, which is stated at the
+    # top of its `lib.rs` because every number it serves is a claim.
+    "telemetry",
 ]
 
 [dependencies]
@@ -54,9 +152,55 @@ hex = "0.4"
 thiserror = "2.0"
 rocksdb = "0.25"
 serde = { version = "1", features = ["derive"] }
+# `config.toml` parsing. `toml` rather than a general config crate: one format,
+# read once at startup, with `deny_unknown_fields` doing the work a layered
+# config library would otherwise hide.
+toml = "0.9"
 serde_json = "1"
 maya-vm = { path = "vm" }
+# zkML proof verification, for `host_verify_zkml_proof`. The verifier only:
+# proving and ONNX import are in `maya-zkml-prover`, which is a dev-dependency
+# here and nothing more, so an ONNX runtime cannot end up on a consensus path.
+# Dark until `ZKML_ACTIVATION_HEIGHT` is set -- see src/state/context.rs.
+maya-zkml = { path = "zkml" }
 maya-zk-privacy = { path = "zk-privacy" }
+# The trading engine's arithmetic: the constant-product curve, the order book
+# matcher, and the batch clearing that prices a block's swaps at one price.
+# A separate crate for the same reason `ledger-math` is one — it is the other
+# half of the code where a rounding error mints value, and it is model-checked.
+maya-dex = { path = "dex" }
+# The randomness beacon's verifiable random function. RFC 9381 over
+# curve25519 — a classical primitive, deliberately, because no post-quantum VRF
+# is standardized. `vrf/src/lib.rs` states what that costs and what bounds it.
+maya-vrf = { path = "vrf" }
+# The proposal lifecycle, the vote tally, and the bounds a proposal may never
+# escape. A separate crate for the same reason `ledger-math` is one: it decides
+# which changes to the chain's own rules are permissible, and that is the last
+# place a bug should be hard to check.
+maya-governance = { path = "governance" }
+# Threshold encryption for the mempool: the committee key, the Shamir split,
+# and the Chaum-Pedersen proof a decryption share carries. A separate crate so
+# the curve arithmetic can be reviewed and fuzzed without the node, and so that
+# a chain built without the sealed mempool does not link it.
+maya-mev = { path = "mev" }
+# Only for the ristretto255 encodings that cross the boundary between chain
+# state and `maya-mev` — a stored committee key, a stored decryption share.
+# The same version `maya-mev` and `maya-vrf` already pull in, deliberately: two
+# copies of a curve in one lockfile is two sets of encoding rules.
+curve25519-dalek = "4"
+# Every `u64` credit, debit, and nonce bump on the ledger. A separate crate
+# because it is the one thing here that is model-checked: Kani compiles a crate
+# together with its whole dependency graph, and it cannot do that for a crate
+# that pulls in RocksDB's C++. See `ledger-math/src/lib.rs`.
+maya-ledger-math = { path = "ledger-math" }
+# Research branch, see `crypto::lattice`. Present so the derivation half and the
+# verification half are compiled and tested together; no consensus path reaches
+# either of them.
+maya-lattice-pow = { path = "lattice-pow" }
+# Research branch, see `docs/blockgraph.md`. Present so the batch identifier
+# derivation is compiled and tested against the types it produces; no consensus
+# path reaches either.
+maya-blockgraph = { path = "blockgraph" }
 jsonrpsee = { version = "0.26", features = ["server", "http-client"] }
 # The official Prometheus client. hyper and its util/body crates are already in
 # the tree via jsonrpsee, so the exporter adds no new transport dependency.
@@ -82,7 +226,47 @@ tempfile = "3"
 # In-memory duplex streams, for driving the two halves of the ML-KEM handshake
 # against each other without a socket. What libp2p uses for the same job.
 futures_ringbuf = "0.4"
+# For `tests/hybrid_parity_tests.rs`, which pins the browser SDK's copy of the
+# hybrid construction against the node's authoritative one.
+maya-sdk-wasm = { path = "sdk-wasm" }
+# For `tests/ledger_parity_tests.rs`, which pins the Ledger app's duplicated
+# COIN_TYPE against the wallet's. A dev-dependency cycle -- wallet-gui/core
+# depends on this crate -- which Cargo permits, and which `maya-sdk-wasm` above
+# already relies on for the same kind of parity test.
+maya-wallet-core = { path = "wallet-gui/core" }
+# For `tests/custody_parity_tests.rs`, which pins the threshold-custody crate's
+# duplicated hybrid derivation against `crypto::hybrid`. Same arrangement as
+# `maya-sdk-wasm` above and for the same reason: `custody-mpc` must not link
+# RocksDB, so it reimplements the derivation and this test is what catches drift.
+maya-custody-mpc = { path = "custody-mpc", default-features = false }
+# For `tests/zkml_block_tests.rs`, which proves inference off-chain and then
+# verifies it inside a block. Test-only: the node never links a prover.
+maya-zkml-prover = { path = "zkml-prover" }
+# For `tests/fee_market_tests.rs`, which runs the fee rule over real
+# transaction sizes and checks nothing in consensus calls it yet.
+maya-fee-market = { path = "fee-market" }
 criterion = "0.7"
+# Comparison baselines for `benches/algo_comparison.rs`. Dev-only: none of this
+# reaches the node binary.
+#
+# kHeavyHash (Kaspa) is deliberately absent, and `benches/algo_comparison.rs`
+# says so in its output rather than leaving a silent gap.
+#
+# There is no `kheavyhash` crate. Kaspa's own `kaspa-pow` exposes the right
+# thing — `Matrix::generate` plus `heavy_hash`, with an official test vector —
+# but it depends unconditionally on `kaspa-hashes`, which pulls `workflow-wasm`
+# and `workflow-core 0.18`, and that crate does not compile on this toolchain
+# (a wasm-bindgen mismatch in code we do not control). `default-features = false`
+# does not remove it.
+#
+# The alternative was to implement kHeavyHash from the specification. That was
+# refused: with no official vectors to check against, a wrong implementation
+# would publish a number misrepresenting another project's performance — the
+# same failure mode that produced a guessed address domain and a guessed mix key
+# earlier in this tree, both of which were only caught because an authority
+# existed to test against. Here there would be none.
+sha2 = "0.10"
+ed25519-dalek = { version = "2.2", features = ["rand_core"] }
 # Shielded tests build joinsplits directly, which means constructing field
 # elements and seeding a deterministic RNG.
 ark-bls12-381 = "=0.6.0"
@@ -91,6 +275,10 @@ ark-std = "=0.6.0"
 # transaction path without depending on a wasm toolchain being installed.
 wat = "1"
 jsonrpsee = { version = "0.26", features = ["server", "http-client"] }
+# Only so `examples/gen_fuzz_corpus.rs` can build SV2 seeds through the real
+# encoders rather than by hand. A dev-dependency, never a runtime one: the node
+# does not speak the pool protocol.
+maya-stratum-v2 = { path = "stratum-v2" }
 
 # Argon2id over 32 MiB is unusably slow when compiled without optimization:
 # an unoptimized hash runs on the order of seconds, which makes `cargo test`
@@ -98,6 +286,13 @@ jsonrpsee = { version = "0.26", features = ["server", "http-client"] }
 # leaving our own code unoptimized and debuggable.
 [[bench]]
 name = "argon_blake"
+harness = false
+
+# The rule that replaces ArgonBlake above the fork. Benchmarked beside it
+# rather than instead of it: the comparison between the two is the point, and
+# both stay in the binary permanently.
+[[bench]]
+name = "dag"
 harness = false
 
 [[bench]]
@@ -108,6 +303,22 @@ harness = false
 name = "mlkem_handshake"
 harness = false
 
+# The trading engine's arithmetic. Every node redoes a block's matching pass and
+# its batch clearing, so these are validation costs, not miner costs — and the
+# adversarial batch case is what justifies `MAX_BATCH_INTENTS` being a number
+# rather than "as many as fit".
+[[bench]]
+name = "dex_matching"
+harness = false
+
+# The oracle. VRF verification is paid by every node on every block forever, and
+# a feed's quorum of post-quantum signatures is the most expensive thing a
+# single transaction can ask for — both are what make the per-block ceilings
+# numbers rather than guesses.
+[[bench]]
+name = "oracle"
+harness = false
+
 # No criterion here. This one installs a counting `#[global_allocator]` to
 # measure bytes rather than time, and criterion's own allocations would be
 # counted alongside the work being measured.
@@ -116,6 +327,15 @@ name = "hybrid_footprint"
 harness = false
 
 [profile.dev.package.argon2]
+opt-level = 3
+
+# The GPU miner's CPU reference fill is 32768 compressions of a 1 KiB block —
+# the same work `argon2` does, written out longhand so it can be read against
+# the kernel. Unoptimized that is minutes per hash rather than tens of
+# milliseconds, which would make the parity tests read as a hang. Same reason as
+# the override above, and the same reason `maya-crypto-pq` has one: the crate
+# holding the work is the crate that has to be optimized.
+[profile.dev.package.maya-cuda-miner]
 opt-level = 3
 
 [profile.dev.package.blake3]
@@ -148,6 +368,23 @@ opt-level = 3
 # And again for the SNARK stack. A joinsplit proof is ~17k constraints of
 # field arithmetic; unoptimized it takes tens of seconds instead of a fraction
 # of one, which makes the shielded tests look hung rather than slow.
+# And for the code-based KEM. HQC-192 decapsulation runs a Reed-Muller and a
+# Reed-Solomon decoder over ~18 kbit codewords; unoptimized that is tens of
+# milliseconds per handshake against ML-KEM's fraction of one, which makes the
+# transport tests look broken rather than slow. Measured on this machine: a
+# dual handshake fell from ~66 ms to single-digit ms with these three set.
+#
+# `sha3`/`shake` are where HQC spends the rest of its time — the same
+# relationship `sha2` has to SLH-DSA above.
+[profile.dev.package.hqc-kem]
+opt-level = 3
+
+[profile.dev.package.sha3]
+opt-level = 3
+
+[profile.dev.package.shake]
+opt-level = 3
+
 [profile.dev.package.ark-ff]
 opt-level = 3
 
@@ -177,3 +414,31 @@ opt-level = 3
 
 [profile.dev.package.ark-std]
 opt-level = 3
+
+# And for the zkML verifier, on the crate that instantiates it. halo2's prover
+# and verifier are generic over the commitment scheme and monomorphize into
+# `maya-zkml` -- the same lesson `maya-crypto-pq` taught for SLH-DSA, where the
+# override on the generic crate optimized none of the work. `halo2curves-axiom`
+# is the BN254 field and pairing arithmetic, which is not generic and has to be
+# optimized where it lives. Without these a single proof in the test suite
+# takes long enough to read as a hang.
+[profile.dev.package.maya-zkml]
+opt-level = 3
+
+# The prover monomorphizes halo2's proving generics, so it needs its own
+# override for the same reason the verifier crate does.
+[profile.dev.package.maya-zkml-prover]
+opt-level = 3
+
+[profile.dev.package.halo2-axiom]
+opt-level = 3
+
+[profile.dev.package.halo2curves-axiom]
+opt-level = 3
+
+[profile.dev.package.blake2b_simd]
+opt-level = 3
+
+[[bench]]
+name = "algo_comparison"
+harness = false

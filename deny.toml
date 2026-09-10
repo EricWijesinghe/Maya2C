@@ -1,0 +1,105 @@
+# cargo-deny configuration.
+#
+# The deterministic half of the supply-chain gate in
+# `.github/workflows/security-audit.yml`. `cargo geiger` surveys how much unsafe
+# the dependency graph contains; this checks whether anything in that graph is
+# known to be vulnerable, duplicated, or pulled from somewhere it should not be.
+#
+# Licence checking IS enabled, because the workflow runs
+# `check advisories bans licenses sources` — omitting a `[licenses]` section
+# does not disable the check, it just falls back to cargo-deny's default
+# allow-list, which rejected 399 crates. The allow-list below is the set the
+# tree actually resolves to, so a new licence class is a reviewable event
+# rather than a silent pass.
+
+[graph]
+# The node targets Linux for deployment and is developed on Linux, macOS, and
+# Windows. Restricting the graph keeps a platform-specific advisory on a crate
+# we never build from failing the check.
+targets = [
+    { triple = "x86_64-unknown-linux-gnu" },
+    { triple = "x86_64-unknown-linux-musl" },
+    { triple = "x86_64-pc-windows-msvc" },
+    { triple = "aarch64-apple-darwin" },
+]
+all-features = true
+
+[advisories]
+version = 2
+# No `ignore` list. An advisory that has to be accepted should be accepted in a
+# commit that says why, not carried silently in a config file — and the empty
+# list is what makes adding an entry a reviewable event.
+ignore = []
+# `unmaintained` is a real signal but not a vulnerability, and it fires on
+# transitive crates nobody here can act on. Surfaced, not fatal.
+unmaintained = "workspace"
+yanked = "deny"
+
+[bans]
+# Duplicate versions are near-universal in a tree this size — the arkworks and
+# libp2p stacks each pin their own. Warning keeps the drift visible without
+# making the audit fail for something that is not a security property.
+multiple-versions = "warn"
+wildcards = "deny"
+# A `{ path = "..." }` member has no version requirement, so cargo-deny counts
+# every internal crate as a wildcard dependency. That fired on all five of
+# ours. The rule is meant to catch `foo = "*"` against a registry, which this
+# still denies.
+allow-wildcard-paths = true
+# A build script is arbitrary code execution at compile time. Flagging the
+# highest-privilege dependencies keeps a swap in one of them from passing
+# unnoticed.
+highlight = "all"
+
+[sources]
+# Anything not from crates.io is something a reviewer should have chosen
+# deliberately. There are no git dependencies in this tree today, and this is
+# what keeps that true.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+[licenses]
+version = 2
+# The exact set the graph resolves to today, enumerated from `cargo deny list`
+# rather than copied from a template. Every entry is permissive; there is no
+# copyleft in the tree and adding one should require editing this list. The one
+# copyleft crate that exists is admitted by name below, not by license.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+
+# `dyn-eq` (MPL-2.0), and nothing else under that license.
+#
+# Arrives through tract-core 0.23, which `maya-zkml-prover` needs because every
+# patched release of tract 0.21 (RUSTSEC-2026-0217, an out-of-bounds read in the
+# NNEF tensor parser) pins a `libm` the pinned wasmtime conflicts with. The
+# choice was between an unpatched parser and this.
+#
+# Why a named exception and not "MPL-2.0" in `allow`:
+# - MPL-2.0 is *file-level* copyleft. It binds modifications to `dyn-eq`'s own
+#   files, which this project does not make; it places no terms on the code that
+#   links it.
+# - It is reachable only from `maya-zkml-prover`, an off-chain prover the node
+#   takes as a dev-dependency. No binary this workspace ships contains it.
+# - Allowing the license would admit the next MPL crate silently. Allowing the
+#   crate means the next one fails this check and gets its own paragraph.
+[[licenses.exceptions]]
+crate = "dyn-eq"
+allow = ["MPL-2.0"]
+
+[licenses.private]
+# The workspace's own crates carry no `license` field because none of them is
+# published. Skipping them here is what keeps "unlicensed" meaningful: it now
+# only ever fires on a third-party crate.
+ignore = true
