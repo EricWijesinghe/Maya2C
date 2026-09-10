@@ -1,0 +1,66 @@
+[package]
+name = "maya-custody-mpc"
+version = "0.1.0"
+# Not published. cargo-deny reads this: `allow-wildcard-paths` and
+# `[licenses.private] ignore` both apply only to unpublished crates, so
+# without it every internal path dependency reads as a wildcard and every
+# workspace crate reads as unlicensed.
+publish = false
+edition = "2024"
+rust-version = "1.88"
+description = "Threshold custody of a Maya2C chain key: dealerless VSS, quorum signing, and the reason this is not a threshold signature scheme"
+
+[dependencies]
+# Ristretto, for the Pedersen commitments that make the dealing verifiable.
+# The same curve `maya-mev` and `maya-vrf` already use — two elliptic curves in
+# one codebase is two sets of encoding rules to get right.
+#
+# The commitments are *perfectly hiding* and only computationally binding, which
+# is the orientation a post-quantum chain needs: an adversary who breaks the
+# discrete log in 2040 learns nothing about a seed committed to in 2026. See
+# `src/vss.rs`.
+curve25519-dalek = "4"
+# ML-KEM-768, so a share in flight is sealed to its recipient under a
+# post-quantum KEM rather than trusting the transport. Already the node's own
+# p2p KEM (`src/network/pq/handshake.rs`), so this adds nothing new.
+maya-crypto-pq = { path = "../crypto-pq" }
+# The DEM half of that sealing, and the same AEAD the node's transport uses.
+chacha20poly1305 = "0.10"
+# Commitments, transcripts, and the XOF that derives the second generator.
+blake3 = "1.8"
+# ML-DSA-65. Only the 65 parameter set, matching the node — a compiled-in set
+# is a set someone can select by accident.
+fips204 = { version = "0.4", default-features = false, features = ["ml-dsa-65", "default-rng"] }
+# Entropy straight from the OS, the same source the node's key generation uses.
+getrandom = "0.4"
+zeroize = { version = "1", features = ["derive"] }
+thiserror = "2.0"
+
+# The TLS binding for item 3 of the brief. Optional because a custodian that
+# carries sealed shares on a USB stick needs the protocol and not the transport,
+# and because a default-on async runtime in a custody library is a dependency
+# nobody asked for.
+tokio = { version = "1", features = ["io-util", "net"], optional = true }
+# Default features off so the `aws-lc-rs` provider is not pulled in: it needs a
+# C toolchain, and this workspace builds a static musl binary.
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"], optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"], optional = true }
+rustls-pki-types = { version = "1", optional = true }
+
+[features]
+# On by default so `cargo test --workspace` actually exercises the transport
+# rather than compiling a module nobody runs. `rustls` and `tokio` are already
+# in this workspace's lockfile via `jsonrpsee`, so the default costs no new
+# dependency.
+default = ["tls"]
+tls = ["dep:tokio", "dep:tokio-rustls", "dep:rustls", "dep:rustls-pki-types"]
+
+[dev-dependencies]
+hex = "0.4"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-util", "net", "time"] }
+# Self-signed certificates for the loopback mTLS test. A dev-dependency: no
+# shipped code generates a certificate.
+rcgen = "0.14"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }

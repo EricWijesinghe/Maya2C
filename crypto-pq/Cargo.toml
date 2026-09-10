@@ -1,6 +1,11 @@
 [package]
 name = "maya-crypto-pq"
 version = "0.1.0"
+# Not published. cargo-deny reads this: `allow-wildcard-paths` and
+# `[licenses.private] ignore` both apply only to unpublished crates, so
+# without it every internal path dependency reads as a wildcard and every
+# workspace crate reads as unlicensed.
+publish = false
 edition = "2024"
 rust-version = "1.88"
 
@@ -35,6 +40,30 @@ slh-dsa = { version = "=0.2.0-rc.5", features = ["zeroize"] }
 # and key format the standard changed. It is not ML-KEM and must not be labelled
 # as such. Pure Rust, for the same static-musl reason as the rest of this crate.
 ml-kem = { version = "=0.3.2", features = ["getrandom", "zeroize"] }
+# HQC-192 (draft FIPS 207), the transport's second key encapsulation.
+#
+# RustCrypto, the same organisation as `ml-kem` above, and pure Rust for the
+# same static-musl reason as the rest of this crate. `pqcrypto-hqc` is PQClean
+# C bindings and was excluded on that ground; `pqc-kem`'s `hqc` feature is a
+# shim over liboqs, which is the same objection wearing a Rust name.
+#
+# Pinned exactly. This is a release candidate tracking a *draft* standard, and
+# it sits under the transport: a patch bump that moved a parameter or an
+# encoding would silently break every connection between mismatched nodes. The
+# pin makes that a build failure. The same reasoning as `slh-dsa` above, with
+# more force — FIPS 203 was final when `ml-kem` was pinned; FIPS 207 is not.
+hqc-kem = "=0.1.0-rc.0"
+# The RNG trait `hqc-kem` takes for key generation and encapsulation.
+#
+# A deliberate exception to the root manifest's rule that entropy comes straight
+# from the OS rather than through an RNG trait crate. `hqc-kem` takes
+# `&mut impl rand::CryptoRng`, so there is no door that skips it. `SysRng` is
+# `getrandom` wearing the trait — the same source the rule prefers — so the
+# exception costs a trait bound, not an entropy source.
+rand = { version = "0.10", default-features = false, features = ["sys_rng"] }
+# For `UnwrapErr`, which adapts the fallible OS generator to the infallible
+# `CryptoRng` bound `hqc-kem` requires. See `hqc::os_rng`.
+rand_core = { version = "0.10", default-features = false }
 blake3 = "1.8"
 zeroize = "1"
 getrandom = "0.4"

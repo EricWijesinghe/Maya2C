@@ -32,5 +32,6 @@
 //! reach for the wrong parameter set by accident, because no other parameter
 //! set is nameable from outside.
 
+pub mod hqc;
 pub mod kem;
 pub mod sig;

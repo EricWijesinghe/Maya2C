@@ -8,7 +8,7 @@
 //! and because a shielded pool hides values, no supply audit would ever notice.
 //!
 //! This module generates the parameters deterministically from
-//! [`SETUP_SEED`](crate::params::SETUP_SEED). That makes them reproducible,
+//! [`crate::params::SETUP_SEED`]. That makes them reproducible,
 //! which is exactly what a test suite needs and exactly what a real deployment
 //! must never have: anyone can re-run the setup and recover the toxic waste.
 //!

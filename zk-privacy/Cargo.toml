@@ -1,6 +1,11 @@
 [package]
 name = "maya-zk-privacy"
 version = "0.1.0"
+# Not published. cargo-deny reads this: `allow-wildcard-paths` and
+# `[licenses.private] ignore` both apply only to unpublished crates, so
+# without it every internal path dependency reads as a wildcard and every
+# workspace crate reads as unlicensed.
+publish = false
 edition = "2024"
 rust-version = "1.88"
 description = "Shielded pool primitives: Poseidon note commitments, nullifiers, and Groth16 joinsplit proofs"
