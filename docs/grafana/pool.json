@@ -1,0 +1,253 @@
+{
+  "__comment": [
+    "Maya2C pool dashboard.",
+    "",
+    "Row 1 is the operator's answer to 'is the pool solvent and paying?'. It is",
+    "first because on this chain that is the question that has no automatic",
+    "answer: nothing mints a block reward, so payouts come from an account a",
+    "person funds, and an empty treasury stops every payout silently.",
+    "",
+    "Measured and reported figures are never on the same axis. Pool hashrate is",
+    "derived from accepted share weight; reported power is a sum of numbers rigs",
+    "sent about themselves and cannot be checked. Plotting them together would",
+    "invite an efficiency panel built half from measurement and half from claims.",
+    "",
+    "Nothing here is labelled per worker. Per-rig figures live on the pool's own",
+    "dashboard, which can be paginated and authorised; a Prometheus label taken",
+    "from a name a stranger chose is a cardinality bomb with one fuse per",
+    "connection."
+  ],
+  "title": "Maya2C Pool",
+  "uid": "maya-pool",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Solvency and payouts",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false
+    },
+    {
+      "type": "stat",
+      "title": "Treasury balance",
+      "description": "The account payouts are spent from. This chain mints no block reward, so nothing refills this automatically. Red once it cannot cover what the pool owes.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 1 },
+      "targets": [
+        { "expr": "maya_pool_treasury_balance", "legendFormat": "treasury", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Owed to miners",
+      "description": "Unpaid credits are from confirmed blocks and are payable now. Immature credits are from blocks a reorg could still take away, and are shown separately for that reason — summing them would make an ordinary reversal look like the pool taking money back.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 6, "w": 10, "x": 6, "y": 1 },
+      "targets": [
+        { "expr": "maya_pool_unpaid_balance", "legendFormat": "unpaid", "refId": "A" },
+        { "expr": "maya_pool_immature_balance", "legendFormat": "immature", "refId": "B" },
+        { "expr": "maya_pool_treasury_balance", "legendFormat": "treasury", "refId": "C" }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "fillOpacity": 8, "lineWidth": 2 } },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Payout batches",
+      "description": "An open batch is a miner not being paid. Refusals are never retried automatically: every case is a policy or custody condition that a retry cannot clear.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 1 },
+      "targets": [
+        { "expr": "maya_pool_payout_batches_open", "legendFormat": "open", "refId": "A" },
+        {
+          "expr": "increase(maya_pool_payouts_confirmed_total[1h])",
+          "legendFormat": "confirmed / hour",
+          "refId": "B"
+        },
+        {
+          "expr": "increase(maya_pool_payouts_refused_total[1h])",
+          "legendFormat": "refused / hour",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Shares and load",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 7 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "Share rate by outcome",
+      "description": "Rejection reasons are a closed set, so this cannot be widened by a hostile connection. A rising 'stale-share' line usually means the pool's job push is slow, not that the rigs are.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(maya_pool_shares_accepted_total[5m]))",
+          "legendFormat": "accepted",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (reason) (rate(maya_pool_shares_rejected_total[5m]))",
+          "legendFormat": "{{reason}}",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "fillOpacity": 10 } },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Validation queue and backpressure",
+      "description": "The saturation signal. Connection count is not the wall — each share is a 25 ms Argon2id pass below the DAG fork. When the queue fills the pool raises targets rather than dropping shares, and the retune counter is what shows it happening.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        { "expr": "maya_pool_validation_queue_depth", "legendFormat": "queue depth", "refId": "A" },
+        {
+          "expr": "increase(maya_pool_vardiff_pressure_retunes_total[5m])",
+          "legendFormat": "pressure retunes / 5m",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Share verification time",
+      "description": "About 25 ms per share below the DAG activation height and about a millisecond above it, so a step change here is usually the fork rather than a regression.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 15 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(maya_pool_share_validation_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(maya_pool_share_validation_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "type": "timeseries",
+      "title": "Job push latency",
+      "description": "Wall time from a new template to the last channel being told. At a 15-second block target this has to stay sub-second: every millisecond here is a millisecond of every rig's work spent on a job that has already been replaced.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 15 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(maya_pool_job_push_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(maya_pool_job_push_duration_seconds_bucket[5m])))",
+          "legendFormat": "p99",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "type": "row",
+      "title": "Miners and blocks",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "Measured hashrate",
+      "description": "Derived from accepted share weight. This is the pool's own arithmetic — it is the number no rig can inflate by claiming it.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 23 },
+      "targets": [
+        { "expr": "maya_pool_hashrate_hashes_per_second", "legendFormat": "measured", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "Hs" }, "overrides": [] }
+    },
+    {
+      "type": "timeseries",
+      "title": "Channels and rigs",
+      "description": "Channels are live connections; rigs include ones seen recently and now offline, which is deliberate — the operator looking for a rig has usually just been paged about it.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 23 },
+      "targets": [
+        { "expr": "maya_pool_channels_open", "legendFormat": "channels", "refId": "A" },
+        { "expr": "maya_pool_workers_tracked", "legendFormat": "rigs tracked", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Blocks found and orphaned",
+      "description": "Orphans cost the pool nothing and the miners everything — their credits are reversed — so a sustained orphan rate is worth chasing even when block discovery looks healthy.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 23 },
+      "targets": [
+        {
+          "expr": "increase(maya_pool_blocks_found_total[6h])",
+          "legendFormat": "found / 6h",
+          "refId": "A"
+        },
+        {
+          "expr": "increase(maya_pool_blocks_orphaned_total[6h])",
+          "legendFormat": "orphaned / 6h",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Reported rig power (unverified)",
+      "description": "A sum of numbers rigs sent about themselves. Nothing checks it and nothing can: a rig claiming 40 W while drawing 4,000 is indistinguishable from an efficient one. It is on its own panel so it never ends up beside a measurement on the same axis, and it never reaches payout arithmetic.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 30 },
+      "targets": [
+        {
+          "expr": "maya_pool_reported_power_watts",
+          "legendFormat": "reported power",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "watt", "custom": { "fillOpacity": 5, "lineStyle": { "dash": [8, 4], "fill": "dash" } } },
+        "overrides": []
+      }
+    }
+  ]
+}

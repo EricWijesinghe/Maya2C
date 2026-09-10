@@ -1,0 +1,7 @@
+group,algorithm,median_ns,ops_per_second,modelled_joules_per_op,assumed_watts
+pow-hash,"argon-blake (maya2c, pre-fork)",29071446.4,34.40,1.308215089,45.0
+pow-hash,sha256d (bitcoin),74.4,13435975.11,0.000003349,45.0
+signature-generation,ed25519,12764.9,78339.71,0.000574421,45.0
+signature-generation,ml-dsa-65 + slh-dsa (maya2c),148111044.4,6.75,6.664997000,45.0
+signature-verification,ed25519,24655.4,40559.12,0.001109491,45.0
+signature-verification,ml-dsa-65 + slh-dsa (maya2c),331862.1,3013.30,0.014933795,45.0
