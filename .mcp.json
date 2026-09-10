@@ -1,0 +1,55 @@
+{
+  "mcpServers": {
+    "serena": {
+      "command": "cmd.exe",
+      "args": [
+        "/c",
+        "uvx",
+        "--from",
+        "serena-agent",
+        "serena",
+        "start-mcp-server",
+        "--context",
+        "ide-assistant",
+        "--project",
+        "D:\\Maya2C"
+      ],
+      "env": {
+        "UV_CACHE_DIR": "D:\\Caches\\uv_cache",
+        "SERENA_LOG_LEVEL": "ERROR"
+      }
+    },
+    "fetch": {
+      "command": "cmd.exe",
+      "args": [
+        "/c",
+        "uvx",
+        "mcp-server-fetch"
+      ],
+      "env": {
+        "UV_CACHE_DIR": "D:\\Caches\\uv_cache"
+      }
+    },
+    "context7": {
+      "command": "cmd.exe",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@upstash/context7-mcp"
+      ],
+      "env": {
+        "NPM_CONFIG_CACHE": "D:\\Caches\\npm_cache"
+      }
+    },
+    "headroom": {
+      "command": "cmd.exe",
+      "args": [
+        "/c",
+        "D:\\Headroom\\.venv\\Scripts\\headroom.exe",
+        "mcp",
+        "serve"
+      ]
+    }
+  }
+}
