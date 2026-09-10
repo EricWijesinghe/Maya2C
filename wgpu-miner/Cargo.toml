@@ -1,0 +1,39 @@
+[package]
+name = "maya-wgpu-miner"
+version = "0.1.0"
+publish = false
+edition = "2024"
+rust-version = "1.88"
+description = "Cross-platform GPU hashimoto mining via wgpu and WGSL"
+
+[features]
+# GPU off by default, exactly as `cuda-miner`'s `cuda` feature is, and for the
+# same reason: `cargo build --workspace` must stay green on a runner with no
+# adapter and no graphics driver. With no feature selected this crate compiles
+# to the host-side pipeline and the CPU reference, which is what the parity
+# tests need anyway.
+default = []
+gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
+
+[dependencies]
+custom-l1-node = { path = ".." }
+crossbeam-channel = "0.5"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+clap = { version = "4", features = ["derive", "env"] }
+thiserror = "2.0"
+hex = "0.4"
+# The hash-rate meter and the reporter that posts it. `default-features = false`
+# keeps the collector's web framework out of a miner that never serves — the
+# crate is split into `server` and `client` halves for exactly this.
+maya-telemetry = { path = "../telemetry", default-features = false, features = ["client"] }
+
+wgpu = { version = "27", optional = true }
+# wgpu's API is async; the miner's control loop is not. `pollster` blocks on the
+# handful of setup futures rather than making adapter enumeration infect every
+# caller with async.
+pollster = { version = "0.4", optional = true }
+bytemuck = { version = "1", features = ["derive"], optional = true }
+
+[[bin]]
+name = "wgpu-miner"
+path = "src/main.rs"

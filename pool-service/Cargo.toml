@@ -1,0 +1,89 @@
+﻿[package]
+name = "maya-pool-service"
+version = "0.1.0"
+# Not published. cargo-deny reads this: `allow-wildcard-paths` and
+# `[licenses.private] ignore` both apply only to unpublished crates, so
+# without it every internal path dependency reads as a wildcard and every
+# workspace crate reads as unlicensed.
+publish = false
+edition = "2024"
+rust-version = "1.88"
+description = "Mining pool daemon for Maya2C: share validation, PPLNS accounting, and treasury payouts"
+
+[lib]
+name = "maya_pool_service"
+path = "src/lib.rs"
+
+[[bin]]
+name = "pool"
+path = "src/bin/pool.rs"
+
+[dependencies]
+# This is the layer where protocol values meet chain types, which
+# `stratum-v2/Cargo.toml` names as the reason that crate has no chain
+# dependency. Share verification needs the real `BlockHeader::pow_hash_at`, the
+# real `CacheRegistry`, and the real target comparison: a pool that credits
+# shares against its own copy of the proof-of-work rule is a pool that pays for
+# work the chain would reject.
+custom-l1-node = { path = ".." }
+maya-stratum-v2 = { path = "../stratum-v2" }
+# Every credit, debit, and treasury nonce bump. Model-checked, and the reason
+# no balance in this crate is touched with a bare `+` or `-`.
+maya-ledger-math = { path = "../ledger-math" }
+# The treasury key's keystore, and the JSON-RPC client the wallet already uses.
+# Reused rather than reimplemented: two readers of one keystore format drift,
+# and the drift surfaces as a key file that cannot be opened.
+l1-wallet = { path = "../wallet" }
+
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "sync",
+    "time",
+    "signal",
+    "net",
+    "io-util",
+] }
+# `pq::handshake::respond` is generic over *futures* AsyncRead/AsyncWrite, and a
+# Tokio `TcpStream` implements Tokio's. This is the adapter between them, and
+# the only reason the dependency is here.
+tokio-util = { version = "0.7", features = ["compat"] }
+futures = "0.3"
+
+axum = { version = "0.8", features = ["ws", "macros"] }
+# SSR only, exactly as `explorer` does it: a hydrating build needs
+# cargo-leptos and wasm-bindgen to produce a client bundle. Liveness comes from
+# the WebSocket instead.
+leptos = { version = "0.8", features = ["ssr"] }
+tower-http = { version = "0.6", features = ["trace"] }
+
+# The share ledger. RocksDB rather than the PostgreSQL the explorer uses,
+# because the two stores hold different kinds of data: everything the explorer
+# indexes can be rebuilt from the chain, and a lost share credit is gone.
+# Reusing the node's storage engine also means one set of operational knowledge.
+rocksdb = "0.25"
+
+prometheus-client = "0.25"
+jsonrpsee = { version = "0.26", features = ["http-client"] }
+# Same reason explorer/Cargo.toml has it: the chain-facing trait is held as
+# a trait object so the payout engine can be driven by a test double, and
+# native async fns in traits are not dyn-compatible.
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2.0"
+hex = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
+# The simulated workers drive the real encoders over an in-memory duplex rather
+# than a socket, the way the transport tests already do.
+futures_ringbuf = "0.4"
+# #[tokio::test] for the payout engine's async paths.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util"] }
+# Drives the Axum router directly in tests, so the dashboard is exercised
+# without binding a port.
+tower = "0.5"
+
+
+

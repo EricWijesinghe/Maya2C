@@ -1,0 +1,49 @@
+[package]
+name = "maya-cuda-miner"
+version = "0.1.0"
+# Not published. cargo-deny reads this: `allow-wildcard-paths` and
+# `[licenses.private] ignore` both apply only to unpublished crates, so
+# without it every internal path dependency reads as a wildcard and every
+# workspace crate reads as unlicensed.
+publish = false
+edition = "2024"
+rust-version = "1.88"
+description = "CUDA-accelerated ArgonBlake proof-of-work search for the Maya2C chain"
+
+[lib]
+name = "maya_cuda_miner"
+path = "src/lib.rs"
+
+[features]
+# Off by default, and it must stay that way.
+#
+# This crate is a workspace member, so `cargo build --workspace` and every CI
+# job compiles it — including the GPU-less runners the security-audit workflow
+# uses. With `cuda` off, `build.rs` never invokes nvcc and nothing here links
+# against the CUDA runtime, so a machine with no toolkit still builds a green
+# workspace. Turning it on is an explicit `--features cuda`.
+default = []
+cuda = []
+
+[dependencies]
+# The two BLAKE3 stages of ArgonBlake. Same crate and same version the node
+# uses, because a different BLAKE3 would be a different chain.
+blake3 = "1.8"
+# Argon2's internal hash: H0 over the parameter block, and the H' variable-length
+# expansion that produces the two seed blocks and the final tag. Already in the
+# tree transitively under `argon2`, so this adds no new dependency — it only
+# names one we were already compiling.
+blake2 = "0.10"
+thiserror = "2.0"
+
+[dev-dependencies]
+# The reference implementation, for parity only. Never a runtime dependency:
+# the shipped miner must not drag RocksDB and libp2p behind it, and the whole
+# point of the parity test is to compare against the *node's* definition rather
+# than a second copy of it living here.
+custom-l1-node = { path = ".." }
+argon2 = "0.5"
+hex = "0.4"
+# Reads the frozen DAG vectors in `../tests/fixtures`. Already in the workspace
+# lockfile via the node, so this names a crate we compile either way.
+serde_json = "1"

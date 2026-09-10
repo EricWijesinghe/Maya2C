@@ -1,0 +1,27 @@
+[package]
+name = "maya-stratum-v2"
+version = "0.1.0"
+# Not published. cargo-deny reads this: `allow-wildcard-paths` and
+# `[licenses.private] ignore` both apply only to unpublished crates, so
+# without it every internal path dependency reads as a wildcard and every
+# workspace crate reads as unlicensed.
+publish = false
+edition = "2024"
+rust-version = "1.88"
+description = "Stratum V2 framing and mining messages, adapted to the Maya2C header"
+
+[lib]
+name = "maya_stratum_v2"
+path = "src/lib.rs"
+
+# Deliberately no dependency on `custom-l1-node`, and it should stay that way.
+#
+# This crate decodes bytes a stranger chose. Keeping it free of the chain means
+# it can be fuzzed, property-tested and reviewed on its own, without RocksDB or
+# libp2p in the graph — the same reasoning that keeps `ledger-math` dependency
+# free. The pool daemon is where protocol values meet chain types.
+[dependencies]
+thiserror = "2.0"
+
+[dev-dependencies]
+hex = "0.4"
