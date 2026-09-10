@@ -1,0 +1,9 @@
+---
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Restart maya2c-node
+  ansible.builtin.systemd_service:
+    name: maya2c-node
+    state: restarted

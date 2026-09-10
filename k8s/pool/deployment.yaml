@@ -1,0 +1,154 @@
+# The pool daemon.
+#
+# A Deployment rather than the StatefulSet the node uses, with `replicas: 1` and
+# a Recreate strategy. That combination is deliberate and is the honest shape of
+# what `pool-service` currently is:
+#
+#   - the share ledger is a single RocksDB directory with no replication, so a
+#     second replica would be a second ledger and half the shares would land in
+#     each;
+#   - the treasury spends sequential nonces, so two daemons signing against the
+#     same account would produce two transactions for one slot and one of them
+#     would be rejected — after its credits had already been debited.
+#
+# `Recreate` rather than `RollingUpdate` for the same reason: the new pod must
+# not open the ledger while the old one still holds it.
+#
+# Scaling this horizontally means sharding miners across independent pools with
+# independent treasuries, or moving the ledger to a replicated store. Neither is
+# implemented, and a `replicas: 2` here would look like it worked until the
+# first payout.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: maya-pool
+  labels:
+    app.kubernetes.io/name: maya-pool
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: maya-pool
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: maya-pool
+    spec:
+      # The ledger is the pool's only record of what it owes. A pod that is
+      # killed mid-write should come back and read it, not start empty.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+      containers:
+        - name: pool
+          image: maya-pool:latest
+          args:
+            - --stratum-addr=0.0.0.0:3333
+            - --api-addr=0.0.0.0:8080
+            # Bound to the pod network only. What this serves is operational
+            # data, and here it includes aggregate miner earnings.
+            - --metrics-addr=0.0.0.0:9090
+            - --node-rpc=http://maya-node:8545
+            - --data-dir=/data
+            - --treasury=/treasury/treasury.key
+            # Payout policy. Every value below is a decision about other
+            # people's money, which is why the daemon range-checks all of it at
+            # startup and refuses to run rather than clamping.
+            #
+            # `--reward-per-block` has no default anywhere: this chain mints no
+            # block subsidy, so what a found block distributes is the operator's
+            # decision, funded from the treasury (docs/pool-service.md §1). The
+            # value here is a PLACEHOLDER and must be set deliberately before
+            # the first miner connects — a pool paying the wrong amount is
+            # discovered by a miner, not by a probe.
+            - --reward-per-block=1000000000
+            - --fee-rate=0.01
+            - --fee-address=0000000000000000000000000000000000000000000000000000000000000000
+            - --min-payout=100000000
+            # A custody bound, not an accounting one. The signing key is hot on
+            # a pod with a public mining port; this caps what one compromised
+            # batch can carry.
+            - --max-batch-value=100000000000
+          env:
+            # There is deliberately no password flag: a password on a command
+            # line is in the process list and in shell history. The Secret is
+            # mounted as an environment variable rather than a file only because
+            # that is the interface the daemon exposes.
+            - name: MAYA_POOL_TREASURY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: maya-pool-treasury
+                  key: password
+          ports:
+            - name: stratum
+              containerPort: 3333
+            - name: http
+              containerPort: 8080
+            - name: metrics
+              containerPort: 9090
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+          # Liveness deliberately probes the dashboard rather than the mining
+          # port. A pool whose node is unreachable still holds every credit it
+          # has recorded; restarting it would lose nothing but would also fix
+          # nothing, and would drop every miner's connection while it did.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests:
+              # Eight concurrent verifications hold 32 MiB each under the
+              # pre-fork rule, plus the DAG epoch cache. The request is sized
+              # for that working set rather than for average utilisation.
+              cpu: "4"
+              memory: 2Gi
+            limits:
+              cpu: "8"
+              memory: 4Gi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: treasury
+              mountPath: /treasury
+              readOnly: true
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: maya-pool-data
+        - name: treasury
+          secret:
+            secretName: maya-pool-treasury
+            items:
+              - key: keystore
+                path: treasury.key
+              # 0400. The keystore is Argon2id-wrapped, so a leaked copy is
+              # expensive rather than trivial to open — but expensive is not
+              # impossible, and the file has no reason to be readable by
+              # anything else in the pod.
+            defaultMode: 0400
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: maya-pool-data
+  labels:
+    app.kubernetes.io/name: maya-pool
+spec:
+  accessModes:
+    # Single-writer, matching the single replica above. RWX would suggest the
+    # ledger tolerates concurrent writers, and it does not.
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi

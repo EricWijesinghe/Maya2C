@@ -1,0 +1,46 @@
+---
+# Fleet-wide defaults. Override per region in inventory, per host in host_vars.
+
+# Chain ids the node binary, the ceremony tool and terraform all refuse.
+# Repeated here rather than imported because Ansible has no way to read the
+# Rust constant, and a list that silently disagreed with the binary would be
+# worse than one that is visibly duplicated.
+maya_value_bearing_chains:
+  - mainnet
+  - maya-mainnet
+
+maya_chain_id: maya-genesis-rc1
+
+# From the ceremony's COMMITMENT.txt. There is no default: a wrong-but-present
+# value would verify successfully against the wrong network.
+maya_expected_state_root: ""
+maya_genesis_url: ""
+
+maya_p2p_port: 30333
+
+# Loopback. Not a default to be overridden -- see the TLS note in setup_node.yml.
+maya_rpc_bind: "127.0.0.1"
+maya_rpc_port: 8545
+
+maya_bin_dir: /usr/local/bin
+maya_conf_dir: /etc/maya2c
+maya_data_dir: /var/lib/maya2c
+
+# --- build ------------------------------------------------------------------
+#
+# Building on the target is what the brief asked for, and it is what this does
+# by default. It is worth knowing the cost: it puts a Rust toolchain on every
+# production host and produces twelve binaries that are only probably
+# identical, on the one artefact whose behaviour defines consensus.
+#
+# Setting maya_node_prebuilt_url skips the build entirely and installs a
+# single artefact whose checksum you can verify against a release. For a real
+# launch that is the safer path, and it is one variable away.
+maya_node_prebuilt_url: ""
+maya_node_prebuilt_sha256: ""
+maya_genesis_prebuilt_url: ""
+maya_genesis_prebuilt_sha256: ""
+maya_rust_version: "1.88"
+maya_repo_url: "https://github.com/maya2c/maya2c"
+maya_repo_ref: "main"
+maya_build_dir: /opt/maya2c-build

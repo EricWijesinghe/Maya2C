@@ -1,0 +1,63 @@
+# Three services, because there are three audiences and they do not overlap.
+#
+# Splitting them is not tidiness. A single Service carrying all three ports
+# would mean one NetworkPolicy, one Ingress decision, and one accident away from
+# publishing the metrics endpoint — which exports aggregate miner earnings — to
+# whatever can reach the mining port.
+
+# The mining port. This is the only one that faces the internet, and the only
+# one that changes pool state.
+apiVersion: v1
+kind: Service
+metadata:
+  name: maya-pool-stratum
+  labels:
+    app.kubernetes.io/name: maya-pool
+    app.kubernetes.io/component: stratum
+spec:
+  type: LoadBalancer
+  # Preserved so per-IP connection limits and abuse reports name the miner
+  # rather than the load balancer. It also keeps a miner pinned to one backend,
+  # which matters here: a channel's nonce range and duplicate memory live in one
+  # process.
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: maya-pool
+  ports:
+    - name: stratum
+      port: 3333
+      targetPort: stratum
+---
+# The dashboard and JSON API. Read-only, and safe to put behind an Ingress.
+apiVersion: v1
+kind: Service
+metadata:
+  name: maya-pool-http
+  labels:
+    app.kubernetes.io/name: maya-pool
+    app.kubernetes.io/component: http
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: maya-pool
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+# The exporter. ClusterIP with no Ingress, ever.
+apiVersion: v1
+kind: Service
+metadata:
+  name: maya-pool-metrics
+  labels:
+    app.kubernetes.io/name: maya-pool
+    app.kubernetes.io/component: metrics
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: maya-pool
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: metrics

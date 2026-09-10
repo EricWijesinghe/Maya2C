@@ -1,0 +1,253 @@
+name: security-audit
+
+# Three independent audit surfaces over one tree:
+#
+#   fuzz    — libFuzzer over every decoder that touches bytes a peer chose
+#   kani    — model checking over the ledger's u64 arithmetic
+#   geiger  — unsafe accounting across the dependency graph
+#   vectors — the DAG proof of work against its frozen consensus vectors
+#   deny    — advisory and licence gate
+#
+# They are separate jobs rather than steps because they fail for unrelated
+# reasons and a reviewer needs to see which one went red without reading a log.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    # 03:00 UTC daily. The fuzz job reads this to decide how long to run: a pull
+    # request gets a smoke test, the nightly run gets a real budget.
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+# A second push to the same branch makes the first run's answer irrelevant.
+# The scheduled run is exempt: cancelling it would mean the nightly fuzz budget
+# is silently forfeited whenever someone pushes at the wrong moment.
+concurrency:
+  group: security-audit-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Backtraces cost nothing here and are the difference between a usable crash
+  # report and a hex address.
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ---------------------------------------------------------------------------
+  fuzz:
+    name: fuzz / ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      # One target's crash must not cancel the others: they decode different
+      # structures and a bug in one says nothing about the rest.
+      fail-fast: false
+      matrix:
+        target:
+          - tx_decode
+          - header_decode
+          - block_decode
+          - payload_decode
+          - account_decode
+          - sv2_frame_decode
+    steps:
+      - uses: actions/checkout@v4
+
+      # `librocksdb-sys` builds RocksDB's C++ and binds it with bindgen, which
+      # needs libclang. Every job that compiles `custom-l1-node` needs this.
+      - name: Install RocksDB build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev llvm-dev libssl-dev pkg-config
+
+      # cargo-fuzz needs nightly for `-Zsanitizer=address`. Pinned rather than
+      # floating, because a nightly that breaks the sanitizer surfaces as a
+      # crash in the node rather than as a toolchain error — the single most
+      # expensive way to learn that rustc changed.
+      #
+      # Bump deliberately, and only after running the targets against the
+      # existing corpus on the new nightly.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-15
+          components: rust-src
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+          key: fuzz-${{ matrix.target }}
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      # A pull request gets 60 seconds a target against the committed corpus —
+      # enough to catch a regression that the corpus already reaches. Finding
+      # something genuinely new is the nightly run's job, and giving a PR a
+      # budget it cannot use just makes the check slow enough to be resented.
+      - name: Set fuzzing budget
+        id: budget
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "seconds=900" >> "$GITHUB_OUTPUT"
+          else
+            echo "seconds=60" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fuzz ${{ matrix.target }}
+        working-directory: fuzz
+        run: |
+          cargo fuzz run ${{ matrix.target }} \
+            -- \
+            -max_total_time=${{ steps.budget.outputs.seconds }} \
+            -max_len=65536 \
+            -rss_limit_mb=2048 \
+            -timeout=5 \
+            -print_final_stats=1
+
+      # Only on failure, and `if-no-files-found: ignore` because a timeout or a
+      # build failure also lands here with nothing to upload.
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts/
+          if-no-files-found: ignore
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  kani:
+    name: kani proofs
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # No RocksDB dependencies here, and that is the point. `maya-ledger-math`
+      # has an empty dependency table, so this job compiles one leaf crate to a
+      # goto-binary rather than the node's entire C++-linking graph — which is
+      # what makes model checking possible at all. See ledger-math/src/lib.rs.
+      - uses: model-checking/kani-github-action@v1
+        with:
+          args: "-p maya-ledger-math --output-format terse"
+
+  # ---------------------------------------------------------------------------
+  geiger:
+    name: unsafe accounting
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install RocksDB build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev llvm-dev libssl-dev pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: geiger
+
+      # Pinned, and deliberately so. cargo-geiger is lightly maintained and has
+      # a history of breaking on new cargo metadata formats; an unpinned install
+      # turns an upstream release into a red build on an unrelated pull request.
+      - name: Install cargo-geiger
+        run: cargo install cargo-geiger --version 0.11.7 --locked
+
+      # The dependency-graph survey. Reported, never gated.
+      #
+      # We do not control our dependencies' unsafe usage, and a threshold across
+      # a graph this size — RocksDB bindings, libp2p, the arkworks stack — would
+      # be a number chosen to pass rather than a claim about safety. What it is
+      # good for is showing a reviewer what a version bump changed, so it lands
+      # in the step summary where a reviewer will actually see it.
+      #
+      # `continue-on-error` covers the tool, not the finding: if geiger itself
+      # falls over, this job still reports the first-party gate below, which is
+      # the part that has teeth.
+      - name: Survey dependency unsafe usage
+        id: survey
+        continue-on-error: true
+        run: |
+          {
+            echo "## Dependency unsafe usage"
+            echo
+            echo '```'
+            cargo geiger --workspace --all-features --output-format Ascii 2>&1 | tail -n 120
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Note when the survey could not run
+        if: steps.survey.outcome == 'failure'
+        run: |
+          {
+            echo "## Dependency unsafe usage"
+            echo
+            echo "\`cargo-geiger\` failed to run. The first-party gate below is unaffected."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The gate. Deterministic, does not depend on geiger being healthy, and
+      # fails on any `unsafe` block that appears in code we wrote and did not
+      # record a reason for.
+      - name: Gate first-party unsafe
+        run: ./scripts/check-unsafe.sh
+
+  # ---------------------------------------------------------------------------
+  consensus-vectors:
+    name: consensus vectors
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install RocksDB build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev llvm-dev libssl-dev pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: consensus-vectors
+
+      # `tests/fixtures/dag_vectors.json` pins the bytes of the DAG proof of
+      # work. Both implementations of it are checked against the file: the
+      # node's, which validates blocks, and the GPU miner's, which produces
+      # them. A change that alters either one without altering the vectors is a
+      # hard fork, and this is where that gets caught rather than at the point
+      # where a miner's blocks start being rejected.
+      #
+      # Release, because the mainnet vectors generate a 64 MiB cache and an
+      # unoptimized build turns a second into a minute.
+      - name: Node against the frozen vectors
+        run: cargo test --release --test dag_tests
+
+      - name: GPU miner against the node and the frozen vectors
+        run: cargo test --release -p maya-cuda-miner --test dag_parity
+
+      # The kernel's Rust counterparts: the hand-rolled BLAKE3 the CUDA port is
+      # transliterated from, checked against the `blake3` crate. The kernel
+      # itself needs a GPU runner and is not built here — which is exactly why
+      # this check exists.
+      - name: Kernel reference implementations
+        run: cargo test --release -p maya-cuda-miner --lib
+
+  # ---------------------------------------------------------------------------
+  deny:
+    name: advisories and licences
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories bans licenses sources

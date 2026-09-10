@@ -1,0 +1,99 @@
+# Maya2C miner.
+#
+# NOT VERIFIED ON A LIVE SYSTEM. Written on a Windows host with no systemd.
+# Run `systemd-analyze verify` before trusting it.
+#
+# --- why this is a separate unit from the node ----------------------------
+#
+# Not tidiness. Mining and validating have opposite failure preferences.
+#
+# A node that stops is a node that stops following the chain, so it restarts
+# aggressively. A miner that stops costs its operator revenue and costs the
+# network nothing — the difficulty retarget absorbs it. So the miner restarts
+# more slowly, is niced further down, and is the one that gets killed first
+# under memory pressure.
+#
+# Running them in one unit would mean a miner crash restarting the node, which
+# is a validating node taken down by an accounting problem.
+
+[Unit]
+Description=Maya2C miner
+Documentation=https://github.com/maya2c/maya2c
+After=network-online.target maya2c-node.service
+Wants=network-online.target
+# Wants, not Requires: the miner needs a node to take work from, but a node
+# that goes down should not take the miner's unit into a failed state — the
+# miner will simply find nothing to do and retry.
+Wants=maya2c-node.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/miner \
+    --rpc http://127.0.0.1:8545 \
+    --threads 4
+
+Restart=on-failure
+# Longer than the node's 5s. A miner that cannot reach its node should back
+# off rather than spin: the node is probably still replaying blocks.
+RestartSec=30s
+StartLimitIntervalSec=600
+StartLimitBurst=10
+
+# Nothing to flush. A miner killed mid-nonce loses at most one attempt.
+TimeoutStopSec=30
+
+# --- isolation ------------------------------------------------------------
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+
+# Loopback only: the miner talks to the node's RPC and nothing else. It has no
+# reason to reach the internet, and denying it is the difference between a
+# compromised miner and a compromised miner that can exfiltrate.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+IPAddressAllow=localhost
+IPAddressDeny=any
+
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete
+SystemCallArchitectures=native
+
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# --- resources ------------------------------------------------------------
+#
+# ArgonBlake is 32 MiB of Argon2id per attempt per thread. Four threads is
+# 128 MiB of hot memory plus overhead; 2G is generous for the CPU miner.
+#
+# A GPU miner holding a 4 GiB DAG dataset needs far more and should raise this
+# — see docs/wgpu-miner.md. It is set low deliberately: a miner that OOMs is a
+# miner that stops, and a miner that stops costs only revenue.
+MemoryMax=2G
+
+LimitNOFILE=4096
+
+# Below the node. On a host running both, block validation must win: a slow
+# miner loses money, a slow validator loses consensus.
+Nice=15
+IOSchedulingClass=idle
+CPUWeight=50
+
+[Install]
+WantedBy=multi-user.target

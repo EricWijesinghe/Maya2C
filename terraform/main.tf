@@ -12,6 +12,13 @@
 # 10.0.0.0/16 three times works right up until the day the regions must talk
 # privately, and then it cannot be fixed without rebuilding.
 
+# Resolved once and passed to all three regions. Computing it per module block
+# would let a future edit change one region's hardware and leave the other two
+# behind — a mixed fleet whose cross-region latency numbers mean nothing.
+locals {
+  instance_type = var.bare_metal ? "r6i.metal" : var.instance_type
+}
+
 module "us" {
   source = "./modules/node-pool"
 
@@ -23,7 +30,7 @@ module "us" {
   chain_id           = var.chain_id
   vpc_cidr           = "10.10.0.0/16"
   availability_zones = ["us-east-1a", "us-east-1b", "us-east-1c"]
-  instance_type      = var.instance_type
+  instance_type      = local.instance_type
   node_count         = var.nodes_per_region
   single_nat_gateway = var.single_nat_gateway
   tags               = var.tags
@@ -40,7 +47,7 @@ module "eu" {
   chain_id           = var.chain_id
   vpc_cidr           = "10.20.0.0/16"
   availability_zones = ["eu-central-1a", "eu-central-1b", "eu-central-1c"]
-  instance_type      = var.instance_type
+  instance_type      = local.instance_type
   node_count         = var.nodes_per_region
   single_nat_gateway = var.single_nat_gateway
   tags               = var.tags
@@ -57,7 +64,7 @@ module "asia" {
   chain_id           = var.chain_id
   vpc_cidr           = "10.30.0.0/16"
   availability_zones = ["ap-southeast-1a", "ap-southeast-1b", "ap-southeast-1c"]
-  instance_type      = var.instance_type
+  instance_type      = local.instance_type
   node_count         = var.nodes_per_region
   single_nat_gateway = var.single_nat_gateway
   tags               = var.tags

@@ -1,0 +1,91 @@
+---
+# Maya2C node provisioning.
+#
+# =============================================================================
+# NOT VERIFIED ON A LIVE SYSTEM
+# =============================================================================
+#
+# Written on a Windows host with no Ansible installed, so this has never been
+# syntax-checked by `ansible-playbook --syntax-check`, let alone run. The YAML
+# parses and the logic is a port of `deploy/deploy_bootstrap.sh`, which was
+# itself written and reviewed but never executed. Run it against a disposable
+# host before pointing it at anything you care about.
+#
+# `docs/launch-checklist.md` tracks this alongside the other generated-but-
+# unverified artefacts.
+#
+# =============================================================================
+# What this is a port of
+# =============================================================================
+#
+# `deploy/deploy_bootstrap.sh` already does systemd, UFW, genesis verification
+# and certbot for one host. This does the same for a fleet, idempotently. Where
+# the two disagree the script is the reference: it carries the reasoning, and
+# two implementations of the same policy is one more than anybody can keep in
+# step.
+#
+# The systemd units are installed from `deploy/systemd/` verbatim rather than
+# templated here. They are already hardened -- DynamicUser, ProtectSystem=strict,
+# an empty CapabilityBoundingSet, a SystemCallFilter -- with the reasoning inline,
+# and re-expressing that in Jinja would fork it.
+#
+# =============================================================================
+# TLS goes on the gateway, not on the node
+# =============================================================================
+#
+# The node's JSON-RPC has no authentication and serves `get_mining_candidate`
+# and `submit_block`. Putting a Let's Encrypt certificate on it and opening 8545
+# publishes the miner interface to the internet with a padlock beside it.
+#
+# So the node's RPC is bound to loopback and UFW keeps it there; only P2P is
+# world-reachable. `maya-api-gateway`, with its default-deny allowlist that
+# excludes both of those methods, is the public surface and the only thing that
+# gets a certificate. That is `roles/maya_gateway`, and it runs on gateway hosts
+# only.
+
+- name: Provision Maya2C nodes
+  hosts: maya_nodes
+  become: true
+
+  # Serial, not parallel. A rolling change across a seed fleet that took every
+  # host down at once would partition the network from itself; one at a time
+  # means the remaining nodes always have peers to gossip with.
+  serial: 1
+
+  pre_tasks:
+    # Checked before anything is installed, so an operator learns on the
+    # control node rather than after provisioning twelve hosts. The node binary
+    # refuses these ids at startup and terraform refuses them at plan time;
+    # this is the same refusal moved as early as it will go.
+    - name: Refuse a value-bearing chain id
+      ansible.builtin.assert:
+        that:
+          - maya_chain_id not in maya_value_bearing_chains
+        fail_msg: >-
+          {{ maya_chain_id }} is value-bearing. Mainnet is blocked while the
+          shielded pool uses an untrusted Groth16 setup: anyone able to re-run
+          that setup holds the toxic waste and can mint shielded value no supply
+          audit would reveal. Run a real ceremony and set
+          prove::SETUP_IS_TRUSTED before deploying a value-bearing chain.
+        quiet: true
+
+    - name: Require a genesis state root to verify against
+      ansible.builtin.assert:
+        that:
+          - maya_expected_state_root | length == 64
+        fail_msg: >-
+          maya_expected_state_root must be the 64-character state root from the
+          ceremony's COMMITMENT.txt. Without it a node cannot tell whether it
+          joined the network it meant to, and a fleet split across two genesis
+          files looks like a fleet that is merely slow to converge.
+        quiet: true
+
+  roles:
+    - role: maya_node
+
+  post_tasks:
+    - name: Report what the node is running
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} ({{ maya_region }}): chain {{ maya_chain_id }},
+          p2p {{ maya_p2p_port }}, rpc loopback only

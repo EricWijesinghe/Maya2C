@@ -140,6 +140,80 @@ services:
       # Deliberately a non-mining verifier: it must reach the same tip purely by
       # validating what it receives, which is what proves propagation works.
 
+  # The mining pool.
+  #
+  # Behind a profile, so `docker compose up` still brings up a plain three-node
+  # network. The pool needs two things this file cannot supply: an encrypted
+  # treasury keystore and the password for it. Starting it by default would mean
+  # a container that exits immediately on every fresh clone, which reads as a
+  # broken compose file rather than as a missing decision.
+  #
+  #   l1-wallet generate --keystore treasury.key
+  #   export MAYA_POOL_TREASURY_PASSWORD=...
+  #   docker compose --profile pool up
+  #
+  # Fund the treasury before pointing miners at it. This chain mints no block
+  # reward, so an unfunded pool credits shares and pays nothing — see
+  # docs/pool-service.md §1.
+  pool:
+    profiles:
+      - pool
+    build:
+      context: .
+      dockerfile: Dockerfile.pool
+    image: maya-pool:latest
+    container_name: l1-pool
+    restart: unless-stopped
+    depends_on:
+      seed-node:
+        condition: service_healthy
+    volumes:
+      - pool-data:/data
+      - ./treasury.key:/treasury/treasury.key:ro
+    environment:
+      # No password flag exists, deliberately: a password on a command line is
+      # in the process list and in shell history.
+      MAYA_POOL_TREASURY_PASSWORD: ${MAYA_POOL_TREASURY_PASSWORD:?set this before starting the pool}
+    ports:
+      - "3333:3333"
+      - "8080:8080"
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --quiet
+        - --tries=1
+        - --timeout=3
+        - --spider
+        - http://127.0.0.1:8080/healthz
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+    command:
+      - --node-rpc
+      - http://seed-node:8545
+      - --data-dir
+      - /data
+      - --treasury
+      - /treasury/treasury.key
+      - --stratum-addr
+      - 0.0.0.0:3333
+      - --api-addr
+      - 0.0.0.0:8080
+      - --metrics-addr
+      - 0.0.0.0:9090
+      # Placeholders. Every one of these is a decision about what miners are
+      # paid, and there is deliberately no default for the first.
+      - --reward-per-block
+      - "1000000000"
+      - --fee-rate
+      - "0.01"
+      - --min-payout
+      - "100000000"
+    networks:
+      - l1
+
 networks:
   l1:
     driver: bridge
@@ -151,3 +225,7 @@ volumes:
   seed-data:
   peer1-data:
   peer2-data:
+  # The share ledger. Not reconstructible from the chain: losing it loses every
+  # credit the pool has not yet paid.
+  pool-data:
+

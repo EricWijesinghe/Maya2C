@@ -1,0 +1,34 @@
+# Maya2C node configuration — MANAGED BY ANSIBLE, edits will be overwritten.
+#
+# Shape follows `--print-config-template` from the node binary. Unknown keys are
+# an error rather than a warning, so a typo here fails the node at startup
+# instead of silently leaving a default in place.
+#
+# Consensus parameters are NOT here. They live in genesis.json, and a node that
+# could be told a different difficulty by its config file would be a node that
+# could be talked off the network by an edit to /etc.
+
+[network]
+p2p_port = {{ maya_p2p_port }}
+bootnodes = [{% for peer in maya_bootnodes | default([]) %}"{{ peer }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+# off | preferred | required. See docs/pq-transport.md before changing;
+# `required` partitions this node from any peer that has not been upgraded.
+dual_kem = "{{ maya_dual_kem | default('off') }}"
+
+[rpc]
+# Loopback. This interface has no authentication and serves get_mining_candidate
+# and submit_block; maya-api-gateway is the public surface and the only thing
+# that gets a certificate. Changing this to 0.0.0.0 publishes the miner
+# interface to the internet.
+listen = "{{ maya_rpc_bind }}:{{ maya_rpc_port }}"
+rate_limit_per_second = {{ maya_rpc_rate_limit | default(20) }}
+rate_limit_burst = {{ maya_rpc_rate_burst | default(40) }}
+
+[storage]
+# Must stay under the unit's MemoryMax (8G) together with the write buffers and
+# the DAG cache. A block cache larger than the ceiling is a node that OOMs once
+# the cache is warm.
+block_cache_mib = {{ maya_block_cache_mib | default(512) }}
+write_buffer_mib = {{ maya_write_buffer_mib | default(64) }}
+# -1 keeps every SST open; the unit raises LimitNOFILE to 65536 to match.
+max_open_files = {{ maya_max_open_files | default(-1) }}

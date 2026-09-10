@@ -1,0 +1,10 @@
+---
+# Role-level defaults. Fleet-wide values live in group_vars/all.yml; these are
+# the ones that only make sense in the context of a node.
+maya_bootnodes: []
+maya_dual_kem: "off"
+maya_block_cache_mib: 512
+maya_write_buffer_mib: 64
+maya_max_open_files: -1
+maya_rpc_rate_limit: 20
+maya_rpc_rate_burst: 40

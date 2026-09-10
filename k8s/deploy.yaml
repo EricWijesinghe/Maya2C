@@ -1,0 +1,393 @@
+# Maya2C launch topology: one genesis node and ten seed nodes.
+#
+# ---------------------------------------------------------------------------
+# They are seed nodes, not validators
+# ---------------------------------------------------------------------------
+#
+# Maya2C is proof-of-work. There is no validator set, no stake, no quorum, and
+# no permissioning: anyone who can find a block produces one, and these eleven
+# pods have no more authority than a laptop that joins tomorrow.
+#
+# What they actually provide is bootstrap connectivity and reachable RPC. That
+# is worth doing well and worth naming accurately, because "validator" implies
+# a permissioning model this chain does not have, and a launch document is
+# exactly where that misunderstanding takes root.
+#
+# ---------------------------------------------------------------------------
+# This is a non-value-bearing chain, deliberately
+# ---------------------------------------------------------------------------
+#
+# chainId is `maya-genesis-rc1`. The shielded pool's Groth16 parameters come
+# from a reproducible test setup rather than a ceremony, so anyone able to
+# re-run it can mint shielded value no supply audit reveals. See
+# docs/mainnet-readiness.md section 1.
+#
+# Four independent places refuse a value-bearing chain id: the node at startup,
+# both terraform module sets, a test pinning SETUP_IS_TRUSTED = false, and the
+# genesis-ceremony binary. Changing the value below does not lift any of them —
+# it produces a fleet that will not start.
+#
+# ---------------------------------------------------------------------------
+# Relationship to k8s/base and k8s/overlays
+# ---------------------------------------------------------------------------
+#
+# This file is a single-document launch topology, for the case where an
+# operator wants one thing to apply and one thing to diff. The kustomize base
+# and its six region overlays remain the maintained path for ongoing operation;
+# nothing here replaces them, and the two must be kept consistent.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: maya2c
+  labels:
+    app.kubernetes.io/name: maya2c
+    app.kubernetes.io/part-of: maya2c-launch
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: maya-chain
+  namespace: maya2c
+data:
+  # Pinned, not defaulted. A genesis timestamp that defaults to "now" gives
+  # every operator who regenerates the file a different chain.
+  CHAIN_ID: "maya-genesis-rc1"
+  GENESIS_TIMESTAMP: "1767225600"
+  # The state root and genesis block id from the ceremony's COMMITMENT.txt.
+  # Recorded here so an operator can diff a running fleet against the sheet
+  # without shelling into a pod.
+  #
+  # Replace both when the ceremony is re-run. They are the fleet's single
+  # identity check: a node reporting a different state root is not on this
+  # network, whatever its logs say.
+  GENESIS_STATE_ROOT: "REPLACE_WITH_COMMITMENT_STATE_ROOT"
+  GENESIS_BLOCK_ID: "REPLACE_WITH_COMMITMENT_BLOCK_ID"
+  # Dual-KEM stays off. It pairs a released ML-KEM with a release candidate
+  # tracking a draft standard, and the combiner needs both halves to agree — so
+  # a bug in the newer one breaks every connection that negotiated it. See
+  # docs/pq-transport.md for the three conditions before this becomes
+  # "preferred".
+  DUAL_KEM: "off"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: maya-genesis
+  namespace: maya2c
+data:
+  # Replaced at deploy time from the ceremony output. Kept as a ConfigMap
+  # rather than baked into the image so that the same image serves every
+  # network, and so an operator can read what their fleet actually agreed on.
+  genesis.json: |
+    REPLACE_WITH_CEREMONY_GENESIS_JSON
+---
+# The genesis node. One replica, and it is not special after block 1.
+#
+# It holds no key the others lack and has no authority they lack; it exists so
+# there is a known first address for the seeds to dial. Once the fleet is
+# meshed it can be lost without consequence, which is the property to preserve
+# — a genesis node that becomes load-bearing has quietly become a permissioning
+# authority.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: maya-genesis-node
+  namespace: maya2c
+  labels:
+    app.kubernetes.io/name: maya2c
+    app.kubernetes.io/component: genesis-node
+spec:
+  serviceName: maya-genesis-node
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: genesis-node
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: maya2c
+        app.kubernetes.io/component: genesis-node
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: node
+          image: maya2c/node:REPLACE_WITH_DIGEST
+          # A digest, not a tag. A tag is mutable, and a fleet that pulled
+          # `:latest` at different moments is a fleet running different
+          # consensus rules while reporting the same version.
+          args:
+            - --genesis=/config/genesis.json
+            - --data-dir=/data
+            - --rpc-addr=0.0.0.0:8545
+            - --metrics-addr=127.0.0.1:9100
+            - --p2p-port=30333
+            - --dual-kem=$(DUAL_KEM)
+          env:
+            - name: DUAL_KEM
+              valueFrom:
+                configMapKeyRef:
+                  name: maya-chain
+                  key: DUAL_KEM
+          ports:
+            - name: p2p
+              containerPort: 30333
+            - name: rpc
+              containerPort: 8545
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: "2"
+              memory: 8Gi
+            limits:
+              # No CPU limit: throttling a node mid-validation makes it look
+              # slow rather than constrained, and the symptom is a peer count
+              # that decays for no visible reason.
+              memory: 12Gi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: genesis
+              mountPath: /config
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: rpc
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: rpc
+            # Generous, deliberately. A node replaying blocks after a restart
+            # is working, and a liveness probe that kills it produces a crash
+            # loop that looks like a bug in consensus.
+            initialDelaySeconds: 300
+            periodSeconds: 30
+            failureThreshold: 6
+      volumes:
+        - name: genesis
+          configMap:
+            name: maya-genesis
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 200Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: maya-genesis-node
+  namespace: maya2c
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/component: genesis-node
+  ports:
+    - name: p2p
+      port: 30333
+    - name: rpc
+      port: 8545
+---
+# Ten seed nodes.
+#
+# One StatefulSet rather than ten manifests: they are identical, and ten copies
+# of one spec is ten places for them to drift. Geographic distribution is a
+# scheduling concern, expressed below as topology spread rather than as ten
+# hand-placed pods — a hand-placed fleet silently stops being distributed the
+# first time a zone is drained.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: maya-seed
+  namespace: maya2c
+  labels:
+    app.kubernetes.io/name: maya2c
+    app.kubernetes.io/component: seed-node
+spec:
+  serviceName: maya-seed
+  replicas: 10
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: seed-node
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: maya2c
+        app.kubernetes.io/component: seed-node
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      # Spread across zones, then across nodes. `DoNotSchedule` rather than
+      # `ScheduleAnyway`: a seed fleet that quietly collapsed onto one zone is
+      # a single blast radius wearing the shape of ten.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: seed-node
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: seed-node
+      containers:
+        - name: node
+          image: maya2c/node:REPLACE_WITH_DIGEST
+          args:
+            - --genesis=/config/genesis.json
+            - --data-dir=/data
+            - --rpc-addr=0.0.0.0:8545
+            - --metrics-addr=127.0.0.1:9100
+            - --p2p-port=30333
+            - --dual-kem=$(DUAL_KEM)
+            - --bootnode=/dns4/maya-genesis-node-0.maya-genesis-node.maya2c.svc.cluster.local/tcp/30333
+          env:
+            - name: DUAL_KEM
+              valueFrom:
+                configMapKeyRef:
+                  name: maya-chain
+                  key: DUAL_KEM
+          ports:
+            - name: p2p
+              containerPort: 30333
+            - name: rpc
+              containerPort: 8545
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: "2"
+              memory: 8Gi
+            limits:
+              memory: 12Gi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: genesis
+              mountPath: /config
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: rpc
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: rpc
+            initialDelaySeconds: 300
+            periodSeconds: 30
+            failureThreshold: 6
+      volumes:
+        - name: genesis
+          configMap:
+            name: maya-genesis
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 200Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: maya-seed
+  namespace: maya2c
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/component: seed-node
+  ports:
+    - name: p2p
+      port: 30333
+    - name: rpc
+      port: 8545
+---
+# At most one seed voluntarily disrupted at a time.
+#
+# `maxUnavailable: 1` against ten replicas, not a percentage: a percentage of a
+# fleet that later shrinks to three permits a third of it to go at once, and
+# the number that matters is how many peers a joining node can still reach.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: maya-seed
+  namespace: maya2c
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: seed-node
+---
+# The genesis node is never voluntarily disrupted.
+#
+# Not because it is authoritative — it is not — but because it is the address
+# every seed's --bootnode points at, and losing it during a rollout means new
+# pods have nothing to dial.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: maya-genesis-node
+  namespace: maya2c
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: genesis-node
+---
+# Default-deny ingress. The RPC port is reachable only from inside the
+# namespace; the P2P port is reachable from anywhere, which is what makes it a
+# seed.
+#
+# The node's JSON-RPC has no authentication — it assumes a trusted network
+# position, and this policy is what supplies it. A public gateway belongs in
+# front of it, not instead of this: see maya-api-gateway.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: maya-node-ingress
+  namespace: maya2c
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: maya2c
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8545
+    - ports:
+        - protocol: TCP
+          port: 30333

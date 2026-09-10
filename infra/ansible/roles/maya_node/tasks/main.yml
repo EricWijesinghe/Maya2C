@@ -1,0 +1,198 @@
+---
+# One Maya2C seed node. A port of `deploy/deploy_bootstrap.sh`, made idempotent.
+
+# --- binary -----------------------------------------------------------------
+
+- name: Install a prebuilt node binary
+  when: maya_node_prebuilt_url | length > 0
+  block:
+    - name: Fetch the release artefact
+      ansible.builtin.get_url:
+        url: "{{ maya_node_prebuilt_url }}"
+        dest: "{{ maya_bin_dir }}/node"
+        # Not optional. An artefact fetched over TLS from a host you trust is
+        # still an artefact you did not check, and this is the binary that
+        # decides what a valid block is.
+        checksum: "sha256:{{ maya_node_prebuilt_sha256 }}"
+        mode: "0755"
+        owner: root
+        group: root
+      notify: Restart maya2c-node
+
+    - name: Fetch the genesis tool
+      # Separate artefact, same reasoning: `genesis --verify` is the check that
+      # tells this host whether it joined the right network.
+      ansible.builtin.get_url:
+        url: "{{ maya_genesis_prebuilt_url }}"
+        dest: "{{ maya_bin_dir }}/genesis"
+        checksum: "sha256:{{ maya_genesis_prebuilt_sha256 }}"
+        mode: "0755"
+        owner: root
+        group: root
+
+- name: Build the node from source
+  when: maya_node_prebuilt_url | length == 0
+  block:
+    - name: Install build dependencies
+      ansible.builtin.package:
+        name:
+          - build-essential
+          - clang       # RocksDB's bindgen needs libclang
+          - cmake       # and RocksDB's own build
+          - git
+          - pkg-config
+        state: present
+
+    - name: Install the pinned Rust toolchain
+      # The version is pinned, not "stable": edition 2024 needs 1.85, and the
+      # code uses `u64::is_multiple_of` (1.87) and `slice::as_chunks` (1.88).
+      # A host that silently tracked stable would eventually build a different
+      # binary from its neighbours.
+      ansible.builtin.shell:
+        cmd: >-
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs
+          | sh -s -- -y --default-toolchain {{ maya_rust_version }} --profile minimal
+        creates: "{{ ansible_env.HOME }}/.cargo/bin/rustc"
+
+    - name: Check out the source
+      ansible.builtin.git:
+        repo: "{{ maya_repo_url }}"
+        dest: "{{ maya_build_dir }}"
+        version: "{{ maya_repo_ref }}"
+      register: maya_checkout
+
+    - name: Build with release optimisations
+      # `--locked`, so the fleet builds the dependency versions in Cargo.lock
+      # rather than whatever resolved on the day each host ran. Without it,
+      # twelve hosts provisioned across a week can differ.
+      # Both binaries: `genesis --verify` is what checks the fetched genesis
+      # against the ceremony commitment, so a host with `node` and without
+      # `genesis` would skip the check that matters most.
+      ansible.builtin.command:
+        cmd: >-
+          {{ ansible_env.HOME }}/.cargo/bin/cargo build --release --locked
+          --bin node --bin genesis
+        chdir: "{{ maya_build_dir }}"
+      when: maya_checkout.changed
+      changed_when: true
+
+    - name: Install the built binaries
+      ansible.builtin.copy:
+        src: "{{ maya_build_dir }}/target/release/{{ item }}"
+        dest: "{{ maya_bin_dir }}/{{ item }}"
+        remote_src: true
+        mode: "0755"
+        owner: root
+        group: root
+      loop:
+        - node
+        - genesis
+      notify: Restart maya2c-node
+
+# --- configuration ----------------------------------------------------------
+
+- name: Create the configuration directory
+  ansible.builtin.file:
+    path: "{{ maya_conf_dir }}"
+    state: directory
+    mode: "0755"
+    owner: root
+    group: root
+
+- name: Write config.toml
+  ansible.builtin.template:
+    src: config.toml.j2
+    dest: "{{ maya_conf_dir }}/config.toml"
+    mode: "0644"
+    owner: root
+    group: root
+  notify: Restart maya2c-node
+
+# --- genesis ----------------------------------------------------------------
+
+- name: Fetch genesis.json
+  ansible.builtin.get_url:
+    url: "{{ maya_genesis_url }}"
+    dest: "{{ maya_conf_dir }}/genesis.json"
+    mode: "0644"
+    owner: root
+    group: root
+  notify: Restart maya2c-node
+
+- name: Verify the genesis state root against the ceremony commitment
+  # The check that actually tells an operator whether they joined the network
+  # they meant to. A fleet split across two genesis files does not error --
+  # it looks like a fleet that is merely slow to converge.
+  #
+  # `genesis --verify` recomputes the state root from the file and compares.
+  # `genesis --verify` exits non-zero on a mismatch, so this task fails the
+  # play rather than logging a warning nobody reads. The flag was added for
+  # exactly this: `deploy_bootstrap.sh` previously degraded to "could not
+  # compute the state root locally, verify it by hand", which turns the most
+  # important step of a bootstrap into a no-op whenever nobody does.
+  ansible.builtin.command:
+    cmd: >-
+      {{ maya_bin_dir }}/genesis --verify {{ maya_conf_dir }}/genesis.json
+      --expect-state-root {{ maya_expected_state_root }}
+  changed_when: false
+
+# --- firewall ---------------------------------------------------------------
+
+- name: Install UFW
+  ansible.builtin.package:
+    name: ufw
+    state: present
+
+- name: Default deny inbound
+  community.general.ufw:
+    direction: incoming
+    policy: deny
+
+- name: Allow outbound
+  community.general.ufw:
+    direction: outgoing
+    policy: allow
+
+- name: Allow SSH
+  # Before enabling the firewall, not after. The other order locks the control
+  # node out of the host it is configuring.
+  community.general.ufw:
+    rule: allow
+    port: "22"
+    proto: tcp
+
+- name: Allow P2P from anywhere
+  community.general.ufw:
+    rule: allow
+    port: "{{ maya_p2p_port }}"
+    proto: tcp
+
+# RPC gets no rule at all. It is bound to 127.0.0.1 by config.toml, and the
+# default-deny policy covers it -- an explicit "allow from loopback" rule would
+# suggest the binding is negotiable.
+
+- name: Enable UFW
+  community.general.ufw:
+    state: enabled
+
+# --- service ----------------------------------------------------------------
+
+- name: Install the systemd unit
+  # Copied from deploy/systemd/ rather than templated. That unit is already
+  # hardened with its reasoning inline; a Jinja copy would fork it.
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../deploy/systemd/maya2c-node.service"
+    dest: /etc/systemd/system/maya2c-node.service
+    mode: "0644"
+    owner: root
+    group: root
+  notify:
+    - Reload systemd
+    - Restart maya2c-node
+
+- name: Enable and start the node
+  ansible.builtin.systemd_service:
+    name: maya2c-node
+    enabled: true
+    state: started
+    daemon_reload: true

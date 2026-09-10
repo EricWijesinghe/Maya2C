@@ -5,15 +5,48 @@ variable "chain_id" {
 }
 
 variable "instance_type" {
-  description = "Worker instance type in every region."
+  description = "Worker instance type in every region. Ignored when bare_metal is true."
   type        = string
-  default     = "m6i.xlarge"
+
+  # r6i.4xlarge: 16 vCPU, 128 GiB. The floor is set by the proof-of-work
+  # dataset, not by request volume — a mainnet DAG is 4 GiB resident, and it
+  # sits alongside RocksDB's block cache and write buffers. The previous
+  # m6i.xlarge (16 GiB) cannot hold a mainnet dataset and a warm cache at the
+  # same time, which shows up as a node that falls behind during a reorg rather
+  # than as an error.
+  default = "r6i.4xlarge"
+}
+
+variable "bare_metal" {
+  description = <<-EOT
+    Provision single-tenant hardware (r6i.metal) instead of virtualised instances.
+
+    COST: roughly $5-7 per hour per instance. At the default four nodes in each
+    of three regions that is approximately $50,000 per month, against roughly
+    $9,000 for r6i.4xlarge. Stated here so the number is read before the apply
+    rather than on the first invoice.
+
+    Buys single-tenancy and no noisy neighbours. It does not buy more memory:
+    r6i.metal and r6i.4xlarge differ in isolation and core count, and the
+    dataset fits in both.
+  EOT
+  type        = bool
+  default     = false
 }
 
 variable "nodes_per_region" {
-  description = "Workers per region."
+  description = "Workers per region. Three regions, so the fleet is three times this."
   type        = number
-  default     = 3
+
+  # Four, for twelve across the fleet. Three regions at three was the minimum
+  # the PodDisruptionBudget allows; four leaves one node per region that can be
+  # drained for a kernel upgrade without touching the budget.
+  default = 4
+
+  validation {
+    condition     = var.nodes_per_region >= 3
+    error_message = "Fewer than three workers per region cannot satisfy the seed PodDisruptionBudget of minAvailable 2."
+  }
 }
 
 variable "tags" {

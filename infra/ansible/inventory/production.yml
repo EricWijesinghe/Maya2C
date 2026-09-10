@@ -1,0 +1,35 @@
+---
+# Twelve nodes: four in each of three regions, matching
+# `terraform/variables.tf` (nodes_per_region = 4).
+#
+# Addresses are placeholders. Populate them from `terraform output`, which is
+# where the real ones come from -- hand-maintaining this list against a fleet
+# terraform owns is how an inventory drifts from reality.
+all:
+  children:
+    maya_nodes:
+      children:
+        us:
+          hosts:
+            us-seed-[1:4]:
+          vars:
+            maya_region: us
+        eu:
+          hosts:
+            eu-seed-[1:4]:
+          vars:
+            maya_region: eu
+        asia:
+          hosts:
+            asia-seed-[1:4]:
+          vars:
+            maya_region: asia
+
+    # Gateways are the only hosts that terminate TLS and the only ones with a
+    # port open to the public beyond P2P. Kept a separate group so that
+    # `maya_gateway` cannot be applied to a seed by accident.
+    maya_gateways:
+      hosts:
+        us-gateway-1:
+        eu-gateway-1:
+        asia-gateway-1:

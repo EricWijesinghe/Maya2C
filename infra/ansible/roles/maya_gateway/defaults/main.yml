@@ -1,0 +1,6 @@
+---
+# No defaults for either. A placeholder domain would request a certificate for
+# somebody else's name, and a placeholder email would send the expiry warnings
+# somewhere nobody reads.
+maya_gateway_domain: ""
+maya_certbot_email: ""

@@ -1,0 +1,110 @@
+# Maya2C node.
+#
+# Hardening notes are inline rather than in a separate document because the
+# person who needs them is the person editing this file.
+#
+# NOT VERIFIED ON A LIVE SYSTEM. This unit was written on a Windows host with
+# no systemd and no `systemd-analyze`. Run `systemd-analyze verify` and
+# `systemd-analyze security maya2c-node.service` before trusting it.
+
+[Unit]
+Description=Maya2C node
+Documentation=https://github.com/maya2c/maya2c
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/node \
+    --config /etc/maya2c/config.toml \
+    --genesis /etc/maya2c/genesis.json \
+    --data-dir /var/lib/maya2c
+
+# --- crash recovery -------------------------------------------------------
+#
+# `on-failure`, not `always`: a node that exits 0 has been asked to stop, and
+# restarting it would fight the operator. A node that exits non-zero has
+# crashed or refused to start, and the second case is the one worth thinking
+# about — a bad genesis file or an unparseable config makes it exit
+# immediately, every time.
+Restart=on-failure
+RestartSec=5s
+
+# So a permanent failure surfaces as a failed unit instead of an infinite
+# restart loop that looks like it is doing something. Six starts in five
+# minutes, then stop and stay stopped.
+StartLimitIntervalSec=300
+StartLimitBurst=6
+
+# Replaying blocks after an unclean shutdown takes minutes on a large chain.
+# systemd's 90-second default would SIGKILL it partway through and leave the
+# database to recover again on the next start, which is how a slow shutdown
+# becomes a corrupted one.
+TimeoutStopSec=300
+
+# --- isolation ------------------------------------------------------------
+#
+# DynamicUser gives a transient UID and, with StateDirectory, a private
+# /var/lib/maya2c owned by it. No account to create, and nothing to leave
+# behind if the package is removed.
+DynamicUser=yes
+StateDirectory=maya2c
+ConfigurationDirectory=maya2c
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+
+# The node speaks TCP over IPv4 and IPv6 and nothing else. AF_UNIX is kept
+# because systemd's own notification socket needs it.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete
+SystemCallArchitectures=native
+
+# Capabilities: none. The node binds 30333 and 8545, both above 1024.
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# --- resources ------------------------------------------------------------
+#
+# MemoryMax is a hard ceiling: past it the kernel OOM-kills this unit rather
+# than letting the machine start killing whatever it likes. The number must
+# exceed the RocksDB block cache plus the write buffers plus the DAG cache —
+# with the defaults in config.toml that is roughly 512 MiB + 64 MiB + 64 MiB,
+# and 8G leaves room for a mainnet dataset a miner may hold.
+#
+# Set this from `storage.block_cache_mib` in config.toml. A ceiling below the
+# cache the node was told to allocate is a unit that OOMs on a warm cache.
+MemoryMax=8G
+MemoryHigh=7G
+
+# RocksDB with max_open_files = -1 keeps every SST open. The default 1024 is
+# far too few and the failure is an opaque "too many open files" mid-compaction.
+LimitNOFILE=65536
+
+# Below the default 0, so block validation and compaction lose to anything
+# interactive on a shared host. A node that is slightly slow is fine; a host
+# that is unusable is not.
+Nice=5
+IOSchedulingClass=best-effort
+IOSchedulingPriority=5
+
+[Install]
+WantedBy=multi-user.target

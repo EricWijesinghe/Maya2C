@@ -1,0 +1,190 @@
+name: publish-sdk
+
+# Publishes the two SDKs anyone outside this repository actually installs:
+#
+#   npm    maya2c.js   — the gateway client (TypeScript)
+#   pypi   maya2c      — the signing primitives (native extension)
+#
+# =============================================================================
+# NOT VERIFIED
+# =============================================================================
+#
+# GitHub Actions cannot be executed locally, so this file has never run. The
+# YAML parses and the steps were written against the real package layout, and
+# that is the whole of the assurance. Use the `dry_run` input first.
+#
+# =============================================================================
+# There is no crates.io job, and that is deliberate
+# =============================================================================
+#
+# Every crate in the workspace sets `publish = false`, for a reason recorded in
+# each Cargo.toml: cargo-deny's `allow-wildcard-paths` and `[licenses.private]
+# ignore` apply only to unpublished crates, so without it every internal path
+# dependency reads as a wildcard and every crate reads as unlicensed. The
+# crates also use unversioned path dependencies, which `cargo publish` rejects
+# outright.
+#
+# Publishing them would mean unpicking that, versioning every internal
+# dependency, publishing in dependency order, and putting a node daemon on
+# crates.io as though it were a library. The two SDKs are the artefacts people
+# install; those are what this ships.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and test, but do not publish"
+        type: boolean
+        default: true
+
+# Trusted publishing. No registry token is stored anywhere: PyPI and npm both
+# mint short-lived credentials from this workflow's OIDC identity, so there is
+# no long-lived secret to leak, rotate, or forget to scope.
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  # Never cancel a publish in progress. A cancelled `npm publish` can leave a
+  # version claimed and unusable, and the version number cannot be reused.
+  group: publish-sdk-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ---------------------------------------------------------------------------
+  npm:
+    name: maya2c.js → npm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+          cache-dependency-path: sdk-js/package-lock.json
+
+      # `ci`, not `install`: it installs exactly the lockfile and fails if
+      # package.json and the lock disagree, rather than quietly resolving
+      # something new on the day the release happens.
+      - name: Install
+        working-directory: sdk-js
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: sdk-js
+        run: npm run typecheck
+
+      - name: Test
+        working-directory: sdk-js
+        run: npm test
+
+      - name: Build
+        working-directory: sdk-js
+        run: npm run build
+
+      # What would ship, before it ships. `files` in package.json is a
+      # whitelist, and this is where a mistake in it becomes visible.
+      - name: Show the tarball contents
+        working-directory: sdk-js
+        run: npm pack --dry-run
+
+      - name: Check the tag matches package.json
+        # A tag that disagrees with the version publishes something nobody
+        # asked for, under a number that then cannot be reused.
+        if: github.event_name == 'push'
+        working-directory: sdk-js
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "tag $GITHUB_REF_NAME does not match package.json version $pkg" >&2
+            exit 1
+          fi
+
+      - name: Publish
+        if: github.event_name == 'push' || inputs.dry_run == false
+        working-directory: sdk-js
+        # `--provenance` attaches a signed attestation linking the tarball to
+        # this workflow run and this commit, so a consumer can check that what
+        # they installed was built from what they can read.
+        run: npm publish --provenance --access public
+
+  # ---------------------------------------------------------------------------
+  wheels:
+    name: maya2c wheels (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One platform failing should not hide whether the others are fine —
+      # a wheel matrix is exactly where "it works on Linux" hides a macOS
+      # linker problem.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # Matches `rust-version` across the workspace. Edition 2024 needs
+          # 1.85; the code also uses `u64::is_multiple_of` (1.87) and
+          # `slice::as_chunks` (1.88).
+          toolchain: "1.88"
+
+      # RocksDB is C++ and is built from source by the `rocksdb` crate. On
+      # manylinux this needs a toolchain the default image does not have, which
+      # is why cibuildwheel drives the Linux build inside a container.
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.21
+        with:
+          package-dir: sdk-ffi
+        env:
+          # 3.9 is the floor declared in pyproject.toml. PyPy is excluded: the
+          # extension is a cdylib loaded through ctypes by uniffi, and PyPy's
+          # ctypes has different performance characteristics nobody here has
+          # measured.
+          CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-* cp313-*"
+          CIBW_SKIP: "*-musllinux_* pp*"
+          CIBW_BEFORE_ALL_LINUX: >-
+            curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.88 --profile minimal
+          CIBW_ENVIRONMENT_LINUX: 'PATH="$HOME/.cargo/bin:$PATH"'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  # ---------------------------------------------------------------------------
+  pypi:
+    name: maya2c → PyPI
+    needs: wheels
+    runs-on: ubuntu-latest
+    # A dedicated environment so the trusted-publisher binding is scoped to it
+    # rather than to the whole repository, and so a publish can require a
+    # reviewer if you configure one.
+    environment: pypi
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist
+
+      - name: List what would be published
+        run: ls -l dist/
+
+      # No sdist. `sdk-ffi` links `custom-l1-node`, so the extension embeds
+      # RocksDB's C++: a source distribution would make every `pip install`
+      # compile RocksDB and the arkworks stack on the user's machine — many
+      # minutes when it works, and a failure without a C++ toolchain. Shipping
+      # one would mostly generate bug reports about somebody else's compiler.
+      - name: Publish
+        if: github.event_name == 'push' || inputs.dry_run == false
+        uses: pypa/gh-action-pypi-publish@release/v1

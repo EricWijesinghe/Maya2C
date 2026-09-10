@@ -1,0 +1,56 @@
+---
+# TLS termination for maya-api-gateway.
+#
+# This role runs on gateway hosts only, and it is the ONLY place a certificate
+# is issued. See the note at the top of setup_node.yml: the node's JSON-RPC has
+# no authentication and serves the miner methods, so a certificate on it would
+# publish that interface with a padlock beside it.
+
+- name: Refuse to run against a seed node
+  # Cheap insurance against an inventory edit that lands this role on the wrong
+  # group. The failure it prevents -- a certificate and an open port on a node
+  # whose RPC is unauthenticated -- is not one that announces itself.
+  ansible.builtin.assert:
+    that:
+      - inventory_hostname in groups['maya_gateways'] | default([])
+    fail_msg: >-
+      maya_gateway may only be applied to hosts in the maya_gateways group.
+      Terminating TLS on a seed node would expose an unauthenticated RPC that
+      serves get_mining_candidate and submit_block.
+    quiet: true
+
+- name: Install certbot
+  ansible.builtin.package:
+    name:
+      - certbot
+      - python3-certbot-nginx
+    state: present
+
+- name: Allow HTTP and HTTPS
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - "80"
+    - "443"
+
+- name: Obtain a certificate
+  # `--keep-until-expiring` so a re-run is idempotent rather than a fresh issue
+  # against Let's Encrypt's rate limit -- five duplicate certificates per week
+  # per domain, and a playbook run in a loop will find that ceiling.
+  ansible.builtin.command:
+    cmd: >-
+      certbot --nginx --non-interactive --agree-tos
+      --keep-until-expiring
+      --email {{ maya_certbot_email }}
+      -d {{ maya_gateway_domain }}
+    creates: "/etc/letsencrypt/live/{{ maya_gateway_domain }}/fullchain.pem"
+
+- name: Enable the renewal timer
+  # certbot ships the timer; enabling it is what makes the certificate outlive
+  # its ninety days without somebody remembering.
+  ansible.builtin.systemd_service:
+    name: certbot.timer
+    enabled: true
+    state: started

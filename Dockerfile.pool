@@ -1,0 +1,125 @@
+# syntax=docker/dockerfile:1
+#
+# Multi-stage build for the pool daemon.
+#
+# A separate file rather than another stage in `Dockerfile`, and the reason is
+# operational rather than aesthetic: the node and the pool are released on
+# different cadences and have different blast radii. One Dockerfile producing
+# both means every pool fix rebuilds and re-tags the node image, and an operator
+# reading `image: maya:v3` cannot tell which of the two changed.
+#
+# The build stages mirror `Dockerfile` exactly — same musl target, same static
+# C++ link, same fallback — because both binaries link the same RocksDB.
+
+# ---------------------------------------------------------------------------
+# Stage 1: build
+# ---------------------------------------------------------------------------
+FROM rust:1-alpine AS builder
+
+RUN apk add --no-cache \
+        build-base \
+        clang-dev \
+        llvm-dev \
+        linux-headers \
+        git
+
+ENV LIBCLANG_PATH=/usr/lib
+ENV RUSTFLAGS="-C target-feature=+crt-static -C link-arg=-static-libstdc++ -C link-arg=-static-libgcc"
+
+WORKDIR /build
+
+# --- dependency cache layer ------------------------------------------------
+# Every workspace member's manifest, because cargo resolves the whole workspace
+# even when building one binary. Stub sources let the RocksDB C++ build — the
+# expensive part — land in a layer that pool code changes do not invalidate.
+COPY Cargo.toml Cargo.lock ./
+COPY wallet/Cargo.toml wallet/Cargo.toml
+COPY l2-flash/Cargo.toml l2-flash/Cargo.toml
+COPY vm/Cargo.toml vm/Cargo.toml
+COPY explorer/Cargo.toml explorer/Cargo.toml
+COPY wallet-gui/core/Cargo.toml wallet-gui/core/Cargo.toml
+COPY zk-privacy/Cargo.toml zk-privacy/Cargo.toml
+COPY crypto-pq/Cargo.toml crypto-pq/Cargo.toml
+COPY ledger-math/Cargo.toml ledger-math/Cargo.toml
+COPY cuda-miner/Cargo.toml cuda-miner/Cargo.toml
+COPY cuda-miner/build.rs cuda-miner/build.rs
+COPY stratum-v2/Cargo.toml stratum-v2/Cargo.toml
+COPY pool-service/Cargo.toml pool-service/Cargo.toml
+
+RUN mkdir -p src/bin wallet/src l2-flash/src vm/src explorer/src \
+             wallet-gui/core/src zk-privacy/src crypto-pq/src ledger-math/src \
+             cuda-miner/src stratum-v2/src pool-service/src/bin \
+    && for stub in src/lib.rs wallet/src/lib.rs l2-flash/src/lib.rs \
+                   vm/src/lib.rs explorer/src/lib.rs wallet-gui/core/src/lib.rs \
+                   zk-privacy/src/lib.rs crypto-pq/src/lib.rs \
+                   ledger-math/src/lib.rs cuda-miner/src/lib.rs \
+                   stratum-v2/src/lib.rs pool-service/src/lib.rs; do \
+           touch "$stub"; \
+       done \
+    && for stub in wallet/src/main.rs explorer/src/main.rs \
+                   pool-service/src/bin/pool.rs; do \
+           echo 'fn main() {}' > "$stub"; \
+       done \
+    && cargo build --release -p maya-pool-service --bin pool \
+    # Remove the stub artifacts, or cargo reuses them instead of the real code.
+    && rm -rf src wallet/src stratum-v2/src pool-service/src ledger-math/src \
+              target/release/pool \
+              target/release/deps/custom_l1_node* \
+              target/release/deps/maya_pool_service* \
+              target/release/deps/maya_stratum_v2* \
+              target/release/deps/maya_ledger_math* \
+              target/release/deps/l1_wallet* \
+              target/release/deps/pool-*
+
+# --- real build ------------------------------------------------------------
+COPY src src
+COPY wallet/src wallet/src
+COPY ledger-math/src ledger-math/src
+COPY stratum-v2/src stratum-v2/src
+COPY pool-service/src pool-service/src
+
+RUN cargo build --release -p maya-pool-service --bin pool \
+    && strip target/release/pool
+
+# Fail the build rather than ship a binary that will not start in the runtime
+# stage, where no C++ runtime is installed.
+RUN if ldd target/release/pool 2>&1 | grep -q "libstdc++"; then \
+        echo "ERROR: pool still links libstdc++ dynamically" >&2; exit 1; \
+    fi
+
+# ---------------------------------------------------------------------------
+# Stage 2: runtime
+# ---------------------------------------------------------------------------
+FROM alpine:3 AS runtime
+
+RUN apk add --no-cache ca-certificates \
+    && addgroup -S pool \
+    && adduser -S -G pool -h /home/pool pool \
+    && mkdir -p /data \
+    && chown -R pool:pool /data
+
+COPY --from=builder /build/target/release/pool /usr/local/bin/pool
+
+# Never run a network daemon as root. The uid matches the `runAsUser` in
+# k8s/pool/deployment.yaml so the mounted volume is writable.
+USER pool
+
+# The share ledger. This is the pool's only record of what it owes, and it is
+# not reconstructible from the chain — see docs/pool-service.md §7.
+VOLUME ["/data"]
+
+# 3333 Stratum, 8080 dashboard and JSON API, 9090 Prometheus exporter.
+#
+# EXPOSE is documentation, not a firewall. Only 3333 is meant to be reachable
+# from outside the cluster; 9090 exports aggregate miner earnings and belongs
+# on the pod network alone.
+EXPOSE 3333 8080 9090
+
+ENTRYPOINT ["/usr/local/bin/pool"]
+
+# No CMD. Every default the daemon could sensibly carry is already its default;
+# what is left — the reward a found block distributes, the fee address, the
+# treasury — is policy about other people's money, and a CMD supplying it would
+# be this file deciding it. The daemon refuses to start until an operator does.
+#
+# See k8s/pool/deployment.yaml for a worked set of arguments.

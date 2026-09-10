@@ -1,0 +1,12 @@
+[package]
+name = "maya-docgen"
+version = "0.1.0"
+publish = false
+edition = "2024"
+rust-version = "1.88"
+description = "Generates a LaTeX technical reference from the workspace's module documentation"
+
+# Dependency-free. This is a build tool that reads Rust source and writes
+# LaTeX; neither job needs a crate, and a tool with no dependencies is one that
+# still runs in five years.
+[dependencies]
