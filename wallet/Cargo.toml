@@ -1,8 +1,20 @@
 ﻿[package]
 name = "l1-wallet"
 version = "0.1.0"
+# Not published. cargo-deny reads this: `allow-wildcard-paths` and
+# `[licenses.private] ignore` both apply only to unpublished crates, so
+# without it every internal path dependency reads as a wildcard and every
+# workspace crate reads as unlicensed.
+publish = false
 edition = "2024"
 rust-version = "1.88"
+
+# Explicit, though cargo would auto-detect src/lib.rs: the pool service
+# depends on this crate as a library, and a target that exists only by
+# convention is one a future edit deletes without noticing.
+[lib]
+name = "l1_wallet"
+path = "src/lib.rs"
 
 [[bin]]
 name = "l1-wallet"
@@ -25,3 +37,6 @@ rpassword = "7"
 
 [dev-dependencies]
 tempfile = "3"
+
+
+

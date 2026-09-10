@@ -1,0 +1,75 @@
+# Python packaging for the Maya2C signing bindings.
+#
+# =============================================================================
+# Why this ships wheels and not a source distribution
+# =============================================================================
+#
+# `maya-sdk-ffi` depends on `custom-l1-node` for `HybridSigningKey`, which pulls
+# RocksDB's C++ into the cdylib. A source distribution would make every
+# `pip install maya2c` compile RocksDB and the arkworks stack on the user's
+# machine: many minutes on a good day, and a failure without a C++ toolchain.
+#
+# So the release workflow builds real wheels per platform under `cibuildwheel`,
+# and `sdist` is deliberately not published. The build matrix is the honest cost
+# of shipping a native extension that embeds a storage engine.
+#
+# =============================================================================
+# What this package is for, and what it is not
+# =============================================================================
+#
+# It signs. It holds no network client, and it is not the way to talk to a
+# chain -- `maya2c.js` does that against the gateway, and there is no Python
+# equivalent yet.
+#
+# The reason to have it at all is that a Maya2C signature is a hybrid pair,
+# ML-DSA-65 plus SLH-DSA-SHA2-128s, and both must verify. There is no usable
+# pure-Python implementation of either, and an approximate one would produce
+# transactions the chain rejects.
+
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "maya2c"
+version = "0.1.0"
+description = "Post-quantum signing primitives for the Maya2C network"
+readme = "bindings/python/README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.9"
+
+classifiers = [
+  "Programming Language :: Rust",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Topic :: Security :: Cryptography",
+  "License :: OSI Approved :: Apache Software License",
+  # Pre-launch, and the chain refuses to run on a value-bearing id. Saying so in
+  # the trove classifiers puts it on the PyPI page rather than only in a doc
+  # nobody clicks through to.
+  "Development Status :: 3 - Alpha",
+]
+
+# uniffi generates the Python module and it imports nothing beyond the standard
+# library and the compiled extension beside it.
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/maya2c/maya2c"
+Documentation = "https://github.com/maya2c/maya2c/tree/master/docs"
+Source = "https://github.com/maya2c/maya2c/tree/master/sdk-ffi"
+
+[tool.maturin]
+# uniffi generates `maya_sdk_ffi.py` beside the cdylib rather than exposing a
+# PyO3 module, so maturin ships it as a plain Python source file next to the
+# extension instead of generating bindings of its own.
+bindings = "uniffi"
+module-name = "maya2c"
+python-source = "bindings/python"
+
+# The workspace root is two levels up; without this maturin resolves the wrong
+# Cargo.toml and builds the node instead of the bindings.
+manifest-path = "Cargo.toml"
+
+# Stripped: debug symbols for RocksDB and arkworks dominate the wheel, and
+# nobody debugging a signature reaches for them through an FFI boundary.
+strip = true

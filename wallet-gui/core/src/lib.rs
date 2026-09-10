@@ -37,12 +37,16 @@
 
 #![warn(missing_docs)]
 
+pub mod airgap;
+pub mod compose;
 pub mod error;
 pub mod hd;
 pub mod payment;
 pub mod vault;
 pub mod wallet;
 
+pub use airgap::{Assembler, Frame, frame_count, split};
+pub use compose::{SetupTrust, ShieldedComposer, SwapOutcome, compose_swap};
 pub use error::{Result, WalletError};
 pub use hd::{DerivationPath, generate_mnemonic, seed_from_mnemonic, validate_mnemonic};
 pub use payment::{FeeTier, PaymentRequest, SignedTransfer, scan_payment_request, sign_transfer};

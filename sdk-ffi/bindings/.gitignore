@@ -1,0 +1,4 @@
+# The cdylib is copied here by the Python test runner; it is build output.
+*.dll
+*.so
+*.dylib

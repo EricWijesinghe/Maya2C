@@ -1,0 +1,4 @@
+# Built by `npm run build`; published from here but never committed.
+dist/
+node_modules/
+*.tgz

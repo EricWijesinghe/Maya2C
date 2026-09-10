@@ -77,8 +77,7 @@ pub mod setup {
             busy.set(true);
             state.clear();
             spawn_local(async move {
-                match bridge::recover_wallet("primary", &phrase.get(), &passphrase.get()).await
-                {
+                match bridge::recover_wallet("primary", &phrase.get(), &passphrase.get()).await {
                     Ok(account) => {
                         state.accounts.set(vec![account]);
                         state.inform("Wallet recovered.");
@@ -306,8 +305,7 @@ pub mod wallet {
                 let Some(account) = accounts.get(index) else {
                     return;
                 };
-                match bridge::fetch_account(&state.node_url.get_untracked(), &account.address)
-                    .await
+                match bridge::fetch_account(&state.node_url.get_untracked(), &account.address).await
                 {
                     Ok(info) => state.account_state.set(info),
                     // A node being unreachable is an ordinary offline state,
@@ -620,8 +618,7 @@ pub mod send {
             let to = recipient.get();
 
             spawn_local(async move {
-                match bridge::preview_transfer(index, &to, amount_value, fee_value, nonce).await
-                {
+                match bridge::preview_transfer(index, &to, amount_value, fee_value, nonce).await {
                     Ok(summary) => preview.set(Some(summary)),
                     Err(error) => state.fail(error),
                 }
@@ -674,12 +671,8 @@ pub mod send {
                         state.screen.set(Screen::Wallet);
                     }
                     Err(error) => {
-                        let _ = bridge::record_outcome(
-                            &transfer.txid,
-                            false,
-                            Some(error.clone()),
-                        )
-                        .await;
+                        let _ = bridge::record_outcome(&transfer.txid, false, Some(error.clone()))
+                            .await;
                         state.fail(error);
                     }
                 }

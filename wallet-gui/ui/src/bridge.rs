@@ -157,11 +157,7 @@ struct RecoverArgs<'a> {
 }
 
 /// Restores a wallet from a recovery phrase.
-pub async fn recover_wallet(
-    name: &str,
-    phrase: &str,
-    passphrase: &str,
-) -> Result<Account, String> {
+pub async fn recover_wallet(name: &str, phrase: &str, passphrase: &str) -> Result<Account, String> {
     call(
         "recover_wallet",
         &RecoverArgs {
@@ -193,11 +189,7 @@ struct UnlockArgs<'a> {
 }
 
 /// Unlocks a stored wallet and derives `accounts` addresses.
-pub async fn unlock(
-    name: &str,
-    passphrase: &str,
-    accounts: u32,
-) -> Result<Vec<Account>, String> {
+pub async fn unlock(name: &str, passphrase: &str, accounts: u32) -> Result<Vec<Account>, String> {
     call(
         "unlock",
         &UnlockArgs {

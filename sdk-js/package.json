@@ -1,0 +1,46 @@
+{
+  "name": "maya2c.js",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the Maya2C network",
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build && npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  },
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/maya2c/maya2c.git",
+    "directory": "sdk-js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "maya2c",
+    "blockchain",
+    "post-quantum",
+    "ml-dsa",
+    "slh-dsa"
+  ]
+}

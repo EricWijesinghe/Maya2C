@@ -33,7 +33,9 @@ html, body {
   background: var(--panel);
   border-bottom: 1px solid var(--border);
 }
-.titlebar .logo { color: var(--accent); font-size: 1.1rem; }
+/* Height-constrained, width auto: the compact wordmark is 4:1, and pinning
+   the width instead would stretch it the moment the pack's aspect changes. */
+.titlebar .logo { height: 1.1rem; width: auto; display: block; }
 .titlebar .name { font-weight: 600; letter-spacing: 0.01em; }
 .titlebar .spacer { flex: 1; }
 

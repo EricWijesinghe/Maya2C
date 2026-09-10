@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": [
+      "vitest/globals",
+      "node"
+    ],
+    "rootDir": "."
+  },
+  "include": [
+    "src",
+    "test"
+  ]
+}

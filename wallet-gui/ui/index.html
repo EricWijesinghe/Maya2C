@@ -4,6 +4,24 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Maya Wallet</title>
+
+    <!-- Trunk copies this directory into `dist/` and fails the build if it is
+         missing, which is what makes every reference below verified at build
+         time rather than discovered as a 404 in the desktop shell. -->
+    <link data-trunk rel="copy-dir" href="assets" />
+
+    <link rel="icon" type="image/png" sizes="48x48" href="assets/favicon-48x48.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16x16.png" />
+    <link rel="shortcut icon" href="assets/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png" />
+    <link rel="manifest" href="assets/site.webmanifest" />
+    <meta name="theme-color" content="#ffffff" />
+
+    <!-- Paths are relative, not root-absolute as the asset pack's
+         `paste-in-head.html` writes them: Tauri serves the frontend from a
+         custom protocol where `/` is not the document's directory. -->
+
     <link data-trunk rel="rust" data-wasm-opt="z" />
     <link data-trunk rel="css" href="styles.css" />
   </head>

@@ -16,8 +16,7 @@
 //! environment variable is not persisted to disk by default and is not visible
 //! in `ps` output on modern systems.
 
-mod client;
-mod keystore;
+use l1_wallet::keystore;
 
 use std::path::{Path, PathBuf};
 
@@ -26,7 +25,7 @@ use clap::{Parser, Subcommand};
 use custom_l1_node::core::{Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
 
-use crate::client::NodeClient;
+use l1_wallet::client::NodeClient;
 
 /// Environment variable consulted when no terminal is available.
 const PASSWORD_ENV: &str = "L1_WALLET_PASSWORD";

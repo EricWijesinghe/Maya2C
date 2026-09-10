@@ -37,6 +37,25 @@ pub enum WalletError {
     #[error("signing: {0}")]
     Signing(String),
 
+    /// An air-gapped QR frame could not be read or assembled.
+    ///
+    /// Carries what went wrong and, where it can, which frame — a user in
+    /// front of a looping animation needs to know whether to wait for one more
+    /// cycle or restart the scan, and those are different actions.
+    ///
+    /// Like every variant here, it embeds no key material: see the module
+    /// documentation.
+    #[error("air-gapped transfer: {0}")]
+    Airgap(String),
+
+    /// Shielding was refused because the pool's trusted setup is unceremonied.
+    ///
+    /// Not a transient failure and not something a retry fixes: the parameters
+    /// come from a reproducible setup, and lifting it needs a multi-party
+    /// ceremony. A wallet must say so rather than presenting it as an outage.
+    #[error("shielded pool unavailable: {0}")]
+    ShieldedUnavailable(String),
+
     /// The OS keychain refused an operation.
     #[error("keychain: {0}")]
     Keychain(String),

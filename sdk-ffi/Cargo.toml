@@ -1,0 +1,30 @@
+[package]
+name = "maya-sdk-ffi"
+version = "0.1.0"
+publish = false
+edition = "2024"
+rust-version = "1.88"
+description = "uniffi bindings over Maya2C's post-quantum signing primitives"
+
+[lib]
+# `cdylib` is what the Python, Kotlin, and Swift bindings load at runtime.
+# `lib` is kept so the crate's own tests can call the Rust API directly — a
+# test that had to go through the FFI boundary to check the Rust behaviour
+# would be testing the generator, not the primitives.
+crate-type = ["cdylib", "lib"]
+name = "maya_sdk_ffi"
+
+[dependencies]
+uniffi = { version = "0.32", features = ["cli"] }
+maya-crypto-pq = { path = "../crypto-pq" }
+custom-l1-node = { path = ".." }
+thiserror = "2.0"
+hex = "0.4"
+
+[build-dependencies]
+uniffi = { version = "0.32", features = ["build"] }
+
+[[bin]]
+# The generator, run as `cargo run -p maya-sdk-ffi --bin uniffi-bindgen`.
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"

@@ -113,7 +113,20 @@ fn App() -> impl IntoView {
     view! {
         <div class="app">
             <header class="titlebar">
-                <span class="logo">"◆"</span>
+                <img
+                    class="logo"
+                    src="assets/logo.png"
+                    srcset="assets/logo.png 1x, assets/logo@2x.png 2x"
+                    // The wordmark is the app's name rendered as art, so the
+                    // name beside it would be read out twice by a screen
+                    // reader. Empty alt marks it decorative and lets the
+                    // `.name` span be the accessible name.
+                    alt=""
+                    // The compact wordmark's intrinsic size, so the titlebar
+                    // does not reflow when the image finishes loading.
+                    width="200"
+                    height="50"
+                />
                 <span class="name">"Maya Wallet"</span>
                 <span class="spacer"></span>
                 <Show when=move || matches!(state.screen.get(), Screen::Wallet)>
