@@ -23,7 +23,10 @@
 
 use std::collections::BTreeMap;
 
-use maya_vm::host::{Address as VmAddress, ContractId, Event as VmEvent, HostState};
+use maya_vm::host::{
+    Address as VmAddress, ContractId, Event as VmEvent, HostState, OracleValue, RANDOMNESS_LEN,
+};
+use maya_vm::zkml::{ZKML_MODEL_ID_LEN, ZkmlVerdict};
 
 use crate::state::account::Address;
 
@@ -42,6 +45,18 @@ pub struct ChainHost {
     writes: BTreeMap<Vec<u8>, Vec<u8>>,
     /// Events emitted.
     events: Vec<VmEvent>,
+    /// The randomness beacon as of the previous block, if the chain has one.
+    randomness: Option<[u8; RANDOMNESS_LEN]>,
+    /// Price feeds the call may observe.
+    ///
+    /// Loaded whole before execution rather than read on demand, for the same
+    /// reason contract storage is: the host owns its data, so a call cannot
+    /// reach back into the database mid-execution and observe something that
+    /// changed underneath it.
+    feeds: BTreeMap<[u8; 32], OracleValue>,
+    /// Whether `host_verify_zkml_proof` answers. False unless the block's
+    /// context says otherwise, which in the node it never does.
+    zkml_active: bool,
 }
 
 impl ChainHost {
@@ -66,6 +81,36 @@ impl ChainHost {
     /// is a real limitation of owning the state rather than borrowing the
     /// database, and it is why callers pass the accounts a call is expected to
     /// touch.
+    /// Supplies the oracle view a call may observe.
+    ///
+    /// Both halves are loaded before execution and owned by the host, so a call
+    /// cannot reach back into the database mid-execution and see something move
+    /// underneath it. That is what keeps a contract's two reads of one feed
+    /// consistent with each other, and it is the same rule contract storage
+    /// already follows.
+    #[must_use]
+    pub fn with_oracle(
+        mut self,
+        randomness: Option<[u8; RANDOMNESS_LEN]>,
+        feeds: BTreeMap<[u8; 32], OracleValue>,
+    ) -> Self {
+        self.randomness = randomness;
+        self.feeds = feeds;
+        self
+    }
+
+    /// Turns zkML verification on for this call, or leaves it off.
+    ///
+    /// Off by default, like the oracle and the beacon: a host nobody configured
+    /// answers `Unavailable` and the call traps.
+    #[must_use]
+    pub fn with_zkml(mut self, active: bool) -> Self {
+        self.zkml_active = active;
+        self
+    }
+
+    /// Supplies the balances a call may observe.
+    #[must_use]
     pub fn with_balances(mut self, balances: BTreeMap<Address, u64>) -> Self {
         self.balances = balances;
         self
@@ -114,5 +159,26 @@ impl HostState for ChainHost {
 
     fn emit(&mut self, event: VmEvent) {
         self.events.push(event);
+    }
+
+    fn block_randomness(&self) -> Option<[u8; RANDOMNESS_LEN]> {
+        self.randomness
+    }
+
+    fn oracle_feed(&self, feed_id: &[u8; 32]) -> Option<OracleValue> {
+        self.feeds.get(feed_id).copied()
+    }
+
+    fn verify_zkml(
+        &self,
+        model_id: &[u8; ZKML_MODEL_ID_LEN],
+        vk: &[u8],
+        public: &[i64],
+        proof: &[u8],
+    ) -> ZkmlVerdict {
+        if !self.zkml_active {
+            return ZkmlVerdict::Unavailable;
+        }
+        crate::state::zkml::verdict(model_id, vk, public, proof)
     }
 }

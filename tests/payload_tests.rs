@@ -19,6 +19,17 @@
 //! the *discipline* — the encoding is still frozen against a literal, so it
 //! cannot drift silently from here.
 
+use custom_l1_node::core::dex_payload::{
+    AssetRegistration, AssetTransfer, LiquidityDeposit, LiquidityWithdrawal, MAX_ROUTE_LEGS,
+    OrderPlacement, PoolCreation, ROUTE_LEG_SIZE, RouteLeg, SwapRequest, SwapRoute,
+};
+use custom_l1_node::core::governance_payload::{
+    Ballot, MAX_CHANGES, ProposalSubmission, StakeLock, StakeUnlock, WorkClaim,
+};
+use custom_l1_node::core::oracle_payload::{
+    BeaconSubmission, FeedCreation, FeedObservation, FeedSubmission, MAX_OBSERVATIONS,
+    RegistryRotation,
+};
 use custom_l1_node::core::payload::{
     CLOSURE_SIZE, ChannelClosure, ChannelOpen, MAX_BATCH_CLOSURES, RevocationProof,
     channel_state_signing_bytes, derive_channel_id, revocation_commitment,
@@ -210,6 +221,127 @@ fn every_payload_kind_has_distinct_signing_bytes() {
             secret: [8u8; 32],
         }),
         TxKind::SettleBatch(vec![closure(1, 50, 50)]),
+        // Trading. Several of these have identical field layouts to each other
+        // — a deposit and a withdrawal are both a pair identifier and three
+        // `u64`s — so the tag is the only thing separating them, and a
+        // signature authorizing one must never authorize the other.
+        TxKind::RegisterAsset(AssetRegistration {
+            symbol: *b"AAA\0\0\0\0\0",
+            total_supply: 1_000,
+        }),
+        TxKind::TransferAsset(AssetTransfer {
+            asset: [1u8; 32],
+            recipient: [2u8; 32],
+            amount: 1_000,
+        }),
+        TxKind::CreatePool(PoolCreation {
+            asset_a: [1u8; 32],
+            asset_b: [2u8; 32],
+            lp_fee_bps: 30,
+            amount_a: 1_000,
+            amount_b: 2_000,
+        }),
+        TxKind::AddLiquidity(LiquidityDeposit {
+            pair: [3u8; 32],
+            base_desired: 1_000,
+            quote_desired: 2_000,
+            min_shares: 1,
+        }),
+        TxKind::RemoveLiquidity(LiquidityWithdrawal {
+            pair: [3u8; 32],
+            shares: 1_000,
+            min_base: 2_000,
+            min_quote: 1,
+        }),
+        TxKind::Swap(SwapRequest {
+            pair: [3u8; 32],
+            direction: 0,
+            amount_in: 1_000,
+            min_out: 1,
+            deadline: 0,
+        }),
+        // Same numbers, other direction: a signature for a buy must not
+        // authorize a sell.
+        TxKind::Swap(SwapRequest {
+            pair: [3u8; 32],
+            direction: 1,
+            amount_in: 1_000,
+            min_out: 1,
+            deadline: 0,
+        }),
+        TxKind::SwapRoute(SwapRoute {
+            legs: vec![RouteLeg {
+                pair: [3u8; 32],
+                direction: 0,
+            }],
+            amount_in: 1_000,
+            min_out: 1,
+            deadline: 0,
+        }),
+        TxKind::PlaceOrder(OrderPlacement {
+            pair: [3u8; 32],
+            side: 0,
+            price: 1_000,
+            amount: 1,
+            expiry: 0,
+        }),
+        TxKind::CancelOrder([4u8; 32]),
+        // Oracle. `CreateFeed` and `CancelOrder` both carry thirty-two opaque
+        // bytes and nothing else, so the tag is all that separates a feed name
+        // from an order identifier.
+        TxKind::CreateFeed(FeedCreation {
+            name: *b"MAYA/USD\0\0\0\0\0\0\0\0",
+        }),
+        TxKind::SubmitFeed(Box::new(FeedSubmission {
+            feed_id: [5u8; 32],
+            round: 1,
+            observed_height: 2,
+            observations: vec![FeedObservation {
+                value: 100,
+                public_key: Box::new(filled_public_key(5)),
+                signature: Box::new(filled_signature(6)),
+            }],
+        })),
+        TxKind::RotateAuthorities(Box::new(RegistryRotation {
+            epoch: 1,
+            authorities: vec![([6u8; 32], [7u8; 33])],
+            quorum: 2,
+            approvals: vec![(
+                Box::new(filled_public_key(7)),
+                Box::new(filled_signature(8)),
+            )],
+        })),
+        TxKind::SubmitBeacon(BeaconSubmission {
+            height: 9,
+            proof: [10u8; 80],
+        }),
+        // Governance. `ClaimWork` and `CancelProposal` both carry thirty-two
+        // opaque bytes and nothing else, so the tag is all that separates a
+        // beneficiary address from a proposal identifier.
+        TxKind::ClaimWork(WorkClaim {
+            beneficiary: [11u8; 32],
+        }),
+        TxKind::LockStake(StakeLock {
+            amount: 1_000,
+            unlock_height: 5_000,
+        }),
+        TxKind::UnlockStake(StakeUnlock { amount: 1_000 }),
+        TxKind::Propose(Box::new(ProposalSubmission {
+            voting_blocks: 480,
+            timelock_blocks: 960,
+            changes: vec![(1, 25)],
+        })),
+        TxKind::CastVote(Ballot {
+            proposal: [12u8; 32],
+            choice: 1,
+        }),
+        // Same numbers, other choice: a signature for a yes must not authorize
+        // a no.
+        TxKind::CastVote(Ballot {
+            proposal: [12u8; 32],
+            choice: 2,
+        }),
+        TxKind::CancelProposal([13u8; 32]),
     ];
 
     let mut seen = std::collections::HashSet::new();
@@ -327,6 +459,360 @@ fn a_maximum_batch_round_trips() {
 
     let decoded = Transaction::from_bytes(&encoded).expect("decode");
     assert_eq!(decoded.kind, TxKind::SettleBatch(closures));
+}
+
+// ---------------------------------------------------------------------------
+// trading payloads
+// ---------------------------------------------------------------------------
+
+#[test]
+fn every_trading_kind_survives_a_round_trip_unchanged() {
+    // Each of these is fixed-width apart from the route, so the failure this
+    // catches is a field written in one order and read in another — which does
+    // not fail to decode, it decodes to different numbers.
+    let kinds = vec![
+        TxKind::RegisterAsset(AssetRegistration {
+            symbol: *b"MAYA2C\0\0",
+            total_supply: u64::MAX,
+        }),
+        TxKind::TransferAsset(AssetTransfer {
+            asset: [0xAB; 32],
+            recipient: [0xCD; 32],
+            amount: 1,
+        }),
+        TxKind::CreatePool(PoolCreation {
+            asset_a: [1u8; 32],
+            asset_b: [2u8; 32],
+            lp_fee_bps: 9_999,
+            amount_a: 12_345,
+            amount_b: 67_890,
+        }),
+        TxKind::AddLiquidity(LiquidityDeposit {
+            pair: [3u8; 32],
+            base_desired: 1,
+            quote_desired: 2,
+            min_shares: 3,
+        }),
+        TxKind::RemoveLiquidity(LiquidityWithdrawal {
+            pair: [3u8; 32],
+            shares: 4,
+            min_base: 5,
+            min_quote: 6,
+        }),
+        TxKind::Swap(SwapRequest {
+            pair: [3u8; 32],
+            direction: 1,
+            amount_in: 7,
+            min_out: 8,
+            deadline: 9,
+        }),
+        TxKind::SwapRoute(SwapRoute {
+            legs: (0..MAX_ROUTE_LEGS)
+                .map(|index| RouteLeg {
+                    pair: [index as u8; 32],
+                    direction: (index % 2) as u8,
+                })
+                .collect(),
+            amount_in: 10,
+            min_out: 11,
+            deadline: 12,
+        }),
+        TxKind::PlaceOrder(OrderPlacement {
+            pair: [3u8; 32],
+            side: 1,
+            price: 13,
+            amount: 14,
+            expiry: 15,
+        }),
+        TxKind::CancelOrder([0xEF; 32]),
+    ];
+
+    for kind in kinds {
+        let tx = Transaction::with_kind(kind.clone(), 42);
+        let decoded = Transaction::from_bytes(&tx.to_bytes()).expect("decode");
+        assert_eq!(decoded.kind, kind, "{} did not round trip", kind.label());
+        assert_eq!(decoded.nonce, 42);
+    }
+}
+
+#[test]
+fn a_route_with_no_legs_is_rejected() {
+    // Not merely useless: a zero-leg route has no input asset, so every later
+    // stage would be reasoning about an asset nobody named.
+    let mut encoded = Transaction::with_kind(
+        TxKind::SwapRoute(SwapRoute {
+            legs: vec![RouteLeg {
+                pair: [3u8; 32],
+                direction: 0,
+            }],
+            amount_in: 1,
+            min_out: 0,
+            deadline: 0,
+        }),
+        0,
+    )
+    .to_bytes();
+
+    // The leg count sits before one leg and three trailing `u64`s.
+    let count_index = encoded.len() - ROUTE_LEG_SIZE - 24 - 8;
+    encoded[count_index..count_index + 8].copy_from_slice(&0u64.to_le_bytes());
+
+    assert!(Transaction::from_bytes(&encoded).is_err());
+}
+
+#[test]
+fn a_route_longer_than_the_ceiling_is_rejected_before_it_is_allocated() {
+    let mut encoded = Transaction::with_kind(
+        TxKind::SwapRoute(SwapRoute {
+            legs: vec![RouteLeg {
+                pair: [3u8; 32],
+                direction: 0,
+            }],
+            amount_in: 1,
+            min_out: 0,
+            deadline: 0,
+        }),
+        0,
+    )
+    .to_bytes();
+
+    let count_index = encoded.len() - ROUTE_LEG_SIZE - 24 - 8;
+    encoded[count_index..count_index + 8]
+        .copy_from_slice(&(MAX_ROUTE_LEGS as u64 + 1).to_le_bytes());
+
+    assert!(Transaction::from_bytes(&encoded).is_err());
+}
+
+#[test]
+fn a_trading_payload_cannot_collide_with_a_transfer() {
+    // The same property the channel payloads have, restated for the kinds added
+    // since. A payload section is appended after fixed-width fields, so a
+    // payload'd transaction is strictly longer and shares the transfer as a
+    // prefix — which is what makes one signature unable to mean two things.
+    let transfer = Transaction::new(vec![], vec![], 0).signing_bytes();
+
+    for kind in [
+        TxKind::Swap(SwapRequest {
+            pair: [0u8; 32],
+            direction: 0,
+            amount_in: 0,
+            min_out: 0,
+            deadline: 0,
+        }),
+        TxKind::CancelOrder([0u8; 32]),
+    ] {
+        let payload = Transaction::with_kind(kind, 0).signing_bytes();
+        assert!(payload.len() > transfer.len());
+        assert_eq!(&payload[..transfer.len()], &transfer[..]);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// oracle payloads
+// ---------------------------------------------------------------------------
+
+#[test]
+fn every_oracle_kind_survives_a_round_trip_unchanged() {
+    let kinds = vec![
+        TxKind::CreateFeed(FeedCreation {
+            name: *b"BTC/USD\0\0\0\0\0\0\0\0\0",
+        }),
+        TxKind::SubmitFeed(Box::new(FeedSubmission {
+            feed_id: [0xAB; 32],
+            round: u64::MAX,
+            observed_height: 12_345,
+            observations: (0..3u8)
+                .map(|index| FeedObservation {
+                    value: 1_000 + u64::from(index),
+                    public_key: Box::new(filled_public_key(index)),
+                    signature: Box::new(filled_signature(index.wrapping_add(64))),
+                })
+                .collect(),
+        })),
+        TxKind::RotateAuthorities(Box::new(RegistryRotation {
+            epoch: 7,
+            authorities: (0..3u8).map(|index| ([index; 32], [index; 33])).collect(),
+            quorum: 2,
+            approvals: (0..2u8)
+                .map(|index| {
+                    (
+                        Box::new(filled_public_key(index)),
+                        Box::new(filled_signature(index.wrapping_add(32))),
+                    )
+                })
+                .collect(),
+        })),
+        TxKind::SubmitBeacon(BeaconSubmission {
+            height: u64::MAX,
+            proof: [0xCD; 80],
+        }),
+    ];
+
+    for kind in kinds {
+        let tx = Transaction::with_kind(kind.clone(), 11);
+        let decoded = Transaction::from_bytes(&tx.to_bytes()).expect("decode");
+        assert_eq!(decoded.kind, kind, "{} did not round trip", kind.label());
+        assert_eq!(decoded.nonce, 11);
+    }
+}
+
+#[test]
+fn a_feed_submission_with_no_observations_is_rejected() {
+    // Not merely useless: a submission with nothing in it would reach the
+    // median with an empty set, and every later stage would be reasoning about
+    // a value nobody attested.
+    let mut encoded = Transaction::with_kind(
+        TxKind::SubmitFeed(Box::new(FeedSubmission {
+            feed_id: [1u8; 32],
+            round: 1,
+            observed_height: 1,
+            observations: vec![FeedObservation {
+                value: 1,
+                public_key: Box::new(filled_public_key(1)),
+                signature: Box::new(filled_signature(2)),
+            }],
+        })),
+        0,
+    )
+    .to_bytes();
+
+    // The observation count sits directly before the single observation.
+    let observation_size = 8
+        + ML_DSA_PUBLIC_KEY_LEN
+        + SLH_DSA_PUBLIC_KEY_LEN
+        + ML_DSA_SIGNATURE_LENGTH
+        + SLH_DSA_SIGNATURE_LENGTH;
+    let count_index = encoded.len() - observation_size - 8;
+    encoded[count_index..count_index + 8].copy_from_slice(&0u64.to_le_bytes());
+
+    assert!(Transaction::from_bytes(&encoded).is_err());
+}
+
+#[test]
+fn a_feed_submission_above_the_ceiling_is_rejected_before_it_is_allocated() {
+    // Each observation costs a post-quantum signature verification, so an
+    // unbounded count is a way to make every node on the network do unbounded
+    // work for one transaction.
+    let mut encoded = Transaction::with_kind(
+        TxKind::SubmitFeed(Box::new(FeedSubmission {
+            feed_id: [1u8; 32],
+            round: 1,
+            observed_height: 1,
+            observations: vec![FeedObservation {
+                value: 1,
+                public_key: Box::new(filled_public_key(1)),
+                signature: Box::new(filled_signature(2)),
+            }],
+        })),
+        0,
+    )
+    .to_bytes();
+
+    let observation_size = 8
+        + ML_DSA_PUBLIC_KEY_LEN
+        + SLH_DSA_PUBLIC_KEY_LEN
+        + ML_DSA_SIGNATURE_LENGTH
+        + SLH_DSA_SIGNATURE_LENGTH;
+    let count_index = encoded.len() - observation_size - 8;
+    encoded[count_index..count_index + 8]
+        .copy_from_slice(&(MAX_OBSERVATIONS as u64 + 1).to_le_bytes());
+
+    assert!(Transaction::from_bytes(&encoded).is_err());
+}
+
+#[test]
+fn a_beacon_proof_is_exactly_eighty_bytes_on_the_wire() {
+    // Pinned as a literal: a proof that changed size would change every
+    // transaction carrying one, and the RFC fixes it at eighty.
+    let plain = Transaction::with_kind(TxKind::Transfer, 0).to_bytes();
+    let beacon = Transaction::with_kind(
+        TxKind::SubmitBeacon(BeaconSubmission {
+            height: 1,
+            proof: [0u8; 80],
+        }),
+        0,
+    )
+    .to_bytes();
+
+    // Tag, height, proof — and a transfer carries no payload section at all.
+    assert_eq!(beacon.len(), plain.len() + 1 + 8 + 80);
+}
+
+// ---------------------------------------------------------------------------
+// governance payloads
+// ---------------------------------------------------------------------------
+
+#[test]
+fn every_governance_kind_survives_a_round_trip_unchanged() {
+    let kinds = vec![
+        TxKind::ClaimWork(WorkClaim {
+            beneficiary: [0xAB; 32],
+        }),
+        TxKind::LockStake(StakeLock {
+            amount: u64::MAX,
+            unlock_height: u64::MAX,
+        }),
+        TxKind::UnlockStake(StakeUnlock { amount: 1 }),
+        TxKind::Propose(Box::new(ProposalSubmission {
+            voting_blocks: 500,
+            timelock_blocks: 1_000,
+            changes: (1..=MAX_CHANGES as u16)
+                .map(|tag| (tag, u64::from(tag)))
+                .collect(),
+        })),
+        TxKind::CastVote(Ballot {
+            proposal: [0xCD; 32],
+            choice: 3,
+        }),
+        TxKind::CancelProposal([0xEF; 32]),
+    ];
+
+    for kind in kinds {
+        let tx = Transaction::with_kind(kind.clone(), 5);
+        let decoded = Transaction::from_bytes(&tx.to_bytes()).expect("decode");
+        assert_eq!(decoded.kind, kind, "{} did not round trip", kind.label());
+        assert_eq!(decoded.nonce, 5);
+    }
+}
+
+#[test]
+fn a_proposal_with_no_changes_is_rejected() {
+    // A proposal that changes nothing is a vote about nothing, and it would
+    // still consume a deposit, a voting window, and everyone's attention.
+    let mut encoded = Transaction::with_kind(
+        TxKind::Propose(Box::new(ProposalSubmission {
+            voting_blocks: 500,
+            timelock_blocks: 1_000,
+            changes: vec![(1, 25)],
+        })),
+        0,
+    )
+    .to_bytes();
+
+    // The change count sits before one 10-byte change.
+    let count_index = encoded.len() - 10 - 8;
+    encoded[count_index..count_index + 8].copy_from_slice(&0u64.to_le_bytes());
+    assert!(Transaction::from_bytes(&encoded).is_err());
+}
+
+#[test]
+fn a_proposal_above_the_bundling_ceiling_is_rejected() {
+    // A proposal is a single decision that voters accept or reject as a whole,
+    // so bundling is a way to carry an unpopular change on the back of a
+    // popular one. A bound is the difference between that and an omnibus.
+    let mut encoded = Transaction::with_kind(
+        TxKind::Propose(Box::new(ProposalSubmission {
+            voting_blocks: 500,
+            timelock_blocks: 1_000,
+            changes: vec![(1, 25)],
+        })),
+        0,
+    )
+    .to_bytes();
+
+    let count_index = encoded.len() - 10 - 8;
+    encoded[count_index..count_index + 8].copy_from_slice(&(MAX_CHANGES as u64 + 1).to_le_bytes());
+    assert!(Transaction::from_bytes(&encoded).is_err());
 }
 
 // ---------------------------------------------------------------------------

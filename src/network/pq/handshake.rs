@@ -197,6 +197,21 @@ fn derive(
     }
 }
 
+/// [`derive`], exposed for the dual-KEM combiner's tests.
+///
+/// The dual path asserts that its own derivation differs from this one — the
+/// property that keeps a dual session and an ML-KEM-only session from sharing
+/// keys when they share an ML-KEM transcript. Checking that needs both
+/// derivations in one place, and `derive` is otherwise private for good reason.
+#[cfg(test)]
+pub fn derive_for_test(
+    secret: &kem::SharedSecret,
+    encapsulation_key: &[u8; ENCAPSULATION_KEY_LEN],
+    ciphertext: &[u8; CIPHERTEXT_LEN],
+) -> SessionKeys {
+    derive(secret, encapsulation_key, ciphertext)
+}
+
 fn check_version(version: u8) -> Result<(), NodeError> {
     if version == VERSION {
         Ok(())

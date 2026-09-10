@@ -30,6 +30,7 @@ use crate::consensus::difficulty::{
 };
 use crate::consensus::uint::U256;
 use crate::core::{Block, BlockHeader};
+use crate::crypto::dag::registry::{CacheRegistry, DagConfig};
 use crate::crypto::pow::meets_target;
 use crate::error::{NodeError, Result};
 use crate::state::{BlockContext, StateDB};
@@ -40,10 +41,17 @@ pub type BlockId = [u8; 32];
 /// Network parameters and validation switches.
 #[derive(Clone, Copy, Debug)]
 pub struct ChainConfig {
-    /// Whether to verify each block's ArgonBlake proof of work.
+    /// Whether to verify each block's proof of work.
     pub verify_pow: bool,
     /// Easiest permitted target. Retargeting never eases past this.
     pub pow_limit: [u8; 32],
+    /// Which proof-of-work rule applies at which height, and at what sizes.
+    ///
+    /// Defaults to [`DagConfig::MAINNET`]: ArgonBlake below
+    /// [`DAG_ACTIVATION_HEIGHT`], the 4 GiB DAG at and above it.
+    ///
+    /// [`DAG_ACTIVATION_HEIGHT`]: crate::crypto::dag::DAG_ACTIVATION_HEIGHT
+    pub dag: DagConfig,
 }
 
 impl Default for ChainConfig {
@@ -51,6 +59,7 @@ impl Default for ChainConfig {
         Self {
             verify_pow: true,
             pow_limit: default_pow_limit(),
+            dag: DagConfig::MAINNET,
         }
     }
 }
@@ -68,6 +77,7 @@ impl ChainConfig {
         Self {
             verify_pow: false,
             pow_limit: unlimited_pow_limit(),
+            dag: DagConfig::MAINNET,
         }
     }
 
@@ -80,7 +90,17 @@ impl ChainConfig {
         Self {
             verify_pow: true,
             pow_limit,
+            dag: DagConfig::MAINNET,
         }
+    }
+
+    /// The same configuration with a different proof-of-work schedule.
+    ///
+    /// Used by tests that need the DAG rule to apply at a height they can
+    /// actually reach, at sizes a CI runner can actually allocate.
+    #[must_use]
+    pub fn with_dag(self, dag: DagConfig) -> Self {
+        Self { dag, ..self }
     }
 }
 
@@ -133,6 +153,10 @@ pub struct Chain {
     records: HashMap<BlockId, BlockRecord>,
     tip: BlockId,
     genesis: BlockId,
+    /// Epoch caches for DAG verification. Shared, because the miner reads the
+    /// same caches the validator does — and must, or it would mine against a
+    /// dataset the chain does not recognise.
+    dag: Arc<CacheRegistry>,
 }
 
 impl Chain {
@@ -163,7 +187,19 @@ impl Chain {
             records,
             tip: id,
             genesis: id,
+            // Empty until a block at or above the activation height arrives, so
+            // a pre-fork chain never allocates a cache it will not use.
+            dag: Arc::new(CacheRegistry::new(config.dag)),
         }
+    }
+
+    /// The epoch caches this chain validates against.
+    ///
+    /// Handed to a miner so it searches against the same caches the chain
+    /// checks with, and so it can call `prepare` ahead of an epoch boundary.
+    #[must_use]
+    pub fn dag(&self) -> &Arc<CacheRegistry> {
+        &self.dag
     }
 
     /// The active chain tip.
@@ -224,6 +260,21 @@ impl Chain {
     pub fn next_target(&self, parent_id: &BlockId) -> Result<[u8; 32]> {
         let parent = self.require(parent_id)?;
         let child_height = parent.height + 1;
+
+        // The fork block does not inherit. The rule changing means the cost of
+        // a hash changes by orders of magnitude, and a target calibrated for
+        // the old rule would take many retarget windows to unwind — see
+        // `DagConfig::activation_target`.
+        if child_height == self.config.dag.activation_height {
+            let pinned = self.config.dag.activation_target;
+            // Never easier than the network's floor, which the pin is not
+            // allowed to override any more than a retarget is.
+            return Ok(if pinned > self.config.pow_limit {
+                self.config.pow_limit
+            } else {
+                pinned
+            });
+        }
 
         if !is_retarget_height(child_height) {
             return Ok(parent.block.header.difficulty_target);
@@ -290,7 +341,11 @@ impl Chain {
         }
 
         if self.config.verify_pow {
-            let pow = block.header.pow_hash()?;
+            // The rule is chosen by the height this block lands at, which is
+            // derived from its parent — not from anything the block itself
+            // declares. A miner cannot select an easier proof-of-work rule by
+            // claiming to be somewhere else in the chain.
+            let pow = block.header.pow_hash_at(height, &self.dag)?;
             if !meets_target(&pow, &block.header.difficulty_target) {
                 return Err(NodeError::Network(format!(
                     "insufficient proof of work at height {height}"

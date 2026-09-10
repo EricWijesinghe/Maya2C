@@ -38,6 +38,8 @@
 
 use std::collections::VecDeque;
 
+use maya_ledger_math as ledger_math;
+use maya_ledger_math::SettleError;
 use maya_zk_privacy::circuit::JoinSplitPublic;
 use maya_zk_privacy::field::{fr_from_bytes, fr_to_bytes};
 use maya_zk_privacy::params::{ANCHOR_WINDOW, TREE_DEPTH};
@@ -110,21 +112,18 @@ impl ShieldedPool {
     /// assumed: it is the tripwire for a soundness break in the proof system.
     pub fn settle(&mut self, public_in: u64, public_out: u64, fee: u64) -> Result<()> {
         // The fee is paid out of shielded value to a transparent sink, so it
-        // leaves the pool alongside `public_out`.
-        let leaving = public_out
-            .checked_add(fee)
-            .ok_or(NodeError::BalanceOverflow)?;
-        let credited = self
-            .balance
-            .checked_add(public_in)
-            .ok_or(NodeError::BalanceOverflow)?;
-        self.balance =
-            credited
-                .checked_sub(leaving)
-                .ok_or(NodeError::ShieldedBalanceUnderflow {
-                    held: credited,
-                    withdrawn: leaving,
-                })?;
+        // leaves the pool alongside `public_out`. The two failure modes stay
+        // distinct through `ledger_math` for the reason the doc comment gives:
+        // an underflow here is the tripwire for a soundness break, and folding
+        // it into the overflow case would erase the one signal that matters.
+        self.balance = ledger_math::settle_pool(self.balance, public_in, public_out, fee).map_err(
+            |error| match error {
+                SettleError::Overflow => NodeError::BalanceOverflow,
+                SettleError::Underflow { held, withdrawn } => {
+                    NodeError::ShieldedBalanceUnderflow { held, withdrawn }
+                }
+            },
+        )?;
         Ok(())
     }
 
@@ -454,10 +453,8 @@ impl StateDB {
     /// Credits an account through the overlay.
     fn credit_through(&self, overlay: &mut Overlay, address: &Address, amount: u64) -> Result<()> {
         let mut account = self.account_through(overlay, address)?;
-        account.balance = account
-            .balance
-            .checked_add(amount)
-            .ok_or(NodeError::BalanceOverflow)?;
+        account.balance =
+            ledger_math::credit(account.balance, amount).ok_or(NodeError::BalanceOverflow)?;
         overlay.accounts.insert(*address, account);
         Ok(())
     }

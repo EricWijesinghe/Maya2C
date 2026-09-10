@@ -124,6 +124,19 @@ impl<'a> ByteReader<'a> {
         Ok(count as usize)
     }
 
+    /// Bytes not yet consumed.
+    ///
+    /// For the one case where a section's *presence* is signalled by there
+    /// being anything left rather than by a flag: a record format that grew a
+    /// trailing field still has to read the records written before it did.
+    /// Using it to make a *wire* format optional would be a mistake — on the
+    /// wire, two encodings of one value is malleability — which is why every
+    /// caller of this is a storage decoder.
+    #[must_use]
+    pub fn remaining(&self) -> usize {
+        self.bytes.len().saturating_sub(self.position)
+    }
+
     /// Returns an error if any input remains unconsumed.
     ///
     /// Trailing bytes mean the frame is not what the sender claimed, and

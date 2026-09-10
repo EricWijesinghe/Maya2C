@@ -28,6 +28,17 @@
 //! [`Transaction`]: crate::core::Transaction
 
 use crate::core::codec::ByteReader;
+use crate::core::dex_payload::{
+    AssetRegistration, AssetTransfer, LiquidityDeposit, LiquidityWithdrawal, OrderPlacement,
+    PoolCreation, SwapRequest, SwapRoute,
+};
+use crate::core::governance_payload::{
+    Ballot, ProposalSubmission, StakeLock, StakeUnlock, WorkClaim,
+};
+use crate::core::oracle_payload::{
+    BeaconSubmission, FeedCreation, FeedSubmission, RegistryRotation,
+};
+use crate::core::sealed_payload::{RevealShare, SealedEnvelope};
 use crate::crypto::hybrid::{
     HYBRID_PUBLIC_KEY_LEN, HYBRID_SIGNATURE_LENGTH, HybridPublicKey, HybridSignature,
 };
@@ -91,6 +102,35 @@ const TAG_FINALIZE: u8 = 6;
 const TAG_DEPLOY: u8 = 7;
 const TAG_CALL: u8 = 8;
 const TAG_SHIELDED: u8 = 9;
+// Trading. The structures these carry live in `crate::core::dex_payload`; the
+// numbering stays here, because a numbering split across two files is a
+// numbering that gets reused.
+const TAG_REGISTER_ASSET: u8 = 10;
+const TAG_TRANSFER_ASSET: u8 = 11;
+const TAG_CREATE_POOL: u8 = 12;
+const TAG_ADD_LIQUIDITY: u8 = 13;
+const TAG_REMOVE_LIQUIDITY: u8 = 14;
+const TAG_SWAP: u8 = 15;
+const TAG_SWAP_ROUTE: u8 = 16;
+const TAG_PLACE_ORDER: u8 = 17;
+const TAG_CANCEL_ORDER: u8 = 18;
+// Oracle. Randomness and external prices — the first constructions on this
+// chain that ask it to believe a named party rather than a proof.
+const TAG_CREATE_FEED: u8 = 19;
+const TAG_SUBMIT_FEED: u8 = 20;
+const TAG_ROTATE_AUTHORITIES: u8 = 21;
+const TAG_SUBMIT_BEACON: u8 = 22;
+// Governance. The chain amending its own rules — see `governance_payload`.
+const TAG_CLAIM_WORK: u8 = 23;
+const TAG_LOCK_STAKE: u8 = 24;
+const TAG_UNLOCK_STAKE: u8 = 25;
+const TAG_PROPOSE: u8 = 26;
+const TAG_CAST_VOTE: u8 = 27;
+const TAG_CANCEL_PROPOSAL: u8 = 28;
+
+// The sealed mempool.
+const TAG_SEAL: u8 = 29;
+const TAG_REVEAL_SHARE: u8 = 30;
 
 /// Encoded size of a [`ShieldedJoinSplit`].
 ///
@@ -275,8 +315,7 @@ impl ChannelClosure {
     ///
     /// Returns [`NodeError::BalanceOverflow`] if the balances overflow `u64`.
     pub fn total(&self) -> Result<u64> {
-        self.balance_a
-            .checked_add(self.balance_b)
+        maya_ledger_math::combined_balance(self.balance_a, self.balance_b)
             .ok_or(NodeError::BalanceOverflow)
     }
 
@@ -345,6 +384,56 @@ pub enum TxKind {
     CallContract(ContractCall),
     /// A private transaction against the shielded pool.
     Shielded(Box<ShieldedJoinSplit>),
+    /// Create a new asset, crediting its whole supply to the sender.
+    RegisterAsset(AssetRegistration),
+    /// Move units of a non-native asset.
+    TransferAsset(AssetTransfer),
+    /// Create a constant-product pool and seed it.
+    CreatePool(PoolCreation),
+    /// Deposit into a pool, minting shares.
+    AddLiquidity(LiquidityDeposit),
+    /// Burn shares, withdrawing a slice of both reserves.
+    RemoveLiquidity(LiquidityWithdrawal),
+    /// Swap against a pool. Settles in that pool's batch for the block rather
+    /// than where it sits in the block — see [`crate::core::dex_payload`].
+    Swap(SwapRequest),
+    /// An atomic multi-hop swap, executed in place.
+    SwapRoute(SwapRoute),
+    /// Rest a limit order on a book.
+    PlaceOrder(OrderPlacement),
+    /// Withdraw a resting order and refund its escrow.
+    CancelOrder(ChannelId),
+    /// Create a price feed, so that submissions have somewhere to land.
+    CreateFeed(FeedCreation),
+    /// Update a price feed with a quorum of signed observations.
+    ///
+    /// Boxed: a quorum of post-quantum signatures is tens of kilobytes, and an
+    /// unboxed variant would make every `TxKind` in the process that large.
+    SubmitFeed(Box<FeedSubmission>),
+    /// Replace the oracle authority set, approved by the outgoing one.
+    RotateAuthorities(Box<RegistryRotation>),
+    /// Prove this block's randomness.
+    SubmitBeacon(BeaconSubmission),
+    /// Credit this block's work to an address the miner names.
+    ClaimWork(WorkClaim),
+    /// Lock native coin for voting weight.
+    LockStake(StakeLock),
+    /// Withdraw locked coin once its height has passed.
+    UnlockStake(StakeUnlock),
+    /// Open a proposal to change the chain's own rules.
+    Propose(Box<ProposalSubmission>),
+    /// Vote on an open proposal.
+    CastVote(Ballot),
+    /// Withdraw a proposal before voting closes.
+    CancelProposal(ChannelId),
+    /// Submit an action nobody can read until its reveal height.
+    ///
+    /// Boxed: the ciphertext is a heap allocation either way, and an unboxed
+    /// variant would widen every `TxKind` in the process to hold a `Vec`
+    /// inline.
+    Seal(Box<SealedEnvelope>),
+    /// Contribute one committee member's share toward opening an envelope.
+    RevealShare(RevealShare),
 }
 
 impl TxKind {
@@ -368,6 +457,27 @@ impl TxKind {
             Self::DeployContract(_) => "deploy_contract",
             Self::CallContract(_) => "call_contract",
             Self::Shielded(_) => "shielded",
+            Self::RegisterAsset(_) => "register_asset",
+            Self::TransferAsset(_) => "transfer_asset",
+            Self::CreatePool(_) => "create_pool",
+            Self::AddLiquidity(_) => "add_liquidity",
+            Self::RemoveLiquidity(_) => "remove_liquidity",
+            Self::Swap(_) => "swap",
+            Self::SwapRoute(_) => "swap_route",
+            Self::PlaceOrder(_) => "place_order",
+            Self::CancelOrder(_) => "cancel_order",
+            Self::CreateFeed(_) => "create_feed",
+            Self::SubmitFeed(_) => "submit_feed",
+            Self::RotateAuthorities(_) => "rotate_authorities",
+            Self::SubmitBeacon(_) => "submit_beacon",
+            Self::ClaimWork(_) => "claim_work",
+            Self::LockStake(_) => "lock_stake",
+            Self::UnlockStake(_) => "unlock_stake",
+            Self::Propose(_) => "propose",
+            Self::CastVote(_) => "cast_vote",
+            Self::CancelProposal(_) => "cancel_proposal",
+            Self::Seal(_) => "seal",
+            Self::RevealShare(_) => "reveal_share",
         }
     }
 
@@ -424,6 +534,90 @@ impl TxKind {
             Self::Shielded(joinsplit) => {
                 buf.push(TAG_SHIELDED);
                 joinsplit.encode_into(buf);
+            }
+            Self::RegisterAsset(registration) => {
+                buf.push(TAG_REGISTER_ASSET);
+                registration.encode_into(buf);
+            }
+            Self::TransferAsset(transfer) => {
+                buf.push(TAG_TRANSFER_ASSET);
+                transfer.encode_into(buf);
+            }
+            Self::CreatePool(creation) => {
+                buf.push(TAG_CREATE_POOL);
+                creation.encode_into(buf);
+            }
+            Self::AddLiquidity(deposit) => {
+                buf.push(TAG_ADD_LIQUIDITY);
+                deposit.encode_into(buf);
+            }
+            Self::RemoveLiquidity(withdrawal) => {
+                buf.push(TAG_REMOVE_LIQUIDITY);
+                withdrawal.encode_into(buf);
+            }
+            Self::Swap(request) => {
+                buf.push(TAG_SWAP);
+                request.encode_into(buf);
+            }
+            Self::SwapRoute(route) => {
+                buf.push(TAG_SWAP_ROUTE);
+                route.encode_into(buf);
+            }
+            Self::PlaceOrder(placement) => {
+                buf.push(TAG_PLACE_ORDER);
+                placement.encode_into(buf);
+            }
+            Self::CancelOrder(order_id) => {
+                buf.push(TAG_CANCEL_ORDER);
+                buf.extend_from_slice(order_id);
+            }
+            Self::CreateFeed(creation) => {
+                buf.push(TAG_CREATE_FEED);
+                creation.encode_into(buf);
+            }
+            Self::SubmitFeed(submission) => {
+                buf.push(TAG_SUBMIT_FEED);
+                submission.encode_into(buf);
+            }
+            Self::RotateAuthorities(rotation) => {
+                buf.push(TAG_ROTATE_AUTHORITIES);
+                rotation.encode_into(buf);
+            }
+            Self::SubmitBeacon(beacon) => {
+                buf.push(TAG_SUBMIT_BEACON);
+                beacon.encode_into(buf);
+            }
+            Self::ClaimWork(claim) => {
+                buf.push(TAG_CLAIM_WORK);
+                claim.encode_into(buf);
+            }
+            Self::LockStake(lock) => {
+                buf.push(TAG_LOCK_STAKE);
+                lock.encode_into(buf);
+            }
+            Self::UnlockStake(unlock) => {
+                buf.push(TAG_UNLOCK_STAKE);
+                unlock.encode_into(buf);
+            }
+            Self::Propose(submission) => {
+                buf.push(TAG_PROPOSE);
+                submission.encode_into(buf);
+            }
+            Self::CastVote(ballot) => {
+                buf.push(TAG_CAST_VOTE);
+                ballot.encode_into(buf);
+            }
+            Self::CancelProposal(id) => {
+                buf.push(TAG_CANCEL_PROPOSAL);
+                buf.extend_from_slice(id);
+            }
+            Self::Seal(envelope) => {
+                buf.push(TAG_SEAL);
+                envelope.encode_into(buf);
+            }
+            Self::RevealShare(share) => {
+                buf.push(TAG_REVEAL_SHARE);
+                share.encode_into(buf);
             }
         }
     }
@@ -490,6 +684,29 @@ impl TxKind {
                 }))
             }
             TAG_SHIELDED => Ok(Self::Shielded(Box::new(ShieldedJoinSplit::decode(reader)?))),
+            TAG_REGISTER_ASSET => Ok(Self::RegisterAsset(AssetRegistration::decode(reader)?)),
+            TAG_TRANSFER_ASSET => Ok(Self::TransferAsset(AssetTransfer::decode(reader)?)),
+            TAG_CREATE_POOL => Ok(Self::CreatePool(PoolCreation::decode(reader)?)),
+            TAG_ADD_LIQUIDITY => Ok(Self::AddLiquidity(LiquidityDeposit::decode(reader)?)),
+            TAG_REMOVE_LIQUIDITY => Ok(Self::RemoveLiquidity(LiquidityWithdrawal::decode(reader)?)),
+            TAG_SWAP => Ok(Self::Swap(SwapRequest::decode(reader)?)),
+            TAG_SWAP_ROUTE => Ok(Self::SwapRoute(SwapRoute::decode(reader)?)),
+            TAG_PLACE_ORDER => Ok(Self::PlaceOrder(OrderPlacement::decode(reader)?)),
+            TAG_CANCEL_ORDER => Ok(Self::CancelOrder(reader.read_array::<32>()?)),
+            TAG_CREATE_FEED => Ok(Self::CreateFeed(FeedCreation::decode(reader)?)),
+            TAG_SUBMIT_FEED => Ok(Self::SubmitFeed(Box::new(FeedSubmission::decode(reader)?))),
+            TAG_ROTATE_AUTHORITIES => Ok(Self::RotateAuthorities(Box::new(
+                RegistryRotation::decode(reader)?,
+            ))),
+            TAG_SUBMIT_BEACON => Ok(Self::SubmitBeacon(BeaconSubmission::decode(reader)?)),
+            TAG_CLAIM_WORK => Ok(Self::ClaimWork(WorkClaim::decode(reader)?)),
+            TAG_LOCK_STAKE => Ok(Self::LockStake(StakeLock::decode(reader)?)),
+            TAG_UNLOCK_STAKE => Ok(Self::UnlockStake(StakeUnlock::decode(reader)?)),
+            TAG_PROPOSE => Ok(Self::Propose(Box::new(ProposalSubmission::decode(reader)?))),
+            TAG_CAST_VOTE => Ok(Self::CastVote(Ballot::decode(reader)?)),
+            TAG_CANCEL_PROPOSAL => Ok(Self::CancelProposal(reader.read_array::<32>()?)),
+            TAG_SEAL => Ok(Self::Seal(Box::new(SealedEnvelope::decode(reader)?))),
+            TAG_REVEAL_SHARE => Ok(Self::RevealShare(RevealShare::decode(reader)?)),
             other => Err(NodeError::Decode(format!(
                 "unknown transaction payload tag {other}"
             ))),

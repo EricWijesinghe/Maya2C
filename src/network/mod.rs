@@ -14,5 +14,5 @@ pub use identity::{NODE_KEY_FILE, load_or_create as load_or_create_identity, pee
 pub use mempool::{Mempool, TxHash};
 pub use node::{Node, NodeEvent, NodeHandle};
 pub use pq::{EpochClock, PqUpgrade, ROTATION_INTERVAL_BLOCKS, SessionStats};
-pub use sim::{DelayStream, LATENCY_SWEEP};
+pub use sim::{DelayStream, LATENCY_SWEEP, LatencyDial};
 pub use topics::{BLOCKS_TOPIC, TXS_TOPIC, blocks_topic, txs_topic};

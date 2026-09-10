@@ -1,0 +1,260 @@
+{
+  "epoch_seeds": [
+    "d1a0f97171650b252487d6700e5d8e650e19f2c95317855ebca1f416c43130a2",
+    "da78d8b955dc8c2dd8e99da8fb0d76a4d3ddb9dbe8c88e66c2556d055cfdf37d",
+    "5688506d397215abf5046ac922fbdee76d03c1f93da6774dca2df558cc297ca2",
+    "7cee0ebbad9f29d00571e1d49d270b9e1ddc8bb809eb04fa15f8f4ebfa86aeaf",
+    "b53766a616a138ecaaf9f30f0c333d93879532a68f8601d0d33377330fe3aa27",
+    "9f697ac29ad570e2997c6f81e3392142abbd443bf3d94b3cc1e648ab90e7d4a2"
+  ],
+  "mainnet_case": {
+    "cache_item_first": "2cebbfce0746a9295f44ab959ea4eec8c8d53643e7c75699f9a958ba660bdd07412420ee2df7aa8ae6b96ba1bd268f140b4391e6a78fe6f9e5cc42e2d90422d9",
+    "cache_item_last": "a6dd9fb93c47929f138be0dda6dca58c55baa51525e1b0b669b00b6c3e06db4cb43c679aae1e219350ef81f90cbc12365592354fb933ad5291e5a149abc3645e",
+    "dataset_items": [
+      {
+        "index": 0,
+        "item": "542beb6aca465132e5df859cf6917e8364c30e67e6f181a023e02c57883983ff083e9d08968b823fa3949ab84bbe8d49b9bacf0600ea70b938cc94c6b7cb0429"
+      },
+      {
+        "index": 1,
+        "item": "5f10fb0a41d877ae7aeb8116530b75a6d998cc24b3ddbab55af563138f3f4561cc8ce8005f68a9073bdbd71c0bc8f5ace96eb5d38257236b0c21e0a65426e6e9"
+      },
+      {
+        "index": 17,
+        "item": "8abe42b8e3e9356f04616a10e849fe997a1a12b2684ae959cbae486a58b5c46741030e17599b3d7c77afe83efe3cebeb69e633f2079dcb04cc6bf0f68b061b31"
+      },
+      {
+        "index": 12345,
+        "item": "518b97abd2d51f8b01c5d2c7686a96772d0269bd2117df95189518017006b602783bb91812f255de0afab2980dea964be7cb903a846e4693479720ff551b8392"
+      },
+      {
+        "index": 67108785,
+        "item": "1c3593e02c870bf772559e34ae934cf4297a485851c87c658be27573dcbb52f76d74d49fb9c4378520587d915dffa080d7458e1cbc0cade46f732eee15e13360"
+      }
+    ],
+    "epoch": 0,
+    "hashimoto": [
+      {
+        "header": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
+        "mix": "809868c81f8f951abfbd02c183fe5315a31ed3712955b31c9aca1a8e14ee4718",
+        "nonce": 0,
+        "result": "05b3bede1ccfad58061e88c995612a24db46017df82eae4a48dd4969380d7126"
+      },
+      {
+        "header": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
+        "mix": "58395533cdeacbfbf3f8a170273a68420ac262ef8617da0a417fe2ae6612735d",
+        "nonce": 1,
+        "result": "cf8a50ab226dc43247efff099ca2806cdc4b0040cf39efd0953c83c4663afe76"
+      },
+      {
+        "header": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
+        "mix": "ac28274c29562415c4133473b77d9ade5a2dd009f1b5f708d5fbe7b99300f268",
+        "nonce": 7,
+        "result": "35332d7d143c3521b4b8bb2a3259c65f9daa6a9422ea361b604331fe7dad0851"
+      },
+      {
+        "header": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
+        "mix": "e3a06dd6b3325c15c6cb55fd363fcc0bf109bc60d97010de218ff3d8d09f89e2",
+        "nonce": 4294967297,
+        "result": "59fdc3e6cedf2d85c8f1527d5a32ce126059ea9f8f5cd18142bda45acea9b2c0"
+      },
+      {
+        "header": "0000000000000000000000000000000000000000000000000000000000000000",
+        "mix": "e0b5d6c81df395d2771e5c52f849051110d887c1c9eaac837cf9075466cf4c9a",
+        "nonce": 0,
+        "result": "48f5c5e766bef077e79c20e11c52ad210185ca9c22bc1163831133bb53c58e9a"
+      },
+      {
+        "header": "0000000000000000000000000000000000000000000000000000000000000000",
+        "mix": "94dc3aecb9c563451c0d86d5a21332bf5b778f09a2344faa9d1f8b6303b4f8cc",
+        "nonce": 1,
+        "result": "8a70f317170fd03ade3a170578ccc6473619c672c351191acc891957d14e66f0"
+      },
+      {
+        "header": "0000000000000000000000000000000000000000000000000000000000000000",
+        "mix": "f3c0708b5de72486d43e83a427af6034fe1ee6783c47ebf79c7a6b0260b5d435",
+        "nonce": 7,
+        "result": "82ef15ec50e4c356e9214ae20a6f818feb0d4524368083d2b31455e8969375c1"
+      },
+      {
+        "header": "0000000000000000000000000000000000000000000000000000000000000000",
+        "mix": "b29e2af22b5dbae84164a13ad1ca56701c430774f06ad813c9b723ff3904ec8f",
+        "nonce": 4294967297,
+        "result": "6cc464fb8a4cfb6344f32b1e3dfebb1f8d8b34cda087caf489ec9319c35ee751"
+      }
+    ]
+  },
+  "mainnet_params": {
+    "cache_bytes": 67108864,
+    "cache_items": 1048573,
+    "dataset_bytes": 4294967296,
+    "dataset_pages": 33554393,
+    "epoch_length": 30000
+  },
+  "note": "Frozen DAG proof-of-work vectors. Regenerating this file is a consensus change; see examples/gen_dag_vectors.rs.",
+  "testing_cases": [
+    {
+      "cache_item_first": "8785f343102d843d0d2ed2f1292f91709be7ba99c40350e39378809decb5e24b853e39098e3e3ba0e32201c03ab8e1cc3e4f2d90fdfbaf91fce580bf2105a98d",
+      "cache_item_last": "a4f018be58f7df6302482c0ace40a41bc474189e26b431daed0f3ca877a4f40738b40ca0eb6e367780382842f0e06100d3f5ca13068784083f7b17faadd29b69",
+      "dataset_digest": "339c96e330175733f85d832097d0aaeb41708d0d4a66f782346f263435daec4d",
+      "dataset_items": [
+        {
+          "index": 0,
+          "item": "f1e2070262d71f6fc956478c1b399f4bd86e32dbe520000d36c92afc04734bb8eb503e29f9e53e19770902d77bce1d4630e983ea23fd4ad7d0b993e3da3f8681"
+        },
+        {
+          "index": 1,
+          "item": "6605d1ee4e91b697a646a553f1c23b0864e9e458aee15d47618f8276adcb46d629cde35154e00ba4dba2e8ea900b1024e42615abddb91f627b7b484d502b3280"
+        },
+        {
+          "index": 17,
+          "item": "864e20a448f6dd7f3c6f7047b6f75e314f62a3d4e02a5e550523d7ffb94eab8b255e725244f067dc70458cb4f790e0b1773459dcc5feabb90b5b9fcc7d56bf8d"
+        },
+        {
+          "index": 12345,
+          "item": "ed237ba0cd53efb62329c3abbe1cc83203864f9b1742cdf401b6eed23241a8b0a7849d390c03202e30d45e7e6ee3843198d251c8edca47fa6583955c12abc0d3"
+        },
+        {
+          "index": 65497,
+          "item": "fdf32d8212a1969228b6917694e9ea71b3da515c2c832fa81bd2fccae88cc70535d3796bb787839dc1c00953b8710b9ce060326a4a79f81904bf142cbc19484b"
+        }
+      ],
+      "epoch": 0,
+      "hashimoto": [
+        {
+          "header": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
+          "mix": "9ec20134bc28895ebe6729ac0e23658a80b821fdc6c5bc36feaf5d0416be46ff",
+          "nonce": 0,
+          "result": "2917b91e06dc463bc743883ef3ec0ca966ed07fb65bf4236a4e48a6001889967"
+        },
+        {
+          "header": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
+          "mix": "6cd74268e89864b700c24a27dd73e78b51c5261da22880bdde2bb73b4aa85ad3",
+          "nonce": 1,
+          "result": "44ee7c5d66d4c2e5bab88294049ecd7e5e7b3403087485520ad789e09f146063"
+        },
+        {
+          "header": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
+          "mix": "87a85c90bae65ba4337bc9b0d790242050e50cc04a7583f1580d3adfa29d2c7b",
+          "nonce": 7,
+          "result": "7dd8211feb7d82080e23a15ed791ec568c2261232f39701040da854297823d25"
+        },
+        {
+          "header": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
+          "mix": "5ed271ee3fc136e641efa3c7ce3c2e8fe98d539e22f5116550906fc72a8d6d38",
+          "nonce": 4294967297,
+          "result": "631d2d1cb487bc7fa7adbc8563a8642b625fcfb1f5b168cc11a459007cdbf135"
+        },
+        {
+          "header": "0000000000000000000000000000000000000000000000000000000000000000",
+          "mix": "75ee239d37d11d5324d6dd507cfe31c1add87f810905267cdeed1fb07c4474a2",
+          "nonce": 0,
+          "result": "8c57d722f39894f6f04bd9220e6b0e9a5ecf39cdc17dfbe7c10511bfc6daf6b6"
+        },
+        {
+          "header": "0000000000000000000000000000000000000000000000000000000000000000",
+          "mix": "0d431787606132d6f4cc055b24d1c9e1909e436987b488b0ce5587cb8198299b",
+          "nonce": 1,
+          "result": "016bd07411d764f3967aeca85c79049ce522179a04788b45eb3a070968ea871e"
+        },
+        {
+          "header": "0000000000000000000000000000000000000000000000000000000000000000",
+          "mix": "0a65955ac87b712ad49997fe6914e8a127344061364fe56afe8b0cc9b44192e1",
+          "nonce": 7,
+          "result": "5db353529756c7385545d34c4a1fb67a4fc5956507893f9317ed54c1072034c6"
+        },
+        {
+          "header": "0000000000000000000000000000000000000000000000000000000000000000",
+          "mix": "dcf6e60e1e6c3bd7b18c0f21e0ec5cdc16fc23697dfcb7cf5d8bc474613f0081",
+          "nonce": 4294967297,
+          "result": "11042f1c6eac997b7d0f92c15e02087f0664527333b844c9cca77cc77478c25e"
+        }
+      ]
+    },
+    {
+      "cache_item_first": "993608943312feb639fbcc536913daa19fb302515f5899977c061eba0c77edfc591c05f0580063ca8020bd37d319240f1c71314e24f77b9d5e1c310b919d714e",
+      "cache_item_last": "7cd240d4c9d6d809b4d3b104dd4fa0c9dc8d954a96c7ce56c7401ea508f2efc6de616a322bd49d363f758ed0bd1bb7422794c5c05c0becd0e8b218388eb72c4d",
+      "dataset_digest": "ae025297fd664988ba9bdd50e989a360764fa6fd1abffaa9501e92d181fb7826",
+      "dataset_items": [
+        {
+          "index": 0,
+          "item": "ab6bc40a74beca9b237e6434b1762b6c908ab3be70f67ad6a901174719613f33beedf586647a3b8399cb091bbdfc756a16fb97560e75dd39040075b098f4097b"
+        },
+        {
+          "index": 1,
+          "item": "0ccf3aa47e6c5353a69103f4870b91a6cfa592f89aa704d2783f94c700a8702d1b2dd7226d50bececec0cc361d04ead38498e3056171e299e5842df01a8da5ff"
+        },
+        {
+          "index": 17,
+          "item": "f024c6876e8287f423c26ebdb4ec4d293ad240df9ea0c50092eedbd5bf1aa56597a6678cd3f6ab8a7c4658914dd3fe8baa6ae3c5dbb75b859a0f95c9e78d4b57"
+        },
+        {
+          "index": 12345,
+          "item": "7fd730fe02028777b132c46b44f95483d604fdf5400dbc3c31124cf8d5f6f0aa76a67aabf6d9e60b31613a5fefc0eb770839b0300a7c8f9c5631e51193856168"
+        },
+        {
+          "index": 65497,
+          "item": "a7f8dcf038f447128d4258154909b0ecafd4606c66d54d756778b6633e7dd4f26d07f0218a49bc33a3fc0903490b02a1466f6f0184fcb8925283e64d48a8c14e"
+        }
+      ],
+      "epoch": 1,
+      "hashimoto": [
+        {
+          "header": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
+          "mix": "e3538a194942afe5949a50bd304b85dc0ae3671c339bc1da139b9fa8c0cf1ce6",
+          "nonce": 0,
+          "result": "a4bade2233cdac7aa9121a41a16cad9dd68d6f6fb02c59345ef462006a76a9b8"
+        },
+        {
+          "header": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
+          "mix": "6466b2313758415fd2742d3f570a4993b141830fac77b228d9be84747fe919cc",
+          "nonce": 1,
+          "result": "95800f507e05004a3d622f1d8447fb1ab7bd41682f53d100520d88a7ebecffb5"
+        },
+        {
+          "header": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
+          "mix": "ebf5e2bba3a2cbbdc4a2c94c8f02caeb97559573baa4953c8aab844fc0a2f374",
+          "nonce": 7,
+          "result": "66f2791e55168e91392b7fa45a36b686653757a980c31c4d78ca42a1b47ad834"
+        },
+        {
+          "header": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
+          "mix": "f7dff3f995e6b60640211c88143dbfdaf50a1023d3d843cb6dddf50a7ff46b4a",
+          "nonce": 4294967297,
+          "result": "ba777066cb29b46274a347dee48a590d79a9fa7d4a778b24b31cbc965bab5578"
+        },
+        {
+          "header": "0000000000000000000000000000000000000000000000000000000000000000",
+          "mix": "824052d77e7cbccfa780a7123fb83ff6e610db595423ed0439e141df68b352df",
+          "nonce": 0,
+          "result": "0368e6b124882e266fc8d5e9a30949f32c85e247d052711c4cd0340ae54c7bbf"
+        },
+        {
+          "header": "0000000000000000000000000000000000000000000000000000000000000000",
+          "mix": "e7e736b5f2aeecd1fb27936c15eb900b33c44695583eef76b94400001c3cd580",
+          "nonce": 1,
+          "result": "b985362f5a0fbf00f64b54cb1c4861001baa0a0d575ccb17465c044279726419"
+        },
+        {
+          "header": "0000000000000000000000000000000000000000000000000000000000000000",
+          "mix": "b4e45a7445610133bd3abc59cc21969360d0a1b147bc8d7cb8487cd5aac22e92",
+          "nonce": 7,
+          "result": "6d3f71ebb9ae8ae682c2ef785ff018e88843130d89e2dc582f907583001d3fc1"
+        },
+        {
+          "header": "0000000000000000000000000000000000000000000000000000000000000000",
+          "mix": "9b9fec583a0ae0848e9a81a4b49bb178a40cda7241a8444aaa795cc3fc41fe5d",
+          "nonce": 4294967297,
+          "result": "d93e119e719949689f928e7a10a49eda3f8849cb7512662f67be60cc26c5dfe0"
+        }
+      ]
+    }
+  ],
+  "testing_params": {
+    "cache_bytes": 524288,
+    "cache_items": 8191,
+    "dataset_bytes": 4194304,
+    "dataset_pages": 32749,
+    "epoch_length": 8
+  }
+}

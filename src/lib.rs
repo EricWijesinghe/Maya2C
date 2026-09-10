@@ -51,14 +51,18 @@
 // Named `core` per the chain's module layout. This shadows the `core` crate for
 // bare `core::` paths within the crate, so internal references use `crate::core`
 // and stdlib references use `::core`.
+pub mod config;
 pub mod consensus;
 pub mod core;
 pub mod crypto;
 pub mod error;
 pub mod genesis;
+pub mod governance;
 pub mod metrics;
 pub mod network;
+pub mod oracle;
 pub mod rpc;
+pub mod sealed;
 pub mod state;
 
 pub use crate::core::{Block, BlockHeader, Transaction, TxInput, TxOutput};

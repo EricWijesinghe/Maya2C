@@ -22,8 +22,9 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use crate::error::{NodeError, Result};
 use crate::network::behaviour::{NodeBehaviour, NodeBehaviourEvent};
 use crate::network::mempool::{Mempool, TxHash};
+use crate::network::pq::dual::DualKemPolicy;
 use crate::network::pq::{EpochClock, PqUpgrade, SessionStats};
-use crate::network::sim::DelayStream;
+use crate::network::sim::{DelayStream, LatencyDial};
 use crate::network::topics::{blocks_topic, txs_topic};
 use crate::state::StateDB;
 
@@ -213,11 +214,16 @@ impl NodeHandle {
 ///
 /// Named `TransportKind` rather than `Transport` because libp2p''s `Transport`
 /// trait is already in scope here and shadowing it would be a trap.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 enum TransportKind {
-    /// In-process memory transport, with the given per-read delay. `ZERO` for
-    /// ordinary use; non-zero only from [`Node::new_memory_with_latency`].
-    Memory(Duration),
+    /// In-process memory transport, reading its per-read delay from the dial.
+    ///
+    /// Zero for ordinary use; non-zero only from
+    /// [`Node::new_memory_with_latency`] and [`Node::new_memory_with_dial`].
+    ///
+    /// No longer `Copy`: the dial is an `Arc` so that a test can raise the
+    /// latency on connections that are already open.
+    Memory(LatencyDial),
     /// Real TCP sockets.
     Tcp,
 }
@@ -253,8 +259,9 @@ impl Node {
         Self::build(
             state,
             Keypair::generate_ed25519(),
-            TransportKind::Memory(Duration::ZERO),
+            TransportKind::Memory(LatencyDial::new(Duration::ZERO)),
             ROTATION_CHECK_INTERVAL,
+            DualKemPolicy::default(),
         )
     }
 
@@ -272,8 +279,33 @@ impl Node {
         Self::build(
             state,
             Keypair::generate_ed25519(),
-            TransportKind::Memory(latency),
+            TransportKind::Memory(LatencyDial::new(latency)),
             ROTATION_CHECK_INTERVAL,
+            DualKemPolicy::default(),
+        )
+    }
+
+    /// Builds a memory-transport node whose read delay can be changed while it
+    /// is running.
+    ///
+    /// **Simulation support**, for `tests/chaos_simulator.rs`. A fixed latency
+    /// models a network that is uniformly slow; this models one that *becomes*
+    /// slow, which is the failure worth testing — a link degrading mid-flight
+    /// rather than a connection that was always bad. Rebuilding the node at a
+    /// new latency would test reconnection instead.
+    ///
+    /// See [`LatencyDial`] for when a change takes effect.
+    ///
+    /// # Errors
+    ///
+    /// As [`Node::new_memory`].
+    pub fn new_memory_with_dial(state: Arc<StateDB>, dial: LatencyDial) -> Result<Self> {
+        Self::build(
+            state,
+            Keypair::generate_ed25519(),
+            TransportKind::Memory(dial),
+            ROTATION_CHECK_INTERVAL,
+            DualKemPolicy::default(),
         )
     }
 
@@ -294,8 +326,9 @@ impl Node {
         Self::build(
             state,
             Keypair::generate_ed25519(),
-            TransportKind::Memory(Duration::ZERO),
+            TransportKind::Memory(LatencyDial::new(Duration::ZERO)),
             rotation_check,
+            DualKemPolicy::default(),
         )
     }
 
@@ -310,6 +343,7 @@ impl Node {
             Keypair::generate_ed25519(),
             TransportKind::Tcp,
             ROTATION_CHECK_INTERVAL,
+            DualKemPolicy::default(),
         )
     }
 
@@ -323,7 +357,55 @@ impl Node {
     ///
     /// As [`Node::new_memory`].
     pub fn new_tcp_with_identity(state: Arc<StateDB>, keypair: Keypair) -> Result<Self> {
-        Self::build(state, keypair, TransportKind::Tcp, ROTATION_CHECK_INTERVAL)
+        Self::build(
+            state,
+            keypair,
+            TransportKind::Tcp,
+            ROTATION_CHECK_INTERVAL,
+            DualKemPolicy::default(),
+        )
+    }
+
+    /// Builds a TCP node with a caller-supplied identity and dual-KEM policy.
+    ///
+    /// The constructor a deployment uses once `--dual-kem` is set to anything
+    /// but `off`. Separate from [`Node::new_tcp_with_identity`] rather than
+    /// replacing it, so that every existing caller keeps the policy it has
+    /// always had — `Disabled` — without an edit.
+    ///
+    /// # Errors
+    ///
+    /// As [`Node::new_memory`].
+    pub fn new_tcp_with_identity_and_dual_kem(
+        state: Arc<StateDB>,
+        keypair: Keypair,
+        dual_kem: DualKemPolicy,
+    ) -> Result<Self> {
+        Self::build(
+            state,
+            keypair,
+            TransportKind::Tcp,
+            ROTATION_CHECK_INTERVAL,
+            dual_kem,
+        )
+    }
+
+    /// Builds a memory-transport node under an explicit dual-KEM policy.
+    ///
+    /// **Test support.** Negotiation between two policies is the thing worth
+    /// testing, and it needs two nodes on one transport without sockets.
+    ///
+    /// # Errors
+    ///
+    /// As [`Node::new_memory`].
+    pub fn new_memory_with_dual_kem(state: Arc<StateDB>, dual_kem: DualKemPolicy) -> Result<Self> {
+        Self::build(
+            state,
+            Keypair::generate_ed25519(),
+            TransportKind::Memory(LatencyDial::new(Duration::ZERO)),
+            ROTATION_CHECK_INTERVAL,
+            dual_kem,
+        )
     }
 
     fn build(
@@ -331,6 +413,7 @@ impl Node {
         keypair: Keypair,
         kind: TransportKind,
         rotation_check: Duration,
+        dual_kem: DualKemPolicy,
     ) -> Result<Self> {
         let mempool = Mempool::new(state);
         let epoch = EpochClock::new();
@@ -349,7 +432,7 @@ impl Node {
         // other error type silently falls through to the identity impl and
         // fails to compile.
         let mut swarm = match kind {
-            TransportKind::Memory(latency) => builder
+            TransportKind::Memory(dial) => builder
                 .with_other_transport(|keypair| {
                     let noise_config = noise::Config::new(keypair)?;
                     Ok::<_, Box<dyn std::error::Error + Send + Sync>>(
@@ -357,14 +440,19 @@ impl Node {
                             // Zero latency is the ordinary case and costs
                             // nothing: `DelayStream` short-circuits on it, so
                             // the simulation hook is not a tax on every test.
-                            .map(move |connection, _| DelayStream::new(connection, latency))
+                            //
+                            // Cloned per connection: every stream shares the one
+                            // dial, so a single `set` reaches all of them.
+                            .map(move |connection, _| {
+                                DelayStream::with_dial(connection, dial.clone())
+                            })
                             .upgrade(upgrade::Version::V1)
                             .authenticate(noise_config)
                             // Every connection, inbound and outbound, without
                             // exception. Negotiation failure drops the
                             // connection rather than falling back: an optional
                             // post-quantum layer is one an attacker strips.
-                            .apply(PqUpgrade::new())
+                            .apply(PqUpgrade::with_policy(dual_kem))
                             .multiplex(yamux::Config::default()),
                     )
                 })
@@ -384,7 +472,7 @@ impl Node {
                         libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default())
                             .upgrade(upgrade::Version::V1)
                             .authenticate(noise_config)
-                            .apply(PqUpgrade::new())
+                            .apply(PqUpgrade::with_policy(dual_kem))
                             .multiplex(yamux::Config::default()),
                     )
                 })

@@ -124,9 +124,22 @@ impl StateDB {
         balances.insert(*caller, self.load_balance(overlay, caller)?);
         balances.insert(call.contract, self.load_balance(overlay, &call.contract)?);
 
+        // The oracle view. Every feed is loaded, not just the ones this call
+        // turns out to read: which feeds a contract reads is a function of its
+        // input, and a host that fetched them lazily would be a host whose cost
+        // depended on control flow the gas meter cannot see.
+        //
+        // The randomness is the *previous* block's, because the accumulator
+        // folds after execution. That is what makes it unpredictable to the
+        // transactions in this block rather than merely unknown to them.
         let host = ChainHost::new(context.height)
             .with_storage(storage)
-            .with_balances(balances);
+            .with_balances(balances)
+            .with_oracle(
+                self.beacon_through(overlay)?.map(|state| state.value),
+                self.feeds_through(overlay)?,
+            )
+            .with_zkml(context.zkml_active());
 
         let vm = Vm::new().map_err(|e| NodeError::Vm(e.to_string()))?;
         let execution = vm.execute(&code, call.contract, &call.input, call.gas_limit, host);

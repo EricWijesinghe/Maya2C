@@ -7,11 +7,21 @@
 //! neither authorizes anything on its own.
 
 pub mod argon_blake;
+pub mod dag;
 pub mod hybrid;
 pub mod keys;
+pub mod lattice;
 pub mod pow;
 
 pub use argon_blake::{HASH_LEN, argon_blake_hash};
+pub use dag::{
+    DAG_ACTIVATION_HEIGHT, EPOCH_LENGTH, Params as DagParams,
+    cache::Cache,
+    dataset::Dataset,
+    epoch_of, epoch_seed,
+    hashimoto::{Proof, hashimoto_full, hashimoto_light},
+    registry::{CacheRegistry, DagConfig},
+};
 pub use hybrid::{
     HYBRID_PUBLIC_KEY_LEN, HYBRID_SECRET_KEY_LEN, HYBRID_SIGNATURE_LENGTH, HybridPublicKey,
     HybridSignature, HybridSigningKey, HybridVerifyingKey, SLH_DSA_PUBLIC_KEY_LEN,

@@ -100,7 +100,7 @@ pub const HYBRID_PUBLIC_KEY_LEN: usize = ML_DSA_PUBLIC_KEY_LEN + SLH_DSA_PUBLIC_
 /// Encoded size of a [`HybridSignature`]: the lattice proof then the hash proof.
 pub const HYBRID_SIGNATURE_LENGTH: usize = ML_DSA_SIGNATURE_LENGTH + SLH_DSA_SIGNATURE_LENGTH;
 
-/// Encoded size of a [`HybridSecretKey`] pair, in bytes.
+/// Encoded size of a [`HybridSigningKey`]'s two secret halves, in bytes.
 pub const HYBRID_SECRET_KEY_LEN: usize = ML_DSA_SECRET_KEY_LEN + SLH_DSA_SECRET_KEY_LEN;
 
 /// Domain separator for address derivation.

@@ -45,14 +45,23 @@ pub const MAX_ADJUSTMENT_FACTOR: u64 = 4;
 /// [`crate::consensus::ChainConfig`] rather than hard-coded into the retarget
 /// rule. Clamping every target to a mainnet-strength floor would reject
 /// perfectly valid low-difficulty chains.
-#[must_use]
-pub fn default_pow_limit() -> [u8; 32] {
+pub const DEFAULT_POW_LIMIT: [u8; 32] = {
     let mut limit = [0xFFu8; 32];
     limit[0] = 0x00;
     limit[1] = 0x00;
     limit[2] = 0x00;
     limit[3] = 0x00;
     limit
+};
+
+/// [`DEFAULT_POW_LIMIT`], as a function.
+///
+/// The constant exists because `DagConfig::MAINNET` is a `const` and needs the
+/// value at compile time; this stays because every existing caller uses it and
+/// a function is the friendlier form.
+#[must_use]
+pub fn default_pow_limit() -> [u8; 32] {
+    DEFAULT_POW_LIMIT
 }
 
 /// The easiest representable target, for networks with no meaningful floor.

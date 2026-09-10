@@ -11,5 +11,5 @@ pub use difficulty::{
     cumulative_work, default_pow_limit, is_retarget_height, retarget, unlimited_pow_limit,
     work_from_target,
 };
-pub use miner::{MiningResult, mine_header, suggested_threads};
+pub use miner::{MiningResult, PowMode, mine_header, mine_header_with, suggested_threads};
 pub use uint::U256;

@@ -43,6 +43,25 @@ pub struct UndoRecord {
     /// Nullifiers the block spent, deleted on revert so those notes become
     /// spendable again on the competing chain.
     pub nullifiers: Vec<[u8; 32]>,
+    /// Prior values of every trading record the block wrote.
+    ///
+    /// Pool reserves are the reason this exists. Without it a reorg would leave
+    /// a pool holding whatever the abandoned chain traded it to — which is not
+    /// a detectable corruption, because the reserves would still be two
+    /// plausible numbers, and the pool would go on quoting prices from them.
+    ///
+    /// Appended after the sections above, and decoded only if bytes remain, so
+    /// a journal written before this field existed still reads.
+    pub records: Vec<RecordUndo>,
+}
+
+/// The prior value of one trading record.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecordUndo {
+    /// Storage key, under the `d:` prefix.
+    pub key: Vec<u8>,
+    /// Value before the block, or `None` if the key did not exist.
+    pub previous: Option<Vec<u8>>,
 }
 
 impl UndoRecord {
@@ -78,6 +97,25 @@ impl UndoRecord {
         buf.extend_from_slice(&(self.nullifiers.len() as u64).to_le_bytes());
         for nullifier in &self.nullifiers {
             buf.extend_from_slice(nullifier);
+        }
+
+        // Written only when there is something to write, so a block that
+        // touched no trading state produces exactly the journal it did before
+        // the trading subsystem existed.
+        if !self.records.is_empty() {
+            buf.extend_from_slice(&(self.records.len() as u64).to_le_bytes());
+            for record in &self.records {
+                buf.extend_from_slice(&(record.key.len() as u64).to_le_bytes());
+                buf.extend_from_slice(&record.key);
+                match &record.previous {
+                    Some(value) => {
+                        buf.push(1);
+                        buf.extend_from_slice(&(value.len() as u64).to_le_bytes());
+                        buf.extend_from_slice(value);
+                    }
+                    None => buf.push(0),
+                }
+            }
         }
 
         buf
@@ -127,11 +165,38 @@ impl UndoRecord {
             nullifiers.push(reader.read_array::<32>()?);
         }
 
+        // Absent on a journal from before trading existed, and on any journal
+        // for a block that touched no trading state. Both read as an empty
+        // list rather than as a truncated record.
+        let mut records = Vec::new();
+        if reader.remaining() > 0 {
+            let count = reader.read_collection_len(9)?;
+            records.reserve(count);
+            for _ in 0..count {
+                let key_length = reader.read_collection_len(1)?;
+                let key = reader.read_slice(key_length)?.to_vec();
+                let previous = match reader.read_u8()? {
+                    0 => None,
+                    1 => {
+                        let length = reader.read_collection_len(1)?;
+                        Some(reader.read_slice(length)?.to_vec())
+                    }
+                    other => {
+                        return Err(crate::error::NodeError::Decode(format!(
+                            "invalid record presence flag {other}"
+                        )));
+                    }
+                };
+                records.push(RecordUndo { key, previous });
+            }
+        }
+
         reader.finish()?;
         Ok(Self {
             entries,
             shielded,
             nullifiers,
+            records,
         })
     }
 }

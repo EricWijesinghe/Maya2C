@@ -73,6 +73,9 @@ static TOTAL: AtomicUsize = AtomicUsize::new(0);
 /// allocation would be measuring the instrumentation.
 struct Counting;
 
+// SAFETY: every method forwards to `System` unchanged and returns what it
+// returns; the counters are `AtomicUsize` updates that touch no memory the
+// allocator owns. So this allocator is exactly as sound as the system one.
 unsafe impl GlobalAlloc for Counting {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         // SAFETY: `layout` is forwarded unchanged to the system allocator,

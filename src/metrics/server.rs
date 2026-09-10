@@ -25,6 +25,30 @@ use crate::metrics::Metrics;
 /// Content type Prometheus expects for text exposition.
 const EXPOSITION_CONTENT_TYPE: &str = "application/openmetrics-text; version=1.0.0; charset=utf-8";
 
+/// Anything this exporter can serve.
+///
+/// The node's [`Metrics`] is one implementation; the pool daemon in
+/// `pool-service` is another. The exporter itself has no opinion about which
+/// collectors a registry holds, and the alternative to this trait was a second
+/// copy of the accept loop, the routing table, and the reasoning about why a
+/// failed accept is not fatal — in a crate where those decisions would then
+/// drift apart.
+pub trait Exposition: Send + Sync + 'static {
+    /// Renders the registry in Prometheus text exposition format.
+    ///
+    /// # Errors
+    ///
+    /// Returns a formatting error if encoding fails, which for an in-memory
+    /// string is not reachable in practice.
+    fn encode(&self) -> Result<String, std::fmt::Error>;
+}
+
+impl Exposition for Metrics {
+    fn encode(&self) -> Result<String, std::fmt::Error> {
+        Self::encode(self)
+    }
+}
+
 /// A running exporter.
 #[derive(Debug)]
 pub struct MetricsServer {
@@ -37,7 +61,10 @@ pub struct MetricsServer {
 /// # Errors
 ///
 /// Returns an error if the address cannot be bound.
-pub async fn serve(address: SocketAddr, metrics: Arc<Metrics>) -> std::io::Result<MetricsServer> {
+pub async fn serve<M: Exposition>(
+    address: SocketAddr,
+    metrics: Arc<M>,
+) -> std::io::Result<MetricsServer> {
     let listener = TcpListener::bind(address).await?;
     let bound = listener.local_addr()?;
 
@@ -76,9 +103,9 @@ pub async fn serve(address: SocketAddr, metrics: Arc<Metrics>) -> std::io::Resul
 }
 
 /// Routes a single request.
-fn route(
+fn route<M: Exposition>(
     request: Request<hyper::body::Incoming>,
-    metrics: Arc<Metrics>,
+    metrics: Arc<M>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     let response = match (request.method(), request.uri().path()) {
         (&hyper::Method::GET, "/metrics") => match metrics.encode() {

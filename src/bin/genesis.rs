@@ -18,7 +18,8 @@
 //! otherwise every operator who regenerates the file gets a different chain.
 
 use std::error::Error;
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 use custom_l1_node::genesis::{Allocation, GenesisConfig};
 
@@ -30,6 +31,11 @@ use custom_l1_node::genesis::{Allocation, GenesisConfig};
 const DEFAULT_DIFFICULTY_BITS: u32 = 18;
 
 struct Args {
+    /// Path to an existing genesis file to recompute and report, rather than a
+    /// new one to mint.
+    verify: Option<PathBuf>,
+    /// State root the verified file must produce.
+    expect_state_root: Option<String>,
     chain_id: String,
     timestamp: Option<u64>,
     difficulty_bits: u32,
@@ -42,6 +48,8 @@ struct Args {
 impl Default for Args {
     fn default() -> Self {
         Self {
+            verify: None,
+            expect_state_root: None,
             chain_id: "l1-testnet-1".to_string(),
             timestamp: None,
             difficulty_bits: DEFAULT_DIFFICULTY_BITS,
@@ -57,8 +65,14 @@ fn print_usage() {
     println!(
         "genesis — generate a genesis.json for an L1 network\n\n\
          USAGE:\n  \
-         genesis [OPTIONS]\n\n\
+         genesis [OPTIONS]                       mint a genesis file\n  \
+         genesis --verify <PATH> [--expect-state-root <HEX>]\n\n\
          OPTIONS:\n  \
+         --verify <PATH>          recompute an existing genesis file's state root and\n                           \
+         block id and print them; mints nothing\n  \
+         --expect-state-root <HEX>  with --verify, exit non-zero unless the recomputed\n                           \
+         root matches. This is the check that tells an operator\n                           \
+         whether they joined the network they meant to\n  \
          --chain-id <ID>          network identifier (default l1-testnet-1)\n  \
          --timestamp <UNIX>       genesis timestamp (default: now; pin for real launches)\n  \
          --difficulty-bits <N>    starting difficulty in leading zero bits (default {DEFAULT_DIFFICULTY_BITS})\n  \
@@ -97,6 +111,8 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
                 .ok_or_else(|| format!("{flag} requires a value"))
         };
         match flag.as_str() {
+            "--verify" => args.verify = Some(PathBuf::from(value()?)),
+            "--expect-state-root" => args.expect_state_root = Some(value()?),
             "--chain-id" => args.chain_id = value()?,
             "--timestamp" => args.timestamp = Some(value()?.parse()?),
             "--difficulty-bits" => args.difficulty_bits = value()?.parse()?,
@@ -115,8 +131,24 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
     Ok(args)
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() {
+    // Not `fn main() -> Result<..>`, for the reason `genesis-ceremony.rs` gives
+    // at its own `main`: that path Debug-prints the error, so a multi-line
+    // refusal arrives as one line of escaped newline characters. The
+    // state-root mismatch below is several lines and is the message an
+    // operator most needs to read.
+    if let Err(error) = run() {
+        eprintln!("{error}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
+
+    if let Some(path) = &args.verify {
+        return verify(path, args.expect_state_root.as_deref());
+    }
 
     if args.out.exists() && !args.force {
         return Err(format!(
@@ -147,6 +179,21 @@ fn main() -> Result<(), Box<dyn Error>> {
         difficulty_bits: args.difficulty_bits,
         pow_limit_bits: args.pow_limit_bits.unwrap_or(args.difficulty_bits),
         allocations: args.allocations,
+        // Absent, and this tool offers no flag to populate it. An oracle
+        // authority set is the chain's only trusted party, and picking one is a
+        // governance decision written into the genesis file by hand — not
+        // something a command-line default should be able to do quietly.
+        oracle: None,
+        // Likewise absent, and likewise no flag. A sealed-mempool committee is
+        // a set of parties who can read the mempool a block before anyone
+        // else, and its generation is a trusted setup. Neither belongs in a
+        // command-line default.
+        sealed: None,
+        // Also absent, also no flag. Funding a DAO treasury is a launch
+        // decision that needs root keys, a declared share, and a commitment
+        // sheet operators can diff — see the `genesis-ceremony` binary. This
+        // tool produces plain allocations.
+        treasury: None,
     };
 
     // Fails loudly on a bad address, duplicate allocation, or a floor harder
@@ -182,6 +229,61 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("  state root:   {}", hex::encode(config.state_root()?));
     println!("  genesis id:   {}", hex::encode(block.header.id()));
     println!("\nevery node on this network must use a byte-identical genesis.json");
+
+    Ok(())
+}
+
+/// Recomputes an existing genesis file's commitments and reports them.
+///
+/// # Why this exists
+///
+/// A node that fetched the wrong `genesis.json` does not error. It starts,
+/// syncs nothing, and looks like a node that is merely slow to find peers --
+/// so the check that catches it has to happen before the node runs, and it has
+/// to be a check somebody can automate.
+///
+/// `deploy/deploy_bootstrap.sh` and `infra/ansible/roles/maya_node` both call
+/// this. The bash script previously degraded to "could not compute the state
+/// root locally ... verify it by hand", which made the most important step of
+/// a bootstrap a no-op whenever nobody did it by hand.
+///
+/// # Errors
+///
+/// A file that cannot be read, cannot be parsed, or fails
+/// [`GenesisConfig::validate`]. With `expect_state_root`, also a mismatch --
+/// which is the point of passing it.
+fn verify(path: &Path, expect_state_root: Option<&str>) -> Result<(), Box<dyn Error>> {
+    let json = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let config = GenesisConfig::from_json(&json).map_err(|e| format!("{}: {e}", path.display()))?;
+
+    // Validated, not merely parsed. A file whose allocations overflow the
+    // supply parses fine and produces a state root nobody else will agree with.
+    config.validate()?;
+
+    let state_root = hex::encode(config.state_root()?);
+    let block_id = hex::encode(config.genesis_block()?.header.id());
+
+    println!("chain id       {}", config.chain_id);
+    println!("timestamp      {}", config.timestamp);
+    println!("total supply   {}", config.total_supply()?);
+    println!("state root     {state_root}");
+    println!("genesis block  {block_id}");
+
+    if let Some(expected) = expect_state_root {
+        // Case-insensitive, because a root copied out of COMMITMENT.txt and
+        // one pasted from a terminal that upper-cased it are the same root, and
+        // failing on that would train operators to skip the check.
+        if !expected.eq_ignore_ascii_case(&state_root) {
+            return Err(format!(
+                "state root mismatch.\n  expected  {expected}\n  actual    {state_root}\n\n\
+                 This genesis file is not the one the ceremony produced. A fleet\n\
+                 split across two genesis files does not report an error -- it\n\
+                 looks like a network that is slow to converge."
+            )
+            .into());
+        }
+        println!("\nstate root matches the expected commitment.");
+    }
 
     Ok(())
 }

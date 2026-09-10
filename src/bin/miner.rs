@@ -31,9 +31,10 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use custom_l1_node::consensus::difficulty::TARGET_BLOCK_TIME;
 use custom_l1_node::consensus::{
-    Chain, ChainConfig, InsertOutcome, mine_header, suggested_threads,
+    Chain, ChainConfig, InsertOutcome, PowMode, mine_header_with, suggested_threads,
 };
 use custom_l1_node::core::{Block, BlockHeader};
+use custom_l1_node::crypto::dag::registry::CacheRegistry;
 use custom_l1_node::crypto::pow::{leading_zero_bits, target_from_leading_zero_bits};
 use custom_l1_node::state::StateDB;
 
@@ -47,6 +48,12 @@ trait CandidateSource {
 
     /// Current chain height.
     fn height(&self) -> u64;
+
+    /// The epoch caches to mine against.
+    ///
+    /// Comes from the same place the validator's does, so a solution is
+    /// searched for against exactly the dataset the chain will check it with.
+    fn dag(&self) -> &Arc<CacheRegistry>;
 }
 
 /// Candidate source backed by a chain owned by this process.
@@ -77,6 +84,10 @@ impl CandidateSource for LocalSource {
 
     fn height(&self) -> u64 {
         self.chain.height()
+    }
+
+    fn dag(&self) -> &Arc<CacheRegistry> {
+        self.chain.dag()
     }
 }
 
@@ -179,15 +190,27 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     for round in 1..=args.blocks {
         let header = source.candidate()?;
+        let target_height = source.height() + 1;
         println!(
             "[{round}/{}] mining height {} against target {}",
             args.blocks,
-            source.height() + 1,
+            target_height,
             hex_prefix(&header.difficulty_target)
         );
 
+        // Light mining: this binary is a reference and a demo, so it recomputes
+        // pages from the 64 MiB cache rather than allocating a 4 GiB dataset on
+        // whatever machine happens to run it. Roughly a hundredfold slower than
+        // a real miner, which is the honest position for a CPU here anyway.
+        let cache = if source.dag().is_active(target_height) {
+            Some(source.dag().cache_for_height(target_height)?)
+        } else {
+            None
+        };
+        let mode = cache.as_deref().map_or(PowMode::Argon, PowMode::DagLight);
+
         let started = Instant::now();
-        let solution = mine_header(&header, args.threads, &cancel, None)?;
+        let solution = mine_header_with(&header, args.threads, &cancel, None, &mode)?;
 
         let Some(result) = solution else {
             println!("  no solution found (cancelled or exhausted)");

@@ -19,6 +19,8 @@
 //! exists so the counterparty can present the revocation secret and take
 //! everything instead.
 
+use maya_ledger_math as ledger_math;
+
 use crate::core::payload::{
     ChannelClosure, ChannelId, ChannelOpen, RevocationProof, derive_channel_id,
     revocation_commitment,
@@ -68,10 +70,8 @@ impl StateDB {
             Some(existing) => *existing,
             None => self.get_account(address)?,
         };
-        account.balance = account
-            .balance
-            .checked_add(amount)
-            .ok_or(NodeError::BalanceOverflow)?;
+        account.balance =
+            ledger_math::credit(account.balance, amount).ok_or(NodeError::BalanceOverflow)?;
         overlay.accounts.insert(*address, account);
         Ok(())
     }
@@ -95,9 +95,31 @@ impl StateDB {
         // than the key itself, so this is a computation and not a field read.
         let sender = tx.sender();
 
-        match &tx.kind {
+        self.apply_kind_for(overlay, &sender, tx.nonce, &tx.kind, context)
+    }
+
+    /// Dispatches a payload on behalf of a sender that may not be a
+    /// transaction's.
+    ///
+    /// Split out for the sealed mempool. An envelope opened at its reveal
+    /// height carries an action but no transaction — the transaction that
+    /// submitted it committed blocks ago — so the dispatch has to be reachable
+    /// from a `(sender, nonce, kind)` triple rather than only from a
+    /// `Transaction`. Everything below reads exactly those three things, which
+    /// is why the split is a signature change and not a second code path.
+    pub(crate) fn apply_kind_for(
+        &self,
+        overlay: &mut Overlay,
+        sender: &Address,
+        nonce: u64,
+        kind: &TxKind,
+        context: BlockContext,
+    ) -> Result<()> {
+        let sender = *sender;
+
+        match kind {
             TxKind::Transfer => Ok(()),
-            TxKind::OpenChannel(open) => self.open_channel(overlay, tx, open),
+            TxKind::OpenChannel(open) => self.open_channel(overlay, &sender, nonce, open),
             TxKind::CooperativeClose(closure) => self.cooperative_close(overlay, closure),
             TxKind::DisputeClose(closure) => self.dispute_close(overlay, &sender, closure, context),
             TxKind::PenaltyClaim(proof) => self.penalty_claim(overlay, &sender, proof),
@@ -113,13 +135,50 @@ impl StateDB {
             TxKind::FinalizeDispute(channel_id) => {
                 self.finalize_dispute(overlay, channel_id, context)
             }
+            TxKind::RegisterAsset(registration) => {
+                self.register_asset(overlay, &sender, nonce, registration)
+            }
+            TxKind::TransferAsset(transfer) => self.transfer_asset(overlay, &sender, transfer),
+            TxKind::CreatePool(creation) => self.create_pool(overlay, &sender, creation),
+            TxKind::AddLiquidity(deposit) => self.add_liquidity(overlay, &sender, deposit),
+            TxKind::RemoveLiquidity(withdrawal) => {
+                self.remove_liquidity(overlay, &sender, withdrawal)
+            }
+            // Staged, not executed. It settles with the rest of its pool's
+            // block in `settle_trading` — see `crate::state::dex_exec`.
+            TxKind::Swap(request) => self.stage_swap(overlay, &sender, nonce, request, context),
+            TxKind::SwapRoute(route) => self.execute_route(overlay, &sender, route, context),
+            TxKind::PlaceOrder(placement) => {
+                self.place_order(overlay, &sender, nonce, placement, context)
+            }
+            TxKind::CancelOrder(order_id) => self.cancel_order(overlay, &sender, order_id),
+            TxKind::CreateFeed(creation) => self.create_feed(overlay, &sender, creation),
+            TxKind::SubmitFeed(submission) => self.submit_feed(overlay, submission, context),
+            TxKind::RotateAuthorities(rotation) => self.rotate_authorities(overlay, rotation),
+            // Staged, not folded. The accumulator advances exactly once per
+            // block in `settle_oracle`, whether or not a proof arrived.
+            TxKind::SubmitBeacon(beacon) => self.stage_beacon(overlay, beacon, context),
+            TxKind::ClaimWork(claim) => self.claim_work(overlay, claim, context),
+            TxKind::LockStake(lock) => self.lock_stake(overlay, &sender, lock, context),
+            TxKind::UnlockStake(unlock) => self.unlock_stake(overlay, &sender, unlock, context),
+            TxKind::Propose(submission) => {
+                self.propose(overlay, &sender, nonce, submission, context)
+            }
+            TxKind::CastVote(ballot) => self.cast_vote(overlay, &sender, ballot, context),
+            TxKind::CancelProposal(id) => self.cancel_proposal(overlay, &sender, id),
             TxKind::DeployContract(deploy) => self
-                .deploy_contract(overlay, &sender, tx.nonce, deploy)
+                .deploy_contract(overlay, &sender, nonce, deploy)
                 .map(|_| ()),
             TxKind::CallContract(call) => self
                 .call_contract(overlay, &sender, call, context)
                 .map(|_| ()),
             TxKind::Shielded(joinsplit) => self.apply_joinsplit(overlay, &sender, joinsplit),
+            // Recorded, not executed. It opens in `settle_sealed` at its
+            // reveal height — see `crate::state::sealed_exec`.
+            TxKind::Seal(envelope) => {
+                self.stage_envelope(overlay, &sender, nonce, envelope, context)
+            }
+            TxKind::RevealShare(share) => self.stage_reveal_share(overlay, share, context),
         }
     }
 
@@ -127,11 +186,12 @@ impl StateDB {
     fn open_channel(
         &self,
         overlay: &mut Overlay,
-        tx: &Transaction,
+        opener: &Address,
+        nonce: u64,
         open: &ChannelOpen,
     ) -> Result<()> {
-        let opener = tx.sender();
-        let channel_id = derive_channel_id(&opener, &open.counterparty, open.funding, tx.nonce);
+        let opener = *opener;
+        let channel_id = derive_channel_id(&opener, &open.counterparty, open.funding, nonce);
 
         if self.load_channel(overlay, &channel_id)?.is_some() {
             return Err(NodeError::ChannelExists(hex::encode(channel_id)));

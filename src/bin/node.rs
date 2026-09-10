@@ -26,13 +26,15 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use custom_l1_node::config::NodeConfig;
 use custom_l1_node::consensus::{
-    Chain, ChainConfig, InsertOutcome, mine_header, suggested_threads,
+    Chain, ChainConfig, InsertOutcome, PowMode, mine_header_with, suggested_threads,
 };
 use custom_l1_node::core::Block;
 use custom_l1_node::genesis::GenesisConfig;
 use custom_l1_node::metrics::{Metrics, server as metrics_server};
 use custom_l1_node::network::EpochClock;
+use custom_l1_node::network::pq::dual::DualKemPolicy;
 use custom_l1_node::network::{Mempool, Node, NodeEvent, NodeHandle, load_or_create_identity};
 use custom_l1_node::rpc::{
     BlockInfo, MarketFeed, MarketQuote, MarketState, RpcContext, serve, serve_market,
@@ -72,6 +74,15 @@ const METRICS_SAMPLE_INTERVAL: Duration = Duration::from_secs(5);
 /// hours — so sampling every fifteen seconds bounds the error at one block.
 const ROTATION_HEIGHT_SAMPLE_INTERVAL: Duration = Duration::from_secs(15);
 
+/// How far ahead of the tip the next epoch's cache is generated.
+///
+/// A hundred blocks is twenty-five minutes at a 15-second target, against a
+/// generation that takes about a second. Deliberately far more headroom than
+/// the job needs: the cost of being early is one extra 64 MiB allocation that
+/// was going to be made anyway, and the cost of being late is every node on the
+/// network stalling on the same block.
+const DAG_PREPARE_LOOKAHEAD: u64 = 100;
+
 /// Chain ids treated as carrying real value.
 ///
 /// A node serving one of these refuses to start while the shielded pool's
@@ -91,6 +102,8 @@ struct Args {
     sync_from: Option<String>,
     mine: bool,
     threads: usize,
+    dual_kem: DualKemPolicy,
+    config: Option<PathBuf>,
 }
 
 impl Default for Args {
@@ -113,6 +126,15 @@ impl Default for Args {
             sync_from: None,
             mine: false,
             threads: suggested_threads(),
+            // Off. The dual-KEM transport pairs a released ML-KEM with a
+            // release candidate tracking a draft standard, and the combiner
+            // needs both halves to agree — so a bug in the newer one breaks
+            // every connection that negotiated it. Opting in is a decision an
+            // operator makes; see `docs/pq-transport.md`.
+            dual_kem: DualKemPolicy::Disabled,
+            // No path unless asked. An absent file means the compiled
+            // defaults, which is what every existing deployment already runs.
+            config: None,
         }
     }
 }
@@ -132,6 +154,8 @@ fn print_usage() {
          --p2p-port <PORT>    libp2p TCP port (default 30333)\n  \
          --bootnode <ADDR>    peer multiaddr to dial; repeatable\n  \
          --sync-from <URL>    peer JSON-RPC endpoint to backfill history from\n  \
+         --dual-kem <MODE>    HQC alongside ML-KEM: off (default), preferred,\n  \
+         \x20                    or required. See docs/pq-transport.md\n  \
          --mine               mine blocks on this node\n  \
          --threads <N>        mining threads (default: available parallelism, max 8)\n  \
          -h, --help           show this message"
@@ -157,6 +181,15 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--p2p-port" => args.p2p_port = value()?.parse()?,
             "--bootnode" => args.bootnodes.push(value()?.parse()?),
             "--sync-from" => args.sync_from = Some(value()?),
+            "--config" => args.config = Some(PathBuf::from(value()?)),
+            // Emitted from `NodeConfig::default()` rather than a string
+            // constant, so a changed default cannot leave a stale template on
+            // disk claiming otherwise. `deploy_bootstrap.sh` calls this.
+            "--print-config-template" => {
+                print!("{}", NodeConfig::template());
+                std::process::exit(0);
+            }
+            "--dual-kem" => args.dual_kem = value()?.parse()?,
             "--mine" => args.mine = true,
             "--threads" => args.threads = value()?.parse()?,
             "-h" | "--help" => {
@@ -339,6 +372,49 @@ async fn rotation_height_loop(chain: Arc<Mutex<Chain>>, epoch: EpochClock) {
     }
 }
 
+/// Generates the next epoch's verification cache before the chain needs it.
+///
+/// Without this, the first block of a new epoch pays a ~0.9 s cache generation
+/// *inside* `insert_block`, under the chain lock, while the node is also trying
+/// to relay. That is a stall every 5.21 days on every node at once, at the
+/// moment the network is least able to absorb one.
+///
+/// Sampling on the same interval as the rotation clock and for the same reason:
+/// height advances through both import and mining, and a sampler cannot miss
+/// one of them. Generation runs on the blocking pool because it is a second of
+/// CPU, and it is idempotent — the registry hands back an already-held cache
+/// without rebuilding, so an early or repeated call costs nothing.
+async fn dag_prepare_loop(chain: Arc<Mutex<Chain>>) {
+    let mut ticker = tokio::time::interval(ROTATION_HEIGHT_SAMPLE_INTERVAL);
+
+    loop {
+        ticker.tick().await;
+
+        let (dag, height) = {
+            let chain = lock_chain(&chain);
+            (Arc::clone(chain.dag()), chain.height())
+        };
+
+        // The epoch of a block far enough ahead that generation finishes first.
+        let horizon = height.saturating_add(DAG_PREPARE_LOOKAHEAD);
+        if !dag.is_active(horizon) {
+            continue;
+        }
+
+        let epoch = dag.config().epoch_of(horizon);
+        if dag.held_epochs().contains(&epoch) {
+            continue;
+        }
+
+        let result = tokio::task::spawn_blocking(move || dag.prepare(epoch)).await;
+        match result {
+            Ok(Ok(())) => println!("generated the proof-of-work cache for epoch {epoch}"),
+            Ok(Err(error)) => eprintln!("could not prepare epoch {epoch}: {error}"),
+            Err(error) => eprintln!("cache preparation task failed: {error}"),
+        }
+    }
+}
+
 /// Applies blocks received over gossip to the local chain.
 ///
 /// Without this the node decodes every gossiped block and then discards it: the
@@ -457,10 +533,19 @@ async fn mining_loop(chain: Arc<Mutex<Chain>>, network: NodeHandle, threads: usi
             }
         };
 
-        // Argon2id is CPU-bound; keep it off the async runtime entirely.
+        // Hashing is CPU-bound under either rule; keep it off the async runtime
+        // entirely. Cache generation at an epoch boundary is CPU-bound too, and
+        // is deliberately inside this closure for the same reason.
         let round_cancel = Arc::clone(&cancel);
+        let dag = Arc::clone(lock_chain(&chain).dag());
         let search = tokio::task::spawn_blocking(move || {
-            mine_header(&candidate, threads, &round_cancel, None)
+            let cache = if dag.is_active(target_height) {
+                Some(dag.cache_for_height(target_height)?)
+            } else {
+                None
+            };
+            let mode = cache.as_deref().map_or(PowMode::Argon, PowMode::DagLight);
+            mine_header_with(&candidate, threads, &round_cancel, None, &mode)
         })
         .await;
 
@@ -521,6 +606,28 @@ async fn mining_loop(chain: Arc<Mutex<Chain>>, network: NodeHandle, threads: usi
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
 
+    // The file first, then the flags over it. A flag beats the file so an
+    // operator can override one setting for one run without editing state that
+    // outlives the run.
+    //
+    // An absent file is the defaults; a file that exists and is wrong is a
+    // startup failure, because the operator meant something by it.
+    // Named `node_config` rather than `config`: `config` already means the
+    // genesis configuration further down, and the two must never be confused —
+    // one is operational and local, the other is consensus and shared.
+    let node_config = match &args.config {
+        Some(path) => NodeConfig::from_path(path)?,
+        None => NodeConfig::load_or_default(&custom_l1_node::config::default_path())?,
+    };
+    println!(
+        "config: p2p {}, rpc {}, rate {}/s burst {}, block cache {} MiB",
+        node_config.network.p2p_port,
+        node_config.rpc.listen,
+        node_config.rpc.rate_limit_per_second,
+        node_config.rpc.rate_limit_burst,
+        node_config.storage.block_cache_mib,
+    );
+
     std::fs::create_dir_all(&args.data_dir)?;
 
     let genesis_json = std::fs::read_to_string(&args.genesis)
@@ -540,7 +647,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .into());
     }
 
-    let state = Arc::new(StateDB::open(args.data_dir.join(STATE_DIR))?);
+    // The same refusal for zkML, which rests on an SRS derived from a public
+    // seed. Inert while the activation height is u64::MAX; it is here so that
+    // choosing a height cannot also quietly choose mainnet.
+    custom_l1_node::state::zkml::check_setup(
+        &config.chain_id,
+        custom_l1_node::state::context::ZKML_ACTIVATION_HEIGHT,
+    )?;
+
+    // Tuned from the configuration rather than `Options::default()`, whose
+    // 8 MiB block cache makes almost every account read reach the disk.
+    let state = Arc::new(StateDB::open_tuned(
+        args.data_dir.join(STATE_DIR),
+        &node_config.storage,
+    )?);
 
     // Seeding verifies the resulting state root against the config, so a node
     // started with a mismatched genesis fails here rather than silently forking.
@@ -562,7 +682,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // --- P2P ---
     let identity = load_or_create_identity(&args.data_dir)?;
-    let mut p2p = Node::new_tcp_with_identity(Arc::clone(&state), identity)?;
+    let mut p2p =
+        Node::new_tcp_with_identity_and_dual_kem(Arc::clone(&state), identity, args.dual_kem)?;
+    // Logged unconditionally, including the default. An operator debugging a
+    // connection failure between two nodes needs to know which side offered
+    // what, and "the line is absent" is a worse answer than "off".
+    println!(
+        "post-quantum transport: ML-KEM-768, dual-KEM {}",
+        args.dual_kem
+    );
     let listen: Multiaddr = format!("/ip4/0.0.0.0/tcp/{}", args.p2p_port).parse()?;
     p2p.listen_on(listen)?;
     // Taken before `spawn` consumes the node. The epoch clock is also how the
@@ -572,6 +700,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let pq_epoch = p2p.epoch_clock();
     let network = p2p.spawn();
     tokio::spawn(rotation_height_loop(Arc::clone(&chain), pq_epoch.clone()));
+    tokio::spawn(dag_prepare_loop(Arc::clone(&chain)));
 
     println!("peer id:     {}", network.peer_id());
     println!("p2p port:    {}", args.p2p_port);

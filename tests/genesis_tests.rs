@@ -26,6 +26,17 @@ fn config() -> GenesisConfig {
         difficulty_bits: 12,
         pow_limit_bits: 12,
         allocations: vec![allocation(1, 1_000_000), allocation(2, 500_000)],
+        // No oracle: these tests pin the state root a network without one has,
+        // which is exactly the property the oracle layer must not disturb.
+        oracle: None,
+        // Nor a sealed-mempool committee, for the same reason: a chain without
+        // one must have the state root it had before the subsystem existed.
+        sealed: None,
+        // Nor a treasury. Same reason again, and it is the reason these tests
+        // are worth having: the state root pinned below is the one a chain
+        // configured without any of these three has, and every one of them
+        // must be able to be absent without disturbing it.
+        treasury: None,
     }
 }
 
