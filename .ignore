@@ -1,0 +1,59 @@
+# Search-tool ignore file. Honored by ripgrep AND by Claude Code's file
+# scanner (verified: the CLI binary references .ignore/.rgignore/.gitignore
+# and has no reference to .claudeignore, which is why that file was removed).
+#
+# .gitignore already covers untracked build output. This file additionally
+# excludes paths that ARE tracked but must never be walked or read.
+
+# Build output (target/ alone is 356 GB).
+target/
+*/target/
+**/target/
+dist/
+build/
+.terraform/
+
+# Tracked-but-generated: wallet-gui/ui/target has ~4,978 committed files that
+# churn on every `trunk build`. gitignore cannot exclude tracked paths.
+wallet-gui/ui/target/
+wallet-gui/ui/dist/
+target-contracts/
+dashboard/dist/
+docs/site/dist/
+docs/site/.astro/
+node_modules/
+
+# Lockfiles: thousands of lines, zero semantic value to a reader.
+Cargo.lock
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+*.lock
+
+# Binary and generated assets.
+logo-assets/
+*.png
+*.jpg
+*.jpeg
+*.ico
+*.webp
+*.svg
+*.wasm
+*.pdf
+*.woff
+*.woff2
+
+# Fuzz corpora: thousands of opaque binary seeds.
+fuzz/corpus/
+fuzz/artifacts/
+fuzz/coverage/
+
+# Logs, dumps, local state.
+*.log
+data/
+graphify-out/
+rustc-ice-*.txt
+
+# Tool caches.
+.serena/cache/
+.claude/memory.json

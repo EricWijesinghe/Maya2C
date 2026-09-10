@@ -1,1 +1,0 @@
-D:\Maya2C\wallet-gui\ui\target\wasm32-unknown-unknown\debug\maya-wallet-ui.wasm: D:\Maya2C\wallet-gui\ui\src\bridge.rs D:\Maya2C\wallet-gui\ui\src\camera.rs D:\Maya2C\wallet-gui\ui\src\main.rs D:\Maya2C\wallet-gui\ui\src\screens.rs
