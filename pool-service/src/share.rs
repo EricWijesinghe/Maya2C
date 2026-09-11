@@ -136,6 +136,7 @@ mod tests {
             timestamp: 1_700_000_000,
             nonce: 0,
             difficulty_target: target_from_leading_zero_bits(bits),
+            tx_root: [0; 32],
         };
         let candidate = MiningCandidate {
             height,

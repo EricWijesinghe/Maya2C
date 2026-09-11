@@ -62,6 +62,7 @@ fn block_of(transactions: Vec<Transaction>) -> Block {
             timestamp: 1_756_252_800,
             nonce: 0,
             difficulty_target: target_from_leading_zero_bits(0),
+            tx_root: [0; 32],
         },
         transactions,
     )
@@ -1033,7 +1034,7 @@ fn reverting_a_block_restores_the_pool_it_traded_against() {
     let before = market.reserves();
     let root_before = market.db().state_root().expect("root");
 
-    let block = block_of(vec![signed(
+    let mut block = block_of(vec![signed(
         TxKind::Swap(SwapRequest {
             pair: market.pair,
             direction: Direction::BaseToQuote.tag(),
@@ -1044,6 +1045,10 @@ fn reverting_a_block_restores_the_pool_it_traded_against() {
         market.nonce,
         &market.maker,
     )]);
+    block.header.state_root = market
+        .db()
+        .preview_root(&block, BlockContext::at_height(3))
+        .expect("preview");
     let block_id = [9u8; 32];
     market
         .db()
@@ -1067,7 +1072,7 @@ fn reverting_a_block_that_created_a_pool_removes_it_entirely() {
     let root_before = market.db().state_root().expect("root");
     let new_pair = derive_pair_id(&NATIVE_ASSET, &market.asset, 100);
 
-    let block = block_of(vec![signed(
+    let mut block = block_of(vec![signed(
         TxKind::CreatePool(PoolCreation {
             asset_a: NATIVE_ASSET,
             asset_b: market.asset,
@@ -1078,6 +1083,10 @@ fn reverting_a_block_that_created_a_pool_removes_it_entirely() {
         market.nonce,
         &market.maker,
     )]);
+    block.header.state_root = market
+        .db()
+        .preview_root(&block, BlockContext::at_height(3))
+        .expect("preview");
     let block_id = [11u8; 32];
     market
         .db()

@@ -339,6 +339,7 @@ mod tests {
                 timestamp: 1_700_000_000,
                 nonce: 0,
                 difficulty_target: target_from_leading_zero_bits(6),
+                tx_root: [0u8; 32],
             },
             Vec::new(),
         );

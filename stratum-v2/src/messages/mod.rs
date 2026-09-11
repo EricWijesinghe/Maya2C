@@ -365,6 +365,7 @@ mod tests {
                 job_id: 9,
                 state_root: [0xAB; 32],
                 timestamp: 1_800_000_000,
+                tx_root: [0xEF; 32],
             }),
             Message::SetNewPrevHash(SetNewPrevHash {
                 channel_id: 1,

@@ -47,6 +47,7 @@ impl StubChain {
                 // 8 leading zero bits: small enough that the derived work is a
                 // number a test can reason about.
                 difficulty_target: format!("00{}", "ff".repeat(31)),
+                tx_root: "00".repeat(32),
             },
             transactions: (0..tx_count)
                 .map(|index| custom_l1_node::rpc::TransactionInfo {

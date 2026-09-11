@@ -136,7 +136,7 @@ vote, and be gone before the decision binds anyone who stayed. Locking again
 This chain has no block reward. `pool-service/src/config.rs` says so in the code:
 `apply_block_checked` credits no subsidy and fees burn to the fee sink. There is
 no coinbase, and `BlockHeader` carries `prev_hash ‖ state_root ‖ timestamp ‖
-nonce ‖ difficulty_target` — nothing identifying who mined it.
+nonce ‖ difficulty_target ‖ tx_root` — nothing identifying who mined it.
 
 So before this work there was **no on-chain record of who did any work at all**,
 and "voting power based on hash power" had no data source.

@@ -81,6 +81,7 @@ fn genesis() -> Block {
             timestamp: 1_000_000,
             nonce: 0,
             difficulty_target: target_from_leading_zero_bits(MINING_BITS),
+            tx_root: [0; 32],
         },
         Vec::new(),
     )
@@ -107,6 +108,7 @@ fn candidate(chain: &Chain, timestamp: u64) -> BlockHeader {
         timestamp,
         nonce: 0,
         difficulty_target: chain.next_target(&tip).expect("next target"),
+        tx_root: [0; 32],
     }
 }
 
@@ -344,6 +346,7 @@ fn the_same_header_hashes_differently_either_side_of_a_boundary() {
         timestamp: 1_700_000_000,
         nonce: 42,
         difficulty_target: [0xFF; 32],
+        tx_root: [0; 32],
     };
 
     let before = header.pow_hash_at(length - 1, &registry).expect("hash");
@@ -364,6 +367,7 @@ fn the_rule_below_the_activation_height_is_argonblake() {
         timestamp: 1_700_000_000,
         nonce: 3,
         difficulty_target: [0xFF; 32],
+        tx_root: [0; 32],
     };
 
     // Below: the pre-fork digest, byte for byte.

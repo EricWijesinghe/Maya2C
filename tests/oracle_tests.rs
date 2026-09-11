@@ -63,6 +63,7 @@ fn block_of(transactions: Vec<Transaction>) -> Block {
             timestamp: 1_756_252_800,
             nonce: 0,
             difficulty_target: target_from_leading_zero_bits(0),
+            tx_root: [0; 32],
         },
         transactions,
     )
@@ -821,10 +822,14 @@ fn reverting_a_block_restores_the_beacon_and_the_feed() {
     let proposer = fixture.proposer();
     let proposer_nonce =
         fixture.nonce_of(proposer) + u64::from(proposer.address == fixture.authorities[0].address);
-    let block = block_of(vec![
+    let mut block = block_of(vec![
         fixture.feed_tx(feed_id, 2, 3, &[200, 201, 202], 2),
         fixture.beacon_tx(proposer, 3, proposer_nonce),
     ]);
+    block.header.state_root = fixture
+        .db
+        .preview_root(&block, BlockContext::at_height(3))
+        .expect("preview");
     let block_id = [42u8; 32];
     fixture
         .db

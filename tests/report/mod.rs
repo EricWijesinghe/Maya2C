@@ -234,12 +234,15 @@ That is a design position, not a bug — an orphan pool is memory an unauthentic
 peer can grow. It is recorded here because it is invisible from the outside and
 because "the chain reorganised slowly" is how it presents.
 
-**Corrupted blocks are not rejected — they are indistinguishable.** A corruption
-landing in a block's transactions leaves the header untouched, and `Block::id()`
-hashes only the header. The chain therefore sees the honest block it already
-holds and reports a duplicate. State stays correct, but no defence fired. This
-is the uncommitted-transaction-list finding showing through from a different
-angle, and it is why that row reads *characterised* rather than *verified*.
+**A closed finding: the transaction list used to be uncommitted.** Earlier runs
+of this file recorded a consensus vulnerability here. The header had no field
+for the transactions, so `Block::id()` and the proof of work covered the header
+alone: one block id could carry two transaction lists and produce two states.
+Every corrupted block came back a duplicate rather than a rejection, which is
+how it was found. The header now carries `tx_root`, which `Chain::insert_block`
+checks before anything else, and the chain's apply path checks the declared
+`state_root`. Both rows above are now verifications, and the original attack is
+replayed on every run.
 
 **Lattice proof-of-useful-work is not a live surface.** `lattice-pow` sits behind
 an activation height of `u64::MAX`, nothing in `src/consensus/` calls it, and no

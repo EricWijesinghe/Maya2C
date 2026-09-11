@@ -55,7 +55,9 @@ use custom_l1_node::core::block::{Block, BlockHeader};
 use custom_l1_node::core::transaction::{Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
+use custom_l1_node::error::NodeError;
 use custom_l1_node::network::{LatencyDial, Mempool, Node, NodeHandle};
+use custom_l1_node::state::BlockContext;
 use custom_l1_node::state::account::{Account, Address};
 use custom_l1_node::state::db::StateDB;
 use libp2p::Multiaddr;
@@ -147,6 +149,7 @@ fn genesis() -> Block {
             timestamp: 1_000_000,
             nonce: 0,
             difficulty_target: target_from_leading_zero_bits(0),
+            tx_root: [0; 32],
         },
         Vec::new(),
     )
@@ -168,16 +171,29 @@ fn child_of(
     transactions: Vec<Transaction>,
 ) -> Block {
     let target = chain.next_target(&parent).expect("next target");
-    Block::new(
+    let mut block = Block::new(
         BlockHeader {
             prev_hash: parent,
             state_root: [0u8; 32],
             timestamp,
             nonce: 0,
             difficulty_target: target,
+            tx_root: [0; 32],
         },
         transactions,
-    )
+    );
+    // Declare the root the block executes to, as a miner would: the chain
+    // refuses any other. Only computable on the tip, which is where every
+    // caller builds. A block that cannot execute keeps the zero root; the
+    // chain refuses it for its transactions before any root is compared.
+    if parent == chain.tip()
+        && let Ok(root) = chain
+            .state()
+            .preview_root(&block, BlockContext::at_height(chain.height() + 1))
+    {
+        block.header.state_root = root;
+    }
+    block
 }
 
 fn address_of(key: &HybridSigningKey) -> Address {
@@ -214,13 +230,7 @@ fn funded_chain(balance: u64) -> (Chain, HybridSigningKey, TempDir) {
 fn chain_funding(key: &HybridSigningKey, balance: u64) -> (Chain, TempDir) {
     let (state, dir) = open_state();
     state
-        .put_account(
-            &address_of(key),
-            &Account {
-                balance,
-                nonce: 0,
-            },
-        )
+        .put_account(&address_of(key), &Account { balance, nonce: 0 })
         .expect("fund");
     (test_chain(Arc::clone(&state)), dir)
 }
@@ -256,10 +266,18 @@ fn build_branch(
 
 /// A branch minted on a throwaway chain, for delivering to a different one.
 ///
-/// The scratch chain shares this file's deterministic [`genesis`], so its
-/// blocks are valid children on any chain rooted at the same genesis.
-fn mint_branch(balance: u64, count: usize, first_timestamp: u64) -> Vec<Block> {
-    let (mut scratch, _key, _dir) = funded_chain(balance);
+/// The scratch chain shares this file's deterministic [`genesis`] *and* its
+/// genesis state: `key` funded with `balance`, exactly as the receiving chain
+/// is. Each block declares the state root it executes to, so a scratch chain
+/// funding some other key would mint blocks whose roots no receiving chain
+/// reproduces — the same trap [`chain_funding`] describes.
+fn mint_branch(
+    key: &HybridSigningKey,
+    balance: u64,
+    count: usize,
+    first_timestamp: u64,
+) -> Vec<Block> {
+    let (mut scratch, _dir) = chain_funding(key, balance);
     let from = scratch.tip();
     build_branch(&mut scratch, from, count, first_timestamp)
 }
@@ -290,8 +308,8 @@ fn characterisation_a_block_whose_parent_has_not_arrived_is_dropped_not_buffered
     //
     // If an orphan pool is ever added, this test fails and should be rewritten
     // as a verification. That is the intended signal.
-    let (mut chain, _key, _dir) = funded_chain(1_000_000);
-    let branch = mint_branch(1_000_000, 8, 1_000_100);
+    let (mut chain, key, _dir) = funded_chain(1_000_000);
+    let branch = mint_branch(&key, 1_000_000, 8, 1_000_100);
 
     let before = fingerprint(&chain);
 
@@ -339,8 +357,8 @@ fn characterisation_a_shuffled_branch_lands_only_as_far_as_its_prefix() {
     println!("MAYA_CHAOS_SEED={run_seed}");
     let mut rng = Rng::new(run_seed);
 
-    let (mut chain, _key, _dir) = funded_chain(1_000_000);
-    let branch = mint_branch(1_000_000, 8, 1_000_100);
+    let (mut chain, key, _dir) = funded_chain(1_000_000);
+    let branch = mint_branch(&key, 1_000_000, 8, 1_000_100);
 
     let mut shuffled: Vec<Block> = branch.clone();
     rng.shuffle(&mut shuffled);
@@ -554,13 +572,13 @@ fn a_corrupted_block_is_rejected_without_moving_the_state() {
 
             match chain.insert_block(block) {
                 Err(_) => rejected += 1,
-                // A `Duplicate` here is not a cosmetic corruption -- it is the
-                // finding in `finding_a_blocks_transaction_list_is_uncommitted`
-                // showing through. Block identity is the header hash, so a
-                // corruption that lands in a transaction produces a block the
-                // chain considers *the same block*. It is not an acceptance of
-                // the corrupted payload, but it is not a rejection either: the
-                // chain simply cannot tell the two apart.
+                // Before the header committed to its transactions, every
+                // corruption that landed in a transaction came back here: the
+                // id is the header hash, so the chain took the damaged block
+                // for the one it held. `check_tx_root` now runs ahead of the
+                // duplicate check, so only a corruption that decodes back to
+                // byte-identical transactions can still reach this arm, and
+                // that really is the same block.
                 Ok(InsertOutcome::Duplicate { .. }) => {
                     duplicates += 1;
                 }
@@ -596,11 +614,10 @@ fn a_corrupted_block_is_rejected_without_moving_the_state() {
     // Characterised or verified is decided by the run, not asserted in advance.
     //
     // The state integrity above *is* a real defence and is genuinely verified.
-    // But if nothing was rejected, no defence fired: the chain could not
-    // distinguish these blocks from the honest one, because identity is the
-    // header hash and the corruption lands in the transactions. Labelling that
-    // "verified" would credit the chain with a defence it does not have, which
-    // is the single thing this report exists to avoid.
+    // But if nothing was rejected, no defence fired, and labelling that
+    // "verified" would credit the chain with a defence it did not exercise —
+    // the single thing this report exists to avoid. Before `tx_root` that was
+    // exactly what happened: every decoded corruption was a `Duplicate`.
     let finding = if rejected > 0 {
         report::Finding::Verified
     } else {
@@ -611,9 +628,8 @@ fn a_corrupted_block_is_rejected_without_moving_the_state() {
         finding,
         &format!(
             "{attempted} corruptions across {} classes; {decoded} decoded, of which {rejected} \
-             were rejected and {duplicates} were **indistinguishable from the honest block by \
-             id** -- nothing was refused, the chain simply could not tell them apart (see the \
-             uncommitted-transaction-list finding). Tip and state root unchanged either way",
+             were rejected and {duplicates} decoded back to the identical block. Tip and state \
+             root unchanged",
             CORRUPTIONS.len()
         ),
     );
@@ -681,99 +697,90 @@ fn a_corrupted_transaction_is_rejected_without_moving_the_state() {
 }
 
 // ---------------------------------------------------------------------------
-// FINDING: a block's transaction list is not committed to by anything
+// Closed finding: a block's transaction list and state root are committed
 // ---------------------------------------------------------------------------
 
 #[test]
-fn finding_a_blocks_transaction_list_is_uncommitted() {
-    // **This is a consensus vulnerability, not a characterisation of a design
-    // trade-off.** It was found by the corruption engine above: every corrupted
-    // block came back `Duplicate`, which should have been impossible.
+fn a_blocks_transaction_list_and_state_root_are_committed() {
+    // This was a consensus vulnerability, found by the corruption engine above:
+    // every corrupted block came back `Duplicate`, which should have been
+    // impossible. The header had no field for the transactions, so `Block::id()`
+    // and the proof of work covered the header alone. Anyone could swap an
+    // honest block's transactions for their own, keep its id, and ride the
+    // work its miner paid for. And `apply_block_journaled` never compared the
+    // declared state root with the one execution produced.
     //
-    // Four facts, each verifiable in one grep:
-    //
-    // 1. `BlockHeader` has five fields — `prev_hash`, `state_root`,
-    //    `timestamp`, `nonce`, `difficulty_target`. None commits to the
-    //    transactions.
-    // 2. `Block::tx_root()` exists in `src/core/block.rs:201` and **is called
-    //    from nowhere** in the entire repository. There is no header field to
-    //    put it in.
-    // 3. `Block::id()` and `BlockHeader::pow_seed()` both hash the header
-    //    alone, so block identity *and* proof of work ignore the transaction
-    //    list entirely.
-    // 4. `Chain::apply_one` calls `StateDB::apply_block_journaled`, which
-    //    computes the post-execution root and **never compares it** to
-    //    `header.state_root`. The variant that does compare,
-    //    `apply_block_checked` (`src/state/db.rs:943`), is not called by the
-    //    chain.
-    //
-    // Together: an attacker takes any honest block, swaps its transaction list
-    // for one of their own, and the result has the same block id, satisfies the
-    // same proof of work — which the honest miner paid for — and is accepted by
-    // any node that has not already seen the original. Nodes that saw different
-    // versions now disagree about state while agreeing about the block id, so
-    // the split is invisible to every "are we on the same chain" check.
-    //
-    // This test passes by *demonstrating* the substitution. It is written to
-    // fail the day the hole is closed, at which point it should be rewritten as
-    // a verification.
+    // The fix is `BlockHeader::tx_root`, which `Chain::insert_block` checks
+    // before anything else, and a checked `apply_block_journaled`. This test
+    // replays the original attack and each way around the fix.
     let key = generate_signing_key().expect("keygen");
+    let fresh_node = || chain_funding(&key, 1_000_000);
 
-    let mut ids = Vec::new();
-    let mut roots = Vec::new();
+    let (honest_miner, _dir) = fresh_node();
+    let honest = honest_miner
+        .candidate_block(1_000_100, vec![transfer(&key, [0x99u8; 32], 100, 0)])
+        .expect("candidate");
 
-    // Two nodes receive the same block id carrying different transactions.
-    for amount in [100u64, 900u64] {
-        let (state, _dir) = open_state();
-        state
-            .put_account(
-                &address_of(&key),
-                &Account {
-                    balance: 1_000_000,
-                    nonce: 0,
-                },
-            )
-            .expect("fund");
-        let mut chain = test_chain(Arc::clone(&state));
-
-        let parent = chain.tip();
-        let header = BlockHeader {
-            prev_hash: parent,
-            // Identical on both sides, and never checked against execution.
-            state_root: [0u8; 32],
-            timestamp: 1_000_100,
-            nonce: 0,
-            difficulty_target: chain.next_target(&parent).expect("target"),
-        };
-        let block = Block::new(header, vec![transfer(&key, [0x99u8; 32], amount, 0)]);
-
-        ids.push(block.header.id());
-        chain
-            .insert_block(block)
-            .expect("both substitutions are accepted");
-        roots.push(state.state_root().expect("root"));
-    }
-
+    // 1. The original attack: the honest header, someone else's transactions,
+    //    delivered to a node that has not seen the original.
+    let substituted = Block {
+        header: honest.header.clone(),
+        transactions: vec![transfer(&key, [0x99u8; 32], 900, 0)],
+    };
+    let (mut victim, _victim_dir) = fresh_node();
+    let before = fingerprint(&victim);
+    assert!(
+        matches!(
+            victim.insert_block(substituted.clone()),
+            Err(NodeError::TxRootMismatch { .. })
+        ),
+        "a substituted body must be refused"
+    );
     assert_eq!(
-        ids[0], ids[1],
-        "the two blocks must share an id, or the substitution did not happen"
-    );
-    assert_ne!(
-        roots[0], roots[1],
-        "the two blocks must produce different state, or the payloads were equivalent"
+        fingerprint(&victim),
+        before,
+        "a refused body moved the chain"
     );
 
-    println!(
-        "block id {} produced state roots {} and {}",
-        hex::encode(ids[0]),
-        hex::encode(roots[0]),
-        hex::encode(roots[1])
+    // 2. No censorship by poisoning: the refused body was not stored under the
+    //    honest id, so the genuine block still lands rather than bouncing off
+    //    as a `Duplicate`.
+    assert!(
+        matches!(
+            victim.insert_block(honest.clone()),
+            Ok(InsertOutcome::Extended { .. })
+        ),
+        "the genuine block must still be accepted after a substitution attempt"
+    );
+
+    // 3. Recomputing the root to match does not help: it changes the header,
+    //    so the attacker has a new block with a new id and no proof of work.
+    let resealed = Block::new(honest.header.clone(), substituted.transactions);
+    assert_ne!(resealed.header.id(), honest.header.id());
+
+    // 4. The state root is checked. The right transactions under a declared
+    //    root execution does not produce are refused, and nothing is written.
+    let (mut other, _other_dir) = fresh_node();
+    let mut lying = honest.clone();
+    lying.header.state_root = [0xEE; 32];
+    let before = fingerprint(&other);
+    assert!(
+        matches!(
+            other.insert_block(lying),
+            Err(NodeError::StateRootMismatch { .. })
+        ),
+        "a block must execute to the state root it declares"
+    );
+    assert_eq!(
+        fingerprint(&other),
+        before,
+        "a refused block moved the state"
     );
 
     report::record(
-        "block transaction list is uncommitted",
-        report::Finding::Characterised,
-        "**VULNERABILITY.** One block id, two transaction lists, two state roots. The header has no tx root, `Block::tx_root()` is never called, and `apply_block_journaled` never checks the declared state root",
+        "block transaction list is committed",
+        report::Finding::Verified,
+        "A substituted body under an honest header is refused (`TxRootMismatch`) before anything is stored, the genuine block still lands afterwards, a recomputed `tx_root` changes the block id, and a false `state_root` is refused (`StateRootMismatch`) with tip and state unchanged",
     );
 }
 

@@ -5,7 +5,7 @@
 //! A full node downloads every transaction, executes it, and computes the state
 //! root itself. It needs no trust at all — it checks everything.
 //!
-//! A light client downloads only **headers**, which are 112 bytes each, and
+//! A light client downloads only **headers**, which are 144 bytes each, and
 //! verifies two things:
 //!
 //! 1. Each header's proof of work is valid, and the chain it is on has more

@@ -111,6 +111,8 @@ pub struct HeaderInfo {
     pub nonce: u64,
     /// Hex-encoded 256-bit difficulty target.
     pub difficulty_target: String,
+    /// Hex-encoded Merkle root of the block's transaction ids.
+    pub tx_root: String,
 }
 
 impl From<&BlockHeader> for HeaderInfo {
@@ -122,6 +124,7 @@ impl From<&BlockHeader> for HeaderInfo {
             timestamp: header.timestamp,
             nonce: header.nonce,
             difficulty_target: hex::encode(header.difficulty_target),
+            tx_root: hex::encode(header.tx_root),
         }
     }
 }

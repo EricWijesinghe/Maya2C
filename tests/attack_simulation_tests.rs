@@ -34,6 +34,7 @@ use custom_l1_node::core::block::{Block, BlockHeader};
 use custom_l1_node::core::transaction::{Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
+use custom_l1_node::state::BlockContext;
 use custom_l1_node::state::account::{Account, Address};
 use custom_l1_node::state::db::StateDB;
 use tempfile::TempDir;
@@ -65,6 +66,7 @@ fn genesis() -> Block {
             timestamp: 1_000_000,
             nonce: 0,
             difficulty_target: target_from_leading_zero_bits(0),
+            tx_root: [0; 32],
         },
         Vec::new(),
     )
@@ -77,16 +79,30 @@ fn child_of(
     transactions: Vec<Transaction>,
 ) -> Block {
     let target = chain.next_target(&parent).expect("next target");
-    Block::new(
+    let mut block = Block::new(
         BlockHeader {
             prev_hash: parent,
             state_root: [0u8; 32],
             timestamp,
             nonce: 0,
             difficulty_target: target,
+            tx_root: [0; 32],
         },
         transactions,
-    )
+    );
+    // Declare the root the block executes to, as a miner would: the chain
+    // refuses any other. Only computable on the tip; a side-branch block is
+    // minted on a node whose tip is its parent. A block that cannot execute
+    // keeps the zero root, and the chain refuses it for its transactions
+    // before any root is compared.
+    if parent == chain.tip()
+        && let Ok(root) = chain
+            .state()
+            .preview_root(&block, BlockContext::at_height(chain.height() + 1))
+    {
+        block.header.state_root = root;
+    }
+    block
 }
 
 fn test_chain(state: Arc<StateDB>) -> Chain {

@@ -50,6 +50,7 @@ fn header(prev: [u8; 32], state_root: [u8; 32], zero_bits: u32) -> BlockHeader {
         timestamp: 1_756_252_800,
         nonce: 0,
         difficulty_target: target_from_leading_zero_bits(zero_bits),
+        tx_root: [0; 32],
     }
 }
 

@@ -518,9 +518,7 @@ async fn mining_loop(chain: Arc<Mutex<Chain>>, network: NodeHandle, threads: usi
                 .unwrap_or(0);
             let height = chain.height() + 1;
             chain
-                .state()
-                .state_root()
-                .and_then(|root| chain.candidate_header(timestamp, root))
+                .candidate_header(timestamp)
                 .map(|header| (header, height))
         };
 

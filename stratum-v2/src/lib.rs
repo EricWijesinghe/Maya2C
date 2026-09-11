@@ -10,8 +10,8 @@
 //! It is **not** wire-compatible with stock Stratum V2 clients, and it does not
 //! pretend to be. SV2's mining messages assume a Bitcoin header: they carry a
 //! `merkle_root`, a compact `nbits`, a rollable `version`, and a coinbase to
-//! hold an extranonce. Maya2C's 112-byte header (`src/core/block.rs:9-41`) has
-//! none of those. No SRI or Braiins client could mine this chain even against a
+//! hold an extranonce. Maya2C's 144-byte header (`src/core/block.rs`) keeps
+//! only the root, as `tx_root`. No SRI or Braiins client could mine this chain even against a
 //! byte-perfect implementation of the specification — it would need an
 //! ArgonBlake hasher and a Maya2C header builder, at which point it is a
 //! different client.

@@ -39,6 +39,7 @@ fn sample_header(difficulty_target: [u8; HASH_LEN]) -> BlockHeader {
         timestamp: 1_756_252_800,
         nonce: 0,
         difficulty_target,
+        tx_root: [5u8; 32],
     }
 }
 
@@ -313,10 +314,40 @@ fn leading_zero_bits_counts_full_zero_digest() {
 /// correct to simply update the expected value.
 const KAT_DIGEST: &str = "ebdd87f0608df19740abeeeebe33b1f315ab0861d4649890fe425627bf13bcce";
 
+/// Input length [`KAT_DIGEST`] was frozen over: the header length before
+/// `tx_root` was added.
+///
+/// Literal rather than [`custom_l1_node::core::HEADER_LEN`] on purpose. This
+/// vector freezes the *function*. When the header grew to 144 bytes the function
+/// did not change, and this vector still passing on its original input is the
+/// evidence. The 144-byte header has its own vector below.
+const KAT_INPUT_LEN: usize = 112;
+
+/// ArgonBlake over a full-length 144-byte header of the same pattern.
+///
+/// Added 2026-09-11 when `tx_root` grew the header, and mirrored in
+/// `cuda-miner/tests/parity.rs`, whose split hasher only accepts
+/// full-length headers. It was frozen from the node's output; the GPU
+/// split was checked against it independently. The same rule applies: it is
+/// never correct to update it to make a failure go away.
+const KAT_DIGEST_HEADER: &str = "5b3992c971393e4127ccd78fb00c2d82217ecdc41b3a0c3caab0629531a78e44";
+
+#[test]
+fn argon_blake_matches_the_frozen_known_answer_on_a_full_header() {
+    let header = [0x5Au8; custom_l1_node::core::HEADER_LEN];
+    let digest = argon_blake_hash(&header).expect("hash must succeed");
+
+    assert_eq!(
+        hex::encode(digest),
+        KAT_DIGEST_HEADER,
+        "ArgonBlake over a full header changed — consensus-breaking, not a test to update"
+    );
+}
+
 #[test]
 fn argon_blake_matches_the_frozen_known_answer() {
-    // A full-length header of a fixed, non-trivial byte pattern.
-    let header = [0x5Au8; custom_l1_node::core::HEADER_LEN];
+    // A fixed, non-trivial byte pattern, at the length the vector was frozen at.
+    let header = [0x5Au8; KAT_INPUT_LEN];
     let digest = argon_blake_hash(&header).expect("hash must succeed");
 
     assert_eq!(
@@ -374,6 +405,131 @@ fn header_serialization_is_fixed_width_and_positional() {
     assert_eq!(&bytes[64..72], &header.timestamp.to_le_bytes());
     assert_eq!(&bytes[72..80], &header.nonce.to_le_bytes());
     assert_eq!(&bytes[80..112], &header.difficulty_target);
+    assert_eq!(&bytes[custom_l1_node::core::TX_ROOT_RANGE], &header.tx_root);
+    assert_eq!(
+        BlockHeader::from_bytes(&bytes).expect("round trip"),
+        header,
+        "decoding must invert the layout, tx_root included"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// the header commits to the transactions
+// ---------------------------------------------------------------------------
+
+fn signed_transfers(count: u64) -> Vec<Transaction> {
+    let key = generate_signing_key().expect("keygen");
+    (0..count)
+        .map(|nonce| {
+            let mut tx = Transaction::new(
+                vec![],
+                vec![TxOutput {
+                    amount: 10 + nonce,
+                    recipient: [7u8; 32],
+                }],
+                nonce,
+            );
+            tx.sign(&key).expect("sign");
+            tx
+        })
+        .collect()
+}
+
+#[test]
+fn block_identity_and_proof_of_work_cover_the_transaction_root() {
+    // The substance of the fix. Before `tx_root` existed, both of these hashed
+    // the header alone, so two blocks with different transactions had one id
+    // and one proof of work.
+    let header = sample_header(target_from_leading_zero_bits(0));
+    let mut other = header.clone();
+    other.tx_root[0] ^= 1;
+
+    assert_ne!(header.id(), other.id(), "the id must cover tx_root");
+    assert_ne!(
+        header.pow_seed(),
+        other.pow_seed(),
+        "the DAG seed must cover tx_root"
+    );
+    assert_ne!(
+        header.pow_hash().expect("hash"),
+        other.pow_hash().expect("hash"),
+        "the ArgonBlake digest must cover tx_root"
+    );
+}
+
+#[test]
+fn block_new_commits_the_header_to_its_transactions() {
+    let transactions = signed_transfers(3);
+    let block = Block::new(
+        sample_header(target_from_leading_zero_bits(0)),
+        transactions,
+    );
+
+    assert_eq!(block.header.tx_root, block.tx_root());
+    assert!(block.check_tx_root().is_ok());
+
+    let empty = Block::new(sample_header(target_from_leading_zero_bits(0)), Vec::new());
+    assert_eq!(
+        empty.header.tx_root, [0u8; 32],
+        "no transactions roots to zero"
+    );
+}
+
+#[test]
+fn a_decoded_block_whose_body_disagrees_with_its_header_is_caught() {
+    // The wire keeps the header it was sent, so a relay that swaps the body
+    // produces a block that decodes cleanly and fails `check_tx_root`.
+    let block = Block::new(
+        sample_header(target_from_leading_zero_bits(0)),
+        signed_transfers(2),
+    );
+    let replacement = signed_transfers(1);
+
+    let mut forged = Block::from_bytes(&block.to_bytes()).expect("decode");
+    assert_eq!(forged, block, "a round trip must be exact");
+    forged.transactions = replacement;
+
+    let reencoded = Block::from_bytes(&forged.to_bytes()).expect("the forgery decodes");
+    assert!(matches!(
+        reencoded.check_tx_root(),
+        Err(NodeError::TxRootMismatch { .. })
+    ));
+}
+
+#[test]
+fn transaction_order_is_committed() {
+    // Order is consensus: a batch settles in block order, so a reordered block
+    // is a different block, and it has to have a different root.
+    let transactions = signed_transfers(2);
+    let forward = Block::new(
+        sample_header(target_from_leading_zero_bits(0)),
+        transactions.clone(),
+    );
+    let reversed = Block::new(
+        sample_header(target_from_leading_zero_bits(0)),
+        transactions.into_iter().rev().collect(),
+    );
+    assert_ne!(forward.header.tx_root, reversed.header.tx_root);
+}
+
+#[test]
+fn every_transaction_proves_its_inclusion_against_the_header() {
+    use custom_l1_node::core::transaction_leaf;
+    use custom_l1_node::state::merkle::verify_path;
+
+    let block = Block::new(
+        sample_header(target_from_leading_zero_bits(0)),
+        signed_transfers(5),
+    );
+    for (index, tx) in block.transactions.iter().enumerate() {
+        let path = block.tx_inclusion_path(index).expect("in range");
+        assert_eq!(
+            verify_path(&transaction_leaf(&tx.txid()), &path),
+            block.header.tx_root,
+            "transaction {index} did not prove"
+        );
+    }
+    assert!(block.tx_inclusion_path(5).is_none());
 }
 
 /// Opt-in: actually mines a header.

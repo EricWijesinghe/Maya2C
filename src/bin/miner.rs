@@ -74,8 +74,7 @@ impl LocalSource {
 
 impl CandidateSource for LocalSource {
     fn candidate(&self) -> Result<BlockHeader, Box<dyn Error>> {
-        let state_root = self.chain.state().state_root()?;
-        Ok(self.chain.candidate_header(unix_now(), state_root)?)
+        Ok(self.chain.candidate_header(unix_now())?)
     }
 
     fn submit(&mut self, block: Block) -> Result<InsertOutcome, Box<dyn Error>> {
@@ -169,6 +168,7 @@ fn genesis_block(bits: u32) -> Block {
             timestamp: unix_now(),
             nonce: 0,
             difficulty_target: target_from_leading_zero_bits(bits),
+            tx_root: [0u8; 32],
         },
         Vec::new(),
     )

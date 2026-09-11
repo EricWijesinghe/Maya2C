@@ -60,6 +60,7 @@ fn genesis() -> Block {
             timestamp: 1_000_000,
             nonce: 0,
             difficulty_target: target_from_leading_zero_bits(0),
+            tx_root: [0; 32],
         },
         Vec::new(),
     )
@@ -76,20 +77,44 @@ fn child_of(
     transactions: Vec<Transaction>,
 ) -> Block {
     let target = chain.next_target(&parent).expect("next target");
-    Block::new(
+    let mut block = Block::new(
         BlockHeader {
             prev_hash: parent,
             state_root: [0u8; 32],
             timestamp,
             nonce: 0,
             difficulty_target: target,
+            tx_root: [0; 32],
         },
         transactions,
-    )
+    );
+    // Declare the root the block executes to, as a miner would: the chain
+    // refuses any other. Only computable on the tip; a side-branch block is
+    // minted on a node whose tip is its parent. A block that cannot execute
+    // keeps the zero root, and the chain refuses it for its transactions
+    // before any root is compared.
+    if parent == chain.tip()
+        && let Ok(root) = chain
+            .state()
+            .preview_root(&block, BlockContext::at_height(chain.height() + 1))
+    {
+        block.header.state_root = root;
+    }
+    block
 }
 
 fn test_chain(state: Arc<StateDB>) -> Chain {
     Chain::new(state, genesis(), ChainConfig::without_pow_verification())
+}
+
+/// A second node with the same genesis state as a test's main chain, funding
+/// `address` with `balance`: where a competing branch is mined.
+fn funded_shadow(address: &Address, balance: u64) -> (Chain, TempDir) {
+    let (state, dir) = open_state();
+    state
+        .put_account(address, &Account { balance, nonce: 0 })
+        .expect("fund the shadow");
+    (test_chain(state), dir)
 }
 
 // ---------------------------------------------------------------------------
@@ -296,7 +321,11 @@ fn reverting_a_block_restores_state_exactly() {
         .expect("fund");
 
     let root_before = state.state_root().expect("root");
-    let block = Block::new(genesis().header, vec![transfer(&alice, bob_addr, 250, 0)]);
+    let mut block = Block::new(genesis().header, vec![transfer(&alice, bob_addr, 250, 0)]);
+    // The journaled path checks the declared root, so declare the real one.
+    block.header.state_root = state
+        .preview_root(&block, BlockContext::GENESIS)
+        .expect("preview");
     let block_id = [1u8; 32];
 
     state
@@ -376,6 +405,7 @@ fn a_block_with_an_unknown_parent_is_rejected() {
             timestamp: 1_000_015,
             nonce: 0,
             difficulty_target: target_from_leading_zero_bits(0),
+            tx_root: [0; 32],
         },
         vec![],
     );
@@ -461,25 +491,32 @@ fn a_heavier_branch_triggers_a_reorg_and_rewrites_state() {
 
     // Branch B: three blocks spending to Carol instead. Same nonces as branch
     // A, which is exactly the cross-fork double spend a reorg must resolve.
+    //
+    // Minted on a second node holding the same genesis state, as a competing
+    // miner would: each block declares the root it executes to, and only a
+    // node whose tip is the block's parent can compute that.
+    let (mut shadow, _shadow_dir) = funded_shadow(&alice_addr, 1_000);
     let b1 = child_of(
-        &chain,
+        &shadow,
         genesis_id,
         1_000_020,
         vec![transfer(&alice, carol_addr, 300, 0)],
     );
     let b1_id = b1.header.id();
+    shadow.insert_block(b1.clone()).expect("b1 on the shadow");
     assert!(matches!(
         chain.insert_block(b1),
         Ok(InsertOutcome::SideBranch { .. })
     ));
 
     let b2 = child_of(
-        &chain,
+        &shadow,
         b1_id,
         1_000_035,
         vec![transfer(&alice, carol_addr, 200, 1)],
     );
     let b2_id = b2.header.id();
+    shadow.insert_block(b2.clone()).expect("b2 on the shadow");
     assert!(
         matches!(chain.insert_block(b2), Ok(InsertOutcome::SideBranch { .. })),
         "equal work must not reorg"
@@ -487,7 +524,7 @@ fn a_heavier_branch_triggers_a_reorg_and_rewrites_state() {
     assert_eq!(chain.tip(), a2_id);
 
     // Third block tips the balance of cumulative work.
-    let b3 = child_of(&chain, b2_id, 1_000_050, vec![]);
+    let b3 = child_of(&shadow, b2_id, 1_000_050, vec![]);
     let b3_id = b3.header.id();
 
     let outcome = chain.insert_block(b3).expect("b3");
@@ -558,15 +595,20 @@ fn a_reorg_that_fails_midway_restores_the_original_chain() {
     let root_before = state.state_root().expect("root");
 
     // Branch B is heavier but its last block spends funds Mallory never had.
-    let b1 = child_of(&chain, genesis_id, 1_000_020, vec![]);
+    // Minted on a shadow node with the same genesis state, so its first two
+    // blocks declare real roots and it is the spend that fails the reorg.
+    let (mut shadow, _shadow_dir) = funded_shadow(&alice_addr, 1_000);
+    let b1 = child_of(&shadow, genesis_id, 1_000_020, vec![]);
     let b1_id = b1.header.id();
+    shadow.insert_block(b1.clone()).expect("b1 on the shadow");
     chain.insert_block(b1).expect("b1");
-    let b2 = child_of(&chain, b1_id, 1_000_035, vec![]);
+    let b2 = child_of(&shadow, b1_id, 1_000_035, vec![]);
     let b2_id = b2.header.id();
+    shadow.insert_block(b2.clone()).expect("b2 on the shadow");
     chain.insert_block(b2).expect("b2");
 
     let b3 = child_of(
-        &chain,
+        &shadow,
         b2_id,
         1_000_050,
         vec![transfer(&mallory, bob_addr, 5_000, 0)],

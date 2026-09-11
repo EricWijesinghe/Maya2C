@@ -200,7 +200,7 @@ pub fn epoch_seed(epoch: u64) -> [u8; 32] {
 
 /// The 32 bytes a search runs against: the header with its nonce zeroed.
 ///
-/// The header layout is the node's: 112 bytes with the nonce at 72..80. A miner
+/// The header layout is the node's: 144 bytes with the nonce at 72..80. A miner
 /// receiving raw header bytes from a pool calls this once per job.
 ///
 /// # Panics
@@ -466,7 +466,7 @@ mod tests {
 
     #[test]
     fn zeroing_the_nonce_is_what_makes_the_seed_constant() {
-        let mut header = vec![0x11u8; 112];
+        let mut header = vec![0x11u8; crate::HEADER_LEN];
         header[72..80].copy_from_slice(&7u64.to_le_bytes());
         let with_seven = pow_seed(&header);
 

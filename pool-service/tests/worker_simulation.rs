@@ -206,6 +206,7 @@ fn push_job(state: &PoolState, salt: u8) -> u32 {
         timestamp: 1_700_000_000,
         nonce: 0,
         difficulty_target: target_from_leading_zero_bits(NETWORK_BITS),
+        tx_root: [0; 32],
     };
 
     state

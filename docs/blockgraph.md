@@ -177,7 +177,7 @@ Phases 2, 3, and 5 of the agreed plan:
 - **Batch dissemination** — the `src/network/` worker that broadcasts batches,
   answers fetches, and evicts. Needs a libp2p protocol and a fuzz target for
   batch decode.
-- **Header batch references** — `BlockHeader` is fixed-width (`[u8; 112]`, with
+- **Header batch references** — `BlockHeader` is fixed-width (`[u8; 144]`, with
   `serialize()` writing constant offsets). Adding a reference list makes it
   variable-length: new codec, new fuzz target, and since the proof-of-work digest
   covers the header, a hard fork gated at an activation height.

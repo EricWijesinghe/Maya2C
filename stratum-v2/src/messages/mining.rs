@@ -3,15 +3,15 @@
 //! ## What changed from the specification, and why
 //!
 //! Stratum V2's mining messages are shaped around a Bitcoin header. Maya2C's is
-//! 112 bytes of `prev_hash ‖ state_root ‖ timestamp ‖ nonce ‖ difficulty_target`
-//! (`src/core/block.rs:33-41`) — no version field, no merkle root, no compact
-//! `nbits`, and no coinbase to hide an extranonce in. Four adaptations follow.
+//! 144 bytes of `prev_hash ‖ state_root ‖ timestamp ‖ nonce ‖ difficulty_target
+//! ‖ tx_root` (`src/core/block.rs`) — no version field, no compact `nbits`, and
+//! no coinbase to hide an extranonce in. Four adaptations follow.
 //! Message numbering still matches SV2 slot for slot, so the correspondence
 //! stays readable.
 //!
 //! | SV2 field | Here | Why |
 //! |---|---|---|
-//! | `merkle_root` in `NewMiningJob` | `state_root` | The header commits to post-execution state, not to a transaction tree (`src/state/db.rs:626-634`) |
+//! | `merkle_root` in `NewMiningJob` | `tx_root` **and** `state_root` | The header commits to the transaction tree, as in SV2, and also to the post-execution state, which the chain checks |
 //! | `nbits` (U32 compact) in `SetNewPrevHash` | `target` (32 bytes) | Maya2C targets are full 256-bit values compared bytewise (`src/crypto/pow.rs:16-18`); there is no compact form to pack into |
 //! | `version` in jobs and shares | *absent* | The header has no version field to roll |
 //! | `SetExtranoncePrefix` | [`SetNonceRange`] | No coinbase means no extranonce; see below |
@@ -280,10 +280,10 @@ impl SetNonceRange {
     }
 }
 
-/// A new job: the two header fields the pool controls per template.
+/// A new job: the header fields the pool controls per template.
 ///
 /// Together with the channel's most recent [`SetNewPrevHash`], this is
-/// everything needed to build the 112-byte header except the nonce.
+/// everything needed to build the 144-byte header except the nonce.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NewMiningJob {
     /// Channel this job is for.
@@ -295,6 +295,10 @@ pub struct NewMiningJob {
     pub state_root: [u8; 32],
     /// Header timestamp.
     pub timestamp: u64,
+    /// Merkle root of the template's transaction ids — SV2's `merkle_root`,
+    /// in the role it has there: the header commits to the transactions
+    /// through it.
+    pub tx_root: [u8; 32],
 }
 
 impl NewMiningJob {
@@ -304,6 +308,7 @@ impl NewMiningJob {
         writer.write_u32(self.job_id);
         writer.write_bytes32(&self.state_root);
         writer.write_u64(self.timestamp);
+        writer.write_bytes32(&self.tx_root);
     }
 
     /// Parses this message's payload.
@@ -317,6 +322,7 @@ impl NewMiningJob {
             job_id: reader.read_u32()?,
             state_root: reader.read_bytes32()?,
             timestamp: reader.read_u64()?,
+            tx_root: reader.read_bytes32()?,
         })
     }
 }

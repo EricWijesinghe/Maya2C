@@ -61,6 +61,7 @@ fn block_of(transactions: Vec<Transaction>) -> Block {
             timestamp: 1_756_252_800,
             nonce: 0,
             difficulty_target: target_from_leading_zero_bits(0),
+            tx_root: [0; 32],
         },
         transactions,
     )
@@ -587,7 +588,10 @@ fn reverting_a_shielded_block_restores_the_pool_exactly() {
 
     let joinsplit = respend(note, &notes, current_anchor(&db), 91);
     let nullifier = joinsplit.nullifiers[0];
-    let block = block_of(vec![shielded_tx(joinsplit, 1, &owner)]);
+    let mut block = block_of(vec![shielded_tx(joinsplit, 1, &owner)]);
+    block.header.state_root = db
+        .preview_root(&block, BlockContext::at_height(2))
+        .expect("preview");
     let block_id = block.header.id();
 
     db.apply_block_journaled(&block, &block_id, BlockContext::at_height(2))

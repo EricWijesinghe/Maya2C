@@ -22,7 +22,7 @@
 //! final block. 3 KiB of PCIe traffic against ~25 ms of compute is free.
 //!
 //! ```text
-//!   header (112 B)
+//!   header (144 B)
 //!     ├─ BLAKE3 ────────────────► prehash (32 B) ──┐
 //!     └─ BLAKE3 derive_key ─────► salt (16 B) ─────┤
 //!                                                  ▼
@@ -51,13 +51,13 @@ use crate::error::{MinerError, Result};
 pub const HASH_LEN: usize = 32;
 
 /// Serialized length of a block header. Matches `custom_l1_node::core::HEADER_LEN`.
-pub const HEADER_LEN: usize = 112;
+pub const HEADER_LEN: usize = 144;
 
 /// Byte range holding the little-endian nonce inside a serialized header.
 ///
-/// From `src/core/block.rs:38`. The miner rewrites exactly these eight bytes
+/// From `NONCE_RANGE` in `src/core/block.rs`. The miner rewrites exactly these eight bytes
 /// per attempt and re-hashes the whole header: both BLAKE3 stages cover all
-/// 112 bytes, so there is no incremental shortcut — and at 120 ns there is no
+/// 144 bytes, so there is no incremental shortcut — and at 120 ns there is no
 /// reason to want one.
 pub const NONCE_RANGE: std::ops::Range<usize> = 72..80;
 

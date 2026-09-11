@@ -6,13 +6,27 @@ use crate::crypto::argon_blake::{HASH_LEN, argon_blake_hash};
 use crate::crypto::dag::hashimoto::hashimoto_light;
 use crate::crypto::dag::registry::CacheRegistry;
 use crate::crypto::pow::meets_target;
-use crate::error::Result;
+use crate::error::{NodeError, Result};
+use crate::state::merkle::{PathStep, merkle_path, merkle_root};
 
 /// Domain separator for the seed a DAG hash is searched against.
 const POW_SEED_CONTEXT: &str = "custom-l1-node 2026-08-31 dag pow seed v1";
 
-/// Serialized length of a [`BlockHeader`]: 32 + 32 + 8 + 8 + 32.
-pub const HEADER_LEN: usize = 112;
+/// Domain separator for a transaction's leaf in the header's `tx_root` tree.
+///
+/// Keyed rather than tagged, so a transaction leaf can never be mistaken for an
+/// account leaf from the state tree, which shares the internal-node rule.
+const TX_LEAF_CONTEXT: &str = "custom-l1-node tx leaf v1";
+
+/// Serialized length of a [`BlockHeader`]: 32 + 32 + 8 + 8 + 32 + 32.
+pub const HEADER_LEN: usize = 144;
+
+/// Byte range the transaction root occupies in a serialized header.
+///
+/// Appended after every pre-existing field rather than placed beside
+/// `state_root`, so [`NONCE_RANGE`] did not move when the field arrived and a
+/// GPU kernel that rewrites the nonce in place needed no change.
+pub const TX_ROOT_RANGE: std::ops::Range<usize> = 112..144;
 
 /// Byte range the nonce occupies in a serialized header.
 ///
@@ -35,6 +49,15 @@ pub struct BlockHeader {
     pub nonce: u64,
     /// 256-bit big-endian threshold the digest must not exceed.
     pub difficulty_target: [u8; HASH_LEN],
+    /// Merkle root of the block's transaction ids. See [`Block::tx_root`].
+    ///
+    /// The field that makes a block's id and proof of work cover its
+    /// transactions. Without it both hashed the header alone, so anyone could
+    /// swap an honest block's transactions for their own under the same id and
+    /// the same work. [`Block::new`] sets it; a block decoded from the wire
+    /// keeps the value it arrived with, so that `Chain::insert_block` can refuse
+    /// a body that disagrees.
+    pub tx_root: [u8; HASH_LEN],
 }
 
 impl BlockHeader {
@@ -50,7 +73,22 @@ impl BlockHeader {
         buf[64..72].copy_from_slice(&self.timestamp.to_le_bytes());
         buf[NONCE_RANGE].copy_from_slice(&self.nonce.to_le_bytes());
         buf[80..112].copy_from_slice(&self.difficulty_target);
+        buf[TX_ROOT_RANGE].copy_from_slice(&self.tx_root);
         buf
+    }
+
+    /// Reads the fixed-width header fields from `reader`, leaving it just past
+    /// them. Shared by [`BlockHeader::from_bytes`] and [`Block::from_bytes`] so
+    /// the layout is written down once.
+    fn read_from(reader: &mut ByteReader<'_>) -> Result<Self> {
+        Ok(Self {
+            prev_hash: reader.read_array::<HASH_LEN>()?,
+            state_root: reader.read_array::<HASH_LEN>()?,
+            timestamp: reader.read_u64()?,
+            nonce: reader.read_u64()?,
+            difficulty_target: reader.read_array::<HASH_LEN>()?,
+            tx_root: reader.read_array::<HASH_LEN>()?,
+        })
     }
 
     /// Decodes a header from its canonical serialization.
@@ -66,13 +104,7 @@ impl BlockHeader {
     /// [`HEADER_LEN`] bytes.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         let mut reader = ByteReader::new(bytes);
-        let header = Self {
-            prev_hash: reader.read_array::<HASH_LEN>()?,
-            state_root: reader.read_array::<HASH_LEN>()?,
-            timestamp: reader.read_u64()?,
-            nonce: reader.read_u64()?,
-            difficulty_target: reader.read_array::<HASH_LEN>()?,
-        };
+        let header = Self::read_from(&mut reader)?;
         reader.finish()?;
         Ok(header)
     }
@@ -183,28 +215,80 @@ pub struct Block {
     pub transactions: Vec<Transaction>,
 }
 
+/// Hashes a transaction id into its leaf of the `tx_root` tree.
+#[must_use]
+pub fn transaction_leaf(txid: &[u8; HASH_LEN]) -> [u8; HASH_LEN] {
+    let mut hasher = blake3::Hasher::new_derive_key(TX_LEAF_CONTEXT);
+    hasher.update(txid);
+    *hasher.finalize().as_bytes()
+}
+
 impl Block {
-    /// Builds a block from a header and its transactions.
+    /// Builds a block from a header and its transactions, committing the header
+    /// to them.
+    ///
+    /// `header.tx_root` is overwritten with [`Block::tx_root`] of
+    /// `transactions`, so a block built here cannot disagree with itself. Set
+    /// the transactions before mining: changing them afterwards changes the
+    /// header, and with it the proof of work. A block that deliberately
+    /// disagrees — a test of the refusal — is built as a struct literal.
     #[must_use]
-    pub fn new(header: BlockHeader, transactions: Vec<Transaction>) -> Self {
+    pub fn new(mut header: BlockHeader, transactions: Vec<Transaction>) -> Self {
+        header.tx_root = Self::root_of(&transactions);
         Self {
             header,
             transactions,
         }
     }
 
-    /// Commitment over the contained transaction identifiers.
+    /// Merkle root over the leaves of the contained transaction ids, in block
+    /// order.
     ///
-    /// A sequential BLAKE3 fold, not a Merkle tree: sufficient for a full-block
-    /// commitment, but it does not support inclusion proofs.
+    /// The tree is `state::merkle`'s: tagged internal nodes and a promoted,
+    /// never duplicated, odd node, so two different transaction lists cannot
+    /// share a root (the CVE-2012-2459 shape). Each txid covers the whole
+    /// transaction, signatures included. An empty block roots to all zeros.
     #[must_use]
     pub fn tx_root(&self) -> [u8; HASH_LEN] {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(&(self.transactions.len() as u64).to_le_bytes());
-        for transaction in &self.transactions {
-            hasher.update(&transaction.txid());
+        Self::root_of(&self.transactions)
+    }
+
+    fn leaves(transactions: &[Transaction]) -> Vec<[u8; HASH_LEN]> {
+        transactions
+            .iter()
+            .map(|transaction| transaction_leaf(&transaction.txid()))
+            .collect()
+    }
+
+    fn root_of(transactions: &[Transaction]) -> [u8; HASH_LEN] {
+        merkle_root(&Self::leaves(transactions))
+    }
+
+    /// Inclusion path for the transaction at `index`, against the header's
+    /// `tx_root`.
+    ///
+    /// Check it with `state::merkle::verify_path(&transaction_leaf(&txid), &path)`,
+    /// which must reproduce `tx_root`. Returns `None` if `index` is out of range.
+    #[must_use]
+    pub fn tx_inclusion_path(&self, index: usize) -> Option<Vec<PathStep>> {
+        merkle_path(&Self::leaves(&self.transactions), index)
+    }
+
+    /// Checks that the transactions carried are the ones the header commits
+    /// to.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::TxRootMismatch`] if they are not.
+    pub fn check_tx_root(&self) -> Result<()> {
+        let actual = self.tx_root();
+        if actual != self.header.tx_root {
+            return Err(NodeError::TxRootMismatch {
+                expected: hex::encode(self.header.tx_root),
+                actual: hex::encode(actual),
+            });
         }
-        *hasher.finalize().as_bytes()
+        Ok(())
     }
 
     /// Encodes the block for the wire.
@@ -232,13 +316,9 @@ impl Block {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         let mut reader = ByteReader::new(bytes);
 
-        let header = BlockHeader {
-            prev_hash: reader.read_array::<HASH_LEN>()?,
-            state_root: reader.read_array::<HASH_LEN>()?,
-            timestamp: reader.read_u64()?,
-            nonce: reader.read_u64()?,
-            difficulty_target: reader.read_array::<HASH_LEN>()?,
-        };
+        // Not checked against the body here: a decoder that refused a mismatch
+        // would be a second place the rule lived. `Chain::insert_block` owns it.
+        let header = BlockHeader::read_from(&mut reader)?;
 
         // Minimum encoded transaction is 8 bytes of length prefix plus a small
         // body; use the prefix width as the per-element floor.

@@ -116,6 +116,7 @@ fn signed_block(key: &HybridSigningKey) -> Block {
             timestamp: 1_756_252_800,
             nonce: 0,
             difficulty_target: target_from_leading_zero_bits(0),
+            tx_root: [0; 32],
         },
         vec![tx],
     )

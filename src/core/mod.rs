@@ -10,7 +10,7 @@ pub mod payload;
 pub mod sealed_payload;
 pub mod transaction;
 
-pub use block::{Block, BlockHeader, HEADER_LEN};
+pub use block::{Block, BlockHeader, HEADER_LEN, TX_ROOT_RANGE, transaction_leaf};
 pub use dex_payload::{
     AssetRegistration, AssetTransfer, LiquidityDeposit, LiquidityWithdrawal, OrderPlacement,
     PoolCreation, RouteLeg, SwapRequest, SwapRoute,

@@ -15,8 +15,8 @@
 //! ## The extension namespace
 //!
 //! Extension type `0x0000` is the reserved SV2 mining protocol, and this is not
-//! that: Maya2C's mining messages carry a `state_root` and a 256-bit target
-//! where SV2 carries a merkle root and `nbits`. Using `0x0000` would announce
+//! that: Maya2C's mining messages carry a `state_root`, a `tx_root` where SV2
+//! puts its merkle root, and a 256-bit target where SV2 has `nbits`. Using `0x0000` would announce
 //! wire compatibility that does not exist, and the failure mode — a stock SV2
 //! client parsing our `NewMiningJob` as its own — is a client mining garbage
 //! rather than a client reporting an error.

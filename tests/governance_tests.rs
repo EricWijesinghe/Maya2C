@@ -54,6 +54,7 @@ fn block_of(transactions: Vec<Transaction>) -> Block {
             // Four leading zero bits, so a work claim credits a small,
             // predictable number rather than a difficulty-dependent one.
             difficulty_target: target_from_leading_zero_bits(4),
+            tx_root: [0; 32],
         },
         transactions,
     )
@@ -646,13 +647,12 @@ fn reverting_a_block_restores_the_rules_it_changed() {
 
     let root_before = fixture.db.state_root().expect("root");
     let block_id = [77u8; 32];
+    let context = BlockContext::at_height(executable);
+    let mut block = block_of(vec![]);
+    block.header.state_root = fixture.db.preview_root(&block, context).expect("preview");
     fixture
         .db
-        .apply_block_journaled(
-            &block_of(vec![]),
-            &block_id,
-            BlockContext::at_height(executable),
-        )
+        .apply_block_journaled(&block, &block_id, context)
         .expect("execute");
 
     assert_eq!(fixture.parameter(ParameterKey::DexProtocolFeeBps), 25);

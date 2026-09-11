@@ -27,11 +27,11 @@ Stratum V2's mining messages assume a Bitcoin header. They carry a
 `merkle_root`, a compact `nbits`, a rollable `version`, and a coinbase
 transaction to hide an extranonce in.
 
-Maya2C's header is 112 bytes and has none of them
+Maya2C's header is 144 bytes and keeps only the root, as `tx_root`
 ([`src/core/block.rs:9-41`](../src/core/block.rs)):
 
 ```text
-prev_hash[32] ‖ state_root[32] ‖ timestamp[8] ‖ nonce[8] ‖ difficulty_target[32]
+prev_hash[32] ‖ state_root[32] ‖ timestamp[8] ‖ nonce[8] ‖ difficulty_target[32] ‖ tx_root[32]
 ```
 
 No stock SV2 client — SRI, Braiins, anything else — could mine this chain even
@@ -69,7 +69,7 @@ which is the actual point of SV2.
 
 | SV2 | Here | Why |
 |---|---|---|
-| `merkle_root` in `NewMiningJob` | `state_root` | The header commits to post-execution state, not a transaction tree ([`src/state/db.rs:617-634`](../src/state/db.rs)) |
+| `merkle_root` in `NewMiningJob` | `tx_root` **and** `state_root` | The header commits to the transaction tree, as in SV2, and also to the post-execution state, which the chain checks |
 | `nbits` (U32 compact) | `target` (32 bytes) | Targets are full 256-bit values compared bytewise ([`src/crypto/pow.rs:16-18`](../src/crypto/pow.rs)); there is no compact form to pack into |
 | `version` in jobs and shares | *absent* | The header has no version field to roll |
 | `SetExtranoncePrefix` | `SetNonceRange` | No coinbase means no extranonce; see below |

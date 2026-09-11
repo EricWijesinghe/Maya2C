@@ -21,7 +21,7 @@ cargo fuzz run tx_decode
 | Target | Entry point | Property |
 |---|---|---|
 | `tx_decode` | `Transaction::from_bytes` | no panic; encoding is canonical |
-| `header_decode` | `BlockHeader::from_bytes` | accepts exactly the 112-byte strings |
+| `header_decode` | `BlockHeader::from_bytes` | accepts exactly the 144-byte strings |
 | `block_decode` | `Block::from_bytes` | no panic; no over-reservation; canonical |
 | `payload_decode` | `TxKind::decode` | no panic; canonical when the section is the whole input |
 | `account_decode` | `Account::decode` | accepts exactly the 16-byte strings |

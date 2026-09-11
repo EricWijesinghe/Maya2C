@@ -61,6 +61,12 @@ genesis block  23fbae9752388b17890b1aaaf4fffd67ab291233df2d9b0fc874c1767e15c99e
 
 3 × 5.6B + 4.2B = 21B exactly.
 
+**That genesis block id is stale; the state root is not.** It was recorded
+before the header gained `tx_root` (2026-09-11). The header is part of the id,
+so the same `genesis.json` now has a different genesis block id, while its state
+root is unchanged. The ceremony generates fresh root keys, so this run cannot be
+replayed. The id to lock is the one the ceremony prints when it is run for real.
+
 ### The treasury declares its share and is checked against it
 
 `TreasuryGenesis::share_bps` is written by the author and validated against

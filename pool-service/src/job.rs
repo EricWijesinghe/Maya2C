@@ -146,10 +146,12 @@ impl JobRegistry {
         let id = self.next_id;
         let job = Job::from_candidate(id, candidate)?;
 
-        // Only a new parent or a new state root is new work.
+        // Only a new parent, a new state root, or a new transaction set is
+        // new work.
         if let Some(current) = self.current()
             && current.header.prev_hash == job.header.prev_hash
             && current.header.state_root == job.header.state_root
+            && current.header.tx_root == job.header.tx_root
         {
             return Ok(None);
         }
@@ -217,6 +219,7 @@ mod tests {
             timestamp,
             nonce: 0,
             difficulty_target: target_from_leading_zero_bits(20),
+            tx_root: [0; 32],
         };
         MiningCandidate {
             height,

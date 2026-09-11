@@ -147,11 +147,6 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .register_method("get_mining_candidate", |_params, ctx, _| {
             let chain = ctx.chain();
 
-            let state_root = chain
-                .state()
-                .state_root()
-                .map_err(|e| rejected(e.to_string()))?;
-
             // Timestamps come from the node clock, which is what a miner would
             // otherwise have to guess and get wrong.
             let timestamp = std::time::SystemTime::now()
@@ -160,7 +155,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 .unwrap_or(0);
 
             let header = chain
-                .candidate_header(timestamp, state_root)
+                .candidate_header(timestamp)
                 .map_err(|e| rejected(e.to_string()))?;
 
             Ok::<_, ErrorObjectOwned>(MiningCandidate {

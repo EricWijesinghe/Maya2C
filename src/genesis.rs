@@ -462,6 +462,8 @@ impl GenesisConfig {
                 timestamp: self.timestamp,
                 nonce: 0,
                 difficulty_target: self.difficulty_target(),
+                // Set by `Block::new`: the root of no transactions.
+                tx_root: [0; 32],
             },
             Vec::new(),
         ))

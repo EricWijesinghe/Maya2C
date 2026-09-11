@@ -214,6 +214,7 @@ fn header_seeds() -> Vec<(String, Vec<u8>)> {
                 timestamp: 0,
                 nonce: 0,
                 difficulty_target: [0xFF; 32],
+                tx_root: [0; 32],
             },
         ),
         (
@@ -224,6 +225,7 @@ fn header_seeds() -> Vec<(String, Vec<u8>)> {
                 timestamp: u64::MAX,
                 nonce: u64::MAX,
                 difficulty_target: [0; 32],
+                tx_root: [0; 32],
             },
         ),
         (
@@ -242,6 +244,7 @@ fn header_seeds() -> Vec<(String, Vec<u8>)> {
                     target[2] = 0x0F;
                     target
                 },
+                tx_root: [0; 32],
             },
         ),
     ];
@@ -259,6 +262,7 @@ fn block_seeds() -> Vec<(String, Vec<u8>)> {
         timestamp: 1_700_000_000,
         nonce: 42,
         difficulty_target: [0xFF; 32],
+        tx_root: [0; 32],
     };
 
     let one = signed(Transaction::new(
@@ -462,6 +466,7 @@ fn sv2_frame_seeds() -> Vec<(String, Vec<u8>)> {
                 job_id: 1,
                 state_root: [0xAB; 32],
                 timestamp: u64::MAX,
+                tx_root: [0; 32],
             }),
         ),
         (

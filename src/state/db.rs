@@ -838,8 +838,29 @@ impl StateDB {
         })
     }
 
-    /// Executes `block`, commits it, and records an undo journal under
-    /// `block_id` so the block can later be reverted.
+    /// The state root `block` would produce, without writing anything.
+    ///
+    /// What a block producer puts in `header.state_root`: the root *after* the
+    /// block executes, at the height it will land at. The chain refuses any
+    /// other value, so a candidate built from the pre-block root is a block
+    /// nobody accepts.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first validation error `block` would hit if applied.
+    pub fn preview_root(&self, block: &Block, context: BlockContext) -> Result<[u8; HASH_LEN]> {
+        let overlay = self.stage_block(block, context)?;
+        self.root_with_overlay(&overlay)
+    }
+
+    /// Executes `block`, checks the state root its header declares, commits
+    /// it, and records an undo journal under `block_id` so the block can later
+    /// be reverted.
+    ///
+    /// This is the chain's path, so it is the checked one. Before the check
+    /// existed a miner could write any `state_root`, and every full node would
+    /// accept it — while `light-client` verifies account proofs against exactly
+    /// that field.
     ///
     /// The journal and the state changes land in the same [`WriteBatch`]: a
     /// committed block always has a usable undo record, and a rejected one
@@ -847,16 +868,16 @@ impl StateDB {
     ///
     /// # Errors
     ///
-    /// As [`StateDB::apply_block`].
+    /// Returns [`NodeError::StateRootMismatch`] if execution disagrees with the
+    /// header, in which case nothing is written. Otherwise as
+    /// [`StateDB::apply_block`].
     pub fn apply_block_journaled(
         &self,
         block: &Block,
         block_id: &[u8; HASH_LEN],
         context: BlockContext,
     ) -> Result<[u8; HASH_LEN]> {
-        let overlay = self.stage_block(block, context)?;
-
-        let new_root = self.root_with_overlay(&overlay)?;
+        let (overlay, new_root) = self.stage_checked(block, context)?;
         let undo = self.capture_undo(&overlay)?;
 
         let mut batch = WriteBatch::default();
@@ -945,8 +966,24 @@ impl StateDB {
         block: &Block,
         context: BlockContext,
     ) -> Result<[u8; HASH_LEN]> {
-        let overlay = self.stage_block(block, context)?;
+        let (overlay, new_root) = self.stage_checked(block, context)?;
 
+        let mut batch = WriteBatch::default();
+        self.write_overlay(&mut batch, &overlay);
+        self.db.write(batch).map_err(storage_err)?;
+
+        Ok(new_root)
+    }
+
+    /// Stages `block` and checks the state root its header declares, writing
+    /// nothing. The one place the comparison lives, shared by both checked
+    /// apply paths so they cannot drift apart.
+    fn stage_checked(
+        &self,
+        block: &Block,
+        context: BlockContext,
+    ) -> Result<(Overlay, [u8; HASH_LEN])> {
+        let overlay = self.stage_block(block, context)?;
         let new_root = self.root_with_overlay(&overlay)?;
         if new_root != block.header.state_root {
             return Err(NodeError::StateRootMismatch {
@@ -954,11 +991,6 @@ impl StateDB {
                 actual: hex::encode(new_root),
             });
         }
-
-        let mut batch = WriteBatch::default();
-        self.write_overlay(&mut batch, &overlay);
-        self.db.write(batch).map_err(storage_err)?;
-
-        Ok(new_root)
+        Ok((overlay, new_root))
     }
 }

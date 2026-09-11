@@ -50,6 +50,7 @@ fn genesis(bits: u32) -> Block {
             timestamp: 1_700_000_000,
             nonce: 0,
             difficulty_target: target_from_leading_zero_bits(bits),
+            tx_root: [0; 32],
         },
         Vec::new(),
     )
@@ -428,10 +429,14 @@ async fn balances_seen_over_rpc_track_committed_state() {
     let node = start_node(&[(alice_addr, 1_000)], false).await;
 
     // Commit a block directly, bypassing RPC, then read the result back over it.
-    let block = Block::new(
+    let mut block = Block::new(
         genesis(TEST_DIFFICULTY_BITS).header,
         vec![signed_transfer(&alice, bob_addr, 400, 0)],
     );
+    block.header.state_root = node
+        .state
+        .preview_root(&block, BlockContext::GENESIS)
+        .expect("preview");
     node.state
         .apply_block_journaled(&block, &[7u8; 32], BlockContext::GENESIS)
         .expect("apply");

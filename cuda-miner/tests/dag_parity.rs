@@ -182,6 +182,7 @@ fn the_search_seed_agrees() {
         timestamp: 1_700_000_000,
         nonce: 0xDEAD_BEEF_CAFE_F00D,
         difficulty_target: [0x0F; 32],
+        tx_root: [0; 32],
     };
 
     assert_eq!(pow_seed(&header.serialize()), header.pow_seed());

@@ -1,12 +1,12 @@
 //! Fuzzes [`BlockHeader::from_bytes`].
 //!
-//! The header is fixed-width — 112 bytes, no length prefixes — so the decoder
+//! The header is fixed-width — 144 bytes, no length prefixes — so the decoder
 //! has a narrow surface, but it is reachable from `get_mining_candidate` over
 //! JSON-RPC as well as from block gossip, which makes it reachable by callers
 //! that never went through `Block::from_bytes`.
 //!
-//! The canonicality property is total here: exactly one 112-byte string maps to
-//! each header, and every 112-byte string is a valid header. So `from_bytes`
+//! The canonicality property is total here: exactly one 144-byte string maps to
+//! each header, and every 144-byte string is a valid header. So `from_bytes`
 //! must succeed for any input of exactly `HEADER_LEN` and fail for every other
 //! length — a stronger claim than round-tripping alone, and asserted as such.
 //!

@@ -264,6 +264,7 @@ impl Session {
                     job_id: job.id,
                     state_root: job.header.state_root,
                     timestamp: job.header.timestamp,
+                    tx_root: job.header.tx_root,
                 },
             )),
         ])
@@ -499,6 +500,7 @@ pub fn job_messages(channel_id: u32, job: &crate::job::Job) -> Vec<Message> {
             job_id: job.id,
             state_root: job.header.state_root,
             timestamp: job.header.timestamp,
+            tx_root: job.header.tx_root,
         }),
     ]
 }
@@ -548,6 +550,7 @@ mod tests {
             timestamp: 1_700_000_000,
             nonce: 0,
             difficulty_target: target_from_leading_zero_bits(24),
+            tx_root: [0; 32],
         };
         state
             .jobs_mut()

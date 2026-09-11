@@ -17,7 +17,7 @@ overstate what the chain does:
 - **characterised** — no defence exists. The row records the observed behaviour
   so it is a known property rather than a testnet surprise.
 
-11 scenarios: 5 verified, 6 characterised.
+11 scenarios: 7 verified, 4 characterised.
 
 ## Scenarios
 
@@ -25,9 +25,9 @@ overstate what the chain does:
 |---|---|---|
 | 33% of nodes broadcast garbage | verified | 2 of 6 published unfunded and bit-flipped transactions; honest mempools stayed empty of them and an honest transaction still propagated |
 | 33% of nodes crash | verified | 2 of 6 nodes dropped; the remaining 4 still accepted and propagated a transaction to every survivor |
-| 5000 ms latency spike | verified | latency raised to 5000 ms on open connections and cleared; the connection survived and propagation resumed (delivered during the spike: false) |
-| block transaction list is uncommitted | characterised | **VULNERABILITY.** One block id, two transaction lists, two state roots. The header has no tx root, `Block::tx_root()` is never called, and `apply_block_journaled` never checks the declared state root |
-| corrupted blocks | characterised | 200 corruptions across 5 classes; 108 decoded, of which 0 were rejected and 108 were **indistinguishable from the honest block by id** -- nothing was refused, the chain simply could not tell them apart (see the uncommitted-transaction-list finding). Tip and state root unchanged either way |
+| 5000 ms latency spike | verified | latency raised to 5000 ms on open connections and cleared; the connection survived and propagation resumed (delivered during the spike: true) |
+| block transaction list is committed | verified | A substituted body under an honest header is refused (`TxRootMismatch`) before anything is stored, the genuine block still lands afterwards, a recomputed `tx_root` changes the block id, and a false `state_root` is refused (`StateRootMismatch`) with tip and state unchanged |
+| corrupted blocks | verified | 200 corruptions across 5 classes; 105 decoded, of which 105 were rejected and 0 decoded back to the identical block. Tip and state root unchanged |
 | corrupted transactions | verified | 108 tampered transactions decoded and were carried in a block; every block was refused and tip and state root were unchanged |
 | gossip partition and heal | characterised | delivery stops across the split and resumes on healing, but gossipsub does not replay messages sent while apart -- a healed peer needs them re-published |
 | out-of-order block arrival | characterised | there is no orphan pool: a block whose parent has not arrived is refused and discarded, not buffered. 7 early blocks left tip and state root untouched; in-order re-delivery of the same blocks then reached height 8 |
@@ -48,12 +48,15 @@ That is a design position, not a bug — an orphan pool is memory an unauthentic
 peer can grow. It is recorded here because it is invisible from the outside and
 because "the chain reorganised slowly" is how it presents.
 
-**Corrupted blocks are not rejected — they are indistinguishable.** A corruption
-landing in a block's transactions leaves the header untouched, and `Block::id()`
-hashes only the header. The chain therefore sees the honest block it already
-holds and reports a duplicate. State stays correct, but no defence fired. This
-is the uncommitted-transaction-list finding showing through from a different
-angle, and it is why that row reads *characterised* rather than *verified*.
+**A closed finding: the transaction list used to be uncommitted.** Earlier runs
+of this file recorded a consensus vulnerability here. The header had no field
+for the transactions, so `Block::id()` and the proof of work covered the header
+alone: one block id could carry two transaction lists and produce two states.
+Every corrupted block came back a duplicate rather than a rejection, which is
+how it was found. The header now carries `tx_root`, which `Chain::insert_block`
+checks before anything else, and the chain's apply path checks the declared
+`state_root`. Both rows above are now verifications, and the original attack is
+replayed on every run.
 
 **Lattice proof-of-useful-work is not a live surface.** `lattice-pow` sits behind
 an activation height of `u64::MAX`, nothing in `src/consensus/` calls it, and no

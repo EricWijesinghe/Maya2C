@@ -16,12 +16,27 @@ cost here, not model reasoning. The rules below are mechanical, not stylistic.
 2. `ctx <symbol> [path]` — `file:line` of a definition, no bodies.
 3. `serena` symbol tools (`find_symbol`, `get_symbols_overview`,
    `find_referencing_symbols`) for cross-file work.
-4. `peek <file> <start> [count]` or `Read` with `offset`/`limit` for the range
-   that steps 1-3 identified.
+4. `Read` with `offset`/`limit` for the range that steps 1-3 identified. Use
+   `Read` rather than `peek`/`sed -n` through a shell: it costs the same, and it
+   is what `Edit` checks for before it will change a file.
 5. A whole-file read only when the file *is* the task and is under ~200 lines.
 
 Never re-read a file already in context. Never read a file back to confirm a
 write that returned success.
+
+**Read the region before you edit it.** Session history showed 1,377
+`Edit`/`Write` calls against 188 `Read`s: most reading went through the shell,
+and 548 of the writes were whole files. So:
+
+- `Write` is for **new** files only. To change an existing file, `Read` the
+  range and then `Edit` it.
+- A scripted rewrite (`python`, `sed -i`) is only for *mechanical* changes
+  that the compiler checks afterwards, such as adding a struct field at every
+  site `cargo check` reports. Take the list of target sites from the tool's own
+  output, never from a guess, and run the check straight afterwards.
+- Before editing a function you have not seen this session, read all of it,
+  not just the lines you are changing. An edit that makes sense in isolation
+  can break an invariant stated three lines above it.
 
 **Searching:** `rg` for text, `ast-grep` / `sgr` for structure. Both honor
 `.ignore` and `.gitignore`. Never `Get-ChildItem -Recurse` from the repo root.
@@ -183,6 +198,18 @@ PowerShell profile and `~/.bashrc`.
     passes with its own guard deleted; that happened, and the mutation sweep in
     `docs/zkml.md` is how it was found. Changing the circuit means re-running
     that sweep.
+24. **A block's id and proof of work cover its transactions, and its declared
+    state root is checked.** `BlockHeader::tx_root` (bytes 112..144, after the
+    nonce so `NONCE_RANGE` never moved) is a `state::merkle` root over
+    `transaction_leaf(txid)`. `Chain::insert_block` calls `check_tx_root`
+    *first*, ahead of the duplicate check and before anything is stored: a
+    mismatched body filed under an honest id would turn the genuine block into
+    a `Duplicate`, which is censorship by one relay. `apply_block_journaled` —
+    the chain's only apply path — refuses a `state_root` that execution does not
+    produce. Block producers take both roots from `Chain::candidate_block` and
+    never from `state_root()`, which is the *pre*-block root. Before this, one
+    block id could carry two transaction lists (`tests/chaos_simulator.rs`
+    replays that attack). Do not add an unchecked apply path to `Chain`.
 
 ## Build & Test
 
@@ -197,32 +224,77 @@ cargo llvm-cov --workspace --summary-only       # 80% floor
 bash scripts/doc_coverage.sh --check            # doc coverage (90% floor) + no broken doc links
 cargo deny check                                # deny.toml is committed
 cargo audit
+cargo fuzz list                                 # fuzz/ targets (nightly; decoders + SV2 frames)
+cargo machete                                   # unused-dependency *candidates* — heuristic, verify each
 ```
+
+`cargo machete` flags `maya-sdk-ffi -> maya-crypto-pq`, a dependency that
+exists for invariant 2 rather than for any `use`. Check every hit against the
+invariants before removing it.
 
 First build after a clean is long — the `opt-level = 3` dev overrides mean the
 crypto and arkworks stacks compile optimized even in debug.
 
 ## MCP Servers
 
-Project scope, `.mcp.json`. Trimmed to four: every server's tool schemas ship in
-the system prompt on every turn, so a server that duplicates a built-in is a
-permanent tax.
+Project scope, `.mcp.json`, enabled in `.claude/settings.local.json`. Tool
+search defers full schemas, but every server still puts its tool *names* and its
+instructions block in the prompt on every turn. So a server nobody calls, or a
+tool nobody calls, is a permanent tax. The set below was cut to what 18 sessions
+of transcripts show being used (2026-09-11), and each server has one job so that
+two of them are never competing for the same question:
 
-| Server | Use it for |
+| Question | Server and tool |
 |---|---|
-| `serena` | **Primary code navigation.** rust-analyzer-backed symbol find/edit. Its file-read, shell, and memory tools are excluded in `.serena/project.yml` — they duplicate built-ins |
-| `context7` | Live crate/API docs — check before assuming a crate's surface |
-| `fetch` | Web retrieval (RFCs, FIPS specs) |
-| `headroom` | Context compression (`headroom mcp serve`) |
+| Where is `X` defined? What is in this file? | `serena` `find_symbol` / `get_symbols_overview` (rust-analyzer: exact) |
+| Who uses `X`? Rename `X` everywhere. | `serena` `find_referencing_symbols` / `rename_symbol` |
+| What calls what, across crates? What is the shape of this subsystem? | `codebase-memory-mcp` `trace_path` / `get_architecture` / `search_graph` |
+| A crate's API, before depending on it or calling a part of it this repo does not use yet | `context7` `resolve-library-id` then `query-docs` (the `docs-lookup` agent runs on it) |
+| One known URL (an RFC, a FIPS spec, docs.rs) | `fetch` |
 
-Disabled deliberately: `filesystem` (duplicates Read/Write/Edit/Glob), `git`
-(duplicates Bash git, allowlisted in `.claude/settings.json`), `memory`
-(duplicates `codebase-memory-mcp` and the file memory under
-`~/.claude/projects/`), `sequential-thinking` (duplicates built-in extended
-thinking). Restore from the backup named in `.claude/settings.local.json` history
-if ever needed.
+- **`serena`**: its file-read, shell, memory and text-insertion tools are
+  excluded in `.serena/project.yml`, because the built-ins already do those jobs.
+- **`codebase-memory-mcp`** (0.10.8): `.mcp.json` overrides the user-scope entry
+  with `--tool-profile=scout`, which cuts it from 15 tools to 7 and from 24.9K to
+  13.8K schema characters.
+  - Re-indexing is not in the scout profile. Re-index with
+    `codebase-memory-mcp cli index_repository '{"repo_path":"D:/Maya2C","mode":"full"}'`.
+  - `claude mcp list` warns that the server is defined in two scopes. That is the
+    override working, not a fault.
+  - Version 0.9.0 silently skipped files.
 
-User scope: `codebase-memory-mcp`.
+Disabled deliberately:
+- **Project servers, via `disabledMcpjsonServers`:**
+  - `filesystem` duplicates Read/Write/Edit/Glob.
+  - `git` duplicates Bash git, which is allowlisted in `.claude/settings.json`.
+  - `memory` duplicates `codebase-memory-mcp` and the file memory under
+    `~/.claude/projects/`.
+  - `sequential-thinking` duplicates built-in extended thinking.
+  - `headroom` was never called. Its `headroom_compress` takes the text as an
+    argument, so that text is already in context before anything is compressed.
+    It cannot save tokens from inside the conversation.
+- **User servers and connectors, via `disabledMcpServers`:**
+  - `rustrover` was never called, and adds about 40 tool names (SQL, database,
+    run-configuration tools) that serena and the shell already cover. It is
+    also only live while the IDE runs.
+  - The claude.ai connectors `Shopify` and `Viewmax` add about 80 tool names
+    between them and have nothing to do with a blockchain.
+
+All of these are reversible: remove the name from the list. The pre-trim configs
+are in `~/.claude/backups/mcp-trim-20260911/`.
+
+**Research tooling is shell-side, not MCP**, so it costs nothing until it's used:
+
+| Tool | Use it for |
+|---|---|
+| `agent-reach` skill (`~/.claude/skills/agent-reach/`) | Multi-source research. It routes to the tools below. The CLI is pinned to upstream `Panniantong/Agent-Reach@da5044d`; do not run `check-update` |
+| `mcporter call 'exa.web_search_exa(query: "...", numResults: 5)'` | Semantic web search: papers, advisories, standards. Exa is configured in `~/.mcporter/mcporter.json` |
+| `yt-dlp --write-auto-sub --skip-download` | Conference-talk transcripts. `~/.config/yt-dlp/config` sets `--js-runtimes node` |
+| `gh` | Issues, PRs, releases, `gh search code`. **Needs `gh auth login` once** |
+
+Social channels (X, Reddit, …) are deliberately unconfigured: they need the
+user's browser cookies. Agent-Reach's own MCP server exposes only `get_status`,
+so it is not registered.
 
 **Graphify is a skill, not an MCP server** — invoke with `/graphify`.
 

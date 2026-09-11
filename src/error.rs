@@ -130,6 +130,19 @@ pub enum NodeError {
         actual: String,
     },
 
+    /// A block's transactions are not the ones its header commits to.
+    ///
+    /// The header — and so the block id and the proof of work — binds the
+    /// transaction list through `tx_root`. A body that disagrees is somebody
+    /// else's transactions under an honest miner's work.
+    #[error("tx root mismatch: header commits {expected}, the body hashes to {actual}")]
+    TxRootMismatch {
+        /// Hex-encoded root from the block header.
+        expected: String,
+        /// Hex-encoded root of the transactions actually carried.
+        actual: String,
+    },
+
     /// A channel already exists under the derived identifier.
     #[error("channel {0} already exists")]
     ChannelExists(String),

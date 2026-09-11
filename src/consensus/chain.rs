@@ -29,7 +29,7 @@ use crate::consensus::difficulty::{
     unlimited_pow_limit, work_from_target,
 };
 use crate::consensus::uint::U256;
-use crate::core::{Block, BlockHeader};
+use crate::core::{Block, BlockHeader, Transaction};
 use crate::crypto::dag::registry::{CacheRegistry, DagConfig};
 use crate::crypto::pow::meets_target;
 use crate::error::{NodeError, Result};
@@ -316,9 +316,21 @@ impl Chain {
     /// # Errors
     ///
     /// Returns an error if the parent is unknown, the declared difficulty
-    /// target is wrong, the proof of work is insufficient, or applying the
-    /// block's transactions fails.
+    /// target is wrong, the transactions are not the ones the header's
+    /// `tx_root` commits to, the proof of work is insufficient, applying the
+    /// block's transactions fails, or they execute to a state root other than
+    /// the one the header declares.
     pub fn insert_block(&mut self, block: Block) -> Result<InsertOutcome> {
+        // First, before anything is stored — side branches included — and
+        // before the duplicate check. Records are keyed by header id, so a
+        // mismatched body stored under an honest header would make the genuine
+        // block a `Duplicate` from then on: one bad relay would be enough to
+        // censor it. And ahead of the duplicate check, an honest id carrying
+        // someone else's transactions is reported as the error it is rather
+        // than waved through as a block already held. Hashing the body is far
+        // cheaper than the Argon2 pass below.
+        block.check_tx_root()?;
+
         let id = block.header.id();
         if self.records.contains_key(&id) {
             return Ok(InsertOutcome::Duplicate { id });
@@ -400,6 +412,9 @@ impl Chain {
     }
 
     /// Executes one block against state, journaling it for later revert.
+    ///
+    /// Refuses a block whose declared state root is not what it executes to —
+    /// [`StateDB::apply_block_journaled`] is the checked path.
     fn apply_one(&self, id: &BlockId) -> Result<()> {
         let record = self.require(id)?;
         // The record's own height, so timelocks evaluate against the block
@@ -518,22 +533,42 @@ impl Chain {
         Ok(chain)
     }
 
-    /// Builds a candidate header for the next block on the active chain.
+    /// Builds a candidate block carrying `transactions` on the active chain,
+    /// with nonce zero, ready to mine.
     ///
-    /// `timestamp` is supplied by the caller so the result stays deterministic
-    /// and testable.
+    /// Both roots are filled in: `tx_root` from the transactions, and
+    /// `state_root` from executing them against the tip's state at the height
+    /// the block would land at. `timestamp` is supplied by the caller so the
+    /// result stays deterministic and testable.
     ///
     /// # Errors
     ///
-    /// Returns an error if the tip is missing from the index.
-    pub fn candidate_header(&self, timestamp: u64, state_root: [u8; 32]) -> Result<BlockHeader> {
-        Ok(BlockHeader {
+    /// Returns an error if the tip is missing from the index, or if any of
+    /// `transactions` would fail to apply.
+    pub fn candidate_block(&self, timestamp: u64, transactions: Vec<Transaction>) -> Result<Block> {
+        let header = BlockHeader {
             prev_hash: self.tip,
-            state_root,
+            state_root: [0; 32],
             timestamp,
             nonce: 0,
             difficulty_target: self.next_target(&self.tip)?,
-        })
+            tx_root: [0; 32],
+        };
+        let mut block = Block::new(header, transactions);
+        block.header.state_root = self
+            .state
+            .preview_root(&block, BlockContext::at_height(self.height() + 1))?;
+        Ok(block)
+    }
+
+    /// The header of an empty [`Chain::candidate_block`] — what every miner in
+    /// the repository mines today.
+    ///
+    /// # Errors
+    ///
+    /// As [`Chain::candidate_block`].
+    pub fn candidate_header(&self, timestamp: u64) -> Result<BlockHeader> {
+        Ok(self.candidate_block(timestamp, Vec::new())?.header)
     }
 
     /// Seconds the most recent full retarget window took.
