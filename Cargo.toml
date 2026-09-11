@@ -116,6 +116,11 @@ members = [
     # nodes and miners report, and verifies none of it, which is stated at the
     # top of its `lib.rs` because every number it serves is a claim.
     "telemetry",
+    # Content-addressed archives (CAR v1, zstd) of pruned block batches, and the
+    # stores that hold them: a local directory, an IPFS node, an Arweave
+    # gateway. Chain-agnostic, so the decoder that reads untrusted archives is
+    # fuzzable without RocksDB or libp2p -- see src/state_pruner/.
+    "archive",
 ]
 
 [dependencies]
@@ -169,6 +174,9 @@ maya-zk-privacy = { path = "zk-privacy" }
 # A separate crate for the same reason `ledger-math` is one — it is the other
 # half of the code where a rounding error mints value, and it is model-checked.
 maya-dex = { path = "dex" }
+# Archives of pruned block batches, for `state_pruner`. The node writes and
+# reads them; the crate itself knows nothing about blocks.
+maya-archive = { path = "archive" }
 # The randomness beacon's verifiable random function. RFC 9381 over
 # curve25519 — a classical primitive, deliberately, because no post-quantum VRF
 # is standardized. `vrf/src/lib.rs` states what that costs and what bounds it.

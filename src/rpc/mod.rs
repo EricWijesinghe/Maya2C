@@ -18,6 +18,7 @@
 //! an unauthenticated `GET` and parse the body as a number; they do not speak
 //! JSON-RPC. Those endpoints live in [`market_http`] on their own port.
 
+pub mod bootstrap;
 pub mod limit;
 pub mod market;
 pub mod market_http;

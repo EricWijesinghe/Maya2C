@@ -64,11 +64,11 @@ struct LocalSource {
 impl LocalSource {
     /// The genesis target doubles as this network's difficulty floor. The
     /// default mainnet floor would reject a low-difficulty demo chain outright.
-    fn new(state: Arc<StateDB>, genesis: Block) -> Self {
+    fn new(state: Arc<StateDB>, genesis: Block) -> Result<Self, Box<dyn Error>> {
         let config = ChainConfig::with_pow_limit(genesis.header.difficulty_target);
-        Self {
-            chain: Chain::new(state, genesis, config),
-        }
+        Ok(Self {
+            chain: Chain::open(state, genesis, config)?,
+        })
     }
 }
 
@@ -159,13 +159,19 @@ fn print_usage() {
     );
 }
 
+/// Timestamp of the demo chain's genesis.
+///
+/// Fixed, not the clock: the genesis id is stored in the database, and a
+/// genesis that changed every run could never be reopened.
+const GENESIS_TIMESTAMP: u64 = 1_700_000_000;
+
 /// Builds the genesis block for a fresh chain at the requested difficulty.
 fn genesis_block(bits: u32) -> Block {
     Block::new(
         BlockHeader {
             prev_hash: [0u8; 32],
             state_root: [0u8; 32],
-            timestamp: unix_now(),
+            timestamp: GENESIS_TIMESTAMP,
             nonce: 0,
             difficulty_target: target_from_leading_zero_bits(bits),
             tx_root: [0u8; 32],
@@ -183,7 +189,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
 
     let state = Arc::new(StateDB::open(&args.state_path)?);
-    let mut source = LocalSource::new(Arc::clone(&state), genesis_block(args.bits));
+    let mut source = LocalSource::new(Arc::clone(&state), genesis_block(args.bits))?;
 
     // Never set here; the hook a signal handler would use to stop mining.
     let cancel = AtomicBool::new(false);

@@ -161,7 +161,7 @@ fn genesis() -> Block {
 /// test the hasher, which `dag_tests.rs` already does. What is under test here
 /// is the state transition engine's behaviour on adversarial input.
 fn test_chain(state: Arc<StateDB>) -> Chain {
-    Chain::new(state, genesis(), ChainConfig::without_pow_verification())
+    Chain::open(state, genesis(), ChainConfig::without_pow_verification()).expect("open chain")
 }
 
 fn child_of(

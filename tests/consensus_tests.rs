@@ -104,7 +104,7 @@ fn child_of(
 }
 
 fn test_chain(state: Arc<StateDB>) -> Chain {
-    Chain::new(state, genesis(), ChainConfig::without_pow_verification())
+    Chain::open(state, genesis(), ChainConfig::without_pow_verification()).expect("open chain")
 }
 
 /// A second node with the same genesis state as a test's main chain, funding

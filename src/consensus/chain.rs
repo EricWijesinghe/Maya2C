@@ -35,6 +35,9 @@ use crate::crypto::pow::meets_target;
 use crate::error::{NodeError, Result};
 use crate::state::{BlockContext, StateDB};
 
+/// Opening a stored chain, importing headers ahead of bodies, and pruning.
+mod store;
+
 /// Content-addressed block identifier. See [`BlockHeader::id`].
 pub type BlockId = [u8; 32];
 
@@ -104,11 +107,15 @@ impl ChainConfig {
     }
 }
 
-/// A block plus the index metadata derived from it.
+/// A block's header plus the index metadata derived from it.
+///
+/// Header only. The body lives in the block store (`state::blocks`) and is
+/// read when it is applied or served. Holding every body in memory grew
+/// without bound, and a pruned node has no body at all below its horizon.
 #[derive(Clone, Debug)]
 pub struct BlockRecord {
-    /// The block itself.
-    pub block: Block,
+    /// The block's header.
+    pub header: BlockHeader,
     /// Distance from genesis.
     pub height: u64,
     /// Cumulative work of this block and all its ancestors.
@@ -157,42 +164,12 @@ pub struct Chain {
     /// same caches the validator does — and must, or it would mine against a
     /// dataset the chain does not recognise.
     dag: Arc<CacheRegistry>,
+    /// Highest height whose body and undo journal have been pruned; zero on a
+    /// node that has pruned nothing. No reorg may reach below it.
+    prune_horizon: u64,
 }
 
 impl Chain {
-    /// Creates a chain rooted at `genesis`.
-    ///
-    /// The genesis block's transactions are not executed: it defines the
-    /// starting state rather than transitioning into it, so seed any premined
-    /// balances through [`StateDB::put_account`] before calling this.
-    #[must_use]
-    pub fn new(state: Arc<StateDB>, genesis: Block, config: ChainConfig) -> Self {
-        let id = genesis.header.id();
-        let total_work = work_from_target(&genesis.header.difficulty_target);
-
-        let mut records = HashMap::new();
-        records.insert(
-            id,
-            BlockRecord {
-                block: genesis,
-                height: 0,
-                total_work,
-                parent: None,
-            },
-        );
-
-        Self {
-            state,
-            config,
-            records,
-            tip: id,
-            genesis: id,
-            // Empty until a block at or above the activation height arrives, so
-            // a pre-fork chain never allocates a cache it will not use.
-            dag: Arc::new(CacheRegistry::new(config.dag)),
-        }
-    }
-
     /// The epoch caches this chain validates against.
     ///
     /// Handed to a miner so it searches against the same caches the chain
@@ -277,7 +254,7 @@ impl Chain {
         }
 
         if !is_retarget_height(child_height) {
-            return Ok(parent.block.header.difficulty_target);
+            return Ok(parent.header.difficulty_target);
         }
 
         // Walk back RETARGET_INTERVAL blocks to find the window's first block.
@@ -286,20 +263,19 @@ impl Chain {
             match cursor.parent.and_then(|id| self.records.get(&id)) {
                 Some(previous) => cursor = previous,
                 // Window extends past genesis: not enough history to retarget.
-                None => return Ok(parent.block.header.difficulty_target),
+                None => return Ok(parent.header.difficulty_target),
             }
         }
 
         // Saturating: a parent timestamp behind the window start would
         // otherwise underflow. Zero clamps up to the minimum band below.
         let actual_timespan = parent
-            .block
             .header
             .timestamp
-            .saturating_sub(cursor.block.header.timestamp);
+            .saturating_sub(cursor.header.timestamp);
 
         Ok(retarget(
-            &parent.block.header.difficulty_target,
+            &parent.header.difficulty_target,
             actual_timespan,
             &self.config.pow_limit,
         ))
@@ -332,7 +308,10 @@ impl Chain {
         block.check_tx_root()?;
 
         let id = block.header.id();
-        if self.records.contains_key(&id) {
+        // A record without a body is a header validated ahead of it, as a
+        // pruned node's bootstrap imports them. Its body arriving is not a
+        // duplicate: it goes through validation like any block, and lands.
+        if self.records.contains_key(&id) && self.state.has_body(&id)? {
             return Ok(InsertOutcome::Duplicate { id });
         }
 
@@ -340,6 +319,16 @@ impl Chain {
         let parent = self.require(&parent_id)?;
         let height = parent.height + 1;
         let parent_work = parent.total_work;
+
+        // At or below the horizon the parent's undo journal is gone, so a
+        // block forking there could never be reorganised onto. Refused before
+        // it costs a proof-of-work check or a byte of storage.
+        if height <= self.prune_horizon {
+            return Err(NodeError::BelowPruneHorizon {
+                height,
+                horizon: self.prune_horizon,
+            });
+        }
 
         // The declared target must be exactly what the retarget rule produces.
         // Without this a miner could simply announce an easy target.
@@ -368,8 +357,12 @@ impl Chain {
         let total_work =
             parent_work.saturating_add(work_from_target(&block.header.difficulty_target));
 
+        // Stored before it is indexed, side branch or not, so a restart finds
+        // every block the index held. A block that then fails to apply is
+        // deleted again below.
+        self.state.store_block(&block, height, total_work)?;
         let record = BlockRecord {
-            block,
+            header: block.header.clone(),
             height,
             total_work,
             parent: Some(parent_id),
@@ -384,47 +377,61 @@ impl Chain {
 
         self.records.insert(id, record);
 
-        if parent_id == self.tip {
-            // Simple extension: no revert needed.
-            match self.apply_one(&id) {
-                Ok(()) => {
-                    self.tip = id;
-                    Ok(InsertOutcome::Extended { tip: id })
-                }
-                Err(e) => {
-                    self.records.remove(&id);
-                    Err(e)
-                }
-            }
+        let outcome = if parent_id == self.tip {
+            // Simple extension: no revert needed, and the block is in hand, so
+            // it is applied without reading back what was just stored.
+            self.apply_body(&id, &block).map(|()| {
+                self.tip = id;
+                InsertOutcome::Extended { tip: id }
+            })
         } else {
-            match self.reorganize(&id) {
-                Ok((reverted, applied)) => Ok(InsertOutcome::Reorganized {
+            self.reorganize(&id)
+                .map(|(reverted, applied)| InsertOutcome::Reorganized {
                     tip: id,
                     reverted,
                     applied,
-                }),
-                Err(e) => {
-                    self.records.remove(&id);
-                    Err(e)
-                }
-            }
+                })
+        };
+        if outcome.is_err() {
+            self.records.remove(&id);
+            // Best effort: the error being returned is the one that matters,
+            // and a stray stored block is only reloaded as a side branch that
+            // fails the same way again.
+            let _ = self.state.delete_block(&id);
         }
+        outcome
     }
 
-    /// Executes one block against state, journaling it for later revert.
+    /// Executes one block against state, journaling it for later revert, and
+    /// makes it the tip in the same batch.
     ///
     /// Refuses a block whose declared state root is not what it executes to —
     /// [`StateDB::apply_block_journaled`] is the checked path.
     fn apply_one(&self, id: &BlockId) -> Result<()> {
-        let record = self.require(id)?;
+        let block = self.state.load_block(id)?.ok_or_else(|| {
+            NodeError::Storage(format!("no body held for block {}", hex::encode(id)))
+        })?;
+        self.apply_body(id, &block)
+    }
+
+    /// [`Chain::apply_one`] for a block whose body is already in hand.
+    fn apply_body(&self, id: &BlockId, block: &Block) -> Result<()> {
+        let height = self.require(id)?.height;
         // The record's own height, so timelocks evaluate against the block
         // actually being executed rather than the current tip.
-        self.state.apply_block_journaled(
-            &record.block,
-            id,
-            BlockContext::at_height(record.height),
-        )?;
+        self.state
+            .apply_canonical(block, id, height, BlockContext::at_height(height))?;
         Ok(())
+    }
+
+    /// Reverts the active-chain block `id`, making its parent the tip in the
+    /// same batch.
+    fn revert_one(&self, id: &BlockId) -> Result<()> {
+        let record = self.require(id)?;
+        let parent = record
+            .parent
+            .ok_or_else(|| NodeError::Network("genesis cannot be reverted".to_string()))?;
+        self.state.revert_canonical(id, record.height, &parent)
     }
 
     /// Path from `id` back to (but excluding) `ancestor`, oldest first.
@@ -481,6 +488,17 @@ impl Chain {
     fn reorganize(&mut self, new_tip: &BlockId) -> Result<(Vec<BlockId>, Vec<BlockId>)> {
         let ancestor = self.common_ancestor(&self.tip, new_tip)?;
 
+        // Checked before anything is reverted, so a reorg that cannot finish
+        // never starts. Reverting to an ancestor below the horizon would need
+        // undo journals this node pruned.
+        let ancestor_height = self.require(&ancestor)?.height;
+        if ancestor_height < self.prune_horizon {
+            return Err(NodeError::BelowPruneHorizon {
+                height: ancestor_height,
+                horizon: self.prune_horizon,
+            });
+        }
+
         // Old branch newest-first, since undo journals must unwind in reverse.
         let mut to_revert = self.path_from(&self.tip, &ancestor)?;
         to_revert.reverse();
@@ -488,7 +506,12 @@ impl Chain {
 
         let mut reverted = Vec::new();
         for id in &to_revert {
-            self.state.revert_block(id)?;
+            if let Err(error) = self.revert_one(id) {
+                // A revert that fails partway leaves the chain between
+                // branches. Re-apply what was reverted, as a failed apply does.
+                self.restore_after_failed_reorg(&[], &reverted);
+                return Err(error);
+            }
             reverted.push(*id);
         }
 
@@ -514,7 +537,7 @@ impl Chain {
     /// recovery available than trying every step.
     fn restore_after_failed_reorg(&self, applied: &[BlockId], reverted: &[BlockId]) {
         for id in applied.iter().rev() {
-            let _ = self.state.revert_block(id);
+            let _ = self.revert_one(id);
         }
         // `reverted` is newest-first, so replay it in reverse.
         for id in reverted.iter().rev() {
@@ -586,12 +609,7 @@ impl Chain {
             cursor = self.records.get(&cursor.parent?)?;
         }
 
-        Some(
-            tip.block
-                .header
-                .timestamp
-                .saturating_sub(cursor.block.header.timestamp),
-        )
+        Some(tip.header.timestamp.saturating_sub(cursor.header.timestamp))
     }
 
     /// The intended duration of a retarget window, for comparison against

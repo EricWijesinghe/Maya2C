@@ -130,6 +130,32 @@ pub enum NodeError {
         actual: String,
     },
 
+    /// The database was started with a different genesis block than the one
+    /// configured. Opening it would graft one chain's history onto another's.
+    #[error("database holds genesis {stored}, configuration names {configured}")]
+    GenesisMismatch {
+        /// Hex id of the genesis stored in the database.
+        stored: String,
+        /// Hex id of the genesis the configuration produced.
+        configured: String,
+    },
+
+    /// A block or reorg reaches at or below the height this node has pruned.
+    ///
+    /// A pruned node holds no undo journal there, so it cannot revert to it,
+    /// and it treats blocks that deep as final by local policy.
+    #[error("height {height} is at or below the prune horizon {horizon}")]
+    BelowPruneHorizon {
+        /// The height the block or reorg would reach.
+        height: u64,
+        /// This node's prune horizon.
+        horizon: u64,
+    },
+
+    /// Archiving pruned blocks, or fetching one back, failed.
+    #[error("archive: {0}")]
+    Archive(String),
+
     /// A block's transactions are not the ones its header commits to.
     ///
     /// The header — and so the block id and the proof of work — binds the

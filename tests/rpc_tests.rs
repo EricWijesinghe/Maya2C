@@ -84,11 +84,9 @@ async fn start_node(funded: &[(Address, u64)], verify_pow: bool) -> TestNode {
         ChainConfig::without_pow_verification()
     };
 
-    let chain = Arc::new(Mutex::new(Chain::new(
-        Arc::clone(&state),
-        genesis_block,
-        config,
-    )));
+    let chain = Arc::new(Mutex::new(
+        Chain::open(Arc::clone(&state), genesis_block, config).expect("open chain"),
+    ));
     let mempool = Mempool::new(Arc::clone(&state));
     let context = RpcContext::new(Arc::clone(&chain), mempool);
 

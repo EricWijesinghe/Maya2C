@@ -96,7 +96,7 @@ fn chain_with_activation(state: Arc<StateDB>, activation: u64) -> Chain {
             activation_height: activation,
             ..DagConfig::TESTING
         });
-    Chain::new(state, genesis, config)
+    Chain::open(state, genesis, config).expect("open chain")
 }
 
 /// An unsolved child of the chain's tip.
@@ -466,7 +466,7 @@ fn the_fork_block_takes_the_pinned_target_rather_than_inheriting() {
                 activation_target: pinned,
                 ..DagConfig::TESTING
             });
-        Chain::new(state, genesis, config)
+        Chain::open(state, genesis, config).expect("open chain")
     };
 
     assert_ne!(
@@ -490,7 +490,7 @@ fn the_pinned_fork_target_cannot_undercut_the_network_floor() {
             activation_target: [0xFF; 32],
             ..DagConfig::TESTING
         });
-        Chain::new(state, genesis, config)
+        Chain::open(state, genesis, config).expect("open chain")
     };
 
     assert_eq!(chain.next_target(&chain.tip()).expect("target"), floor);

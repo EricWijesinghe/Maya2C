@@ -19,9 +19,11 @@ use jsonrpsee::types::ErrorObjectOwned;
 use crate::consensus::{Chain, InsertOutcome};
 use crate::core::{Block, Transaction};
 use crate::network::Mempool;
+use crate::rpc::bootstrap::SnapshotService;
 use crate::rpc::types::{
     AccountInfo, BlockInfo, HeaderInfo, MiningCandidate, SubmitBlockResult, SubmitTransactionResult,
 };
+use crate::state_pruner::cold::ColdBlocks;
 
 /// JSON-RPC error code for a malformed argument.
 const INVALID_PARAMS: i32 = -32_602;
@@ -59,13 +61,41 @@ pub struct RpcContext {
     pub chain: Arc<Mutex<Chain>>,
     /// Pending transaction pool.
     pub mempool: Mempool,
+    /// Snapshots this node serves to pruned nodes bootstrapping from it.
+    pub snapshots: Option<Arc<SnapshotService>>,
+    /// Where pruned bodies are fetched back from for `get_block_by_height`.
+    pub cold: Option<Arc<ColdBlocks>>,
 }
 
 impl RpcContext {
-    /// Builds a context over a chain and mempool.
+    /// Builds a context over a chain and mempool, serving no snapshots and
+    /// no pruned blocks.
     #[must_use]
     pub fn new(chain: Arc<Mutex<Chain>>, mempool: Mempool) -> Self {
-        Self { chain, mempool }
+        Self {
+            chain,
+            mempool,
+            snapshots: None,
+            cold: None,
+        }
+    }
+
+    /// The same context, serving snapshots from `service`.
+    #[must_use]
+    pub fn with_snapshots(self, service: Arc<SnapshotService>) -> Self {
+        Self {
+            snapshots: Some(service),
+            ..self
+        }
+    }
+
+    /// The same context, fetching pruned blocks back through `cold`.
+    #[must_use]
+    pub fn with_cold_blocks(self, cold: Arc<ColdBlocks>) -> Self {
+        Self {
+            cold: Some(cold),
+            ..self
+        }
     }
 
     /// Recovers the chain guard if a previous holder panicked.
@@ -74,7 +104,7 @@ impl RpcContext {
     /// alternative — refusing every subsequent request — takes the node down
     /// permanently. State itself is protected by RocksDB's atomic batches, so
     /// the worst case is an index that lags committed state.
-    fn chain(&self) -> std::sync::MutexGuard<'_, Chain> {
+    pub(crate) fn chain(&self) -> std::sync::MutexGuard<'_, Chain> {
         self.chain
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -130,16 +160,34 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .register_method("get_block_by_height", |params, ctx, _| {
             let height: u64 = params.one().map_err(|e| invalid_params(e.to_string()))?;
             let chain = ctx.chain();
+            let state = chain.state();
 
-            let ids = chain.active_chain().map_err(|e| rejected(e.to_string()))?;
-            let id = ids
-                .get(height as usize)
+            // The canonical index, not a walk from the tip: one read instead of
+            // one per block of history.
+            let id = state
+                .canonical_id(height)
+                .map_err(|e| rejected(e.to_string()))?
                 .ok_or_else(|| not_found(format!("no block at height {height}")))?;
-            let record = chain.get(id).ok_or_else(|| {
-                not_found(format!("block {} missing from index", hex::encode(id)))
-            })?;
+            let block = match state.load_block(&id).map_err(|e| rejected(e.to_string()))? {
+                Some(block) => block,
+                // Pruned here: fetched back from the archive and verified
+                // against the header this node kept, or refused.
+                None => ctx
+                    .cold
+                    .as_ref()
+                    .ok_or_else(|| not_found(format!("height {height} is pruned on this node")))?
+                    .fetch(state, height)
+                    .map_err(|e| {
+                        // The detail names stores and CIDs: the operator's log,
+                        // not a public caller's business.
+                        eprintln!("rpc: cold fetch of height {height} failed: {e}");
+                        not_found(format!(
+                            "height {height} is pruned and no archived copy verified"
+                        ))
+                    })?,
+            };
 
-            Ok::<_, ErrorObjectOwned>(BlockInfo::new(record.height, &record.block))
+            Ok::<_, ErrorObjectOwned>(BlockInfo::new(height, &block))
         })
         .map_err(|e| rejected(e.to_string()))?;
 
@@ -209,6 +257,8 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
             })
         })
         .map_err(|e| rejected(e.to_string()))?;
+
+    crate::rpc::bootstrap::register(&mut module)?;
 
     Ok(module)
 }

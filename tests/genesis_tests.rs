@@ -234,11 +234,12 @@ fn a_chain_built_from_genesis_starts_at_height_zero() {
     let genesis_block = config.genesis_block().expect("block");
     let genesis_id = genesis_block.header.id();
 
-    let chain = Chain::new(
+    let chain = Chain::open(
         Arc::clone(&state),
         genesis_block,
         ChainConfig::with_pow_limit(config.pow_limit()),
-    );
+    )
+    .expect("open chain");
 
     assert_eq!(chain.height(), 0);
     assert_eq!(chain.tip(), genesis_id);
@@ -246,12 +247,7 @@ fn a_chain_built_from_genesis_starts_at_height_zero() {
 
     // The header commits to the state actually on disk.
     assert_eq!(
-        chain
-            .get(&genesis_id)
-            .expect("record")
-            .block
-            .header
-            .state_root,
+        chain.get(&genesis_id).expect("record").header.state_root,
         state.state_root().expect("root")
     );
 }
@@ -264,11 +260,12 @@ fn the_next_target_after_genesis_is_the_genesis_target() {
 
     let genesis_block = config.genesis_block().expect("block");
     let expected = genesis_block.header.difficulty_target;
-    let chain = Chain::new(
+    let chain = Chain::open(
         state,
         genesis_block,
         ChainConfig::with_pow_limit(config.pow_limit()),
-    );
+    )
+    .expect("open chain");
 
     // Difficulty is inherited until the first retarget height.
     assert_eq!(chain.next_target(&chain.tip()), Ok(expected));

@@ -344,11 +344,10 @@ mod tests {
             Vec::new(),
         );
 
-        Arc::new(Mutex::new(Chain::new(
-            state,
-            genesis,
-            ChainConfig::without_pow_verification(),
-        )))
+        Arc::new(Mutex::new(
+            Chain::open(state, genesis, ChainConfig::without_pow_verification())
+                .expect("open chain"),
+        ))
     }
 
     fn quote(pair: &str) -> MarketQuote {

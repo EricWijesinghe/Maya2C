@@ -18,7 +18,6 @@
 //! regenerated its identity on restart would change its `PeerId` and invalidate
 //! every bootnode address pointing at it, so the key is written once and reused.
 
-use std::collections::HashMap;
 use std::error::Error;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -35,32 +34,27 @@ use custom_l1_node::genesis::GenesisConfig;
 use custom_l1_node::metrics::{Metrics, server as metrics_server};
 use custom_l1_node::network::EpochClock;
 use custom_l1_node::network::pq::dual::DualKemPolicy;
-use custom_l1_node::network::{Mempool, Node, NodeEvent, NodeHandle, load_or_create_identity};
-use custom_l1_node::rpc::{
-    BlockInfo, MarketFeed, MarketQuote, MarketState, RpcContext, serve, serve_market,
-};
+use custom_l1_node::network::{Mempool, Node, NodeHandle, load_or_create_identity};
+use custom_l1_node::rpc::{MarketFeed, MarketQuote, MarketState, RpcContext, serve, serve_market};
 use custom_l1_node::state::StateDB;
+use custom_l1_node::state_pruner::PRUNE_DEPTH;
 
-use jsonrpsee::core::client::ClientT;
-use jsonrpsee::http_client::HttpClientBuilder;
-use jsonrpsee::rpc_params;
 use libp2p::Multiaddr;
-use tokio::sync::broadcast;
+
+// Under `node/` rather than beside this file: a `.rs` directly in `src/bin/`
+// would be built as a binary of its own.
+#[path = "node/import.rs"]
+mod import;
+#[path = "node/pruning.rs"]
+mod pruning;
+use import::{backfill_loop, block_import_loop};
+use pruning::{open_or_bootstrap, pruning_loop, pruning_services};
 
 /// Subdirectory holding the RocksDB state.
 const STATE_DIR: &str = "state";
 
 /// Pause between mining rounds, so a node that keeps losing races does not spin.
 const MINE_BACKOFF: Duration = Duration::from_millis(250);
-
-/// Pause when backfill has nothing to fetch.
-const BACKFILL_IDLE: Duration = Duration::from_secs(2);
-
-/// Maximum buffered blocks whose parent has not arrived.
-///
-/// Bounded because a peer can send unlimited unattached blocks; an unbounded
-/// buffer would be a memory-exhaustion vector.
-const MAX_ORPHANS: usize = 512;
 
 /// How often gauges are resampled.
 ///
@@ -104,6 +98,20 @@ struct Args {
     threads: usize,
     dual_kem: DualKemPolicy,
     config: Option<PathBuf>,
+    /// Pruning depth; `None` is an archive node, which prunes nothing.
+    prune_depth: Option<u64>,
+    /// Prune without keeping any archive, like a Bitcoin pruned node.
+    prune_without_archive: bool,
+    /// Local archive directory; defaults to `<data-dir>/archive`.
+    archive_dir: Option<PathBuf>,
+    /// kubo RPC API to archive to and fetch from, e.g. http://127.0.0.1:5001.
+    ipfs_api: Option<String>,
+    /// Arweave gateway to fetch archived batches from. Read-only.
+    arweave_gateway: Option<String>,
+    /// Take a state snapshot every this many blocks, to serve to pruned nodes.
+    snapshot_interval: Option<u64>,
+    /// Bootstrap a pruned node from this peer's JSON-RPC endpoint.
+    bootstrap_from: Option<String>,
 }
 
 impl Default for Args {
@@ -135,6 +143,16 @@ impl Default for Args {
             // No path unless asked. An absent file means the compiled
             // defaults, which is what every existing deployment already runs.
             config: None,
+            // Archive node unless asked. Pruning trades history for disk and
+            // commits the node to refusing reorgs below its horizon, which is
+            // an operator's decision.
+            prune_depth: None,
+            prune_without_archive: false,
+            archive_dir: None,
+            ipfs_api: None,
+            arweave_gateway: None,
+            snapshot_interval: None,
+            bootstrap_from: None,
         }
     }
 }
@@ -156,6 +174,14 @@ fn print_usage() {
          --sync-from <URL>    peer JSON-RPC endpoint to backfill history from\n  \
          --dual-kem <MODE>    HQC alongside ML-KEM: off (default), preferred,\n  \
          \x20                    or required. See docs/pq-transport.md\n  \
+         --prune              prune bodies older than one DAG epoch (30,000 blocks)\n  \
+         --prune-depth <N>    prune bodies older than N blocks (implies --prune)\n  \
+         --prune-without-archive  prune without writing any archive first\n  \
+         --archive-dir <PATH> local archive directory (default <data-dir>/archive)\n  \
+         --ipfs-api <URL>     also archive to a kubo node, e.g. http://127.0.0.1:5001\n  \
+         --arweave-gateway <URL>  also fetch archived batches from an Arweave gateway\n  \
+         --snapshot-interval <N>  snapshot state every N blocks for pruned peers\n  \
+         --bootstrap-from <URL>   bootstrap a pruned node from a peer's JSON-RPC\n  \
          --mine               mine blocks on this node\n  \
          --threads <N>        mining threads (default: available parallelism, max 8)\n  \
          -h, --help           show this message"
@@ -191,6 +217,14 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             }
             "--dual-kem" => args.dual_kem = value()?.parse()?,
             "--mine" => args.mine = true,
+            "--prune" => args.prune_depth = args.prune_depth.or(Some(PRUNE_DEPTH)),
+            "--prune-depth" => args.prune_depth = Some(value()?.parse()?),
+            "--prune-without-archive" => args.prune_without_archive = true,
+            "--archive-dir" => args.archive_dir = Some(PathBuf::from(value()?)),
+            "--ipfs-api" => args.ipfs_api = Some(value()?),
+            "--arweave-gateway" => args.arweave_gateway = Some(value()?),
+            "--snapshot-interval" => args.snapshot_interval = Some(value()?.parse()?),
+            "--bootstrap-from" => args.bootstrap_from = Some(value()?),
             "--threads" => args.threads = value()?.parse()?,
             "-h" | "--help" => {
                 print_usage();
@@ -230,78 +264,6 @@ fn lock_chain(chain: &Mutex<Chain>) -> std::sync::MutexGuard<'_, Chain> {
     chain
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-/// Imports a block, buffering it if its parent has not arrived yet.
-///
-/// Gossip does not guarantee ordering, so a child can arrive before its parent.
-/// Dropping it would strand the node until the next block it happens to receive
-/// in order, so unattached blocks are held and retried once their parent lands.
-fn import_block(
-    chain: &Mutex<Chain>,
-    block: Block,
-    orphans: &mut HashMap<[u8; 32], Vec<Block>>,
-    metrics: &Metrics,
-) {
-    let mut pending = vec![block];
-
-    while let Some(block) = pending.pop() {
-        let id = block.header.id();
-        let parent = block.header.prev_hash;
-        let header_timestamp = block.header.timestamp;
-
-        let known_parent = {
-            let chain = lock_chain(chain);
-            chain.contains(&parent)
-        };
-
-        if !known_parent {
-            // Cap the buffer: an unbounded orphan pool is a memory-exhaustion
-            // vector for any peer willing to send junk.
-            if orphans.len() < MAX_ORPHANS {
-                orphans.entry(parent).or_default().push(block);
-            } else {
-                metrics.record_rejection("orphan_buffer_full");
-            }
-            continue;
-        }
-
-        // Both clocks are read as close to the work as possible: the age
-        // measurement spans two machines and so includes their skew, while the
-        // import measurement is local and does not.
-        metrics.observe_block_age(header_timestamp, unix_now());
-        let started = std::time::Instant::now();
-
-        let outcome = {
-            let mut chain = lock_chain(chain);
-            chain.insert_block(block)
-        };
-        metrics.observe_import(started.elapsed());
-
-        match outcome {
-            Ok(InsertOutcome::Extended { .. }) | Ok(InsertOutcome::Reorganized { .. }) => {
-                let height = lock_chain(chain).height();
-                metrics.record_import();
-                println!("imported block, height now {height}");
-                // This block may be the parent something buffered was waiting on.
-                if let Some(children) = orphans.remove(&id) {
-                    pending.extend(children);
-                }
-            }
-            Ok(_) => {
-                if let Some(children) = orphans.remove(&id) {
-                    pending.extend(children);
-                }
-            }
-            Err(error) => {
-                // The label is a fixed string, never the error text: a label
-                // drawn from an attacker-influenced message would let one peer
-                // create unbounded time series in every scraper on the network.
-                metrics.record_rejection("invalid");
-                eprintln!("rejected an imported block: {error}");
-            }
-        }
-    }
 }
 
 /// Seconds since the Unix epoch.
@@ -411,86 +373,6 @@ async fn dag_prepare_loop(chain: Arc<Mutex<Chain>>) {
             Ok(Ok(())) => println!("generated the proof-of-work cache for epoch {epoch}"),
             Ok(Err(error)) => eprintln!("could not prepare epoch {epoch}: {error}"),
             Err(error) => eprintln!("cache preparation task failed: {error}"),
-        }
-    }
-}
-
-/// Applies blocks received over gossip to the local chain.
-///
-/// Without this the node decodes every gossiped block and then discards it: the
-/// P2P layer publishes `BlockReceived` to a broadcast channel that otherwise has
-/// no subscriber, so a non-mining peer would sit at genesis forever.
-async fn block_import_loop(chain: Arc<Mutex<Chain>>, network: NodeHandle, metrics: Arc<Metrics>) {
-    let mut events = network.subscribe();
-    let mut orphans: HashMap<[u8; 32], Vec<Block>> = HashMap::new();
-
-    loop {
-        match events.recv().await {
-            Ok(NodeEvent::BlockReceived(block)) => {
-                import_block(&chain, *block, &mut orphans, &metrics);
-            }
-            Ok(_) => {}
-            Err(broadcast::error::RecvError::Lagged(missed)) => {
-                // Blocks were dropped while this task was behind; backfill will
-                // recover them, so this is a warning rather than a failure.
-                eprintln!("block import lagged, missed {missed} event(s)");
-            }
-            Err(broadcast::error::RecvError::Closed) => return,
-        }
-    }
-}
-
-/// Backfills missing history from a peer's JSON-RPC endpoint.
-///
-/// Gossip only carries blocks produced *after* a node joins, so a peer starting
-/// at genesis against a chain already at height N can never catch up from gossip
-/// alone. A dedicated block-sync wire protocol would be the proper fix; pulling
-/// sequentially over the existing RPC is a smaller mechanism that gets a testnet
-/// converged, at the cost of trusting one endpoint for history.
-///
-/// Blocks are still validated by [`Chain::insert_block`] on the way in, so a
-/// dishonest source cannot inject an invalid block — only withhold data.
-async fn backfill_loop(chain: Arc<Mutex<Chain>>, url: String, metrics: Arc<Metrics>) {
-    let client = match HttpClientBuilder::default().build(&url) {
-        Ok(client) => client,
-        Err(error) => {
-            eprintln!("backfill disabled, bad --sync-from URL {url}: {error}");
-            return;
-        }
-    };
-
-    println!("backfill:    pulling history from {url}");
-    let mut orphans: HashMap<[u8; 32], Vec<Block>> = HashMap::new();
-
-    loop {
-        let next_height = lock_chain(&chain).height() + 1;
-
-        let response: Result<BlockInfo, _> = client
-            .request("get_block_by_height", rpc_params![next_height])
-            .await;
-
-        match response {
-            Ok(info) => match hex::decode(&info.raw)
-                .ok()
-                .and_then(|bytes| Block::from_bytes(&bytes).ok())
-            {
-                Some(block) => {
-                    let before = lock_chain(&chain).height();
-                    import_block(&chain, block, &mut orphans, &metrics);
-                    let after = lock_chain(&chain).height();
-                    if after == before {
-                        // Made no progress; avoid hammering the peer.
-                        tokio::time::sleep(BACKFILL_IDLE).await;
-                    }
-                }
-                None => {
-                    eprintln!("backfill: peer returned an undecodable block at {next_height}");
-                    tokio::time::sleep(BACKFILL_IDLE).await;
-                }
-            },
-            // Height not available yet: we are caught up. Poll periodically so
-            // the node keeps following even if gossip drops.
-            Err(_) => tokio::time::sleep(BACKFILL_IDLE).await,
         }
     }
 }
@@ -660,23 +542,31 @@ async fn main() -> Result<(), Box<dyn Error>> {
         &node_config.storage,
     )?);
 
-    // Seeding verifies the resulting state root against the config, so a node
-    // started with a mismatched genesis fails here rather than silently forking.
-    let state_root = config.seed_state(&state)?;
     let genesis_block = config.genesis_block()?;
+    let chain_config = ChainConfig::with_pow_limit(config.pow_limit());
+    let chain = Arc::new(Mutex::new(
+        open_or_bootstrap(&args, &config, &state, genesis_block.clone(), chain_config).await?,
+    ));
 
     println!("chain id:    {}", config.chain_id);
     println!("genesis id:  {}", hex::encode(genesis_block.header.id()));
-    println!("state root:  {}", hex::encode(state_root));
     println!("difficulty:  {} leading zero bits", config.difficulty_bits);
+    {
+        let chain = lock_chain(&chain);
+        println!(
+            "tip:         height {} {}",
+            chain.height(),
+            hex::encode(chain.tip())
+        );
+        println!("state root:  {}", hex::encode(state.state_root()?));
+        match chain.prune_horizon() {
+            0 => println!("history:     complete"),
+            horizon => println!("history:     pruned below height {horizon}"),
+        }
+    }
 
-    let chain = Arc::new(Mutex::new(Chain::new(
-        Arc::clone(&state),
-        genesis_block,
-        ChainConfig::with_pow_limit(config.pow_limit()),
-    )));
-
-    let mempool = Mempool::new(Arc::clone(&state));
+    let rpc_context = RpcContext::new(Arc::clone(&chain), Mempool::new(Arc::clone(&state)));
+    let (rpc_context, pruning) = pruning_services(&args, &config.chain_id, rpc_context)?;
 
     // --- P2P ---
     let identity = load_or_create_identity(&args.data_dir)?;
@@ -713,7 +603,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // --- RPC ---
-    let rpc = serve(args.rpc_addr, RpcContext::new(Arc::clone(&chain), mempool)).await?;
+    let rpc = serve(args.rpc_addr, rpc_context).await?;
     println!("rpc:         http://{}", rpc.address);
 
     // --- Metrics ---
@@ -768,6 +658,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // starting from genesis needs an explicit pull to cover the gap.
     if let Some(url) = args.sync_from.clone() {
         tokio::spawn(backfill_loop(Arc::clone(&chain), url, Arc::clone(&metrics)));
+    }
+
+    if let Some(pruning) = pruning {
+        tokio::spawn(pruning_loop(Arc::clone(&chain), pruning));
     }
 
     if args.mine {

@@ -216,7 +216,7 @@ pub(crate) fn record_leaf(entry: (&Vec<u8>, &Vec<u8>)) -> [u8; HASH_LEN] {
     *hasher.finalize().as_bytes()
 }
 
-fn undo_key(block_id: &[u8; HASH_LEN]) -> Vec<u8> {
+pub(crate) fn undo_key(block_id: &[u8; HASH_LEN]) -> Vec<u8> {
     let mut key = Vec::with_capacity(UNDO_PREFIX.len() + block_id.len());
     key.extend_from_slice(UNDO_PREFIX);
     key.extend_from_slice(block_id);
@@ -917,15 +917,48 @@ impl StateDB {
         block_id: &[u8; HASH_LEN],
         context: BlockContext,
     ) -> Result<[u8; HASH_LEN]> {
+        self.apply_journaled_with(block, block_id, context, |_| ())
+    }
+
+    /// [`StateDB::apply_block_journaled`], with `extra` writes in the same
+    /// batch: how the block store moves the tip and the canonical index
+    /// atomically with the state they describe.
+    pub(crate) fn apply_journaled_with(
+        &self,
+        block: &Block,
+        block_id: &[u8; HASH_LEN],
+        context: BlockContext,
+        extra: impl FnOnce(&mut WriteBatch),
+    ) -> Result<[u8; HASH_LEN]> {
         let (overlay, new_root) = self.stage_checked(block, context)?;
         let undo = self.capture_undo(&overlay)?;
 
         let mut batch = WriteBatch::default();
         self.write_overlay(&mut batch, &overlay);
         batch.put(undo_key(block_id), undo.encode());
+        extra(&mut batch);
         self.db.write(batch).map_err(storage_err)?;
 
         Ok(new_root)
+    }
+
+    /// Writes a batch built elsewhere in the crate.
+    pub(crate) fn write_batch(&self, batch: WriteBatch) -> Result<()> {
+        self.db.write(batch).map_err(storage_err)
+    }
+
+    /// Writes a RocksDB checkpoint of the whole database to `path`: hard
+    /// links where the filesystem allows, so it is cheap and immediate, and a
+    /// consistent point-in-time copy.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Storage`] if the checkpoint cannot be made, for
+    /// example because `path` already exists.
+    pub fn create_checkpoint(&self, path: impl AsRef<Path>) -> Result<()> {
+        rocksdb::checkpoint::Checkpoint::new(&self.db)
+            .and_then(|checkpoint| checkpoint.create_checkpoint(path))
+            .map_err(storage_err)
     }
 
     /// Reverses a previously journaled block.
@@ -939,6 +972,15 @@ impl StateDB {
     /// which means the block was never applied through
     /// [`StateDB::apply_block_journaled`] or has already been reverted.
     pub fn revert_block(&self, block_id: &[u8; HASH_LEN]) -> Result<()> {
+        self.revert_block_with(block_id, |_| ())
+    }
+
+    /// [`StateDB::revert_block`], with `extra` writes in the same batch.
+    pub(crate) fn revert_block_with(
+        &self,
+        block_id: &[u8; HASH_LEN],
+        extra: impl FnOnce(&mut WriteBatch),
+    ) -> Result<()> {
         let key = undo_key(block_id);
         let encoded = self.db.get(&key).map_err(storage_err)?.ok_or_else(|| {
             NodeError::Storage(format!(
@@ -975,6 +1017,7 @@ impl StateDB {
         }
 
         batch.delete(&key);
+        extra(&mut batch);
         self.db.write(batch).map_err(storage_err)?;
 
         Ok(())

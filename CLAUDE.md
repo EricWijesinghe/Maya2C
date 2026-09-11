@@ -1,7 +1,7 @@
 # Maya2C
 
 Post-quantum L1 blockchain node in Rust (edition 2024, `rust-version = 1.88`).
-Root package `custom-l1-node` + 29 workspace members, one lockfile, one `target/`.
+Root package `custom-l1-node` + 30 workspace members, one lockfile, one `target/`.
 
 ## Token Discipline (read first)
 
@@ -79,6 +79,7 @@ PowerShell profile and `~/.bashrc`.
 | `custody-mpc` | Threshold custody of a chain key: dealerless Pedersen VSS, ML-KEM-sealed shares, quorum signing. Links no chain types — `tests/custody_parity_tests.rs` pins its derivation to `crypto::hybrid` |
 | `zkml` | Verifies halo2 (KZG/BN254) proofs of quantized-classifier inference for `host_verify_zkml_proof`. Hand-written circuit, verifier only. **Dark** (`ZKML_ACTIVATION_HEIGHT = u64::MAX`), not post-quantum, SRS from a public seed |
 | `zkml-prover` | Off-chain half of `zkml`: ONNX import via `tract-onnx`, key generation, proving. Its own crate, not a feature, so the node's graph cannot reach tract; `rust-version = 1.91` because tract's patched releases need it, and nothing the node links depends on it |
+| `archive` | CAR v1 (zstd) archives of pruned block batches and the stores that hold them: local dir, kubo IPFS, Arweave gateway (read-only). Chain-agnostic, so the decoder of untrusted archives is fuzzable alone (`fuzz/fuzz_targets/car_decode.rs`). See `docs/pruning.md` |
 | `dashboard/` | Leptos browser page. **Not a workspace member** — CSR Leptos only runs on `wasm32`. Built with `trunk` |
 
 ## Critical Invariants
@@ -224,6 +225,24 @@ PowerShell profile and `~/.bashrc`.
     layer, and the undo journal records its prior value. Otherwise
     `uncovered_keys()` fails the subsystem's tests, and the `write_overlay`
     debug assertion fails any test that writes a stray record.
+26. **Blocks and the state they produced commit in one batch.** The block
+    store (`state/blocks.rs`) lives in the state's RocksDB:
+    - `apply_canonical` writes the canonical-index entry and the tip pointer
+      in the same `WriteBatch` as the block's state;
+    - `revert_canonical` does the same for a revert.
+
+    `Chain::open` rebuilds from it and adopts a heavier stored branch, which is
+    how a crash mid-reorg recovers. `seed_state` runs on a **fresh** database
+    only: re-seeding an evolved one overwrote it, which is why no node could
+    restart before 2026-09-12.
+27. **No block body is deleted before a verified copy exists, and a pruned
+    node never reorgs below its horizon.** `prune_round` archives to every
+    store and reads every copy back before `Chain::prune` deletes anything.
+    `Chain::prune` refuses a batch the active chain no longer holds.
+    `insert_block` and `reorganize` refuse to reach at or below
+    `prune_horizon`, before anything is reverted. Pruning is opt-in: an
+    archive node has no horizon. A snapshot is imported only if it reproduces
+    `header(H).state_root`; otherwise it is wiped.
 
 ## Build & Test
 
