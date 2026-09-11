@@ -50,6 +50,12 @@
         "mcp",
         "serve"
       ]
+    },
+    "codebase-memory-mcp": {
+      "command": "C:/Users/EricW/.local/bin/codebase-memory-mcp.exe",
+      "args": [
+        "--tool-profile=scout"
+      ]
     }
   }
 }
