@@ -43,7 +43,8 @@ pub struct UndoRecord {
     /// Nullifiers the block spent, deleted on revert so those notes become
     /// spendable again on the competing chain.
     pub nullifiers: Vec<[u8; 32]>,
-    /// Prior values of every trading record the block wrote.
+    /// Prior values of every keyed record the block wrote: trading, oracle,
+    /// governance, sealed-mempool, contract code and contract storage.
     ///
     /// Pool reserves are the reason this exists. Without it a reorg would leave
     /// a pool holding whatever the abandoned chain traded it to — which is not
@@ -55,10 +56,11 @@ pub struct UndoRecord {
     pub records: Vec<RecordUndo>,
 }
 
-/// The prior value of one trading record.
+/// The prior value of one keyed record.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RecordUndo {
-    /// Storage key, under the `d:` prefix.
+    /// Storage key: a generic record (`d:`, `o:`, `g:`, `m:`), contract code
+    /// (`code:`) or a contract storage slot (`cstate:`).
     pub key: Vec<u8>,
     /// Value before the block, or `None` if the key did not exist.
     pub previous: Option<Vec<u8>>,

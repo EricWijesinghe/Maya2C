@@ -14,6 +14,7 @@
 pub mod account;
 pub mod asset;
 pub mod channel;
+pub mod commitments;
 pub mod context;
 pub mod contracts;
 pub mod db;

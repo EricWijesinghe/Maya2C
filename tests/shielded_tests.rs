@@ -596,6 +596,11 @@ fn reverting_a_shielded_block_restores_the_pool_exactly() {
 
     db.apply_block_journaled(&block, &block_id, BlockContext::at_height(2))
         .expect("apply");
+    assert_eq!(
+        db.uncovered_keys().expect("scan"),
+        Vec::<Vec<u8>>::new(),
+        "every stored key must be under the state root or declared local-only"
+    );
 
     assert_ne!(db.state_root().expect("root"), root_before);
     assert_eq!(db.stored_pool().expect("pool").note_count(), 4);

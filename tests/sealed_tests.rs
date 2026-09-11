@@ -250,6 +250,11 @@ fn an_envelope_executes_at_its_reveal_height_and_not_before() {
         !fixture.is_pending(&id, 5),
         "an opened envelope must be consumed, or it could be opened again"
     );
+    assert_eq!(
+        fixture.db.uncovered_keys().expect("scan"),
+        Vec::<Vec<u8>>::new(),
+        "every stored key must be under the state root or declared local-only"
+    );
 }
 
 #[test]

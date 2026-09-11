@@ -654,6 +654,11 @@ fn reverting_a_block_restores_the_rules_it_changed() {
         .db
         .apply_block_journaled(&block, &block_id, context)
         .expect("execute");
+    assert_eq!(
+        fixture.db.uncovered_keys().expect("scan"),
+        Vec::<Vec<u8>>::new(),
+        "every stored key must be under the state root or declared local-only"
+    );
 
     assert_eq!(fixture.parameter(ParameterKey::DexProtocolFeeBps), 25);
 

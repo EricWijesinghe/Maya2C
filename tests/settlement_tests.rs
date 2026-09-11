@@ -115,6 +115,11 @@ fn open_channel(
         .db
         .apply_block(&block_of(vec![tx]), BlockContext::at_height(1))
         .expect("open channel");
+    assert_eq!(
+        fixture.db.uncovered_keys().expect("scan"),
+        Vec::<Vec<u8>>::new(),
+        "every stored key must be under the state root or declared local-only"
+    );
 
     derive_channel_id(&address_of(key_a), &party_b, funding, nonce)
 }

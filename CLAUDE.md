@@ -210,6 +210,20 @@ PowerShell profile and `~/.bashrc`.
     never from `state_root()`, which is the *pre*-block root. Before this, one
     block id could carry two transaction lists (`tests/chaos_simulator.rs`
     replays that attack). Do not add an unchecked apply path to `Chain`.
+25. **Every persisted consensus record is under the state root; everything
+    else is on an explicit local-only list.** `state::commitments` holds the
+    lists:
+    - `RECORD_LAYERS`, the one source for the generic-record prefixes;
+    - `committed_prefixes()`;
+    - `LOCAL_ONLY_PREFIXES` (`undo:`, `blk:`).
+
+    Until 2026-09-12 contract code, contract storage, the nullifier set, and the
+    shielded pool's anchor window and balance were all outside the root.
+    Nothing checked them, a snapshot could forge them, and a reorg did not even
+    restore contract storage. A new prefix goes into those lists and into a
+    layer, and the undo journal records its prior value. Otherwise
+    `uncovered_keys()` fails the subsystem's tests, and the `write_overlay`
+    debug assertion fails any test that writes a stray record.
 
 ## Build & Test
 

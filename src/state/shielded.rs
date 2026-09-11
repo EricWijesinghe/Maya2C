@@ -133,6 +133,21 @@ impl ShieldedPool {
         fr_to_bytes(&self.tree.root())
     }
 
+    /// The pool's contribution to the state root: a commitment to everything
+    /// stored, not just [`ShieldedPool::root`].
+    ///
+    /// The Poseidon root covers the notes that exist. It does not cover the
+    /// anchor window, which decides which spends are valid, or the public
+    /// balance, which bounds what can leave. Until 2026-09-11 only the root was
+    /// folded, so a state snapshot could carry an invented anchor. A node that
+    /// loaded it would accept proofs against a tree nobody built, which is
+    /// minting. The encoding is canonical (`decode` refuses anything else),
+    /// so hashing it commits to exactly the stored pool.
+    #[must_use]
+    pub fn commitment(&self) -> [u8; 32] {
+        blake3::derive_key("maya shielded pool state v2", &self.encode())
+    }
+
     /// Number of notes in the pool.
     #[must_use]
     pub fn note_count(&self) -> u64 {

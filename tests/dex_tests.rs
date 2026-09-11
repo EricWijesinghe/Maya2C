@@ -1054,6 +1054,11 @@ fn reverting_a_block_restores_the_pool_it_traded_against() {
         .db()
         .apply_block_journaled(&block, &block_id, BlockContext::at_height(3))
         .expect("apply");
+    assert_eq!(
+        market.db().uncovered_keys().expect("scan"),
+        Vec::<Vec<u8>>::new(),
+        "every stored key must be under the state root or declared local-only"
+    );
 
     assert_ne!(market.reserves(), before, "the swap did nothing to revert");
 

@@ -11,7 +11,10 @@
 //! root = H(dex        ‖ root ‖ dex_root)         if any `d:` record exists
 //! root = H(oracle     ‖ root ‖ oracle_root)      if any `o:` record exists
 //! root = H(governance ‖ root ‖ governance_root)  if any `g:` record exists
-//! root = H(shielded   ‖ root ‖ pool_root)        if any note exists
+//! root = H(sealed     ‖ root ‖ sealed_root)      if any `m:` record exists
+//! root = H(shielded   ‖ root ‖ pool_state)       if the pool is not empty
+//! root = H(contracts  ‖ root ‖ contracts_root)   if any code or storage exists
+//! root = H(nullifiers ‖ root ‖ nullifiers_root)  if any nullifier exists
 //! ```
 //!
 //! Each layer folds in **only when it holds something**, which is what keeps a
@@ -59,8 +62,22 @@ pub enum StateLayer {
     Governance,
     /// Sealed-mempool records, under the `m:` prefix.
     Sealed,
-    /// The shielded pool's Poseidon commitment tree.
+    /// The shielded pool: a BLAKE3 commitment to the whole stored pool, which
+    /// is the Poseidon tree's frontier, the anchor window and the public
+    /// balance. See `ShieldedPool::commitment`; it was the bare Poseidon root
+    /// until 2026-09-11.
     Shielded,
+    /// Contract code (`code:`) and contract storage (`cstate:`).
+    ///
+    /// Outside the root until 2026-09-11. Two nodes could disagree about a
+    /// contract's storage and agree on every state root, which made the
+    /// divergence invisible and a snapshot of it unverifiable.
+    Contracts,
+    /// The spent-note set (`null:`).
+    ///
+    /// Outside the root until 2026-09-11. A snapshot that left a nullifier out
+    /// would have produced a node that accepts the second spend of that note.
+    Nullifiers,
 }
 
 /// Every layer, in fold order.
@@ -71,6 +88,8 @@ pub const LAYER_ORDER: &[StateLayer] = &[
     StateLayer::Governance,
     StateLayer::Sealed,
     StateLayer::Shielded,
+    StateLayer::Contracts,
+    StateLayer::Nullifiers,
 ];
 
 impl StateLayer {
@@ -88,6 +107,8 @@ impl StateLayer {
             Self::Governance => "maya-governance state root v1",
             Self::Sealed => "maya sealed mempool state root v1",
             Self::Shielded => "maya shielded state root v1",
+            Self::Contracts => "maya contracts state root v1",
+            Self::Nullifiers => "maya nullifiers state root v1",
         }
     }
 
@@ -101,6 +122,8 @@ impl StateLayer {
             Self::Governance => 4,
             Self::Shielded => 5,
             Self::Sealed => 6,
+            Self::Contracts => 7,
+            Self::Nullifiers => 8,
         }
     }
 
@@ -114,6 +137,8 @@ impl StateLayer {
             4 => Some(Self::Governance),
             5 => Some(Self::Shielded),
             6 => Some(Self::Sealed),
+            7 => Some(Self::Contracts),
+            8 => Some(Self::Nullifiers),
             _ => None,
         }
     }
@@ -137,6 +162,8 @@ impl StateLayer {
             Self::Governance => "governance",
             Self::Sealed => "sealed",
             Self::Shielded => "shielded",
+            Self::Contracts => "contracts",
+            Self::Nullifiers => "nullifiers",
         }
     }
 }

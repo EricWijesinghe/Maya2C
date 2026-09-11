@@ -427,3 +427,69 @@ fn a_contract_call_may_not_also_carry_transfer_outputs() {
         Err(NodeError::MixedTransactionKind(_))
     ));
 }
+
+// ---------------------------------------------------------------------------
+// reorgs and the state root
+// ---------------------------------------------------------------------------
+
+/// Applies `transactions` through the chain's checked, journaled path,
+/// declaring the root they execute to, and returns the root.
+fn apply_journaled(
+    db: &StateDB,
+    transactions: Vec<Transaction>,
+    id: [u8; 32],
+    height: u64,
+) -> [u8; 32] {
+    let context = BlockContext::at_height(height);
+    let mut block = block_of(transactions);
+    block.header.state_root = db.preview_root(&block, context).expect("preview");
+    db.apply_block_journaled(&block, &id, context)
+        .expect("apply")
+}
+
+#[test]
+fn reverting_contract_blocks_restores_code_storage_and_the_root() {
+    // Contract code and storage were missing from the undo journal: a reorg
+    // left the abandoned branch's slots behind. They are now under the state
+    // root too, so a stale slot would also fail the next block's root check.
+    let caller = generate_signing_key().expect("keygen");
+    let (db, _dir) = open_state(&[(address_of(&caller), 1_000)]);
+    let code = wasm(WRITER_WAT);
+    let contract = derive_contract_id(&address_of(&caller), 0, &code);
+
+    let genesis_root = db.state_root().expect("root");
+    let deploy = signed(TxKind::DeployContract(ContractDeploy { code }), 0, &caller);
+    let deployed_root = apply_journaled(&db, vec![deploy], [1u8; 32], 1);
+    assert_ne!(deployed_root, genesis_root, "code must move the root");
+
+    let call = signed(
+        TxKind::CallContract(ContractCall {
+            contract,
+            input: Vec::new(),
+            gas_limit: 1_000_000,
+        }),
+        1,
+        &caller,
+    );
+    let called_root = apply_journaled(&db, vec![call], [2u8; 32], 2);
+    assert_ne!(
+        called_root, deployed_root,
+        "a storage write must move the root"
+    );
+    assert_eq!(
+        db.uncovered_keys().expect("scan"),
+        Vec::<Vec<u8>>::new(),
+        "every stored key must be under the state root or declared local-only"
+    );
+
+    db.revert_block(&[2u8; 32]).expect("revert the call");
+    assert_eq!(
+        db.get_contract_storage(&contract, b"k").expect("read"),
+        None
+    );
+    assert_eq!(db.state_root().expect("root"), deployed_root);
+
+    db.revert_block(&[1u8; 32]).expect("revert the deploy");
+    assert_eq!(db.get_code(&contract).expect("read"), None);
+    assert_eq!(db.state_root().expect("root"), genesis_root);
+}

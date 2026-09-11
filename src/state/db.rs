@@ -25,38 +25,34 @@ use rocksdb::{BlockBasedOptions, Cache, DB, IteratorMode, Options, WriteBatch};
 use crate::core::payload::ChannelId;
 use crate::core::{Block, Transaction};
 use crate::error::{NodeError, Result};
-use crate::governance::GOVERNANCE_PREFIX;
-use crate::oracle::ORACLE_PREFIX;
-use crate::sealed::SEALED_PREFIX;
 use crate::state::account::{Account, Address};
 use crate::state::channel::ChannelRecord;
 use crate::state::context::BlockContext;
-use crate::state::dex::DEX_PREFIX;
 use crate::state::merkle::{HASH_LEN, account_leaf, merkle_path, merkle_root};
 use crate::state::proof::{AccountProof, LayerDigest, StateLayer};
 use crate::state::shielded::ShieldedPool;
 use crate::state::undo::{RecordUndo, UndoEntry, UndoRecord};
 
 /// Key prefix for account records.
-const ACCOUNT_PREFIX: &[u8] = b"acct:";
+pub(crate) const ACCOUNT_PREFIX: &[u8] = b"acct:";
 
 /// Key prefix for per-block undo journals.
-const UNDO_PREFIX: &[u8] = b"undo:";
+pub(crate) const UNDO_PREFIX: &[u8] = b"undo:";
 
 /// Key prefix for channel records.
-const CHANNEL_PREFIX: &[u8] = b"chan:";
+pub(crate) const CHANNEL_PREFIX: &[u8] = b"chan:";
 
 /// Key prefix for deployed contract code.
-const CODE_PREFIX: &[u8] = b"code:";
+pub(crate) const CODE_PREFIX: &[u8] = b"code:";
 
 /// Key prefix for contract storage: `cstate:<contract_id><key>`.
-const CSTATE_PREFIX: &[u8] = b"cstate:";
+pub(crate) const CSTATE_PREFIX: &[u8] = b"cstate:";
 
 /// Key prefix for spent shielded nullifiers.
 ///
 /// One key per nullifier rather than a single set blob: double-spend detection
 /// is then a point lookup, and the set only ever grows.
-const NULLIFIER_PREFIX: &[u8] = b"null:";
+pub(crate) const NULLIFIER_PREFIX: &[u8] = b"null:";
 
 /// Key holding the serialized shielded pool.
 pub(crate) const POOL_KEY: &[u8] = b"shld:pool";
@@ -211,7 +207,7 @@ pub(crate) fn nullifier_key_bytes(nullifier: &[u8; HASH_LEN]) -> Vec<u8> {
 /// Length-prefixed on the key, so a key and value cannot be re-cut into a
 /// different pair that hashes the same — the concatenation `ab‖c` and `a‖bc`
 /// are one string otherwise, and two different states would share a root.
-fn record_leaf(entry: (&Vec<u8>, &Vec<u8>)) -> [u8; HASH_LEN] {
+pub(crate) fn record_leaf(entry: (&Vec<u8>, &Vec<u8>)) -> [u8; HASH_LEN] {
     let (key, value) = entry;
     let mut hasher = blake3::Hasher::new_derive_key("maya aux record leaf v1");
     hasher.update(&(key.len() as u64).to_le_bytes());
@@ -525,12 +521,10 @@ impl StateDB {
         // Trading, oracle, governance, and the sealed mempool are each one
         // layer over every record under their own prefix, ordered by key so the root is a function of
         // content rather than of the order transactions touched things.
-        for (prefix, layer) in [
-            (DEX_PREFIX, StateLayer::Trading),
-            (ORACLE_PREFIX, StateLayer::Oracle),
-            (GOVERNANCE_PREFIX, StateLayer::Governance),
-            (SEALED_PREFIX, StateLayer::Sealed),
-        ] {
+        //
+        // The list is `RECORD_LAYERS`, the one source the write-path assertion
+        // and the snapshot rules also read, so the three cannot drift.
+        for &(prefix, layer) in crate::state::commitments::RECORD_LAYERS {
             let records = self.merged_records(overlay, prefix)?;
             if !records.is_empty() {
                 let leaves: Vec<[u8; HASH_LEN]> = records.iter().map(record_leaf).collect();
@@ -543,14 +537,27 @@ impl StateDB {
 
         // The shielded pool is a second Merkle tree over a different hash —
         // Poseidon, because BLAKE3 is unusable inside a SNARK circuit — so it
-        // enters as one opaque commitment rather than as leaves.
+        // enters as one opaque commitment rather than as leaves. The commitment
+        // covers the whole stored pool, anchors and balance included; see
+        // `ShieldedPool::commitment` for what folding the bare root missed.
+        //
+        // Folded whenever the pool differs from an empty one, not only once it
+        // holds a note. Otherwise a stored pool with no notes and an invented
+        // anchor would escape the root.
         let pool = self.load_pool(overlay)?;
-        if pool.note_count() > 0 {
+        let commitment = pool.commitment();
+        if commitment != ShieldedPool::new().commitment() {
             layers.push(LayerDigest {
                 layer: StateLayer::Shielded,
-                root: pool.root(),
+                root: commitment,
             });
         }
+
+        // Last, after every layer a pre-existing chain could hold, so adding
+        // them moved no root that had already been committed. See
+        // `state::commitments` for why they were missing.
+        layers.extend(self.contracts_layer(overlay)?);
+        layers.extend(self.nullifiers_layer(overlay)?);
 
         Ok(layers)
     }
@@ -578,6 +585,21 @@ impl StateDB {
             batch.put(nullifier_key_bytes(nullifier), []);
         }
         for (key, value) in &overlay.records {
+            // A record under a prefix no layer folds would be state the root
+            // does not commit to. Caught here in every debug build and test,
+            // at the moment a new subsystem first writes one.
+            //
+            // Covers the generic `records` map only. The typed fields above
+            // build their keys through fixed helpers under committed
+            // prefixes; a new typed field is caught by `uncovered_keys` in the
+            // tests of whichever subsystem writes it.
+            debug_assert!(
+                crate::state::commitments::RECORD_LAYERS
+                    .iter()
+                    .any(|(prefix, _)| key.starts_with(prefix)),
+                "record {} is under no committed prefix",
+                hex::encode(key)
+            );
             match value {
                 Some(bytes) => batch.put(key, bytes),
                 None => batch.delete(key),
@@ -827,6 +849,24 @@ impl StateDB {
             records.push(RecordUndo {
                 key: key.clone(),
                 previous: self.db.get(key).map_err(storage_err)?,
+            });
+        }
+
+        // Contract code and storage, by the same key/previous rule. They were
+        // missing: a reorg that reverted a contract-writing block left the
+        // abandoned branch's storage behind, which is invariant 8's failure
+        // for contracts. Now that they are under the state root it would also
+        // fail the next block's root check and stall the node.
+        let contract_keys = overlay.code.keys().map(code_key).chain(
+            overlay
+                .contract_storage
+                .keys()
+                .map(|(contract, key)| contract_storage_key(contract, key)),
+        );
+        for key in contract_keys {
+            records.push(RecordUndo {
+                previous: self.db.get(&key).map_err(storage_err)?,
+                key,
             });
         }
 
