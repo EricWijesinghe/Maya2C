@@ -218,7 +218,7 @@ hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net", "io-util"] }
 futures = "0.3"
-libp2p = { version = "0.56", features = [
+libp2p = { version = "0.57", features = [
     "tokio",
     "gossipsub",
     "kad",
