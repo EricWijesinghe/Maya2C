@@ -37,7 +37,8 @@
 //!   `Vm::validate` refuses an unknown import at deploy.
 //! - **Integer overflow** is already refused: `ledger-math` is checked
 //!   arithmetic, Kani-verified, and every call site turns `None` into
-//!   [`NodeError::BalanceOverflow`], which fails the whole block.
+//!   [`BalanceOverflow`](crate::error::NodeError::BalanceOverflow), which
+//!   fails the whole block.
 //! - **Flash loans** do not exist. `SwapRoute` is self-funded — no borrow, no
 //!   callback — and `l2-flash` is a payment-channel network rather than a
 //!   lending one.

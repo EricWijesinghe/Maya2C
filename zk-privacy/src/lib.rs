@@ -39,9 +39,11 @@ pub mod hash;
 pub mod note;
 pub mod params;
 pub mod prove;
+pub mod sanctions;
 pub mod tree;
 pub mod wallet;
 
 pub use error::{Result, ZkError};
 pub use note::{Address, Note, SpendingKey};
+pub use sanctions::{AbsenceCircuit, AbsenceWitness, Identifier, SanctionsList};
 pub use tree::{CommitmentTree, MerklePath};

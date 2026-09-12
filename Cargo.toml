@@ -121,6 +121,12 @@ members = [
     # gateway. Chain-agnostic, so the decoder that reads untrusted archives is
     # fuzzable without RocksDB or libp2p -- see src/state_pruner/.
     "archive",
+    # ISO 20022 bank-rail messages: pacs.008, pacs.009, camt.053. Chain-free
+    # for the same reason `stratum-v2` and `archive` are — it parses XML a
+    # stranger wrote, and a decoder of untrusted input should be fuzzable
+    # without RocksDB in the graph. It emits a neutral `PaymentIntent`; turning
+    # one into a `TxKind` and sealing it is the gateway's job, not this crate's.
+    "iso20022",
 ]
 
 [dependencies]
@@ -191,6 +197,10 @@ maya-governance = { path = "governance" }
 # the curve arithmetic can be reviewed and fuzzed without the node, and so that
 # a chain built without the sealed mempool does not link it.
 maya-mev = { path = "mev" }
+# ISO 20022 bank-rail messages. The node takes it for the bridge in
+# `src/iso20022_bridge.rs`; the crate itself links no chain types, which is
+# what keeps its XML decoder fuzzable on its own.
+maya-iso20022 = { path = "iso20022" }
 # Only for the ristretto255 encodings that cross the boundary between chain
 # state and `maya-mev` — a stored committee key, a stored decryption share.
 # The same version `maya-mev` and `maya-vrf` already pull in, deliberately: two

@@ -13,13 +13,16 @@
 //!
 //! ## Why it lives under the governance prefix
 //!
-//! `g:guard:<module>` is under
-//! [`GOVERNANCE_PREFIX`](crate::governance::GOVERNANCE_PREFIX), so it folds
-//! into the `Governance` state-root layer and the generic `records` undo
-//! journal already covers it. A new prefix would have needed a new layer, a new
-//! entry in [`RECORD_LAYERS`](crate::state::commitments), and a new undo
-//! section — three places to forget, for a record that is eighteen bytes. A
-//! reorg restores it exactly as it restores a ballot.
+//! `g:guard:<module>` is under `GOVERNANCE_PREFIX`, so it folds into the
+//! `Governance` state-root layer and the generic `records` undo journal already
+//! covers it. A new prefix would have needed a new layer, a new entry in
+//! `RECORD_LAYERS`, and a new undo section — three places to forget, for a
+//! record that is eighteen bytes. A reorg restores it exactly as it restores a
+//! ballot.
+//!
+//! Both of those are `pub(crate)`, so they are named here rather than linked:
+//! an intra-doc link to a private item renders as plain text on a public build
+//! anyway, and rustdoc warns about it.
 //!
 //! ## Why an expired record is not deleted
 //!

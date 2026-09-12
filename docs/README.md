@@ -38,6 +38,7 @@ inherits the thing it describes.
 | Document | What it settles |
 |---|---|
 | [dex.md](dex.md) | Why a losing trade is a no-op and never an error |
+| [iso20022.md](iso20022.md) | Bank-rail messages: why an inexact amount is refused rather than rounded, and how a compliance check costs no anonymity |
 | [blockgraph.md](blockgraph.md) | Batch references and deterministic shard scheduling. Also a research branch |
 
 ## Mining and pools

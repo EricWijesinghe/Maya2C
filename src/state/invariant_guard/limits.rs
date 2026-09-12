@@ -5,7 +5,7 @@
 //! being set to a value that disables the check, and a monitor an attacker can
 //! turn off before the attack is not a monitor.
 //!
-//! [`ParameterKey`]: crate::governance::ParameterKey
+//! [`ParameterKey`]: maya_governance::ParameterKey
 
 /// Blocks a tripped module stays in emergency read-only mode.
 ///

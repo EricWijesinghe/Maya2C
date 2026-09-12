@@ -24,6 +24,10 @@ maya-stratum-v2 = { path = "../stratum-v2" }
 # Archives of pruned blocks, read back from stores nobody has to trust: a
 # local directory an attacker may have written to, an IPFS node, a gateway.
 maya-archive = { path = "../archive" }
+# Bank-rail XML. The only decoder here whose input arrives from outside the
+# chain's own peer set entirely, and the one whose format has a documented
+# history of entity-expansion and external-entity attacks.
+maya-iso20022 = { path = "../iso20022" }
 
 # Sanitizer builds are slow enough that unoptimized decoding would dominate the
 # profile. Debug assertions stay on: an arithmetic overflow in a decode path is
@@ -79,6 +83,13 @@ bench = false
 [[bin]]
 name = "car_decode"
 path = "fuzz_targets/car_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "iso20022_decode"
+path = "fuzz_targets/iso20022_decode.rs"
 test = false
 doc = false
 bench = false

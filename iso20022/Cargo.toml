@@ -1,0 +1,38 @@
+[package]
+name = "maya-iso20022"
+version = "0.1.0"
+# Not published. See stratum-v2/Cargo.toml for why cargo-deny needs this.
+publish = false
+edition = "2024"
+rust-version = "1.88"
+description = "ISO 20022 bank-rail messages (pacs.008, pacs.009, camt.053) and the bridge to Maya2C payment intents"
+
+[lib]
+name = "maya_iso20022"
+path = "src/lib.rs"
+
+# Deliberately no dependency on `custom-l1-node`. This crate parses XML a
+# stranger wrote, so it is kept chain-free: it takes bytes and gives back a
+# typed message, or a `PaymentIntent` that names nothing chain-specific.
+# Turning an intent into a `TxKind` and sealing it to the committee is the
+# gateway's job. That keeps the decoder fuzzable without RocksDB or libp2p in
+# the graph, the same boundary `archive` and `stratum-v2` hold.
+#
+# No decimal crate, either. The one conversion that matters — an ISO 20022
+# decimal amount to `u64` base units — is thirty lines of exact integer
+# arithmetic, and a dependency there would be a third party's rounding
+# decisions in a value that decides how much money moves. See `amount.rs`.
+[dependencies]
+# The list-identifier digest. Already in the tree through `archive`, and the
+# hash this crate needs is a domain-separated digest rather than anything
+# algebraic — the Poseidon side of the sanctions scheme lives in `zk-privacy`,
+# which is where arkworks belongs.
+blake3 = "1"
+# Pull parser, not a DOM: a bank rail is where an entity-expansion bomb
+# arrives, and quick-xml expands no entities of its own — `escape` handles the
+# five predefined ones and nothing else. There is no DTD processing to switch
+# off because there is none to begin with, which is the reason to pick this
+# parser over a more featureful one.
+quick-xml = "0.37"
+thiserror = "2.0"
+

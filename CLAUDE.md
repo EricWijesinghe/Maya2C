@@ -93,6 +93,7 @@ PowerShell profile and `~/.bashrc`.
 | `custody-mpc` | Threshold custody of a chain key: dealerless Pedersen VSS, ML-KEM-sealed shares, quorum signing. Links no chain types — `tests/custody_parity_tests.rs` pins its derivation to `crypto::hybrid` |
 | `zkml` | Verifies halo2 (KZG/BN254) proofs of quantized-classifier inference for `host_verify_zkml_proof`. Hand-written circuit, verifier only. **Dark** (`ZKML_ACTIVATION_HEIGHT = u64::MAX`), not post-quantum, SRS from a public seed |
 | `zkml-prover` | Off-chain half of `zkml`: ONNX import via `tract-onnx`, key generation, proving. Its own crate, not a feature, so the node's graph cannot reach tract; `rust-version = 1.91` because tract's patched releases need it, and nothing the node links depends on it |
+| `iso20022` | ISO 20022 bank-rail messages and the bridge to a payment intent. Chain-free, so its XML decoder fuzzes alone (`fuzz/fuzz_targets/iso20022_decode.rs`). One compiled-in amount scale; an inexact amount is an error, never rounded |
 | `archive` | CAR v1 (zstd) archives of pruned block batches and the stores that hold them: local dir, kubo IPFS, Arweave gateway (read-only). Chain-agnostic, so the decoder of untrusted archives is fuzzable alone (`fuzz/fuzz_targets/car_decode.rs`). See `docs/pruning.md` |
 | `dashboard/` | Leptos browser page. **Not a workspace member** — CSR Leptos only runs on `wasm32`. Built with `trunk` |
 
@@ -110,7 +111,8 @@ HQC (`crypto-pq`), Groth16 shielded joinsplits (`zk-privacy`), Cranelift WASM
 undo journal (`src/state/`, `src/chain.rs`), the invariant guard and per-module
 circuit breaker (`src/state/invariant_guard/`), pruning and CAR archives
 (`archive`), `dex`, `governance`, `vrf`, `light-client`, `stratum-v2` +
-`pool-service`, `telemetry`, `faucet`, MPC-TSS custody (`custody-mpc`), CUDA and
+`pool-service`, `telemetry`, `faucet`, MPC-TSS custody (`custody-mpc`), the threshold-encrypted
+mempool (`mev`, `src/sealed/` — optional at genesis, not dark), CUDA and
 wgpu miners, Tauri wallet, Leptos explorer/dashboard, Axum gateway
 (`api-gateway`), SDKs, `docgen`.
 
@@ -124,7 +126,7 @@ writes down.
 | `blockgraph` | Narwhal/Tusk batch refs + deterministic shard scheduling. Nothing references a batch |
 | `lattice-pow` | Lattice PoUW (SVP) verification |
 | `zkml` / `zkml-prover` | halo2 zkML ONNX inference. `ZKML_ACTIVATION_HEIGHT = u64::MAX`, SRS from a public seed |
-| `mev` | Threshold-encrypted mempool |
+| `iso20022` | Bank-rail bridge: pacs.008/pacs.009/camt.053, the sealed translation, and sanctions non-membership proofs. `check_chain` refuses a value-bearing chain while the seal is classical — [docs/iso20022.md](docs/iso20022.md) |
 
 **PLANNED — no code in this tree.** Do not go looking for these; grep will not
 find them (`aya` matches the project *name*, not a dependency). eBPF/XDP
@@ -133,7 +135,7 @@ CCSDS DTN (BPv7), subsea acoustic and subterranean neutrino signalling, QKD
 KM-API, lattice HTLC-L atomic swaps, EVM/SVM/Move transpilation, TEE federated
 AI (SGX/SEV-SNP), TPM 2.0/PUF attestation, biomolecular TRNG, photonic tensor
 driver, DNA archival engine, magneto-optical MRAM, neural organoid MEA, LibAFL,
-ZK-SIEM, bytecode hot-patcher, ISO 20022 parser, ZK dark pools, relativistic
+ZK-SIEM, bytecode hot-patcher, ZK dark pools, relativistic
 clock sync, Lean 4 proof engine.
 
 Three of those collide with invariants already on this list and must be

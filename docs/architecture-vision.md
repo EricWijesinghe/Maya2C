@@ -56,7 +56,7 @@ signature on the chain is a hybrid pair and both halves must verify; see
 | Zero-knowledge proofs (halo2/KZG) | **RESEARCH** | `zkml` | Verifier only, dark — see §2 |
 | MPC-TSS threshold custody (*m*-of-*n*) | **SHIPPED** | `custody-mpc` | Dealerless Pedersen VSS, ML-KEM-sealed shares. Protects the 32-byte chain key, not either signature — invariants 18, 19 and [custody-mpc.md](custody-mpc.md) |
 | Verifiable random function (RFC 9381) | **SHIPPED** | `vrf` | Suite octet `0x03`; the RFC's own vectors are pinned — invariant 10 |
-| Threshold-encrypted mempool | **RESEARCH** | `mev` | Curve arithmetic and an AEAD, no chain types. A miner orders transactions it cannot read |
+| Threshold-encrypted mempool | **SHIPPED** | `mev`, `src/sealed/`, `src/state/sealed_exec.rs` | A miner orders transactions it cannot read. `settle_sealed` runs every block from `stage_block`; the crate itself stays chain-free, curve arithmetic and an AEAD. Optional at genesis like the oracle — a chain with no committee accepts no envelope. **Not post-quantum**: the KEM half is Ristretto ElGamal, because threshold ElGamal has no ML-KEM analogue |
 | Lattice HTLC-L atomic swaps | **PLANNED** | — | Cross-chain swap under lattice assumptions. No code |
 | Physical QKD, KM-API interface | **PLANNED** | — | ETSI GS QKD 014-style key-management interface to external QKD hardware. No code |
 
@@ -134,7 +134,9 @@ is a fork; §7 states the rule.
 | LibAFL dynamic fuzzer | **PLANNED** | — | Would replace or sit beside the cargo-fuzz targets with a custom, coverage-guided harness |
 | ZK-SIEM threat mesh | **PLANNED** | — | Cross-node intrusion signal without revealing what was observed |
 | Self-synthesizing bytecode hot-patcher | **PLANNED** | — | **Reconcile with invariant 13 before any code is written.** No governance key's value is a program, and native code is never fetched from chain state and run. A hot-patcher that takes its patch from the chain violates that outright; one that selects between implementations the binary already ships does not |
-| ISO 20022 XML messaging parser | **PLANNED** | — | Bank-rail interoperability. A parser for untrusted XML is a fuzz target on day one |
+| ISO 20022 XML messaging parser | **RESEARCH** | `iso20022` | Bank-rail interoperability: pacs.008, pacs.009, camt.053. Chain-free like `stratum-v2`, so the decoder of untrusted XML fuzzes alone — `fuzz/fuzz_targets/iso20022_decode.rs`, landed with the crate rather than after it. Entity expansion is off: XXE and entity-expansion bombs are the class a bank-rail parser meets first |
+| ISO 20022 → L1 bridge | **RESEARCH** | `iso20022/src/bridge.rs`, `api-gateway` | Translates a payment instruction into a sealed `TxKind` and renders camt.053 back out of committed state. Refuses mainnet, the way `state::zkml::check_setup` does, because the envelope's confidentiality is classical and envelopes are on chain forever. The gateway signs for payments that arrive with no Maya2C key, which makes it the chain's second trusted party after the oracle — absent by default |
+| Sanctions non-membership proofs | **RESEARCH** | `zk-privacy/src/sanctions.rs`, `iso20022/src/sanctions.rs` | Proves a party is *not* on a published list without revealing who they are, so a compliance check costs no anonymity. The circuit sits in `zk-privacy`, which already owns the field, the Poseidon hash and the tree; `iso20022` holds only the identifier encoding, so its XML decoder never pulls arkworks into a fuzz target |
 | ZK dark pools | **PLANNED** | — | Would build on `dex` and `zk-privacy`. Invariant 7 applies: a trade that merely loses is a no-op |
 | Relativistic gravitational clock synchronisation | **PLANNED** | — | **Note invariant 9.** Oracle freshness is measured in block height, never in timestamps, because `header.timestamp` is miner-chosen and unbounded. A better clock does not change that — it would have to arrive with a rule bounding what a miner may write |
 

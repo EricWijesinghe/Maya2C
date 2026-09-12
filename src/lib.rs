@@ -58,6 +58,7 @@ pub mod crypto;
 pub mod error;
 pub mod genesis;
 pub mod governance;
+pub mod iso20022_bridge;
 pub mod metrics;
 pub mod network;
 pub mod oracle;
