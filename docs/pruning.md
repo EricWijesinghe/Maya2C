@@ -111,7 +111,7 @@ same root. It is `#[ignore]`d because it needs a daemon:
 
 ```bash
 ipfs daemon --offline
-MAYA_KUBO_API=http://127.0.0.1:5001     cargo test -p maya-archive --test kubo_live -- --ignored
+MAYA_KUBO_API=http://127.0.0.1:5001 \n    cargo test -p maya-archive --test kubo_live -- --ignored
 ```
 
 Keep `--offline`. An archive is the chain's history, and a default daemon
