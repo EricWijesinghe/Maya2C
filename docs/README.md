@@ -16,6 +16,7 @@ inherits the thing it describes.
 
 | Document | What it settles |
 |---|---|
+| [architecture-vision.md](architecture-vision.md) | The full target architecture, and which of it is shipped, which is dark, and which was never written |
 | [mainnet-readiness.md](mainnet-readiness.md) | Why mainnet is blocked, and what lifting the block would require |
 | [launch-checklist.md](launch-checklist.md) | What is verified, what is generated but unverified, and what is outstanding |
 | [security-audit.md](security-audit.md) | The audit surface and its findings |

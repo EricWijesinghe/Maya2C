@@ -3,6 +3,20 @@
 Post-quantum L1 blockchain node in Rust (edition 2024, `rust-version = 1.88`).
 Root package `custom-l1-node` + 30 workspace members, one lockfile, one `target/`.
 
+## Identity and Mission
+
+Maya2C is scoped as an **autonomous, post-quantum Layer-1 monolithic
+ecosystem**: one chain that owns its cryptography, its execution, its transport,
+and the hardware it attests, rather than a settlement layer delegating each of
+those elsewhere. The stated target spans software, hardware, space
+communications, bio-computing, and quantum physics — roughly 75 subsystems, of
+which 30 are workspace members today.
+
+The full target architecture, with every component tagged SHIPPED / RESEARCH /
+PLANNED, is [docs/architecture-vision.md](docs/architecture-vision.md). Read it
+before assuming a subsystem exists. The condensed status table below is the
+authority for what a session may assume about this tree.
+
 ## Token Discipline (read first)
 
 This repo is large: `target/` is 356 GB and `wallet-gui/ui/target` is ~4,978
@@ -81,6 +95,49 @@ PowerShell profile and `~/.bashrc`.
 | `zkml-prover` | Off-chain half of `zkml`: ONNX import via `tract-onnx`, key generation, proving. Its own crate, not a feature, so the node's graph cannot reach tract; `rust-version = 1.91` because tract's patched releases need it, and nothing the node links depends on it |
 | `archive` | CAR v1 (zstd) archives of pruned block batches and the stores that hold them: local dir, kubo IPFS, Arweave gateway (read-only). Chain-agnostic, so the decoder of untrusted archives is fuzzable alone (`fuzz/fuzz_targets/car_decode.rs`). See `docs/pruning.md` |
 | `dashboard/` | Leptos browser page. **Not a workspace member** — CSR Leptos only runs on `wasm32`. Built with `trunk` |
+
+## Roadmap Status
+
+Three buckets. The distinction is not cosmetic: a subsystem that was never
+written and one that is written but deliberately dark look identical from
+outside, and mistaking either for shipped produces a safety argument resting on
+nothing. Full detail and rationale per component:
+[docs/architecture-vision.md](docs/architecture-vision.md).
+
+**SHIPPED** — in the tree, reachable, tested. ML-KEM-768 / ML-DSA-65 / SLH-DSA /
+HQC (`crypto-pq`), Groth16 shielded joinsplits (`zk-privacy`), Cranelift WASM
+(`vm`), DAG PoW (`src/crypto/dag/`), tx-root + state-root commitment and the
+undo journal (`src/state/`, `src/chain.rs`), pruning and CAR archives
+(`archive`), `dex`, `governance`, `vrf`, `light-client`, `stratum-v2` +
+`pool-service`, `telemetry`, `faucet`, MPC-TSS custody (`custody-mpc`), CUDA and
+wgpu miners, Tauri wallet, Leptos explorer/dashboard, Axum gateway
+(`api-gateway`), SDKs, `docgen`.
+
+**RESEARCH** — in the tree with tests, but *nothing in consensus calls it*.
+Usually an activation height of `u64::MAX`. Promoting one is a decision somebody
+writes down.
+
+| Crate | What is dark |
+|---|---|
+| `fee-market` | EIP-1559 base fee over bytes. `FeeConfig::DISABLED` |
+| `blockgraph` | Narwhal/Tusk batch refs + deterministic shard scheduling. Nothing references a batch |
+| `lattice-pow` | Lattice PoUW (SVP) verification |
+| `zkml` / `zkml-prover` | halo2 zkML ONNX inference. `ZKML_ACTIVATION_HEIGHT = u64::MAX`, SRS from a public seed |
+| `mev` | Threshold-encrypted mempool |
+
+**PLANNED — no code in this tree.** Do not go looking for these; grep will not
+find them (`aya` matches the project *name*, not a dependency). eBPF/XDP
+zero-copy driver, LoRa/satellite off-grid transport, LEO free-space laser mesh,
+CCSDS DTN (BPv7), subsea acoustic and subterranean neutrino signalling, QKD
+KM-API, lattice HTLC-L atomic swaps, EVM/SVM/Move transpilation, TEE federated
+AI (SGX/SEV-SNP), TPM 2.0/PUF attestation, biomolecular TRNG, photonic tensor
+driver, DNA archival engine, magneto-optical MRAM, neural organoid MEA, LibAFL,
+ZK-SIEM, bytecode hot-patcher, ISO 20022 parser, ZK dark pools, relativistic
+clock sync, Lean 4 proof engine.
+
+Three of those collide with invariants already on this list and must be
+reconciled *before* code, not after: the hot-patcher with 13, relativistic clock
+sync with 9, TEE attestation with 11.
 
 ## Critical Invariants
 
@@ -244,6 +301,35 @@ PowerShell profile and `~/.bashrc`.
     archive node has no horizon. A snapshot is imported only if it reproduces
     `header(H).state_root`; otherwise it is wiped.
 
+## Execution Directives
+
+Four standing rules, each stated with its *current* enforcement — a directive
+written as achieved is a directive nobody will implement. Expanded in
+[docs/architecture-vision.md](docs/architecture-vision.md) §7.
+
+1. **Zeroize cryptographic memory.** `zeroize` is already a dependency of every
+   crate holding key material (root, `crypto-pq`, `custody-mpc`, `mev`, `vrf`,
+   `wallet`, `wallet-gui/core`, `wallet-gui/src-tauri`, `app-maya2c`). New
+   secret types get `ZeroizeOnDrop`, not a manual `drop`. Keep secrets in typed
+   wrappers from generation to use — a `Vec<u8>` that went through a serializer
+   has already been copied.
+2. **Deterministic execution, WASM and state.** Enforced mechanically, not by
+   convention: `apply_block_journaled` refuses a `state_root` execution does not
+   reproduce (invariant 24), and no float may enter a consensus rule
+   (invariant 20). New consensus-path code must be reproducible bit-for-bit on
+   another machine and another toolchain, or it is not a consensus rule.
+3. **No dynamic heap allocation in critical consensus loops.** A target, not a
+   description of today: the apply path allocates, because RocksDB's interface
+   is owned buffers and the journal collects into `Vec`. Read it as — do not add
+   an allocation to an inner loop that lacked one, reuse buffers across
+   iterations, measure before calling a loop hot.
+4. **No `unsafe` in core execution paths.** Holds today for `src/state/`,
+   `src/chain.rs`, `ledger-math`, `dex`, `governance`, `fee-market`, `vrf` — the
+   same crates whose dependency-freedom exists so Kani can compile them. Exempt
+   by construction: `cuda-miner` (CUDA driver FFI), `sdk-ffi` (the C ABI *is*
+   the product), `wgpu-miner` (GPU buffer mapping). An `unsafe` block anywhere
+   else needs a hardware-attestation justification in a comment, and a reviewer.
+
 ## Build & Test
 
 Never run unfiltered cargo output — use `qb` / `qt` / `ql`, or pipe through
@@ -331,6 +417,47 @@ so it is not registered.
 
 **Graphify is a skill, not an MCP server** — invoke with `/graphify`.
 
+## Harness Surface (ECC + plugins)
+
+`~/.claude` runs ECC 2.2.1 as a **manual install**, not the `ecc@ecc` plugin —
+never run `/plugin install ecc@ecc` on top of it, that duplicates every skill,
+command and hook. The same tax that applies to MCP tool names applies here:
+every skill, agent and command puts its name and description in the prompt on
+every turn. The full `developer` profile measured **~18.1K tokens/turn**, so
+the surface is curated to this stack and the rest is archived, not deleted, in
+`~/.claude/backups/curated-20260912/`:
+
+| Surface | Installed | Archived | Cost |
+|---|---:|---:|---:|
+| Skills | 43 | 85 | ~3.7K |
+| Agents | 27 | 41 | ~1.8K |
+| Commands | 45 | 49 | ~1.2K |
+| Plugins (4) | — | — | ~1.3K |
+
+Kept language packs are the ones this repo actually contains: `rust-*`,
+`cpp-*` (cuda-miner), `python-*` (scripts/), `typescript-reviewer` (sdk-js,
+docs/site). Everything Django/Laravel/Vue/Flutter/Kotlin/Swift/SEO/marketing is
+archived. Restore one by moving the file back — do not re-run
+`ecc install --profile developer` to get it, that restores all 240 files and
+the full 24-entry hook graph.
+
+Plugins (user scope, official marketplace only): `rust-analyzer-lsp`,
+`claude-security` (8 scanning agents — the reason to keep the priciest plugin
+on a consensus/crypto codebase), `skill-creator`, `claude-md-management`,
+`claude-code-setup`. Deliberately **not** installed: `github` and `serena`
+plugins (the `gh` CLI and the serena MCP server already cover them), `semgrep`
+and `sonarqube` (thin Rust rule coverage next to clippy + `cargo audit` +
+`cargo deny`, and a permanent tool-name cost), `pr-review-toolkit` and
+`code-review` (ECC ships the same agents), `superpowers` (a third overlapping
+TDD/verification/review system makes agent selection worse), `codspeed` (wants
+a CI account), `security-guidance` (POSIX shell hooks plus an LLM diff review
+on every Stop).
+
+Nine ECC hooks are wired in `~/.claude/settings.json`; 15 were removed and are
+listed in `env.ECC_DISABLED_HOOKS`. `pre:bash:dispatcher` in particular blocks
+the first Bash call of every session with a GateGuard prompt. Re-running any
+ECC install or repair restores all of them — re-trim afterwards.
+
 ## Ignore Rules
 
 `.ignore` at the repo root is the real exclusion file: the Claude Code binary
@@ -381,3 +508,8 @@ registry and re-installing every cargo binary, left alone deliberately.
 3. Keep files modular — 200-400 lines typical, 800 max.
 4. Consensus, crypto, and ledger changes get a `rust-reviewer` +
    `security-reviewer` pass before commit.
+5. A new subsystem lands in [docs/architecture-vision.md](docs/architecture-vision.md)
+   with a status tag *before* it lands in `Cargo.toml`, and it earns a numbered
+   invariant above only once a test pins the behaviour that must not change.
+   Skipping the first step is how a tree acquires a crate nobody can explain;
+   skipping the second is how this file acquires a claim nobody can check.
