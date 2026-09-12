@@ -25,6 +25,8 @@ point that reads bytes the node did not produce.
 | `block_decode` | `Block::from_bytes` |
 | `payload_decode` | `TxKind::decode` |
 | `account_decode` | `Account::decode` |
+| `sv2_frame_decode` | `maya_stratum_v2::frame` |
+| `car_decode` | `maya_archive::read_car` |
 
 Each asserts two properties. The first is the obvious one: a malformed frame
 must surface as `NodeError::Decode` and never as a panic — `ByteReader`
@@ -218,6 +220,21 @@ licence reclassification turn the *security* audit red.
 There is no `ignore` list under `[advisories]`, and the empty list is the point —
 an advisory that has to be accepted should be accepted in a commit that says
 why.
+
+### cargo-audit disagrees, and that is expected
+
+`cargo audit` reads `Cargo.lock`, so it reports advisories for packages the
+build never compiles — today, `hickory-proto` and `lru`, which libp2p declares
+under a `dns` feature this workspace does not enable. `cargo deny` resolves the
+graph and reports advisories ok.
+
+Neither is silenced. `deny.toml` keeps `ignore = []` on purpose, and no
+`.cargo/audit.toml` exists either: the discrepancy is written down instead, with
+the empirical check behind it, in
+[launch-checklist.md](launch-checklist.md#the-auditdeny-discrepancy-resolved).
+The upstream fix is hickory >= 0.26.1, which needs libp2p 0.57 — a bump across
+the transport and the ML-KEM wrapper, and so a deliberate change rather than an
+audit side effect.
 
 ---
 

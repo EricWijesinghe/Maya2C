@@ -25,6 +25,8 @@ cargo fuzz run tx_decode
 | `block_decode` | `Block::from_bytes` | no panic; no over-reservation; canonical |
 | `payload_decode` | `TxKind::decode` | no panic; canonical when the section is the whole input |
 | `account_decode` | `Account::decode` | accepts exactly the 16-byte strings |
+| `sv2_frame_decode` | `maya_stratum_v2::frame` | no panic on bytes from whatever dialled the mining port |
+| `car_decode` | `maya_archive::read_car` / `open_archive` / `decompress` | every returned section hashes to its CID, or the archive is refused; decompression stays bounded |
 
 Every target asserts two things: that a malformed frame surfaces as
 `NodeError::Decode` rather than a panic, and that an accepted frame re-encodes

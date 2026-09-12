@@ -67,6 +67,7 @@ inherits the thing it describes.
 | [custody-mpc.md](custody-mpc.md) | Why institutional threshold custody protects the 32-byte chain key rather than thresholding either signature, and where the trust boundary actually sits |
 | [zkml.md](zkml.md) | Verifying proofs of model inference in a contract: what is measured, why it is dark, and why re-running the model is still cheaper |
 | [ledger-feasibility.md](ledger-feasibility.md) | Whether a Ledger can sign a Maya2C transaction — no, and the obstacle is the hash-based half |
+| [pruning.md](pruning.md) | Dropping old block bodies once a verified archive exists, fetching them back, and bootstrapping a node from a state snapshot |
 
 ## Not Markdown
 

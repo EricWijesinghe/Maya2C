@@ -30,6 +30,14 @@
 //!   full block validation on demand, which is an amplification vector with no
 //!   upside: a real miner talks to its own node.
 //!
+//! - **`get_headers`**, **`get_snapshot_manifest`** and
+//!   **`get_snapshot_chunk`** — what a pruned node bootstraps from. A snapshot
+//!   chunk is a slice of the whole committed state and a header range is up to
+//!   2,000 headers a call, so both are cheap to ask for and expensive to
+//!   answer. Node-to-node work, on the node's own port, not a public endpoint.
+//! - **`get_tip_height`** — harmless in itself, and excluded only to keep the
+//!   public surface to what the REST layer already covers.
+//!
 //! Both stay reachable on the node's own RPC port, to the operator who is
 //! already inside the trust boundary.
 
@@ -48,7 +56,14 @@ pub const ALLOWED_METHODS: &[&str] = &[
 ///
 /// Not merely absent from [`ALLOWED_METHODS`] — named, so the exclusion is a
 /// decision with a test behind it rather than an oversight that looks the same.
-pub const DENIED_METHODS: &[&str] = &["get_mining_candidate", "submit_block"];
+pub const DENIED_METHODS: &[&str] = &[
+    "get_mining_candidate",
+    "submit_block",
+    "get_headers",
+    "get_snapshot_manifest",
+    "get_snapshot_chunk",
+    "get_tip_height",
+];
 
 /// Whether the gateway may forward `method` to the node.
 #[must_use]
@@ -61,9 +76,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_miner_methods_are_refused() {
-        // The assertion this module exists for. If either of these ever
-        // returned true, the gateway would be publishing the miner interface.
+    fn the_denied_methods_are_refused() {
+        // The assertion this module exists for. If any of these ever returned
+        // true, the gateway would be publishing the miner interface, or
+        // serving whole-state snapshot work to anyone who asks.
         for method in DENIED_METHODS {
             assert!(!is_allowed(method), "{method} must not be proxied");
         }

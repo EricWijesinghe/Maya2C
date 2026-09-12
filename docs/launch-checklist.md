@@ -272,6 +272,21 @@ fatal, per `deny.toml`'s `unmaintained = "workspace"`.
    whatever calls it. `wgpu-miner --benchmark` is the only path that currently
    produces a real GPU hash rate, and it is a benchmark rather than mining —
    there is no header from a node, no target to meet, and nothing is submitted.
-9. **`wgpu-miner` still has no work-distribution loop.** The meter is wired
+9. **The header and state-root changes are an unreleased hard fork.** Blocks
+   now commit to their transactions (`tx_root`, header 112 -> 144 bytes), the
+   chain checks every declared `state_root`, and the root folds contract state,
+   the nullifier set and the whole shielded pool. Every node on a network runs
+   the same build or splits, and the genesis block id recorded above predates
+   it. See invariants 24 and 25.
+10. **Pruning is off by default, and three of its edges are unverified here.**
+    No kubo daemon has been run, so `KuboStore` has only been tested against a
+    mock of its two endpoints; `car_decode` is written but never fuzzed, because
+    `libfuzzer-sys` does not build on Windows; and Arweave upload is deliberately
+    not implemented, since it needs a wallet and spends AR. See
+    [pruning.md](pruning.md).
+11. **The Ledger app is a feasibility spike, not a product.** Its Speculos suite
+    ships unrun and no device or emulator exists here. See
+    [ledger-feasibility.md](ledger-feasibility.md).
+12. **`wgpu-miner` still has no work-distribution loop.** The meter is wired
    into `GpuMiner::mixes`, where the GPU work happens, so it is already correct
    when that loop lands — but no `wgpu-miner` process mines a block today.
