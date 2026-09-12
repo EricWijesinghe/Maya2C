@@ -7,7 +7,7 @@
 //! somebody built wrong.
 //!
 //! **Rule changes do not.** Finalizing a closed vote and applying a passed
-//! proposal both happen in [`StateDB::settle_governance`], once, at the end of
+//! proposal both happen in `StateDB::settle_governance`, once, at the end of
 //! the block, in proposal-identifier order. Two reasons, and the first is
 //! fatal:
 //!

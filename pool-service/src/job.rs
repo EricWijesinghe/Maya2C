@@ -129,7 +129,7 @@ impl JobRegistry {
     /// `get_mining_candidate` stamps a fresh timestamp on every call
     /// (`src/rpc/server.rs:155`), so *every* poll returns a candidate that
     /// differs by a byte. A caller that pushed each one would issue a new job id
-    /// twice a second, and with only [`RETAINED_JOBS`] retained, the id a
+    /// twice a second, and with only `RETAINED_JOBS` retained, the id a
     /// channel is actually mining would be evicted about a second and a half
     /// later — after which every share that channel submitted would be refused
     /// as stale. The pool would look like it was rejecting all work from

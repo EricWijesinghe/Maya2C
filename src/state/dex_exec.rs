@@ -24,9 +24,9 @@
 //!
 //! ## When a swap actually happens
 //!
-//! Not where it sits in the block. [`StateDB::stage_swap`] takes the trader's
+//! Not where it sits in the block. `StateDB::stage_swap` takes the trader's
 //! input into escrow and adds them to that pool's batch; every batch settles in
-//! [`StateDB::settle_trading`] once the whole block has been staged, at one
+//! `StateDB::settle_trading` once the whole block has been staged, at one
 //! price per pool. See [`maya_dex::batch`] for what that buys and what it does
 //! not.
 //!

@@ -13,7 +13,7 @@
 //!
 //! A block's canonical-index entry and the tip pointer are written in the
 //! **same `WriteBatch`** as the state that block produced (see
-//! [`StateDB::apply_canonical`] and [`StateDB::revert_canonical`]). A crash can
+//! `StateDB::apply_canonical` and `StateDB::revert_canonical`). A crash can
 //! therefore never leave state at one block and the tip at another. A second
 //! database would need a two-phase commit to promise that.
 //!

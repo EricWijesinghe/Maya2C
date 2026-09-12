@@ -49,7 +49,7 @@
 //! Domain separation uses derived keys rather than `Hasher::new_derive_key` in
 //! the hot loop: `new_derive_key` re-hashes the context *string* on every call,
 //! and dataset generation makes on the order of 10⁸ of them. The context is
-//! hashed once into a 32-byte key ([`cache_key`], [`item_key`], [`mix_key`])
+//! hashed once into a 32-byte key (`cache_key`, `item_key`, `mix_key`)
 //! and keyed hashing is used thereafter, which is one compression per call.
 
 pub mod cache;

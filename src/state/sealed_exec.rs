@@ -12,9 +12,10 @@
 //!
 //! ## Where the revealed batch executes, and why it matters
 //!
-//! [`StateDB::settle_sealed`] runs after every plaintext transaction in the
-//! block has been staged and *before* [`crate::state::db::StateDB`]'s trading
-//! pass. Both halves of that sentence are load-bearing.
+//! `StateDB::settle_sealed` — `pub(crate)`, so it is named here rather than
+//! linked — runs after every plaintext transaction in the block has been staged
+//! and *before* [`crate::state::db::StateDB`]'s trading pass. Both halves of
+//! that sentence are load-bearing.
 //!
 //! After the plaintext transactions: a miner who assembles the reveal block
 //! learns the plaintexts while building it, and could place a transaction of

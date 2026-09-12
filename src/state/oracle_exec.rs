@@ -9,7 +9,7 @@
 //! no-op.
 //!
 //! The beacon is different. It is *staged* during the block and folded once at
-//! the end, by [`StateDB::settle_oracle`], because the accumulator must advance
+//! the end, by `StateDB::settle_oracle`, because the accumulator must advance
 //! exactly once per block whether or not a proof arrived. Folding it where the
 //! transaction sits would make the beacon a function of how many beacon
 //! transactions a miner chose to include.

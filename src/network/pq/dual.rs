@@ -56,7 +56,7 @@
 //!
 //! # Why the context string changes
 //!
-//! [`KDF_CONTEXT`] is not the single-KEM one. If both protocols derived under
+//! `KDF_CONTEXT` is not the single-KEM one. If both protocols derived under
 //! the same context, a dual session and an ML-KEM-only session that happened to
 //! share an ML-KEM transcript would derive related keys, and the second KEM
 //! would be contributing nothing at exactly the moment it was supposed to

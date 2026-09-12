@@ -162,7 +162,7 @@ fn mining_blocks(window: &[IndexedBlock]) -> Vec<&IndexedBlock> {
 /// - fewer than two mined blocks: no interval exists, so there is no rate
 /// - zero or negative elapsed time: timestamps are miner-supplied and only
 ///   loosely ordered, so a window can legitimately appear instantaneous
-/// - genesis: excluded, see [`mining_blocks`]
+/// - genesis: excluded, see `mining_blocks`
 ///
 /// Each returns zero rather than an infinity that would render as garbage.
 #[must_use]
