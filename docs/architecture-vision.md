@@ -88,9 +88,12 @@ below that line is intent.
 | libp2p transport, PQ Noise handshake | **SHIPPED** | `src/network/` | ML-KEM-768; HQC available as the second KEM |
 | Stratum V2 pool protocol | **SHIPPED** | `stratum-v2`, `pool-service` | No chain dependency in the protocol crate, so it fuzzes alone |
 | SPV light client | **SHIPPED** | `light-client` | Header fork choice and state-proof verification |
-| Network simulation harness | **SHIPPED** | `src/network/sim.rs` | Latency and partition modelling |
+| Network simulation harness | **SHIPPED** | `src/network/sim.rs` | Latency, packet loss and partition modelling. The loss dial arrived with the radio transport: a transport whose whole problem is erasure cannot be tested by a harness that models none |
 | eBPF/XDP zero-copy driver (`aya`) | **PLANNED** | — | Kernel-bypass packet path for relay nodes. No code. (Grepping for `aya` here matches the project name — it is not a dependency) |
-| LoRa / satellite off-grid transport | **PLANNED** | — | Low-bandwidth header relay for regions with no IP transit |
+| LoRa off-grid transport | **RESEARCH** | `radio-transport` | ISM-band header relay for regions with no IP transit. Carries **headers and SPV proofs only**: a hybrid signature is 11,165 bytes and incompressible, so a transaction is 60 frames and forty minutes of duty cycle at best. Chain-free, so its frame decoder fuzzes alone |
+| Fountain-coded fragmentation | **RESEARCH** | `radio-transport/src/fountain.rs` | Rateless erasure coding over a window of headers. A 1% duty cycle makes retransmission cost another window, so loss is answered by emitting more symbols rather than by asking again — there is no reverse path to ask on |
+| Store-and-forward mesh relay | **RESEARCH** | `radio-transport/src/relay.rs` | Custody, TTL and replay-safe dedup, until a node with IP transit is reached. A relayed header takes the identical path to one off TCP — see the note below, which this subsystem is the first real test of |
+| Satellite uplink | **PLANNED** | — | Same fragmenter, a different link MTU and no duty cycle. Deferred until the terrestrial path is real |
 | LEO free-space laser mesh | **PLANNED** | — | Optical inter-satellite links |
 | CCSDS delay-tolerant networking (BPv7) | **PLANNED** | — | Bundle Protocol v7 store-and-forward, for links where round-trip time exceeds any sane timeout |
 | Subsea acoustic signalling | **PLANNED** | — | |

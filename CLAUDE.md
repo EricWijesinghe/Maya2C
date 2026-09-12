@@ -126,11 +126,12 @@ writes down.
 | `blockgraph` | Narwhal/Tusk batch refs + deterministic shard scheduling. Nothing references a batch |
 | `lattice-pow` | Lattice PoUW (SVP) verification |
 | `zkml` / `zkml-prover` | halo2 zkML ONNX inference. `ZKML_ACTIVATION_HEIGHT = u64::MAX`, SRS from a public seed |
+| `radio-transport` | ISM LoRa off-grid transport: AX.25-style framing, a duty-cycle governor that refuses rather than warns, a random-linear fountain codec, and store-and-forward relay. Headers and SPV proofs only — a hybrid signature is 11,165 bytes and does not compress. Chain-free, fuzzable alone — [docs/radio-transport.md](docs/radio-transport.md) |
 | `iso20022` | Bank-rail bridge: pacs.008/pacs.009/camt.053, the sealed translation, and sanctions non-membership proofs. `check_chain` refuses a value-bearing chain while the seal is classical — [docs/iso20022.md](docs/iso20022.md) |
 
 **PLANNED — no code in this tree.** Do not go looking for these; grep will not
 find them (`aya` matches the project *name*, not a dependency). eBPF/XDP
-zero-copy driver, LoRa/satellite off-grid transport, LEO free-space laser mesh,
+zero-copy driver, satellite off-grid transport, LEO free-space laser mesh,
 CCSDS DTN (BPv7), subsea acoustic and subterranean neutrino signalling, QKD
 KM-API, lattice HTLC-L atomic swaps, EVM/SVM/Move transpilation, TEE federated
 AI (SGX/SEV-SNP), TPM 2.0/PUF attestation, biomolecular TRNG, photonic tensor

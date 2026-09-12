@@ -127,6 +127,11 @@ members = [
     # without RocksDB in the graph. It emits a neutral `PaymentIntent`; turning
     # one into a `TxKind` and sealing it is the gateway's job, not this crate's.
     "iso20022",
+    # Off-grid radio transport: ISM LoRa framing, a duty-cycle governor, a
+    # fountain codec and the store-and-forward relay. Chain-free for the same
+    # reason `stratum-v2` is, and more so — these frames arrive from anyone with
+    # a transmitter, with no handshake in front of them.
+    "radio-transport",
 ]
 
 [dependencies]
@@ -201,6 +206,9 @@ maya-mev = { path = "mev" }
 # `src/iso20022_bridge.rs`; the crate itself links no chain types, which is
 # what keeps its XML decoder fuzzable on its own.
 maya-iso20022 = { path = "iso20022" }
+# Off-grid radio. The node takes it for `src/network/radio_gateway.rs`; the
+# crate links no chain types, which is what keeps its frame decoder fuzzable.
+maya-radio-transport = { path = "radio-transport" }
 # Only for the ristretto255 encodings that cross the boundary between chain
 # state and `maya-mev` — a stored committee key, a stored decryption share.
 # The same version `maya-mev` and `maya-vrf` already pull in, deliberately: two

@@ -29,6 +29,7 @@ inherits the thing it describes.
 | [dag-pow.md](dag-pow.md) | The Ethash-style DAG proof of work and its activation |
 | [lattice-pow.md](lattice-pow.md) | Lattice proof-of-useful-work. A research branch — nothing in consensus calls it |
 | [pq-transport.md](pq-transport.md) | ML-KEM-768 over Noise, and the conditions for enabling the HQC second KEM |
+| [radio-transport.md](radio-transport.md) | Why the off-grid link carries headers and not transactions, and why its governor refuses rather than warns |
 | [oracle.md](oracle.md) | Why freshness is measured in block height and never in timestamps |
 | [governance.md](governance.md) | The bounds a proposal may never escape, and why no governed value is a program |
 | [invariant-guard.md](invariant-guard.md) | Why a block that creates value is invalid, why a merely alarming one only halts its module, and why no breaker can stop a transfer |

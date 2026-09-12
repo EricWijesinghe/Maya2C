@@ -28,6 +28,11 @@ maya-archive = { path = "../archive" }
 # chain's own peer set entirely, and the one whose format has a documented
 # history of entity-expansion and external-entity attacks.
 maya-iso20022 = { path = "../iso20022" }
+# Radio frames. The weakest provenance of any decoder here: these bytes arrive
+# from anyone with a transmitter on a shared unlicensed band, with no handshake
+# in front of the parser.
+maya-radio-transport = { path = "../radio-transport" }
+blake3 = "1"
 
 # Sanitizer builds are slow enough that unoptimized decoding would dominate the
 # profile. Debug assertions stay on: an arithmetic overflow in a decode path is
@@ -90,6 +95,13 @@ bench = false
 [[bin]]
 name = "iso20022_decode"
 path = "fuzz_targets/iso20022_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "radio_frame_decode"
+path = "fuzz_targets/radio_frame_decode.rs"
 test = false
 doc = false
 bench = false

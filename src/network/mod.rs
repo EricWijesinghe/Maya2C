@@ -6,6 +6,7 @@ pub mod identity;
 pub mod mempool;
 pub mod node;
 pub mod pq;
+pub mod radio_gateway;
 pub mod sim;
 pub mod topics;
 
