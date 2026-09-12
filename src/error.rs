@@ -152,6 +152,32 @@ pub enum NodeError {
         horizon: u64,
     },
 
+    /// A block's state transition breaks an invariant the guard checks.
+    ///
+    /// Refused exactly as a wrong state root is refused: the block creates or
+    /// destroys value, nothing commits, and no breaker is written because
+    /// there is no committed state to protect. See
+    /// [`crate::state::invariant_guard::conservation`].
+    #[error("invariant violated: {0}")]
+    InvariantViolation(String),
+
+    /// A module is in emergency read-only mode.
+    ///
+    /// Set by the circuit breaker after an anomaly, and cleared by height
+    /// rather than by a write. Transfers are never gated by it — see
+    /// [`crate::state::invariant_guard::Module`].
+    #[error("{module} is halted until block {until}: {invariant} tripped at block {tripped_at}")]
+    ModuleHalted {
+        /// The halted module.
+        module: &'static str,
+        /// Which check fired.
+        invariant: &'static str,
+        /// Height of the block that tripped it.
+        tripped_at: u64,
+        /// First height at which the module is usable again.
+        until: u64,
+    },
+
     /// Archiving pruned blocks, or fetching one back, failed.
     #[error("archive: {0}")]
     Archive(String),

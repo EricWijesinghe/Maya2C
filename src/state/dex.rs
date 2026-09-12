@@ -47,12 +47,12 @@ use crate::state::asset::AssetId;
 /// Prefix shared by every record the trading subsystem owns.
 pub(crate) const DEX_PREFIX: &[u8] = b"d:";
 
-const ASSET_PREFIX: &[u8] = b"d:asset:";
-const BALANCE_PREFIX: &[u8] = b"d:bal:";
-const POOL_PREFIX: &[u8] = b"d:pool:";
-const ORDER_PREFIX: &[u8] = b"d:ord:";
+pub(crate) const ASSET_PREFIX: &[u8] = b"d:asset:";
+pub(crate) const BALANCE_PREFIX: &[u8] = b"d:bal:";
+pub(crate) const POOL_PREFIX: &[u8] = b"d:pool:";
+pub(crate) const ORDER_PREFIX: &[u8] = b"d:ord:";
 const ORDER_INDEX_PREFIX: &[u8] = b"d:oidx:";
-const LP_ASSET_PREFIX: &[u8] = b"d:lp:";
+pub(crate) const LP_ASSET_PREFIX: &[u8] = b"d:lp:";
 const ORDER_COUNT_PREFIX: &[u8] = b"d:cnt:";
 
 /// Key holding the monotonic order arrival counter.

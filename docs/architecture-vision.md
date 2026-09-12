@@ -129,6 +129,8 @@ is a fork; §7 states the rule.
 | Kani model checking | **SHIPPED** | `ledger-math`, `dex`, `governance`, `fee-market` | Which is why those crates stay dependency-free — invariants 1, 6 |
 | Supply-chain gates | **SHIPPED** | `deny.toml`, `cargo audit` | Committed, run in CI |
 | Telemetry threat surface | **SHIPPED** | `telemetry` | Nothing on the dashboard is verified, and that is stated rather than papered over — invariants 14, 15 |
+| State invariant guard + circuit breaker | **SHIPPED** | `src/state/invariant_guard/` | Value conservation over all five holding places fails the block; an anomaly halts one module for 100 blocks and never a transfer — invariant 28, [invariant-guard.md](invariant-guard.md) |
+| Exploit replay suite | **SHIPPED** | `tests/exploit_replays.rs` | Re-entrancy, overflow and flash-loan replays. Two of the three have no surface on this chain, which the suite demonstrates rather than assumes |
 | LibAFL dynamic fuzzer | **PLANNED** | — | Would replace or sit beside the cargo-fuzz targets with a custom, coverage-guided harness |
 | ZK-SIEM threat mesh | **PLANNED** | — | Cross-node intrusion signal without revealing what was observed |
 | Self-synthesizing bytecode hot-patcher | **PLANNED** | — | **Reconcile with invariant 13 before any code is written.** No governance key's value is a program, and native code is never fetched from chain state and run. A hot-patcher that takes its patch from the chain violates that outright; one that selects between implementations the binary already ships does not |

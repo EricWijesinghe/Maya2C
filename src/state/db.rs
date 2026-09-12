@@ -788,6 +788,12 @@ impl StateDB {
         // where they sat, which is a state divergence rather than a subtlety.
         self.settle_governance(&mut overlay, context)?;
 
+        // Last, over the finished overlay. Running it earlier would check
+        // a half-built block: the trading pass moves reserves and the
+        // governance pass returns deposits, and a conservation equation
+        // evaluated between the two is not the block's equation.
+        self.check_invariants(&mut overlay, context)?;
+
         Ok(overlay)
     }
 

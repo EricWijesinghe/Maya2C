@@ -32,6 +32,7 @@ use crate::state::account::{Account, Address};
 use crate::state::channel::{ChannelRecord, ChannelStatus};
 use crate::state::context::BlockContext;
 use crate::state::db::{Overlay, StateDB, channel_key};
+use crate::state::invariant_guard::Module;
 
 impl StateDB {
     /// Reads a channel record from committed state.
@@ -116,6 +117,15 @@ impl StateDB {
         context: BlockContext,
     ) -> Result<()> {
         let sender = *sender;
+
+        // The circuit breaker, at the one place every typed payload passes
+        // through. `TxKind::Transfer` maps to no module, so a plain transfer
+        // is ungated by construction rather than by an exception somebody has
+        // to remember — and the transfer itself has already happened in
+        // `stage_transaction`, before this dispatch is reached at all.
+        if let Some(module) = Module::of(kind) {
+            self.require_module(overlay, module, context.height)?;
+        }
 
         match kind {
             TxKind::Transfer => Ok(()),

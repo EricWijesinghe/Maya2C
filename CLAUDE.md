@@ -107,7 +107,8 @@ nothing. Full detail and rationale per component:
 **SHIPPED** — in the tree, reachable, tested. ML-KEM-768 / ML-DSA-65 / SLH-DSA /
 HQC (`crypto-pq`), Groth16 shielded joinsplits (`zk-privacy`), Cranelift WASM
 (`vm`), DAG PoW (`src/crypto/dag/`), tx-root + state-root commitment and the
-undo journal (`src/state/`, `src/chain.rs`), pruning and CAR archives
+undo journal (`src/state/`, `src/chain.rs`), the invariant guard and per-module
+circuit breaker (`src/state/invariant_guard/`), pruning and CAR archives
 (`archive`), `dex`, `governance`, `vrf`, `light-client`, `stratum-v2` +
 `pool-service`, `telemetry`, `faucet`, MPC-TSS custody (`custody-mpc`), CUDA and
 wgpu miners, Tauri wallet, Leptos explorer/dashboard, Axum gateway
@@ -300,6 +301,28 @@ sync with 9, TEE attestation with 11.
     `prune_horizon`, before anything is reverted. Pruning is opt-in: an
     archive node has no horizon. A snapshot is imported only if it reproduces
     `header(H).state_root`; otherwise it is wiped.
+28. **The guard refuses invalid blocks and halts modules, but never halts a
+    transfer.** `StateDB::stage_block` is the one place an overlay is built, so
+    the hook at the end of it covers all four commit paths — including
+    `preview_root`, which is why an honest miner refuses to *build* a bad block
+    rather than minting one the network rejects. A conservation failure is a
+    block-level `InvariantViolation`, refused like a wrong state root, with no
+    breaker written because there is no committed state to protect; an anomaly
+    is a *judgement*, so the block commits and only the module halts, for
+    `BREAKER_BLOCKS` = 100. `Module::of(TxKind::Transfer)` is `None` and the
+    match has no wildcard arm, so peer-to-peer payments are ungated by
+    construction and adding a `TxKind` is a compile error until somebody
+    assigns it. The guard reads only committed state and the block — no clock,
+    no configuration, no node-local value — and the anomaly checks run in a
+    fixed order, because a breaker that trips on one node and not another is a
+    chain split. Every anomaly threshold carries a floor or a tolerance chosen
+    so the breaker cannot be *bought*: `SHIELDED_DRAIN_FLOOR` exempts a pool too
+    thin for its percentage to mean anything, because a rate with no floor is a
+    lever anyone can pull to halt the module for the price of one fee.
+    `g:guard:` sits under the governance prefix (asserted at compile time) so it
+    is already under the state root per 25.
+    `tests/exploit_replays.rs` pins it; see
+    [docs/invariant-guard.md](docs/invariant-guard.md).
 
 ## Execution Directives
 
@@ -353,6 +376,21 @@ invariants before removing it.
 
 First build after a clean is long — the `opt-level = 3` dev overrides mean the
 crypto and arkworks stacks compile optimized even in debug.
+
+**`cargo nextest run --workspace` needs `CARGO_BUILD_JOBS=1` on this machine.**
+Cargo defaults to one job per logical CPU (24 here), so two dozen `link.exe`
+processes each link a test binary carrying `debuginfo = 2`, wasmtime, arkworks,
+halo2 and — for the targets that dev-depend on `maya-zkml-prover` —
+`tract-onnx`. With 32 GB of RAM and a 4 GB pagefile that ends in
+
+```
+LINK : fatal error LNK1102: out of memory
+```
+
+reported by nextest as ordinary test failures, which is what it is *not*.
+`exploit_replays` alone still hits it at `CARGO_BUILD_JOBS=4`. Serialise the
+link step rather than reducing `debug`: a profile change invalidates the whole
+356 GB `target/`.
 
 ## MCP Servers
 

@@ -213,7 +213,8 @@ impl Vm {
     /// # Errors
     ///
     /// Returns [`VmError::InvalidModule`] if the bytes are not valid wasm, use a
-    /// disabled proposal, or exceed [`MAX_MODULE_BYTES`].
+    /// disabled proposal, or exceed [`MAX_MODULE_BYTES`], and
+    /// [`VmError::UnresolvedImport`] for an import the host does not provide.
     pub fn validate(&self, wasm: &[u8]) -> Result<()> {
         if wasm.len() > MAX_MODULE_BYTES {
             return Err(VmError::SizeLimit {
@@ -222,9 +223,23 @@ impl Vm {
                 limit: MAX_MODULE_BYTES,
             });
         }
-        Module::new(&self.engine, wasm)
-            .map(|_| ())
-            .map_err(|e| VmError::InvalidModule(e.to_string()))
+        let module =
+            Module::new(&self.engine, wasm).map_err(|e| VmError::InvalidModule(e.to_string()))?;
+
+        // Names only. The linker checks the *types* at instantiation, and it
+        // has to: a signature mismatch is a different failure with a different
+        // message. What is decided here is whether the name exists at all,
+        // which is the question a deployer can answer and a caller cannot.
+        for import in module.imports() {
+            if import.module() != HOST_MODULE || !HOST_FUNCTIONS.contains(&import.name()) {
+                return Err(VmError::UnresolvedImport(format!(
+                    "{}::{}",
+                    import.module(),
+                    import.name()
+                )));
+            }
+        }
+        Ok(())
     }
 
     /// Default gas ceiling.
@@ -413,6 +428,34 @@ fn classify(error: &wasmtime::Error, gas_limit: u64) -> VmError {
     }
     VmError::Trap(text)
 }
+
+/// The one module name a contract may import from.
+pub const HOST_MODULE: &str = "env";
+
+/// Every host function name [`register_host_functions`] registers, and so the
+/// whole of what a contract may import.
+///
+/// Written out so [`Vm::validate`] can refuse an unresolvable import at
+/// *deploy* rather than at first call. Without it a module importing
+/// `env.call` — the import a re-entrancy attack needs — is stored on chain and
+/// only fails when somebody invokes it, which turns a deployer's mistake into
+/// every caller's. `vm/tests/host_surface_tests.rs` checks the list against
+/// what the linker actually registers, so the two cannot drift.
+pub const HOST_FUNCTIONS: &[&str] = &[
+    "block_height",
+    "get_balance",
+    "storage_read",
+    "storage_write",
+    "block_randomness",
+    "oracle_read",
+    "oracle_feed_age",
+    "emit_event",
+    // Registered by `crate::zkml::register`, unconditionally and with no
+    // feature gate, so it belongs here even though `ZKML_ACTIVATION_HEIGHT`
+    // leaves it dark: a name the linker resolves and this list omits is a
+    // contract that validates on no node at all.
+    "host_verify_zkml_proof",
+];
 
 /// Registers every host function a contract may import.
 ///

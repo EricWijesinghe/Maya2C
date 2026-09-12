@@ -31,6 +31,7 @@ inherits the thing it describes.
 | [pq-transport.md](pq-transport.md) | ML-KEM-768 over Noise, and the conditions for enabling the HQC second KEM |
 | [oracle.md](oracle.md) | Why freshness is measured in block height and never in timestamps |
 | [governance.md](governance.md) | The bounds a proposal may never escape, and why no governed value is a program |
+| [invariant-guard.md](invariant-guard.md) | Why a block that creates value is invalid, why a merely alarming one only halts its module, and why no breaker can stop a transfer |
 
 ## Execution and markets
 

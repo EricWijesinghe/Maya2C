@@ -20,7 +20,7 @@ use std::sync::{Arc, RwLock};
 
 use crate::core::Transaction;
 use crate::error::{NodeError, Result};
-use crate::state::StateDB;
+use crate::state::{Module, StateDB};
 
 /// Identifier of a pooled transaction.
 pub type TxHash = [u8; 32];
@@ -123,6 +123,35 @@ impl Mempool {
             });
         }
 
+        self.check_breaker(&tx.kind)
+    }
+
+    /// Refuses a payload whose module the circuit breaker has halted.
+    ///
+    /// Admission, not consensus: the block executor applies the same gate, and
+    /// this only stops the pool accumulating transactions for a block that
+    /// would refuse them. It reads the tip height rather than the height the
+    /// transaction will land at, which is the closest thing the pool has and
+    /// is off by at most the breaker's last block.
+    ///
+    /// A transaction whose module is halted is rejected rather than held: the
+    /// sender can resubmit after the breaker clears, and a pool that held
+    /// everything for a hundred blocks would be a queue an attacker can fill.
+    fn check_breaker(&self, kind: &crate::core::TxKind) -> Result<()> {
+        let Some(module) = Module::of(kind) else {
+            return Ok(());
+        };
+        let Some(record) = self.state.stored_breaker(module)? else {
+            return Ok(());
+        };
+        if record.holds_at(self.state.tip_height()?) {
+            return Err(NodeError::ModuleHalted {
+                module: module.label(),
+                invariant: record.invariant.label(),
+                tripped_at: record.tripped_at,
+                until: record.until,
+            });
+        }
         Ok(())
     }
 

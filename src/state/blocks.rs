@@ -316,6 +316,23 @@ impl StateDB {
             .transpose()
     }
 
+    /// Height of the stored tip.
+    ///
+    /// Two point lookups rather than a cached field, because a cached height
+    /// is a second copy of the tip that a crash mid-reorg could leave
+    /// disagreeing with the one in the batch.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Storage`] if the store has no metadata or no
+    /// header for the tip it names.
+    pub fn tip_height(&self) -> Result<u64> {
+        let tip = self.require_meta()?.tip;
+        self.stored_header(&tip)?
+            .map(|stored| stored.height)
+            .ok_or_else(|| NodeError::Storage(format!("no header for tip {}", hex::encode(tip))))
+    }
+
     /// Applies `block` as the new tip: the chain's checked, journaled apply,
     /// with the canonical index and the tip pointer in the same batch.
     ///
