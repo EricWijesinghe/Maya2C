@@ -94,6 +94,11 @@ allow = [
 #   takes as a dev-dependency. No binary this workspace ships contains it.
 # - Allowing the license would admit the next MPL crate silently. Allowing the
 #   crate means the next one fails this check and gets its own paragraph.
+#
+# Accepted by the project owner on 2026-09-12. Revisit when tract's `libm`
+# conflict with the pinned wasmtime is resolved: if `maya-zkml-prover` can move
+# back to a patched tract 0.21, `dyn-eq` leaves the graph and this exception
+# should be deleted rather than inherited.
 [[licenses.exceptions]]
 crate = "dyn-eq"
 allow = ["MPL-2.0"]

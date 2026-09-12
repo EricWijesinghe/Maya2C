@@ -278,12 +278,13 @@ fatal, per `deny.toml`'s `unmaintained = "workspace"`.
    the nullifier set and the whole shielded pool. Every node on a network runs
    the same build or splits, and the genesis block id recorded above predates
    it. See invariants 24 and 25.
-10. **Pruning is off by default, and three of its edges are unverified here.**
-    No kubo daemon has been run, so `KuboStore` has only been tested against a
-    mock of its two endpoints; `car_decode` is written but never fuzzed, because
-    `libfuzzer-sys` does not build on Windows; and Arweave upload is deliberately
-    not implemented, since it needs a wallet and spends AR. See
-    [pruning.md](pruning.md).
+10. **Pruning is off by default; Arweave upload is the one edge left open.**
+    The IPFS path is verified against a real kubo daemon
+    (`archive/tests/kubo_live.rs`: import, pin, export, verify), and the CAR
+    decoder's property is covered on every platform by a seeded randomized test
+    as well as by the fuzz target, which still needs Linux or macOS. Arweave
+    upload stays unimplemented on purpose: it spends AR per byte and cannot be
+    tested without spending. See [pruning.md](pruning.md).
 11. **The Ledger app is a feasibility spike, not a product.** Its Speculos suite
     ships unrun and no device or emulator exists here. See
     [ledger-feasibility.md](ledger-feasibility.md).

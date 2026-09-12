@@ -102,12 +102,35 @@ checkpoint every N blocks and serves the newest one that is at least K deep.
 | `--snapshot-interval <N>` | Take and serve a snapshot every N blocks |
 | `--bootstrap-from <URL>` | Bootstrap a pruned node from a peer's JSON-RPC endpoint |
 
+## Verified against a real daemon
+
+`archive/tests/kubo_live.rs` runs the whole round trip against kubo v0.43.0:
+this crate's CAR is imported, the root is confirmed pinned through
+`/api/v0/pin/ls`, and the exported DAG verifies section by section against the
+same root. It is `#[ignore]`d because it needs a daemon:
+
+```bash
+ipfs daemon --offline
+MAYA_KUBO_API=http://127.0.0.1:5001     cargo test -p maya-archive --test kubo_live -- --ignored
+```
+
+Keep `--offline`. An archive is the chain's history, and a default daemon
+announces every block it holds to the public DHT.
+
+The decoder's total property — verified or refused, never a panic, bounded
+decompression — has a fuzz target (`fuzz/fuzz_targets/car_decode.rs`) and a
+seeded randomized test (`archive/tests/car_robustness.rs`) that drives the same
+property through ~4,800 mutated archives on every platform. The fuzz target
+needs Linux or macOS, because `libfuzzer-sys` does not build on Windows; the
+randomized test runs everywhere and replays from `MAYA_ARCHIVE_SEED`.
+
 ## Not done
 
-- **Arweave upload.** It needs a wallet and spends AR.
+- **Arweave upload.** It signs a transaction with a wallet and pays AR per
+  byte, forever. Spending is not something a background task does on an
+  operator's behalf, and the signing path cannot be tested without spending,
+  so `put` refuses and says what to do instead.
 - **A libp2p snapshot protocol.** JSON-RPC carries snapshots for now, as it
   already carries backfill.
 - **Per-chunk range proofs.** A snapshot is verified whole. A lying server
   wastes bandwidth but cannot inject state.
-- **A live IPFS round trip.** `KuboStore` is tested against a mock of kubo's
-  two endpoints. No kubo daemon has been run here.
