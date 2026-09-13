@@ -102,7 +102,101 @@ pub fn deterministic_config() -> Result<Config> {
 /// # Errors
 ///
 /// Returns [`VmError::EngineConfig`] if the engine cannot be created.
+/// A digest of everything `deterministic_config` sets.
+///
+/// Mixed into every module-cache key, so a change to the configuration
+/// invalidates every cached module by construction rather than by somebody
+/// remembering to clear a cache. Without it, a build that flipped NaN
+/// canonicalisation would keep serving modules compiled under the old setting
+/// until the process restarted — two nodes running one contract under two
+/// compilers, which is the one way a cache can fork a chain.
+///
+/// Written out by hand because wasmtime exposes no stable fingerprint of a
+/// `Config`. That makes this a list somebody must extend when they add a
+/// setting, so `the_digest_covers_every_setting_the_config_makes` counts the
+/// `config.` calls in this file against the fields below and fails when they
+/// drift.
+#[must_use]
+pub fn config_digest() -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"maya-vm-config-v1:");
+    // Every value `deterministic_config` sets, in the order it sets them.
+    hasher.update(&[
+        1, // consume_fuel
+        1, // Strategy::Cranelift
+        1, // cranelift_nan_canonicalization
+        0, // wasm_simd
+        0, // wasm_relaxed_simd
+        1, // wasm_bulk_memory
+        1, // wasm_multi_value
+        0, // debug_info
+    ]);
+    hasher.update(&(MAX_STACK_BYTES as u64).to_le_bytes());
+    hasher.update(&(MAX_MEMORY_PAGES as u64).to_le_bytes());
+    hasher.update(&(MAX_MODULE_BYTES as u64).to_le_bytes());
+    // The compiler itself. wasmtime does not guarantee stable fuel accounting
+    // across versions — see the pin in Cargo.toml — so a version change must
+    // invalidate every cached module too.
+    hasher.update(env!("CARGO_PKG_VERSION").as_bytes());
+    hasher.update(b"wasmtime-48.0.1");
+    *hasher.finalize().as_bytes()
+}
+
+/// Builds an engine with the deterministic configuration.
+///
+/// # Errors
+///
+/// Returns [`VmError::EngineConfig`] if the engine cannot be created.
 pub fn deterministic_engine() -> Result<Engine> {
     let config = deterministic_config()?;
     Engine::new(&config).map_err(|e| VmError::EngineConfig(e.to_string()))
+}
+
+#[cfg(test)]
+mod digest_tests {
+    use super::*;
+
+    /// Settings `config_digest` accounts for: the eight flags in its byte
+    /// array, plus the three limits and the two version strings hashed after.
+    const SETTINGS_COVERED: usize = 9;
+
+    #[test]
+    fn the_digest_covers_every_setting_the_config_makes() {
+        // `config_digest` is a hand-written list, because wasmtime exposes no
+        // stable fingerprint of a `Config`. A hand-written list drifts, and a
+        // digest that missed a setting would keep serving modules compiled
+        // under the old one after a change — two nodes running one contract
+        // under two compilers.
+        //
+        // So the source is counted. Crude, and it fails loudly the moment
+        // somebody adds a `config.` call without extending the digest, which is
+        // exactly when a comment would have been ignored.
+        let source = include_str!("config.rs");
+        let calls = source
+            .lines()
+            .filter(|line| line.trim_start().starts_with("config."))
+            .count();
+        assert_eq!(
+            calls, SETTINGS_COVERED,
+            "`deterministic_config` makes {calls} settings and `config_digest` \
+             accounts for {SETTINGS_COVERED}. Add the new one to the digest and \
+             raise this count — a cached module compiled under the old setting \
+             would otherwise outlive the change."
+        );
+    }
+
+    #[test]
+    fn the_digest_is_the_same_on_every_call() {
+        // Two nodes must agree on it, so it cannot depend on anything but the
+        // constants above.
+        assert_eq!(config_digest(), config_digest());
+    }
+
+    #[test]
+    fn the_digest_is_not_all_zeros() {
+        // A digest that came back zeroed would make every configuration share a
+        // cache, which is the failure the digest exists to prevent — and it
+        // would look like it was working.
+        assert_ne!(config_digest(), [0u8; 32]);
+    }
 }

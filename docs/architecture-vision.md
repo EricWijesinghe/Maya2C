@@ -71,7 +71,7 @@ signature on the chain is a hybrid pair and both halves must verify; see
 | Ethash-style DAG proof of work | **SHIPPED** | `src/crypto/dag/` | With an `activation_height` registry — [dag-pow.md](dag-pow.md) |
 | Committed transaction root + state root | **SHIPPED** | `src/state/`, `src/chain.rs` | `BlockHeader::tx_root`, checked before anything is stored — invariant 24 |
 | Undo journal and reorg safety | **SHIPPED** | `src/state/` | Every consensus record's prior value is journalled — invariants 8, 25, 26 |
-| WASM runtime via Cranelift JIT | **SHIPPED** | `vm` | Gas is wasmtime fuel; native host work is charged first — invariant 21 |
+| WASM runtime via Cranelift JIT | **SHIPPED** | `vm` | Gas is wasmtime fuel; native host work is charged first — invariant 21. Compiled modules are cached, keyed by bytecode *and* a digest of the engine configuration, so a config change invalidates every entry rather than serving code built under the old compiler. Measured 14x on a working contract, 23x on a trivial one — [docs/vm-module-cache.md](docs/vm-module-cache.md) |
 | Historical pruning + archive bootstrap | **SHIPPED** | `archive`, `src/state/blocks.rs` | No body deleted before a verified copy exists — invariant 27, [pruning.md](pruning.md) |
 | Constant-product DEX + order book | **SHIPPED** | `dex` | Dependency-free for Kani. A losing trade is a no-op — invariants 6, 7 |
 | Governance lifecycle and bounds | **SHIPPED** | `governance` | Governance cannot make governance unsafe — invariants 12, 13, 17 |

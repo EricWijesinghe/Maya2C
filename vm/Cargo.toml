@@ -29,6 +29,9 @@ hex = "0.4"
 # default-features = false drops gc, component-model, threads, and
 # stack-switching, each of which is a determinism or attack-surface liability
 # in a consensus VM.
+# The module cache key. Already in the tree through `archive`, `identity`
+# and `rwa`; the cache needs a digest, not anything algebraic.
+blake3 = "1"
 wasmtime = { version = "=48.0.1", default-features = false, features = [
     "cranelift",
     "runtime",
@@ -36,5 +39,12 @@ wasmtime = { version = "=48.0.1", default-features = false, features = [
 ] }
 
 [dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
 wat = "1"
 tempfile = "3"
+
+# What the module cache saves, measured rather than targeted. See the file
+# header for why "JIT versus interpreted" is not the comparison being made.
+[[bench]]
+name = "module_cache"
+harness = false

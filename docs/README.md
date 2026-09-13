@@ -40,6 +40,7 @@ inherits the thing it describes.
 | Document | What it settles |
 |---|---|
 | [dex.md](dex.md) | Why a losing trade is a no-op and never an error |
+| [vm-module-cache.md](vm-module-cache.md) | Why the VM was already a JIT, and why a cache keyed on bytecode alone could fork a chain |
 | [rwa.md](rwa.md) | Why a DvP that cannot settle is a no-op, and why pro-rata dust would fail the invariant guard |
 | [iso20022.md](iso20022.md) | Bank-rail messages: why an inexact amount is refused rather than rounded, and how a compliance check costs no anonymity |
 | [blockgraph.md](blockgraph.md) | Batch references and deterministic shard scheduling. Also a research branch |

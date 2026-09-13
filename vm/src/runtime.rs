@@ -31,7 +31,10 @@
 
 use wasmtime::{Caller, Engine, Extern, Instance, Linker, Memory, Module, Store};
 
-use crate::config::{MAX_MEMORY_PAGES, MAX_MODULE_BYTES, PAGE_SIZE, deterministic_engine};
+use crate::cache::ModuleCache;
+use crate::config::{
+    MAX_MEMORY_PAGES, MAX_MODULE_BYTES, PAGE_SIZE, config_digest, deterministic_engine,
+};
 use crate::error::{Result, VmError};
 use crate::host::{
     Address, ContractId, Event, HostState, MAX_EVENT_BYTES, MAX_EVENTS, MAX_KEY_BYTES,
@@ -181,6 +184,12 @@ pub(crate) fn caller_memory<S: HostState + Send + 'static>(
 /// build, so a node constructs one and reuses it across calls.
 pub struct Vm {
     engine: Engine,
+    /// Compiled modules, so a contract is optimised once rather than per call.
+    ///
+    /// The engine's own caches do not cover this: `Module::new` runs Cranelift
+    /// every time it is called, whatever the engine has seen before. See
+    /// [`crate::cache`].
+    cache: ModuleCache,
     /// Default gas ceiling when a caller does not specify one.
     default_gas: u64,
 }
@@ -194,6 +203,7 @@ impl Vm {
     pub fn new() -> Result<Self> {
         Ok(Self {
             engine: deterministic_engine()?,
+            cache: ModuleCache::new(config_digest()),
             default_gas: 10_000_000,
         })
     }
@@ -202,6 +212,15 @@ impl Vm {
     #[must_use]
     pub fn engine(&self) -> &Engine {
         &self.engine
+    }
+
+    /// The module cache, for benchmarks and for an operator's telemetry.
+    ///
+    /// Nothing that decides anything reads it: a hit and a miss produce the same
+    /// code, charge the same fuel and return the same result.
+    #[must_use]
+    pub fn cache(&self) -> &ModuleCache {
+        &self.cache
     }
 
     /// Validates and compiles a module without running it.
@@ -293,9 +312,14 @@ impl Vm {
         state: S,
     ) -> core::result::Result<(S, Outcome), (S, VmError)> {
         // Compile before building the store, so a bad module never reaches it.
-        let module = match Module::new(&self.engine, wasm) {
+        //
+        // Through the cache: the same bytes under the same configuration
+        // compile to the same code and charge the same fuel, so this is the one
+        // place a contract's cost can fall without anything observable changing.
+        // `a_cached_call_burns_identical_fuel` is what says so.
+        let module = match self.cache.compile(&self.engine, wasm) {
             Ok(module) => module,
-            Err(e) => return Err((state, VmError::InvalidModule(e.to_string()))),
+            Err(error) => return Err((state, error)),
         };
 
         let context = CallContext {
