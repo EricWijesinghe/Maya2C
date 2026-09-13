@@ -35,6 +35,9 @@ use crate::core::dex_payload::{
 use crate::core::governance_payload::{
     Ballot, ProposalSubmission, StakeLock, StakeUnlock, WorkClaim,
 };
+use crate::core::identity_payload::{
+    AnchorAttestation, RegisterDid, RevokeDid, RotateDidKey, SetRevocationBit,
+};
 use crate::core::oracle_payload::{
     BeaconSubmission, FeedCreation, FeedSubmission, RegistryRotation,
 };
@@ -131,6 +134,13 @@ const TAG_CANCEL_PROPOSAL: u8 = 28;
 // The sealed mempool.
 const TAG_SEAL: u8 = 29;
 const TAG_REVEAL_SHARE: u8 = 30;
+
+// Self-sovereign identity.
+const TAG_REGISTER_DID: u8 = 31;
+const TAG_ROTATE_DID_KEY: u8 = 32;
+const TAG_REVOKE_DID: u8 = 33;
+const TAG_ANCHOR_ATTESTATION: u8 = 34;
+const TAG_SET_REVOCATION_BIT: u8 = 35;
 
 /// Encoded size of a [`ShieldedJoinSplit`].
 ///
@@ -434,6 +444,19 @@ pub enum TxKind {
     Seal(Box<SealedEnvelope>),
     /// Contribute one committee member's share toward opening an envelope.
     RevealShare(RevealShare),
+    /// Register `did:maya2c:<sender>`. The subject is the sender, never a
+    /// field: a registration that named its subject would let anyone register a
+    /// document for anybody.
+    RegisterDid(Box<RegisterDid>),
+    /// Install a new key, authorised by the one it replaces — the transaction
+    /// is signed by the current key by construction.
+    RotateDidKey(Box<RotateDidKey>),
+    /// Revoke the sender's own DID, permanently.
+    RevokeDid(RevokeDid),
+    /// Publish an issuer's credential-tree root. Carries a root, never a claim.
+    AnchorAttestation(Box<AnchorAttestation>),
+    /// Flip one bit of the sender's own revocation bitmap.
+    SetRevocationBit(SetRevocationBit),
 }
 
 impl TxKind {
@@ -478,6 +501,11 @@ impl TxKind {
             Self::CancelProposal(_) => "cancel_proposal",
             Self::Seal(_) => "seal",
             Self::RevealShare(_) => "reveal_share",
+            Self::RegisterDid(_) => "register_did",
+            Self::RotateDidKey(_) => "rotate_did_key",
+            Self::RevokeDid(_) => "revoke_did",
+            Self::AnchorAttestation(_) => "anchor_attestation",
+            Self::SetRevocationBit(_) => "set_revocation_bit",
         }
     }
 
@@ -615,6 +643,26 @@ impl TxKind {
                 buf.push(TAG_SEAL);
                 envelope.encode_into(buf);
             }
+            Self::RegisterDid(payload) => {
+                buf.push(TAG_REGISTER_DID);
+                payload.encode_into(buf);
+            }
+            Self::RotateDidKey(payload) => {
+                buf.push(TAG_ROTATE_DID_KEY);
+                payload.encode_into(buf);
+            }
+            Self::RevokeDid(payload) => {
+                buf.push(TAG_REVOKE_DID);
+                payload.encode_into(buf);
+            }
+            Self::AnchorAttestation(payload) => {
+                buf.push(TAG_ANCHOR_ATTESTATION);
+                payload.encode_into(buf);
+            }
+            Self::SetRevocationBit(payload) => {
+                buf.push(TAG_SET_REVOCATION_BIT);
+                payload.encode_into(buf);
+            }
             Self::RevealShare(share) => {
                 buf.push(TAG_REVEAL_SHARE);
                 share.encode_into(buf);
@@ -707,6 +755,13 @@ impl TxKind {
             TAG_CANCEL_PROPOSAL => Ok(Self::CancelProposal(reader.read_array::<32>()?)),
             TAG_SEAL => Ok(Self::Seal(Box::new(SealedEnvelope::decode(reader)?))),
             TAG_REVEAL_SHARE => Ok(Self::RevealShare(RevealShare::decode(reader)?)),
+            TAG_REGISTER_DID => Ok(Self::RegisterDid(Box::new(RegisterDid::decode(reader)?))),
+            TAG_ROTATE_DID_KEY => Ok(Self::RotateDidKey(Box::new(RotateDidKey::decode(reader)?))),
+            TAG_REVOKE_DID => Ok(Self::RevokeDid(RevokeDid::decode(reader)?)),
+            TAG_ANCHOR_ATTESTATION => Ok(Self::AnchorAttestation(Box::new(
+                AnchorAttestation::decode(reader)?,
+            ))),
+            TAG_SET_REVOCATION_BIT => Ok(Self::SetRevocationBit(SetRevocationBit::decode(reader)?)),
             other => Err(NodeError::Decode(format!(
                 "unknown transaction payload tag {other}"
             ))),

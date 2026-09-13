@@ -32,6 +32,7 @@ inherits the thing it describes.
 | [radio-transport.md](radio-transport.md) | Why the off-grid link carries headers and not transactions, and why its governor refuses rather than warns |
 | [oracle.md](oracle.md) | Why freshness is measured in block height and never in timestamps |
 | [governance.md](governance.md) | The bounds a proposal may never escape, and why no governed value is a program |
+| [identity.md](identity.md) | Why a DID is an address rather than a key, and why the attestation is post-quantum but the disclosure proof is not |
 | [invariant-guard.md](invariant-guard.md) | Why a block that creates value is invalid, why a merely alarming one only halts its module, and why no breaker can stop a transfer |
 
 ## Execution and markets

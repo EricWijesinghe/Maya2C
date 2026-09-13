@@ -62,6 +62,9 @@ pub enum StateLayer {
     Governance,
     /// Sealed-mempool records, under the `m:` prefix.
     Sealed,
+    /// Identity records, under the `i:` prefix: DID documents, attestations
+    /// and revocation pages.
+    Identity,
     /// The shielded pool: a BLAKE3 commitment to the whole stored pool, which
     /// is the Poseidon tree's frontier, the anchor window and the public
     /// balance. See `ShieldedPool::commitment`; it was the bare Poseidon root
@@ -109,6 +112,7 @@ impl StateLayer {
             Self::Shielded => "maya shielded state root v1",
             Self::Contracts => "maya contracts state root v1",
             Self::Nullifiers => "maya nullifiers state root v1",
+            Self::Identity => "maya identity state root v1",
         }
     }
 
@@ -124,6 +128,7 @@ impl StateLayer {
             Self::Sealed => 6,
             Self::Contracts => 7,
             Self::Nullifiers => 8,
+            Self::Identity => 9,
         }
     }
 
@@ -164,6 +169,7 @@ impl StateLayer {
             Self::Shielded => "shielded",
             Self::Contracts => "contracts",
             Self::Nullifiers => "nullifiers",
+            Self::Identity => "identity",
         }
     }
 }

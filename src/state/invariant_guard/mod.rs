@@ -99,6 +99,9 @@ pub enum Module {
     Vm,
     /// The sealed mempool: envelopes and decryption shares.
     Sealed,
+    /// Identity: DID registration, rotation, revocation, and the attestations
+    /// and revocation bitmaps issuers publish.
+    Identity,
 }
 
 /// Every module, in tag order. The guard iterates it so a new variant cannot be
@@ -111,6 +114,7 @@ pub const MODULES: &[Module] = &[
     Module::Governance,
     Module::Vm,
     Module::Sealed,
+    Module::Identity,
 ];
 
 impl Module {
@@ -125,6 +129,7 @@ impl Module {
             Self::Governance => 4,
             Self::Vm => 5,
             Self::Sealed => 6,
+            Self::Identity => 7,
         }
     }
 
@@ -139,6 +144,7 @@ impl Module {
             4 => Some(Self::Governance),
             5 => Some(Self::Vm),
             6 => Some(Self::Sealed),
+            7 => Some(Self::Identity),
             _ => None,
         }
     }
@@ -154,6 +160,7 @@ impl Module {
             Self::Governance => "governance",
             Self::Vm => "wasm vm",
             Self::Sealed => "sealed mempool",
+            Self::Identity => "identity",
         }
     }
 
@@ -204,6 +211,12 @@ impl Module {
             TxKind::DeployContract(_) | TxKind::CallContract(_) => Some(Self::Vm),
 
             TxKind::Seal(_) | TxKind::RevealShare(_) => Some(Self::Sealed),
+
+            TxKind::RegisterDid(_)
+            | TxKind::RotateDidKey(_)
+            | TxKind::RevokeDid(_)
+            | TxKind::AnchorAttestation(_)
+            | TxKind::SetRevocationBit(_) => Some(Self::Identity),
         }
     }
 }

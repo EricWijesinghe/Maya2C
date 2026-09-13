@@ -2192,6 +2192,7 @@ dependencies = [
  "maya-dex",
  "maya-fee-market",
  "maya-governance",
+ "maya-identity",
  "maya-iso20022",
  "maya-lattice-pow",
  "maya-ledger-math",
@@ -5289,6 +5290,14 @@ version = "0.1.0"
 [[package]]
 name = "maya-governance"
 version = "0.1.0"
+
+[[package]]
+name = "maya-identity"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "thiserror 2.0.20",
+]
 
 [[package]]
 name = "maya-iso20022"

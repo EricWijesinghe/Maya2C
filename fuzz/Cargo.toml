@@ -32,6 +32,9 @@ maya-iso20022 = { path = "../iso20022" }
 # from anyone with a transmitter on a shared unlicensed band, with no handshake
 # in front of the parser.
 maya-radio-transport = { path = "../radio-transport" }
+# DID documents and attestations, which arrive from strangers by resolution,
+# by wallet handoff, or off a QR code.
+maya-identity = { path = "../identity" }
 blake3 = "1"
 
 # Sanitizer builds are slow enough that unoptimized decoding would dominate the
@@ -102,6 +105,13 @@ bench = false
 [[bin]]
 name = "radio_frame_decode"
 path = "fuzz_targets/radio_frame_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "did_decode"
+path = "fuzz_targets/did_decode.rs"
 test = false
 doc = false
 bench = false

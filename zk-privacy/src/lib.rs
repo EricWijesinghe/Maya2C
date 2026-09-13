@@ -33,6 +33,7 @@
 //! the test key off a production network.
 
 pub mod circuit;
+pub mod credential;
 pub mod error;
 pub mod field;
 pub mod hash;
@@ -43,6 +44,7 @@ pub mod sanctions;
 pub mod tree;
 pub mod wallet;
 
+pub use credential::{DisclosureCircuit, DisclosurePublic, DisclosureWitness, Predicate};
 pub use error::{Result, ZkError};
 pub use note::{Address, Note, SpendingKey};
 pub use sanctions::{AbsenceCircuit, AbsenceWitness, Identifier, SanctionsList};

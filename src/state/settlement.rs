@@ -189,6 +189,20 @@ impl StateDB {
                 self.stage_envelope(overlay, &sender, nonce, envelope, context)
             }
             TxKind::RevealShare(share) => self.stage_reveal_share(overlay, share, context),
+
+            // Every one of these acts on the sender's own DID. The subject is
+            // never a field, so there is no authorisation check to get wrong:
+            // the signature that made this transaction valid is the
+            // authorisation, and the address it produces is the subject.
+            TxKind::RegisterDid(payload) => self.register_did(overlay, &sender, payload),
+            TxKind::RotateDidKey(payload) => self.rotate_did_key(overlay, &sender, payload),
+            TxKind::RevokeDid(payload) => {
+                self.revoke_did(overlay, &sender, context.height, payload)
+            }
+            TxKind::AnchorAttestation(payload) => {
+                self.anchor_attestation(overlay, &sender, context.height, payload)
+            }
+            TxKind::SetRevocationBit(payload) => self.set_revocation_bit(overlay, &sender, payload),
         }
     }
 

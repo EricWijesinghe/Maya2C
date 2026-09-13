@@ -132,6 +132,11 @@ members = [
     # reason `stratum-v2` is, and more so — these frames arrive from anyone with
     # a transmitter, with no handshake in front of them.
     "radio-transport",
+    # Self-sovereign identity: DID documents, service endpoints, attestations.
+    # Chain-free, because a DID Document arrives from a stranger. Its records
+    # carry commitments and roots only — there is no field a claim could go in,
+    # which is the one property a permanent public chain cannot walk back.
+    "identity",
 ]
 
 [dependencies]
@@ -209,6 +214,8 @@ maya-iso20022 = { path = "iso20022" }
 # Off-grid radio. The node takes it for `src/network/radio_gateway.rs`; the
 # crate links no chain types, which is what keeps its frame decoder fuzzable.
 maya-radio-transport = { path = "radio-transport" }
+# Self-sovereign identity records. The node takes it for `src/state/identity.rs`.
+maya-identity = { path = "identity" }
 # Only for the ristretto255 encodings that cross the boundary between chain
 # state and `maya-mev` — a stored committee key, a stored decryption share.
 # The same version `maya-mev` and `maya-vrf` already pull in, deliberately: two

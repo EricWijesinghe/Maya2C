@@ -46,6 +46,10 @@ pub(crate) const RECORD_LAYERS: &[(&[u8], StateLayer)] = &[
     (crate::oracle::ORACLE_PREFIX, StateLayer::Oracle),
     (crate::governance::GOVERNANCE_PREFIX, StateLayer::Governance),
     (crate::sealed::SEALED_PREFIX, StateLayer::Sealed),
+    (
+        crate::state::identity::IDENTITY_PREFIX,
+        StateLayer::Identity,
+    ),
 ];
 
 /// Committed prefixes that are not generic records: each has its own typed

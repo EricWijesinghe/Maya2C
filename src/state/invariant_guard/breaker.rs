@@ -282,9 +282,9 @@ mod tests {
             assert_eq!(Module::from_tag(tag), Some(module));
         }
         // Not `MODULES.len()`: a variant left out of `MODULES` would make that
-        // comparison agree with itself. 7 is the count this wire format has.
-        assert_eq!(seen.len(), 7);
-        assert_eq!(Module::from_tag(7), None);
+        // comparison agree with itself. 8 is the count this wire format has.
+        assert_eq!(seen.len(), 8);
+        assert_eq!(Module::from_tag(8), None);
     }
 
     #[test]

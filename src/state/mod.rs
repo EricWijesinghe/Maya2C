@@ -22,6 +22,8 @@ pub mod db;
 pub mod dex;
 pub mod dex_exec;
 pub mod governance_exec;
+pub mod identity;
+pub mod identity_exec;
 pub mod invariant_guard;
 pub mod merkle;
 pub mod oracle_exec;
