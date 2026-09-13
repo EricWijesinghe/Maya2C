@@ -68,6 +68,8 @@ pub enum StateLayer {
     /// Real-world asset records, under the `r:` prefix: tokens, cap tables,
     /// legal attestations, settled distributions and cached eligibility.
     Rwa,
+    /// Lattice HTLC locks, under the `h:` prefix.
+    Htlc,
     /// The shielded pool: a BLAKE3 commitment to the whole stored pool, which
     /// is the Poseidon tree's frontier, the anchor window and the public
     /// balance. See `ShieldedPool::commitment`; it was the bare Poseidon root
@@ -93,6 +95,9 @@ pub const LAYER_ORDER: &[StateLayer] = &[
     StateLayer::Oracle,
     StateLayer::Governance,
     StateLayer::Sealed,
+    StateLayer::Identity,
+    StateLayer::Rwa,
+    StateLayer::Htlc,
     StateLayer::Shielded,
     StateLayer::Contracts,
     StateLayer::Nullifiers,
@@ -117,6 +122,7 @@ impl StateLayer {
             Self::Nullifiers => "maya nullifiers state root v1",
             Self::Identity => "maya identity state root v1",
             Self::Rwa => "maya rwa state root v1",
+            Self::Htlc => "maya htlc-l state root v1",
         }
     }
 
@@ -134,6 +140,7 @@ impl StateLayer {
             Self::Nullifiers => 8,
             Self::Identity => 9,
             Self::Rwa => 10,
+            Self::Htlc => 11,
         }
     }
 
@@ -149,6 +156,9 @@ impl StateLayer {
             6 => Some(Self::Sealed),
             7 => Some(Self::Contracts),
             8 => Some(Self::Nullifiers),
+            9 => Some(Self::Identity),
+            10 => Some(Self::Rwa),
+            11 => Some(Self::Htlc),
             _ => None,
         }
     }
@@ -176,6 +186,7 @@ impl StateLayer {
             Self::Nullifiers => "nullifiers",
             Self::Identity => "identity",
             Self::Rwa => "rwa",
+            Self::Htlc => "htlc",
         }
     }
 }

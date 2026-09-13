@@ -35,6 +35,10 @@ pub struct FeeConfig {
     pub treasury_bps: u64,
     /// The base fee at the activation height, before any adjustment.
     pub initial_base_fee: u64,
+    /// First height at which the base fee follows [`crate::FeeRule::Neural`]
+    /// with [`crate::MODEL_V1`] instead of the linear step. A second switch,
+    /// `u64::MAX` in every shipped configuration — see `docs/neural-gas.md`.
+    pub neural_activation_height: u64,
 }
 
 /// A configuration outside [`crate::limits`].
@@ -68,12 +72,26 @@ impl FeeConfig {
         change_denominator: 8,
         treasury_bps: 2_000,
         initial_base_fee: 10,
+        neural_activation_height: u64::MAX,
+    };
+
+    /// [`FeeConfig::TESTING`] with the neural gain active from the start.
+    pub const TESTING_NEURAL: Self = Self {
+        neural_activation_height: 1,
+        ..Self::TESTING
     };
 
     /// Whether fees are charged at `height`.
     #[must_use]
     pub const fn is_active(&self, height: u64) -> bool {
         height >= self.activation_height
+    }
+
+    /// Whether the base fee follows the neural gain at `height`. Requires the
+    /// fee market itself to be active.
+    #[must_use]
+    pub const fn is_neural_active(&self, height: u64) -> bool {
+        self.is_active(height) && height >= self.neural_activation_height
     }
 
     /// Checks every parameter against the compiled-in bounds.

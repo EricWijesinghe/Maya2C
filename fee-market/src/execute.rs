@@ -21,9 +21,16 @@
 
 use alloc::vec::Vec;
 
-use crate::base_fee::next_base_fee;
 use crate::config::{ConfigError, FeeConfig};
+use crate::model::{Features, INPUTS, weights_v1::MODEL_V1};
+use crate::rule::{FeeRule, next_base_fee_by_rule};
 use crate::split::{FeeSplit, split};
+
+/// What the linear rule is handed: it reads no features.
+const NO_FEATURES: Features = Features::ZERO;
+
+// Pinned so a change to the feature count is a compile error here as well.
+const _: () = assert!(INPUTS == 6);
 
 /// What the parent block contributes to this block's base fee.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -105,6 +112,9 @@ pub enum FeeError {
     },
     /// More than one fee claim in a block.
     DuplicateClaim,
+    /// The neural rule is active and the parent block's features were not
+    /// supplied.
+    MissingFeatures,
     /// A total overflowed `u64` — unreachable under [`crate::MAX_SUPPLY`], and
     /// refused rather than wrapped if it is ever reached.
     Overflow,
@@ -125,6 +135,29 @@ pub fn apply_block_fees(
     txs: &[TxFee],
     claims: &[FeeClaim],
 ) -> Result<BlockFeeOutcome, FeeError> {
+    apply_block_fees_with_features(config, height, parent, None, txs, claims)
+}
+
+/// [`apply_block_fees`], with the parent block's features for the neural rule.
+///
+/// Below `config.neural_activation_height` the features are ignored and the
+/// linear step applies, so a configuration that never switches the rule on
+/// produces exactly the fees [`apply_block_fees`] always did.
+///
+/// # Errors
+///
+/// Any [`FeeError`], including [`FeeError::MissingFeatures`] when the neural
+/// rule is active and a parent exists but no features were supplied — a
+/// validator that skipped extraction must not fall back to a different rule
+/// than its peers.
+pub fn apply_block_fees_with_features(
+    config: &FeeConfig,
+    height: u64,
+    parent: Option<ParentFees>,
+    features: Option<&Features>,
+    txs: &[TxFee],
+    claims: &[FeeClaim],
+) -> Result<BlockFeeOutcome, FeeError> {
     if !config.is_active(height) {
         return Ok(BlockFeeOutcome::Inactive);
     }
@@ -133,16 +166,7 @@ pub fn apply_block_fees(
         return Err(FeeError::DuplicateClaim);
     }
 
-    let base_fee = match parent {
-        Some(p) => next_base_fee(
-            p.base_fee,
-            p.size_bytes,
-            config.target_block_bytes,
-            config.change_denominator,
-            config.min_base_fee,
-        ),
-        None => config.initial_base_fee,
-    };
+    let base_fee = resolve_base_fee(config, height, parent, features)?;
 
     let mut charges = Vec::with_capacity(txs.len());
     let (mut burned, mut treasury, mut tips) = (0u64, 0u64, 0u64);
@@ -185,6 +209,34 @@ pub fn apply_block_fees(
         tips,
         beneficiary,
     })
+}
+
+/// The base fee for a block: the configuration's initial value at activation,
+/// otherwise the active rule applied to the parent.
+fn resolve_base_fee(
+    config: &FeeConfig,
+    height: u64,
+    parent: Option<ParentFees>,
+    features: Option<&Features>,
+) -> Result<u64, FeeError> {
+    let Some(parent) = parent else {
+        return Ok(config.initial_base_fee);
+    };
+    let (rule, features) = if config.is_neural_active(height) {
+        let features = features.ok_or(FeeError::MissingFeatures)?;
+        (FeeRule::Neural(&MODEL_V1), features)
+    } else {
+        (FeeRule::Linear, &NO_FEATURES)
+    };
+    Ok(next_base_fee_by_rule(
+        rule,
+        parent.base_fee,
+        parent.size_bytes,
+        config.target_block_bytes,
+        config.change_denominator,
+        config.min_base_fee,
+        features,
+    ))
 }
 
 #[cfg(test)]
@@ -235,6 +287,67 @@ mod tests {
         };
         assert_eq!(charges[0].charged, 1_050);
         assert_eq!((burned, treasury, tips), (800, 200, 50));
+    }
+
+    fn base_fee_of(outcome: Result<BlockFeeOutcome, FeeError>) -> u64 {
+        match outcome {
+            Ok(BlockFeeOutcome::Charged { base_fee, .. }) => base_fee,
+            other => panic!("not charged: {other:?}"),
+        }
+    }
+
+    const PARENT: ParentFees = ParentFees {
+        base_fee: 800,
+        size_bytes: 3 * 1024 * 1024 / 2,
+    };
+
+    #[test]
+    fn a_configuration_that_never_switches_the_rule_on_charges_what_it_always_did() {
+        let features = Features::new([crate::model::FEATURE_LIMIT; INPUTS]);
+        for height in [1, 1_000] {
+            assert_eq!(
+                base_fee_of(apply_block_fees_with_features(
+                    &CONFIG,
+                    height,
+                    Some(PARENT),
+                    Some(&features),
+                    &[],
+                    &[]
+                )),
+                base_fee_of(apply_block_fees(&CONFIG, height, Some(PARENT), &[], &[]))
+            );
+        }
+    }
+
+    #[test]
+    fn the_active_neural_rule_needs_features_and_uses_the_committed_gain() {
+        let neural = FeeConfig::TESTING_NEURAL;
+        assert_eq!(
+            apply_block_fees_with_features(&neural, 2, Some(PARENT), None, &[], &[]),
+            Err(FeeError::MissingFeatures)
+        );
+        let features = Features::new([30_000, 50_000, 10_000, 0, 20_000, 10_000]);
+        let expected = crate::rule::neural_next_base_fee(
+            PARENT.base_fee,
+            PARENT.size_bytes,
+            neural.target_block_bytes,
+            neural.change_denominator,
+            neural.min_base_fee,
+            MODEL_V1.gain(&features),
+        );
+        assert_eq!(
+            base_fee_of(apply_block_fees_with_features(
+                &neural,
+                2,
+                Some(PARENT),
+                Some(&features),
+                &[],
+                &[]
+            )),
+            expected
+        );
+        // At activation there is no parent, so no features are needed.
+        assert!(apply_block_fees_with_features(&neural, 1, None, None, &[], &[]).is_ok());
     }
 
     #[test]

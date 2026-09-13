@@ -258,6 +258,21 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         })
         .map_err(|e| rejected(e.to_string()))?;
 
+    module
+        .register_method("htlc_get_lock", |params, ctx, _| {
+            let id_hex: String = params.one().map_err(|e| invalid_params(e.to_string()))?;
+            let lock_id = decode_array::<32>(&id_hex, "lock_id")?;
+            let record = ctx
+                .chain()
+                .state()
+                .stored_htlc_lock(&lock_id)
+                .map_err(|e| rejected(e.to_string()))?;
+            Ok::<_, ErrorObjectOwned>(
+                record.map(|record| crate::rpc::types::HtlcLockInfo::new(&lock_id, &record)),
+            )
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
     crate::rpc::bootstrap::register(&mut module)?;
 
     Ok(module)

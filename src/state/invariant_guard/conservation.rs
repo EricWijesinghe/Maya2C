@@ -14,7 +14,7 @@
 //!
 //! | Asset | Held in |
 //! |---|---|
-//! | Native | `acct:` balances, `chan:` capacity, the shielded pool's public balance, `g:lock:` stakes, `g:prop:` deposits |
+//! | Native | `acct:` balances, `chan:` capacity, the shielded pool's public balance, `g:lock:` stakes, `g:prop:` deposits, `h:lk:` HTLC escrow |
 //! | Registered | `d:bal:` balances, `d:pool:` reserves, `d:ord:` escrow |
 //! | LP share | `d:bal:` balances |
 //!
@@ -57,6 +57,7 @@ use crate::governance::{LOCK_PREFIX, LockRecord, PROPOSAL_PREFIX, ProposalRecord
 use crate::state::asset::{AssetId, AssetRecord, decode_balance};
 use crate::state::channel::{ChannelRecord, ChannelStatus};
 use crate::state::db::{Overlay, StateDB};
+use crate::state::htlc::{LOCK_PREFIX as HTLC_LOCK_PREFIX, decode as htlc_decode};
 use crate::state::dex::{
     ASSET_PREFIX, BALANCE_PREFIX, LP_ASSET_PREFIX, ORDER_PREFIX, OrderRecord, POOL_PREFIX,
     PoolRecord, derive_lp_asset, pool_key,
@@ -195,6 +196,8 @@ impl StateDB {
                 fold_lock(staged, previous, ledger)?;
             } else if key.starts_with(PROPOSAL_PREFIX) {
                 fold_proposal(staged, previous, ledger)?;
+            } else if key.starts_with(HTLC_LOCK_PREFIX) {
+                fold_htlc_lock(staged, previous, ledger)?;
             }
         }
         Ok(())
@@ -372,6 +375,26 @@ fn fold_proposal(
         ledger,
         NATIVE_ASSET,
         diff(deposit(staged)?, deposit(previous)?),
+    );
+    Ok(())
+}
+
+/// `h:lk:<id>`: native coin escrowed by a lattice HTLC until it settles.
+fn fold_htlc_lock(
+    staged: Option<&[u8]>,
+    previous: Option<&[u8]>,
+    ledger: &mut Ledger,
+) -> Result<()> {
+    let escrowed = |bytes: Option<&[u8]>| -> Result<u64> {
+        Ok(match bytes {
+            Some(bytes) => htlc_decode(bytes)?.escrowed(),
+            None => 0,
+        })
+    };
+    shift(
+        ledger,
+        NATIVE_ASSET,
+        diff(escrowed(staged)?, escrowed(previous)?),
     );
     Ok(())
 }

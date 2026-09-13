@@ -35,6 +35,7 @@ use crate::core::dex_payload::{
 use crate::core::governance_payload::{
     Ballot, ProposalSubmission, StakeLock, StakeUnlock, WorkClaim,
 };
+use crate::core::htlc_payload::{HtlcClaim, HtlcLock, HtlcRefund};
 use crate::core::identity_payload::{
     AnchorAttestation, RegisterDid, RevokeDid, RotateDidKey, SetRevocationBit,
 };
@@ -151,6 +152,11 @@ const TAG_SETTLE_DVP: u8 = 37;
 const TAG_RECORD_ELIGIBILITY: u8 = 38;
 const TAG_DISTRIBUTE_REVENUE: u8 = 39;
 const TAG_ATTEST_LEGAL: u8 = 40;
+
+// Lattice hash-time-locked contracts.
+const TAG_HTLC_LOCK: u8 = 41;
+const TAG_HTLC_CLAIM: u8 = 42;
+const TAG_HTLC_REFUND: u8 = 43;
 
 /// Encoded size of a [`ShieldedJoinSplit`].
 ///
@@ -478,6 +484,14 @@ pub enum TxKind {
     DistributeRevenue(Box<DistributeRevenue>),
     /// Record a legal attestation about an asset. A hash, never a document.
     AttestLegal(Box<AttestLegal>),
+    /// Escrow native coin under a lattice commitment until an expiry height.
+    HtlcLock(Box<HtlcLock>),
+    /// Claim a lattice HTLC by publishing its opening. A claim that loses is a
+    /// **no-op**, never an error — invariant 7.
+    HtlcClaim(Box<HtlcClaim>),
+    /// Refund an expired lattice HTLC. A no-op if it is not yet expired or
+    /// already settled.
+    HtlcRefund(HtlcRefund),
 }
 
 impl TxKind {
@@ -532,6 +546,9 @@ impl TxKind {
             Self::RecordEligibility(_) => "record_eligibility",
             Self::DistributeRevenue(_) => "distribute_revenue",
             Self::AttestLegal(_) => "attest_legal",
+            Self::HtlcLock(_) => "htlc_lock",
+            Self::HtlcClaim(_) => "htlc_claim",
+            Self::HtlcRefund(_) => "htlc_refund",
         }
     }
 
@@ -709,6 +726,18 @@ impl TxKind {
                 buf.push(TAG_ATTEST_LEGAL);
                 payload.encode_into(buf);
             }
+            Self::HtlcLock(payload) => {
+                buf.push(TAG_HTLC_LOCK);
+                payload.encode_into(buf);
+            }
+            Self::HtlcClaim(payload) => {
+                buf.push(TAG_HTLC_CLAIM);
+                payload.encode_into(buf);
+            }
+            Self::HtlcRefund(payload) => {
+                buf.push(TAG_HTLC_REFUND);
+                payload.encode_into(buf);
+            }
             Self::RevealShare(share) => {
                 buf.push(TAG_REVEAL_SHARE);
                 share.encode_into(buf);
@@ -808,6 +837,18 @@ impl TxKind {
                 AnchorAttestation::decode(reader)?,
             ))),
             TAG_SET_REVOCATION_BIT => Ok(Self::SetRevocationBit(SetRevocationBit::decode(reader)?)),
+            TAG_ISSUE_RWA => Ok(Self::IssueRwa(Box::new(IssueRwa::decode(reader)?))),
+            TAG_SETTLE_DVP => Ok(Self::SettleDvp(Box::new(SettleDvp::decode(reader)?))),
+            TAG_RECORD_ELIGIBILITY => Ok(Self::RecordEligibility(RecordEligibility::decode(
+                reader,
+            )?)),
+            TAG_DISTRIBUTE_REVENUE => Ok(Self::DistributeRevenue(Box::new(
+                DistributeRevenue::decode(reader)?,
+            ))),
+            TAG_ATTEST_LEGAL => Ok(Self::AttestLegal(Box::new(AttestLegal::decode(reader)?))),
+            TAG_HTLC_LOCK => Ok(Self::HtlcLock(Box::new(HtlcLock::decode(reader)?))),
+            TAG_HTLC_CLAIM => Ok(Self::HtlcClaim(Box::new(HtlcClaim::decode(reader)?))),
+            TAG_HTLC_REFUND => Ok(Self::HtlcRefund(HtlcRefund::decode(reader)?)),
             other => Err(NodeError::Decode(format!(
                 "unknown transaction payload tag {other}"
             ))),

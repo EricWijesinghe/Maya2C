@@ -1,0 +1,23 @@
+[package]
+name = "maya-neural-gas-trainer"
+version = "0.1.0"
+# Not published. See stratum-v2/Cargo.toml for why cargo-deny needs this.
+publish = false
+edition = "2024"
+rust-version = "1.88"
+description = "Synthetic demand simulator, float training and integer quantization for the fee market's neural gain"
+
+[lib]
+name = "maya_neural_gas_trainer"
+path = "src/lib.rs"
+
+[[bin]]
+name = "neural-gas-trainer"
+path = "src/main.rs"
+
+# Floats live here and only here. The node does not depend on this crate, so
+# nothing it computes can reach a consensus rule except through the integer
+# weight file it writes into `fee-market` — the arrangement `zkml-prover` has
+# with `zkml` (invariant 20).
+[dependencies]
+maya-fee-market = { path = "../fee-market" }

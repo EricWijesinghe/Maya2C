@@ -2206,6 +2206,7 @@ dependencies = [
  "argon2",
  "ark-bls12-381",
  "ark-std",
+ "async-trait",
  "blake3",
  "chacha20poly1305 0.10.1",
  "criterion 0.7.0",
@@ -2228,6 +2229,8 @@ dependencies = [
  "maya-dex",
  "maya-fee-market",
  "maya-governance",
+ "maya-htlc-lattice",
+ "maya-htlc-watcher",
  "maya-identity",
  "maya-iso20022",
  "maya-lattice-pow",
@@ -5349,6 +5352,34 @@ name = "maya-governance"
 version = "0.1.0"
 
 [[package]]
+name = "maya-htlc-lattice"
+version = "0.1.0"
+dependencies = [
+ "criterion 0.7.0",
+ "sha3 0.11.0",
+ "thiserror 2.0.20",
+ "zeroize",
+]
+
+[[package]]
+name = "maya-htlc-watcher"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "custom-l1-node",
+ "hex",
+ "jsonrpsee",
+ "l1-wallet",
+ "maya-htlc-lattice",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
 name = "maya-identity"
 version = "0.1.0"
 dependencies = [
@@ -5393,6 +5424,13 @@ dependencies = [
  "hex",
  "sha2 0.10.9",
  "zeroize",
+]
+
+[[package]]
+name = "maya-neural-gas-trainer"
+version = "0.1.0"
+dependencies = [
+ "maya-fee-market",
 ]
 
 [[package]]

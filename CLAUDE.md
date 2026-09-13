@@ -95,6 +95,9 @@ PowerShell profile and `~/.bashrc`.
 | `zkml-prover` | Off-chain half of `zkml`: ONNX import via `tract-onnx`, key generation, proving. Its own crate, not a feature, so the node's graph cannot reach tract; `rust-version = 1.91` because tract's patched releases need it, and nothing the node links depends on it |
 | `iso20022` | ISO 20022 bank-rail messages and the bridge to a payment intent. Chain-free, so its XML decoder fuzzes alone (`fuzz/fuzz_targets/iso20022_decode.rs`). One compiled-in amount scale; an inexact amount is an error, never rounded |
 | `archive` | CAR v1 (zstd) archives of pruned block batches and the stores that hold them: local dir, kubo IPFS, Arweave gateway (read-only). Chain-agnostic, so the decoder of untrusted archives is fuzzable alone (`fuzz/fuzz_targets/car_decode.rs`). See `docs/pruning.md` |
+| `htlc-lattice` | Lattice HTLCs: Module-LWE commitment `t = A·s + e` at ML-DSA-65's parameters, the short-opening check, the timelock rule (Kani-proved exclusive), the lock record. Chain-free, decoders fuzzable alone (`fuzz/fuzz_targets/htlc_lattice_decode.rs`). No RNG: entropy is the caller's — [docs/htlc-lattice.md](docs/htlc-lattice.md) |
+| `htlc-watcher` | Counterparty watcher: claims on revelation, refunds on expiry, refuses unsafe pairings and late reveals. Pure `policy::decide`, `SwapChain` trait over RPC. Its own process because it holds a hot key |
+| `neural-gas-trainer` | Off-chain half of the neural base-fee gain: synthetic demand simulator, float SGD, quantization into `fee-market/src/model/weights_v1.rs` (`-- --check` fails on drift). Floats stop here — the node does not depend on it (invariant 20). The integer network and envelope live in `fee-market`; block features in `src/neural_gas/` — [docs/neural-gas.md](docs/neural-gas.md) |
 | `dashboard/` | Leptos browser page. **Not a workspace member** — CSR Leptos only runs on `wasm32`. Built with `trunk` |
 
 ## Roadmap Status
@@ -122,7 +125,7 @@ writes down.
 
 | Crate | What is dark |
 |---|---|
-| `fee-market` | EIP-1559 base fee over bytes. `FeeConfig::DISABLED` |
+| `fee-market` | EIP-1559 base fee over bytes. `FeeConfig::DISABLED`. The neural gain (`src/model/`, `src/rule.rs`) has its own `neural_activation_height = u64::MAX`: integer inference, compiled-in weights, and a Kani-proved envelope — never below EIP-1559's fee, never against fullness, a rise at most doubled. No zkML; trained on a simulator because no chain history exists — [docs/neural-gas.md](docs/neural-gas.md) |
 | `blockgraph` | Narwhal/Tusk batch refs + deterministic shard scheduling. Nothing references a batch |
 | `lattice-pow` | Lattice PoUW (SVP) verification |
 | `zkml` / `zkml-prover` | halo2 zkML ONNX inference. `ZKML_ACTIVATION_HEIGHT = u64::MAX`, SRS from a public seed |
@@ -132,6 +135,7 @@ writes down.
 | `identity` | DID records, rotation and revocation, and selective-disclosure credentials. Attestations are post-quantum; the holder's disclosure proof is Groth16 and is not |
 | `rwa` | RWA primitives: DvP that is a no-op on failure (invariant 7), issuer-selected transfer rules (invariant 13), largest-remainder distribution |
 | `iso20022` | Bank-rail bridge: pacs.008/pacs.009/camt.053, the sealed translation, and sanctions non-membership proofs. `check_chain` refuses a value-bearing chain while the seal is classical — [docs/iso20022.md](docs/iso20022.md) |
+| `htlc-lattice` / `htlc-watcher` | Lattice HTLC atomic swaps. `HTLC_L_ACTIVATION_HEIGHT = u64::MAX`. **Maya2C↔Maya2C only** — Bitcoin cannot check the predicate. Claims and refunds map to no breaker module; only locks are gated — [docs/htlc-lattice.md](docs/htlc-lattice.md) |
 
 **PLANNED — no code in this tree.** Do not go looking for these; grep will not
 find them (`aya` matches the project *name*, not a dependency). eBPF/XDP
@@ -146,6 +150,15 @@ clock sync, Lean 4 proof engine.
 Three of those collide with invariants already on this list and must be
 reconciled *before* code, not after: the hot-patcher with 13, relativistic clock
 sync with 9, TEE attestation with 11.
+
+### Prompt Trajectory
+
+Sessions follow a 160-prompt plan in 12 domains:
+[docs/trajectory.md](docs/trajectory.md). **Completed through ~47; next is
+Prompt 48**, in Consensus & State Engine (26–50). The plan is an ordering, not
+a status. The buckets above say what exists, and the plan's conflicts with them
+are listed in that file. Reconcile a conflict before the prompt that touches it
+writes code.
 
 ## Critical Invariants
 

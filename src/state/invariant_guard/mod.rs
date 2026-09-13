@@ -104,6 +104,9 @@ pub enum Module {
     Identity,
     /// Real-world assets: issuance, DvP, eligibility, revenue.
     Rwa,
+    /// Lattice HTLC **locks**. Claims and refunds belong to no module — see
+    /// [`Module::of`].
+    Htlc,
 }
 
 /// Every module, in tag order. The guard iterates it so a new variant cannot be
@@ -118,6 +121,7 @@ pub const MODULES: &[Module] = &[
     Module::Sealed,
     Module::Identity,
     Module::Rwa,
+    Module::Htlc,
 ];
 
 impl Module {
@@ -134,6 +138,7 @@ impl Module {
             Self::Sealed => 6,
             Self::Identity => 7,
             Self::Rwa => 8,
+            Self::Htlc => 9,
         }
     }
 
@@ -150,6 +155,7 @@ impl Module {
             6 => Some(Self::Sealed),
             7 => Some(Self::Identity),
             8 => Some(Self::Rwa),
+            9 => Some(Self::Htlc),
             _ => None,
         }
     }
@@ -167,6 +173,7 @@ impl Module {
             Self::Sealed => "sealed mempool",
             Self::Identity => "identity",
             Self::Rwa => "rwa",
+            Self::Htlc => "htlc-l locks",
         }
     }
 
@@ -229,6 +236,14 @@ impl Module {
             | TxKind::RecordEligibility(_)
             | TxKind::DistributeRevenue(_)
             | TxKind::AttestLegal(_) => Some(Self::Rwa),
+
+            // Only a new lock can be halted. A claim or refund settles value
+            // already promised against a deadline the breaker cannot pause:
+            // halting claims while the expiry passes would let the refund
+            // through and hand the swap to the refunder. The same reasoning
+            // that leaves `Transfer` ungated — see `crate::state::htlc_exec`.
+            TxKind::HtlcLock(_) => Some(Self::Htlc),
+            TxKind::HtlcClaim(_) | TxKind::HtlcRefund(_) => None,
         }
     }
 }

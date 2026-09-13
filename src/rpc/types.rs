@@ -196,3 +196,58 @@ pub struct SubmitTransactionResult {
     /// `false` when the transaction was already pooled — normal, not an error.
     pub accepted: bool,
 }
+
+/// A lattice HTLC lock, as `htlc_get_lock` reports it.
+///
+/// Carries the opening once claimed: that is the field a counterparty's
+/// watcher is polling for.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HtlcLockInfo {
+    /// Hex-encoded lock id.
+    pub lock_id: String,
+    /// Hex-encoded sender, whom a refund repays.
+    pub sender: String,
+    /// Hex-encoded recipient, whom a claim pays.
+    pub recipient: String,
+    /// Escrowed base units.
+    pub amount: u64,
+    /// Height of the locking block.
+    pub created_height: u64,
+    /// First height at which a claim is refused.
+    pub expiry_height: u64,
+    /// Hex-encoded commitment id — what the two legs of a swap compare.
+    pub commitment_id: String,
+    /// `locked`, `claimed` or `refunded`.
+    pub status: String,
+    /// Height of the settling block, once settled.
+    pub settled_height: Option<u64>,
+    /// Hex-encoded opening, once claimed.
+    pub opening: Option<String>,
+}
+
+impl HtlcLockInfo {
+    /// Builds a response for one lock.
+    #[must_use]
+    pub fn new(lock_id: &[u8; 32], record: &maya_htlc_lattice::LockRecord) -> Self {
+        use maya_htlc_lattice::Settlement;
+        let (status, settled_height, opening) = match &record.settlement {
+            Settlement::Open => ("locked", None, None),
+            Settlement::Claimed { height, opening } => {
+                ("claimed", Some(*height), Some(hex::encode(opening.encode())))
+            }
+            Settlement::Refunded { height } => ("refunded", Some(*height), None),
+        };
+        Self {
+            lock_id: hex::encode(lock_id),
+            sender: hex::encode(record.sender),
+            recipient: hex::encode(record.recipient),
+            amount: record.amount,
+            created_height: record.created_height,
+            expiry_height: record.expiry_height,
+            commitment_id: hex::encode(record.commitment.id()),
+            status: status.to_owned(),
+            settled_height,
+            opening,
+        }
+    }
+}

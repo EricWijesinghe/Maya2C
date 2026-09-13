@@ -61,6 +61,7 @@ pub mod governance;
 pub mod iso20022_bridge;
 pub mod metrics;
 pub mod network;
+pub mod neural_gas;
 pub mod oracle;
 pub mod rpc;
 pub mod sealed;

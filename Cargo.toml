@@ -141,6 +141,19 @@ members = [
     # the arithmetic that decides how much value moves lives in `ledger-math`,
     # where Kani can reach it.
     "rwa",
+    # Lattice hash-time-locked contracts: Module-LWE commitments, openings, the
+    # timelock rule and the lock record. Chain-free, because a claim carries an
+    # opening a stranger wrote. Research branch: HTLC_L_ACTIVATION_HEIGHT is
+    # u64::MAX — see docs/htlc-lattice.md.
+    "htlc-lattice",
+    # The counterparty watcher: claims a lock as soon as the other chain reveals
+    # its opening, refunds after expiry, and refuses to reveal too late. Its own
+    # process, because it holds a hot key and the node should not.
+    "htlc-watcher",
+    # Training for the fee market's neural gain: a synthetic demand simulator,
+    # float SGD, and quantization into fee-market's integer weight file. Floats
+    # stop here; the node does not depend on it (invariant 20).
+    "neural-gas-trainer",
 ]
 
 [dependencies]
@@ -222,6 +235,8 @@ maya-radio-transport = { path = "radio-transport" }
 maya-identity = { path = "identity" }
 # Real-world asset records, for `src/state/rwa.rs`.
 maya-rwa = { path = "rwa" }
+# Lattice HTLC commitments, openings and lock records, for `src/state/htlc.rs`.
+maya-htlc-lattice = { path = "htlc-lattice" }
 # Only for the ristretto255 encodings that cross the boundary between chain
 # state and `maya-mev` — a stored committee key, a stored decryption share.
 # The same version `maya-mev` and `maya-vrf` already pull in, deliberately: two
@@ -284,6 +299,12 @@ maya-zkml-prover = { path = "zkml-prover" }
 # For `tests/fee_market_tests.rs`, which runs the fee rule over real
 # transaction sizes and checks nothing in consensus calls it yet.
 maya-fee-market = { path = "fee-market" }
+# For `tests/htlc_lattice_tests.rs`, which runs the real watcher against two
+# in-process chains. A dev-dependency cycle -- the watcher depends on this
+# crate -- which Cargo permits, exactly as `maya-wallet-core` above.
+maya-htlc-watcher = { path = "htlc-watcher" }
+# The in-process chains in that test implement the watcher's `SwapChain`.
+async-trait = "0.1"
 criterion = "0.7"
 # Comparison baselines for `benches/algo_comparison.rs`. Dev-only: none of this
 # reaches the node binary.
@@ -485,6 +506,11 @@ opt-level = 3
 [profile.dev.package.maya-zkml-prover]
 opt-level = 3
 
+# A claim's verification is two million i64 additions; unoptimized, every
+# block test that settles a swap spends most of its time here.
+[profile.dev.package.maya-htlc-lattice]
+opt-level = 3
+
 [profile.dev.package.halo2-axiom]
 opt-level = 3
 
@@ -496,4 +522,11 @@ opt-level = 3
 
 [[bench]]
 name = "algo_comparison"
+harness = false
+
+# The neural base-fee gain's cost per block and per burst, beside signed
+# admission and block validation — see the file's header for why it reports
+# rather than asserts.
+[[bench]]
+name = "gas_predictor"
 harness = false

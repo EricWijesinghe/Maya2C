@@ -35,6 +35,9 @@ maya-radio-transport = { path = "../radio-transport" }
 # DID documents and attestations, which arrive from strangers by resolution,
 # by wallet handoff, or off a QR code.
 maya-identity = { path = "../identity" }
+# Lattice HTLC openings and commitments, which arrive inside a claim or a lock
+# that anyone may submit.
+maya-htlc-lattice = { path = "../htlc-lattice" }
 blake3 = "1"
 
 # Sanitizer builds are slow enough that unoptimized decoding would dominate the
@@ -98,6 +101,13 @@ bench = false
 [[bin]]
 name = "iso20022_decode"
 path = "fuzz_targets/iso20022_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "htlc_lattice_decode"
+path = "fuzz_targets/htlc_lattice_decode.rs"
 test = false
 doc = false
 bench = false

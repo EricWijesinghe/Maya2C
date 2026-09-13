@@ -380,6 +380,14 @@ pub enum NodeError {
         reason: String,
     },
 
+    /// A lattice HTLC lock the sender could not make: nothing escrowed, an
+    /// expiry already reached, or HTLC-L not active at this height.
+    ///
+    /// Only locks raise this. A claim or refund that loses is a no-op, never
+    /// an error — invariant 7.
+    #[error("htlc: {0}")]
+    Htlc(String),
+
     /// An asset ticker was empty, contained something other than uppercase
     /// ASCII and digits, or carried interior padding.
     ///

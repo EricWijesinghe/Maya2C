@@ -51,6 +51,7 @@ pub(crate) const RECORD_LAYERS: &[(&[u8], StateLayer)] = &[
         StateLayer::Identity,
     ),
     (crate::state::rwa::RWA_PREFIX, StateLayer::Rwa),
+    (crate::state::htlc::HTLC_PREFIX, StateLayer::Htlc),
 ];
 
 /// Committed prefixes that are not generic records: each has its own typed

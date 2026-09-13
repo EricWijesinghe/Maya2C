@@ -19,7 +19,21 @@ pub struct BlockContext {
     /// [`ZKML_ACTIVATION_HEIGHT`] everywhere the node builds a context, which is
     /// never. Tests set it explicitly with [`Self::with_zkml_activation`].
     pub zkml_activation: u64,
+    /// First height at which lattice HTLC transactions execute.
+    ///
+    /// [`HTLC_L_ACTIVATION_HEIGHT`] everywhere the node builds a context. Tests
+    /// set it with [`Self::with_htlc_activation`].
+    pub htlc_activation: u64,
 }
+
+/// First height at which lattice HTLC locks, claims and refunds execute: none.
+///
+/// The research-branch pattern, as for zkML. What has to be decided first is
+/// written in `docs/htlc-lattice.md`: the claim's verification cost measured
+/// against a full block of claims, and whether a counterparty chain running the
+/// same verifier exists to swap with — without one, a lock has nothing to be
+/// atomic with.
+pub const HTLC_L_ACTIVATION_HEIGHT: u64 = u64::MAX;
 
 /// First height at which contracts can verify zkML proofs: none.
 ///
@@ -39,7 +53,23 @@ impl BlockContext {
         Self {
             height,
             zkml_activation: ZKML_ACTIVATION_HEIGHT,
+            htlc_activation: HTLC_L_ACTIVATION_HEIGHT,
         }
+    }
+
+    /// The same context with lattice HTLCs active from `height` on.
+    #[must_use]
+    pub const fn with_htlc_activation(self, height: u64) -> Self {
+        Self {
+            htlc_activation: height,
+            ..self
+        }
+    }
+
+    /// Whether lattice HTLC transactions execute in this block.
+    #[must_use]
+    pub const fn htlc_active(self) -> bool {
+        self.height >= self.htlc_activation
     }
 
     /// The same context with zkML verification active from `height` on.

@@ -261,6 +261,13 @@ impl StateDB {
                     context.height,
                 )
                 .map(|_| ()),
+            // A lock is the sender's own transaction, so a bad one is an error.
+            // A claim or refund that loses its race is a no-op — invariant 7.
+            TxKind::HtlcLock(payload) => self
+                .htlc_lock(overlay, &sender, nonce, payload, context)
+                .map(|_| ()),
+            TxKind::HtlcClaim(payload) => self.htlc_claim(overlay, payload, context).map(|_| ()),
+            TxKind::HtlcRefund(payload) => self.htlc_refund(overlay, payload, context).map(|_| ()),
             TxKind::AttestLegal(payload) => self.attest_legal(
                 overlay,
                 &sender,
