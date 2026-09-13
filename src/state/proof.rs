@@ -65,6 +65,9 @@ pub enum StateLayer {
     /// Identity records, under the `i:` prefix: DID documents, attestations
     /// and revocation pages.
     Identity,
+    /// Real-world asset records, under the `r:` prefix: tokens, cap tables,
+    /// legal attestations, settled distributions and cached eligibility.
+    Rwa,
     /// The shielded pool: a BLAKE3 commitment to the whole stored pool, which
     /// is the Poseidon tree's frontier, the anchor window and the public
     /// balance. See `ShieldedPool::commitment`; it was the bare Poseidon root
@@ -113,6 +116,7 @@ impl StateLayer {
             Self::Contracts => "maya contracts state root v1",
             Self::Nullifiers => "maya nullifiers state root v1",
             Self::Identity => "maya identity state root v1",
+            Self::Rwa => "maya rwa state root v1",
         }
     }
 
@@ -129,6 +133,7 @@ impl StateLayer {
             Self::Contracts => 7,
             Self::Nullifiers => 8,
             Self::Identity => 9,
+            Self::Rwa => 10,
         }
     }
 
@@ -170,6 +175,7 @@ impl StateLayer {
             Self::Contracts => "contracts",
             Self::Nullifiers => "nullifiers",
             Self::Identity => "identity",
+            Self::Rwa => "rwa",
         }
     }
 }

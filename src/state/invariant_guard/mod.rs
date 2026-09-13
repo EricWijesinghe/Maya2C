@@ -102,6 +102,8 @@ pub enum Module {
     /// Identity: DID registration, rotation, revocation, and the attestations
     /// and revocation bitmaps issuers publish.
     Identity,
+    /// Real-world assets: issuance, DvP, eligibility, revenue.
+    Rwa,
 }
 
 /// Every module, in tag order. The guard iterates it so a new variant cannot be
@@ -115,6 +117,7 @@ pub const MODULES: &[Module] = &[
     Module::Vm,
     Module::Sealed,
     Module::Identity,
+    Module::Rwa,
 ];
 
 impl Module {
@@ -130,6 +133,7 @@ impl Module {
             Self::Vm => 5,
             Self::Sealed => 6,
             Self::Identity => 7,
+            Self::Rwa => 8,
         }
     }
 
@@ -145,6 +149,7 @@ impl Module {
             5 => Some(Self::Vm),
             6 => Some(Self::Sealed),
             7 => Some(Self::Identity),
+            8 => Some(Self::Rwa),
             _ => None,
         }
     }
@@ -161,6 +166,7 @@ impl Module {
             Self::Vm => "wasm vm",
             Self::Sealed => "sealed mempool",
             Self::Identity => "identity",
+            Self::Rwa => "rwa",
         }
     }
 
@@ -217,6 +223,12 @@ impl Module {
             | TxKind::RevokeDid(_)
             | TxKind::AnchorAttestation(_)
             | TxKind::SetRevocationBit(_) => Some(Self::Identity),
+
+            TxKind::IssueRwa(_)
+            | TxKind::SettleDvp(_)
+            | TxKind::RecordEligibility(_)
+            | TxKind::DistributeRevenue(_)
+            | TxKind::AttestLegal(_) => Some(Self::Rwa),
         }
     }
 }

@@ -28,6 +28,8 @@ pub mod invariant_guard;
 pub mod merkle;
 pub mod oracle_exec;
 pub mod proof;
+pub mod rwa;
+pub mod rwa_exec;
 pub mod sealed_exec;
 pub mod settlement;
 pub mod shielded;

@@ -41,6 +41,9 @@ use crate::core::identity_payload::{
 use crate::core::oracle_payload::{
     BeaconSubmission, FeedCreation, FeedSubmission, RegistryRotation,
 };
+use crate::core::rwa_payload::{
+    AttestLegal, DistributeRevenue, IssueRwa, RecordEligibility, SettleDvp,
+};
 use crate::core::sealed_payload::{RevealShare, SealedEnvelope};
 use crate::crypto::hybrid::{
     HYBRID_PUBLIC_KEY_LEN, HYBRID_SIGNATURE_LENGTH, HybridPublicKey, HybridSignature,
@@ -141,6 +144,13 @@ const TAG_ROTATE_DID_KEY: u8 = 32;
 const TAG_REVOKE_DID: u8 = 33;
 const TAG_ANCHOR_ATTESTATION: u8 = 34;
 const TAG_SET_REVOCATION_BIT: u8 = 35;
+
+// Real-world assets.
+const TAG_ISSUE_RWA: u8 = 36;
+const TAG_SETTLE_DVP: u8 = 37;
+const TAG_RECORD_ELIGIBILITY: u8 = 38;
+const TAG_DISTRIBUTE_REVENUE: u8 = 39;
+const TAG_ATTEST_LEGAL: u8 = 40;
 
 /// Encoded size of a [`ShieldedJoinSplit`].
 ///
@@ -457,6 +467,17 @@ pub enum TxKind {
     AnchorAttestation(Box<AnchorAttestation>),
     /// Flip one bit of the sender's own revocation bitmap.
     SetRevocationBit(SetRevocationBit),
+    /// Issue a real-world asset token, seating its supply with the sender.
+    IssueRwa(Box<IssueRwa>),
+    /// Swap native coin for RWA units. A swap that cannot settle is a
+    /// **no-op**, never an error — invariant 7.
+    SettleDvp(Box<SettleDvp>),
+    /// Record that the sender cleared an asset's transfer rule.
+    RecordEligibility(RecordEligibility),
+    /// Pay revenue across every holder on the named cap table pages.
+    DistributeRevenue(Box<DistributeRevenue>),
+    /// Record a legal attestation about an asset. A hash, never a document.
+    AttestLegal(Box<AttestLegal>),
 }
 
 impl TxKind {
@@ -506,6 +527,11 @@ impl TxKind {
             Self::RevokeDid(_) => "revoke_did",
             Self::AnchorAttestation(_) => "anchor_attestation",
             Self::SetRevocationBit(_) => "set_revocation_bit",
+            Self::IssueRwa(_) => "issue_rwa",
+            Self::SettleDvp(_) => "settle_dvp",
+            Self::RecordEligibility(_) => "record_eligibility",
+            Self::DistributeRevenue(_) => "distribute_revenue",
+            Self::AttestLegal(_) => "attest_legal",
         }
     }
 
@@ -661,6 +687,26 @@ impl TxKind {
             }
             Self::SetRevocationBit(payload) => {
                 buf.push(TAG_SET_REVOCATION_BIT);
+                payload.encode_into(buf);
+            }
+            Self::IssueRwa(payload) => {
+                buf.push(TAG_ISSUE_RWA);
+                payload.encode_into(buf);
+            }
+            Self::SettleDvp(payload) => {
+                buf.push(TAG_SETTLE_DVP);
+                payload.encode_into(buf);
+            }
+            Self::RecordEligibility(payload) => {
+                buf.push(TAG_RECORD_ELIGIBILITY);
+                payload.encode_into(buf);
+            }
+            Self::DistributeRevenue(payload) => {
+                buf.push(TAG_DISTRIBUTE_REVENUE);
+                payload.encode_into(buf);
+            }
+            Self::AttestLegal(payload) => {
+                buf.push(TAG_ATTEST_LEGAL);
                 payload.encode_into(buf);
             }
             Self::RevealShare(share) => {

@@ -137,6 +137,10 @@ members = [
     # carry commitments and roots only — there is no field a claim could go in,
     # which is the one property a permanent public chain cannot walk back.
     "identity",
+    # Real-world asset records. Chain-free for the same reason `identity` is;
+    # the arithmetic that decides how much value moves lives in `ledger-math`,
+    # where Kani can reach it.
+    "rwa",
 ]
 
 [dependencies]
@@ -216,6 +220,8 @@ maya-iso20022 = { path = "iso20022" }
 maya-radio-transport = { path = "radio-transport" }
 # Self-sovereign identity records. The node takes it for `src/state/identity.rs`.
 maya-identity = { path = "identity" }
+# Real-world asset records, for `src/state/rwa.rs`.
+maya-rwa = { path = "rwa" }
 # Only for the ristretto255 encodings that cross the boundary between chain
 # state and `maya-mev` — a stored committee key, a stored decryption share.
 # The same version `maya-mev` and `maya-vrf` already pull in, deliberately: two
@@ -358,6 +364,22 @@ harness = false
 [[bench]]
 name = "hybrid_footprint"
 harness = false
+
+# The node binary links 183 object files, and MSVC caps how many "modules" one
+# program database may hold: past it the linker stops with
+# `LNK1140: limit exceeded for program database`. The tree crossed that line
+# when the fourth record crate landed — nothing about any one crate, just the
+# count.
+#
+# `line-tables-only` keeps what anyone actually reads from a debug build — file
+# and line in a backtrace — and drops the per-type records that make up the bulk
+# of the modules. Not a tuning knob: without it the node binary does not link on
+# Windows at all, so `cargo nextest run --workspace` cannot even build.
+#
+# Scoped to this package rather than the profile, so every dependency keeps full
+# debug info and stepping into `dex` or `ledger-math` still works.
+[profile.dev.package.custom-l1-node]
+debug = "line-tables-only"
 
 [profile.dev.package.argon2]
 opt-level = 3

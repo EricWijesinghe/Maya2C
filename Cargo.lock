@@ -2198,6 +2198,7 @@ dependencies = [
  "maya-ledger-math",
  "maya-mev",
  "maya-radio-transport",
+ "maya-rwa",
  "maya-sdk-wasm",
  "maya-stratum-v2",
  "maya-vm",
@@ -5371,6 +5372,13 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "hex",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "maya-rwa"
+version = "0.1.0"
+dependencies = [
  "thiserror 2.0.20",
 ]
 

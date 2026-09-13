@@ -94,6 +94,122 @@ pub fn total_outputs(amounts: impl IntoIterator<Item = u64>) -> Option<u64> {
     Some(total)
 }
 
+/// Splits `total` across holders in proportion to `weights`, exactly.
+///
+/// ## Why this is here and not in the RWA crate
+///
+/// Because every function in this crate decides how much value moves, and this
+/// one decides it ten thousand times in a block. It is dependency-free for the
+/// same reason [`settle_pool`] is: Kani compiles a crate with its whole
+/// dependency graph, and `Sigma payouts == total` is exactly the kind of claim a
+/// model checker should be settling rather than a test sampling.
+///
+/// ## The property
+///
+/// **`payouts.iter().sum() == total`**, always. Not approximately, not up to
+/// dust. Maya2C's invariant guard refuses any block whose value deltas do not
+/// balance, so a distribution that lost a base unit to rounding would not be a
+/// small unfairness — it would be a block nobody can mine.
+///
+/// ## Largest remainder, and why the tie-break is load-bearing
+///
+/// Every holder first gets `floor(total * weight / total_weight)`. That leaves
+/// `k` base units unassigned, `k < holders`. Those go to the `k` holders with
+/// the largest fractional remainders — Hamilton's method, which keeps every
+/// holder within one base unit of their exact share.
+///
+/// Two holders can have the **same** remainder. If the order between them were
+/// unspecified, two validators would hand the spare unit to different accounts,
+/// produce different state roots, and the chain would split over one base unit.
+/// So the ranking is `(remainder, index)` and the index breaks every tie: total,
+/// deterministic, and identical on every machine.
+///
+/// ## No allocation
+///
+/// The caller supplies `payouts` and `order`. This runs inside block execution
+/// with ten thousand holders, which is exactly the "critical consensus loop" the
+/// execution directives say not to allocate in — and `no_std` here means there
+/// is no allocator to reach for even by accident.
+///
+/// `slice::sort_unstable_by` is used rather than `sort_by`: the stable sort
+/// allocates, and stability buys nothing once the index is in the key.
+///
+/// # Errors
+///
+/// Returns `None` when `payouts` or `order` is not the same length as
+/// `weights`, when the weights sum to zero — there is nothing to be in
+/// proportion to — or when they overflow a `u64`.
+#[must_use]
+pub fn distribute(
+    total: u64,
+    weights: &[u64],
+    payouts: &mut [u64],
+    order: &mut [u32],
+) -> Option<()> {
+    if payouts.len() != weights.len() || order.len() != weights.len() {
+        return None;
+    }
+    if u32::try_from(weights.len()).is_err() {
+        return None;
+    }
+    if weights.is_empty() {
+        // Nothing to distribute to. A caller with a zero total and no holders
+        // is consistent; one with a non-zero total is trying to pay nobody, and
+        // the value would vanish.
+        return (total == 0).then_some(());
+    }
+
+    let total_weight = total_outputs(weights.iter().copied())?;
+    if total_weight == 0 {
+        return None;
+    }
+
+    // u128 throughout: `total * weight` reaches 2^128 for two u64 operands, and
+    // a product that wrapped would produce a share nobody is owed.
+    let total_wide = u128::from(total);
+    let weight_wide = u128::from(total_weight);
+
+    let mut assigned: u128 = 0;
+    for (index, weight) in weights.iter().enumerate() {
+        let exact = total_wide * u128::from(*weight);
+        let floor = exact / weight_wide;
+        payouts[index] = floor as u64;
+        assigned += floor;
+        order[index] = index as u32;
+    }
+
+    // What the flooring left behind. Strictly less than the holder count, so it
+    // always fits.
+    let mut spare = (total_wide - assigned) as usize;
+    if spare == 0 {
+        return Some(());
+    }
+
+    // Rank by remainder, then by index. Descending on the remainder so the
+    // largest come first; ascending on the index so a tie resolves the same way
+    // on every node, which is the whole reason the index is in the key.
+    let remainder = |index: u32| -> u128 {
+        let weight = u128::from(weights[index as usize]);
+        (total_wide * weight) % weight_wide
+    };
+    order.sort_unstable_by(|left, right| {
+        remainder(*right)
+            .cmp(&remainder(*left))
+            .then_with(|| left.cmp(right))
+    });
+
+    for index in order.iter() {
+        if spare == 0 {
+            break;
+        }
+        // A holder cannot be paid past u64 by one extra base unit unless their
+        // floor was already u64::MAX, which needs a total that large.
+        payouts[*index as usize] = payouts[*index as usize].checked_add(1)?;
+        spare -= 1;
+    }
+    Some(())
+}
+
 /// Sums the two sides of a channel closure.
 ///
 /// Distinct from [`credit`] despite the identical body, because the check means
@@ -233,5 +349,162 @@ mod tests {
                 withdrawn: 20
             })
         );
+    }
+}
+
+#[cfg(test)]
+mod distribution_tests {
+    use super::*;
+
+    /// Runs a distribution and returns the payouts.
+    fn split(total: u64, weights: &[u64]) -> Vec<u64> {
+        let mut payouts = vec![0u64; weights.len()];
+        let mut order = vec![0u32; weights.len()];
+        distribute(total, weights, &mut payouts, &mut order).expect("distribute");
+        payouts
+    }
+
+    #[test]
+    fn the_payouts_always_sum_to_the_total() {
+        // The property the invariant guard will enforce anyway: a distribution
+        // that lost a base unit is not a small unfairness, it is a block nobody
+        // can mine.
+        for total in [0u64, 1, 7, 100, 999_983, u64::MAX / 4] {
+            for weights in [
+                vec![1u64],
+                vec![1, 1, 1],
+                vec![1, 2, 3, 4, 5, 6, 7],
+                vec![1_000_000, 1, 1],
+                vec![3; 97],
+            ] {
+                let payouts = split(total, &weights);
+                assert_eq!(
+                    payouts.iter().sum::<u64>(),
+                    total,
+                    "total {total} across {weights:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn an_exact_division_leaves_no_remainder_to_place() {
+        assert_eq!(split(100, &[1, 1, 1, 1]), vec![25, 25, 25, 25]);
+        assert_eq!(split(90, &[1, 2]), vec![30, 60]);
+    }
+
+    #[test]
+    fn the_spare_units_go_to_the_largest_remainders() {
+        // 10 across weights 1,1,1: each is 3.333, so three floors of 3 and one
+        // spare unit. Every remainder is equal, so the tie-break decides — and
+        // it must decide the same way every time.
+        assert_eq!(split(10, &[1, 1, 1]), vec![4, 3, 3]);
+
+        // 7 across 1,1,1,1: floors of 1 each, three spare. Again all tied.
+        assert_eq!(split(7, &[1, 1, 1, 1]), vec![2, 2, 2, 1]);
+
+        // 10 across 1,1,4: floors are 1, 1, 6 — eight of ten placed, so *two*
+        // spares, and every remainder is 4, so the two lowest indices take
+        // them. Counting the spares wrong is easy and the sum catches it.
+        assert_eq!(split(10, &[1, 1, 4]), vec![2, 2, 6]);
+    }
+
+    #[test]
+    fn every_holder_lands_within_one_base_unit_of_their_exact_share() {
+        // What largest-remainder buys over rounding down and keeping the dust.
+        let weights: Vec<u64> = (1..=200u64).collect();
+        let total = 1_000_003u64;
+        let payouts = split(total, &weights);
+        let total_weight: u128 = weights.iter().map(|w| u128::from(*w)).sum();
+
+        for (payout, weight) in payouts.iter().zip(&weights) {
+            let exact = u128::from(total) * u128::from(*weight) / total_weight;
+            let paid = u128::from(*payout);
+            assert!(
+                paid == exact || paid == exact + 1,
+                "paid {paid} where the exact share is {exact}"
+            );
+        }
+    }
+
+    #[test]
+    fn ties_resolve_by_index_on_every_run() {
+        // The fork this prevents: two validators handing the spare unit to
+        // different accounts and producing different state roots. Every weight
+        // here is identical, so every remainder is identical, and only the
+        // index can decide.
+        let weights = vec![5u64; 64];
+        let first = split(1_000, &weights);
+        for _ in 0..20 {
+            assert_eq!(split(1_000, &weights), first);
+        }
+        // The spare units went to the lowest indices, in order.
+        let spare = 1_000 % 64;
+        for (index, payout) in first.iter().enumerate() {
+            let expected = 1_000 / 64 + u64::from(index < spare as usize);
+            assert_eq!(*payout, expected, "holder {index}");
+        }
+    }
+
+    #[test]
+    fn a_holder_with_no_weight_is_paid_nothing() {
+        assert_eq!(split(100, &[0, 1, 0, 1]), vec![0, 50, 0, 50]);
+    }
+
+    #[test]
+    fn ten_thousand_holders_still_sum_exactly() {
+        // The block this subsystem exists for. Not a performance claim — a
+        // correctness one: the sum has to be exact at the scale it will run at,
+        // not only at the scale a hand-written case reaches.
+        let weights: Vec<u64> = (0..10_000u64).map(|index| index % 97 + 1).collect();
+        let total = 123_456_789u64;
+        let payouts = split(total, &weights);
+        assert_eq!(payouts.iter().sum::<u64>(), total);
+        assert_eq!(payouts.len(), 10_000);
+    }
+
+    #[test]
+    fn a_distribution_with_no_holders_moves_nothing_and_refuses_a_total() {
+        let mut payouts: Vec<u64> = Vec::new();
+        let mut order: Vec<u32> = Vec::new();
+        assert!(distribute(0, &[], &mut payouts, &mut order).is_some());
+        // Paying a non-zero total to nobody would make the value vanish.
+        assert!(distribute(1, &[], &mut payouts, &mut order).is_none());
+    }
+
+    #[test]
+    fn weights_that_sum_to_zero_are_refused() {
+        // There is nothing to be in proportion to, and dividing by the total
+        // weight would be a division by zero.
+        let mut payouts = vec![0u64; 3];
+        let mut order = vec![0u32; 3];
+        assert!(distribute(10, &[0, 0, 0], &mut payouts, &mut order).is_none());
+    }
+
+    #[test]
+    fn mismatched_buffers_are_refused_rather_than_truncating() {
+        let mut short = vec![0u64; 2];
+        let mut order = vec![0u32; 3];
+        assert!(distribute(10, &[1, 1, 1], &mut short, &mut order).is_none());
+
+        let mut payouts = vec![0u64; 3];
+        let mut short_order = vec![0u32; 2];
+        assert!(distribute(10, &[1, 1, 1], &mut payouts, &mut short_order).is_none());
+    }
+
+    #[test]
+    fn weights_that_overflow_a_u64_are_refused() {
+        let mut payouts = vec![0u64; 2];
+        let mut order = vec![0u32; 2];
+        assert!(distribute(10, &[u64::MAX, 1], &mut payouts, &mut order).is_none());
+    }
+
+    #[test]
+    fn a_total_at_the_top_of_the_range_does_not_wrap() {
+        // `total * weight` reaches 2^128 for two u64 operands, and a product
+        // that wrapped would produce a share nobody is owed.
+        let weights = vec![u64::MAX / 4, u64::MAX / 4];
+        let payouts = split(u64::MAX, &weights);
+        assert_eq!(payouts.iter().sum::<u64>(), u64::MAX);
     }
 }

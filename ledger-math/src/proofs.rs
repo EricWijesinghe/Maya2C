@@ -311,3 +311,65 @@ fn settle_pool_moves_value_in_the_stated_direction() {
         assert!(after_withdrawal <= held);
     }
 }
+
+/// A distribution places exactly the total it was given.
+///
+/// The property the whole revenue path rests on, and the one a test can only
+/// sample. Maya2C's invariant guard refuses any block whose value deltas do not
+/// balance, so a rounding rule that lost a base unit would not be a small
+/// unfairness — it would be a distribution nobody can put in a block.
+///
+/// Bounded at three holders. Kani unrolls the loops and the sort, and the
+/// argument does not get more true at ten thousand: the flooring, the spare
+/// count and the placement are the same three steps at any length. The
+/// ten-thousand case is exercised by `ten_thousand_holders_still_sum_exactly`.
+#[kani::proof]
+#[kani::unwind(4)]
+fn a_distribution_places_exactly_the_total() {
+    let total: u64 = kani::any();
+    let weights: [u64; 3] = [kani::any(), kani::any(), kani::any()];
+
+    // The sum has to fit a u64 or there is nothing to be in proportion to;
+    // `distribute` returns `None` for that case and the caller refuses.
+    kani::assume(weights[0].checked_add(weights[1]).is_some());
+    kani::assume(
+        weights[0]
+            .wrapping_add(weights[1])
+            .checked_add(weights[2])
+            .is_some(),
+    );
+
+    let mut payouts = [0u64; 3];
+    let mut order = [0u32; 3];
+    if distribute(total, &weights, &mut payouts, &mut order).is_some() {
+        let placed = payouts[0]
+            .checked_add(payouts[1])
+            .and_then(|sum| sum.checked_add(payouts[2]));
+        assert!(placed == Some(total));
+    }
+}
+
+/// No holder is paid more than one base unit above their exact share.
+///
+/// What largest-remainder buys over flooring and keeping the dust: nobody is
+/// short by more than a unit, and nobody is over by more than a unit either.
+/// A rule that satisfied the sum by paying one holder everything would pass the
+/// proof above and fail this one.
+#[kani::proof]
+#[kani::unwind(3)]
+fn no_holder_is_paid_more_than_a_unit_above_their_share() {
+    let total: u64 = kani::any();
+    let weights: [u64; 2] = [kani::any(), kani::any()];
+    kani::assume(weights[0].checked_add(weights[1]).is_some());
+
+    let mut payouts = [0u64; 2];
+    let mut order = [0u32; 2];
+    if distribute(total, &weights, &mut payouts, &mut order).is_some() {
+        let total_weight = u128::from(weights[0]) + u128::from(weights[1]);
+        for index in 0..2 {
+            let exact = u128::from(total) * u128::from(weights[index]) / total_weight;
+            let paid = u128::from(payouts[index]);
+            assert!(paid == exact || paid == exact + 1);
+        }
+    }
+}

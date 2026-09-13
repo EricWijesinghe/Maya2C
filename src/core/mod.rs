@@ -8,6 +8,7 @@ pub mod governance_payload;
 pub mod identity_payload;
 pub mod oracle_payload;
 pub mod payload;
+pub mod rwa_payload;
 pub mod sealed_payload;
 pub mod transaction;
 

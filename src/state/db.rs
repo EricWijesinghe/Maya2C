@@ -310,6 +310,22 @@ impl StateDB {
     }
 
     /// Raw write by key. Internal plumbing for sibling state modules.
+    /// Writes a record straight to committed state, for tests that need a
+    /// large fixture without paying for the transactions that would build it.
+    ///
+    /// Seeding ten thousand cap table entries through real transfers would take
+    /// forty blocks and prove nothing the distribution test is about.
+    ///
+    /// It writes past every transition and every check, so it belongs in a
+    /// fixture and nowhere else — `put_account` is public for the same reason.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Storage`] on a write failure.
+    pub fn raw_put_for_test(&self, key: &[u8], value: &[u8]) -> Result<()> {
+        self.raw_put(key, value)
+    }
+
     pub(crate) fn raw_put(&self, key: &[u8], value: &[u8]) -> Result<()> {
         self.db.put(key, value).map_err(storage_err)
     }
@@ -616,7 +632,7 @@ impl StateDB {
     }
 
     /// Reads an account through the overlay, falling back to committed state.
-    fn load(&self, overlay: &Overlay, address: &Address) -> Result<Account> {
+    pub(crate) fn load(&self, overlay: &Overlay, address: &Address) -> Result<Account> {
         match overlay.accounts.get(address) {
             Some(account) => Ok(*account),
             None => self.get_account(address),

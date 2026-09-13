@@ -126,9 +126,11 @@ writes down.
 | `blockgraph` | Narwhal/Tusk batch refs + deterministic shard scheduling. Nothing references a batch |
 | `lattice-pow` | Lattice PoUW (SVP) verification |
 | `zkml` / `zkml-prover` | halo2 zkML ONNX inference. `ZKML_ACTIVATION_HEIGHT = u64::MAX`, SRS from a public seed |
+| `rwa` | Real-world assets: tokens, paged cap tables, legal attestations, revenue. The distribution arithmetic lives in `ledger-math` so Kani can check that payouts sum to exactly the total — [docs/rwa.md](docs/rwa.md) |
 | `identity` | Self-sovereign identity: `DidDocument`, `ServiceEndpoint`, `CryptographicAttestation`. `did:maya2c:<address>`. Chain-free, so its decoder fuzzes alone. Commitments only — no claim preimage ever reaches chain state |
 | `radio-transport` | ISM LoRa off-grid transport: AX.25-style framing, a duty-cycle governor that refuses rather than warns, a random-linear fountain codec, and store-and-forward relay. Headers and SPV proofs only — a hybrid signature is 11,165 bytes and does not compress. Chain-free, fuzzable alone — [docs/radio-transport.md](docs/radio-transport.md) |
 | `identity` | DID records, rotation and revocation, and selective-disclosure credentials. Attestations are post-quantum; the holder's disclosure proof is Groth16 and is not |
+| `rwa` | RWA primitives: DvP that is a no-op on failure (invariant 7), issuer-selected transfer rules (invariant 13), largest-remainder distribution |
 | `iso20022` | Bank-rail bridge: pacs.008/pacs.009/camt.053, the sealed translation, and sanctions non-membership proofs. `check_chain` refuses a value-bearing chain while the seal is classical — [docs/iso20022.md](docs/iso20022.md) |
 
 **PLANNED — no code in this tree.** Do not go looking for these; grep will not
@@ -382,6 +384,22 @@ invariants before removing it.
 First build after a clean is long — the `opt-level = 3` dev overrides mean the
 crypto and arkworks stacks compile optimized even in debug.
 
+**Two build facts this machine enforces, both discovered the hard way.**
+
+`[profile.dev.package.custom-l1-node] debug = "line-tables-only"` is load-bearing
+in the same way invariant 5's overrides are. The node binary links 183 object
+files, and MSVC caps how many modules one program database may hold; past it the
+linker stops with `LNK1140: limit exceeded for program database` and
+`cargo nextest run --workspace` cannot even build. Line tables keep file and line
+in a backtrace, which is what anyone reads, and drop the per-type records that
+make up the bulk of the modules. Scoped to the package, so dependencies keep full
+debug info.
+
+`target/` reached **415 GB** and filled a 400 GB volume to exactly zero bytes,
+at which point every build fails with `os error 112` rather than anything that
+names the real problem. A cold rebuild after `cargo clean` is **52 minutes** on
+this machine — budget for it before starting one.
+
 **`cargo nextest run --workspace` needs `CARGO_BUILD_JOBS=1` on this machine.**
 Cargo defaults to one job per logical CPU (24 here), so two dozen `link.exe`
 processes each link a test binary carrying `debuginfo = 2`, wasmtime, arkworks,
@@ -495,6 +513,19 @@ and `sonarqube` (thin Rust rule coverage next to clippy + `cargo audit` +
 TDD/verification/review system makes agent selection worse), `codspeed` (wants
 a CI account), `security-guidance` (POSIX shell hooks plus an LLM diff review
 on every Stop).
+
+**Project agents** (`.claude/agents/`, ~0.6K tokens/turn): nine curated from
+`msitarzewski/agency-agents@ad9264e` (MIT) out of 295 —
+`blockchain-security-auditor`, `security-architect`, `codebase-archaeologist`,
+`research-synthesist` (read-only `tools:`), plus `rust-refactoring-specialist`,
+`webassembly-engineer`, `minimal-change-engineer`, `sre`,
+`desktop-app-engineer`. Each has its upstream path in a frontmatter comment and
+a trailing *Maya2C Operating Context* section that overrides the generic
+web/EVM body. Skipped on purpose: upstream `code-reviewer` and
+`software-architect` (collide with ECC's), `reality-checker` (Laravel +
+Playwright screenshots), `solidity-*` (no EVM here), and every non-engineering
+division. Add one by hand in the same shape — do not run upstream
+`install.sh --tool claude-code`, which copies all 295 into `~/.claude/agents/`.
 
 Nine ECC hooks are wired in `~/.claude/settings.json`; 15 were removed and are
 listed in `env.ECC_DISABLED_HOOKS`. `pre:bash:dispatcher` in particular blocks

@@ -203,6 +203,72 @@ impl StateDB {
                 self.anchor_attestation(overlay, &sender, context.height, payload)
             }
             TxKind::SetRevocationBit(payload) => self.set_revocation_bit(overlay, &sender, payload),
+
+            // Issuance, distribution and attestation are the issuer's own
+            // transactions, so a bad one is an error. A DvP is not: it names a
+            // counterparty, and an error there would let anyone void a block by
+            // submitting a swap they know cannot settle — invariant 7.
+            TxKind::IssueRwa(payload) => {
+                let rule = payload
+                    .rule
+                    .as_ref()
+                    .map(|rule| {
+                        let predicate = maya_rwa::token::RulePredicate::from_parts(
+                            rule.predicate_tag,
+                            rule.bound,
+                        )
+                        .ok_or_else(|| {
+                            NodeError::Decode(format!(
+                                "rwa: predicate tag {} names nothing",
+                                rule.predicate_tag
+                            ))
+                        })?;
+                        maya_rwa::token::TransferRule::new(
+                            rule.schema,
+                            predicate,
+                            rule.trusted_issuers.clone(),
+                            rule.eligibility_blocks,
+                        )
+                        .map_err(|error| NodeError::Decode(format!("rwa: {error}")))
+                    })
+                    .transpose()?;
+                self.issue_rwa(overlay, &sender, &payload.label, payload.total_units, rule)
+                    .map(|_| ())
+            }
+            TxKind::SettleDvp(payload) => self
+                .settle_dvp(
+                    overlay,
+                    &sender,
+                    &payload.seller,
+                    &payload.asset,
+                    payload.units,
+                    payload.price,
+                    payload.page,
+                    context.height,
+                )
+                .map(|_| ()),
+            TxKind::RecordEligibility(payload) => {
+                self.record_eligibility(overlay, &payload.asset, &sender, context.height)
+            }
+            TxKind::DistributeRevenue(payload) => self
+                .distribute_revenue(
+                    overlay,
+                    &sender,
+                    &payload.asset,
+                    payload.round,
+                    payload.total,
+                    payload.pages,
+                    context.height,
+                )
+                .map(|_| ()),
+            TxKind::AttestLegal(payload) => self.attest_legal(
+                overlay,
+                &sender,
+                &payload.asset,
+                &payload.document,
+                &payload.reference,
+                context.height,
+            ),
         }
     }
 
