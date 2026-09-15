@@ -154,6 +154,36 @@ members = [
     # float SGD, and quantization into fee-market's integer weight file. Floats
     # stop here; the node does not depend on it (invariant 20).
     "neural-gas-trainer",
+    # Stateless transfer execution: a keyed sparse Merkle commitment over
+    # accounts, its witnesses, and a Ring-SIS research backend. Chain-free, so
+    # a stateless verifier structurally cannot read a database and its witness
+    # decoder fuzzes alone. Research branch: STATELESS_ACTIVATION_HEIGHT is
+    # u64::MAX — see docs/stateless.md.
+    "stateless-core",
+    # Federated training without revealed updates: ML-KEM secure aggregation,
+    # integer discrete-Gaussian DP, an attestation hook. Off-chain; the node
+    # takes it as a dev-dependency only (invariant 20) — see
+    # docs/confidential-ai.md.
+    "confidential-ai",
+    # The XDP relay's shared rules: the 56-byte header, the integer token
+    # bucket, and the verdict order. `no_std` and dependency-free, because the
+    # kernel's verifier compiles every function the XDP program calls from it —
+    # see docs/ebpf-net.md.
+    "ebpf-net/common",
+    # The relay itself: sealed chunks, bounded reassembly, and — on Linux behind
+    # the `xdp` feature, off by default like `cuda-miner`'s `cuda` — the loader
+    # and AF_XDP sockets. The XDP program is `ebpf-net/programs`, not a member:
+    # it builds for `bpfel-unknown-none` on nightly, as `dashboard/` builds for
+    # wasm32.
+    "ebpf-net",
+    # Threat indicators from verified gossip evidence: the signed bytes, the
+    # integer score and its decay by height. Dependency-free for Kani, like
+    # `dex`. Research branch: THREAT_INTEL_ACTIVATION_HEIGHT is u64::MAX — see
+    # docs/threat-intel.md.
+    "threat-intel",
+    # The per-host worker turning a co-located node's active indicators into
+    # nftables / iptables drops. Holds no chain key — see docs/threat-intel.md.
+    "threat-firewall",
 ]
 
 [dependencies]
@@ -237,6 +267,21 @@ maya-identity = { path = "identity" }
 maya-rwa = { path = "rwa" }
 # Lattice HTLC commitments, openings and lock records, for `src/state/htlc.rs`.
 maya-htlc-lattice = { path = "htlc-lattice" }
+# Threat indicators and the evidence encoding, for `src/state/threat.rs`.
+maya-threat-intel = { path = "threat-intel" }
+# Strict ed25519 verification of gossip evidence (`src/state/threat_exec.rs`).
+# Already in the graph through libp2p identities; named here so the
+# consensus check is `verify_strict`, not whatever libp2p happens to call.
+ed25519-dalek = "2.2"
+# The sparse accounts tree and its witnesses, for `src/state/stateless.rs`. The
+# node computes its accounts root with this crate once stateless accounts are
+# active, so a stateless verifier and a full node share one definition.
+maya-stateless-core = { path = "stateless-core" }
+# The block relay, for `src/network/node/relay.rs`. Without the `xdp` feature
+# this is portable Rust with no `unsafe`: sealed chunks over a kernel UDP socket.
+# The crate links no chain types, which is what keeps its datagram decoder
+# fuzzable on its own.
+maya-ebpf-net = { path = "ebpf-net" }
 # Only for the ristretto255 encodings that cross the boundary between chain
 # state and `maya-mev` — a stored committee key, a stored decryption share.
 # The same version `maya-mev` and `maya-vrf` already pull in, deliberately: two
@@ -273,10 +318,26 @@ libp2p = { version = "0.57", features = [
     "yamux",
     "tcp",
     "macros",
+    # Block sync: a peer that has a child block but not its parent fetches the
+    # parent from whoever relayed the child (`src/network/sync.rs`). CBOR over
+    # serde, with libp2p's own request and response size caps.
+    "request-response",
+    "cbor",
 ] }
+
+[features]
+# The XDP/AF_XDP receive path for the block relay, Linux only. Off by default,
+# like `cuda-miner`'s `cuda`: without it the relay receives on a kernel UDP
+# socket, and the node links neither aya nor the AF_XDP `unsafe` in
+# `ebpf-net/src/linux/`.
+xdp = ["maya-ebpf-net/xdp"]
 
 [dev-dependencies]
 tempfile = "3"
+# `tests/fuzz_harness.rs` only: a seeded RNG so a soak run replays exactly. The
+# coverage-guided search and its LibAFL/Z3 graph live in the out-of-workspace
+# `offsec-sandbox` crate, never here — see docs/offsec-sandbox.md.
+rand_chacha = "0.3"
 # In-memory duplex streams, for driving the two halves of the ML-KEM handshake
 # against each other without a socket. What libp2p uses for the same job.
 futures_ringbuf = "0.4"
@@ -303,9 +364,18 @@ maya-fee-market = { path = "fee-market" }
 # in-process chains. A dev-dependency cycle -- the watcher depends on this
 # crate -- which Cargo permits, exactly as `maya-wallet-core` above.
 maya-htlc-watcher = { path = "htlc-watcher" }
+# For `tests/federated_ai_tests.rs` only. Floating-point training code must not
+# reach anything the node links (invariant 20).
+maya-confidential-ai = { path = "confidential-ai" }
 # The in-process chains in that test implement the watcher's `SwapChain`.
 async-trait = "0.1"
+# For `tests/threat_intel_tests.rs`, which drives the real firewall worker from
+# each honest node's own state. A dev-dependency cycle, as `maya-htlc-watcher`.
+maya-threat-firewall = { path = "threat-firewall" }
 criterion = "0.7"
+# Only for `benches/ebpf_bench.rs`: the baseline the relay's fixed header is
+# measured against. No `flatc`; the bench writes its one table out by hand.
+flatbuffers = "25"
 # Comparison baselines for `benches/algo_comparison.rs`. Dev-only: none of this
 # reaches the node binary.
 #
@@ -511,6 +581,11 @@ opt-level = 3
 [profile.dev.package.maya-htlc-lattice]
 opt-level = 3
 
+# A Ring-SIS node digest is about 900,000 i64 additions, and every test tree
+# built with the research backend spends nearly all of its time there.
+[profile.dev.package.maya-stateless-core]
+opt-level = 3
+
 [profile.dev.package.halo2-axiom]
 opt-level = 3
 
@@ -529,4 +604,12 @@ harness = false
 # rather than asserts.
 [[bench]]
 name = "gas_predictor"
+harness = false
+
+# The block relay: its fixed header against flatbuffers, the per-datagram cost
+# in user space, loopback UDP, and — on Linux with `--features xdp`, root and
+# `scripts/xdp_netns.sh` — kernel UDP against AF_XDP and XDP_DROP. Reports the
+# generator's offered rate beside every figure and asserts no ratio.
+[[bench]]
+name = "ebpf_bench"
 harness = false

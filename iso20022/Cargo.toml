@@ -33,6 +33,6 @@ blake3 = "1"
 # five predefined ones and nothing else. There is no DTD processing to switch
 # off because there is none to begin with, which is the reason to pick this
 # parser over a more featureful one.
-quick-xml = "0.37"
+quick-xml = "0.42"
 thiserror = "2.0"
 

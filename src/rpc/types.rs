@@ -251,3 +251,64 @@ impl HtlcLockInfo {
         }
     }
 }
+
+/// A threat indicator, as `threat_indicators` reports it.
+///
+/// Carries an author and a peer id, never an address: which address a peer id
+/// connects from is each node's own knowledge (`threat_peer_addresses`).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ThreatIndicatorInfo {
+    /// Hex-encoded ed25519 author key.
+    pub author: String,
+    /// The author's libp2p peer id.
+    pub peer_id: String,
+    /// Score as of `last_height`.
+    pub score: u64,
+    /// Distinct offences recorded.
+    pub offences: u32,
+    /// Height of the first recorded offence.
+    pub first_height: u64,
+    /// Height of the latest recorded offence.
+    pub last_height: u64,
+    /// Whether the author is quarantined at the height the node answered at.
+    pub active: bool,
+    /// First height at which the quarantine lifts, if one is in force.
+    pub until_height: Option<u64>,
+}
+
+impl ThreatIndicatorInfo {
+    /// Builds a response for one indicator, judged at `height`.
+    #[must_use]
+    pub fn new(
+        author: &maya_threat_intel::Author,
+        indicator: &maya_threat_intel::ThreatIndicator,
+        height: u64,
+    ) -> Self {
+        let peer_id = libp2p::PeerId::from_bytes(&maya_threat_intel::peer_id_bytes(author))
+            .map(|peer| peer.to_string())
+            .expect("peer_id_bytes is an identity multihash, which is always a valid peer id");
+        let active = indicator.is_active(height);
+        Self {
+            author: hex::encode(author),
+            peer_id,
+            score: indicator.score,
+            offences: indicator.offences,
+            first_height: indicator.first_height,
+            last_height: indicator.last_height,
+            active,
+            until_height: indicator.until_height().filter(|_| active),
+        }
+    }
+}
+
+/// A peer and the address of this node's most recent connection to it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PeerAddressInfo {
+    /// The peer's libp2p id.
+    pub peer_id: String,
+    /// Hex-encoded ed25519 author key the peer id inlines, or `None` for any
+    /// other key type — which can never carry an indicator.
+    pub author: Option<String>,
+    /// The connection's IP address.
+    pub ip: String,
+}

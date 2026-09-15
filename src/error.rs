@@ -388,6 +388,13 @@ pub enum NodeError {
     #[error("htlc: {0}")]
     Htlc(String),
 
+    /// An attack attestation whose evidence does not verify, or one
+    /// submitted before threat intel is active.
+    ///
+    /// Evidence already on chain raises nothing — it is a no-op.
+    #[error("threat intel: {0}")]
+    ThreatIntel(String),
+
     /// An asset ticker was empty, contained something other than uppercase
     /// ASCII and digits, or carried interior padding.
     ///

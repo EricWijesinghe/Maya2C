@@ -52,6 +52,11 @@ pub(crate) const RECORD_LAYERS: &[(&[u8], StateLayer)] = &[
     ),
     (crate::state::rwa::RWA_PREFIX, StateLayer::Rwa),
     (crate::state::htlc::HTLC_PREFIX, StateLayer::Htlc),
+    (crate::state::threat::THREAT_PREFIX, StateLayer::ThreatIntel),
+    (
+        crate::state::stateless::STATELESS_PREFIX,
+        StateLayer::Stateless,
+    ),
 ];
 
 /// Committed prefixes that are not generic records: each has its own typed

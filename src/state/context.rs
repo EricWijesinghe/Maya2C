@@ -24,7 +24,36 @@ pub struct BlockContext {
     /// [`HTLC_L_ACTIVATION_HEIGHT`] everywhere the node builds a context. Tests
     /// set it with [`Self::with_htlc_activation`].
     pub htlc_activation: u64,
+    /// First height whose block commits accounts as a sparse tree.
+    ///
+    /// [`STATELESS_ACTIVATION_HEIGHT`] everywhere the node builds a context.
+    /// Tests set it with [`Self::with_stateless_activation`].
+    pub stateless_activation: u64,
+    /// First height at which attack attestations execute.
+    ///
+    /// [`THREAT_INTEL_ACTIVATION_HEIGHT`] everywhere the node builds a context.
+    /// Tests set it with [`Self::with_threat_intel_activation`].
+    pub threat_intel_activation: u64,
 }
+
+/// First height at which attack attestations execute: none.
+///
+/// The research-branch pattern. What has to be decided first is written in
+/// `docs/threat-intel.md`: the evidence signature is classical ed25519, so a
+/// quantum adversary can frame any peer id, and evidence markers are never
+/// pruned, so their growth needs a bound before any network carries them.
+pub const THREAT_INTEL_ACTIVATION_HEIGHT: u64 = u64::MAX;
+
+/// First height at which the accounts root becomes a sparse Merkle tree, so a
+/// stateless node can verify transfer blocks from witnesses: none.
+///
+/// The research-branch pattern. Activation is a state-root format change —
+/// every root from that block on is computed differently — so what has to be
+/// decided first is written in `docs/stateless.md`: how witnesses travel (no
+/// gossip topic carries them yet), and whether the end-of-block passes can be
+/// made witness-verifiable, without which only chains that never run the
+/// oracle, governance or the sealed mempool can be followed statelessly.
+pub const STATELESS_ACTIVATION_HEIGHT: u64 = u64::MAX;
 
 /// First height at which lattice HTLC locks, claims and refunds execute: none.
 ///
@@ -54,7 +83,40 @@ impl BlockContext {
             height,
             zkml_activation: ZKML_ACTIVATION_HEIGHT,
             htlc_activation: HTLC_L_ACTIVATION_HEIGHT,
+            stateless_activation: STATELESS_ACTIVATION_HEIGHT,
+            threat_intel_activation: THREAT_INTEL_ACTIVATION_HEIGHT,
         }
+    }
+
+    /// The same context with attack attestations active from `height` on.
+    #[must_use]
+    pub const fn with_threat_intel_activation(self, height: u64) -> Self {
+        Self {
+            threat_intel_activation: height,
+            ..self
+        }
+    }
+
+    /// Whether attack attestations execute in this block.
+    #[must_use]
+    pub const fn threat_intel_active(self) -> bool {
+        self.height >= self.threat_intel_activation
+    }
+
+    /// The same context with sparse accounts active from `height` on.
+    #[must_use]
+    pub const fn with_stateless_activation(self, height: u64) -> Self {
+        Self {
+            stateless_activation: height,
+            ..self
+        }
+    }
+
+    /// Whether this block switches, or has switched, accounts to the sparse
+    /// tree.
+    #[must_use]
+    pub const fn stateless_active(self) -> bool {
+        self.height >= self.stateless_activation
     }
 
     /// The same context with lattice HTLCs active from `height` on.

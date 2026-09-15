@@ -334,6 +334,42 @@ async fn rotation_height_loop(chain: Arc<Mutex<Chain>>, epoch: EpochClock) {
     }
 }
 
+/// Refuses the peers every active on-chain threat indicator names, at the tip.
+///
+/// Sampled beside the rotation clock and for the same reason: height advances
+/// through import and mining, and a sampler cannot miss either. The node
+/// replaces its whole convicted set on each push, so only a changed set is
+/// pushed, and a failed push is simply retried on the next tick. While threat
+/// intel is dark no indicator exists and this pushes nothing.
+async fn threat_enforcement_loop(chain: Arc<Mutex<Chain>>, network: NodeHandle) {
+    let mut ticker = tokio::time::interval(ROTATION_HEIGHT_SAMPLE_INTERVAL);
+    let mut enforced: Vec<[u8; 32]> = Vec::new();
+
+    loop {
+        ticker.tick().await;
+        let (height, state) = {
+            let chain = lock_chain(&chain);
+            (chain.height(), Arc::clone(chain.state()))
+        };
+        let mitigations = match state.active_mitigations(height) {
+            Ok(mitigations) => mitigations,
+            Err(error) => {
+                eprintln!("could not read threat indicators: {error}");
+                continue;
+            }
+        };
+        // Author order is the store's key order, so equal sets compare equal.
+        let authors: Vec<[u8; 32]> = mitigations.iter().map(|m| m.author).collect();
+        if authors == enforced {
+            continue;
+        }
+        match network.enforce_mitigations(&mitigations).await {
+            Ok(()) => enforced = authors,
+            Err(error) => eprintln!("could not enforce threat mitigations: {error}"),
+        }
+    }
+}
+
 /// Generates the next epoch's verification cache before the chain needs it.
 ///
 /// Without this, the first block of a new epoch pays a ~0.9 s cache generation
@@ -588,6 +624,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let pq_epoch = p2p.epoch_clock();
     let network = p2p.spawn();
     tokio::spawn(rotation_height_loop(Arc::clone(&chain), pq_epoch.clone()));
+    tokio::spawn(threat_enforcement_loop(Arc::clone(&chain), network.clone()));
     tokio::spawn(dag_prepare_loop(Arc::clone(&chain)));
 
     println!("peer id:     {}", network.peer_id());

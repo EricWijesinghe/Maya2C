@@ -8,6 +8,8 @@
 //! | `get_mining_candidate` | `[]` | [`types::MiningCandidate`] |
 //! | `submit_block` | `[block_hex]` | [`types::SubmitBlockResult`] |
 //! | `get_supply` | `[]` | [`market::SupplyReport`] |
+//! | `threat_indicators` | `[]` | `Vec<`[`types::ThreatIndicatorInfo`]`>` |
+//! | `threat_peer_addresses` | `[]` | `Vec<`[`types::PeerAddressInfo`]`>` — only with [`RpcContext::with_peers`] |
 //!
 //! `submit_block` is the counterpart to `get_mining_candidate`: a candidate a
 //! miner can fetch but never return is not a usable interface, and the
@@ -29,6 +31,6 @@ pub use market::{MarketFeed, MarketQuote, SupplyReport};
 pub use market_http::{MarketServer, MarketState, serve as serve_market};
 pub use server::{RpcContext, RpcServer, build_module, serve};
 pub use types::{
-    AccountInfo, BlockInfo, HeaderInfo, HtlcLockInfo, MiningCandidate, OutputInfo,
-    SubmitBlockResult, SubmitTransactionResult, TransactionInfo,
+    AccountInfo, BlockInfo, HeaderInfo, HtlcLockInfo, MiningCandidate, OutputInfo, PeerAddressInfo,
+    SubmitBlockResult, SubmitTransactionResult, ThreatIndicatorInfo, TransactionInfo,
 };

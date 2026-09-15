@@ -432,11 +432,17 @@ impl StateDB {
             merged.insert(*address, *account);
         }
 
-        let leaves: Vec<[u8; HASH_LEN]> = merged
-            .iter()
-            .map(|(address, account)| account_leaf(address, account))
-            .collect();
-        let accounts_root = merkle_root(&leaves);
+        // Which tree is a fact about the state itself — the `sl:` marker — not
+        // about a height, so `state_root()` answers without knowing one.
+        let accounts_root = if self.sparse_accounts(overlay)? {
+            crate::state::stateless::sparse_accounts_root(&merged)?
+        } else {
+            let leaves: Vec<[u8; HASH_LEN]> = merged
+                .iter()
+                .map(|(address, account)| account_leaf(address, account))
+                .collect();
+            merkle_root(&leaves)
+        };
 
         let mut channels: BTreeMap<ChannelId, ChannelRecord> =
             self.all_channels()?.into_iter().collect();
@@ -474,6 +480,15 @@ impl StateDB {
     ///
     /// Returns [`NodeError::Storage`] on a read failure.
     pub fn account_proof(&self, address: &Address) -> Result<Option<AccountProof>> {
+        // A dense-tree path against a sparse root would verify against nothing
+        // and read as tampering. Say which proof this state takes instead.
+        if self.sparse_accounts(&Overlay::new())? {
+            return Err(NodeError::MalformedProof {
+                reason: "accounts are a sparse tree here; use StateDB::transaction_witness"
+                    .to_string(),
+            });
+        }
+
         // The whole account set, because a Merkle path is a statement about a
         // leaf's position among all the others. There is no cheaper way to say
         // where something sits in a tree than to know the tree.
@@ -513,7 +528,7 @@ impl StateDB {
     /// is what keeps a chain that has never traded at the root it would have had
     /// before trading existed — and it is why a proof carries a *list* rather
     /// than a fixed five digests.
-    fn state_layers(&self, overlay: &Overlay) -> Result<Vec<LayerDigest>> {
+    pub(crate) fn state_layers(&self, overlay: &Overlay) -> Result<Vec<LayerDigest>> {
         let mut layers = Vec::new();
 
         // Escrowed value that no commitment covers is value a light client
@@ -777,6 +792,9 @@ impl StateDB {
     /// [`maya_dex::batch`].
     fn stage_block(&self, block: &Block, context: BlockContext) -> Result<Overlay> {
         let mut overlay = Overlay::new();
+        // Here and not in a commit path, so all four agree on which accounts
+        // tree this block's root is built from.
+        self.mark_sparse_accounts(&mut overlay, context)?;
         // Taken from the header rather than from any transaction, so a work
         // claim credits the difficulty the block was actually mined against
         // and not a number its beneficiary chose.

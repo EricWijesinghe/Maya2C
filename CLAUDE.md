@@ -1,7 +1,7 @@
 # Maya2C
 
 Post-quantum L1 blockchain node in Rust (edition 2024, `rust-version = 1.88`).
-Root package `custom-l1-node` + 30 workspace members, one lockfile, one `target/`.
+Root package `custom-l1-node` + 32 workspace members, one lockfile, one `target/`.
 
 ## Identity and Mission
 
@@ -98,6 +98,13 @@ PowerShell profile and `~/.bashrc`.
 | `htlc-lattice` | Lattice HTLCs: Module-LWE commitment `t = A·s + e` at ML-DSA-65's parameters, the short-opening check, the timelock rule (Kani-proved exclusive), the lock record. Chain-free, decoders fuzzable alone (`fuzz/fuzz_targets/htlc_lattice_decode.rs`). No RNG: entropy is the caller's — [docs/htlc-lattice.md](docs/htlc-lattice.md) |
 | `htlc-watcher` | Counterparty watcher: claims on revelation, refunds on expiry, refuses unsafe pairings and late reveals. Pure `policy::decide`, `SwapChain` trait over RPC. Its own process because it holds a hot key |
 | `neural-gas-trainer` | Off-chain half of the neural base-fee gain: synthetic demand simulator, float SGD, quantization into `fee-market/src/model/weights_v1.rs` (`-- --check` fails on drift). Floats stop here — the node does not depend on it (invariant 20). The integer network and envelope live in `fee-market`; block features in `src/neural_gas/` — [docs/neural-gas.md](docs/neural-gas.md) |
+| `stateless-core` | Keyed sparse Merkle tree over accounts, its canonical witness, transfer execution against a verified witness, and a Ring-SIS research backend over `Z_q[x]/(x^256+1)`. Chain-free, so a stateless verifier cannot reach a database and the witness decoder fuzzes alone (`fuzz/fuzz_targets/stateless_witness_decode.rs`). The node's sparse accounts root is computed *by* this crate — [docs/stateless.md](docs/stateless.md) |
+| `ebpf-net/common` | What the XDP program and user space share byte for byte: the 56-byte relay header, the integer token bucket, the verdict order, the map records. `no_std`, dependency-free, compiled for the host *and* `bpfel-unknown-none` — the host tests exercise the function the kernel runs |
+| `ebpf-net` | Block relay over UDP beside gossip: XChaCha20-Poly1305 chunks under per-peer keys, bounded per-sender reassembly, the receiver. Under `src/linux/` behind the `xdp` feature (off by default): aya loader, hand-rolled AF_XDP over `libc`, throughput harness. Chain-free, decoder fuzzable alone (`fuzz/fuzz_targets/xdp_relay_decode.rs`) — [docs/ebpf-net.md](docs/ebpf-net.md) |
+| `offsec-sandbox/` | Autonomous red-team fuzzing. **Not a workspace member** — its own `[workspace]` and lockfile, like `fuzz/`, so LibAFL (optional) and Z3 (optional, arithmetic crates only) never touch the node graph or Kani. Structure-aware mutators for tx/WASM/handshake, a panic-and-determinism oracle over the real apply path, and crash triage that emits regression stubs, never patches (invariant 13). The in-tree gate is `tests/fuzz_harness.rs`; the two share no dependency — [docs/offsec-sandbox.md](docs/offsec-sandbox.md) |
+| `threat-intel` | Threat indicators from evidence a third party can re-check: an ed25519 gossip author's own signature over a frame that decodes and fails a stateless check. Rebuilds libp2p's signed bytes itself; integer score halving by height; mitigation computed, never stored. Dependency-free for Kani — verification lives in `src/state/threat_exec.rs`; decoder fuzzes alone (`fuzz/fuzz_targets/threat_evidence_decode.rs`) — [docs/threat-intel.md](docs/threat-intel.md) |
+| `threat-firewall` | Per-host worker: joins a co-located node's indicators (by author) with its own connection addresses and drives nftables / iptables. Pushes rules nowhere else, holds no chain key, never blocks loopback |
+| `ebpf-net/programs` | The XDP program. **Not a workspace member** — nightly, `bpfel-unknown-none`, `-Z build-std=core`. Needs the **prebuilt** `bpf-linker` v0.11.1 (`cargo install` fails without a system libLLVM matching rustc's); builds on Windows and Linux. Loading needs Linux: the `Ubuntu-24.04` WSL distro on this machine runs `ebpf-net/tests/xdp_veth.rs` as root |
 | `dashboard/` | Leptos browser page. **Not a workspace member** — CSR Leptos only runs on `wasm32`. Built with `trunk` |
 
 ## Roadmap Status
@@ -117,7 +124,9 @@ circuit breaker (`src/state/invariant_guard/`), pruning and CAR archives
 `pool-service`, `telemetry`, `faucet`, MPC-TSS custody (`custody-mpc`), the threshold-encrypted
 mempool (`mev`, `src/sealed/` — optional at genesis, not dark), CUDA and
 wgpu miners, Tauri wallet, Leptos explorer/dashboard, Axum gateway
-(`api-gateway`), SDKs, `docgen`.
+(`api-gateway`), SDKs, `docgen`, the peer guard (`src/network/peer_health.rs`,
+`sync.rs` — gossip validation, P4 scoring, expiring quarantine, connection caps,
+bounded parent fetch; node-local, no consensus rule — [docs/peer-health.md](docs/peer-health.md)).
 
 **RESEARCH** — in the tree with tests, but *nothing in consensus calls it*.
 Usually an activation height of `u64::MAX`. Promoting one is a decision somebody
@@ -126,7 +135,7 @@ writes down.
 | Crate | What is dark |
 |---|---|
 | `fee-market` | EIP-1559 base fee over bytes. `FeeConfig::DISABLED`. The neural gain (`src/model/`, `src/rule.rs`) has its own `neural_activation_height = u64::MAX`: integer inference, compiled-in weights, and a Kani-proved envelope — never below EIP-1559's fee, never against fullness, a rise at most doubled. No zkML; trained on a simulator because no chain history exists — [docs/neural-gas.md](docs/neural-gas.md) |
-| `blockgraph` | Narwhal/Tusk batch refs + deterministic shard scheduling. Nothing references a batch |
+| `blockgraph` | Narwhal/Tusk batch refs + deterministic shard scheduling. Nothing references a batch. `shard_manager/` adds a **per-node** elastic map (4–64 leaves, split above 80% of a lane for 100 ticks, buddy merges) — not consensus, because waves reach the serial state under every tiling; the fixed `shard_of` stays for fee features. `access_for_transaction` is too narrow for every non-transfer kind and must be fixed before any consensus path reaches the scheduler — [docs/blockgraph.md](docs/blockgraph.md#elastic-shards) |
 | `lattice-pow` | Lattice PoUW (SVP) verification |
 | `zkml` / `zkml-prover` | halo2 zkML ONNX inference. `ZKML_ACTIVATION_HEIGHT = u64::MAX`, SRS from a public seed |
 | `rwa` | Real-world assets: tokens, paged cap tables, legal attestations, revenue. The distribution arithmetic lives in `ledger-math` so Kani can check that payouts sum to exactly the total — [docs/rwa.md](docs/rwa.md) |
@@ -136,26 +145,32 @@ writes down.
 | `rwa` | RWA primitives: DvP that is a no-op on failure (invariant 7), issuer-selected transfer rules (invariant 13), largest-remainder distribution |
 | `iso20022` | Bank-rail bridge: pacs.008/pacs.009/camt.053, the sealed translation, and sanctions non-membership proofs. `check_chain` refuses a value-bearing chain while the seal is classical — [docs/iso20022.md](docs/iso20022.md) |
 | `htlc-lattice` / `htlc-watcher` | Lattice HTLC atomic swaps. `HTLC_L_ACTIVATION_HEIGHT = u64::MAX`. **Maya2C↔Maya2C only** — Bitcoin cannot check the predicate. Claims and refunds map to no breaker module; only locks are gated — [docs/htlc-lattice.md](docs/htlc-lattice.md) |
+| `stateless-core` / `src/state/stateless.rs` | Stateless transfer verification. `STATELESS_ACTIVATION_HEIGHT = u64::MAX`; from it the `sl:` marker switches the accounts root to the sparse tree. BLAKE3 commits; the Ring-SIS backend is measured, not used — no transparent lattice commitment opens under 1 KB. Decides only transfer-only blocks on a state with no `m:`/`o:`/`g:` records; everything else is `Unverifiable`, never `Invalid`. No witness gossip — [docs/stateless.md](docs/stateless.md) |
+| `confidential-ai` | Federated training without revealed updates: ML-KEM-768 pairwise-masked secure aggregation with Shamir dropout recovery, integer discrete-Gaussian DP with a zCDP accountant. Off-chain, dev-dependency of the node only (invariant 20). No enclave report is generated or verified — a TEE attestation is a vendor's classical signature — [docs/confidential-ai.md](docs/confidential-ai.md) |
+| `ebpf-net` / `src/network/node/relay.rs` | eBPF/XDP block relay. Nothing in `src/bin/node.rs` calls `Node::with_block_relay`; the kernel path is Linux behind `xdp`. Gossip is ciphertext, so the kernel judges only relay datagrams, structurally: blocklist (peer-guard quarantines only — a UDP source is forgeable), token bucket, exact length; all other traffic passes. Keys agreed over the PQ connection (`relay_key.rs`); datagrams go to the connection's IP, never a peer-named address. One hop: a node relays blocks it publishes, never ones it received. No flatbuffers on the wire (the verifier cannot walk vtables); the bench reports kernel UDP vs AF_XDP vs `XDP_DROP` and asserts no ratio. Not measured on a native-XDP NIC — [docs/ebpf-net.md](docs/ebpf-net.md) |
+| `offsec-sandbox` / `tests/fuzz_harness.rs` | Autonomous red-team fuzzing. Separate workspace, so LibAFL and an optional Z3 never reach the node graph or Kani (invariants 1, 6). Hunts panics, unbounded allocation and non-deterministic apply (invariant 24) — not "memory corruption" (safe Rust) or "races" (single-threaded apply). Triage emits regression stubs, never patches (invariant 13). The in-tree gate replays seeded mutations through the decoders and apply path; it asserts "no crash across N inputs", never "100%". `MAYA_FUZZ_ITERS`/`MAYA_FUZZ_APPLIES` bound it — [docs/offsec-sandbox.md](docs/offsec-sandbox.md) |
+| `threat-intel` / `threat-firewall` / `src/state/threat_exec.rs` | Threat-intel registry (was ZK-SIEM). `THREAT_INTEL_ACTIVATION_HEIGHT = u64::MAX`. `TxKind::AttestAttack` records an author's gossip signature over a transaction whose signature fails or a block whose `tx_root` fails; `verify_strict`, then the check, at admission and apply. No ZK (nothing hidden), no votes (no validator set — one verified offence confirms), no IP in state (each host maps authors to its own connections). Floods and scans yield nothing, pinned. Nodes refuse convicted peer ids at the libp2p layer (`NodeHandle::enforce_mitigations`, pushed by the binary's `threat_enforcement_loop`); hosts drop their addresses (`threat-firewall`). Kani: 4 harnesses verified. Invalid evidence errors; repeated evidence is a no-op (invariant 7). Classical ed25519 evidence and unpruned `t:ev:` markers are why it is dark. Enforced within 2 **blocks**, not "DAG rounds" — [docs/threat-intel.md](docs/threat-intel.md) |
 
 **PLANNED — no code in this tree.** Do not go looking for these; grep will not
-find them (`aya` matches the project *name*, not a dependency). eBPF/XDP
-zero-copy driver, satellite off-grid transport, LEO free-space laser mesh,
+find them. Satellite off-grid transport, LEO free-space laser mesh,
 CCSDS DTN (BPv7), subsea acoustic and subterranean neutrino signalling, QKD
-KM-API, lattice HTLC-L atomic swaps, EVM/SVM/Move transpilation, TEE federated
-AI (SGX/SEV-SNP), TPM 2.0/PUF attestation, biomolecular TRNG, photonic tensor
+KM-API, lattice HTLC-L atomic swaps, EVM/SVM/Move transpilation, SGX / SEV-SNP
+enclave attestation (the federated-training half is RESEARCH, below), TPM 2.0/PUF attestation, biomolecular TRNG, photonic tensor
 driver, DNA archival engine, magneto-optical MRAM, neural organoid MEA, LibAFL,
-ZK-SIEM, bytecode hot-patcher, ZK dark pools, relativistic
+bytecode hot-patcher, ZK dark pools, relativistic
 clock sync, Lean 4 proof engine.
 
 Three of those collide with invariants already on this list and must be
 reconciled *before* code, not after: the hot-patcher with 13, relativistic clock
-sync with 9, TEE attestation with 11.
+sync with 9, TEE attestation with 11. (`confidential-ai` sidesteps the last by
+writing no state and making attestation a hook that verifies nothing yet;
+committing an attested round would engage invariant 11.)
 
 ### Prompt Trajectory
 
 Sessions follow a 160-prompt plan in 12 domains:
-[docs/trajectory.md](docs/trajectory.md). **Completed through ~47; next is
-Prompt 48**, in Consensus & State Engine (26–50). The plan is an ordering, not
+[docs/trajectory.md](docs/trajectory.md). **Completed through ~48; next is
+Prompt 49**, in Consensus & State Engine (26–50). The plan is an ordering, not
 a status. The buckets above say what exists, and the plan's conflicts with them
 are listed in that file. Reconcile a conflict before the prompt that touches it
 writes code.
@@ -370,8 +385,11 @@ written as achieved is a directive nobody will implement. Expanded in
    `src/chain.rs`, `ledger-math`, `dex`, `governance`, `fee-market`, `vrf` — the
    same crates whose dependency-freedom exists so Kani can compile them. Exempt
    by construction: `cuda-miner` (CUDA driver FFI), `sdk-ffi` (the C ABI *is*
-   the product), `wgpu-miner` (GPU buffer mapping). An `unsafe` block anywhere
-   else needs a hardware-attestation justification in a comment, and a reviewer.
+   the product), `wgpu-miner` (GPU buffer mapping), `ebpf-net/src/linux/`
+   (AF_XDP rings and UMEM shared with the kernel; behind `xdp`, so a default
+   node links none of it), `ebpf-net/programs` (packet pointers the verifier
+   bounds). An `unsafe` block anywhere else needs a hardware-attestation
+   justification in a comment, and a reviewer.
 
 ## Build & Test
 

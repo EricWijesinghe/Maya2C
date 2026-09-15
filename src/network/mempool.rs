@@ -93,6 +93,12 @@ impl Mempool {
         // important place not to spend it twice.
         tx.verify()?;
 
+        // Evidence is stateless to check, so garbage never reaches a block
+        // template — the executor checks it again regardless.
+        if let crate::core::TxKind::AttestAttack(attestation) = &tx.kind {
+            crate::state::threat_exec::verify_evidence(attestation)?;
+        }
+
         let sender_address = tx.sender();
         let sender = self.state.get_account(&sender_address)?;
 

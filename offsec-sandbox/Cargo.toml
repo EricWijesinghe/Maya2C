@@ -1,0 +1,72 @@
+[package]
+name = "maya-offsec-sandbox"
+version = "0.1.0"
+# Not published, and never a workspace member. See the [workspace] note below.
+publish = false
+edition = "2024"
+rust-version = "1.88"
+description = "Coverage-guided, structure-aware differential fuzzing of Maya2C: tx/WASM/handshake mutators, a determinism-and-panic oracle, and crash triage that emits regression stubs — never patches"
+
+# Its own workspace root, deliberately, exactly as `fuzz/` is. LibAFL and the
+# optional Z3 pull graphs the node's crates must never link: putting either on
+# the node's path would carry it through `cargo deny`/`cargo tree` forever, let
+# a feature-unification switch it on in a crate that never asked, and break
+# Kani's goto-binary compile of `ledger-math` (invariants 1, 6). Out of the
+# workspace, this crate depends on the node one-directionally, tooling only.
+[workspace]
+
+[lib]
+name = "maya_offsec_sandbox"
+path = "src/lib.rs"
+
+[dependencies]
+# The types the mutators build valid-ish inputs of, and the apply path the
+# differential oracle drives. A path dependency on the node, like `fuzz/`.
+custom-l1-node = { path = ".." }
+# Deterministic mutation: a seed reproduces a run, and a finding reproduces its
+# input. Not the OS RNG — a fuzzer that cannot replay itself is not one.
+rand_core = "0.6"
+rand_chacha = "0.3"
+# Structure-aware WASM: valid modules within the VM's shape, and perturbations
+# of a valid seed — the deploy validator and fuel meter, not arbitrary bytes.
+wasm-smith = "0.259"
+wasm-mutate = "0.259"
+# `Unstructured`, the byte-driven source both wasm-smith and the typed mutators
+# read, so a corpus byte string drives module generation deterministically.
+arbitrary = "1"
+# The differential apply oracle opens two independent RocksDB-backed states per
+# block and compares the roots. Same crate the node's own tests use.
+tempfile = "3"
+hex = "0.4"
+
+# The coverage-guided engine. Off by default: the base crate — mutators, the
+# oracle, triage — is plain safe Rust that builds and tests without it, and the
+# in-tree `tests/fuzz_harness.rs` shares none of this.
+[dependencies.libafl]
+version = "0.15"
+optional = true
+[dependencies.libafl_bolts]
+version = "0.15"
+optional = true
+
+# Boundary-input generation over the arithmetic crates only. A C++ library, so
+# strictly opt-in, and a research aid — Kani is the authority on `ledger-math`.
+[dependencies.z3]
+version = "0.21"
+optional = true
+
+[features]
+default = []
+libafl = ["dep:libafl", "dep:libafl_bolts"]
+z3 = ["dep:z3"]
+
+[[bin]]
+name = "fuzz"
+path = "src/bin/fuzz.rs"
+
+[[bin]]
+name = "solve"
+path = "src/bin/solve.rs"
+
+[profile.release]
+debug = 1

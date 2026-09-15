@@ -2,13 +2,15 @@
 //!
 //! # What each of these is, and is not
 //!
-//! Three of the four are **verification** tests: the chain has a defence and
-//! this checks it works. One is a **characterisation** test: the chain has no
-//! defence, and this records what it does instead.
+//! All of them are **verification** tests: the chain has a defence and this
+//! checks it works. The sybil test used to be a **characterisation** — it
+//! recorded that no peer scoring or connection limit existed — and was replaced
+//! when the peer guard landed (`docs/peer-health.md`,
+//! `byzantine_guard_tests.rs`).
 //!
 //! The distinction is the point. A green tick next to "sybil flood" that
-//! implied a defence existed would be worse than no test at all, so that one
-//! says so in its name and its assertions.
+//! implied a defence existed would be worse than no test at all, which is why
+//! that one said so in its name until the defence was real.
 //!
 //! # "51% hash rate drop" is two different events
 //!
@@ -324,34 +326,31 @@ fn a_hashrate_surge_cannot_harden_difficulty_faster_than_the_clamp() {
 }
 
 // ---------------------------------------------------------------------------
-// Sybil: a CHARACTERISATION test
+// Sybil: peer scoring, quarantine and connection limits
 // ---------------------------------------------------------------------------
 
 #[test]
-fn characterisation_there_is_no_peer_limit_or_scoring() {
-    // NOT a verification test. This records an absence.
+fn peer_scoring_quarantine_and_connection_limits_are_wired() {
+    // Was `characterisation_there_is_no_peer_limit_or_scoring`, which recorded
+    // that none of this existed and asked to be replaced once it did.
     //
-    // `src/network/behaviour.rs` and `src/network/node.rs` configure no peer
-    // scoring, no connection limits, and no per-peer caps — gossipsub's scoring
-    // parameters are left at their defaults, which is to say off. A node will
-    // accept as many inbound connections as the OS will give it.
-    //
-    // What actually limits a sybil flood today is external: the deployment's
-    // firewall, and libp2p's own per-connection resource accounting. Neither is
-    // a chain-level defence and neither is configured here.
-    //
-    // This test exists so the gap is visible in the suite rather than only in a
-    // document nobody opens. It passes because the absence is real; if somebody
-    // adds peer scoring, it should fail and be replaced with a verification
-    // test that checks the scoring works.
+    // The behaviour — hostile peers quarantined and cut off, honest and slow
+    // ones not — is verified against running nodes in
+    // `byzantine_guard_tests.rs`. This pins the configuration a sybil flood
+    // meets, so that removing any piece of it fails here as well as there.
     let behaviour_source = include_str!("../src/network/behaviour.rs");
-    let node_source = include_str!("../src/network/node.rs");
 
-    for marker in ["with_peer_score", "ConnectionLimits", "max_established"] {
+    for marker in [
+        "validate_messages",
+        "with_peer_score",
+        "ConnectionLimits",
+        "with_max_established_per_peer",
+        "block_list",
+    ] {
         assert!(
-            !behaviour_source.contains(marker) && !node_source.contains(marker),
-            "`{marker}` is now configured — a sybil defence appears to exist. \
-             Replace this characterisation test with one that verifies it."
+            behaviour_source.contains(marker),
+            "`{marker}` is no longer configured in behaviour.rs — the peer guard \
+             has lost a piece. See docs/peer-health.md."
         );
     }
 }

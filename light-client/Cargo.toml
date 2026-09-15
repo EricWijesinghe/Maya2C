@@ -24,3 +24,5 @@ thiserror = "2.0"
 
 [dev-dependencies]
 tempfile = "3"
+# Account addresses for `tests/stateless_memory.rs`.
+blake3 = "1.8"

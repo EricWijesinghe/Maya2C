@@ -1,0 +1,28 @@
+[package]
+name = "maya-stateless-core"
+version = "0.1.0"
+# Not published. See stratum-v2/Cargo.toml for why cargo-deny needs this.
+publish = false
+edition = "2024"
+rust-version = "1.88"
+description = "Stateless transfer execution: a keyed sparse Merkle vector commitment over accounts, its witnesses, and a Ring-SIS research backend"
+
+[lib]
+name = "maya_stateless_core"
+path = "src/lib.rs"
+
+# Chain-free, like `htlc-lattice`. A witness is bytes a stranger relayed, so its
+# decoder fuzzes without RocksDB in the graph
+# (`fuzz/fuzz_targets/stateless_witness_decode.rs`). It is also what makes
+# "verification reads no StateDB" a property of the dependency graph rather
+# than of discipline: nothing here can reach a database.
+[dependencies]
+blake3 = "1.8"
+sha3 = { version = "0.11", default-features = false }
+thiserror = "2.0"
+# The balance and nonce arithmetic, shared with the node so a stateless
+# transfer and a stateful one are the same `checked_*` calls.
+maya-ledger-math = { path = "../ledger-math" }
+
+[dev-dependencies]
+tempfile = "3"

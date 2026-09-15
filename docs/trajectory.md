@@ -11,8 +11,10 @@ Recorded 2026-09-13.
 
 ## Progress
 
-- **Completed:** through Prompt ~47 of 160.
-- **Next:** Prompt 48.
+- **Completed:** through Prompt ~48 of 160. Prompt 48 was elastic shard
+  auto-scaling over `blockgraph` (2026-09-14), reconciled as a per-node map —
+  see [blockgraph.md](blockgraph.md#elastic-shards).
+- **Next:** Prompt 49.
 - **Active domain:** Consensus & State Engine (Prompts 26–50).
 
 ## Domains
@@ -64,3 +66,95 @@ would touch it writes any code, not afterwards.
    integer, compiled-in gain on the dark `fee-market` rule —
    [neural-gas.md](neural-gas.md). A later EIP-1559 enforcement prompt
    (domain 7) extends it; it does not start over.
+6. **Stateless execution with lattice vector commitments, taken out of order.**
+   Built 2026-09-14 while the trajectory stood at Prompt 48. Its brief asked for
+   lattice polynomial commitments with sub-kilobyte witnesses, and for
+   validators that read no state. The first two collide with each other — no
+   transparent lattice commitment opens in under a kilobyte, and the state root
+   was already post-quantum — and the third collides with the end-of-block
+   passes in `stage_block`, which read state no transaction names. Reconciled
+   as a dark sparse-tree accounts root with BLAKE3 commitments, a measured
+   Ring-SIS research backend, and stateless verification of transfer-only
+   blocks — [stateless.md](stateless.md). Recursive state folding (domain 2)
+   and witness gossip extend it; they do not start over.
+7. **Byzantine self-healing network guard, taken out of order.** Built
+   2026-09-15 while the trajectory stood at Prompt 49; it belongs to network
+   security, not Consensus & State. Its brief assumed a validator set ("40%
+   malicious nodes", "double proposals", "honest nodes construct consensus
+   proofs"), which proof of work does not have. Reconciled as gossip
+   validation, gossipsub P4 scoring, an expiring quarantine, connection caps
+   and a bounded parent fetch — [peer-health.md](peer-health.md). An eclipse
+   defence beyond connection caps, and fork-aware sync, extend it.
+8. **Confidential federated training, taken out of order.** Built 2026-09-15
+   while the trajectory stood at Prompt 49. Its brief put SGX / SEV-SNP enclaves
+   at the centre, and the status table had already flagged that TEE attestation
+   collides with invariant 11: a vendor's ECDSA signature is a trusted party,
+   and not a post-quantum one. It also asked differential privacy to "prevent"
+   reconstruction. Reconciled as off-chain secure aggregation over ML-KEM plus
+   integer discrete-Gaussian DP with a reported ε, and an attestation hook that
+   verifies nothing yet — [confidential-ai.md](confidential-ai.md).
+9. **eBPF/XDP packet accelerator, taken out of order.** Built 2026-09-15 while
+   the trajectory stood at Prompt 49; it belongs to Physical & Hardware Mesh
+   (domain 3). Its brief had three problems.
+   - It asked XDP to inspect P2P frames, but every P2P byte is Noise + ML-KEM
+     ciphertext.
+   - It asked for flatbuffers parsed under 100 µs at 100 Gbps, but the eBPF
+     verifier cannot walk flatbuffers' offset tables, and parsing is nanoseconds
+     next to the AEAD.
+   - It asked for a benchmark "proving" 5×, but a benchmark cannot be written to
+     prove a number fixed in advance.
+
+   Reconciled as follows:
+   - a separate UDP block relay;
+   - a fixed 56-byte header the kernel judges structurally (a blocklist fed by
+     authenticated quarantines, a token bucket, the exact length);
+   - AF_XDP delivery;
+   - XChaCha20-Poly1305 chunks under keys agreed over the post-quantum connection;
+   - a benchmark that reports kernel UDP against AF_XDP and `XDP_DROP` without
+     asserting a ratio.
+
+   See [ebpf-net.md](ebpf-net.md). Off by default, and not measured on a
+   native-XDP NIC.
+10. **Autonomous red-team fuzzing module, taken out of order.** Built
+    2026-09-15 while the trajectory stood at Prompt 49; it belongs to Day-2
+    Autonomy (domain 9, LibAFL). Its brief had four collisions.
+    - It put LibAFL and Triton/Z3 "directly into the development and testing
+      execution path", which is exactly what `fuzz/`'s separate workspace keeps
+      out of the node graph and away from Kani (invariants 1, 6). Triton is a
+      C++ binary DSE framework with no surface on a Rust WASM chain.
+    - It asked for "memory corruption" and "state race conditions": safe Rust
+      has neither outside the `unsafe` islands and a single-threaded apply path.
+      The real properties are panic/DoS resistance and deterministic
+      re-execution (invariant 24, directive 2).
+    - It asked the pipeline to "generate patch diffs" — machine-authored
+      consensus changes, which invariant 13 forbids in spirit.
+    - It asked a `tests/` harness to "verify 100% crash resistance" over a
+      million payloads, which the stable-toolchain workspace cannot link LibAFL
+      to do, and which fuzzing cannot prove regardless.
+
+    Reconciled as `offsec-sandbox` (a separate workspace, LibAFL engine, Z3
+    off by default over the arithmetic crates only), structure-aware mutators,
+    a triage-and-regression-stub pipeline (no auto-patch), and an in-tree
+    `tests/fuzz_harness.rs` that replays seeded mutations and is worded "no
+    crash across N inputs", never "100%". See [offsec-sandbox.md](offsec-sandbox.md).
+11. **Zero-trust threat-intel registry, taken out of order.** Built 2026-09-15
+    while the trajectory stood at Prompt 49; it is the PLANNED "ZK-SIEM threat
+    mesh", nearest to Autonomous Governance & AI (domain 4, edge defense). Its
+    brief had six collisions.
+    - It asked for zero-knowledge proofs of DDoS floods and port scans. Neither
+      leaves anything a third party can verify — a UDP source is forgeable — and
+      the one offence that does (bytes that fail a check) needs no ZK.
+    - It asked for a consensus-driven score, but proof of work has no validator
+      set and identities are free, so a counted-by-head score is Sybil-owned.
+    - It asked for IP quarantine recorded in state. No proof binds an IP to a
+      key, so every recorded address is a censorship lever.
+    - It asked for "2 DAG rounds", and nothing in consensus has rounds.
+    - It asked one worker to push firewall rules "across enterprise
+      infrastructure", which is a lateral-movement control plane.
+    - It implied the registry stops a DDoS; free keys mean it cannot.
+
+    Reconciled as verified evidence from ed25519 gossip signatures (invalid
+    signature, `tx_root` mismatch), one conviction confirms, indicators keyed by
+    author only, a per-host worker that maps authors to its own connections, and
+    a test pinning enforcement within 2 **blocks** — plus one pinning that a
+    valid-byte flood produces no indicator. See [threat-intel.md](threat-intel.md).

@@ -29,6 +29,25 @@ impl ShardId {
     pub const fn index(self) -> usize {
         self.0 as usize
     }
+
+    /// The partition with index `index`, if there is one.
+    #[must_use]
+    pub const fn new(index: usize) -> Option<Self> {
+        if index < SHARD_COUNT {
+            Some(Self(index as u8))
+        } else {
+            None
+        }
+    }
+
+    /// The id of leaf `index` of an elastic shard map.
+    ///
+    /// A map holds at most [`SHARD_COUNT`] leaves — `ShardMap::from_leaves`
+    /// refuses more — so the mask is the identity for every index a map
+    /// produces. It is there so that no path from a map to an id can panic.
+    pub(crate) const fn from_leaf(index: usize) -> Self {
+        Self((index & (SHARD_COUNT - 1)) as u8)
+    }
 }
 
 /// The partition an address belongs to.

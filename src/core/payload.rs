@@ -158,6 +158,9 @@ const TAG_HTLC_LOCK: u8 = 41;
 const TAG_HTLC_CLAIM: u8 = 42;
 const TAG_HTLC_REFUND: u8 = 43;
 
+// Threat intelligence.
+const TAG_ATTEST_ATTACK: u8 = 44;
+
 /// Encoded size of a [`ShieldedJoinSplit`].
 ///
 /// Fixed width by construction: anchor, two nullifiers, two commitments, three
@@ -492,6 +495,10 @@ pub enum TxKind {
     /// Refund an expired lattice HTLC. A no-op if it is not yet expired or
     /// already settled.
     HtlcRefund(HtlcRefund),
+    /// Record verified evidence that a gossip author signed a frame failing
+    /// a stateless check. Evidence already on chain is a **no-op** —
+    /// invariant 7; see `crate::state::threat_exec`.
+    AttestAttack(Box<maya_threat_intel::AttackAttestation>),
 }
 
 impl TxKind {
@@ -549,6 +556,7 @@ impl TxKind {
             Self::HtlcLock(_) => "htlc_lock",
             Self::HtlcClaim(_) => "htlc_claim",
             Self::HtlcRefund(_) => "htlc_refund",
+            Self::AttestAttack(_) => "attest_attack",
         }
     }
 
@@ -738,6 +746,10 @@ impl TxKind {
                 buf.push(TAG_HTLC_REFUND);
                 payload.encode_into(buf);
             }
+            Self::AttestAttack(payload) => {
+                buf.push(TAG_ATTEST_ATTACK);
+                payload.encode_into(buf);
+            }
             Self::RevealShare(share) => {
                 buf.push(TAG_REVEAL_SHARE);
                 share.encode_into(buf);
@@ -849,6 +861,9 @@ impl TxKind {
             TAG_HTLC_LOCK => Ok(Self::HtlcLock(Box::new(HtlcLock::decode(reader)?))),
             TAG_HTLC_CLAIM => Ok(Self::HtlcClaim(Box::new(HtlcClaim::decode(reader)?))),
             TAG_HTLC_REFUND => Ok(Self::HtlcRefund(HtlcRefund::decode(reader)?)),
+            TAG_ATTEST_ATTACK => Ok(Self::AttestAttack(Box::new(
+                crate::core::threat_payload::decode(reader)?,
+            ))),
             other => Err(NodeError::Decode(format!(
                 "unknown transaction payload tag {other}"
             ))),

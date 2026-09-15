@@ -38,6 +38,14 @@ maya-identity = { path = "../identity" }
 # Lattice HTLC openings and commitments, which arrive inside a claim or a lock
 # that anyone may submit.
 maya-htlc-lattice = { path = "../htlc-lattice" }
+# Stateless witnesses, which any relay may attach to a block.
+maya-stateless-core = { path = "../stateless-core" }
+# Relay datagrams and raw frames off an AF_XDP ring. Before the AEAD, these
+# bytes are whatever anyone on the network sent to the relay port.
+maya-ebpf-net = { path = "../ebpf-net" }
+# Attack attestations, which anyone may submit carrying evidence frames anyone
+# may have written.
+maya-threat-intel = { path = "../threat-intel" }
 blake3 = "1"
 
 # Sanitizer builds are slow enough that unoptimized decoding would dominate the
@@ -113,6 +121,20 @@ doc = false
 bench = false
 
 [[bin]]
+name = "block_sync_response"
+path = "fuzz_targets/block_sync_response.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "stateless_witness_decode"
+path = "fuzz_targets/stateless_witness_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "radio_frame_decode"
 path = "fuzz_targets/radio_frame_decode.rs"
 test = false
@@ -122,6 +144,20 @@ bench = false
 [[bin]]
 name = "did_decode"
 path = "fuzz_targets/did_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "xdp_relay_decode"
+path = "fuzz_targets/xdp_relay_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "threat_evidence_decode"
+path = "fuzz_targets/threat_evidence_decode.rs"
 test = false
 doc = false
 bench = false

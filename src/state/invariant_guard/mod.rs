@@ -107,6 +107,8 @@ pub enum Module {
     /// Lattice HTLC **locks**. Claims and refunds belong to no module — see
     /// [`Module::of`].
     Htlc,
+    /// Threat-intel attestations.
+    ThreatIntel,
 }
 
 /// Every module, in tag order. The guard iterates it so a new variant cannot be
@@ -122,6 +124,7 @@ pub const MODULES: &[Module] = &[
     Module::Identity,
     Module::Rwa,
     Module::Htlc,
+    Module::ThreatIntel,
 ];
 
 impl Module {
@@ -139,6 +142,7 @@ impl Module {
             Self::Identity => 7,
             Self::Rwa => 8,
             Self::Htlc => 9,
+            Self::ThreatIntel => 10,
         }
     }
 
@@ -156,6 +160,7 @@ impl Module {
             7 => Some(Self::Identity),
             8 => Some(Self::Rwa),
             9 => Some(Self::Htlc),
+            10 => Some(Self::ThreatIntel),
             _ => None,
         }
     }
@@ -174,6 +179,7 @@ impl Module {
             Self::Identity => "identity",
             Self::Rwa => "rwa",
             Self::Htlc => "htlc-l locks",
+            Self::ThreatIntel => "threat intel",
         }
     }
 
@@ -244,6 +250,10 @@ impl Module {
             // that leaves `Transfer` ungated — see `crate::state::htlc_exec`.
             TxKind::HtlcLock(_) => Some(Self::Htlc),
             TxKind::HtlcClaim(_) | TxKind::HtlcRefund(_) => None,
+
+            // Halting new attestations is safe: no value moves, and an
+            // indicator already recorded keeps decaying on its own.
+            TxKind::AttestAttack(_) => Some(Self::ThreatIntel),
         }
     }
 }

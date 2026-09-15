@@ -1,0 +1,131 @@
+name: offsec-sandbox
+
+# The autonomous fuzzing module. Two surfaces, because they fail for unrelated
+# reasons and run in different workspaces:
+#
+#   harness — the in-tree gate (tests/fuzz_harness.rs), main workspace, stable
+#   sandbox — the offsec-sandbox crate: its tests, and a short run per surface
+#
+# The coverage-guided LibAFL engine and the Z3 solver are feature-gated and
+# compile-checked here, not run at length — a real search is a nightly budget.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+    paths:
+      - "offsec-sandbox/**"
+      - "tests/fuzz_harness.rs"
+      - "src/core/**"
+      - "src/state/**"
+      - ".github/workflows/offsec-sandbox.yml"
+  schedule:
+    # 04:00 UTC daily: the soak run, a real budget the PR check cannot spend.
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: offsec-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  SANDBOX_TOOLCHAIN: nightly-2026-07-15
+
+jobs:
+  # ---------------------------------------------------------------------------
+  harness:
+    name: in-tree fuzz harness
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install RocksDB build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev llvm-dev libssl-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: offsec-harness
+
+      # A PR gets the default 50,000; the nightly soak gets a million.
+      - name: Set harness budget
+        id: budget
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "iters=1000000" >> "$GITHUB_OUTPUT"
+            echo "applies=1000" >> "$GITHUB_OUTPUT"
+          else
+            echo "iters=50000" >> "$GITHUB_OUTPUT"
+            echo "applies=200" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run the harness
+        env:
+          MAYA_FUZZ_ITERS: ${{ steps.budget.outputs.iters }}
+          MAYA_FUZZ_APPLIES: ${{ steps.budget.outputs.applies }}
+        run: cargo test --release --test fuzz_harness
+
+  # ---------------------------------------------------------------------------
+  sandbox:
+    name: offsec-sandbox crate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev llvm-dev libssl-dev pkg-config libz3-dev
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.SANDBOX_TOOLCHAIN }}
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: offsec-sandbox
+          key: offsec-sandbox
+
+      # A separate workspace, so it builds on its own and never touches the
+      # node's lockfile or graph.
+      - name: Test the base crate
+        working-directory: offsec-sandbox
+        run: cargo test
+
+      - name: Clippy
+        working-directory: offsec-sandbox
+        run: cargo clippy --all-targets -- -D warnings
+
+      # The optional engines compile-check here; a real search is the nightly
+      # soak below, not a per-PR cost.
+      - name: Compile the LibAFL engine
+        working-directory: offsec-sandbox
+        run: cargo check --features libafl
+
+      - name: Compile the Z3 solver
+        working-directory: offsec-sandbox
+        run: cargo check --features z3
+
+      # A short run per surface: the autonomous loop must at least start, load
+      # its seeds, and exit cleanly on a hardened tree. A finding fails the job.
+      - name: Short run per surface
+        working-directory: offsec-sandbox
+        run: |
+          for surface in tx wasm handshake block; do
+            cargo run --release --bin fuzz -- "$surface" --iters 5000 --out "findings/$surface"
+          done
+
+      - name: Upload any findings
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: offsec-findings
+          path: offsec-sandbox/findings/
+          if-no-files-found: ignore
+          retention-days: 30

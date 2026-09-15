@@ -79,6 +79,7 @@ pub mod error;
 pub mod refs;
 pub mod schedule;
 pub mod shard;
+pub mod shard_manager;
 
 #[cfg(kani)]
 pub mod proofs;

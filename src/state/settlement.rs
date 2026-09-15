@@ -268,6 +268,9 @@ impl StateDB {
                 .map(|_| ()),
             TxKind::HtlcClaim(payload) => self.htlc_claim(overlay, payload, context).map(|_| ()),
             TxKind::HtlcRefund(payload) => self.htlc_refund(overlay, payload, context).map(|_| ()),
+            // Bad evidence is the submitter's own error; evidence already on
+            // chain is a no-op — see `crate::state::threat_exec`.
+            TxKind::AttestAttack(attestation) => self.attest_attack(overlay, attestation, context),
             TxKind::AttestLegal(payload) => self.attest_legal(
                 overlay,
                 &sender,

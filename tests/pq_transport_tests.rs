@@ -146,7 +146,9 @@ async fn a_block_survives_the_encrypted_transport_intact() {
     let deadline = tokio::time::Instant::now() + TIMEOUT;
     loop {
         match tokio::time::timeout_at(deadline, receiver.recv()).await {
-            Ok(Ok(NodeEvent::BlockReceived(received))) => {
+            Ok(Ok(NodeEvent::BlockReceived {
+                block: received, ..
+            })) => {
                 // Sealed, shipped, opened, and byte-identical. A framing or
                 // nonce bug would corrupt this rather than merely slow it.
                 assert_eq!(received.to_bytes(), expected);

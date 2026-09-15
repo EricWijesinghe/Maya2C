@@ -210,6 +210,9 @@ thread_local! {
     static WATCHED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+// SAFETY: every method forwards to `System` with the caller's arguments
+// unchanged, so `System`'s guarantees are this allocator's; the only addition
+// is an atomic maximum and a thread-local read, neither of which allocates.
 unsafe impl std::alloc::GlobalAlloc for Watching {
     unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
         if WATCHED.with(std::cell::Cell::get) {

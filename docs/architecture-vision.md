@@ -78,8 +78,10 @@ signature on the chain is a hybrid pair and both halves must verify; see
 | EIP-1559 base fee over bytes | **RESEARCH** | `fee-market` | `FeeConfig::DISABLED`, activation `u64::MAX`. Called by nothing in `src/` |
 | Neural base-fee gain | **RESEARCH** | `fee-market/src/model/`, `src/neural_gas/`, `neural-gas-trainer` | A 6-16-1 integer network, i16 weights compiled in, scales EIP-1559's step by a one-sided gain — a rise ×1 to ×2, a fall ×0 to ×1 — so no feature a block producer writes can price a block below EIP-1559. Native inference, **no zkML**: every validator can re-run 112 multiplies, and a proof would cost ~10⁴× that. Trained on a synthetic demand simulator, because no chain history exists — [neural-gas.md](neural-gas.md) |
 | Multi-shard asynchronous DAG (Narwhal/Tusk) | **RESEARCH** | `blockgraph` | Batch references and deterministic shard scheduling. Nothing in consensus references a batch yet — [blockgraph.md](blockgraph.md) |
+| Elastic shard auto-scaling | **RESEARCH** | `blockgraph/src/shard_manager/` | A per-node shard map: bisect a range above 80% of a lane for 100 ticks, buddy-merge idle pairs, 4 to 64 leaves. Not consensus — waves reach the serial state under every tiling, so lane capacity and memory pressure may drive it; the fixed `shard_of` stays for fee features. The "teleportation" is an atomic handoff of in-memory caches, with no zero-knowledge proof because nothing leaves the process — [blockgraph.md](blockgraph.md#elastic-shards) |
 | Lattice Proof-of-Useful-Work (SVP solver) | **RESEARCH** | `lattice-pow` | Verification only, dependency-free. The open question is in [lattice-pow.md](lattice-pow.md) |
 | On-chain zkML ONNX inference | **RESEARCH** | `zkml`, `zkml-prover` | `ZKML_ACTIVATION_HEIGHT = u64::MAX`. SRS is from a public seed, so proofs are forgeable — invariants 20, 22, 23 and [zkml.md](zkml.md) |
+| Stateless transfer verification | **RESEARCH** | `stateless-core`, `src/state/stateless.rs`, `light-client/src/stateless.rs` | `STATELESS_ACTIVATION_HEIGHT = u64::MAX`. From activation the accounts root is a keyed sparse Merkle tree, so a node holding only a root checks transfer blocks from witnesses. BLAKE3 commits (~0.7 KB a key); a Ring-SIS backend over `Z_q[x]/(x^256+1)` is built and measured (448 B a node) but does not commit, because no transparent lattice commitment opens in under a kilobyte. Only transfer-only blocks on a state with no sealed, oracle or governance records are decidable; no gossip topic carries witnesses — [stateless.md](stateless.md) |
 | Universal EVM / SVM / Move transpilation | **PLANNED** | — | Foreign bytecode lowered to the WASM runtime. No code. The hard part is not the lowering — it is that every source VM has its own gas semantics, and a transpiled contract must be priced by the fuel meter without inheriting them |
 
 ## 3. Kernel, networking and transport
@@ -90,10 +92,11 @@ below that line is intent.
 | Component | Status | Where | Notes |
 |---|---|---|---|
 | libp2p transport, PQ Noise handshake | **SHIPPED** | `src/network/` | ML-KEM-768; HQC available as the second KEM |
+| Byzantine peer guard | **SHIPPED** | `src/network/peer_health.rs`, `sync.rs`, `node/guard.rs` | Gossip validated before it is forwarded; gossipsub P4 scoring only; an expiring, escalating quarantine (blacklist + block list + disconnect) on attributable offences; 2 connections per peer, 256 total; bounded parent fetch. Latency recorded, never scored; no double-proposal metric, because a PoW block has no proposer. Node-local — [peer-health.md](peer-health.md) |
 | Stratum V2 pool protocol | **SHIPPED** | `stratum-v2`, `pool-service` | No chain dependency in the protocol crate, so it fuzzes alone |
 | SPV light client | **SHIPPED** | `light-client` | Header fork choice and state-proof verification |
 | Network simulation harness | **SHIPPED** | `src/network/sim.rs` | Latency, packet loss and partition modelling. The loss dial arrived with the radio transport: a transport whose whole problem is erasure cannot be tested by a harness that models none |
-| eBPF/XDP zero-copy driver (`aya`) | **PLANNED** | — | Kernel-bypass packet path for relay nodes. No code. (Grepping for `aya` here matches the project name — it is not a dependency) |
+| eBPF/XDP relay accelerator (`aya`) | **RESEARCH** | `ebpf-net`, `ebpf-net/programs`, `src/network/relay_key.rs`, `src/network/node/relay.rs` | A UDP block relay beside gossip, because gossip is ciphertext no kernel program can inspect. Its datagrams carry a fixed 56-byte header the XDP program reads: blocklisted sources (peer-guard quarantines only), sources over a token bucket, and structurally wrong datagrams are dropped at the driver; the rest go to AF_XDP; all other traffic passes. Chunks are XChaCha20-Poly1305 under per-peer keys agreed over the post-quantum connection. Nothing in the node binary enables it; the kernel path is Linux behind the `xdp` feature. Not measured on a native-XDP NIC — [ebpf-net.md](ebpf-net.md) |
 | LoRa off-grid transport | **RESEARCH** | `radio-transport` | ISM-band header relay for regions with no IP transit. Carries **headers and SPV proofs only**: a hybrid signature is 11,165 bytes and incompressible, so a transaction is 60 frames and forty minutes of duty cycle at best. Chain-free, so its frame decoder fuzzes alone |
 | Fountain-coded fragmentation | **RESEARCH** | `radio-transport/src/fountain.rs` | Rateless erasure coding over a window of headers. A 1% duty cycle makes retransmission cost another window, so loss is answered by emitting more symbols rather than by asking again — there is no reverse path to ask on |
 | Store-and-forward mesh relay | **RESEARCH** | `radio-transport/src/relay.rs` | Custody, TTL and replay-safe dedup, until a node with IP transit is reached. A relayed header takes the identical path to one off TCP — see the note below, which this subsystem is the first real test of |
@@ -116,7 +119,7 @@ transport layer consensus-critical and hand an attacker a fork by radio.
 | ONNX import, key generation, proving | **RESEARCH** | `zkml-prover` | Off-chain only. A separate crate, not a feature, so the node's graph cannot reach `tract` — invariant 20 |
 | GPU mining (CUDA) | **SHIPPED** | `cuda-miner` | `cuda` feature off by default — invariant 3 |
 | GPU mining (wgpu: Vulkan/Metal/DX12) | **SHIPPED** | `wgpu-miner` | [wgpu-miner.md](wgpu-miner.md) |
-| Confidential federated AI in TEE enclaves | **PLANNED** | — | SGX / SEV-SNP. No code. Note that a TEE attestation is a *vendor's* signature, which is a trusted party — introducing one is invariant-11-shaped and gets written down |
+| Confidential federated training | **RESEARCH** | `confidential-ai` | Secure aggregation (pairwise masks from ML-KEM-768, Shamir-recovered self-masks) and integer discrete-Gaussian DP with zCDP accounting. Off-chain; writes no state. **Enclaves are a hook, not the root of trust:** a TEE attestation is a *vendor's* ECDSA signature — a trusted party (invariant-11-shaped) and not post-quantum — so privacy never depends on it, and no SGX / SEV-SNP report is generated or verified yet (no hardware, no recorded vectors) — [confidential-ai.md](confidential-ai.md) |
 | TPM 2.0 / PUF hardware attestation | **PLANNED** | — | |
 | Biomolecular TRNG | **PLANNED** | — | Entropy source. Would feed the beacon alongside the VRF, never replace it |
 | Photonic optical tensor driver | **PLANNED** | — | |
@@ -133,13 +136,13 @@ is a fork; §7 states the rule.
 | Component | Status | Where | Notes |
 |---|---|---|---|
 | Fuzz targets (cargo-fuzz, libFuzzer) | **SHIPPED** | `fuzz/` | Decoders and SV2 frames; `car_decode.rs` fuzzes untrusted archives |
-| Kani model checking | **SHIPPED** | `ledger-math`, `dex`, `governance`, `fee-market` | Which is why those crates stay dependency-free — invariants 1, 6 |
+| Kani model checking | **SHIPPED** | `ledger-math`, `dex`, `governance`, `fee-market`, `threat-intel` | Which is why those crates stay dependency-free — invariants 1, 6. `threat-intel`'s 4 harnesses verified 2026-09-15 (Kani 0.67.0, Linux) |
 | Supply-chain gates | **SHIPPED** | `deny.toml`, `cargo audit` | Committed, run in CI |
 | Telemetry threat surface | **SHIPPED** | `telemetry` | Nothing on the dashboard is verified, and that is stated rather than papered over — invariants 14, 15 |
 | State invariant guard + circuit breaker | **SHIPPED** | `src/state/invariant_guard/` | Value conservation over all five holding places fails the block; an anomaly halts one module for 100 blocks and never a transfer — invariant 28, [invariant-guard.md](invariant-guard.md) |
 | Exploit replay suite | **SHIPPED** | `tests/exploit_replays.rs` | Re-entrancy, overflow and flash-loan replays. Two of the three have no surface on this chain, which the suite demonstrates rather than assumes |
-| LibAFL dynamic fuzzer | **PLANNED** | — | Would replace or sit beside the cargo-fuzz targets with a custom, coverage-guided harness |
-| ZK-SIEM threat mesh | **PLANNED** | — | Cross-node intrusion signal without revealing what was observed |
+| LibAFL dynamic fuzzer | **RESEARCH** | `offsec-sandbox`, `tests/fuzz_harness.rs` | A coverage-guided, structure-aware harness beside the `fuzz/` libFuzzer targets, sharing their corpora. Structure-aware mutators for transactions, WASM modules and handshakes hunt panics, unbounded allocation and non-determinism — not "memory corruption" (safe Rust) or "races" (the apply path is single-threaded; the real property is deterministic re-execution). Crash triage emits regression-test stubs, never patches (invariant 13). A separate workspace, so LibAFL and an optional Z3 never touch the node graph or Kani. The in-tree gate replays seeded mutations through the decoders and apply path — [offsec-sandbox.md](offsec-sandbox.md) |
+| Threat-intel registry (was "ZK-SIEM threat mesh") | **RESEARCH** | `threat-intel`, `threat-firewall`, `src/state/threat_exec.rs`, `src/network/evidence_tap.rs` | `THREAT_INTEL_ACTIVATION_HEIGHT = u64::MAX`. An indicator is an ed25519 gossip author's own gossipsub signature over a frame that decodes and fails a stateless check — a hybrid signature or a `tx_root` — re-checked by every node at apply. No ZK (the evidence hides nothing), no votes (no validator set; one verified offence confirms), no IP on chain (no proof binds one to a key; each node maps authors to its own connections). Floods and scans leave nothing a third party can verify and get no indicator. Score halves every 720 blocks; the per-host `threat-firewall` worker turns active indicators into nftables / XDP blocks. The evidence signature is classical — [threat-intel.md](threat-intel.md) |
 | Self-synthesizing bytecode hot-patcher | **PLANNED** | — | **Reconcile with invariant 13 before any code is written.** No governance key's value is a program, and native code is never fetched from chain state and run. A hot-patcher that takes its patch from the chain violates that outright; one that selects between implementations the binary already ships does not |
 | ISO 20022 XML messaging parser | **RESEARCH** | `iso20022` | Bank-rail interoperability: pacs.008, pacs.009, camt.053. Chain-free like `stratum-v2`, so the decoder of untrusted XML fuzzes alone — `fuzz/fuzz_targets/iso20022_decode.rs`, landed with the crate rather than after it. Entity expansion is off: XXE and entity-expansion bombs are the class a bank-rail parser meets first |
 | ISO 20022 → L1 bridge | **RESEARCH** | `iso20022/src/bridge.rs`, `api-gateway` | Translates a payment instruction into a sealed `TxKind` and renders camt.053 back out of committed state. Refuses mainnet, the way `state::zkml::check_setup` does, because the envelope's confidentiality is classical and envelopes are on chain forever. The gateway signs for payments that arrive with no Maya2C key, which makes it the chain's second trusted party after the oracle — absent by default |
@@ -191,10 +194,13 @@ across iterations, and measure before calling a loop hot.
 
 **No `unsafe` in core execution paths.** Holds for `src/state/`, `src/chain.rs`,
 `ledger-math`, `dex`, `governance`, `fee-market`, `vrf` — the crates whose
-dependency-freedom exists precisely so they can be model-checked. Three crates
-carry `unsafe` by construction and are exempt: `cuda-miner` (FFI to the CUDA
-driver), `sdk-ffi` (the C ABI is the product), and `wgpu-miner` (GPU buffer
-mapping). An `unsafe` block outside those three needs a hardware-attestation
+dependency-freedom exists precisely so they can be model-checked. These carry
+`unsafe` by construction and are exempt: `cuda-miner` (FFI to the CUDA driver),
+`sdk-ffi` (the C ABI is the product), `wgpu-miner` (GPU buffer mapping),
+`ebpf-net/src/linux/` (AF_XDP rings and UMEM are memory shared with the kernel;
+behind the `xdp` feature, so a default node links none of it), and
+`ebpf-net/programs` (the XDP program reads packets through pointers the kernel
+verifier bounds). An `unsafe` block anywhere else needs a hardware-attestation
 justification in a comment, and a reviewer.
 
 ---

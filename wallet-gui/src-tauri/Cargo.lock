@@ -1005,6 +1005,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cbor4ii"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0948fe1a10668d439d5fd476904223ab08a6783945d451fb996728e952ebcc7"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "cc"
 version = "1.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1708,10 +1717,17 @@ dependencies = [
  "maya-blockgraph",
  "maya-crypto-pq",
  "maya-dex",
+ "maya-ebpf-net",
  "maya-governance",
+ "maya-htlc-lattice",
+ "maya-identity",
+ "maya-iso20022",
  "maya-lattice-pow",
  "maya-ledger-math",
  "maya-mev",
+ "maya-radio-transport",
+ "maya-rwa",
+ "maya-stateless-core",
  "maya-vm",
  "maya-vrf",
  "maya-zk-privacy",
@@ -4054,6 +4070,7 @@ dependencies = [
  "libp2p-metrics",
  "libp2p-noise",
  "libp2p-quic",
+ "libp2p-request-response",
  "libp2p-swarm",
  "libp2p-tcp",
  "libp2p-upnp",
@@ -4302,6 +4319,24 @@ dependencies = [
  "socket2",
  "thiserror 2.0.20",
  "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "libp2p-request-response"
+version = "0.30.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca1d1f3a4d7b7080eb959098f276f57ecbc3102f7d3d46f109ccdaa00d2842d9"
+dependencies = [
+ "cbor4ii",
+ "futures",
+ "futures-bounded",
+ "libp2p-core",
+ "libp2p-identity",
+ "libp2p-swarm",
+ "rand 0.10.2",
+ "serde",
+ "smallvec",
  "tracing",
 ]
 
@@ -4559,8 +4594,50 @@ name = "maya-dex"
 version = "0.1.0"
 
 [[package]]
+name = "maya-ebpf-net"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "chacha20poly1305 0.10.1",
+ "log",
+ "maya-ebpf-net-common",
+ "thiserror 2.0.20",
+ "zeroize",
+]
+
+[[package]]
+name = "maya-ebpf-net-common"
+version = "0.1.0"
+
+[[package]]
 name = "maya-governance"
 version = "0.1.0"
+
+[[package]]
+name = "maya-htlc-lattice"
+version = "0.1.0"
+dependencies = [
+ "sha3 0.11.0",
+ "thiserror 2.0.20",
+ "zeroize",
+]
+
+[[package]]
+name = "maya-identity"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "maya-iso20022"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "quick-xml 0.42.0",
+ "thiserror 2.0.20",
+]
 
 [[package]]
 name = "maya-lattice-pow"
@@ -4582,9 +4659,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-radio-transport"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "maya-rwa"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "maya-stateless-core"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "maya-ledger-math",
+ "sha3 0.11.0",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "maya-vm"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "hex",
  "thiserror 2.0.20",
  "wasmtime",
@@ -5597,7 +5700,7 @@ checksum = "7da1d65da6dd5d1e44199ac0f58712d241c0f439f80adea8924d832384087f85"
 dependencies = [
  "base64 0.22.1",
  "indexmap 2.14.0",
- "quick-xml",
+ "quick-xml 0.41.0",
  "serde",
  "time",
 ]
@@ -5898,6 +6001,15 @@ name = "quick-xml"
 version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e660451e55124f798a69a5af3f49ccfbefbd41910eefd25caf2393e1f3473ec1"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
+name = "quick-xml"
+version = "0.42.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41b1177fdf999d2321d3fb46ff47159d9c1fb9ad66a4879f8c50a0b504615e9b"
 dependencies = [
  "memchr",
 ]

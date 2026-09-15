@@ -83,3 +83,4 @@ rustc-ice-*.txt
 /app-maya2c/target/
 /contracts/token-swap/target/
 /dashboard/target/
+/ebpf-net/programs/target/

@@ -57,6 +57,17 @@ jobs:
           - account_decode
           - sv2_frame_decode
           - car_decode
+          # Relay datagrams and raw frames: before the AEAD, whatever anyone on
+          # the network sent to the relay port.
+          - xdp_relay_decode
+          # Bank-rail XML from outside the peer set. Not in this list until
+          # 2026-09-15, when a first local run found the reader accepting
+          # element names no writer could render back.
+          - iso20022_decode
+          # Attack attestations: evidence frames anyone may submit, claiming
+          # anyone signed them. First local run 2026-09-15: 250,591,546 execs
+          # in 301 s, no crash.
+          - threat_evidence_decode
     steps:
       - uses: actions/checkout@v4
 
@@ -137,6 +148,13 @@ jobs:
       - uses: model-checking/kani-github-action@v1
         with:
           args: "-p maya-ledger-math --output-format terse"
+
+      # The threat-intel score decides how long every node refuses a peer, so
+      # its closed form is proved against the decay it replaces. Dependency-free
+      # for the same reason as the step above.
+      - uses: model-checking/kani-github-action@v1
+        with:
+          args: "-p maya-threat-intel --output-format terse"
 
   # ---------------------------------------------------------------------------
   geiger:

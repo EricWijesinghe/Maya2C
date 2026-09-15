@@ -58,6 +58,27 @@ pub enum LightClientError {
         height: u64,
     },
 
+    /// A block broke a rule its witness let the client check.
+    #[error("block at height {height} is invalid: {reason}")]
+    BlockInvalid {
+        /// Height of the block.
+        height: u64,
+        /// What it broke.
+        reason: String,
+    },
+
+    /// A block could not be decided from the witness and body offered.
+    ///
+    /// Not a verdict on the block: a witness travels outside the block's id and
+    /// proof of work, so a relay can corrupt it. Fetch again.
+    #[error("block at height {height} is not verifiable from this witness: {reason}")]
+    BlockUnverifiable {
+        /// Height of the block.
+        height: u64,
+        /// Why not.
+        reason: String,
+    },
+
     /// The node crate reported a failure while evaluating a proof.
     #[error("{0}")]
     Node(String),

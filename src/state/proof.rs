@@ -70,6 +70,16 @@ pub enum StateLayer {
     Rwa,
     /// Lattice HTLC locks, under the `h:` prefix.
     Htlc,
+    /// Threat-intel indicators and evidence markers, under the `t:` prefix.
+    /// Never present before activation, so it moves no existing root.
+    ThreatIntel,
+    /// The stateless marker, under the `sl:` prefix.
+    ///
+    /// Its presence is what says the accounts root beneath it is the sparse
+    /// tree of `maya-stateless-core` rather than the address-ordered dense
+    /// tree. Never present on a chain that has not activated it, so it moves
+    /// no existing root wherever it sits in the order.
+    Stateless,
     /// The shielded pool: a BLAKE3 commitment to the whole stored pool, which
     /// is the Poseidon tree's frontier, the anchor window and the public
     /// balance. See `ShieldedPool::commitment`; it was the bare Poseidon root
@@ -98,6 +108,8 @@ pub const LAYER_ORDER: &[StateLayer] = &[
     StateLayer::Identity,
     StateLayer::Rwa,
     StateLayer::Htlc,
+    StateLayer::ThreatIntel,
+    StateLayer::Stateless,
     StateLayer::Shielded,
     StateLayer::Contracts,
     StateLayer::Nullifiers,
@@ -123,6 +135,8 @@ impl StateLayer {
             Self::Identity => "maya identity state root v1",
             Self::Rwa => "maya rwa state root v1",
             Self::Htlc => "maya htlc-l state root v1",
+            Self::ThreatIntel => "maya threat-intel state root v1",
+            Self::Stateless => "maya stateless state root v1",
         }
     }
 
@@ -141,6 +155,8 @@ impl StateLayer {
             Self::Identity => 9,
             Self::Rwa => 10,
             Self::Htlc => 11,
+            Self::Stateless => 12,
+            Self::ThreatIntel => 13,
         }
     }
 
@@ -159,6 +175,8 @@ impl StateLayer {
             9 => Some(Self::Identity),
             10 => Some(Self::Rwa),
             11 => Some(Self::Htlc),
+            12 => Some(Self::Stateless),
+            13 => Some(Self::ThreatIntel),
             _ => None,
         }
     }
@@ -187,6 +205,8 @@ impl StateLayer {
             Self::Identity => "identity",
             Self::Rwa => "rwa",
             Self::Htlc => "htlc",
+            Self::Stateless => "stateless",
+            Self::ThreatIntel => "threat-intel",
         }
     }
 }

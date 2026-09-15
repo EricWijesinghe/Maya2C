@@ -18,10 +18,11 @@ use jsonrpsee::types::ErrorObjectOwned;
 
 use crate::consensus::{Chain, InsertOutcome};
 use crate::core::{Block, Transaction};
-use crate::network::Mempool;
+use crate::network::{Mempool, NodeHandle};
 use crate::rpc::bootstrap::SnapshotService;
 use crate::rpc::types::{
-    AccountInfo, BlockInfo, HeaderInfo, MiningCandidate, SubmitBlockResult, SubmitTransactionResult,
+    AccountInfo, BlockInfo, HeaderInfo, MiningCandidate, PeerAddressInfo, SubmitBlockResult,
+    SubmitTransactionResult, ThreatIndicatorInfo,
 };
 use crate::state_pruner::cold::ColdBlocks;
 
@@ -65,6 +66,10 @@ pub struct RpcContext {
     pub snapshots: Option<Arc<SnapshotService>>,
     /// Where pruned bodies are fetched back from for `get_block_by_height`.
     pub cold: Option<Arc<ColdBlocks>>,
+    /// The running node, for `threat_peer_addresses`. Absent unless the
+    /// operator wires it: peer addresses are this node's private knowledge,
+    /// so bind an RPC that carries them to a local interface.
+    pub peers: Option<NodeHandle>,
 }
 
 impl RpcContext {
@@ -77,6 +82,7 @@ impl RpcContext {
             mempool,
             snapshots: None,
             cold: None,
+            peers: None,
         }
     }
 
@@ -94,6 +100,15 @@ impl RpcContext {
     pub fn with_cold_blocks(self, cold: Arc<ColdBlocks>) -> Self {
         Self {
             cold: Some(cold),
+            ..self
+        }
+    }
+
+    /// The same context, answering `threat_peer_addresses` from `node`.
+    #[must_use]
+    pub fn with_peers(self, node: NodeHandle) -> Self {
+        Self {
+            peers: Some(node),
             ..self
         }
     }
@@ -273,6 +288,66 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         })
         .map_err(|e| rejected(e.to_string()))?;
 
+    module
+        .register_method("stateless_transaction_witness", |params, ctx, _| {
+            // Research branch: refused until stateless accounts are active,
+            // which is never on any network today. The witness is against the
+            // current tip and goes stale with the next block.
+            let raw: String = params.one().map_err(|e| invalid_params(e.to_string()))?;
+            let bytes = hex::decode(raw.trim_start_matches("0x"))
+                .map_err(|e| invalid_params(format!("transaction is not valid hex: {e}")))?;
+            let tx = Transaction::from_bytes(&bytes)
+                .map_err(|e| invalid_params(format!("malformed transaction: {e}")))?;
+            let witness = ctx
+                .chain()
+                .state()
+                .transaction_witness(&tx)
+                .map_err(|e| rejected(e.to_string()))?;
+            Ok::<_, ErrorObjectOwned>(hex::encode(witness.encode()))
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
+    module
+        .register_method("threat_indicators", |_params, ctx, _| {
+            // Every indicator, lifted ones included, judged at the tip.
+            let chain = ctx.chain();
+            let height = chain.height();
+            let indicators = chain
+                .state()
+                .stored_threat_indicators()
+                .map_err(|e| rejected(e.to_string()))?;
+            Ok::<_, ErrorObjectOwned>(
+                indicators
+                    .iter()
+                    .map(|(author, indicator)| ThreatIndicatorInfo::new(author, indicator, height))
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
+    module
+        .register_async_method("threat_peer_addresses", |_params, ctx, _| async move {
+            let Some(node) = ctx.peers.clone() else {
+                return Err(rejected("this node does not serve peer addresses"));
+            };
+            let addresses = node
+                .peer_addresses()
+                .await
+                .map_err(|e| rejected(e.to_string()))?;
+            Ok::<_, ErrorObjectOwned>(
+                addresses
+                    .into_iter()
+                    .map(|(peer, ip)| PeerAddressInfo {
+                        peer_id: peer.to_string(),
+                        author: maya_threat_intel::author_of_peer_id(&peer.to_bytes())
+                            .map(hex::encode),
+                        ip: ip.to_string(),
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
     crate::rpc::bootstrap::register(&mut module)?;
 
     Ok(module)
@@ -294,9 +369,11 @@ pub struct RpcServer {
 ///
 /// # Errors
 ///
-/// Returns [`crate::error::NodeError::Network`] if the address cannot be bound
-/// or the module cannot be built.
+/// Returns [`crate::error::NodeError::Network`] if the address cannot be bound,
+/// the module cannot be built, or a context wired with
+/// [`RpcContext::with_peers`] is asked to listen beyond loopback.
 pub async fn serve(address: SocketAddr, context: RpcContext) -> crate::error::Result<RpcServer> {
+    check_peer_exposure(address, context.peers.is_some())?;
     let module =
         build_module(context).map_err(|e| crate::error::NodeError::Network(e.to_string()))?;
 
@@ -315,4 +392,35 @@ pub async fn serve(address: SocketAddr, context: RpcContext) -> crate::error::Re
         address: local_address,
         handle,
     })
+}
+
+/// Refuses to serve `threat_peer_addresses` anywhere but this host.
+///
+/// The method lists where peers connect from, and it shares a module with the
+/// public methods. A comment saying "bind it locally" is a promise; this is the
+/// check. `build_module` stays usable for in-process tests, which bind nothing.
+fn check_peer_exposure(address: SocketAddr, serves_peers: bool) -> crate::error::Result<()> {
+    if serves_peers && !address.ip().is_loopback() {
+        return Err(crate::error::NodeError::Network(format!(
+            "refusing to serve threat_peer_addresses on {address}: an RPC wired with peer \
+             addresses must bind a loopback address"
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn peer_addresses_are_served_on_loopback_only() {
+        let public: SocketAddr = "0.0.0.0:8545".parse().expect("address");
+        let local: SocketAddr = "127.0.0.1:8545".parse().expect("address");
+        let local_v6: SocketAddr = "[::1]:8545".parse().expect("address");
+        assert!(check_peer_exposure(public, true).is_err());
+        assert!(check_peer_exposure(local, true).is_ok());
+        assert!(check_peer_exposure(local_v6, true).is_ok());
+        assert!(check_peer_exposure(public, false).is_ok());
+    }
 }

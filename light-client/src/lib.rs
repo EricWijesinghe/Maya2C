@@ -48,6 +48,8 @@
 
 pub mod chain;
 pub mod error;
+pub mod stateless;
 
 pub use chain::{HeaderChain, LightClient};
 pub use error::LightClientError;
+pub use stateless::StatelessValidator;

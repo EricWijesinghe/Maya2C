@@ -11,6 +11,7 @@ pub mod oracle_payload;
 pub mod payload;
 pub mod rwa_payload;
 pub mod sealed_payload;
+pub mod threat_payload;
 pub mod transaction;
 
 pub use block::{Block, BlockHeader, HEADER_LEN, TX_ROOT_RANGE, transaction_leaf};

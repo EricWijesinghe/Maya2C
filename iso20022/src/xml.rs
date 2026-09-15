@@ -44,8 +44,8 @@
 //! choice and every counterparty makes a different one. The namespace URI is
 //! checked once, at the document root, where it identifies the message version.
 
-use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
-use quick_xml::{Reader, Writer};
+use quick_xml::events::{BytesEnd, BytesRef, BytesStart, BytesText, Event};
+use quick_xml::{Reader, Writer, XmlVersion};
 
 use crate::error::{Error, Result};
 
@@ -205,8 +205,9 @@ pub fn parse(bytes: &[u8]) -> Result<Element> {
     let text = std::str::from_utf8(bytes)
         .map_err(|error| Error::Xml(format!("not valid UTF-8: {error}")))?;
 
+    // No `trim_text`: see `append_text` for why whitespace is trimmed per
+    // element rather than per event.
     let mut reader = Reader::from_str(text);
-    reader.config_mut().trim_text(true);
     reader.config_mut().expand_empty_elements = false;
     reader.config_mut().check_end_names = true;
 
@@ -215,6 +216,7 @@ pub fn parse(bytes: &[u8]) -> Result<Element> {
     // bound is a clean error instead of an abort.
     let mut stack: Vec<Element> = Vec::new();
     let mut root: Option<Element> = None;
+    let mut gap = Gap::default();
 
     loop {
         match reader
@@ -222,6 +224,7 @@ pub fn parse(bytes: &[u8]) -> Result<Element> {
             .map_err(|error| Error::Xml(error.to_string()))?
         {
             Event::Start(start) => {
+                gap.markup();
                 if stack.len() >= MAX_DEPTH {
                     return Err(Error::Bound {
                         what: "element nesting",
@@ -232,24 +235,31 @@ pub fn parse(bytes: &[u8]) -> Result<Element> {
                 stack.push(element_from(&start)?);
             }
             Event::Empty(start) => {
+                gap.markup();
                 let element = element_from(&start)?;
                 close(&mut stack, &mut root, element)?;
             }
             Event::End(end) => {
+                gap.markup();
                 let element = stack.pop().ok_or_else(|| {
-                    Error::Xml(format!("</{}> closes nothing", local_name(end.name().0)))
+                    Error::Xml(format!("</{}> closes nothing", shown(end.name().0)))
                 })?;
                 close(&mut stack, &mut root, element)?;
             }
-            Event::Text(text) => append_text(&mut stack, &text)?,
+            Event::Text(text) => {
+                append_text(&mut stack, &mut gap,&text.xml10_content(), Edges::Trim)?;
+            }
+            // A reference arrives as its own event. What it names is content,
+            // whitespace or not: `&#32;` is a space somebody wrote on purpose.
+            Event::GeneralRef(reference) => {
+                let resolved = resolve_reference(&reference)?;
+                append_text(&mut stack, &mut gap,&resolved, Edges::Keep)?;
+            }
             Event::CData(data) => {
                 // CDATA is text that skipped escaping, so it is the same value
                 // to this crate — but it must still be bounded, or it would be
                 // the one way past `MAX_TEXT_BYTES`.
-                let unescaped = data
-                    .minimal_escape()
-                    .map_err(|error| Error::Xml(error.to_string()))?;
-                append_text(&mut stack, &unescaped)?;
+                append_text(&mut stack, &mut gap,&data.xml10_content(), Edges::Keep)?;
             }
             // An XML declaration is the only prologue this crate reads, and it
             // carries nothing it acts on. Comments are dropped: they are not
@@ -304,30 +314,117 @@ fn close(stack: &mut [Element], root: &mut Option<Element>, element: Element) ->
     }
 }
 
-/// Appends text to the element currently open, bounded.
-fn append_text(stack: &mut [Element], text: &BytesText<'_>) -> Result<()> {
+/// Whether a chunk's edge whitespace may be dropped.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Edges {
+    /// Ordinary text between markup.
+    Trim,
+    /// A resolved reference or CDATA: exactly what the author wrote.
+    Keep,
+}
+
+/// Longest reference name accepted between `&` and `;`. The longest
+/// predefined entity is four bytes; this leaves room for a character reference
+/// with a few leading zeros and no room for a name used as a payload.
+const MAX_REFERENCE_BYTES: usize = 16;
+
+/// Characters XML counts as whitespace.
+const fn is_xml_whitespace(c: char) -> bool {
+    matches!(c, ' ' | '\t' | '\n' | '\r')
+}
+
+fn text_bound(found: usize) -> Error {
+    Error::Bound {
+        what: "element text",
+        found,
+        limit: MAX_TEXT_BYTES,
+    }
+}
+
+/// Whitespace state for the run of text between two tags.
+#[derive(Default)]
+struct Gap {
+    /// Whitespace after the last content, held until more content in the same
+    /// run shows it was interior.
+    pending: String,
+    /// No content yet since the last tag opened or closed, so whitespace now is
+    /// at the run's leading edge.
+    after_markup: bool,
+}
+
+impl Gap {
+    /// A tag opened or closed: the run of text ends here.
+    fn markup(&mut self) {
+        self.pending.clear();
+        self.after_markup = true;
+    }
+}
+
+/// Appends a chunk of text to the element currently open, bounded.
+///
+/// Whitespace at the edges of each run of text between tags is dropped,
+/// exactly as `trim_text` did per text event before quick-xml 0.38. It cannot
+/// be done per event any more: a reference now arrives as its own event, so
+/// `a &amp; b` is `"a "`, `amp`, `" b"`, and trimming each piece would give
+/// `a&b`. So leading whitespace is dropped only right after a tag, and trailing
+/// whitespace waits in [`Gap::pending`], written only if more content follows
+/// before the next tag.
+fn append_text(stack: &mut [Element], gap: &mut Gap, chunk: &str, edges: Edges) -> Result<()> {
     let Some(current) = stack.last_mut() else {
-        // Text outside the root is whitespace at worst, and trim_text has
-        // already dropped that.
+        // Outside the root: no element to hold it, so no field could be
+        // read from it. Ignored, as it always was.
         return Ok(());
     };
-    let unescaped = text
-        .unescape()
-        .map_err(|error| Error::Xml(error.to_string()))?;
-    if current.text.len() + unescaped.len() > MAX_TEXT_BYTES {
-        return Err(Error::Bound {
-            what: "element text",
-            found: current.text.len() + unescaped.len(),
-            limit: MAX_TEXT_BYTES,
-        });
+    let (leading, body, trailing) = match edges {
+        Edges::Keep => ("", chunk, ""),
+        Edges::Trim => {
+            let start = chunk.len() - chunk.trim_start_matches(is_xml_whitespace).len();
+            let body = chunk[start..].trim_end_matches(is_xml_whitespace);
+            (&chunk[..start], body, &chunk[start + body.len()..])
+        }
+    };
+    let at_edge = gap.after_markup || current.text.is_empty();
+    if body.is_empty() {
+        if !at_edge {
+            if gap.pending.len() + chunk.len() > MAX_TEXT_BYTES {
+                return Err(text_bound(current.text.len() + gap.pending.len() + chunk.len()));
+            }
+            gap.pending.push_str(chunk);
+        }
+        return Ok(());
     }
-    current.text.push_str(&unescaped);
+    let interior = if at_edge { "" } else { leading };
+    let found = current.text.len() + gap.pending.len() + interior.len() + body.len();
+    if found > MAX_TEXT_BYTES {
+        return Err(text_bound(found));
+    }
+    current.text.push_str(&gap.pending);
+    current.text.push_str(interior);
+    current.text.push_str(body);
+    gap.pending.clear();
+    gap.pending.push_str(trailing);
+    gap.after_markup = false;
     Ok(())
+}
+
+/// What a reference between `&` and `;` stands for: one of the five
+/// predefined entities or a character reference. Anything else is refused —
+/// there is no DTD, so there is nothing else it could name.
+fn resolve_reference(reference: &BytesRef<'_>) -> Result<String> {
+    let name: &str = reference;
+    if name.len() > MAX_REFERENCE_BYTES {
+        return Err(Error::Xml(format!(
+            "an entity reference longer than {MAX_REFERENCE_BYTES} bytes"
+        )));
+    }
+    quick_xml::escape::unescape(&format!("&{name};"))
+        .map(|value| value.into_owned())
+        .map_err(|error| Error::Xml(error.to_string()))
 }
 
 /// An [`Element`] from a start tag, with its attributes.
 fn element_from(start: &BytesStart<'_>) -> Result<Element> {
-    let mut element = Element::new(local_name(start.name().0));
+    let mut element = Element::new(checked_local_name(start.name().0)?);
     for attribute in start.attributes() {
         if element.attributes.len() >= MAX_ATTRIBUTES {
             return Err(Error::Bound {
@@ -338,7 +435,7 @@ fn element_from(start: &BytesStart<'_>) -> Result<Element> {
         }
         let attribute = attribute.map_err(|error| Error::Xml(error.to_string()))?;
         let value = attribute
-            .unescape_value()
+            .normalized_value(XmlVersion::Implicit1_0)
             .map_err(|error| Error::Xml(error.to_string()))?;
         if value.len() > MAX_TEXT_BYTES {
             return Err(Error::Bound {
@@ -347,20 +444,53 @@ fn element_from(start: &BytesStart<'_>) -> Result<Element> {
                 limit: MAX_TEXT_BYTES,
             });
         }
-        element
-            .attributes
-            .push((local_name(attribute.key.0), value.into_owned()));
+        let name = checked_local_name(attribute.key.0)?;
+        // Two prefixes, one local name: `attribute(name)` could answer with only
+        // one of them, and which one would be an accident of order.
+        if element.attributes.iter().any(|(existing, _)| *existing == name) {
+            return Err(Error::Xml(format!(
+                "attribute {} appears twice once prefixes are stripped",
+                shown(&name)
+            )));
+        }
+        element.attributes.push((name, value.into_owned()));
     }
     Ok(element)
 }
 
-/// A qualified name with any prefix stripped.
-fn local_name(qualified: &[u8]) -> String {
-    let local = match qualified.iter().position(|byte| *byte == b':') {
-        Some(colon) => &qualified[colon + 1..],
-        None => qualified,
+/// Longest element or attribute name accepted, prefix included.
+const MAX_NAME_BYTES: usize = 128;
+
+/// The local part of a qualified name, or a refusal if it is not a name this
+/// crate could write back out.
+///
+/// quick-xml's reader does not validate names: it reads `<a'b>` as an element
+/// called `a'b`, which no writer can render into XML that parses again. Found
+/// by `fuzz/fuzz_targets/iso20022_decode.rs`. ISO 20022 names are ASCII, so a
+/// name is accepted only as `[prefix:]local`, each part a letter or `_`
+/// followed by letters, digits, `_`, `-` or `.`.
+fn checked_local_name(qualified: &str) -> Result<String> {
+    let valid = |part: &str| {
+        let mut chars = part.chars();
+        chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
     };
-    String::from_utf8_lossy(local).into_owned()
+    let (prefix, local) = match qualified.split_once(':') {
+        Some((prefix, local)) => (Some(prefix), local),
+        None => (None, qualified),
+    };
+    if qualified.len() > MAX_NAME_BYTES || !valid(local) || prefix.is_some_and(|p| !valid(p)) {
+        return Err(Error::Xml(format!(
+            "{:?} is not an XML name this reader accepts",
+            shown(qualified)
+        )));
+    }
+    Ok(local.to_string())
+}
+
+/// A name cut short for an error message, so a refusal cannot echo a megabyte.
+fn shown(name: &str) -> String {
+    name.chars().take(32).collect()
 }
 
 /// Renders an element tree, with an XML declaration and no whitespace.
@@ -384,8 +514,11 @@ pub fn render(root: &Element, namespace: &str) -> Result<String> {
         .map_err(|error| Error::Xml(error.to_string()))?;
 
     let mut root = root.clone();
-    root.attributes
-        .insert(0, ("xmlns".into(), namespace.into()));
+    // The namespace is the caller's to state. One the tree already carries —
+    // from a parsed document — would otherwise be written twice, and a
+    // duplicate attribute does not parse.
+    root.attributes.retain(|(name, _)| name != "xmlns");
+    root.attributes.insert(0, ("xmlns".into(), namespace.into()));
     write_element(&mut writer, &root)?;
 
     String::from_utf8(writer.into_inner()).map_err(|error| Error::Xml(error.to_string()))
@@ -413,4 +546,98 @@ fn write_element(writer: &mut Writer<Vec<u8>>, element: &Element) -> Result<()> 
     writer
         .write_event(Event::End(BytesEnd::new(element.name.as_str())))
         .map_err(|error| Error::Xml(error.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn text_of(document: &str) -> String {
+        parse(document.as_bytes()).expect("parses").text
+    }
+
+    #[test]
+    fn references_keep_the_spaces_beside_them() {
+        assert_eq!(text_of("<a>  Smith &amp; Sons  </a>"), "Smith & Sons");
+        assert_eq!(text_of("<a>&lt;&#32;&gt;</a>"), "< >");
+        assert_eq!(text_of("<a>A&#x42;C</a>"), "ABC");
+    }
+
+    #[test]
+    fn each_run_of_text_between_tags_is_trimmed_as_before() {
+        // What `trim_text` produced per event on quick-xml 0.37.
+        assert_eq!(text_of("<a>hi<b/>  more</a>"), "himore");
+        assert_eq!(text_of("<a> x <b/> &amp; y </a>"), "x& y");
+    }
+
+    #[test]
+    fn whitespace_between_children_is_not_text() {
+        let root = parse(b"<a>\n  <b> x </b>\n  <c/>\n</a>").expect("parses");
+        assert_eq!(root.text, "");
+        assert_eq!(root.children[0].text, "x");
+        assert_eq!(root.children.len(), 2);
+    }
+
+    #[test]
+    fn cdata_is_kept_verbatim_and_still_bounded() {
+        assert_eq!(text_of("<a><![CDATA[ <b>&amp; ]]></a>"), " <b>&amp; ");
+        let long = format!("<a><![CDATA[{}]]></a>", "x".repeat(MAX_TEXT_BYTES + 1));
+        assert!(matches!(parse(long.as_bytes()), Err(Error::Bound { .. })));
+    }
+
+    #[test]
+    fn references_cannot_smuggle_text_past_the_bound() {
+        let many = format!("<a>{}</a>", "&amp;".repeat(MAX_TEXT_BYTES + 1));
+        assert!(matches!(parse(many.as_bytes()), Err(Error::Bound { .. })));
+    }
+
+    #[test]
+    fn unknown_and_overlong_references_are_refused() {
+        assert!(matches!(parse(b"<a>&bogus;</a>"), Err(Error::Xml(_))));
+        assert!(matches!(
+            parse(b"<a>&#x0000000000000041;</a>"),
+            Err(Error::Xml(_))
+        ));
+    }
+
+    #[test]
+    fn attribute_values_are_unescaped_and_prefixes_stripped() {
+        let root = parse(br#"<ns0:a ns0:Ccy="E&amp;R"/>"#).expect("parses");
+        assert_eq!(root.name, "a");
+        assert_eq!(root.attribute("Ccy"), Some("E&R"));
+    }
+
+    #[test]
+    fn names_no_writer_could_render_are_refused() {
+        // The fuzzer's crash: quick-xml read an element whose name held quotes
+        // and control bytes, and the rendered tree did not parse.
+        let crash: &[u8] = b"<\x14'''[#\x01\x00\x00:\x00\x00\x00\x0b,\x00\x00\x00'\x00\t/>'''%=\xef\xbb\xbf==1=\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+        assert!(matches!(parse(crash), Err(Error::Xml(_))));
+        for bad in ["<a'b/>", "<a:/>", "<:a/>", "<1a/>", "<a:b:c/>", r#"<a b'c="1"/>"#] {
+            assert!(matches!(parse(bad.as_bytes()), Err(Error::Xml(_))), "{bad}");
+        }
+        let long = format!("<{}/>", "a".repeat(MAX_NAME_BYTES + 1));
+        assert!(matches!(parse(long.as_bytes()), Err(Error::Xml(_))));
+    }
+
+    #[test]
+    fn attributes_colliding_once_prefixes_are_stripped_are_refused() {
+        assert!(matches!(
+            parse(br#"<a x:k="1" y:k="2"/>"#),
+            Err(Error::Xml(_))
+        ));
+    }
+
+    #[test]
+    fn a_parsed_document_renders_and_reparses_with_one_namespace() {
+        let root = parse(
+            br#"<Document xmlns="urn:old" xmlns:xsi="urn:xsi"><A Ccy="EUR">1.00</A></Document>"#,
+        )
+        .expect("parses");
+        let rendered = render(&root, "urn:new").expect("renders");
+        let again = parse(rendered.as_bytes()).expect("reparses");
+        assert_eq!(again.attribute("xmlns"), Some("urn:new"));
+        assert_eq!(again.children[0].text, "1.00");
+        assert_eq!(again.children[0].attribute("Ccy"), Some("EUR"));
+    }
 }

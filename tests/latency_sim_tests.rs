@@ -223,7 +223,9 @@ async fn a_block_propagates_across_the_line_at_every_latency() {
 
             while tokio::time::Instant::now() < deadline {
                 match tokio::time::timeout_at(deadline, receiver.recv()).await {
-                    Ok(Ok(NodeEvent::BlockReceived(received))) => {
+                    Ok(Ok(NodeEvent::BlockReceived {
+                        block: received, ..
+                    })) => {
                         assert_eq!(
                             received.to_bytes(),
                             expected,

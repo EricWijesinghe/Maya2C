@@ -6,25 +6,25 @@
 //! to a broadcast channel of [`NodeEvent`]. That keeps all swarm access on one
 //! thread while still letting many callers publish and watch.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use futures::StreamExt;
-use libp2p::core::transport::MemoryTransport;
-use libp2p::core::upgrade;
-use libp2p::gossipsub::{self, IdentTopic, MessageId, TopicHash};
-use libp2p::identity::Keypair;
+use libp2p::gossipsub::{self, IdentTopic, MessageId};
+use libp2p::request_response::OutboundRequestId;
 use libp2p::swarm::{ConnectionId, SwarmEvent};
-use libp2p::{Multiaddr, PeerId, Swarm, Transport, kad, noise, yamux};
+use libp2p::{Multiaddr, PeerId, Swarm, kad};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
+use crate::core::Block;
 use crate::error::{NodeError, Result};
 use crate::network::behaviour::{NodeBehaviour, NodeBehaviourEvent};
 use crate::network::mempool::{Mempool, TxHash};
-use crate::network::pq::dual::DualKemPolicy;
-use crate::network::pq::{EpochClock, PqUpgrade, SessionStats};
-use crate::network::sim::{DelayStream, LatencyDial};
+use crate::network::peer_health::{GuardConfig, Offence, PeerHealth, PeerReport};
+use crate::network::pq::{EpochClock, SessionStats};
+use crate::network::sync::RateLimiter;
 use crate::network::topics::{blocks_topic, txs_topic};
 use crate::state::StateDB;
 
@@ -45,6 +45,20 @@ const IDLE_CONNECTION_TIMEOUT: Duration = Duration::from_secs(60);
 /// bounding overshoot to a rounding error.
 pub const ROTATION_CHECK_INTERVAL: Duration = Duration::from_secs(30);
 
+/// How often expired quarantines are lifted. Quarantines last minutes, so a
+/// second of overshoot is nothing.
+const GUARD_TICK: Duration = Duration::from_secs(1);
+
+mod build;
+mod guard;
+mod relay;
+mod threat;
+
+pub use relay::{RelayConfig, RelayIngress};
+
+/// A pending block-sync request: who was asked, for what, and who waits.
+type PendingSync = (PeerId, Vec<[u8; 32]>, oneshot::Sender<Result<Vec<Block>>>);
+
 /// Observable node activity.
 #[derive(Clone, Debug)]
 pub enum NodeEvent {
@@ -58,8 +72,54 @@ pub enum NodeEvent {
     TransactionAccepted(TxHash),
     /// A gossiped transaction was refused. Carries the reason.
     TransactionRejected(String),
-    /// A gossiped block was received and decoded.
-    BlockReceived(Box<crate::core::Block>),
+    /// A gossiped block was received, decoded, and matched its `tx_root`.
+    BlockReceived {
+        /// The block.
+        block: Box<Block>,
+        /// The peer that relayed it: who to ask for its parent.
+        source: PeerId,
+        /// The peer that signed the gossip message: who answers if the block
+        /// proves invalid on import.
+        ///
+        /// Not the relay. A relay accepts a block on stateless checks, so an
+        /// honest one forwards a block whose proof of work or state root is
+        /// wrong; blaming it would let anyone get honest relays quarantined
+        /// with blocks that cost nothing to make. The author signed the message
+        /// and cannot be impersonated.
+        author: Option<PeerId>,
+    },
+    /// A peer crossed the quarantine threshold and was cut off.
+    PeerQuarantined {
+        /// The peer.
+        peer: PeerId,
+        /// Quarantines so far, this one included.
+        strikes: u32,
+    },
+    /// A quarantine expired.
+    PeerReleased(PeerId),
+    /// A peer an active on-chain threat indicator names is now refused
+    /// (`NodeHandle::enforce_mitigations`).
+    PeerConvicted(PeerId),
+    /// A convicted peer's indicator lifted. It is re-admitted unless the
+    /// local peer guard is also holding it.
+    PeerAcquitted(PeerId),
+    /// A gossip author signed a frame that fails a check any node can re-run:
+    /// evidence ready to wrap in a `TxKind::AttestAttack`. The node holds no
+    /// chain key and submits nothing itself (`node::threat`).
+    AttackEvidence(Box<maya_threat_intel::AttackAttestation>),
+    /// Block relay keys were agreed with a peer (`network::relay_key`).
+    RelayKeyEstablished(PeerId),
+    /// A block body arrived over the relay and is being handed to the gossip
+    /// block path, which emits [`NodeEvent::BlockReceived`] if it passes.
+    BlockRelayed {
+        /// The authenticated sender.
+        peer: PeerId,
+        /// The id the body's header gives it.
+        block_id: [u8; 32],
+    },
+    /// The relay could not send or receive. Carries the reason. Nothing about
+    /// the chain depends on the relay, so this is never fatal.
+    RelayFailure(String),
     /// Kademlia inserted or refreshed a routing table entry.
     RoutingUpdated(PeerId),
     /// A peer subscribed to one of our topics.
@@ -91,6 +151,29 @@ enum Command {
     },
     ConnectedPeers {
         reply: oneshot::Sender<Vec<PeerId>>,
+    },
+    ReportOffence {
+        peer: PeerId,
+        offence: Offence,
+    },
+    RequestBlocks {
+        peer: PeerId,
+        ids: Vec<[u8; 32]>,
+        reply: oneshot::Sender<Result<Vec<Block>>>,
+    },
+    PeerReport {
+        peer: PeerId,
+        reply: oneshot::Sender<Option<PeerReport>>,
+    },
+    RelayBlock {
+        data: Vec<u8>,
+        reply: oneshot::Sender<usize>,
+    },
+    PeerAddresses {
+        reply: oneshot::Sender<Vec<(PeerId, IpAddr)>>,
+    },
+    EnforceMitigations {
+        peers: HashSet<PeerId>,
     },
 }
 
@@ -208,310 +291,93 @@ impl NodeHandle {
         self.send(Command::ConnectedPeers { reply }).await?;
         Self::await_reply(receiver).await
     }
-}
 
-/// Which transport a node is built on.
-///
-/// Named `TransportKind` rather than `Transport` because libp2p''s `Transport`
-/// trait is already in scope here and shadowing it would be a trap.
-#[derive(Clone, Debug)]
-enum TransportKind {
-    /// In-process memory transport, reading its per-read delay from the dial.
+    /// Records an offence the node found after gossip validation — a block
+    /// the chain refused for a reason inside the block.
     ///
-    /// Zero for ordinary use; non-zero only from
-    /// [`Node::new_memory_with_latency`] and [`Node::new_memory_with_dial`].
+    /// # Errors
     ///
-    /// No longer `Copy`: the dial is an `Arc` so that a test can raise the
-    /// latency on connections that are already open.
-    Memory(LatencyDial),
-    /// Real TCP sockets.
-    Tcp,
+    /// Returns [`NodeError::Network`] if the node has stopped.
+    pub async fn report_offence(&self, peer: PeerId, offence: Offence) -> Result<()> {
+        self.send(Command::ReportOffence { peer, offence }).await
+    }
+
+    /// Asks `peer` for blocks by header id (`network::sync`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Network`] for a request outside the bounds, a
+    /// quarantined peer, a failed or timed-out request, or a response carrying
+    /// blocks nobody asked for — which also scores the peer.
+    pub async fn request_blocks(&self, peer: PeerId, ids: Vec<[u8; 32]>) -> Result<Vec<Block>> {
+        let (reply, receiver) = oneshot::channel();
+        self.send(Command::RequestBlocks { peer, ids, reply })
+            .await?;
+        Self::await_reply(receiver).await?
+    }
+
+    /// The guard's record of `peer`, if it has one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Network`] if the node has stopped.
+    pub async fn peer_report(&self, peer: PeerId) -> Result<Option<PeerReport>> {
+        let (reply, receiver) = oneshot::channel();
+        self.send(Command::PeerReport { peer, reply }).await?;
+        Self::await_reply(receiver).await
+    }
+
+    /// The address of each peer's most recent connection, remembered past
+    /// disconnection (`node::threat`). This node's own knowledge, never
+    /// anything a peer claimed: what a firewall worker blocks by.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Network`] if the node has stopped.
+    pub async fn peer_addresses(&self) -> Result<Vec<(PeerId, IpAddr)>> {
+        let (reply, receiver) = oneshot::channel();
+        self.send(Command::PeerAddresses { reply }).await?;
+        Self::await_reply(receiver).await
+    }
+
+    /// Refuses exactly the peers `mitigations` name, re-admitting any
+    /// convicted before whose indicator has since lifted.
+    ///
+    /// The node reads no chain height itself: whatever applies blocks knows
+    /// the tip, computes `StateDB::active_mitigations` there, and calls this —
+    /// the arrangement `EpochClock::set_height` already uses. Each call
+    /// replaces the whole set, so a missed call is corrected by the next.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Network`] if the node has stopped.
+    pub async fn enforce_mitigations(
+        &self,
+        mitigations: &[maya_threat_intel::AutomatedMitigation],
+    ) -> Result<()> {
+        let peers = mitigations
+            .iter()
+            .filter_map(|mitigation| {
+                PeerId::from_bytes(&maya_threat_intel::peer_id_bytes(&mitigation.author)).ok()
+            })
+            .collect();
+        self.send(Command::EnforceMitigations { peers }).await
+    }
 }
 
 /// A node that has been built but not yet spawned.
 pub struct Node {
     swarm: Swarm<NodeBehaviour>,
     mempool: Mempool,
+    state: Arc<StateDB>,
+    guard: GuardConfig,
     epoch: EpochClock,
     rotation_check: Duration,
     stats: SessionStats,
+    relay: Option<relay::RelayState>,
 }
 
 impl Node {
-    /// Builds a node on an in-process memory transport.
-    ///
-    /// Memory transport keeps integration tests free of real sockets, ports,
-    /// and the flakiness that comes with them, while still exercising the full
-    /// noise + yamux + gossipsub stack.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`NodeError::Network`] if the transport, behaviour, or swarm
-    /// cannot be constructed.
-    pub fn new_memory(state: Arc<StateDB>) -> Result<Self> {
-        // libp2p transport identity, not a transaction key. It stays ed25519
-        // because a `PeerId` authenticates a connection, never a spend — and
-        // because libp2p's noise handshake offers no post-quantum option.
-        //
-        // Post-quantum *confidentiality* is not affected by that: it is layered
-        // above noise by `crate::network::pq`, which every connection runs.
-        // What stays classical is peer authentication.
-        Self::build(
-            state,
-            Keypair::generate_ed25519(),
-            TransportKind::Memory(LatencyDial::new(Duration::ZERO)),
-            ROTATION_CHECK_INTERVAL,
-            DualKemPolicy::default(),
-        )
-    }
-
-    /// Builds a memory-transport node whose reads are delayed by `latency`.
-    ///
-    /// **Simulation support**, for [`crate::network::sim`]. A deployment has no
-    /// reason to call this; it exists because an integration test cannot reach
-    /// a `#[cfg(test)]` constructor, and the post-quantum handshake adds a
-    /// round trip whose cost is invisible on a zero-latency transport.
-    ///
-    /// # Errors
-    ///
-    /// As [`Node::new_memory`].
-    pub fn new_memory_with_latency(state: Arc<StateDB>, latency: Duration) -> Result<Self> {
-        Self::build(
-            state,
-            Keypair::generate_ed25519(),
-            TransportKind::Memory(LatencyDial::new(latency)),
-            ROTATION_CHECK_INTERVAL,
-            DualKemPolicy::default(),
-        )
-    }
-
-    /// Builds a memory-transport node whose read delay can be changed while it
-    /// is running.
-    ///
-    /// **Simulation support**, for `tests/chaos_simulator.rs`. A fixed latency
-    /// models a network that is uniformly slow; this models one that *becomes*
-    /// slow, which is the failure worth testing — a link degrading mid-flight
-    /// rather than a connection that was always bad. Rebuilding the node at a
-    /// new latency would test reconnection instead.
-    ///
-    /// See [`LatencyDial`] for when a change takes effect.
-    ///
-    /// # Errors
-    ///
-    /// As [`Node::new_memory`].
-    pub fn new_memory_with_dial(state: Arc<StateDB>, dial: LatencyDial) -> Result<Self> {
-        Self::build(
-            state,
-            Keypair::generate_ed25519(),
-            TransportKind::Memory(dial),
-            ROTATION_CHECK_INTERVAL,
-            DualKemPolicy::default(),
-        )
-    }
-
-    /// Builds a memory-transport node that sweeps for stale sessions every
-    /// `rotation_check`.
-    ///
-    /// **Simulation support.** The production sweep runs every
-    /// [`ROTATION_CHECK_INTERVAL`], which is correct against a rotation period
-    /// measured in hours and useless in a test that has to observe a rotation
-    /// actually happening. Nothing else about the mechanism changes: the same
-    /// [`EpochClock`] decides staleness and the same code closes the
-    /// connection.
-    ///
-    /// # Errors
-    ///
-    /// As [`Node::new_memory`].
-    pub fn new_memory_with_rotation(state: Arc<StateDB>, rotation_check: Duration) -> Result<Self> {
-        Self::build(
-            state,
-            Keypair::generate_ed25519(),
-            TransportKind::Memory(LatencyDial::new(Duration::ZERO)),
-            rotation_check,
-            DualKemPolicy::default(),
-        )
-    }
-
-    /// Builds a node on a TCP transport with a fresh identity.
-    ///
-    /// # Errors
-    ///
-    /// As [`Node::new_memory`].
-    pub fn new_tcp(state: Arc<StateDB>) -> Result<Self> {
-        Self::build(
-            state,
-            Keypair::generate_ed25519(),
-            TransportKind::Tcp,
-            ROTATION_CHECK_INTERVAL,
-            DualKemPolicy::default(),
-        )
-    }
-
-    /// Builds a TCP node with a caller-supplied identity.
-    ///
-    /// A deployed node must persist its keypair: the `PeerId` is derived from
-    /// it, and a seed node that regenerates its identity on restart invalidates
-    /// every bootnode address pointing at it.
-    ///
-    /// # Errors
-    ///
-    /// As [`Node::new_memory`].
-    pub fn new_tcp_with_identity(state: Arc<StateDB>, keypair: Keypair) -> Result<Self> {
-        Self::build(
-            state,
-            keypair,
-            TransportKind::Tcp,
-            ROTATION_CHECK_INTERVAL,
-            DualKemPolicy::default(),
-        )
-    }
-
-    /// Builds a TCP node with a caller-supplied identity and dual-KEM policy.
-    ///
-    /// The constructor a deployment uses once `--dual-kem` is set to anything
-    /// but `off`. Separate from [`Node::new_tcp_with_identity`] rather than
-    /// replacing it, so that every existing caller keeps the policy it has
-    /// always had — `Disabled` — without an edit.
-    ///
-    /// # Errors
-    ///
-    /// As [`Node::new_memory`].
-    pub fn new_tcp_with_identity_and_dual_kem(
-        state: Arc<StateDB>,
-        keypair: Keypair,
-        dual_kem: DualKemPolicy,
-    ) -> Result<Self> {
-        Self::build(
-            state,
-            keypair,
-            TransportKind::Tcp,
-            ROTATION_CHECK_INTERVAL,
-            dual_kem,
-        )
-    }
-
-    /// Builds a memory-transport node under an explicit dual-KEM policy.
-    ///
-    /// **Test support.** Negotiation between two policies is the thing worth
-    /// testing, and it needs two nodes on one transport without sockets.
-    ///
-    /// # Errors
-    ///
-    /// As [`Node::new_memory`].
-    pub fn new_memory_with_dual_kem(state: Arc<StateDB>, dual_kem: DualKemPolicy) -> Result<Self> {
-        Self::build(
-            state,
-            Keypair::generate_ed25519(),
-            TransportKind::Memory(LatencyDial::new(Duration::ZERO)),
-            ROTATION_CHECK_INTERVAL,
-            dual_kem,
-        )
-    }
-
-    fn build(
-        state: Arc<StateDB>,
-        keypair: Keypair,
-        kind: TransportKind,
-        rotation_check: Duration,
-        dual_kem: DualKemPolicy,
-    ) -> Result<Self> {
-        let mempool = Mempool::new(state);
-        let epoch = EpochClock::new();
-        let stats = SessionStats::new();
-
-        let builder = libp2p::SwarmBuilder::with_existing_identity(keypair).with_tokio();
-
-        // Both branches go through `with_other_transport` so they share one
-        // upgrade chain. The TCP branch used `with_tcp`, which is tidier but
-        // takes the security upgrade as a value and offers no `.apply()` hook —
-        // and the post-quantum layer has to go between authentication and
-        // multiplexing, which is exactly where that hook is.
-        //
-        // The error type must be exactly `Box<dyn Error + Send + Sync>`: that
-        // is the only `Result` form `TryIntoTransport` implements, and any
-        // other error type silently falls through to the identity impl and
-        // fails to compile.
-        let mut swarm = match kind {
-            TransportKind::Memory(dial) => builder
-                .with_other_transport(|keypair| {
-                    let noise_config = noise::Config::new(keypair)?;
-                    Ok::<_, Box<dyn std::error::Error + Send + Sync>>(
-                        MemoryTransport::default()
-                            // Zero latency is the ordinary case and costs
-                            // nothing: `DelayStream` short-circuits on it, so
-                            // the simulation hook is not a tax on every test.
-                            //
-                            // Cloned per connection: every stream shares the one
-                            // dial, so a single `set` reaches all of them.
-                            .map(move |connection, _| {
-                                DelayStream::with_dial(connection, dial.clone())
-                            })
-                            .upgrade(upgrade::Version::V1)
-                            .authenticate(noise_config)
-                            // Every connection, inbound and outbound, without
-                            // exception. Negotiation failure drops the
-                            // connection rather than falling back: an optional
-                            // post-quantum layer is one an attacker strips.
-                            .apply(PqUpgrade::with_policy(dual_kem))
-                            .multiplex(yamux::Config::default()),
-                    )
-                })
-                .map_err(|e| NodeError::Network(format!("memory transport: {e}")))?
-                .with_behaviour(|keypair| {
-                    NodeBehaviour::new(keypair)
-                        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
-                })
-                .map_err(|e| NodeError::Network(format!("behaviour: {e}")))?
-                .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(IDLE_CONNECTION_TIMEOUT))
-                .build(),
-
-            TransportKind::Tcp => builder
-                .with_other_transport(|keypair| {
-                    let noise_config = noise::Config::new(keypair)?;
-                    Ok::<_, Box<dyn std::error::Error + Send + Sync>>(
-                        libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default())
-                            .upgrade(upgrade::Version::V1)
-                            .authenticate(noise_config)
-                            .apply(PqUpgrade::with_policy(dual_kem))
-                            .multiplex(yamux::Config::default()),
-                    )
-                })
-                .map_err(|e| NodeError::Network(format!("tcp transport: {e}")))?
-                .with_behaviour(|keypair| {
-                    NodeBehaviour::new(keypair)
-                        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
-                })
-                .map_err(|e| NodeError::Network(format!("behaviour: {e}")))?
-                .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(IDLE_CONNECTION_TIMEOUT))
-                .build(),
-        };
-        // Subscribe up front so a peer connecting immediately still sees us as
-        // a member of both meshes.
-        for topic in [txs_topic(), blocks_topic()] {
-            swarm
-                .behaviour_mut()
-                .gossipsub
-                .subscribe(&topic)
-                .map_err(|e| NodeError::Network(format!("subscribe {topic}: {e}")))?;
-        }
-
-        // Server mode: this node answers DHT queries rather than only issuing
-        // them. Without it a small private network never populates routing
-        // tables, because every node stays a client.
-        swarm
-            .behaviour_mut()
-            .kademlia
-            .set_mode(Some(kad::Mode::Server));
-
-        Ok(Self {
-            swarm,
-            mempool,
-            epoch,
-            rotation_check,
-            stats,
-        })
-    }
-
     /// The clock driving session rotation.
     ///
     /// Cloneable, and the handle carries the same one. Whatever applies blocks
@@ -576,6 +442,13 @@ impl Node {
             rotation_check: self.rotation_check,
             stats: self.stats,
             sessions: HashMap::new(),
+            state: self.state,
+            health: PeerHealth::new(self.guard),
+            sync_limits: RateLimiter::default(),
+            pending_sync: HashMap::new(),
+            relay: self.relay,
+            addresses: threat::AddressBook::default(),
+            convicted: HashSet::new(),
         };
         tokio::spawn(driver.run(command_rx));
 
@@ -600,6 +473,20 @@ struct NodeDriver {
     /// several connections opened at different times, and rotating one must not
     /// be mistaken for rotating them all.
     sessions: HashMap<ConnectionId, u64>,
+    /// Block store, for answering sync requests.
+    state: Arc<StateDB>,
+    /// Evidence and quarantines (`network::peer_health`).
+    health: PeerHealth,
+    /// Sync requests each peer may make.
+    sync_limits: RateLimiter,
+    /// Outbound sync requests awaiting an answer.
+    pending_sync: HashMap<OutboundRequestId, PendingSync>,
+    /// The block relay, if enabled (`node::relay`).
+    relay: Option<relay::RelayState>,
+    /// Where each peer last connected from (`node::threat`).
+    addresses: threat::AddressBook,
+    /// Peers refused for an on-chain conviction (`node::threat`).
+    convicted: HashSet<PeerId>,
 }
 
 impl NodeDriver {
@@ -614,6 +501,8 @@ impl NodeDriver {
         // burst behaviour keeps a lagging check from firing repeatedly to
         // "catch up" after the task has been starved.
         rotation.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut guard = tokio::time::interval(GUARD_TICK);
+        guard.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
         loop {
             tokio::select! {
@@ -624,6 +513,8 @@ impl NodeDriver {
                 },
                 event = self.swarm.select_next_some() => self.handle_swarm_event(event),
                 _ = rotation.tick() => self.rotate_stale_sessions(),
+                _ = guard.tick() => self.release_expired(),
+                inbound = relay::next_inbound(&mut self.relay) => self.handle_relay_inbound(inbound),
             }
         }
     }
@@ -656,6 +547,9 @@ impl NodeDriver {
     fn handle_command(&mut self, command: Command) {
         match command {
             Command::Publish { topic, data, reply } => {
+                if topic.hash() == blocks_topic().hash() {
+                    self.relay_block(&data);
+                }
                 let result = self
                     .swarm
                     .behaviour_mut()
@@ -691,6 +585,18 @@ impl NodeDriver {
                 let peers = self.swarm.connected_peers().copied().collect();
                 let _ = reply.send(peers);
             }
+            Command::ReportOffence { peer, offence } => self.punish(peer, offence),
+            Command::RequestBlocks { peer, ids, reply } => self.request_blocks(peer, ids, reply),
+            Command::PeerReport { peer, reply } => {
+                let _ = reply.send(self.health.report(&peer, std::time::Instant::now()));
+            }
+            Command::RelayBlock { data, reply } => {
+                let _ = reply.send(self.relay_block(&data));
+            }
+            Command::PeerAddresses { reply } => {
+                let _ = reply.send(self.addresses.snapshot());
+            }
+            Command::EnforceMitigations { peers } => self.enforce_convictions(peers),
         }
     }
 
@@ -702,8 +608,15 @@ impl NodeDriver {
             SwarmEvent::ConnectionEstablished {
                 peer_id,
                 connection_id,
+                endpoint,
                 ..
             } => {
+                self.relay_connected(peer_id, &endpoint);
+                if let Some(ip) =
+                    crate::network::relay_key::connection_ip(endpoint.get_remote_address())
+                {
+                    self.addresses.note(peer_id, ip);
+                }
                 // Note the epoch this session's ML-KEM keys were derived in, so
                 // the rotation sweep can tell when they have aged out.
                 self.sessions.insert(connection_id, self.epoch.current());
@@ -720,9 +633,11 @@ impl NodeDriver {
             SwarmEvent::ConnectionClosed {
                 peer_id,
                 connection_id,
+                num_established,
                 ..
             } => {
                 self.sessions.remove(&connection_id);
+                self.relay_disconnected(peer_id, num_established);
                 self.emit(NodeEvent::PeerDisconnected(peer_id));
             }
             SwarmEvent::Behaviour(event) => self.handle_behaviour_event(event),
@@ -732,9 +647,15 @@ impl NodeDriver {
 
     fn handle_behaviour_event(&mut self, event: NodeBehaviourEvent) {
         match event {
-            NodeBehaviourEvent::Gossipsub(gossipsub::Event::Message { message, .. }) => {
-                self.handle_gossip_message(&message.topic, &message.data);
+            NodeBehaviourEvent::Gossipsub(gossipsub::Event::Message {
+                propagation_source,
+                message_id,
+                message,
+            }) => {
+                self.handle_gossip_message(propagation_source, &message_id, &message);
             }
+            NodeBehaviourEvent::Sync(event) => self.handle_sync_event(event),
+            NodeBehaviourEvent::RelayKey(event) => self.handle_relay_key_event(event),
             NodeBehaviourEvent::Gossipsub(gossipsub::Event::Subscribed { peer_id, topic }) => {
                 self.emit(NodeEvent::PeerSubscribed {
                     peer: peer_id,
@@ -760,29 +681,6 @@ impl NodeDriver {
                 self.emit(NodeEvent::RoutingUpdated(peer));
             }
             _ => {}
-        }
-    }
-
-    fn handle_gossip_message(&mut self, topic: &TopicHash, data: &[u8]) {
-        if topic == &txs_topic().hash() {
-            match self.mempool.insert_encoded(data) {
-                Ok(true) => {
-                    // Recompute the hash from the decoded transaction rather
-                    // than trusting anything the sender supplied.
-                    match crate::core::Transaction::from_bytes(data) {
-                        Ok(tx) => self.emit(NodeEvent::TransactionAccepted(tx.txid())),
-                        Err(e) => self.emit(NodeEvent::TransactionRejected(e.to_string())),
-                    }
-                }
-                // Already pooled: normal in a gossip mesh, not worth an event.
-                Ok(false) => {}
-                Err(e) => self.emit(NodeEvent::TransactionRejected(e.to_string())),
-            }
-        } else if topic == &blocks_topic().hash() {
-            match crate::core::Block::from_bytes(data) {
-                Ok(block) => self.emit(NodeEvent::BlockReceived(Box::new(block))),
-                Err(e) => self.emit(NodeEvent::TransactionRejected(e.to_string())),
-            }
         }
     }
 }

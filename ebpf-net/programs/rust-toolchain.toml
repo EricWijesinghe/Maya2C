@@ -1,0 +1,5 @@
+# `-Z build-std=core` for `bpfel-unknown-none` needs nightly and `rust-src`.
+# Pinned so the LLVM that emits the object is the one CI verified it with.
+[toolchain]
+channel = "nightly-2026-07-15"
+components = ["rust-src"]

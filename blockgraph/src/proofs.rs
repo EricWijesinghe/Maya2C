@@ -33,7 +33,8 @@ use crate::batch::{Batch, MAX_BATCH_TRANSACTIONS};
 use crate::error::GraphError;
 use crate::refs::{BatchId, BatchRefs, MAX_REFS_PER_BLOCK};
 use crate::schedule::{Access, schedule};
-use crate::shard::{SHARD_COUNT, shard_of};
+use crate::shard::{SHARD_COUNT, ShardId, shard_of};
+use crate::shard_manager::{MAX_PREFIX_BITS, Prefix, ShardMap};
 
 /// List length the folds are proved over.
 const PROVED_LENGTH: usize = 3;
@@ -224,4 +225,59 @@ fn conflicts_are_ordered_and_nothing_is_dropped() {
             }
         }
     }
+}
+
+/// The two children of any prefix tile exactly their parent.
+///
+/// Unbounded over every canonical prefix above the deepest level: the whole
+/// argument that a split keeps a map a tiling.
+#[kani::proof]
+fn children_tile_their_parent() {
+    let bits: u32 = kani::any();
+    let depth: u8 = kani::any();
+    kani::assume(depth < MAX_PREFIX_BITS);
+    if let Ok(prefix) = Prefix::new(bits, depth) {
+        let (low, high) = prefix.children().expect("depth is below the limit");
+        assert!(low.parent() == Some(prefix) && high.parent() == Some(prefix));
+        assert!(low.start() == prefix.start());
+        assert!(high.start() == low.start() + low.span());
+        assert!(low.span() + high.span() == prefix.span());
+    }
+}
+
+/// Every address lies in exactly one leaf of a four-leaf map, and `locate`
+/// names that leaf.
+///
+/// Unbounded over the key bits, which are all `locate` reads.
+#[kani::proof]
+#[kani::unwind(6)]
+fn every_address_is_located_in_the_one_leaf_containing_it() {
+    let map = ShardMap::uniform(2).expect("four leaves");
+    let mut address = [0u8; 32];
+    for byte in address.iter_mut().take(4) {
+        *byte = kani::any();
+    }
+
+    let containing = map
+        .leaves()
+        .iter()
+        .filter(|leaf| leaf.contains(&address))
+        .count();
+    assert!(containing == 1);
+    let located = map.prefix(map.locate(&address));
+    assert!(located.is_some_and(|leaf| leaf.contains(&address)));
+}
+
+/// Splitting any leaf of a four-leaf map and merging it back is the identity.
+#[kani::proof]
+#[kani::unwind(8)]
+fn a_split_undone_by_a_merge_restores_the_map() {
+    let map = ShardMap::uniform(2).expect("four leaves");
+    let index: usize = kani::any();
+    kani::assume(index < 4);
+    let shard = ShardId::new(index).expect("in range");
+
+    let split = map.split(shard).expect("depth two can split");
+    assert!(split.shard_count() == 5);
+    assert!(split.merge(shard).expect("the children are siblings") == map);
 }

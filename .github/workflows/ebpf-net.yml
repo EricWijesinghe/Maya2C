@@ -1,0 +1,159 @@
+name: ebpf-net
+
+# The block relay's kernel half can only be tested on Linux, as root, against a
+# real kernel. Three jobs, because they fail for unrelated reasons:
+#
+#   portable — the host tests, and the Linux module compiled with `xdp`
+#   kernel   — the XDP program built and loaded, AF_XDP over a veth pair
+#   bench    — the kernel-path throughput table, on demand only
+#
+# The runners' veth pairs give generic XDP and copy-mode AF_XDP. They test that
+# the program and the rings are correct, not how fast a NIC with native XDP is.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+    paths:
+      - "ebpf-net/**"
+      - "src/network/**"
+      - "benches/ebpf_bench.rs"
+      - "scripts/xdp_netns.sh"
+      - ".github/workflows/ebpf-net.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ebpf-net-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # The toolchain `ebpf-net/programs/rust-toolchain.toml` pins.
+  PROGRAM_TOOLCHAIN: nightly-2026-07-15
+  BPF_LINKER_VERSION: v0.11.1
+
+jobs:
+  # ---------------------------------------------------------------------------
+  portable:
+    name: host tests and the Linux module
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ebpf-net-portable
+
+      - name: Host tests
+        run: cargo test -p maya-ebpf-net-common -p maya-ebpf-net
+
+      # Compiles `src/linux/` and the ignored veth tests; runs nothing that needs
+      # root.
+      - name: With the kernel path
+        run: cargo test -p maya-ebpf-net --features xdp
+
+      - name: Clippy
+        run: >
+          cargo clippy -p maya-ebpf-net-common -p maya-ebpf-net --features xdp
+          --all-targets -- -D warnings
+
+  # ---------------------------------------------------------------------------
+  kernel:
+    name: XDP program against the kernel
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ebpf-net-kernel
+          workspaces: |
+            .
+            ebpf-net/programs
+
+      # Prebuilt. `cargo install bpf-linker` links a system libLLVM of rustc's
+      # exact LLVM version, which no runner image carries; the release binary
+      # has LLVM statically linked.
+      - name: Program toolchain
+        run: |
+          rustup toolchain install "$PROGRAM_TOOLCHAIN" --component rust-src
+          curl -sSfL "https://github.com/aya-rs/bpf-linker/releases/download/${BPF_LINKER_VERSION}/bpf-linker-x86_64-unknown-linux-musl.tar.zst" \
+            | tar --zstd -x -f - -C "$RUNNER_TEMP"
+          install -m 755 "$(find "$RUNNER_TEMP" -type f -name bpf-linker | head -1)" "$HOME/.cargo/bin/bpf-linker"
+          bpf-linker --version
+
+      - name: Build the XDP program
+        working-directory: ebpf-net/programs
+        run: cargo build --release
+
+      - name: Build the kernel tests
+        run: cargo test -p maya-ebpf-net --features xdp --test xdp_veth --no-run
+
+      # Last, because it runs cargo as root: anything after it would find a
+      # target directory it cannot write.
+      - name: Kernel tests over veth
+        run: >
+          sudo -E env "PATH=$PATH"
+          MAYA_XDP_OBJECT="$GITHUB_WORKSPACE/ebpf-net/programs/target/bpfel-unknown-none/release/maya-relay-xdp"
+          cargo test -p maya-ebpf-net --features xdp --test xdp_veth -- --ignored --test-threads=1
+
+  # ---------------------------------------------------------------------------
+  bench:
+    name: kernel-path throughput (on demand)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install RocksDB build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev llvm-dev libssl-dev pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ebpf-net-bench
+
+      # Prebuilt. `cargo install bpf-linker` links a system libLLVM of rustc's
+      # exact LLVM version, which no runner image carries; the release binary
+      # has LLVM statically linked.
+      - name: Program toolchain
+        run: |
+          rustup toolchain install "$PROGRAM_TOOLCHAIN" --component rust-src
+          curl -sSfL "https://github.com/aya-rs/bpf-linker/releases/download/${BPF_LINKER_VERSION}/bpf-linker-x86_64-unknown-linux-musl.tar.zst" \
+            | tar --zstd -x -f - -C "$RUNNER_TEMP"
+          install -m 755 "$(find "$RUNNER_TEMP" -type f -name bpf-linker | head -1)" "$HOME/.cargo/bin/bpf-linker"
+          bpf-linker --version
+
+      - name: Build the XDP program
+        working-directory: ebpf-net/programs
+        run: cargo build --release
+
+      - name: Build the benchmark
+        run: cargo bench --features xdp --bench ebpf_bench --no-run
+
+      - name: Run
+        run: |
+          sudo ./scripts/xdp_netns.sh up
+          sudo -E env "PATH=$PATH" MAYA_XDP_BENCH=1 MAYA_XDP_SECONDS=3 \
+            MAYA_XDP_OBJECT="$GITHUB_WORKSPACE/ebpf-net/programs/target/bpfel-unknown-none/release/maya-relay-xdp" \
+            cargo bench --features xdp --bench ebpf_bench 2>&1 | tee bench.txt
+          sudo ./scripts/xdp_netns.sh down
+          {
+            echo "## ebpf_bench on a GitHub runner (veth: generic XDP, copy-mode AF_XDP)"
+            echo
+            echo '```'
+            grep -A12 -E '^(loopback UDP|kernel paths)' bench.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
