@@ -46,6 +46,9 @@ maya-ebpf-net = { path = "../ebpf-net" }
 # Attack attestations, which anyone may submit carrying evidence frames anyone
 # may have written.
 maya-threat-intel = { path = "../threat-intel" }
+# Device enrollments, batches, tamper events and clone evidence, relayed by any
+# gateway from any device.
+maya-iot-anchor = { path = "../iot-anchor" }
 blake3 = "1"
 
 # Sanitizer builds are slow enough that unoptimized decoding would dominate the
@@ -151,6 +154,13 @@ bench = false
 [[bin]]
 name = "xdp_relay_decode"
 path = "fuzz_targets/xdp_relay_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "iot_anchor_decode"
+path = "fuzz_targets/iot_anchor_decode.rs"
 test = false
 doc = false
 bench = false

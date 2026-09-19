@@ -73,6 +73,9 @@ pub enum StateLayer {
     /// Threat-intel indicators and evidence markers, under the `t:` prefix.
     /// Never present before activation, so it moves no existing root.
     ThreatIntel,
+    /// IoT anchor device records, under the `v:` prefix. Never present before
+    /// activation, so it moves no existing root.
+    Iot,
     /// The stateless marker, under the `sl:` prefix.
     ///
     /// Its presence is what says the accounts root beneath it is the sparse
@@ -109,6 +112,7 @@ pub const LAYER_ORDER: &[StateLayer] = &[
     StateLayer::Rwa,
     StateLayer::Htlc,
     StateLayer::ThreatIntel,
+    StateLayer::Iot,
     StateLayer::Stateless,
     StateLayer::Shielded,
     StateLayer::Contracts,
@@ -136,6 +140,7 @@ impl StateLayer {
             Self::Rwa => "maya rwa state root v1",
             Self::Htlc => "maya htlc-l state root v1",
             Self::ThreatIntel => "maya threat-intel state root v1",
+            Self::Iot => "maya iot anchor state root v1",
             Self::Stateless => "maya stateless state root v1",
         }
     }
@@ -157,6 +162,7 @@ impl StateLayer {
             Self::Htlc => 11,
             Self::Stateless => 12,
             Self::ThreatIntel => 13,
+            Self::Iot => 14,
         }
     }
 
@@ -177,6 +183,7 @@ impl StateLayer {
             11 => Some(Self::Htlc),
             12 => Some(Self::Stateless),
             13 => Some(Self::ThreatIntel),
+            14 => Some(Self::Iot),
             _ => None,
         }
     }
@@ -207,6 +214,7 @@ impl StateLayer {
             Self::Htlc => "htlc",
             Self::Stateless => "stateless",
             Self::ThreatIntel => "threat-intel",
+            Self::Iot => "iot",
         }
     }
 }

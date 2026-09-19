@@ -21,7 +21,8 @@ use crate::core::{Block, Transaction};
 use crate::network::{Mempool, NodeHandle};
 use crate::rpc::bootstrap::SnapshotService;
 use crate::rpc::types::{
-    AccountInfo, BlockInfo, HeaderInfo, MiningCandidate, PeerAddressInfo, SubmitBlockResult,
+    AccountInfo, BlockInfo, HeaderInfo, IotDeviceInfo, MiningCandidate, PeerAddressInfo,
+    SubmitBlockResult,
     SubmitTransactionResult, ThreatIndicatorInfo,
 };
 use crate::state_pruner::cold::ColdBlocks;
@@ -344,6 +345,24 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                         ip: ip.to_string(),
                     })
                     .collect::<Vec<_>>(),
+            )
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
+    module
+        .register_method("iot_device", |params, ctx, _| {
+            // Status and the latest batch, judged at the tip. Never readings:
+            // those stay off chain.
+            let id_hex: String = params.one().map_err(|e| invalid_params(e.to_string()))?;
+            let device = decode_array::<32>(&id_hex, "device")?;
+            let chain = ctx.chain();
+            let height = chain.height();
+            let record = chain
+                .state()
+                .stored_iot_device(&device)
+                .map_err(|e| rejected(e.to_string()))?;
+            Ok::<_, ErrorObjectOwned>(
+                record.map(|record| IotDeviceInfo::new(&device, &record, height)),
             )
         })
         .map_err(|e| rejected(e.to_string()))?;

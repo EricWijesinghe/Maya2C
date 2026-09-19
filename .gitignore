@@ -84,3 +84,9 @@ rustc-ice-*.txt
 /contracts/token-swap/target/
 /dashboard/target/
 /ebpf-net/programs/target/
+
+# The example firmware is its own workspace.
+/iot-firmware/target/
+
+# Session handoff notes are per-machine working state.
+/.claude/session-handoff.md

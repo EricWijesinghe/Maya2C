@@ -312,3 +312,68 @@ pub struct PeerAddressInfo {
     /// The connection's IP address.
     pub ip: String,
 }
+
+/// An IoT anchor device, as `iot_device` reports it: status and the latest
+/// batch, never readings.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IotDeviceInfo {
+    /// Hex-encoded device id.
+    pub device: String,
+    /// Hex-encoded owner address.
+    pub owner: String,
+    /// `energy_meter` or `cold_chain_temperature`.
+    pub class: String,
+    /// `active`, `tampered`, `compromised` or `revoked`.
+    pub status: String,
+    /// No batch for `SILENT_AFTER_BLOCKS` heights. Not evidence of tampering.
+    pub silent: bool,
+    /// Height of enrollment.
+    pub enrolled_height: u64,
+    /// Batches recorded.
+    pub batches: u64,
+    /// Of those, outside the declared bounds.
+    pub anomalies: u64,
+    /// Latest batch's first counter.
+    pub first_counter: Option<u64>,
+    /// Latest batch's last counter.
+    pub last_counter: Option<u64>,
+    /// Latest batch's lowest reading.
+    pub min: Option<i64>,
+    /// Latest batch's highest reading.
+    pub max: Option<i64>,
+    /// Height that recorded the latest batch.
+    pub last_height: Option<u64>,
+}
+
+impl IotDeviceInfo {
+    /// Builds a response for one device, judged at `height`.
+    #[must_use]
+    pub fn new(
+        device: &maya_iot_anchor::DeviceId,
+        record: &maya_iot_anchor::DeviceRecord,
+        height: u64,
+    ) -> Self {
+        use maya_iot_anchor::SensorClass;
+        let progress = &record.progress;
+        let latest = |value| progress.has_batch.then_some(value);
+        Self {
+            device: hex::encode(device),
+            owner: hex::encode(record.owner),
+            class: match record.class {
+                SensorClass::EnergyMeter => "energy_meter",
+                SensorClass::ColdChainTemperature => "cold_chain_temperature",
+            }
+            .to_owned(),
+            status: record.status.label().to_owned(),
+            silent: maya_iot_anchor::rules::is_silent(progress, record.enrolled_height, height),
+            enrolled_height: record.enrolled_height,
+            batches: progress.batches,
+            anomalies: progress.anomalies,
+            first_counter: latest(progress.first),
+            last_counter: latest(progress.last),
+            min: progress.has_batch.then_some(progress.min),
+            max: progress.has_batch.then_some(progress.max),
+            last_height: latest(progress.height),
+        }
+    }
+}

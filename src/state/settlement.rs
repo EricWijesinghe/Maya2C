@@ -271,6 +271,17 @@ impl StateDB {
             // Bad evidence is the submitter's own error; evidence already on
             // chain is a no-op — see `crate::state::threat_exec`.
             TxKind::AttestAttack(attestation) => self.attest_attack(overlay, attestation, context),
+            // Owner transactions error on failure; relayed device messages that
+            // merely lose are no-ops — see `crate::state::iot_exec`.
+            TxKind::EnrollDevice(enrollment) => {
+                self.enroll_device(overlay, &sender, enrollment, context)
+            }
+            TxKind::SubmitTelemetry(batch) => self.submit_telemetry(overlay, batch, context),
+            TxKind::ReportTamper(event) => self.report_tamper(overlay, event, context),
+            TxKind::ProveEquivocation(evidence) => {
+                self.prove_equivocation(overlay, evidence, context)
+            }
+            TxKind::RevokeDevice(device) => self.revoke_device(overlay, &sender, device, context),
             TxKind::AttestLegal(payload) => self.attest_legal(
                 overlay,
                 &sender,

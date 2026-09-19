@@ -184,6 +184,12 @@ members = [
     # The per-host worker turning a co-located node's active indicators into
     # nftables / iptables drops. Holds no chain key — see docs/threat-intel.md.
     "threat-firewall",
+    # Hardware-anchored sensor identity: ML-DSA-65 device keys, a PUF fuzzy
+    # extractor, TPM sealing, telemetry batches, tamper and clone evidence.
+    # `no_std` and heap-free, so it builds for Cortex-M33 and ESP32-C3. Research
+    # branch: IOT_ACTIVATION_HEIGHT is u64::MAX — see docs/iot-anchor.md. The
+    # example firmware, `iot-firmware/`, is its own workspace.
+    "iot-anchor",
 ]
 
 [dependencies]
@@ -273,6 +279,8 @@ maya-threat-intel = { path = "threat-intel" }
 # Already in the graph through libp2p identities; named here so the
 # consensus check is `verify_strict`, not whatever libp2p happens to call.
 ed25519-dalek = "2.2"
+# Device records and batch rules, for `src/state/iot.rs`.
+maya-iot-anchor = { path = "iot-anchor" }
 # The sparse accounts tree and its witnesses, for `src/state/stateless.rs`. The
 # node computes its accounts root with this crate once stateless accounts are
 # active, so a stateless verifier and a full node share one definition.

@@ -2280,6 +2280,7 @@ dependencies = [
  "maya-htlc-lattice",
  "maya-htlc-watcher",
  "maya-identity",
+ "maya-iot-anchor",
  "maya-iso20022",
  "maya-lattice-pow",
  "maya-ledger-math",
@@ -5500,6 +5501,17 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "maya-iot-anchor"
+version = "0.1.0"
+dependencies = [
+ "fips204",
+ "rand_chacha 0.3.1",
+ "rand_core 0.6.4",
+ "sha3 0.10.9",
+ "zeroize",
 ]
 
 [[package]]

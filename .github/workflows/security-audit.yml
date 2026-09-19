@@ -68,6 +68,8 @@ jobs:
           # anyone signed them. First local run 2026-09-15: 250,591,546 execs
           # in 301 s, no crash.
           - threat_evidence_decode
+          # Device enrollments, batches, tamper events and clone evidence.
+          - iot_anchor_decode
     steps:
       - uses: actions/checkout@v4
 
@@ -155,6 +157,12 @@ jobs:
       - uses: model-checking/kani-github-action@v1
         with:
           args: "-p maya-threat-intel --output-format terse"
+
+      # The device batch rules: a terminal device records nothing, a recorded
+      # batch moves the counter forward, equivocation needs real conflict.
+      - uses: model-checking/kani-github-action@v1
+        with:
+          args: "-p maya-iot-anchor --output-format terse"
 
   # ---------------------------------------------------------------------------
   geiger:

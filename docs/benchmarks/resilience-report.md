@@ -25,10 +25,10 @@ overstate what the chain does:
 |---|---|---|
 | 33% of nodes broadcast garbage | verified | 2 of 6 published unfunded and bit-flipped transactions; honest mempools stayed empty of them and an honest transaction still propagated |
 | 33% of nodes crash | verified | 2 of 6 nodes dropped; the remaining 4 still accepted and propagated a transaction to every survivor |
-| 5000 ms latency spike | verified | latency raised to 5000 ms on open connections and cleared; the connection survived and propagation resumed (delivered during the spike: true) |
+| 5000 ms latency spike | verified | latency raised to 5000 ms on open connections and cleared; the connection survived and propagation resumed (delivered during the spike: false) |
 | block transaction list is committed | verified | A substituted body under an honest header is refused (`TxRootMismatch`) before anything is stored, the genuine block still lands afterwards, a recomputed `tx_root` changes the block id, and a false `state_root` is refused (`StateRootMismatch`) with tip and state unchanged |
 | corrupted blocks | verified | 200 corruptions across 5 classes; 105 decoded, of which 105 were rejected and 0 decoded back to the identical block. Tip and state root unchanged |
-| corrupted transactions | verified | 107 tampered transactions decoded and were carried in a block; every block was refused and tip and state root were unchanged |
+| corrupted transactions | verified | 108 tampered transactions decoded and were carried in a block; every block was refused and tip and state root were unchanged |
 | gossip partition and heal | characterised | delivery stops across the split and resumes on healing, but gossipsub does not replay messages sent while apart -- a healed peer needs them re-published |
 | out-of-order block arrival | characterised | there is no orphan pool: a block whose parent has not arrived is refused and discarded, not buffered. 7 early blocks left tip and state root untouched; in-order re-delivery of the same blocks then reached height 8 |
 | partition and heal (fork choice) | verified | 2-block and 3-block branches diverge; the heavier wins after 3 blocks cross; state roots match |

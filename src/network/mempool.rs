@@ -98,6 +98,7 @@ impl Mempool {
         if let crate::core::TxKind::AttestAttack(attestation) = &tx.kind {
             crate::state::threat_exec::verify_evidence(attestation)?;
         }
+        crate::state::iot_exec::admit(&self.state, &tx.sender(), &tx.kind)?;
 
         let sender_address = tx.sender();
         let sender = self.state.get_account(&sender_address)?;

@@ -27,6 +27,8 @@ pub mod htlc_exec;
 pub mod identity;
 pub mod identity_exec;
 pub mod invariant_guard;
+pub mod iot;
+pub mod iot_exec;
 pub mod merkle;
 pub mod oracle_exec;
 pub mod proof;

@@ -158,3 +158,21 @@ would touch it writes any code, not afterwards.
     author only, a per-host worker that maps authors to its own connections, and
     a test pinning enforcement within 2 **blocks** — plus one pinning that a
     valid-byte flood produces no indicator. See [threat-intel.md](threat-intel.md).
+12. **DePIN hardware attestation (IoT anchor), taken out of order.** Built
+    2026-09-16 while the trajectory stood at Prompt 49; it belongs to Physical
+    & Hardware Mesh (domain 3). Its brief had seven collisions.
+    - "Post-quantum lightweight signatures" do not exist, and invariant 4
+      compiles only ML-DSA-65.
+    - Software is not a PUF.
+    - TPM 2.0 and secure elements generate no ML-DSA keys, and their vendor
+      attestation is a classical trusted party (invariant 11).
+    - Enrollment cannot prove genuine silicon.
+    - Consensus has no DAG, and a signature per reading is 3.3 KB.
+    - A signature cannot validate physics.
+    - A chain senses no tampering.
+
+    Reconciled as ML-DSA-65 device keys from a PUF fuzzy extractor or a
+    PCR-sealed TPM seed, owner enrollment with proof of possession,
+    Merkle-rooted batches with bounds flagged rather than refused, and signed
+    tamper events plus conflicting-batch evidence as the only on-chain
+    tamper signals. See [iot-anchor.md](iot-anchor.md).

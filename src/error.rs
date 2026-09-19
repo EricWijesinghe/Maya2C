@@ -395,6 +395,12 @@ pub enum NodeError {
     #[error("threat intel: {0}")]
     ThreatIntel(String),
 
+    /// An IoT anchor transaction refused: a proof or signature that does not
+    /// verify, a second enrollment, a revocation by a non-owner, or any of them
+    /// before activation. A relayed batch that merely loses raises nothing.
+    #[error("iot anchor: {0}")]
+    Iot(String),
+
     /// An asset ticker was empty, contained something other than uppercase
     /// ASCII and digits, or carried interior padding.
     ///

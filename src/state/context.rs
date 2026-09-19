@@ -34,7 +34,20 @@ pub struct BlockContext {
     /// [`THREAT_INTEL_ACTIVATION_HEIGHT`] everywhere the node builds a context.
     /// Tests set it with [`Self::with_threat_intel_activation`].
     pub threat_intel_activation: u64,
+    /// First height at which IoT anchor transactions execute.
+    ///
+    /// [`IOT_ACTIVATION_HEIGHT`] everywhere the node builds a context. Tests set
+    /// it with [`Self::with_iot_activation`].
+    pub iot_activation: u64,
 }
+
+/// First height at which IoT anchor transactions execute: none.
+///
+/// The research-branch pattern. What has to be decided first is written in
+/// `docs/iot-anchor.md`: device keys are ML-DSA-65 alone rather than the
+/// hybrid, enrollment proves key possession rather than genuine hardware, and
+/// signing time on real microcontrollers is unmeasured.
+pub const IOT_ACTIVATION_HEIGHT: u64 = u64::MAX;
 
 /// First height at which attack attestations execute: none.
 ///
@@ -85,6 +98,7 @@ impl BlockContext {
             htlc_activation: HTLC_L_ACTIVATION_HEIGHT,
             stateless_activation: STATELESS_ACTIVATION_HEIGHT,
             threat_intel_activation: THREAT_INTEL_ACTIVATION_HEIGHT,
+            iot_activation: IOT_ACTIVATION_HEIGHT,
         }
     }
 
@@ -101,6 +115,21 @@ impl BlockContext {
     #[must_use]
     pub const fn threat_intel_active(self) -> bool {
         self.height >= self.threat_intel_activation
+    }
+
+    /// The same context with IoT anchor transactions active from `height` on.
+    #[must_use]
+    pub const fn with_iot_activation(self, height: u64) -> Self {
+        Self {
+            iot_activation: height,
+            ..self
+        }
+    }
+
+    /// Whether IoT anchor transactions execute in this block.
+    #[must_use]
+    pub const fn iot_active(self) -> bool {
+        self.height >= self.iot_activation
     }
 
     /// The same context with sparse accounts active from `height` on.

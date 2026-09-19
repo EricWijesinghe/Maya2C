@@ -1,0 +1,76 @@
+# IoT anchor: the device-side checks the workspace build cannot make.
+#
+#   no_std  — maya-iot-anchor builds for Cortex-M33 and ESP32-C3 with no std
+#             and no allocator, so a CI change that pulls in either fails here.
+#   qemu    — the example firmware runs the whole device lifecycle on an
+#             emulated Cortex-M33 and exits non-zero on any failure.
+#   tpm     — sealing a seed to PCR state and refusing it after a PCR changes,
+#             against swtpm.
+name: iot-anchor
+
+on:
+  push:
+    paths: ["iot-anchor/**", "iot-firmware/**", ".github/workflows/iot-anchor.yml"]
+  pull_request:
+    paths: ["iot-anchor/**", "iot-firmware/**", ".github/workflows/iot-anchor.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  no-std-and-qemu:
+    name: no_std builds and firmware under QEMU
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned for the same reason as the fuzz job: target/ and every recorded
+      # measurement here were made with this nightly.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-15
+          targets: thumbv8m.main-none-eabihf,riscv32imc-unknown-none-elf
+
+      - name: Build without std (Cortex-M33, ESP32-C3)
+        working-directory: iot-anchor
+        run: |
+          cargo build --release --lib --target thumbv8m.main-none-eabihf
+          cargo build --release --lib --target riscv32imc-unknown-none-elf
+
+      - name: Install QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-arm
+
+      - name: Firmware lifecycle on mps2-an505
+        working-directory: iot-firmware
+        run: cargo run --release
+
+  tpm:
+    name: TPM sealing against swtpm
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-15
+
+      - name: Install swtpm and tpm2-tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y swtpm swtpm-tools tpm2-tools
+
+      - name: Seal, unseal, and refuse after a PCR change
+        working-directory: iot-anchor
+        env:
+          TPM2TOOLS_TCTI: swtpm:port=2321
+        run: |
+          mkdir -p "$RUNNER_TEMP/swtpm"
+          swtpm socket --tpmstate dir="$RUNNER_TEMP/swtpm" --tpm2 \
+            --server type=tcp,port=2321 --ctrl type=tcp,port=2322 \
+            --flags not-need-init,startup-clear --daemon
+          sleep 1
+          cargo test --features tpm -- --include-ignored

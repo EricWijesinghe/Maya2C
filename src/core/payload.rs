@@ -161,6 +161,13 @@ const TAG_HTLC_REFUND: u8 = 43;
 // Threat intelligence.
 const TAG_ATTEST_ATTACK: u8 = 44;
 
+// Hardware-anchored devices.
+const TAG_ENROLL_DEVICE: u8 = 45;
+const TAG_SUBMIT_TELEMETRY: u8 = 46;
+const TAG_REPORT_TAMPER: u8 = 47;
+const TAG_PROVE_EQUIVOCATION: u8 = 48;
+const TAG_REVOKE_DEVICE: u8 = 49;
+
 /// Encoded size of a [`ShieldedJoinSplit`].
 ///
 /// Fixed width by construction: anchor, two nullifiers, two commitments, three
@@ -499,6 +506,18 @@ pub enum TxKind {
     /// a stateless check. Evidence already on chain is a **no-op** —
     /// invariant 7; see `crate::state::threat_exec`.
     AttestAttack(Box<maya_threat_intel::AttackAttestation>),
+    /// Enroll a device under the sender. The device's proof of possession
+    /// binds owner, class and bounds.
+    EnrollDevice(Box<maya_iot_anchor::Enrollment>),
+    /// A device's signed telemetry batch, relayed by any gateway. A batch that
+    /// merely loses is a **no-op** — invariant 7; see `crate::state::iot_exec`.
+    SubmitTelemetry(Box<maya_iot_anchor::TelemetryBatch>),
+    /// A device's signed tamper report.
+    ReportTamper(Box<maya_iot_anchor::TamperEvent>),
+    /// Two conflicting batches from one device. Anyone may submit.
+    ProveEquivocation(Box<maya_iot_anchor::Equivocation>),
+    /// Revoke a device the sender owns.
+    RevokeDevice(maya_iot_anchor::DeviceId),
 }
 
 impl TxKind {
@@ -557,6 +576,11 @@ impl TxKind {
             Self::HtlcClaim(_) => "htlc_claim",
             Self::HtlcRefund(_) => "htlc_refund",
             Self::AttestAttack(_) => "attest_attack",
+            Self::EnrollDevice(_) => "enroll_device",
+            Self::SubmitTelemetry(_) => "submit_telemetry",
+            Self::ReportTamper(_) => "report_tamper",
+            Self::ProveEquivocation(_) => "prove_equivocation",
+            Self::RevokeDevice(_) => "revoke_device",
         }
     }
 
@@ -750,6 +774,26 @@ impl TxKind {
                 buf.push(TAG_ATTEST_ATTACK);
                 payload.encode_into(buf);
             }
+            Self::EnrollDevice(payload) => {
+                buf.push(TAG_ENROLL_DEVICE);
+                buf.extend_from_slice(&payload.encode());
+            }
+            Self::SubmitTelemetry(payload) => {
+                buf.push(TAG_SUBMIT_TELEMETRY);
+                buf.extend_from_slice(&payload.encode());
+            }
+            Self::ReportTamper(payload) => {
+                buf.push(TAG_REPORT_TAMPER);
+                buf.extend_from_slice(&payload.encode());
+            }
+            Self::ProveEquivocation(payload) => {
+                buf.push(TAG_PROVE_EQUIVOCATION);
+                buf.extend_from_slice(&payload.encode());
+            }
+            Self::RevokeDevice(device) => {
+                buf.push(TAG_REVOKE_DEVICE);
+                buf.extend_from_slice(device);
+            }
             Self::RevealShare(share) => {
                 buf.push(TAG_REVEAL_SHARE);
                 share.encode_into(buf);
@@ -864,6 +908,21 @@ impl TxKind {
             TAG_ATTEST_ATTACK => Ok(Self::AttestAttack(Box::new(
                 crate::core::threat_payload::decode(reader)?,
             ))),
+            TAG_ENROLL_DEVICE => Ok(Self::EnrollDevice(Box::new(
+                crate::core::iot_payload::decode_enrollment(reader)?,
+            ))),
+            TAG_SUBMIT_TELEMETRY => Ok(Self::SubmitTelemetry(Box::new(
+                crate::core::iot_payload::decode_batch(reader)?,
+            ))),
+            TAG_REPORT_TAMPER => Ok(Self::ReportTamper(Box::new(
+                crate::core::iot_payload::decode_tamper(reader)?,
+            ))),
+            TAG_PROVE_EQUIVOCATION => Ok(Self::ProveEquivocation(Box::new(
+                crate::core::iot_payload::decode_equivocation(reader)?,
+            ))),
+            TAG_REVOKE_DEVICE => Ok(Self::RevokeDevice(crate::core::iot_payload::decode_device(
+                reader,
+            )?)),
             other => Err(NodeError::Decode(format!(
                 "unknown transaction payload tag {other}"
             ))),

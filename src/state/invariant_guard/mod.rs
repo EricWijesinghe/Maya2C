@@ -109,6 +109,9 @@ pub enum Module {
     Htlc,
     /// Threat-intel attestations.
     ThreatIntel,
+    /// IoT anchor enrollment and telemetry. Tamper reports, clone evidence and
+    /// revocation belong to no module — see [`Module::of`].
+    Iot,
 }
 
 /// Every module, in tag order. The guard iterates it so a new variant cannot be
@@ -125,6 +128,7 @@ pub const MODULES: &[Module] = &[
     Module::Rwa,
     Module::Htlc,
     Module::ThreatIntel,
+    Module::Iot,
 ];
 
 impl Module {
@@ -143,6 +147,7 @@ impl Module {
             Self::Rwa => 8,
             Self::Htlc => 9,
             Self::ThreatIntel => 10,
+            Self::Iot => 11,
         }
     }
 
@@ -161,6 +166,7 @@ impl Module {
             8 => Some(Self::Rwa),
             9 => Some(Self::Htlc),
             10 => Some(Self::ThreatIntel),
+            11 => Some(Self::Iot),
             _ => None,
         }
     }
@@ -180,6 +186,7 @@ impl Module {
             Self::Rwa => "rwa",
             Self::Htlc => "htlc-l locks",
             Self::ThreatIntel => "threat intel",
+            Self::Iot => "iot anchor",
         }
     }
 
@@ -254,6 +261,14 @@ impl Module {
             // Halting new attestations is safe: no value moves, and an
             // indicator already recorded keeps decaying on its own.
             TxKind::AttestAttack(_) => Some(Self::ThreatIntel),
+
+            // New devices and their telemetry can be halted. Tamper reports,
+            // clone evidence and revocation cannot: halting them while a key is
+            // being abused would protect the abuser — see `crate::state::iot_exec`.
+            TxKind::EnrollDevice(_) | TxKind::SubmitTelemetry(_) => Some(Self::Iot),
+            TxKind::ReportTamper(_) | TxKind::ProveEquivocation(_) | TxKind::RevokeDevice(_) => {
+                None
+            }
         }
     }
 }
