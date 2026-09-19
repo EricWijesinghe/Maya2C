@@ -148,13 +148,22 @@ jobs:
       # goto-binary rather than the node's entire C++-linking graph — which is
       # what makes model checking possible at all. See ledger-math/src/lib.rs.
       #
-      # Pinned: with `latest`, the action compares the installed version against
-      # a `cargo search` parse that no longer matches, and fails after a good
-      # install. Installed once; the steps below reuse it.
-      - uses: model-checking/kani-github-action@v1
-        with:
-          kani-version: "0.68.0"
-          args: "-p maya-ledger-math --output-format terse"
+      # Installed by hand rather than with `model-checking/kani-github-action`:
+      # after a good install, the action compares `kani --version` against
+      # the requested version with a parse that no longer matches, and fails
+      # the job, pinned or not. This is the same `cargo install` and
+      # `cargo kani setup` it runs, minus that check.
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Kani
+        run: |
+          cargo install --locked kani-verifier --version "$KANI_VERSION"
+          cargo kani setup
+          kani --version
+        env:
+          KANI_VERSION: "0.68.0"
+
+      - run: cargo kani -p maya-ledger-math --output-format terse
 
       # The threat-intel score decides how long every node refuses a peer, so
       # its closed form is proved against the decay it replaces. Dependency-free
@@ -234,7 +243,10 @@ jobs:
   consensus-vectors:
     name: consensus vectors
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Warm, this takes minutes. Cold (a new stable toolchain misses the cache)
+    # the node's build alone took 27 of the old 30, and the GPU miner step was
+    # cancelled; a cancelled job saves no cache, so it would stay cold.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 

@@ -70,3 +70,13 @@ path = "src/bin/solve.rs"
 
 [profile.release]
 debug = 1
+
+# Every dependency optimized, even in a debug build: the node, its signatures
+# (SLH-DSA and ML-DSA), and the SNARK stack. This workspace does not inherit the
+# root's `[profile.dev.package.*]` overrides (invariant 5), and without them each
+# signed input costs seconds. CI's `cargo test` sat in this crate for over 90
+# minutes and never finished. A wildcard, not a copy of the root list, so it
+# cannot drift from it. This crate itself stays unoptimized, so its own
+# assertions and overflow checks still run.
+[profile.dev.package."*"]
+opt-level = 3

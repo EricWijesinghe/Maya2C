@@ -75,10 +75,5 @@ impl Surface {
     }
 
     /// Every surface, for iterating.
-    pub const ALL: [Self; 4] = [
-        Self::Transaction,
-        Self::Wasm,
-        Self::Handshake,
-        Self::Block,
-    ];
+    pub const ALL: [Self; 4] = [Self::Transaction, Self::Wasm, Self::Handshake, Self::Block];
 }

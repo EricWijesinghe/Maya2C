@@ -32,7 +32,7 @@ fn shapes() -> [(u8, usize); 4] {
 pub fn mutate(seed: &[u8], rng: &mut Rng) -> Vec<u8> {
     // A quarter of the time, byte-level on whatever the seed is; the rest,
     // build a shaped frame and perturb one field.
-    if seed.is_empty() || rng.next_u32() % 4 == 0 {
+    if seed.is_empty() || rng.next_u32().is_multiple_of(4) {
         return shaped_then_perturb(seed, rng);
     }
     bytes::mutate(seed, rng)
@@ -47,7 +47,10 @@ fn shaped_then_perturb(seed: &[u8], rng: &mut Rng) -> Vec<u8> {
         // Body from the seed where it reaches, RNG for the rest, so the frame
         // is well-formed but varied.
         for (i, slot) in frame.iter_mut().enumerate().skip(1) {
-            *slot = seed.get(i).copied().unwrap_or_else(|| (rng.next_u32() & 0xff) as u8);
+            *slot = seed
+                .get(i)
+                .copied()
+                .unwrap_or_else(|| (rng.next_u32() & 0xff) as u8);
         }
     }
 

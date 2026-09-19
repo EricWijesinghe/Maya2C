@@ -19,7 +19,7 @@ use std::sync::Once;
 
 use custom_l1_node::core::payload::{ContractDeploy, TxKind};
 use custom_l1_node::core::{Block, BlockHeader, Transaction, TxOutput};
-use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
+use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
 use custom_l1_node::crypto::target_from_leading_zero_bits;
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
 use tempfile::TempDir;
@@ -127,7 +127,9 @@ pub fn check_handshake(frame: &[u8]) -> Outcome {
         // short or oversized frame", not a full protocol decode.
         if let Some((&version, body)) = frame.split_first() {
             let _ = version;
-            let _ = body.iter().fold(0u64, |acc, b| acc.wrapping_add(u64::from(*b)));
+            let _ = body
+                .iter()
+                .fold(0u64, |acc, b| acc.wrapping_add(u64::from(*b)));
         }
     }) {
         Ok(()) => Outcome::Clean,
@@ -147,9 +149,14 @@ pub fn check_block(bytes: &[u8]) -> Outcome {
 
 const MAX_DEPLOY_CODE: usize = 512 * 1024;
 
+/// Chain key of the deployer. Fixed, so an oracle verdict replays exactly: a
+/// key drawn from the OS put a different address, and a different state root,
+/// in every run.
+const DEPLOYER_CHAIN_KEY: [u8; 32] = [0x5a; 32];
+
 /// The fixed deployer address funded in every oracle state.
 fn funded() -> (HybridSigningKey, Vec<(Address, u64)>) {
-    let key = generate_signing_key().expect("keygen");
+    let key = signing_key_from_seed(&DEPLOYER_CHAIN_KEY).expect("keygen from a fixed seed");
     let funding = vec![(key.address(), 1_000_000u64)];
     (key, funding)
 }
@@ -184,10 +191,13 @@ fn fresh_state(accounts: &[(Address, u64)]) -> (StateDB, TempDir) {
     let state = StateDB::open(dir.path()).expect("open state");
     for (address, balance) in accounts {
         state
-            .put_account(address, &Account {
-                balance: *balance,
-                nonce: 0,
-            })
+            .put_account(
+                address,
+                &Account {
+                    balance: *balance,
+                    nonce: 0,
+                },
+            )
             .expect("fund");
     }
     (state, dir)
@@ -226,7 +236,14 @@ mod tests {
     #[test]
     fn a_clean_transaction_is_not_a_finding() {
         quiet_panics();
-        let tx = Transaction::new(vec![], vec![TxOutput { amount: 1, recipient: [0; 32] }], 0);
+        let tx = Transaction::new(
+            vec![],
+            vec![TxOutput {
+                amount: 1,
+                recipient: [0; 32],
+            }],
+            0,
+        );
         assert_eq!(check_transaction(&tx.to_bytes()), Outcome::Clean);
     }
 

@@ -9,8 +9,8 @@
 //! shape of `tests/exploit_replays.rs` that asserts the *reason* the input is
 //! handled once it is fixed.
 
-use crate::oracle::{self, Outcome};
 use crate::Surface;
+use crate::oracle::{self, Outcome};
 
 /// A minimized, classified finding.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -132,11 +132,15 @@ impl Finding {
             "{}_{}_{}",
             self.surface.name(),
             self.kind.label(),
-            &short_hash(&self.input)
+            short_hash(&self.input)
         );
         let assertion = match self.kind {
-            Kind::Panic => "        // Before the fix this input panicked. Assert the *reason* it is\n        // now safe — a clean `Err`, or a value the chain accepts — not just\n        // that it no longer crashes.\n        let outcome = check(SURFACE, INPUT);\n        assert!(!outcome.is_finding(), \"still a finding: {outcome:?}\");",
-            Kind::Divergence => "        // Before the fix this block produced two different state roots.\n        // Assert the roots now agree, which is what invariant 24 requires.\n        let outcome = check(SURFACE, INPUT);\n        assert!(matches!(outcome, Outcome::Deterministic | Outcome::Clean), \"still diverges: {outcome:?}\");",
+            Kind::Panic => {
+                "        // Before the fix this input panicked. Assert the *reason* it is\n        // now safe — a clean `Err`, or a value the chain accepts — not just\n        // that it no longer crashes.\n        let outcome = check(SURFACE, INPUT);\n        assert!(!outcome.is_finding(), \"still a finding: {outcome:?}\");"
+            }
+            Kind::Divergence => {
+                "        // Before the fix this block produced two different state roots.\n        // Assert the roots now agree, which is what invariant 24 requires.\n        let outcome = check(SURFACE, INPUT);\n        assert!(matches!(outcome, Outcome::Deterministic | Outcome::Clean), \"still diverges: {outcome:?}\");"
+            }
         };
         format!(
             "// Auto-generated regression stub. Move into tests/exploit_replays.rs,\n// keep the input, and write the fix. Do not commit this file as-is.\n#[test]\nfn regression_{name}() {{\n    use maya_offsec_sandbox::oracle::{{check, Outcome}};\n    use maya_offsec_sandbox::Surface;\n    const SURFACE: Surface = Surface::{surface:?};\n    const INPUT: &[u8] = &{input:?};\n    {{\n{assertion}\n    }}\n}}\n",

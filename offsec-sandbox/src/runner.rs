@@ -126,7 +126,10 @@ fn write_finding(out_dir: &Path, finding: &Finding) -> std::io::Result<()> {
     let stem = finding.signature().replace(['/', ' ', ':', '!'], "_");
     let stem: String = stem.chars().take(80).collect();
     fs::write(out_dir.join(format!("{stem}.input")), &finding.input)?;
-    fs::write(out_dir.join(format!("{stem}.rs")), finding.regression_stub())?;
+    fs::write(
+        out_dir.join(format!("{stem}.rs")),
+        finding.regression_stub(),
+    )?;
     Ok(())
 }
 
@@ -147,7 +150,11 @@ mod tests {
         assert_eq!(report.executed, 2_000);
         // The tx decoder and apply path are already hardened; a finding here
         // would be a real regression, so assert none rather than tolerate some.
-        assert!(report.findings.is_empty(), "unexpected findings: {:?}", report.findings);
+        assert!(
+            report.findings.is_empty(),
+            "unexpected findings: {:?}",
+            report.findings
+        );
     }
 
     #[test]

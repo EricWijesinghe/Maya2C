@@ -15,7 +15,9 @@ use std::process::ExitCode;
 fn main() -> ExitCode {
     #[cfg(feature = "z3")]
     {
-        let target = std::env::args().nth(1).unwrap_or_else(|| "ledger-math".to_string());
+        let target = std::env::args()
+            .nth(1)
+            .unwrap_or_else(|| "ledger-math".to_string());
         match target.as_str() {
             "ledger-math" => {
                 maya_offsec_sandbox::engine::solve_ledger_boundaries();

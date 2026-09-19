@@ -13,8 +13,10 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
-use maya_offsec_sandbox::runner::{Budget, Config, run};
 use maya_offsec_sandbox::Surface;
+#[cfg(not(feature = "libafl"))]
+use maya_offsec_sandbox::runner::run;
+use maya_offsec_sandbox::runner::{Budget, Config};
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();

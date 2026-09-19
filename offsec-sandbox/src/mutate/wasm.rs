@@ -47,13 +47,15 @@ fn smith(seed: &[u8], rng: &mut Rng) -> Vec<u8> {
     rng.fill_bytes(&mut tail);
     entropy.extend_from_slice(&tail);
 
-    let mut config = Config::default();
-    config.max_memories = 1;
-    config.max_imports = 16;
-    config.max_funcs = 32;
-    config.bulk_memory_enabled = false;
-    config.reference_types_enabled = false;
-    config.simd_enabled = false;
+    let config = Config {
+        max_memories: 1,
+        max_imports: 16,
+        max_funcs: 32,
+        bulk_memory_enabled: false,
+        reference_types_enabled: false,
+        simd_enabled: false,
+        ..Config::default()
+    };
 
     let mut u = Unstructured::new(&entropy);
     match Module::new(config, &mut u) {

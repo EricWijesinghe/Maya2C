@@ -20,16 +20,16 @@ mod afl {
     use libafl::events::SimpleEventManager;
     use libafl::executors::{ExitKind, InProcessExecutor};
     use libafl::feedbacks::{ConstFeedback, CrashFeedback};
-    use libafl::inputs::BytesInput;
+    use libafl::inputs::{BytesInput, HasTargetBytes};
     use libafl::monitors::SimpleMonitor;
     use libafl::mutators::{HavocScheduledMutator, havoc_mutations};
     use libafl::schedulers::QueueScheduler;
     use libafl::stages::StdMutationalStage;
     use libafl::state::StdState;
-    use libafl::{Fuzzer, StdFuzzer};
+    use libafl::{Evaluator, Fuzzer, StdFuzzer};
+    use libafl_bolts::AsSlice;
     use libafl_bolts::rands::StdRand;
     use libafl_bolts::tuples::tuple_list;
-    use libafl_bolts::AsSlice;
 
     use crate::runner::Config;
     use crate::{mutate, oracle};
@@ -42,8 +42,8 @@ mod afl {
         // The harness: an input is a crash to LibAFL exactly when the oracle
         // calls it a finding.
         let mut harness = |input: &BytesInput| {
-            let bytes = input.as_slice();
-            if oracle::check(surface, bytes).is_finding() {
+            let target = input.target_bytes();
+            if oracle::check(surface, target.as_slice()).is_finding() {
                 ExitKind::Crash
             } else {
                 ExitKind::Ok
@@ -55,8 +55,7 @@ mod afl {
         let mut feedback = ConstFeedback::new(false);
         let mut objective = CrashFeedback::new();
 
-        let solutions = OnDiskCorpus::new(config.out_dir.clone())
-            .expect("solutions corpus dir");
+        let solutions = OnDiskCorpus::new(config.out_dir.clone()).expect("solutions corpus dir");
         let mut state = StdState::new(
             StdRand::with_seed(config.seed),
             InMemoryCorpus::new(),
@@ -83,7 +82,12 @@ mod afl {
         // Prime the corpus with the structure-aware seeds, so the mutational
         // stage has valid starting points rather than only random bytes.
         for bytes in mutate::seeds(surface) {
-            let _ = fuzzer.add_input(&mut state, &mut executor, &mut manager, BytesInput::new(bytes));
+            let _ = fuzzer.add_input(
+                &mut state,
+                &mut executor,
+                &mut manager,
+                BytesInput::new(bytes),
+            );
         }
 
         let mutator = HavocScheduledMutator::new(havoc_mutations());
@@ -99,7 +103,6 @@ mod afl {
             }
         }
     }
-
 }
 
 #[cfg(feature = "libafl")]
@@ -107,23 +110,22 @@ pub use afl::run;
 
 #[cfg(feature = "z3")]
 mod solver {
-    use z3::ast::Ast;
-    use z3::{Config, Context, SatResult, Solver, ast};
+    use z3::{SatResult, Solver, ast};
 
     /// Finds and prints `u64` pairs whose sum overflows — the boundary a random
     /// mutator reaches rarely, seeded here for the corpus. Kani proves the real
     /// `ledger-math` code refuses these; this only enumerates witnesses.
     pub fn solve_ledger_boundaries() {
-        let ctx = Context::new(&Config::new());
-        let solver = Solver::new(&ctx);
+        // z3 0.21 keeps one context per thread; there is no context to pass.
+        let solver = Solver::new();
 
-        let a = ast::BV::new_const(&ctx, "a", 64);
-        let b = ast::BV::new_const(&ctx, "b", 64);
+        let a = ast::BV::new_const("a", 64);
+        let b = ast::BV::new_const("b", 64);
         // Unsigned overflow of a + b: the sum wraps below one of the addends.
         let sum = a.bvadd(&b);
-        solver.assert(&sum.bvult(&a));
+        solver.assert(sum.bvult(&a));
         // A non-trivial witness.
-        solver.assert(&a.bvugt(&ast::BV::from_u64(&ctx, 0, 64)));
+        solver.assert(a.bvugt(ast::BV::from_u64(0, 64)));
 
         match solver.check() {
             SatResult::Sat => {

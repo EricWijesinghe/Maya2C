@@ -8,7 +8,7 @@
 //! decode falls back to [`super::bytes`].
 
 use custom_l1_node::core::{Transaction, TxInput, TxOutput};
-use custom_l1_node::crypto::hybrid::generate_signing_key;
+use custom_l1_node::crypto::hybrid::signing_key_from_seed;
 use rand_core::RngCore;
 
 use super::bytes::{self, boundary_u64};
@@ -62,7 +62,12 @@ fn mutate_typed(mut tx: Transaction, rng: &mut Rng) -> Vec<u8> {
         _ => {
             // Re-sign under a fresh, unrelated key: the signature verifies
             // against the wrong public key, exactly the malleability case.
-            if let Ok(key) = generate_signing_key() {
+            // The key comes from `rng`, not the OS: a mutation must replay
+            // from its seed, or a finding cannot be reproduced. Both signature
+            // halves are deterministic, so the whole output is.
+            let mut chain_key = [0u8; 32];
+            rng.fill_bytes(&mut chain_key);
+            if let Ok(key) = signing_key_from_seed(&chain_key) {
                 let _ = tx.sign(&key);
             }
         }
@@ -89,6 +94,10 @@ fn rng_byte(rng: &mut Rng) -> u8 {
     (rng.next_u32() & 0xff) as u8
 }
 
+/// Chain key the signed seed is signed with. Fixed, so the corpus is the same
+/// bytes on every run and a finding replays from its seed.
+const SEED_CHAIN_KEY: [u8; 32] = [0x11; 32];
+
 /// Seed transactions: a signed transfer and an unsigned one, encoded.
 #[must_use]
 pub fn seeds() -> Vec<Vec<u8>> {
@@ -102,7 +111,7 @@ pub fn seeds() -> Vec<Vec<u8>> {
         0,
     );
     seeds.push(unsigned.to_bytes());
-    if let Ok(key) = generate_signing_key() {
+    if let Ok(key) = signing_key_from_seed(&SEED_CHAIN_KEY) {
         let mut signed = Transaction::new(
             vec![],
             vec![TxOutput {

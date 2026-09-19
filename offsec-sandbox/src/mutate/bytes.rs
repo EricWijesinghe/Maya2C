@@ -68,9 +68,12 @@ fn splat_boundary(out: &mut [u8], rng: &mut Rng) {
     if out.is_empty() {
         return;
     }
-    let byte = *[0x00u8, 0xff, 0x7f, 0x80, 0x01].get((rng.next_u32() as usize) % 5).unwrap();
+    let byte = *[0x00u8, 0xff, 0x7f, 0x80, 0x01]
+        .get((rng.next_u32() as usize) % 5)
+        .unwrap();
     let at = (rng.next_u32() as usize) % out.len();
-    let width = 1 + (rng.next_u32() as usize % 8).min(out.len() - at);
+    // At most `out.len() - at` bytes remain from `at`, one of them `at` itself.
+    let width = 1 + (rng.next_u32() as usize % 8).min(out.len() - at - 1);
     out[at..at + width].fill(byte);
 }
 
@@ -113,8 +116,12 @@ mod tests {
 
     #[test]
     fn mutation_is_deterministic_for_a_seed() {
-        let a: Vec<Vec<u8>> = (0..50).scan(rng(), |r, _| Some(mutate(b"hello world", r))).collect();
-        let b: Vec<Vec<u8>> = (0..50).scan(rng(), |r, _| Some(mutate(b"hello world", r))).collect();
+        let a: Vec<Vec<u8>> = (0..50)
+            .scan(rng(), |r, _| Some(mutate(b"hello world", r)))
+            .collect();
+        let b: Vec<Vec<u8>> = (0..50)
+            .scan(rng(), |r, _| Some(mutate(b"hello world", r)))
+            .collect();
         assert_eq!(a, b);
     }
 
