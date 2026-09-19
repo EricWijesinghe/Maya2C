@@ -39,7 +39,8 @@
 //! [`total_outputs`]: super::total_outputs
 
 use crate::{
-    SettleError, advance_nonce, combined_balance, credit, debit, settle_pool, total_outputs,
+    SettleError, advance_nonce, combined_balance, credit, debit, distribute, settle_pool,
+    total_outputs,
 };
 
 /// Output count the fold is proved over.

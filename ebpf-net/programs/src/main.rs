@@ -47,6 +47,8 @@ use maya_ebpf_net_common::verdict::{Verdict, judge};
 
 const IPV4_MORE_FRAGMENTS: u16 = 0x2000;
 const IPV4_FRAGMENT_OFFSET: u16 = 0x1fff;
+/// Covers every frame length `fits` is asked about; see there.
+const FRAME_LEN_MASK: usize = 0x1_ffff;
 
 #[map]
 static CONFIG: Array<Config> = Array::with_max_entries(1, 0);
@@ -194,7 +196,11 @@ fn ipv6(ctx: &XdpContext, config: &Config) -> Option<u32> {
 
 /// The UDP payload length, or `None` for a fragment or a length field that
 /// disagrees with the IP layer — both malformed once addressed to the relay.
-fn udp_payload_len(udp: &[u8; UDP_HEADER_LEN], segment_len: usize, is_fragment: bool) -> Option<usize> {
+fn udp_payload_len(
+    udp: &[u8; UDP_HEADER_LEN],
+    segment_len: usize,
+    is_fragment: bool,
+) -> Option<usize> {
     if is_fragment {
         return None;
     }
@@ -207,7 +213,10 @@ fn udp_payload_len(udp: &[u8; UDP_HEADER_LEN], segment_len: usize, is_fragment: 
 
 /// The relay header, if the UDP payload is long enough to hold one. `head` was
 /// read from the packet already; the UDP length, not the frame, decides.
-fn relay_header(head: Option<[u8; HEADER_LEN]>, payload_len: Option<usize>) -> Option<[u8; HEADER_LEN]> {
+fn relay_header(
+    head: Option<[u8; HEADER_LEN]>,
+    payload_len: Option<usize>,
+) -> Option<[u8; HEADER_LEN]> {
     if payload_len? < HEADER_LEN {
         return None;
     }
@@ -219,16 +228,18 @@ fn act(ctx: &XdpContext, verdict: Verdict) -> u32 {
         // The low bits of the flags are the action if no socket is bound on
         // this queue: drop, never pass, so relay traffic cannot reach the
         // kernel stack by arriving on a queue nobody serves.
-        Verdict::Redirect => match XSKS.redirect(ctx.rx_queue_index(), u64::from(xdp_action::XDP_DROP)) {
-            Ok(action) => {
-                count(Counter::Redirected);
-                action
+        Verdict::Redirect => {
+            match XSKS.redirect(ctx.rx_queue_index(), u64::from(xdp_action::XDP_DROP)) {
+                Ok(action) => {
+                    count(Counter::Redirected);
+                    action
+                }
+                Err(action) => {
+                    count(Counter::RedirectFailed);
+                    action
+                }
             }
-            Err(action) => {
-                count(Counter::RedirectFailed);
-                action
-            }
-        },
+        }
         Verdict::Drop(counter) => {
             count(counter);
             xdp_action::XDP_DROP
@@ -265,6 +276,15 @@ fn read<T: Copy>(ctx: &XdpContext, offset: usize) -> Option<T> {
 /// length field, never a guard for a read: see `read`.
 #[inline(always)]
 fn fits(ctx: &XdpContext, len: usize) -> bool {
+    // Every `len` here comes out of a byte swap (`from_be_bytes`), and some
+    // verifiers — the 6.8 kernel on GitHub's runners among them — forget a
+    // scalar's bounds across `be16`, then refuse `pkt + len` as "math between
+    // pkt pointer and register with unbounded min value". The mask restores
+    // the bound. It never changes a real length (at most 14 + 40 + 65,535),
+    // and the volatile read stops LLVM from proving the mask redundant and
+    // deleting it.
+    // SAFETY: a read of a live, aligned local.
+    let len = unsafe { core::ptr::read_volatile(&len) } & FRAME_LEN_MASK;
     ctx.data() + len <= ctx.data_end()
 }
 

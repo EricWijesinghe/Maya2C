@@ -186,8 +186,10 @@ jobs:
       # Pinned, and deliberately so. cargo-geiger is lightly maintained and has
       # a history of breaking on new cargo metadata formats; an unpinned install
       # turns an upstream release into a red build on an unrelated pull request.
+      # 0.11.7's lockfile pins `time` 0.3.30, which no longer compiles on
+      # current stable (E0282), so the pin moves only when that happens.
       - name: Install cargo-geiger
-        run: cargo install cargo-geiger --version 0.11.7 --locked
+        run: cargo install cargo-geiger --version 0.13.0 --locked
 
       # The dependency-graph survey. Reported, never gated.
       #

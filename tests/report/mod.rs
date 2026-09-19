@@ -285,7 +285,17 @@ re-implementing them would create a second copy to keep in step.
     Some(out)
 }
 
-/// Writes the report to `docs/benchmarks/resilience-report.md`.
+/// Set to publish the report into `docs/benchmarks/resilience-report.md`.
+///
+/// Off by default: several rows carry run-dependent values (how many tampered
+/// transactions a seed produced, whether a message landed mid-spike), so
+/// writing the tracked copy on every test run left the tree dirty after every
+/// `cargo nextest run`. Publish deliberately:
+/// `MAYA_PUBLISH_RESILIENCE_REPORT=1 cargo test --test chaos_simulator`.
+pub const PUBLISH_ENV: &str = "MAYA_PUBLISH_RESILIENCE_REPORT";
+
+/// Writes the report: into Cargo's per-test temporary directory, or into
+/// `docs/benchmarks/resilience-report.md` when [`PUBLISH_ENV`] is set.
 ///
 /// # Errors
 ///
@@ -304,10 +314,14 @@ pub fn write(seed: u64) -> std::io::Result<Option<PathBuf>> {
         return Ok(None);
     };
 
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("docs")
-        .join("benchmarks")
-        .join("resilience-report.md");
+    let path = if std::env::var_os(PUBLISH_ENV).is_some() {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("docs")
+            .join("benchmarks")
+            .join("resilience-report.md")
+    } else {
+        Path::new(env!("CARGO_TARGET_TMPDIR")).join("resilience-report.md")
+    };
 
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;

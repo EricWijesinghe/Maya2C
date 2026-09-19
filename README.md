@@ -41,7 +41,40 @@ thing to read before anything else here matters.
 | `governance` | Proposal lifecycle and the bounds a proposal may never escape |
 | `faucet` | Testnet faucet. A hot wallet on a public endpoint — see its doc before deploying it |
 | `telemetry` | Network telemetry collector, split into `server` and `client` halves |
+| `light-client` | SPV header fork choice and state-proof verification |
+| `mev` | Threshold-encrypted mempool: a miner orders transactions it cannot read |
+| `custody-mpc` | Threshold custody of a chain key: dealerless VSS, ML-KEM-sealed shares, quorum signing |
+| `archive` | CAR v1 (zstd) archives of pruned block batches: local dir, IPFS, Arweave |
+| `api-gateway` | REST and GraphQL gateway, talking to a node over JSON-RPC |
+| `sdk-ffi`, `sdk-wasm` | uniffi bindings, and browser bindings, over the hybrid signing primitives |
+| `docgen` | Generates the LaTeX technical reference from module documentation |
 | `dashboard/` | Leptos browser page. Not a workspace member: CSR Leptos only runs on `wasm32` |
+
+### Research branches
+
+These crates are in the tree and tested, but **no consensus path calls them**. Each is
+dark behind an activation height of `u64::MAX`, or is off-chain entirely. The
+rationale for each is in
+[docs/architecture-vision.md](docs/architecture-vision.md).
+
+| Member | Role |
+|---|---|
+| `fee-market`, `neural-gas-trainer` | EIP-1559 base fee over bytes, plus an integer neural gain inside a Kani-proved envelope, and the off-chain trainer for that gain |
+| `blockgraph` | Narwhal/Tusk batch references and deterministic shard scheduling |
+| `lattice-pow` | Lattice proof-of-useful-work (SVP) verification |
+| `zkml`, `zkml-prover` | halo2 proofs of quantized-classifier inference: the verifier, and the off-chain prover |
+| `rwa`, `identity` | Real-world assets and self-sovereign identity (DIDs, selective disclosure) |
+| `iso20022` | ISO 20022 bank-rail messages bridged to payment intents |
+| `radio-transport` | Off-grid LoRa framing, a duty-cycle governor, a fountain codec |
+| `htlc-lattice`, `htlc-watcher` | Lattice HTLC atomic swaps (Maya2C↔Maya2C only), and the counterparty watcher |
+| `stateless-core` | Sparse-Merkle account witnesses for stateless transfer verification |
+| `confidential-ai` | Federated training with ML-KEM secure aggregation and integer differential privacy |
+| `ebpf-net`, `ebpf-net/common` | UDP block relay judged by an XDP program at the driver (Linux, `xdp` feature) |
+| `threat-intel`, `threat-firewall` | Threat indicators built from verifiable gossip evidence, and the per-host nftables worker |
+| `iot-anchor` | Hardware-anchored sensor identity: ML-DSA-65 device keys, PUF, TPM sealing, hash-chained telemetry batches. `no_std`; `iot-firmware/` runs it on Cortex-M33 under QEMU |
+
+Three more directories have their own workspaces and toolchains: `offsec-sandbox/`
+(red-team fuzzing), `ebpf-net/programs/` (the XDP program) and `fuzz/`.
 
 ## Build
 
