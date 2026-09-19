@@ -147,22 +147,23 @@ jobs:
       # has an empty dependency table, so this job compiles one leaf crate to a
       # goto-binary rather than the node's entire C++-linking graph — which is
       # what makes model checking possible at all. See ledger-math/src/lib.rs.
+      #
+      # Pinned: with `latest`, the action compares the installed version against
+      # a `cargo search` parse that no longer matches, and fails after a good
+      # install. Installed once; the steps below reuse it.
       - uses: model-checking/kani-github-action@v1
         with:
+          kani-version: "0.68.0"
           args: "-p maya-ledger-math --output-format terse"
 
       # The threat-intel score decides how long every node refuses a peer, so
       # its closed form is proved against the decay it replaces. Dependency-free
       # for the same reason as the step above.
-      - uses: model-checking/kani-github-action@v1
-        with:
-          args: "-p maya-threat-intel --output-format terse"
+      - run: cargo kani -p maya-threat-intel --output-format terse
 
       # The device batch rules: a terminal device records nothing, a recorded
       # batch moves the counter forward, equivocation needs real conflict.
-      - uses: model-checking/kani-github-action@v1
-        with:
-          args: "-p maya-iot-anchor --output-format terse"
+      - run: cargo kani -p maya-iot-anchor --output-format terse
 
   # ---------------------------------------------------------------------------
   geiger:

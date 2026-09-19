@@ -13,9 +13,9 @@
 //! possible one.
 //!
 //! A dependency-free leaf crate is. The node calls into this crate rather than
-//! inlining the arithmetic, so what the proofs in `proofs` (compiled only under Kani) establish is a
-//! property of the code that actually executes when a block is applied — not of
-//! a restatement of it that could drift.
+//! inlining the arithmetic, so what the proofs in `proofs` (compiled only under
+//! Kani) establish is a property of the code that actually executes when a
+//! block is applied — not of a restatement of it that could drift.
 //!
 //! # What is proved, and what is not
 //!
@@ -25,8 +25,12 @@
 //! [`total_outputs`] is the exception. It folds over a sequence, so its harness
 //! carries a `#[kani::unwind]` bound and an accompanying `kani::assume` on the
 //! length. That proof is bounded — it holds for sequences up to the bound, not
-//! for all sequences. It is stated that way in `proofs` (compiled only under Kani) rather than left for
-//! a reader to infer.
+//! for all sequences. It is stated that way in `proofs` (compiled only under
+//! Kani) rather than left for a reader to infer.
+//!
+//! [`distribute`] is only partly proved: Kani covers its placement of the
+//! spare, and its flooring is checked by exhaustive enumeration over a small
+//! domain. The split, and why, is at the top of `proofs`.
 //!
 //! # What these functions deliberately do not do
 //!
@@ -102,7 +106,10 @@ pub fn total_outputs(amounts: impl IntoIterator<Item = u64>) -> Option<u64> {
 /// one decides it ten thousand times in a block. It is dependency-free for the
 /// same reason [`settle_pool`] is: Kani compiles a crate with its whole
 /// dependency graph, and `Sigma payouts == total` is exactly the kind of claim a
-/// model checker should be settling rather than a test sampling.
+/// model checker should be settling rather than a test sampling. Kani settles
+/// the half that places the spare; the flooring divides by a symbolic weight,
+/// which it could not finish, so that half is enumerated exhaustively over a
+/// small domain instead (`every_small_distribution_is_exact_and_fair`).
 ///
 /// ## The property
 ///
@@ -126,7 +133,9 @@ pub fn total_outputs(amounts: impl IntoIterator<Item = u64>) -> Option<u64> {
 ///
 /// ## No allocation
 ///
-/// The caller supplies `payouts` and `order`. This runs inside block execution
+/// The caller supplies `payouts` and `order`. `order` is scratch space for the
+/// ranking: its contents afterwards are unspecified, and it is left untouched
+/// when there is no spare unit to place. This runs inside block execution
 /// with ten thousand holders, which is exactly the "critical consensus loop" the
 /// execution directives say not to allocate in — and `no_std` here means there
 /// is no allocator to reach for even by accident.
@@ -164,30 +173,20 @@ pub fn distribute(
         return None;
     }
 
-    // u128 throughout: `total * weight` reaches 2^128 for two u64 operands, and
-    // a product that wrapped would produce a share nobody is owed.
-    let total_wide = u128::from(total);
-    let weight_wide = u128::from(total_weight);
-
-    let mut assigned: u128 = 0;
-    for (index, weight) in weights.iter().enumerate() {
-        let exact = total_wide * u128::from(*weight);
-        let floor = exact / weight_wide;
-        payouts[index] = floor as u64;
-        assigned += floor;
-        order[index] = index as u32;
-    }
-
-    // What the flooring left behind. Strictly less than the holder count, so it
-    // always fits.
-    let mut spare = (total_wide - assigned) as usize;
+    let spare = floor_shares(total, weights, total_weight, payouts);
     if spare == 0 {
         return Some(());
+    }
+
+    for (index, slot) in order.iter_mut().enumerate() {
+        *slot = index as u32;
     }
 
     // Rank by remainder, then by index. Descending on the remainder so the
     // largest come first; ascending on the index so a tie resolves the same way
     // on every node, which is the whole reason the index is in the key.
+    let total_wide = u128::from(total);
+    let weight_wide = u128::from(total_weight);
     let remainder = |index: u32| -> u128 {
         let weight = u128::from(weights[index as usize]);
         (total_wide * weight) % weight_wide
@@ -198,14 +197,51 @@ pub fn distribute(
             .then_with(|| left.cmp(right))
     });
 
-    for index in order.iter() {
-        if spare == 0 {
-            break;
-        }
+    place_spare(payouts, order, spare)
+}
+
+/// Writes each holder's floored share into `payouts` and returns what the
+/// flooring left behind, which is strictly less than the holder count.
+///
+/// The first half of [`distribute`]. `total_weight` is the sum of `weights`,
+/// non-zero, and `payouts` is as long as `weights` — `distribute` checks all
+/// three.
+pub(crate) fn floor_shares(
+    total: u64,
+    weights: &[u64],
+    total_weight: u64,
+    payouts: &mut [u64],
+) -> usize {
+    // u128 throughout: `total * weight` reaches 2^128 for two u64 operands, and
+    // a product that wrapped would produce a share nobody is owed.
+    let total_wide = u128::from(total);
+    let weight_wide = u128::from(total_weight);
+
+    let mut assigned: u128 = 0;
+    for (payout, weight) in payouts.iter_mut().zip(weights) {
+        // At most `total`, since `weight <= total_weight`, so it fits a u64.
+        let floor = total_wide * u128::from(*weight) / weight_wide;
+        *payout = floor as u64;
+        assigned += floor;
+    }
+
+    // Each floor drops less than one unit, so the gap is below the holder
+    // count, which `distribute` has already bounded by u32.
+    (total_wide - assigned) as usize
+}
+
+/// Pays one extra base unit to each of the first `spare` holders in `order`.
+///
+/// The second half of [`distribute`]. When `order` holds each index once (the
+/// sort guarantees that, since it only permutes the identity), this adds
+/// exactly `spare` in total and at most one unit to any holder, which is what
+/// the proofs of this function state.
+pub(crate) fn place_spare(payouts: &mut [u64], order: &[u32], spare: usize) -> Option<()> {
+    for index in order.iter().take(spare) {
         // A holder cannot be paid past u64 by one extra base unit unless their
         // floor was already u64::MAX, which needs a total that large.
-        payouts[*index as usize] = payouts[*index as usize].checked_add(1)?;
-        spare -= 1;
+        let slot = payouts.get_mut(*index as usize)?;
+        *slot = slot.checked_add(1)?;
     }
     Some(())
 }
@@ -461,6 +497,73 @@ mod distribution_tests {
         let payouts = split(total, &weights);
         assert_eq!(payouts.iter().sum::<u64>(), total);
         assert_eq!(payouts.len(), 10_000);
+    }
+
+    /// Every total up to 255 against every three-holder weighting up to 7 each:
+    /// the payouts sum to the total, and each holder gets their exact share
+    /// rounded down or one unit above it.
+    ///
+    /// Exhaustive over that domain, and through the whole of `distribute`,
+    /// sort included. A Kani harness over the same domain did not finish in
+    /// fifteen minutes: the solver has to decide a symbolic 128-bit division per
+    /// holder. Enumeration decides the same finite set of cases in well under a
+    /// second. Placement of the spare is proved at every magnitude in
+    /// `proofs.rs`.
+    #[test]
+    fn every_small_distribution_is_exact_and_fair() {
+        const MAX_TOTAL: u64 = 255;
+        const MAX_WEIGHT: u64 = 7;
+        for total in 0..=MAX_TOTAL {
+            for a in 0..=MAX_WEIGHT {
+                for b in 0..=MAX_WEIGHT {
+                    for c in 0..=MAX_WEIGHT {
+                        check_exact_and_fair(total, &[a, b, c]);
+                    }
+                }
+            }
+        }
+    }
+
+    /// The same two properties at the edges of `u64`, where `total * weight`
+    /// needs all 128 bits and a narrower product would wrap.
+    #[test]
+    fn large_distributions_are_exact_and_fair() {
+        const TOTALS: [u64; 5] = [u64::MAX, u64::MAX - 1, 1 << 63, (1 << 63) - 1, 3];
+        const WEIGHTS: [u64; 7] = [0, 1, 2, 3, u32::MAX as u64, 1 << 62, (1 << 62) + 1];
+        for total in TOTALS {
+            for a in WEIGHTS {
+                for b in WEIGHTS {
+                    for c in WEIGHTS {
+                        check_exact_and_fair(total, &[a, b, c]);
+                    }
+                }
+            }
+        }
+        // Weights whose sum is exactly u64::MAX, the largest a caller can pass.
+        check_exact_and_fair(u64::MAX, &[u64::MAX - 1, 1]);
+        check_exact_and_fair(u64::MAX, &[u64::MAX / 2, u64::MAX / 2 + 1]);
+    }
+
+    fn check_exact_and_fair(total: u64, weights: &[u64]) {
+        let total_weight: u64 = weights.iter().sum();
+        let mut payouts = vec![0u64; weights.len()];
+        let mut order = vec![0u32; weights.len()];
+        let placed = distribute(total, weights, &mut payouts, &mut order);
+        if total_weight == 0 {
+            assert!(placed.is_none(), "zero weight must refuse");
+            return;
+        }
+        assert!(placed.is_some(), "{total} over {weights:?}");
+        let placed: u128 = payouts.iter().map(|payout| u128::from(*payout)).sum();
+        assert_eq!(placed, u128::from(total), "{weights:?}");
+        for (payout, weight) in payouts.iter().zip(weights) {
+            let exact = u128::from(total) * u128::from(*weight) / u128::from(total_weight);
+            let payout = u128::from(*payout);
+            assert!(
+                payout == exact || payout == exact + 1,
+                "{total} over {weights:?}: paid {payout}, exact share {exact}"
+            );
+        }
     }
 
     #[test]

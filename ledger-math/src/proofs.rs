@@ -30,6 +30,12 @@
 //!   [`PROVED_OUTPUT_COUNT`] below, which is smaller than the 65,536 outputs the
 //!   wire codec will accept, and that gap is real rather than an oversight —
 //!   see the constant's documentation.
+//! - [`distribute`]'s placement of the spare is proved here, **bounded** at
+//!   three holders but at every magnitude. Its flooring and sort are not: a
+//!   harness through them has to decide a symbolic 128-bit division per holder
+//!   and did not finish in fifteen minutes. Those are checked exhaustively over
+//!   a small domain by `every_small_distribution_is_exact_and_fair` in the
+//!   crate's unit tests instead, which is a finite enumeration, not a proof.
 //!
 //! [`credit`]: super::credit
 //! [`debit`]: super::debit
@@ -37,9 +43,10 @@
 //! [`combined_balance`]: super::combined_balance
 //! [`settle_pool`]: super::settle_pool
 //! [`total_outputs`]: super::total_outputs
+//! [`distribute`]: super::distribute
 
 use crate::{
-    SettleError, advance_nonce, combined_balance, credit, debit, distribute, settle_pool,
+    SettleError, advance_nonce, combined_balance, credit, debit, place_spare, settle_pool,
     total_outputs,
 };
 
@@ -313,64 +320,41 @@ fn settle_pool_moves_value_in_the_stated_direction() {
     }
 }
 
-/// A distribution places exactly the total it was given.
+/// Placing the spare adds exactly the spare, and at most one unit to anyone.
 ///
-/// The property the whole revenue path rests on, and the one a test can only
-/// sample. Maya2C's invariant guard refuses any block whose value deltas do not
-/// balance, so a rounding rule that lost a base unit would not be a small
-/// unfairness — it would be a distribution nobody can put in a block.
+/// The part of [`distribute`] that decides who is paid the dust. For any
+/// `order` that holds each index once, which is what the sort returns,
+/// placement adds exactly `spare` in total, so the floors plus the spare sum
+/// to `total`: the invariant guard refuses any block whose value deltas do not
+/// balance, so a rule that lost a unit here would make a distribution nobody
+/// can put in a block. It also adds at most one unit
+/// to each holder, so everyone ends at their exact share rounded down or one
+/// above it. What largest-remainder buys over flooring and keeping the dust is
+/// that nobody is short or over by more than a unit. A rule that met the sum
+/// by paying one holder everything would add the right total and fail this.
 ///
-/// Bounded at three holders. Kani unrolls the loops and the sort, and the
-/// argument does not get more true at ten thousand: the flooring, the spare
-/// count and the placement are the same three steps at any length. The
-/// ten-thousand case is exercised by `ten_thousand_holders_still_sum_exactly`.
+/// Unbounded in magnitude: no division, so the payouts range over every `u64`.
 #[kani::proof]
 #[kani::unwind(4)]
-fn a_distribution_places_exactly_the_total() {
-    let total: u64 = kani::any();
-    let weights: [u64; 3] = [kani::any(), kani::any(), kani::any()];
-
-    // The sum has to fit a u64 or there is nothing to be in proportion to;
-    // `distribute` returns `None` for that case and the caller refuses.
-    kani::assume(weights[0].checked_add(weights[1]).is_some());
-    kani::assume(
-        weights[0]
-            .wrapping_add(weights[1])
-            .checked_add(weights[2])
-            .is_some(),
-    );
-
-    let mut payouts = [0u64; 3];
-    let mut order = [0u32; 3];
-    if distribute(total, &weights, &mut payouts, &mut order).is_some() {
-        let placed = payouts[0]
-            .checked_add(payouts[1])
-            .and_then(|sum| sum.checked_add(payouts[2]));
-        assert!(placed == Some(total));
+fn placing_the_spare_adds_exactly_the_spare() {
+    let before: [u64; 3] = kani::any();
+    let order: [u32; 3] = kani::any();
+    for index in order {
+        kani::assume(index < 3);
     }
-}
+    kani::assume(order[0] != order[1] && order[0] != order[2] && order[1] != order[2]);
+    let spare: usize = kani::any();
+    kani::assume(spare < 3);
 
-/// No holder is paid more than one base unit above their exact share.
-///
-/// What largest-remainder buys over flooring and keeping the dust: nobody is
-/// short by more than a unit, and nobody is over by more than a unit either.
-/// A rule that satisfied the sum by paying one holder everything would pass the
-/// proof above and fail this one.
-#[kani::proof]
-#[kani::unwind(3)]
-fn no_holder_is_paid_more_than_a_unit_above_their_share() {
-    let total: u64 = kani::any();
-    let weights: [u64; 2] = [kani::any(), kani::any()];
-    kani::assume(weights[0].checked_add(weights[1]).is_some());
-
-    let mut payouts = [0u64; 2];
-    let mut order = [0u32; 2];
-    if distribute(total, &weights, &mut payouts, &mut order).is_some() {
-        let total_weight = u128::from(weights[0]) + u128::from(weights[1]);
-        for index in 0..2 {
-            let exact = u128::from(total) * u128::from(weights[index]) / total_weight;
-            let paid = u128::from(payouts[index]);
-            assert!(paid == exact || paid == exact + 1);
+    let mut after = before;
+    if place_spare(&mut after, &order, spare).is_some() {
+        let sum = |payouts: &[u64; 3]| -> u128 { payouts.iter().map(|p| u128::from(*p)).sum() };
+        assert!(sum(&after) == sum(&before) + spare as u128);
+        for (was, now) in before.iter().zip(&after) {
+            assert!(*now == *was || *now == *was + 1);
         }
+    } else {
+        // Refused only when a holder already had every unit a u64 can hold.
+        assert!(before.contains(&u64::MAX));
     }
 }

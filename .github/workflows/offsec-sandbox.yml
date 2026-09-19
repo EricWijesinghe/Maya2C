@@ -42,7 +42,12 @@ jobs:
   harness:
     name: in-tree fuzz harness
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # A cold build of the node (RocksDB's C++, wasmtime, arkworks, halo2) in
+    # release does not fit in 30 minutes on a hosted runner, and a cancelled job
+    # never saves its cache, so every later run started cold as well: the job
+    # was cancelled on every commit and had never produced a result. 120 lets
+    # the cold build finish once; warm runs take a fraction of that.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - name: Install RocksDB build dependencies
@@ -76,7 +81,8 @@ jobs:
   sandbox:
     name: offsec-sandbox crate
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Same cold build as the harness above, same reason.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - name: Install build dependencies
