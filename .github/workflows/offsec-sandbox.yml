@@ -98,7 +98,7 @@ jobs:
       # frees roughly 25 GB for the three builds above.
       - name: Free runner disk
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc             /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           df -h /
 
       - name: Install build dependencies
