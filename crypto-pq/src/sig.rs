@@ -268,7 +268,7 @@ impl VerifyingKey {
 ///
 /// SLH-DSA needs 48 bytes of key material (`SK.seed`, `SK.prf`, `PK.seed`),
 /// not 32, so the chain key is expanded with BLAKE3's XOF under
-/// [`SEED_DOMAIN`]. This reaches FIPS 205's own `slh_keygen_internal` rather
+/// `SEED_DOMAIN`. This reaches FIPS 205's own `slh_keygen_internal` rather
 /// than feeding a fake RNG to the public constructor: the seeds are the
 /// specification's inputs, and naming them directly is clearer than
 /// impersonating an entropy source.

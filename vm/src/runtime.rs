@@ -456,7 +456,7 @@ fn classify(error: &wasmtime::Error, gas_limit: u64) -> VmError {
 /// The one module name a contract may import from.
 pub const HOST_MODULE: &str = "env";
 
-/// Every host function name [`register_host_functions`] registers, and so the
+/// Every host function name `register_host_functions` registers, and so the
 /// whole of what a contract may import.
 ///
 /// Written out so [`Vm::validate`] can refuse an unresolvable import at

@@ -1,5 +1,6 @@
 //! What consensus decides about a verified batch. Pure integer functions, no
-//! crypto, so [`crate::proofs`] can state them exhaustively.
+//! crypto, so the Kani harnesses in `proofs.rs` (compiled only under
+//! `cfg(kani)`) can state them exhaustively.
 //!
 //! Outcomes that are not a recording are never errors: two gateways relaying
 //! one batch, or a batch overtaken by a newer one, is ordinary, and an error

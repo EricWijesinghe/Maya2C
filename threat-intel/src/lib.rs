@@ -29,11 +29,12 @@
 //!
 //! # Shape
 //!
-//! Dependency-free, like `maya-dex`, so Kani can compile it ([`proofs`]). The
-//! node verifies signatures, decodes frames and derives evidence identifiers;
-//! this crate defines the signed bytes ([`evidence`]), the integer score and
-//! its decay by block height ([`score`]), the stored record ([`indicator`]) and
-//! what an indicator obliges a node to do ([`mitigation`]). Heights, never
+//! Dependency-free, like `maya-dex`, so Kani can compile it (`proofs.rs`,
+//! under `cfg(kani)`). The node verifies signatures, decodes frames and
+//! derives evidence identifiers; this crate defines the signed bytes
+//! ([`evidence`]), the integer score and its decay by block height
+//! ([`score`]), the stored record ([`indicator`]) and what an indicator
+//! obliges a node to do ([`mitigation`](mod@mitigation)). Heights, never
 //! timestamps — invariant 9.
 //!
 //! The evidence signature is ed25519 because libp2p identities are. It is the
