@@ -83,8 +83,24 @@ jobs:
     runs-on: ubuntu-latest
     # Same cold build as the harness above, same reason.
     timeout-minutes: 120
+    # One job builds the node three times over, as a debug test build, a
+    # clippy build and a release build. With full debug info that ran a
+    # hosted runner out of disk ("No space left on device" while clippy
+    # rebuilt RocksDB). Line tables keep file:line in a finding's backtrace,
+    # which is what triage reads, at a fraction of the size.
+    env:
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
     steps:
       - uses: actions/checkout@v4
+
+      # The runner image ships SDKs this job never touches; removing them
+      # frees roughly 25 GB for the three builds above.
+      - name: Free runner disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc             /opt/hostedtoolcache/CodeQL
+          df -h /
+
       - name: Install build dependencies
         run: |
           sudo apt-get update
