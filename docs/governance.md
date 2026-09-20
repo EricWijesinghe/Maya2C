@@ -2,10 +2,10 @@
 
 The chain amending its own rules, and the limits on how far that can go.
 
-- `governance/` — the proposal lifecycle, the tally, and the bounds. Dependency-free, model-checkable.
-- `src/governance/` — records, the parameter table, work credit.
-- `src/state/governance_exec.rs` — execution against the block overlay.
-- `src/core/governance_payload.rs` — the wire forms.
+- `crates/governance/` — the proposal lifecycle, the tally, and the bounds. Dependency-free, model-checkable.
+- `crates/node/src/governance/` — records, the parameter table, work credit.
+- `crates/node/src/state/governance_exec.rs` — execution against the block overlay.
+- `crates/node/src/core/governance_payload.rs` — the wire forms.
 
 ---
 
@@ -19,7 +19,7 @@ to remove the checks that would have let anyone react. Set the timelock to zero
 and the exit window disappears; set the quorum to one and the majority stops
 needing to be one.
 
-So four values live in `governance/src/limits.rs`, are compiled into the binary,
+So four values live in `crates/governance/src/limits.rs`, are compiled into the binary,
 appear in **no** `ParameterKey`, and are reachable by no transaction:
 
 | Floor | Value | What it protects |
@@ -31,10 +31,10 @@ appear in **no** `ParameterKey`, and are reachable by no transaction:
 
 Changing them is a release, which is to say it is a decision every node operator
 makes individually by choosing what to run. `no_proposal_can_name_the_quorum_or_the_timelock`
-in `tests/governance_tests.rs` checks the tags do not exist.
+in `crates/node/tests/governance_tests.rs` checks the tags do not exist.
 
 Everything that *is* governable carries a hard `[min, max]` in
-`governance/src/params.rs`, checked **twice** — when the proposal is made and
+`crates/governance/src/params.rs`, checked **twice** — when the proposal is made and
 again when it executes. Twice, because a release between those two moments could
 tighten a range, and a value that was legal when proposed must not become law
 after it stopped being legal.
@@ -73,7 +73,7 @@ WebAssembly. This node's consensus logic is native Rust compiled into the binary
 Shipping the new logic and letting governance choose when it activates is the
 honest version of the same idea.
 
-**The wasmtime engine.** `vm/src/config.rs` pins an exact version and says why:
+**The wasmtime engine.** `crates/vm/src/config.rs` pins an exact version and says why:
 the fuel schedule is not stable across releases, so two nodes on two versions can
 disagree about whether a call ran out of gas. Governance moves the VM's *limits*;
 moving its engine is a release.
@@ -101,7 +101,7 @@ while leaving every transaction that uses it apparently valid.
 
 ### The protocol fee, specifically
 
-`src/state/dex_exec.rs` used to say the rate was zero *"because there is no
+`crates/node/src/state/dex_exec.rs` used to say the rate was zero *"because there is no
 governance process that could have decided to. A protocol fee set by whoever last
 edited a constant is not a protocol fee, it is a developer helping themselves."*
 
@@ -133,7 +133,7 @@ vote, and be gone before the decision binds anyone who stayed. Locking again
 
 ### Work credit — and where it came from
 
-This chain has no block reward. `pool-service/src/config.rs` says so in the code:
+This chain has no block reward. `bins/pool-service/src/config.rs` says so in the code:
 `apply_block_checked` credits no subsidy and fees burn to the fee sink. There is
 no coinbase, and `BlockHeader` carries `prev_hash ‖ state_root ‖ timestamp ‖
 nonce ‖ difficulty_target ‖ tx_root` — nothing identifying who mined it.

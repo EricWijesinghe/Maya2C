@@ -3,11 +3,11 @@
 Tokenised assets, atomic settlement, jurisdictional rules, and paying ten
 thousand holders in one block.
 
-- `rwa/` — the records. Chain-free, so the decoder fuzzes alone.
+- `crates/rwa/` — the records. Chain-free, so the decoder fuzzes alone.
 - `ledger-math::distribute` — the pro-rata split, Kani-checked.
-- `src/state/rwa.rs` — prefixes and their place in the state root.
-- `src/state/rwa_exec.rs` — issuance, DvP, eligibility, revenue.
-- `tests/rwa_tests.rs`.
+- `crates/node/src/state/rwa.rs` — prefixes and their place in the state root.
+- `crates/node/src/state/rwa_exec.rs` — issuance, DvP, eligibility, revenue.
+- `crates/node/tests/rwa_tests.rs`.
 
 ---
 

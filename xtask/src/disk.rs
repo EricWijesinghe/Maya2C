@@ -22,13 +22,13 @@ const ARTIFACT_DIRS: &[&str] = &[
     "target-contracts",
     "fuzz/target",
     "offsec-sandbox/target",
-    "iot-firmware/target",
-    "ebpf-net/programs/target",
-    "dashboard/target",
-    "app-maya2c/target",
+    "hal/iot-firmware/target",
+    "hal/ebpf-net/programs/target",
+    "apps/dashboard/target",
+    "apps/ledger-maya2c/target",
     "contracts/token-swap/target",
-    "wallet-gui/src-tauri/target",
-    "wallet-gui/ui/target",
+    "apps/wallet-gui/src-tauri/target",
+    "apps/wallet-gui/ui/target",
     "docs/site/node_modules",
 ];
 
@@ -80,7 +80,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         let msg = format!(
             "build artifacts are {}, over the {} ceiling. `cargo clean` frees \
              the root target/ only -- the nested workspaces (fuzz/, \
-             wallet-gui/src-tauri/, app-maya2c/) keep theirs, and they are \
+             apps/wallet-gui/src-tauri/, apps/ledger-maya2c/) keep theirs, and they are \
              about 19.5 GiB of this. Rebuilding the root from cold measured \
              4m 54s for `--workspace --all-targets` on 2026-09-20.",
             human(total),

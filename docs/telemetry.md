@@ -8,7 +8,7 @@ claim any height. Nothing is verified against the chain, and closing that gap
 is not a future task — there is no proof a machine can offer that it is
 hashing.
 
-This is stated at the top of `telemetry/src/lib.rs`, on the dashboard page
+This is stated at the top of `crates/telemetry/src/lib.rs`, on the dashboard page
 itself, and here, because "the network has N hashes per second" is exactly the
 kind of number that gets repeated without its caveat. The chain's own
 difficulty is the figure that cannot be faked, and it belongs beside the
@@ -23,11 +23,11 @@ node  ────────────────────────�
 
 | Piece | Crate | Feature |
 |---|---|---|
-| hash rate measurement | `telemetry/src/meter.rs` | always |
-| wire types, region rules | `telemetry/src/{report,region,snapshot}.rs` | always |
-| the reporter a miner embeds | `telemetry/src/reporter.rs` | `client` |
-| the collector and its HTTP surface | `telemetry/src/{collector,http}.rs` | `server` |
-| the browser page | `dashboard/` | its own workspace |
+| hash rate measurement | `crates/telemetry/src/meter.rs` | always |
+| wire types, region rules | `crates/telemetry/src/{report,region,snapshot}.rs` | always |
+| the reporter a miner embeds | `crates/telemetry/src/reporter.rs` | `client` |
+| the collector and its HTTP surface | `crates/telemetry/src/{collector,http}.rs` | `server` |
+| the browser page | `apps/dashboard/` | its own workspace |
 
 The split matters: `wgpu-miner` takes `default-features = false,
 features = ["client"]` so a miner links no web framework it never serves from —
@@ -60,11 +60,11 @@ a determined liar can inflate, which is why the caveat above exists.
 ## Location: country only, and not always that
 
 The dashboard shows where hash rate is. It does that at country granularity and
-enforces three rules in `telemetry/src/region.rs`:
+enforces three rules in `crates/telemetry/src/region.rs`:
 
 1. **The address is never stored.** A country code is derived at ingest and the
    address is dropped in the same function. There is no field for it in
-   `Stored`, and `telemetry/tests/end_to_end_tests.rs` asserts against the
+   `Stored`, and `crates/telemetry/tests/end_to_end_tests.rs` asserts against the
    published bytes, not against the type.
 2. **There are no coordinates.** Not rounded ones. A rounded coordinate is
    still a coordinate, and a UI that receives one will eventually plot it.
@@ -156,7 +156,7 @@ cd dashboard && trunk serve       # proxies /api to 127.0.0.1:9100
 cd dashboard && trunk build --release   # dist/ is the deployable page
 ```
 
-`dashboard/` is deliberately **not** a workspace member. Leptos in CSR mode
+`apps/dashboard/` is deliberately **not** a workspace member. Leptos in CSR mode
 links `web-sys` and only runs on `wasm32-unknown-unknown`; adding it would put
 a crate that cannot execute on the host into `cargo test --workspace`.
 `sdk-wasm` is a member because its logic is target-independent and its tests

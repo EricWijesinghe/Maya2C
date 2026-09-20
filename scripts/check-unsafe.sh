@@ -146,7 +146,7 @@ if [ -n "$undocumented" ]; then
     echo "$undocumented" | sed 's/^/  /'
     echo
     echo "Add a '// SAFETY:' comment above each, stating the invariant that"
-    echo "makes the operation sound. See benches/hybrid_footprint.rs for the"
+    echo "makes the operation sound. See crates/node/benches/hybrid_footprint.rs for the"
     echo "shape this repository uses."
     exit 1
 fi

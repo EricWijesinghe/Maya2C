@@ -1,12 +1,12 @@
 # Stateless transfer verification
 
 **Status: RESEARCH.** `STATELESS_ACTIVATION_HEIGHT = u64::MAX`
-(`src/state/context.rs`). Nothing on any network commits accounts as a sparse
+(`crates/node/src/state/context.rs`). Nothing on any network commits accounts as a sparse
 tree, and no gossip topic carries a witness.
 
 Crates and paths: `stateless-core` (the tree, witnesses, transfer rules, Ring-SIS
-backend), `src/state/stateless.rs` (the switch, witness production,
-`verify_block`), `light-client/src/stateless.rs` (`StatelessValidator`), RPC
+backend), `crates/node/src/state/stateless.rs` (the switch, witness production,
+`verify_block`), `crates/light-client/src/stateless.rs` (`StatelessValidator`), RPC
 `stateless_transaction_witness`.
 
 ## The brief, and what came of each part
@@ -16,7 +16,7 @@ backend), `src/state/stateless.rs` (the switch, witness production,
 | Polynomial vector commitments over `R_q = Z_q[x]/(x^n+1)` | `stateless_core::lattice::RingSis`: a Ring-SIS compression function over `n = 256`, `q = 12289`, driving the same sparse tree as the BLAKE3 backend | Built, dark, **not** what the node commits with — see below |
 | A witness of under 1 KB on every transaction broadcast | `StateDB::transaction_witness`, RPC `stateless_transaction_witness` | **Per key, yes** with BLAKE3 up to ~2^20 accounts. **Per transfer, no**: a transfer reads at least two keys, ~1.3 KB at 2^18 accounts. With Ring-SIS, no at any useful size. Not on gossip |
 | Validators check state purely from the header root and a witness | `state::stateless::verify_block`, `StatelessValidator`, `LightClient::verify_block` | For **transfer-only blocks** on a state with no `m:`/`o:`/`g:` records. Anything else answers *unverifiable* |
-| A light node validates 10,000 transitions in under 10 MB | `stateless-core/tests/light_node_memory.rs` (unsigned), `light-client/tests/stateless_memory.rs` (hybrid-signed, through the node's types) | Yes, as peak *heap* above baseline — not RSS |
+| A light node validates 10,000 transitions in under 10 MB | `crates/stateless-core/tests/light_node_memory.rs` (unsigned), `crates/light-client/tests/stateless_memory.rs` (hybrid-signed, through the node's types) | Yes, as peak *heap* above baseline — not RSS |
 
 ## Why the node does not commit with the lattice backend
 
@@ -62,7 +62,7 @@ a Merkle tree tolerates and nothing else should.
 
 ## The tree
 
-`src/state/merkle.rs` orders accounts by address and packs them densely.
+`crates/node/src/state/merkle.rs` orders accounts by address and packs them densely.
 Inserting one account moves every account after it, so no witness smaller than
 the whole account set can say what the new root is — and a transfer to a new
 address inserts one. Stateless execution needed a different tree, which makes it
@@ -93,7 +93,7 @@ record sits under its own layer (`StateLayer::Stateless`, tag 12, between
 `Htlc` and `Shielded`; it moves no existing root because no existing state holds
 it). `root_with_overlay` builds the sparse accounts root whenever the marker is
 present, so `state_root()` needs no height, and the marker is journalled and
-reverted like any record — `tests/stateless_equivalence.rs` reverts the
+reverted like any record — `crates/node/tests/stateless_equivalence.rs` reverts the
 activation block and gets the dense root back. `account_proof` refuses a sparse
 state rather than hand out a dense path that verifies against nothing.
 

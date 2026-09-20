@@ -32,7 +32,7 @@ thing to read before anything else here matters.
 | `zk-privacy` | Groth16 shielded joinsplits |
 | `vm` | Wasm contract execution |
 | `l2-flash` | L2 settlement |
-| `wallet`, `wallet-gui/` | CLI wallet, and a Tauri desktop wallet whose keys never leave the Rust core |
+| `wallet`, `apps/wallet-gui/` | CLI wallet, and a Tauri desktop wallet whose keys never leave the Rust core |
 | `explorer` | Server-rendered chain explorer |
 | `cuda-miner`, `wgpu-miner` | GPU miners. Both GPU features are default-off so CI builds without an adapter |
 | `stratum-v2`, `pool-service` | Pool protocol, and the daemon joining it to chain types |
@@ -48,7 +48,7 @@ thing to read before anything else here matters.
 | `api-gateway` | REST and GraphQL gateway, talking to a node over JSON-RPC |
 | `sdk-ffi`, `sdk-wasm` | uniffi bindings, and browser bindings, over the hybrid signing primitives |
 | `docgen` | Generates the LaTeX technical reference from module documentation |
-| `dashboard/` | Leptos browser page. Not a workspace member: CSR Leptos only runs on `wasm32` |
+| `apps/dashboard/` | Leptos browser page. Not a workspace member: CSR Leptos only runs on `wasm32` |
 
 ### Research branches
 
@@ -69,12 +69,12 @@ rationale for each is in
 | `htlc-lattice`, `htlc-watcher` | Lattice HTLC atomic swaps (Maya2C↔Maya2C only), and the counterparty watcher |
 | `stateless-core` | Sparse-Merkle account witnesses for stateless transfer verification |
 | `confidential-ai` | Federated training with ML-KEM secure aggregation and integer differential privacy |
-| `ebpf-net`, `ebpf-net/common` | UDP block relay judged by an XDP program at the driver (Linux, `xdp` feature) |
+| `ebpf-net`, `hal/ebpf-net/common` | UDP block relay judged by an XDP program at the driver (Linux, `xdp` feature) |
 | `threat-intel`, `threat-firewall` | Threat indicators built from verifiable gossip evidence, and the per-host nftables worker |
-| `iot-anchor` | Hardware-anchored sensor identity: ML-DSA-65 device keys, PUF, TPM sealing, hash-chained telemetry batches. `no_std`; `iot-firmware/` runs it on Cortex-M33 under QEMU |
+| `iot-anchor` | Hardware-anchored sensor identity: ML-DSA-65 device keys, PUF, TPM sealing, hash-chained telemetry batches. `no_std`; `hal/iot-firmware/` runs it on Cortex-M33 under QEMU |
 
 Three more directories have their own workspaces and toolchains: `offsec-sandbox/`
-(red-team fuzzing), `ebpf-net/programs/` (the XDP program) and `fuzz/`.
+(red-team fuzzing), `hal/ebpf-net/programs/` (the XDP program) and `fuzz/`.
 
 ## Build
 
@@ -98,7 +98,7 @@ workspace's test surface:
 
 ```bash
 cd dashboard      && trunk build --release   # telemetry dashboard
-cd wallet-gui/ui  && trunk build --release   # wallet frontend
+cd apps/wallet-gui/ui  && trunk build --release   # wallet frontend
 ```
 
 ## Documentation
@@ -121,7 +121,7 @@ than discovered:
 python scripts/deploy_brand_assets.py        # favicons and wordmarks into each app
 python scripts/make_og_card.py               # the 1200x630 social card
 cargo tauri icon logo-assets/print/HighRes-Square-2000_2000x2000.png \
-  -o wallet-gui/src-tauri/icons               # the desktop icon set
+  -o apps/wallet-gui/src-tauri/icons               # the desktop icon set
 ```
 
 ## Status

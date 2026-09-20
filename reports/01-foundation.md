@@ -375,11 +375,15 @@ real    8m58.423s
 
 Three things that measurement settles:
 
-1. **`CARGO_BUILD_JOBS=1` is no longer required.** CLAUDE.md recorded it as
-   mandatory, with `exploit_replays` hitting `LNK1102: out of memory` even at
-   four jobs. This run linked 167 test binaries at 24 jobs and did not.
-   `line-tables-only` removed the cause, which is why `.cargo/config.toml`
-   deliberately does not pin `jobs = 1`.
+1. **This run linked 167 test binaries at cargo's default 24 jobs without
+   `LNK1102`.** That was originally written up here as "`CARGO_BUILD_JOBS=1`
+   is no longer required". **That conclusion was wrong, and it was drawn from
+   this single run.** Every subsequent attempt at 24 jobs failed — not with
+   `LNK1102`, which `line-tables-only` did fix, but with rustc's
+   `os error 1455`, Windows commit-charge exhaustion, while mmapping the node
+   rlib. See `reports/02-layout.md` §1. The correct statement is narrower:
+   line tables fixed the *linker's* memory problem, and the *compiler's*
+   remains, so build parallelism is still bounded.
 2. **Nothing in this phase broke a test.** The `sha3` 0.10 → 0.11 bump, the
    `criterion` 0.5 → 0.7 bump, `blake3` → 1.8, 450 migrated dependency
    declarations, a workspace-wide lint table including

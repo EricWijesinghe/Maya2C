@@ -16,39 +16,39 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-custom-l1-node = { path = ".." }
+custom-l1-node = { path = "../crates/node" }
 # The pool's front door. Unlike every other decoder here, these bytes arrive
 # from whatever dialled the mining port rather than from a peer that already
 # completed a handshake.
-maya-stratum-v2 = { path = "../stratum-v2" }
+maya-stratum-v2 = { path = "../crates/stratum-v2" }
 # Archives of pruned blocks, read back from stores nobody has to trust: a
 # local directory an attacker may have written to, an IPFS node, a gateway.
-maya-archive = { path = "../archive" }
+maya-archive = { path = "../crates/archive" }
 # Bank-rail XML. The only decoder here whose input arrives from outside the
 # chain's own peer set entirely, and the one whose format has a documented
 # history of entity-expansion and external-entity attacks.
-maya-iso20022 = { path = "../iso20022" }
+maya-iso20022 = { path = "../crates/iso20022" }
 # Radio frames. The weakest provenance of any decoder here: these bytes arrive
 # from anyone with a transmitter on a shared unlicensed band, with no handshake
 # in front of the parser.
-maya-radio-transport = { path = "../radio-transport" }
+maya-radio-transport = { path = "../hal/radio-transport" }
 # DID documents and attestations, which arrive from strangers by resolution,
 # by wallet handoff, or off a QR code.
-maya-identity = { path = "../identity" }
+maya-identity = { path = "../crates/identity" }
 # Lattice HTLC openings and commitments, which arrive inside a claim or a lock
 # that anyone may submit.
-maya-htlc-lattice = { path = "../htlc-lattice" }
+maya-htlc-lattice = { path = "../crates/htlc-lattice" }
 # Stateless witnesses, which any relay may attach to a block.
-maya-stateless-core = { path = "../stateless-core" }
+maya-stateless-core = { path = "../crates/stateless-core" }
 # Relay datagrams and raw frames off an AF_XDP ring. Before the AEAD, these
 # bytes are whatever anyone on the network sent to the relay port.
-maya-ebpf-net = { path = "../ebpf-net" }
+maya-ebpf-net = { path = "../hal/ebpf-net" }
 # Attack attestations, which anyone may submit carrying evidence frames anyone
 # may have written.
-maya-threat-intel = { path = "../threat-intel" }
+maya-threat-intel = { path = "../crates/threat-intel" }
 # Device enrollments, batches, tamper events and clone evidence, relayed by any
 # gateway from any device.
-maya-iot-anchor = { path = "../iot-anchor" }
+maya-iot-anchor = { path = "../hal/iot-anchor" }
 blake3 = "1"
 
 # Sanitizer builds are slow enough that unoptimized decoding would dominate the

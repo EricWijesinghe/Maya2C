@@ -37,8 +37,8 @@
 #              stand in for all of it.
 #
 # **A tier gates binaries, services and client surfaces. It never gates a crate
-# the node links for consensus.** `dex`, `rwa`, `identity`, `iot-anchor` and
-# `threat-intel` all write records that sit under the state root (invariant
+# the node links for consensus.** `crates/dex`, `crates/rwa`, `crates/identity`, `hal/iot-anchor` and
+# `crates/threat-intel` all write records that sit under the state root (invariant
 # 25), so a node built without one of them would compute a *different state
 # root* from a node built with it — a chain split produced by a cargo flag.
 # This tree already has the right mechanism for turning a subsystem off:
@@ -74,8 +74,9 @@
 # `PROGRESS.md` and `docs/trajectory.md`. They become entries here when they
 # become subsystems.
 #
-# Counts at the last regeneration: 90 entries — 43 verified, 30 working,
-# 17 planned, 0 stub; 28 core, 41 extended, 21 frontier.
+# Counts: 90 entries — 44 verified, 30 working, 16 planned, 0 stub;
+# 28 core, 41 extended, 21 frontier. `cargo xtask coverage` prints the
+# current tally, which is the one to trust.
 
 [meta]
 schema = 1
@@ -85,131 +86,131 @@ source = "docs/architecture-vision.md"
 id = "ml-kem-768-fips-203"
 name = "ML-KEM-768 (FIPS 203)"
 domain = "Cryptography and key management"
-paths = "`crypto-pq`"
+paths = "`crates/crypto-pq`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-crypto-pq", "tests/dualkem_negotiation_tests.rs", "tests/pq_transport_tests.rs"]
+tests = ["crate:maya-crypto-pq", "crates/node/tests/dualkem_negotiation_tests.rs", "crates/node/tests/pq_transport_tests.rs"]
 
 [[feature]]
 id = "ml-dsa-65-fips-204"
 name = "ML-DSA-65 (FIPS 204)"
 domain = "Cryptography and key management"
-paths = "`crypto-pq`, `fips204`"
+paths = "`crates/crypto-pq`, `fips204`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-crypto-pq", "tests/crypto_tests.rs", "tests/hybrid_tests.rs"]
+tests = ["crate:maya-crypto-pq", "crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs"]
 
 [[feature]]
 id = "slh-dsa-fips-205"
 name = "SLH-DSA (FIPS 205)"
 domain = "Cryptography and key management"
-paths = "`crypto-pq`"
+paths = "`crates/crypto-pq`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-crypto-pq", "tests/crypto_tests.rs", "tests/hybrid_tests.rs"]
+tests = ["crate:maya-crypto-pq", "crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs"]
 
 [[feature]]
 id = "hqc-hamming-quasi-cyclic"
 name = "HQC (Hamming Quasi-Cyclic)"
 domain = "Cryptography and key management"
-paths = "`crypto-pq/src/hqc.rs`"
+paths = "`crates/crypto-pq/src/hqc.rs`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["tests/dualkem_latency_tests.rs", "tests/dualkem_negotiation_tests.rs"]
+tests = ["crates/node/tests/dualkem_latency_tests.rs", "crates/node/tests/dualkem_negotiation_tests.rs"]
 
 [[feature]]
 id = "zero-knowledge-proofs-arkworks"
 name = "Zero-knowledge proofs (arkworks)"
 domain = "Cryptography and key management"
-paths = "`zk-privacy`"
+paths = "`crates/zk-privacy`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-zk-privacy", "tests/shielded_tests.rs", "zk-privacy/tests/circuit_tests.rs", "zk-privacy/tests/proof_tests.rs"]
+tests = ["crate:maya-zk-privacy", "crates/node/tests/shielded_tests.rs", "crates/zk-privacy/tests/circuit_tests.rs", "crates/zk-privacy/tests/proof_tests.rs"]
 
 [[feature]]
 id = "zero-knowledge-proofs-halo2-kzg"
 name = "Zero-knowledge proofs (halo2/KZG)"
 domain = "Cryptography and key management"
-paths = "`zkml`"
+paths = "`crates/zkml`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["tests/zkml_block_tests.rs", "zkml-prover/tests/circuit_tests.rs", "zkml-prover/tests/proof_tests.rs"]
+tests = ["crates/node/tests/zkml_block_tests.rs", "crates/zkml-prover/tests/circuit_tests.rs", "crates/zkml-prover/tests/proof_tests.rs"]
 
 [[feature]]
 id = "mpc-tss-threshold-custody-m-of-n"
 name = "MPC-TSS threshold custody (*m*-of-*n*)"
 domain = "Cryptography and key management"
-paths = "`custody-mpc`"
+paths = "`crates/custody-mpc`"
 tier = "extended"
 class = "REAL"
 status = "verified"
-tests = ["custody-mpc/tests/ceremony_tests.rs", "custody-mpc/tests/sharing_tests.rs", "custody-mpc/tests/tls_tests.rs", "custody-mpc/tests/transport_tests.rs", "tests/custody_parity_tests.rs"]
+tests = ["crates/custody-mpc/tests/ceremony_tests.rs", "crates/custody-mpc/tests/sharing_tests.rs", "crates/custody-mpc/tests/tls_tests.rs", "crates/custody-mpc/tests/transport_tests.rs", "crates/node/tests/custody_parity_tests.rs"]
 
 [[feature]]
 id = "verifiable-random-function-rfc-9381"
 name = "Verifiable random function (RFC 9381)"
 domain = "Cryptography and key management"
-paths = "`vrf`"
+paths = "`crates/vrf`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-vrf", "vrf/tests/encoding_tests.rs", "vrf/tests/rfc9381_vectors.rs"]
+tests = ["crate:maya-vrf", "crates/vrf/tests/encoding_tests.rs", "crates/vrf/tests/rfc9381_vectors.rs"]
 
 [[feature]]
 id = "threshold-encrypted-mempool"
 name = "Threshold-encrypted mempool"
 domain = "Cryptography and key management"
-paths = "`mev`, `src/sealed/`, `src/state/sealed_exec.rs`"
+paths = "`crates/mev`, `crates/node/src/sealed/`, `crates/node/src/state/sealed_exec.rs`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["mev/tests/encoding_tests.rs", "mev/tests/shamir_tests.rs", "mev/tests/threshold_tests.rs", "tests/sealed_tests.rs"]
+tests = ["crates/mev/tests/encoding_tests.rs", "crates/mev/tests/shamir_tests.rs", "crates/mev/tests/threshold_tests.rs", "crates/node/tests/sealed_tests.rs"]
 
 [[feature]]
 id = "self-sovereign-identity-records"
 name = "Self-sovereign identity records"
 domain = "Cryptography and key management"
-paths = "`identity`, `src/state/identity.rs`"
+paths = "`crates/identity`, `crates/node/src/state/identity.rs`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["crate:maya-identity", "tests/identity_tests.rs"]
+tests = ["crate:maya-identity", "crates/node/tests/identity_tests.rs"]
 
 [[feature]]
 id = "did-key-rotation-and-revocation"
 name = "DID key rotation and revocation"
 domain = "Cryptography and key management"
-paths = "`src/state/identity_exec.rs`"
+paths = "`crates/node/src/state/identity_exec.rs`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["tests/identity_tests.rs"]
+tests = ["crates/node/tests/identity_tests.rs"]
 
 [[feature]]
 id = "selective-disclosure-credentials"
 name = "Selective disclosure credentials"
 domain = "Cryptography and key management"
-paths = "`zk-privacy/src/credential.rs`"
+paths = "`crates/zk-privacy/src/credential.rs`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["crate:maya-zk-privacy", "tests/identity_tests.rs"]
+tests = ["crate:maya-zk-privacy", "crates/node/tests/identity_tests.rs"]
 
 [[feature]]
 id = "lattice-htlc-l-atomic-swaps"
 name = "Lattice HTLC-L atomic swaps"
 domain = "Cryptography and key management"
-paths = "`htlc-lattice`, `htlc-watcher`, `src/state/htlc_exec.rs`"
+paths = "`crates/htlc-lattice`, `bins/htlc-watcher`, `crates/node/src/state/htlc_exec.rs`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["crate:maya-htlc-lattice", "htlc-lattice/tests/lattice_tests.rs", "htlc-watcher/tests/policy_tests.rs", "tests/htlc_lattice_tests.rs"]
+tests = ["crate:maya-htlc-lattice", "crates/htlc-lattice/tests/lattice_tests.rs", "bins/htlc-watcher/tests/policy_tests.rs", "crates/node/tests/htlc_lattice_tests.rs"]
 
 [[feature]]
 id = "physical-qkd-km-api-interface"
@@ -225,117 +226,117 @@ tests = []
 id = "hybrid-signature-transaction-validation"
 name = "Hybrid-signature transaction validation"
 domain = "Consensus and execution"
-paths = "`src/`"
+paths = "`crates/node/src/`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["tests/hybrid_parity_tests.rs", "tests/hybrid_tests.rs", "tests/malleability_tests.rs"]
+tests = ["crates/node/tests/hybrid_parity_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/malleability_tests.rs"]
 
 [[feature]]
 id = "ethash-style-dag-proof-of-work"
 name = "Ethash-style DAG proof of work"
 domain = "Consensus and execution"
-paths = "`src/crypto/dag/`"
+paths = "`crates/node/src/crypto/dag/`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["tests/dag_tests.rs"]
+tests = ["crates/node/tests/dag_tests.rs"]
 
 [[feature]]
 id = "committed-transaction-root-state-root"
 name = "Committed transaction root + state root"
 domain = "Consensus and execution"
-paths = "`src/state/`, `src/chain.rs`"
+paths = "`crates/node/src/state/`, `crates/node/src/chain.rs`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["tests/chaos_simulator.rs", "tests/consensus_tests.rs", "tests/state_tests.rs"]
+tests = ["crates/node/tests/chaos_simulator.rs", "crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs"]
 
 [[feature]]
 id = "undo-journal-and-reorg-safety"
 name = "Undo journal and reorg safety"
 domain = "Consensus and execution"
-paths = "`src/state/`"
+paths = "`crates/node/src/state/`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["tests/restart_tests.rs", "tests/state_layer_decode_tests.rs", "tests/state_tests.rs"]
+tests = ["crates/node/tests/restart_tests.rs", "crates/node/tests/state_layer_decode_tests.rs", "crates/node/tests/state_tests.rs"]
 
 [[feature]]
 id = "wasm-runtime-via-cranelift-jit"
 name = "WASM runtime via Cranelift JIT"
 domain = "Consensus and execution"
-paths = "`vm`"
+paths = "`crates/vm`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-vm", "tests/contract_tests.rs", "vm/tests/cache_tests.rs", "vm/tests/fuel_calibration_tests.rs", "vm/tests/host_surface_tests.rs", "vm/tests/tensor_gas_tests.rs", "vm/tests/token_swap_tests.rs", "vm/tests/vm_tests.rs", "vm/tests/zkml_host_tests.rs"]
+tests = ["crate:maya-vm", "crates/node/tests/contract_tests.rs", "crates/vm/tests/cache_tests.rs", "crates/vm/tests/fuel_calibration_tests.rs", "crates/vm/tests/host_surface_tests.rs", "crates/vm/tests/tensor_gas_tests.rs", "crates/vm/tests/token_swap_tests.rs", "crates/vm/tests/vm_tests.rs", "crates/vm/tests/zkml_host_tests.rs"]
 
 [[feature]]
 id = "historical-pruning-archive-bootstrap"
 name = "Historical pruning + archive bootstrap"
 domain = "Consensus and execution"
-paths = "`archive`, `src/state/blocks.rs`"
+paths = "`crates/archive`, `crates/node/src/state/blocks.rs`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["archive/tests/car_robustness.rs", "archive/tests/kubo_live.rs", "crate:maya-archive", "tests/pruned_node_tests.rs"]
+tests = ["crates/archive/tests/car_robustness.rs", "crates/archive/tests/kubo_live.rs", "crate:maya-archive", "crates/node/tests/pruned_node_tests.rs"]
 
 [[feature]]
 id = "constant-product-dex-order-book"
 name = "Constant-product DEX + order book"
 domain = "Consensus and execution"
-paths = "`dex`"
+paths = "`crates/dex`"
 tier = "extended"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-dex", "dex/tests/amm_tests.rs", "dex/tests/batch_tests.rs", "dex/tests/book_tests.rs", "dex/tests/encoding_tests.rs", "dex/tests/matching_tests.rs", "tests/dex_concurrency_tests.rs", "tests/dex_tests.rs"]
+tests = ["crate:maya-dex", "crates/dex/tests/amm_tests.rs", "crates/dex/tests/batch_tests.rs", "crates/dex/tests/book_tests.rs", "crates/dex/tests/encoding_tests.rs", "crates/dex/tests/matching_tests.rs", "crates/node/tests/dex_concurrency_tests.rs", "crates/node/tests/dex_tests.rs"]
 
 [[feature]]
 id = "governance-lifecycle-and-bounds"
 name = "Governance lifecycle and bounds"
 domain = "Consensus and execution"
-paths = "`governance`"
+paths = "`crates/governance`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-governance", "governance/tests/limits_tests.rs", "tests/governance_tests.rs", "tests/treasury_tests.rs"]
+tests = ["crate:maya-governance", "crates/governance/tests/limits_tests.rs", "crates/node/tests/governance_tests.rs", "crates/node/tests/treasury_tests.rs"]
 
 [[feature]]
 id = "eip-1559-base-fee-over-bytes"
 name = "EIP-1559 base fee over bytes"
 domain = "Consensus and execution"
-paths = "`fee-market`"
+paths = "`crates/fee-market`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["crate:maya-fee-market", "tests/fee_market_tests.rs"]
+tests = ["crate:maya-fee-market", "crates/node/tests/fee_market_tests.rs"]
 
 [[feature]]
 id = "neural-base-fee-gain"
 name = "Neural base-fee gain"
 domain = "Consensus and execution"
-paths = "`fee-market/src/model/`, `src/neural_gas/`, `neural-gas-trainer`"
+paths = "`crates/fee-market/src/model/`, `crates/node/src/neural_gas/`, `bins/neural-gas-trainer`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["crate:maya-neural-gas-trainer", "neural-gas-trainer/tests/evaluation_tests.rs", "tests/neural_fee_tests.rs"]
+tests = ["crate:maya-neural-gas-trainer", "bins/neural-gas-trainer/tests/evaluation_tests.rs", "crates/node/tests/neural_fee_tests.rs"]
 
 [[feature]]
 id = "multi-shard-asynchronous-dag-narwhal-tusk"
 name = "Multi-shard asynchronous DAG (Narwhal/Tusk)"
 domain = "Consensus and execution"
-paths = "`blockgraph`"
+paths = "`crates/blockgraph`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["blockgraph/tests/elastic_scaling_tests.rs", "blockgraph/tests/serial_equivalence_tests.rs", "crate:maya-blockgraph"]
+tests = ["crates/blockgraph/tests/elastic_scaling_tests.rs", "crates/blockgraph/tests/serial_equivalence_tests.rs", "crate:maya-blockgraph"]
 
 [[feature]]
 id = "elastic-shard-auto-scaling"
 name = "Elastic shard auto-scaling"
 domain = "Consensus and execution"
-paths = "`blockgraph/src/shard_manager/`"
+paths = "`crates/blockgraph/src/shard_manager/`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
@@ -345,31 +346,31 @@ tests = ["crate:maya-blockgraph"]
 id = "lattice-proof-of-useful-work-svp-solver"
 name = "Lattice Proof-of-Useful-Work (SVP solver)"
 domain = "Consensus and execution"
-paths = "`lattice-pow`"
+paths = "`crates/lattice-pow`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["crate:maya-lattice-pow", "lattice-pow/tests/rejection_tests.rs"]
+tests = ["crate:maya-lattice-pow", "crates/lattice-pow/tests/rejection_tests.rs"]
 
 [[feature]]
 id = "on-chain-zkml-onnx-inference"
 name = "On-chain zkML ONNX inference"
 domain = "Consensus and execution"
-paths = "`zkml`, `zkml-prover`"
+paths = "`crates/zkml`, `crates/zkml-prover`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["zkml-prover/tests/circuit_tests.rs", "zkml-prover/tests/proof_tests.rs"]
+tests = ["crates/zkml-prover/tests/circuit_tests.rs", "crates/zkml-prover/tests/proof_tests.rs"]
 
 [[feature]]
 id = "stateless-transfer-verification"
 name = "Stateless transfer verification"
 domain = "Consensus and execution"
-paths = "`stateless-core`, `src/state/stateless.rs`, `light-client/src/stateless.rs`"
+paths = "`crates/stateless-core`, `crates/node/src/state/stateless.rs`, `crates/light-client/src/stateless.rs`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["stateless-core/tests/light_node_memory.rs", "stateless-core/tests/transition_tests.rs", "stateless-core/tests/tree_tests.rs", "tests/stateless_equivalence.rs"]
+tests = ["crates/stateless-core/tests/light_node_memory.rs", "crates/stateless-core/tests/transition_tests.rs", "crates/stateless-core/tests/tree_tests.rs", "crates/node/tests/stateless_equivalence.rs"]
 
 [[feature]]
 id = "universal-evm-svm-move-transpilation"
@@ -385,91 +386,91 @@ tests = []
 id = "libp2p-transport-pq-noise-handshake"
 name = "libp2p transport, PQ Noise handshake"
 domain = "Kernel, networking and transport"
-paths = "`src/network/`"
+paths = "`crates/node/src/network/`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["tests/network_tests.rs", "tests/pq_transport_tests.rs"]
+tests = ["crates/node/tests/network_tests.rs", "crates/node/tests/pq_transport_tests.rs"]
 
 [[feature]]
 id = "byzantine-peer-guard"
 name = "Byzantine peer guard"
 domain = "Kernel, networking and transport"
-paths = "`src/network/peer_health.rs`, `sync.rs`, `node/guard.rs`"
+paths = "`crates/node/src/network/peer_health.rs`, `sync.rs`, `node/guard.rs`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["tests/attack_simulation_tests.rs", "tests/byzantine_guard_tests.rs"]
+tests = ["crates/node/tests/attack_simulation_tests.rs", "crates/node/tests/byzantine_guard_tests.rs"]
 
 [[feature]]
 id = "stratum-v2-pool-protocol"
 name = "Stratum V2 pool protocol"
 domain = "Kernel, networking and transport"
-paths = "`stratum-v2`, `pool-service`"
+paths = "`crates/stratum-v2`, `bins/pool-service`"
 tier = "extended"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-pool-service", "crate:maya-stratum-v2", "pool-service/tests/ledger_tests.rs", "pool-service/tests/worker_simulation.rs"]
+tests = ["crate:maya-pool-service", "crate:maya-stratum-v2", "bins/pool-service/tests/ledger_tests.rs", "bins/pool-service/tests/worker_simulation.rs"]
 
 [[feature]]
 id = "spv-light-client"
 name = "SPV light client"
 domain = "Kernel, networking and transport"
-paths = "`light-client`"
+paths = "`crates/light-client`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["light-client/tests/spv_tests.rs", "light-client/tests/stateless_memory.rs", "tests/consensus_tests.rs"]
+tests = ["crates/light-client/tests/spv_tests.rs", "crates/light-client/tests/stateless_memory.rs", "crates/node/tests/consensus_tests.rs"]
 
 [[feature]]
 id = "network-simulation-harness"
 name = "Network simulation harness"
 domain = "Kernel, networking and transport"
-paths = "`src/network/sim.rs`"
+paths = "`crates/node/src/network/sim.rs`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["tests/latency_sim_tests.rs"]
+tests = ["crates/node/tests/latency_sim_tests.rs"]
 
 [[feature]]
 id = "ebpf-xdp-relay-accelerator-aya"
 name = "eBPF/XDP relay accelerator (`aya`)"
 domain = "Kernel, networking and transport"
-paths = "`ebpf-net`, `ebpf-net/programs`, `src/network/relay_key.rs`, `src/network/node/relay.rs`"
+paths = "`hal/ebpf-net`, `hal/ebpf-net/programs`, `crates/node/src/network/relay_key.rs`, `crates/node/src/network/node/relay.rs`"
 tier = "frontier"
 class = "RESEARCH"
 status = "working"
-tests = ["crate:maya-ebpf-net", "ebpf-net/tests/relay_tests.rs", "ebpf-net/tests/xdp_veth.rs", "tests/block_relay_tests.rs"]
+tests = ["crate:maya-ebpf-net", "hal/ebpf-net/tests/relay_tests.rs", "hal/ebpf-net/tests/xdp_veth.rs", "crates/node/tests/block_relay_tests.rs"]
 
 [[feature]]
 id = "lora-off-grid-transport"
 name = "LoRa off-grid transport"
 domain = "Kernel, networking and transport"
-paths = "`radio-transport`"
+paths = "`hal/radio-transport`"
 tier = "frontier"
 class = "RESEARCH"
 status = "working"
-tests = ["crate:maya-radio-transport", "tests/radio_transport_tests.rs"]
+tests = ["crate:maya-radio-transport", "crates/node/tests/radio_transport_tests.rs"]
 
 [[feature]]
 id = "fountain-coded-fragmentation"
 name = "Fountain-coded fragmentation"
 domain = "Kernel, networking and transport"
-paths = "`radio-transport/src/fountain.rs`"
+paths = "`hal/radio-transport/src/fountain.rs`"
 tier = "frontier"
 class = "RESEARCH"
 status = "working"
-tests = ["tests/radio_transport_tests.rs"]
+tests = ["crates/node/tests/radio_transport_tests.rs"]
 
 [[feature]]
 id = "store-and-forward-mesh-relay"
 name = "Store-and-forward mesh relay"
 domain = "Kernel, networking and transport"
-paths = "`radio-transport/src/relay.rs`"
+paths = "`hal/radio-transport/src/relay.rs`"
 tier = "frontier"
 class = "RESEARCH"
 status = "working"
-tests = ["tests/radio_transport_tests.rs"]
+tests = ["crates/node/tests/radio_transport_tests.rs"]
 
 [[feature]]
 id = "satellite-uplink"
@@ -525,57 +526,57 @@ tests = []
 id = "zkml-proof-verification-halo2-bn254"
 name = "zkML proof verification (halo2, BN254)"
 domain = "AI and hardware integration"
-paths = "`zkml`"
+paths = "`crates/zkml`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["tests/zkml_block_tests.rs"]
+tests = ["crates/node/tests/zkml_block_tests.rs"]
 
 [[feature]]
 id = "onnx-import-key-generation-proving"
 name = "ONNX import, key generation, proving"
 domain = "AI and hardware integration"
-paths = "`zkml-prover`"
+paths = "`crates/zkml-prover`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["tests/zkml_block_tests.rs", "zkml-prover/tests/circuit_tests.rs", "zkml-prover/tests/proof_tests.rs"]
+tests = ["crates/node/tests/zkml_block_tests.rs", "crates/zkml-prover/tests/circuit_tests.rs", "crates/zkml-prover/tests/proof_tests.rs"]
 
 [[feature]]
 id = "gpu-mining-cuda"
 name = "GPU mining (CUDA)"
 domain = "AI and hardware integration"
-paths = "`cuda-miner`"
+paths = "`hal/cuda-miner`"
 tier = "frontier"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-cuda-miner", "cuda-miner/tests/dag_parity.rs", "cuda-miner/tests/parity.rs"]
+tests = ["crate:maya-cuda-miner", "hal/cuda-miner/tests/dag_parity.rs", "hal/cuda-miner/tests/parity.rs"]
 
 [[feature]]
 id = "gpu-mining-wgpu-vulkan-metal-dx12"
 name = "GPU mining (wgpu: Vulkan/Metal/DX12)"
 domain = "AI and hardware integration"
-paths = "`wgpu-miner`"
+paths = "`hal/wgpu-miner`"
 tier = "frontier"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-wgpu-miner", "wgpu-miner/tests/gpu_validation.rs"]
+tests = ["crate:maya-wgpu-miner", "hal/wgpu-miner/tests/gpu_validation.rs"]
 
 [[feature]]
 id = "confidential-federated-training"
 name = "Confidential federated training"
 domain = "AI and hardware integration"
-paths = "`confidential-ai`"
+paths = "`crates/confidential-ai`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["crate:maya-confidential-ai", "tests/federated_ai_tests.rs"]
+tests = ["crate:maya-confidential-ai", "crates/node/tests/federated_ai_tests.rs"]
 
 [[feature]]
 id = "iot-anchor-puf-tpm-sealed-device-identity-was-tp"
 name = "IoT anchor: PUF / TPM-sealed device identity (was \"TPM 2.0 / PUF hardware attestation\")"
 domain = "AI and hardware integration"
-paths = "`iot-anchor`, `iot-firmware`, `src/state/iot_exec.rs`"
+paths = "`hal/iot-anchor`, `hal/iot-firmware`, `crates/node/src/state/iot_exec.rs`"
 tier = "frontier"
 class = "RESEARCH"
 status = "working"
@@ -639,17 +640,17 @@ paths = "`fuzz/`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["tests/fuzz_harness.rs"]
+tests = ["crates/node/tests/fuzz_harness.rs"]
 
 [[feature]]
 id = "kani-model-checking"
 name = "Kani model checking"
 domain = "Security and macro engines"
-paths = "`ledger-math`, `dex`, `governance`, `fee-market`, `threat-intel`"
+paths = "`crates/ledger-math`, `crates/dex`, `crates/governance`, `crates/fee-market`, `crates/threat-intel`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-dex", "crate:maya-fee-market", "crate:maya-governance", "crate:maya-ledger-math", "crate:maya-threat-intel", "dex/tests/amm_tests.rs", "dex/tests/batch_tests.rs", "dex/tests/book_tests.rs", "dex/tests/encoding_tests.rs", "dex/tests/matching_tests.rs", "governance/tests/limits_tests.rs"]
+tests = ["crate:maya-dex", "crate:maya-fee-market", "crate:maya-governance", "crate:maya-ledger-math", "crate:maya-threat-intel", "crates/dex/tests/amm_tests.rs", "crates/dex/tests/batch_tests.rs", "crates/dex/tests/book_tests.rs", "crates/dex/tests/encoding_tests.rs", "crates/dex/tests/matching_tests.rs", "crates/governance/tests/limits_tests.rs"]
 gate = "cargo kani -p maya-ledger-math -p maya-dex -p maya-governance"
 
 [[feature]]
@@ -667,51 +668,51 @@ gate = "cargo deny check && cargo audit"
 id = "telemetry-threat-surface"
 name = "Telemetry threat surface"
 domain = "Security and macro engines"
-paths = "`telemetry`"
+paths = "`crates/telemetry`"
 tier = "extended"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-telemetry", "telemetry/tests/end_to_end_tests.rs"]
+tests = ["crate:maya-telemetry", "crates/telemetry/tests/end_to_end_tests.rs"]
 
 [[feature]]
 id = "state-invariant-guard-circuit-breaker"
 name = "State invariant guard + circuit breaker"
 domain = "Security and macro engines"
-paths = "`src/state/invariant_guard/`"
+paths = "`crates/node/src/state/invariant_guard/`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["tests/byzantine_guard_tests.rs", "tests/exploit_replays.rs"]
+tests = ["crates/node/tests/byzantine_guard_tests.rs", "crates/node/tests/exploit_replays.rs"]
 
 [[feature]]
 id = "exploit-replay-suite"
 name = "Exploit replay suite"
 domain = "Security and macro engines"
-paths = "`tests/exploit_replays.rs`"
+paths = "`crates/node/tests/exploit_replays.rs`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["tests/exploit_replays.rs"]
+tests = ["crates/node/tests/exploit_replays.rs"]
 
 [[feature]]
 id = "libafl-dynamic-fuzzer"
 name = "LibAFL dynamic fuzzer"
 domain = "Security and macro engines"
-paths = "`offsec-sandbox`, `tests/fuzz_harness.rs`"
+paths = "`offsec-sandbox`, `crates/node/tests/fuzz_harness.rs`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["tests/fuzz_harness.rs"]
+tests = ["crates/node/tests/fuzz_harness.rs"]
 
 [[feature]]
 id = "threat-intel-registry-was-zk-siem-threat-mesh"
 name = "Threat-intel registry (was \"ZK-SIEM threat mesh\")"
 domain = "Security and macro engines"
-paths = "`threat-intel`, `threat-firewall`, `src/state/threat_exec.rs`, `src/network/evidence_tap.rs`"
+paths = "`crates/threat-intel`, `bins/threat-firewall`, `crates/node/src/state/threat_exec.rs`, `crates/node/src/network/evidence_tap.rs`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["crate:maya-threat-firewall", "crate:maya-threat-intel", "tests/threat_intel_tests.rs"]
+tests = ["crate:maya-threat-firewall", "crate:maya-threat-intel", "crates/node/tests/threat_intel_tests.rs"]
 
 [[feature]]
 id = "self-synthesizing-bytecode-hot-patcher"
@@ -727,61 +728,61 @@ tests = []
 id = "iso-20022-xml-messaging-parser"
 name = "ISO 20022 XML messaging parser"
 domain = "Security and macro engines"
-paths = "`iso20022`"
+paths = "`crates/iso20022`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["crate:maya-iso20022", "tests/iso20022_tests.rs"]
+tests = ["crate:maya-iso20022", "crates/node/tests/iso20022_tests.rs"]
 
 [[feature]]
 id = "iso-20022-l1-bridge"
 name = "ISO 20022 → L1 bridge"
 domain = "Security and macro engines"
-paths = "`iso20022/src/bridge.rs`, `api-gateway`"
+paths = "`crates/iso20022/src/bridge.rs`, `crates/api-gateway`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["api-gateway/tests/gateway_tests.rs", "api-gateway/tests/openapi_tests.rs", "crate:maya-api-gateway", "tests/iso20022_tests.rs"]
+tests = ["crates/api-gateway/tests/gateway_tests.rs", "crates/api-gateway/tests/openapi_tests.rs", "crate:maya-api-gateway", "crates/node/tests/iso20022_tests.rs"]
 
 [[feature]]
 id = "sanctions-non-membership-proofs"
 name = "Sanctions non-membership proofs"
 domain = "Security and macro engines"
-paths = "`zk-privacy/src/sanctions.rs`, `iso20022/src/sanctions.rs`"
+paths = "`crates/zk-privacy/src/sanctions.rs`, `crates/iso20022/src/sanctions.rs`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["crate:maya-zk-privacy", "tests/iso20022_tests.rs"]
+tests = ["crate:maya-zk-privacy", "crates/node/tests/iso20022_tests.rs"]
 
 [[feature]]
 id = "real-world-asset-primitives"
 name = "Real-world asset primitives"
 domain = "Security and macro engines"
-paths = "`rwa`, `src/state/rwa.rs`"
+paths = "`crates/rwa`, `crates/node/src/state/rwa.rs`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["crate:maya-rwa", "tests/rwa_tests.rs"]
+tests = ["crate:maya-rwa", "crates/node/tests/rwa_tests.rs"]
 
 [[feature]]
 id = "atomic-delivery-versus-payment"
 name = "Atomic delivery-versus-payment"
 domain = "Security and macro engines"
-paths = "`src/state/rwa_exec.rs`"
+paths = "`crates/node/src/state/rwa_exec.rs`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["tests/rwa_tests.rs"]
+tests = ["crates/node/tests/rwa_tests.rs"]
 
 [[feature]]
 id = "jurisdictional-transfer-rules"
 name = "Jurisdictional transfer rules"
 domain = "Security and macro engines"
-paths = "`src/state/rwa_exec.rs`"
+paths = "`crates/node/src/state/rwa_exec.rs`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["tests/rwa_tests.rs"]
+tests = ["crates/node/tests/rwa_tests.rs"]
 
 [[feature]]
 id = "pro-rata-revenue-distribution"
@@ -791,7 +792,7 @@ paths = "`ledger-math::distribute`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["crate:maya-ledger-math", "tests/rwa_tests.rs"]
+tests = ["crate:maya-ledger-math", "crates/node/tests/rwa_tests.rs"]
 
 [[feature]]
 id = "zk-dark-pools"
@@ -817,7 +818,7 @@ tests = []
 id = "tauri-2-0-desktop-wallet"
 name = "Tauri 2.0 desktop wallet"
 domain = "Tooling and formal verification"
-paths = "`wallet-gui/`"
+paths = "`apps/wallet-gui/`"
 tier = "extended"
 class = "REAL"
 status = "verified"
@@ -827,37 +828,37 @@ tests = ["crate:maya-wallet-core"]
 id = "leptos-block-explorer-and-dashboard"
 name = "Leptos block explorer and dashboard"
 domain = "Tooling and formal verification"
-paths = "`explorer`, `dashboard/`"
+paths = "`apps/explorer`, `apps/dashboard/`"
 tier = "extended"
 class = "REAL"
 status = "verified"
-tests = ["explorer/tests/indexer_tests.rs", "explorer/tests/server_tests.rs"]
+tests = ["apps/explorer/tests/indexer_tests.rs", "apps/explorer/tests/server_tests.rs"]
 
 [[feature]]
 id = "axum-rest-graphql-gateway"
 name = "Axum REST/GraphQL gateway"
 domain = "Tooling and formal verification"
-paths = "`api-gateway`"
+paths = "`crates/api-gateway`"
 tier = "extended"
 class = "REAL"
 status = "verified"
-tests = ["api-gateway/tests/gateway_tests.rs", "api-gateway/tests/openapi_tests.rs", "crate:maya-api-gateway"]
+tests = ["crates/api-gateway/tests/gateway_tests.rs", "crates/api-gateway/tests/openapi_tests.rs", "crate:maya-api-gateway"]
 
 [[feature]]
 id = "multi-language-sdks"
 name = "Multi-language SDKs"
 domain = "Tooling and formal verification"
-paths = "`sdk-ffi`, `sdk-wasm`, `sdk-js`"
+paths = "`sdks/sdk-ffi`, `sdks/sdk-wasm`, `sdks/sdk-js`"
 tier = "extended"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-sdk-ffi", "crate:maya-sdk-wasm", "tests/hybrid_parity_tests.rs", "tests/ledger_parity_tests.rs"]
+tests = ["crate:maya-sdk-ffi", "crate:maya-sdk-wasm", "crates/node/tests/hybrid_parity_tests.rs", "crates/node/tests/ledger_parity_tests.rs"]
 
 [[feature]]
 id = "latex-technical-reference-generator"
 name = "LaTeX technical reference generator"
 domain = "Tooling and formal verification"
-paths = "`docgen`"
+paths = "`bins/docgen`"
 tier = "extended"
 class = "REAL"
 status = "verified"
@@ -867,11 +868,11 @@ tests = ["crate:maya-docgen"]
 id = "testnet-faucet"
 name = "Testnet faucet"
 domain = "Tooling and formal verification"
-paths = "`faucet`"
+paths = "`apps/faucet`"
 tier = "extended"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-faucet", "faucet/tests", "faucet/tests/http_tests.rs", "faucet/tests/load_tests.rs"]
+tests = ["crate:maya-faucet", "apps/faucet/tests", "apps/faucet/tests/http_tests.rs", "apps/faucet/tests/load_tests.rs"]
 
 [[feature]]
 id = "lean-4-mathematical-proof-engine"
@@ -887,18 +888,18 @@ tests = []
 id = "l2-flash-settlement"
 name = "L2 flash settlement"
 domain = "Supplement (not in architecture-vision.md)"
-paths = "`l2-flash`"
+paths = "`crates/l2-flash`"
 tier = "extended"
 class = "REAL"
 status = "verified"
-tests = ["l2-flash/tests/channel_tests.rs", "l2-flash/tests/scale_tests.rs", "tests/settlement_tests.rs"]
+tests = ["crates/l2-flash/tests/channel_tests.rs", "crates/l2-flash/tests/scale_tests.rs", "crates/node/tests/settlement_tests.rs"]
 note = "Off-chain settlement channels over the hybrid signature pair."
 
 [[feature]]
 id = "command-line-wallet"
 name = "Command-line wallet"
 domain = "Supplement (not in architecture-vision.md)"
-paths = "`wallet`"
+paths = "`bins/l1-wallet`"
 tier = "extended"
 class = "REAL"
 status = "verified"
@@ -909,51 +910,51 @@ note = "Keystore, transaction construction and RPC submission."
 id = "wallet-core-gui-shared"
 name = "Wallet core (GUI-shared)"
 domain = "Supplement (not in architecture-vision.md)"
-paths = "`wallet-gui/core`"
+paths = "`apps/wallet-gui/core`"
 tier = "extended"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-wallet-core", "wallet-gui/core/tests/airgap_tests.rs", "wallet-gui/core/tests/hd_tests.rs", "wallet-gui/core/tests/payment_tests.rs", "wallet-gui/core/tests/vault_tests.rs"]
+tests = ["crate:maya-wallet-core", "apps/wallet-gui/core/tests/airgap_tests.rs", "apps/wallet-gui/core/tests/hd_tests.rs", "apps/wallet-gui/core/tests/payment_tests.rs", "apps/wallet-gui/core/tests/vault_tests.rs"]
 note = "The logic the Tauri shell and the CLI both use."
 
 [[feature]]
 id = "ledger-hardware-wallet-app"
 name = "Ledger hardware wallet app"
 domain = "Supplement (not in architecture-vision.md)"
-paths = "`app-maya2c`"
+paths = "`apps/ledger-maya2c`"
 tier = "frontier"
 class = "RESEARCH"
 status = "working"
-tests = ["app-maya2c/tests/apdu_tests.rs", "app-maya2c/tests/ledger_tests.rs", "tests/ledger_parity_tests.rs"]
-note = "Nano S+/X/Stax app. Its own workspace and cross target; COIN_TYPE is pinned by tests/ledger_parity_tests.rs."
+tests = ["apps/ledger-maya2c/tests/apdu_tests.rs", "apps/ledger-maya2c/tests/ledger_tests.rs", "crates/node/tests/ledger_parity_tests.rs"]
+note = "Nano S+/X/Stax app. Its own workspace and cross target; COIN_TYPE is pinned by crates/node/tests/ledger_parity_tests.rs."
 
 [[feature]]
 id = "mining-pool-service"
 name = "Mining pool service"
 domain = "Supplement (not in architecture-vision.md)"
-paths = "`pool-service`"
+paths = "`bins/pool-service`"
 tier = "extended"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-pool-service", "pool-service/tests/ledger_tests.rs", "pool-service/tests/worker_simulation.rs"]
+tests = ["crate:maya-pool-service", "bins/pool-service/tests/ledger_tests.rs", "bins/pool-service/tests/worker_simulation.rs"]
 note = "PPLNS accounting and treasury payouts over Stratum V2."
 
 [[feature]]
 id = "genesis-ceremony"
 name = "Genesis ceremony"
 domain = "Supplement (not in architecture-vision.md)"
-paths = "`src/bin/genesis-ceremony.rs`"
+paths = "`crates/node/src/bin/genesis-ceremony.rs`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["tests/genesis_tests.rs"]
+tests = ["crates/node/tests/genesis_tests.rs"]
 note = "Multi-party genesis key ceremony, distinct from the genesis file writer."
 
 [[feature]]
 id = "benchmark-suite"
 name = "Benchmark suite"
 domain = "Supplement (not in architecture-vision.md)"
-paths = "`benches/`"
+paths = "`crates/node/benches/`"
 tier = "core"
 class = "REAL"
 status = "verified"
@@ -979,10 +980,10 @@ name = "Deterministic simulation harness"
 domain = "Supplement (not in architecture-vision.md)"
 paths = "`sim/`"
 tier = "core"
-class = "RESEARCH"
-status = "planned"
-tests = []
-note = "Seeded multi-node simulator with a virtual clock, modelled network and fault-injecting disk. Phase C of the foundation plan."
+class = "SIM"
+status = "verified"
+tests = ["sim/tests/determinism.rs", "crate:maya-sim"]
+note = "Seeded multi-node simulator: virtual clock, network model (latency, loss, reordering, partitions), fault-injecting disk. Dependency-free so a replay has one source of decisions. class = SIM because that is what it is: nothing here may reach a production path. See docs/adr/ADR-006-simulation-harness.md."
 
 [[feature]]
 id = "workspace-automation-xtask"

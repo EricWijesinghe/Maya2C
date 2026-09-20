@@ -10,9 +10,9 @@ name: iot-anchor
 
 on:
   push:
-    paths: ["iot-anchor/**", "iot-firmware/**", ".github/workflows/iot-anchor.yml"]
+    paths: ["hal/iot-anchor/**", "hal/iot-firmware/**", ".github/workflows/iot-anchor.yml"]
   pull_request:
-    paths: ["iot-anchor/**", "iot-firmware/**", ".github/workflows/iot-anchor.yml"]
+    paths: ["hal/iot-anchor/**", "hal/iot-firmware/**", ".github/workflows/iot-anchor.yml"]
 
 permissions:
   contents: read

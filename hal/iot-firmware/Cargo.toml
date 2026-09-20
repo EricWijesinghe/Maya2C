@@ -1,0 +1,30 @@
+# Example device firmware for `maya-iot-anchor` on an Arm Cortex-M33.
+#
+# Not a workspace member — its own [workspace], like `hal/ebpf-net/programs` —
+# because it builds only for `thumbv8m.main-none-eabihf`. It runs under QEMU
+# (`mps2-an505`) to prove the crate works with no heap and no std, and to
+# measure the stack high-water mark of key derivation, enrollment and signing.
+# QEMU has no TRNG and no PUF: the RNG here is a deterministic stand-in and the
+# "PUF response" is simulated, so this demonstrates the code path, not security.
+[package]
+name = "maya-iot-firmware"
+version = "0.1.0"
+publish = false
+edition = "2024"
+rust-version = "1.88"
+
+[workspace]
+
+[dependencies]
+maya-iot-anchor = { path = "../iot-anchor", default-features = false }
+cortex-m = "0.7"
+cortex-m-rt = "0.7"
+cortex-m-semihosting = "0.5"
+panic-semihosting = { version = "0.6", features = ["exit"] }
+rand_core = { version = "0.6", default-features = false }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+debug = true

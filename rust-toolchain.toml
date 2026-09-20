@@ -5,11 +5,11 @@
 # developer happened to have. `target/` fingerprints are keyed on the compiler,
 # so a silent toolchain change also silently invalidates 289 GB of artifacts.
 #
-# Nightly, not stable: `ebpf-net/programs` needs `-Z build-std=core` for
+# Nightly, not stable: `hal/ebpf-net/programs` needs `-Z build-std=core` for
 # `bpfel-unknown-none`, and `fuzz/` needs the libFuzzer sanitizer flags.
 # Dated rather than plain `nightly`, so "bleeding edge" stays reproducible and
 # an ICE arrives on the day someone chooses to move the pin rather than on a
-# random Tuesday. `ebpf-net/programs/rust-toolchain.toml` already pinned this
+# random Tuesday. `hal/ebpf-net/programs/rust-toolchain.toml` already pinned this
 # exact channel; this file makes the rest of the workspace agree with it.
 [toolchain]
 channel = "nightly-2026-07-15"
@@ -19,7 +19,7 @@ channel = "nightly-2026-07-15"
 #                        firmware targets below.
 # llvm-tools           - `cargo llvm-cov`, which the 80% coverage floor needs.
 # miri                 - undefined-behaviour checking for the crates that are
-#                        allowed `unsafe` at all (`ebpf-net/src/linux/`,
+#                        allowed `unsafe` at all (`hal/ebpf-net/src/linux/`,
 #                        `sdk-ffi`, `cuda-miner`, `wgpu-miner`). Not run in the
 #                        default CI job; it cannot execute FFI or GPU calls.
 components = ["rustfmt", "clippy", "rust-src", "llvm-tools", "miri"]
@@ -27,7 +27,7 @@ components = ["rustfmt", "clippy", "rust-src", "llvm-tools", "miri"]
 # Cross targets this repository actually builds for, so a clone can build them
 # without a separate `rustup target add`:
 #
-#   wasm32-unknown-unknown       `dashboard`, `wallet-gui/ui`, `sdk-wasm`,
+#   wasm32-unknown-unknown       `dashboard`, `apps/wallet-gui/ui`, `sdk-wasm`,
 #                                `contracts/token-swap`
 #   thumbv8m.main-none-eabihf    `iot-firmware` (Cortex-M33) and `iot-anchor`'s
 #                                no_std build

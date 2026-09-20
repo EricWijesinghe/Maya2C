@@ -1,0 +1,28 @@
+[package]
+name = "maya-identity"
+version.workspace = true
+# Not published. See crates/stratum-v2/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Self-sovereign identity: DID documents, service endpoints, and attestations that carry commitments rather than claims"
+
+[lib]
+name = "maya_identity"
+path = "src/lib.rs"
+
+# Deliberately no dependency on `custom-l1-node`. A DID Document arrives from a
+# stranger — resolved from another node, handed over by a wallet, read out of a
+# QR code — so the decoder is kept fuzzable without RocksDB in the graph, the
+# same boundary `iso20022` and `radio-transport` hold.
+#
+# No base58 crate either. The alphabet and the leading-zero rule are twenty
+# lines, and a DID string is an identifier two implementations must agree on
+# character for character, forever; a dependency there would be a third party's
+# freedom to change an alphabet in a point release.
+[dependencies]
+blake3 = "1"
+thiserror.workspace = true
+
+[lints]
+workspace = true

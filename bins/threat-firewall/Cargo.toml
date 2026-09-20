@@ -1,0 +1,35 @@
+[package]
+name = "maya-threat-firewall"
+version.workspace = true
+# Not published. See crates/stratum-v2/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Per-host worker turning a co-located node's active threat indicators into nftables or iptables drops"
+
+[lib]
+name = "maya_threat_firewall"
+path = "src/lib.rs"
+
+[[bin]]
+name = "threat-firewall"
+path = "src/bin/threat-firewall.rs"
+
+[dependencies]
+# The RPC wire types, reused rather than restated — the arrangement
+# `htlc-watcher` uses, so the worker and the node cannot drift.
+custom-l1-node = { path = "../../crates/node" }
+# Whether an indicator is active at a height: decided by the same function the
+# node's own records are canonical under.
+maya-threat-intel = { path = "../../crates/threat-intel" }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
+jsonrpsee = { workspace = true, features = ["http-client"] }
+# `ThreatSource` is held as a trait object so tests drive the worker from an
+# in-process state database; native async fns in traits are not dyn-compatible.
+async-trait.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+hex.workspace = true
+
+[lints]
+workspace = true

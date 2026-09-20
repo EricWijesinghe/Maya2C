@@ -1,0 +1,308 @@
+[package]
+name = "custom-l1-node"
+version.workspace = true
+# Not published. cargo-deny reads this: `allow-wildcard-paths` and
+# `[licenses.private] ignore` both apply only to unpublished crates, so
+# without it every internal path dependency reads as a wildcard and every
+# workspace crate reads as unlicensed.
+publish.workspace = true
+edition.workspace = true
+# Edition 2024 needs 1.85, but the code also uses `u64::is_multiple_of` (1.87)
+# and `slice::as_chunks` (1.88). Declaring the real floor makes a stale
+# toolchain fail with a clear message instead of a wall of errors.
+rust-version.workspace = true
+
+[dependencies]
+blake3.workspace = true
+argon2.workspace = true
+# Entropy comes straight from the OS rather than through an RNG trait crate.
+# rand_core 0.10 is traits-only — it no longer ships OsRng — and routing key
+# generation through a trait crate would mean keeping dalek's rand_core version
+# in lockstep with every other crate that wants one. getrandom is the source
+# those RNGs wrap anyway, and it is already in the tree transitively.
+getrandom.workspace = true
+# ML-DSA-65 (FIPS 204), the transaction signature scheme.
+#
+# Pure Rust, which the Dockerfile's static-musl build depends on: the PQClean
+# bindings (pqcrypto-mldsa) would add a C toolchain and an unsafe FFI surface to
+# a build that currently links only RocksDB's C++.
+#
+# Only the 65 parameter set is compiled. The 44 and 87 sets are dead weight, and
+# a set that is present is a set some future caller can pick by accident — the
+# security level of a chain should not be a function of which import someone
+# reached for.
+fips204 = { workspace = true, features = ["default-rng"] }
+# SLH-DSA-SHA2-128s (FIPS 205), the second half of every transaction signature.
+#
+# Its own crate rather than a module here, because `slh-dsa` is generic over its
+# parameter set and monomorphizes into whichever crate instantiates it — see
+# crates/crypto-pq/Cargo.toml for the measurement that forced this.
+maya-crypto-pq = { path = "../crypto-pq" }
+# The AEAD sealing every frame of the post-quantum transport layer. Already in
+# the tree via the wallet keystore, so this adds no new dependency.
+chacha20poly1305.workspace = true
+zeroize.workspace = true
+hex.workspace = true
+thiserror.workspace = true
+rocksdb.workspace = true
+serde = { workspace = true, features = ["derive"] }
+# `config.toml` parsing. `toml` rather than a general config crate: one format,
+# read once at startup, with `deny_unknown_fields` doing the work a layered
+# config library would otherwise hide.
+toml.workspace = true
+serde_json.workspace = true
+maya-vm = { path = "../vm" }
+# zkML proof verification, for `host_verify_zkml_proof`. The verifier only:
+# proving and ONNX import are in `maya-zkml-prover`, which is a dev-dependency
+# here and nothing more, so an ONNX runtime cannot end up on a consensus path.
+# Dark until `ZKML_ACTIVATION_HEIGHT` is set -- see crates/node/src/state/context.rs.
+maya-zkml = { path = "../zkml" }
+maya-zk-privacy = { path = "../zk-privacy" }
+# The trading engine's arithmetic: the constant-product curve, the order book
+# matcher, and the batch clearing that prices a block's swaps at one price.
+# A separate crate for the same reason `ledger-math` is one — it is the other
+# half of the code where a rounding error mints value, and it is model-checked.
+maya-dex = { path = "../dex" }
+# Archives of pruned block batches, for `state_pruner`. The node writes and
+# reads them; the crate itself knows nothing about blocks.
+maya-archive = { path = "../archive" }
+# The randomness beacon's verifiable random function. RFC 9381 over
+# curve25519 — a classical primitive, deliberately, because no post-quantum VRF
+# is standardized. `crates/vrf/src/lib.rs` states what that costs and what bounds it.
+maya-vrf = { path = "../vrf" }
+# The proposal lifecycle, the vote tally, and the bounds a proposal may never
+# escape. A separate crate for the same reason `ledger-math` is one: it decides
+# which changes to the chain's own rules are permissible, and that is the last
+# place a bug should be hard to check.
+maya-governance = { path = "../governance" }
+# Threshold encryption for the mempool: the committee key, the Shamir split,
+# and the Chaum-Pedersen proof a decryption share carries. A separate crate so
+# the curve arithmetic can be reviewed and fuzzed without the node, and so that
+# a chain built without the sealed mempool does not link it.
+maya-mev = { path = "../mev" }
+# ISO 20022 bank-rail messages. The node takes it for the bridge in
+# `crates/node/src/iso20022_bridge.rs`; the crate itself links no chain types, which is
+# what keeps its XML decoder fuzzable on its own.
+maya-iso20022 = { path = "../iso20022" }
+# Off-grid radio. The node takes it for `crates/node/src/network/radio_gateway.rs`; the
+# crate links no chain types, which is what keeps its frame decoder fuzzable.
+maya-radio-transport = { path = "../../hal/radio-transport" }
+# Self-sovereign identity records. The node takes it for `crates/node/src/state/identity.rs`.
+maya-identity = { path = "../identity" }
+# Real-world asset records, for `crates/node/src/state/rwa.rs`.
+maya-rwa = { path = "../rwa" }
+# Lattice HTLC commitments, openings and lock records, for `crates/node/src/state/htlc.rs`.
+maya-htlc-lattice = { path = "../htlc-lattice" }
+# Threat indicators and the evidence encoding, for `crates/node/src/state/threat.rs`.
+maya-threat-intel = { path = "../threat-intel" }
+# Strict ed25519 verification of gossip evidence (`crates/node/src/state/threat_exec.rs`).
+# Already in the graph through libp2p identities; named here so the
+# consensus check is `verify_strict`, not whatever libp2p happens to call.
+ed25519-dalek = "2.2"
+# Device records and batch rules, for `crates/node/src/state/iot.rs`.
+maya-iot-anchor = { path = "../../hal/iot-anchor" }
+# The sparse accounts tree and its witnesses, for `crates/node/src/state/stateless.rs`. The
+# node computes its accounts root with this crate once stateless accounts are
+# active, so a stateless verifier and a full node share one definition.
+maya-stateless-core = { path = "../stateless-core" }
+# The block relay, for `crates/node/src/network/node/relay.rs`. Without the `xdp` feature
+# this is portable Rust with no `unsafe`: sealed chunks over a kernel UDP socket.
+# The crate links no chain types, which is what keeps its datagram decoder
+# fuzzable on its own.
+maya-ebpf-net = { path = "../../hal/ebpf-net" }
+# Only for the ristretto255 encodings that cross the boundary between chain
+# state and `maya-mev` — a stored committee key, a stored decryption share.
+# The same version `maya-mev` and `maya-vrf` already pull in, deliberately: two
+# copies of a curve in one lockfile is two sets of encoding rules.
+curve25519-dalek.workspace = true
+# Every `u64` credit, debit, and nonce bump on the ledger. A separate crate
+# because it is the one thing here that is model-checked: Kani compiles a crate
+# together with its whole dependency graph, and it cannot do that for a crate
+# that pulls in RocksDB's C++. See `crates/ledger-math/src/lib.rs`.
+maya-ledger-math = { path = "../ledger-math" }
+# Research branch, see `crypto::lattice`. Present so the derivation half and the
+# verification half are compiled and tested together; no consensus path reaches
+# either of them.
+maya-lattice-pow = { path = "../lattice-pow" }
+# Research branch, see `docs/blockgraph.md`. Present so the batch identifier
+# derivation is compiled and tested against the types it produces; no consensus
+# path reaches either.
+maya-blockgraph = { path = "../blockgraph" }
+jsonrpsee = { workspace = true, features = ["server", "http-client"] }
+# The official Prometheus client. hyper and its util/body crates are already in
+# the tree via jsonrpsee, so the exporter adds no new transport dependency.
+prometheus-client.workspace = true
+hyper = { workspace = true, features = ["server", "http1"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+http-body-util.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net", "io-util"] }
+futures.workspace = true
+libp2p = { version = "0.57", features = [
+    "tokio",
+    "gossipsub",
+    "kad",
+    "identify",
+    "noise",
+    "yamux",
+    "tcp",
+    "macros",
+    # Block sync: a peer that has a child block but not its parent fetches the
+    # parent from whoever relayed the child (`crates/node/src/network/sync.rs`). CBOR over
+    # serde, with libp2p's own request and response size caps.
+    "request-response",
+    "cbor",
+] }
+
+[features]
+# The XDP/AF_XDP receive path for the block relay, Linux only. Off by default,
+# like `cuda-miner`'s `cuda`: without it the relay receives on a kernel UDP
+# socket, and the node links neither aya nor the AF_XDP `unsafe` in
+# `hal/ebpf-net/src/linux/`.
+xdp = ["maya-ebpf-net/xdp"]
+
+[dev-dependencies]
+tempfile.workspace = true
+# `tests/fuzz_harness.rs` only: a seeded RNG so a soak run replays exactly. The
+# coverage-guided search and its LibAFL/Z3 graph live in the out-of-workspace
+# `offsec-sandbox` crate, never here — see docs/offsec-sandbox.md.
+rand_chacha.workspace = true
+# In-memory duplex streams, for driving the two halves of the ML-KEM handshake
+# against each other without a socket. What libp2p uses for the same job.
+futures_ringbuf.workspace = true
+# For `tests/hybrid_parity_tests.rs`, which pins the browser SDK's copy of the
+# hybrid construction against the node's authoritative one.
+maya-sdk-wasm = { path = "../../sdks/sdk-wasm" }
+# For `tests/ledger_parity_tests.rs`, which pins the Ledger app's duplicated
+# COIN_TYPE against the wallet's. A dev-dependency cycle -- apps/wallet-gui/core
+# depends on this crate -- which Cargo permits, and which `maya-sdk-wasm` above
+# already relies on for the same kind of parity test.
+maya-wallet-core = { path = "../../apps/wallet-gui/core" }
+# For `tests/custody_parity_tests.rs`, which pins the threshold-custody crate's
+# duplicated hybrid derivation against `crypto::hybrid`. Same arrangement as
+# `maya-sdk-wasm` above and for the same reason: `custody-mpc` must not link
+# RocksDB, so it reimplements the derivation and this test is what catches drift.
+maya-custody-mpc = { path = "../custody-mpc", default-features = false }
+# For `tests/zkml_block_tests.rs`, which proves inference off-chain and then
+# verifies it inside a block. Test-only: the node never links a prover.
+maya-zkml-prover = { path = "../zkml-prover" }
+# For `tests/fee_market_tests.rs`, which runs the fee rule over real
+# transaction sizes and checks nothing in consensus calls it yet.
+maya-fee-market = { path = "../fee-market" }
+# For `tests/htlc_lattice_tests.rs`, which runs the real watcher against two
+# in-process chains. A dev-dependency cycle -- the watcher depends on this
+# crate -- which Cargo permits, exactly as `maya-wallet-core` above.
+maya-htlc-watcher = { path = "../../bins/htlc-watcher" }
+# For `tests/federated_ai_tests.rs` only. Floating-point training code must not
+# reach anything the node links (invariant 20).
+maya-confidential-ai = { path = "../confidential-ai" }
+# The in-process chains in that test implement the watcher's `SwapChain`.
+async-trait.workspace = true
+# For `tests/threat_intel_tests.rs`, which drives the real firewall worker from
+# each honest node's own state. A dev-dependency cycle, as `maya-htlc-watcher`.
+maya-threat-firewall = { path = "../../bins/threat-firewall" }
+criterion.workspace = true
+# Only for `benches/ebpf_bench.rs`: the baseline the relay's fixed header is
+# measured against. No `flatc`; the bench writes its one table out by hand.
+flatbuffers = "25"
+# Comparison baselines for `benches/algo_comparison.rs`. Dev-only: none of this
+# reaches the node binary.
+#
+# kHeavyHash (Kaspa) is deliberately absent, and `benches/algo_comparison.rs`
+# says so in its output rather than leaving a silent gap.
+#
+# There is no `kheavyhash` crate. Kaspa's own `kaspa-pow` exposes the right
+# thing — `Matrix::generate` plus `heavy_hash`, with an official test vector —
+# but it depends unconditionally on `kaspa-hashes`, which pulls `workflow-wasm`
+# and `workflow-core 0.18`, and that crate does not compile on this toolchain
+# (a wasm-bindgen mismatch in code we do not control). `default-features = false`
+# does not remove it.
+#
+# The alternative was to implement kHeavyHash from the specification. That was
+# refused: with no official vectors to check against, a wrong implementation
+# would publish a number misrepresenting another project's performance — the
+# same failure mode that produced a guessed address domain and a guessed mix key
+# earlier in this tree, both of which were only caught because an authority
+# existed to test against. Here there would be none.
+sha2.workspace = true
+ed25519-dalek = { version = "2.2", features = ["rand_core"] }
+# Shielded tests build joinsplits directly, which means constructing field
+# elements and seeding a deterministic RNG.
+ark-bls12-381.workspace = true
+ark-std.workspace = true
+# Contract tests assemble small modules from WAT so they exercise the
+# transaction path without depending on a wasm toolchain being installed.
+wat.workspace = true
+jsonrpsee = { workspace = true, features = ["server", "http-client"] }
+# Only so `examples/gen_fuzz_corpus.rs` can build SV2 seeds through the real
+# encoders rather than by hand. A dev-dependency, never a runtime one: the node
+# does not speak the pool protocol.
+maya-stratum-v2 = { path = "../stratum-v2" }
+
+# Argon2id over 32 MiB is unusably slow when compiled without optimization:
+# an unoptimized hash runs on the order of seconds, which makes `cargo test`
+# look hung rather than slow. Optimize the hash crates even in dev/test while
+# leaving our own code unoptimized and debuggable.
+[[bench]]
+name = "argon_blake"
+harness = false
+
+# The rule that replaces ArgonBlake above the fork. Benchmarked beside it
+# rather than instead of it: the comparison between the two is the point, and
+# both stay in the binary permanently.
+[[bench]]
+name = "dag"
+harness = false
+
+[[bench]]
+name = "hybrid_signing"
+harness = false
+
+[[bench]]
+name = "mlkem_handshake"
+harness = false
+
+# The trading engine's arithmetic. Every node redoes a block's matching pass and
+# its batch clearing, so these are validation costs, not miner costs — and the
+# adversarial batch case is what justifies `MAX_BATCH_INTENTS` being a number
+# rather than "as many as fit".
+[[bench]]
+name = "dex_matching"
+harness = false
+
+# The oracle. VRF verification is paid by every node on every block forever, and
+# a feed's quorum of post-quantum signatures is the most expensive thing a
+# single transaction can ask for — both are what make the per-block ceilings
+# numbers rather than guesses.
+[[bench]]
+name = "oracle"
+harness = false
+
+# No criterion here. This one installs a counting `#[global_allocator]` to
+# measure bytes rather than time, and criterion's own allocations would be
+# counted alongside the work being measured.
+[[bench]]
+name = "hybrid_footprint"
+harness = false
+
+[[bench]]
+name = "algo_comparison"
+harness = false
+
+# The neural base-fee gain's cost per block and per burst, beside signed
+# admission and block validation — see the file's header for why it reports
+# rather than asserts.
+[[bench]]
+name = "gas_predictor"
+harness = false
+
+# The block relay: its fixed header against flatbuffers, the per-datagram cost
+# in user space, loopback UDP, and — on Linux with `--features xdp`, root and
+# `scripts/xdp_netns.sh` — kernel UDP against AF_XDP and XDP_DROP. Reports the
+# generator's offered rate beside every figure and asserts no ratio.
+[[bench]]
+name = "ebpf_bench"
+harness = false
+
+# The root package inherits the same lint policy as every member.
+[lints]
+workspace = true

@@ -33,7 +33,7 @@ CSV_OUT = Path("docs/benchmarks/algo_comparison.csv")
 MD_OUT = Path("docs/benchmarks/algo_comparison.md")
 
 # Assumed package power for the joules-per-operation model. The single input a
-# reader should challenge first; kept identical to `benches/algo_comparison.rs`.
+# reader should challenge first; kept identical to `crates/node/benches/algo_comparison.rs`.
 ASSUMED_PACKAGE_WATTS = 45.0
 
 

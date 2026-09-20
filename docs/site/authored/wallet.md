@@ -46,7 +46,7 @@ one with any other domain string produces a well-formed address that **no key
 can spend from** — funds sent there are gone, and nothing reports an error.
 
 Do not reimplement the derivation. `sdk-wasm` is pinned against the node's own
-implementation by `tests/hybrid_parity_tests.rs` for exactly this reason: an
+implementation by `crates/node/tests/hybrid_parity_tests.rs` for exactly this reason: an
 independent second implementation that drifts is indistinguishable from a
 correct one until somebody loses money.
 

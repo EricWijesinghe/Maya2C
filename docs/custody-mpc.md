@@ -18,7 +18,7 @@ that machine can sign anything the vault owns.
 
 ### A Maya2C signature is two signatures
 
-`HybridVerifyingKey::verify` (`src/crypto/hybrid.rs:337`) checks both halves:
+`HybridVerifyingKey::verify` (`crates/node/src/crypto/hybrid.rs:337`) checks both halves:
 
 | Half | Scheme | Bytes |
 |---|---|---|
@@ -73,7 +73,7 @@ cost nobody has proposed as practical.
 
 A whole Maya2C identity is **32 bytes**.
 
-`crypto::hybrid::signing_key_from_seed` (`src/crypto/hybrid.rs:469`) takes one
+`crypto::hybrid::signing_key_from_seed` (`crates/node/src/crypto/hybrid.rs:469`) takes one
 32-byte chain key and derives *both* halves from it through two
 domain-separated BLAKE3 seeds. Protect those 32 bytes and both schemes are
 protected at once — no per-scheme threshold construction needed, and the
@@ -123,7 +123,7 @@ Item 3 of the brief said "over TLS". TLS protects a hop; a share crosses more
 than one, and every relay, queue, and coordinator in between terminates the
 session and sees plaintext. So each share is sealed to its recipient under
 **ML-KEM-768 + ChaCha20-Poly1305** before it reaches any transport — the same
-KEM the node's own p2p layer uses (`src/network/pq/handshake.rs`), so no new
+KEM the node's own p2p layer uses (`crates/node/src/network/pq/handshake.rs`), so no new
 primitive enters the tree.
 
 TLS then does what it is actually good for. `tls::server_config` **requires** a
@@ -174,7 +174,7 @@ Every frame's claimed index goes through `CustodianDirectory::authorize` before
 it reaches the ceremony. Skipping that leaks no key, but it lets one
 authenticated custodian take another's slot and have the real one refused as a
 duplicate — which breaks the promise every error in this crate makes, that it
-names who to call. `tests/tls_tests.rs` shows the check refusing exactly that.
+names who to call. `crates/node/tests/tls_tests.rs` shows the check refusing exactly that.
 
 ### What the combiner row means in practice
 
@@ -196,19 +196,19 @@ key that owns nothing.
 ## What was built
 
 ```
-custody-mpc/
-  src/vss.rs         Pedersen VSS over Ristretto              perfectly hiding
-  src/seal.rs        ML-KEM-768 + ChaCha20-Poly1305 sealing
-  src/dkg.rs         the dealerless ceremony
-  src/session.rs     the quorum that signs, and its checks
-  src/hybrid.rs      chain key -> hybrid signing key           mirrors the node
-  src/transport.rs   the wire format, every length bounded
-  src/tls.rs         mutual TLS, behind the `tls` feature
-  tests/sharing_tests.rs     16   the arithmetic
-  tests/ceremony_tests.rs    21   3-of-5 end to end, and every failure
-  tests/transport_tests.rs   10   round trips and malformed frames
-  tests/tls_tests.rs          2   a real mTLS ceremony on loopback
-tests/custody_parity_tests.rs 8   in the node's suite
+crates/custody-mpc/
+  crates/node/src/vss.rs         Pedersen VSS over Ristretto              perfectly hiding
+  crates/node/src/seal.rs        ML-KEM-768 + ChaCha20-Poly1305 sealing
+  crates/node/src/dkg.rs         the dealerless ceremony
+  crates/node/src/session.rs     the quorum that signs, and its checks
+  crates/node/src/hybrid.rs      chain key -> hybrid signing key           mirrors the node
+  crates/node/src/transport.rs   the wire format, every length bounded
+  crates/node/src/tls.rs         mutual TLS, behind the `tls` feature
+  crates/node/tests/sharing_tests.rs     16   the arithmetic
+  crates/node/tests/ceremony_tests.rs    21   3-of-5 end to end, and every failure
+  crates/node/tests/transport_tests.rs   10   round trips and malformed frames
+  crates/node/tests/tls_tests.rs          2   a real mTLS ceremony on loopback
+crates/node/tests/custody_parity_tests.rs 8   in the node's suite
 ```
 
 All 57 run and pass. The TLS tests are not `#[ignore]`d and are not aspirational
@@ -216,7 +216,7 @@ All 57 run and pass. The TLS tests are not `#[ignore]`d and are not aspirational
 
 ## What is verified against the node
 
-`tests/custody_parity_tests.rs` is the load-bearing file. `custody-mpc` cannot
+`crates/node/tests/custody_parity_tests.rs` is the load-bearing file. `custody-mpc` cannot
 depend on `custom-l1-node` (RocksDB), so it reimplements the chain-key
 expansion, and duplication of a consensus-critical derivation is dangerous only
 when undetected. The test signs with a quorum and verifies with

@@ -57,7 +57,7 @@ Agent (e2e-runner):
 ## Generated Test Code
 
 ```typescript
-// tests/e2e/markets/search-and-view.spec.ts
+// crates/node/tests/e2e/markets/search-and-view.spec.ts
 import { test, expect } from '@playwright/test'
 import { MarketsPage } from '../../pages/MarketsPage'
 import { MarketDetailsPage } from '../../pages/MarketDetailsPage'
@@ -160,7 +160,7 @@ test.describe('Market Search and View Flow', () => {
 
 ```bash
 # Run the generated test
-npx playwright test tests/e2e/markets/search-and-view.spec.ts
+npx playwright test crates/node/tests/e2e/markets/search-and-view.spec.ts
 
 Running 3 tests using 3 workers
 
@@ -235,7 +235,7 @@ open artifacts/search-results.png
 If a test fails intermittently:
 
 ```
-⚠️  FLAKY TEST DETECTED: tests/e2e/markets/trade.spec.ts
+⚠️  FLAKY TEST DETECTED: crates/node/tests/e2e/markets/trade.spec.ts
 
 Test passed 7/10 runs (70% pass rate)
 
@@ -347,7 +347,7 @@ This command invokes the `e2e-runner` agent located at:
 npx playwright test
 
 # Run specific test file
-npx playwright test tests/e2e/markets/search.spec.ts
+npx playwright test crates/node/tests/e2e/markets/search.spec.ts
 
 # Run in headed mode (see browser)
 npx playwright test --headed

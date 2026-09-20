@@ -1,0 +1,28 @@
+[package]
+name = "l2-flash"
+version.workspace = true
+# Not published. cargo-deny reads this: `allow-wildcard-paths` and
+# `[licenses.private] ignore` both apply only to unpublished crates, so
+# without it every internal path dependency reads as a wildcard and every
+# workspace crate reads as unlicensed.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Maya Flash — state-channel network for micro-payments over the Maya2C L1"
+
+[lib]
+name = "l2_flash"
+path = "src/lib.rs"
+
+[dependencies]
+custom-l1-node = { path = "../node" }
+blake3.workspace = true
+hex.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+getrandom.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -53,7 +53,7 @@ and `Transaction::signing_bytes` commits to both keys, so each signature covers
 the *other* scheme's key. Neither half can be lifted out of one transaction and
 replayed beside a partner key an attacker chose.
 
-`tests/hybrid_tests.rs` asserts this from four angles — a good lattice proof
+`crates/node/tests/hybrid_tests.rs` asserts this from four angles — a good lattice proof
 beside a bad hash proof, the mirror case, a key pair spliced from two accounts,
 and a bit-flip sweep over every byte of the hash key's contribution to the
 address.
@@ -127,7 +127,7 @@ two such transactions fit in a block and a third does not. It was held at 128
 rather than cut because the hundred-channel batch the L2 scale tests settle is a
 property the system claims.
 
-`TOTAL_TRANSFERS` in `l2-flash/tests/scale_tests.rs` fell from 1000 to 20. Every
+`TOTAL_TRANSFERS` in `crates/l2-flash/tests/scale_tests.rs` fell from 1000 to 20. Every
 transfer is signed by both parties, so 1000 transfers is 2000 signatures — five
 minutes per shape, six minutes for the file, long enough that `cargo test` reads
 as hung rather than slow. The property under test does not depend on the volume;
@@ -150,7 +150,7 @@ Measured on a dev build:
 | `[profile.dev.package.slh-dsa] opt-level = 3` | **4468 ms** |
 | the same, plus the instantiating crate optimized | **140 ms** |
 
-A 32× swing. So the instantiation is confined to `crypto-pq/`, behind a
+A 32× swing. So the instantiation is confined to `crates/crypto-pq/`, behind a
 concrete, non-generic API, and the root `Cargo.toml` optimizes *that* crate in
 dev. This keeps the node's own code unoptimized and debuggable, which is the
 property the existing profile overrides exist to preserve — raising
@@ -162,18 +162,18 @@ property the existing profile overrides exist to preserve — raising
 
 | File | Role |
 |---|---|
-| `crypto-pq/src/lib.rs` | Concrete SLH-DSA-SHA2-128s wrapper; the only crate that instantiates `slh-dsa` |
-| `src/crypto/keys.rs` | The ML-DSA-65 half. No `address()` — a lattice key does not name an account on its own |
-| `src/crypto/hybrid.rs` | `HybridSignature`, `HybridPublicKey`, the key types, and the v3 address |
-| `src/core/transaction.rs` | Wire versions 5/6, `signing_bytes` over both keys, `txid` over both signatures |
-| `src/core/payload.rs` | `ChannelClosure` with two key pairs and two signature pairs |
-| `src/state/db.rs` | `stage_transaction` — the both-or-reject rule at block execution |
-| `src/network/mempool.rs` | The same rule, applied earlier |
-| `src/state/settlement.rs` | Closure verification, hash-pin before signatures |
-| `benches/hybrid_signing.rs` | Time: per scheme, per operation, and through `apply_block` |
-| `benches/hybrid_footprint.rs` | Bytes: counting global allocator, static and peak |
-| `tests/hybrid_tests.rs` | The dual-signing rule and the address binding |
-| `tests/malleability_tests.rs` | Encoding surface of both schemes |
+| `crates/crypto-pq/src/lib.rs` | Concrete SLH-DSA-SHA2-128s wrapper; the only crate that instantiates `slh-dsa` |
+| `crates/node/src/crypto/keys.rs` | The ML-DSA-65 half. No `address()` — a lattice key does not name an account on its own |
+| `crates/node/src/crypto/hybrid.rs` | `HybridSignature`, `HybridPublicKey`, the key types, and the v3 address |
+| `crates/node/src/core/transaction.rs` | Wire versions 5/6, `signing_bytes` over both keys, `txid` over both signatures |
+| `crates/node/src/core/payload.rs` | `ChannelClosure` with two key pairs and two signature pairs |
+| `crates/node/src/state/db.rs` | `stage_transaction` — the both-or-reject rule at block execution |
+| `crates/node/src/network/mempool.rs` | The same rule, applied earlier |
+| `crates/node/src/state/settlement.rs` | Closure verification, hash-pin before signatures |
+| `crates/node/benches/hybrid_signing.rs` | Time: per scheme, per operation, and through `apply_block` |
+| `crates/node/benches/hybrid_footprint.rs` | Bytes: counting global allocator, static and peak |
+| `crates/node/tests/hybrid_tests.rs` | The dual-signing rule and the address binding |
+| `crates/node/tests/malleability_tests.rs` | Encoding surface of both schemes |
 
 ---
 

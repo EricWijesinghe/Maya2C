@@ -3,7 +3,7 @@ name: offsec-sandbox
 # The autonomous fuzzing module. Two surfaces, because they fail for unrelated
 # reasons and run in different workspaces:
 #
-#   harness — the in-tree gate (tests/fuzz_harness.rs), main workspace, stable
+#   harness — the in-tree gate (crates/node/tests/fuzz_harness.rs), main workspace, stable
 #   sandbox — the offsec-sandbox crate: its tests, and a short run per surface
 #
 # The coverage-guided LibAFL engine and the Z3 solver are feature-gated and

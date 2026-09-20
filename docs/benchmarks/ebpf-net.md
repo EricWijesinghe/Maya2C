@@ -1,4 +1,4 @@
-# Block relay benchmark (`benches/ebpf_bench.rs`)
+# Block relay benchmark (`crates/node/benches/ebpf_bench.rs`)
 
 Recorded 2026-09-15 on one machine, Intel Core Ultra 9 275HX:
 
@@ -70,7 +70,7 @@ Reading the table:
 - **The receive comparison belongs to a NIC.** Native XDP and zero-copy are
   what this measurement cannot provide.
 
-The first attempt at this table failed and found a bug in `ebpf-net/src/linux/xsk.rs`.
+The first attempt at this table failed and found a bug in `hal/ebpf-net/src/linux/xsk.rs`.
 The kernel publishes its fill-ring consumer index in batches, so the ring can
 show less room than the frames just received, and the receive loop treated that
 as an error. It now refills what fits and keeps the rest for the next pass.

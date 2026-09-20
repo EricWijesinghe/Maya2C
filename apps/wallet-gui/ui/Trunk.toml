@@ -1,0 +1,16 @@
+# Trunk anchors every path in this file to the file's own directory, which is
+# why the config exists at all: Tauri runs `beforeBuildCommand` from
+# `apps/wallet-gui/`, not from `ui/`, so a bare `trunk build` there finds no target
+# and a `--dist` relative to the cwd would land outside `frontendDist`.
+
+[build]
+target = "index.html"
+dist = "dist"
+
+[serve]
+# Must match `build.devUrl` in ../src-tauri/tauri.conf.json.
+port = 1420
+# The desktop shell is the only client; exposing this on the LAN would publish
+# the wallet UI to the network for no benefit.
+address = "127.0.0.1"
+open = false

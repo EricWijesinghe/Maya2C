@@ -8,7 +8,7 @@ not, so the conclusion can be checked rather than taken on trust.
 ## The constraint the brief did not state
 
 A Maya2C signature is a **hybrid pair**, and `HybridVerifyingKey::verify`
-(`src/crypto/hybrid.rs:338-340`) checks both halves:
+(`crates/node/src/crypto/hybrid.rs:338-340`) checks both halves:
 
 | Half | Scheme | Bytes |
 |---|---|---|
@@ -28,8 +28,8 @@ version of the job — it is a device that cannot make a valid transaction.
 | Protocol layer + `fips204` compile for Cortex-M | **yes** | `cargo check --target thumbv8m.main-none-eabi --lib`, clean |
 | `fips204` ARM release rlib | 493 KiB | built here |
 | `blake3` ARM release rlib | 185 KiB | built here |
-| SLH-DSA keygen peak stack, x86-64 | **> 1 MiB** | it overflowed the default main-thread stack in this repo; `src/bin/genesis-ceremony.rs` now runs on a 16 MiB thread because of it |
-| Hybrid signature over a 255-byte APDU | 44 responses | `tests/apdu_tests.rs`, asserted |
+| SLH-DSA keygen peak stack, x86-64 | **> 1 MiB** | it overflowed the default main-thread stack in this repo; `crates/node/src/bin/genesis-ceremony.rs` now runs on a 16 MiB thread because of it |
+| Hybrid signature over a 255-byte APDU | 44 responses | `crates/node/tests/apdu_tests.rs`, asserted |
 | Hybrid public key over a 255-byte APDU | 8 responses | same |
 
 `fips204` is `#![no_std]` with **no heap allocations** and ships an embedded
@@ -54,7 +54,7 @@ going to fit in a budget measured in kilobytes, and the ARM frames would have to
 be ~100× smaller for the conclusion to change.
 
 **Anything about real hardware.** No device, no Speculos, no
-`arm-none-eabi-gcc`. `app-maya2c/tests/ledger_tests.rs` is written and every
+`arm-none-eabi-gcc`. `apps/ledger-maya2c/tests/ledger_tests.rs` is written and every
 test in it is `#[ignore]`.
 
 ## Where the device build stops
@@ -89,14 +89,14 @@ per-device variable), an ARM C toolchain, and the device target JSON.
 ## What exists
 
 ```
-app-maya2c/
-  src/apdu.rs     framing, chunk assembly, response paging   20 tests, host
-  src/derive.rs   path validation, address derivation        pinned to the node
-  src/sign.rs     ML-DSA-65 keygen and signing from a seed
-  src/main.rs     device shell; SIGN_TRANSACTION returns 0x6A81
-  tests/apdu_tests.rs      20 passing
-  tests/ledger_tests.rs    4, all #[ignore]
-tests/ledger_parity_tests.rs   4 passing, in the node's suite
+apps/ledger-maya2c/
+  crates/node/src/apdu.rs     framing, chunk assembly, response paging   20 tests, host
+  crates/node/src/derive.rs   path validation, address derivation        pinned to the node
+  crates/node/src/sign.rs     ML-DSA-65 keygen and signing from a seed
+  crates/node/src/main.rs     device shell; SIGN_TRANSACTION returns 0x6A81
+  crates/node/tests/apdu_tests.rs      20 passing
+  crates/node/tests/ledger_tests.rs    4, all #[ignore]
+crates/node/tests/ledger_parity_tests.rs   4 passing, in the node's suite
 ```
 
 `SIGN_TRANSACTION` refuses rather than returning a lattice-only signature. A
@@ -107,11 +107,11 @@ would produce transactions every node rejects.
 
 The app's first address derivation used
 `blake3::Hasher::new_derive_key(ADDRESS_DOMAIN)`. The node prefixes the domain
-into a **plain** hasher (`src/crypto/hybrid.rs:216`). Those produce different
+into a **plain** hasher (`crates/node/src/crypto/hybrid.rs:216`). Those produce different
 digests from identical input, and the failure mode is an address no key can
 spend from, reported by nothing.
 
-It was caught by reading the node rather than by a test. `tests/ledger_parity_tests.rs`
+It was caught by reading the node rather than by a test. `crates/node/tests/ledger_parity_tests.rs`
 now pins the derivation against `address_of` over freshly generated keys, and
 separately asserts that the keyed form does *not* match — so a future "tidy-up"
 back to `new_derive_key` fails loudly.
@@ -128,7 +128,7 @@ back to `new_derive_key` fails loudly.
 3. **Wait for the ecosystem.** Ledger's secure element gains PQ primitives, or a
    stack-optimised SLH-DSA appears. Neither is in hand.
 4. **Accept that this chain's signature does not fit a Ledger** and treat the
-   air-gapped QR flow in `wallet-gui/core/src/airgap.rs` as the offline story.
+   air-gapped QR flow in `apps/wallet-gui/core/src/airgap.rs` as the offline story.
    It already exists, already works, and already handles the 11,165-byte
    signature — in 512 frames if it must.
 

@@ -123,7 +123,7 @@ is FIPS 203's modulus check, and a peer can send anything.
 Length covers ciphertext and tag, so a frame is self-delimiting and a truncated
 one fails to authenticate rather than being accepted short. Every length is
 checked against a 64 KiB + 16 ceiling **before a byte is allocated**, mirroring
-the discipline in `src/core/codec.rs`. Nonce counters are per-direction and
+the discipline in `crates/node/src/core/codec.rs`. Nonce counters are per-direction and
 refuse to wrap — at `u64::MAX` the connection dies rather than repeating a nonce.
 
 ---
@@ -201,16 +201,16 @@ block costs under a millisecond. Neither number is close to mattering.
 
 | File | Role |
 |---|---|
-| `crypto-pq/src/kem.rs` | Concrete ML-KEM-768 wrapper; the only crate instantiating `ml-kem` |
-| `src/network/pq/handshake.rs` | The two-message exchange and transcript-bound KDF |
-| `src/network/pq/stream.rs` | Framed ChaCha20-Poly1305 duplex |
-| `src/network/pq/rotation.rs` | `EpochClock` — when a session is stale |
-| `src/network/pq/mod.rs` | The libp2p `InboundConnectionUpgrade` / `OutboundConnectionUpgrade` |
-| `src/network/node.rs` | Upgrade applied to both transports; rotation sweep in the driver |
-| `src/network/sim.rs` | `DelayStream` — latency injection for simulation |
-| `tests/pq_transport_tests.rs` | Upgrade applied, no downgrade, rotation fires and heals |
-| `tests/latency_sim_tests.rs` | Five-node propagation under 0 / 25 / 100 / 250 ms |
-| `benches/mlkem_handshake.rs` | Handshake and sealing cost |
+| `crates/crypto-pq/src/kem.rs` | Concrete ML-KEM-768 wrapper; the only crate instantiating `ml-kem` |
+| `crates/node/src/network/pq/handshake.rs` | The two-message exchange and transcript-bound KDF |
+| `crates/node/src/network/pq/stream.rs` | Framed ChaCha20-Poly1305 duplex |
+| `crates/node/src/network/pq/rotation.rs` | `EpochClock` — when a session is stale |
+| `crates/node/src/network/pq/mod.rs` | The libp2p `InboundConnectionUpgrade` / `OutboundConnectionUpgrade` |
+| `crates/node/src/network/node.rs` | Upgrade applied to both transports; rotation sweep in the driver |
+| `crates/node/src/network/sim.rs` | `DelayStream` — latency injection for simulation |
+| `crates/node/tests/pq_transport_tests.rs` | Upgrade applied, no downgrade, rotation fires and heals |
+| `crates/node/tests/latency_sim_tests.rs` | Five-node propagation under 0 / 25 / 100 / 250 ms |
+| `crates/node/benches/mlkem_handshake.rs` | Handshake and sealing cost |
 
 `maya-crypto-pq` holds the instantiation for the same reason it holds `slh-dsa`:
 `ml-kem` is generic over its parameter set, so a `[profile.dev.package.ml-kem]`
@@ -327,7 +327,7 @@ change than the flag, so `--dual-kem` is the whole configuration surface.
 
 The two refusals are structural rather than a check: a `required` node and an
 `off` node offer disjoint protocol sets, so multistream-select finds nothing in
-common and the connection drops. `tests/dualkem_negotiation_tests.rs` pins every
+common and the connection drops. `crates/node/tests/dualkem_negotiation_tests.rs` pins every
 cell of that table.
 
 The `preferred` row is what makes incremental rollout possible — an operator can
@@ -401,7 +401,7 @@ largest message specifically so the mistake is hard to repeat.
 
 ## Measured cost
 
-`tests/dualkem_latency_tests.rs`, in-process transport with simulated one-way
+`crates/node/tests/dualkem_latency_tests.rs`, in-process transport with simulated one-way
 delay, dev profile:
 
 | One-way delay | single-KEM | dual-KEM |

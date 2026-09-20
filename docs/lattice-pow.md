@@ -91,7 +91,7 @@ more rounding rule for two implementations to disagree about.
 
 ## What is proved
 
-`lattice-pow/src/proofs.rs`, under `cargo kani -p maya-lattice-pow`:
+`crates/lattice-pow/src/proofs.rs`, under `cargo kani -p maya-lattice-pow`:
 
 | Harness | Bound |
 |---|---|
@@ -159,7 +159,7 @@ The name is therefore **lattice proof of work**, not PoUW.
 Blocks 1..N were mined under ArgonBlake and then the DAG. That code stays for
 historical validation forever — a chain cannot retire the rule its own history
 was made under. Any activation would follow `DagConfig`
-(`src/crypto/dag/registry.rs`): a height, and a difficulty reset to the floor,
+(`crates/node/src/crypto/dag/registry.rs`): a height, and a difficulty reset to the floor,
 for the reason documented there — a target calibrated against one algorithm's
 cost is meaningless against another's, and being too hard stops a chain in a way
 retargeting cannot recover from.

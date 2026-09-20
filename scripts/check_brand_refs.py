@@ -19,7 +19,7 @@ check that only read ``index.html`` would report a green build for a page whose
 logo is a broken image, which is precisely the case worth catching.
 
 The explorer is not checked here: its HTML is a Rust string with no build step
-to walk, and ``explorer/tests/server_tests.rs`` covers it by asking the running
+to walk, and ``apps/explorer/tests/server_tests.rs`` covers it by asking the running
 server for every path the rendered page mentions. That is the stronger check of
 the two, since it exercises the routes as well as the files.
 

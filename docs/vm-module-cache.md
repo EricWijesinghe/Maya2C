@@ -2,16 +2,16 @@
 
 Compiling a contract once instead of on every call.
 
-- `vm/src/cache.rs` — the cache.
-- `vm/src/config.rs` — `config_digest`, which is half the key.
-- `vm/tests/cache_tests.rs`, `vm/benches/module_cache.rs`.
+- `crates/vm/src/cache.rs` — the cache.
+- `crates/vm/src/config.rs` — `config_digest`, which is half the key.
+- `crates/vm/tests/cache_tests.rs`, `crates/vm/benches/module_cache.rs`.
 
 ---
 
 ## There was never an interpreter
 
 The brief that produced this asked for an adaptive JIT and a 10× improvement of
-"JIT over interpreted". `vm/src/config.rs` sets `Strategy::Cranelift`, so
+"JIT over interpreted". `crates/vm/src/config.rs` sets `Strategy::Cranelift`, so
 wasmtime has always compiled every module to native x86-64 or aarch64 before
 running it. There is no interpreted mode in this tree, and adding one so the
 benchmark had something to beat would be a number manufactured to be met.

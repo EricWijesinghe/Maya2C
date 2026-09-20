@@ -1,0 +1,28 @@
+[package]
+name = "maya-zkml"
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Verifying proofs of quantized neural-network inference, without running the network"
+
+[dependencies]
+# KZG over BN254. The only halo2 on crates.io whose verifier plausibly meets the
+# sub-10ms budget: IPA verification grows linearly with the circuit. The price is
+# a trusted universal setup and a pairing assumption no quantum computer
+# respects -- see docs/zkml.md.
+halo2-axiom = { version = "=0.5.3", default-features = false, features = ["circuit-params"] }
+blake3.workspace = true
+thiserror.workspace = true
+# `ParamsKZG::setup` takes an `RngCore`; the version halo2 itself uses.
+rand_core = "0.6"
+
+
+# No prover, no ONNX runtime, no dev-dependencies that need either. Proving and
+# importing live in `maya-zkml-prover` (`crates/zkml-prover/`), a separate crate, so
+# the node's dependency graph cannot reach tract even by feature unification —
+# and so that crate can declare the newer Rust its tract release needs without
+# raising the floor of everything that links the node. See docs/zkml.md.
+
+[lints]
+workspace = true

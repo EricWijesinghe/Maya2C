@@ -1,0 +1,32 @@
+[package]
+name = "maya-dashboard"
+version = "0.1.0"
+publish = false
+edition = "2024"
+rust-version = "1.88"
+description = "Leptos dashboard for the telemetry collector"
+
+# Not a workspace member. Leptos in CSR mode links `web-sys` and `wasm-bindgen`
+# and only runs on `wasm32-unknown-unknown`; adding it to the workspace would
+# put a crate that cannot execute on the host into `cargo test --workspace`.
+# `sdk-wasm` is a member because its logic is target-independent and its tests
+# run natively — this crate is a browser UI and has no such half.
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+leptos = { version = "0.8", features = ["csr"] }
+# The snapshot type, verbatim. The dashboard deserializing a hand-written
+# mirror of the collector's struct is how a field silently stops being
+# displayed; sharing the type makes that a compile error instead.
+maya-telemetry = { path = "../../crates/telemetry", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+console_error_panic_hook = "0.1"
+wasm-bindgen = "0.2"
+
+[dependencies.web-sys]
+version = "0.3"
+features = ["WebSocket", "MessageEvent", "CloseEvent", "Event", "BinaryType", "Window", "Location"]

@@ -1,0 +1,27 @@
+[package]
+name = "maya-confidential-ai"
+version.workspace = true
+# Not published. See crates/stratum-v2/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Federated training without revealing local updates: ML-KEM pairwise-masked secure aggregation, integer discrete-Gaussian differential privacy, and an attestation hook"
+
+[lib]
+name = "maya_confidential_ai"
+path = "src/lib.rs"
+
+# Off-chain, like `neural-gas-trainer`: local training is floating point, and
+# nothing the node links depends on this crate (invariant 20). No RNG crate:
+# entropy is the caller's, expanded with BLAKE3, as in `htlc-lattice`.
+[dependencies]
+maya-crypto-pq = { path = "../crypto-pq" }
+blake3.workspace = true
+zeroize = { workspace = true, features = ["derive"] }
+thiserror.workspace = true
+# Seals each seed share to its recipient under a key from the pair's ML-KEM
+# secret. The version `custody-mpc` and `mev` already use.
+chacha20poly1305.workspace = true
+
+[lints]
+workspace = true

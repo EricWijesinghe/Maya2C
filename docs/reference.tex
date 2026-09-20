@@ -513,7 +513,7 @@ than the build host.
 
 The only remaining lever would be replacing the Argon2 implementation, which
 would change the digest. That is a hard fork: see
-\texttt{argon\_blake\_matches\_the\_frozen\_known\_answer} in \texttt{tests/crypto\_tests.rs}.
+\texttt{argon\_blake\_matches\_the\_frozen\_known\_answer} in \texttt{crates/node/tests/crypto\_tests.rs}.
 
 \subsubsection{Why the salt is derived, not random}
 
@@ -680,7 +680,7 @@ constant rather than a moving deadline.
 \subsubsection{Hashing primitive}
 
 BLAKE3 throughout, where Ethash uses Keccak. It is already the chain's hash
-(\texttt{src/core/block.rs:76}, \texttt{src/crypto/argon\_blake.rs:84}), so this adds no
+(\texttt{crates/node/src/core/block.rs:76}, \texttt{crates/node/src/crypto/argon\_blake.rs:84}), so this adds no
 dependency and no second primitive to audit.
 
 Domain separation uses derived keys rather than \texttt{Hasher::new\_derive\_key} in
@@ -976,7 +976,7 @@ Reproducibility here rests on three things:
   different ids can never share a genesis block, and a block mined for one
   cannot be replayed onto the other.
 
-\subsection{governance/mod.rs}
+\subsection{crates/governance/mod.rs}
 On-chain governance: what the chain stores about proposals, stake, and the
 rules currently in force.
 
@@ -1010,15 +1010,15 @@ collects the whole subsystem — which is what lets it fold into the state
 root as a single layer and journal into the undo record with no new section
 at all.
 
-\subsection{governance/record.rs}
+\subsection{crates/governance/record.rs}
 What the chain stores about proposals, stake, and the rules in force.
 
-\subsection{governance/work.rs}
+\subsection{crates/governance/work.rs}
 Recent hash power, as a number the chain can hold.
 
 \subsubsection{The problem this solves}
 
-This chain has no block reward. \texttt{pool-service/src/config.rs} states it in
+This chain has no block reward. \texttt{bins/pool-service/src/config.rs} states it in
 the code: \texttt{apply\_block\_checked} credits no subsidy and fees burn to the fee
 sink. There is no coinbase, and [\texttt{crate::core::BlockHeader}] carries
 \texttt{prev\_hash}, \texttt{state\_root}, \texttt{timestamp}, \texttt{nonce}, and \texttt{difficulty\_target} —
@@ -1269,7 +1269,7 @@ failing to authenticate.
 Handshake cost measurement: bytes on the wire, segments, and wall clock.
 
 \textbf{Test and benchmark infrastructure.} It lives in the library rather than
-in \texttt{tests/} for the same reason [\texttt{crate::network::sim}] does: an integration
+in \texttt{crates/node/tests/} for the same reason [\texttt{crate::network::sim}] does: an integration
 test cannot reach a \texttt{\#[cfg(test)]} item. Nothing on a production path calls
 any of it.
 
@@ -1288,7 +1288,7 @@ asserting that threshold would be worse than no test:
   CI runner.
 
 So this reports. [\texttt{Measurement}] carries the numbers; the caller decides
-what to make of them, and \texttt{tests/dualkem\_latency\_tests.rs} prints a table.
+what to make of them, and \texttt{crates/node/tests/dualkem\_latency\_tests.rs} prints a table.
 
 \subsubsection{The number that actually matters, and the trap in it}
 
@@ -1453,7 +1453,7 @@ announces a 4 GiB frame gets an error, not an allocation.
 Network simulation support: a transport that injects latency.
 
 \textbf{This is test and benchmark infrastructure.} It lives in the library
-rather than in \texttt{tests/} because an integration test cannot reach a
+rather than in \texttt{crates/node/tests/} because an integration test cannot reach a
 \texttt{\#[cfg(test)]} item, and building a node with a modified transport requires
 a constructor the library exports. Nothing on a production path constructs a
 [\texttt{DelayTransport}], and [\texttt{crate::network::Node::new\_memory}] is unaffected.
@@ -1885,7 +1885,7 @@ keys they live under.
 The arithmetic is in [\texttt{maya\_dex}]. This module is the part that has to know
 about storage: how a record is laid out, what key it files under, and how it
 enters the Merkle state root. Keeping the split there is what lets the
-arithmetic be model-checked — see \texttt{dex/Cargo.toml}.
+arithmetic be model-checked — see \texttt{crates/dex/Cargo.toml}.
 
 \subsubsection{One keyspace, one prefix}
 
@@ -2638,7 +2638,7 @@ nobody could operate.
 
 \subsubsection{What pins the implementation}
 
-RFC 9381's own test vectors, in \texttt{tests/rfc9381\_vectors.rs}. This is
+RFC 9381's own test vectors, in \texttt{crates/node/tests/rfc9381\_vectors.rs}. This is
 consensus code and there is no second implementation on this chain to
 disagree with it, so the check has to come from outside the repository or it
 is a check against itself.
@@ -3294,7 +3294,7 @@ a very good test:
   over attacker-supplied collections, so a harness for either would be
   bounded at a length far below the ceiling the code actually accepts, and a
   bounded proof of a loop is worth less than the property tests in
-  \texttt{dex/tests/} that run it at full width. Said here rather than left to be
+  \texttt{crates/dex/tests/} that run it at full width. Said here rather than left to be
   inferred from the absence.
 
 \subsection{types.rs}
@@ -3459,7 +3459,7 @@ a very good test:
   sequence length to assume.
 - What they do *not* cover is a sequence of operations. Each proves a
   property of one transition; the composition of many transitions is covered
-  by the tests in \texttt{proposal.rs} and \texttt{tests/governance\_tests.rs}. Said here
+  by the tests in \texttt{proposal.rs} and \texttt{crates/node/tests/governance\_tests.rs}. Said here
   rather than left to be inferred from the absence.
 
 \subsection{proposal.rs}
@@ -3878,7 +3878,7 @@ protocol on top of this, and it is not built here.
 \subsection{codec.rs}
 Bounds-checked reader and writer for Stratum V2's primitive types.
 
-Deliberately the same shape as \texttt{src/core/codec.rs}: every read is range
+Deliberately the same shape as \texttt{crates/node/src/core/codec.rs}: every read is range
 checked, every collection length is capped before anything is reserved, and
 [\texttt{Reader::finish}] refuses trailing bytes so one value cannot have two
 encodings. The node's reader could not simply be reused because it returns
@@ -3888,7 +3888,7 @@ discipline is copied on purpose, not reinvented.
 \subsubsection{Endianness}
 
 Stratum V2 is little-endian throughout, which happens to match the node's
-wire format (\texttt{src/core/block.rs:33-41}). Integers here are therefore LE.
+wire format (\texttt{crates/node/src/core/block.rs:33-41}). Integers here are therefore LE.
 
 \textbf{Except targets and hashes.} See [\texttt{Reader::read\_bytes32}].
 
@@ -3940,7 +3940,7 @@ around Maya2C's header.
 It is \textbf{not} wire-compatible with stock Stratum V2 clients, and it does not
 pretend to be. SV2's mining messages assume a Bitcoin header: they carry a
 \texttt{merkle\_root}, a compact \texttt{nbits}, a rollable \texttt{version}, and a coinbase to
-hold an extranonce. Maya2C's 112-byte header (\texttt{src/core/block.rs:9-41}) has
+hold an extranonce. Maya2C's 112-byte header (\texttt{crates/node/src/core/block.rs:9-41}) has
 none of those. No SRI or Braiins client could mine this chain even against a
 byte-perfect implementation of the specification — it would need an
 ArgonBlake hasher and a Maya2C header builder, at which point it is a
@@ -3963,7 +3963,7 @@ values meet chain types one layer up, in the pool daemon.
 
 \subsubsection{Decoding discipline}
 
-Copied from \texttt{src/core/codec.rs} rather than reinvented:
+Copied from \texttt{crates/node/src/core/codec.rs} rather than reinvented:
 
 - every read is range-checked, so a truncated frame is an error and never a
   panic — a pool that aborts on a malformed frame is a pool that one
@@ -3991,7 +3991,7 @@ The mining sub-protocol, adapted to Maya2C's header.
 
 Stratum V2's mining messages are shaped around a Bitcoin header. Maya2C's is
 112 bytes of \texttt{prev\_hash ‖ state\_root ‖ timestamp ‖ nonce ‖ difficulty\_target}
-(\texttt{src/core/block.rs:33-41}) — no version field, no merkle root, no compact
+(\texttt{crates/node/src/core/block.rs:33-41}) — no version field, no merkle root, no compact
 \texttt{nbits}, and no coinbase to hide an extranonce in. Four adaptations follow.
 Message numbering still matches SV2 slot for slot, so the correspondence
 stays readable.
@@ -3999,8 +3999,8 @@ stays readable.
 \begin{verbatim}
 | SV2 field | Here | Why |
 |---|---|---|
-| `merkle_root` in `NewMiningJob` | `state_root` | The header commits to post-execution state, not to a transaction tree (`src/state/db.rs:626-634`) |
-| `nbits` (U32 compact) in `SetNewPrevHash` | `target` (32 bytes) | Maya2C targets are full 256-bit values compared bytewise (`src/crypto/pow.rs:16-18`); there is no compact form to pack into |
+| `merkle_root` in `NewMiningJob` | `state_root` | The header commits to post-execution state, not to a transaction tree (`crates/node/src/state/db.rs:626-634`) |
+| `nbits` (U32 compact) in `SetNewPrevHash` | `target` (32 bytes) | Maya2C targets are full 256-bit values compared bytewise (`crates/node/src/crypto/pow.rs:16-18`); there is no compact form to pack into |
 | `version` in jobs and shares | *absent* | The header has no version field to roll |
 | `SetExtranoncePrefix` | [`SetNonceRange`] | No coinbase means no extranonce; see below |
 | `ntime` (U32) | `timestamp` (U64) | The header's timestamp is a `u64` |
@@ -4014,7 +4014,7 @@ the 8-byte \texttt{nonce} — and with tens of thousands of connections on one j
 every one of them would otherwise start at zero and walk the same path.
 
 Each channel is therefore assigned a disjoint half-open nonce range at open
-time, the way \texttt{src/consensus/miner.rs:6-10} already partitions across
+time, the way \texttt{crates/node/src/consensus/miner.rs:6-10} already partitions across
 threads. Two channels cannot collide by construction rather than by luck,
 duplicate detection becomes exact, and a submitted nonce outside a channel's
 range is rejected without hashing anything — which, at 25 ms per ArgonBlake
@@ -4073,7 +4073,7 @@ The Stratum port is for miners and speaks the post-quantum transport. The
 dashboard is for miners and operators and speaks HTTP. The exporter is for
 Prometheus and is off unless asked for, because what it serves is
 operational data that belongs inside the pod network — the same reasoning
-\texttt{src/bin/node.rs} applies to the node's own exporter.
+\texttt{crates/node/src/bin/node.rs} applies to the node's own exporter.
 
 \subsubsection{The password is not a flag}
 
@@ -4095,12 +4095,12 @@ Mining channels: nonce ranges, per-channel state, and the registry.
 
 Bitcoin gives each miner its own search space through the coinbase
 extranonce. Maya2C has no coinbase, so the only field a miner may vary is
-the header's 8-byte nonce (\texttt{src/core/block.rs:23}). With tens of thousands
+the header's 8-byte nonce (\texttt{crates/node/src/core/block.rs:23}). With tens of thousands
 of channels on one job, every one of them would otherwise start at zero and
 walk the same path — the pool would pay many miners for the same hash.
 
 Each channel is therefore assigned a disjoint half-open range at open time,
-the way \texttt{src/consensus/miner.rs} already partitions across threads. Three
+the way \texttt{crates/node/src/consensus/miner.rs} already partitions across threads. Three
 things follow, and all three are load-bearing:
 
 1. Two channels cannot collide by construction rather than by luck.
@@ -4143,7 +4143,7 @@ The daemon: the Stratum listener, and the loops around it.
 
 \subsubsection{Transport}
 
-The pool reuses \texttt{src/network/pq} — Noise-style XX over X25519 with an
+The pool reuses \texttt{crates/node/src/network/pq} — Noise-style XX over X25519 with an
 ML-KEM-768 exchange layered inside, ChaCha20Poly1305, 64 KiB frames.
 \texttt{docs/stratum-v2.md} §6 gives the reasoning: SV2 specifies
 \texttt{Noise\_NX\_secp256k1\_…}, and adopting it would introduce secp256k1 — the one
@@ -4173,7 +4173,7 @@ connection queue thousands of verifications and starve every other.
 \subsection{error.rs}
 Pool errors.
 
-Split the way \texttt{explorer/src/error.rs} splits its own: by the operational
+Split the way \texttt{apps/explorer/src/error.rs} splits its own: by the operational
 response, not by the module that raised it. An on-call engineer reading
 \texttt{ledger:} reaches for the disk, and one reading \texttt{node rpc:} reaches for the
 chain. A single \texttt{Internal(String)} would have told them neither.
@@ -4189,7 +4189,7 @@ Work templates, and the ids miners submit against.
 
 \subsubsection{Jobs go stale fast here}
 
-\texttt{TARGET\_BLOCK\_TIME} is fifteen seconds (\texttt{src/consensus/difficulty.rs:32}).
+\texttt{TARGET\_BLOCK\_TIME} is fifteen seconds (\texttt{crates/node/src/consensus/difficulty.rs:32}).
 A ten-minute chain can afford to measure its stale-grace window in seconds;
 this one cannot. Job push has to be sub-second and the grace window is one
 job deep — see [\texttt{crate::channel::ChannelState::current\_job}] for why one and
@@ -4198,7 +4198,7 @@ not zero, and not three.
 \subsubsection{The pool builds empty blocks}
 
 \texttt{get\_mining\_candidate} returns a header over the current state root and no
-transaction list (\texttt{src/rpc/server.rs:147}), and \texttt{submit\_block} takes a whole
+transaction list (\texttt{crates/node/src/rpc/server.rs:147}), and \texttt{submit\_block} takes a whole
 block. The pool therefore submits \texttt{Block::new(header, vec![])}, which is what
 the node's own miner does. This is not a limitation being worked around: on
 a chain that burns fees to \texttt{FEE\_SINK} there is no fee revenue to collect by
@@ -4222,7 +4222,7 @@ The share ledger, behind a trait.
 Two implementations: [\texttt{rocks::RocksLedger}] for deployment and
 [\texttt{memory::MemoryLedger}] for tests. The trait exists so the PPLNS window
 walk, the maturity rules, and the reorg reversal path can be tested without
-a database — the same reasoning \texttt{explorer/src/store/mod.rs} gives for its
+a database — the same reasoning \texttt{apps/explorer/src/store/mod.rs} gives for its
 own split, and the same honest limit applies: \texttt{MemoryLedger} proves the
 logic and cannot prove the durability.
 
@@ -4241,7 +4241,7 @@ restore is a file restore.
 
 RocksDB is a blocking API, and wrapping it in \texttt{async\_trait} would produce
 futures that block their executor thread anyway — the appearance of async
-without the property. \texttt{src/rpc/server.rs} already calls \texttt{StateDB} straight
+without the property. \texttt{crates/node/src/rpc/server.rs} already calls \texttt{StateDB} straight
 from request handlers for the same reason. Every read a request handler
 makes here is a point lookup or a short bounded scan; the one unbounded walk
 ([\texttt{ShareLedger::window}]) runs on the payout task, never on a request.
@@ -4259,7 +4259,7 @@ The durable share ledger.
 
 \subsubsection{Key layout}
 
-One column family, prefixed keys, matching \texttt{src/state/db.rs} rather than
+One column family, prefixed keys, matching \texttt{crates/node/src/state/db.rs} rather than
 inventing a second convention in the same repository:
 
 \begin{verbatim}
@@ -4342,7 +4342,7 @@ point produces one transaction or none, never two.
 \subsection{metrics.rs}
 Prometheus instrumentation for the pool.
 
-Built on the node's registry conventions (\texttt{src/metrics/mod.rs}) and served
+Built on the node's registry conventions (\texttt{crates/node/src/metrics/mod.rs}) and served
 by the node's exporter through
 [\texttt{custom\_l1\_node::metrics::server::Exposition}] — one accept loop, one
 routing table, one set of decisions about what an exporter should refuse to
@@ -4350,7 +4350,7 @@ serve.
 
 \subsubsection{Labels are a closed set, and here that matters more than usual}
 
-\texttt{src/metrics/mod.rs} refuses open-ended label values because a hostile peer
+\texttt{crates/node/src/metrics/mod.rs} refuses open-ended label values because a hostile peer
 could otherwise create unbounded time series and exhaust the scraper. The
 pool has the same exposure through a wider door: a rejection reason derived
 from error text, or a per-worker label taken from the \texttt{user\_identity} a
@@ -4424,7 +4424,7 @@ the pool would have double-counted the outcome.
 \subsubsection{How the pool knows a payout landed}
 
 There is no \texttt{get\_transaction} RPC to ask. What there is, is
-\texttt{src/state/db.rs:418}: a transaction is valid only when \texttt{tx.nonce} equals
+\texttt{crates/node/src/state/db.rs:418}: a transaction is valid only when \texttt{tx.nonce} equals
 the sender's current nonce exactly, so transactions from one account are
 strictly sequential. The pool is the only spender from the treasury, so the
 account's nonce advancing past a batch's reserved nonce means *that batch's
@@ -4499,7 +4499,7 @@ and much weaker door into the parts that handle money.
 
 Three listeners, three audiences: miners, operators, and Prometheus. The
 exporter carries per-pool operational data and stays inside the pod network
-(\texttt{src/metrics/mod.rs} gives that reasoning); this one is the page a miner
+(\texttt{crates/node/src/metrics/mod.rs} gives that reasoning); this one is the page a miner
 opens.
 
 \subsection{session.rs}
@@ -4543,7 +4543,7 @@ divergence shows up as blocks the pool submits and the network refuses —
 after the shares behind them have been paid for.
 
 \texttt{pow\_hash\_at} also picks the rule by height, ArgonBlake below the DAG
-activation and hashimoto above it (\texttt{src/core/block.rs:142}). Hashing at the
+activation and hashimoto above it (\texttt{crates/node/src/core/block.rs:142}). Hashing at the
 wrong height is the same class of error as hashing with the wrong function.
 
 \subsubsection{Order of operations is a cost decision}
@@ -4589,7 +4589,7 @@ forbids anyway.
 
 A broadcast channel, carrying what the dashboard needs to redraw. A slow
 browser falls behind and its receiver reports \texttt{Lagged}; the handler skips
-ahead rather than stalling, exactly as \texttt{explorer/src/server.rs} does. Pool
+ahead rather than stalling, exactly as \texttt{apps/explorer/src/server.rs} does. Pool
 accounting must never block on a client — one wedged tab would otherwise
 stop shares being credited.
 
@@ -4642,7 +4642,7 @@ being careful. What is here instead is a bound on the damage:
   cover the batch, so a drained treasury fails loudly rather than emitting
   transactions the mempool will reject;
 - the password never appears in an argument, matching the wallet's own
-  reasoning (\texttt{wallet/src/main.rs}): a password on a command line is in shell
+  reasoning (\texttt{bins/l1-wallet/src/main.rs}): a password on a command line is in shell
   history and in the process list.
 
 Moving the signer out of the daemon entirely is the real fix and is out of
@@ -4650,7 +4650,7 @@ scope here. It is named in \texttt{docs/pool-service.md} rather than left implie
 
 \subsubsection{Nonces are the idempotency mechanism}
 
-\texttt{src/state/db.rs:418} requires \texttt{tx.nonce == sender.nonce} exactly, so
+\texttt{crates/node/src/state/db.rs:418} requires \texttt{tx.nonce == sender.nonce} exactly, so
 transactions from one account are strictly sequential and a nonce is a slot
 that exists once. A batch reserves its slot before it is signed and keeps
 it across restarts, which is what makes "crashed after signing, before
@@ -4666,7 +4666,7 @@ Leptos server-rendered views for the miner dashboard.
 
 \subsubsection{SSR without a client bundle}
 
-The same choice \texttt{explorer/src/ui.rs} makes, for the same reason: a hydrating
+The same choice \texttt{apps/explorer/src/ui.rs} makes, for the same reason: a hydrating
 build needs \texttt{cargo-leptos} and \texttt{wasm-bindgen} to produce a WASM bundle, and
 that is a build-tooling change rather than a rewrite. Signals still drive
 the render; liveness comes from the WebSocket at \texttt{/ws}, which the page
@@ -4690,7 +4690,7 @@ The share validation pipeline.
 \subsubsection{Why this is a separate stage at all}
 
 One share is 25.4 ms of Argon2id below the DAG fork
-(\texttt{src/crypto/argon\_blake.rs}). Running that on the task that owns a socket
+(\texttt{crates/node/src/crypto/argon\_blake.rs}). Running that on the task that owns a socket
 would put it in front of every other message that connection has queued, and
 at 50,000 connections would put it in front of the Tokio runtime itself.
 Shares therefore cross a bounded channel into a pool of blocking workers,
@@ -4712,7 +4712,7 @@ does that under load is a pool miners leave under load.
 
 Argon2id over 32 MiB means each concurrent verification holds 32 MiB. Eight
 workers is a quarter-gigabyte of working set, which is the same arithmetic
-\texttt{src/consensus/miner.rs} does for mining threads and the same cap it lands
+\texttt{crates/node/src/consensus/miner.rs} does for mining threads and the same cap it lands
 on. \texttt{spawn\_blocking}'s default pool of 512 threads would be sixteen
 gigabytes.
 
@@ -5338,7 +5338,7 @@ the same as working:
 \begin{verbatim}
 | Target | Generated | Compiled and tested |
 |---|---|---|
-| Python | yes | **yes** — `sdk-ffi/tests/python/` |
+| Python | yes | **yes** — `sdks/sdk-ffi/tests/python/` |
 | Kotlin | yes | no — no `kotlinc` on the build host |
 | Swift | yes | no — no Swift toolchain on the build host |
 \end{verbatim}
@@ -5352,7 +5352,7 @@ over something nobody ran.
 A hybrid signature is 11,165 bytes — ML-DSA-65 at 3,309 and
 SLH-DSA-SHA2-128s at 7,856 — and both must verify. Signing is dominated by
 the hash-based half. Callers building interactive software should sign off
-the UI thread; see \texttt{sdk-ffi/README.md} for measured figures.
+the UI thread; see \texttt{sdks/sdk-ffi/README.md} for measured figures.
 
 \section{Browser bindings}
 \noindent\texttt{sdk-wasm\textbackslash{}src}
@@ -5374,14 +5374,14 @@ SLH-DSA-SHA2-128s — both of which are pure Rust and both of which build for
 wasm.
 
 \textbf{That is duplication of consensus-critical encoding.} Duplication is
-dangerous when it is undetected, so it is detected: \texttt{tests/parity\_tests.rs}
+dangerous when it is undetected, so it is detected: \texttt{crates/node/tests/parity\_tests.rs}
 signs with the node's implementation and verifies with this one, and the
 reverse, and compares addresses and encodings byte for byte. Drift fails a
 test rather than producing a transaction the chain silently rejects.
 
 The structural fix is to extract \texttt{hybrid} into its own crate that both the
 node and this SDK depend on. That is a refactor of a consensus path and is
-deliberately not bundled into an SDK change; see \texttt{sdk-js/README.md}.
+deliberately not bundled into an SDK change; see \texttt{sdks/sdk-js/README.md}.
 
 \subsubsection{Cost in a browser}
 

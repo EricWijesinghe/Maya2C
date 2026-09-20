@@ -11,8 +11,8 @@ Three things were missing, and each is a separate commit:
 
 | Gap | Fix |
 |---|---|
-| **No block was persisted anywhere.** `Chain` held every block in memory. A node that had applied one block could not restart: `seed_state` rewrote the genesis allocations over the evolved state, then refused to start. | The block store (`src/state/blocks.rs`): headers, bodies, a canonical index and the tip, in the same RocksDB and the same `WriteBatch` as the state they describe. `Chain::open` rebuilds from it. |
-| **The state root did not cover contract code, contract storage, the nullifier set, or the shielded pool's anchors and balance.** A snapshot could have forged any of them. | Invariant 25: two new root layers and a whole-pool commitment (`src/state/commitments.rs`). |
+| **No block was persisted anywhere.** `Chain` held every block in memory. A node that had applied one block could not restart: `seed_state` rewrote the genesis allocations over the evolved state, then refused to start. | The block store (`crates/node/src/state/blocks.rs`): headers, bodies, a canonical index and the tip, in the same RocksDB and the same `WriteBatch` as the state they describe. `Chain::open` rebuilds from it. |
+| **The state root did not cover contract code, contract storage, the nullifier set, or the shielded pool's anchors and balance.** A snapshot could have forged any of them. | Invariant 25: two new root layers and a whole-pool commitment (`crates/node/src/state/commitments.rs`). |
 | **A block's header did not commit to its transactions.** An archived body could not have been tied to anything. | Invariant 24: `tx_root`. |
 
 ## The horizon
@@ -82,7 +82,7 @@ that copy.
    bootstrap fails.
 3. The bodies from H + 1 to the tip, applied with full validation.
 
-No body at or below H is ever requested; `tests/pruned_node_tests.rs` records
+No body at or below H is ever requested; `crates/node/tests/pruned_node_tests.rs` records
 every request to prove it. What remains is the SPV limitation: a source showing
 only a lower-work fork of headers. The answer is the one a light client has:
 ask more than one peer.
@@ -104,7 +104,7 @@ checkpoint every N blocks and serves the newest one that is at least K deep.
 
 ## Verified against a real daemon
 
-`archive/tests/kubo_live.rs` runs the whole round trip against kubo v0.43.0:
+`crates/archive/tests/kubo_live.rs` runs the whole round trip against kubo v0.43.0:
 this crate's CAR is imported, the root is confirmed pinned through
 `/api/v0/pin/ls`, and the exported DAG verifies section by section against the
 same root. It is `#[ignore]`d because it needs a daemon:
@@ -119,7 +119,7 @@ announces every block it holds to the public DHT.
 
 The decoder's total property — verified or refused, never a panic, bounded
 decompression — has a fuzz target (`fuzz/fuzz_targets/car_decode.rs`) and a
-seeded randomized test (`archive/tests/car_robustness.rs`) that drives the same
+seeded randomized test (`crates/archive/tests/car_robustness.rs`) that drives the same
 property through ~4,800 mutated archives on every platform. The fuzz target
 needs Linux or macOS, because `libfuzzer-sys` does not build on Windows; the
 randomized test runs everywhere and replays from `MAYA_ARCHIVE_SEED`.

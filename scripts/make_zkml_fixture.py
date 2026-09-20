@@ -5,7 +5,7 @@ Run from the repository root:
     uv venv .zkml-venv && uv pip install --python .zkml-venv onnx numpy
     .zkml-venv/Scripts/python scripts/make_zkml_fixture.py
 
-Writes two files under tests/fixtures/zkml/:
+Writes two files under crates/node/tests/fixtures/zkml/:
 
   classifier.onnx           the model
   classifier.expected.json  inputs, and the logits and class a plain numpy
@@ -13,7 +13,7 @@ Writes two files under tests/fixtures/zkml/:
 
 # Why the model is integer-only, end to end
 
-The circuit in zkml/src/circuit.rs proves exactly this computation:
+The circuit in crates/zkml/src/circuit.rs proves exactly this computation:
 
     acc    = x @ W1 + b1                       int8 x int8 -> int32
     hidden = min(max(acc, 0) // 2**SHIFT, 127) ReLU, requantize, saturate
@@ -32,12 +32,12 @@ prover, and the circuit's own witness) agree on it.
 # Why the expected outputs are computed here, in numpy
 
 A test that compared the circuit against itself would pass for any circuit.
-The JSON is the external reference: tests/zkml assert that tract's evaluation
+The JSON is the external reference: crates/node/tests/zkml assert that tract's evaluation
 of the .onnx file and the circuit's claimed class both match it.
 
 # The bounds are part of the contract
 
-zkml/src/model.rs refuses weights outside these ranges, because the circuit's
+crates/zkml/src/model.rs refuses weights outside these ranges, because the circuit's
 range checks are sized from them. Changing a bound here without changing it
 there produces a model the importer rejects, which is the intended failure.
 """
@@ -54,7 +54,7 @@ INPUTS, HIDDEN, CLASSES = 4, 8, 3
 SHIFT = 6
 BIAS_BOUND = 1 << 12
 
-OUT = pathlib.Path("tests/fixtures/zkml")
+OUT = pathlib.Path("crates/node/tests/fixtures/zkml")
 
 
 def weights(rng):

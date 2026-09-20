@@ -7,12 +7,12 @@ and the neural rule has a second switch, `neural_activation_height`, which is
 
 | Piece | Where |
 |---|---|
-| The integer network, the six features' order, compiled weights | `fee-market/src/model/` |
-| The rule and its envelope | `fee-market/src/rule.rs`, Kani proof in `fee-market/src/proofs.rs` |
-| Extracting features from a block | `src/neural_gas/` |
+| The integer network, the six features' order, compiled weights | `crates/fee-market/src/model/` |
+| The rule and its envelope | `crates/fee-market/src/rule.rs`, Kani proof in `crates/fee-market/src/proofs.rs` |
+| Extracting features from a block | `crates/node/src/neural_gas/` |
 | Demand simulator, training, quantization, evaluation | `neural-gas-trainer` (never linked by the node) |
-| Constants shared across the two halves | `tests/neural_fee_tests.rs` |
-| Cost | `benches/gas_predictor.rs` |
+| Constants shared across the two halves | `crates/node/tests/neural_fee_tests.rs` |
+| Cost | `crates/node/benches/gas_predictor.rs` |
 
 ## What the brief assumed, and what is true
 
@@ -20,7 +20,7 @@ and the neural rule has a second switch, `neural_activation_height`, which is
 |---|---|---|
 | "zkML-driven" | Every validator holds the features and the weights. A proof of inference proves only what re-running proves; one halo2 verification costs as much as re-running a ~5.3 M-multiply model (`docs/zkml.md`), and the network here is 112 | **native integer inference**, no proof |
 | a quantized network "inside the node state machine" | Invariant 20: no floats and no ONNX runtime in a consensus rule | `i16`/`i32` weights, `i64` accumulators, bound by construction. Training and quantization happen in `neural-gas-trainer`, which the node does not link |
-| trained on "historical DAG vertex metrics" | The DAG is the proof-of-work dataset, not a transaction graph. `genesis.json` allocates nothing; there is no history | a **synthetic** demand simulator. The model learns the simulator's assumptions, which are written down in `neural-gas-trainer/src/simulator.rs` |
+| trained on "historical DAG vertex metrics" | The DAG is the proof-of-work dataset, not a transaction graph. `genesis.json` allocates nothing; there is no history | a **synthetic** demand simulator. The model learns the simulator's assumptions, which are written down in `bins/neural-gas-trainer/src/simulator.rs` |
 | memory allocation depth | allocator- and node-dependent: a fee reading it would split the chain | declared contract fuel per byte |
 | state access overlap | execution builds one merged overlay per block | accounts named by more than one transaction (static) |
 | inter-shard dependencies | no shards execute (`blockgraph` is RESEARCH) | transactions whose accounts span two `blockgraph` shards — hypothetical, and labelled so |
@@ -81,7 +81,7 @@ follows from the types, and a test drives every weight to its extreme.
 ## Training
 
 `cargo run --release -p maya-neural-gas-trainer` regenerates
-`fee-market/src/model/weights_v1.rs` deterministically (SplitMix64, fixed
+`crates/fee-market/src/model/weights_v1.rs` deterministically (SplitMix64, fixed
 seed, single-threaded float arithmetic). `--check` fails if the committed file
 differs from a fresh run — exact on the platform that generated it; the file,
 not the float run, is what consensus would read.
@@ -127,7 +127,7 @@ Read all of it.
 On this simulator, the learned gain is a small improvement bought with more
 fee movement, and the manipulation resistance is what made it small. That is
 the finding. Whether it is worth a second fee rule is a policy question the
-simulator cannot answer. `neural-gas-trainer/tests/evaluation_tests.rs` pins
+simulator cannot answer. `bins/neural-gas-trainer/tests/evaluation_tests.rs` pins
 only the direction of the size result, so a retrain that loses fails loudly
 instead of shipping quietly.
 

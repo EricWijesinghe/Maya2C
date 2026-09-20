@@ -1,18 +1,18 @@
 # Lattice HTLCs (HTLC-L)
 
-**Status: RESEARCH.** `HTLC_L_ACTIVATION_HEIGHT = u64::MAX` (`src/state/context.rs`).
+**Status: RESEARCH.** `HTLC_L_ACTIVATION_HEIGHT = u64::MAX` (`crates/node/src/state/context.rs`).
 Every HTLC transaction is refused before that height, so no network runs this
 until somebody writes down a height and the reasons below have answers.
 
 | Piece | Where |
 |---|---|
 | Commitments, openings, the timelock rule, the lock record | `htlc-lattice` (chain-free) |
-| Wire forms `HtlcLock` / `HtlcClaim` / `HtlcRefund` (tags 41–43) | `src/core/htlc_payload.rs` |
-| State records `h:lk:<lock id>`, `StateLayer::Htlc` | `src/state/htlc.rs` |
-| Execution | `src/state/htlc_exec.rs` |
-| `htlc_get_lock` RPC | `src/rpc/server.rs` |
+| Wire forms `HtlcLock` / `HtlcClaim` / `HtlcRefund` (tags 41–43) | `crates/node/src/core/htlc_payload.rs` |
+| State records `h:lk:<lock id>`, `StateLayer::Htlc` | `crates/node/src/state/htlc.rs` |
+| Execution | `crates/node/src/state/htlc_exec.rs` |
+| `htlc_get_lock` RPC | `crates/node/src/rpc/server.rs` |
 | Counterparty watcher | `htlc-watcher` |
-| End-to-end swaps, refunds, forgeries | `tests/htlc_lattice_tests.rs` |
+| End-to-end swaps, refunds, forgeries | `crates/node/tests/htlc_lattice_tests.rs` |
 
 ## What the brief assumed, and what is true
 
@@ -37,7 +37,7 @@ would plug in.
 **"A valid lattice noise vector matching target commitment bounds."** A noise
 vector alone is forgeable: for *any* `s`, `e = t − A·s` satisfies the equation.
 An opening is the pair `(s, e)`, and what makes it hard to find is that every
-coefficient of both is in `[−η, η]`. `htlc-lattice/tests/lattice_tests.rs`
+coefficient of both is in `[−η, η]`. `crates/htlc-lattice/tests/lattice_tests.rs`
 builds exactly that forgery, asserts the equation holds, and asserts the bound
 refuses it.
 
@@ -76,7 +76,7 @@ refuses it.
 
 | Rule | Why |
 |---|---|
-| A claim executes iff `height < expiry_height` and the opening verifies; a refund iff `height ≥ expiry_height` | The windows partition every height; Kani proves no lock admits both and no open lock admits neither (`htlc-lattice/src/proofs.rs`). Heights, never timestamps — invariant 9 |
+| A claim executes iff `height < expiry_height` and the opening verifies; a refund iff `height ≥ expiry_height` | The windows partition every height; Kani proves no lock admits both and no open lock admits neither (`crates/htlc-lattice/src/proofs.rs`). Heights, never timestamps — invariant 9 |
 | A claim or refund that loses is a no-op | They race at the boundary as the ordinary case. An `Err` would let the loser — or anyone with a wrong opening — void the winner's block. Invariant 7 |
 | A lock that cannot be made is an error | It is the sender's own transaction; no counterparty's block is at stake |
 | The recipient is fixed in the lock | A front-runner copying an opening can only pay the right party early |
@@ -140,7 +140,7 @@ journalled.
 2. **A counterparty.** Without a second chain running this verifier there is
    nothing to be atomic with.
 3. **State proofs for Identity and RWA.** `LAYER_ORDER` and
-   `StateLayer::from_tag` in `src/state/proof.rs` omit `Identity` (9) and `Rwa`
+   `StateLayer::from_tag` in `crates/node/src/state/proof.rs` omit `Identity` (9) and `Rwa`
    (10), so an `AccountProof` from a state holding either fails to decode or
    verify. HTLC (11) is in both; a light client proving a revelation from a
    state that also holds identity or RWA records would hit the pre-existing gap.

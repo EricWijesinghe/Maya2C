@@ -4,7 +4,7 @@ A demand-responsive base fee, a stated split of where each fee goes, and a
 supply bound that a future emission bug would hit rather than slip past. It is
 built, tested, and **switched on nowhere**: every network runs
 `FeeConfig::DISABLED`, whose activation height is `u64::MAX`, and nothing in
-`src/` calls the crate. `tests/fee_market_tests.rs` checks both.
+`crates/node/src/` calls the crate. `crates/node/tests/fee_market_tests.rs` checks both.
 
 ## What the brief assumed, and what is true
 
@@ -36,7 +36,7 @@ error moves value is out of circulation. A block with no claim burns its tips.
 **Supply.** `MAX_SUPPLY` is 21,000,000 × 10⁸ base units. Nothing in this
 repository fixes a decimal convention or a genesis total — the committed
 `genesis.json` allocates nothing — so the number is a policy choice recorded in
-`fee-market/src/supply.rs`, not a derivation. Once a value-bearing chain checks
+`crates/fee-market/src/supply.rs`, not a derivation. Once a value-bearing chain checks
 it, changing it is a hard fork.
 
 **Neural gain.** A second, independently switched rule scales the base fee's
@@ -49,8 +49,8 @@ rule would set, whatever features a producer writes.
 
 ## The bounds no configuration may escape
 
-`fee-market/src/limits.rs`, compiled in and reachable by no transaction, the way
-`governance/src/limits.rs` works: a change rate no faster than 1/8 and no slower
+`crates/fee-market/src/limits.rs`, compiled in and reachable by no transaction, the way
+`crates/governance/src/limits.rs` works: a change rate no faster than 1/8 and no slower
 than 1/1024 per block, a non-zero fee floor, a block-size target between 64 KiB
 (below which one signed transfer is over target on its own) and 16 MiB, and a
 treasury share of at most half. `FeeConfig::validate` checks every one, and

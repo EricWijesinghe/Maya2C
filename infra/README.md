@@ -15,12 +15,12 @@ more and removes none:
 
 | Where | When it fires |
 |---|---|
-| `zk-privacy/src/prove.rs` | `SETUP_IS_TRUSTED = false` |
+| `crates/zk-privacy/src/prove.rs` | `SETUP_IS_TRUSTED = false` |
 | `src/bin/node.rs` | the node exits at startup |
 | `src/bin/genesis-ceremony.rs` | refuses to mint the genesis |
-| `terraform/modules/node-pool/variables.tf` | `terraform validate`, before any provider call |
-| `terraform/modules/gke-node-pool/variables.tf` | same, on GCP |
-| `faucet/src/lib.rs` | refuses to construct |
+| `infra/terraform/modules/node-pool/variables.tf` | `terraform validate`, before any provider call |
+| `infra/terraform/modules/gke-node-pool/variables.tf` | same, on GCP |
+| `apps/faucet/src/lib.rs` | refuses to construct |
 | **`infra/ansible/setup_node.yml`** | pre-task assertion, before anything is installed |
 | **`scripts/local_cluster.sh`** | first thing it checks |
 
@@ -30,7 +30,7 @@ mainnet is one flag and a genesis file — not a re-plumbing. Today it deploys
 
 ## The four stages
 
-### 1. Provision — `terraform/`
+### 1. Provision — `infra/terraform/`
 
 Twelve nodes: four in each of `us-east-1`, `eu-central-1`, `ap-southeast-1`.
 Disjoint VPC CIDRs, because nodes gossip across regions and a future peering
@@ -107,7 +107,7 @@ mismatch. A fleet split across two genesis files does not report an error; it
 looks like a fleet that is merely slow to converge, which is why this check is
 not optional and not a warning.
 
-Systemd units are installed from `deploy/systemd/` verbatim. They are already
+Systemd units are installed from `infra/deploy/systemd/` verbatim. They are already
 hardened — `DynamicUser`, `ProtectSystem=strict`, an empty
 `CapabilityBoundingSet`, a `SystemCallFilter` — with the reasoning inline.
 
@@ -144,7 +144,7 @@ for.
 
 | Artefact | State |
 |---|---|
-| `terraform/` | `validate` and `fmt -check` pass; the mainnet guard was tested in both directions |
+| `infra/terraform/` | `validate` and `fmt -check` pass; the mainnet guard was tested in both directions |
 | `genesis-ceremony contribute` / `assemble` | run for real, two participants |
 | `genesis --verify` | run for real against a ceremony's own output |
 | `scripts/local_cluster.sh` | run locally |
@@ -152,7 +152,7 @@ for.
 
 Ansible is not installed on the machine this was written on, so the playbooks
 have never been syntax-checked by `ansible-playbook --syntax-check`, let alone
-run. They are a port of `deploy/deploy_bootstrap.sh`, which was itself carefully
+run. They are a port of `infra/deploy/deploy_bootstrap.sh`, which was itself carefully
 written and also never executed. Treat both as drafts and dry-run them against a
 disposable host. `docs/launch-checklist.md` tracks them with the other
 generated-but-unverified artefacts.

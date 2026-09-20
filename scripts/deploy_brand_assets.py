@@ -97,9 +97,9 @@ class App:
 
 
 APPS = [
-    App("Maya2C Explorer", "explorer/assets", "Explorer", FULL_LOGO),
-    App("Maya2C Network", "dashboard/assets", "Maya2C", FULL_LOGO),
-    App("Maya Wallet", "wallet-gui/ui/assets", "Wallet", COMPACT_LOGO),
+    App("Maya2C Explorer", "apps/explorer/assets", "Explorer", FULL_LOGO),
+    App("Maya2C Network", "apps/dashboard/assets", "Maya2C", FULL_LOGO),
+    App("Maya Wallet", "apps/wallet-gui/ui/assets", "Wallet", COMPACT_LOGO),
 ]
 
 

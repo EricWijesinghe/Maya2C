@@ -134,7 +134,7 @@ ECC install or repair restores all of them — re-trim afterwards.
 references `.ignore`, `.rgignore`, and `.gitignore`, and contains **no**
 reference to `.claudeignore` — the `.claudeignore` that used to live here was
 inert and has been removed. `.gitignore` cannot exclude *tracked* paths, which is
-why `.ignore` carries `wallet-gui/ui/target` and `target-contracts`.
+why `.ignore` carries `apps/wallet-gui/ui/target` and `target-contracts`.
 `.claude/settings.json` adds `permissions.deny` as a hard backstop.
 
 ## Branding
@@ -147,17 +147,17 @@ than a discovery:
 python scripts/deploy_brand_assets.py    # favicons + wordmarks into each app
 python scripts/make_og_card.py           # the 1200x630 social card
 cargo tauri icon logo-assets/print/HighRes-Square-2000_2000x2000.png `
-  -o wallet-gui/src-tauri/icons          # the desktop icon set
+  -o apps/wallet-gui/src-tauri/icons          # the desktop icon set
 ```
 
 Two pack defects are corrected on copy, not propagated: `site.webmanifest` ships
 an empty `name`/`short_name`, and `paste-in-head.html` hardcodes root-absolute
 paths that only suit the explorer.
 
-Reference checking differs per surface: `dashboard/` and `wallet-gui/ui/` fail
+Reference checking differs per surface: `apps/dashboard/` and `apps/wallet-gui/ui/` fail
 `trunk build` on a missing `data-trunk` dir, then `scripts/check_brand_refs.py`
-walks each built `dist/`; `explorer/` has no build step, so
-`tests/server_tests.rs` asks the running server for every path its rendered HTML
+walks each built `dist/`; `apps/explorer/` has no build step, so
+`crates/node/tests/server_tests.rs` asks the running server for every path its rendered HTML
 names. The explorer resolves `--assets` against its working directory, logs that
 directory at startup, and warns loudly when it is absent — a `ServeDir` over a
 missing path would 404 every icon and look like a browser problem.

@@ -1,7 +1,7 @@
 # Threat-intel registry
 
 **Status: RESEARCH.** `THREAT_INTEL_ACTIVATION_HEIGHT = u64::MAX`
-(`src/state/context.rs`). The code ships and is tested; no network runs it.
+(`crates/node/src/state/context.rs`). The code ships and is tested; no network runs it.
 
 A node that receives a gossip message whose bytes fail a check any node can
 re-run turns the author's own signature into **evidence**. A transaction
@@ -11,14 +11,14 @@ as long as the indicator's score says.
 
 | Piece | Where |
 |---|---|
-| Signed bytes, score, decay, record, mitigation (dependency-free, Kani) | `threat-intel/` |
-| Signature capture from gossipsub | `src/network/evidence_tap.rs` |
-| Evidence emission, per-peer address book | `src/network/node/threat.rs` |
-| `TxKind::AttestAttack` wire form | `src/core/threat_payload.rs` |
-| Verification and recording | `src/state/threat_exec.rs`, `src/state/threat.rs` |
-| RPC: `threat_indicators`, `threat_peer_addresses` | `src/rpc/server.rs` |
-| Per-host worker (nftables / iptables / dry run) | `threat-firewall/` |
-| End-to-end and refusal tests | `tests/threat_intel_tests.rs` |
+| Signed bytes, score, decay, record, mitigation (dependency-free, Kani) | `crates/threat-intel/` |
+| Signature capture from gossipsub | `crates/node/src/network/evidence_tap.rs` |
+| Evidence emission, per-peer address book | `crates/node/src/network/node/threat.rs` |
+| `TxKind::AttestAttack` wire form | `crates/node/src/core/threat_payload.rs` |
+| Verification and recording | `crates/node/src/state/threat_exec.rs`, `crates/node/src/state/threat.rs` |
+| RPC: `threat_indicators`, `threat_peer_addresses` | `crates/node/src/rpc/server.rs` |
+| Per-host worker (nftables / iptables / dry run) | `bins/threat-firewall/` |
+| End-to-end and refusal tests | `crates/node/tests/threat_intel_tests.rs` |
 | Decoder fuzzing | `fuzz/fuzz_targets/threat_evidence_decode.rs` |
 
 ## What the brief asked for, and what this is instead
@@ -74,7 +74,7 @@ fields:
 libp2p. A libp2p upgrade that changed the encoding would therefore make new
 evidence unverifiable, but could never make old evidence verify differently.
 The topic is part of the signed bytes, so evidence cannot be moved between
-offence kinds. `tests/threat_intel_tests.rs` checks the reconstruction against
+offence kinds. `crates/node/tests/threat_intel_tests.rs` checks the reconstruction against
 signatures captured from a live mesh: every indicator in the end-to-end test was
 verified over bytes this crate rebuilt.
 
@@ -96,7 +96,7 @@ plus sequence number, and forwarding uses the raw message. The node **emits**
 `NodeEvent::AttackEvidence`. It never submits: submitting needs a funded chain
 key, and the node holds none.
 
-### Verification (`src/state/threat_exec.rs`)
+### Verification (`crates/node/src/state/threat_exec.rs`)
 
 Checked in this order, both statelessly, first at mempool admission and again at
 execution:
@@ -121,7 +121,7 @@ would void the block the earlier one sits in, so it is a no-op instead
 **not the signature**. An author who re-signs the same message has produced the
 same evidence, not more.
 
-## Score and duration (`threat-intel/src/score.rs`)
+## Score and duration (`crates/threat-intel/src/score.rs`)
 
 - One verified offence adds `CONFIRM_SCORE = 100`. That is the threshold, so a
   single conviction confirms.
@@ -134,7 +134,7 @@ same evidence, not more.
   cap, more offences change nothing.
 
 Nothing releases an author early. The height does. The Kani proofs in
-`threat-intel/src/proofs.rs` state:
+`crates/threat-intel/src/proofs.rs` state:
 
 - the closed form agrees with running the decay, for every score and height;
 - where the lift height doesn't saturate, the quarantine holds exactly below it;
@@ -186,7 +186,7 @@ Each push replaces the node's convicted set:
   unblock a convicted peer, and an acquittal does not lift a guard quarantine.
 - **A node never convicts itself.**
 
-`tests/threat_intel_tests.rs` checks this end to end. A node that never saw the
+`crates/node/tests/threat_intel_tests.rs` checks this end to end. A node that never saw the
 attack joins, holding the recorded chain, and refuses every attacker's
 connection while admitting an honest peer. Once acquitted, the attackers are
 re-admitted.

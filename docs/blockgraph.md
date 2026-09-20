@@ -39,10 +39,10 @@ writes down, in the sense of invariant 11.
 
 ## Naming
 
-`src/crypto/dag/` is the **Ethash-style memory-hard proof-of-work dataset** —
+`crates/node/src/crypto/dag/` is the **Ethash-style memory-hard proof-of-work dataset** —
 `cache.rs`, `dataset.rs`, `hashimoto.rs`, `DagConfig`, `CacheRegistry`,
-`DAG_ACTIVATION_HEIGHT`, `docs/dag-pow.md`, `tests/dag_tests.rs`,
-`benches/dag.rs`, `cuda-miner/tests/dag_parity.rs`.
+`DAG_ACTIVATION_HEIGHT`, `docs/dag-pow.md`, `crates/node/tests/dag_tests.rs`,
+`crates/node/benches/dag.rs`, `hal/cuda-miner/tests/dag_parity.rs`.
 
 It has nothing to do with a block DAG. Anything about the transaction graph is
 called `blockgraph`, and `dag` is left alone.
@@ -135,7 +135,7 @@ forgetting is silent.
 
 ## Elastic shards
 
-`blockgraph/src/shard_manager/`. A node may schedule over its own tiling of
+`crates/blockgraph/src/shard_manager/`. A node may schedule over its own tiling of
 the address space instead of the fixed 64 prefixes: 4 leaves up to 64, split
 where it is hot, merged where it is idle.
 
@@ -151,7 +151,7 @@ map consensus, those inputs would split the chain.
 
 Two things stay fixed:
 
-- `shard_of` and its 64 prefixes. `src/neural_gas/features.rs` computes a fee
+- `shard_of` and its 64 prefixes. `crates/node/src/neural_gas/features.rs` computes a fee
   feature from it, and a feature that moved with each node's load would differ
   between nodes.
 - The access-set contract above. The guarantee is only as good as the access
@@ -208,7 +208,7 @@ are Groth16 and halo2, neither post-quantum, and the halo2 SRS is public-seed.
 
 ### Tested
 
-`blockgraph/tests/elastic_scaling_tests.rs`:
+`crates/blockgraph/tests/elastic_scaling_tests.rs`:
 
 - 4 → 8 → 16 → 32 → 64 at peak, the first split on the 100th hot tick, held at
   64 under continued peak, then 64 → 32 → 16 → 8 → 4 when idle and held at 4,
@@ -246,7 +246,7 @@ transactions land in strictly increasing waves.
 
 ## What is proved
 
-`blockgraph/src/proofs.rs`, under `cargo kani -p maya-blockgraph`:
+`crates/blockgraph/src/proofs.rs`, under `cargo kani -p maya-blockgraph`:
 
 | Harness | Bound |
 |---|---|
@@ -266,7 +266,7 @@ either. They are unverified in both senses until someone runs them.
 
 Phases 2, 3, and 5 of the agreed plan:
 
-- **Batch dissemination** — the `src/network/` worker that broadcasts batches,
+- **Batch dissemination** — the `crates/node/src/network/` worker that broadcasts batches,
   answers fetches, and evicts. Needs a libp2p protocol and a fuzz target for
   batch decode.
 - **Header batch references** — `BlockHeader` is fixed-width (`[u8; 144]`, with

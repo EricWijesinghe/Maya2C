@@ -1,9 +1,10 @@
 # Maya2C
 
 Post-quantum L1 blockchain node in Rust (edition 2024, `rust-version = 1.88`,
-`nightly-2026-07-15` pinned in `rust-toolchain.toml`). Root package
-`custom-l1-node` + 44 workspace members, one lockfile, one `target/`, plus nine
-crates that are deliberately *not* members.
+`nightly-2026-07-15` pinned in `rust-toolchain.toml`). A virtual workspace of
+47 members, one lockfile, one `target/`, plus nine crates that are
+deliberately *not* members. The node is `crates/node`; it was the workspace's
+root package until 2026-09-20 — [ADR-001](docs/adr/ADR-001-workspace-layout.md).
 
 ## Identity and Mission
 
@@ -32,7 +33,7 @@ These apply to every task in this repository, without being restated.
    lines instead of reading the run. There was one.
 2. **Numbers in a brief are targets.** 1M TPS, 10× faster, sub-10 ms: measure
    and report the real figure. Never tune a benchmark toward a number fixed in
-   advance, and never hard-code one. `benches/algo_comparison.rs` states in its
+   advance, and never hard-code one. `crates/node/benches/algo_comparison.rs` states in its
    own output what it could not measure rather than leaving a silent gap.
 3. **SIM and RESEARCH declare themselves.** A simulator says so in its logs,
    its docs and its CLI output. No simulator reaches a production path without
@@ -59,7 +60,7 @@ These apply to every task in this repository, without being restated.
 ## Token Discipline (read first)
 
 This repo is large: build artifacts reached 336.5 GiB before the last
-`cargo clean`, and `wallet-gui/ui/target` is ~4,978 *tracked* files. Unbounded
+`cargo clean`, and `apps/wallet-gui/ui/target` is ~4,978 *tracked* files. Unbounded
 reads and unfiltered command output are the dominant cost here, not model
 reasoning. The rules below are mechanical, not stylistic.
 
@@ -114,8 +115,8 @@ PowerShell profile and `~/.bashrc`.
 44 members plus the root package, and nine tracked crates that are **not**
 members because they target a different architecture or must keep their
 dependency graph away from the node's: `fuzz/`, `offsec-sandbox/`,
-`iot-firmware/`, `ebpf-net/programs/`, `dashboard/`, `wallet-gui/ui/`,
-`wallet-gui/src-tauri/`, `app-maya2c/`, `contracts/token-swap/`. Six of the
+`hal/iot-firmware/`, `hal/ebpf-net/programs/`, `apps/dashboard/`, `apps/wallet-gui/ui/`,
+`apps/wallet-gui/src-tauri/`, `apps/ledger-maya2c/`, `contracts/token-swap/`. Six of the
 nine cannot be built for the host at all, so "the workspace builds" is a claim
 about 45 of 54 crates.
 
@@ -198,7 +199,7 @@ written as achieved is a directive nobody will implement. Expanded in
 
 1. **Zeroize cryptographic memory.** `zeroize` is already a dependency of every
    crate holding key material (root, `crypto-pq`, `custody-mpc`, `mev`, `vrf`,
-   `wallet`, `wallet-gui/core`, `wallet-gui/src-tauri`, `app-maya2c`). New
+   `wallet`, `apps/wallet-gui/core`, `apps/wallet-gui/src-tauri`, `app-maya2c`). New
    secret types get `ZeroizeOnDrop`, not a manual `drop`. Keep secrets in typed
    wrappers from generation to use — a `Vec<u8>` that went through a serializer
    has already been copied.
@@ -212,13 +213,13 @@ written as achieved is a directive nobody will implement. Expanded in
    is owned buffers and the journal collects into `Vec`. Read it as — do not add
    an allocation to an inner loop that lacked one, reuse buffers across
    iterations, measure before calling a loop hot.
-4. **No `unsafe` in core execution paths.** Holds today for `src/state/`,
-   `src/chain.rs`, `ledger-math`, `dex`, `governance`, `fee-market`, `vrf` — the
+4. **No `unsafe` in core execution paths.** Holds today for `crates/node/src/state/`,
+   `crates/node/src/chain.rs`, `ledger-math`, `dex`, `governance`, `fee-market`, `vrf` — the
    same crates whose dependency-freedom exists so Kani can compile them. Exempt
    by construction: `cuda-miner` (CUDA driver FFI), `sdk-ffi` (the C ABI *is*
-   the product), `wgpu-miner` (GPU buffer mapping), `ebpf-net/src/linux/`
+   the product), `wgpu-miner` (GPU buffer mapping), `hal/ebpf-net/src/linux/`
    (AF_XDP rings and UMEM shared with the kernel; behind `xdp`, so a default
-   node links none of it), `ebpf-net/programs` (packet pointers the verifier
+   node links none of it), `hal/ebpf-net/programs` (packet pointers the verifier
    bounds). An `unsafe` block anywhere else needs a hardware-attestation
    justification in a comment, and a reviewer.
 
@@ -252,7 +253,7 @@ not after it fails. Measured 2026-09-20: 336.5 GiB across all artifact
 directories before `cargo clean`, 20.6 GiB immediately after, and 50.2 GiB
 once everything had been rebuilt and tested. The root `target/` is 29.6 GiB
 of that, down from 316.0 GiB. `fuzz/target` (10.2 GiB) and
-`wallet-gui/src-tauri/target` (8.7 GiB) survive a root clean; they are
+`apps/wallet-gui/src-tauri/target` (8.7 GiB) survive a root clean; they are
 separate workspaces with their own profiles, and they are why the *sum* is
 still over the 30 GiB ceiling while the root is under it.
 
@@ -273,27 +274,54 @@ Measured on this machine, 2026-09-20, from a clean tree:
 | `cargo check --workspace --all-targets` | 4m 34s, 0 errors, 0 warnings |
 | `cargo clippy --workspace --all-targets` | 1,700 diagnostics, all `pedantic` or `unwrap_used` |
 | `cargo build --workspace --all-targets` | 4m 54s |
-| `cargo nextest run --workspace` | 2,468 tests across 167 binaries, **2,468 passed**, 6 skipped, 529.6s |
+| `cargo nextest run --workspace` | 2,515 tests across 169 binaries, **2,515 passed**, 6 skipped, 480.4s (at `jobs = 4`) |
 | root `target/` afterwards | **29.6 GiB**, from 316.0 GiB |
 
 `cargo clippy --workspace --lib --bins -- -D clippy::unwrap_used` reports
 **zero**: all 457 `unwrap()` warnings are in `#[cfg(test)]` code. That is the
 CI gate.
 
-**Two claims this file used to make are now measured and were wrong.** A cold
-rebuild is about **five minutes**, not 52 — the 52-minute figure predates the
-profile change. And `cargo nextest run --workspace` **no longer needs
-`CARGO_BUILD_JOBS=1`**: it linked 167 test binaries at 24 jobs without
-`LNK1102: out of memory`, which is why `.cargo/config.toml` deliberately does
-not pin `jobs = 1`. If that regresses, the cause is debug-info volume per
-link, and the fix is the profile rather than the job count.
+**A cold rebuild is about five minutes, not 52.** The 52-minute figure in this
+file predated the profile change and is corrected.
 
-**Mixing `cargo check` or `cargo clippy` with `cargo build` in a freshly
-cleaned tree can wedge it.** `--all-targets` under check/clippy emits `.rmeta`
-and no `.rlib`; a later link then fails with `crate X required to be available
-in rlib format` and a cascade of `can't find crate`, which reads as a profile
-bug and is not one. `cargo clean -p <the named crates>` fixes it. See
-`reports/01-foundation.md` §4.
+**Build parallelism is still bounded, and this file was briefly wrong about
+it.** One run of `cargo nextest run --workspace` at cargo's default 24 jobs
+succeeded, and that was written up here as "`CARGO_BUILD_JOBS=1` is no longer
+needed". Every later run at 24 jobs failed. The failure is not `LNK1102` any
+more — with `line-tables-only` the linker is fine — it is rustc:
+
+```
+error[E0786]: found invalid metadata files for crate `custom_l1_node`
+  = note: failed to mmap file 'target\debug\deps\libcustom_l1_node-*.rlib':
+          The paging file is too small for this operation to complete. (os error 1455)
+```
+
+`os error 1455` is Windows commit-charge exhaustion. Measured on this machine:
+31.4 GB RAM, a 22 GB pagefile, **commit limit 53.6 GB with 12.9 GB free**. Two
+dozen `rustc` processes compiling wasmtime, arkworks and halo2 at
+`opt-level = 3`, each mmapping a large rlib, go past it. What it looks like
+from the outside is `can't find crate` and `required to be available in rlib
+format` cascading across the workspace — which reads as a cargo, profile or
+linker bug and is none of them.
+
+The bound lives in `.cargo/config.toml` and `CARGO_BUILD_JOBS` overrides it.
+
+**Run one cargo scope at a time.** Interleaving `cargo build -p <crate>`, or
+`cargo xtask …` (which is `cargo run -p xtask`), with a
+`cargo build --workspace` wedges the target directory:
+
+```
+error: crate `wasmtime_internal_cranelift` required to be available in rlib format, but was not found in this form
+error[E0463]: can't find crate for `custom_l1_node`
+```
+
+Under resolver 2/3 the unified feature set for a shared dependency differs
+between a `-p` scope and a `--workspace` scope, so the two builds produce
+different units into the same directory and each invalidates what the other
+needs. It reads as a profile or a linker bug and is neither.
+`CARGO_BUILD_PIPELINING=false` does not help. The remedy is to let one scope
+finish before starting another; `cargo clean` if it is already wedged. See
+`reports/02-layout.md` §1.
 
 ## Code Conventions
 

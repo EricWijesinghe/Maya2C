@@ -11,7 +11,7 @@ Cross-platform GPU mining for hashimoto, via WGSL compute shaders.
 about WGSL rather than about effort.
 
 **WGSL has no native 64-bit integer type.** Argon2id and BLAKE2b are u64
-algorithms throughout — `cuda-miner/src/argon2_ref.rs` uses `u64` in eighteen
+algorithms throughout — `hal/cuda-miner/src/argon2_ref.rs` uses `u64` in eighteen
 places. Emulating u64 as pairs of u32 through BLAKE2b's G function is possible,
 slow, and a correctness surface on a *consensus hash*, where one wrong bit
 produces blocks the network rejects silently and only once a solution is found.
@@ -97,7 +97,7 @@ cargo build -p maya-wgpu-miner --features gpu
 
 ## Validation
 
-`wgpu-miner/tests/gpu_validation.rs`, layered so a failure says *where*:
+`hal/wgpu-miner/tests/gpu_validation.rs`, layered so a failure says *where*:
 
 | Layer | Compares | Runs without a GPU |
 |---|---|---|

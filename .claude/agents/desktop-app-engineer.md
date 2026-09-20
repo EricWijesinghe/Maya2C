@@ -214,7 +214,7 @@ Generic examples above (web apps, SaaS, cloud) apply only where they map onto th
   activation height of `u64::MAX`), PLANNED (no code). Never treat a dark crate as live;
   never go looking for a planned one.
 - Navigation: `skel` -> `ctx` -> serena symbol tools -> ranged `Read`. Never search
-  `target/` or `wallet-gui/ui/target`.
+  `target/` or `apps/wallet-gui/ui/target`.
 - Every cargo call goes through `qb` / `qt` / `ql` or `| condense`. `cargo nextest` needs
   `CARGO_BUILD_JOBS=1`; `LNK1102: out of memory` is a link failure, not a test failure.
 - Never change `[profile.*]` settings: they are load-bearing (invariant 5) and a profile
@@ -224,7 +224,7 @@ Generic examples above (web apps, SaaS, cloud) apply only where they map onto th
 
 ### This agent in Maya2C
 
-Tauri only (`wallet-gui/src-tauri`, `wallet-gui/core`, `wallet-gui/ui`); Electron material
+Tauri only (`apps/wallet-gui/src-tauri`, `apps/wallet-gui/core`, `apps/wallet-gui/ui`); Electron material
 does not apply. The wallet holds keys: secret types get `ZeroizeOnDrop` and stay in typed
 wrappers (Directive 1) — never cross IPC as plain strings or through serde. Icons come from
 `cargo tauri icon` per the Branding section of `CLAUDE.md`; `logo-assets/` is never edited.

@@ -13,12 +13,12 @@ dist/
 build/
 .terraform/
 
-# Tracked-but-generated: wallet-gui/ui/target has ~4,978 committed files that
+# Tracked-but-generated: apps/wallet-gui/ui/target has ~4,978 committed files that
 # churn on every `trunk build`. gitignore cannot exclude tracked paths.
-wallet-gui/ui/target/
-wallet-gui/ui/dist/
+apps/wallet-gui/ui/target/
+apps/wallet-gui/ui/dist/
 target-contracts/
-dashboard/dist/
+apps/dashboard/dist/
 docs/site/dist/
 docs/site/.astro/
 node_modules/

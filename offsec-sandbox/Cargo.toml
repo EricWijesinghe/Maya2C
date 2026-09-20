@@ -22,7 +22,7 @@ path = "src/lib.rs"
 [dependencies]
 # The types the mutators build valid-ish inputs of, and the apply path the
 # differential oracle drives. A path dependency on the node, like `fuzz/`.
-custom-l1-node = { path = ".." }
+custom-l1-node = { path = "../crates/node" }
 # Deterministic mutation: a seed reproduces a run, and a finding reproduces its
 # input. Not the OS RNG — a fuzzer that cannot replay itself is not one.
 rand_core = "0.6"

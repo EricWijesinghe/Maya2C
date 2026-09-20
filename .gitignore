@@ -1,6 +1,6 @@
 # Rust build output.
 /target/
-/wallet-gui/src-tauri/target/
+/apps/wallet-gui/src-tauri/target/
 # The fuzz crate is its own workspace root, so it builds into its own tree.
 /fuzz/target/
 
@@ -61,15 +61,15 @@ rustc-ice-*.txt
 
 # The browser dashboard is its own workspace (Leptos only targets wasm32),
 # so it has its own target dir, and `trunk` writes the bundle to dist/.
-/dashboard/target/
-/dashboard/dist/
+/apps/dashboard/target/
+/apps/dashboard/dist/
 
 # The wallet frontend is a nested Cargo workspace, so `/target/` above does not
 # reach it and its build output has been committed: 4978 files that churn on
 # every `trunk build`. This stops it growing; the already-tracked files need an
-# explicit `git rm -r --cached wallet-gui/ui/target` to actually leave the repo.
-/wallet-gui/ui/target/
-/wallet-gui/ui/dist/
+# explicit `git rm -r --cached apps/wallet-gui/ui/target` to actually leave the repo.
+/apps/wallet-gui/ui/target/
+/apps/wallet-gui/ui/dist/
 
 # The docs site is a Node project inside docs/. Its content collection is
 # generated from docs/*.md by scripts/ingest.mjs on every build.
@@ -80,13 +80,13 @@ rustc-ice-*.txt
 # Crates with their own `[workspace]` table build into their own `target/`.
 # Listed one by one rather than as a blanket `target/`, because
 # `target-contracts/` is a different directory and is tracked on purpose.
-/app-maya2c/target/
+/apps/ledger-maya2c/target/
 /contracts/token-swap/target/
-/dashboard/target/
-/ebpf-net/programs/target/
+/apps/dashboard/target/
+/hal/ebpf-net/programs/target/
 
 # The example firmware is its own workspace.
-/iot-firmware/target/
+/hal/iot-firmware/target/
 
 # Session handoff notes are per-machine working state.
 /.claude/session-handoff.md

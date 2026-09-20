@@ -2,12 +2,12 @@
 
 Moving Maya2C headers where there is no IP.
 
-- `radio-transport/src/frame.rs` — the on-air frame, and why AX.25's shape on ISM's rules.
-- `radio-transport/src/duty.rs` — the governor that refuses rather than warns.
-- `radio-transport/src/fountain.rs` — loss answered by sending more, not by asking again.
-- `radio-transport/src/relay.rs` — custody, expiry, and why a relay never looks inside.
-- `src/network/radio_gateway.rs` — the node side, and why it is a gateway and not a libp2p transport.
-- `tests/radio_transport_tests.rs`, `fuzz/fuzz_targets/radio_frame_decode.rs`.
+- `hal/radio-transport/src/frame.rs` — the on-air frame, and why AX.25's shape on ISM's rules.
+- `hal/radio-transport/src/duty.rs` — the governor that refuses rather than warns.
+- `hal/radio-transport/src/fountain.rs` — loss answered by sending more, not by asking again.
+- `hal/radio-transport/src/relay.rs` — custody, expiry, and why a relay never looks inside.
+- `crates/node/src/network/radio_gateway.rs` — the node side, and why it is a gateway and not a libp2p transport.
+- `crates/node/tests/radio_transport_tests.rs`, `fuzz/fuzz_targets/radio_frame_decode.rs`.
 
 ---
 
@@ -206,7 +206,7 @@ elimination for the price of repeating somebody else's frames.
 ## Status
 
 **RESEARCH.** Nothing in consensus calls it. The gateway is constructed by
-nothing in `src/bin/`, there is no serial device behind `RadioLink`, and a chain
+nothing in `crates/node/src/bin/`, there is no serial device behind `RadioLink`, and a chain
 with no gateway produces the state root it would have had without the subsystem.
 
 Promoting it means, in order: a real `RadioLink` over a serial port behind a

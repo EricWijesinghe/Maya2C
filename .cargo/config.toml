@@ -45,15 +45,31 @@ rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 # Build parallelism
 # ---------------------------------------------------------------------------
 #
-# Deliberately NOT pinned to `jobs = 1` here.
+# Bounded, because this machine runs out of *commit charge* before it runs out
+# of anything else.
 #
-# `cargo nextest run --workspace` has historically needed `CARGO_BUILD_JOBS=1`
-# on a 32 GB machine: two dozen concurrent `link.exe` processes, each linking a
-# test binary carrying `debuginfo = 2` plus wasmtime, arkworks and halo2, end in
-# `LNK1102: out of memory` — which nextest reports as ordinary test failures.
+# `[profile.dev.package."*"] opt-level = 3` applies to every dependency, so a
+# default build runs one rustc per logical CPU — 24 here — compiling wasmtime,
+# arkworks and halo2 optimized, each mmapping a large rlib. Measured during the
+# failure: 31.4 GB RAM, a 22 GB pagefile, commit limit 53.6 GB, 12.9 GB free.
+# Past that, rustc fails with
 #
-# The cause is debug-info volume per link, and `[profile.dev] debug =
-# "line-tables-only"` in `Cargo.toml` addresses that directly. Forcing `jobs =
-# 1` globally would serialise every build on the machine to fix one command.
-# Set `CARGO_BUILD_JOBS=1` for the test run if it still OOMs after that; the
-# measured answer is in `reports/01-foundation.md`.
+#   error[E0786]: found invalid metadata files for crate `custom_l1_node`
+#     = note: failed to mmap file '...libcustom_l1_node-*.rlib':
+#             The paging file is too small for this operation to complete.
+#             (os error 1455)
+#
+# and every other job in the build reports `can't find crate` or `required to
+# be available in rlib format`. That cascade reads as a cargo, profile or
+# linker bug and is none of them — see reports/02-layout.md section 1, which
+# also lists three wrong diagnoses so nobody repeats them.
+#
+# 4 is measured, not guessed: the whole suite builds and runs at 4
+# (2,515 tests, 9m 1s) and fails at 24. It is also what a GitHub runner has,
+# so CI is unaffected. `CARGO_BUILD_JOBS` overrides it on a bigger machine.
+#
+# This is the *compiler's* memory ceiling. The linker's — `LNK1102`, which
+# needed `CARGO_BUILD_JOBS=1` — is a separate problem that
+# `[profile.dev] debug = "line-tables-only"` did fix.
+[build]
+jobs = 4

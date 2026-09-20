@@ -33,36 +33,36 @@ WORKDIR /build
 # even when building one binary. Stub sources let the RocksDB C++ build — the
 # expensive part — land in a layer that pool code changes do not invalidate.
 COPY Cargo.toml Cargo.lock ./
-COPY wallet/Cargo.toml wallet/Cargo.toml
-COPY l2-flash/Cargo.toml l2-flash/Cargo.toml
-COPY vm/Cargo.toml vm/Cargo.toml
-COPY explorer/Cargo.toml explorer/Cargo.toml
-COPY wallet-gui/core/Cargo.toml wallet-gui/core/Cargo.toml
-COPY zk-privacy/Cargo.toml zk-privacy/Cargo.toml
-COPY crypto-pq/Cargo.toml crypto-pq/Cargo.toml
-COPY ledger-math/Cargo.toml ledger-math/Cargo.toml
-COPY cuda-miner/Cargo.toml cuda-miner/Cargo.toml
-COPY cuda-miner/build.rs cuda-miner/build.rs
-COPY stratum-v2/Cargo.toml stratum-v2/Cargo.toml
-COPY pool-service/Cargo.toml pool-service/Cargo.toml
+COPY bins/l1-wallet/Cargo.toml bins/l1-wallet/Cargo.toml
+COPY crates/l2-flash/Cargo.toml crates/l2-flash/Cargo.toml
+COPY crates/vm/Cargo.toml crates/vm/Cargo.toml
+COPY apps/explorer/Cargo.toml apps/explorer/Cargo.toml
+COPY apps/wallet-gui/core/Cargo.toml apps/wallet-gui/core/Cargo.toml
+COPY crates/zk-privacy/Cargo.toml crates/zk-privacy/Cargo.toml
+COPY crates/crypto-pq/Cargo.toml crates/crypto-pq/Cargo.toml
+COPY crates/ledger-math/Cargo.toml crates/ledger-math/Cargo.toml
+COPY hal/cuda-miner/Cargo.toml hal/cuda-miner/Cargo.toml
+COPY hal/cuda-miner/build.rs hal/cuda-miner/build.rs
+COPY crates/stratum-v2/Cargo.toml crates/stratum-v2/Cargo.toml
+COPY bins/pool-service/Cargo.toml bins/pool-service/Cargo.toml
 
-RUN mkdir -p src/bin wallet/src l2-flash/src vm/src explorer/src \
-             wallet-gui/core/src zk-privacy/src crypto-pq/src ledger-math/src \
-             cuda-miner/src stratum-v2/src pool-service/src/bin \
-    && for stub in src/lib.rs wallet/src/lib.rs l2-flash/src/lib.rs \
-                   vm/src/lib.rs explorer/src/lib.rs wallet-gui/core/src/lib.rs \
-                   zk-privacy/src/lib.rs crypto-pq/src/lib.rs \
-                   ledger-math/src/lib.rs cuda-miner/src/lib.rs \
-                   stratum-v2/src/lib.rs pool-service/src/lib.rs; do \
+RUN mkdir -p src/bin bins/l1-wallet/src crates/l2-flash/src crates/vm/src apps/explorer/src \
+             apps/wallet-gui/core/src crates/zk-privacy/src crates/crypto-pq/src crates/ledger-math/src \
+             hal/cuda-miner/src crates/stratum-v2/src bins/pool-service/src/bin \
+    && for stub in src/lib.rs bins/l1-wallet/src/lib.rs crates/l2-flash/src/lib.rs \
+                   crates/vm/src/lib.rs apps/explorer/src/lib.rs apps/wallet-gui/core/src/lib.rs \
+                   crates/zk-privacy/src/lib.rs crates/crypto-pq/src/lib.rs \
+                   crates/ledger-math/src/lib.rs hal/cuda-miner/src/lib.rs \
+                   crates/stratum-v2/src/lib.rs bins/pool-service/src/lib.rs; do \
            touch "$stub"; \
        done \
-    && for stub in wallet/src/main.rs explorer/src/main.rs \
-                   pool-service/src/bin/pool.rs; do \
+    && for stub in bins/l1-wallet/src/main.rs apps/explorer/src/main.rs \
+                   bins/pool-service/src/bin/pool.rs; do \
            echo 'fn main() {}' > "$stub"; \
        done \
     && cargo build --release -p maya-pool-service --bin pool \
     # Remove the stub artifacts, or cargo reuses them instead of the real code.
-    && rm -rf src wallet/src stratum-v2/src pool-service/src ledger-math/src \
+    && rm -rf src bins/l1-wallet/src crates/stratum-v2/src bins/pool-service/src crates/ledger-math/src \
               target/release/pool \
               target/release/deps/custom_l1_node* \
               target/release/deps/maya_pool_service* \
@@ -73,10 +73,10 @@ RUN mkdir -p src/bin wallet/src l2-flash/src vm/src explorer/src \
 
 # --- real build ------------------------------------------------------------
 COPY src src
-COPY wallet/src wallet/src
-COPY ledger-math/src ledger-math/src
-COPY stratum-v2/src stratum-v2/src
-COPY pool-service/src pool-service/src
+COPY bins/l1-wallet/src bins/l1-wallet/src
+COPY crates/ledger-math/src crates/ledger-math/src
+COPY crates/stratum-v2/src crates/stratum-v2/src
+COPY bins/pool-service/src bins/pool-service/src
 
 RUN cargo build --release -p maya-pool-service --bin pool \
     && strip target/release/pool
@@ -101,7 +101,7 @@ RUN apk add --no-cache ca-certificates \
 COPY --from=builder /build/target/release/pool /usr/local/bin/pool
 
 # Never run a network daemon as root. The uid matches the `runAsUser` in
-# k8s/pool/deployment.yaml so the mounted volume is writable.
+# infra/k8s/pool/deployment.yaml so the mounted volume is writable.
 USER pool
 
 # The share ledger. This is the pool's only record of what it owes, and it is
@@ -122,4 +122,4 @@ ENTRYPOINT ["/usr/local/bin/pool"]
 # treasury — is policy about other people's money, and a CMD supplying it would
 # be this file deciding it. The daemon refuses to start until an operator does.
 #
-# See k8s/pool/deployment.yaml for a worked set of arguments.
+# See infra/k8s/pool/deployment.yaml for a worked set of arguments.

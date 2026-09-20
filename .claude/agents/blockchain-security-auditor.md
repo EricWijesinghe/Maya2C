@@ -474,7 +474,7 @@ Generic examples above (web apps, SaaS, cloud) apply only where they map onto th
   activation height of `u64::MAX`), PLANNED (no code). Never treat a dark crate as live;
   never go looking for a planned one.
 - Navigation: `skel` -> `ctx` -> serena symbol tools -> ranged `Read`. Never search
-  `target/` or `wallet-gui/ui/target`.
+  `target/` or `apps/wallet-gui/ui/target`.
 - Every cargo call goes through `qb` / `qt` / `ql` or `| condense`. `cargo nextest` needs
   `CARGO_BUILD_JOBS=1`; `LNK1102: out of memory` is a link failure, not a test failure.
 - Never change `[profile.*]` settings: they are load-bearing (invariant 5) and a profile
@@ -495,10 +495,10 @@ not apply. Maya2C is a native Rust L1 — translate the vulnerability classes:
 | Reentrancy / host re-entry, gas | `vm` host functions, fuel charged before native work (21) |
 | Block / state forgery | `tx_root` + `state_root` (24), committed prefixes (25), atomic commit (26) |
 | Reorg / rollback | undo journal (8), prune horizon (27) |
-| Value creation, drains | invariant guard + breakers (28), `tests/exploit_replays.rs` |
+| Value creation, drains | invariant guard + breakers (28), `crates/node/tests/exploit_replays.rs` |
 | Custody / key compromise | `custody-mpc` (18, 19) |
 
 Tooling that does apply: Kani (`ledger-math`, `dex`, `governance`, `fee-market`),
-`cargo fuzz list`, `tests/exploit_replays.rs`, `tests/chaos_simulator.rs`. A confirmed
+`cargo fuzz list`, `crates/node/tests/exploit_replays.rs`, `crates/node/tests/chaos_simulator.rs`. A confirmed
 finding comes with a replay test that fails before the fix. Flag classical (non-PQ)
 components honestly: Groth16, halo2/KZG, EC-VRF.

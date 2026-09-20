@@ -1,5 +1,5 @@
 ---
-# One Maya2C seed node. A port of `deploy/deploy_bootstrap.sh`, made idempotent.
+# One Maya2C seed node. A port of `infra/deploy/deploy_bootstrap.sh`, made idempotent.
 
 # --- binary -----------------------------------------------------------------
 
@@ -178,10 +178,10 @@
 # --- service ----------------------------------------------------------------
 
 - name: Install the systemd unit
-  # Copied from deploy/systemd/ rather than templated. That unit is already
+  # Copied from infra/deploy/systemd/ rather than templated. That unit is already
   # hardened with its reasoning inline; a Jinja copy would fork it.
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../deploy/systemd/maya2c-node.service"
+    src: "{{ playbook_dir }}/../../infra/deploy/systemd/maya2c-node.service"
     dest: /etc/systemd/system/maya2c-node.service
     mode: "0644"
     owner: root

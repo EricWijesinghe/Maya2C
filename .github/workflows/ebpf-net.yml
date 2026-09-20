@@ -16,9 +16,9 @@ on:
   pull_request:
     branches: [master]
     paths:
-      - "ebpf-net/**"
-      - "src/network/**"
-      - "benches/ebpf_bench.rs"
+      - "hal/ebpf-net/**"
+      - "crates/node/src/network/**"
+      - "crates/node/benches/ebpf_bench.rs"
       - "scripts/xdp_netns.sh"
       - ".github/workflows/ebpf-net.yml"
   workflow_dispatch:
@@ -33,7 +33,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  # The toolchain `ebpf-net/programs/rust-toolchain.toml` pins.
+  # The toolchain `hal/ebpf-net/programs/rust-toolchain.toml` pins.
   PROGRAM_TOOLCHAIN: nightly-2026-07-15
   BPF_LINKER_VERSION: v0.11.1
 
@@ -55,7 +55,7 @@ jobs:
       - name: Host tests
         run: cargo test -p maya-ebpf-net-common -p maya-ebpf-net
 
-      # Compiles `src/linux/` and the ignored veth tests; runs nothing that needs
+      # Compiles `crates/node/src/linux/` and the ignored veth tests; runs nothing that needs
       # root.
       - name: With the kernel path
         run: cargo test -p maya-ebpf-net --features xdp
@@ -78,7 +78,7 @@ jobs:
           key: ebpf-net-kernel
           workspaces: |
             .
-            ebpf-net/programs
+            hal/ebpf-net/programs
 
       # Prebuilt. `cargo install bpf-linker` links a system libLLVM of rustc's
       # exact LLVM version, which no runner image carries; the release binary
@@ -92,7 +92,7 @@ jobs:
           bpf-linker --version
 
       - name: Build the XDP program
-        working-directory: ebpf-net/programs
+        working-directory: hal/ebpf-net/programs
         run: cargo build --release
 
       - name: Build the kernel tests
@@ -137,7 +137,7 @@ jobs:
           bpf-linker --version
 
       - name: Build the XDP program
-        working-directory: ebpf-net/programs
+        working-directory: hal/ebpf-net/programs
         run: cargo build --release
 
       - name: Build the benchmark

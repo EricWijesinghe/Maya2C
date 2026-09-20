@@ -16,10 +16,10 @@ Three independent places refuse a value-bearing chain:
 
 | Where | What happens |
 |---|---|
-| `zk-privacy/src/prove.rs:48` | `SETUP_IS_TRUSTED = false` |
-| `src/bin/node.rs` (`VALUE_BEARING_CHAINS`) | The node exits at startup on `mainnet` / `maya-mainnet` |
-| `terraform/modules/*/variables.tf` | `terraform plan` fails for those chain ids, in both clouds |
-| `zk-privacy/tests/proof_tests.rs:55` | A test asserts the flag stays false |
+| `crates/zk-privacy/src/prove.rs:48` | `SETUP_IS_TRUSTED = false` |
+| `crates/node/src/bin/node.rs` (`VALUE_BEARING_CHAINS`) | The node exits at startup on `mainnet` / `maya-mainnet` |
+| `infra/terraform/modules/*/variables.tf` | `terraform plan` fails for those chain ids, in both clouds |
+| `crates/zk-privacy/tests/proof_tests.rs:55` | A test asserts the flag stays false |
 
 **Everything in this runbook deploys a non-value-bearing chain id.** That is a
 real, fully multi-region network — it is simply not one anybody should put money
@@ -98,7 +98,7 @@ the constraint and still is not.
 **Signing and bytes moved a great deal.** 105 ms per signature is a wallet-side
 cost paid once per transaction, which is acceptable; but it made the L2 scale
 tests unrunnable at their previous volume, and `TOTAL_TRANSFERS` in
-`l2-flash/tests/scale_tests.rs` was cut from 1000 to 20 as a result. The
+`crates/l2-flash/tests/scale_tests.rs` was cut from 1000 to 20 as a result. The
 full-volume run is still reachable under `cargo test -- --ignored` and takes
 roughly an hour.
 
@@ -118,10 +118,10 @@ one application.
 
 | Component | Needed by |
 |---|---|
-| ingress-nginx | `k8s/base/ingress.yaml` — both Ingress objects and every rate-limit annotation |
+| ingress-nginx | `infra/k8s/base/ingress.yaml` — both Ingress objects and every rate-limit annotation |
 | cert-manager, with a `letsencrypt-prod` ClusterIssuer | the `maya-rpc-tls` certificate |
 | external-dns | publishes the per-seed p2p hostnames the bootnode multiaddrs are written against |
-| Prometheus Operator CRDs | `k8s/base/servicemonitor.yaml` — the ServiceMonitor and PrometheusRule |
+| Prometheus Operator CRDs | `infra/k8s/base/servicemonitor.yaml` — the ServiceMonitor and PrometheusRule |
 | AWS Load Balancer Controller | AWS only; the per-seed `LoadBalancer` Services. GKE needs no equivalent |
 
 A namespace labelled `monitoring` and one labelled `ingress-nginx` must exist —
@@ -250,9 +250,9 @@ mandatory, not cosmetic.
 
 | File | Replace |
 |---|---|
-| `k8s/overlays/*/kustomization.yaml` | `rpc-*.example.invalid`, `seed-*.p2p.example.invalid` |
-| `k8s/overlays/*/bootnodes.yaml` | the same p2p hostnames, and every `/p2p/12D3KooW...` with the real `PeerId` from step 5 |
-| `k8s/base/configmap.yaml` | `genesis.json` — chain id, timestamp, difficulty, allocations |
+| `infra/k8s/overlays/*/kustomization.yaml` | `rpc-*.example.invalid`, `seed-*.p2p.example.invalid` |
+| `infra/k8s/overlays/*/bootnodes.yaml` | the same p2p hostnames, and every `/p2p/12D3KooW...` with the real `PeerId` from step 5 |
+| `infra/k8s/base/configmap.yaml` | `genesis.json` — chain id, timestamp, difficulty, allocations |
 
 The p2p hostnames appear in two places per region: the `external-dns` annotation
 that publishes them, and the other regions' bootnode multiaddrs that dial them.
@@ -267,7 +267,7 @@ With it, a hijacked DNS record is a failed dial rather than a hostile peer.
 ## 7. Deploy, one region at a time
 
 ```bash
-kubectl apply -k k8s/overlays/us
+kubectl apply -k infra/k8s/overlays/us
 kubectl -n maya-us rollout status statefulset/maya-seed --timeout=10m
 ```
 
@@ -276,7 +276,7 @@ other two: bringing all three up simultaneously means every bootnode dial fails
 until the last region is ready, which converges eventually but makes a genuine
 failure indistinguishable from ordinary startup noise.
 
-GCP overlays are `k8s/overlays/gcp-us`, `gcp-eu`, `gcp-asia`.
+GCP overlays are `infra/k8s/overlays/gcp-us`, `gcp-eu`, `gcp-asia`.
 
 ### Verify
 
@@ -366,7 +366,7 @@ restarting node can find a peer.
 
 ## 10. Alerts worth knowing
 
-From `k8s/base/servicemonitor.yaml`:
+From `infra/k8s/base/servicemonitor.yaml`:
 
 | Alert | Why it matters |
 |---|---|

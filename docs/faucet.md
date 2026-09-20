@@ -18,9 +18,9 @@ relaxing one is a decision about one.
 
 | Control | Bounds | Where |
 |---|---|---|
-| rate limiter | one actor, per IP **and** per address | `faucet/src/limit.rs` |
-| daily cap | the whole day, regardless of who asks | `faucet/src/lib.rs` |
-| chain refusal | value-bearing chains, outright | `faucet/src/lib.rs` |
+| rate limiter | one actor, per IP **and** per address | `apps/faucet/src/limit.rs` |
+| daily cap | the whole day, regardless of who asks | `apps/faucet/src/lib.rs` |
+| chain refusal | value-bearing chains, outright | `apps/faucet/src/lib.rs` |
 
 ### Why the limiter has two independent buckets
 
@@ -44,7 +44,7 @@ indistinguishable from a thousand real users. No per-key limiter can see it.
 The cap is what makes that attack cost a number somebody chose rather than
 everything.
 
-`faucet/tests/load_tests.rs` is named for this. It fires 1,000 concurrent
+`apps/faucet/tests/load_tests.rs` is named for this. It fires 1,000 concurrent
 requests and proves:
 
 - one IP racing 1,000 requests gets exactly one grant, regardless of

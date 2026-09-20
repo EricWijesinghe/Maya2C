@@ -12,22 +12,22 @@ written down together.
 
 | Piece | Where | Runs in |
 |---|---|---|
-| Model semantics, bounds | `zkml/src/model.rs` | everywhere |
-| halo2 circuit (KZG / BN254) | `zkml/src/circuit.rs` | prover and verifier |
-| Verifier | `zkml/src/verify.rs` | **consensus** |
-| SRS + mainnet guard | `zkml/src/srs.rs` | consensus |
-| ONNX importer, tract cross-check | `zkml-prover/src/onnx.rs` | off-chain only (separate crate) |
-| Key generation, proving | `zkml-prover/src/prove.rs` | off-chain only (separate crate) |
-| `host_verify_zkml_proof`, its price | `vm/src/zkml.rs` | consensus |
-| Node binding, activation, startup guard | `src/state/zkml.rs`, `src/state/context.rs` | consensus |
+| Model semantics, bounds | `crates/zkml/src/model.rs` | everywhere |
+| halo2 circuit (KZG / BN254) | `crates/zkml/src/circuit.rs` | prover and verifier |
+| Verifier | `crates/zkml/src/verify.rs` | **consensus** |
+| SRS + mainnet guard | `crates/zkml/src/srs.rs` | consensus |
+| ONNX importer, tract cross-check | `crates/zkml-prover/src/onnx.rs` | off-chain only (separate crate) |
+| Key generation, proving | `crates/zkml-prover/src/prove.rs` | off-chain only (separate crate) |
+| `host_verify_zkml_proof`, its price | `crates/vm/src/zkml.rs` | consensus |
+| Node binding, activation, startup guard | `crates/node/src/state/zkml.rs`, `crates/node/src/state/context.rs` | consensus |
 | Fixture generator | `scripts/make_zkml_fixture.py` | build time |
 
 ## Two crates, and why
 
 | Crate | Contains | Rust | Who depends on it |
 |---|---|---|---|
-| `maya-zkml` (`zkml/`) | circuit, verifier, SRS, model bounds | 1.88 | the node |
-| `maya-zkml-prover` (`zkml-prover/`) | ONNX import (tract), key generation, proving, the soundness and proof tests, the bench | 1.91 | the node's *tests* only |
+| `maya-zkml` (`crates/zkml/`) | circuit, verifier, SRS, model bounds | 1.88 | the node |
+| `maya-zkml-prover` (`crates/zkml-prover/`) | ONNX import (tract), key generation, proving, the soundness and proof tests, the bench | 1.91 | the node's *tests* only |
 
 This began as one crate with a `prover` feature. A dependency audit found
 RUSTSEC-2026-0217 — an out-of-bounds read in the `tract-nnef` tensor parser —
@@ -52,9 +52,9 @@ the check and has to be argued for on its own.
 | SRS derivation, once per process | 941 ms | same bench |
 | Verifying key | 362 bytes | `proof_tests.rs` |
 | Proof | 1,280 bytes | `proof_tests.rs` |
-| Guest fuel rate, tight loop | 16.6 M fuel/ms | `vm/tests/fuel_calibration_tests.rs` |
-| Guest int8 matmul | **28.4 fuel per multiply-accumulate** | `vm/tests/tensor_gas_tests.rs` |
-| Verification price | 150 M fuel + 16/byte + 1,000/public input | `vm/src/zkml.rs` |
+| Guest fuel rate, tight loop | 16.6 M fuel/ms | `crates/vm/tests/fuel_calibration_tests.rs` |
+| Guest int8 matmul | **28.4 fuel per multiply-accumulate** | `crates/vm/tests/tensor_gas_tests.rs` |
+| Verification price | 150 M fuel + 16/byte + 1,000/public input | `crates/vm/src/zkml.rs` |
 
 The brief's budget was sub-10 ms. It is met, on this machine, with the key
 parsed from bytes on every call — which is what the host function does.
@@ -166,7 +166,7 @@ exception, the Groth16 shielded pool. This is a second, with the same kind of
 guard.
 
 **Not trusted, and worse than untrusted.** The SRS is derived from a seed in
-`zkml/src/srs.rs`. Its toxic waste is *public*: anyone who reads that file can
+`crates/zkml/src/srs.rs`. Its toxic waste is *public*: anyone who reads that file can
 forge a proof for any model and any output today. That is the right setup for
 tests and wrong for anything else. `SRS_IS_TRUSTED` is `false`.
 
@@ -174,7 +174,7 @@ tests and wrong for anything else. `SRS_IS_TRUSTED` is `false`.
 has zkML off; the import resolves, and calling it traps with
 `ZkmlUnavailable`, identically on every node.
 
-**Guarded.** `src/bin/node.rs` calls `state::zkml::check_setup` at startup
+**Guarded.** `crates/node/src/bin/node.rs` calls `state::zkml::check_setup` at startup
 beside the Groth16 check. It is inert while dark, and the moment a height is
 chosen it refuses mainnet until the SRS is trusted — so choosing a height cannot
 also quietly choose mainnet.
@@ -242,8 +242,8 @@ relative to a limit the sender chooses. That, with the SRS, is why this is dark.
       a 941 ms outlier on one validator.
 - [ ] A model worth proving — above the ~5.3 M-MAC crossover, or with private
       inputs. Until then re-running the model in the guest is the right answer.
-- [ ] `rust-reviewer` and `security-reviewer` passes on `zkml/src/circuit.rs`
-      and `zkml/src/verify.rs` — the consensus- and crypto-critical parts.
+- [ ] `rust-reviewer` and `security-reviewer` passes on `crates/zkml/src/circuit.rs`
+      and `crates/zkml/src/verify.rs` — the consensus- and crypto-critical parts.
 
 ## Reproducing the numbers
 
@@ -263,4 +263,4 @@ uv venv .zkml-venv; uv pip install --python .zkml-venv onnx numpy
 ```
 
 It is deterministic; regenerating it must reproduce the SHA-256 pinned in
-`zkml-prover/tests/proof_tests.rs`.
+`crates/zkml-prover/tests/proof_tests.rs`.

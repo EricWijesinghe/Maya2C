@@ -1,0 +1,36 @@
+# The pool overlay.
+#
+# Separate from `infra/k8s/base` rather than folded into it: the node and the pool
+# have different failure domains, different scaling stories, and different
+# blast radii. A node can be replaced; the pool holds the only record of what
+# miners are owed.
+#
+# The treasury Secret is deliberately absent. It carries a spending key and a
+# password, and a Secret committed to a repository is a key that has already
+# leaked. Create it out of band:
+#
+#   kubectl create secret generic maya-pool-treasury \
+#     --from-file=keystore=treasury.key \
+#     --from-literal=password="$(read -rs P; echo "$P")"
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# `labels` rather than the deprecated `commonLabels`, matching
+# `infra/k8s/base/kustomization.yaml`.
+#
+# `includeSelectors: false` for the reason that file gives: a selector is part
+# of an object's identity and Kubernetes will not let it be edited in place, so
+# a label folded into one is a label that cannot be changed without deleting
+# the Deployment. The Services carry their own `component` labels, which is
+# what the ServiceMonitor selects on to find the metrics endpoint and only the
+# metrics endpoint.
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/name: maya-pool
+      app.kubernetes.io/part-of: maya2c
+
+resources:
+  - deployment.yaml
+  - service.yaml
+  - servicemonitor.yaml

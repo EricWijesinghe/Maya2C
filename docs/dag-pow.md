@@ -158,15 +158,15 @@ resource this design intends to be scarce.
 A CUDA kernel is the hardest code here to test, so the port happens in two
 steps:
 
-1. `cuda-miner/src/blake3_ref.rs` and `cuda-miner/src/dag.rs` implement exactly
+1. `hal/cuda-miner/src/blake3_ref.rs` and `hal/cuda-miner/src/dag.rs` implement exactly
    what the kernel implements — including BLAKE3's compression function, flag
    schedule and padding rules — in Rust, checked byte-for-byte against the
    `blake3` crate and against the node on ordinary hardware.
-2. `cuda-miner/kernels/dag.cu` is a transliteration of code that is already
+2. `hal/cuda-miner/kernels/dag.cu` is a transliteration of code that is already
    known to be correct.
 
 The remaining gap — whether the transliteration is faithful — is what the
-`--features cuda` tests in `cuda-miner/tests/dag_parity.rs` close, and they need
+`--features cuda` tests in `hal/cuda-miner/tests/dag_parity.rs` close, and they need
 a card. **They have not been run: this tree has no CUDA toolkit and no GPU.**
 The `cuda` feature is off by default, `build.rs` never invokes nvcc without it,
 and nothing links against the CUDA runtime, so a GPU-less build stays green.
@@ -175,11 +175,11 @@ and nothing links against the CUDA runtime, so a GPU-less build stays green.
 
 | Where | What |
 |---|---|
-| `src/crypto/dag/*` unit tests | Determinism, thread-count independence, light/full agreement, epoch rotation, lookup distribution |
-| `tests/dag_tests.rs` | Frozen vectors at test **and mainnet** sizes; epoch selection; chain acceptance and rejection; the fork's difficulty reset |
-| `cuda-miner/tests/dag_parity.rs` | The miner's independent implementation against the node's, item for item, and both against the frozen vectors |
-| `cuda-miner/tests/dag_parity.rs` (`--features cuda`) | The kernel against the CPU reference. Needs a GPU |
-| `tests/fixtures/dag_vectors.json` | The bytes themselves. Regenerating it is a hard fork — see `examples/gen_dag_vectors.rs` |
+| `crates/node/src/crypto/dag/*` unit tests | Determinism, thread-count independence, light/full agreement, epoch rotation, lookup distribution |
+| `crates/node/tests/dag_tests.rs` | Frozen vectors at test **and mainnet** sizes; epoch selection; chain acceptance and rejection; the fork's difficulty reset |
+| `hal/cuda-miner/tests/dag_parity.rs` | The miner's independent implementation against the node's, item for item, and both against the frozen vectors |
+| `hal/cuda-miner/tests/dag_parity.rs` (`--features cuda`) | The kernel against the CPU reference. Needs a GPU |
+| `crates/node/tests/fixtures/dag_vectors.json` | The bytes themselves. Regenerating it is a hard fork — see `crates/node/examples/gen_dag_vectors.rs` |
 
 Test-sized parameters (`Params::TESTING`: 512 KiB cache, 4 MiB dataset) exist so
 that whole-dataset determinism can be asserted on a CI runner rather than only

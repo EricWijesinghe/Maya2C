@@ -7,7 +7,7 @@
 #
 # Written on a Windows host with no Ansible installed, so this has never been
 # syntax-checked by `ansible-playbook --syntax-check`, let alone run. The YAML
-# parses and the logic is a port of `deploy/deploy_bootstrap.sh`, which was
+# parses and the logic is a port of `infra/deploy/deploy_bootstrap.sh`, which was
 # itself written and reviewed but never executed. Run it against a disposable
 # host before pointing it at anything you care about.
 #
@@ -18,13 +18,13 @@
 # What this is a port of
 # =============================================================================
 #
-# `deploy/deploy_bootstrap.sh` already does systemd, UFW, genesis verification
+# `infra/deploy/deploy_bootstrap.sh` already does systemd, UFW, genesis verification
 # and certbot for one host. This does the same for a fleet, idempotently. Where
 # the two disagree the script is the reference: it carries the reasoning, and
 # two implementations of the same policy is one more than anybody can keep in
 # step.
 #
-# The systemd units are installed from `deploy/systemd/` verbatim rather than
+# The systemd units are installed from `infra/deploy/systemd/` verbatim rather than
 # templated here. They are already hardened -- DynamicUser, ProtectSystem=strict,
 # an empty CapabilityBoundingSet, a SystemCallFilter -- with the reasoning inline,
 # and re-expressing that in Jinja would fork it.

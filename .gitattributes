@@ -6,7 +6,7 @@
 # stopped being invisible here:
 #
 #   `cargo run -p maya-neural-gas-trainer -- --check` compares
-#   `fee-market/src/model/weights_v1.rs` byte for byte against a fresh run of
+#   `crates/fee-market/src/model/weights_v1.rs` byte for byte against a fresh run of
 #   the generator. The generator writes LF. A Windows checkout produced CRLF.
 #   The check could therefore never pass on a fresh clone, and the one thing
 #   standing between the compiled-in integer weights and a silent edit was

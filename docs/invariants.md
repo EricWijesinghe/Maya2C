@@ -33,7 +33,7 @@ phase that did it.
    bound, a lost arbitrage race, a batch the pool cannot price: nonce advances,
    nothing moves. A failing transaction fails its whole block here, so making
    any of these an error hands every trader a way to void a block. See
-   `docs/dex.md`; `tests/dex_tests.rs` pins it.
+   `docs/dex.md`; `crates/node/tests/dex_tests.rs` pins it.
 8. **Every trading record's prior value goes in the undo journal.** A reorg that
    left a pool holding the abandoned chain's reserves is not a detectable
    corruption — it is two plausible numbers that go on quoting a price. The same
@@ -46,7 +46,7 @@ phase that did it.
 10. **The VRF suite octet is `0x03`.** `0x04` is `…-SHA512-ELL2`, the same curve
     and hash under a different hash-to-curve map. Using it produces proofs that
     are internally consistent, pass every round-trip test, and match no other
-    implementation on earth. `vrf/tests/rfc9381_vectors.rs` is what catches it —
+    implementation on earth. `crates/vrf/tests/rfc9381_vectors.rs` is what catches it —
     do not "simplify" those vectors away.
 11. **The oracle is optional and absent by default.** A genesis file without an
     `oracle` section produces no `o:` records and the state root the chain would
@@ -54,7 +54,7 @@ phase that did it.
     is a decision somebody writes down.
 12. **Governance must not be able to make governance unsafe.** The quorum floor,
     the approval floor, the minimum voting period, and the minimum timelock are
-    compiled into `governance/src/limits.rs`, appear in no `ParameterKey`, and
+    compiled into `crates/governance/src/limits.rs`, appear in no `ParameterKey`, and
     are reachable by no transaction. Every governable value carries a hard range
     checked *twice* — when proposed and again when executed, because a release
     between the two could have tightened it.
@@ -89,7 +89,7 @@ phase that did it.
     ML-DSA signatures. So the crate protects the 32-byte *chain key* — which
     `signing_key_from_seed` expands into both halves — rather than thresholding
     either signature. The combiner holding the key for the length of one
-    signature is the whole cost, it is stated at the top of `src/lib.rs`, and
+    signature is the whole cost, it is stated at the top of `crates/node/src/lib.rs`, and
     anything that quietly relaxes it (a "partial signature" API, a second
     combiner, caching a reconstructed seed) breaks the only claim the crate
     makes. See `docs/custody-mpc.md`.
@@ -110,19 +110,19 @@ phase that did it.
     in a block runs a model. See `docs/zkml.md`.
 21. **A host function that does native work charges fuel for it, first.** Gas
     is wasmtime fuel and cannot see native work, so `host_verify_zkml_proof`
-    charges a *measured* price (`vm/src/zkml.rs`, calibrated by
-    `vm/tests/fuel_calibration_tests.rs` and `zkml-prover/benches/verify.rs`) before
+    charges a *measured* price (`crates/vm/src/zkml.rs`, calibrated by
+    `crates/vm/tests/fuel_calibration_tests.rs` and `crates/zkml-prover/benches/verify.rs`) before
     it reads a byte, and traps out-of-fuel before the verifier runs. There is
     deliberately no tensor host function: guest wasm is priced exactly by the
     fuel meter, and a hand-set per-MAC price would be consensus-critical and
     wrong on some machine.
 22. **zkML stays dark until its SRS is real and gas is capped.** The SRS in
-    `zkml/src/srs.rs` is derived from a public seed, so anyone can forge proofs;
+    `crates/zkml/src/srs.rs` is derived from a public seed, so anyone can forge proofs;
     and no cap bounds a call's `gas_limit`, so a fuel price bounds nothing
     absolutely. `ZKML_ACTIVATION_HEIGHT` is `u64::MAX`, and
     `state::zkml::check_setup` refuses mainnet the moment it is anything else
     while `SRS_IS_TRUSTED` is false.
-23. **Every constraint in `zkml/src/circuit.rs` has a test that fails without
+23. **Every constraint in `crates/zkml/src/circuit.rs` has a test that fails without
     it.** Negative tests hand the circuit a lie that is *consistent* — everything
     downstream recomputed — so only the guard under test can refuse it. A lie
     left inconsistent is caught by some other constraint, and the test then
@@ -139,7 +139,7 @@ phase that did it.
     the chain's only apply path — refuses a `state_root` that execution does not
     produce. Block producers take both roots from `Chain::candidate_block` and
     never from `state_root()`, which is the *pre*-block root. Before this, one
-    block id could carry two transaction lists (`tests/chaos_simulator.rs`
+    block id could carry two transaction lists (`crates/node/tests/chaos_simulator.rs`
     replays that attack). Do not add an unchecked apply path to `Chain`.
 25. **Every persisted consensus record is under the state root; everything
     else is on an explicit local-only list.** `state::commitments` holds the
@@ -193,5 +193,5 @@ phase that did it.
     lever anyone can pull to halt the module for the price of one fee.
     `g:guard:` sits under the governance prefix (asserted at compile time) so it
     is already under the state root per 25.
-    `tests/exploit_replays.rs` pins it; see
+    `crates/node/tests/exploit_replays.rs` pins it; see
     [docs/invariant-guard.md](docs/invariant-guard.md).

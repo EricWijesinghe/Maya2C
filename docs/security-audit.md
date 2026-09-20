@@ -50,13 +50,13 @@ is cheaper — ~2.0 ms per verification, measured — but its first call for an
 epoch generates a 64 MiB cache, which a fuzzer would pay for repeatedly. Any of
 them would cap the fuzzer somewhere around ten executions per second, which
 does not find bugs — it just makes the job look like it ran. None is a decode
-concern; all are covered by `tests/hybrid_tests.rs`,
-`tests/malleability_tests.rs`, `tests/consensus_tests.rs` and
-`tests/dag_tests.rs`.
+concern; all are covered by `crates/node/tests/hybrid_tests.rs`,
+`crates/node/tests/malleability_tests.rs`, `crates/node/tests/consensus_tests.rs` and
+`crates/node/tests/dag_tests.rs`.
 
 ### The consensus vectors job
 
-`tests/fixtures/dag_vectors.json` pins the bytes of the DAG proof of work, and
+`crates/node/tests/fixtures/dag_vectors.json` pins the bytes of the DAG proof of work, and
 the `consensus-vectors` job checks both implementations of it — the node's and
 the GPU miner's — against that file on every push. It is in this workflow
 rather than a general test run because what it defends against is the same
@@ -95,8 +95,8 @@ targets under WSL or leave them to CI; corpus generation works everywhere. See
 
 ## 2. Proving the ledger arithmetic
 
-[`ledger-math/`](../ledger-math) holds every `u64` credit, debit and nonce bump
-the chain performs, and [`ledger-math/src/proofs.rs`](../ledger-math/src/proofs.rs)
+[`crates/ledger-math/`](../ledger-math) holds every `u64` credit, debit and nonce bump
+the chain performs, and [`crates/ledger-math/src/proofs.rs`](../crates/ledger-math/src/proofs.rs)
 model-checks them with [Kani](https://model-checking.github.io/kani/).
 
 ```bash
@@ -107,7 +107,7 @@ cargo kani -p maya-ledger-math
 build. Together with `cargo fuzz`'s lack of MSVC support, that means neither the
 proofs nor the fuzzing can run on a Windows workstation: CI is where both
 execute, and a Windows developer's local loop is `cargo test` and
-`cargo clippy`. The unit tests in `ledger-math/src/lib.rs` cover the same
+`cargo clippy`. The unit tests in `crates/ledger-math/src/lib.rs` cover the same
 functions by example and do run everywhere, which is what keeps a Windows
 developer from being blind to a break between pushes.
 
@@ -167,7 +167,7 @@ step is proved and the fold is proved to depth four.
 `a_two_output_transfer_conserves_value` is likewise a two-output model with
 three distinct accounts. A self-transfer reads through the block overlay and so
 sees its own debit — a claim about the overlay rather than about arithmetic, and
-covered by `tests/state_tests.rs`.
+covered by `crates/node/tests/state_tests.rs`.
 
 ---
 
@@ -254,7 +254,7 @@ cargo run --example gen_fuzz_corpus          # regenerate seeds
 1. Minimize: `cargo fuzz tmin <target> fuzz/artifacts/<target>/<crash>`.
 2. Fix the decoder.
 3. Add the minimized input as a regression case in the matching
-   `tests/*_tests.rs`.
+   `crates/node/tests/*_tests.rs`.
 4. Commit the minimized input to `fuzz/corpus/<target>/` so the path stays warm.
 
 The regression test lands **with** the fix, in one commit. Committing a

@@ -1,7 +1,7 @@
 # Confidential federated training
 
 **Status: RESEARCH.** Crate `confidential-ai`; tests in the crate and in
-`tests/federated_ai_tests.rs`. Off-chain: it writes no chain state, and the
+`crates/node/tests/federated_ai_tests.rs`. Off-chain: it writes no chain state, and the
 node takes it as a dev-dependency only (invariant 20).
 
 ## The brief, and what it maps to
@@ -11,7 +11,7 @@ node takes it as a dev-dependency only (invariant 20).
 | Hardware proofs of execution in SGX / SEV-SNP via `tee-attestation` | An `AttestationVerifier` trait binding a report to the round transcript; `NoAttestation` returns `Unattested`, which `require_attested` refuses. **No report is generated or verified** | No crate is named `tee-attestation`. Generating a report needs the hardware, and this host has none. Verifying one needs recorded reports and vendor chains, and none are in the tree (`sev` 8.0 and `dcap-qvl` 0.6 are the candidates) |
 | Gradients encrypted with ML-KEM and averaged *inside enclaves* | Secure aggregation (Bonawitz et al., 2017) with ML-KEM-768 key agreement: pairwise masks cancel in the sum, and self-masks are Shamir-shared so up to `n − t` dropouts are recovered | This keeps privacy independent of any vendor (below). The aggregator learns only the sum |
 | ε-differential privacy that prevents reconstruction | Clipping, stochastic quantization, integer discrete-Gaussian noise; a zCDP accountant reporting (ε, δ) | Differential privacy *bounds* what the weights reveal about one participant; it does not prevent reconstruction. The accountant says what the bound is |
-| 10 nodes fine-tune without revealing samples | `tests/federated_ai_tests.rs`: exact masked sums, dropout recovery, threshold refusal, tamper detection, no sample bytes in transcripts, a model trained to ≥ 85% held-out accuracy with ε reported | — |
+| 10 nodes fine-tune without revealing samples | `crates/node/tests/federated_ai_tests.rs`: exact masked sums, dropout recovery, threshold refusal, tamper detection, no sample bytes in transcripts, a model trained to ≥ 85% held-out accuracy with ε reported | — |
 
 ## Why enclaves are a hook, not the root of trust
 

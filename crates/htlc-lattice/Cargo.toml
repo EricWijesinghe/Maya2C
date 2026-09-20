@@ -1,0 +1,36 @@
+[package]
+name = "maya-htlc-lattice"
+version.workspace = true
+# Not published. See crates/stratum-v2/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Lattice hash-time-locked contracts: Module-LWE commitments, their openings, and the timelock rule"
+
+[lib]
+name = "maya_htlc_lattice"
+path = "src/lib.rs"
+
+# Chain-free, like `rwa` and `identity`. A claim carries an opening a stranger
+# wrote, and the lock record carries a commitment a stranger chose, so both
+# decoders are fuzzable without RocksDB in the graph
+# (`fuzz/fuzz_targets/htlc_lattice_decode.rs`).
+#
+# No C and no RNG. `sha3` is pure Rust, so Kani can still compile the crate for
+# the timelock proofs. Entropy for a new secret is the caller's to supply —
+# `LatticeSecret::generate` takes the fill function — so a verifier linking this
+# crate links no randomness source it could be tempted to use.
+[dependencies]
+sha3.workspace = true
+zeroize = { workspace = true, features = ["derive"] }
+thiserror.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "verify"
+harness = false
+
+[lints]
+workspace = true

@@ -3,12 +3,12 @@
 Who a subject is, which key speaks for them, and what an issuer has attested —
 without the chain ever learning a fact about a person.
 
-- `identity/` — the records. Chain-free, so the decoder fuzzes alone.
-- `src/state/identity.rs` — prefixes, and their place in the state root.
-- `src/state/identity_exec.rs` — registration, rotation, revocation, anchoring.
-- `src/core/identity_payload.rs` — the wire forms.
-- `zk-privacy/src/credential.rs` — the disclosure circuit.
-- `tests/identity_tests.rs`, `fuzz/fuzz_targets/did_decode.rs`.
+- `crates/identity/` — the records. Chain-free, so the decoder fuzzes alone.
+- `crates/node/src/state/identity.rs` — prefixes, and their place in the state root.
+- `crates/node/src/state/identity_exec.rs` — registration, rotation, revocation, anchoring.
+- `crates/node/src/core/identity_payload.rs` — the wire forms.
+- `crates/zk-privacy/src/credential.rs` — the disclosure circuit.
+- `crates/node/tests/identity_tests.rs`, `fuzz/fuzz_targets/did_decode.rs`.
 
 ---
 

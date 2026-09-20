@@ -11,11 +11,11 @@ evidence, or on revocation by its owner.
 
 | Piece | Where |
 |---|---|
-| Wire types, signing, fuzzy extractor, TPM sealing, pure rules (`no_std`, heap-free) | `iot-anchor/` |
-| Example Cortex-M33 firmware under QEMU (its own workspace) | `iot-firmware/` |
-| Transaction kinds and apply path | `src/core/iot_payload.rs`, `src/state/iot.rs`, `src/state/iot_exec.rs` |
-| RPC `iot_device` | `src/rpc/server.rs` |
-| End-to-end tests | `tests/iot_anchor_tests.rs` |
+| Wire types, signing, fuzzy extractor, TPM sealing, pure rules (`no_std`, heap-free) | `hal/iot-anchor/` |
+| Example Cortex-M33 firmware under QEMU (its own workspace) | `hal/iot-firmware/` |
+| Transaction kinds and apply path | `crates/node/src/core/iot_payload.rs`, `crates/node/src/state/iot.rs`, `crates/node/src/state/iot_exec.rs` |
+| RPC `iot_device` | `crates/node/src/rpc/server.rs` |
+| End-to-end tests | `crates/node/tests/iot_anchor_tests.rs` |
 | Fuzzing | `fuzz/fuzz_targets/iot_anchor_decode.rs` |
 
 ## What the brief asked for, and what this is instead
@@ -63,7 +63,7 @@ test `a_sealed_seed_unseals_and_a_changed_pcr_refuses_it` checks this against
 
 ### Firmware under QEMU
 
-`iot-firmware/` runs the whole device lifecycle on an emulated Cortex-M33
+`hal/iot-firmware/` runs the whole device lifecycle on an emulated Cortex-M33
 (`mps2-an505`): PUF seed, enrollment, a 60-reading batch, and a tamper event. It
 reports the stack high-water mark, painted below the stack pointer. QEMU has no
 TRNG and no PUF, so both are stand-ins, and the run demonstrates the code path,

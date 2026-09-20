@@ -1,0 +1,35 @@
+[package]
+name = "maya-radio-transport"
+version.workspace = true
+# Not published. See crates/stratum-v2/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Off-grid ISM LoRa transport: AX.25-style framing, a duty-cycle governor, fountain-coded fragmentation, and store-and-forward relay"
+
+[lib]
+name = "maya_radio_transport"
+path = "src/lib.rs"
+
+# Deliberately no dependency on `custom-l1-node`. This crate moves opaque bytes
+# between radios; what those bytes mean is the node's business. That keeps the
+# frame decoder fuzzable without RocksDB or libp2p in the graph — and the
+# decoder needs it more than any other in this tree, because a radio frame
+# arrives from anyone with a transmitter and nothing authenticates it before
+# the parser sees it.
+#
+# No erasure-coding crate, either. The fountain codec here is a few hundred
+# lines of GF(2) arithmetic over a fixed generator, and a dependency would be a
+# third party's choices about symbol ordering and degree distribution in a
+# format two radios have to agree on byte for byte, forever.
+[dependencies]
+# The frame checksum and the deterministic symbol generator's seed expansion.
+# Already in the tree through `archive` and `iso20022`.
+blake3 = "1"
+thiserror.workspace = true
+
+[dev-dependencies]
+hex.workspace = true
+
+[lints]
+workspace = true

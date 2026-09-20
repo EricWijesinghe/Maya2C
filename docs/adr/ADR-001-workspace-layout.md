@@ -1,6 +1,6 @@
 # ADR-001: Workspace layout, and why the directory move is deferred
 
-**Status:** Accepted
+**Status:** Accepted — phase A and phase B both executed 2026-09-20
 **Date:** 2026-09-20
 
 ## Context
@@ -87,7 +87,35 @@ crate they just edited.
   once for the move in Phase B. Accepted, because paying it once for a change
   that fails opaquely is worse.
 
+## Outcome
+
+Both phases landed on 2026-09-20, in that order.
+
+Phase B moved 45 directories and rewrote 75 path dependencies. The root
+package `custom-l1-node` became `crates/node` and the root manifest became a
+virtual workspace; its `src/`, `tests/`, `benches/` and `examples/` moved with
+it. The acceptance test held: `cargo metadata --format-version 1 --no-deps`
+reports the same 46 packages before and after, with nothing added or lost.
+
+Three deviations from the layout in the brief, each because the alternative
+was a code change rather than a move:
+
+- The node's five binaries stay in `crates/node/src/bin/` rather than becoming
+  five packages under `bins/`. `bins/` holds the packages whose product
+  already *was* an executable.
+- `formal/` is created with a README and no crates. Kani proofs live in the
+  crates they verify, behind `#[cfg(kani)]`, and Lean 4 is PLANNED.
+- `sdks/` keeps the `sdk-` prefixes and `apps/`, `hal/` keep their directory
+  names, because a package rename is not a move. The one exception is
+  `app-maya2c` -> `apps/ledger-maya2c`, which the brief named explicitly.
+
+The move also broke three pieces of code that computed repository-relative
+paths by walking up a fixed number of levels from `CARGO_MANIFEST_DIR`. Those
+are the failures a package-set check cannot catch, and they are listed in
+`reports/02-layout.md`.
+
 ## Revisit when
 
-Phase B lands, or when a new subsystem would be the tenth non-member crate —
-at which point the layout is doing active harm rather than passive clutter.
+A new subsystem would be the tenth non-member crate — at which point the
+remaining root-level clutter is doing active harm rather than passive
+clutter.

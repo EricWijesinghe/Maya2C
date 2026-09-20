@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# A veth pair with one end in a network namespace, for `benches/ebpf_bench.rs`.
+# A veth pair with one end in a network namespace, for `crates/node/benches/ebpf_bench.rs`.
 #
 # Usage:
 #   sudo ./scripts/xdp_netns.sh up

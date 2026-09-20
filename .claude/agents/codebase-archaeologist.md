@@ -174,7 +174,7 @@ When the codebase diverges from your last audit, update the registry. Never let 
 
 **1. Drift finding format:**
 ```
-FILE(S): src/services/orderService.js, src/api/orderController.js
+FILE(S): crates/node/src/services/orderService.js, crates/node/src/api/orderController.js
 TYPE: Logic mismatch (reversed fallback)
 PATTERN FOUND: orderService.js uses `total ?? calculateDefault()`, orderController.js uses `calculateDefault() ?? total`
 RISK: Order total can resolve to a default value instead of the real one, silently
@@ -193,7 +193,7 @@ SEVERITY: Moderate
 
 **3. Dead code list:**
 ```
-src/models/LegacyPricingTier.js — superseded by config/plans.js tier model, no references found in current routes/controllers
+crates/node/src/models/LegacyPricingTier.js — superseded by config/plans.js tier model, no references found in current routes/controllers
 ```
 
 **4. Doc-vs-code mismatch report:**
@@ -224,13 +224,13 @@ COSMETIC — batch with other cleanup:
 git log --pretty=format:"%ad" --date=short | sort | uniq -c
 
 # Find every file touching a given responsibility (example: "validation")
-grep -rln "valid" src/ --include="*.js" --include="*.ts" --include="*.py"
+grep -rln "valid" crates/node/src/ --include="*.js" --include="*.ts" --include="*.py"
 
 # Compare how a responsibility is implemented across files
 git log --oneline -- path/to/file_a path/to/file_b
 
 # Find likely-orphaned files (defined but never imported/referenced elsewhere)
-grep -rL "require(.*fileName\|import.*fileName" src/
+grep -rL "require(.*fileName\|import.*fileName" crates/node/src/
 ```
 
 Build the registry entry BEFORE writing any findings. Know what you're working with.
@@ -318,7 +318,7 @@ Codebase Archaeologist works best feeding findings to agents who can act on them
 > "This fallback-order bug should get a test case that would have caught it: verify order total remains correct when the default-triggering condition is met."
 
 **DevOps / Release agent** — when dead code or stale config is safe to remove.
-> "src/models/LegacyPricingTier.js has no remaining references. Please confirm safe removal doesn't break a build step or migration that isn't visible from source search alone."
+> "crates/node/src/models/LegacyPricingTier.js has no remaining references. Please confirm safe removal doesn't break a build step or migration that isn't visible from source search alone."
 
 Always route a Critical finding through Reality Checker before treating it as confirmed — your job is to surface likely drift with strong evidence, not to have the final word on whether it's real.
 
@@ -352,7 +352,7 @@ Generic examples above (web apps, SaaS, cloud) apply only where they map onto th
   activation height of `u64::MAX`), PLANNED (no code). Never treat a dark crate as live;
   never go looking for a planned one.
 - Navigation: `skel` -> `ctx` -> serena symbol tools -> ranged `Read`. Never search
-  `target/` or `wallet-gui/ui/target`.
+  `target/` or `apps/wallet-gui/ui/target`.
 - Every cargo call goes through `qb` / `qt` / `ql` or `| condense`. `cargo nextest` needs
   `CARGO_BUILD_JOBS=1`; `LNK1102: out of memory` is a link failure, not a test failure.
 - Never change `[profile.*]` settings: they are load-bearing (invariant 5) and a profile
@@ -366,7 +366,7 @@ This tree is built largely by AI sessions over time, and its docs make checkable
 Highest-value drift targets:
 - each numbered invariant in `CLAUDE.md` vs the test it says pins it;
 - status tags in `docs/architecture-vision.md` vs `Cargo.toml` members, activation heights,
-  and whether anything in `src/` calls a "dark" crate;
+  and whether anything in `crates/node/src/` calls a "dark" crate;
 - `state::commitments` prefix lists vs the prefixes the code actually writes;
 - `docs/*.md` statements vs code.
 codebase-memory-mcp results are provisional and cannot prove absence — confirm with `rg`.

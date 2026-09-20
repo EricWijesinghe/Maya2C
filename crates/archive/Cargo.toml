@@ -1,0 +1,44 @@
+[package]
+name = "maya-archive"
+version.workspace = true
+# Not published. See crates/stratum-v2/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Content-addressed archives (CAR v1, zstd) of historical block batches, and the stores that hold them"
+
+[lib]
+name = "maya_archive"
+path = "src/lib.rs"
+
+# Deliberately no dependency on `custom-l1-node`. This crate decodes archives a
+# stranger chose, so it is kept chain-agnostic: it takes `(height, id, bytes)`
+# and gives the same back, verified by content address. Tying those bytes to a
+# header is the node's job (`state_pruner::cold`). That keeps the decoder
+# fuzzable without RocksDB or libp2p in the graph.
+[dependencies]
+blake3 = "1"
+cid = "0.11"
+ciborium = "0.2"
+hex.workspace = true
+multihash = "0.19"
+# HTTP for the IPFS (kubo) API and the Arweave gateway. Blocking, because the
+# stores are called from the node's archive task on a blocking thread and from
+# synchronous tests. rustls over `ring` with the platform's roots: `ring`,
+# `rustls` and `hyper-rustls` are already in the node's graph through
+# jsonrpsee, and native roots avoid `webpki-roots`' CDLA licence.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "multipart", "rustls-tls-native-roots"] }
+serde_json.workspace = true
+thiserror.workspace = true
+unsigned-varint = { version = "0.8", features = ["std"] }
+# The C library is already linked through RocksDB's `zstd-sys`; this adds only
+# the safe wrapper.
+zstd = "0.13"
+
+[dev-dependencies]
+axum = { workspace = true, features = ["multipart"] }
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
+
+[lints]
+workspace = true

@@ -128,14 +128,14 @@ would touch it writes any code, not afterwards.
       re-execution (invariant 24, directive 2).
     - It asked the pipeline to "generate patch diffs" — machine-authored
       consensus changes, which invariant 13 forbids in spirit.
-    - It asked a `tests/` harness to "verify 100% crash resistance" over a
+    - It asked a `crates/node/tests/` harness to "verify 100% crash resistance" over a
       million payloads, which the stable-toolchain workspace cannot link LibAFL
       to do, and which fuzzing cannot prove regardless.
 
     Reconciled as `offsec-sandbox` (a separate workspace, LibAFL engine, Z3
     off by default over the arithmetic crates only), structure-aware mutators,
     a triage-and-regression-stub pipeline (no auto-patch), and an in-tree
-    `tests/fuzz_harness.rs` that replays seeded mutations and is worded "no
+    `crates/node/tests/fuzz_harness.rs` that replays seeded mutations and is worded "no
     crash across N inputs", never "100%". See [offsec-sandbox.md](offsec-sandbox.md).
 11. **Zero-trust threat-intel registry, taken out of order.** Built 2026-09-15
     while the trajectory stood at Prompt 49; it is the PLANNED "ZK-SIEM threat

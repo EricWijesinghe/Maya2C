@@ -11,13 +11,13 @@ The honest matrix first, because it is the part most easily overstated.
 
 | Component | Built | Tested | Where |
 |---|---|---|---|
-| `api-gateway` (REST + GraphQL) | yes | **13 tests** | `api-gateway/tests/gateway_tests.rs` |
-| `sdk-ffi` Rust core | yes | **9 tests** | `sdk-ffi/src/lib.rs` |
-| Python bindings | yes | **9 tests, real cdylib** | `sdk-ffi/bindings/python/test_bindings.py` |
+| `api-gateway` (REST + GraphQL) | yes | **13 tests** | `crates/api-gateway/tests/gateway_tests.rs` |
+| `sdk-ffi` Rust core | yes | **9 tests** | `sdks/sdk-ffi/src/lib.rs` |
+| Python bindings | yes | **9 tests, real cdylib** | `sdks/sdk-ffi/bindings/python/test_bindings.py` |
 | Kotlin bindings | generated only | **no** | no `kotlinc` on the build host |
 | Swift bindings | generated only | **no** | no Swift toolchain on the build host |
-| `sdk-wasm` core | yes | **2 + 8 parity** | `sdk-wasm/src/lib.rs`, `tests/hybrid_parity_tests.rs` |
-| `maya2c.js` | yes | **19 E2E tests** | `sdk-js/test/e2e.test.ts` |
+| `sdk-wasm` core | yes | **2 + 8 parity** | `sdks/sdk-wasm/src/lib.rs`, `crates/node/tests/hybrid_parity_tests.rs` |
+| `maya2c.js` | yes | **19 E2E tests** | `sdks/sdk-js/test/e2e.test.ts` |
 
 uniffi emits Kotlin and Swift as text without needing those toolchains. Emitting
 is not the same as working, and a generated-but-never-compiled binding is not a
@@ -118,7 +118,7 @@ node composes it from — `fips204` and `maya-crypto-pq`, both pure Rust. **That
 is duplication of a consensus-critical encoding.**
 
 Duplication is dangerous when undetected, so it is detected.
-`tests/hybrid_parity_tests.rs` signs with the node and verifies with the SDK,
+`crates/node/tests/hybrid_parity_tests.rs` signs with the node and verifies with the SDK,
 derives addresses both ways, and checks that a forged half is refused in each
 direction. Eight tests.
 

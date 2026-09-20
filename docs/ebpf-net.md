@@ -1,39 +1,39 @@
 # Block relay with an XDP/AF_XDP receive path
 
 **Status: RESEARCH, off by default.** Node-local; changes no consensus rule.
-Nothing in `src/bin/node.rs` enables it: a node gets a relay only from
+Nothing in `crates/node/src/bin/node.rs` enables it: a node gets a relay only from
 `Node::with_block_relay`, and the kernel path only on Linux with the `xdp`
-feature. The program loads and passes `ebpf-net/tests/xdp_veth.rs` against a
+feature. The program loads and passes `hal/ebpf-net/tests/xdp_veth.rs` against a
 Linux 6.18 kernel (WSL 2) over veth, in generic mode; it has not run on a NIC
 with native XDP.
 
 Code:
-- `ebpf-net/common` — header, token bucket, verdict order, map records.
+- `hal/ebpf-net/common` — header, token bucket, verdict order, map records.
   `no_std`, dependency-free, compiled for the host and for the kernel.
-- `ebpf-net/programs` — the XDP program. Not a workspace member.
-- `ebpf-net/src` — sealing, chunking, reassembly, the receiver, and under
-  `src/linux/` the loader, the AF_XDP socket, and the throughput harness.
-- `src/network/relay_key.rs` — key exchange.
-- `src/network/node/relay.rs` — the driver side.
+- `hal/ebpf-net/programs` — the XDP program. Not a workspace member.
+- `hal/ebpf-net/src` — sealing, chunking, reassembly, the receiver, and under
+  `crates/node/src/linux/` the loader, the AF_XDP socket, and the throughput harness.
+- `crates/node/src/network/relay_key.rs` — key exchange.
+- `crates/node/src/network/node/relay.rs` — the driver side.
 
 Tests:
 - unit tests in each module;
-- `ebpf-net/tests/relay_tests.rs`;
-- `ebpf-net/tests/xdp_veth.rs` (Linux, root, ignored by default);
-- `tests/block_relay_tests.rs`;
+- `hal/ebpf-net/tests/relay_tests.rs`;
+- `hal/ebpf-net/tests/xdp_veth.rs` (Linux, root, ignored by default);
+- `crates/node/tests/block_relay_tests.rs`;
 - `fuzz/fuzz_targets/xdp_relay_decode.rs`.
 
-Bench: `benches/ebpf_bench.rs`.
+Bench: `crates/node/benches/ebpf_bench.rs`.
 
 ## The brief, and what it maps to on this chain
 
 | Asked | Built | Why the difference |
 |---|---|---|
 | An `ebpf_net` module using `aya` to compile and load eBPF/XDP **C** programs | The program is Rust (`aya-ebpf`), loaded by `aya`. The decision logic it calls lives in `maya-ebpf-net-common` and runs under the host test suite | aya loads ELF objects; it compiles nothing. C would need clang in the build and would duplicate the rules in a second language that no host test reaches |
-| Inspect incoming P2P frames and drop malicious or malformed ones at the driver | A **separate UDP block relay** beside gossip. Its datagrams carry a fixed header the kernel can read. The program drops relay datagrams in three cases: the source is blocklisted, the source is over its token bucket, or the structure is wrong. It passes **everything else** | Every P2P byte is ciphertext (TCP → Noise → ML-KEM → yamux, `src/network/pq/mod.rs`). No kernel program can see a frame's contents, so none can judge them |
+| Inspect incoming P2P frames and drop malicious or malformed ones at the driver | A **separate UDP block relay** beside gossip. Its datagrams carry a fixed header the kernel can read. The program drops relay datagrams in three cases: the source is blocklisted, the source is over its token bucket, or the structure is wrong. It passes **everything else** | Every P2P byte is ciphertext (TCP → Noise → ML-KEM → yamux, `crates/node/src/network/pq/mod.rs`). No kernel program can see a frame's contents, so none can judge them |
 | Route valid block transfers to user space, zero-copy via AF_XDP | One AF_XDP socket per queue. Zero-copy where the driver supports it, copy mode otherwise. Chunks are decrypted from UMEM into the reassembly buffer, one copy, which any reassembly needs | Zero-copy is a property of the driver; the code asks for it and reports what it got |
 | Flatbuffers serialization, under 100 µs parsing at 100 Gbps | A fixed 56-byte header parsed by bounds-checked reads. Flatbuffers is the benchmark baseline | Three reasons, below the table |
-| A benchmark proving 5× over TCP/UDP sockets | `benches/ebpf_bench.rs` measures one `recv` per datagram, `recvmmsg` ×64, AF_XDP and `XDP_DROP`. It reports the generator's offered rate beside each figure, and **asserts no ratio** | A benchmark written to prove a number fixed in advance proves nothing. The ratio depends on the NIC, the driver and the attach mode |
+| A benchmark proving 5× over TCP/UDP sockets | `crates/node/benches/ebpf_bench.rs` measures one `recv` per datagram, `recvmmsg` ×64, AF_XDP and `XDP_DROP`. It reports the generator's offered rate beside each figure, and **asserts no ratio** | A benchmark written to prove a number fixed in advance proves nothing. The ratio depends on the NIC, the driver and the attach mode |
 
 Why no flatbuffers on the wire:
 - **The kernel cannot run it.** The verifier accepts a packet read only after a bounds check, and flatbuffers' vtables make every field access a chain of offsets the verifier would have to follow.
@@ -65,7 +65,7 @@ or short is refused without a key.
 the IPv6 minimum MTU. That size is asserted at compile time.
 
 `MAX_BODY_LEN` equals `MAX_GOSSIP_MESSAGE_BYTES`, also asserted at compile
-time, in `src/network/node/relay.rs`: a block too large to gossip must not be
+time, in `crates/node/src/network/node/relay.rs`: a block too large to gossip must not be
 deliverable some other way.
 
 ## Keys
@@ -95,7 +95,7 @@ For each frame:
 5. **Redirect** to the AF_XDP socket on the frame's queue. If no socket is bound there, the frame is dropped, never passed.
 
 Steps 2–4 are `verdict::judge`, the function the host tests exercise.
-`ebpf-net/tests/xdp_veth.rs` and the fuzz target's agreement property hold the program to it.
+`hal/ebpf-net/tests/xdp_veth.rs` and the fuzz target's agreement property hold the program to it.
 
 ### What the verifier refused, and the rules that came out of it
 
@@ -160,7 +160,7 @@ quarantined installs nothing.
 
 ## `unsafe`
 
-`ebpf-net/src/linux/` and `ebpf-net/programs` carry `unsafe` by construction:
+`hal/ebpf-net/src/linux/` and `hal/ebpf-net/programs` carry `unsafe` by construction:
 - UMEM and the rings are memory shared with the kernel;
 - the program reads packets through pointers the verifier bounds.
 
@@ -172,8 +172,8 @@ Both are listed with the other exemptions in `docs/architecture-vision.md` §7. 
 # the program, on Linux or Windows: install the prebuilt bpf-linker v0.11.1
 # (github.com/aya-rs/bpf-linker/releases). `cargo install bpf-linker` needs a
 # system libLLVM of rustc's exact LLVM version and fails without one.
-cd ebpf-net/programs && cargo build --release
-# -> ebpf-net/programs/target/bpfel-unknown-none/release/maya-relay-xdp
+cd hal/ebpf-net/programs && cargo build --release
+# -> hal/ebpf-net/programs/target/bpfel-unknown-none/release/maya-relay-xdp
 
 # the kernel tests
 sudo -E MAYA_XDP_OBJECT=... cargo test -p maya-ebpf-net --features xdp \

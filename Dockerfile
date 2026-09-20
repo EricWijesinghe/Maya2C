@@ -47,18 +47,18 @@ WORKDIR /build
 # sources first means editing node code does not rebuild the whole dependency
 # tree.
 COPY Cargo.toml Cargo.lock ./
-COPY wallet/Cargo.toml wallet/Cargo.toml
+COPY bins/l1-wallet/Cargo.toml bins/l1-wallet/Cargo.toml
 
-RUN mkdir -p src/bin wallet/src \
+RUN mkdir -p src/bin bins/l1-wallet/src \
     && echo 'fn main() {}' > src/bin/node.rs \
     && echo 'fn main() {}' > src/bin/miner.rs \
     && echo 'fn main() {}' > src/bin/genesis.rs \
     && echo 'fn main() {}' > src/bin/peerid.rs \
-    && echo 'fn main() {}' > wallet/src/main.rs \
+    && echo 'fn main() {}' > bins/l1-wallet/src/main.rs \
     && touch src/lib.rs \
     && cargo build --release --bin node --bin genesis --bin peerid \
     # Remove the stub artifacts, or cargo reuses them instead of the real code.
-    && rm -rf src wallet/src target/release/node target/release/genesis \
+    && rm -rf src bins/l1-wallet/src target/release/node target/release/genesis \
               target/release/peerid \
               target/release/deps/custom_l1_node* \
               target/release/deps/node-* target/release/deps/genesis-* \
@@ -66,7 +66,7 @@ RUN mkdir -p src/bin wallet/src \
 
 # --- real build ------------------------------------------------------------
 COPY src src
-COPY wallet/src wallet/src
+COPY bins/l1-wallet/src bins/l1-wallet/src
 
 RUN cargo build --release --bin node --bin genesis --bin peerid \
     && strip target/release/node target/release/genesis target/release/peerid
@@ -107,7 +107,7 @@ VOLUME ["/data"]
 #
 # EXPOSE is documentation, not a firewall. Only 30333 and 8545 are meant to be
 # reachable from outside a cluster; 9600 publishes peer topology and mempool
-# contents and is confined by the NetworkPolicy in k8s/base/ingress.yaml.
+# contents and is confined by the NetworkPolicy in infra/k8s/base/ingress.yaml.
 EXPOSE 8545 8546 9600 30333
 
 ENV L1_DATA_DIR=/data \

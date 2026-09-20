@@ -2,11 +2,11 @@
 
 Two venues, one asset layer, and a batch auction in place of a mempool race.
 
-- `dex/` — the engine. Dependency-free, `no_std`, model-checkable.
-- `src/state/asset.rs` — assets other than the native coin.
-- `src/state/dex.rs` — how a pool and an order are stored.
-- `src/state/dex_exec.rs` — what happens when a trading transaction executes.
-- `src/core/dex_payload.rs` — the wire forms.
+- `crates/dex/` — the engine. Dependency-free, `no_std`, model-checkable.
+- `crates/node/src/state/asset.rs` — assets other than the native coin.
+- `crates/node/src/state/dex.rs` — how a pool and an order are stored.
+- `crates/node/src/state/dex_exec.rs` — what happens when a trading transaction executes.
+- `crates/node/src/core/dex_payload.rs` — the wire forms.
 
 ---
 
@@ -87,7 +87,7 @@ The lock does not eliminate the rounding loss; it bounds it. A depositor can
 still lose up to one share's worth, and the lock is what caps how expensive a
 share can be made. The attack stops paying because the attacker recovers only
 their fraction of what the victim lost, having spent the whole donation to
-arrange it. `dex/tests/amm_tests.rs` checks exactly that.
+arrange it. `crates/dex/tests/amm_tests.rs` checks exactly that.
 
 ---
 
@@ -145,7 +145,7 @@ execution price on that imbalance becomes everyone's price. A perfectly balanced
 batch clears at spot and pays no fee at all — coincidence of wants is free,
 because the pool lent no capital.
 
-`dex/tests/batch_tests.rs` runs the same three trades twice: once as a sequence,
+`crates/dex/tests/batch_tests.rs` runs the same three trades twice: once as a sequence,
 where the sandwich is asserted to *actually pay*, and once as a batch, where it
 is asserted not to. A test that only checked the batch would prove nothing.
 
@@ -198,7 +198,7 @@ ratios, closed in one transaction or not at all.
 **It is not an uncollateralised flash loan.** The sender supplies `amount_in`
 from their own balance. Lending the first leg against a repayment check requires
 re-entry into the borrower's code, which means the contract host ABI in
-`vm/src/host.rs`. That is a larger change than this one and is not pretended at.
+`crates/vm/src/host.rs`. That is a larger change than this one and is not pretended at.
 
 Routes execute in place rather than in a batch, because there is nothing to net
 a multi-hop path against. This does not reopen the sandwich: routes run *before*
@@ -272,6 +272,6 @@ What is concurrent is everything in front of it. Transactions arrive on many
 tasks at once into a shared `Mempool`, and come back out in hash-map order — so
 two nodes assembling a block from the same set will not agree on a sequence. The
 property that matters is therefore **confluence**: one set of transactions, one
-state root, whatever the ordering. `tests/dex_concurrency_tests.rs` checks that,
+state root, whatever the ordering. `crates/node/tests/dex_concurrency_tests.rs` checks that,
 and separately checks that no position in a block pays a trader better than any
 other — which is the executable form of the batch's whole claim.

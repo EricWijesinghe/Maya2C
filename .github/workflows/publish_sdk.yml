@@ -69,7 +69,7 @@ jobs:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
           cache: npm
-          cache-dependency-path: sdk-js/package-lock.json
+          cache-dependency-path: sdks/sdk-js/package-lock.json
 
       # `ci`, not `install`: it installs exactly the lockfile and fails if
       # package.json and the lock disagree, rather than quietly resolving

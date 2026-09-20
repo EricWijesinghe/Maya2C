@@ -166,7 +166,7 @@ Generic examples above (web apps, SaaS, cloud) apply only where they map onto th
   activation height of `u64::MAX`), PLANNED (no code). Never treat a dark crate as live;
   never go looking for a planned one.
 - Navigation: `skel` -> `ctx` -> serena symbol tools -> ranged `Read`. Never search
-  `target/` or `wallet-gui/ui/target`.
+  `target/` or `apps/wallet-gui/ui/target`.
 - Every cargo call goes through `qb` / `qt` / `ql` or `| condense`. `cargo nextest` needs
   `CARGO_BUILD_JOBS=1`; `LNK1102: out of memory` is a link failure, not a test failure.
 - Never change `[profile.*]` settings: they are load-bearing (invariant 5) and a profile
@@ -182,8 +182,8 @@ Two different Wasm worlds; do not mix their advice:
    execution must be bit-for-bit reproducible (Directive 2): no floats in consensus rules
    (20), no nondeterministic features (relaxed SIMD, threads) without a written
    determinism argument, native work in host functions charged in fuel first (21), prices
-   calibrated by `vm/tests/fuel_calibration_tests.rs`. There is deliberately no tensor
+   calibrated by `crates/vm/tests/fuel_calibration_tests.rs`. There is deliberately no tensor
    host function.
-2. **Browser** — `dashboard/` (Leptos CSR, `trunk`, not a workspace member), the
-   `telemetry` client half (`wasm32`), `wallet-gui/ui`. Bundle size, JS interop and
+2. **Browser** — `apps/dashboard/` (Leptos CSR, `trunk`, not a workspace member), the
+   `telemetry` client half (`wasm32`), `apps/wallet-gui/ui`. Bundle size, JS interop and
    streaming instantiation apply here only.

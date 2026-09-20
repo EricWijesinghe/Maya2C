@@ -48,8 +48,8 @@ Report: `reports/00-inventory.md`, `reports/01-foundation.md`.
 - [x] `.github/workflows/ci.yml` and `nightly.yml`
 - [ ] CI observed green on a real push (needs a push; nothing local can prove it)
 - [ ] Bring the *sum* of artifact directories under 30 GiB. The root `target/`
-      is 29.6 GiB and under it; `fuzz/`, `wallet-gui/src-tauri/` and
-      `app-maya2c/` are separate workspaces holding 19.5 GiB with their own
+      is 29.6 GiB and under it; `fuzz/`, `apps/wallet-gui/src-tauri/` and
+      `apps/ledger-maya2c/` are separate workspaces holding 19.5 GiB with their own
       profiles — ADR-003
 
 ### Phase B — physical layout — **not started**
@@ -58,30 +58,37 @@ One mechanical commit, nothing else in it. ADR-001 has the reasoning.
 
 - [ ] `git mv` into `crates/ bins/ apps/ hal/ sdks/ formal/ infra/`
 - [ ] Rewrite every `path =` dependency
-- [ ] Rewrite paths in `CLAUDE.md`, `.ignore`, `.claude/settings.json`, the workflows, `scripts/`, `Dockerfile*`, `docker-compose.yml`, `k8s/`, `deploy/`, `terraform/`
+- [ ] Rewrite paths in `CLAUDE.md`, `.ignore`, `.claude/settings.json`, the workflows, `scripts/`, `Dockerfile*`, `docker-compose.yml`, `infra/k8s/`, `infra/deploy/`, `infra/terraform/`
 - [ ] Acceptance: `cargo metadata` package set identical before and after, modulo `manifest_path`
 - [ ] Acceptance: grep for every old path string across non-`target` files returns nothing
 - [ ] Second cold rebuild (budget ~1 hour)
 
-### Phase C — deterministic simulation harness — **not started**
+### Phase C — deterministic simulation harness — **complete, except the ports**
 
-`sim/`. Every later chaos, latency, partition and Byzantine test uses it.
+`sim/` (`maya-sim`). Dependency-free. Reasoning: ADR-006.
 
-- [ ] ADR-006: evaluate `madsim` vs `turmoil` vs hand-rolled, and decide
-- [ ] Seeded PRNG, virtual clock
-- [ ] Network model: latency, loss, partition, reordering
-- [ ] Disk model: corruption, slow writes, torn writes
-- [ ] Every failure prints its seed, and replaying the seed reproduces it
-- [ ] Port `tests/chaos_simulator.rs` and `tests/latency_sim_tests.rs` onto it
+- [x] ADR-006: `madsim` vs `turmoil` vs hand-rolled, evaluated and decided
+- [x] Seeded PRNG (SplitMix64, integer parts-per-million probabilities)
+- [x] Virtual clock — integer nanoseconds, moves only when the scheduler moves it
+- [x] Network model: latency bounds, loss, reordering, partitions that heal
+- [x] Disk model: slow, corrupt, torn, lost-on-crash and full writes
+- [x] Event queue with insertion-order tie-breaking, a deadline and an event budget
+- [x] Every failure prints its seed, and replaying the seed reproduces the run
+- [x] Per-model RNG streams, so adding a draw in one does not invalidate every seed
+- [ ] Port `crates/node/tests/chaos_simulator.rs` and `crates/node/tests/latency_sim_tests.rs` onto it — they work today; porting changes test behaviour and belongs in its own commit
+- [ ] Revisit `madsim` when a test needs the node's *real* tokio scheduling to be deterministic — ADR-006
 
 ### Known follow-ups opened by this phase
 
 - [ ] `chacha20poly1305` 0.10 / 0.11 split — ADR-005
 - [ ] `ed25519-dalek` 2.2 vs libp2p's 3.0 — must close before `THREAT_INTEL_ACTIVATION_HEIGHT` moves — ADR-005
-- [x] `clippy::needless_range_loop` in `neural-gas-trainer/src/network.rs:110` — fixed, weights verified unchanged
+- [x] `clippy::needless_range_loop` in `bins/neural-gas-trainer/src/network.rs:110` — fixed, weights verified unchanged
 - [ ] 1,700 `clippy::pedantic` diagnostics (489 cast lints, 308 `doc_markdown`, 118 more casts). `warn`, not denied — ADR-003
 - [ ] 73 `clippy::expect_used` in `--lib --bins`. Not gated; `unwrap_used` is
 - [ ] `proc-macro-error2 v2.0.1` future-incompatibility (transitive, via a proc-macro dependency)
+- [ ] Raise the machine's commit limit, or lower `[profile.dev.package."*"]`
+      to `opt-level = 2`, so `jobs` need not be pinned to 4 —
+      `reports/02-layout.md` §1
 
 ---
 
@@ -101,7 +108,7 @@ rather than starting.
 | 7 | Multi-transport networking | libp2p + PQ Noise, peer guard SHIPPED. `ebpf-net`, `radio-transport` RESEARCH. Satellite, laser, CCSDS, subsea, neutrino PLANNED |
 | 8 | Security tooling | fuzz targets, Kani, supply-chain gates, exploit replays SHIPPED. `offsec-sandbox`, `threat-intel` RESEARCH |
 | 9 | Clients | Tauri wallet, Leptos explorer and dashboard, API gateway, SDKs, faucet — SHIPPED |
-| 10 | Deployment | `Dockerfile`, `docker-compose.yml`, `k8s/`, `terraform/`, `deploy/` exist and are **not** covered by `features.toml` or by any test |
+| 10 | Deployment | `Dockerfile`, `docker-compose.yml`, `infra/k8s/`, `infra/terraform/`, `infra/deploy/` exist and are **not** covered by `features.toml` or by any test |
 
 ---
 

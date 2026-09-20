@@ -1,12 +1,12 @@
 # offsec-sandbox: coverage-guided differential fuzzing
 
 **Status: RESEARCH, off by default.** A tooling crate, not a node dependency.
-Nothing in `src/` reaches it; the node's dependency graph, `cargo deny`, and Kani
+Nothing in `crates/node/src/` reaches it; the node's dependency graph, `cargo deny`, and Kani
 never see it. It is a separate workspace root, exactly as `fuzz/` is, and for the
 same reason.
 
 Code: `offsec-sandbox/` (its own `[workspace]` and lockfile). The in-tree gate
-is `tests/fuzz_harness.rs`, which shares no dependency with the crate.
+is `crates/node/tests/fuzz_harness.rs`, which shares no dependency with the crate.
 
 ## The brief, and what it maps to on this chain
 
@@ -15,7 +15,7 @@ is `tests/fuzz_harness.rs`, which shares no dependency with the crate.
 | Integrate LibAFL and Triton/Z3 **into the development and testing execution path** | A separate workspace crate that only *tooling* runs. LibAFL is an optional engine; Z3 is an off-by-default feature over the arithmetic crates; Triton is dropped | `fuzz/Cargo.toml` is already its own workspace so the sanitizer/libFuzzer runtime "the rest of the tree must never link" stays out. LibAFL pulls a large graph, Z3 a C++ library — putting either on the node's path breaks invariants 1 and 6 and the Kani story. Triton is a C++ x86/ARM DSE framework: there is no native binary to concolically run here, and no Rust binding |
 | Mutate tx bytes, WASM bytecode, P2P handshakes for **memory corruption, state race conditions, DoS** | Structure-aware mutators for those three surfaces, hunting **panics, unbounded allocation, and non-determinism** | Safe Rust has no memory corruption outside the `unsafe` islands (which ASan covers). The apply path is single-threaded by construction, so there is no data race to fuzz — the real concurrency property is **determinism** (invariant 24, execution directive 2), a differential property, not a race |
 | An **exploit verification pipeline that generates patch diffs** | Crash **triage**: minimize, dedup by panic site, classify, and emit a failing regression-test stub. A human writes the fix | A fuzzer writing a patch to consensus code is invariant 13 in spirit — machine-authored code changing chain behaviour — and patch synthesis from a crash is unsolved. Triage is the part that is real |
-| `tests/fuzz_harness.rs` running **1,000,000 payloads to verify 100% crash resistance** | A deterministic seeded-mutation replay through the decoders and the apply path, default 50,000 iterations, `MAYA_FUZZ_ITERS=1000000` for a soak, asserting **no panic and no non-determinism** | A `tests/` test runs on the node's stable toolchain in the main workspace — it cannot link LibAFL/ASan. And fuzzing proves no crash was *found*, never that none *exists*: "100%" stated as fact is the guessed-vector failure this repo keeps catching. The open-ended search stays in the LibAFL workspace |
+| `crates/node/tests/fuzz_harness.rs` running **1,000,000 payloads to verify 100% crash resistance** | A deterministic seeded-mutation replay through the decoders and the apply path, default 50,000 iterations, `MAYA_FUZZ_ITERS=1000000` for a soak, asserting **no panic and no non-determinism** | A `crates/node/tests/` test runs on the node's stable toolchain in the main workspace — it cannot link LibAFL/ASan. And fuzzing proves no crash was *found*, never that none *exists*: "100%" stated as fact is the guessed-vector failure this repo keeps catching. The open-ended search stays in the LibAFL workspace |
 
 ## Why a separate workspace, restated
 
@@ -70,7 +70,7 @@ pipeline:
 2. **classifies** it — decoder panic / apply-path `Err` that should have been a
    clean refusal / determinism divergence / out-of-memory;
 3. **dedups** by panic site or divergence signature;
-4. emits a **regression-test stub** in the shape of `tests/exploit_replays.rs`,
+4. emits a **regression-test stub** in the shape of `crates/node/tests/exploit_replays.rs`,
    which asserts the *reason* a fixed input is now handled, not merely that it
    no longer crashes.
 

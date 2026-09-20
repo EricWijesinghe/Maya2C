@@ -1,0 +1,34 @@
+[package]
+name = "maya-iot-anchor"
+version.workspace = true
+# Not published. See crates/dex/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Device identity, telemetry batches, tamper and clone evidence for hardware-anchored sensors; no_std and heap-free"
+
+# Every dependency is pure Rust and `no_std`: the same crate runs on a
+# Cortex-M33 or ESP32-C3 and in the node. `sha3` rather than BLAKE3 because
+# `fips204` already links it, and BLAKE3's C/SIMD backend would keep Kani from
+# compiling the rules this crate proves.
+[dependencies]
+# ML-DSA-65 only — invariant 4. Seeded keygen and a caller-supplied RNG, so a
+# microcontroller brings its own TRNG.
+fips204.workspace = true
+rand_core = { version = "0.6", default-features = false }
+sha3.workspace = true
+zeroize = { version = "1", default-features = false, features = ["zeroize_derive"] }
+
+[features]
+default = []
+# Host-side helpers that need `std`.
+std = []
+# Seal the device seed in a TPM 2.0 through `tpm2-tools` (Linux gateways). Off by
+# default: a microcontroller has no TPM and the node has no use for one.
+tpm = ["std"]
+
+[dev-dependencies]
+rand_chacha.workspace = true
+
+[lints]
+workspace = true

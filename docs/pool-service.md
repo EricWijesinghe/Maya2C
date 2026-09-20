@@ -5,17 +5,17 @@ own proof-of-work rule, an append-only ledger recording what each share was
 worth, a PPLNS engine turning those records into credits, and a payout engine
 settling them as ordinary signed transfers.
 
-Implemented in [`pool-service/`](../pool-service). The protocol it speaks is
+Implemented in [`bins/pool-service/`](../pool-service). The protocol it speaks is
 described in [`stratum-v2.md`](stratum-v2.md), which this document assumes.
 
 ---
 
 ## 1. There is no block reward, and everything downstream follows from that
 
-`grep -i 'coinbase|subsidy|reward'` across `src/` returns nothing. `Block` is
+`grep -i 'coinbase|subsidy|reward'` across `crates/node/src/` returns nothing. `Block` is
 `{header, transactions}`, `apply_block_checked` stages only the block's own
 transactions, and fees burn to `FEE_SINK = [0u8; 32]`
-([`src/state/shielded.rs:342`](../src/state/shielded.rs)). Nothing is minted for
+([`crates/node/src/state/shielded.rs:342`](../src/state/shielded.rs)). Nothing is minted for
 finding a block.
 
 A pool splits a block reward. There is not one. So:
@@ -29,7 +29,7 @@ A pool splits a block reward. There is not one. So:
 - **`--reward-per-block` has no default.** What a found block distributes is
   operator policy. A plausible-looking default would be a policy invented by the
   binary; the daemon refuses to start without one
-  ([`config.rs`](../pool-service/src/config.rs)).
+  ([`config.rs`](../bins/pool-service/src/config.rs)).
 
 A coinbase or block subsidy would make mining self-sustaining and remove the
 treasury entirely. It is a hard fork — it changes `apply_block_checked` and the
@@ -129,7 +129,7 @@ task.
 ```
 
 The chain requires `tx.nonce == sender.nonce` exactly
-([`src/state/db.rs:418`](../src/state/db.rs)), so transactions from one account
+([`crates/node/src/state/db.rs:418`](../src/state/db.rs)), so transactions from one account
 are strictly sequential and a nonce is a slot that exists once. Three things
 follow:
 
@@ -246,12 +246,12 @@ real pace, and is where those are observed.
 The workers search on the CPU. `cuda-miner`'s `cuda` feature is off by default
 so a GPU-less runner compiles a green workspace, and a test needing a GPU is a
 test that never runs. The search loop is the same `hashimoto_light` the CUDA
-kernel is checked against by `cuda-miner/tests/dag_parity.rs`, so what a real
+kernel is checked against by `hal/cuda-miner/tests/dag_parity.rs`, so what a real
 GPU worker would submit is what these submit.
 
 ## 11. Deployment
 
-[`k8s/pool/`](../k8s/pool) carries a Deployment, Services, a `ServiceMonitor`,
+[`infra/k8s/pool/`](../infra/k8s/pool) carries a Deployment, Services, a `ServiceMonitor`,
 and a `PrometheusRule`. [`docs/grafana/pool.json`](grafana/pool.json) is the
 dashboard.
 

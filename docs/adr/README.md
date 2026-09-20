@@ -43,3 +43,4 @@ The observation that would make this worth reopening.
 | [003](ADR-003-build-profiles.md) | Build profiles and the disk ceiling | Accepted |
 | [004](ADR-004-reality-ledger.md) | `features.toml` as the reality ledger | Accepted |
 | [005](ADR-005-dependency-unification.md) | One version per dependency, and the duplication that remains | Accepted |
+| [006](ADR-006-simulation-harness.md) | A hand-rolled deterministic simulator, not `madsim` or `turmoil` | Accepted |

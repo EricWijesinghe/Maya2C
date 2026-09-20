@@ -3,13 +3,13 @@
 What has to be true of a block before it commits, and what happens when it is
 not.
 
-- `src/state/invariant_guard/conservation.rs` — the one equation every block satisfies.
-- `src/state/invariant_guard/anomaly.rs` — the checks that are a judgement rather than a rule.
-- `src/state/invariant_guard/breaker.rs` — the per-module circuit breaker and its record.
-- `src/state/invariant_guard/limits.rs` — every threshold, each with its reasoning.
-- `src/state/db.rs` — `stage_block`, the single place the guard is called.
-- `src/state/settlement.rs`, `src/network/mempool.rs` — the two gates that read a breaker.
-- `tests/exploit_replays.rs` — the attack replays.
+- `crates/node/src/state/invariant_guard/conservation.rs` — the one equation every block satisfies.
+- `crates/node/src/state/invariant_guard/anomaly.rs` — the checks that are a judgement rather than a rule.
+- `crates/node/src/state/invariant_guard/breaker.rs` — the per-module circuit breaker and its record.
+- `crates/node/src/state/invariant_guard/limits.rs` — every threshold, each with its reasoning.
+- `crates/node/src/state/db.rs` — `stage_block`, the single place the guard is called.
+- `crates/node/src/state/settlement.rs`, `crates/node/src/network/mempool.rs` — the two gates that read a breaker.
+- `crates/node/tests/exploit_replays.rs` — the attack replays.
 
 ---
 
@@ -271,7 +271,7 @@ attacker can fill.
 
 The brief that produced it named re-entrancy, integer overflow and flash-loan
 manipulation. Two of those three have no surface on this chain and the third is
-not what the phrase usually means. `tests/exploit_replays.rs` demonstrates that
+not what the phrase usually means. `crates/node/tests/exploit_replays.rs` demonstrates that
 rather than asserting it:
 
 - **Re-entrancy** needs a contract-to-contract call. The VM exposes nine host
@@ -307,7 +307,7 @@ Two consequences that look like fussiness and are not:
 
 ## Tests
 
-`tests/exploit_replays.rs`, eleven replays:
+`crates/node/tests/exploit_replays.rs`, eleven replays:
 
 | Test | What it pins |
 |---|---|

@@ -315,7 +315,7 @@ Generic examples above (web apps, SaaS, cloud) apply only where they map onto th
   activation height of `u64::MAX`), PLANNED (no code). Never treat a dark crate as live;
   never go looking for a planned one.
 - Navigation: `skel` -> `ctx` -> serena symbol tools -> ranged `Read`. Never search
-  `target/` or `wallet-gui/ui/target`.
+  `target/` or `apps/wallet-gui/ui/target`.
 - Every cargo call goes through `qb` / `qt` / `ql` or `| condense`. `cargo nextest` needs
   `CARGO_BUILD_JOBS=1`; `LNK1102: out of memory` is a link failure, not a test failure.
 - Never change `[profile.*]` settings: they are load-bearing (invariant 5) and a profile
@@ -328,7 +328,7 @@ Generic examples above (web apps, SaaS, cloud) apply only where they map onto th
 Threat-model the real trust boundaries: p2p peers and block relay; RPC and `api-gateway`;
 the faucet's public endpoint (16); unauthenticated telemetry (14, 15); the oracle as the
 chain's only trusted party (11); the custody combiner (18, 19); the zkML SRS derived from a
-public seed (22); the threshold-encrypted mempool (`mev`, `src/sealed/`); the `iso20022`
+public seed (22); the threshold-encrypted mempool (`mev`, `crates/node/src/sealed/`); the `iso20022`
 bank bridge. Signatures are hybrid pairs and both halves must verify — flag any path that
 accepts one. OAuth / WAF / cloud IAM material above rarely applies.
 

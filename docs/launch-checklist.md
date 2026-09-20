@@ -17,11 +17,11 @@ by this work:
 
 | Guard | Behaviour |
 |---|---|
-| `zk-privacy/src/prove.rs:48` | `SETUP_IS_TRUSTED = false` |
-| `src/bin/node.rs` `VALUE_BEARING_CHAINS` | node exits at startup |
-| `terraform/modules/*/variables.tf` | `terraform plan` fails |
-| `zk-privacy/tests/proof_tests.rs:55` | test pins the flag false |
-| **`src/bin/genesis-ceremony.rs`** | **refuses to mint the genesis file** |
+| `crates/zk-privacy/src/prove.rs:48` | `SETUP_IS_TRUSTED = false` |
+| `crates/node/src/bin/node.rs` `VALUE_BEARING_CHAINS` | node exits at startup |
+| `infra/terraform/modules/*/variables.tf` | `terraform plan` fails |
+| `crates/zk-privacy/tests/proof_tests.rs:55` | test pins the flag false |
+| **`crates/node/src/bin/genesis-ceremony.rs`** | **refuses to mint the genesis file** |
 
 The ceremony binary is the newest and, for this purpose, the most important: a
 genesis file is the one artefact that cannot be revised afterwards, so the tool
@@ -113,13 +113,13 @@ and inventing one would mean two things to keep in sync.
 
 Two corrections were needed during the work:
 
-1. **A false positive.** `api-gateway/src/graphql.rs` is shipped, and its
+1. **A false positive.** `crates/api-gateway/src/graphql.rs` is shipped, and its
    documentation explains what it declines to expose by naming a research
    branch. A whole-document scan labelled the module itself a research branch —
    telling a reader the gateway's GraphQL layer was not real. Detection now
    reads only the `# Status` section or the opening lines.
 2. **A false negative.** Only each crate's `lib.rs` was flagged, so a reader
-   landing on `blockgraph/schedule.rs` saw a detailed scheduler description with
+   landing on `crates/blockgraph/schedule.rs` saw a detailed scheduler description with
    nothing saying no block reaches it. Crate-level status now propagates.
 
 ### No PDF was produced
@@ -133,7 +133,7 @@ and the code-fence cases), but nothing has confirmed the document compiles.
 
 ## 3. Deployment
 
-`k8s/deploy.yaml` — 10 documents: namespace, two ConfigMaps, genesis node,
+`infra/k8s/deploy.yaml` — 10 documents: namespace, two ConfigMaps, genesis node,
 10 seed nodes, two services, two PodDisruptionBudgets, a default-deny
 NetworkPolicy.
 
@@ -178,7 +178,7 @@ both default to off. Turning either on when the port is also reachable directly
 means the direct path has no limit and no geolocation at all — the setting is a
 claim about the network topology, not a preference.
 
-Neither is in `k8s/deploy.yaml`. They are optional services, and adding them to
+Neither is in `infra/k8s/deploy.yaml`. They are optional services, and adding them to
 the launch topology is a decision somebody makes rather than a default.
 
 ### The telemetry dashboard is not evidence
@@ -211,15 +211,15 @@ What is gated is the half this project controls, and it is clean. First-party
 `unsafe` inventory:
 
 ```
-cuda-miner/src/gpu.rs           7
-benches/hybrid_footprint.rs     5
-wallet-gui/ui/src/bridge.rs     1
-src/state/contracts.rs          1
-src/crypto/dag/dataset.rs       1
-pool-service/src/treasury.rs    1
-governance/src/proposal.rs      1
-governance/src/lib.rs           1
-blockgraph/src/lib.rs           1
+hal/cuda-miner/src/gpu.rs           7
+crates/node/benches/hybrid_footprint.rs     5
+apps/wallet-gui/ui/src/bridge.rs     1
+crates/node/src/state/contracts.rs          1
+crates/node/src/crypto/dag/dataset.rs       1
+bins/pool-service/src/treasury.rs    1
+crates/governance/src/proposal.rs      1
+crates/governance/src/lib.rs           1
+crates/blockgraph/src/lib.rs           1
 ```
 
 Every one carries a `// SAFETY:` comment. `cargo geiger` was **not** run:
@@ -258,7 +258,7 @@ fatal, per `deny.toml`'s `unmaintained = "workspace"`.
 1. **Groth16 trusted setup ceremony.** The block above. Everything else is
    downstream of it.
 2. **Compile `docs/reference.tex`.** Generated, never built.
-3. **Replace every placeholder in `k8s/deploy.yaml`.**
+3. **Replace every placeholder in `infra/k8s/deploy.yaml`.**
 4. **Move the ceremony's `*.secret` files to their custodians** and remove them
    from the generating host.
 5. **Kotlin and Swift SDK bindings are generated but never compiled** — see
@@ -280,7 +280,7 @@ fatal, per `deny.toml`'s `unmaintained = "workspace"`.
    it. See invariants 24 and 25.
 10. **Pruning is off by default; Arweave upload is the one edge left open.**
     The IPFS path is verified against a real kubo daemon
-    (`archive/tests/kubo_live.rs`: import, pin, export, verify), and the CAR
+    (`crates/archive/tests/kubo_live.rs`: import, pin, export, verify), and the CAR
     decoder's property is covered on every platform by a seeded randomized test
     as well as by the fuzz target, which still needs Linux or macOS. Arweave
     upload stays unimplemented on purpose: it spends AR per byte and cannot be

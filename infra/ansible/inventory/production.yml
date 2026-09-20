@@ -1,6 +1,6 @@
 ---
 # Twelve nodes: four in each of three regions, matching
-# `terraform/variables.tf` (nodes_per_region = 4).
+# `infra/terraform/variables.tf` (nodes_per_region = 4).
 #
 # Addresses are placeholders. Populate them from `terraform output`, which is
 # where the real ones come from -- hand-maintaining this list against a fleet

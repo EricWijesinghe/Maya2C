@@ -146,7 +146,7 @@ jobs:
       # No RocksDB dependencies here, and that is the point. `maya-ledger-math`
       # has an empty dependency table, so this job compiles one leaf crate to a
       # goto-binary rather than the node's entire C++-linking graph — which is
-      # what makes model checking possible at all. See ledger-math/src/lib.rs.
+      # what makes model checking possible at all. See crates/ledger-math/src/lib.rs.
       #
       # Installed by hand rather than with `model-checking/kani-github-action`:
       # after a good install, the action compares `kani --version` against
@@ -267,7 +267,7 @@ jobs:
         with:
           key: consensus-vectors
 
-      # `tests/fixtures/dag_vectors.json` pins the bytes of the DAG proof of
+      # `crates/node/tests/fixtures/dag_vectors.json` pins the bytes of the DAG proof of
       # work. Both implementations of it are checked against the file: the
       # node's, which validates blocks, and the GPU miner's, which produces
       # them. A change that alters either one without altering the vectors is a

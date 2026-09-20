@@ -3,13 +3,13 @@
 A randomness beacon and a multi-signed price feed, and the host bindings that
 let a contract read either.
 
-- `vrf/` — RFC 9381 `ECVRF-EDWARDS25519-SHA512-TAI`, pinned to the RFC's vectors.
-- `src/oracle/registry.rs` — who the chain believes.
-- `src/oracle/beacon.rs` — the randomness accumulator.
-- `src/oracle/feed.rs` — price records, the median, what an authority signs.
-- `src/state/oracle_exec.rs` — execution against the block overlay.
-- `src/core/oracle_payload.rs` — the wire forms.
-- `vm/src/host.rs`, `vm/src/runtime.rs` — the contract-facing ABI.
+- `crates/vrf/` — RFC 9381 `ECVRF-EDWARDS25519-SHA512-TAI`, pinned to the RFC's vectors.
+- `crates/node/src/oracle/registry.rs` — who the chain believes.
+- `crates/node/src/oracle/beacon.rs` — the randomness accumulator.
+- `crates/node/src/oracle/feed.rs` — price records, the median, what an authority signs.
+- `crates/node/src/state/oracle_exec.rs` — execution against the block overlay.
+- `crates/node/src/core/oracle_payload.rs` — the wire forms.
+- `crates/vm/src/host.rs`, `crates/vm/src/runtime.rs` — the contract-facing ABI.
 
 ---
 
@@ -79,7 +79,7 @@ is why it is named here rather than done.
 
 ## Freshness is measured in blocks, not seconds
 
-`src/state/context.rs` already says why, in the code: *"block timestamps are
+`crates/node/src/state/context.rs` already says why, in the code: *"block timestamps are
 miner-influenced within the consensus tolerance, so a timestamp-based deadline is
 a deadline an adversary can nudge."*
 
@@ -129,7 +129,7 @@ block's own transactions could have been written against.
 
 **The median, not the mean.** One compromised authority moves a mean without
 limit. It moves a median by nothing at all until it holds a majority of the
-quorum. `one_liar_in_a_quorum_cannot_move_the_median` in `tests/oracle_tests.rs`
+quorum. `one_liar_in_a_quorum_cannot_move_the_median` in `crates/node/tests/oracle_tests.rs`
 puts `u64::MAX` in a five-signer quorum and asserts the stored value is unmoved.
 
 **No averaging on an even count.** The lower middle is taken. Averaging
@@ -248,7 +248,7 @@ only run inside a full node would be a beacon nobody could operate.
 
 ### What pins it
 
-RFC 9381's own test vectors, in `vrf/tests/rfc9381_vectors.rs`. This is not
+RFC 9381's own test vectors, in `crates/vrf/tests/rfc9381_vectors.rs`. This is not
 ceremony. The first version of this implementation used suite octet `0x04`
 instead of `0x03` — the octet belonging to `ECVRF-EDWARDS25519-SHA512-ELL2`, the
 same curve and hash under a different hash-to-curve map. Every round trip passed.
@@ -259,7 +259,7 @@ Consensus code with no second implementation on this chain to disagree with it
 has to be checked from outside the repository.
 
 The vectors' published intermediates — `x`, `H`, `k` — are checked separately in
-`vrf/src/ecvrf.rs`, so a regression says *which stage* diverged rather than only
+`crates/vrf/src/ecvrf.rs`, so a regression says *which stage* diverged rather than only
 that something did.
 
 ---
@@ -276,6 +276,6 @@ costed above and not taken.
 proof over an input of its own. That would need per-call VRF verification inside
 the gas meter and a key the contract could name, neither of which exists.
 
-**Any market feed wiring.** `src/rpc/market.rs` still returns 503 rather than
+**Any market feed wiring.** `crates/node/src/rpc/market.rs` still returns 503 rather than
 inventing a price. Feeding it from the oracle is a small change and is not part
 of this work.
