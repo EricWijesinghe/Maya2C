@@ -1,0 +1,50 @@
+# Workspace-wide cargo configuration.
+#
+# Only settings that are correct on every machine belong here. Anything tuned
+# to one developer's hardware goes in `~/.cargo/config.toml`, because this file
+# is what a CI runner and a fresh clone both read.
+
+# ---------------------------------------------------------------------------
+# Linkers
+# ---------------------------------------------------------------------------
+#
+# Linking, not compiling, is what dominates an incremental build of this tree:
+# the node binary alone links 183 object files, and every one of the 105 test
+# targets links its own copy of the workspace.
+#
+# Linux: clang driving mold. Verified on this toolchain
+# (rustc 1.99.0-nightly da80ed070) against mold 2.30.0 under WSL Ubuntu-24.04.
+# `-Z linker-features=+lld` does not exist on this nightly, so the bundled
+# rust-lld cannot be selected that way; mold is the portable choice and CI
+# installs it. If you are on Linux without mold, either `apt install mold
+# clang` or override this section in `~/.cargo/config.toml`.
+[target.x86_64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+# Windows deliberately keeps MSVC `link.exe`.
+#
+# `[profile.dev.package.custom-l1-node] debug = "line-tables-only"` exists
+# because link.exe stops with `LNK1140: limit exceeded for program database`
+# past a certain module count. That workaround is calibrated to link.exe's PDB
+# limits; swapping in `lld-link` changes which limit the tree hits and would
+# need the whole measurement redone. It would also invalidate every fingerprint
+# in a 289 GB `target/`. Not worth it for a linker change nobody has measured a
+# need for. If that changes, the evidence goes in an ADR first.
+
+# ---------------------------------------------------------------------------
+# Build parallelism
+# ---------------------------------------------------------------------------
+#
+# Deliberately NOT pinned to `jobs = 1` here.
+#
+# `cargo nextest run --workspace` has historically needed `CARGO_BUILD_JOBS=1`
+# on a 32 GB machine: two dozen concurrent `link.exe` processes, each linking a
+# test binary carrying `debuginfo = 2` plus wasmtime, arkworks and halo2, end in
+# `LNK1102: out of memory` — which nextest reports as ordinary test failures.
+#
+# The cause is debug-info volume per link, and `[profile.dev] debug =
+# "line-tables-only"` in `Cargo.toml` addresses that directly. Forcing `jobs =
+# 1` globally would serialise every build on the machine to fix one command.
+# Set `CARGO_BUILD_JOBS=1` for the test run if it still OOMs after that; the
+# measured answer is in `reports/01-foundation.md`.

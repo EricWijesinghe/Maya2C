@@ -1,0 +1,42 @@
+# The toolchain this tree is built and tested with.
+#
+# Until this file existed the pin lived in a *user-global* rustup default on
+# one machine, which meant a fresh clone compiled with whatever nightly the
+# developer happened to have. `target/` fingerprints are keyed on the compiler,
+# so a silent toolchain change also silently invalidates 289 GB of artifacts.
+#
+# Nightly, not stable: `ebpf-net/programs` needs `-Z build-std=core` for
+# `bpfel-unknown-none`, and `fuzz/` needs the libFuzzer sanitizer flags.
+# Dated rather than plain `nightly`, so "bleeding edge" stays reproducible and
+# an ICE arrives on the day someone chooses to move the pin rather than on a
+# random Tuesday. `ebpf-net/programs/rust-toolchain.toml` already pinned this
+# exact channel; this file makes the rest of the workspace agree with it.
+[toolchain]
+channel = "nightly-2026-07-15"
+
+# rustfmt, clippy      - the CI gate.
+# rust-src             - `-Z build-std` for the eBPF program and the no_std
+#                        firmware targets below.
+# llvm-tools           - `cargo llvm-cov`, which the 80% coverage floor needs.
+# miri                 - undefined-behaviour checking for the crates that are
+#                        allowed `unsafe` at all (`ebpf-net/src/linux/`,
+#                        `sdk-ffi`, `cuda-miner`, `wgpu-miner`). Not run in the
+#                        default CI job; it cannot execute FFI or GPU calls.
+components = ["rustfmt", "clippy", "rust-src", "llvm-tools", "miri"]
+
+# Cross targets this repository actually builds for, so a clone can build them
+# without a separate `rustup target add`:
+#
+#   wasm32-unknown-unknown       `dashboard`, `wallet-gui/ui`, `sdk-wasm`,
+#                                `contracts/token-swap`
+#   thumbv8m.main-none-eabihf    `iot-firmware` (Cortex-M33) and `iot-anchor`'s
+#                                no_std build
+#   riscv32imc-unknown-none-elf  `iot-anchor`'s second no_std target
+#
+# `bpfel-unknown-none` is deliberately absent: it has no prebuilt std and is
+# produced with `-Z build-std=core` from `rust-src`, not installed by rustup.
+targets = [
+    "wasm32-unknown-unknown",
+    "thumbv8m.main-none-eabihf",
+    "riscv32imc-unknown-none-elf",
+]
