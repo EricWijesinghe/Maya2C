@@ -9,17 +9,14 @@ name: offsec-sandbox
 # The coverage-guided LibAFL engine and the Z3 solver are feature-gated and
 # compile-checked here, not run at length — a real search is a nightly budget.
 
+# Not on pull requests. Both jobs rebuild the node from scratch — 45 to 90
+# minutes each on a cold cache — and on a private repository those minutes are
+# metered: a day of pushes to one pull request exhausted the month's allowance
+# on 2026-09-19. Master and the nightly soak still run it, and
+# `workflow_dispatch` runs it on a branch on demand.
 on:
   push:
     branches: [master]
-  pull_request:
-    branches: [master]
-    paths:
-      - "offsec-sandbox/**"
-      - "tests/fuzz_harness.rs"
-      - "src/core/**"
-      - "src/state/**"
-      - ".github/workflows/offsec-sandbox.yml"
   schedule:
     # 04:00 UTC daily: the soak run, a real budget the PR check cannot spend.
     - cron: "0 4 * * *"
@@ -27,7 +24,7 @@ on:
 
 concurrency:
   group: offsec-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 permissions:
   contents: read

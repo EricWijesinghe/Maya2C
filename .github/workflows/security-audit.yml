@@ -242,6 +242,12 @@ jobs:
   # ---------------------------------------------------------------------------
   consensus-vectors:
     name: consensus vectors
+    # Not on pull requests: it builds the node and the GPU miner, which is 30
+    # to 90 minutes on a cold cache, and those minutes are metered on a private
+    # repository. Master, the nightly run and `workflow_dispatch` still cover
+    # it; the vectors are frozen, so a branch cannot quietly change them
+    # without changing the crypto this also builds.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     # Warm, this takes minutes. Cold (a new stable toolchain misses the cache)
     # the node's build alone took 27 of the old 30, and the GPU miner step was
