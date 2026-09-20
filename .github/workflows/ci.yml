@@ -145,10 +145,17 @@ jobs:
 
       # Artifact size is a standing problem on this project: the development
       # volume has been filled to zero bytes twice, and a full disk reports as
-      # `os error 112`. 30 GiB is the budget.
+      # `os error 112`, which names nothing.
+      #
+      # Reported, not enforced, until a real runner has been measured once.
+      # `--check` fails above 30 GiB, and nobody has yet seen what
+      # `--profile ci` costs on ubuntu-latest after a full `--workspace` test
+      # build — a ceiling guessed from a Windows dev box would either fail
+      # every run or never fire. Swap in `--check` once the number below is
+      # known. See reports/01-foundation.md section 1.
       - name: Build artifact size
         if: always()
-        run: cargo xtask disk --check
+        run: cargo xtask disk
 
   # ---------------------------------------------------------------------
   # Supply chain. Separate job so an advisory does not hide a test failure.

@@ -15,6 +15,31 @@ rust-version.workspace = true
 # The root package is a workspace member alongside the wallet CLI, so both
 # share one lockfile, one target directory, and the profile overrides below.
 [workspace]
+# Stated rather than inferred. Cargo derives the resolver from the root
+# package's edition, so this is already "3" today -- but the derivation is a
+# fact about the *package* edition, and a workspace that later loses its root
+# package (see docs/adr/ADR-001-workspace-layout.md, phase B) would silently
+# fall back to resolver 1. Resolver 3 is what makes `default-features = false`
+# and target-specific dependencies resolve per-target rather than unioned.
+resolver = "3"
+
+# The `core` tier: what a bare `cargo build` compiles.
+#
+# `custom-l1-node` is the validating node, and it depends on every crate that
+# writes a record under the state root -- so building it builds the whole
+# consensus surface transitively. `xtask` is here because the gates should
+# work before anything else does.
+#
+# Everything else -- the explorer, faucet, telemetry collector, API gateway,
+# pool service, wallets, SDKs, miners, off-chain provers and trainers -- is
+# `extended` or `frontier` and needs `--workspace` or `-p`. That is the whole
+# mechanism: a tier decides what a default build *compiles*, never what a node
+# *executes*, because a cargo feature that removes a record layer is a chain
+# split (docs/adr/ADR-002-feature-tiers.md).
+#
+# CI passes `--workspace` explicitly everywhere, so this changes no gate.
+default-members = [".", "xtask"]
+
 members = [
     "wallet",
     "l2-flash",
