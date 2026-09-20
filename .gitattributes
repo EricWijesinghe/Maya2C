@@ -1,0 +1,36 @@
+# Line endings.
+#
+# This repository had no .gitattributes and `core.autocrlf = true` on the
+# development machine, so every checkout rewrote LF to CRLF in the working
+# tree while the repository itself stored LF. Mostly that is invisible. It
+# stopped being invisible here:
+#
+#   `cargo run -p maya-neural-gas-trainer -- --check` compares
+#   `fee-market/src/model/weights_v1.rs` byte for byte against a fresh run of
+#   the generator. The generator writes LF. A Windows checkout produced CRLF.
+#   The check could therefore never pass on a fresh clone, and the one thing
+#   standing between the compiled-in integer weights and a silent edit was
+#   failing for a reason that has nothing to do with the weights.
+#
+# `text=auto eol=lf` normalises in the repository, as before, and now also
+# checks out LF regardless of anyone's `core.autocrlf`. That also makes the
+# working tree match what the Linux CI runners see.
+* text=auto eol=lf
+
+# Windows batch files are the exception: cmd.exe requires CRLF.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binary, never normalised. `text=auto` would usually detect these, but saying
+# so is cheaper than trusting detection on a PNG that happens to look textual.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.gif binary
+*.pdf binary
+*.wasm binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
