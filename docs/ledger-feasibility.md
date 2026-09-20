@@ -28,7 +28,7 @@ version of the job — it is a device that cannot make a valid transaction.
 | Protocol layer + `fips204` compile for Cortex-M | **yes** | `cargo check --target thumbv8m.main-none-eabi --lib`, clean |
 | `fips204` ARM release rlib | 493 KiB | built here |
 | `blake3` ARM release rlib | 185 KiB | built here |
-| SLH-DSA keygen peak stack, x86-64 | **> 1 MiB** | it overflowed the default main-thread stack in this repo; `crates/node/src/bin/genesis-ceremony.rs` now runs on a 16 MiB thread because of it |
+| SLH-DSA keygen peak stack, x86-64 | **> 1 MiB** | it overflowed the default main-thread stack in this repo; `bins/genesis-ceremony/src/main.rs` now runs on a 16 MiB thread because of it |
 | Hybrid signature over a 255-byte APDU | 44 responses | `crates/node/tests/apdu_tests.rs`, asserted |
 | Hybrid public key over a 255-byte APDU | 8 responses | same |
 

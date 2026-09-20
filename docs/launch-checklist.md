@@ -18,10 +18,10 @@ by this work:
 | Guard | Behaviour |
 |---|---|
 | `crates/zk-privacy/src/prove.rs:48` | `SETUP_IS_TRUSTED = false` |
-| `crates/node/src/bin/node.rs` `VALUE_BEARING_CHAINS` | node exits at startup |
+| `bins/maya2c-node/src/main.rs` `VALUE_BEARING_CHAINS` | node exits at startup |
 | `infra/terraform/modules/*/variables.tf` | `terraform plan` fails |
 | `crates/zk-privacy/tests/proof_tests.rs:55` | test pins the flag false |
-| **`crates/node/src/bin/genesis-ceremony.rs`** | **refuses to mint the genesis file** |
+| **`bins/genesis-ceremony/src/main.rs`** | **refuses to mint the genesis file** |
 
 The ceremony binary is the newest and, for this purpose, the most important: a
 genesis file is the one artefact that cannot be revised afterwards, so the tool

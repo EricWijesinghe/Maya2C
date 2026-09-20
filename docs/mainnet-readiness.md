@@ -17,7 +17,7 @@ Three independent places refuse a value-bearing chain:
 | Where | What happens |
 |---|---|
 | `crates/zk-privacy/src/prove.rs:48` | `SETUP_IS_TRUSTED = false` |
-| `crates/node/src/bin/node.rs` (`VALUE_BEARING_CHAINS`) | The node exits at startup on `mainnet` / `maya-mainnet` |
+| `bins/maya2c-node/src/main.rs` (`VALUE_BEARING_CHAINS`) | The node exits at startup on `mainnet` / `maya-mainnet` |
 | `infra/terraform/modules/*/variables.tf` | `terraform plan` fails for those chain ids, in both clouds |
 | `crates/zk-privacy/tests/proof_tests.rs:55` | A test asserts the flag stays false |
 
@@ -215,7 +215,7 @@ So generate them first.
 for region in us eu asia; do
   for i in 0 1 2; do
     mkdir -p seeds/$region-$i
-    echo "$region-$i $(cargo run --quiet --bin peerid -- --data-dir seeds/$region-$i --create)"
+    echo "$region-$i $(cargo run --quiet --bin maya2c-peerid -- --data-dir seeds/$region-$i --create)"
   done
 done
 ```

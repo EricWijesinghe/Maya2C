@@ -49,7 +49,7 @@ pub const TESTNET_SRS_SEED: &[u8] = b"maya2c.zkml.testnet-srs.v1.the-toxic-waste
 /// Chain ids that hold value.
 ///
 /// Duplicated rather than imported, like every other guard in this workspace
-/// (`apps/faucet/src/lib.rs:50`, `src/bin/node.rs:91`): the guard must not depend on
+/// (`apps/faucet/src/lib.rs:50`, `bins/maya2c-node/src/main.rs:91`): the guard must not depend on
 /// the crate it guards against.
 const VALUE_BEARING_CHAINS: &[&str] = &["maya-mainnet", "mainnet"];
 

@@ -174,7 +174,7 @@ tests and wrong for anything else. `SRS_IS_TRUSTED` is `false`.
 has zkML off; the import resolves, and calling it traps with
 `ZkmlUnavailable`, identically on every node.
 
-**Guarded.** `crates/node/src/bin/node.rs` calls `state::zkml::check_setup` at startup
+**Guarded.** `bins/maya2c-node/src/main.rs` calls `state::zkml::check_setup` at startup
 beside the Groth16 check. It is inert while dark, and the moment a height is
 chosen it refuses mainnet until the SRS is trusted — so choosing a height cannot
 also quietly choose mainnet.

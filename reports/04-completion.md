@@ -198,7 +198,42 @@ doc_coverage: building the workspace docs with broken intra-doc links denied
 --- doc exit 0 ---
 ```
 
-## 10. The one thing still open
+## 10. One thing this report nearly missed
+
+The check that confirms no stale binary name survived the `bins/` split did
+not run when it was supposed to. It was invoked as
+
+```
+rg -n 'src/bin/node|--bin node|...' --glob '!target' | head -8
+```
+
+with **no path argument**, and stdin attached to a pipe — so ripgrep searched
+stdin and blocked. It sat there for sixteen hours looking like a running
+build, and its result was never reported.
+
+When it was finally killed and the search run properly, it found one thing
+that was actually broken:
+
+```
+scripts/local_cluster.sh:84
+-  cargo build $CARGO_FLAGS --bin node --bin genesis --bin genesis-ceremony
++  cargo build $CARGO_FLAGS --bin maya2c-node --bin maya2c-genesis --bin genesis-ceremony
+```
+
+plus 21 files of stale prose pointing at `src/bin/node.rs` and
+`crates/node/src/bin/genesis-ceremony.rs`. All fixed.
+
+Two lessons, both cheap:
+
+- **`rg` without a path reads stdin.** Always give it a directory.
+- **A command whose output nobody reads is a check that did not happen.** This
+  one was reported as "still running" for sixteen hours and I took that at
+  face value twice.
+
+`--bin genesis-ceremony` is *not* stale, incidentally: that binary kept its
+name through the split.
+
+## 11. The one thing still open
 
 **No workflow has run on a GitHub runner.** Every gate above was executed
 locally on Windows and made to pass, including the two that would have failed

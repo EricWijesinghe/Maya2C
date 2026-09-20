@@ -81,7 +81,7 @@ trap cleanup EXIT INT TERM
 # --- build -------------------------------------------------------------------
 
 log "building node, genesis and genesis-ceremony"
-cargo build $CARGO_FLAGS --bin node --bin genesis --bin genesis-ceremony
+cargo build $CARGO_FLAGS --bin maya2c-node --bin maya2c-genesis --bin genesis-ceremony
 
 # --- genesis -----------------------------------------------------------------
 

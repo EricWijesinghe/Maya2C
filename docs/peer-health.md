@@ -5,7 +5,7 @@
 Code: `crates/node/src/network/peer_health.rs` (offences, verdicts, scores, quarantine),
 `crates/node/src/network/gossip_score.rs` (gossipsub scoring), `crates/node/src/network/sync.rs` (block
 fetch), `crates/node/src/network/node/guard.rs` (the driver side), `crates/node/src/network/behaviour.rs`
-(wiring), `crates/node/src/bin/node/import.rs` (offences found on import, parent fetch).
+(wiring), `bins/maya2c-node/src/import.rs` (offences found on import, parent fetch).
 Tests: `crates/node/tests/byzantine_guard_tests.rs`, unit tests in each module,
 `fuzz/fuzz_targets/block_sync_response.rs`.
 

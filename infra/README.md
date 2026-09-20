@@ -16,8 +16,8 @@ more and removes none:
 | Where | When it fires |
 |---|---|
 | `crates/zk-privacy/src/prove.rs` | `SETUP_IS_TRUSTED = false` |
-| `src/bin/node.rs` | the node exits at startup |
-| `src/bin/genesis-ceremony.rs` | refuses to mint the genesis |
+| `bins/maya2c-node/src/main.rs` | the node exits at startup |
+| `bins/genesis-ceremony/src/main.rs` | refuses to mint the genesis |
 | `infra/terraform/modules/node-pool/variables.tf` | `terraform validate`, before any provider call |
 | `infra/terraform/modules/gke-node-pool/variables.tf` | same, on GCP |
 | `apps/faucet/src/lib.rs` | refuses to construct |
@@ -50,7 +50,7 @@ block cache and write buffers, not request volume.
 `variables.tf` first: it is roughly $50,000 a month for twelve against $9,000
 for the virtualised shape, and it buys single-tenancy, not more memory.
 
-### 2. Ceremony — `src/bin/genesis-ceremony.rs`
+### 2. Ceremony — `bins/genesis-ceremony/src/main.rs`
 
 **Two steps, and the coordinator ends up holding no key material.**
 

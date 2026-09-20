@@ -1,7 +1,7 @@
 # Block relay with an XDP/AF_XDP receive path
 
 **Status: RESEARCH, off by default.** Node-local; changes no consensus rule.
-Nothing in `crates/node/src/bin/node.rs` enables it: a node gets a relay only from
+Nothing in `bins/maya2c-node/src/main.rs` enables it: a node gets a relay only from
 `Node::with_block_relay`, and the kernel path only on Linux with the `xdp`
 feature. The program loads and passes `hal/ebpf-net/tests/xdp_veth.rs` against a
 Linux 6.18 kernel (WSL 2) over veth, in generic mode; it has not run on a NIC

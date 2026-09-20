@@ -17,7 +17,7 @@
 //! fail. `slh-dsa`'s own documentation says it "allocates signatures and
 //! intermediate values on the stack, which may cause problems for environments
 //! with limited stack space", and its key generation overflowed a **1 MB**
-//! stack on a desktop in this project — `src/bin/genesis-ceremony.rs` runs on a
+//! stack on a desktop in this project — `bins/genesis-ceremony/src/main.rs` runs on a
 //! 16 MB thread because of it. A Ledger's application RAM is kilobytes.
 //!
 //! Nothing here pretends otherwise. `sign_hybrid` does not exist; there is no

@@ -59,7 +59,7 @@ pub const CONFIDENTIALITY_IS_POST_QUANTUM: bool = false;
 /// Chain identifiers this bridge refuses while the seal is classical.
 ///
 /// Duplicated rather than imported, like every other guard in this workspace
-/// (`crates/zkml/src/srs.rs:54`, `apps/faucet/src/lib.rs:50`, `src/bin/node.rs:91`): the
+/// (`crates/zkml/src/srs.rs:54`, `apps/faucet/src/lib.rs:50`, `bins/maya2c-node/src/main.rs:91`): the
 /// guard must not depend on the crate it guards against.
 const VALUE_BEARING_CHAINS: &[&str] = &["maya-mainnet", "mainnet"];
 

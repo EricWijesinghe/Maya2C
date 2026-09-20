@@ -54,7 +54,7 @@ use custom_l1_node::genesis::{
 
 /// Chain ids this binary refuses to mint a genesis for.
 ///
-/// The same list `src/bin/node.rs` refuses to start on. Duplicated rather than
+/// The same list `bins/maya2c-node/src/main.rs` refuses to start on. Duplicated rather than
 /// shared because the two crates answer different questions — "may I run?" and
 /// "may I create?" — and a single list would invite someone relaxing one to
 /// relax both.

@@ -43,7 +43,7 @@ pub fn verdict(
 /// A no-op while `activation` is `u64::MAX`, which it is everywhere today. It
 /// exists so that the day somebody sets a height, the node refuses mainnet
 /// until `maya_zkml::srs::SRS_IS_TRUSTED` is also true — rather than that being
-/// a second change somebody has to remember. `src/bin/node.rs` calls it at
+/// a second change somebody has to remember. `bins/maya2c-node/src/main.rs` calls it at
 /// startup, beside the Groth16 setup check.
 ///
 /// # Errors

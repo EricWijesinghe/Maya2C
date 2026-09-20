@@ -140,7 +140,7 @@ impl Default for PoolConfig {
         Self {
             stratum_addr: "0.0.0.0:3333".parse().expect("literal address"),
             api_addr: "0.0.0.0:8080".parse().expect("literal address"),
-            // Off unless asked for, matching `src/bin/node.rs`: the deployment
+            // Off unless asked for, matching `bins/maya2c-node/src/main.rs`: the deployment
             // binds it to the pod network only.
             metrics_addr: None,
             node_rpc: "http://127.0.0.1:8545".to_string(),

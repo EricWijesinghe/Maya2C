@@ -13,7 +13,7 @@
 //! dashboard is for miners and operators and speaks HTTP. The exporter is for
 //! Prometheus and is off unless asked for, because what it serves is
 //! operational data that belongs inside the pod network — the same reasoning
-//! `src/bin/node.rs` applies to the node's own exporter.
+//! `bins/maya2c-node/src/main.rs` applies to the node's own exporter.
 //!
 //! ## The password is not a flag
 //!
