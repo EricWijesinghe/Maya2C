@@ -1,0 +1,103 @@
+# Progress
+
+What is done, what is next, and where to resume. Ticked only when the command
+that proves it has been run and its output recorded — see Standing Order 1 in
+`CLAUDE.md`.
+
+Two plans run in parallel and they are not the same thing:
+
+- **Master Prompts 1–10** below: the build phases. Prompt 1 is the workspace
+  foundation; 2–10 are subsystem work.
+- **`docs/trajectory.md`**: a 160-prompt ordering in twelve domains, completed
+  through ~48. That file is the *plan*. `features.toml` and
+  `docs/architecture-vision.md` are what the tree actually contains.
+
+---
+
+## Master Prompt 1 — Workspace foundation
+
+Status: **Phase A complete, Phase B and C outstanding.**
+Report: `reports/00-inventory.md`, `reports/01-foundation.md`.
+
+### Phase 0 — audit
+
+- [x] Inventory every crate, binary, test, bench and script — `reports/00-inventory.md`
+- [x] Measure `target/` — 316 GiB at `223fe56`, 336.5 GiB across all artifact directories
+- [x] Record compile status from real output — 45/45 members compile
+- [x] Duplication audit — three of the four claimed duplications do not exist; no `attic/` created
+- [x] Delete 13 untracked `rustc-ice-*.txt` crash dumps
+
+### Phase A — governance layer, at current paths
+
+- [x] `rust-toolchain.toml` — `nightly-2026-07-15`, components `rustfmt clippy rust-src llvm-tools miri`, three cross targets
+- [x] `.cargo/config.toml` — `cargo xtask` alias; clang + mold on Linux, verified under WSL; Windows keeps `link.exe` with the reason written down
+- [x] `[workspace.package]` — version, edition, rust-version, publish
+- [x] `[workspace.dependencies]` — 40 entries, 450 declarations migrated, three version splits closed, three left split with reasons — ADR-005
+- [x] `[workspace.lints]` — `unsafe_op_in_unsafe_fn = deny`, `clippy::pedantic = warn`, `clippy::unwrap_used = warn` (denied in CI on lib/bins), wired into all 45 members
+- [x] Profiles — `dev`, `dev.package."*"`, `release`, `dist`, `ci`, `fuzz` — ADR-003
+- [x] `cargo clean` and cold rebuild, measured — `reports/01-foundation.md`
+- [x] `xtask` — `cargo xtask disk` (30 GiB ceiling), `cargo xtask coverage`
+- [x] `features.toml` — 90 entries; 43 verified, 30 working, 17 planned — ADR-004
+- [x] `docs/adr/` — ADR-001 … ADR-005
+- [x] `PROGRESS.md`
+- [x] `CLAUDE.md` revision with the Standing Orders
+- [x] `.github/workflows/ci.yml` and `nightly.yml`
+- [ ] CI observed green on a real push (needs a push; nothing local can prove it)
+
+### Phase B — physical layout — **not started**
+
+One mechanical commit, nothing else in it. ADR-001 has the reasoning.
+
+- [ ] `git mv` into `crates/ bins/ apps/ hal/ sdks/ formal/ infra/`
+- [ ] Rewrite every `path =` dependency
+- [ ] Rewrite paths in `CLAUDE.md`, `.ignore`, `.claude/settings.json`, the workflows, `scripts/`, `Dockerfile*`, `docker-compose.yml`, `k8s/`, `deploy/`, `terraform/`
+- [ ] Acceptance: `cargo metadata` package set identical before and after, modulo `manifest_path`
+- [ ] Acceptance: grep for every old path string across non-`target` files returns nothing
+- [ ] Second cold rebuild (budget ~1 hour)
+
+### Phase C — deterministic simulation harness — **not started**
+
+`sim/`. Every later chaos, latency, partition and Byzantine test uses it.
+
+- [ ] ADR-006: evaluate `madsim` vs `turmoil` vs hand-rolled, and decide
+- [ ] Seeded PRNG, virtual clock
+- [ ] Network model: latency, loss, partition, reordering
+- [ ] Disk model: corruption, slow writes, torn writes
+- [ ] Every failure prints its seed, and replaying the seed reproduces it
+- [ ] Port `tests/chaos_simulator.rs` and `tests/latency_sim_tests.rs` onto it
+
+### Known follow-ups opened by this phase
+
+- [ ] `chacha20poly1305` 0.10 / 0.11 split — ADR-005
+- [ ] `ed25519-dalek` 2.2 vs libp2p's 3.0 — must close before `THREAT_INTEL_ACTIVATION_HEIGHT` moves — ADR-005
+- [ ] `clippy::needless_range_loop` in `neural-gas-trainer/src/network.rs:110`
+- [ ] `proc-macro-error2 v2.0.1` future-incompatibility (transitive, via a proc-macro dependency)
+
+---
+
+## Master Prompts 2–10 — subsystem work
+
+Not started as *phases*; much of the material exists already, built out of
+order. `features.toml` is the authority for what each one would be extending
+rather than starting.
+
+| # | Phase | Already in the tree |
+|---|---|---|
+| 2 | Cryptography | ML-KEM-768, ML-DSA-65, SLH-DSA, HQC, Groth16, VRF, MPC custody — all SHIPPED |
+| 3 | State engine | tx root, state root, undo journal, invariant guard, pruning — SHIPPED. Stateless verification RESEARCH |
+| 4 | DAG consensus | Ethash-style DAG PoW SHIPPED. Narwhal/Tusk batches and elastic shards RESEARCH |
+| 5 | WASM VM | Cranelift JIT, fuel metering, module cache — SHIPPED |
+| 6 | DeFi / RWA | `dex` and `governance` SHIPPED. `rwa`, `identity`, `iso20022` RESEARCH |
+| 7 | Multi-transport networking | libp2p + PQ Noise, peer guard SHIPPED. `ebpf-net`, `radio-transport` RESEARCH. Satellite, laser, CCSDS, subsea, neutrino PLANNED |
+| 8 | Security tooling | fuzz targets, Kani, supply-chain gates, exploit replays SHIPPED. `offsec-sandbox`, `threat-intel` RESEARCH |
+| 9 | Clients | Tauri wallet, Leptos explorer and dashboard, API gateway, SDKs, faucet — SHIPPED |
+| 10 | Deployment | `Dockerfile`, `docker-compose.yml`, `k8s/`, `terraform/`, `deploy/` exist and are **not** covered by `features.toml` or by any test |
+
+---
+
+## How to resume
+
+1. `cargo xtask coverage` — the ledger, and whether every claim is still backed.
+2. `cargo xtask disk` — artifact size against the 30 GiB ceiling, before starting a build.
+3. `reports/01-foundation.md` — the last measured build and test numbers.
+4. The first unticked box above.

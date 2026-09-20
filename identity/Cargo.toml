@@ -23,3 +23,6 @@ path = "src/lib.rs"
 [dependencies]
 blake3 = "1"
 thiserror.workspace = true
+
+[lints]
+workspace = true

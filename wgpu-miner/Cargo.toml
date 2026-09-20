@@ -37,3 +37,6 @@ bytemuck = { version = "1", features = ["derive"], optional = true }
 [[bin]]
 name = "wgpu-miner"
 path = "src/main.rs"
+
+[lints]
+workspace = true

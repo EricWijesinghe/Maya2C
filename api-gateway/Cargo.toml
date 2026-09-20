@@ -44,3 +44,6 @@ async-trait.workspace = true
 # function and no type safety.
 utoipa = { version = "5", features = ["axum_extras"] }
 serde_json.workspace = true
+
+[lints]
+workspace = true

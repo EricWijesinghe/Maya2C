@@ -22,3 +22,6 @@ thiserror.workspace = true
 # Seals each seed share to its recipient under a key from the pair's ML-KEM
 # secret. The version `custody-mpc` and `mev` already use.
 chacha20poly1305.workspace = true
+
+[lints]
+workspace = true

@@ -43,3 +43,6 @@ xdp = ["dep:aya", "dep:libc", "maya-ebpf-net-common/aya"]
 
 [dev-dependencies]
 proptest = "1"
+
+[lints]
+workspace = true

@@ -26,7 +26,5 @@ description = "Batch references and deterministic shard scheduling, isolated so 
 # No `[features]` section, on purpose. `no_std` unconditionally outside tests; a
 # `std` feature would be a platform the proofs could start depending on.
 
-[lints.rust]
-# `kani` is set by the Kani compiler, not by cargo, so a plain `cargo check`
-# would flag `#[cfg(kani)]` as an unexpected condition.
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+[lints]
+workspace = true

@@ -26,3 +26,6 @@ maya-ledger-math = { path = "../ledger-math" }
 
 [dev-dependencies]
 tempfile.workspace = true
+
+[lints]
+workspace = true

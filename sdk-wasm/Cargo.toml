@@ -24,3 +24,6 @@ maya-crypto-pq = { path = "../crypto-pq" }
 blake3.workspace = true
 wasm-bindgen = "0.2"
 hex.workspace = true
+
+[lints]
+workspace = true

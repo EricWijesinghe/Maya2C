@@ -15,5 +15,5 @@ description = "Adaptive base fee, fee split, and supply bound: a research branch
 # Kani compiles a crate together with its whole dependency graph.
 [dependencies]
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+[lints]
+workspace = true

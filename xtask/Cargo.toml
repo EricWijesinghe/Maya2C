@@ -12,3 +12,6 @@ description = "Workspace automation: disk accounting and the reality-ledger gate
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
 toml.workspace = true
+
+[lints]
+workspace = true

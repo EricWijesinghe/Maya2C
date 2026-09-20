@@ -107,13 +107,13 @@ impl Network {
         let (hidden, output) = self.forward(&x);
         let error = (output - sample.gain).clamp(-4.0, 4.0);
 
-        for unit in 0..HIDDEN {
-            let back = if hidden[unit] > 0.0 {
+        for (unit, &activation) in hidden.iter().enumerate() {
+            let back = if activation > 0.0 {
                 error * self.output_weights[unit]
             } else {
                 0.0
             };
-            self.output_weights[unit] = project(self.output_weights[unit] - rate * error * hidden[unit]);
+            self.output_weights[unit] = project(self.output_weights[unit] - rate * error * activation);
             for (weight, value) in self.hidden_weights[unit].iter_mut().zip(&x) {
                 *weight = project(*weight - rate * back * value);
             }

@@ -47,3 +47,6 @@ hex.workspace = true
 # Reads the frozen DAG vectors in `../tests/fixtures`. Already in the workspace
 # lockfile via the node, so this names a crate we compile either way.
 serde_json.workspace = true
+
+[lints]
+workspace = true

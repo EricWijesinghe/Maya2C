@@ -48,3 +48,6 @@ tempfile.workspace = true
 [[bench]]
 name = "module_cache"
 harness = false
+
+[lints]
+workspace = true

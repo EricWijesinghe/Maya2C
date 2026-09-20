@@ -30,5 +30,5 @@ tpm = ["std"]
 [dev-dependencies]
 rand_chacha.workspace = true
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+[lints]
+workspace = true

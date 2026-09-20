@@ -26,3 +26,6 @@ thiserror.workspace = true
 tempfile.workspace = true
 # Account addresses for `tests/stateless_memory.rs`.
 blake3.workspace = true
+
+[lints]
+workspace = true

@@ -34,3 +34,6 @@ ark-crypto-primitives = { version = "=0.6.0", features = [
 blake3.workspace = true
 thiserror.workspace = true
 hex.workspace = true
+
+[lints]
+workspace = true

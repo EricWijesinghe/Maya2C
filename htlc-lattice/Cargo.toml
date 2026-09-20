@@ -32,6 +32,5 @@ criterion.workspace = true
 name = "verify"
 harness = false
 
-[lints.rust]
-# `kani` is set by the Kani compiler, not by cargo. See lattice-pow/Cargo.toml.
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+[lints]
+workspace = true

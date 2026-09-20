@@ -28,3 +28,6 @@ uniffi = { version = "0.32", features = ["build"] }
 # The generator, run as `cargo run -p maya-sdk-ffi --bin uniffi-bindgen`.
 name = "uniffi-bindgen"
 path = "src/bin/uniffi-bindgen.rs"
+
+[lints]
+workspace = true

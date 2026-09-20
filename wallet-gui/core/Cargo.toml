@@ -65,3 +65,6 @@ tempfile.workspace = true
 # Encodes real QR images for the decode tests. A parser exercised only on
 # hand-written strings has never seen the input a camera actually produces.
 qrcode = "0.14"
+
+[lints]
+workspace = true

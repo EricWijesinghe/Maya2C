@@ -68,3 +68,6 @@ required-features = ["server"]
 [lib]
 name = "maya_telemetry"
 path = "src/lib.rs"
+
+[lints]
+workspace = true

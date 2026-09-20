@@ -33,3 +33,6 @@ criterion.workspace = true
 [[bench]]
 name = "verify"
 harness = false
+
+[lints]
+workspace = true

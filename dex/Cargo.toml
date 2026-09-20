@@ -27,8 +27,5 @@ description = "Constant-product AMM and limit order book matching, isolated so i
 # No `[features]` section, on purpose. `no_std` unconditionally outside tests; a
 # `std` feature would be a platform the proofs could start depending on.
 
-[lints.rust]
-# `kani` is set by the Kani compiler, not by cargo, so a plain `cargo check`
-# would flag `#[cfg(kani)]` as an unexpected condition. Declaring it here keeps
-# the lint on for every *other* cfg while telling it this one is real.
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+[lints]
+workspace = true

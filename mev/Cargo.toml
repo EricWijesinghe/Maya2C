@@ -28,5 +28,5 @@ zeroize = { workspace = true, features = ["derive"] }
 [dev-dependencies]
 hex.workspace = true
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+[lints]
+workspace = true

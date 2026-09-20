@@ -62,5 +62,5 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "io-util", 
 # shipped code generates a certificate.
 rcgen = "0.14"
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+[lints]
+workspace = true

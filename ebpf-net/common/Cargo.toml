@@ -25,3 +25,6 @@ aya = { version = "0.14", optional = true, default-features = false }
 [features]
 default = []
 aya = ["dep:aya"]
+
+[lints]
+workspace = true

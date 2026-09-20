@@ -46,7 +46,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         eprintln!("  measuring {rel} ...");
         rows.push(((*rel).to_string(), dir_size(&path)));
     }
-    rows.sort_by(|a, b| b.1.cmp(&a.1));
+    rows.sort_by_key(|(_, bytes)| std::cmp::Reverse(*bytes));
 
     let total: u64 = rows.iter().map(|(_, n)| n).sum();
 

@@ -330,6 +330,60 @@ ark-std = "=0.6.0"
 #                    other eleven members to restate the default.
 chacha20poly1305 = "0.10"
 
+# ---------------------------------------------------------------------------
+# [workspace.lints] — the lint policy every member inherits
+# ---------------------------------------------------------------------------
+#
+# Before this table there was no shared lint policy at all: twelve crates
+# declared `[lints.rust] unexpected_cfgs` for Kani and nothing else was set
+# anywhere. `unsafe_op_in_unsafe_fn` in particular was off, in a tree whose
+# fourth execution directive is "no unsafe in core execution paths".
+#
+# Members opt in with `[lints]\nworkspace = true`. A crate cannot have both
+# that and its own `[lints.rust]` table, which is why the Kani cfg declaration
+# moved here rather than staying in each of the twelve.
+[workspace.lints.rust]
+# `unsafe fn` no longer makes its whole body an implicit unsafe block. Denied,
+# not warned: the crates allowed `unsafe` at all are the FFI and kernel ones
+# (`sdk-ffi`, `cuda-miner`, `wgpu-miner`, `ebpf-net/src/linux/`), which is
+# exactly where an unmarked operation is hardest to see.
+unsafe_op_in_unsafe_fn = "deny"
+
+# `kani` is set by the Kani compiler, not by cargo, so a plain `cargo check`
+# would flag every `#[cfg(kani)]` as an unexpected condition. Declaring it
+# keeps the lint on for every *other* cfg while telling it this one is real.
+# `app-maya2c` is not a workspace member and keeps its own declaration, which
+# also covers the Ledger device `target_os` values.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+
+[workspace.lints.clippy]
+# Warn, not deny. Denying a 700-lint group in the manifest would stop the
+# build on the day clippy adds a lint, which is a decision this repository
+# should make on purpose rather than inherit from a release announcement.
+# `reports/01-foundation.md` carries the count this produced when it was
+# switched on.
+pedantic = { level = "warn", priority = -1 }
+
+# `unwrap()` and `expect()` in shipped code.
+#
+# Warn here rather than deny, because a manifest lint table cannot tell a test
+# from a library: `#[cfg(test)]` code is compiled into the same crate, and
+# unwrapping in a test is how a test reports a failure. The deny lives in CI
+# instead, scoped to the targets where it means something:
+#
+#     cargo clippy --workspace --lib --bins -- -D clippy::unwrap_used
+#
+# which leaves tests, benches and examples alone.
+unwrap_used = "warn"
+
+# Pedantic lints this tree disagrees with, switched off once here instead of
+# with an `#[allow]` in fifty files.
+module_name_repetitions = "allow"   # `dag::DagCache` reads better than `dag::Cache`
+must_use_candidate = "allow"        # noise on a codebase this size
+missing_errors_doc = "allow"        # every fallible fn here already documents its error type
+missing_panics_doc = "allow"
+similar_names = "allow"             # `sk`/`pk`, `s`/`e` in the lattice code are the literature's names
+
 [dependencies]
 blake3.workspace = true
 argon2.workspace = true
@@ -602,6 +656,97 @@ harness = false
 name = "hybrid_footprint"
 harness = false
 
+# ===========================================================================
+# Profiles
+# ===========================================================================
+#
+# Until this block existed there was no `[profile.dev]` and no
+# `[profile.release]` at all — only the thirty per-package overrides below.
+# Release builds therefore used cargo's defaults: no LTO, sixteen codegen
+# units, symbols kept. And `target/` reached 316 GiB, on a volume with 85.6 GiB
+# left, which is the number that forced this.
+
+# Debug builds.
+#
+# `debug = "line-tables-only"` workspace-wide is the single biggest lever on
+# the artifact size and on link-time memory. It keeps the file and line in a
+# backtrace — which is what anyone actually reads — and drops the per-type
+# records that make up the bulk of a PDB. What it costs is inspecting variables
+# while stepping through a *dependency*; the per-package override on
+# `custom-l1-node` below already made that trade for the node itself, for a
+# harder reason (the linker refused to produce the binary at all).
+#
+# `incremental = true` is cargo's dev default, stated because the sccache
+# question comes up: sccache does not cache incremental builds, so the two are
+# mutually defeating and this tree keeps incremental.
+#
+# `split-debuginfo` is deliberately absent. Its accepted values and their
+# meanings differ between MSVC, ELF and macOS, a cargo profile cannot be made
+# conditional on the host, and `line-tables-only` has already removed most of
+# what it would move.
+[profile.dev]
+debug = "line-tables-only"
+incremental = true
+
+# Every dependency — but not the workspace members — compiled optimized and
+# without debug info.
+#
+# This generalises what the per-package overrides below were doing one crate at
+# a time, and it is the same reasoning: unoptimized cryptography turns
+# `cargo test` into something that reads as hung rather than slow (invariant 5).
+# The overrides that name *workspace members* are not redundant and must stay —
+# `"*"` does not match them, and invariant 2 depends on `maya-crypto-pq` in
+# particular being the optimized crate.
+#
+# The cost is a longer cold build, measured in reports/01-foundation.md rather
+# than guessed at.
+[profile.dev.package."*"]
+opt-level = 3
+debug = false
+
+# Release builds: what a node operator runs.
+#
+# `lto = "thin"` rather than the `"fat"` the foundation brief asked for.
+# Fat LTO across RocksDB, wasmtime, arkworks, halo2 and libp2p in one unit is
+# an hours-long link for a single-digit gain nobody here has measured. `dist`
+# below is where fat LTO lives, for tagged builds that can afford it.
+#
+# `panic = "abort"` is deliberately absent. Cargo applies it to a whole profile
+# rather than to binaries, so it would break `cargo test` (the harness needs to
+# unwind) and conflicts with the `cdylib` in `sdk-ffi` and `sdk-wasm`. A
+# binary-only abort would need a separate profile and a separate build of every
+# dependency; the size it saves is not worth a second full `target/`.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 16
+debug = false
+strip = "debuginfo"
+
+# Tagged and release-candidate builds: the slow, small one.
+[profile.dist]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+
+# CI: dev semantics, nothing kept that a runner cannot use.
+#
+# A GitHub runner has ~14 GB of disk. Debug info is the first thing to go, and
+# incremental compilation is worthless when every job starts from a cold cache.
+[profile.ci]
+inherits = "dev"
+debug = false
+incremental = false
+
+# Fuzzing and Kani both want optimized code with assertions live.
+[profile.fuzz]
+inherits = "release"
+debug = "line-tables-only"
+debug-assertions = true
+overflow-checks = true
+strip = "none"
+
 # The node binary links 183 object files, and MSVC caps how many "modules" one
 # program database may hold: past it the linker stops with
 # `LNK1140: limit exceeded for program database`. The tree crossed that line
@@ -759,3 +904,7 @@ harness = false
 [[bench]]
 name = "ebpf_bench"
 harness = false
+
+# The root package inherits the same lint policy as every member.
+[lints]
+workspace = true

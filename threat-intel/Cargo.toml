@@ -17,5 +17,5 @@ description = "Threat indicators from transferable evidence of attributable goss
 # signed and what follows from evidence the node has already checked.
 [dependencies]
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+[lints]
+workspace = true

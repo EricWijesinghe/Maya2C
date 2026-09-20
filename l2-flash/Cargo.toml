@@ -23,3 +23,6 @@ thiserror.workspace = true
 [dev-dependencies]
 getrandom.workspace = true
 tempfile.workspace = true
+
+[lints]
+workspace = true

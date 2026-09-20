@@ -1,0 +1,161 @@
+# The jobs that are too slow, too large, or too machine-specific to gate a
+# pull request.
+#
+# Everything here is allowed to take an hour. Nothing here blocks a merge —
+# when one of these fails it is a finding to act on, not a branch to unblock.
+# `ci.yml` is the gate.
+name: nightly
+
+on:
+  schedule:
+    # 03:00 UTC. Far enough from the top of the hour that the runner queue is
+    # not competing with everybody else's cron.
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ---------------------------------------------------------------------
+  # frontier tier: the cross targets a PR job does not build.
+  #
+  # None of these run any code. They check that the crates whose whole
+  # purpose is to work without an operating system still do - a dependency
+  # added in a PR that pulls in `std` breaks here and nowhere else.
+  # ---------------------------------------------------------------------
+  frontier:
+    name: frontier targets
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-15
+          targets: wasm32-unknown-unknown,thumbv8m.main-none-eabihf,riscv32imc-unknown-none-elf
+          components: rust-src
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: frontier
+
+      - name: no_std device targets
+        run: |
+          cargo build -p maya-iot-anchor --target thumbv8m.main-none-eabihf --no-default-features
+          cargo build -p maya-iot-anchor --target riscv32imc-unknown-none-elf --no-default-features
+          cargo build -p maya-ebpf-net-common --target thumbv8m.main-none-eabihf --no-default-features
+
+      - name: wasm targets
+        run: |
+          cargo build -p maya-sdk-wasm --target wasm32-unknown-unknown
+          cargo build -p maya-telemetry --target wasm32-unknown-unknown --no-default-features
+
+      # Hardware features that no runner can exercise, built so they cannot
+      # rot. `cuda` is left out: it needs a toolkit, not just a target.
+      - name: Hardware features compile
+        run: |
+          cargo check -p maya-wgpu-miner --features gpu
+          cargo check -p maya-ebpf-net --features xdp
+
+  # ---------------------------------------------------------------------
+  # Fuzzing. The decoders of untrusted input, from a persisted corpus.
+  # ---------------------------------------------------------------------
+  fuzz:
+    name: fuzz decoders
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free runner disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev llvm-dev libssl-dev pkg-config mold
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-15
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+          key: fuzz
+      - uses: taiki-e/install-action@cargo-fuzz
+
+      # Each target for a bounded time rather than one target for a long one:
+      # a new crash is far likelier in a decoder nobody has fuzzed this week.
+      - name: Run each decoder
+        working-directory: fuzz
+        run: |
+          for t in $(cargo fuzz list); do
+            echo "::group::$t"
+            cargo fuzz run "$t" -- -max_total_time=120 -rss_limit_mb=4096
+            echo "::endgroup::"
+          done
+
+  # ---------------------------------------------------------------------
+  # Formal verification. Kani on the dependency-free arithmetic crates -
+  # which is why they are dependency-free (invariants 1, 6, 12).
+  # ---------------------------------------------------------------------
+  kani:
+    name: kani proofs
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-15
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: kani
+      - name: Install Kani
+        run: |
+          cargo install --locked kani-verifier
+          cargo kani setup
+
+      - name: Proofs
+        run: |
+          cargo kani -p maya-ledger-math
+          cargo kani -p maya-dex
+          cargo kani -p maya-governance
+          cargo kani -p maya-fee-market
+          cargo kani -p maya-threat-intel
+          cargo kani -p maya-iot-anchor
+          cargo kani -p maya-htlc-lattice
+
+  # ---------------------------------------------------------------------
+  # Coverage against the 80% floor, and documentation coverage against 90%.
+  # ---------------------------------------------------------------------
+  coverage:
+    name: coverage floors
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free runner disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev llvm-dev libssl-dev pkg-config mold
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-15
+          components: llvm-tools
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: coverage
+      - uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Test coverage
+        run: cargo llvm-cov --workspace --summary-only
+
+      - name: Documentation coverage
+        run: bash scripts/doc_coverage.sh --check

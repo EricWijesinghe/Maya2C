@@ -23,5 +23,5 @@ description = "Proposal lifecycle, vote tallying, and the bounds a proposal may 
 # are derived in `custom-l1-node` and arrive as opaque bytes.
 [dependencies]
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+[lints]
+workspace = true

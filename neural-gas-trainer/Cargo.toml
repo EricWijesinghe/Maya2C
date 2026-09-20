@@ -21,3 +21,6 @@ path = "src/main.rs"
 # with `zkml` (invariant 20).
 [dependencies]
 maya-fee-market = { path = "../fee-market" }
+
+[lints]
+workspace = true

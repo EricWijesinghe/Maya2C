@@ -1,7 +1,9 @@
 # Maya2C
 
-Post-quantum L1 blockchain node in Rust (edition 2024, `rust-version = 1.88`).
-Root package `custom-l1-node` + 32 workspace members, one lockfile, one `target/`.
+Post-quantum L1 blockchain node in Rust (edition 2024, `rust-version = 1.88`,
+`nightly-2026-07-15` pinned in `rust-toolchain.toml`). Root package
+`custom-l1-node` + 44 workspace members, one lockfile, one `target/`, plus nine
+crates that are deliberately *not* members.
 
 ## Identity and Mission
 
@@ -9,19 +11,57 @@ Maya2C is scoped as an **autonomous, post-quantum Layer-1 monolithic
 ecosystem**: one chain that owns its cryptography, its execution, its transport,
 and the hardware it attests, rather than a settlement layer delegating each of
 those elsewhere. The stated target spans software, hardware, space
-communications, bio-computing, and quantum physics — roughly 75 subsystems, of
-which 30 are workspace members today.
+communications, bio-computing, and quantum physics.
 
-The full target architecture, with every component tagged SHIPPED / RESEARCH /
-PLANNED, is [docs/architecture-vision.md](docs/architecture-vision.md). Read it
-before assuming a subsystem exists. The condensed status table below is the
-authority for what a session may assume about this tree.
+What exists is not the target, and the difference is written down in three
+places that must agree:
+
+| Question | Read |
+|---|---|
+| What does this tree contain, and does it work? | `features.toml` — 90 entries, gated by `cargo xtask coverage` |
+| Why is each subsystem the way it is? | [docs/architecture-vision.md](docs/architecture-vision.md) — the authority for status |
+| What is the build order? | [docs/trajectory.md](docs/trajectory.md) (a *plan*) and [PROGRESS.md](PROGRESS.md) (what is done) |
+
+## Standing Orders
+
+These apply to every task in this repository, without being restated.
+
+1. **Never claim a test passed, a benchmark number, or "zero warnings" unless
+   the real command output is in the report.** This has already gone wrong
+   here: an inventory said "zero clippy warnings" because it counted summary
+   lines instead of reading the run. There was one.
+2. **Numbers in a brief are targets.** 1M TPS, 10× faster, sub-10 ms: measure
+   and report the real figure. Never tune a benchmark toward a number fixed in
+   advance, and never hard-code one. `benches/algo_comparison.rs` states in its
+   own output what it could not measure rather than leaving a silent gap.
+3. **SIM and RESEARCH declare themselves.** A simulator says so in its logs,
+   its docs and its CLI output. No simulator reaches a production path without
+   an explicit feature flag, and no RESEARCH subsystem reaches consensus
+   without an activation height somebody wrote down.
+4. **Consensus-critical code has no floats, no `HashMap` iteration order, no
+   wall-clock time, and no `unsafe` without a `// SAFETY:` comment and a test.**
+   Invariants 9, 20, 24 and 28 are the specific cases; this is the general rule.
+5. **Secrets are typed, zeroized, and never logged.** `zeroize` is already a
+   dependency of every crate holding key material. A `Vec<u8>` that went
+   through a serializer has already been copied.
+6. **Nothing that costs money, touches a live server, or publishes a package
+   runs without being asked first** — `terraform apply`, the deploy scripts,
+   `cargo publish`, `npm publish`.
+7. **Work in small steps.** After each: `cargo check`, run the affected tests,
+   commit with a message that says *why*, tick `PROGRESS.md`. If context runs
+   low, stop cleanly and write down where to resume.
+8. **Every major design choice gets an ADR** in [docs/adr/](docs/adr/) — written
+   when the decision is made, not afterwards.
+9. **A finding that contradicts the brief is reported, not worked around.**
+   Three of the four duplications the foundation brief asked to merge did not
+   exist; saying so was the deliverable.
 
 ## Token Discipline (read first)
 
-This repo is large: `target/` is 356 GB and `wallet-gui/ui/target` is ~4,978
-*tracked* files. Unbounded reads and unfiltered command output are the dominant
-cost here, not model reasoning. The rules below are mechanical, not stylistic.
+This repo is large: build artifacts reached 336.5 GiB before the last
+`cargo clean`, and `wallet-gui/ui/target` is ~4,978 *tracked* files. Unbounded
+reads and unfiltered command output are the dominant cost here, not model
+reasoning. The rules below are mechanical, not stylistic.
 
 **Reading code — escalate, never start at the top:**
 
@@ -71,296 +111,84 @@ PowerShell profile and `~/.bashrc`.
 
 ## Workspace Map
 
-| Member | Role |
-|---|---|
-| *(root)* `custom-l1-node` | Node daemon: consensus, chain, p2p, RPC, metrics |
-| `ledger-math` | All `u64` credit/debit/nonce math. Kani-verifiable — keep RocksDB out |
-| `crypto-pq` | SLH-DSA instantiation. Must stay the monomorphizing crate |
-| `zk-privacy` | Groth16 shielded joinsplits |
-| `vm` | Wasm contract execution |
-| `l2-flash` | L2 settlement |
-| `wallet`, `wallet-gui/core` | CLI + GUI wallet |
-| `explorer` | Chain explorer |
-| `cuda-miner` | GPU miner. `cuda` feature OFF by default so CI stays green without a CUDA toolkit |
-| `stratum-v2` | Pool protocol, no chain dependency — fuzzable in isolation |
-| `pool-service` | Daemon joining SV2 to chain types (PPLNS, payouts) |
-| `dex` | Constant-product curve + order book + batch clearing. Kani-verifiable — keep it dependency-free |
-| `vrf` | RFC 9381 EC-VRF behind the randomness beacon. Pinned to the RFC's test vectors |
-| `governance` | Proposal lifecycle, vote tally, and the bounds a proposal may never escape. Kani-verifiable — dependency-free |
-| `fee-market` | EIP-1559 base fee over serialized **bytes** (there is no block gas), 80/20 burn/treasury split, supply cap. Research branch: `FeeConfig::DISABLED` (activation `u64::MAX`), called by nothing in `src/` — `tests/fee_market_tests.rs` checks both. Dependency-free for Kani |
-| `faucet` | Testnet faucet. Funded key behind a public endpoint; the per-IP/per-address limiter and daily cap are the whole of what bounds a drain |
-| `telemetry` | Network telemetry. `server`/`client` feature split so a miner links no web framework; the always-on half builds for `wasm32` |
-| `custody-mpc` | Threshold custody of a chain key: dealerless Pedersen VSS, ML-KEM-sealed shares, quorum signing. Links no chain types — `tests/custody_parity_tests.rs` pins its derivation to `crypto::hybrid` |
-| `zkml` | Verifies halo2 (KZG/BN254) proofs of quantized-classifier inference for `host_verify_zkml_proof`. Hand-written circuit, verifier only. **Dark** (`ZKML_ACTIVATION_HEIGHT = u64::MAX`), not post-quantum, SRS from a public seed |
-| `zkml-prover` | Off-chain half of `zkml`: ONNX import via `tract-onnx`, key generation, proving. Its own crate, not a feature, so the node's graph cannot reach tract; `rust-version = 1.91` because tract's patched releases need it, and nothing the node links depends on it |
-| `iso20022` | ISO 20022 bank-rail messages and the bridge to a payment intent. Chain-free, so its XML decoder fuzzes alone (`fuzz/fuzz_targets/iso20022_decode.rs`). One compiled-in amount scale; an inexact amount is an error, never rounded |
-| `archive` | CAR v1 (zstd) archives of pruned block batches and the stores that hold them: local dir, kubo IPFS, Arweave gateway (read-only). Chain-agnostic, so the decoder of untrusted archives is fuzzable alone (`fuzz/fuzz_targets/car_decode.rs`). See `docs/pruning.md` |
-| `htlc-lattice` | Lattice HTLCs: Module-LWE commitment `t = A·s + e` at ML-DSA-65's parameters, the short-opening check, the timelock rule (Kani-proved exclusive), the lock record. Chain-free, decoders fuzzable alone (`fuzz/fuzz_targets/htlc_lattice_decode.rs`). No RNG: entropy is the caller's — [docs/htlc-lattice.md](docs/htlc-lattice.md) |
-| `htlc-watcher` | Counterparty watcher: claims on revelation, refunds on expiry, refuses unsafe pairings and late reveals. Pure `policy::decide`, `SwapChain` trait over RPC. Its own process because it holds a hot key |
-| `neural-gas-trainer` | Off-chain half of the neural base-fee gain: synthetic demand simulator, float SGD, quantization into `fee-market/src/model/weights_v1.rs` (`-- --check` fails on drift). Floats stop here — the node does not depend on it (invariant 20). The integer network and envelope live in `fee-market`; block features in `src/neural_gas/` — [docs/neural-gas.md](docs/neural-gas.md) |
-| `stateless-core` | Keyed sparse Merkle tree over accounts, its canonical witness, transfer execution against a verified witness, and a Ring-SIS research backend over `Z_q[x]/(x^256+1)`. Chain-free, so a stateless verifier cannot reach a database and the witness decoder fuzzes alone (`fuzz/fuzz_targets/stateless_witness_decode.rs`). The node's sparse accounts root is computed *by* this crate — [docs/stateless.md](docs/stateless.md) |
-| `ebpf-net/common` | What the XDP program and user space share byte for byte: the 56-byte relay header, the integer token bucket, the verdict order, the map records. `no_std`, dependency-free, compiled for the host *and* `bpfel-unknown-none` — the host tests exercise the function the kernel runs |
-| `ebpf-net` | Block relay over UDP beside gossip: XChaCha20-Poly1305 chunks under per-peer keys, bounded per-sender reassembly, the receiver. Under `src/linux/` behind the `xdp` feature (off by default): aya loader, hand-rolled AF_XDP over `libc`, throughput harness. Chain-free, decoder fuzzable alone (`fuzz/fuzz_targets/xdp_relay_decode.rs`) — [docs/ebpf-net.md](docs/ebpf-net.md) |
-| `offsec-sandbox/` | Autonomous red-team fuzzing. **Not a workspace member** — its own `[workspace]` and lockfile, like `fuzz/`, so LibAFL (optional) and Z3 (optional, arithmetic crates only) never touch the node graph or Kani. Structure-aware mutators for tx/WASM/handshake, a panic-and-determinism oracle over the real apply path, and crash triage that emits regression stubs, never patches (invariant 13). The in-tree gate is `tests/fuzz_harness.rs`; the two share no dependency — [docs/offsec-sandbox.md](docs/offsec-sandbox.md) |
-| `threat-intel` | Threat indicators from evidence a third party can re-check: an ed25519 gossip author's own signature over a frame that decodes and fails a stateless check. Rebuilds libp2p's signed bytes itself; integer score halving by height; mitigation computed, never stored. Dependency-free for Kani — verification lives in `src/state/threat_exec.rs`; decoder fuzzes alone (`fuzz/fuzz_targets/threat_evidence_decode.rs`) — [docs/threat-intel.md](docs/threat-intel.md) |
-| `threat-firewall` | Per-host worker: joins a co-located node's indicators (by author) with its own connection addresses and drives nftables / iptables. Pushes rules nowhere else, holds no chain key, never blocks loopback |
-| `iot-anchor` | Hardware-anchored sensor identity: ML-DSA-65 device keys, PUF fuzzy extractor, TPM seed sealing (`tpm` feature, `tpm2-tools`, off by default), Merkle-rooted telemetry batches, tamper and clone evidence, and the Kani-proved batch rules. `no_std` and heap-free — builds for `thumbv8m.main-none-eabihf` and `riscv32imc-unknown-none-elf`; decoders fuzz alone (`fuzz/fuzz_targets/iot_anchor_decode.rs`) — [docs/iot-anchor.md](docs/iot-anchor.md) |
-| `iot-firmware/` | Example Cortex-M33 firmware. **Not a workspace member** — its own `[workspace]`, `thumbv8m.main-none-eabihf`. Runs the device lifecycle under QEMU `mps2-an505` (WSL) and reports the stack high-water mark: 258,532 bytes. Deterministic RNG and simulated PUF — a code path, not security |
-| `ebpf-net/programs` | The XDP program. **Not a workspace member** — nightly, `bpfel-unknown-none`, `-Z build-std=core`. Needs the **prebuilt** `bpf-linker` v0.11.1 (`cargo install` fails without a system libLLVM matching rustc's); builds on Windows and Linux. Loading needs Linux: the `Ubuntu-24.04` WSL distro on this machine runs `ebpf-net/tests/xdp_veth.rs` as root |
-| `dashboard/` | Leptos browser page. **Not a workspace member** — CSR Leptos only runs on `wasm32`. Built with `trunk` |
+44 members plus the root package, and nine tracked crates that are **not**
+members because they target a different architecture or must keep their
+dependency graph away from the node's: `fuzz/`, `offsec-sandbox/`,
+`iot-firmware/`, `ebpf-net/programs/`, `dashboard/`, `wallet-gui/ui/`,
+`wallet-gui/src-tauri/`, `app-maya2c/`, `contracts/token-swap/`. Six of the
+nine cannot be built for the host at all, so "the workspace builds" is a claim
+about 45 of 54 crates.
+
+What each one is for, and why it is a separate crate:
+[docs/workspace-map.md](docs/workspace-map.md). Membership itself comes from
+`cargo metadata --no-deps`.
+
+## Tiers, classes and the reality ledger
+
+`features.toml` is the machine-readable answer to "does this work". 90 entries;
+`cargo xtask coverage` prints them and **fails** when one claims `working` or
+`verified` without naming a test that exists. Schema and rationale:
+[ADR-004](docs/adr/ADR-004-reality-ledger.md).
+
+**Tier** — what a build compiles. `core` (crypto, state, consensus, VM, RPC,
+p2p), `extended` (services, clients, SDKs, off-chain provers), `frontier`
+(hardware, space, bio, and their simulators).
+
+> **A tier gates binaries and services, never a crate the node links for
+> consensus.** `dex`, `rwa`, `identity`, `iot-anchor` and `threat-intel` write
+> records under the state root (invariant 25), so gating one behind a cargo
+> feature makes two honest nodes compute different state roots. A subsystem is
+> turned off with an activation height of `u64::MAX`, which every node compiles
+> identically. [ADR-002](docs/adr/ADR-002-feature-tiers.md).
+
+**Class** — `REAL` (reachable and used), `SIM` (a model, never on a production
+path, and it says so), `RESEARCH` (in the tree, tested, called by nothing in
+consensus).
+
+**Status** — `planned` / `stub` / `working` / `verified`.
+
+Current: 43 verified, 30 working, 17 planned; 28 core, 41 extended, 21 frontier.
 
 ## Roadmap Status
 
-Three buckets. The distinction is not cosmetic: a subsystem that was never
+Three buckets, and the distinction is not cosmetic: a subsystem that was never
 written and one that is written but deliberately dark look identical from
 outside, and mistaking either for shipped produces a safety argument resting on
-nothing. Full detail and rationale per component:
-[docs/architecture-vision.md](docs/architecture-vision.md).
+nothing.
 
-**SHIPPED** — in the tree, reachable, tested. ML-KEM-768 / ML-DSA-65 / SLH-DSA /
-HQC (`crypto-pq`), Groth16 shielded joinsplits (`zk-privacy`), Cranelift WASM
-(`vm`), DAG PoW (`src/crypto/dag/`), tx-root + state-root commitment and the
-undo journal (`src/state/`, `src/chain.rs`), the invariant guard and per-module
-circuit breaker (`src/state/invariant_guard/`), pruning and CAR archives
-(`archive`), `dex`, `governance`, `vrf`, `light-client`, `stratum-v2` +
-`pool-service`, `telemetry`, `faucet`, MPC-TSS custody (`custody-mpc`), the threshold-encrypted
-mempool (`mev`, `src/sealed/` — optional at genesis, not dark), CUDA and
-wgpu miners, Tauri wallet, Leptos explorer/dashboard, Axum gateway
-(`api-gateway`), SDKs, `docgen`, the peer guard (`src/network/peer_health.rs`,
-`sync.rs` — gossip validation, P4 scoring, expiring quarantine, connection caps,
-bounded parent fetch; node-local, no consensus rule — [docs/peer-health.md](docs/peer-health.md)).
+- **SHIPPED** — in the tree, reachable, tested.
+- **RESEARCH** — in the tree with tests, but *nothing in consensus calls it*.
+  Usually an activation height of `u64::MAX`. Promoting one is a decision
+  somebody writes down.
+- **PLANNED** — no code in this tree. `grep` will not find it.
 
-**RESEARCH** — in the tree with tests, but *nothing in consensus calls it*.
-Usually an activation height of `u64::MAX`. Promoting one is a decision somebody
-writes down.
+Per-subsystem detail, with the rationale for each tag, is
+[docs/architecture-vision.md](docs/architecture-vision.md); the same data in
+checkable form is `features.toml`. Four PLANNED items collide with invariants
+already recorded and must be reconciled *before* code: the bytecode
+hot-patcher with 13, relativistic clock sync and satellite/light-cone
+consensus with 9, TEE attestation with 11.
 
-| Crate | What is dark |
-|---|---|
-| `fee-market` | EIP-1559 base fee over bytes. `FeeConfig::DISABLED`. The neural gain (`src/model/`, `src/rule.rs`) has its own `neural_activation_height = u64::MAX`: integer inference, compiled-in weights, and a Kani-proved envelope — never below EIP-1559's fee, never against fullness, a rise at most doubled. No zkML; trained on a simulator because no chain history exists — [docs/neural-gas.md](docs/neural-gas.md) |
-| `blockgraph` | Narwhal/Tusk batch refs + deterministic shard scheduling. Nothing references a batch. `shard_manager/` adds a **per-node** elastic map (4–64 leaves, split above 80% of a lane for 100 ticks, buddy merges) — not consensus, because waves reach the serial state under every tiling; the fixed `shard_of` stays for fee features. `access_for_transaction` is too narrow for every non-transfer kind and must be fixed before any consensus path reaches the scheduler — [docs/blockgraph.md](docs/blockgraph.md#elastic-shards) |
-| `lattice-pow` | Lattice PoUW (SVP) verification |
-| `zkml` / `zkml-prover` | halo2 zkML ONNX inference. `ZKML_ACTIVATION_HEIGHT = u64::MAX`, SRS from a public seed |
-| `rwa` | Real-world assets: tokens, paged cap tables, legal attestations, revenue. The distribution arithmetic lives in `ledger-math` so Kani can check that payouts sum to exactly the total — [docs/rwa.md](docs/rwa.md) |
-| `identity` | Self-sovereign identity: `DidDocument`, `ServiceEndpoint`, `CryptographicAttestation`. `did:maya2c:<address>`. Chain-free, so its decoder fuzzes alone. Commitments only — no claim preimage ever reaches chain state |
-| `radio-transport` | ISM LoRa off-grid transport: AX.25-style framing, a duty-cycle governor that refuses rather than warns, a random-linear fountain codec, and store-and-forward relay. Headers and SPV proofs only — a hybrid signature is 11,165 bytes and does not compress. Chain-free, fuzzable alone — [docs/radio-transport.md](docs/radio-transport.md) |
-| `identity` | DID records, rotation and revocation, and selective-disclosure credentials. Attestations are post-quantum; the holder's disclosure proof is Groth16 and is not |
-| `rwa` | RWA primitives: DvP that is a no-op on failure (invariant 7), issuer-selected transfer rules (invariant 13), largest-remainder distribution |
-| `iso20022` | Bank-rail bridge: pacs.008/pacs.009/camt.053, the sealed translation, and sanctions non-membership proofs. `check_chain` refuses a value-bearing chain while the seal is classical — [docs/iso20022.md](docs/iso20022.md) |
-| `htlc-lattice` / `htlc-watcher` | Lattice HTLC atomic swaps. `HTLC_L_ACTIVATION_HEIGHT = u64::MAX`. **Maya2C↔Maya2C only** — Bitcoin cannot check the predicate. Claims and refunds map to no breaker module; only locks are gated — [docs/htlc-lattice.md](docs/htlc-lattice.md) |
-| `stateless-core` / `src/state/stateless.rs` | Stateless transfer verification. `STATELESS_ACTIVATION_HEIGHT = u64::MAX`; from it the `sl:` marker switches the accounts root to the sparse tree. BLAKE3 commits; the Ring-SIS backend is measured, not used — no transparent lattice commitment opens under 1 KB. Decides only transfer-only blocks on a state with no `m:`/`o:`/`g:` records; everything else is `Unverifiable`, never `Invalid`. No witness gossip — [docs/stateless.md](docs/stateless.md) |
-| `confidential-ai` | Federated training without revealed updates: ML-KEM-768 pairwise-masked secure aggregation with Shamir dropout recovery, integer discrete-Gaussian DP with a zCDP accountant. Off-chain, dev-dependency of the node only (invariant 20). No enclave report is generated or verified — a TEE attestation is a vendor's classical signature — [docs/confidential-ai.md](docs/confidential-ai.md) |
-| `ebpf-net` / `src/network/node/relay.rs` | eBPF/XDP block relay. Nothing in `src/bin/node.rs` calls `Node::with_block_relay`; the kernel path is Linux behind `xdp`. Gossip is ciphertext, so the kernel judges only relay datagrams, structurally: blocklist (peer-guard quarantines only — a UDP source is forgeable), token bucket, exact length; all other traffic passes. Keys agreed over the PQ connection (`relay_key.rs`); datagrams go to the connection's IP, never a peer-named address. One hop: a node relays blocks it publishes, never ones it received. No flatbuffers on the wire (the verifier cannot walk vtables); the bench reports kernel UDP vs AF_XDP vs `XDP_DROP` and asserts no ratio. Not measured on a native-XDP NIC — [docs/ebpf-net.md](docs/ebpf-net.md) |
-| `offsec-sandbox` / `tests/fuzz_harness.rs` | Autonomous red-team fuzzing. Separate workspace, so LibAFL and an optional Z3 never reach the node graph or Kani (invariants 1, 6). Hunts panics, unbounded allocation and non-deterministic apply (invariant 24) — not "memory corruption" (safe Rust) or "races" (single-threaded apply). Triage emits regression stubs, never patches (invariant 13). The in-tree gate replays seeded mutations through the decoders and apply path; it asserts "no crash across N inputs", never "100%". `MAYA_FUZZ_ITERS`/`MAYA_FUZZ_APPLIES` bound it — [docs/offsec-sandbox.md](docs/offsec-sandbox.md) |
-| `threat-intel` / `threat-firewall` / `src/state/threat_exec.rs` | Threat-intel registry (was ZK-SIEM). `THREAT_INTEL_ACTIVATION_HEIGHT = u64::MAX`. `TxKind::AttestAttack` records an author's gossip signature over a transaction whose signature fails or a block whose `tx_root` fails; `verify_strict`, then the check, at admission and apply. No ZK (nothing hidden), no votes (no validator set — one verified offence confirms), no IP in state (each host maps authors to its own connections). Floods and scans yield nothing, pinned. Nodes refuse convicted peer ids at the libp2p layer (`NodeHandle::enforce_mitigations`, pushed by the binary's `threat_enforcement_loop`); hosts drop their addresses (`threat-firewall`). Kani: 4 harnesses verified. Invalid evidence errors; repeated evidence is a no-op (invariant 7). Classical ed25519 evidence and unpruned `t:ev:` markers are why it is dark. Enforced within 2 **blocks**, not "DAG rounds" — [docs/threat-intel.md](docs/threat-intel.md) |
-| `iot-anchor` / `src/state/iot_exec.rs` | DePIN device attestation. `IOT_ACTIVATION_HEIGHT = u64::MAX`. ML-DSA-65 alone on the device (not the hybrid). The TPM seals a seed and never signs; no vendor certificate is verified (invariant 11). Enrollment proves possession, not silicon. Batches, not readings, go on chain; bounds are flagged, never refused; batches are hash-chained per device (each signs its predecessor's hash); duplicate, stale, out-of-order (`Unlinked`) and unknown-device batches are no-ops (invariant 7); a second successor of a recorded predecessor, overlapping counters or reused counters marks the device `Compromised` — a clone that jumps ahead cannot mute the genuine device. Tamper, equivocation and revocation are ungated by the breaker. `v:` is its own layer — [docs/iot-anchor.md](docs/iot-anchor.md) |
-
-**PLANNED — no code in this tree.** Do not go looking for these; grep will not
-find them. Satellite off-grid transport, LEO free-space laser mesh,
-CCSDS DTN (BPv7), subsea acoustic and subterranean neutrino signalling, QKD
-KM-API, lattice HTLC-L atomic swaps, EVM/SVM/Move transpilation, SGX / SEV-SNP
-enclave attestation (the federated-training half is RESEARCH, below), biomolecular TRNG, photonic tensor
-driver, DNA archival engine, magneto-optical MRAM, neural organoid MEA, LibAFL,
-bytecode hot-patcher, ZK dark pools, relativistic
-clock sync, Lean 4 proof engine.
-
-Three of those collide with invariants already on this list and must be
-reconciled *before* code, not after: the hot-patcher with 13, relativistic clock
-sync with 9, TEE attestation with 11. (`confidential-ai` sidesteps the last by
-writing no state and making attestation a hook that verifies nothing yet;
-committing an attested round would engage invariant 11.)
-
-### Prompt Trajectory
-
-Sessions follow a 160-prompt plan in 12 domains:
-[docs/trajectory.md](docs/trajectory.md). **Completed through ~48; next is
-Prompt 49**, in Consensus & State Engine (26–50). The plan is an ordering, not
-a status. The buckets above say what exists, and the plan's conflicts with them
-are listed in that file. Reconcile a conflict before the prompt that touches it
-writes code.
+Session ordering is the 160-prompt plan in
+[docs/trajectory.md](docs/trajectory.md), completed through ~48. That file is
+the plan; the buckets above are the tree. Reconcile a conflict before the
+prompt that touches it writes code.
 
 ## Critical Invariants
 
-1. **`ledger-math` must never gain a C/C++ dependency.** Kani compiles a crate
-   with its full dependency graph; pulling in RocksDB breaks model checking.
-2. **`crypto-pq` must remain the crate that instantiates `slh-dsa`.** Measured:
-   4468 ms → 140 ms signing when the *instantiating* crate is optimized rather
-   than the generic one. Moving the instantiation moves the optimization.
-3. **`cuda-miner`'s `cuda` feature stays default-off** so
-   `cargo build --workspace` works on GPU-less runners.
-4. **`fips204` compiles only the `ml-dsa-65` parameter set.** A compiled-in set
-   is a set someone can select by accident.
-5. **`[profile.dev.package.*]` overrides are load-bearing, not tuning.** Without
-   them `cargo test` reads as hung, not slow. Do not "clean them up".
-6. **`dex` must stay dependency-free**, for the same reason as `ledger-math`.
-   The visible cost is that it cannot hash, so pair and share-asset identifiers
-   are derived in `custom-l1-node` and passed in as opaque bytes. That is the
-   price of the boundary, not an oversight to tidy up.
-7. **A trade that merely *loses* is a no-op, never an `Err`.** A missed slippage
-   bound, a lost arbitrage race, a batch the pool cannot price: nonce advances,
-   nothing moves. A failing transaction fails its whole block here, so making
-   any of these an error hands every trader a way to void a block. See
-   `docs/dex.md`; `tests/dex_tests.rs` pins it.
-8. **Every trading record's prior value goes in the undo journal.** A reorg that
-   left a pool holding the abandoned chain's reserves is not a detectable
-   corruption — it is two plausible numbers that go on quoting a price. The same
-   applies to the oracle's `o:` records.
-9. **Oracle freshness is measured in block height, never in timestamps.**
-   `chain.rs` reads `header.timestamp` only for difficulty retargeting; there is
-   no future-drift bound and no median-time-past, so a miner may write any
-   `u64`. A timestamp-based freshness check would read as safety and provide
-   none. See `docs/oracle.md`.
-10. **The VRF suite octet is `0x03`.** `0x04` is `…-SHA512-ELL2`, the same curve
-    and hash under a different hash-to-curve map. Using it produces proofs that
-    are internally consistent, pass every round-trip test, and match no other
-    implementation on earth. `vrf/tests/rfc9381_vectors.rs` is what catches it —
-    do not "simplify" those vectors away.
-11. **The oracle is optional and absent by default.** A genesis file without an
-    `oracle` section produces no `o:` records and the state root the chain would
-    have had without the subsystem. Introducing the chain's only trusted party
-    is a decision somebody writes down.
-12. **Governance must not be able to make governance unsafe.** The quorum floor,
-    the approval floor, the minimum voting period, and the minimum timelock are
-    compiled into `governance/src/limits.rs`, appear in no `ParameterKey`, and
-    are reachable by no transaction. Every governable value carries a hard range
-    checked *twice* — when proposed and again when executed, because a release
-    between the two could have tightened it.
-13. **No governance key's value is a program.** Native code is never fetched from
-    chain state and run. A rule change either moves a number or flips between
-    two implementations the binary already ships, as `crypto/dag/registry.rs`
-    already does with `activation_height`. See `docs/governance.md`.
-14. **Nothing on the telemetry dashboard is verified.** Every figure but
-    difficulty is an unauthenticated claim. Heights and propagation are medians
-    so one liar cannot set them, reports replace rather than accumulate, and
-    claims outside a hard bound are rejected rather than clamped — a clamped
-    report is a number the reporter never sent. See `docs/telemetry.md`.
-15. **The telemetry map is country-granular and has a floor.** No address is
-    stored, no coordinate exists anywhere in the crate, and a country with
-    fewer than `MIN_REPORTERS` is folded into `ZZ`. One miner in a small
-    country is an individual, not aggregate data. `MIN_REPORTERS` is a
-    compiled-in constant and no configuration key, because tuning it to 1 to
-    "see more detail" is the failure it prevents.
-16. **The faucet's two rate-limit buckets are independent.** Keying on the
-    `(IP, address)` pair is not a limit: keypairs are free, so one IP with a
-    thousand fresh addresses is a thousand payouts. Both buckets must clear,
-    and both are consumed only if both pass. The daily cap, not the limiter, is
-    what bounds a distributed drain. See `docs/faucet.md`.
-17. **A governed value is read from state, never from a `const`.** The constants
-    that remain (`MAX_FILLS_PER_BLOCK`, `DEFAULT_PROTOCOL_FEE_BPS`, …) are the
-    parameter table's *defaults*. Reading one directly at a call site silently
-    un-governs that rule.
-18. **`custody-mpc` reconstructs the vault key in one place, and that is the
-    design, not a defect to fix quietly.** A Maya2C signature is a hybrid pair
-    and both halves must verify; there is no threshold construction for
-    SLH-DSA at all, and `fips204` exposes nothing that decomposes into partial
-    ML-DSA signatures. So the crate protects the 32-byte *chain key* — which
-    `signing_key_from_seed` expands into both halves — rather than thresholding
-    either signature. The combiner holding the key for the length of one
-    signature is the whole cost, it is stated at the top of `src/lib.rs`, and
-    anything that quietly relaxes it (a "partial signature" API, a second
-    combiner, caching a reconstructed seed) breaks the only claim the crate
-    makes. See `docs/custody-mpc.md`.
-19. **Every reconstruction is checked against the vault's commitment before a
-    key is derived from it.** Interpolating from too few shares does not fail —
-    it returns a different secret, silently. `vss::check_opening` is what turns
-    a short quorum, a corrupted safe, or an inconsistent dealer into an error
-    instead of a signature under a key that owns nothing. It is the reason
-    `interpolate_opening` returns the blinding factor alongside the secret, and
-    the reason there is no public way to obtain one without the other.
-20. **No ONNX runtime on the consensus path.** The node depends on `maya-zkml`,
-    which is the verifier only; `tract-onnx` lives in `maya-zkml-prover`, which
-    the node takes as a dev-dependency and nothing more. A separate crate rather
-    than a feature, because a feature can be switched on by any crate in the
-    graph through unification and a crate the node does not depend on cannot.
-    Most ONNX models are floating point, and a float in a consensus rule is a rounding
-    mode two validators can disagree on. Verification checks a proof; nothing
-    in a block runs a model. See `docs/zkml.md`.
-21. **A host function that does native work charges fuel for it, first.** Gas
-    is wasmtime fuel and cannot see native work, so `host_verify_zkml_proof`
-    charges a *measured* price (`vm/src/zkml.rs`, calibrated by
-    `vm/tests/fuel_calibration_tests.rs` and `zkml-prover/benches/verify.rs`) before
-    it reads a byte, and traps out-of-fuel before the verifier runs. There is
-    deliberately no tensor host function: guest wasm is priced exactly by the
-    fuel meter, and a hand-set per-MAC price would be consensus-critical and
-    wrong on some machine.
-22. **zkML stays dark until its SRS is real and gas is capped.** The SRS in
-    `zkml/src/srs.rs` is derived from a public seed, so anyone can forge proofs;
-    and no cap bounds a call's `gas_limit`, so a fuel price bounds nothing
-    absolutely. `ZKML_ACTIVATION_HEIGHT` is `u64::MAX`, and
-    `state::zkml::check_setup` refuses mainnet the moment it is anything else
-    while `SRS_IS_TRUSTED` is false.
-23. **Every constraint in `zkml/src/circuit.rs` has a test that fails without
-    it.** Negative tests hand the circuit a lie that is *consistent* — everything
-    downstream recomputed — so only the guard under test can refuse it. A lie
-    left inconsistent is caught by some other constraint, and the test then
-    passes with its own guard deleted; that happened, and the mutation sweep in
-    `docs/zkml.md` is how it was found. Changing the circuit means re-running
-    that sweep.
-24. **A block's id and proof of work cover its transactions, and its declared
-    state root is checked.** `BlockHeader::tx_root` (bytes 112..144, after the
-    nonce so `NONCE_RANGE` never moved) is a `state::merkle` root over
-    `transaction_leaf(txid)`. `Chain::insert_block` calls `check_tx_root`
-    *first*, ahead of the duplicate check and before anything is stored: a
-    mismatched body filed under an honest id would turn the genuine block into
-    a `Duplicate`, which is censorship by one relay. `apply_block_journaled` —
-    the chain's only apply path — refuses a `state_root` that execution does not
-    produce. Block producers take both roots from `Chain::candidate_block` and
-    never from `state_root()`, which is the *pre*-block root. Before this, one
-    block id could carry two transaction lists (`tests/chaos_simulator.rs`
-    replays that attack). Do not add an unchecked apply path to `Chain`.
-25. **Every persisted consensus record is under the state root; everything
-    else is on an explicit local-only list.** `state::commitments` holds the
-    lists:
-    - `RECORD_LAYERS`, the one source for the generic-record prefixes;
-    - `committed_prefixes()`;
-    - `LOCAL_ONLY_PREFIXES` (`undo:`, `blk:`).
+Twenty-eight of them, in [docs/invariants.md](docs/invariants.md). They are
+numbered, the numbers are cited from code comments and ADRs, and **a number is
+never reused**.
 
-    Until 2026-09-12 contract code, contract storage, the nullifier set, and the
-    shielded pool's anchor window and balance were all outside the root.
-    Nothing checked them, a snapshot could forge them, and a reorg did not even
-    restore contract storage. A new prefix goes into those lists and into a
-    layer, and the undo journal records its prior value. Otherwise
-    `uncovered_keys()` fails the subsystem's tests, and the `write_overlay`
-    debug assertion fails any test that writes a stray record.
-26. **Blocks and the state they produced commit in one batch.** The block
-    store (`state/blocks.rs`) lives in the state's RocksDB:
-    - `apply_canonical` writes the canonical-index entry and the tip pointer
-      in the same `WriteBatch` as the block's state;
-    - `revert_canonical` does the same for a revert.
+Read them before changing: `ledger-math`, `dex`, `governance`, `fee-market` or
+`threat-intel` (dependency-freedom for Kani — 1, 6, 12); `crypto-pq` (2);
+`fips204` features (4); the dev profile overrides (5); DEX or oracle write
+paths (7, 8, 9, 17); governance (12, 13); `custody-mpc` (18, 19); zkML
+(20–23); `Chain::insert_block` or any apply path (24); any new state prefix
+(25); the block store (26); pruning (27); the invariant guard (28).
 
-    `Chain::open` rebuilds from it and adopts a heavier stored branch, which is
-    how a crash mid-reorg recovers. `seed_state` runs on a **fresh** database
-    only: re-seeding an evolved one overwrote it, which is why no node could
-    restart before 2026-09-12.
-27. **No block body is deleted before a verified copy exists, and a pruned
-    node never reorgs below its horizon.** `prune_round` archives to every
-    store and reads every copy back before `Chain::prune` deletes anything.
-    `Chain::prune` refuses a batch the active chain no longer holds.
-    `insert_block` and `reorganize` refuse to reach at or below
-    `prune_horizon`, before anything is reverted. Pruning is opt-in: an
-    archive node has no horizon. A snapshot is imported only if it reproduces
-    `header(H).state_root`; otherwise it is wiped.
-28. **The guard refuses invalid blocks and halts modules, but never halts a
-    transfer.** `StateDB::stage_block` is the one place an overlay is built, so
-    the hook at the end of it covers all four commit paths — including
-    `preview_root`, which is why an honest miner refuses to *build* a bad block
-    rather than minting one the network rejects. A conservation failure is a
-    block-level `InvariantViolation`, refused like a wrong state root, with no
-    breaker written because there is no committed state to protect; an anomaly
-    is a *judgement*, so the block commits and only the module halts, for
-    `BREAKER_BLOCKS` = 100. `Module::of(TxKind::Transfer)` is `None` and the
-    match has no wildcard arm, so peer-to-peer payments are ungated by
-    construction and adding a `TxKind` is a compile error until somebody
-    assigns it. The guard reads only committed state and the block — no clock,
-    no configuration, no node-local value — and the anomaly checks run in a
-    fixed order, because a breaker that trips on one node and not another is a
-    chain split. Every anomaly threshold carries a floor or a tolerance chosen
-    so the breaker cannot be *bought*: `SHIELDED_DRAIN_FLOOR` exempts a pool too
-    thin for its percentage to mean anything, because a rate with no floor is a
-    lever anyone can pull to halt the module for the price of one fee.
-    `g:guard:` sits under the governance prefix (asserted at compile time) so it
-    is already under the state root per 25.
-    `tests/exploit_replays.rs` pins it; see
-    [docs/invariant-guard.md](docs/invariant-guard.md).
+An invariant earns a number only once a test pins the behaviour. A rule nobody
+checks is a comment, and it belongs beside the code it describes.
 
 ## Execution Directives
 
@@ -400,6 +228,8 @@ Never run unfiltered cargo output — use `qb` / `qt` / `ql`, or pipe through
 `condense`.
 
 ```powershell
+cargo xtask disk                                # artifact size vs the 30 GiB ceiling
+cargo xtask coverage                            # the reality ledger, and whether claims are backed
 qb                                              # cargo build --workspace
 qt                                              # cargo nextest run --workspace
 ql                                              # cargo clippy --all-targets
@@ -415,209 +245,84 @@ cargo machete                                   # unused-dependency *candidates*
 exists for invariant 2 rather than for any `use`. Check every hit against the
 invariants before removing it.
 
-First build after a clean is long — the `opt-level = 3` dev overrides mean the
-crypto and arkworks stacks compile optimized even in debug.
+**Disk is the standing hazard.** This volume has been filled to exactly zero
+bytes twice, and a full disk reports as `os error 112` or rustc `0xc0000409` —
+never as "out of space". Run `cargo xtask disk` *before* starting a long build,
+not after it fails. Measured 2026-09-20: 336.5 GiB across all artifact
+directories before `cargo clean`, 20.6 GiB after (`fuzz/target` 10.2 GiB and
+`wallet-gui/src-tauri/target` 8.7 GiB survive a root clean; they are separate
+workspaces).
 
-**Two build facts this machine enforces, both discovered the hard way.**
+**Profiles are load-bearing, not tuning** — [ADR-003](docs/adr/ADR-003-build-profiles.md).
+`[profile.dev] debug = "line-tables-only"` and
+`[profile.dev.package."*"] opt-level = 3, debug = false` are what keep the tree
+inside the ceiling and the node binary under MSVC `link.exe`'s PDB module cap
+(`LNK1140`, past which `cargo nextest run --workspace` cannot even build). The
+per-package overrides that name *workspace members* are not redundant with the
+`"*"` override — `"*"` does not match members, and invariant 2 depends on
+`maya-crypto-pq` being the optimized crate. Do not "clean them up".
 
-`[profile.dev.package.custom-l1-node] debug = "line-tables-only"` is load-bearing
-in the same way invariant 5's overrides are. The node binary links 183 object
-files, and MSVC caps how many modules one program database may hold; past it the
-linker stops with `LNK1140: limit exceeded for program database` and
-`cargo nextest run --workspace` cannot even build. Line tables keep file and line
-in a backtrace, which is what anyone reads, and drop the per-type records that
-make up the bulk of the modules. Scoped to the package, so dependencies keep full
-debug info.
+Measured on this machine, 2026-09-20, from a clean tree:
 
-`target/` reached **415 GB** and filled a 400 GB volume to exactly zero bytes,
-at which point every build fails with `os error 112` rather than anything that
-names the real problem. A cold rebuild after `cargo clean` is **52 minutes** on
-this machine — budget for it before starting one.
-
-**`cargo nextest run --workspace` needs `CARGO_BUILD_JOBS=1` on this machine.**
-Cargo defaults to one job per logical CPU (24 here), so two dozen `link.exe`
-processes each link a test binary carrying `debuginfo = 2`, wasmtime, arkworks,
-halo2 and — for the targets that dev-depend on `maya-zkml-prover` —
-`tract-onnx`. With 32 GB of RAM and a 4 GB pagefile that ends in
-
-```
-LINK : fatal error LNK1102: out of memory
-```
-
-reported by nextest as ordinary test failures, which is what it is *not*.
-`exploit_replays` alone still hits it at `CARGO_BUILD_JOBS=4`. Serialise the
-link step rather than reducing `debug`: a profile change invalidates the whole
-356 GB `target/`.
-
-## MCP Servers
-
-Project scope, `.mcp.json`, enabled in `.claude/settings.local.json`. Tool
-search defers full schemas, but every server still puts its tool *names* and its
-instructions block in the prompt on every turn. So a server nobody calls, or a
-tool nobody calls, is a permanent tax. The set below was cut to what 18 sessions
-of transcripts show being used (2026-09-11), and each server has one job so that
-two of them are never competing for the same question:
-
-| Question | Server and tool |
+| Command | Cold |
 |---|---|
-| Where is `X` defined? What is in this file? | `serena` `find_symbol` / `get_symbols_overview` (rust-analyzer: exact) |
-| Who uses `X`? Rename `X` everywhere. | `serena` `find_referencing_symbols` / `rename_symbol` |
-| What calls what, across crates? What is the shape of this subsystem? | `codebase-memory-mcp` `trace_path` / `get_architecture` / `search_graph` |
-| A crate's API, before depending on it or calling a part of it this repo does not use yet | `context7` `resolve-library-id` then `query-docs` (the `docs-lookup` agent runs on it) |
-| One known URL (an RFC, a FIPS spec, docs.rs) | `fetch` |
+| `cargo clean` | 1m 28s, 188,085 files, 317.4 GiB |
+| `cargo check --workspace --all-targets` | 4m 34s, 0 errors, 0 warnings |
+| `cargo clippy --workspace --all-targets` | 1,889 warnings, all `pedantic` |
 
-- **`serena`**: its file-read, shell, memory and text-insertion tools are
-  excluded in `.serena/project.yml`, because the built-ins already do those jobs.
-- **`codebase-memory-mcp`** (0.10.8): `.mcp.json` overrides the user-scope entry
-  with `--tool-profile=scout`, which cuts it from 15 tools to 7 and from 24.9K to
-  13.8K schema characters.
-  - Re-indexing is not in the scout profile. Re-index with
-    `codebase-memory-mcp cli index_repository '{"repo_path":"D:/Maya2C","mode":"full"}'`.
-  - `claude mcp list` warns that the server is defined in two scopes. That is the
-    override working, not a fault.
-  - Version 0.9.0 silently skipped files.
+`cargo clippy --workspace --lib --bins -- -D clippy::unwrap_used` reports
+**zero**: all 457 `unwrap()` warnings are in `#[cfg(test)]` code. That is the
+CI gate.
 
-Disabled deliberately:
-- **Project servers, via `disabledMcpjsonServers`:**
-  - `filesystem` duplicates Read/Write/Edit/Glob.
-  - `git` duplicates Bash git, which is allowlisted in `.claude/settings.json`.
-  - `memory` duplicates `codebase-memory-mcp` and the file memory under
-    `~/.claude/projects/`.
-  - `sequential-thinking` duplicates built-in extended thinking.
-  - `headroom` was never called. Its `headroom_compress` takes the text as an
-    argument, so that text is already in context before anything is compressed.
-    It cannot save tokens from inside the conversation.
-- **User servers and connectors, via `disabledMcpServers`:**
-  - `rustrover` was never called, and adds about 40 tool names (SQL, database,
-    run-configuration tools) that serena and the shell already cover. It is
-    also only live while the IDE runs.
-  - The claude.ai connectors `Shopify` and `Viewmax` add about 80 tool names
-    between them and have nothing to do with a blockchain.
+**`cargo nextest run --workspace` has historically needed `CARGO_BUILD_JOBS=1`.**
+Two dozen concurrent `link.exe` processes, each linking a test binary carrying
+wasmtime, arkworks, halo2 and `tract-onnx`, end in `LNK1102: out of memory` on
+32 GB — reported by nextest as ordinary test failures, which is what it is
+*not*. The workspace-wide `line-tables-only` change addresses the cause; the
+current measurement is in `reports/01-foundation.md`.
 
-All of these are reversible: remove the name from the list. The pre-trim configs
-are in `~/.claude/backups/mcp-trim-20260911/`.
+## Code Conventions
 
-**Research tooling is shell-side, not MCP**, so it costs nothing until it's used:
+- Functions under 50 lines; source files 200–400 typical, 800 soft ceiling;
+  nesting depth ≤ 4. Test, generated and vendored files may exceed the ceiling.
+- `snake_case` functions and variables, `PascalCase` types,
+  `SCREAMING_SNAKE_CASE` constants. Lifetimes short and lowercase.
+- Immutable by default; return new values rather than mutating arguments.
+- Every error handled explicitly, never swallowed. Typed errors with
+  `thiserror` in libraries. Validate at boundaries.
+- No magic numbers, no hardcoded secrets, no leftover debug prints.
+- **Comments say why, not what.** This repository's manifests and modules
+  explain the reasoning behind a boundary, a version pin or a parameter set.
+  That prose is the documentation — do not strip it when editing near it.
+- `clippy::pedantic` is `warn`, not `deny`, and there are 1,889 of them.
+  Do not add more; cleaning them up is tracked in `PROGRESS.md`.
 
-| Tool | Use it for |
-|---|---|
-| `agent-reach` skill (`~/.claude/skills/agent-reach/`) | Multi-source research. It routes to the tools below. The CLI is pinned to upstream `Panniantong/Agent-Reach@da5044d`; do not run `check-update` |
-| `mcporter call 'exa.web_search_exa(query: "...", numResults: 5)'` | Semantic web search: papers, advisories, standards. Exa is configured in `~/.mcporter/mcporter.json` |
-| `yt-dlp --write-auto-sub --skip-download` | Conference-talk transcripts. `~/.config/yt-dlp/config` sets `--js-runtimes node` |
-| `gh` | Issues, PRs, releases, `gh search code`. **Needs `gh auth login` once** |
+## Development Environment
 
-Social channels (X, Reddit, …) are deliberately unconfigured: they need the
-user's browser cookies. Agent-Reach's own MCP server exposes only `get_status`,
-so it is not registered.
-
-**Graphify is a skill, not an MCP server** — invoke with `/graphify`.
-
-## Harness Surface (ECC + plugins)
-
-`~/.claude` runs ECC 2.2.1 as a **manual install**, not the `ecc@ecc` plugin —
-never run `/plugin install ecc@ecc` on top of it, that duplicates every skill,
-command and hook. The same tax that applies to MCP tool names applies here:
-every skill, agent and command puts its name and description in the prompt on
-every turn. The full `developer` profile measured **~18.1K tokens/turn**, so
-the surface is curated to this stack and the rest is archived, not deleted, in
-`~/.claude/backups/curated-20260912/`:
-
-| Surface | Installed | Archived | Cost |
-|---|---:|---:|---:|
-| Skills | 43 | 85 | ~3.7K |
-| Agents | 27 | 41 | ~1.8K |
-| Commands | 45 | 49 | ~1.2K |
-| Plugins (4) | — | — | ~1.3K |
-
-Kept language packs are the ones this repo actually contains: `rust-*`,
-`cpp-*` (cuda-miner), `python-*` (scripts/), `typescript-reviewer` (sdk-js,
-docs/site). Everything Django/Laravel/Vue/Flutter/Kotlin/Swift/SEO/marketing is
-archived. Restore one by moving the file back — do not re-run
-`ecc install --profile developer` to get it, that restores all 240 files and
-the full 24-entry hook graph.
-
-Plugins (user scope, official marketplace only): `rust-analyzer-lsp`,
-`claude-security` (8 scanning agents — the reason to keep the priciest plugin
-on a consensus/crypto codebase), `skill-creator`, `claude-md-management`,
-`claude-code-setup`. Deliberately **not** installed: `github` and `serena`
-plugins (the `gh` CLI and the serena MCP server already cover them), `semgrep`
-and `sonarqube` (thin Rust rule coverage next to clippy + `cargo audit` +
-`cargo deny`, and a permanent tool-name cost), `pr-review-toolkit` and
-`code-review` (ECC ships the same agents), `superpowers` (a third overlapping
-TDD/verification/review system makes agent selection worse), `codspeed` (wants
-a CI account), `security-guidance` (POSIX shell hooks plus an LLM diff review
-on every Stop).
-
-**Project agents** (`.claude/agents/`, ~0.6K tokens/turn): nine curated from
-`msitarzewski/agency-agents@ad9264e` (MIT) out of 295 —
-`blockchain-security-auditor`, `security-architect`, `codebase-archaeologist`,
-`research-synthesist` (read-only `tools:`), plus `rust-refactoring-specialist`,
-`webassembly-engineer`, `minimal-change-engineer`, `sre`,
-`desktop-app-engineer`. Each has its upstream path in a frontmatter comment and
-a trailing *Maya2C Operating Context* section that overrides the generic
-web/EVM body. Skipped on purpose: upstream `code-reviewer` and
-`software-architect` (collide with ECC's), `reality-checker` (Laravel +
-Playwright screenshots), `solidity-*` (no EVM here), and every non-engineering
-division. Add one by hand in the same shape — do not run upstream
-`install.sh --tool claude-code`, which copies all 295 into `~/.claude/agents/`.
-
-Nine ECC hooks are wired in `~/.claude/settings.json`; 15 were removed and are
-listed in `env.ECC_DISABLED_HOOKS`. `pre:bash:dispatcher` in particular blocks
-the first Bash call of every session with a GateGuard prompt. Re-running any
-ECC install or repair restores all of them — re-trim afterwards.
-
-## Ignore Rules
-
-`.ignore` at the repo root is the real exclusion file: the Claude Code binary
-references `.ignore`, `.rgignore`, and `.gitignore`, and contains **no**
-reference to `.claudeignore` — the `.claudeignore` that used to live here was
-inert and has been removed. `.gitignore` cannot exclude *tracked* paths, which is
-why `.ignore` carries `wallet-gui/ui/target` and `target-contracts`.
-`.claude/settings.json` adds `permissions.deny` as a hard backstop.
-
-## Branding
-
-`logo-assets/` is the source of truth and is never edited in place. Three
-commands deploy it; the two scripts take `--check` so drift is a failure rather
-than a discovery:
-
-```powershell
-python scripts/deploy_brand_assets.py    # favicons + wordmarks into each app
-python scripts/make_og_card.py           # the 1200x630 social card
-cargo tauri icon logo-assets/print/HighRes-Square-2000_2000x2000.png `
-  -o wallet-gui/src-tauri/icons          # the desktop icon set
-```
-
-Two pack defects are corrected on copy, not propagated: `site.webmanifest` ships
-an empty `name`/`short_name`, and `paste-in-head.html` hardcodes root-absolute
-paths that only suit the explorer.
-
-Reference checking differs per surface: `dashboard/` and `wallet-gui/ui/` fail
-`trunk build` on a missing `data-trunk` dir, then `scripts/check_brand_refs.py`
-walks each built `dist/`; `explorer/` has no build step, so
-`tests/server_tests.rs` asks the running server for every path its rendered HTML
-names. The explorer resolves `--assets` against its working directory, logs that
-directory at startup, and warns loudly when it is absent — a `ServeDir` over a
-missing path would 404 every icon and look like a browser problem.
-
-## Caches
-
-Dependency caches live on **D:** (`UV_CACHE_DIR=D:\Caches\uv_cache`,
-`NPM_CONFIG_CACHE=D:\Caches\npm_cache`, set at user scope and pinned again in
-`.mcp.json`). Do not create parallel cache dirs. Known deviation: `CARGO_HOME`
-is still `C:\Users\EricW\.cargo` — relocating it means re-downloading the
-registry and re-installing every cargo binary, left alone deliberately.
+MCP servers, the ECC harness surface, `.ignore` rules, brand-asset deployment
+and cache locations: [docs/environment.md](docs/environment.md). None of it is
+about the chain; all of it is about the cost of working on it.
 
 ## Workflow Rules
 
-1. Navigation order: `skel` / `ctx` -> `serena` symbols -> `ast-grep` -> bounded
+1. Navigation order: `skel` / `ctx` → `serena` symbols → `ast-grep` → bounded
    `Read`. Whole-file reads last.
 2. Run `/graphify` after major structural changes.
 3. Keep files modular — 200-400 lines typical, 800 max.
 4. Consensus, crypto, and ledger changes get a `rust-reviewer` +
    `security-reviewer` pass before commit.
 5. A new subsystem lands in [docs/architecture-vision.md](docs/architecture-vision.md)
-   with a status tag *before* it lands in `Cargo.toml`, and it earns a numbered
-   invariant above only once a test pins the behaviour that must not change.
-   Skipping the first step is how a tree acquires a crate nobody can explain;
-   skipping the second is how this file acquires a claim nobody can check.
+   with a status tag *before* it lands in `Cargo.toml`, gets a `features.toml`
+   entry in the same change, and earns a numbered invariant only once a test
+   pins the behaviour. Skipping the first step is how a tree acquires a crate
+   nobody can explain; skipping the last is how this file acquires a claim
+   nobody can check.
+6. A new external dependency goes in `[workspace.dependencies]` if any other
+   member already uses it — [ADR-005](docs/adr/ADR-005-dependency-unification.md).
+
+## How to Resume
+
+1. `cargo xtask coverage` — the ledger, and whether every claim is still backed.
+2. `cargo xtask disk` — artifact size, before starting anything long.
+3. `reports/01-foundation.md` — the last measured build and test numbers.
+4. [PROGRESS.md](PROGRESS.md) — the first unticked box.

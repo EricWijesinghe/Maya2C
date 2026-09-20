@@ -58,3 +58,6 @@ chrono = { version = "0.4", features = ["serde"] }
 tempfile.workspace = true
 tokio-tungstenite = "0.30"
 futures-util.workspace = true
+
+[lints]
+workspace = true

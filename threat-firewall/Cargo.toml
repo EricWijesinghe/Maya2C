@@ -30,3 +30,6 @@ async-trait.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 hex.workspace = true
+
+[lints]
+workspace = true

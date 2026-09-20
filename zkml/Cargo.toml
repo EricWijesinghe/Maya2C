@@ -23,3 +23,6 @@ rand_core = "0.6"
 # the node's dependency graph cannot reach tract even by feature unification —
 # and so that crate can declare the newer Rust its tract release needs without
 # raising the floor of everything that links the node. See docs/zkml.md.
+
+[lints]
+workspace = true
