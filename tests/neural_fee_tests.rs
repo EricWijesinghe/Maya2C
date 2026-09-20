@@ -15,7 +15,7 @@ use custom_l1_node::neural_gas::{
 
 use maya_blockgraph::shard_of;
 use maya_fee_market::model::{self, Feature};
-use maya_fee_market::{FeeRule, Features, MODEL_V1, Model, next_base_fee_by_rule};
+use maya_fee_market::{Features, FeeRule, MODEL_V1, Model, next_base_fee_by_rule};
 
 const TARGET: u64 = 1024 * 1024;
 
@@ -88,7 +88,10 @@ fn the_feature_order_is_the_models_order() {
     let size = 16 * 1024 * 3 / 2;
     let f = features(&block, size, 0);
     // One transaction of 24 KiB: 1.5 of the 16 KiB scale.
-    assert_eq!(value(&f, Feature::Fullness), (size << FEATURE_FRAC_BITS) as i64 / TARGET as i64);
+    assert_eq!(
+        value(&f, Feature::Fullness),
+        (size << FEATURE_FRAC_BITS) as i64 / TARGET as i64
+    );
     assert_eq!(value(&f, Feature::MeanTxSize), FEATURE_ONE * 3 / 2);
     assert_eq!(value(&f, Feature::AccessOverlap), 0);
     assert_eq!(value(&f, Feature::FuelPerByte), 0);
@@ -99,7 +102,11 @@ fn the_feature_order_is_the_models_order() {
 
 #[test]
 fn the_committed_model_is_a_trained_network() {
-    assert_ne!(MODEL_V1, Model::ZERO, "run `cargo run --release -p maya-neural-gas-trainer`");
+    assert_ne!(
+        MODEL_V1,
+        Model::ZERO,
+        "run `cargo run --release -p maya-neural-gas-trainer`"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -124,7 +131,10 @@ fn overlap_counts_transactions_naming_a_shared_account() {
     let alice = signing_key_from_seed(&[2; 32]).expect("key").address();
     // Two senders paying two unrelated recipients: nothing shared.
     let apart = block_of(vec![transfer(2, &[[0xA0; 32]]), transfer(3, &[[0xB0; 32]])]);
-    assert_eq!(value(&features(&apart, 1_000, 1_000), Feature::AccessOverlap), 0);
+    assert_eq!(
+        value(&features(&apart, 1_000, 1_000), Feature::AccessOverlap),
+        0
+    );
 
     // The second pays the first's sender: both name Alice.
     let shared = block_of(vec![transfer(2, &[[0xA0; 32]]), transfer(3, &[alice])]);
@@ -149,7 +159,10 @@ fn overlap_counts_transactions_naming_a_shared_account() {
 fn a_transaction_within_one_shard_is_not_cross_shard() {
     let sender = signing_key_from_seed(&[5; 32]).expect("key").address();
     let block = block_of(vec![transfer(5, &[recipient_in(&sender, true)])]);
-    assert_eq!(value(&features(&block, 1_000, 1_000), Feature::CrossShard), 0);
+    assert_eq!(
+        value(&features(&block, 1_000, 1_000), Feature::CrossShard),
+        0
+    );
 }
 
 #[test]
@@ -169,7 +182,10 @@ fn declared_fuel_is_read_per_byte() {
 
 #[test]
 fn extraction_is_a_function_of_the_block() {
-    let block = block_of(vec![transfer(6, &[[1; 32], [2; 32]]), transfer(7, &[[1; 32]])]);
+    let block = block_of(vec![
+        transfer(6, &[[1; 32], [2; 32]]),
+        transfer(7, &[[1; 32]]),
+    ]);
     assert_eq!(
         features(&block, 30_000, 20_000),
         features(&block, 30_000, 20_000)
@@ -209,7 +225,10 @@ fn padding_a_full_block_cannot_lower_the_fee() {
                 let linear = maya_fee_market::next_base_fee(parent, size, TARGET, 8, 1);
                 assert!(next > parent, "size {size} parent {parent}: {next}");
                 // The padding bought the producer nothing: never below EIP-1559.
-                assert!(next >= linear, "size {size} parent {parent}: {next} < {linear}");
+                assert!(
+                    next >= linear,
+                    "size {size} parent {parent}: {next} < {linear}"
+                );
             }
         }
     }

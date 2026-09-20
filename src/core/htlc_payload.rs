@@ -68,7 +68,8 @@ impl HtlcLock {
             recipient: reader.read_array::<32>()?,
             amount: reader.read_u64()?,
             expiry_height: reader.read_u64()?,
-            commitment: Commitment::decode(reader.read_slice(COMMITMENT_BYTES)?).map_err(lattice)?,
+            commitment: Commitment::decode(reader.read_slice(COMMITMENT_BYTES)?)
+                .map_err(lattice)?,
         })
     }
 }

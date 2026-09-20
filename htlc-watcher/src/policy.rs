@@ -126,8 +126,8 @@ pub fn check_pairing(
     }
     let short_blocks =
         u128::from(short.expiry_height - short.tip) + u128::from(short.confirmations);
-    let converted = (short_blocks * u128::from(rate.long_blocks))
-        .div_ceil(u128::from(rate.per_short_blocks));
+    let converted =
+        (short_blocks * u128::from(rate.long_blocks)).div_ceil(u128::from(rate.per_short_blocks));
     let required = u128::from(long.tip)
         + converted
         + u128::from(submission_blocks)
@@ -223,7 +223,11 @@ pub fn decide(
         return vec![Action::Alert(Alert::CommitmentMismatch(leg.side))];
     }
 
-    let inbound_buried = buried(inbound, observation.inbound_tip, margins.confirmations(leg.side));
+    let inbound_buried = buried(
+        inbound,
+        observation.inbound_tip,
+        margins.confirmations(leg.side),
+    );
     let outbound_buried = buried(
         outbound,
         observation.outbound_tip,

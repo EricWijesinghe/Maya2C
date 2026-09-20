@@ -79,7 +79,12 @@ fn initiator() -> Swap {
     }
 }
 
-fn observe(inbound_tip: u64, inbound: LockView, outbound_tip: u64, outbound: LockView) -> Observation {
+fn observe(
+    inbound_tip: u64,
+    inbound: LockView,
+    outbound_tip: u64,
+    outbound: LockView,
+) -> Observation {
     Observation {
         inbound_tip,
         outbound_tip,
@@ -172,17 +177,32 @@ fn the_responder_claims_the_moment_the_opening_appears() {
 
 #[test]
 fn the_responder_does_nothing_while_both_locks_wait() {
-    let observation = observe(30, view(100, LockState::Locked), 30, view(50, LockState::Locked));
+    let observation = observe(
+        30,
+        view(100, LockState::Locked),
+        30,
+        view(50, LockState::Locked),
+    );
     assert!(decide(&responder(), &observation, None, &margins()).is_empty());
 }
 
 #[test]
 fn the_responder_refunds_once_its_lock_can_no_longer_be_claimed() {
-    let before = observe(48, view(100, LockState::Locked), 48, view(50, LockState::Locked));
+    let before = observe(
+        48,
+        view(100, LockState::Locked),
+        48,
+        view(50, LockState::Locked),
+    );
     assert!(decide(&responder(), &before, None, &margins()).is_empty());
 
     // The next block is height 50, the expiry: a refund there is admitted.
-    let at = observe(49, view(100, LockState::Locked), 49, view(50, LockState::Locked));
+    let at = observe(
+        49,
+        view(100, LockState::Locked),
+        49,
+        view(50, LockState::Locked),
+    );
     assert_eq!(
         decide(&responder(), &at, None, &margins()),
         vec![Action::Refund {
@@ -208,7 +228,12 @@ fn a_reveal_after_the_inbound_expiry_is_an_alert_not_a_doomed_claim() {
 #[test]
 fn the_initiator_reveals_while_there_is_room_to_bury_the_claim() {
     // Lands at 41 at the earliest, buried by 41 + 1 + 2 = 44 < 50.
-    let observation = observe(40, view(50, LockState::Locked), 40, view(100, LockState::Locked));
+    let observation = observe(
+        40,
+        view(50, LockState::Locked),
+        40,
+        view(100, LockState::Locked),
+    );
     let secret = opening();
     assert_eq!(
         decide(&initiator(), &observation, Some(&secret), &margins()),
@@ -224,7 +249,12 @@ fn the_initiator_reveals_while_there_is_room_to_bury_the_claim() {
 fn the_initiator_refuses_to_reveal_late() {
     // 47 + 1 + 2 = 50, not below the expiry. A claim here could land after
     // it, do nothing, and still publish the opening — costing both legs.
-    let observation = observe(46, view(50, LockState::Locked), 46, view(100, LockState::Locked));
+    let observation = observe(
+        46,
+        view(50, LockState::Locked),
+        46,
+        view(100, LockState::Locked),
+    );
     let actions = decide(&initiator(), &observation, Some(&opening()), &margins());
     assert_eq!(actions, vec![Action::Alert(Alert::RevealWindowClosed)]);
     assert!(!actions.iter().any(|a| matches!(a, Action::Claim { .. })));
@@ -232,7 +262,12 @@ fn the_initiator_refuses_to_reveal_late() {
 
 #[test]
 fn an_initiator_without_its_secret_says_so() {
-    let observation = observe(10, view(50, LockState::Locked), 10, view(100, LockState::Locked));
+    let observation = observe(
+        10,
+        view(50, LockState::Locked),
+        10,
+        view(100, LockState::Locked),
+    );
     assert_eq!(
         decide(&initiator(), &observation, None, &margins()),
         vec![Action::Alert(Alert::SecretMissing)]
@@ -289,7 +324,9 @@ fn outcomes_wait_for_both_legs_to_be_buried() {
             outbound_height,
             view(50, outbound.clone()),
         );
-        assert!(!decide(&responder(), &shallow, None, &margins()).contains(&Action::Finish(outcome)));
+        assert!(
+            !decide(&responder(), &shallow, None, &margins()).contains(&Action::Finish(outcome))
+        );
 
         let deep = observe(
             inbound_height + 1,

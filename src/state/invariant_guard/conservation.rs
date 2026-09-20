@@ -57,11 +57,11 @@ use crate::governance::{LOCK_PREFIX, LockRecord, PROPOSAL_PREFIX, ProposalRecord
 use crate::state::asset::{AssetId, AssetRecord, decode_balance};
 use crate::state::channel::{ChannelRecord, ChannelStatus};
 use crate::state::db::{Overlay, StateDB};
-use crate::state::htlc::{LOCK_PREFIX as HTLC_LOCK_PREFIX, decode as htlc_decode};
 use crate::state::dex::{
     ASSET_PREFIX, BALANCE_PREFIX, LP_ASSET_PREFIX, ORDER_PREFIX, OrderRecord, POOL_PREFIX,
     PoolRecord, derive_lp_asset, pool_key,
 };
+use crate::state::htlc::{LOCK_PREFIX as HTLC_LOCK_PREFIX, decode as htlc_decode};
 
 /// A signed running total per asset.
 ///

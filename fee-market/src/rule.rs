@@ -110,9 +110,7 @@ pub fn next_base_fee_by_rule(
     features: &Features,
 ) -> u64 {
     match rule {
-        FeeRule::Linear => {
-            next_base_fee(parent_base_fee, parent_size, target, denominator, floor)
-        }
+        FeeRule::Linear => next_base_fee(parent_base_fee, parent_size, target, denominator, floor),
         FeeRule::Neural(model) => neural_next_base_fee(
             parent_base_fee,
             parent_size,

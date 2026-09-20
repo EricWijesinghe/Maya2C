@@ -69,7 +69,11 @@ impl BatchReceiver {
     /// # Errors
     ///
     /// The OS error, except `EAGAIN`, which is `Ok(0)`.
-    pub fn receive(&mut self, socket: &impl AsRawFd, mut each: impl FnMut(&[u8])) -> io::Result<usize> {
+    pub fn receive(
+        &mut self,
+        socket: &impl AsRawFd,
+        mut each: impl FnMut(&[u8]),
+    ) -> io::Result<usize> {
         debug_assert_eq!(self.iovecs.len(), self.headers.len());
         // At most MAX_BATCH, so this cannot fail; if it somehow did, refusing is
         // the only answer that cannot overstate the buffers.

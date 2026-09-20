@@ -53,8 +53,8 @@ const BLOCK_BYTES: usize = 1 << 20;
 /// not justify a `flatc` in the build.
 mod flat {
     use flatbuffers::{
-        FlatBufferBuilder, Follow, ForwardsUOffset, InvalidFlatbuffer, Table, VOffsetT, Verifiable,
-        Vector, Verifier,
+        FlatBufferBuilder, Follow, ForwardsUOffset, InvalidFlatbuffer, Table, VOffsetT, Vector,
+        Verifiable, Verifier,
     };
     use maya_ebpf_net::common::header::{RelayHeader, TAG_LEN};
 
@@ -105,12 +105,19 @@ mod flat {
 
         fn bytes(&self, slot: VOffsetT) -> Option<&'a [u8]> {
             // SAFETY: as `scalar`; the slot was verified as a byte vector.
-            unsafe { self.table.get::<ForwardsUOffset<Vector<'a, u8>>>(slot, None) }
-                .map(|vector| vector.bytes())
+            unsafe {
+                self.table
+                    .get::<ForwardsUOffset<Vector<'a, u8>>>(slot, None)
+            }
+            .map(|vector| vector.bytes())
         }
     }
 
-    pub fn encode(builder: &mut FlatBufferBuilder<'_>, header: &RelayHeader, sealed: &[u8]) -> Vec<u8> {
+    pub fn encode(
+        builder: &mut FlatBufferBuilder<'_>,
+        header: &RelayHeader,
+        sealed: &[u8],
+    ) -> Vec<u8> {
         builder.reset();
         let block_id = builder.create_vector(header.block_id().as_slice());
         let sealed = builder.create_vector(sealed);
@@ -160,8 +167,16 @@ fn fixture() -> Fixture {
     let (header, sealed) = RelayHeader::split(&datagram).expect("valid datagram");
     let mut builder = flatbuffers::FlatBufferBuilder::with_capacity(2048);
     let flat = flat::encode(&mut builder, &header, sealed);
-    assert_eq!(flat::parse(&flat).map(|(h, _)| h), Some(header), "the baseline must parse");
-    Fixture { key, datagram, flat }
+    assert_eq!(
+        flat::parse(&flat).map(|(h, _)| h),
+        Some(header),
+        "the baseline must parse"
+    );
+    Fixture {
+        key,
+        datagram,
+        flat,
+    }
 }
 
 fn parsing(c: &mut Criterion, fixture: &Fixture) {
@@ -173,13 +188,25 @@ fn parsing(c: &mut Criterion, fixture: &Fixture) {
         });
     });
     group.bench_function("flatbuffers_verified", |b| {
-        b.iter(|| flat::parse(black_box(&fixture.flat)).map(|(header, sealed)| (header.chunk_index(), sealed.len())));
+        b.iter(|| {
+            flat::parse(black_box(&fixture.flat))
+                .map(|(header, sealed)| (header.chunk_index(), sealed.len()))
+        });
     });
     group.bench_function("kernel_verdict", |b| {
         let head = fixture.datagram.first_chunk::<HEADER_LEN>();
         let limit = RateLimit::DEFAULT;
         let bucket = limit.first(0);
-        b.iter(|| judge(None, bucket, limit, 1, black_box(head), black_box(fixture.datagram.len())));
+        b.iter(|| {
+            judge(
+                None,
+                bucket,
+                limit,
+                1,
+                black_box(head),
+                black_box(fixture.datagram.len()),
+            )
+        });
     });
     group.finish();
 }
@@ -349,12 +376,20 @@ fn kernel_paths() {
         Ok(ThroughputConfig {
             interface: var("MAYA_XDP_IFACE", "maya-xdp0"),
             namespace: var("MAYA_XDP_NETNS", "maya-xdp-peer"),
-            local: var("MAYA_XDP_LOCAL", "10.201.0.1").parse().map_err(|e| format!("MAYA_XDP_LOCAL: {e}"))?,
-            peer: var("MAYA_XDP_PEER", "10.201.0.2").parse().map_err(|e| format!("MAYA_XDP_PEER: {e}"))?,
-            port: var("MAYA_XDP_PORT", "30334").parse().map_err(|e| format!("MAYA_XDP_PORT: {e}"))?,
+            local: var("MAYA_XDP_LOCAL", "10.201.0.1")
+                .parse()
+                .map_err(|e| format!("MAYA_XDP_LOCAL: {e}"))?,
+            peer: var("MAYA_XDP_PEER", "10.201.0.2")
+                .parse()
+                .map_err(|e| format!("MAYA_XDP_PEER: {e}"))?,
+            port: var("MAYA_XDP_PORT", "30334")
+                .parse()
+                .map_err(|e| format!("MAYA_XDP_PORT: {e}"))?,
             object: object.into(),
             duration: Duration::from_secs(
-                var("MAYA_XDP_SECONDS", "5").parse().map_err(|e| format!("MAYA_XDP_SECONDS: {e}"))?,
+                var("MAYA_XDP_SECONDS", "5")
+                    .parse()
+                    .map_err(|e| format!("MAYA_XDP_SECONDS: {e}"))?,
             ),
             senders: var("MAYA_XDP_SENDERS", &(cores / 2).max(1).to_string())
                 .parse()
@@ -400,7 +435,10 @@ fn kernel_paths() {
     );
     for m in &measurements {
         let offered = m.sent as f64 / m.elapsed.as_secs_f64();
-        let ratio = baseline.map_or_else(|| "-".to_string(), |b| format!("{:.2}x", m.per_second() / b));
+        let ratio = baseline.map_or_else(
+            || "-".to_string(),
+            |b| format!("{:.2}x", m.per_second() / b),
+        );
         let limited = if m.generator_limited() {
             "; generator-limited, a lower bound"
         } else {

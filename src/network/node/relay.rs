@@ -239,7 +239,11 @@ fn spawn_socket_receiver(
         .map_err(|e| network("spawn the relay receiver", e))
 }
 
-fn receive_loop(socket: &UdpSocket, mut receiver: RelayReceiver<PeerId>, sender: &mpsc::Sender<Inbound>) {
+fn receive_loop(
+    socket: &UdpSocket,
+    mut receiver: RelayReceiver<PeerId>,
+    sender: &mpsc::Sender<Inbound>,
+) {
     let mut buffer = vec![0u8; RECEIVE_BUFFER];
     while !sender.is_closed() {
         match socket.recv_from(&mut buffer) {
@@ -300,7 +304,9 @@ fn header_id(body: &[u8]) -> Option<[u8; 32]> {
 /// calls a malformed frame.
 const fn offence_for(what: Misbehaviour) -> Offence {
     match what {
-        Misbehaviour::ConflictingChunk | Misbehaviour::InconsistentLength => Offence::MalformedFrame,
+        Misbehaviour::ConflictingChunk | Misbehaviour::InconsistentLength => {
+            Offence::MalformedFrame
+        }
     }
 }
 
@@ -426,9 +432,10 @@ impl NodeDriver {
         match event {
             request_response::Event::Message {
                 peer,
-                message: Message::Request {
-                    request, channel, ..
-                },
+                message:
+                    Message::Request {
+                        request, channel, ..
+                    },
                 ..
             } => {
                 let offer = self.answer_relay_key(peer, &request.offer);
@@ -466,10 +473,9 @@ impl NodeDriver {
         if self.health.is_quarantined(&peer, now) || relay_key::initiates(&local, &peer) {
             return None;
         }
-        let recently_keyed = relay
-            .outbound
-            .get(&peer)
-            .is_some_and(|outbound| now.saturating_duration_since(outbound.installed) < REKEY_INTERVAL);
+        let recently_keyed = relay.outbound.get(&peer).is_some_and(|outbound| {
+            now.saturating_duration_since(outbound.installed) < REKEY_INTERVAL
+        });
         if recently_keyed {
             return None;
         }
@@ -604,7 +610,8 @@ fn send_block(
     let mut datagram = Vec::with_capacity(MAX_DATAGRAM_LEN);
     let mut first_error = None;
     for (key, address) in targets {
-        let sealer = BlockSealer::new(key, block_id, body).map_err(|e| format!("relay seal: {e}"))?;
+        let sealer =
+            BlockSealer::new(key, block_id, body).map_err(|e| format!("relay seal: {e}"))?;
         for index in 0..sealer.chunk_count() {
             sealer
                 .seal(index, &mut datagram)
@@ -644,8 +651,12 @@ mod tests {
 
     #[test]
     fn transient_receive_errors_are_the_ones_about_a_peer_not_the_socket() {
-        assert!(is_transient(&io::Error::from(io::ErrorKind::ConnectionReset)));
+        assert!(is_transient(&io::Error::from(
+            io::ErrorKind::ConnectionReset
+        )));
         assert!(is_transient(&io::Error::from(io::ErrorKind::WouldBlock)));
-        assert!(!is_transient(&io::Error::from(io::ErrorKind::PermissionDenied)));
+        assert!(!is_transient(&io::Error::from(
+            io::ErrorKind::PermissionDenied
+        )));
     }
 }

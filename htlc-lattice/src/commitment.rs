@@ -123,11 +123,7 @@ impl Commitment {
         self.equation_holds_for(s, e.iter().map(|&c| i64::from(c)))
     }
 
-    fn equation_holds_for(
-        &self,
-        s: &[i8],
-        e: impl ExactSizeIterator<Item = i64>,
-    ) -> Result<bool> {
+    fn equation_holds_for(&self, s: &[i8], e: impl ExactSizeIterator<Item = i64>) -> Result<bool> {
         if e.len() != K * N {
             return Err(Error::Length {
                 what: "e",

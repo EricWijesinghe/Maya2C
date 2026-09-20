@@ -94,7 +94,10 @@ fn every_layer_in_the_fold_order_round_trips_its_tag() {
         assert_eq!(StateLayer::from_tag(layer.tag()), Some(*layer), "{layer:?}");
     }
     for layer in [StateLayer::Identity, StateLayer::Rwa, StateLayer::Htlc] {
-        assert!(LAYER_ORDER.contains(&layer), "{layer:?} missing from LAYER_ORDER");
+        assert!(
+            LAYER_ORDER.contains(&layer),
+            "{layer:?} missing from LAYER_ORDER"
+        );
     }
 }
 
@@ -140,5 +143,9 @@ fn an_account_proof_verifies_from_a_state_holding_rwa_and_htlc_records() {
     assert!(layers.contains(&StateLayer::Rwa) && layers.contains(&StateLayer::Htlc));
 
     let decoded = AccountProof::decode(&proof.encode()).expect("decodes");
-    assert!(decoded.verify(&db.state_root().expect("root")).expect("verifies"));
+    assert!(
+        decoded
+            .verify(&db.state_root().expect("root"))
+            .expect("verifies")
+    );
 }

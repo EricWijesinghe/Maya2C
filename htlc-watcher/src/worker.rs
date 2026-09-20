@@ -148,7 +148,9 @@ impl Worker {
             expiry_height,
             commitment,
         };
-        let lock_id = self.fund(ChainSide::Maya, lock, Role::Initiator, None).await?;
+        let lock_id = self
+            .fund(ChainSide::Maya, lock, Role::Initiator, None)
+            .await?;
         self.add_secret(secret)?;
         Ok(lock_id)
     }
@@ -170,8 +172,14 @@ impl Worker {
             .counterparty
             .lock(&response.inbound_lock_id)
             .await?
-            .ok_or_else(|| WatcherError::Refused("the responder's lock is not on chain".to_owned()))?;
-        self.check_inbound(&inbound, &response.commitment_id, response.min_inbound_amount)?;
+            .ok_or_else(|| {
+                WatcherError::Refused("the responder's lock is not on chain".to_owned())
+            })?;
+        self.check_inbound(
+            &inbound,
+            &response.commitment_id,
+            response.min_inbound_amount,
+        )?;
 
         let long = ChainPoint {
             tip: self.maya.tip_height().await?,
@@ -208,7 +216,9 @@ impl Worker {
             .maya
             .lock(&request.inbound_lock_id)
             .await?
-            .ok_or_else(|| WatcherError::Refused("the initiator's lock is not on chain".to_owned()))?;
+            .ok_or_else(|| {
+                WatcherError::Refused("the initiator's lock is not on chain".to_owned())
+            })?;
         self.check_inbound(&inbound, &commitment_id, request.min_inbound_amount)?;
 
         let long = ChainPoint {
@@ -247,7 +257,9 @@ impl Worker {
         inbound: Option<Leg>,
     ) -> Result<LockId> {
         let chain = self.chain(side);
-        self.pending.refresh(side, chain.as_ref(), &self.key).await?;
+        self.pending
+            .refresh(side, chain.as_ref(), &self.key)
+            .await?;
         let lock_id = derive_lock_id(&self.key.address(), self.pending.next_nonce(side)?);
         let commitment_id = lock.commitment.id();
         self.journal.insert(Swap {
@@ -309,7 +321,9 @@ impl Worker {
         let counterparty_tip = self.counterparty.tip_height().await?;
         for side in [ChainSide::Maya, ChainSide::Counterparty] {
             let chain = self.chain(side);
-            self.pending.refresh(side, chain.as_ref(), &self.key).await?;
+            self.pending
+                .refresh(side, chain.as_ref(), &self.key)
+                .await?;
         }
 
         let active: Vec<Swap> = self
@@ -324,7 +338,9 @@ impl Worker {
             let observation = match self.observe(&swap, maya_tip, counterparty_tip).await {
                 Ok(observation) => observation,
                 Err(error) => {
-                    report.failures.push((swap.commitment_id, error.to_string()));
+                    report
+                        .failures
+                        .push((swap.commitment_id, error.to_string()));
                     continue;
                 }
             };
@@ -334,7 +350,9 @@ impl Worker {
                 .map(LatticeSecret::opening);
             for action in decide(&swap, &observation, opening.as_ref(), &self.margins) {
                 if let Err(error) = self.execute(&swap, &action).await {
-                    report.failures.push((swap.commitment_id, error.to_string()));
+                    report
+                        .failures
+                        .push((swap.commitment_id, error.to_string()));
                 }
                 report.actions.push((swap.commitment_id, action));
             }
@@ -342,7 +360,12 @@ impl Worker {
         Ok(report)
     }
 
-    async fn observe(&self, swap: &Swap, maya_tip: u64, counterparty_tip: u64) -> Result<Observation> {
+    async fn observe(
+        &self,
+        swap: &Swap,
+        maya_tip: u64,
+        counterparty_tip: u64,
+    ) -> Result<Observation> {
         let tip = |side| match side {
             ChainSide::Maya => maya_tip,
             ChainSide::Counterparty => counterparty_tip,

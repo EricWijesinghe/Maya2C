@@ -57,7 +57,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
             problems.push(format!("{}: duplicate id", f.id));
         }
         if !TIERS.contains(&f.tier.as_str()) {
-            problems.push(format!("{}: tier `{}` is not one of {TIERS:?}", f.id, f.tier));
+            problems.push(format!(
+                "{}: tier `{}` is not one of {TIERS:?}",
+                f.id, f.tier
+            ));
         }
         if !CLASSES.contains(&f.class.as_str()) {
             problems.push(format!(
@@ -101,7 +104,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
 
     if problems.is_empty() {
-        println!("\nfeatures.toml: {} entries, all claims backed.", ledger.feature.len());
+        println!(
+            "\nfeatures.toml: {} entries, all claims backed.",
+            ledger.feature.len()
+        );
         Ok(())
     } else {
         for p in &problems {

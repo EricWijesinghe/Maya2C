@@ -20,7 +20,11 @@ fn main() -> ExitCode {
 
     let training = train();
     let linear = run(EVALUATION_SEED, EVALUATION_BLOCKS, Controller::Linear);
-    let neural = run(EVALUATION_SEED, EVALUATION_BLOCKS, Controller::Neural(&training.model));
+    let neural = run(
+        EVALUATION_SEED,
+        EVALUATION_BLOCKS,
+        Controller::Neural(&training.model),
+    );
     let source = emit::source(&training, &linear, &neural);
 
     eprintln!(

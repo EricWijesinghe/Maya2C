@@ -67,7 +67,13 @@ fn body(out: &mut String, model: &Model) {
     let _ = writeln!(
         out,
         "    output_weights: [{}],",
-        list(model.output_weights.iter().map(ToString::to_string).collect())
+        list(
+            model
+                .output_weights
+                .iter()
+                .map(ToString::to_string)
+                .collect()
+        )
     );
     let _ = writeln!(out, "    output_bias: {},", model.output_bias);
 }

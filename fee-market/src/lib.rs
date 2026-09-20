@@ -42,11 +42,11 @@ pub mod supply;
 mod proofs;
 
 pub use base_fee::next_base_fee;
-pub use model::{Feature, Features, Model, weights_v1::MODEL_V1};
-pub use rule::{FeeRule, neural_next_base_fee, next_base_fee_by_rule};
 pub use config::{ConfigError, FeeConfig};
 pub use execute::{
     BlockFeeOutcome, Charge, FeeClaim, FeeError, ParentFees, TxFee, apply_block_fees,
 };
+pub use model::{Feature, Features, Model, weights_v1::MODEL_V1};
+pub use rule::{FeeRule, neural_next_base_fee, next_base_fee_by_rule};
 pub use split::{FeeSplit, split};
 pub use supply::{MAX_SUPPLY, Supply, SupplyError, check_supply};

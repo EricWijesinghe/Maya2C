@@ -92,10 +92,18 @@ async fn keyed_pair() -> (TestNode, TestNode) {
     b.handle.dial(a.address.clone()).await.expect("dial");
     let (a_id, b_id) = (a.handle.peer_id(), b.handle.peer_id());
     let agreed = |wanted: PeerId| {
-        move |event: &NodeEvent| matches!(event, NodeEvent::RelayKeyEstablished(peer) if *peer == wanted).then_some(())
+        move |event: &NodeEvent| {
+            matches!(event, NodeEvent::RelayKeyEstablished(peer) if *peer == wanted).then_some(())
+        }
     };
-    assert!(wait_for(&mut a.events, agreed(b_id)).await.is_some(), "a never agreed keys");
-    assert!(wait_for(&mut b.events, agreed(a_id)).await.is_some(), "b never agreed keys");
+    assert!(
+        wait_for(&mut a.events, agreed(b_id)).await.is_some(),
+        "a never agreed keys"
+    );
+    assert!(
+        wait_for(&mut b.events, agreed(a_id)).await.is_some(),
+        "b never agreed keys"
+    );
     (a, b)
 }
 
@@ -142,9 +150,13 @@ async fn a_relayed_body_contradicting_its_tx_root_costs_the_sender() {
 
     assert_eq!(a.handle.relay_block(&lie).await.expect("relay"), 1);
     assert!(
-        wait_for(&mut b.events, |event| matches!(event, NodeEvent::BlockRelayed { .. }).then_some(()))
-            .await
-            .is_some(),
+        wait_for(&mut b.events, |event| matches!(
+            event,
+            NodeEvent::BlockRelayed { .. }
+        )
+        .then_some(()))
+        .await
+        .is_some(),
         "the body never arrived"
     );
 
@@ -159,7 +171,10 @@ async fn a_relayed_body_contradicting_its_tx_root_costs_the_sender() {
         if report.is_some_and(|r| r.offences[slot] >= 1) {
             break;
         }
-        assert!(tokio::time::Instant::now() < deadline, "the offence was never recorded");
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the offence was never recorded"
+        );
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
@@ -170,15 +185,19 @@ async fn a_node_without_a_relay_agrees_no_keys_and_receives_nothing_by_relay() {
     b.handle.dial(a.address.clone()).await.expect("dial");
     let b_id = b.handle.peer_id();
     assert!(
-        wait_for(&mut a.events, |event| matches!(event, NodeEvent::PeerConnected(peer) if *peer == b_id).then_some(()))
-            .await
-            .is_some(),
+        wait_for(&mut a.events, |event| {
+            matches!(event, NodeEvent::PeerConnected(peer) if *peer == b_id).then_some(())
+        })
+        .await
+        .is_some(),
         "never connected"
     );
     // Long enough for an exchange over loopback to have finished several times.
     let agreed = tokio::time::timeout(
         Duration::from_secs(2),
-        wait_for(&mut a.events, |event| matches!(event, NodeEvent::RelayKeyEstablished(_)).then_some(())),
+        wait_for(&mut a.events, |event| {
+            matches!(event, NodeEvent::RelayKeyEstablished(_)).then_some(())
+        }),
     )
     .await;
     assert!(agreed.is_err() || agreed.is_ok_and(|found| found.is_none()));

@@ -40,8 +40,7 @@ pub use chain::{LockState, LockView, SwapChain};
 pub use error::{Result, WatcherError};
 pub use journal::Journal;
 pub use policy::{
-    Action, Alert, BlockRate, ChainPoint, Margins, Observation, PairingError, check_pairing,
-    decide,
+    Action, Alert, BlockRate, ChainPoint, Margins, Observation, PairingError, check_pairing, decide,
 };
 pub use swap::{ChainSide, Leg, LockId, Outcome, Phase, Role, Swap};
 pub use worker::{InitiatedSwap, RespondRequest, StepReport, Worker};

@@ -31,7 +31,7 @@ use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::network::mempool::Mempool;
 use custom_l1_node::neural_gas::extract;
 use custom_l1_node::state::{Account, BlockContext, StateDB};
-use maya_fee_market::{FeeRule, Features, MODEL_V1, next_base_fee_by_rule};
+use maya_fee_market::{Features, FeeRule, MODEL_V1, next_base_fee_by_rule};
 
 const TARGET: u64 = 1024 * 1024;
 const DENOMINATOR: u64 = 8;
@@ -120,7 +120,11 @@ fn bench_rule(c: &mut Criterion) {
     burst.throughput(Throughput::Elements(BURST_TXS as u64));
     burst.sample_size(10);
     burst.bench_function("features_and_rule", |b| {
-        b.iter(|| (0..blocks).map(|_| neural_fee(black_box(&full), size)).sum::<u64>());
+        b.iter(|| {
+            (0..blocks)
+                .map(|_| neural_fee(black_box(&full), size))
+                .sum::<u64>()
+        });
     });
     burst.finish();
 }

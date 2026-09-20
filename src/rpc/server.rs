@@ -22,8 +22,7 @@ use crate::network::{Mempool, NodeHandle};
 use crate::rpc::bootstrap::SnapshotService;
 use crate::rpc::types::{
     AccountInfo, BlockInfo, HeaderInfo, IotDeviceInfo, MiningCandidate, PeerAddressInfo,
-    SubmitBlockResult,
-    SubmitTransactionResult, ThreatIndicatorInfo,
+    SubmitBlockResult, SubmitTransactionResult, ThreatIndicatorInfo,
 };
 use crate::state_pruner::cold::ColdBlocks;
 

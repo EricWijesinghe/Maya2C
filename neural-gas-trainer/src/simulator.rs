@@ -203,8 +203,7 @@ pub fn features(block: &Block, previous_size: u64) -> Features {
     values[Feature::AccessOverlap as usize] = q(block.overlap);
     values[Feature::FuelPerByte as usize] = q(block.fuel_per_byte / 1_000.0);
     values[Feature::CrossShard as usize] = q(block.cross_shard);
-    values[Feature::SizeTrend as usize] =
-        q((block.size as f64 - previous_size as f64) / target);
+    values[Feature::SizeTrend as usize] = q((block.size as f64 - previous_size as f64) / target);
     // `Features::new` clamps to ±FEATURE_LIMIT, as the node's extractor does.
     Features::new(values)
 }

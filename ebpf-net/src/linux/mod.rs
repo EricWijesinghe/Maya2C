@@ -112,7 +112,10 @@ impl XdpIngress {
         for (queue, socket) in (0u32..).zip(sockets) {
             let worker = Worker {
                 socket,
-                receiver: RelayReceiver::with_reassembler(Arc::clone(&keys), Arc::clone(&reassembler)),
+                receiver: RelayReceiver::with_reassembler(
+                    Arc::clone(&keys),
+                    Arc::clone(&reassembler),
+                ),
                 sink: Arc::clone(&sink),
                 stop: Arc::clone(&ingress.stop),
                 relay_port: config.relay_port,

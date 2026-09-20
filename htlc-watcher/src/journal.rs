@@ -115,7 +115,11 @@ impl Journal {
     ///
     /// A save failure.
     pub fn finish(&mut self, id: &CommitmentId, outcome: Outcome) -> Result<()> {
-        for swap in self.swaps.iter_mut().filter(|swap| swap.commitment_id == *id) {
+        for swap in self
+            .swaps
+            .iter_mut()
+            .filter(|swap| swap.commitment_id == *id)
+        {
             swap.phase = Phase::Finished(outcome);
         }
         self.save()

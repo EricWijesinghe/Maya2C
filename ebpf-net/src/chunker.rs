@@ -26,7 +26,8 @@ impl<'a> BlockSealer<'a> {
     /// [`RelayError::BodyTooLarge`] or [`RelayError::Header`] for a body no
     /// header can describe.
     pub fn new(key: &'a RelayKey, block_id: [u8; 32], body: &'a [u8]) -> Result<Self, RelayError> {
-        let body_len = u32::try_from(body.len()).map_err(|_| RelayError::BodyTooLarge(body.len()))?;
+        let body_len =
+            u32::try_from(body.len()).map_err(|_| RelayError::BodyTooLarge(body.len()))?;
         let first = RelayHeader::new(key.id(), block_id, 0, body_len)?;
         Ok(Self {
             key,

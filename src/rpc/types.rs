@@ -1,4 +1,4 @@
-﻿//! JSON-RPC wire types.
+//! JSON-RPC wire types.
 //!
 //! These are deliberately *not* `serde` derives on the core consensus structs.
 //! The consensus encoding is a hash preimage: changing a field name or ordering
@@ -232,9 +232,11 @@ impl HtlcLockInfo {
         use maya_htlc_lattice::Settlement;
         let (status, settled_height, opening) = match &record.settlement {
             Settlement::Open => ("locked", None, None),
-            Settlement::Claimed { height, opening } => {
-                ("claimed", Some(*height), Some(hex::encode(opening.encode())))
-            }
+            Settlement::Claimed { height, opening } => (
+                "claimed",
+                Some(*height),
+                Some(hex::encode(opening.encode())),
+            ),
             Settlement::Refunded { height } => ("refunded", Some(*height), None),
         };
         Self {

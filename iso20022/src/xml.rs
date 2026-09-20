@@ -247,19 +247,19 @@ pub fn parse(bytes: &[u8]) -> Result<Element> {
                 close(&mut stack, &mut root, element)?;
             }
             Event::Text(text) => {
-                append_text(&mut stack, &mut gap,&text.xml10_content(), Edges::Trim)?;
+                append_text(&mut stack, &mut gap, &text.xml10_content(), Edges::Trim)?;
             }
             // A reference arrives as its own event. What it names is content,
             // whitespace or not: `&#32;` is a space somebody wrote on purpose.
             Event::GeneralRef(reference) => {
                 let resolved = resolve_reference(&reference)?;
-                append_text(&mut stack, &mut gap,&resolved, Edges::Keep)?;
+                append_text(&mut stack, &mut gap, &resolved, Edges::Keep)?;
             }
             Event::CData(data) => {
                 // CDATA is text that skipped escaping, so it is the same value
                 // to this crate — but it must still be bounded, or it would be
                 // the one way past `MAX_TEXT_BYTES`.
-                append_text(&mut stack, &mut gap,&data.xml10_content(), Edges::Keep)?;
+                append_text(&mut stack, &mut gap, &data.xml10_content(), Edges::Keep)?;
             }
             // An XML declaration is the only prologue this crate reads, and it
             // carries nothing it acts on. Comments are dropped: they are not
@@ -387,7 +387,9 @@ fn append_text(stack: &mut [Element], gap: &mut Gap, chunk: &str, edges: Edges) 
     if body.is_empty() {
         if !at_edge {
             if gap.pending.len() + chunk.len() > MAX_TEXT_BYTES {
-                return Err(text_bound(current.text.len() + gap.pending.len() + chunk.len()));
+                return Err(text_bound(
+                    current.text.len() + gap.pending.len() + chunk.len(),
+                ));
             }
             gap.pending.push_str(chunk);
         }
@@ -447,7 +449,11 @@ fn element_from(start: &BytesStart<'_>) -> Result<Element> {
         let name = checked_local_name(attribute.key.0)?;
         // Two prefixes, one local name: `attribute(name)` could answer with only
         // one of them, and which one would be an accident of order.
-        if element.attributes.iter().any(|(existing, _)| *existing == name) {
+        if element
+            .attributes
+            .iter()
+            .any(|(existing, _)| *existing == name)
+        {
             return Err(Error::Xml(format!(
                 "attribute {} appears twice once prefixes are stripped",
                 shown(&name)
@@ -472,7 +478,9 @@ const MAX_NAME_BYTES: usize = 128;
 fn checked_local_name(qualified: &str) -> Result<String> {
     let valid = |part: &str| {
         let mut chars = part.chars();
-        chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        chars
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
             && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
     };
     let (prefix, local) = match qualified.split_once(':') {
@@ -518,7 +526,8 @@ pub fn render(root: &Element, namespace: &str) -> Result<String> {
     // from a parsed document — would otherwise be written twice, and a
     // duplicate attribute does not parse.
     root.attributes.retain(|(name, _)| name != "xmlns");
-    root.attributes.insert(0, ("xmlns".into(), namespace.into()));
+    root.attributes
+        .insert(0, ("xmlns".into(), namespace.into()));
     write_element(&mut writer, &root)?;
 
     String::from_utf8(writer.into_inner()).map_err(|error| Error::Xml(error.to_string()))
@@ -613,7 +622,14 @@ mod tests {
         // and control bytes, and the rendered tree did not parse.
         let crash: &[u8] = b"<\x14'''[#\x01\x00\x00:\x00\x00\x00\x0b,\x00\x00\x00'\x00\t/>'''%=\xef\xbb\xbf==1=\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
         assert!(matches!(parse(crash), Err(Error::Xml(_))));
-        for bad in ["<a'b/>", "<a:/>", "<:a/>", "<1a/>", "<a:b:c/>", r#"<a b'c="1"/>"#] {
+        for bad in [
+            "<a'b/>",
+            "<a:/>",
+            "<:a/>",
+            "<1a/>",
+            "<a:b:c/>",
+            r#"<a b'c="1"/>"#,
+        ] {
             assert!(matches!(parse(bad.as_bytes()), Err(Error::Xml(_))), "{bad}");
         }
         let long = format!("<{}/>", "a".repeat(MAX_NAME_BYTES + 1));

@@ -172,7 +172,10 @@ mod tests {
         };
         let (half, admitted) = limit.admit(empty, SECOND / 2);
         assert!(!admitted);
-        assert_eq!(half.refilled_at_ns, 0, "no token earned, so no time consumed");
+        assert_eq!(
+            half.refilled_at_ns, 0,
+            "no token earned, so no time consumed"
+        );
         let (_, admitted) = limit.admit(half, SECOND);
         assert!(admitted, "two half-seconds are one token");
     }

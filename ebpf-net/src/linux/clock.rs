@@ -25,7 +25,9 @@ pub fn monotonic_ns() -> Result<u64, RelayError> {
     }
     let seconds = u64::try_from(now.tv_sec).unwrap_or(0);
     let nanos = u64::try_from(now.tv_nsec).unwrap_or(0);
-    Ok(seconds.saturating_mul(NANOS_PER_SECOND).saturating_add(nanos))
+    Ok(seconds
+        .saturating_mul(NANOS_PER_SECOND)
+        .saturating_add(nanos))
 }
 
 /// The `CLOCK_MONOTONIC` time corresponding to `until`.

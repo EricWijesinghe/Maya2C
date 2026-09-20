@@ -44,7 +44,10 @@ use tempfile::TempDir;
 
 /// The value of a `u64` env var, or `default`.
 fn env_u64(name: &str, default: u64) -> u64 {
-    std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
 }
 
 /// `u64` boundary values plus full-range, the edges that break arithmetic.
@@ -130,10 +133,13 @@ fn fresh_state(owner: &Address) -> (StateDB, TempDir) {
     let dir = TempDir::new().expect("temp dir");
     let state = StateDB::open(dir.path()).expect("open state");
     state
-        .put_account(owner, &Account {
-            balance: 1_000_000,
-            nonce: 0,
-        })
+        .put_account(
+            owner,
+            &Account {
+                balance: 1_000_000,
+                nonce: 0,
+            },
+        )
         .expect("fund");
     (state, dir)
 }
@@ -177,7 +183,10 @@ fn seeded_mutations_never_panic_the_decoder_or_apply_path_and_stay_deterministic
         //    panic, and a decoded transaction must round-trip.
         let decoded = match guard(|| Transaction::from_bytes(&input)) {
             Ok(result) => result,
-            Err(message) => panic!("decode panicked on input {}: {message}", hex::encode(&input)),
+            Err(message) => panic!(
+                "decode panicked on input {}: {message}",
+                hex::encode(&input)
+            ),
         };
         let Ok(tx) = decoded else { continue };
         let re = tx.to_bytes();

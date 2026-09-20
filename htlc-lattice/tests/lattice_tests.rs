@@ -117,7 +117,11 @@ fn encodings_have_exactly_one_length() {
 
 #[test]
 fn two_secrets_never_share_a_commitment_id() {
-    let a = LatticeSecret::from_entropy([1; 32]).commitment().expect("a");
-    let b = LatticeSecret::from_entropy([2; 32]).commitment().expect("b");
+    let a = LatticeSecret::from_entropy([1; 32])
+        .commitment()
+        .expect("a");
+    let b = LatticeSecret::from_entropy([2; 32])
+        .commitment()
+        .expect("b");
     assert_ne!(a.id(), b.id());
 }

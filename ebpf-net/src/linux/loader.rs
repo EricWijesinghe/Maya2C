@@ -56,17 +56,23 @@ impl Accelerator {
         })?;
         let mut ebpf = Ebpf::load(&object).map_err(ebpf_error("load object"))?;
 
-        let config_map = ebpf.map_mut(maps::CONFIG).ok_or_else(|| missing(maps::CONFIG))?;
+        let config_map = ebpf
+            .map_mut(maps::CONFIG)
+            .ok_or_else(|| missing(maps::CONFIG))?;
         let mut config_array: Array<&mut MapData, Config> =
             Array::try_from(config_map).map_err(ebpf_error("CONFIG map"))?;
         config_array
             .set(0, Config::new(config.relay_port, config.limit), 0)
             .map_err(ebpf_error("write CONFIG"))?;
 
-        let block_v4 = HashMap::try_from(take(&mut ebpf, maps::BLOCK_V4)?).map_err(ebpf_error("BLOCK_V4 map"))?;
-        let block_v6 = HashMap::try_from(take(&mut ebpf, maps::BLOCK_V6)?).map_err(ebpf_error("BLOCK_V6 map"))?;
-        let xsks = XskMap::try_from(take(&mut ebpf, maps::XSKS)?).map_err(ebpf_error("XSKS map"))?;
-        let counters = PerCpuArray::try_from(take(&mut ebpf, maps::COUNTERS)?).map_err(ebpf_error("COUNTERS map"))?;
+        let block_v4 = HashMap::try_from(take(&mut ebpf, maps::BLOCK_V4)?)
+            .map_err(ebpf_error("BLOCK_V4 map"))?;
+        let block_v6 = HashMap::try_from(take(&mut ebpf, maps::BLOCK_V6)?)
+            .map_err(ebpf_error("BLOCK_V6 map"))?;
+        let xsks =
+            XskMap::try_from(take(&mut ebpf, maps::XSKS)?).map_err(ebpf_error("XSKS map"))?;
+        let counters = PerCpuArray::try_from(take(&mut ebpf, maps::COUNTERS)?)
+            .map_err(ebpf_error("COUNTERS map"))?;
 
         let program: &mut Xdp = ebpf
             .program_mut(maps::PROGRAM)
@@ -180,7 +186,9 @@ impl Accelerator {
                 .counters
                 .get(&counter.slot(), 0)
                 .map_err(ebpf_error("read counters"))?;
-            *total = per_cpu.iter().fold(0u64, |sum, value| sum.wrapping_add(*value));
+            *total = per_cpu
+                .iter()
+                .fold(0u64, |sum, value| sum.wrapping_add(*value));
         }
         Ok(totals)
     }

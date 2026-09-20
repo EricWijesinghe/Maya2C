@@ -17,8 +17,8 @@ use std::time::Instant;
 
 use maya_ebpf_net::common::header::{CHUNK_LEN, HEADER_LEN, MAX_DATAGRAM_LEN};
 use maya_ebpf_net::{
-    BlockSealer, Dropped, KeyBook, Limits, Misbehaviour, RelayEvent, RelayKey, RelayReceiver,
-    Role, SharedKeyBook, derive_keys,
+    BlockSealer, Dropped, KeyBook, Limits, Misbehaviour, RelayEvent, RelayKey, RelayReceiver, Role,
+    SharedKeyBook, derive_keys,
 };
 use proptest::prelude::*;
 
@@ -128,7 +128,9 @@ fn a_lost_chunk_withholds_the_block_until_it_is_resent() {
 fn a_megabyte_block_reassembles() {
     let book = KeyBook::shared();
     let key = connect(&book, ALICE);
-    let body: Vec<u8> = (0..1 << 20).map(|i: u32| (i.wrapping_mul(2_654_435_761) >> 24) as u8).collect();
+    let body: Vec<u8> = (0..1 << 20)
+        .map(|i: u32| (i.wrapping_mul(2_654_435_761) >> 24) as u8)
+        .collect();
     let events = feed(&mut receiver(&book), &datagrams(&key, &body));
     assert!(matches!(&events[..], [RelayEvent::Block { body: got, .. }] if *got == body));
 }
@@ -142,7 +144,10 @@ fn a_forged_datagram_under_a_real_key_id_blames_nobody() {
     forged[HEADER_LEN] ^= 0x80;
 
     let mut receiver = receiver(&book);
-    assert_eq!(receiver.ingest(&forged, Instant::now()), Err(Dropped::Forged));
+    assert_eq!(
+        receiver.ingest(&forged, Instant::now()),
+        Err(Dropped::Forged)
+    );
     assert_eq!(receiver.stats().misbehaved, 0);
     // The honest datagram behind it is unaffected.
     assert!(matches!(
@@ -158,7 +163,10 @@ fn datagrams_under_a_key_the_receiver_does_not_hold_are_dropped() {
     let stranger = RelayKey::from_bytes(&[0x66; 32]);
     let mut receiver = receiver(&book);
     let sent = datagrams(&stranger, b"not for you");
-    assert_eq!(receiver.ingest(&sent[0], Instant::now()), Err(Dropped::UnknownKey));
+    assert_eq!(
+        receiver.ingest(&sent[0], Instant::now()),
+        Err(Dropped::UnknownKey)
+    );
 }
 
 #[test]
@@ -173,7 +181,9 @@ fn an_authenticated_conflicting_chunk_is_attributed_to_its_sender_alone() {
     let mut receiver = receiver(&book);
     let now = Instant::now();
     receiver.ingest(&datagrams(&bob, &honest)[0], now).unwrap();
-    receiver.ingest(&datagrams(&alice, &honest)[0], now).unwrap();
+    receiver
+        .ingest(&datagrams(&alice, &honest)[0], now)
+        .unwrap();
     assert_eq!(
         receiver.ingest(&datagrams(&alice, &lie)[0], now),
         Ok(Some(RelayEvent::Misbehaved {
@@ -194,9 +204,15 @@ fn a_garbage_body_from_one_peer_does_not_suppress_anothers_relay() {
     let alice = connect(&book, ALICE);
     let bob = connect(&book, BOB);
     let mut receiver = receiver(&book);
-    let garbage = feed(&mut receiver, &datagrams(&alice, b"garbage under a real id"));
+    let garbage = feed(
+        &mut receiver,
+        &datagrams(&alice, b"garbage under a real id"),
+    );
     let honest = feed(&mut receiver, &datagrams(&bob, b"the real block body"));
-    assert!(matches!(&garbage[..], [RelayEvent::Block { peer: ALICE, .. }]));
+    assert!(matches!(
+        &garbage[..],
+        [RelayEvent::Block { peer: ALICE, .. }]
+    ));
     assert!(matches!(&honest[..], [RelayEvent::Block { peer: BOB, .. }]));
 }
 

@@ -895,9 +895,9 @@ impl TxKind {
             TAG_SET_REVOCATION_BIT => Ok(Self::SetRevocationBit(SetRevocationBit::decode(reader)?)),
             TAG_ISSUE_RWA => Ok(Self::IssueRwa(Box::new(IssueRwa::decode(reader)?))),
             TAG_SETTLE_DVP => Ok(Self::SettleDvp(Box::new(SettleDvp::decode(reader)?))),
-            TAG_RECORD_ELIGIBILITY => Ok(Self::RecordEligibility(RecordEligibility::decode(
-                reader,
-            )?)),
+            TAG_RECORD_ELIGIBILITY => {
+                Ok(Self::RecordEligibility(RecordEligibility::decode(reader)?))
+            }
             TAG_DISTRIBUTE_REVENUE => Ok(Self::DistributeRevenue(Box::new(
                 DistributeRevenue::decode(reader)?,
             ))),

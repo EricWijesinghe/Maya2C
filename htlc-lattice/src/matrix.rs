@@ -129,10 +129,9 @@ fn sample_uniform(seed: &[u8; SEED_BYTES], row: usize, column: usize, out: &mut 
     while filled < out.len() {
         reader.read(&mut block);
         for chunk in block.as_chunks::<3>().0 {
-            let candidate = (u32::from(chunk[0])
-                | (u32::from(chunk[1]) << 8)
-                | (u32::from(chunk[2]) << 16))
-                & COEFFICIENT_MASK;
+            let candidate =
+                (u32::from(chunk[0]) | (u32::from(chunk[1]) << 8) | (u32::from(chunk[2]) << 16))
+                    & COEFFICIENT_MASK;
             if candidate < Q {
                 out[filled] = candidate;
                 filled += 1;
@@ -169,7 +168,10 @@ mod tests {
         let p2 = a.product(&s2).expect("s2");
         let joint = a.product(&sum).expect("sum");
         for ((x, y), z) in p1.iter().zip(&p2).zip(&joint) {
-            assert_eq!((u64::from(*x) + u64::from(*y)) % u64::from(Q), u64::from(*z));
+            assert_eq!(
+                (u64::from(*x) + u64::from(*y)) % u64::from(Q),
+                u64::from(*z)
+            );
         }
     }
 

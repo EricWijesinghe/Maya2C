@@ -61,7 +61,14 @@ pub fn generate(seed: u64, blocks: usize) -> Vec<Sample> {
         } else {
             (behaviour.unit() * 20_000.0) as u64
         };
-        fee = neural_next_base_fee(fee, block.size, TARGET_BYTES, DENOMINATOR, FLOOR, behaviour_gain);
+        fee = neural_next_base_fee(
+            fee,
+            block.size,
+            TARGET_BYTES,
+            DENOMINATOR,
+            FLOOR,
+            behaviour_gain,
+        );
         previous_size = block.size;
     }
     samples

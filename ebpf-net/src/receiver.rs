@@ -72,7 +72,9 @@ impl<P: Copy + Eq> KeyBook<P> {
     /// The owner and key for `id`.
     #[must_use]
     pub fn get(&self, id: u64) -> Option<(P, Arc<RelayKey>)> {
-        self.keys.get(&id).map(|(peer, key)| (*peer, Arc::clone(key)))
+        self.keys
+            .get(&id)
+            .map(|(peer, key)| (*peer, Arc::clone(key)))
     }
 
     /// Keys held.

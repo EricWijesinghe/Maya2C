@@ -113,7 +113,8 @@ impl Network {
             } else {
                 0.0
             };
-            self.output_weights[unit] = project(self.output_weights[unit] - rate * error * activation);
+            self.output_weights[unit] =
+                project(self.output_weights[unit] - rate * error * activation);
             for (weight, value) in self.hidden_weights[unit].iter_mut().zip(&x) {
                 *weight = project(*weight - rate * back * value);
             }
@@ -147,6 +148,11 @@ mod tests {
         let mut net = Network::new(&mut rng);
         let before = net.mse(&samples);
         net.train(&samples, 3, &mut rng);
-        assert!(net.mse(&samples) < before, "{} → {}", before, net.mse(&samples));
+        assert!(
+            net.mse(&samples) < before,
+            "{} → {}",
+            before,
+            net.mse(&samples)
+        );
     }
 }

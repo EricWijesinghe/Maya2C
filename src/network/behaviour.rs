@@ -1,4 +1,4 @@
-﻿//! Composed network behaviour: gossipsub, Kademlia, and identify.
+//! Composed network behaviour: gossipsub, Kademlia, and identify.
 //!
 //! The three compose deliberately:
 //!
@@ -34,8 +34,7 @@ use crate::error::{NodeError, Result};
 use crate::network::evidence_tap::EvidenceTap;
 use crate::network::gossip_score;
 use crate::network::relay_key::{
-    MAX_MESSAGE_BYTES as MAX_RELAY_KEY_BYTES, RELAY_KEY_PROTOCOL, RelayKeyRequest,
-    RelayKeyResponse,
+    MAX_MESSAGE_BYTES as MAX_RELAY_KEY_BYTES, RELAY_KEY_PROTOCOL, RelayKeyRequest, RelayKeyResponse,
 };
 use crate::network::sync::{
     BLOCK_SYNC_PROTOCOL, BlockRequest, BlockResponse, MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES,

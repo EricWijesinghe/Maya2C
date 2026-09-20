@@ -137,13 +137,16 @@ impl Generator {
         let payload = Arc::new(relay_datagram());
         let threads = (0..config.senders.max(1))
             .map(|_| {
-                let (stop, sent, payload) = (Arc::clone(&stop), Arc::clone(&sent), Arc::clone(&payload));
+                let (stop, sent, payload) =
+                    (Arc::clone(&stop), Arc::clone(&sent), Arc::clone(&payload));
                 let namespace = config.namespace.clone();
                 let target = (config.local, config.port);
                 std::thread::spawn(move || {
                     enter_netns(&namespace).map_err(|e| format!("enter {namespace}: {e}"))?;
                     let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| format!("bind: {e}"))?;
-                    socket.connect(target).map_err(|e| format!("connect: {e}"))?;
+                    socket
+                        .connect(target)
+                        .map_err(|e| format!("connect: {e}"))?;
                     while !stop.load(Ordering::Relaxed) {
                         match socket.send(&payload) {
                             Ok(_) => {
@@ -164,7 +167,11 @@ impl Generator {
                 })
             })
             .collect();
-        Self { stop, sent, threads }
+        Self {
+            stop,
+            sent,
+            threads,
+        }
     }
 
     fn sent(&self) -> u64 {
@@ -222,9 +229,12 @@ fn udp_single(config: &ThroughputConfig) -> Result<Measurement, RelayError> {
         .set_read_timeout(Some(Duration::from_millis(10)))
         .map_err(io("UDP read timeout"))?;
     let mut buffer = [0u8; 2048];
-    measure("kernel UDP, recv per datagram", "no program".to_string(), config, || {
-        Ok(u64::from(socket.recv(&mut buffer).is_ok()))
-    })
+    measure(
+        "kernel UDP, recv per datagram",
+        "no program".to_string(),
+        config,
+        || Ok(u64::from(socket.recv(&mut buffer).is_ok())),
+    )
 }
 
 fn udp_batched(config: &ThroughputConfig) -> Result<Measurement, RelayError> {
@@ -244,7 +254,8 @@ fn udp_batched(config: &ThroughputConfig) -> Result<Measurement, RelayError> {
 }
 
 fn xdp_config(config: &ThroughputConfig) -> XdpIngressConfig {
-    let mut xdp = XdpIngressConfig::new(config.interface.clone(), config.object.clone(), config.port);
+    let mut xdp =
+        XdpIngressConfig::new(config.interface.clone(), config.object.clone(), config.port);
     // Admission is not what is being measured.
     xdp.limit = RateLimit {
         burst: u32::MAX,
@@ -264,8 +275,16 @@ fn af_xdp(config: &ThroughputConfig) -> Result<Measurement, RelayError> {
     accelerator.attach(&config.interface, config.attach)?;
     let note = format!(
         "{} mode, {}",
-        if accelerator.driver_mode() { "driver" } else { "generic" },
-        if socket.is_zero_copy() { "zero-copy" } else { "copy" }
+        if accelerator.driver_mode() {
+            "driver"
+        } else {
+            "generic"
+        },
+        if socket.is_zero_copy() {
+            "zero-copy"
+        } else {
+            "copy"
+        }
     );
     measure("AF_XDP, queue 0", note, config, || {
         socket.receive(10, |_| {}).map(|count| count as u64)
@@ -280,7 +299,11 @@ fn xdp_drop(config: &ThroughputConfig) -> Result<Measurement, RelayError> {
     accelerator.block(IpAddr::V4(config.peer), clock::monotonic_ns()? + hour)?;
     let note = format!(
         "{} mode, source blocklisted",
-        if accelerator.driver_mode() { "driver" } else { "generic" }
+        if accelerator.driver_mode() {
+            "driver"
+        } else {
+            "generic"
+        }
     );
     let slot = Counter::Blocked.slot() as usize;
     let mut last = accelerator.counters()?[slot];

@@ -105,9 +105,7 @@ pub fn decide_claim(
 pub const fn decide_refund(status: LockStatus, expiry_height: u64, height: u64) -> RefundOutcome {
     match status {
         LockStatus::Claimed | LockStatus::Refunded => RefundOutcome::AlreadySettled,
-        LockStatus::Locked if claim_window_open(expiry_height, height) => {
-            RefundOutcome::NotExpired
-        }
+        LockStatus::Locked if claim_window_open(expiry_height, height) => RefundOutcome::NotExpired,
         LockStatus::Locked => RefundOutcome::Refunded,
     }
 }

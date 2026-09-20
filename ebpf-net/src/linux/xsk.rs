@@ -75,7 +75,12 @@ impl Mapping {
         Self::checked(ptr, len, "mmap UMEM")
     }
 
-    fn ring(fd: RawFd, len: usize, page_offset: u64, context: &'static str) -> Result<Self, RelayError> {
+    fn ring(
+        fd: RawFd,
+        len: usize,
+        page_offset: u64,
+        context: &'static str,
+    ) -> Result<Self, RelayError> {
         let offset = libc::off_t::try_from(page_offset)
             .map_err(|_| RelayError::Config(format!("{context}: offset does not fit off_t")))?;
         // SAFETY: maps the ring the kernel allocated for `fd` at its documented
@@ -93,7 +98,11 @@ impl Mapping {
         Self::checked(ptr, len, context)
     }
 
-    fn checked(ptr: *mut libc::c_void, len: usize, context: &'static str) -> Result<Self, RelayError> {
+    fn checked(
+        ptr: *mut libc::c_void,
+        len: usize,
+        context: &'static str,
+    ) -> Result<Self, RelayError> {
         if ptr == libc::MAP_FAILED {
             return Err(RelayError::last_os_error(context));
         }
@@ -239,7 +248,9 @@ impl XskSocket {
         zero_copy: ZeroCopy,
     ) -> Result<Self, RelayError> {
         if !frames.is_power_of_two() {
-            return Err(RelayError::Config(format!("{frames} frames is not a power of two")));
+            return Err(RelayError::Config(format!(
+                "{frames} frames is not a power of two"
+            )));
         }
         let ifindex = interface_index(interface)?;
 
@@ -437,9 +448,7 @@ impl XskSocket {
     fn fill_with(&mut self, addresses: &[u64]) -> usize {
         let producer = self.fill.producer().load(Ordering::Acquire);
         let free = self.fill.entries - self.fill.pending();
-        let count = u32::try_from(addresses.len())
-            .unwrap_or(u32::MAX)
-            .min(free);
+        let count = u32::try_from(addresses.len()).unwrap_or(u32::MAX).min(free);
         for (i, &address) in (0u32..count).zip(addresses) {
             let slot = self.fill.slot(producer.wrapping_add(i));
             // SAFETY: `slot` is inside the fill ring's mapping. This socket is
@@ -537,7 +546,12 @@ fn socklen<T>() -> Result<libc::socklen_t, RelayError> {
         .map_err(|_| RelayError::Config("option size exceeds socklen_t".to_string()))
 }
 
-fn set_option<T>(fd: &OwnedFd, name: libc::c_int, value: &T, context: &'static str) -> Result<(), RelayError> {
+fn set_option<T>(
+    fd: &OwnedFd,
+    name: libc::c_int,
+    value: &T,
+    context: &'static str,
+) -> Result<(), RelayError> {
     let len = socklen::<T>()?;
     // SAFETY: `value` points to a live `T` of `len` bytes for the duration of
     // the call, and the kernel only copies from it.

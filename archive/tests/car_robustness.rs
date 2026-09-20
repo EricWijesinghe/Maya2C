@@ -53,7 +53,9 @@ fn archive_bytes(rng: &mut Rng) -> Vec<u8> {
             bytes: vec![rng.next_u64() as u8; 1 + rng.below(300)],
         })
         .collect();
-    build_archive("maya-robustness", &blocks).expect("build").car
+    build_archive("maya-robustness", &blocks)
+        .expect("build")
+        .car
 }
 
 /// Every section a successful read returns must hash to its own CID, and an

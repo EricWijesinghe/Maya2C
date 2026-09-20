@@ -114,7 +114,10 @@ impl XdpIngressConfig {
         } else if self.relay_port == 0 {
             Some("the relay port cannot be 0: the program reads 0 as disabled".to_string())
         } else if self.queues == 0 || self.queues > QUEUE_CAPACITY {
-            Some(format!("queues must be 1..={QUEUE_CAPACITY}, not {}", self.queues))
+            Some(format!(
+                "queues must be 1..={QUEUE_CAPACITY}, not {}",
+                self.queues
+            ))
         } else if !self.frames_per_queue.is_power_of_two()
             || !(MIN_FRAMES_PER_QUEUE..=MAX_FRAMES_PER_QUEUE).contains(&self.frames_per_queue)
         {
@@ -265,7 +268,10 @@ mod tests {
     #[test]
     fn ipv4_mapped_addresses_are_blocked_as_ipv4() {
         let mapped: IpAddr = "::ffff:192.0.2.7".parse().unwrap();
-        assert_eq!(blocklist_address(mapped), "192.0.2.7".parse::<IpAddr>().unwrap());
+        assert_eq!(
+            blocklist_address(mapped),
+            "192.0.2.7".parse::<IpAddr>().unwrap()
+        );
     }
 
     #[cfg(not(all(target_os = "linux", feature = "xdp")))]

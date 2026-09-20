@@ -333,7 +333,10 @@ mod tests {
         for (header, plain) in parts.iter().chain(parts.iter().take(1)) {
             outcomes.push(reassembler.absorb(1u8, header, plain, now).unwrap());
         }
-        assert!(matches!(outcomes[0], Absorbed::Partial { received: 1, of: 4 }));
+        assert!(matches!(
+            outcomes[0],
+            Absorbed::Partial { received: 1, of: 4 }
+        ));
         assert_eq!(outcomes[3], Absorbed::Complete(body));
         assert_eq!(outcomes[4], Absorbed::AlreadyDelivered);
         assert_eq!(reassembler.pending_bytes(), 0);
@@ -386,7 +389,8 @@ mod tests {
         };
         let mut reassembler = Reassembler::new(limits);
         let now = Instant::now();
-        let header = |block: u8| RelayHeader::new(0, [block; 32], 0, (CHUNK_LEN * 2) as u32).unwrap();
+        let header =
+            |block: u8| RelayHeader::new(0, [block; 32], 0, (CHUNK_LEN * 2) as u32).unwrap();
         let plain = vec![0u8; CHUNK_LEN];
         reassembler.absorb(1u8, &header(1), &plain, now).unwrap();
         assert_eq!(

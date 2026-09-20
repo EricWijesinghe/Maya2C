@@ -90,9 +90,16 @@ fn load_secret(path: &PathBuf) -> Result<LatticeSecret, Box<dyn Error>> {
     let text = Zeroizing::new(std::fs::read_to_string(path)?);
     let hex_text = text.trim();
     if hex_text.len() != 2 * SEED_BYTES {
-        return Err(format!("{}: a secret is {} hex characters", path.display(), 2 * SEED_BYTES).into());
+        return Err(format!(
+            "{}: a secret is {} hex characters",
+            path.display(),
+            2 * SEED_BYTES
+        )
+        .into());
     }
-    Ok(LatticeSecret::generate(|buf| hex::decode_to_slice(hex_text, buf))?)
+    Ok(LatticeSecret::generate(|buf| {
+        hex::decode_to_slice(hex_text, buf)
+    })?)
 }
 
 fn print_tick(tick: WatcherResult<StepReport>) {

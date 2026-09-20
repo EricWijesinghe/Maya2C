@@ -68,7 +68,10 @@ pub const MAX_DATAGRAM_LEN: usize = HEADER_LEN + CHUNK_LEN + TAG_LEN;
 pub const MIN_DATAGRAM_LEN: usize = HEADER_LEN + 1 + TAG_LEN;
 
 const _: () = assert!(MAX_CHUNKS <= u16::MAX as u32, "chunk_count is a u16");
-const _: () = assert!(40 + 8 + MAX_DATAGRAM_LEN == 1280, "sized to the IPv6 minimum MTU");
+const _: () = assert!(
+    40 + 8 + MAX_DATAGRAM_LEN == 1280,
+    "sized to the IPv6 minimum MTU"
+);
 
 /// Why a header or datagram was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -130,7 +133,10 @@ impl fmt::Display for HeaderError {
                 write!(f, "chunk {index} of a {count}-chunk block")
             }
             Self::LengthMismatch { actual, expected } => {
-                write!(f, "a {actual}-byte datagram whose header implies {expected}")
+                write!(
+                    f,
+                    "a {actual}-byte datagram whose header implies {expected}"
+                )
             }
         }
     }
@@ -402,7 +408,10 @@ mod tests {
     fn the_largest_block_ends_in_a_full_or_partial_chunk_within_bounds() {
         let last = RelayHeader::new(1, BLOCK, (MAX_CHUNKS - 1) as u16, MAX_BODY_LEN).unwrap();
         assert!(last.plaintext_len() >= 1 && last.plaintext_len() <= CHUNK_LEN);
-        assert_eq!(last.body_offset() + last.plaintext_len(), MAX_BODY_LEN as usize);
+        assert_eq!(
+            last.body_offset() + last.plaintext_len(),
+            MAX_BODY_LEN as usize
+        );
         assert!(last.datagram_len() <= MAX_DATAGRAM_LEN);
     }
 
@@ -474,6 +483,9 @@ mod tests {
             RelayHeader::new(0, BLOCK, 1, 1),
             Err(HeaderError::ChunkIndexOutOfRange { index: 1, count: 1 })
         );
-        assert_eq!(RelayHeader::new(0, BLOCK, 0, 0), Err(HeaderError::EmptyBody));
+        assert_eq!(
+            RelayHeader::new(0, BLOCK, 0, 0),
+            Err(HeaderError::EmptyBody)
+        );
     }
 }

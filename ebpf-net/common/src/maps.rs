@@ -164,7 +164,9 @@ mod tests {
     #[test]
     fn map_names_fit_the_kernel_object_name_limit() {
         // BPF_OBJ_NAME_LEN is 16 including the terminator.
-        for name in [BLOCK_V4, BLOCK_V6, RATE_V4, RATE_V6, XSKS, CONFIG, COUNTERS, PROGRAM] {
+        for name in [
+            BLOCK_V4, BLOCK_V6, RATE_V4, RATE_V6, XSKS, CONFIG, COUNTERS, PROGRAM,
+        ] {
             assert!(name.len() <= 15, "{name}");
         }
     }

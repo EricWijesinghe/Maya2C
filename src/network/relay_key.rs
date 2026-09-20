@@ -178,11 +178,20 @@ mod tests {
     #[test]
     fn datagrams_go_to_the_connections_ip_and_never_without_one() {
         let v4: Multiaddr = "/ip4/192.0.2.7/tcp/4001".parse().unwrap();
-        assert_eq!(relay_address(&v4, 30_334), Some("192.0.2.7:30334".parse().unwrap()));
+        assert_eq!(
+            relay_address(&v4, 30_334),
+            Some("192.0.2.7:30334".parse().unwrap())
+        );
         let v6: Multiaddr = "/ip6/2001:db8::1/tcp/4001".parse().unwrap();
-        assert_eq!(relay_address(&v6, 9), Some("[2001:db8::1]:9".parse().unwrap()));
+        assert_eq!(
+            relay_address(&v6, 9),
+            Some("[2001:db8::1]:9".parse().unwrap())
+        );
         let mapped: Multiaddr = "/ip6/::ffff:192.0.2.9/tcp/4001".parse().unwrap();
-        assert_eq!(relay_address(&mapped, 9), Some("192.0.2.9:9".parse().unwrap()));
+        assert_eq!(
+            relay_address(&mapped, 9),
+            Some("192.0.2.9:9".parse().unwrap())
+        );
         let memory: Multiaddr = "/memory/42".parse().unwrap();
         assert_eq!(relay_address(&memory, 30_334), None);
         assert_eq!(relay_address(&v4, 0), None);

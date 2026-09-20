@@ -180,7 +180,8 @@ impl SwapChain for LocalChain {
 
     async fn broadcast(&self, raw: &[u8]) -> Result<(), WatcherError> {
         let tx = Transaction::from_bytes(raw).map_err(|e| WatcherError::Refused(e.to_string()))?;
-        tx.verify().map_err(|e| WatcherError::Refused(e.to_string()))?;
+        tx.verify()
+            .map_err(|e| WatcherError::Refused(e.to_string()))?;
         self.submit(tx);
         Ok(())
     }
@@ -235,7 +236,12 @@ fn outcome_of(worker: &Worker) -> Phase {
     worker.journal().swaps()[0].phase
 }
 
-fn lock_kind(recipient: Address, amount: u64, expiry_height: u64, secret: &LatticeSecret) -> TxKind {
+fn lock_kind(
+    recipient: Address,
+    amount: u64,
+    expiry_height: u64,
+    secret: &LatticeSecret,
+) -> TxKind {
     TxKind::HtlcLock(Box::new(HtlcLock {
         recipient,
         amount,
@@ -299,12 +305,26 @@ async fn a_swap_between_two_chains_settles_both_legs() {
         .await
         .expect("accept");
 
-    settle(&mut [&mut alice_watcher, &mut bob_watcher], &[&chain_a, &chain_b], 20).await;
+    settle(
+        &mut [&mut alice_watcher, &mut bob_watcher],
+        &[&chain_a, &chain_b],
+        20,
+    )
+    .await;
 
-    assert_eq!(outcome_of(&alice_watcher), Phase::Finished(Outcome::Swapped));
+    assert_eq!(
+        outcome_of(&alice_watcher),
+        Phase::Finished(Outcome::Swapped)
+    );
     assert_eq!(outcome_of(&bob_watcher), Phase::Finished(Outcome::Swapped));
-    assert_eq!((chain_a.balance(&alice), chain_a.balance(&bob)), (6_000, 4_000));
-    assert_eq!((chain_b.balance(&bob), chain_b.balance(&alice)), (7_000, 3_000));
+    assert_eq!(
+        (chain_a.balance(&alice), chain_a.balance(&bob)),
+        (6_000, 4_000)
+    );
+    assert_eq!(
+        (chain_b.balance(&bob), chain_b.balance(&alice)),
+        (7_000, 3_000)
+    );
     // Both chains hold the same opening, published by Alice's claim on B and
     // reused by Bob's watcher on A.
     assert_eq!(
@@ -378,9 +398,13 @@ async fn a_watcher_refuses_a_lock_that_does_not_pay_it_or_pairs_too_tightly() {
         rate: BlockRate::EQUAL,
     };
 
-    let pays_carol = bob_watcher.respond(request(derive_lock_id(&alice, 0))).await;
+    let pays_carol = bob_watcher
+        .respond(request(derive_lock_id(&alice, 0)))
+        .await;
     assert!(matches!(pays_carol, Err(WatcherError::Refused(_))));
-    let too_tight = bob_watcher.respond(request(derive_lock_id(&alice, 1))).await;
+    let too_tight = bob_watcher
+        .respond(request(derive_lock_id(&alice, 1)))
+        .await;
     assert!(matches!(too_tight, Err(WatcherError::Pairing(_))));
     // Nothing was funded and nothing journalled.
     assert_eq!(chain_b.nonce(&bob), 0);
@@ -441,7 +465,10 @@ fn the_expiry_height_belongs_to_the_refund_and_the_loser_is_a_no_op() {
     let secret = LatticeSecret::from_entropy([5; 32]);
     let lock_id = derive_lock_id(&alice, 0);
     let apply = |kind, nonce, height| {
-        db.apply_block(&block_of(vec![signed(kind, nonce, &alice_key)]), active(height))
+        db.apply_block(
+            &block_of(vec![signed(kind, nonce, &alice_key)]),
+            active(height),
+        )
     };
 
     apply(lock_kind(bob, 4_000, 10, &secret), 0, 1).expect("lock");
@@ -495,7 +522,10 @@ fn a_late_reveal_costs_the_initiator_both_legs() {
 
     assert_eq!(chain_b.balance(&bob), 10_000);
     assert_eq!(chain_a.balance(&bob), 4_000);
-    assert_eq!((chain_a.balance(&alice), chain_b.balance(&alice)), (6_000, 0));
+    assert_eq!(
+        (chain_a.balance(&alice), chain_b.balance(&alice)),
+        (6_000, 0)
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -517,7 +547,11 @@ fn locked() -> Locked {
     let (db, dir) = open_db(&[(alice, 10_000)]);
     let secret = LatticeSecret::from_entropy([7; 32]);
     db.apply_block(
-        &block_of(vec![signed(lock_kind(bob, 4_000, 100, &secret), 0, &alice_key)]),
+        &block_of(vec![signed(
+            lock_kind(bob, 4_000, 100, &secret),
+            0,
+            &alice_key,
+        )]),
         active(1),
     )
     .expect("lock");
@@ -536,7 +570,11 @@ impl Locked {
     fn claim_with(&self, opening: Opening, lock_id: LockId, nonce: u64) -> u64 {
         self.db
             .apply_block(
-                &block_of(vec![signed(claim_kind(lock_id, opening), nonce, &self.alice_key)]),
+                &block_of(vec![signed(
+                    claim_kind(lock_id, opening),
+                    nonce,
+                    &self.alice_key,
+                )]),
                 active(2),
             )
             .expect("a losing claim leaves the block valid");
@@ -549,7 +587,10 @@ fn a_wrong_opening_claims_nothing_and_the_right_one_still_can() {
     let fixture = locked();
     let wrong = LatticeSecret::from_entropy([8; 32]).opening();
     assert_eq!(fixture.claim_with(wrong, fixture.lock_id, 1), 0);
-    assert_eq!(fixture.claim_with(fixture.secret.opening(), fixture.lock_id, 2), 4_000);
+    assert_eq!(
+        fixture.claim_with(fixture.secret.opening(), fixture.lock_id, 2),
+        4_000
+    );
 }
 
 #[test]
@@ -578,7 +619,10 @@ fn an_opening_is_bound_to_its_own_commitment() {
         .expect("second lock");
     let other_lock = derive_lock_id(&fixture.alice_key.address(), 1);
 
-    assert_eq!(fixture.claim_with(fixture.secret.opening(), other_lock, 2), 0);
+    assert_eq!(
+        fixture.claim_with(fixture.secret.opening(), other_lock, 2),
+        0
+    );
     assert_eq!(fixture.claim_with(other.opening(), other_lock, 3), 1_000);
 }
 
@@ -598,7 +642,10 @@ fn out_of_bound_noise_has_no_wire_encoding() {
     let mut bytes = payload(&claim_kind(fixture.lock_id, fixture.secret.opening()));
     bytes[1 + 32] = (bytes[1 + 32] & 0xf0) | 0x09;
     let error = TxKind::decode(&mut ByteReader::new(&bytes)).expect_err("refused");
-    assert!(error.to_string().contains("not canonically encoded"), "{error}");
+    assert!(
+        error.to_string().contains("not canonically encoded"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -616,7 +663,10 @@ fn a_trivially_openable_commitment_cannot_be_locked() {
 fn a_sha256_preimage_is_not_a_claim() {
     // What a classical HTLC's claim carries: a lock id and 32 bytes.
     let mut bytes = payload(&refund_kind([1; 32]));
-    bytes[0] = payload(&claim_kind([1; 32], LatticeSecret::from_entropy([0; 32]).opening()))[0];
+    bytes[0] = payload(&claim_kind(
+        [1; 32],
+        LatticeSecret::from_entropy([0; 32]).opening(),
+    ))[0];
     bytes.extend_from_slice(&[0xab; 32]);
     assert!(TxKind::decode(&mut ByteReader::new(&bytes)).is_err());
 }
@@ -630,7 +680,11 @@ fn nothing_executes_before_activation() {
     let (alice_key, alice) = keypair();
     let (db, _dir) = open_db(&[(alice, 10_000)]);
     let secret = LatticeSecret::from_entropy([11; 32]);
-    let block = block_of(vec![signed(lock_kind([2; 32], 1_000, 100, &secret), 0, &alice_key)]);
+    let block = block_of(vec![signed(
+        lock_kind([2; 32], 1_000, 100, &secret),
+        0,
+        &alice_key,
+    )]);
     // `at_height` is what the node builds: HTLC_L_ACTIVATION_HEIGHT, u64::MAX.
     assert!(db.apply_block(&block, BlockContext::at_height(5)).is_err());
     assert_eq!(db.get_account(&alice).expect("account").balance, 10_000);
@@ -646,7 +700,11 @@ fn a_lock_escrows_its_amount_under_the_state_root() {
     // The invariant guard's conservation check runs inside apply_block: the
     // coin leaving the account has to reappear as `h:lk:` escrow.
     db.apply_block(
-        &block_of(vec![signed(lock_kind([2; 32], 2_500, 100, &secret), 0, &alice_key)]),
+        &block_of(vec![signed(
+            lock_kind([2; 32], 2_500, 100, &secret),
+            0,
+            &alice_key,
+        )]),
         active(1),
     )
     .expect("conserved");
@@ -659,7 +717,10 @@ fn a_lock_escrows_its_amount_under_the_state_root() {
             1,
             &alice_key,
         )]);
-        assert!(db.apply_block(&block, active(1)).is_err(), "expiry {bad_expiry}");
+        assert!(
+            db.apply_block(&block, active(1)).is_err(),
+            "expiry {bad_expiry}"
+        );
     }
 }
 

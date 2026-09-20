@@ -254,7 +254,10 @@ mod tests {
 
         let header = RelayHeader::new(alice.outbound.id(), [9; 32], 0, 5).unwrap();
         let mut datagram = Vec::new();
-        alice.outbound.seal(&header, b"hello", &mut datagram).unwrap();
+        alice
+            .outbound
+            .seal(&header, b"hello", &mut datagram)
+            .unwrap();
         assert_eq!(datagram.len(), header.datagram_len());
 
         let (parsed, sealed) = RelayHeader::split(&datagram).unwrap();
@@ -268,7 +271,10 @@ mod tests {
         let (alice, bob) = pair();
         let header = RelayHeader::new(alice.outbound.id(), [9; 32], 0, 5).unwrap();
         let mut datagram = Vec::new();
-        alice.outbound.seal(&header, b"hello", &mut datagram).unwrap();
+        alice
+            .outbound
+            .seal(&header, b"hello", &mut datagram)
+            .unwrap();
         for at in HEADER_LEN..datagram.len() {
             let mut tampered = datagram.clone();
             tampered[at] ^= 1;
@@ -287,12 +293,16 @@ mod tests {
         let (alice, bob) = pair();
         let first = RelayHeader::new(alice.outbound.id(), [9; 32], 0, 10).unwrap();
         let mut datagram = Vec::new();
-        alice.outbound.seal(&first, b"0123456789", &mut datagram).unwrap();
+        alice
+            .outbound
+            .seal(&first, b"0123456789", &mut datagram)
+            .unwrap();
         // Same length, different block: only the AEAD's associated data differs.
         let other = RelayHeader::new(alice.outbound.id(), [8; 32], 0, 10).unwrap();
         let mut plain = [0u8; 10];
         assert!(matches!(
-            bob.inbound.open(&other, &datagram[HEADER_LEN..], &mut plain),
+            bob.inbound
+                .open(&other, &datagram[HEADER_LEN..], &mut plain),
             Err(RelayError::Forged)
         ));
     }

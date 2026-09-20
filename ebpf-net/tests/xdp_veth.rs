@@ -61,16 +61,41 @@ impl Veth {
         let host_cidr = format!("{}/24", veth.host_addr);
         let peer_cidr = format!("{}/24", veth.peer_addr);
         // A previous run that panicked may have left these behind.
-        let _ = Command::new("ip").args(["link", "del", &veth.host]).status();
-        let _ = Command::new("ip").args(["netns", "del", &veth.namespace]).status();
+        let _ = Command::new("ip")
+            .args(["link", "del", &veth.host])
+            .status();
+        let _ = Command::new("ip")
+            .args(["netns", "del", &veth.namespace])
+            .status();
 
         ip(&["netns", "add", &veth.namespace]);
-        ip(&["link", "add", &veth.host, "type", "veth", "peer", "name", &peer]);
+        ip(&[
+            "link", "add", &veth.host, "type", "veth", "peer", "name", &peer,
+        ]);
         ip(&["link", "set", &peer, "netns", &veth.namespace]);
         ip(&["addr", "add", &host_cidr, "dev", &veth.host]);
         ip(&["link", "set", &veth.host, "up"]);
-        ip(&["netns", "exec", &veth.namespace, "ip", "addr", "add", &peer_cidr, "dev", &peer]);
-        ip(&["netns", "exec", &veth.namespace, "ip", "link", "set", &peer, "up"]);
+        ip(&[
+            "netns",
+            "exec",
+            &veth.namespace,
+            "ip",
+            "addr",
+            "add",
+            &peer_cidr,
+            "dev",
+            &peer,
+        ]);
+        ip(&[
+            "netns",
+            "exec",
+            &veth.namespace,
+            "ip",
+            "link",
+            "set",
+            &peer,
+            "up",
+        ]);
         veth
     }
 
@@ -94,8 +119,12 @@ impl Veth {
 
 impl Drop for Veth {
     fn drop(&mut self) {
-        let _ = Command::new("ip").args(["link", "del", &self.host]).status();
-        let _ = Command::new("ip").args(["netns", "del", &self.namespace]).status();
+        let _ = Command::new("ip")
+            .args(["link", "del", &self.host])
+            .status();
+        let _ = Command::new("ip")
+            .args(["netns", "del", &self.namespace])
+            .status();
     }
 }
 
@@ -173,7 +202,9 @@ fn a_sealed_block_reaches_user_space_and_other_traffic_still_passes() {
 
     harness.veth.send(PORT, datagrams);
     match harness.events.recv_timeout(WAIT) {
-        Ok(RelayEvent::Block { peer, body: got, .. }) => {
+        Ok(RelayEvent::Block {
+            peer, body: got, ..
+        }) => {
             assert_eq!(peer, 1);
             assert_eq!(got, body);
         }
@@ -181,9 +212,13 @@ fn a_sealed_block_reaches_user_space_and_other_traffic_still_passes() {
     }
     assert!(wait_counter(&harness, Counter::Redirected, count) >= count);
 
-    harness.veth.send(PORT + 1, vec![b"not relay traffic".to_vec()]);
+    harness
+        .veth
+        .send(PORT + 1, vec![b"not relay traffic".to_vec()]);
     let mut buffer = [0u8; 64];
-    let len = bystander.recv(&mut buffer).expect("non-relay UDP must pass");
+    let len = bystander
+        .recv(&mut buffer)
+        .expect("non-relay UDP must pass");
     assert_eq!(&buffer[..len], b"not relay traffic");
     assert!(counter(&harness, Counter::Passed) >= 1);
 }
@@ -208,7 +243,12 @@ fn malformed_and_blocked_datagrams_are_dropped_in_the_kernel() {
         .expect("block");
     harness.veth.send(PORT, good.clone());
     assert!(wait_counter(&harness, Counter::Blocked, 1) >= 1);
-    assert!(harness.events.recv_timeout(Duration::from_millis(500)).is_err());
+    assert!(
+        harness
+            .events
+            .recv_timeout(Duration::from_millis(500))
+            .is_err()
+    );
 
     harness.ingress.unblock(peer).expect("unblock");
     harness.veth.send(PORT, good);
@@ -227,7 +267,9 @@ fn a_source_over_its_rate_is_dropped_in_the_kernel() {
     };
     let harness = harness(3, limit);
     let one = sealed(&harness.sender_key, b"x");
-    harness.veth.send(PORT, std::iter::repeat_n(one[0].clone(), 50).collect());
+    harness
+        .veth
+        .send(PORT, std::iter::repeat_n(one[0].clone(), 50).collect());
     assert!(wait_counter(&harness, Counter::RateLimited, 40) >= 40);
     assert!(counter(&harness, Counter::Redirected) <= 10);
 }

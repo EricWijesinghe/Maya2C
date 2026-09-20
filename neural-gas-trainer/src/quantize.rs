@@ -1,7 +1,7 @@
 //! Float network → integer [`Model`].
 
-use maya_fee_market::model::{FEATURE_FRAC_BITS, HIDDEN, INPUTS, UNIT_GAIN_BPS, WEIGHT_FRAC_BITS};
 use maya_fee_market::Model;
+use maya_fee_market::model::{FEATURE_FRAC_BITS, HIDDEN, INPUTS, UNIT_GAIN_BPS, WEIGHT_FRAC_BITS};
 
 use crate::dataset::Sample;
 use crate::network::{Network, inputs};

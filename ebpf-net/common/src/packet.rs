@@ -254,7 +254,11 @@ mod tests {
         assert_eq!(view.source_port, 4000);
         assert_eq!(view.destination_port, 30_334);
         assert_eq!(view.payload, b"hello relay");
-        assert_eq!(ipv4_checksum(&bytes[14..34]), 0, "a valid header sums to zero");
+        assert_eq!(
+            ipv4_checksum(&bytes[14..34]),
+            0,
+            "a valid header sums to zero"
+        );
     }
 
     #[test]
