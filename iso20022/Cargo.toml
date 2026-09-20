@@ -1,10 +1,10 @@
 [package]
 name = "maya-iso20022"
-version = "0.1.0"
+version.workspace = true
 # Not published. See stratum-v2/Cargo.toml for why cargo-deny needs this.
-publish = false
-edition = "2024"
-rust-version = "1.88"
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "ISO 20022 bank-rail messages (pacs.008, pacs.009, camt.053) and the bridge to Maya2C payment intents"
 
 [lib]
@@ -34,5 +34,5 @@ blake3 = "1"
 # off because there is none to begin with, which is the reason to pick this
 # parser over a more featureful one.
 quick-xml = "0.42"
-thiserror = "2.0"
+thiserror.workspace = true
 

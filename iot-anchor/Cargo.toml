@@ -1,10 +1,10 @@
 [package]
 name = "maya-iot-anchor"
-version = "0.1.0"
+version.workspace = true
 # Not published. See dex/Cargo.toml for why cargo-deny needs this.
-publish = false
-edition = "2024"
-rust-version = "1.88"
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Device identity, telemetry batches, tamper and clone evidence for hardware-anchored sensors; no_std and heap-free"
 
 # Every dependency is pure Rust and `no_std`: the same crate runs on a
@@ -14,9 +14,9 @@ description = "Device identity, telemetry batches, tamper and clone evidence for
 [dependencies]
 # ML-DSA-65 only — invariant 4. Seeded keygen and a caller-supplied RNG, so a
 # microcontroller brings its own TRNG.
-fips204 = { version = "0.4", default-features = false, features = ["ml-dsa-65"] }
+fips204.workspace = true
 rand_core = { version = "0.6", default-features = false }
-sha3 = { version = "0.10", default-features = false }
+sha3.workspace = true
 zeroize = { version = "1", default-features = false, features = ["zeroize_derive"] }
 
 [features]
@@ -28,7 +28,7 @@ std = []
 tpm = ["std"]
 
 [dev-dependencies]
-rand_chacha = "0.3"
+rand_chacha.workspace = true
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }

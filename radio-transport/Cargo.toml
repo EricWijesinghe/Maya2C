@@ -1,10 +1,10 @@
 [package]
 name = "maya-radio-transport"
-version = "0.1.0"
+version.workspace = true
 # Not published. See stratum-v2/Cargo.toml for why cargo-deny needs this.
-publish = false
-edition = "2024"
-rust-version = "1.88"
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Off-grid ISM LoRa transport: AX.25-style framing, a duty-cycle governor, fountain-coded fragmentation, and store-and-forward relay"
 
 [lib]
@@ -26,7 +26,7 @@ path = "src/lib.rs"
 # The frame checksum and the deterministic symbol generator's seed expansion.
 # Already in the tree through `archive` and `iso20022`.
 blake3 = "1"
-thiserror = "2.0"
+thiserror.workspace = true
 
 [dev-dependencies]
-hex = "0.4"
+hex.workspace = true

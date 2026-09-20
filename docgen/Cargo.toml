@@ -1,9 +1,9 @@
 [package]
 name = "maya-docgen"
-version = "0.1.0"
-publish = false
-edition = "2024"
-rust-version = "1.88"
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Generates a LaTeX technical reference from the workspace's module documentation"
 
 # Dependency-free. This is a build tool that reads Rust source and writes

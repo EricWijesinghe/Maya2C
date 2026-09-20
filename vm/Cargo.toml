@@ -1,13 +1,13 @@
 [package]
 name = "maya-vm"
-version = "0.1.0"
+version.workspace = true
 # Not published. cargo-deny reads this: `allow-wildcard-paths` and
 # `[licenses.private] ignore` both apply only to unpublished crates, so
 # without it every internal path dependency reads as a wildcard and every
 # workspace crate reads as unlicensed.
-publish = false
-edition = "2024"
-rust-version = "1.88"
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Sandboxed, deterministic WebAssembly execution for the Maya2C chain"
 
 [lib]
@@ -18,8 +18,8 @@ path = "src/lib.rs"
 # Deliberately NOT depending on custom-l1-node. The node depends on this crate
 # to execute contracts, so the reverse would be a cycle. Chain state reaches the
 # VM through the `HostState` trait instead.
-thiserror = "2.0"
-hex = "0.4"
+thiserror.workspace = true
+hex.workspace = true
 
 # Pinned exactly, not caret. wasmtime does not guarantee stable fuel accounting
 # across releases, so the version is consensus-critical: two validators on
@@ -39,9 +39,9 @@ wasmtime = { version = "=48.0.1", default-features = false, features = [
 ] }
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
-wat = "1"
-tempfile = "3"
+criterion = { workspace = true, features = ["html_reports"] }
+wat.workspace = true
+tempfile.workspace = true
 
 # What the module cache saves, measured rather than targeted. See the file
 # header for why "JIT versus interpreted" is not the comparison being made.

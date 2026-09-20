@@ -1,13 +1,13 @@
 [package]
 name = "maya-mev"
-version = "0.1.0"
+version.workspace = true
 # Not published. cargo-deny reads this: `allow-wildcard-paths` and
 # `[licenses.private] ignore` both apply only to unpublished crates, so
 # without it every internal path dependency reads as a wildcard and every
 # workspace crate reads as unlicensed.
-publish = false
-edition = "2024"
-rust-version = "1.88"
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Threshold-encrypted mempool: a miner orders transactions it cannot read"
 
 [dependencies]
@@ -15,18 +15,18 @@ description = "Threshold-encrypted mempool: a miner orders transactions it canno
 # subgroup to check for. Already in the tree via `maya-vrf`, so this adds no
 # new curve — and deliberately the same one, because two elliptic curves in a
 # codebase is two sets of encoding rules to get right.
-curve25519-dalek = "4"
+curve25519-dalek.workspace = true
 # The DEM half of hybrid encryption. Already in the tree via the wallet
 # keystore and the post-quantum transport, so this adds no new AEAD.
-chacha20poly1305 = "0.10"
-sha2 = "0.10"
+chacha20poly1305.workspace = true
+sha2.workspace = true
 # Entropy for the ephemeral scalar, straight from the OS — the same source the
 # node's key generation uses.
-getrandom = "0.4"
-zeroize = { version = "1", features = ["derive"] }
+getrandom.workspace = true
+zeroize = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
-hex = "0.4"
+hex.workspace = true
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }

@@ -1,9 +1,9 @@
 [package]
 name = "maya-telemetry"
-version = "0.1.0"
-publish = false
-edition = "2024"
-rust-version = "1.88"
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Network telemetry collector: propagation, peers, hash rate, height"
 
 [features]
@@ -20,31 +20,31 @@ client = ["dep:hyper", "dep:hyper-util", "dep:tokio"]
 # Always present: the wire types, the region rules, and the meter. All three
 # are needed by both halves, and the meter is the reason a miner links this
 # crate at all.
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-thiserror = "2.0"
-tracing = "0.1"
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
 
 # Optional so that the wire types, the region rules, and the meter compile for
 # `wasm32-unknown-unknown` — the browser dashboard deserializes `Snapshot` from
 # this crate rather than from a hand-written copy, and tokio does not build for
 # that target with a multi-thread runtime.
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"], optional = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"], optional = true }
 
-axum = { version = "0.8", features = ["macros", "ws"], optional = true }
-tower-http = { version = "0.6", features = ["trace", "limit", "cors"], optional = true }
-tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
-futures-util = { version = "0.3", optional = true }
+axum = { workspace = true, features = ["macros", "ws"], optional = true }
+tower-http = { workspace = true, features = ["trace", "limit", "cors"], optional = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"], optional = true }
+futures-util = { workspace = true, optional = true }
 
 # Hyper directly rather than a client crate: the workspace already links it
 # through jsonrpsee, so the miner-side reporter costs no new dependency. The
 # same reasoning as `src/metrics/server.rs`.
-hyper = { version = "1", features = ["client", "http1"], optional = true }
-hyper-util = { version = "0.1", features = ["client", "client-legacy", "http1", "tokio"], optional = true }
+hyper = { workspace = true, features = ["client", "http1"], optional = true }
+hyper-util = { workspace = true, features = ["client", "client-legacy", "http1", "tokio"], optional = true }
 
 [dev-dependencies]
-tower = { version = "0.5", features = ["util"] }
-http-body-util = "0.1"
+tower = { workspace = true, features = ["util"] }
+http-body-util.workspace = true
 
 # The crate's own tests exercise both halves, which is the point of them
 # sharing a crate: a wire-format change that breaks the miner breaks a test
@@ -54,8 +54,8 @@ maya-telemetry = { path = ".", features = ["server", "client"] }
 # client half of hyper unconditionally — the optional deps above are only
 # enabled by the `client` feature, which a dev-dependency on self does enable,
 # but naming them here keeps the test honest about what it uses.
-hyper = { version = "1", features = ["client", "http1"] }
-hyper-util = { version = "0.1", features = ["client", "client-legacy", "http1", "tokio"] }
+hyper = { workspace = true, features = ["client", "http1"] }
+hyper-util = { workspace = true, features = ["client", "client-legacy", "http1", "tokio"] }
 
 # The daemon is the server half. Declared with `required-features` so that
 # `--no-default-features` (which is how the browser dashboard depends on this

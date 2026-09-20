@@ -1,10 +1,10 @@
 [package]
 name = "maya-htlc-watcher"
-version = "0.1.0"
+version.workspace = true
 # Not published. See stratum-v2/Cargo.toml for why cargo-deny needs this.
-publish = false
-edition = "2024"
-rust-version = "1.88"
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Counterparty watcher for lattice HTLC swaps: claims on revelation, refunds on expiry"
 
 [lib]
@@ -23,16 +23,16 @@ custom-l1-node = { path = ".." }
 maya-htlc-lattice = { path = "../htlc-lattice" }
 # The keystore format, reused rather than reimplemented — see pool-service.
 l1-wallet = { path = "../wallet" }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
-jsonrpsee = { version = "0.26", features = ["http-client"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
+jsonrpsee = { workspace = true, features = ["http-client"] }
 # `SwapChain` is held as a trait object so the worker can be driven by an
 # in-process chain in tests; native async fns in traits are not dyn-compatible.
-async-trait = "0.1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-thiserror = "2.0"
-hex = "0.4"
-zeroize = "1"
+async-trait.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+thiserror.workspace = true
+hex.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true

@@ -1,13 +1,13 @@
 [package]
 name = "maya-light-client"
-version = "0.1.0"
+version.workspace = true
 # Not published. cargo-deny reads this: `allow-wildcard-paths` and
 # `[licenses.private] ignore` both apply only to unpublished crates, so
 # without it every internal path dependency reads as a wildcard and every
 # workspace crate reads as unlicensed.
-publish = false
-edition = "2024"
-rust-version = "1.88"
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "SPV light client: header-chain fork choice and state-proof verification without a full node"
 
 [dependencies]
@@ -19,10 +19,10 @@ description = "SPV light client: header-chain fork choice and state-proof verifi
 # on the crate, but nothing here opens a database. A light client that had to
 # carry the full node's storage would not be light.
 custom-l1-node = { path = ".." }
-hex = "0.4"
-thiserror = "2.0"
+hex.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true
 # Account addresses for `tests/stateless_memory.rs`.
-blake3 = "1.8"
+blake3.workspace = true

@@ -1,13 +1,13 @@
-﻿[package]
+[package]
 name = "l1-wallet"
-version = "0.1.0"
+version.workspace = true
 # Not published. cargo-deny reads this: `allow-wildcard-paths` and
 # `[licenses.private] ignore` both apply only to unpublished crates, so
 # without it every internal path dependency reads as a wildcard and every
 # workspace crate reads as unlicensed.
-publish = false
-edition = "2024"
-rust-version = "1.88"
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 
 # Explicit, though cargo would auto-detect src/lib.rs: the pool service
 # depends on this crate as a library, and a target that exists only by
@@ -22,21 +22,21 @@ path = "src/main.rs"
 
 [dependencies]
 custom-l1-node = { path = ".." }
-clap = { version = "4", features = ["derive", "env"] }
-jsonrpsee = { version = "0.26", features = ["http-client"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-getrandom = "0.4"
-argon2 = "0.5"
+clap = { workspace = true, features = ["derive", "env"] }
+jsonrpsee = { workspace = true, features = ["http-client"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+getrandom.workspace = true
+argon2.workspace = true
 chacha20poly1305 = "0.11"
-zeroize = "1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-hex = "0.4"
+zeroize.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+hex.workspace = true
 anyhow = "1"
 rpassword = "7"
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true
 
 
 

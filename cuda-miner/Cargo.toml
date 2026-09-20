@@ -1,13 +1,13 @@
 [package]
 name = "maya-cuda-miner"
-version = "0.1.0"
+version.workspace = true
 # Not published. cargo-deny reads this: `allow-wildcard-paths` and
 # `[licenses.private] ignore` both apply only to unpublished crates, so
 # without it every internal path dependency reads as a wildcard and every
 # workspace crate reads as unlicensed.
-publish = false
-edition = "2024"
-rust-version = "1.88"
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "CUDA-accelerated ArgonBlake proof-of-work search for the Maya2C chain"
 
 [lib]
@@ -28,13 +28,13 @@ cuda = []
 [dependencies]
 # The two BLAKE3 stages of ArgonBlake. Same crate and same version the node
 # uses, because a different BLAKE3 would be a different chain.
-blake3 = "1.8"
+blake3.workspace = true
 # Argon2's internal hash: H0 over the parameter block, and the H' variable-length
 # expansion that produces the two seed blocks and the final tag. Already in the
 # tree transitively under `argon2`, so this adds no new dependency — it only
 # names one we were already compiling.
 blake2 = "0.10"
-thiserror = "2.0"
+thiserror.workspace = true
 
 [dev-dependencies]
 # The reference implementation, for parity only. Never a runtime dependency:
@@ -42,8 +42,8 @@ thiserror = "2.0"
 # point of the parity test is to compare against the *node's* definition rather
 # than a second copy of it living here.
 custom-l1-node = { path = ".." }
-argon2 = "0.5"
-hex = "0.4"
+argon2.workspace = true
+hex.workspace = true
 # Reads the frozen DAG vectors in `../tests/fixtures`. Already in the workspace
 # lockfile via the node, so this names a crate we compile either way.
-serde_json = "1"
+serde_json.workspace = true

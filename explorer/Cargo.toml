@@ -1,13 +1,13 @@
 [package]
 name = "maya-explorer"
-version = "0.1.0"
+version.workspace = true
 # Not published. cargo-deny reads this: `allow-wildcard-paths` and
 # `[licenses.private] ignore` both apply only to unpublished crates, so
 # without it every internal path dependency reads as a wildcard and every
 # workspace crate reads as unlicensed.
-publish = false
-edition = "2024"
-rust-version = "1.88"
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Web explorer for the Maya2C chain: Leptos SSR over Axum, indexed into PostgreSQL"
 
 [lib]
@@ -25,15 +25,15 @@ custom-l1-node = { path = ".." }
 
 # SSR only. A hydrating build needs cargo-leptos and wasm-bindgen to produce a
 # client bundle; this renders on the server and pushes updates over WebSocket.
-leptos = { version = "0.8", features = ["ssr"] }
+leptos = { workspace = true, features = ["ssr"] }
 
-axum = { version = "0.8", features = ["ws", "macros"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
+axum = { workspace = true, features = ["ws", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
 # `fs` for the branding assets under /assets. The explorer server-renders its
 # HTML from a Rust string, so unlike the trunk-built frontends it has no
 # build-time asset validation — `tests/server_tests.rs` checks the routes
 # instead.
-tower-http = { version = "0.6", features = ["trace", "fs"] }
+tower-http = { workspace = true, features = ["trace", "fs"] }
 
 # Runtime queries, not the `query!` macros: those need a live DATABASE_URL at
 # build time (or committed offline metadata), which would make the crate
@@ -46,15 +46,15 @@ sqlx = { version = "0.9", default-features = false, features = [
     "migrate",
 ] }
 
-jsonrpsee = { version = "0.26", features = ["http-client"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-async-trait = "0.1"
-thiserror = "2.0"
-hex = "0.4"
+jsonrpsee = { workspace = true, features = ["http-client"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+async-trait.workspace = true
+thiserror.workspace = true
+hex.workspace = true
 chrono = { version = "0.4", features = ["serde"] }
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true
 tokio-tungstenite = "0.30"
-futures-util = "0.3"
+futures-util.workspace = true

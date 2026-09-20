@@ -1,10 +1,10 @@
 [package]
 name = "maya-identity"
-version = "0.1.0"
+version.workspace = true
 # Not published. See stratum-v2/Cargo.toml for why cargo-deny needs this.
-publish = false
-edition = "2024"
-rust-version = "1.88"
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Self-sovereign identity: DID documents, service endpoints, and attestations that carry commitments rather than claims"
 
 [lib]
@@ -22,4 +22,4 @@ path = "src/lib.rs"
 # freedom to change an alphabet in a point release.
 [dependencies]
 blake3 = "1"
-thiserror = "2.0"
+thiserror.workspace = true

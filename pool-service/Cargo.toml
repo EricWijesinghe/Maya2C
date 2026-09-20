@@ -1,13 +1,13 @@
-﻿[package]
+[package]
 name = "maya-pool-service"
-version = "0.1.0"
+version.workspace = true
 # Not published. cargo-deny reads this: `allow-wildcard-paths` and
 # `[licenses.private] ignore` both apply only to unpublished crates, so
 # without it every internal path dependency reads as a wildcard and every
 # workspace crate reads as unlicensed.
-publish = false
-edition = "2024"
-rust-version = "1.88"
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Mining pool daemon for Maya2C: share validation, PPLNS accounting, and treasury payouts"
 
 [lib]
@@ -35,55 +35,47 @@ maya-ledger-math = { path = "../ledger-math" }
 # and the drift surfaces as a key file that cannot be opened.
 l1-wallet = { path = "../wallet" }
 
-tokio = { version = "1", features = [
-    "rt-multi-thread",
-    "macros",
-    "sync",
-    "time",
-    "signal",
-    "net",
-    "io-util",
-] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net", "io-util"] }
 # `pq::handshake::respond` is generic over *futures* AsyncRead/AsyncWrite, and a
 # Tokio `TcpStream` implements Tokio's. This is the adapter between them, and
 # the only reason the dependency is here.
 tokio-util = { version = "0.7", features = ["compat"] }
-futures = "0.3"
+futures.workspace = true
 
-axum = { version = "0.8", features = ["ws", "macros"] }
+axum = { workspace = true, features = ["ws", "macros"] }
 # SSR only, exactly as `explorer` does it: a hydrating build needs
 # cargo-leptos and wasm-bindgen to produce a client bundle. Liveness comes from
 # the WebSocket instead.
-leptos = { version = "0.8", features = ["ssr"] }
-tower-http = { version = "0.6", features = ["trace"] }
+leptos = { workspace = true, features = ["ssr"] }
+tower-http = { workspace = true, features = ["trace"] }
 
 # The share ledger. RocksDB rather than the PostgreSQL the explorer uses,
 # because the two stores hold different kinds of data: everything the explorer
 # indexes can be rebuilt from the chain, and a lost share credit is gone.
 # Reusing the node's storage engine also means one set of operational knowledge.
-rocksdb = "0.25"
+rocksdb.workspace = true
 
-prometheus-client = "0.25"
-jsonrpsee = { version = "0.26", features = ["http-client"] }
+prometheus-client.workspace = true
+jsonrpsee = { workspace = true, features = ["http-client"] }
 # Same reason explorer/Cargo.toml has it: the chain-facing trait is held as
 # a trait object so the payout engine can be driven by a test double, and
 # native async fns in traits are not dyn-compatible.
-async-trait = "0.1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-thiserror = "2.0"
-hex = "0.4"
+async-trait.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+thiserror.workspace = true
+hex.workspace = true
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true
 # The simulated workers drive the real encoders over an in-memory duplex rather
 # than a socket, the way the transport tests already do.
-futures_ringbuf = "0.4"
+futures_ringbuf.workspace = true
 # #[tokio::test] for the payout engine's async paths.
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
 # Drives the Axum router directly in tests, so the dashboard is exercised
 # without binding a port.
-tower = "0.5"
+tower.workspace = true
 
 
 

@@ -1,9 +1,9 @@
 [package]
 name = "maya-wgpu-miner"
-version = "0.1.0"
-publish = false
-edition = "2024"
-rust-version = "1.88"
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Cross-platform GPU hashimoto mining via wgpu and WGSL"
 
 [features]
@@ -18,10 +18,10 @@ gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
 [dependencies]
 custom-l1-node = { path = ".." }
 crossbeam-channel = "0.5"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
-clap = { version = "4", features = ["derive", "env"] }
-thiserror = "2.0"
-hex = "0.4"
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
+clap = { workspace = true, features = ["derive", "env"] }
+thiserror.workspace = true
+hex.workspace = true
 # The hash-rate meter and the reporter that posts it. `default-features = false`
 # keeps the collector's web framework out of a miner that never serves — the
 # crate is split into `server` and `client` halves for exactly this.

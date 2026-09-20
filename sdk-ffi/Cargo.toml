@@ -1,9 +1,9 @@
 [package]
 name = "maya-sdk-ffi"
-version = "0.1.0"
-publish = false
-edition = "2024"
-rust-version = "1.88"
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "uniffi bindings over Maya2C's post-quantum signing primitives"
 
 [lib]
@@ -18,8 +18,8 @@ name = "maya_sdk_ffi"
 uniffi = { version = "0.32", features = ["cli"] }
 maya-crypto-pq = { path = "../crypto-pq" }
 custom-l1-node = { path = ".." }
-thiserror = "2.0"
-hex = "0.4"
+thiserror.workspace = true
+hex.workspace = true
 
 [build-dependencies]
 uniffi = { version = "0.32", features = ["build"] }

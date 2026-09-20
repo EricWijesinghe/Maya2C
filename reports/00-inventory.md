@@ -178,15 +178,26 @@ version of Rust: proc-macro-error2 v2.0.1
 
 ```
 $ CARGO_BUILD_JOBS=4 cargo clippy --workspace --all-targets --message-format short
+    Checking maya-neural-gas-trainer v0.1.0 (D:\Maya2C\neural-gas-trainer)
+neural-gas-trainer\src\network.rs:110:21: warning: the loop variable `unit` is
+used to index `hidden`
+warning: `maya-neural-gas-trainer` (lib) generated 1 warning
+warning: `maya-neural-gas-trainer` (lib test) generated 1 warning (1 duplicate)
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 28.36s
 warning: the following packages contain code that will be rejected by a future
 version of Rust: proc-macro-error2 v2.0.1
 ```
 
-**All 45 members compile. Zero errors, zero clippy warnings** under the current
-(default) lint configuration. The only diagnostic in either run is a
+**All 45 members compile. Zero errors, one clippy warning** under the current
+(default) lint configuration: `clippy::needless_range_loop` at
+`neural-gas-trainer/src/network.rs:110`, in the off-chain float training crate
+the node does not link (invariant 20). The other diagnostic is a
 future-incompatibility notice for the transitive `proc-macro-error2 v2.0.1`,
 which no first-party crate depends on directly.
+
+(An earlier revision of this section said "zero clippy warnings". That was
+wrong — it counted the summary lines rather than reading the run. The output
+above is the run.)
 
 This is the baseline the workspace lint table in Phase A is measured against.
 It is not a claim that `cargo test` passes — see section 8.

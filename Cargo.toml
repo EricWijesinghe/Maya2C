@@ -1,16 +1,16 @@
 [package]
 name = "custom-l1-node"
-version = "0.1.0"
+version.workspace = true
 # Not published. cargo-deny reads this: `allow-wildcard-paths` and
 # `[licenses.private] ignore` both apply only to unpublished crates, so
 # without it every internal path dependency reads as a wildcard and every
 # workspace crate reads as unlicensed.
-publish = false
-edition = "2024"
+publish.workspace = true
+edition.workspace = true
 # Edition 2024 needs 1.85, but the code also uses `u64::is_multiple_of` (1.87)
 # and `slice::as_chunks` (1.88). Declaring the real floor makes a stale
 # toolchain fail with a clear message instead of a wall of errors.
-rust-version = "1.88"
+rust-version.workspace = true
 
 # The root package is a workspace member alongside the wallet CLI, so both
 # share one lockfile, one target directory, and the profile overrides below.
@@ -192,15 +192,144 @@ members = [
     "iot-anchor",
 ]
 
-[dependencies]
-blake3 = "1.8"
+# ---------------------------------------------------------------------------
+# [workspace.package] — fields every member inherits with `field.workspace = true`
+# ---------------------------------------------------------------------------
+#
+# `publish = false` is load-bearing rather than cosmetic: cargo-deny's
+# `allow-wildcard-paths` and `[licenses.private] ignore` apply only to
+# unpublished crates, so without it every internal path dependency reads as a
+# wildcard and every workspace crate reads as unlicensed.
+#
+# `rust-version = "1.88"` is the real floor, not edition 2024's 1.85: the code
+# uses `u64::is_multiple_of` (1.87) and `slice::as_chunks` (1.88). A stale
+# toolchain then fails with one clear message instead of a wall of errors.
+# `maya-zkml-prover` overrides it to 1.91 — `tract-onnx`'s patched releases
+# need it, and nothing the node links depends on that crate (invariant 20).
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+# ---------------------------------------------------------------------------
+# [workspace.dependencies] — one version per external crate
+# ---------------------------------------------------------------------------
+#
+# Before this table there were 95 external dependencies across 45 manifests,
+# six of them declared at *incompatible* versions by different members. The
+# measurement is in `reports/00-inventory.md` section 7.
+#
+# Two rules, so that reading a member manifest still tells you what that crate
+# uses:
+#
+#   1. This table carries the **version** only. Feature lists stay in the
+#      member that needs them, because which features a crate turns on is a
+#      fact about that crate, not about the workspace. `features` on an
+#      inherited dependency are additive, so this composes.
+#
+#   2. `default-features` appears here only where **every** member agrees it is
+#      off. Where one member disagrees it keeps a literal declaration with a
+#      comment saying why, rather than forcing the other eleven to restate a
+#      default. Those exceptions are listed at the end of this table.
+#
+# A dependency used by exactly one member stays in that member. Centralising 54
+# single-use versions would centralise nothing and would hide them from the
+# crate that owns them.
+
+[workspace.dependencies]
 argon2 = "0.5"
+async-trait = "0.1"
+axum = "0.8"
+# The eBPF loader. Only `ebpf-net`'s Linux half and its test harness link it.
+aya = "0.14"
+# Was split "1" / "1.8" across 18 members; both resolved to the same lockfile
+# entry, so unifying on the real floor changed nothing but the drift.
+blake3 = "1.8"
+clap = "4"
+# Was 0.5 in `vm` and 0.7 everywhere else — two copies of a bench harness in
+# the lockfile. Verified: `vm`'s `html_reports` still exists on 0.7.
+criterion = "0.7"
+# Deliberately one copy: two versions of a curve in one lockfile is two sets of
+# encoding rules. Note that this goal is *not* currently met transitively —
+# libp2p 0.57 pulls curve25519-dalek 5.0 through ed25519-dalek 3.0. See
+# `reports/00-inventory.md` section 7 and ADR-005.
+curve25519-dalek = "4"
+# ML-DSA-65 (FIPS 204). `default-features = false` with only the 65 parameter
+# set is invariant 4, and stating it here is what makes it a workspace-wide
+# property rather than four manifests that happen to agree. A compiled-in
+# parameter set is a set someone can select by accident; the security level of
+# a chain should not be a function of which import somebody reached for.
+# Members add `default-rng` where they generate keys.
+fips204 = { version = "0.4", default-features = false, features = ["ml-dsa-65"] }
+futures = "0.3"
+futures-util = "0.3"
+# In-memory duplex streams for driving both halves of a handshake without a
+# socket. What libp2p uses for the same job.
+futures_ringbuf = "0.4"
+getrandom = "0.4"
+# Pinned exactly: the SRS in `zkml/src/srs.rs` and the proving key are tied to
+# this implementation's encoding, so a patch release is a consensus-visible
+# change even while zkML is dark.
+halo2-axiom = "=0.5.3"
+hex = "0.4"
+http-body-util = "0.1"
+hyper = "1"
+hyper-util = "0.1"
+jsonrpsee = "0.26"
+leptos = "0.8"
+prometheus-client = "0.25"
+rand_chacha = "0.3"
+rocksdb = "0.25"
+serde = "1"
+serde_json = "1"
+sha2 = "0.10"
+# Was 0.10 in `iot-anchor` and 0.11 in `htlc-lattice` and `stateless-core` —
+# three Kani-verified crates hashing with two releases of the same SHAKE.
+# Verified on 0.11: `iot-anchor`'s 13 tests pass and it still builds for
+# thumbv8m.main-none-eabihf and riscv32imc-unknown-none-elf.
+sha3 = { version = "0.11", default-features = false }
+tempfile = "3"
+thiserror = "2.0"
+tokio = "1"
+tower = "0.5"
+tower-http = "0.6"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+wat = "1"
+zeroize = "1"
+
+# arkworks, for the Groth16 shielded pool. Pinned exactly for the same reason
+# as halo2-axiom: proving and verifying keys are tied to an encoding.
+ark-bls12-381 = "=0.6.0"
+ark-std = "=0.6.0"
+
+# --- Deliberate exceptions, kept literal in the member that needs them -------
+#
+# chacha20poly1305   0.10 here (node, `mev`, `custody-mpc`, `confidential-ai`,
+#                    `ebpf-net`); `wallet` and `wallet-gui/core` are on 0.11.
+#                    Unifying either direction rewrites AEAD call sites in
+#                    crypto code, which is not a workspace-layout change. The
+#                    two use sites never exchange ciphertext. Tracked in
+#                    PROGRESS.md, not fixed here.
+# rand / rand_core   `crypto-pq` is on the 0.10 generation, `zkml`,
+#                    `zkml-prover` and `iot-anchor` on 0.6/0.8 because that is
+#                    what their ecosystems (halo2, tract, digest 0.10) require.
+#                    A major-version split with a reason is not drift.
+# zeroize            `iot-anchor` needs `default-features = false`; it is
+#                    `no_std` and heap-free. Putting that here would force the
+#                    other eleven members to restate the default.
+chacha20poly1305 = "0.10"
+
+[dependencies]
+blake3.workspace = true
+argon2.workspace = true
 # Entropy comes straight from the OS rather than through an RNG trait crate.
 # rand_core 0.10 is traits-only — it no longer ships OsRng — and routing key
 # generation through a trait crate would mean keeping dalek's rand_core version
 # in lockstep with every other crate that wants one. getrandom is the source
 # those RNGs wrap anyway, and it is already in the tree transitively.
-getrandom = "0.4"
+getrandom.workspace = true
 # ML-DSA-65 (FIPS 204), the transaction signature scheme.
 #
 # Pure Rust, which the Dockerfile's static-musl build depends on: the PQClean
@@ -211,7 +340,7 @@ getrandom = "0.4"
 # a set that is present is a set some future caller can pick by accident — the
 # security level of a chain should not be a function of which import someone
 # reached for.
-fips204 = { version = "0.4", default-features = false, features = ["ml-dsa-65", "default-rng"] }
+fips204 = { workspace = true, features = ["default-rng"] }
 # SLH-DSA-SHA2-128s (FIPS 205), the second half of every transaction signature.
 #
 # Its own crate rather than a module here, because `slh-dsa` is generic over its
@@ -220,17 +349,17 @@ fips204 = { version = "0.4", default-features = false, features = ["ml-dsa-65", 
 maya-crypto-pq = { path = "crypto-pq" }
 # The AEAD sealing every frame of the post-quantum transport layer. Already in
 # the tree via the wallet keystore, so this adds no new dependency.
-chacha20poly1305 = "0.10"
-zeroize = "1"
-hex = "0.4"
-thiserror = "2.0"
-rocksdb = "0.25"
-serde = { version = "1", features = ["derive"] }
+chacha20poly1305.workspace = true
+zeroize.workspace = true
+hex.workspace = true
+thiserror.workspace = true
+rocksdb.workspace = true
+serde = { workspace = true, features = ["derive"] }
 # `config.toml` parsing. `toml` rather than a general config crate: one format,
 # read once at startup, with `deny_unknown_fields` doing the work a layered
 # config library would otherwise hide.
 toml = "0.9"
-serde_json = "1"
+serde_json.workspace = true
 maya-vm = { path = "vm" }
 # zkML proof verification, for `host_verify_zkml_proof`. The verifier only:
 # proving and ONNX import are in `maya-zkml-prover`, which is a dev-dependency
@@ -294,7 +423,7 @@ maya-ebpf-net = { path = "ebpf-net" }
 # state and `maya-mev` — a stored committee key, a stored decryption share.
 # The same version `maya-mev` and `maya-vrf` already pull in, deliberately: two
 # copies of a curve in one lockfile is two sets of encoding rules.
-curve25519-dalek = "4"
+curve25519-dalek.workspace = true
 # Every `u64` credit, debit, and nonce bump on the ledger. A separate crate
 # because it is the one thing here that is model-checked: Kani compiles a crate
 # together with its whole dependency graph, and it cannot do that for a crate
@@ -308,15 +437,15 @@ maya-lattice-pow = { path = "lattice-pow" }
 # derivation is compiled and tested against the types it produces; no consensus
 # path reaches either.
 maya-blockgraph = { path = "blockgraph" }
-jsonrpsee = { version = "0.26", features = ["server", "http-client"] }
+jsonrpsee = { workspace = true, features = ["server", "http-client"] }
 # The official Prometheus client. hyper and its util/body crates are already in
 # the tree via jsonrpsee, so the exporter adds no new transport dependency.
-prometheus-client = "0.25"
-hyper = { version = "1", features = ["server", "http1"] }
-hyper-util = { version = "0.1", features = ["tokio"] }
-http-body-util = "0.1"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net", "io-util"] }
-futures = "0.3"
+prometheus-client.workspace = true
+hyper = { workspace = true, features = ["server", "http1"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+http-body-util.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net", "io-util"] }
+futures.workspace = true
 libp2p = { version = "0.57", features = [
     "tokio",
     "gossipsub",
@@ -341,14 +470,14 @@ libp2p = { version = "0.57", features = [
 xdp = ["maya-ebpf-net/xdp"]
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true
 # `tests/fuzz_harness.rs` only: a seeded RNG so a soak run replays exactly. The
 # coverage-guided search and its LibAFL/Z3 graph live in the out-of-workspace
 # `offsec-sandbox` crate, never here — see docs/offsec-sandbox.md.
-rand_chacha = "0.3"
+rand_chacha.workspace = true
 # In-memory duplex streams, for driving the two halves of the ML-KEM handshake
 # against each other without a socket. What libp2p uses for the same job.
-futures_ringbuf = "0.4"
+futures_ringbuf.workspace = true
 # For `tests/hybrid_parity_tests.rs`, which pins the browser SDK's copy of the
 # hybrid construction against the node's authoritative one.
 maya-sdk-wasm = { path = "sdk-wasm" }
@@ -376,11 +505,11 @@ maya-htlc-watcher = { path = "htlc-watcher" }
 # reach anything the node links (invariant 20).
 maya-confidential-ai = { path = "confidential-ai" }
 # The in-process chains in that test implement the watcher's `SwapChain`.
-async-trait = "0.1"
+async-trait.workspace = true
 # For `tests/threat_intel_tests.rs`, which drives the real firewall worker from
 # each honest node's own state. A dev-dependency cycle, as `maya-htlc-watcher`.
 maya-threat-firewall = { path = "threat-firewall" }
-criterion = "0.7"
+criterion.workspace = true
 # Only for `benches/ebpf_bench.rs`: the baseline the relay's fixed header is
 # measured against. No `flatc`; the bench writes its one table out by hand.
 flatbuffers = "25"
@@ -403,16 +532,16 @@ flatbuffers = "25"
 # same failure mode that produced a guessed address domain and a guessed mix key
 # earlier in this tree, both of which were only caught because an authority
 # existed to test against. Here there would be none.
-sha2 = "0.10"
+sha2.workspace = true
 ed25519-dalek = { version = "2.2", features = ["rand_core"] }
 # Shielded tests build joinsplits directly, which means constructing field
 # elements and seeding a deterministic RNG.
-ark-bls12-381 = "=0.6.0"
-ark-std = "=0.6.0"
+ark-bls12-381.workspace = true
+ark-std.workspace = true
 # Contract tests assemble small modules from WAT so they exercise the
 # transaction path without depending on a wasm toolchain being installed.
-wat = "1"
-jsonrpsee = { version = "0.26", features = ["server", "http-client"] }
+wat.workspace = true
+jsonrpsee = { workspace = true, features = ["server", "http-client"] }
 # Only so `examples/gen_fuzz_corpus.rs` can build SV2 seeds through the real
 # encoders rather than by hand. A dev-dependency, never a runtime one: the node
 # does not speak the pool protocol.

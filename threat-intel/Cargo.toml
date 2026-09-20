@@ -1,10 +1,10 @@
 [package]
 name = "maya-threat-intel"
-version = "0.1.0"
+version.workspace = true
 # Not published. See dex/Cargo.toml for why cargo-deny needs this.
-publish = false
-edition = "2024"
-rust-version = "1.88"
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Threat indicators from transferable evidence of attributable gossip offences, isolated so it can be formally verified"
 
 # Deliberately empty, for the reason `maya-dex` is: the score, its decay and the

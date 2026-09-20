@@ -1,9 +1,9 @@
 [package]
 name = "maya-zkml"
-version = "0.1.0"
-publish = false
-edition = "2024"
-rust-version = "1.88"
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Verifying proofs of quantized neural-network inference, without running the network"
 
 [dependencies]
@@ -12,8 +12,8 @@ description = "Verifying proofs of quantized neural-network inference, without r
 # a trusted universal setup and a pairing assumption no quantum computer
 # respects -- see docs/zkml.md.
 halo2-axiom = { version = "=0.5.3", default-features = false, features = ["circuit-params"] }
-blake3 = "1.8"
-thiserror = "2.0"
+blake3.workspace = true
+thiserror.workspace = true
 # `ParamsKZG::setup` takes an `RngCore`; the version halo2 itself uses.
 rand_core = "0.6"
 

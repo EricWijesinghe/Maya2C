@@ -1,10 +1,10 @@
 [package]
 name = "maya-threat-firewall"
-version = "0.1.0"
+version.workspace = true
 # Not published. See stratum-v2/Cargo.toml for why cargo-deny needs this.
-publish = false
-edition = "2024"
-rust-version = "1.88"
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Per-host worker turning a co-located node's active threat indicators into nftables or iptables drops"
 
 [lib]
@@ -22,11 +22,11 @@ custom-l1-node = { path = ".." }
 # Whether an indicator is active at a height: decided by the same function the
 # node's own records are canonical under.
 maya-threat-intel = { path = "../threat-intel" }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
-jsonrpsee = { version = "0.26", features = ["http-client"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
+jsonrpsee = { workspace = true, features = ["http-client"] }
 # `ThreatSource` is held as a trait object so tests drive the worker from an
 # in-process state database; native async fns in traits are not dyn-compatible.
-async-trait = "0.1"
-serde = "1"
-thiserror = "2.0"
-hex = "0.4"
+async-trait.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+hex.workspace = true

@@ -1,8 +1,8 @@
 [package]
 name = "maya-zkml-prover"
-version = "0.1.0"
-publish = false
-edition = "2024"
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
 # Higher than the workspace's 1.88, and deliberately only here. tract-onnx's
 # patched releases (0.23.1+, for RUSTSEC-2026-0217) need 1.91, and the 0.21
 # line's patched releases pin a `libm` that conflicts with the exact wasmtime
@@ -25,10 +25,10 @@ tract-onnx = "0.23"
 rand = "0.8"
 
 [dev-dependencies]
-serde_json = "1"
+serde_json.workspace = true
 # Pins the committed ONNX fixture.
-sha2 = "0.10"
-criterion = "0.7"
+sha2.workspace = true
+criterion.workspace = true
 
 [[bench]]
 name = "verify"

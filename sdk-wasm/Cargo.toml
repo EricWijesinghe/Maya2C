@@ -1,9 +1,9 @@
 [package]
 name = "maya-sdk-wasm"
-version = "0.1.0"
-publish = false
-edition = "2024"
-rust-version = "1.88"
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "wasm-bindgen bindings for browser-side Maya2C signing and verification"
 
 [lib]
@@ -19,8 +19,8 @@ crate-type = ["cdylib", "rlib"]
 # if it goes undetected. `tests/parity_tests.rs` in the workspace signs with the
 # node and verifies here, and vice versa, so drift fails a test rather than
 # producing a transaction the chain rejects.
-fips204 = { version = "0.4", default-features = false, features = ["ml-dsa-65", "default-rng"] }
+fips204 = { workspace = true, features = ["default-rng"] }
 maya-crypto-pq = { path = "../crypto-pq" }
-blake3 = "1.8"
+blake3.workspace = true
 wasm-bindgen = "0.2"
-hex = "0.4"
+hex.workspace = true

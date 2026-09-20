@@ -1,10 +1,10 @@
 [package]
 name = "maya-confidential-ai"
-version = "0.1.0"
+version.workspace = true
 # Not published. See stratum-v2/Cargo.toml for why cargo-deny needs this.
-publish = false
-edition = "2024"
-rust-version = "1.88"
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Federated training without revealing local updates: ML-KEM pairwise-masked secure aggregation, integer discrete-Gaussian differential privacy, and an attestation hook"
 
 [lib]
@@ -16,9 +16,9 @@ path = "src/lib.rs"
 # entropy is the caller's, expanded with BLAKE3, as in `htlc-lattice`.
 [dependencies]
 maya-crypto-pq = { path = "../crypto-pq" }
-blake3 = "1.8"
-zeroize = { version = "1", features = ["derive"] }
-thiserror = "2.0"
+blake3.workspace = true
+zeroize = { workspace = true, features = ["derive"] }
+thiserror.workspace = true
 # Seals each seed share to its recipient under a key from the pair's ML-KEM
 # secret. The version `custody-mpc` and `mev` already use.
-chacha20poly1305 = "0.10"
+chacha20poly1305.workspace = true

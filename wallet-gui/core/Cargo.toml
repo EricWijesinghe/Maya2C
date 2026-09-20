@@ -1,13 +1,13 @@
-﻿[package]
+[package]
 name = "maya-wallet-core"
-version = "0.1.0"
+version.workspace = true
 # Not published. cargo-deny reads this: `allow-wildcard-paths` and
 # `[licenses.private] ignore` both apply only to unpublished crates, so
 # without it every internal path dependency reads as a wildcard and every
 # workspace crate reads as unlicensed.
-publish = false
-edition = "2024"
-rust-version = "1.88"
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Zero-trust wallet core: BIP-39, SLIP-0010, OS keychain, offline signing"
 
 [lib]
@@ -29,17 +29,17 @@ bip39 = { version = "2.2", default-features = false, features = ["std"] }
 # enable, and enabling one here would fail to resolve.
 keyring = "4"
 
-argon2 = "0.5"
+argon2.workspace = true
 chacha20poly1305 = "0.11"
 hmac = "0.12"
-sha2 = "0.10"
+sha2.workspace = true
 pbkdf2 = { version = "0.12", default-features = false }
-zeroize = { version = "1", features = ["zeroize_derive"] }
-getrandom = "0.4"
-hex = "0.4"
-thiserror = "2.0"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+zeroize = { workspace = true, features = ["zeroize_derive"] }
+getrandom.workspace = true
+hex.workspace = true
+thiserror.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 
 # QR payloads are decoded and parsed in Rust, never in the frontend: a payment
 # URI is untrusted input and parsing it in JS would put an attacker's string
@@ -47,21 +47,21 @@ serde_json = "1"
 rqrr = "0.10"
 image = { version = "0.25", default-features = false, features = ["png"] }
 
-jsonrpsee = { version = "0.26", features = ["http-client"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+jsonrpsee = { workspace = true, features = ["http-client"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
 # The digest every air-gap frame carries, so a receiver can tell that two
 # signings' frames have been interleaved. BLAKE3 rather than anything else
 # because the node already uses it everywhere and the wallet already links it
 # transitively — a second hash function here would be a second thing to review.
-blake3 = "1.8"
+blake3.workspace = true
 # For `SetupTrust`, which reads `SETUP_IS_TRUSTED` from the crate that owns it
 # rather than duplicating the flag. A wallet is where a user would meet an
 # unceremonied trusted setup, so the state must not be able to drift from it.
 maya-zk-privacy = { path = "../../zk-privacy" }
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true
 # Encodes real QR images for the decode tests. A parser exercised only on
 # hand-written strings has never seen the input a camera actually produces.
 qrcode = "0.14"
