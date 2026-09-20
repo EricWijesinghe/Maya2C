@@ -45,6 +45,8 @@
 //! an inline SplitMix64 seeded from [`DEFAULT_SEED`], overridable with
 //! `MAYA_CHAOS_SEED`, and the seed is printed and written into the report.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -83,48 +85,28 @@ pub fn seed() -> u64 {
         .unwrap_or(DEFAULT_SEED)
 }
 
-/// SplitMix64.
+/// The randomness for every scenario below comes from `maya-sim`.
 ///
-/// Inline rather than a dependency: it is nine lines, it is the reference
-/// implementation, and adding a crate to `[dev-dependencies]` so that a test
-/// can shuffle a vector is a poor trade. Its statistical quality is far beyond
-/// what "pick a byte to corrupt" needs.
-pub struct Rng(u64);
+/// It used to be a private nine-line SplitMix64 in this file, with the
+/// argument that adding a dependency so a test could shuffle a vector was a
+/// poor trade. That was true while it was the only one. It is not true now:
+/// `sim/` is the workspace's deterministic harness, every later chaos,
+/// latency, partition and Byzantine test is meant to run on it, and a second
+/// private generator here would be a second definition of "the seed" —
+/// exactly the thing that makes a recorded seed stop meaning anything.
+///
+/// `SimRng` is the same algorithm, so the scenarios below are unchanged.
+/// What is new is `maya_sim::replay`, which prints the seed on failure, and
+/// `below`, which is uniform without a modulo bias.
+///
+/// See `docs/adr/ADR-006-simulation-harness.md`.
+use maya_sim::SimRng;
 
-impl Rng {
-    /// A generator seeded from `seed`.
-    #[must_use]
-    pub fn new(seed: u64) -> Self {
-        Self(seed)
-    }
-
-    /// The next value.
-    pub fn next_u64(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    }
-
-    /// A value in `0..bound`.
-    ///
-    /// # Panics
-    ///
-    /// If `bound` is zero.
-    pub fn below(&mut self, bound: usize) -> usize {
-        assert!(bound > 0, "bound must be positive");
-        // Modulo bias is irrelevant at these bounds and this purpose; saying so
-        // is cheaper than a rejection loop nobody will read.
-        (self.next_u64() % bound as u64) as usize
-    }
-
-    /// Fisher-Yates, so a shuffle is reproducible from the seed.
-    pub fn shuffle<T>(&mut self, items: &mut [T]) {
-        for index in (1..items.len()).rev() {
-            items.swap(index, self.below(index + 1));
-        }
-    }
+/// A value in `0..bound`, as a `usize`, which is what this file wants
+/// everywhere.
+fn below(rng: &mut SimRng, bound: usize) -> usize {
+    assert!(bound > 0, "bound must be positive");
+    rng.below(bound as u64) as usize
 }
 
 // ---------------------------------------------------------------------------
@@ -355,7 +337,7 @@ fn characterisation_a_shuffled_branch_lands_only_as_far_as_its_prefix() {
     // is a real block it accepted, and never on a partial or invented one.
     let run_seed = seed();
     println!("MAYA_CHAOS_SEED={run_seed}");
-    let mut rng = Rng::new(run_seed);
+    let mut rng = SimRng::new(run_seed);
 
     let (mut chain, key, _dir) = funded_chain(1_000_000);
     let branch = mint_branch(&key, 1_000_000, 8, 1_000_100);
@@ -436,7 +418,7 @@ impl Corruption {
     /// returns its input unchanged passes every assertion while testing
     /// nothing, which is the failure mode this whole file exists to avoid.
     #[must_use]
-    pub fn apply(self, bytes: &[u8], rng: &mut Rng) -> Option<Vec<u8>> {
+    pub fn apply(self, bytes: &[u8], rng: &mut SimRng) -> Option<Vec<u8>> {
         if bytes.is_empty() {
             return None;
         }
@@ -444,25 +426,25 @@ impl Corruption {
 
         match self {
             Self::FlipBit => {
-                let index = rng.below(out.len());
-                out[index] ^= 1 << (rng.below(8) as u8);
+                let index = below(rng, out.len());
+                out[index] ^= 1 << (below(rng, 8) as u8);
             }
             Self::Truncate => {
                 if out.len() < 2 {
                     return None;
                 }
-                let keep = rng.below(out.len() - 1);
+                let keep = below(rng, out.len() - 1);
                 out.truncate(keep);
             }
             Self::Extend => {
-                let count = 1 + rng.below(32);
+                let count = 1 + below(rng, 32);
                 for _ in 0..count {
-                    out.push(rng.below(256) as u8);
+                    out.push(below(rng, 256) as u8);
                 }
             }
             Self::ZeroRun => {
-                let start = rng.below(out.len());
-                let end = (start + 1 + rng.below(16)).min(out.len());
+                let start = below(rng, out.len());
+                let end = (start + 1 + below(rng, 16)).min(out.len());
                 // A run that is already zero changes nothing, which would be
                 // the silent no-op named above.
                 if out[start..end].iter().all(|b| *b == 0) {
@@ -474,9 +456,9 @@ impl Corruption {
                 if out.len() < 4 {
                     return None;
                 }
-                let width = 1 + rng.below(out.len() / 2);
-                let a = rng.below(out.len() - width);
-                let b = rng.below(out.len() - width);
+                let width = 1 + below(rng, out.len() / 2);
+                let a = below(rng, out.len() - width);
+                let b = below(rng, out.len() - width);
                 if a == b {
                     return None;
                 }
@@ -498,7 +480,7 @@ fn the_corruption_engine_actually_corrupts() {
     // The engine's own test. Without it, a bug that made every mutation a
     // no-op would turn every test below into a test of nothing that still
     // passes green.
-    let mut rng = Rng::new(seed());
+    let mut rng = SimRng::new(seed());
     let subject: Vec<u8> = (0..=255u8).collect();
 
     for corruption in CORRUPTIONS {
@@ -530,7 +512,7 @@ fn a_corrupted_block_is_rejected_without_moving_the_state() {
     // before a mid-execution failure, with the tip correctly left behind.
     let run_seed = seed();
     println!("MAYA_CHAOS_SEED={run_seed}");
-    let mut rng = Rng::new(run_seed);
+    let mut rng = SimRng::new(run_seed);
 
     let (mut chain, key, _dir) = funded_chain(1_000_000);
     let recipient = [0x22u8; 32];
@@ -643,7 +625,7 @@ fn a_corrupted_transaction_is_rejected_without_moving_the_state() {
     // must be exactly as it was.
     let run_seed = seed();
     println!("MAYA_CHAOS_SEED={run_seed}");
-    let mut rng = Rng::new(run_seed);
+    let mut rng = SimRng::new(run_seed);
 
     let (mut chain, key, _dir) = funded_chain(1_000_000);
     let recipient = [0x33u8; 32];
@@ -806,7 +788,7 @@ fn research_branch_a_tampered_lattice_solution_is_rejected_without_panicking() {
 
     let run_seed = seed();
     println!("MAYA_CHAOS_SEED={run_seed}");
-    let mut rng = Rng::new(run_seed);
+    let mut rng = SimRng::new(run_seed);
 
     // Small parameters: dimension 8 over q = 97. There is no `TESTING`
     // constant -- the params arrive from the chain by design, so the crate
@@ -823,12 +805,12 @@ fn research_branch_a_tampered_lattice_solution_is_rejected_without_panicking() {
         // Deliberately hostile coordinates: extremes as well as small values,
         // because a norm computed by squaring is where an overflow lives.
         let vector: Vec<i64> = (0..params.dimension as usize)
-            .map(|_| match rng.below(6) {
+            .map(|_| match below(&mut rng, 6) {
                 0 => i64::MIN,
                 1 => i64::MAX,
                 2 => -(rng.next_u64() as i64),
                 3 => rng.next_u64() as i64,
-                _ => (rng.below(2 * params.modulus as usize) as i64) - params.modulus as i64,
+                _ => (below(&mut rng, 2 * params.modulus as usize) as i64) - params.modulus as i64,
             })
             .collect();
 
@@ -1221,7 +1203,7 @@ async fn a_third_of_the_network_broadcasting_garbage_does_not_poison_the_rest() 
     // sends nothing, a Byzantine one sends plausible nonsense.
     let run_seed = seed();
     println!("MAYA_CHAOS_SEED={run_seed}");
-    let mut rng = Rng::new(run_seed);
+    let mut rng = SimRng::new(run_seed);
 
     let honest_key = generate_signing_key().expect("keygen");
     let unfunded_key = generate_signing_key().expect("keygen");

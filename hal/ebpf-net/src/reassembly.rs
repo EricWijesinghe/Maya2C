@@ -304,6 +304,7 @@ impl<S: Copy + Eq + Hash> Reassembler<S> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use maya_ebpf_net_common::header::CHUNK_LEN;
 
     use super::*;

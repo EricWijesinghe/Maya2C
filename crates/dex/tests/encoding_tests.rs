@@ -5,6 +5,8 @@
 //! crate maps to the wrong variant is a swap executed the wrong way round — and
 //! every node would make the same mistake, so nothing would flag it.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use maya_dex::book::{Book, Order, Side, quote_for_base};
 use maya_dex::error::DexError;
 use maya_dex::types::{Direction, NATIVE_ASSET, PRICE_SCALE};

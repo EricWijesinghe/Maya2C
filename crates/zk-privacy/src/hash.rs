@@ -39,6 +39,7 @@ pub fn hash_var(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use ark_r1cs_std::GR1CSVar;
     use ark_r1cs_std::alloc::AllocVar;

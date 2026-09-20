@@ -152,6 +152,7 @@ impl<R> ShardStores<R> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use crate::shard_manager::metrics::TickSample;
     use crate::shard_manager::policy::{ScalingConfig, ShardManager};

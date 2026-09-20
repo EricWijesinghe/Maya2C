@@ -39,6 +39,8 @@
 //! shared by every test in the run. Under plain `cargo test` there is one
 //! process for the whole binary, so the process id serves the same purpose.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};

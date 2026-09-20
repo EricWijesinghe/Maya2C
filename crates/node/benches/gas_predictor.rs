@@ -19,6 +19,8 @@
 //! | `mempool/admit_signed` | real admission, signature verification included — the number that bounds a burst |
 //! | `block_validation/{linear,neural}` | applying a signed block, then each rule; the gap is the rule's cost |
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::hint::black_box;
 use std::sync::Arc;
 

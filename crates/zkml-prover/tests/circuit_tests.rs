@@ -9,6 +9,8 @@
 //! The honest-witness tests matter as much: a circuit that refused everything
 //! would pass every negative test in this file.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::path::PathBuf;
 
 use halo2_axiom::dev::MockProver;

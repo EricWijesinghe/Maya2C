@@ -234,6 +234,7 @@ pub fn derive_keys(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     fn pair() -> (DirectionalKeys, DirectionalKeys) {

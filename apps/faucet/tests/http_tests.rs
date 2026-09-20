@@ -5,6 +5,8 @@
 //! `into_make_service_with_connect_info` does at runtime, so the limiter sees
 //! the same thing it would see in production — which is the part worth testing.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 

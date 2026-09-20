@@ -15,6 +15,8 @@
 //!   chain's reserves is not a detectable corruption. It is two plausible
 //!   numbers that go on quoting a price.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::core::dex_payload::{
     AssetRegistration, AssetTransfer, LiquidityDeposit, LiquidityWithdrawal, OrderPlacement,
     PoolCreation, RouteLeg, SwapRequest, SwapRoute,

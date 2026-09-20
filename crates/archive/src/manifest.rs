@@ -174,6 +174,7 @@ fn get_u64(map: &[(Value, Value)], name: &str) -> Result<u64> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use crate::car::{RAW_CODEC, cid_of};
 

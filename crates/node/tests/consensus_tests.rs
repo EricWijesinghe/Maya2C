@@ -6,6 +6,8 @@
 //! consistency, not about whether a nonce was actually ground out. Mining is
 //! covered separately by the crypto suite.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::sync::Arc;
 
 use custom_l1_node::consensus::difficulty::{

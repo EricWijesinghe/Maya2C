@@ -5,6 +5,8 @@
 //! number one unit too large, repeated in a loop, is a mint. So most of what
 //! follows checks the direction a division fell rather than its magnitude.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use maya_dex::amm::{MINIMUM_LIQUIDITY, Pool};
 use maya_dex::error::DexError;
 use maya_dex::fees::FeeSchedule;

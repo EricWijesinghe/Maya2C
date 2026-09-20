@@ -19,6 +19,8 @@
 //! That mistake would have produced plausible-looking addresses that no key
 //! could spend.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::crypto::hybrid;
 
 /// A deterministic key, so a failure is reproducible.

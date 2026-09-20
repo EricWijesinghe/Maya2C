@@ -83,6 +83,7 @@ pub fn fr_from_bytes(bytes: &[u8; FIELD_BYTES]) -> Result<Fr> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

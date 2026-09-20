@@ -64,6 +64,8 @@
 //! figure would need a stated confirmation depth, and would then be a statement
 //! about that choice rather than about the chain.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::hint::black_box;
 use std::time::Duration;
 

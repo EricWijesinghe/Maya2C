@@ -76,6 +76,7 @@ pub const fn isqrt_u128(value: u128) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

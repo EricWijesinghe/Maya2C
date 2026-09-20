@@ -22,6 +22,8 @@
 //! cargo test --test dualkem_latency_tests -- --nocapture
 //! ```
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::time::Duration;
 
 use custom_l1_node::network::pq::measure::{

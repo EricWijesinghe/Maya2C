@@ -16,6 +16,8 @@
 //!   differently, and the whole point of the timelock is that it does not
 //!   happen sooner.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::core::governance_payload::{
     Ballot, ProposalSubmission, StakeLock, StakeUnlock, WorkClaim,
 };

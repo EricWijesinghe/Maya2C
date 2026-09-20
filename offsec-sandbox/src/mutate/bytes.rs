@@ -106,6 +106,7 @@ fn splice(out: &mut Vec<u8>, rng: &mut Rng) {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use rand_core::SeedableRng;
 
     use super::*;

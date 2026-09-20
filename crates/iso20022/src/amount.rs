@@ -183,6 +183,7 @@ fn parse_digits(digits: &str, whole: &str) -> Result<u64> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

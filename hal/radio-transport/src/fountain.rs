@@ -511,6 +511,7 @@ fn coefficients(index: u32, block_count: usize) -> Vec<u64> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     /// A deterministic pseudorandom stream, so a loss pattern is reproducible.

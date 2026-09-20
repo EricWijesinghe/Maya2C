@@ -66,6 +66,7 @@ impl<'a> BlockSealer<'a> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use maya_ebpf_net_common::header::{CHUNK_LEN, MAX_BODY_LEN};
 
     use super::*;

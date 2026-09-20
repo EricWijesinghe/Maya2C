@@ -31,15 +31,24 @@ xtask = "run --quiet --package xtask --"
 linker = "clang"
 rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 
-# Windows deliberately keeps MSVC `link.exe`.
+# Windows: `lld-link`, LLVM's linker, in place of MSVC `link.exe`.
 #
-# `[profile.dev.package.custom-l1-node] debug = "line-tables-only"` exists
-# because link.exe stops with `LNK1140: limit exceeded for program database`
-# past a certain module count. That workaround is calibrated to link.exe's PDB
-# limits; swapping in `lld-link` changes which limit the tree hits and would
-# need the whole measurement redone. It would also invalidate every fingerprint
-# in a 289 GB `target/`. Not worth it for a linker change nobody has measured a
-# need for. If that changes, the evidence goes in an ADR first.
+# The reason to want it is `LNK1140: limit exceeded for program database`.
+# link.exe caps how many modules one PDB may hold, the node binary links 183
+# object files, and that cap is why
+# `[profile.dev.package.custom-l1-node] debug = "line-tables-only"` exists at
+# all. lld-link does not share that limit.
+#
+# Measured before the switch: the tree built and its 2,515 tests passed on
+# link.exe. Measured after: reports/04-completion.md. Deleting these two lines
+# restores link.exe exactly — the `line-tables-only` overrides stay in place
+# and do not depend on which linker runs.
+#
+# Needs LLVM on PATH (C:/Program Files/LLVM/bin on this machine). A Windows
+# clone without it gets "linker not found", which is a clear failure rather
+# than a mysterious one.
+[target.x86_64-pc-windows-msvc]
+linker = "lld-link.exe"
 
 # Browser wasm.
 #
@@ -86,3 +95,25 @@ rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
 # `[profile.dev] debug = "line-tables-only"` did fix.
 [build]
 jobs = 4
+
+# ---------------------------------------------------------------------------
+# sccache
+# ---------------------------------------------------------------------------
+#
+# Installed (0.18.0), and deliberately **not** set as `rustc-wrapper` here.
+#
+# Two reasons. Cargo fails outright when a configured wrapper is missing, so
+# putting it in this file breaks every clone that does not have it — and
+# "if installed" cannot be expressed in cargo configuration. And sccache does
+# not cache incremental compilation, so with `[profile.dev] incremental = true`
+# the two defeat each other: sccache would simply miss.
+#
+# Where it pays is a non-incremental build, which is exactly what `profile.ci`
+# is (`incremental = false`). Enable it per-invocation:
+#
+#     RUSTC_WRAPPER=sccache cargo build --profile ci --workspace
+#     sccache --show-stats
+#
+# For CI, `Swatinem/rust-cache` already caches `target/` across runs, which on
+# a workspace this shape is the same win with fewer moving parts. Adding
+# sccache on top would cache the same compilations twice.

@@ -13,6 +13,8 @@
 //!   that peer, and to no one else;
 //! - no sequence of bytes panics the receiver or makes it deliver anything.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::time::Instant;
 
 use maya_ebpf_net::common::header::{CHUNK_LEN, HEADER_LEN, MAX_DATAGRAM_LEN};

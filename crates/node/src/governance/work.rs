@@ -159,6 +159,7 @@ pub fn narrow_work(work: &crate::consensus::uint::U256) -> u128 {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

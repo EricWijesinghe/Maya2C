@@ -12,6 +12,8 @@
 //! It scans rather than reads the types on purpose. "There is no field for it"
 //! is an argument about today's code; a scan is an argument about the bytes.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::core::identity_payload::{
     AnchorAttestation, RegisterDid, RevokeDid, RotateDidKey, SetRevocationBit,
 };

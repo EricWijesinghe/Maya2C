@@ -1,6 +1,8 @@
 //! The watcher's decisions over plain values: pairing, claiming, refusing to
 //! reveal late, refunding, finishing — and the journal that remembers them.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use maya_htlc_lattice::{LatticeSecret, Opening};
 use maya_htlc_watcher::{
     Action, Alert, BlockRate, ChainPoint, ChainSide, Journal, Leg, LockState, LockView, Margins,

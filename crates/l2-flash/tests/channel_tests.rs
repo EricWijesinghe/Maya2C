@@ -1,5 +1,7 @@
 //! Channel updates, HTLCs, routing, and multi-hop payment construction.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::crypto::hybrid::{HybridPublicKey, HybridSigningKey, generate_signing_key};
 
 use l2_flash::channel::{Channel, ChannelState, Party, SignedState};

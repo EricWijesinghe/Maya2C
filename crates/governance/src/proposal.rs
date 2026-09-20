@@ -343,6 +343,7 @@ impl Proposal {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use crate::limits::{MIN_TIMELOCK_BLOCKS, MIN_VOTING_BLOCKS};
 

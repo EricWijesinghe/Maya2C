@@ -23,6 +23,8 @@
 //! That is exactly the asymmetry the design is built on, so the vectors are
 //! also a demonstration of it.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::crypto::dag::cache::Cache;
 use custom_l1_node::crypto::dag::dataset::{Dataset, dataset_item};
 use custom_l1_node::crypto::dag::hashimoto::{hashimoto_full, hashimoto_light};

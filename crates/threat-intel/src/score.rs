@@ -95,6 +95,7 @@ pub const fn until_height(score: u64, last_height: u64) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

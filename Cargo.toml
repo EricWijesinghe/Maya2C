@@ -46,6 +46,19 @@ members = [
     # The node. The workspace's root package until 2026-09-20; an ordinary
     # member since — see docs/adr/ADR-001-workspace-layout.md.
     "crates/node",
+    # The build tiers, as cargo features. No code: the manifest is the
+    # artifact. `cargo build -p maya-tiers --features frontier`.
+    "crates/tiers",
+    # The node's executables. Separate packages rather than `[[bin]]` targets
+    # of `crates/node`, because the foundation brief puts executables in
+    # `bins/`. Each links the node as a library and uses nothing outside its
+    # public surface.
+    "bins/maya2c-node",
+    "bins/maya2c-miner",
+    "bins/maya2c-genesis",
+    "bins/genesis-ceremony",
+    "bins/maya2c-peerid",
+    "bins/maya2c-gpu-miner",
     # Deterministic simulation: seeded RNG, virtual clock, modelled network,
     # fault-injecting disk. Dependency-free, because a dependency is a second
     # source of decisions and any one of them makes a replay a different run
@@ -318,6 +331,11 @@ hyper = "1"
 hyper-util = "0.1"
 jsonrpsee = "0.26"
 leptos = "0.8"
+# The peer-to-peer stack. Hoisted when the node's executables became their own
+# packages: `bins/maya2c-node` needs `Multiaddr` and `bins/maya2c-peerid`
+# needs `PeerId`, both of which are libp2p's core types. The long feature list
+# stays in `crates/node`, which is the crate that actually opens a socket.
+libp2p = "0.57"
 prometheus-client = "0.25"
 rand_chacha = "0.3"
 rocksdb = "0.25"
@@ -399,17 +417,28 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
 # switched on.
 pedantic = { level = "warn", priority = -1 }
 
-# `unwrap()` and `expect()` in shipped code.
+# `unwrap()` and `expect()` in shipped code. Denied.
 #
-# Warn here rather than deny, because a manifest lint table cannot tell a test
-# from a library: `#[cfg(test)]` code is compiled into the same crate, and
-# unwrapping in a test is how a test reports a failure. The deny lives in CI
-# instead, scoped to the targets where it means something:
+# A manifest lint table cannot tell a test from a library — `#[cfg(test)]` code
+# is compiled into the same crate, and unwrapping in a test is how a test
+# reports a failure. So the deny is here and every *test scope* opts out
+# explicitly: an inner
+# `#![allow(clippy::unwrap_used, clippy::expect_used)]` at the top of each
+# test, bench, example and fuzz-target file, and at the top of each
+# `#[cfg(test)] mod tests`. 354 scopes, added mechanically.
 #
-#     cargo clippy --workspace --lib --bins -- -D clippy::unwrap_used
-#
-# which leaves tests, benches and examples alone.
-unwrap_used = "warn"
+# The cost is that a new test file needs that line. The benefit is that
+# `unwrap()` in shipped code is a compile error rather than one warning among
+# 1,707, and that adding the allow is a visible act.
+unwrap_used = "deny"
+
+# `expect_used` is deliberately NOT denied. The brief asks for `unwrap_used`,
+# and the two are different objects: an `expect("the frozen vectors must be
+# readable")` names the invariant it relies on and puts it in the panic
+# message, where a bare `unwrap()` names nothing. There are 73 in shipped
+# code; denying them would push people toward `unwrap_or_default`, which
+# hides the failure instead of describing it. The test-scope allows list it
+# anyway, so turning it on later needs no further edits.
 
 # Pedantic lints this tree disagrees with, switched off once here instead of
 # with an `#[allow]` in fifty files.
@@ -450,6 +479,7 @@ similar_names = "allow"             # `sk`/`pk`, `s`/`e` in the lattice code are
 [profile.dev]
 debug = "line-tables-only"
 incremental = true
+split-debuginfo = "unpacked"
 
 # Every dependency — but not the workspace members — compiled optimized and
 # without debug info.
@@ -481,17 +511,24 @@ debug = false
 # dependency; the size it saves is not worth a second full `target/`.
 [profile.release]
 opt-level = 3
-lto = "thin"
-codegen-units = 16
-debug = false
-strip = "debuginfo"
-
-# Tagged and release-candidate builds: the slow, small one.
-[profile.dist]
-inherits = "release"
 lto = "fat"
 codegen-units = 1
-strip = "symbols"
+debug = false
+strip = true
+
+# The profile the shipped **binaries** are built from.
+#
+# `panic = "abort"` lives here and not in `release`, because cargo applies
+# `panic` to a whole profile rather than to a target kind. In `release` it
+# would break `cargo test` — the harness has to unwind to report a failure —
+# and it would apply to the `cdylib`s in `sdks/sdk-ffi` and `sdks/sdk-wasm`
+# as well as to the executables. A profile of its own is the only way cargo
+# offers to say "for binaries".
+#
+#     cargo build --profile dist --bins
+[profile.dist]
+inherits = "release"
+panic = "abort"
 
 # CI: dev semantics, nothing kept that a runner cannot use.
 #

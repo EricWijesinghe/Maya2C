@@ -5,6 +5,8 @@
 //! orders, and the chain still agrees with itself because every node computes
 //! the same wrong answer.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use maya_dex::book::{Book, Order, SORT_KEY_LEN, Side, quote_for_base, sort_key};
 use maya_dex::error::DexError;
 use maya_dex::types::PRICE_SCALE;

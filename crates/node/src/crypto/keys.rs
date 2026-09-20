@@ -376,6 +376,7 @@ pub fn verifying_key_from_bytes(bytes: &[u8; PUBLIC_KEY_LEN]) -> Result<Verifyin
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

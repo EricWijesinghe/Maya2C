@@ -35,6 +35,8 @@
 
 #![no_main]
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use libfuzzer_sys::fuzz_target;
 use maya_stratum_v2::frame::MAX_PAYLOAD_LEN;
 use maya_stratum_v2::{Frame, Message};

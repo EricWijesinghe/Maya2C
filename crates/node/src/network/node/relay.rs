@@ -628,6 +628,7 @@ fn send_block(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use crate::crypto::pow::target_from_leading_zero_bits;
 

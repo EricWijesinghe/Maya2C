@@ -177,6 +177,7 @@ pub fn base58_decode(text: &str) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     fn address(fill: u8) -> Address {

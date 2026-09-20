@@ -11,6 +11,8 @@
 //! 2. Checks the branch is as inert as it claims: disabled everywhere, and
 //!    referenced by nothing in `src/`.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::core::transaction::{Transaction, TxInput, TxOutput};
 use custom_l1_node::crypto::hybrid::generate_signing_key;
 use maya_fee_market::{

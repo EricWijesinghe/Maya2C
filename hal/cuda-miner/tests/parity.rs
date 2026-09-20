@@ -14,6 +14,8 @@
 //! the device path and the same assertions carry over unchanged — which is the
 //! reason for building the split this way round.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::core::HEADER_LEN as NODE_HEADER_LEN;
 use custom_l1_node::crypto::argon_blake::argon_blake_hash as node_hash;
 use maya_cuda_miner::{HEADER_LEN, argon_blake_hash as split_hash, set_nonce};

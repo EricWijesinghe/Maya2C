@@ -3,6 +3,8 @@
 //! No device, no emulator. Everything here is the chunk-assembly state machine
 //! and path validation — which is where the bugs are, and which needs neither.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use app_maya2c::apdu::{
     ApduError, Assembler, CLA, Chunk, Command, HYBRID_PUBLIC_KEY_LEN, HYBRID_SIGNATURE_LEN,
     Instruction, MAX_APDU_PAYLOAD, MAX_TX_BYTES, Pages, parse,

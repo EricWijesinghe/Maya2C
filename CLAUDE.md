@@ -1,10 +1,8 @@
 # Maya2C
 
 Post-quantum L1 blockchain node in Rust (edition 2024, `rust-version = 1.88`,
-`nightly-2026-07-15` pinned in `rust-toolchain.toml`). A virtual workspace of
-47 members, one lockfile, one `target/`, plus nine crates that are
-deliberately *not* members. The node is `crates/node`; it was the workspace's
-root package until 2026-09-20 — [ADR-001](docs/adr/ADR-001-workspace-layout.md).
+`nightly-2026-07-15`). A virtual workspace of 54 members plus nine crates
+deliberately outside it; the node is `crates/node` — [ADR-001](docs/adr/ADR-001-workspace-layout.md).
 
 ## Identity and Mission
 
@@ -152,10 +150,9 @@ Current: 43 verified, 30 working, 17 planned; 28 core, 41 extended, 21 frontier.
 
 ## Roadmap Status
 
-Three buckets, and the distinction is not cosmetic: a subsystem that was never
-written and one that is written but deliberately dark look identical from
-outside, and mistaking either for shipped produces a safety argument resting on
-nothing.
+Three buckets, and the distinction is not cosmetic: a subsystem never written
+and one written but deliberately dark look identical from outside, and
+mistaking either for shipped produces a safety argument resting on nothing.
 
 - **SHIPPED** — in the tree, reachable, tested.
 - **RESEARCH** — in the tree with tests, but *nothing in consensus calls it*.
@@ -163,17 +160,14 @@ nothing.
   somebody writes down.
 - **PLANNED** — no code in this tree. `grep` will not find it.
 
-Per-subsystem detail, with the rationale for each tag, is
-[docs/architecture-vision.md](docs/architecture-vision.md); the same data in
-checkable form is `features.toml`. Four PLANNED items collide with invariants
-already recorded and must be reconciled *before* code: the bytecode
-hot-patcher with 13, relativistic clock sync and satellite/light-cone
-consensus with 9, TEE attestation with 11.
+Per-subsystem detail with the rationale for each tag:
+[docs/architecture-vision.md](docs/architecture-vision.md). The same data in
+checkable form, plus the 164-entry prompt register: `features.toml`. Session
+ordering: [docs/trajectory.md](docs/trajectory.md), complete through ~48.
 
-Session ordering is the 160-prompt plan in
-[docs/trajectory.md](docs/trajectory.md), completed through ~48. That file is
-the plan; the buckets above are the tree. Reconcile a conflict before the
-prompt that touches it writes code.
+Four PLANNED items collide with invariants already recorded and must be
+reconciled *before* code: the bytecode hot-patcher with 13, relativistic clock
+sync and satellite/light-cone consensus with 9, TEE attestation with 11.
 
 ## Critical Invariants
 
@@ -226,102 +220,38 @@ written as achieved is a directive nobody will implement. Expanded in
 ## Build & Test
 
 Never run unfiltered cargo output — use `qb` / `qt` / `ql`, or pipe through
-`condense`.
+`condense`. **Full detail, with every measured figure: [docs/build.md](docs/build.md).**
 
 ```powershell
-cargo xtask disk                                # artifact size vs the 30 GiB ceiling
-cargo xtask coverage                            # the reality ledger, and whether claims are backed
-qb                                              # cargo build --workspace
-qt                                              # cargo nextest run --workspace
-ql                                              # cargo clippy --all-targets
-cargo llvm-cov --workspace --summary-only       # 80% floor
-bash scripts/doc_coverage.sh --check            # doc coverage (90% floor) + no broken doc links
-cargo deny check                                # deny.toml is committed
-cargo audit
-cargo fuzz list                                 # fuzz/ targets (nightly; decoders + SV2 frames)
-cargo machete                                   # unused-dependency *candidates* — heuristic, verify each
+cargo xtask disk                     # artifact size vs the 30 GiB ceiling
+cargo xtask coverage --verify-targets # the ledger, and that its tests are real targets
+qb                                   # cargo build --workspace
+qt                                   # cargo nextest run --workspace
+ql                                   # cargo clippy --all-targets
+cargo deny check                     # advisories, bans, licences, sources
+bash scripts/lint_debt.sh --check    # the clippy::pedantic ratchet
+bash scripts/doc_coverage.sh --check # doc coverage, 90% floor
 ```
 
-`cargo machete` flags `maya-sdk-ffi -> maya-crypto-pq`, a dependency that
-exists for invariant 2 rather than for any `use`. Check every hit against the
-invariants before removing it.
+Four things that will otherwise cost a day each:
 
-**Disk is the standing hazard.** This volume has been filled to exactly zero
-bytes twice, and a full disk reports as `os error 112` or rustc `0xc0000409` —
-never as "out of space". Run `cargo xtask disk` *before* starting a long build,
-not after it fails. Measured 2026-09-20: 336.5 GiB across all artifact
-directories before `cargo clean`, 20.6 GiB immediately after, and 50.2 GiB
-once everything had been rebuilt and tested. The root `target/` is 29.6 GiB
-of that, down from 316.0 GiB. `fuzz/target` (10.2 GiB) and
-`apps/wallet-gui/src-tauri/target` (8.7 GiB) survive a root clean; they are
-separate workspaces with their own profiles, and they are why the *sum* is
-still over the 30 GiB ceiling while the root is under it.
+- **Run one cargo scope at a time.** Interleaving `-p` and `--workspace`
+  builds, or `cargo xtask` with either, wedges `target/` with
+  `required to be available in rlib format`. It is not a profile bug.
+- **`jobs = 4` in `.cargo/config.toml` is load-bearing.** Wider builds exhaust
+  this machine's commit charge and fail as `os error 1455` while rustc mmaps
+  the node rlib — which surfaces as `can't find crate` across the workspace.
+- **Disk is the standing hazard.** This volume has been filled to zero bytes
+  twice, and a full disk reports as `os error 112`. Run `cargo xtask disk`
+  *before* a long build.
+- **Profiles are not tuning** — [ADR-003](docs/adr/ADR-003-build-profiles.md).
+  The `[profile.dev.package.*]` overrides that name workspace members are the
+  only thing optimising them, and invariant 2 depends on one of them.
 
-**Profiles are load-bearing, not tuning** — [ADR-003](docs/adr/ADR-003-build-profiles.md).
-`[profile.dev] debug = "line-tables-only"` and
-`[profile.dev.package."*"] opt-level = 3, debug = false` are what keep the tree
-inside the ceiling and the node binary under MSVC `link.exe`'s PDB module cap
-(`LNK1140`, past which `cargo nextest run --workspace` cannot even build). The
-per-package overrides that name *workspace members* are not redundant with the
-`"*"` override — `"*"` does not match members, and invariant 2 depends on
-`maya-crypto-pq` being the optimized crate. Do not "clean them up".
-
-Measured on this machine, 2026-09-20, from a clean tree:
-
-| Command | Cold |
-|---|---|
-| `cargo clean` | 1m 28s, 188,085 files, 317.4 GiB |
-| `cargo check --workspace --all-targets` | 4m 34s, 0 errors, 0 warnings |
-| `cargo clippy --workspace --all-targets` | 1,700 diagnostics, all `pedantic` or `unwrap_used` |
-| `cargo build --workspace --all-targets` | 4m 54s |
-| `cargo nextest run --workspace` | 2,515 tests across 169 binaries, **2,515 passed**, 6 skipped, 480.4s (at `jobs = 4`) |
-| root `target/` afterwards | **29.6 GiB**, from 316.0 GiB |
-
-`cargo clippy --workspace --lib --bins -- -D clippy::unwrap_used` reports
-**zero**: all 457 `unwrap()` warnings are in `#[cfg(test)]` code. That is the
-CI gate.
-
-**A cold rebuild is about five minutes, not 52.** The 52-minute figure in this
-file predated the profile change and is corrected.
-
-**Build parallelism is still bounded, and this file was briefly wrong about
-it.** One run of `cargo nextest run --workspace` at cargo's default 24 jobs
-succeeded, and that was written up here as "`CARGO_BUILD_JOBS=1` is no longer
-needed". Every later run at 24 jobs failed. The failure is not `LNK1102` any
-more — with `line-tables-only` the linker is fine — it is rustc:
-
-```
-error[E0786]: found invalid metadata files for crate `custom_l1_node`
-  = note: failed to mmap file 'target\debug\deps\libcustom_l1_node-*.rlib':
-          The paging file is too small for this operation to complete. (os error 1455)
-```
-
-`os error 1455` is Windows commit-charge exhaustion. Measured on this machine:
-31.4 GB RAM, a 22 GB pagefile, **commit limit 53.6 GB with 12.9 GB free**. Two
-dozen `rustc` processes compiling wasmtime, arkworks and halo2 at
-`opt-level = 3`, each mmapping a large rlib, go past it. What it looks like
-from the outside is `can't find crate` and `required to be available in rlib
-format` cascading across the workspace — which reads as a cargo, profile or
-linker bug and is none of them.
-
-The bound lives in `.cargo/config.toml` and `CARGO_BUILD_JOBS` overrides it.
-
-**Run one cargo scope at a time.** Interleaving `cargo build -p <crate>`, or
-`cargo xtask …` (which is `cargo run -p xtask`), with a
-`cargo build --workspace` wedges the target directory:
-
-```
-error: crate `wasmtime_internal_cranelift` required to be available in rlib format, but was not found in this form
-error[E0463]: can't find crate for `custom_l1_node`
-```
-
-Under resolver 2/3 the unified feature set for a shared dependency differs
-between a `-p` scope and a `--workspace` scope, so the two builds produce
-different units into the same directory and each invalidates what the other
-needs. It reads as a profile or a linker bug and is neither.
-`CARGO_BUILD_PIPELINING=false` does not help. The remedy is to let one scope
-finish before starting another; `cargo clean` if it is already wedged. See
-`reports/02-layout.md` §1.
+Measured 2026-09-20: cold `cargo check --workspace --all-targets` 4m 34s,
+cold build 4m 54s, `cargo nextest run --workspace` 2,515 tests across 169
+binaries all passing, root `target/` 26.4 GiB and 27.7 GiB across every
+artifact directory.
 
 ## Code Conventions
 
@@ -341,13 +271,11 @@ finish before starting another; `cargo clean` if it is already wedged. See
   and `nightly.yml` runs it. It may fall freely. If a change legitimately
   raises it, run `--update` and say why in the commit message.
 
-## Development Environment
-
-MCP servers, the ECC harness surface, `.ignore` rules, brand-asset deployment
-and cache locations: [docs/environment.md](docs/environment.md). None of it is
-about the chain; all of it is about the cost of working on it.
-
 ## Workflow Rules
+
+MCP servers, the ECC harness surface, `.ignore` rules, brand assets and cache
+locations are in [docs/environment.md](docs/environment.md) — none of it about
+the chain, all of it about the cost of working on it.
 
 1. Navigation order: `skel` / `ctx` → `serena` symbols → `ast-grep` → bounded
    `Read`. Whole-file reads last.

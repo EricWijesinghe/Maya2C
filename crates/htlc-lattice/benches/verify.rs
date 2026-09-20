@@ -4,6 +4,8 @@
 //! hybrid signature verification is the comparison every transaction already
 //! pays.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use criterion::{Criterion, criterion_group, criterion_main};
 use maya_htlc_lattice::{LatticeSecret, Matrix, Opening};
 use std::hint::black_box;

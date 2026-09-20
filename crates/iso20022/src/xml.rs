@@ -559,6 +559,7 @@ fn write_element(writer: &mut Writer<Vec<u8>>, element: &Element) -> Result<()> 
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     fn text_of(document: &str) -> String {

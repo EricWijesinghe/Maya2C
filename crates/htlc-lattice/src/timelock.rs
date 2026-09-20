@@ -112,6 +112,7 @@ pub const fn decide_refund(status: LockStatus, expiry_height: u64, height: u64) 
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

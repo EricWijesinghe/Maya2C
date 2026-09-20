@@ -16,6 +16,8 @@
 //! `MAYA_ARCHIVE_SEED=<n>`. A randomized test whose failures cannot be
 //! reproduced is a test that reports bugs nobody can fix.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use maya_archive::car::{RAW_CODEC, cid_of, read_car, verify};
 use maya_archive::{ArchivedBlock, build_archive, compress, decompress, open_archive};
 

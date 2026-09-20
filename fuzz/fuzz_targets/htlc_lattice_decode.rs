@@ -7,6 +7,8 @@
 
 #![no_main]
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use libfuzzer_sys::fuzz_target;
 use maya_htlc_lattice::{
     COMMITMENT_BYTES, Commitment, ETA, LockRecord, OPENING_BYTES, Opening,

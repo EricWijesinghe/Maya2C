@@ -32,6 +32,8 @@
 //! `MAX_APDU_PAYLOAD`, and whether an interrupted sequence leaves the device in
 //! a state the next command can recover from. Those are the tests below.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::io::{Read, Write};
 use std::net::TcpStream;
 

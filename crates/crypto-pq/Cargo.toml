@@ -23,7 +23,7 @@ rust-version.workspace = true
 # node's own code unoptimized and debuggable, which is the property the root
 # profile overrides exist to preserve.
 [dependencies]
-# Pure Rust, which the Dockerfile's static-musl build depends on. The PQClean
+# Pure Rust, which the infra/docker/Dockerfile's static-musl build depends on. The PQClean
 # bindings (pqcrypto-sphincsplus) would add a C toolchain and an unsafe FFI
 # surface to a build that currently links only RocksDB's C++ — the same trade
 # that was declined for fips204.

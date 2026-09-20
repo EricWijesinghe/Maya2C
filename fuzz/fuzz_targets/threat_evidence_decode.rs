@@ -9,6 +9,8 @@
 
 #![no_main]
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use libfuzzer_sys::fuzz_target;
 use maya_threat_intel::{
     AttackAttestation, HEADER_BYTES, MAX_EVIDENCE_DATA_BYTES, ThreatIndicator,

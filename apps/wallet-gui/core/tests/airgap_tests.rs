@@ -16,6 +16,8 @@
 //! Nothing here touches the network, which is the point: an offline signer
 //! that needed a node would not be offline.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use maya_wallet_core::airgap::{self, Assembler, Frame};
 use maya_wallet_core::hd::{DerivationPath, seed_from_mnemonic, signing_key_at};
 use maya_wallet_core::payment::sign_transfer;

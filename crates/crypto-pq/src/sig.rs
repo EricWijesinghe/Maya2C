@@ -326,6 +326,7 @@ fn hex_16(bytes: &[u8; PUBLIC_KEY_LEN]) -> String {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

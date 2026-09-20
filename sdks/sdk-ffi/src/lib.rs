@@ -249,6 +249,7 @@ pub fn address_from_public_key(public_key: Vec<u8>) -> Result<String, SdkError> 
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     fn key() -> Arc<SigningKey> {

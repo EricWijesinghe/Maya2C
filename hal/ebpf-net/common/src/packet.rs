@@ -228,6 +228,7 @@ fn ipv4_checksum(header: &[u8]) -> u16 {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     const ENDPOINTS: Ipv4Endpoints = Ipv4Endpoints {

@@ -17,6 +17,8 @@
 //!
 //! Everything runs on the in-process memory transport.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};

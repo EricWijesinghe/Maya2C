@@ -422,6 +422,7 @@ pub fn generate_dataset(cache: &[u32], params: Params, keys: &Keys) -> Vec<u32> 
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     const TEST: Params = Params::TESTING;

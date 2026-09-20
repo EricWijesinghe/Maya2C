@@ -224,6 +224,7 @@ fn median<T: Copy + Ord>(values: &mut [T]) -> Option<T> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use crate::report::{MinerReport, NodeReport};
 

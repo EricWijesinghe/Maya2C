@@ -5,6 +5,8 @@
 //! instead of by racing a real chain. A separate test drives the same code
 //! against an actual node process.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::sync::Arc;
 use std::sync::Mutex;
 

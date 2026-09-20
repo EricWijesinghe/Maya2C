@@ -110,6 +110,7 @@ pub fn check_supply(total: u64) -> Result<(), SupplyError> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

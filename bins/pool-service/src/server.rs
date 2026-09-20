@@ -280,6 +280,7 @@ async fn pump(mut socket: WebSocket, mut events: broadcast::Receiver<PoolEvent>)
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     use custom_l1_node::crypto::dag::registry::{CacheRegistry, DagConfig};

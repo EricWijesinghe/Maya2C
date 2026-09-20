@@ -1,5 +1,7 @@
 //! Uniform-price batch clearing, and the sandwich it is there to stop.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use maya_dex::amm::Pool;
 use maya_dex::batch::{MAX_BATCH_INTENTS, SwapIntent, clear_batch};
 use maya_dex::error::DexError;

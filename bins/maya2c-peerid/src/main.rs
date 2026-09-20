@@ -141,6 +141,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     fn args(data_dir: Option<&str>, key: Option<&str>, create: bool) -> Args {

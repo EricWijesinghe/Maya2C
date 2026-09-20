@@ -397,6 +397,7 @@ impl Neighbours {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     fn bundle(payload: &[u8], expiry: u64) -> Bundle {

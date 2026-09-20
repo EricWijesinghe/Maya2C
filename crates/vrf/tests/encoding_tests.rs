@@ -6,6 +6,8 @@
 //! proof, a scheme tag from a stored record — so "unreachable" is not an
 //! argument for leaving any of it unchecked.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use maya_vrf::ecvrf::{PROOF_LEN, VrfProof, proof_to_hash, prove, verify};
 use maya_vrf::error::VrfError;
 use maya_vrf::keys::{VrfPublicKey, VrfSecretKey};

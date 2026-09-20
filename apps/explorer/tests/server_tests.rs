@@ -5,6 +5,8 @@
 //! a passing test here means the pages genuinely render and the WebSocket
 //! genuinely pushes.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::sync::Arc;
 use std::time::Duration;
 

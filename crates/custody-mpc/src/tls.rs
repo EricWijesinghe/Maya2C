@@ -22,7 +22,7 @@
 //!
 //! Both this module's `rustls` and its `tokio-rustls` are pinned to the `ring`
 //! provider with default features off. `aws-lc-rs` is the newer default and
-//! needs a C toolchain; this workspace's `Dockerfile` builds a static musl
+//! needs a C toolchain; this workspace's `infra/docker/Dockerfile` builds a static musl
 //! binary and `ring` is already in the tree through `jsonrpsee`. Selecting the
 //! provider explicitly, rather than installing a process-global default, also
 //! means a host application that made a different choice does not silently

@@ -189,6 +189,7 @@ fn remaining(granted_at: Option<&SystemTime>, now: SystemTime) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     fn ip(last: u8) -> IpAddr {

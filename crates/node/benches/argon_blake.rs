@@ -17,6 +17,8 @@
 //! cargo bench --bench argon_blake
 //! ```
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use criterion::{Criterion, criterion_group, criterion_main};
 use custom_l1_node::core::HEADER_LEN;
 use custom_l1_node::crypto::argon_blake::argon_blake_hash;

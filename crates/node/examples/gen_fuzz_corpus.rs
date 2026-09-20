@@ -29,6 +29,8 @@
 //! filler does not. Determinism is what makes the corpus reviewable in a diff —
 //! regenerating it either changes nothing or shows exactly what moved.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};

@@ -5,6 +5,8 @@
 //! constraint system is what a proof attests to, so an unsatisfiable system is
 //! the failure a forged spend should produce.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use ark_bls12_381::Fr;
 use ark_ff::Zero;
 use ark_relations::gr1cs::{ConstraintSynthesizer, ConstraintSystem};

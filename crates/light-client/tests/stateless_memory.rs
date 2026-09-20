@@ -13,6 +13,8 @@
 //! its witness at a time from a file. Proof of work is not checked — that is
 //! the header chain's job, and its DAG cache alone is larger than the budget.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};

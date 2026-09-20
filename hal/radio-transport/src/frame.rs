@@ -289,6 +289,7 @@ fn checksum(body: &[u8]) -> [u8; CHECKSUM_BYTES] {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     fn frame(payload: Vec<u8>) -> Frame {

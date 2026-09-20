@@ -315,6 +315,7 @@ pub const fn settle_pool(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]
@@ -390,6 +391,7 @@ mod tests {
 
 #[cfg(test)]
 mod distribution_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     /// Runs a distribution and returns the payouts.

@@ -27,7 +27,7 @@
 //! the KDF), changed encodings, and added the seed-based key format. Shipping
 //! it under a FIPS 203 label would be false.
 //!
-//! `ml-kem` is also pure Rust, which the Dockerfile's static-musl build depends
+//! `ml-kem` is also pure Rust, which the infra/docker/Dockerfile's static-musl build depends
 //! on — the same reason `fips204` and `slh-dsa` were chosen over their PQClean
 //! equivalents.
 //!
@@ -273,6 +273,7 @@ fn hex_prefix(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

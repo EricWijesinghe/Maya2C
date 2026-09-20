@@ -5,6 +5,8 @@
 //! chaos test would use — and check that two runs of the same seed are
 //! byte-identical while two runs of different seeds are not.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use maya_sim::disk::DiskModel;
@@ -74,12 +76,13 @@ fn run(seed: u64, partition_at: Option<Duration>) -> Trace {
                 .deliveries
                 .push((event.at.as_nanos(), event.to.0, event.payload));
 
-            if let Some(at) = partition_at {
-                if !split_done && event.at.since(Instant::START) >= at {
-                    w.net_mut()
-                        .partition(vec![group(&[0, 1, 2]), group(&[3, 4, 5, 6])]);
-                    split_done = true;
-                }
+            if let Some(at) = partition_at
+                && !split_done
+                && event.at.since(Instant::START) >= at
+            {
+                w.net_mut()
+                    .partition(vec![group(&[0, 1, 2]), group(&[3, 4, 5, 6])]);
+                split_done = true;
             }
 
             match event.payload {
@@ -209,8 +212,8 @@ fn a_faulty_disk_produces_faults_and_they_replay() {
             .map(|_| w.write(4096))
             .collect::<Vec<WriteOutcome>>()
     };
-    let first = sample(0xBADD_15C);
-    assert_eq!(first, sample(0xBADD_15C), "the disk did not replay");
+    let first = sample(0x0BAD_D15C);
+    assert_eq!(first, sample(0x0BAD_D15C), "the disk did not replay");
     let clean = first
         .iter()
         .filter(|w| matches!(w, WriteOutcome::Durable(_)))

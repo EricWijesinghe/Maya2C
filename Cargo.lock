@@ -2252,6 +2252,7 @@ dependencies = [
  "maya-radio-transport",
  "maya-rwa",
  "maya-sdk-wasm",
+ "maya-sim",
  "maya-stateless-core",
  "maya-stratum-v2",
  "maya-threat-firewall",
@@ -3130,6 +3131,15 @@ checksum = "85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a"
 dependencies = [
  "typenum",
  "version_check",
+]
+
+[[package]]
+name = "genesis-ceremony"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "custom-l1-node",
+ "hex",
 ]
 
 [[package]]
@@ -5634,6 +5644,35 @@ name = "maya-threat-intel"
 version = "0.1.0"
 
 [[package]]
+name = "maya-tiers"
+version = "0.1.0"
+dependencies = [
+ "custom-l1-node",
+ "l1-wallet",
+ "l2-flash",
+ "maya-api-gateway",
+ "maya-confidential-ai",
+ "maya-cuda-miner",
+ "maya-custody-mpc",
+ "maya-explorer",
+ "maya-faucet",
+ "maya-fee-market",
+ "maya-htlc-watcher",
+ "maya-light-client",
+ "maya-neural-gas-trainer",
+ "maya-pool-service",
+ "maya-sdk-ffi",
+ "maya-sdk-wasm",
+ "maya-sim",
+ "maya-stratum-v2",
+ "maya-telemetry",
+ "maya-threat-firewall",
+ "maya-wallet-core",
+ "maya-wgpu-miner",
+ "maya-zkml-prover",
+]
+
+[[package]]
 name = "maya-vm"
 version = "0.1.0"
 dependencies = [
@@ -5740,6 +5779,53 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tract-onnx",
+]
+
+[[package]]
+name = "maya2c-genesis"
+version = "0.1.0"
+dependencies = [
+ "custom-l1-node",
+ "hex",
+]
+
+[[package]]
+name = "maya2c-gpu-miner"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "maya-wgpu-miner",
+]
+
+[[package]]
+name = "maya2c-miner"
+version = "0.1.0"
+dependencies = [
+ "custom-l1-node",
+ "hex",
+]
+
+[[package]]
+name = "maya2c-node"
+version = "0.1.0"
+dependencies = [
+ "custom-l1-node",
+ "hex",
+ "jsonrpsee",
+ "libp2p",
+ "maya-archive",
+ "maya-zk-privacy",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "maya2c-peerid"
+version = "0.1.0"
+dependencies = [
+ "custom-l1-node",
+ "libp2p",
+ "tempfile",
 ]
 
 [[package]]

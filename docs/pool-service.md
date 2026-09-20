@@ -252,7 +252,7 @@ GPU worker would submit is what these submit.
 ## 11. Deployment
 
 [`infra/k8s/pool/`](../infra/k8s/pool) carries a Deployment, Services, a `ServiceMonitor`,
-and a `PrometheusRule`. [`docs/grafana/pool.json`](grafana/pool.json) is the
+and a `PrometheusRule`. [`infra/grafana/pool.json`](grafana/pool.json) is the
 dashboard.
 
 The alerts worth knowing about:

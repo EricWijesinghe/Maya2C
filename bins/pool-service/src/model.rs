@@ -365,6 +365,7 @@ pub fn now_millis() -> u64 {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     const ADDRESS_HEX: &str = "11223344556677889900aabbccddeeff\

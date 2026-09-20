@@ -22,6 +22,8 @@
 //! Source: <https://www.rfc-editor.org/rfc/rfc9381.txt>, Appendix B.3,
 //! Examples 16 through 18.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use maya_vrf::ecvrf::{PROOF_LEN, VrfProof, proof_to_hash, prove, verify};
 use maya_vrf::keys::VrfSecretKey;
 

@@ -205,6 +205,7 @@ pub fn is_silent(progress: &Progress, enrolled_height: u64, height: u64) -> bool
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     const BOUNDS: Bounds = Bounds {

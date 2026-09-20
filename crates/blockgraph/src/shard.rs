@@ -73,6 +73,7 @@ pub const fn shard_of(address: &[u8; 32]) -> ShardId {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use alloc::collections::BTreeSet;
 

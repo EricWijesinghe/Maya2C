@@ -4,6 +4,8 @@
 //! the parser a string directly. Decoding is the part that faces a camera, and
 //! a parser tested only on hand-written strings has never seen its actual input.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::core::Transaction;
 use maya_wallet_core::error::WalletError;
 use maya_wallet_core::hd::{self, DerivationPath, seed_from_mnemonic};

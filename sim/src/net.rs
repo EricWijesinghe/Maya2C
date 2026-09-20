@@ -173,6 +173,7 @@ impl Network {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     fn group(ids: &[u16]) -> BTreeSet<NodeId> {

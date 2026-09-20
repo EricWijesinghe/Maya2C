@@ -268,6 +268,7 @@ impl Currency {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     // Published specimen IBANs from the ISO 13616 registry: real check digits,

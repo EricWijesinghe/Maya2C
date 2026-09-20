@@ -415,6 +415,7 @@ const _: &[u8] = LP_ASSET_PREFIX;
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use crate::state::account::Account;
     use crate::state::asset::encode_balance;

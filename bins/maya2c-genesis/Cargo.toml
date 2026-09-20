@@ -1,0 +1,22 @@
+[package]
+name = "maya2c-genesis"
+version.workspace = true
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+description = "Writes a genesis file"
+
+# A binary package rather than a `[[bin]]` of `crates/node`, because the
+# foundation brief puts executables in `bins/`. It links the node as a library
+# and uses nothing that is not part of that library's public surface — which is
+# what made the split possible without widening the API.
+[dependencies]
+custom-l1-node = { path = "../../crates/node" }
+hex.workspace = true
+
+[[bin]]
+name = "maya2c-genesis"
+path = "src/main.rs"
+
+[lints]
+workspace = true

@@ -131,6 +131,7 @@ impl ReadingsAccumulator {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     fn root(first: u64, values: &[i64]) -> [u8; 32] {

@@ -106,6 +106,7 @@ pub fn verify_solution(basis: &Basis, vector: &[i64], target_norm_squared: u128)
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use crate::params::LatticeParams;
     use alloc::vec;

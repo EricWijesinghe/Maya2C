@@ -4,6 +4,8 @@
 //! there would surface as "the plaintext is wrong" and say nothing about which
 //! half was at fault. These check the polynomial directly.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use curve25519_dalek::scalar::Scalar;
 use maya_mev::error::MevError;
 use maya_mev::shamir::{self, SecretShare};

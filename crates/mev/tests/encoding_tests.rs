@@ -4,6 +4,8 @@
 //! well-formed input is not enough — the interesting cases are the ones an
 //! attacker chooses.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::scalar::Scalar;
 use maya_mev::cipher::{SealedPayload, ShareProof, seal};

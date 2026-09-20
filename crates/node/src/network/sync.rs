@@ -200,6 +200,7 @@ impl RateLimiter {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use crate::core::block::BlockHeader;
     use crate::crypto::pow::target_from_leading_zero_bits;

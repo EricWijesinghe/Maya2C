@@ -21,8 +21,21 @@ const CLAIMS_TO_WORK: [&str; 2] = ["working", "verified"];
 
 #[derive(Deserialize)]
 struct Ledger {
+    /// The register the foundation brief asked for: prompts 1-162 plus
+    /// Benchmark and Memory. It says what the *plan* is.
     #[serde(default)]
     feature: Vec<Feature>,
+    /// The reality ledger: one entry per subsystem that exists, with the
+    /// tests that would fail if it broke. It says what the *tree* is.
+    #[serde(default)]
+    subsystem: Vec<Feature>,
+}
+
+impl Ledger {
+    /// Both tables. They share a schema and the same checks apply to each.
+    fn all(&self) -> impl Iterator<Item = &Feature> {
+        self.feature.iter().chain(self.subsystem.iter())
+    }
 }
 
 #[derive(Deserialize)]
@@ -40,6 +53,7 @@ struct Feature {
 
 pub fn run(args: &[String]) -> Result<(), String> {
     let quiet = args.iter().any(|a| a == "--quiet");
+    let verify = args.iter().any(|a| a == "--verify-targets");
     let root = crate::workspace_root();
 
     let path = root.join("features.toml");
@@ -52,7 +66,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let mut problems: Vec<String> = Vec::new();
     let mut seen: BTreeMap<&str, ()> = BTreeMap::new();
 
-    for f in &ledger.feature {
+    for f in ledger.all() {
         if seen.insert(&f.id, ()).is_some() {
             problems.push(format!("{}: duplicate id", f.id));
         }
@@ -100,13 +114,33 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
 
     if !quiet {
+        println!(
+            "
+== register: the plan =="
+        );
         print_table(&ledger.feature);
+        println!(
+            "
+== ledger: the tree =="
+        );
+        print_table(&ledger.subsystem);
+    }
+
+    if verify && problems.is_empty() {
+        problems.extend(verify_targets(&ledger)?);
     }
 
     if problems.is_empty() {
         println!(
-            "\nfeatures.toml: {} entries, all claims backed.",
-            ledger.feature.len()
+            "
+features.toml: {} register entries + {} subsystems, all claims backed{}.",
+            ledger.feature.len(),
+            ledger.subsystem.len(),
+            if verify {
+                " and every named test is a target cargo-nextest can run"
+            } else {
+                ""
+            }
         );
         Ok(())
     } else {
@@ -118,6 +152,79 @@ pub fn run(args: &[String]) -> Result<(), String> {
             problems.len()
         ))
     }
+}
+
+/// Ask cargo-nextest what tests actually exist, and check the ledger against
+/// it.
+///
+/// `run` on its own checks that a named test *file* is on disk. That is not
+/// the same claim: a file can exist and compile into no runnable target — an
+/// integration test excluded by `[[test]] test = false`, or a `crate:` entry
+/// naming a package whose `#[cfg(test)]` modules were all deleted. This asks
+/// the runner.
+///
+/// It does not run them. A green `cargo nextest run --workspace` in the same
+/// job is what says they pass; this says the ledger's names point at things
+/// that job would have executed.
+fn verify_targets(ledger: &Ledger) -> Result<Vec<String>, String> {
+    let out = std::process::Command::new("cargo")
+        .args(["nextest", "list", "--workspace", "--run-ignored", "all"])
+        .output()
+        .map_err(|e| format!("cannot run `cargo nextest list`: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "`cargo nextest list --workspace --run-ignored all` failed:
+{}",
+            String::from_utf8_lossy(&out.stderr)
+        ));
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+
+    // Lines are `<package> <test>` for a unit test and
+    // `<package>::<binary> <test>` for an integration test.
+    let mut packages_with_tests: BTreeMap<&str, ()> = BTreeMap::new();
+    let mut binaries: BTreeMap<&str, ()> = BTreeMap::new();
+    for line in text.lines() {
+        let Some(target) = line.split_whitespace().next() else {
+            continue;
+        };
+        match target.split_once("::") {
+            Some((pkg, bin)) => {
+                packages_with_tests.insert(pkg, ());
+                binaries.insert(bin, ());
+            }
+            None => {
+                packages_with_tests.insert(target, ());
+            }
+        }
+    }
+
+    let mut problems = Vec::new();
+    for f in ledger.all() {
+        if !CLAIMS_TO_WORK.contains(&f.status.as_str()) {
+            continue;
+        }
+        for t in &f.tests {
+            if let Some(pkg) = t.strip_prefix("crate:") {
+                if !packages_with_tests.contains_key(pkg) {
+                    problems.push(format!("{}: `{t}` has no test cargo-nextest can run", f.id));
+                }
+            } else {
+                // `a/b/tests/name.rs` compiles to a binary called `name`.
+                let stem = t.rsplit('/').next().unwrap_or(t).trim_end_matches(".rs");
+                // A `gate` is the entry saying "this one is not run by the
+                // default workspace test job, and here is what does run it" —
+                // a platform-gated target, or a crate outside the workspace.
+                if !binaries.contains_key(stem) && f.gate.is_empty() {
+                    problems.push(format!(
+                        "{}: `{t}` is not a target the workspace test job runs, and the entry names no `gate` that does",
+                        f.id
+                    ));
+                }
+            }
+        }
+    }
+    Ok(problems)
 }
 
 fn print_table(features: &[Feature]) {
@@ -206,6 +313,7 @@ struct Pkg2 {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

@@ -379,6 +379,7 @@ fn bump(streaks: &mut BTreeMap<Prefix, u32>, key: Prefix, on: bool) {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     const CONFIG: ScalingConfig = ScalingConfig {

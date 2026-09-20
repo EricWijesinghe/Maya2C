@@ -104,6 +104,7 @@ fn label(market: &Market, fee: u64, size: u64) -> Option<f64> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

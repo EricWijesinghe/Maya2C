@@ -7,6 +7,8 @@
 //! pin the fix: a node restarts on its own tip, nothing is re-seeded, and a
 //! crash between batches cannot leave state and tip disagreeing.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::path::Path;
 use std::sync::Arc;
 

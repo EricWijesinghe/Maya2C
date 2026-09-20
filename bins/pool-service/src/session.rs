@@ -516,6 +516,7 @@ pub fn close_message(channel_id: u32, reason: &str) -> Message {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     use std::sync::Arc;

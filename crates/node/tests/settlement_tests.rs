@@ -5,6 +5,8 @@
 //! are: can someone present paper they were not given, paper that was already
 //! superseded, or paper that adds up to more than was escrowed.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::core::payload::{
     ChannelClosure, ChannelId, ChannelOpen, RevocationProof, channel_state_signing_bytes,
     derive_channel_id, revocation_commitment,

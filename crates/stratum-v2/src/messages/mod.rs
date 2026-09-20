@@ -286,6 +286,7 @@ impl Message {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     /// One of every message, for the round-trip sweep.

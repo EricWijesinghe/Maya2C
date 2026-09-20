@@ -162,6 +162,7 @@ impl DeviceKey {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use rand_chacha::ChaCha20Rng;
     use rand_core::SeedableRng;
 

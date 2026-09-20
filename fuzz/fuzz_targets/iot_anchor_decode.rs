@@ -7,6 +7,8 @@
 
 #![no_main]
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use libfuzzer_sys::fuzz_target;
 use maya_iot_anchor::puf::HelperData;
 use maya_iot_anchor::{DeviceRecord, Enrollment, Equivocation, TamperEvent, TelemetryBatch};

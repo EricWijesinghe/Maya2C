@@ -264,6 +264,7 @@ fn mka(x: u64, y: u64) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

@@ -139,6 +139,7 @@ pub fn basis_for_seed(params: LatticeParams, seed: &[u8; 32]) -> Result<Basis, D
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     fn params() -> LatticeParams {

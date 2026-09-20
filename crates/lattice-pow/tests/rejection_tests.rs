@@ -9,6 +9,8 @@
 //! The acceptance cases here exist to keep the rejections honest. A validator
 //! that rejected everything would pass every negative test in this file.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use maya_lattice_pow::{Basis, LatticeError, LatticeParams, MAX_COORDINATE, verify_solution};
 
 /// Dimension 4, modulus 97 — small enough to reason about by hand, large enough

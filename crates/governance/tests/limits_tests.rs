@@ -4,6 +4,8 @@
 //! enforced is a test of the one property the whole subsystem rests on: a
 //! governance system that can vote away its own quorum or timelock has neither.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use maya_governance::error::GovernanceError;
 use maya_governance::limits::{
     BPS_DENOMINATOR, EXECUTION_GRACE_BLOCKS, MAX_TIMELOCK_BLOCKS, MAX_VOTING_BLOCKS,

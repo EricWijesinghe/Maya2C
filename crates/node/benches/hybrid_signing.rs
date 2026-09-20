@@ -24,6 +24,8 @@
 //! and a counting global allocator do not coexist usefully: criterion's own
 //! allocations would dominate the count.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
 

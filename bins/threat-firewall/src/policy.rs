@@ -54,6 +54,7 @@ pub fn blockable(ip: IpAddr) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use std::net::Ipv4Addr;
 
     use maya_threat_intel::score::HALF_LIFE_BLOCKS;

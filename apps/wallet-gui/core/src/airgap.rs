@@ -317,6 +317,7 @@ pub fn frame_count(payload_len: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     /// A payload the size of a real signed Maya2C transaction.

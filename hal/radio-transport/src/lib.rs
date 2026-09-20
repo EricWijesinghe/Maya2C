@@ -85,6 +85,7 @@ pub fn block_size_for(spreading_factor: u8) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

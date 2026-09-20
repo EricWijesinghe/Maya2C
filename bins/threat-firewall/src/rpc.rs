@@ -113,6 +113,7 @@ fn author_from_hex(text: &str) -> Result<Author> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use maya_threat_intel::OffenceKind;
 
     use super::*;

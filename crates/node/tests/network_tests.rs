@@ -8,6 +8,8 @@
 //! gossip relayed through node 1. That distinguishes actual mesh propagation
 //! from direct delivery to a connected peer.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;

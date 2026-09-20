@@ -10,6 +10,8 @@
 //! Load is expressed against a lane capacity of [`LANE`] transactions per tick,
 //! so nothing here depends on the speed of the machine running it.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::collections::BTreeMap;
 
 use maya_blockgraph::shard_manager::{

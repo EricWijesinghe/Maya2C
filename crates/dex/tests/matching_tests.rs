@@ -1,5 +1,7 @@
 //! Crossing the book.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use maya_dex::book::{Book, Order, Side};
 use maya_dex::fees::FeeSchedule;
 use maya_dex::matching::{MatchLimits, match_book};

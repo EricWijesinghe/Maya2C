@@ -71,7 +71,7 @@
       ansible.builtin.command:
         cmd: >-
           {{ ansible_env.HOME }}/.cargo/bin/cargo build --release --locked
-          --bin node --bin genesis
+          --bin maya2c-node --bin maya2c-genesis
         chdir: "{{ maya_build_dir }}"
       when: maya_checkout.changed
       changed_when: true

@@ -5,6 +5,8 @@
 //! root is the one a block declares, and `verify_block` has to agree with it
 //! from a witness alone.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::core::block::{Block, BlockHeader};
 use custom_l1_node::core::{Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};

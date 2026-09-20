@@ -160,6 +160,7 @@ pub fn verify_path(leaf: &[u8; HASH_LEN], path: &[PathStep]) -> [u8; HASH_LEN] {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     fn leaves(count: usize) -> Vec<[u8; HASH_LEN]> {

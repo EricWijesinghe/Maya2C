@@ -20,6 +20,8 @@
 //! - **An expired envelope must move nothing.** A committee that goes dark
 //!   must cost liveness, never safety.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::core::codec::ByteReader;
 use custom_l1_node::core::dex_payload::{AssetRegistration, PoolCreation, SwapRequest};
 use custom_l1_node::core::governance_payload::StakeLock;

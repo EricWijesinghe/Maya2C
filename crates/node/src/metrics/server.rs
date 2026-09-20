@@ -137,6 +137,7 @@ fn route<M: Exposition>(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     /// Binds on an ephemeral port so tests can run concurrently.

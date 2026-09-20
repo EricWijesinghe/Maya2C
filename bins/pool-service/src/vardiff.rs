@@ -202,6 +202,7 @@ impl Vardiff {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     const INTERVAL: Duration = Duration::from_secs(60);

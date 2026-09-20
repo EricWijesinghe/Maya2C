@@ -10,6 +10,8 @@
 //! the one thing it cannot tell from honesty — a false reading signed by a
 //! genuine device, which is recorded exactly as signed.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::sync::Arc;
 
 use rand_chacha::ChaCha20Rng;

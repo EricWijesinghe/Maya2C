@@ -5,6 +5,8 @@
 //! the actual KZG prover and verifier, which is where encoding, transcript and
 //! parsing bugs live — none of which a mock can see.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::path::PathBuf;
 
 use maya_zkml::circuit::{Witness, public_inputs};

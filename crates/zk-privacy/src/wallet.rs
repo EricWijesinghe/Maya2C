@@ -265,6 +265,7 @@ pub fn unshield<R: RngCore>(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use ark_std::rand::SeedableRng;
     use ark_std::rand::rngs::StdRng;

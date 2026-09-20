@@ -8,6 +8,8 @@
 
 #![no_main]
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::sync::OnceLock;
 
 use libfuzzer_sys::fuzz_target;

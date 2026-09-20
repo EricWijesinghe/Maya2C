@@ -8,6 +8,8 @@
 //! exercised as a pure function over synthetic digests, and only a handful of
 //! real hashes are computed. The one test that actually mines is `#[ignore]`d.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::core::{Block, BlockHeader, Transaction, TxInput, TxOutput};
 use custom_l1_node::crypto::argon_blake::{HASH_LEN, argon_blake_hash};
 use custom_l1_node::crypto::hybrid::{HybridPublicKey, generate_signing_key};

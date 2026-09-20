@@ -10,6 +10,8 @@
 //! account for every unit that crosses the transparent boundary and insist the
 //! books balance.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::core::payload::ShieldedJoinSplit;
 use custom_l1_node::core::{Block, BlockHeader, Transaction, TxKind};
 use custom_l1_node::crypto::hybrid::generate_signing_key;

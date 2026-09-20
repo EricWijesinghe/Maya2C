@@ -22,6 +22,8 @@
 //! failure reproduces exactly — and the recovery property is asserted across
 //! many seeds rather than once, because the interesting question is the tail.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::core::{BlockHeader, block::HEADER_LEN};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::error::Result;

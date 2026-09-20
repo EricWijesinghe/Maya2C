@@ -91,6 +91,7 @@ pub fn validate(submission: &SealedSubmission) -> Result<Vec<u8>, GatewayError> 
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     fn submission(ciphertext: &str) -> SealedSubmission {

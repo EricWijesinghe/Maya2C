@@ -86,6 +86,7 @@ pub fn seeds() -> Vec<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use rand_core::SeedableRng;
 
     use super::*;

@@ -180,6 +180,7 @@ impl Cache {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use crate::crypto::dag::{CACHE_BYTES, cache_bytes, cache_items};
 

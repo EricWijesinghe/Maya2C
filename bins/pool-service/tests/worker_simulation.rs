@@ -36,6 +36,8 @@
 //! `hal/cuda-miner/tests/dag_parity.rs`, so what a real CUDA worker would submit is
 //! what these submit.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 

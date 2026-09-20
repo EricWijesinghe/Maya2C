@@ -21,6 +21,8 @@
 
 #![no_main]
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use libfuzzer_sys::fuzz_target;
 use maya_radio_transport::fountain::{Decoder, Symbol};
 use maya_radio_transport::frame::Frame;

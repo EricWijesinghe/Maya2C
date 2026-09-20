@@ -18,6 +18,8 @@
 //! connection forms. `network::pq::mod`'s unit tests assert the protocol *lists*
 //! directly, and together the two pin the behaviour from both ends.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;

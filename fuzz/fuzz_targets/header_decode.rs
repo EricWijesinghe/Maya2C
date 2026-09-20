@@ -15,6 +15,8 @@
 
 #![no_main]
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::BlockHeader;
 use custom_l1_node::core::HEADER_LEN;
 use libfuzzer_sys::fuzz_target;

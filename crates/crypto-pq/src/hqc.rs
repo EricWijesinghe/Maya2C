@@ -323,6 +323,7 @@ fn hex_prefix(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

@@ -210,6 +210,7 @@ pub fn features(block: &Block, previous_size: u64) -> Features {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

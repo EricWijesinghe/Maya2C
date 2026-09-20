@@ -296,6 +296,7 @@ fn forwarded_client_ip(headers: &HeaderMap) -> Option<IpAddr> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use axum::http::HeaderValue;
 

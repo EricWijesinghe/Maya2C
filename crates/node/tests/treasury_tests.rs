@@ -6,6 +6,8 @@
 //! new optional field that changed the root of every existing chain would
 //! silently fork every network already running.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::genesis::{Allocation, GenesisConfig, MAX_TREASURY_SHARE_BPS, TreasuryGenesis};
 
 fn allocation(byte: u8, balance: u64) -> Allocation {

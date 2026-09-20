@@ -23,6 +23,8 @@
 //! institution brings its own PKI, and a library that minted custody
 //! certificates would be a library that decided who a custodian is.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::sync::Arc;
 
 use maya_custody_mpc::dkg::{Custodian, CustodianShare, Dealing, Roster, VaultPolicy};

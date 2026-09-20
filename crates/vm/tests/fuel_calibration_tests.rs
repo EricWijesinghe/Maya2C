@@ -10,6 +10,8 @@
 //! Timing assertions are flaky, so this asserts only that the loop spent the
 //! fuel it should have, and prints the rate. Run it with `--nocapture`.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::time::Instant;
 
 use maya_vm::{MemoryState, Vm};

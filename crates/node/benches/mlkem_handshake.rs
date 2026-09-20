@@ -19,6 +19,8 @@
 //! The figures to compare against: a 15 s target block time, and a 13215-byte
 //! hybrid-signed transaction.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use std::hint::black_box;
 

@@ -11,6 +11,8 @@
 //!    kind of record failed to decode, and failed to verify if decoding were
 //!    skipped.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::core::htlc_payload::HtlcLock;
 use custom_l1_node::core::rwa_payload::{
     AttestLegal, DistributeRevenue, IssueRwa, RecordEligibility, RulePayload, SettleDvp,

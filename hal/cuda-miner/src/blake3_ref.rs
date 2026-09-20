@@ -240,6 +240,7 @@ pub fn keyed_256(key: &[u8; 32], data: &[u8]) -> [u8; 32] {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     /// Every length the DAG actually hashes, plus the boundaries either side of

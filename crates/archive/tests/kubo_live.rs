@@ -15,6 +15,8 @@
 //! `--offline` is worth keeping: an archive is the chain's history, and a
 //! default daemon announces every block it holds to the public DHT.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use maya_archive::kubo::KuboStore;
 use maya_archive::store::ArchiveStore;
 use maya_archive::{ArchivedBlock, build_archive, open_archive};

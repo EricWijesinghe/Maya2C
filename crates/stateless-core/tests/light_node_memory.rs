@@ -14,6 +14,8 @@
 //! senders a caller has already authenticated. The signed version, through
 //! the node's types, is `crates/light-client/tests/stateless_memory.rs`.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::collections::BTreeMap;
 use std::fs::File;

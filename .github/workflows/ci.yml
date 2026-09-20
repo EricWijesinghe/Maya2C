@@ -140,8 +140,23 @@ jobs:
           key: nextest
       - uses: taiki-e/install-action@nextest
 
-      - name: Test
+      # The core tier first: `crates/node` and the two crates beside it that a
+      # validating node needs. It is a strict subset of the workspace run
+      # below and shares every compiled unit with it, so it costs the cache
+      # and not a second build — and when it fails, the failure is in the part
+      # that has to work before anything else matters.
+      - name: Test (core tier)
+        run: |
+          cargo nextest run --cargo-profile ci --no-fail-fast             -p maya-tiers -p custom-l1-node -p maya-light-client -p maya-fee-market
+
+      - name: Test (whole workspace)
         run: cargo nextest run --cargo-profile ci --workspace --no-fail-fast
+
+      # Now that the suite has run green, check that every test `features.toml`
+      # names is a target that run would have executed. Cheap — it lists, it
+      # does not build.
+      - name: Ledger targets are real
+        run: cargo xtask coverage --quiet --verify-targets
 
       # Artifact size is a standing problem on this project: the development
       # volume has been filled to zero bytes twice, and a full disk reports as
@@ -157,8 +172,27 @@ jobs:
         if: always()
         run: cargo xtask disk
 
-  # Supply chain is deliberately absent from this file.
-  # `.github/workflows/security-audit.yml` already runs
-  # `cargo deny check advisories bans licenses sources`, and two jobs running
-  # the same gate is a permanent cost for no extra information. That gate was
-  # failing when this phase started — see deny.toml's uniffi exception.
+  # ---------------------------------------------------------------------
+  # Supply chain.
+  #
+  # `.github/workflows/security-audit.yml` runs the same check. That overlap
+  # is deliberate rather than an oversight: the brief lists cargo-deny among
+  # the gates every change passes, and security-audit.yml is scheduled and
+  # path-filtered, so a pull request that touches only Cargo.toml would
+  # otherwise reach `master` without a licence check. This job is seconds and
+  # builds nothing.
+  #
+  # It was failing when this phase started, on 11 crates under three licences
+  # the policy did not admit — see deny.toml's uniffi exception and
+  # reports/03-hardening.md §1.
+  # ---------------------------------------------------------------------
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arguments: --workspace

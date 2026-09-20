@@ -143,6 +143,7 @@ const fn attestable(offence: Offence) -> Option<OffenceKind> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use std::net::Ipv4Addr;
 
     use super::*;

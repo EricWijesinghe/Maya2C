@@ -23,7 +23,7 @@ argon2.workspace = true
 getrandom.workspace = true
 # ML-DSA-65 (FIPS 204), the transaction signature scheme.
 #
-# Pure Rust, which the Dockerfile's static-musl build depends on: the PQClean
+# Pure Rust, which the infra/docker/Dockerfile's static-musl build depends on: the PQClean
 # bindings (pqcrypto-mldsa) would add a C toolchain and an unsafe FFI surface to
 # a build that currently links only RocksDB's C++.
 #
@@ -137,7 +137,7 @@ hyper-util = { workspace = true, features = ["tokio"] }
 http-body-util.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net", "io-util"] }
 futures.workspace = true
-libp2p = { version = "0.57", features = [
+libp2p = { workspace = true, features = [
     "tokio",
     "gossipsub",
     "kad",
@@ -200,6 +200,10 @@ async-trait.workspace = true
 # For `tests/threat_intel_tests.rs`, which drives the real firewall worker from
 # each honest node's own state. A dev-dependency cycle, as `maya-htlc-watcher`.
 maya-threat-firewall = { path = "../../bins/threat-firewall" }
+# The deterministic simulation harness. `tests/chaos_simulator.rs` draws its
+# randomness from it rather than from a private generator, so there is one
+# definition of "the seed" — see docs/adr/ADR-006-simulation-harness.md.
+maya-sim = { path = "../../sim" }
 criterion.workspace = true
 # Only for `benches/ebpf_bench.rs`: the baseline the relay's fixed header is
 # measured against. No `flatc`; the bench writes its one table out by hand.

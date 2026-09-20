@@ -148,6 +148,7 @@ pub fn open(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use maya_crypto_pq::kem::generate_keypair;
 

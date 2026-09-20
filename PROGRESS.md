@@ -58,7 +58,7 @@ One mechanical commit, nothing else in it. ADR-001 has the reasoning.
 
 - [ ] `git mv` into `crates/ bins/ apps/ hal/ sdks/ formal/ infra/`
 - [ ] Rewrite every `path =` dependency
-- [ ] Rewrite paths in `CLAUDE.md`, `.ignore`, `.claude/settings.json`, the workflows, `scripts/`, `Dockerfile*`, `docker-compose.yml`, `infra/k8s/`, `infra/deploy/`, `infra/terraform/`
+- [ ] Rewrite paths in `CLAUDE.md`, `.ignore`, `.claude/settings.json`, the workflows, `scripts/`, `infra/docker/Dockerfile*`, `infra/docker/docker-compose.yml`, `infra/k8s/`, `infra/deploy/`, `infra/terraform/`
 - [ ] Acceptance: `cargo metadata` package set identical before and after, modulo `manifest_path`
 - [ ] Acceptance: grep for every old path string across non-`target` files returns nothing
 - [ ] Second cold rebuild (budget ~1 hour)
@@ -75,7 +75,13 @@ One mechanical commit, nothing else in it. ADR-001 has the reasoning.
 - [x] Event queue with insertion-order tie-breaking, a deadline and an event budget
 - [x] Every failure prints its seed, and replaying the seed reproduces the run
 - [x] Per-model RNG streams, so adding a draw in one does not invalidate every seed
-- [ ] Port `crates/node/tests/chaos_simulator.rs` and `crates/node/tests/latency_sim_tests.rs` onto it — they work today; porting changes test behaviour and belongs in its own commit
+- [x] `crates/node/tests/chaos_simulator.rs` ported onto it — its private
+      SplitMix64 is gone, `maya_sim::SimRng` is the one definition of the seed,
+      13/13 still pass
+- [x] `crates/node/tests/latency_sim_tests.rs` examined: it has **no
+      randomness** and drives real libp2p nodes over in-memory transports, so
+      there is no seed to unify and modelling it would replace a test of the
+      real transport with a test of a model. Left alone deliberately
 - [ ] Revisit `madsim` when a test needs the node's *real* tokio scheduling to be deterministic — ADR-006
 
 ### Known follow-ups opened by this phase
@@ -110,7 +116,7 @@ rather than starting.
 | 7 | Multi-transport networking | libp2p + PQ Noise, peer guard SHIPPED. `ebpf-net`, `radio-transport` RESEARCH. Satellite, laser, CCSDS, subsea, neutrino PLANNED |
 | 8 | Security tooling | fuzz targets, Kani, supply-chain gates, exploit replays SHIPPED. `offsec-sandbox`, `threat-intel` RESEARCH |
 | 9 | Clients | Tauri wallet, Leptos explorer and dashboard, API gateway, SDKs, faucet — SHIPPED |
-| 10 | Deployment | `Dockerfile`, `docker-compose.yml`, `infra/k8s/`, `infra/terraform/`, `infra/deploy/` exist and are **not** covered by `features.toml` or by any test |
+| 10 | Deployment | `infra/docker/Dockerfile`, `infra/docker/docker-compose.yml`, `infra/k8s/`, `infra/terraform/`, `infra/deploy/` exist and are **not** covered by `features.toml` or by any test |
 
 ---
 

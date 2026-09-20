@@ -110,6 +110,7 @@ pub fn identifiers_for_payment(intent: &crate::bridge::PaymentIntent) -> Vec<Ide
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use crate::party::Iban;
 

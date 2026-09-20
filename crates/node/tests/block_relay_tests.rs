@@ -13,6 +13,8 @@
 //! The XDP receive path is exercised by `hal/ebpf-net/tests/xdp_veth.rs`, which
 //! needs Linux and root.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::net::TcpListener;
 use std::sync::Arc;
 use std::time::Duration;

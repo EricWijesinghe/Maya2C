@@ -19,6 +19,8 @@
 
 #![no_main]
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::Transaction;
 use libfuzzer_sys::fuzz_target;
 

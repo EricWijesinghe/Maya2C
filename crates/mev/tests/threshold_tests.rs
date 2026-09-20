@@ -5,6 +5,8 @@
 //! ciphertext replayed to another height — are the ones that decide whether
 //! the scheme is worth having.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use curve25519_dalek::ristretto::CompressedRistretto;
 use maya_mev::cipher::{DecryptionShare, SealedPayload, combine, seal, verify_share};
 use maya_mev::committee::{Committee, MemberSecret};

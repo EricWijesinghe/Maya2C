@@ -34,7 +34,7 @@ ALLOCATIONS=(
   "2222222222222222222222222222222222222222222222222222222222222222:500000000"
 )
 
-# Host-side RPC ports, matching docker-compose.yml.
+# Host-side RPC ports, matching infra/docker/docker-compose.yml.
 declare -a NODE_NAMES=("seed-node" "peer-1" "peer-2")
 declare -a NODE_PORTS=(8545 8546 8547)
 

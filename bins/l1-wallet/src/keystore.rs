@@ -323,6 +323,7 @@ pub const fn permissions_are_restricted() -> bool {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     fn test_key() -> HybridSigningKey {

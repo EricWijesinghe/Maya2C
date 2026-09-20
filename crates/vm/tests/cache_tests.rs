@@ -5,6 +5,8 @@
 //! cache on a consensus path. Everything else here is about not serving the
 //! wrong code.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use maya_vm::cache::{MAX_CACHED_MODULES, ModuleCache};
 use maya_vm::config::config_digest;
 use maya_vm::error::VmError;

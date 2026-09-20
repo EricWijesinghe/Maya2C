@@ -227,6 +227,7 @@ pub fn is_zstd(bytes: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     pub(crate) fn batch(first: u64, count: u64) -> Vec<ArchivedBlock> {

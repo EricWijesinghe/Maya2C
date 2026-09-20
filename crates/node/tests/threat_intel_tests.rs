@@ -23,6 +23,8 @@
 //! connection addresses; everything upstream of that map — capture, evidence,
 //! verification, the indicator, the decay — is the production path.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::collections::BTreeSet;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr};

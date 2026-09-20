@@ -18,6 +18,8 @@
 
 #![no_main]
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use libfuzzer_sys::fuzz_target;
 use maya_iso20022::{amount::Amount, camt053, pacs008, pacs009, xml};
 

@@ -566,6 +566,7 @@ pub fn field_from_bytes(bytes: &[u8; 32]) -> Fr {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use ark_relations::gr1cs::ConstraintSystem;
 

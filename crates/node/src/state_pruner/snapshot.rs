@@ -474,6 +474,7 @@ impl Snapshots {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use crate::state::account::Account;
     use crate::state::db::nullifier_key_bytes;

@@ -200,6 +200,7 @@ fn rate_over(hashes: u64, span: Duration) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     fn at(start: Instant, seconds: u64) -> Instant {

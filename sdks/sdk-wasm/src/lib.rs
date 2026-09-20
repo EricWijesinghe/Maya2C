@@ -165,6 +165,7 @@ pub fn verify_hybrid(public_key: &[u8], message: &[u8], signature: &[u8]) -> boo
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

@@ -16,6 +16,8 @@
 //! - **Batching** — 100 channels settle together in *one* transaction,
 //!   authorized by a submitter who is party to none of them.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::core::payload::ChannelClosure;
 use custom_l1_node::core::{Block, BlockHeader, Transaction, TxKind};
 use custom_l1_node::crypto::hybrid::{HybridPublicKey, generate_signing_key};

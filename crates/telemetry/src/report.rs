@@ -236,6 +236,7 @@ fn check_label(field: &'static str, value: &str) -> Result<(), ReportError> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     fn miner(hash_rate: u64) -> Report {

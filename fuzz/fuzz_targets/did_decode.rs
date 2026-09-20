@@ -18,6 +18,8 @@
 
 #![no_main]
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use libfuzzer_sys::fuzz_target;
 use maya_identity::attestation::{CryptographicAttestation, RevocationPage};
 use maya_identity::did::Did;

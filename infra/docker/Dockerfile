@@ -46,35 +46,32 @@ WORKDIR /build
 # RocksDB alone is several minutes of C++ compilation. Building it against stub
 # sources first means editing node code does not rebuild the whole dependency
 # tree.
-COPY Cargo.toml Cargo.lock ./
-COPY bins/l1-wallet/Cargo.toml bins/l1-wallet/Cargo.toml
+# The whole workspace's manifests, so cargo can resolve without the sources.
+# There is no shorter way: this is a virtual workspace and cargo needs every
+# manifest named in `members` to exist before it will plan a build. The
+# stub-source trick this file used before 2026-09-20 depended on the binaries
+# being `[[bin]]` targets of a root package, which they no longer are.
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY .cargo/config.toml .cargo/config.toml
+COPY crates crates
+COPY bins bins
+COPY apps apps
+COPY hal hal
+COPY sdks sdks
+COPY sim sim
+COPY xtask xtask
 
-RUN mkdir -p src/bin bins/l1-wallet/src \
-    && echo 'fn main() {}' > src/bin/node.rs \
-    && echo 'fn main() {}' > src/bin/miner.rs \
-    && echo 'fn main() {}' > src/bin/genesis.rs \
-    && echo 'fn main() {}' > src/bin/peerid.rs \
-    && echo 'fn main() {}' > bins/l1-wallet/src/main.rs \
-    && touch src/lib.rs \
-    && cargo build --release --bin node --bin genesis --bin peerid \
-    # Remove the stub artifacts, or cargo reuses them instead of the real code.
-    && rm -rf src bins/l1-wallet/src target/release/node target/release/genesis \
-              target/release/peerid \
-              target/release/deps/custom_l1_node* \
-              target/release/deps/node-* target/release/deps/genesis-* \
-              target/release/deps/peerid-*
+# `.cargo/config.toml` pins `jobs = 4` for a 32 GB developer machine whose
+# commit limit a wider build exhausts. A build container should use what it
+# has.
+ENV CARGO_BUILD_JOBS=0
 
-# --- real build ------------------------------------------------------------
-COPY src src
-COPY bins/l1-wallet/src bins/l1-wallet/src
-
-RUN cargo build --release --bin node --bin genesis --bin peerid \
-    && strip target/release/node target/release/genesis target/release/peerid
+RUN cargo build --release         --bin maya2c-node --bin maya2c-genesis --bin maya2c-peerid     && strip target/release/maya2c-node              target/release/maya2c-genesis              target/release/maya2c-peerid
 
 # Fail the build rather than ship a binary that will not start in the runtime
 # stage, where no C++ runtime is installed.
-RUN if ldd target/release/node 2>&1 | grep -q "libstdc++"; then \
-        echo "ERROR: node still links libstdc++ dynamically" >&2; exit 1; \
+RUN if ldd target/release/maya2c-node 2>&1 | grep -q "libstdc++"; then \
+        echo "ERROR: maya2c-node still links libstdc++ dynamically" >&2; exit 1; \
     fi
 
 # ---------------------------------------------------------------------------
@@ -90,11 +87,11 @@ RUN apk add --no-cache ca-certificates \
     && mkdir -p /data /config \
     && chown -R l1:l1 /data /config
 
-COPY --from=builder /build/target/release/node    /usr/local/bin/node
-COPY --from=builder /build/target/release/genesis /usr/local/bin/genesis
+COPY --from=builder /build/target/release/maya2c-node    /usr/local/bin/maya2c-node
+COPY --from=builder /build/target/release/maya2c-genesis /usr/local/bin/maya2c-genesis
 # Used by the seed identity init container and by operators pre-generating the
 # PeerIds that cross-region bootnode multiaddrs are written against.
-COPY --from=builder /build/target/release/peerid  /usr/local/bin/peerid
+COPY --from=builder /build/target/release/maya2c-peerid  /usr/local/bin/maya2c-peerid
 
 # Never run a network daemon as root.
 USER l1
@@ -113,7 +110,7 @@ EXPOSE 8545 8546 9600 30333
 ENV L1_DATA_DIR=/data \
     L1_GENESIS=/config/genesis.json
 
-ENTRYPOINT ["/usr/local/bin/node"]
+ENTRYPOINT ["/usr/local/bin/maya2c-node"]
 # The exporter is on by default because the container's health checks target
 # /healthz, which it serves. The market endpoint is not: it is only useful once
 # an operator supplies a feed, and its supply scan is the most expensive read

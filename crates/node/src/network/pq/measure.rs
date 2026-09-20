@@ -197,6 +197,7 @@ fn agree(left: &[u8], right: &[u8]) -> Result<(), NodeError> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

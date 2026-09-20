@@ -41,11 +41,11 @@ use custom_l1_node::state_pruner::PRUNE_DEPTH;
 
 use libp2p::Multiaddr;
 
-// Under `node/` rather than beside this file: a `.rs` directly in `src/bin/`
-// would be built as a binary of its own.
-#[path = "node/import.rs"]
+// Ordinary sibling modules. They needed `#[path]` while this was
+// `crates/node/src/bin/node.rs`, because a `.rs` directly in `src/bin/` is
+// built as a binary of its own; in a package of its own that constraint is
+// gone.
 mod import;
-#[path = "node/pruning.rs"]
 mod pruning;
 use import::{backfill_loop, block_import_loop};
 use pruning::{open_or_bootstrap, pruning_loop, pruning_services};

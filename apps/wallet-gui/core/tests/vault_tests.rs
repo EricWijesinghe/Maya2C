@@ -6,6 +6,8 @@
 //! has never touched the OS is an assumption rather than a verified backend.
 //! It uses a unique name and deletes what it wrote.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use maya_wallet_core::error::WalletError;
 use maya_wallet_core::hd::SEED_LEN;
 use maya_wallet_core::vault::{MemoryStore, OsKeychain, SecretStore, Vault, seal, unseal};

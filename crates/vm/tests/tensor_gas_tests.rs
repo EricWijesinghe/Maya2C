@@ -13,6 +13,8 @@
 //! These tests pin what that choice means in numbers: fuel per MAC, that cost
 //! grows as `n³`, and that the 16 MiB memory ceiling is where a tensor stops.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use maya_vm::{MemoryState, Vm, VmError};
 
 /// An `n×n` int8 × int8 → int32 matmul, `C = A·B`, over zeroed memory.

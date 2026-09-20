@@ -18,6 +18,8 @@
 //! cargo bench --bench oracle
 //! ```
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use criterion::{Criterion, criterion_group, criterion_main};
 use custom_l1_node::crypto::hybrid::{
     HYBRID_PUBLIC_KEY_LEN, HYBRID_SIGNATURE_LENGTH, HybridVerifyingKey, generate_signing_key,

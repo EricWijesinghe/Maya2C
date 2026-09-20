@@ -37,6 +37,8 @@
 //! here is evidence that latency alone does not break propagation. It is not
 //! evidence that the protocol survives a genuinely bad network.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};

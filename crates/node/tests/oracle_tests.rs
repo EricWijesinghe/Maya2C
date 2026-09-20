@@ -16,6 +16,8 @@
 //!   author who forgets a check is the failure mode most oracle post-mortems
 //!   are made of, so the ABI has to make forgetting impossible.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::collections::BTreeMap;
 
 use custom_l1_node::core::oracle_payload::{

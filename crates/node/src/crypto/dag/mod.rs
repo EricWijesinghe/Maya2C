@@ -294,6 +294,7 @@ pub fn blake3_512(key: &[u8; 32], data: &[u8]) -> [u8; ITEM_BYTES] {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

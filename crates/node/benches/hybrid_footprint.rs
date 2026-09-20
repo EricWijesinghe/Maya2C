@@ -33,6 +33,8 @@
 //! ML-DSA-only column exists so the difference between the two runs isolates
 //! the part this change is responsible for.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 

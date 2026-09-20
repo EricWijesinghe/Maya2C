@@ -5,6 +5,8 @@
 //! whose storage writes land in the same atomic batch as everything else in the
 //! block — or land nowhere at all.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::core::payload::{ContractCall, ContractDeploy, derive_contract_id};
 use custom_l1_node::core::{Block, BlockHeader, Transaction, TxKind};
 use custom_l1_node::crypto::hybrid::generate_signing_key;

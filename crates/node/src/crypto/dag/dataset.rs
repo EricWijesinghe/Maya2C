@@ -212,6 +212,7 @@ pub fn suggested_threads() -> usize {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     /// 4 MiB of dataset from a 512 KiB cache. Builds in about a second even

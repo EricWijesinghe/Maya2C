@@ -475,6 +475,7 @@ pub fn verify(proof: &[u8; crate::prove::PROOF_BYTES], root: Fr) -> Result<bool>
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use ark_relations::gr1cs::ConstraintSystem;
 

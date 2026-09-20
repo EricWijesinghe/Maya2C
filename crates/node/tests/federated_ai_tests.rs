@@ -17,6 +17,8 @@
 //! lying about survivors, enclave attestation — is stated in
 //! `docs/confidential-ai.md`, not asserted here.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use maya_confidential_ai::dp::{Accountant, discrete_gaussian, sigma_sq_for};
 use maya_confidential_ai::protocol::{
     Advertisement, Aggregator, KeyEnvelope, Participant, RoundConfig, ShareEnvelope,

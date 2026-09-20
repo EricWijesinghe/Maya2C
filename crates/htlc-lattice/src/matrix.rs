@@ -145,6 +145,7 @@ fn sample_uniform(seed: &[u8; SEED_BYTES], row: usize, column: usize, out: &mut 
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

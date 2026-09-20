@@ -56,6 +56,8 @@
 //! txid. `one_payload_and_key_yield_exactly_one_signature` pins that, because it
 //! is the property `Transaction::txid` depends on when it hashes the signature.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::core::{Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::{
     HYBRID_SIGNATURE_LENGTH, HybridPublicKey, HybridSignature, HybridSigningKey,

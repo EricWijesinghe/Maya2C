@@ -13,6 +13,8 @@
 //! The last one is the only one that is an attack rather than an outage, and it
 //! is the one a crash-fault-only design would let through.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use curve25519_dalek::scalar::Scalar;
 use maya_custody_mpc::dkg::{Custodian, CustodianShare, Dealing, Roster, VaultPolicy};
 use maya_custody_mpc::error::CustodyError;

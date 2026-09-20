@@ -311,6 +311,7 @@ fn render(key: &WorkerKey, entry: &WorkerEntry, now_millis: u64) -> WorkerStats 
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     fn key(worker: &str) -> WorkerKey {

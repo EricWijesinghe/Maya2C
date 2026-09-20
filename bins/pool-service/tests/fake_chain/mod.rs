@@ -6,6 +6,8 @@
 //! session-level tests can share it without making the private one public and
 //! turning a test fixture into part of the crate's API.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::sync::Mutex;
 
 use custom_l1_node::state::Address;

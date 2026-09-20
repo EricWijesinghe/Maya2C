@@ -9,6 +9,8 @@
 //! Run with `cargo bench -p maya-zkml-prover --bench verify`. The number in
 //! `docs/zkml.md` came from this.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::hint::black_box;
 use std::path::PathBuf;
 use std::time::Instant;

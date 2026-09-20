@@ -1,0 +1,107 @@
+[package]
+name = "maya-tiers"
+version.workspace = true
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+description = "The core / extended / frontier build tiers, as cargo features"
+
+# This crate contains no code. It exists so that the tiers are a *mechanism*
+# and not a table in a document:
+#
+#     cargo build -p maya-tiers                       # core (the default)
+#     cargo build -p maya-tiers --features extended
+#     cargo build -p maya-tiers --features frontier
+#
+# Why a facade rather than features on the node:
+#
+# The brief's `extended` tier names "DeFi, RWA, identity, bridges". Those are
+# `crates/dex`, `crates/rwa`, `crates/identity` and `crates/iso20022`, and
+# every one of them writes records that sit under the state root
+# (docs/invariants.md, invariant 25). A cargo feature that removed one would
+# make two honest nodes compute different state roots — a chain split caused
+# by a build flag, which nothing in the protocol describes and no block
+# commits to. See docs/adr/ADR-002-feature-tiers.md.
+#
+# So a tier decides what a build *compiles*, never what a node *executes*. The
+# node is whole in every tier; what the tiers add are separate processes and
+# separate artifacts. A subsystem is turned off with an activation height of
+# `u64::MAX`, which every node compiles identically.
+#
+# `[workspace] default-members` is the other half: a bare `cargo build` at the
+# root compiles `crates/node` and `xtask` and nothing else.
+
+[features]
+default = ["core"]
+
+# What a validating node needs. `custom-l1-node` pulls in every crate that
+# writes a committed record, so this list is short by construction rather than
+# by omission.
+core = ["dep:custom-l1-node", "dep:maya-light-client", "dep:maya-fee-market"]
+
+# Separate processes and separate artifacts: services, clients, SDKs and the
+# off-chain provers and trainers. Nothing here can change a state root.
+extended = [
+    "core",
+    "dep:maya-api-gateway",
+    "dep:maya-explorer",
+    "dep:maya-faucet",
+    "dep:maya-telemetry",
+    "dep:maya-pool-service",
+    "dep:maya-stratum-v2",
+    "dep:l1-wallet",
+    "dep:maya-wallet-core",
+    "dep:maya-sdk-ffi",
+    "dep:maya-sdk-wasm",
+    "dep:maya-custody-mpc",
+    "dep:maya-htlc-watcher",
+    "dep:maya-threat-firewall",
+    "dep:maya-neural-gas-trainer",
+    "dep:maya-zkml-prover",
+    "dep:maya-confidential-ai",
+    "dep:l2-flash",
+]
+# `bins/docgen` is deliberately absent: it is a binary-only package with no lib
+# target, and cargo cannot express a dependency on one. It is still `extended`
+# in `features.toml`; a tier feature can only reach what cargo can link.
+
+# Hardware, and the simulators that stand in for it. The hardware features
+# themselves (`cuda`, `gpu`, `xdp`) stay default-off inside those crates, so
+# this tier still builds on a runner with no GPU and no XDP-capable NIC —
+# which is invariant 3, generalised.
+frontier = [
+    "extended",
+    "dep:maya-cuda-miner",
+    "dep:maya-wgpu-miner",
+    "dep:maya-sim",
+]
+
+[dependencies]
+custom-l1-node = { path = "../node", optional = true }
+maya-light-client = { path = "../light-client", optional = true }
+maya-fee-market = { path = "../fee-market", optional = true }
+
+maya-api-gateway = { path = "../api-gateway", optional = true }
+maya-explorer = { path = "../../apps/explorer", optional = true }
+maya-faucet = { path = "../../apps/faucet", optional = true }
+maya-telemetry = { path = "../telemetry", optional = true }
+maya-pool-service = { path = "../../bins/pool-service", optional = true }
+maya-stratum-v2 = { path = "../stratum-v2", optional = true }
+l1-wallet = { path = "../../bins/l1-wallet", optional = true }
+maya-wallet-core = { path = "../../apps/wallet-gui/core", optional = true }
+maya-sdk-ffi = { path = "../../sdks/sdk-ffi", optional = true }
+maya-sdk-wasm = { path = "../../sdks/sdk-wasm", optional = true }
+maya-custody-mpc = { path = "../custody-mpc", optional = true }
+maya-htlc-watcher = { path = "../../bins/htlc-watcher", optional = true }
+maya-threat-firewall = { path = "../../bins/threat-firewall", optional = true }
+maya-neural-gas-trainer = { path = "../../bins/neural-gas-trainer", optional = true }
+maya-zkml-prover = { path = "../zkml-prover", optional = true }
+maya-confidential-ai = { path = "../confidential-ai", optional = true }
+l2-flash = { path = "../l2-flash", optional = true }
+
+maya-cuda-miner = { path = "../../hal/cuda-miner", optional = true }
+maya-wgpu-miner = { path = "../../hal/wgpu-miner", optional = true }
+maya-sim = { path = "../../sim", optional = true }
+
+[lints]
+workspace = true

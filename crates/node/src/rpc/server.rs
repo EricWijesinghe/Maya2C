@@ -429,6 +429,7 @@ fn check_peer_exposure(address: SocketAddr, serves_peers: bool) -> crate::error:
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

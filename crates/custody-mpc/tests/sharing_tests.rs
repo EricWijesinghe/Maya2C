@@ -6,6 +6,8 @@
 //! commitment. If one of these breaks, every test in `ceremony_tests.rs` is
 //! testing something other than what it says.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use curve25519_dalek::ristretto::CompressedRistretto;
 use curve25519_dalek::scalar::Scalar;
 use maya_custody_mpc::error::CustodyError;

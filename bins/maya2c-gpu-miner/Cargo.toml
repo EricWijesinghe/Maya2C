@@ -1,0 +1,30 @@
+[package]
+name = "maya2c-gpu-miner"
+version.workspace = true
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+description = "Cross-platform GPU miner (Vulkan/Metal/DX12) for the DAG proof of work"
+
+# The executable lives here and the hardware backend stays in
+# `hal/wgpu-miner`, which is what those two directories are for: `hal/` holds
+# the abstraction over a device, `bins/` holds the thing an operator runs.
+#
+# `maya-wgpu-miner`'s `gpu` feature is default-off and stays that way — the
+# workspace has to build on a runner with no adapter, which is invariant 3.
+# Without it this binary runs the CPU reference path.
+[dependencies]
+maya-wgpu-miner = { path = "../../hal/wgpu-miner" }
+clap.workspace = true
+
+[features]
+# Forwarded, so `cargo build -p maya2c-gpu-miner --features gpu` reaches the
+# device without anybody having to know which crate owns the feature.
+gpu = ["maya-wgpu-miner/gpu"]
+
+[[bin]]
+name = "maya2c-gpu-miner"
+path = "src/main.rs"
+
+[lints]
+workspace = true

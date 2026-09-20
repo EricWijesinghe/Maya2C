@@ -24,6 +24,8 @@
 //! different keys, and a key pair assembled from two accounts' halves. All must
 //! be rejected, or the second signature is decoration.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::core::{Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::{
     ADDRESS_LEN, HYBRID_PUBLIC_KEY_LEN, HYBRID_SECRET_KEY_LEN, HYBRID_SIGNATURE_LENGTH,

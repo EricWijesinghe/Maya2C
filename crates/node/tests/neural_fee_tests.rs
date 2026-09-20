@@ -6,6 +6,8 @@
 //! shared constants and feature order are pinned — the arrangement
 //! `tests/custody_parity_tests.rs` uses for a duplicated derivation.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::core::{Block, BlockHeader, ContractCall, Transaction, TxKind, TxOutput};
 use custom_l1_node::crypto::hybrid::signing_key_from_seed;
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;

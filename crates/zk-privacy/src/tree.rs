@@ -226,6 +226,7 @@ pub fn merkle_path(leaves: &[Fr], index: u64) -> Result<MerklePath> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     fn leaf(value: u64) -> Fr {

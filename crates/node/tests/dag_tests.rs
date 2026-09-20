@@ -19,6 +19,8 @@
 //! design rests on. A test suite that could not check mainnet without 4 GiB
 //! would be evidence that asymmetry did not exist.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 

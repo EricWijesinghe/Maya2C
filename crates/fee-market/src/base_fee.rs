@@ -60,6 +60,7 @@ pub fn next_base_fee(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     const TARGET: u64 = 1_000_000;

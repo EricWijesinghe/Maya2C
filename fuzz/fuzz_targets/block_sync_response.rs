@@ -8,6 +8,8 @@
 
 #![no_main]
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::core::Block;
 use custom_l1_node::network::sync::{BlockBytes, BlockResponse, accept_response};
 use libfuzzer_sys::fuzz_target;

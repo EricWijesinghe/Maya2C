@@ -11,6 +11,8 @@
 //! somebody invoked it — turning a deployer's mistake into every caller's, and
 //! leaving a contract on the chain that reads as if the call surface existed.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use maya_vm::runtime::{HOST_FUNCTIONS, HOST_MODULE};
 use maya_vm::{Vm, VmError};
 

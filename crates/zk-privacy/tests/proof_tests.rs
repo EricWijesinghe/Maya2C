@@ -5,6 +5,8 @@
 //! show: that the verifier accepts a valid spend, rejects a tampered one, and
 //! that the verifying key is the one consensus pinned.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use ark_bls12_381::Fr;
 use ark_ff::Zero;
 

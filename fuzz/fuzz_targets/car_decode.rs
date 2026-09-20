@@ -8,6 +8,8 @@
 
 #![no_main]
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use libfuzzer_sys::fuzz_target;
 use maya_archive::car::{RAW_CODEC, cid_of, read_car};
 use maya_archive::{decompress, open_archive};

@@ -7,6 +7,8 @@
 //! Real proofs against the real verifier are in `tests/zkml_block_tests.rs`,
 //! in the node's suite.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::cell::Cell;
 
 use maya_vm::zkml::{

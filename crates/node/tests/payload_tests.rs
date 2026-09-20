@@ -19,6 +19,8 @@
 //! the *discipline* — the encoding is still frozen against a literal, so it
 //! cannot drift silently from here.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::core::dex_payload::{
     AssetRegistration, AssetTransfer, LiquidityDeposit, LiquidityWithdrawal, MAX_ROUTE_LEGS,
     OrderPlacement, PoolCreation, ROUTE_LEG_SIZE, RouteLeg, SwapRequest, SwapRoute,

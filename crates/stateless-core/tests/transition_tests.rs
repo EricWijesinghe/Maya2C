@@ -1,5 +1,7 @@
 //! Transfers against a verified witness, by the node's rules.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use maya_stateless_core::{
     AccountState, Blake3, Defect, Error, Key, Value, VerifiedTree, Violation, apply_transfer,
     sparse,

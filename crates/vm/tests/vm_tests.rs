@@ -5,6 +5,8 @@
 //! and lets each one target exactly the machine behaviour under test rather
 //! than whatever a compiler happened to emit.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use maya_vm::config::{MAX_MEMORY_PAGES, WASMTIME_VERSION};
 use maya_vm::error::VmError;
 use maya_vm::host::{Event, MemoryState};

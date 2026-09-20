@@ -15,7 +15,7 @@ data:
   # Replaced per environment by the kustomize overlays. The chain id here is
   # deliberately NOT "mainnet": the node refuses to start on a value-bearing
   # chain while the shielded pool's proving parameters come from a reproducible
-  # setup. See src/bin/node.rs VALUE_BEARING_CHAINS.
+  # setup. See bins/maya2c-node/src/main.rs VALUE_BEARING_CHAINS.
   genesis.json: |
     {
       "chain_id": "maya-testnet",

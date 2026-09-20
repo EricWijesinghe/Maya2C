@@ -9,6 +9,8 @@
 //! The crash-safety tests are the exception and run only against RocksDB, since
 //! reopening a `MemoryLedger` is not a meaningful operation.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::consensus::U256;
 use custom_l1_node::state::Address;
 use maya_pool_service::ledger::memory::MemoryLedger;

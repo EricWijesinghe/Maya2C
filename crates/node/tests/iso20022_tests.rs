@@ -21,6 +21,8 @@
 //! `a_statement_is_drawn_from_a_block_that_verified` is rendered from state
 //! that passed that check rather than from a block that merely parsed.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::core::{Block, BlockHeader, Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;

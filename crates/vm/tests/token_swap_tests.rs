@@ -14,6 +14,8 @@
 //! installed they skip with an explanatory message rather than failing, since
 //! that is a toolchain gap and not a defect in the code under test.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::path::PathBuf;
 use std::process::Command;
 

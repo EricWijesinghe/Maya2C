@@ -1,6 +1,8 @@
 //! The sparse tree, its witnesses, and the canonical encoding, over both
 //! backends.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use maya_stateless_core::params::{
     KEY_BYTES, MAX_WITNESS_BYTES, TAG_INTERNAL, TAG_LEAF, TAG_OPAQUE,
 };

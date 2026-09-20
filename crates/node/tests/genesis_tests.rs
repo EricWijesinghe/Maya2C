@@ -4,6 +4,8 @@
 //! the same config must yield the same genesis block and state root on every
 //! machine, regardless of how the JSON happens to be ordered or formatted.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::sync::Arc;
 
 use custom_l1_node::consensus::{Chain, ChainConfig};

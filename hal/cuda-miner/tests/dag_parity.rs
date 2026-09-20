@@ -21,6 +21,8 @@
 //! transliterated *from* — including the hand-rolled BLAKE3 in
 //! `src/blake3_ref.rs` — is byte-exact against the node.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::core::BlockHeader;
 use custom_l1_node::crypto::dag::cache::Cache as NodeCache;
 use custom_l1_node::crypto::dag::dataset::{Dataset as NodeDataset, dataset_item as node_item};

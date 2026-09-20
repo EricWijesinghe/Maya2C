@@ -34,9 +34,5 @@ wgpu = { version = "27", optional = true }
 pollster = { version = "0.4", optional = true }
 bytemuck = { version = "1", features = ["derive"], optional = true }
 
-[[bin]]
-name = "wgpu-miner"
-path = "src/main.rs"
-
 [lints]
 workspace = true

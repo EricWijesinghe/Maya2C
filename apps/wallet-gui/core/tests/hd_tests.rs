@@ -8,6 +8,8 @@
 //! pass against a wrong implementation. The failure only surfaces when a user
 //! tries to recover elsewhere and finds an empty account.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use maya_wallet_core::error::WalletError;
 use maya_wallet_core::hd::{
     self, DerivationPath, HARDENED, generate_mnemonic, seed_from_mnemonic, validate_mnemonic,

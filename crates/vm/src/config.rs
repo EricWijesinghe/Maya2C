@@ -154,6 +154,7 @@ pub fn deterministic_engine() -> Result<Engine> {
 
 #[cfg(test)]
 mod digest_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     /// Settings `config_digest` accounts for: the eight flags in its byte

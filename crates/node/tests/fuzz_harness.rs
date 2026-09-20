@@ -32,6 +32,8 @@
 //! node's test build, which is the whole thing the separate workspace prevents.
 //! The richer, structure-aware mutators live there.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::panic::{self, AssertUnwindSafe};
 
 use custom_l1_node::core::{Block, BlockHeader, Transaction, TxInput, TxOutput};

@@ -129,6 +129,7 @@ pub fn schema(node: Arc<dyn NodeClient>) -> GatewaySchema {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

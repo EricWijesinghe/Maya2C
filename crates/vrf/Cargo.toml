@@ -11,7 +11,7 @@ rust-version.workspace = true
 description = "RFC 9381 ECVRF-EDWARDS25519-SHA512-TAI, the chain's verifiable random function"
 
 [dependencies]
-# The curve. Pure Rust with no C backend, which the Dockerfile's static-musl
+# The curve. Pure Rust with no C backend, which the infra/docker/Dockerfile's static-musl
 # build depends on, and the only new cryptographic dependency this crate adds.
 #
 # Pinned to a major version rather than an exact one: unlike the `ark-*` stack

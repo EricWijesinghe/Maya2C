@@ -172,6 +172,7 @@ pub fn intents_from_pacs009(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

@@ -18,6 +18,7 @@
 //! root does not fail for reasons that are not bugs.
 
 #![cfg(all(target_os = "linux", feature = "xdp"))]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::net::{IpAddr, Ipv4Addr, UdpSocket};
 use std::process::Command;

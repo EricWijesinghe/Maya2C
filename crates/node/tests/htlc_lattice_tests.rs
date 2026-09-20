@@ -15,6 +15,8 @@
 //!    equation, the binding to one lock's commitment, the trivial commitment,
 //!    and the classical preimage a SHA-256 HTLC would have accepted.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;

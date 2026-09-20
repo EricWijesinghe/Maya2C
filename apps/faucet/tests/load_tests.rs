@@ -26,6 +26,8 @@
 //! What they do not prove: that a distributed attacker cannot take the day's
 //! budget. They can, and the cap is the choice of how much that costs.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 

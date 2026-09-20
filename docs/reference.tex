@@ -2400,7 +2400,7 @@ changed the shared-secret derivation (the ciphertext hash was dropped from
 the KDF), changed encodings, and added the seed-based key format. Shipping
 it under a FIPS 203 label would be false.
 
-\texttt{ml-kem} is also pure Rust, which the Dockerfile's static-musl build depends
+\texttt{ml-kem} is also pure Rust, which the infra/docker/Dockerfile's static-musl build depends
 on — the same reason \texttt{fips204} and \texttt{slh-dsa} were chosen over their PQClean
 equivalents.
 

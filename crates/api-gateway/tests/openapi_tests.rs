@@ -11,6 +11,8 @@
 //! the failure this catches is somebody adding a `.route(...)` line and not the
 //! `#[utoipa::path]` beside it, and that is a fact about the source.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::collections::BTreeSet;
 use std::sync::Arc;
 

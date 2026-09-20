@@ -1,0 +1,25 @@
+[package]
+name = "maya2c-peerid"
+version.workspace = true
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+description = "Prints the libp2p peer id for a node identity file"
+
+# A binary package rather than a `[[bin]]` of `crates/node`, because the
+# foundation brief puts executables in `bins/`. It links the node as a library
+# and uses nothing that is not part of that library's public surface — which is
+# what made the split possible without widening the API.
+[dependencies]
+custom-l1-node = { path = "../../crates/node" }
+libp2p.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[[bin]]
+name = "maya2c-peerid"
+path = "src/main.rs"
+
+[lints]
+workspace = true

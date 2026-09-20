@@ -66,6 +66,7 @@ impl DataTransform for EvidenceTap {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use libp2p::PeerId;
     use libp2p::gossipsub::IdentTopic;
 

@@ -210,6 +210,7 @@ fn run(invocation: &Invocation) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use std::net::{Ipv4Addr, Ipv6Addr};
 
     use super::*;

@@ -27,6 +27,8 @@
 //! absent. A test that failed for want of hardware would be a test people
 //! learn to ignore.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::crypto::dag::hashimoto::{finish, hashimoto_light, seed_for};
 use custom_l1_node::crypto::dag::{Params, cache::Cache};
 use maya_wgpu_miner::reference;

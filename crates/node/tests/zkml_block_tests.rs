@@ -10,6 +10,8 @@
 //! in the node ever sets it: [`ZKML_ACTIVATION_HEIGHT`] is `u64::MAX`, and
 //! `the_node_leaves_verification_dark` pins that.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::path::PathBuf;
 
 use custom_l1_node::core::payload::{ContractCall, ContractDeploy, derive_contract_id};

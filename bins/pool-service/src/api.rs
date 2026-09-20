@@ -120,6 +120,7 @@ pub fn miner_view(address: Address, balance: MinerBalance, workers: Vec<WorkerSt
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

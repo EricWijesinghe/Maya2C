@@ -56,33 +56,1733 @@
 # A `planned` entry has no code. Its class records the intent, not a fact about
 # this tree; `status` is what you check.
 #
-# ## On the count
+# ## Two tables
 #
-# The foundation brief asked for 164 entries: "every feature from old prompts
-# #1-#162 plus Benchmark and Memory". No 162-item list exists in this
-# repository. `docs/trajectory.md` describes **160** prompts, and it describes
-# them as twelve domain *ranges*, not as 160 individually named deliverables —
-# only the ranges and the ten reconciliation notes are written down.
+# `[[feature]]` — **164 entries: the register.** Prompts 1-162 from
+# `docs/trajectory.md`, plus Benchmark and Memory, which the foundation brief
+# names separately. This says what the *plan* is. Prompts 1-48 are the range
+# that file records as complete; 49-160 are planned; 161-162 are recorded as
+# **unallocated**, because the brief's range runs to 162 and the trajectory
+# defines 160. An unallocated slot is a fact. An invented deliverable would
+# not be.
 #
-# So this ledger is built from what can actually be checked: the 83 tagged rows
-# of `docs/architecture-vision.md`, plus 7 subsystems that document has no row
-# for, which is 90 entries. Padding it to 164 with invented rows would make
-# `cargo xtask coverage` report on features nobody can point at, which is the
-# opposite of what a reality ledger is for.
+# `[[subsystem]]` — **90 entries: the ledger.** One per subsystem that exists,
+# with the tests that would fail if it broke. This says what the *tree* is,
+# and it is the table worth reading when the question is "does this work".
 #
-# The trajectory's unbuilt prompts (roughly 49-160) are tracked as a *plan* in
-# `PROGRESS.md` and `docs/trajectory.md`. They become entries here when they
-# become subsystems.
+# Both share this schema and both are checked. The register cannot name a
+# per-prompt test, because `docs/trajectory.md` records which *domain* a
+# prompt belongs to and not which subsystem it produced; the entries for
+# prompts 1-48 therefore name their domain's tests and say so in a note. The
+# per-subsystem detail lives in the second table, which is where the real
+# gate bites.
 #
-# Counts: 90 entries — 44 verified, 30 working, 16 planned, 0 stub;
-# 28 core, 41 extended, 21 frontier. `cargo xtask coverage` prints the
-# current tally, which is the one to trust.
+# `cargo xtask coverage --verify-targets` additionally asks cargo-nextest
+# whether each named test is a target it would actually run. That check found
+# three entries naming things cargo cannot execute on its first run — a
+# directory instead of a file, a Linux-and-root-only target, and a crate
+# outside the workspace. All three now name a `gate` saying what does run
+# them.
 
 [meta]
 schema = 1
 source = "docs/architecture-vision.md"
 
 [[feature]]
+id = "P001"
+name = "Prompt 1 — Post-Quantum Cryptography"
+domain = "Post-Quantum Cryptography (prompts 1-25)"
+paths = "NIST Category 5 algorithms (ML-KEM-1024, ML-DSA-87, SLH-DSA), ETSI QKD interfaces, lattice HTLC atomic swaps"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/shielded_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P002"
+name = "Prompt 2 — Post-Quantum Cryptography"
+domain = "Post-Quantum Cryptography (prompts 1-25)"
+paths = "NIST Category 5 algorithms (ML-KEM-1024, ML-DSA-87, SLH-DSA), ETSI QKD interfaces, lattice HTLC atomic swaps"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/shielded_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P003"
+name = "Prompt 3 — Post-Quantum Cryptography"
+domain = "Post-Quantum Cryptography (prompts 1-25)"
+paths = "NIST Category 5 algorithms (ML-KEM-1024, ML-DSA-87, SLH-DSA), ETSI QKD interfaces, lattice HTLC atomic swaps"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/shielded_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P004"
+name = "Prompt 4 — Post-Quantum Cryptography"
+domain = "Post-Quantum Cryptography (prompts 1-25)"
+paths = "NIST Category 5 algorithms (ML-KEM-1024, ML-DSA-87, SLH-DSA), ETSI QKD interfaces, lattice HTLC atomic swaps"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/shielded_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P005"
+name = "Prompt 5 — Post-Quantum Cryptography"
+domain = "Post-Quantum Cryptography (prompts 1-25)"
+paths = "NIST Category 5 algorithms (ML-KEM-1024, ML-DSA-87, SLH-DSA), ETSI QKD interfaces, lattice HTLC atomic swaps"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/shielded_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P006"
+name = "Prompt 6 — Post-Quantum Cryptography"
+domain = "Post-Quantum Cryptography (prompts 1-25)"
+paths = "NIST Category 5 algorithms (ML-KEM-1024, ML-DSA-87, SLH-DSA), ETSI QKD interfaces, lattice HTLC atomic swaps"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/shielded_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P007"
+name = "Prompt 7 — Post-Quantum Cryptography"
+domain = "Post-Quantum Cryptography (prompts 1-25)"
+paths = "NIST Category 5 algorithms (ML-KEM-1024, ML-DSA-87, SLH-DSA), ETSI QKD interfaces, lattice HTLC atomic swaps"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/shielded_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P008"
+name = "Prompt 8 — Post-Quantum Cryptography"
+domain = "Post-Quantum Cryptography (prompts 1-25)"
+paths = "NIST Category 5 algorithms (ML-KEM-1024, ML-DSA-87, SLH-DSA), ETSI QKD interfaces, lattice HTLC atomic swaps"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/shielded_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P009"
+name = "Prompt 9 — Post-Quantum Cryptography"
+domain = "Post-Quantum Cryptography (prompts 1-25)"
+paths = "NIST Category 5 algorithms (ML-KEM-1024, ML-DSA-87, SLH-DSA), ETSI QKD interfaces, lattice HTLC atomic swaps"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/shielded_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P010"
+name = "Prompt 10 — Post-Quantum Cryptography"
+domain = "Post-Quantum Cryptography (prompts 1-25)"
+paths = "NIST Category 5 algorithms (ML-KEM-1024, ML-DSA-87, SLH-DSA), ETSI QKD interfaces, lattice HTLC atomic swaps"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/shielded_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P011"
+name = "Prompt 11 — Post-Quantum Cryptography"
+domain = "Post-Quantum Cryptography (prompts 1-25)"
+paths = "NIST Category 5 algorithms (ML-KEM-1024, ML-DSA-87, SLH-DSA), ETSI QKD interfaces, lattice HTLC atomic swaps"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/shielded_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P012"
+name = "Prompt 12 — Post-Quantum Cryptography"
+domain = "Post-Quantum Cryptography (prompts 1-25)"
+paths = "NIST Category 5 algorithms (ML-KEM-1024, ML-DSA-87, SLH-DSA), ETSI QKD interfaces, lattice HTLC atomic swaps"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/shielded_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P013"
+name = "Prompt 13 — Post-Quantum Cryptography"
+domain = "Post-Quantum Cryptography (prompts 1-25)"
+paths = "NIST Category 5 algorithms (ML-KEM-1024, ML-DSA-87, SLH-DSA), ETSI QKD interfaces, lattice HTLC atomic swaps"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/shielded_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P014"
+name = "Prompt 14 — Post-Quantum Cryptography"
+domain = "Post-Quantum Cryptography (prompts 1-25)"
+paths = "NIST Category 5 algorithms (ML-KEM-1024, ML-DSA-87, SLH-DSA), ETSI QKD interfaces, lattice HTLC atomic swaps"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/shielded_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P015"
+name = "Prompt 15 — Post-Quantum Cryptography"
+domain = "Post-Quantum Cryptography (prompts 1-25)"
+paths = "NIST Category 5 algorithms (ML-KEM-1024, ML-DSA-87, SLH-DSA), ETSI QKD interfaces, lattice HTLC atomic swaps"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/shielded_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P016"
+name = "Prompt 16 — Post-Quantum Cryptography"
+domain = "Post-Quantum Cryptography (prompts 1-25)"
+paths = "NIST Category 5 algorithms (ML-KEM-1024, ML-DSA-87, SLH-DSA), ETSI QKD interfaces, lattice HTLC atomic swaps"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/shielded_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P017"
+name = "Prompt 17 — Post-Quantum Cryptography"
+domain = "Post-Quantum Cryptography (prompts 1-25)"
+paths = "NIST Category 5 algorithms (ML-KEM-1024, ML-DSA-87, SLH-DSA), ETSI QKD interfaces, lattice HTLC atomic swaps"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/shielded_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P018"
+name = "Prompt 18 — Post-Quantum Cryptography"
+domain = "Post-Quantum Cryptography (prompts 1-25)"
+paths = "NIST Category 5 algorithms (ML-KEM-1024, ML-DSA-87, SLH-DSA), ETSI QKD interfaces, lattice HTLC atomic swaps"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/shielded_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P019"
+name = "Prompt 19 — Post-Quantum Cryptography"
+domain = "Post-Quantum Cryptography (prompts 1-25)"
+paths = "NIST Category 5 algorithms (ML-KEM-1024, ML-DSA-87, SLH-DSA), ETSI QKD interfaces, lattice HTLC atomic swaps"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/shielded_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P020"
+name = "Prompt 20 — Post-Quantum Cryptography"
+domain = "Post-Quantum Cryptography (prompts 1-25)"
+paths = "NIST Category 5 algorithms (ML-KEM-1024, ML-DSA-87, SLH-DSA), ETSI QKD interfaces, lattice HTLC atomic swaps"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/shielded_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P021"
+name = "Prompt 21 — Post-Quantum Cryptography"
+domain = "Post-Quantum Cryptography (prompts 1-25)"
+paths = "NIST Category 5 algorithms (ML-KEM-1024, ML-DSA-87, SLH-DSA), ETSI QKD interfaces, lattice HTLC atomic swaps"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/shielded_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P022"
+name = "Prompt 22 — Post-Quantum Cryptography"
+domain = "Post-Quantum Cryptography (prompts 1-25)"
+paths = "NIST Category 5 algorithms (ML-KEM-1024, ML-DSA-87, SLH-DSA), ETSI QKD interfaces, lattice HTLC atomic swaps"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/shielded_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P023"
+name = "Prompt 23 — Post-Quantum Cryptography"
+domain = "Post-Quantum Cryptography (prompts 1-25)"
+paths = "NIST Category 5 algorithms (ML-KEM-1024, ML-DSA-87, SLH-DSA), ETSI QKD interfaces, lattice HTLC atomic swaps"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/shielded_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P024"
+name = "Prompt 24 — Post-Quantum Cryptography"
+domain = "Post-Quantum Cryptography (prompts 1-25)"
+paths = "NIST Category 5 algorithms (ML-KEM-1024, ML-DSA-87, SLH-DSA), ETSI QKD interfaces, lattice HTLC atomic swaps"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/shielded_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P025"
+name = "Prompt 25 — Post-Quantum Cryptography"
+domain = "Post-Quantum Cryptography (prompts 1-25)"
+paths = "NIST Category 5 algorithms (ML-KEM-1024, ML-DSA-87, SLH-DSA), ETSI QKD interfaces, lattice HTLC atomic swaps"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/pq_transport_tests.rs", "crates/node/tests/shielded_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P026"
+name = "Prompt 26 — Consensus & State Engine"
+domain = "Consensus & State Engine (prompts 26-50)"
+paths = "Multi-shard Narwhal/Tusk asynchronous DAG, recursive Halo2 ZK-STARK state folding, Cranelift WASM VM"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs", "crates/node/tests/dag_tests.rs", "crates/node/tests/contract_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P027"
+name = "Prompt 27 — Consensus & State Engine"
+domain = "Consensus & State Engine (prompts 26-50)"
+paths = "Multi-shard Narwhal/Tusk asynchronous DAG, recursive Halo2 ZK-STARK state folding, Cranelift WASM VM"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs", "crates/node/tests/dag_tests.rs", "crates/node/tests/contract_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P028"
+name = "Prompt 28 — Consensus & State Engine"
+domain = "Consensus & State Engine (prompts 26-50)"
+paths = "Multi-shard Narwhal/Tusk asynchronous DAG, recursive Halo2 ZK-STARK state folding, Cranelift WASM VM"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs", "crates/node/tests/dag_tests.rs", "crates/node/tests/contract_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P029"
+name = "Prompt 29 — Consensus & State Engine"
+domain = "Consensus & State Engine (prompts 26-50)"
+paths = "Multi-shard Narwhal/Tusk asynchronous DAG, recursive Halo2 ZK-STARK state folding, Cranelift WASM VM"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs", "crates/node/tests/dag_tests.rs", "crates/node/tests/contract_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P030"
+name = "Prompt 30 — Consensus & State Engine"
+domain = "Consensus & State Engine (prompts 26-50)"
+paths = "Multi-shard Narwhal/Tusk asynchronous DAG, recursive Halo2 ZK-STARK state folding, Cranelift WASM VM"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs", "crates/node/tests/dag_tests.rs", "crates/node/tests/contract_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P031"
+name = "Prompt 31 — Consensus & State Engine"
+domain = "Consensus & State Engine (prompts 26-50)"
+paths = "Multi-shard Narwhal/Tusk asynchronous DAG, recursive Halo2 ZK-STARK state folding, Cranelift WASM VM"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs", "crates/node/tests/dag_tests.rs", "crates/node/tests/contract_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P032"
+name = "Prompt 32 — Consensus & State Engine"
+domain = "Consensus & State Engine (prompts 26-50)"
+paths = "Multi-shard Narwhal/Tusk asynchronous DAG, recursive Halo2 ZK-STARK state folding, Cranelift WASM VM"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs", "crates/node/tests/dag_tests.rs", "crates/node/tests/contract_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P033"
+name = "Prompt 33 — Consensus & State Engine"
+domain = "Consensus & State Engine (prompts 26-50)"
+paths = "Multi-shard Narwhal/Tusk asynchronous DAG, recursive Halo2 ZK-STARK state folding, Cranelift WASM VM"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs", "crates/node/tests/dag_tests.rs", "crates/node/tests/contract_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P034"
+name = "Prompt 34 — Consensus & State Engine"
+domain = "Consensus & State Engine (prompts 26-50)"
+paths = "Multi-shard Narwhal/Tusk asynchronous DAG, recursive Halo2 ZK-STARK state folding, Cranelift WASM VM"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs", "crates/node/tests/dag_tests.rs", "crates/node/tests/contract_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P035"
+name = "Prompt 35 — Consensus & State Engine"
+domain = "Consensus & State Engine (prompts 26-50)"
+paths = "Multi-shard Narwhal/Tusk asynchronous DAG, recursive Halo2 ZK-STARK state folding, Cranelift WASM VM"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs", "crates/node/tests/dag_tests.rs", "crates/node/tests/contract_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P036"
+name = "Prompt 36 — Consensus & State Engine"
+domain = "Consensus & State Engine (prompts 26-50)"
+paths = "Multi-shard Narwhal/Tusk asynchronous DAG, recursive Halo2 ZK-STARK state folding, Cranelift WASM VM"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs", "crates/node/tests/dag_tests.rs", "crates/node/tests/contract_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P037"
+name = "Prompt 37 — Consensus & State Engine"
+domain = "Consensus & State Engine (prompts 26-50)"
+paths = "Multi-shard Narwhal/Tusk asynchronous DAG, recursive Halo2 ZK-STARK state folding, Cranelift WASM VM"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs", "crates/node/tests/dag_tests.rs", "crates/node/tests/contract_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P038"
+name = "Prompt 38 — Consensus & State Engine"
+domain = "Consensus & State Engine (prompts 26-50)"
+paths = "Multi-shard Narwhal/Tusk asynchronous DAG, recursive Halo2 ZK-STARK state folding, Cranelift WASM VM"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs", "crates/node/tests/dag_tests.rs", "crates/node/tests/contract_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P039"
+name = "Prompt 39 — Consensus & State Engine"
+domain = "Consensus & State Engine (prompts 26-50)"
+paths = "Multi-shard Narwhal/Tusk asynchronous DAG, recursive Halo2 ZK-STARK state folding, Cranelift WASM VM"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs", "crates/node/tests/dag_tests.rs", "crates/node/tests/contract_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P040"
+name = "Prompt 40 — Consensus & State Engine"
+domain = "Consensus & State Engine (prompts 26-50)"
+paths = "Multi-shard Narwhal/Tusk asynchronous DAG, recursive Halo2 ZK-STARK state folding, Cranelift WASM VM"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs", "crates/node/tests/dag_tests.rs", "crates/node/tests/contract_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P041"
+name = "Prompt 41 — Consensus & State Engine"
+domain = "Consensus & State Engine (prompts 26-50)"
+paths = "Multi-shard Narwhal/Tusk asynchronous DAG, recursive Halo2 ZK-STARK state folding, Cranelift WASM VM"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs", "crates/node/tests/dag_tests.rs", "crates/node/tests/contract_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P042"
+name = "Prompt 42 — Consensus & State Engine"
+domain = "Consensus & State Engine (prompts 26-50)"
+paths = "Multi-shard Narwhal/Tusk asynchronous DAG, recursive Halo2 ZK-STARK state folding, Cranelift WASM VM"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs", "crates/node/tests/dag_tests.rs", "crates/node/tests/contract_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P043"
+name = "Prompt 43 — Consensus & State Engine"
+domain = "Consensus & State Engine (prompts 26-50)"
+paths = "Multi-shard Narwhal/Tusk asynchronous DAG, recursive Halo2 ZK-STARK state folding, Cranelift WASM VM"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs", "crates/node/tests/dag_tests.rs", "crates/node/tests/contract_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P044"
+name = "Prompt 44 — Consensus & State Engine"
+domain = "Consensus & State Engine (prompts 26-50)"
+paths = "Multi-shard Narwhal/Tusk asynchronous DAG, recursive Halo2 ZK-STARK state folding, Cranelift WASM VM"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs", "crates/node/tests/dag_tests.rs", "crates/node/tests/contract_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P045"
+name = "Prompt 45 — Consensus & State Engine"
+domain = "Consensus & State Engine (prompts 26-50)"
+paths = "Multi-shard Narwhal/Tusk asynchronous DAG, recursive Halo2 ZK-STARK state folding, Cranelift WASM VM"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs", "crates/node/tests/dag_tests.rs", "crates/node/tests/contract_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P046"
+name = "Prompt 46 — Consensus & State Engine"
+domain = "Consensus & State Engine (prompts 26-50)"
+paths = "Multi-shard Narwhal/Tusk asynchronous DAG, recursive Halo2 ZK-STARK state folding, Cranelift WASM VM"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs", "crates/node/tests/dag_tests.rs", "crates/node/tests/contract_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P047"
+name = "Prompt 47 — Consensus & State Engine"
+domain = "Consensus & State Engine (prompts 26-50)"
+paths = "Multi-shard Narwhal/Tusk asynchronous DAG, recursive Halo2 ZK-STARK state folding, Cranelift WASM VM"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs", "crates/node/tests/dag_tests.rs", "crates/node/tests/contract_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P048"
+name = "Prompt 48 — Consensus & State Engine"
+domain = "Consensus & State Engine (prompts 26-50)"
+paths = "Multi-shard Narwhal/Tusk asynchronous DAG, recursive Halo2 ZK-STARK state folding, Cranelift WASM VM"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs", "crates/node/tests/dag_tests.rs", "crates/node/tests/contract_tests.rs"]
+note = "docs/trajectory.md records this domain's range as complete through prompt 48, but not which subsystem each individual prompt produced. The tests named are the domain's; the per-subsystem detail is in the [[subsystem]] table."
+
+[[feature]]
+id = "P049"
+name = "Prompt 49 — Consensus & State Engine"
+domain = "Consensus & State Engine (prompts 26-50)"
+paths = "Multi-shard Narwhal/Tusk asynchronous DAG, recursive Halo2 ZK-STARK state folding, Cranelift WASM VM"
+tier = "core"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P050"
+name = "Prompt 50 — Consensus & State Engine"
+domain = "Consensus & State Engine (prompts 26-50)"
+paths = "Multi-shard Narwhal/Tusk asynchronous DAG, recursive Halo2 ZK-STARK state folding, Cranelift WASM VM"
+tier = "core"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P051"
+name = "Prompt 51 — Physical & Hardware Mesh"
+domain = "Physical & Hardware Mesh (prompts 51-75)"
+paths = "eBPF/XDP zero-copy networking, deep-sea acoustic and neutrino transport, CXL 3.1 memory disaggregation, photonic acceleration"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P052"
+name = "Prompt 52 — Physical & Hardware Mesh"
+domain = "Physical & Hardware Mesh (prompts 51-75)"
+paths = "eBPF/XDP zero-copy networking, deep-sea acoustic and neutrino transport, CXL 3.1 memory disaggregation, photonic acceleration"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P053"
+name = "Prompt 53 — Physical & Hardware Mesh"
+domain = "Physical & Hardware Mesh (prompts 51-75)"
+paths = "eBPF/XDP zero-copy networking, deep-sea acoustic and neutrino transport, CXL 3.1 memory disaggregation, photonic acceleration"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P054"
+name = "Prompt 54 — Physical & Hardware Mesh"
+domain = "Physical & Hardware Mesh (prompts 51-75)"
+paths = "eBPF/XDP zero-copy networking, deep-sea acoustic and neutrino transport, CXL 3.1 memory disaggregation, photonic acceleration"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P055"
+name = "Prompt 55 — Physical & Hardware Mesh"
+domain = "Physical & Hardware Mesh (prompts 51-75)"
+paths = "eBPF/XDP zero-copy networking, deep-sea acoustic and neutrino transport, CXL 3.1 memory disaggregation, photonic acceleration"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P056"
+name = "Prompt 56 — Physical & Hardware Mesh"
+domain = "Physical & Hardware Mesh (prompts 51-75)"
+paths = "eBPF/XDP zero-copy networking, deep-sea acoustic and neutrino transport, CXL 3.1 memory disaggregation, photonic acceleration"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P057"
+name = "Prompt 57 — Physical & Hardware Mesh"
+domain = "Physical & Hardware Mesh (prompts 51-75)"
+paths = "eBPF/XDP zero-copy networking, deep-sea acoustic and neutrino transport, CXL 3.1 memory disaggregation, photonic acceleration"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P058"
+name = "Prompt 58 — Physical & Hardware Mesh"
+domain = "Physical & Hardware Mesh (prompts 51-75)"
+paths = "eBPF/XDP zero-copy networking, deep-sea acoustic and neutrino transport, CXL 3.1 memory disaggregation, photonic acceleration"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P059"
+name = "Prompt 59 — Physical & Hardware Mesh"
+domain = "Physical & Hardware Mesh (prompts 51-75)"
+paths = "eBPF/XDP zero-copy networking, deep-sea acoustic and neutrino transport, CXL 3.1 memory disaggregation, photonic acceleration"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P060"
+name = "Prompt 60 — Physical & Hardware Mesh"
+domain = "Physical & Hardware Mesh (prompts 51-75)"
+paths = "eBPF/XDP zero-copy networking, deep-sea acoustic and neutrino transport, CXL 3.1 memory disaggregation, photonic acceleration"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P061"
+name = "Prompt 61 — Physical & Hardware Mesh"
+domain = "Physical & Hardware Mesh (prompts 51-75)"
+paths = "eBPF/XDP zero-copy networking, deep-sea acoustic and neutrino transport, CXL 3.1 memory disaggregation, photonic acceleration"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P062"
+name = "Prompt 62 — Physical & Hardware Mesh"
+domain = "Physical & Hardware Mesh (prompts 51-75)"
+paths = "eBPF/XDP zero-copy networking, deep-sea acoustic and neutrino transport, CXL 3.1 memory disaggregation, photonic acceleration"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P063"
+name = "Prompt 63 — Physical & Hardware Mesh"
+domain = "Physical & Hardware Mesh (prompts 51-75)"
+paths = "eBPF/XDP zero-copy networking, deep-sea acoustic and neutrino transport, CXL 3.1 memory disaggregation, photonic acceleration"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P064"
+name = "Prompt 64 — Physical & Hardware Mesh"
+domain = "Physical & Hardware Mesh (prompts 51-75)"
+paths = "eBPF/XDP zero-copy networking, deep-sea acoustic and neutrino transport, CXL 3.1 memory disaggregation, photonic acceleration"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P065"
+name = "Prompt 65 — Physical & Hardware Mesh"
+domain = "Physical & Hardware Mesh (prompts 51-75)"
+paths = "eBPF/XDP zero-copy networking, deep-sea acoustic and neutrino transport, CXL 3.1 memory disaggregation, photonic acceleration"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P066"
+name = "Prompt 66 — Physical & Hardware Mesh"
+domain = "Physical & Hardware Mesh (prompts 51-75)"
+paths = "eBPF/XDP zero-copy networking, deep-sea acoustic and neutrino transport, CXL 3.1 memory disaggregation, photonic acceleration"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P067"
+name = "Prompt 67 — Physical & Hardware Mesh"
+domain = "Physical & Hardware Mesh (prompts 51-75)"
+paths = "eBPF/XDP zero-copy networking, deep-sea acoustic and neutrino transport, CXL 3.1 memory disaggregation, photonic acceleration"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P068"
+name = "Prompt 68 — Physical & Hardware Mesh"
+domain = "Physical & Hardware Mesh (prompts 51-75)"
+paths = "eBPF/XDP zero-copy networking, deep-sea acoustic and neutrino transport, CXL 3.1 memory disaggregation, photonic acceleration"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P069"
+name = "Prompt 69 — Physical & Hardware Mesh"
+domain = "Physical & Hardware Mesh (prompts 51-75)"
+paths = "eBPF/XDP zero-copy networking, deep-sea acoustic and neutrino transport, CXL 3.1 memory disaggregation, photonic acceleration"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P070"
+name = "Prompt 70 — Physical & Hardware Mesh"
+domain = "Physical & Hardware Mesh (prompts 51-75)"
+paths = "eBPF/XDP zero-copy networking, deep-sea acoustic and neutrino transport, CXL 3.1 memory disaggregation, photonic acceleration"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P071"
+name = "Prompt 71 — Physical & Hardware Mesh"
+domain = "Physical & Hardware Mesh (prompts 51-75)"
+paths = "eBPF/XDP zero-copy networking, deep-sea acoustic and neutrino transport, CXL 3.1 memory disaggregation, photonic acceleration"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P072"
+name = "Prompt 72 — Physical & Hardware Mesh"
+domain = "Physical & Hardware Mesh (prompts 51-75)"
+paths = "eBPF/XDP zero-copy networking, deep-sea acoustic and neutrino transport, CXL 3.1 memory disaggregation, photonic acceleration"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P073"
+name = "Prompt 73 — Physical & Hardware Mesh"
+domain = "Physical & Hardware Mesh (prompts 51-75)"
+paths = "eBPF/XDP zero-copy networking, deep-sea acoustic and neutrino transport, CXL 3.1 memory disaggregation, photonic acceleration"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P074"
+name = "Prompt 74 — Physical & Hardware Mesh"
+domain = "Physical & Hardware Mesh (prompts 51-75)"
+paths = "eBPF/XDP zero-copy networking, deep-sea acoustic and neutrino transport, CXL 3.1 memory disaggregation, photonic acceleration"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P075"
+name = "Prompt 75 — Physical & Hardware Mesh"
+domain = "Physical & Hardware Mesh (prompts 51-75)"
+paths = "eBPF/XDP zero-copy networking, deep-sea acoustic and neutrino transport, CXL 3.1 memory disaggregation, photonic acceleration"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P076"
+name = "Prompt 76 — Autonomous Governance & AI"
+domain = "Autonomous Governance & AI (prompts 76-100)"
+paths = "Spiking Neural Network edge defence, Z3 formal logic verifiers, ISO 20022 messaging, nuclear/fusion smart-grid balancing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P077"
+name = "Prompt 77 — Autonomous Governance & AI"
+domain = "Autonomous Governance & AI (prompts 76-100)"
+paths = "Spiking Neural Network edge defence, Z3 formal logic verifiers, ISO 20022 messaging, nuclear/fusion smart-grid balancing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P078"
+name = "Prompt 78 — Autonomous Governance & AI"
+domain = "Autonomous Governance & AI (prompts 76-100)"
+paths = "Spiking Neural Network edge defence, Z3 formal logic verifiers, ISO 20022 messaging, nuclear/fusion smart-grid balancing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P079"
+name = "Prompt 79 — Autonomous Governance & AI"
+domain = "Autonomous Governance & AI (prompts 76-100)"
+paths = "Spiking Neural Network edge defence, Z3 formal logic verifiers, ISO 20022 messaging, nuclear/fusion smart-grid balancing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P080"
+name = "Prompt 80 — Autonomous Governance & AI"
+domain = "Autonomous Governance & AI (prompts 76-100)"
+paths = "Spiking Neural Network edge defence, Z3 formal logic verifiers, ISO 20022 messaging, nuclear/fusion smart-grid balancing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P081"
+name = "Prompt 81 — Autonomous Governance & AI"
+domain = "Autonomous Governance & AI (prompts 76-100)"
+paths = "Spiking Neural Network edge defence, Z3 formal logic verifiers, ISO 20022 messaging, nuclear/fusion smart-grid balancing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P082"
+name = "Prompt 82 — Autonomous Governance & AI"
+domain = "Autonomous Governance & AI (prompts 76-100)"
+paths = "Spiking Neural Network edge defence, Z3 formal logic verifiers, ISO 20022 messaging, nuclear/fusion smart-grid balancing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P083"
+name = "Prompt 83 — Autonomous Governance & AI"
+domain = "Autonomous Governance & AI (prompts 76-100)"
+paths = "Spiking Neural Network edge defence, Z3 formal logic verifiers, ISO 20022 messaging, nuclear/fusion smart-grid balancing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P084"
+name = "Prompt 84 — Autonomous Governance & AI"
+domain = "Autonomous Governance & AI (prompts 76-100)"
+paths = "Spiking Neural Network edge defence, Z3 formal logic verifiers, ISO 20022 messaging, nuclear/fusion smart-grid balancing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P085"
+name = "Prompt 85 — Autonomous Governance & AI"
+domain = "Autonomous Governance & AI (prompts 76-100)"
+paths = "Spiking Neural Network edge defence, Z3 formal logic verifiers, ISO 20022 messaging, nuclear/fusion smart-grid balancing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P086"
+name = "Prompt 86 — Autonomous Governance & AI"
+domain = "Autonomous Governance & AI (prompts 76-100)"
+paths = "Spiking Neural Network edge defence, Z3 formal logic verifiers, ISO 20022 messaging, nuclear/fusion smart-grid balancing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P087"
+name = "Prompt 87 — Autonomous Governance & AI"
+domain = "Autonomous Governance & AI (prompts 76-100)"
+paths = "Spiking Neural Network edge defence, Z3 formal logic verifiers, ISO 20022 messaging, nuclear/fusion smart-grid balancing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P088"
+name = "Prompt 88 — Autonomous Governance & AI"
+domain = "Autonomous Governance & AI (prompts 76-100)"
+paths = "Spiking Neural Network edge defence, Z3 formal logic verifiers, ISO 20022 messaging, nuclear/fusion smart-grid balancing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P089"
+name = "Prompt 89 — Autonomous Governance & AI"
+domain = "Autonomous Governance & AI (prompts 76-100)"
+paths = "Spiking Neural Network edge defence, Z3 formal logic verifiers, ISO 20022 messaging, nuclear/fusion smart-grid balancing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P090"
+name = "Prompt 90 — Autonomous Governance & AI"
+domain = "Autonomous Governance & AI (prompts 76-100)"
+paths = "Spiking Neural Network edge defence, Z3 formal logic verifiers, ISO 20022 messaging, nuclear/fusion smart-grid balancing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P091"
+name = "Prompt 91 — Autonomous Governance & AI"
+domain = "Autonomous Governance & AI (prompts 76-100)"
+paths = "Spiking Neural Network edge defence, Z3 formal logic verifiers, ISO 20022 messaging, nuclear/fusion smart-grid balancing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P092"
+name = "Prompt 92 — Autonomous Governance & AI"
+domain = "Autonomous Governance & AI (prompts 76-100)"
+paths = "Spiking Neural Network edge defence, Z3 formal logic verifiers, ISO 20022 messaging, nuclear/fusion smart-grid balancing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P093"
+name = "Prompt 93 — Autonomous Governance & AI"
+domain = "Autonomous Governance & AI (prompts 76-100)"
+paths = "Spiking Neural Network edge defence, Z3 formal logic verifiers, ISO 20022 messaging, nuclear/fusion smart-grid balancing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P094"
+name = "Prompt 94 — Autonomous Governance & AI"
+domain = "Autonomous Governance & AI (prompts 76-100)"
+paths = "Spiking Neural Network edge defence, Z3 formal logic verifiers, ISO 20022 messaging, nuclear/fusion smart-grid balancing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P095"
+name = "Prompt 95 — Autonomous Governance & AI"
+domain = "Autonomous Governance & AI (prompts 76-100)"
+paths = "Spiking Neural Network edge defence, Z3 formal logic verifiers, ISO 20022 messaging, nuclear/fusion smart-grid balancing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P096"
+name = "Prompt 96 — Autonomous Governance & AI"
+domain = "Autonomous Governance & AI (prompts 76-100)"
+paths = "Spiking Neural Network edge defence, Z3 formal logic verifiers, ISO 20022 messaging, nuclear/fusion smart-grid balancing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P097"
+name = "Prompt 97 — Autonomous Governance & AI"
+domain = "Autonomous Governance & AI (prompts 76-100)"
+paths = "Spiking Neural Network edge defence, Z3 formal logic verifiers, ISO 20022 messaging, nuclear/fusion smart-grid balancing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P098"
+name = "Prompt 98 — Autonomous Governance & AI"
+domain = "Autonomous Governance & AI (prompts 76-100)"
+paths = "Spiking Neural Network edge defence, Z3 formal logic verifiers, ISO 20022 messaging, nuclear/fusion smart-grid balancing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P099"
+name = "Prompt 99 — Autonomous Governance & AI"
+domain = "Autonomous Governance & AI (prompts 76-100)"
+paths = "Spiking Neural Network edge defence, Z3 formal logic verifiers, ISO 20022 messaging, nuclear/fusion smart-grid balancing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P100"
+name = "Prompt 100 — Autonomous Governance & AI"
+domain = "Autonomous Governance & AI (prompts 76-100)"
+paths = "Spiking Neural Network edge defence, Z3 formal logic verifiers, ISO 20022 messaging, nuclear/fusion smart-grid balancing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P101"
+name = "Prompt 101 — Formal Verification & Tools"
+domain = "Formal Verification & Tools (prompts 101-125)"
+paths = "Lean 4 safety proofs, wgpu multi-backend miners, Leptos block explorer, threshold MPC custody frameworks"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P102"
+name = "Prompt 102 — Formal Verification & Tools"
+domain = "Formal Verification & Tools (prompts 101-125)"
+paths = "Lean 4 safety proofs, wgpu multi-backend miners, Leptos block explorer, threshold MPC custody frameworks"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P103"
+name = "Prompt 103 — Formal Verification & Tools"
+domain = "Formal Verification & Tools (prompts 101-125)"
+paths = "Lean 4 safety proofs, wgpu multi-backend miners, Leptos block explorer, threshold MPC custody frameworks"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P104"
+name = "Prompt 104 — Formal Verification & Tools"
+domain = "Formal Verification & Tools (prompts 101-125)"
+paths = "Lean 4 safety proofs, wgpu multi-backend miners, Leptos block explorer, threshold MPC custody frameworks"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P105"
+name = "Prompt 105 — Formal Verification & Tools"
+domain = "Formal Verification & Tools (prompts 101-125)"
+paths = "Lean 4 safety proofs, wgpu multi-backend miners, Leptos block explorer, threshold MPC custody frameworks"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P106"
+name = "Prompt 106 — Formal Verification & Tools"
+domain = "Formal Verification & Tools (prompts 101-125)"
+paths = "Lean 4 safety proofs, wgpu multi-backend miners, Leptos block explorer, threshold MPC custody frameworks"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P107"
+name = "Prompt 107 — Formal Verification & Tools"
+domain = "Formal Verification & Tools (prompts 101-125)"
+paths = "Lean 4 safety proofs, wgpu multi-backend miners, Leptos block explorer, threshold MPC custody frameworks"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P108"
+name = "Prompt 108 — Formal Verification & Tools"
+domain = "Formal Verification & Tools (prompts 101-125)"
+paths = "Lean 4 safety proofs, wgpu multi-backend miners, Leptos block explorer, threshold MPC custody frameworks"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P109"
+name = "Prompt 109 — Formal Verification & Tools"
+domain = "Formal Verification & Tools (prompts 101-125)"
+paths = "Lean 4 safety proofs, wgpu multi-backend miners, Leptos block explorer, threshold MPC custody frameworks"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P110"
+name = "Prompt 110 — Formal Verification & Tools"
+domain = "Formal Verification & Tools (prompts 101-125)"
+paths = "Lean 4 safety proofs, wgpu multi-backend miners, Leptos block explorer, threshold MPC custody frameworks"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P111"
+name = "Prompt 111 — Formal Verification & Tools"
+domain = "Formal Verification & Tools (prompts 101-125)"
+paths = "Lean 4 safety proofs, wgpu multi-backend miners, Leptos block explorer, threshold MPC custody frameworks"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P112"
+name = "Prompt 112 — Formal Verification & Tools"
+domain = "Formal Verification & Tools (prompts 101-125)"
+paths = "Lean 4 safety proofs, wgpu multi-backend miners, Leptos block explorer, threshold MPC custody frameworks"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P113"
+name = "Prompt 113 — Formal Verification & Tools"
+domain = "Formal Verification & Tools (prompts 101-125)"
+paths = "Lean 4 safety proofs, wgpu multi-backend miners, Leptos block explorer, threshold MPC custody frameworks"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P114"
+name = "Prompt 114 — Formal Verification & Tools"
+domain = "Formal Verification & Tools (prompts 101-125)"
+paths = "Lean 4 safety proofs, wgpu multi-backend miners, Leptos block explorer, threshold MPC custody frameworks"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P115"
+name = "Prompt 115 — Formal Verification & Tools"
+domain = "Formal Verification & Tools (prompts 101-125)"
+paths = "Lean 4 safety proofs, wgpu multi-backend miners, Leptos block explorer, threshold MPC custody frameworks"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P116"
+name = "Prompt 116 — Formal Verification & Tools"
+domain = "Formal Verification & Tools (prompts 101-125)"
+paths = "Lean 4 safety proofs, wgpu multi-backend miners, Leptos block explorer, threshold MPC custody frameworks"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P117"
+name = "Prompt 117 — Formal Verification & Tools"
+domain = "Formal Verification & Tools (prompts 101-125)"
+paths = "Lean 4 safety proofs, wgpu multi-backend miners, Leptos block explorer, threshold MPC custody frameworks"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P118"
+name = "Prompt 118 — Formal Verification & Tools"
+domain = "Formal Verification & Tools (prompts 101-125)"
+paths = "Lean 4 safety proofs, wgpu multi-backend miners, Leptos block explorer, threshold MPC custody frameworks"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P119"
+name = "Prompt 119 — Formal Verification & Tools"
+domain = "Formal Verification & Tools (prompts 101-125)"
+paths = "Lean 4 safety proofs, wgpu multi-backend miners, Leptos block explorer, threshold MPC custody frameworks"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P120"
+name = "Prompt 120 — Formal Verification & Tools"
+domain = "Formal Verification & Tools (prompts 101-125)"
+paths = "Lean 4 safety proofs, wgpu multi-backend miners, Leptos block explorer, threshold MPC custody frameworks"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P121"
+name = "Prompt 121 — Formal Verification & Tools"
+domain = "Formal Verification & Tools (prompts 101-125)"
+paths = "Lean 4 safety proofs, wgpu multi-backend miners, Leptos block explorer, threshold MPC custody frameworks"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P122"
+name = "Prompt 122 — Formal Verification & Tools"
+domain = "Formal Verification & Tools (prompts 101-125)"
+paths = "Lean 4 safety proofs, wgpu multi-backend miners, Leptos block explorer, threshold MPC custody frameworks"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P123"
+name = "Prompt 123 — Formal Verification & Tools"
+domain = "Formal Verification & Tools (prompts 101-125)"
+paths = "Lean 4 safety proofs, wgpu multi-backend miners, Leptos block explorer, threshold MPC custody frameworks"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P124"
+name = "Prompt 124 — Formal Verification & Tools"
+domain = "Formal Verification & Tools (prompts 101-125)"
+paths = "Lean 4 safety proofs, wgpu multi-backend miners, Leptos block explorer, threshold MPC custody frameworks"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P125"
+name = "Prompt 125 — Formal Verification & Tools"
+domain = "Formal Verification & Tools (prompts 101-125)"
+paths = "Lean 4 safety proofs, wgpu multi-backend miners, Leptos block explorer, threshold MPC custody frameworks"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P126"
+name = "Prompt 126 — Production Pipeline"
+domain = "Production Pipeline (prompts 126-130)"
+paths = "Deterministic Docker builds, Terraform/Helm IaC, Prometheus/Grafana SRE dashboards, zero-trust RPC gateways"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P127"
+name = "Prompt 127 — Production Pipeline"
+domain = "Production Pipeline (prompts 126-130)"
+paths = "Deterministic Docker builds, Terraform/Helm IaC, Prometheus/Grafana SRE dashboards, zero-trust RPC gateways"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P128"
+name = "Prompt 128 — Production Pipeline"
+domain = "Production Pipeline (prompts 126-130)"
+paths = "Deterministic Docker builds, Terraform/Helm IaC, Prometheus/Grafana SRE dashboards, zero-trust RPC gateways"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P129"
+name = "Prompt 129 — Production Pipeline"
+domain = "Production Pipeline (prompts 126-130)"
+paths = "Deterministic Docker builds, Terraform/Helm IaC, Prometheus/Grafana SRE dashboards, zero-trust RPC gateways"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P130"
+name = "Prompt 130 — Production Pipeline"
+domain = "Production Pipeline (prompts 126-130)"
+paths = "Deterministic Docker builds, Terraform/Helm IaC, Prometheus/Grafana SRE dashboards, zero-trust RPC gateways"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P131"
+name = "Prompt 131 — Security & Audit Hardening"
+domain = "Security & Audit Hardening (prompts 131-135)"
+paths = "Binius/Halo2 post-quantum ZK upgrades, EIP-1559 fee market enforcement, DAG consensus binding, profile optimisation"
+tier = "core"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P132"
+name = "Prompt 132 — Security & Audit Hardening"
+domain = "Security & Audit Hardening (prompts 131-135)"
+paths = "Binius/Halo2 post-quantum ZK upgrades, EIP-1559 fee market enforcement, DAG consensus binding, profile optimisation"
+tier = "core"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P133"
+name = "Prompt 133 — Security & Audit Hardening"
+domain = "Security & Audit Hardening (prompts 131-135)"
+paths = "Binius/Halo2 post-quantum ZK upgrades, EIP-1559 fee market enforcement, DAG consensus binding, profile optimisation"
+tier = "core"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P134"
+name = "Prompt 134 — Security & Audit Hardening"
+domain = "Security & Audit Hardening (prompts 131-135)"
+paths = "Binius/Halo2 post-quantum ZK upgrades, EIP-1559 fee market enforcement, DAG consensus binding, profile optimisation"
+tier = "core"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P135"
+name = "Prompt 135 — Security & Audit Hardening"
+domain = "Security & Audit Hardening (prompts 131-135)"
+paths = "Binius/Halo2 post-quantum ZK upgrades, EIP-1559 fee market enforcement, DAG consensus binding, profile optimisation"
+tier = "core"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P136"
+name = "Prompt 136 — Type-VII UI & Launch Harness"
+domain = "Type-VII UI & Launch Harness (prompts 136-140)"
+paths = "Three.js WebGL 3D holographic visualiser, Tauri 2.0 wallet GUI, interactive credential setup scripts, cloud orchestrator"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P137"
+name = "Prompt 137 — Type-VII UI & Launch Harness"
+domain = "Type-VII UI & Launch Harness (prompts 136-140)"
+paths = "Three.js WebGL 3D holographic visualiser, Tauri 2.0 wallet GUI, interactive credential setup scripts, cloud orchestrator"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P138"
+name = "Prompt 138 — Type-VII UI & Launch Harness"
+domain = "Type-VII UI & Launch Harness (prompts 136-140)"
+paths = "Three.js WebGL 3D holographic visualiser, Tauri 2.0 wallet GUI, interactive credential setup scripts, cloud orchestrator"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P139"
+name = "Prompt 139 — Type-VII UI & Launch Harness"
+domain = "Type-VII UI & Launch Harness (prompts 136-140)"
+paths = "Three.js WebGL 3D holographic visualiser, Tauri 2.0 wallet GUI, interactive credential setup scripts, cloud orchestrator"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P140"
+name = "Prompt 140 — Type-VII UI & Launch Harness"
+domain = "Type-VII UI & Launch Harness (prompts 136-140)"
+paths = "Three.js WebGL 3D holographic visualiser, Tauri 2.0 wallet GUI, interactive credential setup scripts, cloud orchestrator"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P141"
+name = "Prompt 141 — Day-2 Autonomy & Ecosystem"
+domain = "Day-2 Autonomy & Ecosystem (prompts 141-145)"
+paths = "Continuous LibAFL fuzzing, WASM runtime hot-swapping, validator staking/slashing, polyglot SDKs, self-healing agentic SRE"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P142"
+name = "Prompt 142 — Day-2 Autonomy & Ecosystem"
+domain = "Day-2 Autonomy & Ecosystem (prompts 141-145)"
+paths = "Continuous LibAFL fuzzing, WASM runtime hot-swapping, validator staking/slashing, polyglot SDKs, self-healing agentic SRE"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P143"
+name = "Prompt 143 — Day-2 Autonomy & Ecosystem"
+domain = "Day-2 Autonomy & Ecosystem (prompts 141-145)"
+paths = "Continuous LibAFL fuzzing, WASM runtime hot-swapping, validator staking/slashing, polyglot SDKs, self-healing agentic SRE"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P144"
+name = "Prompt 144 — Day-2 Autonomy & Ecosystem"
+domain = "Day-2 Autonomy & Ecosystem (prompts 141-145)"
+paths = "Continuous LibAFL fuzzing, WASM runtime hot-swapping, validator staking/slashing, polyglot SDKs, self-healing agentic SRE"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P145"
+name = "Prompt 145 — Day-2 Autonomy & Ecosystem"
+domain = "Day-2 Autonomy & Ecosystem (prompts 141-145)"
+paths = "Continuous LibAFL fuzzing, WASM runtime hot-swapping, validator staking/slashing, polyglot SDKs, self-healing agentic SRE"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P146"
+name = "Prompt 146 — Terminal Execution Suite"
+domain = "Terminal Execution Suite (prompts 146-150)"
+paths = "Automated cargo cleanup, deployment secret vault generators, automated Terraform triggers, live RPC smoke testing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P147"
+name = "Prompt 147 — Terminal Execution Suite"
+domain = "Terminal Execution Suite (prompts 146-150)"
+paths = "Automated cargo cleanup, deployment secret vault generators, automated Terraform triggers, live RPC smoke testing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P148"
+name = "Prompt 148 — Terminal Execution Suite"
+domain = "Terminal Execution Suite (prompts 146-150)"
+paths = "Automated cargo cleanup, deployment secret vault generators, automated Terraform triggers, live RPC smoke testing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P149"
+name = "Prompt 149 — Terminal Execution Suite"
+domain = "Terminal Execution Suite (prompts 146-150)"
+paths = "Automated cargo cleanup, deployment secret vault generators, automated Terraform triggers, live RPC smoke testing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P150"
+name = "Prompt 150 — Terminal Execution Suite"
+domain = "Terminal Execution Suite (prompts 146-150)"
+paths = "Automated cargo cleanup, deployment secret vault generators, automated Terraform triggers, live RPC smoke testing"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P151"
+name = "Prompt 151 — Institutional & Orbital Scale"
+domain = "Institutional & Orbital Scale (prompts 151-155)"
+paths = "Quantum-safe AMM, RWA ZK-KYC compliance, developer grant engines, genesis admin key burning, satellite relays"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P152"
+name = "Prompt 152 — Institutional & Orbital Scale"
+domain = "Institutional & Orbital Scale (prompts 151-155)"
+paths = "Quantum-safe AMM, RWA ZK-KYC compliance, developer grant engines, genesis admin key burning, satellite relays"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P153"
+name = "Prompt 153 — Institutional & Orbital Scale"
+domain = "Institutional & Orbital Scale (prompts 151-155)"
+paths = "Quantum-safe AMM, RWA ZK-KYC compliance, developer grant engines, genesis admin key burning, satellite relays"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P154"
+name = "Prompt 154 — Institutional & Orbital Scale"
+domain = "Institutional & Orbital Scale (prompts 151-155)"
+paths = "Quantum-safe AMM, RWA ZK-KYC compliance, developer grant engines, genesis admin key burning, satellite relays"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P155"
+name = "Prompt 155 — Institutional & Orbital Scale"
+domain = "Institutional & Orbital Scale (prompts 151-155)"
+paths = "Quantum-safe AMM, RWA ZK-KYC compliance, developer grant engines, genesis admin key burning, satellite relays"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P156"
+name = "Prompt 156 — Theoretical Horizon"
+domain = "Theoretical Horizon (prompts 156-160)"
+paths = "Interstellar light-cone consensus, Dyson photonic compute, AI self-mutation engines, 1,000-year quartz archival, total autonomous handover"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P157"
+name = "Prompt 157 — Theoretical Horizon"
+domain = "Theoretical Horizon (prompts 156-160)"
+paths = "Interstellar light-cone consensus, Dyson photonic compute, AI self-mutation engines, 1,000-year quartz archival, total autonomous handover"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P158"
+name = "Prompt 158 — Theoretical Horizon"
+domain = "Theoretical Horizon (prompts 156-160)"
+paths = "Interstellar light-cone consensus, Dyson photonic compute, AI self-mutation engines, 1,000-year quartz archival, total autonomous handover"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P159"
+name = "Prompt 159 — Theoretical Horizon"
+domain = "Theoretical Horizon (prompts 156-160)"
+paths = "Interstellar light-cone consensus, Dyson photonic compute, AI self-mutation engines, 1,000-year quartz archival, total autonomous handover"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P160"
+name = "Prompt 160 — Theoretical Horizon"
+domain = "Theoretical Horizon (prompts 156-160)"
+paths = "Interstellar light-cone consensus, Dyson photonic compute, AI self-mutation engines, 1,000-year quartz archival, total autonomous handover"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "P161"
+name = "Prompt 161 — unallocated"
+domain = "Unallocated"
+paths = "—"
+tier = "core"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "The foundation brief's range runs to prompt 162; docs/trajectory.md defines 160. This slot is recorded as unallocated rather than filled with an invented deliverable. Assign it before anything claims it."
+
+[[feature]]
+id = "P162"
+name = "Prompt 162 — unallocated"
+domain = "Unallocated"
+paths = "—"
+tier = "core"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "The foundation brief's range runs to prompt 162; docs/trajectory.md defines 160. This slot is recorded as unallocated rather than filled with an invented deliverable. Assign it before anything claims it."
+
+[[feature]]
+id = "benchmark"
+name = "Benchmark"
+domain = "Named separately by the foundation brief"
+paths = "`crates/node/benches/`, `crates/vm/benches/`, `crates/htlc-lattice/benches/`, `crates/zkml-prover/benches/`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = []
+gate = "cargo bench --workspace --no-run"
+note = "13 criterion targets. Standing Order 2: a number in a brief is a target, and benches/algo_comparison.rs states in its own output what it could not measure rather than leaving a silent gap."
+
+[[feature]]
+id = "memory"
+name = "Memory"
+domain = "Named separately by the foundation brief"
+paths = "`CLAUDE.md`, `PROGRESS.md`, `docs/adr/`, `docs/invariants.md`, `features.toml`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = []
+gate = "cargo xtask coverage --verify-targets"
+note = "Project memory. The machine-checkable half is this file and the xtask gate; the prose half is CLAUDE.md, the ADR log and docs/invariants.md."
+
+[[subsystem]]
 id = "ml-kem-768-fips-203"
 name = "ML-KEM-768 (FIPS 203)"
 domain = "Cryptography and key management"
@@ -92,7 +1792,7 @@ class = "REAL"
 status = "verified"
 tests = ["crate:maya-crypto-pq", "crates/node/tests/dualkem_negotiation_tests.rs", "crates/node/tests/pq_transport_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "ml-dsa-65-fips-204"
 name = "ML-DSA-65 (FIPS 204)"
 domain = "Cryptography and key management"
@@ -102,7 +1802,7 @@ class = "REAL"
 status = "verified"
 tests = ["crate:maya-crypto-pq", "crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "slh-dsa-fips-205"
 name = "SLH-DSA (FIPS 205)"
 domain = "Cryptography and key management"
@@ -112,7 +1812,7 @@ class = "REAL"
 status = "verified"
 tests = ["crate:maya-crypto-pq", "crates/node/tests/crypto_tests.rs", "crates/node/tests/hybrid_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "hqc-hamming-quasi-cyclic"
 name = "HQC (Hamming Quasi-Cyclic)"
 domain = "Cryptography and key management"
@@ -122,7 +1822,7 @@ class = "REAL"
 status = "verified"
 tests = ["crates/node/tests/dualkem_latency_tests.rs", "crates/node/tests/dualkem_negotiation_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "zero-knowledge-proofs-arkworks"
 name = "Zero-knowledge proofs (arkworks)"
 domain = "Cryptography and key management"
@@ -132,7 +1832,7 @@ class = "REAL"
 status = "verified"
 tests = ["crate:maya-zk-privacy", "crates/node/tests/shielded_tests.rs", "crates/zk-privacy/tests/circuit_tests.rs", "crates/zk-privacy/tests/proof_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "zero-knowledge-proofs-halo2-kzg"
 name = "Zero-knowledge proofs (halo2/KZG)"
 domain = "Cryptography and key management"
@@ -142,7 +1842,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crates/node/tests/zkml_block_tests.rs", "crates/zkml-prover/tests/circuit_tests.rs", "crates/zkml-prover/tests/proof_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "mpc-tss-threshold-custody-m-of-n"
 name = "MPC-TSS threshold custody (*m*-of-*n*)"
 domain = "Cryptography and key management"
@@ -152,7 +1852,7 @@ class = "REAL"
 status = "verified"
 tests = ["crates/custody-mpc/tests/ceremony_tests.rs", "crates/custody-mpc/tests/sharing_tests.rs", "crates/custody-mpc/tests/tls_tests.rs", "crates/custody-mpc/tests/transport_tests.rs", "crates/node/tests/custody_parity_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "verifiable-random-function-rfc-9381"
 name = "Verifiable random function (RFC 9381)"
 domain = "Cryptography and key management"
@@ -162,7 +1862,7 @@ class = "REAL"
 status = "verified"
 tests = ["crate:maya-vrf", "crates/vrf/tests/encoding_tests.rs", "crates/vrf/tests/rfc9381_vectors.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "threshold-encrypted-mempool"
 name = "Threshold-encrypted mempool"
 domain = "Cryptography and key management"
@@ -172,7 +1872,7 @@ class = "REAL"
 status = "verified"
 tests = ["crates/mev/tests/encoding_tests.rs", "crates/mev/tests/shamir_tests.rs", "crates/mev/tests/threshold_tests.rs", "crates/node/tests/sealed_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "self-sovereign-identity-records"
 name = "Self-sovereign identity records"
 domain = "Cryptography and key management"
@@ -182,7 +1882,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crate:maya-identity", "crates/node/tests/identity_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "did-key-rotation-and-revocation"
 name = "DID key rotation and revocation"
 domain = "Cryptography and key management"
@@ -192,7 +1892,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crates/node/tests/identity_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "selective-disclosure-credentials"
 name = "Selective disclosure credentials"
 domain = "Cryptography and key management"
@@ -202,7 +1902,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crate:maya-zk-privacy", "crates/node/tests/identity_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "lattice-htlc-l-atomic-swaps"
 name = "Lattice HTLC-L atomic swaps"
 domain = "Cryptography and key management"
@@ -212,7 +1912,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crate:maya-htlc-lattice", "crates/htlc-lattice/tests/lattice_tests.rs", "bins/htlc-watcher/tests/policy_tests.rs", "crates/node/tests/htlc_lattice_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "physical-qkd-km-api-interface"
 name = "Physical QKD, KM-API interface"
 domain = "Cryptography and key management"
@@ -222,7 +1922,7 @@ class = "RESEARCH"
 status = "planned"
 tests = []
 
-[[feature]]
+[[subsystem]]
 id = "hybrid-signature-transaction-validation"
 name = "Hybrid-signature transaction validation"
 domain = "Consensus and execution"
@@ -232,7 +1932,7 @@ class = "REAL"
 status = "verified"
 tests = ["crates/node/tests/hybrid_parity_tests.rs", "crates/node/tests/hybrid_tests.rs", "crates/node/tests/malleability_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "ethash-style-dag-proof-of-work"
 name = "Ethash-style DAG proof of work"
 domain = "Consensus and execution"
@@ -242,7 +1942,7 @@ class = "REAL"
 status = "verified"
 tests = ["crates/node/tests/dag_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "committed-transaction-root-state-root"
 name = "Committed transaction root + state root"
 domain = "Consensus and execution"
@@ -252,7 +1952,7 @@ class = "REAL"
 status = "verified"
 tests = ["crates/node/tests/chaos_simulator.rs", "crates/node/tests/consensus_tests.rs", "crates/node/tests/state_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "undo-journal-and-reorg-safety"
 name = "Undo journal and reorg safety"
 domain = "Consensus and execution"
@@ -262,7 +1962,7 @@ class = "REAL"
 status = "verified"
 tests = ["crates/node/tests/restart_tests.rs", "crates/node/tests/state_layer_decode_tests.rs", "crates/node/tests/state_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "wasm-runtime-via-cranelift-jit"
 name = "WASM runtime via Cranelift JIT"
 domain = "Consensus and execution"
@@ -272,7 +1972,7 @@ class = "REAL"
 status = "verified"
 tests = ["crate:maya-vm", "crates/node/tests/contract_tests.rs", "crates/vm/tests/cache_tests.rs", "crates/vm/tests/fuel_calibration_tests.rs", "crates/vm/tests/host_surface_tests.rs", "crates/vm/tests/tensor_gas_tests.rs", "crates/vm/tests/token_swap_tests.rs", "crates/vm/tests/vm_tests.rs", "crates/vm/tests/zkml_host_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "historical-pruning-archive-bootstrap"
 name = "Historical pruning + archive bootstrap"
 domain = "Consensus and execution"
@@ -282,7 +1982,7 @@ class = "REAL"
 status = "verified"
 tests = ["crates/archive/tests/car_robustness.rs", "crates/archive/tests/kubo_live.rs", "crate:maya-archive", "crates/node/tests/pruned_node_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "constant-product-dex-order-book"
 name = "Constant-product DEX + order book"
 domain = "Consensus and execution"
@@ -292,7 +1992,7 @@ class = "REAL"
 status = "verified"
 tests = ["crate:maya-dex", "crates/dex/tests/amm_tests.rs", "crates/dex/tests/batch_tests.rs", "crates/dex/tests/book_tests.rs", "crates/dex/tests/encoding_tests.rs", "crates/dex/tests/matching_tests.rs", "crates/node/tests/dex_concurrency_tests.rs", "crates/node/tests/dex_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "governance-lifecycle-and-bounds"
 name = "Governance lifecycle and bounds"
 domain = "Consensus and execution"
@@ -302,7 +2002,7 @@ class = "REAL"
 status = "verified"
 tests = ["crate:maya-governance", "crates/governance/tests/limits_tests.rs", "crates/node/tests/governance_tests.rs", "crates/node/tests/treasury_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "eip-1559-base-fee-over-bytes"
 name = "EIP-1559 base fee over bytes"
 domain = "Consensus and execution"
@@ -312,7 +2012,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crate:maya-fee-market", "crates/node/tests/fee_market_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "neural-base-fee-gain"
 name = "Neural base-fee gain"
 domain = "Consensus and execution"
@@ -322,7 +2022,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crate:maya-neural-gas-trainer", "bins/neural-gas-trainer/tests/evaluation_tests.rs", "crates/node/tests/neural_fee_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "multi-shard-asynchronous-dag-narwhal-tusk"
 name = "Multi-shard asynchronous DAG (Narwhal/Tusk)"
 domain = "Consensus and execution"
@@ -332,7 +2032,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crates/blockgraph/tests/elastic_scaling_tests.rs", "crates/blockgraph/tests/serial_equivalence_tests.rs", "crate:maya-blockgraph"]
 
-[[feature]]
+[[subsystem]]
 id = "elastic-shard-auto-scaling"
 name = "Elastic shard auto-scaling"
 domain = "Consensus and execution"
@@ -342,7 +2042,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crate:maya-blockgraph"]
 
-[[feature]]
+[[subsystem]]
 id = "lattice-proof-of-useful-work-svp-solver"
 name = "Lattice Proof-of-Useful-Work (SVP solver)"
 domain = "Consensus and execution"
@@ -352,7 +2052,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crate:maya-lattice-pow", "crates/lattice-pow/tests/rejection_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "on-chain-zkml-onnx-inference"
 name = "On-chain zkML ONNX inference"
 domain = "Consensus and execution"
@@ -362,7 +2062,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crates/zkml-prover/tests/circuit_tests.rs", "crates/zkml-prover/tests/proof_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "stateless-transfer-verification"
 name = "Stateless transfer verification"
 domain = "Consensus and execution"
@@ -372,7 +2072,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crates/stateless-core/tests/light_node_memory.rs", "crates/stateless-core/tests/transition_tests.rs", "crates/stateless-core/tests/tree_tests.rs", "crates/node/tests/stateless_equivalence.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "universal-evm-svm-move-transpilation"
 name = "Universal EVM / SVM / Move transpilation"
 domain = "Consensus and execution"
@@ -382,7 +2082,7 @@ class = "RESEARCH"
 status = "planned"
 tests = []
 
-[[feature]]
+[[subsystem]]
 id = "libp2p-transport-pq-noise-handshake"
 name = "libp2p transport, PQ Noise handshake"
 domain = "Kernel, networking and transport"
@@ -392,7 +2092,7 @@ class = "REAL"
 status = "verified"
 tests = ["crates/node/tests/network_tests.rs", "crates/node/tests/pq_transport_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "byzantine-peer-guard"
 name = "Byzantine peer guard"
 domain = "Kernel, networking and transport"
@@ -402,7 +2102,7 @@ class = "REAL"
 status = "verified"
 tests = ["crates/node/tests/attack_simulation_tests.rs", "crates/node/tests/byzantine_guard_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "stratum-v2-pool-protocol"
 name = "Stratum V2 pool protocol"
 domain = "Kernel, networking and transport"
@@ -412,7 +2112,7 @@ class = "REAL"
 status = "verified"
 tests = ["crate:maya-pool-service", "crate:maya-stratum-v2", "bins/pool-service/tests/ledger_tests.rs", "bins/pool-service/tests/worker_simulation.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "spv-light-client"
 name = "SPV light client"
 domain = "Kernel, networking and transport"
@@ -422,7 +2122,7 @@ class = "REAL"
 status = "verified"
 tests = ["crates/light-client/tests/spv_tests.rs", "crates/light-client/tests/stateless_memory.rs", "crates/node/tests/consensus_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "network-simulation-harness"
 name = "Network simulation harness"
 domain = "Kernel, networking and transport"
@@ -432,7 +2132,7 @@ class = "REAL"
 status = "verified"
 tests = ["crates/node/tests/latency_sim_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "ebpf-xdp-relay-accelerator-aya"
 name = "eBPF/XDP relay accelerator (`aya`)"
 domain = "Kernel, networking and transport"
@@ -441,8 +2141,10 @@ tier = "frontier"
 class = "RESEARCH"
 status = "working"
 tests = ["crate:maya-ebpf-net", "hal/ebpf-net/tests/relay_tests.rs", "hal/ebpf-net/tests/xdp_veth.rs", "crates/node/tests/block_relay_tests.rs"]
+gate = "sudo -E cargo test -p maya-ebpf-net --features xdp --test xdp_veth"
+note = "xdp_veth.rs needs Linux, root and the `xdp` feature, so the workspace test job cannot run it; .github/workflows/ebpf-net.yml does, on a veth pair."
 
-[[feature]]
+[[subsystem]]
 id = "lora-off-grid-transport"
 name = "LoRa off-grid transport"
 domain = "Kernel, networking and transport"
@@ -452,7 +2154,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crate:maya-radio-transport", "crates/node/tests/radio_transport_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "fountain-coded-fragmentation"
 name = "Fountain-coded fragmentation"
 domain = "Kernel, networking and transport"
@@ -462,7 +2164,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crates/node/tests/radio_transport_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "store-and-forward-mesh-relay"
 name = "Store-and-forward mesh relay"
 domain = "Kernel, networking and transport"
@@ -472,7 +2174,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crates/node/tests/radio_transport_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "satellite-uplink"
 name = "Satellite uplink"
 domain = "Kernel, networking and transport"
@@ -482,7 +2184,7 @@ class = "RESEARCH"
 status = "planned"
 tests = []
 
-[[feature]]
+[[subsystem]]
 id = "leo-free-space-laser-mesh"
 name = "LEO free-space laser mesh"
 domain = "Kernel, networking and transport"
@@ -492,7 +2194,7 @@ class = "RESEARCH"
 status = "planned"
 tests = []
 
-[[feature]]
+[[subsystem]]
 id = "ccsds-delay-tolerant-networking-bpv7"
 name = "CCSDS delay-tolerant networking (BPv7)"
 domain = "Kernel, networking and transport"
@@ -502,7 +2204,7 @@ class = "RESEARCH"
 status = "planned"
 tests = []
 
-[[feature]]
+[[subsystem]]
 id = "subsea-acoustic-signalling"
 name = "Subsea acoustic signalling"
 domain = "Kernel, networking and transport"
@@ -512,7 +2214,7 @@ class = "RESEARCH"
 status = "planned"
 tests = []
 
-[[feature]]
+[[subsystem]]
 id = "subterranean-neutrino-signalling"
 name = "Subterranean neutrino signalling"
 domain = "Kernel, networking and transport"
@@ -522,7 +2224,7 @@ class = "RESEARCH"
 status = "planned"
 tests = []
 
-[[feature]]
+[[subsystem]]
 id = "zkml-proof-verification-halo2-bn254"
 name = "zkML proof verification (halo2, BN254)"
 domain = "AI and hardware integration"
@@ -532,7 +2234,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crates/node/tests/zkml_block_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "onnx-import-key-generation-proving"
 name = "ONNX import, key generation, proving"
 domain = "AI and hardware integration"
@@ -542,7 +2244,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crates/node/tests/zkml_block_tests.rs", "crates/zkml-prover/tests/circuit_tests.rs", "crates/zkml-prover/tests/proof_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "gpu-mining-cuda"
 name = "GPU mining (CUDA)"
 domain = "AI and hardware integration"
@@ -552,7 +2254,7 @@ class = "REAL"
 status = "verified"
 tests = ["crate:maya-cuda-miner", "hal/cuda-miner/tests/dag_parity.rs", "hal/cuda-miner/tests/parity.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "gpu-mining-wgpu-vulkan-metal-dx12"
 name = "GPU mining (wgpu: Vulkan/Metal/DX12)"
 domain = "AI and hardware integration"
@@ -562,7 +2264,7 @@ class = "REAL"
 status = "verified"
 tests = ["crate:maya-wgpu-miner", "hal/wgpu-miner/tests/gpu_validation.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "confidential-federated-training"
 name = "Confidential federated training"
 domain = "AI and hardware integration"
@@ -572,7 +2274,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crate:maya-confidential-ai", "crates/node/tests/federated_ai_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "iot-anchor-puf-tpm-sealed-device-identity-was-tp"
 name = "IoT anchor: PUF / TPM-sealed device identity (was \"TPM 2.0 / PUF hardware attestation\")"
 domain = "AI and hardware integration"
@@ -582,7 +2284,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crate:maya-iot-anchor"]
 
-[[feature]]
+[[subsystem]]
 id = "biomolecular-trng"
 name = "Biomolecular TRNG"
 domain = "AI and hardware integration"
@@ -592,7 +2294,7 @@ class = "RESEARCH"
 status = "planned"
 tests = []
 
-[[feature]]
+[[subsystem]]
 id = "photonic-optical-tensor-driver"
 name = "Photonic optical tensor driver"
 domain = "AI and hardware integration"
@@ -602,7 +2304,7 @@ class = "RESEARCH"
 status = "planned"
 tests = []
 
-[[feature]]
+[[subsystem]]
 id = "dna-quaternary-archival-engine"
 name = "DNA quaternary archival engine"
 domain = "AI and hardware integration"
@@ -612,7 +2314,7 @@ class = "RESEARCH"
 status = "planned"
 tests = []
 
-[[feature]]
+[[subsystem]]
 id = "magneto-optical-mram-driver"
 name = "Magneto-optical MRAM driver"
 domain = "AI and hardware integration"
@@ -622,7 +2324,7 @@ class = "RESEARCH"
 status = "planned"
 tests = []
 
-[[feature]]
+[[subsystem]]
 id = "bio-silicon-neural-organoid-mea-interface"
 name = "Bio-silicon neural organoid MEA interface"
 domain = "AI and hardware integration"
@@ -632,7 +2334,7 @@ class = "RESEARCH"
 status = "planned"
 tests = []
 
-[[feature]]
+[[subsystem]]
 id = "fuzz-targets-cargo-fuzz-libfuzzer"
 name = "Fuzz targets (cargo-fuzz, libFuzzer)"
 domain = "Security and macro engines"
@@ -642,7 +2344,7 @@ class = "REAL"
 status = "verified"
 tests = ["crates/node/tests/fuzz_harness.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "kani-model-checking"
 name = "Kani model checking"
 domain = "Security and macro engines"
@@ -653,7 +2355,7 @@ status = "verified"
 tests = ["crate:maya-dex", "crate:maya-fee-market", "crate:maya-governance", "crate:maya-ledger-math", "crate:maya-threat-intel", "crates/dex/tests/amm_tests.rs", "crates/dex/tests/batch_tests.rs", "crates/dex/tests/book_tests.rs", "crates/dex/tests/encoding_tests.rs", "crates/dex/tests/matching_tests.rs", "crates/governance/tests/limits_tests.rs"]
 gate = "cargo kani -p maya-ledger-math -p maya-dex -p maya-governance"
 
-[[feature]]
+[[subsystem]]
 id = "supply-chain-gates"
 name = "Supply-chain gates"
 domain = "Security and macro engines"
@@ -664,7 +2366,7 @@ status = "verified"
 tests = []
 gate = "cargo deny check && cargo audit"
 
-[[feature]]
+[[subsystem]]
 id = "telemetry-threat-surface"
 name = "Telemetry threat surface"
 domain = "Security and macro engines"
@@ -674,7 +2376,7 @@ class = "REAL"
 status = "verified"
 tests = ["crate:maya-telemetry", "crates/telemetry/tests/end_to_end_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "state-invariant-guard-circuit-breaker"
 name = "State invariant guard + circuit breaker"
 domain = "Security and macro engines"
@@ -684,7 +2386,7 @@ class = "REAL"
 status = "verified"
 tests = ["crates/node/tests/byzantine_guard_tests.rs", "crates/node/tests/exploit_replays.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "exploit-replay-suite"
 name = "Exploit replay suite"
 domain = "Security and macro engines"
@@ -694,7 +2396,7 @@ class = "REAL"
 status = "verified"
 tests = ["crates/node/tests/exploit_replays.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "libafl-dynamic-fuzzer"
 name = "LibAFL dynamic fuzzer"
 domain = "Security and macro engines"
@@ -704,7 +2406,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crates/node/tests/fuzz_harness.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "threat-intel-registry-was-zk-siem-threat-mesh"
 name = "Threat-intel registry (was \"ZK-SIEM threat mesh\")"
 domain = "Security and macro engines"
@@ -714,7 +2416,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crate:maya-threat-firewall", "crate:maya-threat-intel", "crates/node/tests/threat_intel_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "self-synthesizing-bytecode-hot-patcher"
 name = "Self-synthesizing bytecode hot-patcher"
 domain = "Security and macro engines"
@@ -724,7 +2426,7 @@ class = "RESEARCH"
 status = "planned"
 tests = []
 
-[[feature]]
+[[subsystem]]
 id = "iso-20022-xml-messaging-parser"
 name = "ISO 20022 XML messaging parser"
 domain = "Security and macro engines"
@@ -734,7 +2436,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crate:maya-iso20022", "crates/node/tests/iso20022_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "iso-20022-l1-bridge"
 name = "ISO 20022 → L1 bridge"
 domain = "Security and macro engines"
@@ -744,7 +2446,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crates/api-gateway/tests/gateway_tests.rs", "crates/api-gateway/tests/openapi_tests.rs", "crate:maya-api-gateway", "crates/node/tests/iso20022_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "sanctions-non-membership-proofs"
 name = "Sanctions non-membership proofs"
 domain = "Security and macro engines"
@@ -754,7 +2456,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crate:maya-zk-privacy", "crates/node/tests/iso20022_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "real-world-asset-primitives"
 name = "Real-world asset primitives"
 domain = "Security and macro engines"
@@ -764,7 +2466,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crate:maya-rwa", "crates/node/tests/rwa_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "atomic-delivery-versus-payment"
 name = "Atomic delivery-versus-payment"
 domain = "Security and macro engines"
@@ -774,7 +2476,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crates/node/tests/rwa_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "jurisdictional-transfer-rules"
 name = "Jurisdictional transfer rules"
 domain = "Security and macro engines"
@@ -784,7 +2486,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crates/node/tests/rwa_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "pro-rata-revenue-distribution"
 name = "Pro-rata revenue distribution"
 domain = "Security and macro engines"
@@ -794,7 +2496,7 @@ class = "RESEARCH"
 status = "working"
 tests = ["crate:maya-ledger-math", "crates/node/tests/rwa_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "zk-dark-pools"
 name = "ZK dark pools"
 domain = "Security and macro engines"
@@ -804,7 +2506,7 @@ class = "RESEARCH"
 status = "planned"
 tests = []
 
-[[feature]]
+[[subsystem]]
 id = "relativistic-gravitational-clock-synchronisation"
 name = "Relativistic gravitational clock synchronisation"
 domain = "Security and macro engines"
@@ -814,7 +2516,7 @@ class = "RESEARCH"
 status = "planned"
 tests = []
 
-[[feature]]
+[[subsystem]]
 id = "tauri-2-0-desktop-wallet"
 name = "Tauri 2.0 desktop wallet"
 domain = "Tooling and formal verification"
@@ -824,7 +2526,7 @@ class = "REAL"
 status = "verified"
 tests = ["crate:maya-wallet-core"]
 
-[[feature]]
+[[subsystem]]
 id = "leptos-block-explorer-and-dashboard"
 name = "Leptos block explorer and dashboard"
 domain = "Tooling and formal verification"
@@ -834,7 +2536,7 @@ class = "REAL"
 status = "verified"
 tests = ["apps/explorer/tests/indexer_tests.rs", "apps/explorer/tests/server_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "axum-rest-graphql-gateway"
 name = "Axum REST/GraphQL gateway"
 domain = "Tooling and formal verification"
@@ -844,7 +2546,7 @@ class = "REAL"
 status = "verified"
 tests = ["crates/api-gateway/tests/gateway_tests.rs", "crates/api-gateway/tests/openapi_tests.rs", "crate:maya-api-gateway"]
 
-[[feature]]
+[[subsystem]]
 id = "multi-language-sdks"
 name = "Multi-language SDKs"
 domain = "Tooling and formal verification"
@@ -856,7 +2558,7 @@ tests = ["crate:maya-sdk-ffi", "crate:maya-sdk-wasm", "crates/node/tests/hybrid_
 gate = "cargo build -p maya-sdk-wasm --target wasm32-unknown-unknown"
 note = "The parity tests run on the host. The browser bindings additionally have to *compile* for wasm32, which they did not until 2026-09-20 -- getrandom reaches the crate transitively at two majors and both needed their browser backend named. See docs/sdk.md; nightly.yml builds that target."
 
-[[feature]]
+[[subsystem]]
 id = "latex-technical-reference-generator"
 name = "LaTeX technical reference generator"
 domain = "Tooling and formal verification"
@@ -866,7 +2568,7 @@ class = "REAL"
 status = "verified"
 tests = ["crate:maya-docgen"]
 
-[[feature]]
+[[subsystem]]
 id = "testnet-faucet"
 name = "Testnet faucet"
 domain = "Tooling and formal verification"
@@ -874,9 +2576,9 @@ paths = "`apps/faucet`"
 tier = "extended"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-faucet", "apps/faucet/tests", "apps/faucet/tests/http_tests.rs", "apps/faucet/tests/load_tests.rs"]
+tests = ["crate:maya-faucet", "apps/faucet/tests/http_tests.rs", "apps/faucet/tests/load_tests.rs"]
 
-[[feature]]
+[[subsystem]]
 id = "lean-4-mathematical-proof-engine"
 name = "Lean 4 mathematical proof engine"
 domain = "Tooling and formal verification"
@@ -886,7 +2588,7 @@ class = "RESEARCH"
 status = "planned"
 tests = []
 
-[[feature]]
+[[subsystem]]
 id = "l2-flash-settlement"
 name = "L2 flash settlement"
 domain = "Supplement (not in architecture-vision.md)"
@@ -897,7 +2599,7 @@ status = "verified"
 tests = ["crates/l2-flash/tests/channel_tests.rs", "crates/l2-flash/tests/scale_tests.rs", "crates/node/tests/settlement_tests.rs"]
 note = "Off-chain settlement channels over the hybrid signature pair."
 
-[[feature]]
+[[subsystem]]
 id = "command-line-wallet"
 name = "Command-line wallet"
 domain = "Supplement (not in architecture-vision.md)"
@@ -908,7 +2610,7 @@ status = "verified"
 tests = ["crate:l1-wallet"]
 note = "Keystore, transaction construction and RPC submission."
 
-[[feature]]
+[[subsystem]]
 id = "wallet-core-gui-shared"
 name = "Wallet core (GUI-shared)"
 domain = "Supplement (not in architecture-vision.md)"
@@ -919,7 +2621,7 @@ status = "verified"
 tests = ["crate:maya-wallet-core", "apps/wallet-gui/core/tests/airgap_tests.rs", "apps/wallet-gui/core/tests/hd_tests.rs", "apps/wallet-gui/core/tests/payment_tests.rs", "apps/wallet-gui/core/tests/vault_tests.rs"]
 note = "The logic the Tauri shell and the CLI both use."
 
-[[feature]]
+[[subsystem]]
 id = "ledger-hardware-wallet-app"
 name = "Ledger hardware wallet app"
 domain = "Supplement (not in architecture-vision.md)"
@@ -928,9 +2630,10 @@ tier = "frontier"
 class = "RESEARCH"
 status = "working"
 tests = ["apps/ledger-maya2c/tests/apdu_tests.rs", "apps/ledger-maya2c/tests/ledger_tests.rs", "crates/node/tests/ledger_parity_tests.rs"]
-note = "Nano S+/X/Stax app. Its own workspace and cross target; COIN_TYPE is pinned by crates/node/tests/ledger_parity_tests.rs."
+gate = "cargo test --manifest-path apps/ledger-maya2c/Cargo.toml"
+note = "Nano S+/X/Stax app. Its own workspace and a cross target, so the workspace test job cannot reach its own tests; crates/node/tests/ledger_parity_tests.rs is the part that does run, and it pins the duplicated COIN_TYPE."
 
-[[feature]]
+[[subsystem]]
 id = "mining-pool-service"
 name = "Mining pool service"
 domain = "Supplement (not in architecture-vision.md)"
@@ -941,7 +2644,7 @@ status = "verified"
 tests = ["crate:maya-pool-service", "bins/pool-service/tests/ledger_tests.rs", "bins/pool-service/tests/worker_simulation.rs"]
 note = "PPLNS accounting and treasury payouts over Stratum V2."
 
-[[feature]]
+[[subsystem]]
 id = "genesis-ceremony"
 name = "Genesis ceremony"
 domain = "Supplement (not in architecture-vision.md)"
@@ -952,7 +2655,7 @@ status = "verified"
 tests = ["crates/node/tests/genesis_tests.rs"]
 note = "Multi-party genesis key ceremony, distinct from the genesis file writer."
 
-[[feature]]
+[[subsystem]]
 id = "benchmark-suite"
 name = "Benchmark suite"
 domain = "Supplement (not in architecture-vision.md)"
@@ -964,7 +2667,7 @@ tests = []
 gate = "cargo bench --workspace --no-run"
 note = "13 criterion targets. Numbers are measured and reported, never asserted against a target fixed in advance."
 
-[[feature]]
+[[subsystem]]
 id = "project-memory-and-session-handoff"
 name = "Project memory and session handoff"
 domain = "Supplement (not in architecture-vision.md)"
@@ -976,7 +2679,7 @@ tests = []
 gate = "cargo xtask coverage"
 note = "The machine-readable half is this file; the prose half is CLAUDE.md and the ADR log."
 
-[[feature]]
+[[subsystem]]
 id = "deterministic-simulation-harness"
 name = "Deterministic simulation harness"
 domain = "Supplement (not in architecture-vision.md)"
@@ -987,7 +2690,7 @@ status = "verified"
 tests = ["sim/tests/determinism.rs", "crate:maya-sim"]
 note = "Seeded multi-node simulator: virtual clock, network model (latency, loss, reordering, partitions), fault-injecting disk. Dependency-free so a replay has one source of decisions. class = SIM because that is what it is: nothing here may reach a production path. See docs/adr/ADR-006-simulation-harness.md."
 
-[[feature]]
+[[subsystem]]
 id = "workspace-automation-xtask"
 name = "Workspace automation (xtask)"
 domain = "Supplement (not in architecture-vision.md)"

@@ -8,6 +8,8 @@
 //! state root as an archive node, while a recording source proves it never
 //! asked for a single body below the snapshot height.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};

@@ -24,6 +24,8 @@
 //!
 //! Both are covered below, separately.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::sync::Arc;
 
 use custom_l1_node::consensus::BlockId;

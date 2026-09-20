@@ -31,7 +31,7 @@ struct Args {
     ///
     /// A flag rather than a compiled-in path, because this resolves against the
     /// process's working directory. The explorer is a standalone binary — the
-    /// root `Dockerfile` packages only `node`, `genesis` and `peerid` — so a
+    /// root `infra/docker/Dockerfile` packages only `node`, `genesis` and `peerid` — so a
     /// hardcoded relative path would serve silent 404s for every icon the
     /// moment somebody started it from anywhere but the repository root, with
     /// nothing in the logs to say why.

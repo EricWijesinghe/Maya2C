@@ -20,6 +20,8 @@
 //! (`docs/ledger-feasibility.md`). Both produced addresses nothing could spend
 //! from. Both were caught by a test like this one.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::core::codec::ByteReader;
 use custom_l1_node::crypto::hybrid;
 use maya_custody_mpc::dkg::{Custodian, Dealing, Roster, VaultPolicy};

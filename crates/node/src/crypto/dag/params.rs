@@ -151,6 +151,7 @@ pub(crate) fn is_prime(n: u32) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

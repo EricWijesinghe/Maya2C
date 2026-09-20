@@ -6,6 +6,8 @@
 //! held a valid certificate" is not an argument about what its next four bytes
 //! say.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use maya_custody_mpc::dkg::{Custodian, Roster, VaultPolicy};
 use maya_custody_mpc::error::CustodyError;
 use maya_custody_mpc::session::{SigningSession, VaultDescriptor, respond};

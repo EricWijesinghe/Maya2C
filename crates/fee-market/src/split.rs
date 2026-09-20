@@ -54,6 +54,7 @@ pub fn split(base_fee_paid: u64, tip: u64, treasury_bps: u64) -> FeeSplit {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     const EIGHTY_TWENTY: u64 = 2_000;

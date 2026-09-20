@@ -26,7 +26,7 @@
 x-node-base: &node-base
   build:
     context: .
-    dockerfile: Dockerfile
+    dockerfile: infra/docker/Dockerfile
   image: custom-l1-node:latest
   restart: unless-stopped
   # The state directory is the node's identity and history. Losing it means
@@ -160,7 +160,7 @@ services:
       - pool
     build:
       context: .
-      dockerfile: Dockerfile.pool
+      dockerfile: infra/docker/Dockerfile.pool
     image: maya-pool:latest
     container_name: l1-pool
     restart: unless-stopped

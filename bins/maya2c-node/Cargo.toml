@@ -1,0 +1,28 @@
+[package]
+name = "maya2c-node"
+version.workspace = true
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+description = "The validating node daemon: consensus, chain, peer-to-peer, RPC, metrics"
+
+# A binary package rather than a `[[bin]]` of `crates/node`, because the
+# foundation brief puts executables in `bins/`. It links the node as a library
+# and uses nothing that is not part of that library's public surface — which is
+# what made the split possible without widening the API.
+[dependencies]
+custom-l1-node = { path = "../../crates/node" }
+maya-archive = { path = "../../crates/archive" }
+maya-zk-privacy = { path = "../../crates/zk-privacy" }
+jsonrpsee.workspace = true
+libp2p.workspace = true
+tokio.workspace = true
+hex.workspace = true
+serde_json.workspace = true
+
+[[bin]]
+name = "maya2c-node"
+path = "src/main.rs"
+
+[lints]
+workspace = true

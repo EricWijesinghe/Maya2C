@@ -6,6 +6,8 @@
 //! forgery satisfies `A·s + e = t` exactly — the test asserts that — so only
 //! the bound can refuse it.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use maya_htlc_lattice::params::{K, L, N, Q};
 use maya_htlc_lattice::{
     COMMITMENT_BYTES, Commitment, ETA, Error, LatticeSecret, Matrix, OPENING_BYTES, Opening,

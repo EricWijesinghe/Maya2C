@@ -11,6 +11,8 @@
 //! a scheduler that reordered conflicting transactions, which is precisely the
 //! bug worth catching.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use maya_blockgraph::{Access, SHARD_COUNT, schedule};
 
 /// A 64-slot state: one value per shard.

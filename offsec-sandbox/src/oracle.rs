@@ -231,6 +231,7 @@ fn signed(kind: TxKind, nonce: u64, key: &HybridSigningKey) -> Transaction {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

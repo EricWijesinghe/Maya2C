@@ -294,6 +294,7 @@ fn put_varint(buf: &mut Vec<u8>, mut value: u64) {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     fn sample(len: usize) -> AttackAttestation {

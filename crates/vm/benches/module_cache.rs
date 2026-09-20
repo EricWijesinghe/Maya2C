@@ -18,6 +18,8 @@
 //! - **busy** — a loop doing real work. Compilation is a smaller share, and this
 //!   is the honest figure for a contract anybody would deploy.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use criterion::{Criterion, criterion_group, criterion_main};
 use maya_vm::host::MemoryState;
 use maya_vm::runtime::Vm;

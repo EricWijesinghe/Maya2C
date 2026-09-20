@@ -3,6 +3,8 @@
 //! Every figure here is about `src/simulator.rs`. What the tests can say about
 //! a real chain is limited to the envelope, which holds for any weights.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use maya_fee_market::model::{FEATURE_LIMIT, INPUTS, MAX_GAIN_BPS, UNIT_GAIN_BPS};
 use maya_fee_market::{Features, MODEL_V1, Model, neural_next_base_fee};
 use maya_neural_gas_trainer::evaluate::{Controller, LINEAR_GAIN, run, within_envelope};

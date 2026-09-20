@@ -241,6 +241,7 @@ pub(crate) fn parse_address(input: &str) -> Result<[u8; 32], FaucetError> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     fn now() -> SystemTime {

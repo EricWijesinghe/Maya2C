@@ -93,6 +93,7 @@ pub fn access_for_transaction(transaction: &Transaction) -> Result<Access, Graph
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     fn batch_of(transactions: Vec<Vec<u8>>) -> Batch {

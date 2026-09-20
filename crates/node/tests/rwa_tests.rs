@@ -12,6 +12,8 @@
 //! what the issuer's fell. A rounding rule that lost a base unit would be
 //! refused by the invariant guard, so this is correctness rather than fairness.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::core::rwa_payload::{
     AttestLegal, DistributeRevenue, IssueRwa, RecordEligibility, RulePayload, SettleDvp,
 };

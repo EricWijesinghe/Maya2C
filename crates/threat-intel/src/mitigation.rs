@@ -43,6 +43,7 @@ pub fn mitigation(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use crate::evidence::OffenceKind;
     use crate::score::HALF_LIFE_BLOCKS;

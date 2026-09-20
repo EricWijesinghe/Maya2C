@@ -347,6 +347,7 @@ fn hex_lower(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     /// RFC 9381 Appendix B.3 intermediates, for the three TAI vectors.

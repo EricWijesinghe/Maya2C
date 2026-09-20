@@ -20,6 +20,8 @@
 //! a block is not a variable anyone can profit from — and if it fails, the
 //! failure is a chain split rather than a slow test.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::sync::Arc;
 use std::thread;
 

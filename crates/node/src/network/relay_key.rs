@@ -148,6 +148,7 @@ pub fn connection_ip(remote: &Multiaddr) -> Option<IpAddr> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use libp2p::identity::Keypair;
 
     use super::*;

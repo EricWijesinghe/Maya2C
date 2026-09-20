@@ -303,6 +303,7 @@ fn read_u128(reader: &mut ByteReader<'_>) -> Result<u128> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     #[test]

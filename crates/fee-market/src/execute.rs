@@ -241,6 +241,7 @@ fn resolve_base_fee(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     const CONFIG: FeeConfig = FeeConfig::TESTING;

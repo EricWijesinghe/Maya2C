@@ -11,6 +11,8 @@
 
 #![no_main]
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::Account;
 use custom_l1_node::state::ACCOUNT_LEN;
 use libfuzzer_sys::fuzz_target;

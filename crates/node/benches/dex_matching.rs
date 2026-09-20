@@ -25,6 +25,8 @@
 //! cargo bench --bench dex_matching
 //! ```
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use maya_dex::amm::Pool;
 use maya_dex::batch::{MAX_BATCH_INTENTS, SwapIntent, clear_batch};

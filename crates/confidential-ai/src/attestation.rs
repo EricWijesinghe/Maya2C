@@ -64,6 +64,7 @@ pub fn require_attested(verdict: &Verdict) -> Result<[u8; 32]> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     /// A stand-in that accepts a report equal to the transcript: exercises the

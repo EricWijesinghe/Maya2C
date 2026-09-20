@@ -46,6 +46,7 @@ pub fn max_disagreement_bps(net: &Network, model: &Model, samples: &[Sample]) ->
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use crate::dataset::generate;
     use crate::rng::SplitMix64;

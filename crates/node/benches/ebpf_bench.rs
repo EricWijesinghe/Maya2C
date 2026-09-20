@@ -31,6 +31,8 @@
 //! sudo ./scripts/xdp_netns.sh down
 //! ```
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::hint::black_box;
 use std::net::UdpSocket;
 use std::sync::Arc;

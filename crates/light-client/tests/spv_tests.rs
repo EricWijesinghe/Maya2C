@@ -14,6 +14,8 @@
 //! - **A target below the network floor must be refused.** It is the single
 //!   check that makes each header cost something.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::core::{Block, BlockHeader, Transaction, TxOutput};
 use custom_l1_node::crypto::dag::registry::{CacheRegistry, DagConfig};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};

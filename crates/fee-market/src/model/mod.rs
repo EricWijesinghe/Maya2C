@@ -165,6 +165,7 @@ fn hidden_unit(row: &[i16; INPUTS], bias: i32, features: &Features) -> i64 {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     /// Every weight and bias at its most negative or most positive.

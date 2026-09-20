@@ -77,7 +77,7 @@ Shipping it under a FIPS 203 label would be false.
 | **`ml-kem` (RustCrypto)** | **0.3.2** | **Yes** | **Yes** |
 
 Pure Rust also matters here for the same reason it did for `fips204` and
-`slh-dsa`: the Dockerfile's static-musl build links only RocksDB's C++, and
+`slh-dsa`: the infra/docker/Dockerfile's static-musl build links only RocksDB's C++, and
 PQClean bindings would add a C toolchain and an unsafe FFI surface to it.
 
 ---

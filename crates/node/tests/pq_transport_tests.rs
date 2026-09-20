@@ -6,6 +6,8 @@
 //! negotiation has no fallback, and that session rotation both fires and
 //! recovers.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};

@@ -1,6 +1,8 @@
 //! Integration tests for RocksDB-backed state: transition rules,
 //! double-spend rejection, nonce enforcement, and batch rollback.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::core::{Block, BlockHeader, Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::generate_signing_key;
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;

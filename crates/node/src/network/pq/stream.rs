@@ -367,6 +367,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use crate::network::pq::handshake::{initiate, respond};
     use futures::{AsyncReadExt, AsyncWriteExt};

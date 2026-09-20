@@ -119,6 +119,7 @@ impl RateLimit {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     const SECOND: u64 = NANOS_PER_SECOND;

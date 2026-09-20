@@ -9,6 +9,8 @@
 //! crate exists. Whether the node computes a balance correctly is the node's
 //! test.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 

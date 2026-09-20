@@ -22,6 +22,8 @@
 //! error anywhere. The mistake was found by reading the node rather than by
 //! this test, but this is what stops it coming back.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use custom_l1_node::crypto::hybrid::{
     HYBRID_PUBLIC_KEY_LEN, HYBRID_SIGNATURE_LENGTH, SLH_DSA_SIGNATURE_LENGTH, address_of,
     generate_signing_key,

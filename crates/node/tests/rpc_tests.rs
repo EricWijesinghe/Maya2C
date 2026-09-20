@@ -7,6 +7,8 @@
 //! The mining test uses a deliberately easy target: every attempt is a 32 MiB
 //! Argon2id pass, so a realistic difficulty would take minutes.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::sync::{Arc, Mutex};
 
 use custom_l1_node::consensus::{Chain, ChainConfig, mine_header};
