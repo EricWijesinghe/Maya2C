@@ -1,0 +1,997 @@
+# Maya2C reality ledger
+#
+# One entry per subsystem, saying what it is, which tier builds it, whether it
+# is real, and what would fail if it broke. `cargo xtask coverage` reads this
+# file; CI fails when an entry claims `working` or `verified` and names no test
+# that exists.
+#
+# This file is hand-maintained. It was seeded from
+# `docs/architecture-vision.md`, which stays the authority for **status** — if
+# the two disagree, the document wins until somebody reconciles them in
+# writing. A new subsystem lands in that document with a status tag *before* it
+# lands in `Cargo.toml`, and it earns an entry here at the same time.
+#
+# ## Fields
+#
+#   id      stable kebab-case key; never renamed once referenced
+#   name    the subsystem as `docs/architecture-vision.md` names it
+#   domain  which section of that document it came from
+#   paths   crates and files that implement it
+#   tier    core | extended | frontier  (see below)
+#   class   REAL | SIM | RESEARCH       (see below)
+#   status  planned | stub | working | verified
+#   tests   test targets that would fail if it broke. Either a path to an
+#           integration test, or `crate:<package>` for a crate that unit-tests
+#           itself with `#[cfg(test)]` modules.
+#   gate    for the few entries verified by a command rather than a test
+#           target — supply-chain gates, Kani, the bench suite.
+#   note    only where this file says something the document does not
+#
+# ## Tiers
+#
+#   core       a default build compiles it: cryptography, state, consensus,
+#              the VM, RPC and peer-to-peer.
+#   extended   DeFi, RWA, identity, bank-rail bridges, AI, and the client and
+#              service binaries.
+#   frontier   hardware, space, bio and quantum work, and the simulators that
+#              stand in for all of it.
+#
+# **A tier gates binaries, services and client surfaces. It never gates a crate
+# the node links for consensus.** `dex`, `rwa`, `identity`, `iot-anchor` and
+# `threat-intel` all write records that sit under the state root (invariant
+# 25), so a node built without one of them would compute a *different state
+# root* from a node built with it — a chain split produced by a cargo flag.
+# This tree already has the right mechanism for turning a subsystem off:
+# an activation height of `u64::MAX`, which every node compiles identically.
+# See `docs/adr/ADR-002-feature-tiers.md`.
+#
+# ## Classes
+#
+#   REAL       reachable in a default build and actually used
+#   SIM        a simulator or a model; never on a production path, and it says
+#              so in its own logs and CLI output
+#   RESEARCH   in the tree, tested, and called by nothing in consensus —
+#              usually behind an activation height of `u64::MAX`
+#
+# A `planned` entry has no code. Its class records the intent, not a fact about
+# this tree; `status` is what you check.
+#
+# ## On the count
+#
+# The foundation brief asked for 164 entries: "every feature from old prompts
+# #1-#162 plus Benchmark and Memory". No 162-item list exists in this
+# repository. `docs/trajectory.md` describes **160** prompts, and it describes
+# them as twelve domain *ranges*, not as 160 individually named deliverables —
+# only the ranges and the ten reconciliation notes are written down.
+#
+# So this ledger is built from what can actually be checked: the 83 tagged rows
+# of `docs/architecture-vision.md`, plus 7 subsystems that document has no row
+# for, which is 90 entries. Padding it to 164 with invented rows would make
+# `cargo xtask coverage` report on features nobody can point at, which is the
+# opposite of what a reality ledger is for.
+#
+# The trajectory's unbuilt prompts (roughly 49-160) are tracked as a *plan* in
+# `PROGRESS.md` and `docs/trajectory.md`. They become entries here when they
+# become subsystems.
+#
+# Counts at the last regeneration: 90 entries — 43 verified, 30 working,
+# 17 planned, 0 stub; 28 core, 41 extended, 21 frontier.
+
+[meta]
+schema = 1
+source = "docs/architecture-vision.md"
+
+[[feature]]
+id = "ml-kem-768-fips-203"
+name = "ML-KEM-768 (FIPS 203)"
+domain = "Cryptography and key management"
+paths = "`crypto-pq`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crate:maya-crypto-pq", "tests/dualkem_negotiation_tests.rs", "tests/pq_transport_tests.rs"]
+
+[[feature]]
+id = "ml-dsa-65-fips-204"
+name = "ML-DSA-65 (FIPS 204)"
+domain = "Cryptography and key management"
+paths = "`crypto-pq`, `fips204`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crate:maya-crypto-pq", "tests/crypto_tests.rs", "tests/hybrid_tests.rs"]
+
+[[feature]]
+id = "slh-dsa-fips-205"
+name = "SLH-DSA (FIPS 205)"
+domain = "Cryptography and key management"
+paths = "`crypto-pq`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crate:maya-crypto-pq", "tests/crypto_tests.rs", "tests/hybrid_tests.rs"]
+
+[[feature]]
+id = "hqc-hamming-quasi-cyclic"
+name = "HQC (Hamming Quasi-Cyclic)"
+domain = "Cryptography and key management"
+paths = "`crypto-pq/src/hqc.rs`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["tests/dualkem_latency_tests.rs", "tests/dualkem_negotiation_tests.rs"]
+
+[[feature]]
+id = "zero-knowledge-proofs-arkworks"
+name = "Zero-knowledge proofs (arkworks)"
+domain = "Cryptography and key management"
+paths = "`zk-privacy`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crate:maya-zk-privacy", "tests/shielded_tests.rs", "zk-privacy/tests/circuit_tests.rs", "zk-privacy/tests/proof_tests.rs"]
+
+[[feature]]
+id = "zero-knowledge-proofs-halo2-kzg"
+name = "Zero-knowledge proofs (halo2/KZG)"
+domain = "Cryptography and key management"
+paths = "`zkml`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["tests/zkml_block_tests.rs", "zkml-prover/tests/circuit_tests.rs", "zkml-prover/tests/proof_tests.rs"]
+
+[[feature]]
+id = "mpc-tss-threshold-custody-m-of-n"
+name = "MPC-TSS threshold custody (*m*-of-*n*)"
+domain = "Cryptography and key management"
+paths = "`custody-mpc`"
+tier = "extended"
+class = "REAL"
+status = "verified"
+tests = ["custody-mpc/tests/ceremony_tests.rs", "custody-mpc/tests/sharing_tests.rs", "custody-mpc/tests/tls_tests.rs", "custody-mpc/tests/transport_tests.rs", "tests/custody_parity_tests.rs"]
+
+[[feature]]
+id = "verifiable-random-function-rfc-9381"
+name = "Verifiable random function (RFC 9381)"
+domain = "Cryptography and key management"
+paths = "`vrf`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crate:maya-vrf", "vrf/tests/encoding_tests.rs", "vrf/tests/rfc9381_vectors.rs"]
+
+[[feature]]
+id = "threshold-encrypted-mempool"
+name = "Threshold-encrypted mempool"
+domain = "Cryptography and key management"
+paths = "`mev`, `src/sealed/`, `src/state/sealed_exec.rs`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["mev/tests/encoding_tests.rs", "mev/tests/shamir_tests.rs", "mev/tests/threshold_tests.rs", "tests/sealed_tests.rs"]
+
+[[feature]]
+id = "self-sovereign-identity-records"
+name = "Self-sovereign identity records"
+domain = "Cryptography and key management"
+paths = "`identity`, `src/state/identity.rs`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-identity", "tests/identity_tests.rs"]
+
+[[feature]]
+id = "did-key-rotation-and-revocation"
+name = "DID key rotation and revocation"
+domain = "Cryptography and key management"
+paths = "`src/state/identity_exec.rs`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["tests/identity_tests.rs"]
+
+[[feature]]
+id = "selective-disclosure-credentials"
+name = "Selective disclosure credentials"
+domain = "Cryptography and key management"
+paths = "`zk-privacy/src/credential.rs`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-zk-privacy", "tests/identity_tests.rs"]
+
+[[feature]]
+id = "lattice-htlc-l-atomic-swaps"
+name = "Lattice HTLC-L atomic swaps"
+domain = "Cryptography and key management"
+paths = "`htlc-lattice`, `htlc-watcher`, `src/state/htlc_exec.rs`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-htlc-lattice", "htlc-lattice/tests/lattice_tests.rs", "htlc-watcher/tests/policy_tests.rs", "tests/htlc_lattice_tests.rs"]
+
+[[feature]]
+id = "physical-qkd-km-api-interface"
+name = "Physical QKD, KM-API interface"
+domain = "Cryptography and key management"
+paths = "—"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "hybrid-signature-transaction-validation"
+name = "Hybrid-signature transaction validation"
+domain = "Consensus and execution"
+paths = "`src/`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["tests/hybrid_parity_tests.rs", "tests/hybrid_tests.rs", "tests/malleability_tests.rs"]
+
+[[feature]]
+id = "ethash-style-dag-proof-of-work"
+name = "Ethash-style DAG proof of work"
+domain = "Consensus and execution"
+paths = "`src/crypto/dag/`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["tests/dag_tests.rs"]
+
+[[feature]]
+id = "committed-transaction-root-state-root"
+name = "Committed transaction root + state root"
+domain = "Consensus and execution"
+paths = "`src/state/`, `src/chain.rs`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["tests/chaos_simulator.rs", "tests/consensus_tests.rs", "tests/state_tests.rs"]
+
+[[feature]]
+id = "undo-journal-and-reorg-safety"
+name = "Undo journal and reorg safety"
+domain = "Consensus and execution"
+paths = "`src/state/`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["tests/restart_tests.rs", "tests/state_layer_decode_tests.rs", "tests/state_tests.rs"]
+
+[[feature]]
+id = "wasm-runtime-via-cranelift-jit"
+name = "WASM runtime via Cranelift JIT"
+domain = "Consensus and execution"
+paths = "`vm`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crate:maya-vm", "tests/contract_tests.rs", "vm/tests/cache_tests.rs", "vm/tests/fuel_calibration_tests.rs", "vm/tests/host_surface_tests.rs", "vm/tests/tensor_gas_tests.rs", "vm/tests/token_swap_tests.rs", "vm/tests/vm_tests.rs", "vm/tests/zkml_host_tests.rs"]
+
+[[feature]]
+id = "historical-pruning-archive-bootstrap"
+name = "Historical pruning + archive bootstrap"
+domain = "Consensus and execution"
+paths = "`archive`, `src/state/blocks.rs`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["archive/tests/car_robustness.rs", "archive/tests/kubo_live.rs", "crate:maya-archive", "tests/pruned_node_tests.rs"]
+
+[[feature]]
+id = "constant-product-dex-order-book"
+name = "Constant-product DEX + order book"
+domain = "Consensus and execution"
+paths = "`dex`"
+tier = "extended"
+class = "REAL"
+status = "verified"
+tests = ["crate:maya-dex", "dex/tests/amm_tests.rs", "dex/tests/batch_tests.rs", "dex/tests/book_tests.rs", "dex/tests/encoding_tests.rs", "dex/tests/matching_tests.rs", "tests/dex_concurrency_tests.rs", "tests/dex_tests.rs"]
+
+[[feature]]
+id = "governance-lifecycle-and-bounds"
+name = "Governance lifecycle and bounds"
+domain = "Consensus and execution"
+paths = "`governance`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crate:maya-governance", "governance/tests/limits_tests.rs", "tests/governance_tests.rs", "tests/treasury_tests.rs"]
+
+[[feature]]
+id = "eip-1559-base-fee-over-bytes"
+name = "EIP-1559 base fee over bytes"
+domain = "Consensus and execution"
+paths = "`fee-market`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-fee-market", "tests/fee_market_tests.rs"]
+
+[[feature]]
+id = "neural-base-fee-gain"
+name = "Neural base-fee gain"
+domain = "Consensus and execution"
+paths = "`fee-market/src/model/`, `src/neural_gas/`, `neural-gas-trainer`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-neural-gas-trainer", "neural-gas-trainer/tests/evaluation_tests.rs", "tests/neural_fee_tests.rs"]
+
+[[feature]]
+id = "multi-shard-asynchronous-dag-narwhal-tusk"
+name = "Multi-shard asynchronous DAG (Narwhal/Tusk)"
+domain = "Consensus and execution"
+paths = "`blockgraph`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["blockgraph/tests/elastic_scaling_tests.rs", "blockgraph/tests/serial_equivalence_tests.rs", "crate:maya-blockgraph"]
+
+[[feature]]
+id = "elastic-shard-auto-scaling"
+name = "Elastic shard auto-scaling"
+domain = "Consensus and execution"
+paths = "`blockgraph/src/shard_manager/`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-blockgraph"]
+
+[[feature]]
+id = "lattice-proof-of-useful-work-svp-solver"
+name = "Lattice Proof-of-Useful-Work (SVP solver)"
+domain = "Consensus and execution"
+paths = "`lattice-pow`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-lattice-pow", "lattice-pow/tests/rejection_tests.rs"]
+
+[[feature]]
+id = "on-chain-zkml-onnx-inference"
+name = "On-chain zkML ONNX inference"
+domain = "Consensus and execution"
+paths = "`zkml`, `zkml-prover`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["zkml-prover/tests/circuit_tests.rs", "zkml-prover/tests/proof_tests.rs"]
+
+[[feature]]
+id = "stateless-transfer-verification"
+name = "Stateless transfer verification"
+domain = "Consensus and execution"
+paths = "`stateless-core`, `src/state/stateless.rs`, `light-client/src/stateless.rs`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["stateless-core/tests/light_node_memory.rs", "stateless-core/tests/transition_tests.rs", "stateless-core/tests/tree_tests.rs", "tests/stateless_equivalence.rs"]
+
+[[feature]]
+id = "universal-evm-svm-move-transpilation"
+name = "Universal EVM / SVM / Move transpilation"
+domain = "Consensus and execution"
+paths = "—"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "libp2p-transport-pq-noise-handshake"
+name = "libp2p transport, PQ Noise handshake"
+domain = "Kernel, networking and transport"
+paths = "`src/network/`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["tests/network_tests.rs", "tests/pq_transport_tests.rs"]
+
+[[feature]]
+id = "byzantine-peer-guard"
+name = "Byzantine peer guard"
+domain = "Kernel, networking and transport"
+paths = "`src/network/peer_health.rs`, `sync.rs`, `node/guard.rs`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["tests/attack_simulation_tests.rs", "tests/byzantine_guard_tests.rs"]
+
+[[feature]]
+id = "stratum-v2-pool-protocol"
+name = "Stratum V2 pool protocol"
+domain = "Kernel, networking and transport"
+paths = "`stratum-v2`, `pool-service`"
+tier = "extended"
+class = "REAL"
+status = "verified"
+tests = ["crate:maya-pool-service", "crate:maya-stratum-v2", "pool-service/tests/ledger_tests.rs", "pool-service/tests/worker_simulation.rs"]
+
+[[feature]]
+id = "spv-light-client"
+name = "SPV light client"
+domain = "Kernel, networking and transport"
+paths = "`light-client`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["light-client/tests/spv_tests.rs", "light-client/tests/stateless_memory.rs", "tests/consensus_tests.rs"]
+
+[[feature]]
+id = "network-simulation-harness"
+name = "Network simulation harness"
+domain = "Kernel, networking and transport"
+paths = "`src/network/sim.rs`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["tests/latency_sim_tests.rs"]
+
+[[feature]]
+id = "ebpf-xdp-relay-accelerator-aya"
+name = "eBPF/XDP relay accelerator (`aya`)"
+domain = "Kernel, networking and transport"
+paths = "`ebpf-net`, `ebpf-net/programs`, `src/network/relay_key.rs`, `src/network/node/relay.rs`"
+tier = "frontier"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-ebpf-net", "ebpf-net/tests/relay_tests.rs", "ebpf-net/tests/xdp_veth.rs", "tests/block_relay_tests.rs"]
+
+[[feature]]
+id = "lora-off-grid-transport"
+name = "LoRa off-grid transport"
+domain = "Kernel, networking and transport"
+paths = "`radio-transport`"
+tier = "frontier"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-radio-transport", "tests/radio_transport_tests.rs"]
+
+[[feature]]
+id = "fountain-coded-fragmentation"
+name = "Fountain-coded fragmentation"
+domain = "Kernel, networking and transport"
+paths = "`radio-transport/src/fountain.rs`"
+tier = "frontier"
+class = "RESEARCH"
+status = "working"
+tests = ["tests/radio_transport_tests.rs"]
+
+[[feature]]
+id = "store-and-forward-mesh-relay"
+name = "Store-and-forward mesh relay"
+domain = "Kernel, networking and transport"
+paths = "`radio-transport/src/relay.rs`"
+tier = "frontier"
+class = "RESEARCH"
+status = "working"
+tests = ["tests/radio_transport_tests.rs"]
+
+[[feature]]
+id = "satellite-uplink"
+name = "Satellite uplink"
+domain = "Kernel, networking and transport"
+paths = "—"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "leo-free-space-laser-mesh"
+name = "LEO free-space laser mesh"
+domain = "Kernel, networking and transport"
+paths = "—"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "ccsds-delay-tolerant-networking-bpv7"
+name = "CCSDS delay-tolerant networking (BPv7)"
+domain = "Kernel, networking and transport"
+paths = "—"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "subsea-acoustic-signalling"
+name = "Subsea acoustic signalling"
+domain = "Kernel, networking and transport"
+paths = "—"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "subterranean-neutrino-signalling"
+name = "Subterranean neutrino signalling"
+domain = "Kernel, networking and transport"
+paths = "—"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "zkml-proof-verification-halo2-bn254"
+name = "zkML proof verification (halo2, BN254)"
+domain = "AI and hardware integration"
+paths = "`zkml`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["tests/zkml_block_tests.rs"]
+
+[[feature]]
+id = "onnx-import-key-generation-proving"
+name = "ONNX import, key generation, proving"
+domain = "AI and hardware integration"
+paths = "`zkml-prover`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["tests/zkml_block_tests.rs", "zkml-prover/tests/circuit_tests.rs", "zkml-prover/tests/proof_tests.rs"]
+
+[[feature]]
+id = "gpu-mining-cuda"
+name = "GPU mining (CUDA)"
+domain = "AI and hardware integration"
+paths = "`cuda-miner`"
+tier = "frontier"
+class = "REAL"
+status = "verified"
+tests = ["crate:maya-cuda-miner", "cuda-miner/tests/dag_parity.rs", "cuda-miner/tests/parity.rs"]
+
+[[feature]]
+id = "gpu-mining-wgpu-vulkan-metal-dx12"
+name = "GPU mining (wgpu: Vulkan/Metal/DX12)"
+domain = "AI and hardware integration"
+paths = "`wgpu-miner`"
+tier = "frontier"
+class = "REAL"
+status = "verified"
+tests = ["crate:maya-wgpu-miner", "wgpu-miner/tests/gpu_validation.rs"]
+
+[[feature]]
+id = "confidential-federated-training"
+name = "Confidential federated training"
+domain = "AI and hardware integration"
+paths = "`confidential-ai`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-confidential-ai", "tests/federated_ai_tests.rs"]
+
+[[feature]]
+id = "iot-anchor-puf-tpm-sealed-device-identity-was-tp"
+name = "IoT anchor: PUF / TPM-sealed device identity (was \"TPM 2.0 / PUF hardware attestation\")"
+domain = "AI and hardware integration"
+paths = "`iot-anchor`, `iot-firmware`, `src/state/iot_exec.rs`"
+tier = "frontier"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-iot-anchor"]
+
+[[feature]]
+id = "biomolecular-trng"
+name = "Biomolecular TRNG"
+domain = "AI and hardware integration"
+paths = "—"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "photonic-optical-tensor-driver"
+name = "Photonic optical tensor driver"
+domain = "AI and hardware integration"
+paths = "—"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "dna-quaternary-archival-engine"
+name = "DNA quaternary archival engine"
+domain = "AI and hardware integration"
+paths = "—"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "magneto-optical-mram-driver"
+name = "Magneto-optical MRAM driver"
+domain = "AI and hardware integration"
+paths = "—"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "bio-silicon-neural-organoid-mea-interface"
+name = "Bio-silicon neural organoid MEA interface"
+domain = "AI and hardware integration"
+paths = "—"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "fuzz-targets-cargo-fuzz-libfuzzer"
+name = "Fuzz targets (cargo-fuzz, libFuzzer)"
+domain = "Security and macro engines"
+paths = "`fuzz/`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["tests/fuzz_harness.rs"]
+
+[[feature]]
+id = "kani-model-checking"
+name = "Kani model checking"
+domain = "Security and macro engines"
+paths = "`ledger-math`, `dex`, `governance`, `fee-market`, `threat-intel`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crate:maya-dex", "crate:maya-fee-market", "crate:maya-governance", "crate:maya-ledger-math", "crate:maya-threat-intel", "dex/tests/amm_tests.rs", "dex/tests/batch_tests.rs", "dex/tests/book_tests.rs", "dex/tests/encoding_tests.rs", "dex/tests/matching_tests.rs", "governance/tests/limits_tests.rs"]
+gate = "cargo kani -p maya-ledger-math -p maya-dex -p maya-governance"
+
+[[feature]]
+id = "supply-chain-gates"
+name = "Supply-chain gates"
+domain = "Security and macro engines"
+paths = "`deny.toml`, `cargo audit`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = []
+gate = "cargo deny check && cargo audit"
+
+[[feature]]
+id = "telemetry-threat-surface"
+name = "Telemetry threat surface"
+domain = "Security and macro engines"
+paths = "`telemetry`"
+tier = "extended"
+class = "REAL"
+status = "verified"
+tests = ["crate:maya-telemetry", "telemetry/tests/end_to_end_tests.rs"]
+
+[[feature]]
+id = "state-invariant-guard-circuit-breaker"
+name = "State invariant guard + circuit breaker"
+domain = "Security and macro engines"
+paths = "`src/state/invariant_guard/`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["tests/byzantine_guard_tests.rs", "tests/exploit_replays.rs"]
+
+[[feature]]
+id = "exploit-replay-suite"
+name = "Exploit replay suite"
+domain = "Security and macro engines"
+paths = "`tests/exploit_replays.rs`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["tests/exploit_replays.rs"]
+
+[[feature]]
+id = "libafl-dynamic-fuzzer"
+name = "LibAFL dynamic fuzzer"
+domain = "Security and macro engines"
+paths = "`offsec-sandbox`, `tests/fuzz_harness.rs`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["tests/fuzz_harness.rs"]
+
+[[feature]]
+id = "threat-intel-registry-was-zk-siem-threat-mesh"
+name = "Threat-intel registry (was \"ZK-SIEM threat mesh\")"
+domain = "Security and macro engines"
+paths = "`threat-intel`, `threat-firewall`, `src/state/threat_exec.rs`, `src/network/evidence_tap.rs`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-threat-firewall", "crate:maya-threat-intel", "tests/threat_intel_tests.rs"]
+
+[[feature]]
+id = "self-synthesizing-bytecode-hot-patcher"
+name = "Self-synthesizing bytecode hot-patcher"
+domain = "Security and macro engines"
+paths = "—"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "iso-20022-xml-messaging-parser"
+name = "ISO 20022 XML messaging parser"
+domain = "Security and macro engines"
+paths = "`iso20022`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-iso20022", "tests/iso20022_tests.rs"]
+
+[[feature]]
+id = "iso-20022-l1-bridge"
+name = "ISO 20022 → L1 bridge"
+domain = "Security and macro engines"
+paths = "`iso20022/src/bridge.rs`, `api-gateway`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["api-gateway/tests/gateway_tests.rs", "api-gateway/tests/openapi_tests.rs", "crate:maya-api-gateway", "tests/iso20022_tests.rs"]
+
+[[feature]]
+id = "sanctions-non-membership-proofs"
+name = "Sanctions non-membership proofs"
+domain = "Security and macro engines"
+paths = "`zk-privacy/src/sanctions.rs`, `iso20022/src/sanctions.rs`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-zk-privacy", "tests/iso20022_tests.rs"]
+
+[[feature]]
+id = "real-world-asset-primitives"
+name = "Real-world asset primitives"
+domain = "Security and macro engines"
+paths = "`rwa`, `src/state/rwa.rs`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-rwa", "tests/rwa_tests.rs"]
+
+[[feature]]
+id = "atomic-delivery-versus-payment"
+name = "Atomic delivery-versus-payment"
+domain = "Security and macro engines"
+paths = "`src/state/rwa_exec.rs`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["tests/rwa_tests.rs"]
+
+[[feature]]
+id = "jurisdictional-transfer-rules"
+name = "Jurisdictional transfer rules"
+domain = "Security and macro engines"
+paths = "`src/state/rwa_exec.rs`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["tests/rwa_tests.rs"]
+
+[[feature]]
+id = "pro-rata-revenue-distribution"
+name = "Pro-rata revenue distribution"
+domain = "Security and macro engines"
+paths = "`ledger-math::distribute`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-ledger-math", "tests/rwa_tests.rs"]
+
+[[feature]]
+id = "zk-dark-pools"
+name = "ZK dark pools"
+domain = "Security and macro engines"
+paths = "—"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "relativistic-gravitational-clock-synchronisation"
+name = "Relativistic gravitational clock synchronisation"
+domain = "Security and macro engines"
+paths = "—"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "tauri-2-0-desktop-wallet"
+name = "Tauri 2.0 desktop wallet"
+domain = "Tooling and formal verification"
+paths = "`wallet-gui/`"
+tier = "extended"
+class = "REAL"
+status = "verified"
+tests = ["crate:maya-wallet-core"]
+
+[[feature]]
+id = "leptos-block-explorer-and-dashboard"
+name = "Leptos block explorer and dashboard"
+domain = "Tooling and formal verification"
+paths = "`explorer`, `dashboard/`"
+tier = "extended"
+class = "REAL"
+status = "verified"
+tests = ["explorer/tests/indexer_tests.rs", "explorer/tests/server_tests.rs"]
+
+[[feature]]
+id = "axum-rest-graphql-gateway"
+name = "Axum REST/GraphQL gateway"
+domain = "Tooling and formal verification"
+paths = "`api-gateway`"
+tier = "extended"
+class = "REAL"
+status = "verified"
+tests = ["api-gateway/tests/gateway_tests.rs", "api-gateway/tests/openapi_tests.rs", "crate:maya-api-gateway"]
+
+[[feature]]
+id = "multi-language-sdks"
+name = "Multi-language SDKs"
+domain = "Tooling and formal verification"
+paths = "`sdk-ffi`, `sdk-wasm`, `sdk-js`"
+tier = "extended"
+class = "REAL"
+status = "verified"
+tests = ["crate:maya-sdk-ffi", "crate:maya-sdk-wasm", "tests/hybrid_parity_tests.rs", "tests/ledger_parity_tests.rs"]
+
+[[feature]]
+id = "latex-technical-reference-generator"
+name = "LaTeX technical reference generator"
+domain = "Tooling and formal verification"
+paths = "`docgen`"
+tier = "extended"
+class = "REAL"
+status = "verified"
+tests = ["crate:maya-docgen"]
+
+[[feature]]
+id = "testnet-faucet"
+name = "Testnet faucet"
+domain = "Tooling and formal verification"
+paths = "`faucet`"
+tier = "extended"
+class = "REAL"
+status = "verified"
+tests = ["crate:maya-faucet", "faucet/tests", "faucet/tests/http_tests.rs", "faucet/tests/load_tests.rs"]
+
+[[feature]]
+id = "lean-4-mathematical-proof-engine"
+name = "Lean 4 mathematical proof engine"
+domain = "Tooling and formal verification"
+paths = "—"
+tier = "frontier"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[feature]]
+id = "l2-flash-settlement"
+name = "L2 flash settlement"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`l2-flash`"
+tier = "extended"
+class = "REAL"
+status = "verified"
+tests = ["l2-flash/tests/channel_tests.rs", "l2-flash/tests/scale_tests.rs", "tests/settlement_tests.rs"]
+note = "Off-chain settlement channels over the hybrid signature pair."
+
+[[feature]]
+id = "command-line-wallet"
+name = "Command-line wallet"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`wallet`"
+tier = "extended"
+class = "REAL"
+status = "verified"
+tests = ["crate:l1-wallet"]
+note = "Keystore, transaction construction and RPC submission."
+
+[[feature]]
+id = "wallet-core-gui-shared"
+name = "Wallet core (GUI-shared)"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`wallet-gui/core`"
+tier = "extended"
+class = "REAL"
+status = "verified"
+tests = ["crate:maya-wallet-core", "wallet-gui/core/tests/airgap_tests.rs", "wallet-gui/core/tests/hd_tests.rs", "wallet-gui/core/tests/payment_tests.rs", "wallet-gui/core/tests/vault_tests.rs"]
+note = "The logic the Tauri shell and the CLI both use."
+
+[[feature]]
+id = "ledger-hardware-wallet-app"
+name = "Ledger hardware wallet app"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`app-maya2c`"
+tier = "frontier"
+class = "RESEARCH"
+status = "working"
+tests = ["app-maya2c/tests/apdu_tests.rs", "app-maya2c/tests/ledger_tests.rs", "tests/ledger_parity_tests.rs"]
+note = "Nano S+/X/Stax app. Its own workspace and cross target; COIN_TYPE is pinned by tests/ledger_parity_tests.rs."
+
+[[feature]]
+id = "mining-pool-service"
+name = "Mining pool service"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`pool-service`"
+tier = "extended"
+class = "REAL"
+status = "verified"
+tests = ["crate:maya-pool-service", "pool-service/tests/ledger_tests.rs", "pool-service/tests/worker_simulation.rs"]
+note = "PPLNS accounting and treasury payouts over Stratum V2."
+
+[[feature]]
+id = "genesis-ceremony"
+name = "Genesis ceremony"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`src/bin/genesis-ceremony.rs`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["tests/genesis_tests.rs"]
+note = "Multi-party genesis key ceremony, distinct from the genesis file writer."
+
+[[feature]]
+id = "benchmark-suite"
+name = "Benchmark suite"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`benches/`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = []
+gate = "cargo bench --workspace --no-run"
+note = "13 criterion targets. Numbers are measured and reported, never asserted against a target fixed in advance."
+
+[[feature]]
+id = "project-memory-and-session-handoff"
+name = "Project memory and session handoff"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`CLAUDE.md`, `PROGRESS.md`, `docs/adr/`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = []
+gate = "cargo xtask coverage"
+note = "The machine-readable half is this file; the prose half is CLAUDE.md and the ADR log."
+
+[[feature]]
+id = "deterministic-simulation-harness"
+name = "Deterministic simulation harness"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`sim/`"
+tier = "core"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "Seeded multi-node simulator with a virtual clock, modelled network and fault-injecting disk. Phase C of the foundation plan."
+
+[[feature]]
+id = "workspace-automation-xtask"
+name = "Workspace automation (xtask)"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`xtask/`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = []
+gate = "cargo xtask coverage && cargo xtask disk"
+note = "`cargo xtask disk` and `cargo xtask coverage`."

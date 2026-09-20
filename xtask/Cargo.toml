@@ -1,0 +1,14 @@
+[package]
+name = "xtask"
+version.workspace = true
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+description = "Workspace automation: disk accounting and the reality-ledger gate"
+
+# Two dependencies, both already in the workspace graph. `xtask` runs on a
+# developer's machine and in CI before anything else builds, so every crate
+# added here is one more thing that must compile before the gate can run.
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+toml.workspace = true

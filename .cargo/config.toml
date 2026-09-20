@@ -5,6 +5,15 @@
 # is what a CI runner and a fresh clone both read.
 
 # ---------------------------------------------------------------------------
+# Aliases
+# ---------------------------------------------------------------------------
+#
+# `cargo xtask <command>` — workspace automation that has to run before, or
+# independently of, a full build. See `xtask/src/main.rs`.
+[alias]
+xtask = "run --quiet --package xtask --"
+
+# ---------------------------------------------------------------------------
 # Linkers
 # ---------------------------------------------------------------------------
 #

@@ -190,6 +190,11 @@ members = [
     # branch: IOT_ACTIVATION_HEIGHT is u64::MAX — see docs/iot-anchor.md. The
     # example firmware, `iot-firmware/`, is its own workspace.
     "iot-anchor",
+    # Workspace automation: `cargo xtask disk` and `cargo xtask coverage`. A
+    # member so it is type-checked by the same `cargo check --workspace` that
+    # gates everything else, and so the ledger test in it runs in the ordinary
+    # test job rather than in a script nobody executes.
+    "xtask",
 ]
 
 # ---------------------------------------------------------------------------
@@ -292,6 +297,10 @@ sha3 = { version = "0.11", default-features = false }
 tempfile = "3"
 thiserror = "2.0"
 tokio = "1"
+# `config.toml` parsing, and `features.toml` in xtask. One format, read once
+# at startup, with `deny_unknown_fields` doing the work a layered config
+# library would otherwise hide.
+toml = "0.9"
 tower = "0.5"
 tower-http = "0.6"
 tracing = "0.1"
@@ -358,7 +367,7 @@ serde = { workspace = true, features = ["derive"] }
 # `config.toml` parsing. `toml` rather than a general config crate: one format,
 # read once at startup, with `deny_unknown_fields` doing the work a layered
 # config library would otherwise hide.
-toml = "0.9"
+toml.workspace = true
 serde_json.workspace = true
 maya-vm = { path = "vm" }
 # zkML proof verification, for `host_verify_zkml_proof`. The verifier only:
