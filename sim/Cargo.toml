@@ -1,0 +1,22 @@
+[package]
+name = "maya-sim"
+version.workspace = true
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+description = "Deterministic, seeded simulation: virtual clock, modelled network, fault-injecting disk"
+
+# Deliberately empty, and it must stay that way.
+#
+# The whole value of this crate is that a seed reproduces a run exactly. A
+# dependency is a second source of decisions — its own RNG, its own hashing,
+# its own iteration order — and any one of them makes a replay a different run.
+# The same rule that keeps `maya-ledger-math` and `maya-dex` dependency-free
+# for Kani keeps this one dependency-free for reproducibility.
+#
+# `std` is used (time formatting, panic catching) but nothing in the decision
+# path reads a wall clock, a thread id, an address, or a hash of one.
+[dependencies]
+
+[lints]
+workspace = true
