@@ -1,8 +1,8 @@
 # The gate every change passes.
 #
-# Until this file existed there was no fmt, clippy, test or supply-chain job at
-# all: the five workflows in this directory each cover one subsystem, and
-# nothing ran `cargo test --workspace`.
+# Until this file existed there was no fmt, clippy or test job at all: the five
+# workflows in this directory each cover one subsystem, and nothing ran
+# `cargo test --workspace`. Supply chain was, and stays, security-audit.yml's.
 #
 # Ordered cheapest first, so a missing test in features.toml fails in seconds
 # rather than after a forty-minute build.
@@ -99,12 +99,12 @@ jobs:
 
       # Everything else, including tests and benches.
       #
-      # `pedantic` is allowed here and `warn` in [workspace.lints]: 1,889
-      # warnings when it was switched on, dominated by cast_possible_truncation
-      # (607) and doc_markdown (308). Denying that today would mean either a
-      # 1,889-warning cleanup inside a foundation change, or a gate that no
-      # branch can pass. It is visible in every local `cargo clippy` and is
-      # tracked as debt, which is the honest state.
+      # `pedantic` is allowed here and `warn` in [workspace.lints]: 1,700
+      # diagnostics when it was switched on, dominated by the cast lints (607)
+      # and doc_markdown (308). Denying that would mean either a
+      # 1,700-diagnostic cleanup inside a foundation change, or a gate no
+      # branch can pass. It is visible in every local `cargo clippy`, and
+      # `nightly.yml` ratchets it so the number cannot grow unnoticed.
       #
       # `unwrap_used` is allowed here because the step above already covers the
       # code where it matters.
@@ -157,24 +157,8 @@ jobs:
         if: always()
         run: cargo xtask disk
 
-  # ---------------------------------------------------------------------
-  # Supply chain. Separate job so an advisory does not hide a test failure.
-  # ---------------------------------------------------------------------
-  deny:
-    name: cargo-deny
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly-2026-07-15
-      - uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          command: check
-          # `bans` is checked but not enforced as a failure: 110 duplicate
-          # version groups are transitive and outside this tree's control -
-          # sha3 arrives at three majors through fips204 and hqc-kem alone.
-          # First-party duplication is what [workspace.dependencies] prevents,
-          # and ADR-005 records the two that remain open.
-          arguments: --workspace
+  # Supply chain is deliberately absent from this file.
+  # `.github/workflows/security-audit.yml` already runs
+  # `cargo deny check advisories bans licenses sources`, and two jobs running
+  # the same gate is a permanent cost for no extra information. That gate was
+  # failing when this phase started — see deny.toml's uniffi exception.

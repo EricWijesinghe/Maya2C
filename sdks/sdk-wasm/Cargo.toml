@@ -25,5 +25,21 @@ blake3.workspace = true
 wasm-bindgen = "0.2"
 hex.workspace = true
 
+
+# getrandom reaches this crate only through `maya-crypto-pq`, and on
+# wasm32-unknown-unknown it refuses to build without being told which backend
+# to use — there is no OS entropy source to default to. A transitive
+# dependency cannot have a feature turned on from outside, so it is named
+# here. Paired with the `--cfg getrandom_backend="wasm_js"` that
+# `.cargo/config.toml` sets for this target; getrandom 0.4 requires both.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { workspace = true, features = ["wasm_js"] }
+# And again for the 0.2 generation, which `fips204` reaches through
+# `rand_core` 0.6. Two majors of getrandom, two backend switches, two names —
+# the second is renamed because a manifest cannot list one package twice.
+# Neither is a dependency this crate uses directly; both are named so their
+# features can be turned on at all.
+getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }
+
 [lints]
 workspace = true

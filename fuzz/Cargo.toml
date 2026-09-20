@@ -60,6 +60,13 @@ debug = 1
 debug-assertions = true
 overflow-checks = true
 
+# The fuzz targets' own line tables are what a crash report needs. A
+# dependency's are not: libFuzzer symbolises the frame in the decoder under
+# test, not in `wasmtime`. Measured 2026-09-20: fuzz/target was 10.2 GiB of
+# the 19.5 GiB that a root `cargo clean` cannot reach.
+[profile.release.package."*"]
+debug = false
+
 [[bin]]
 name = "tx_decode"
 path = "fuzz_targets/tx_decode.rs"

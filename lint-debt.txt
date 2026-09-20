@@ -1,0 +1,10 @@
+1707
+# clippy::pedantic diagnostics across `cargo clippy --workspace --all-targets`.
+#
+# Written by scripts/lint_debt.sh --update. The number may go down freely and
+# may not go up: scripts/lint_debt.sh --check fails if it does, and
+# .github/workflows/nightly.yml runs that check.
+#
+# If a change legitimately raises it — a new crate, or a clippy release that
+# adds a lint — re-run --update and say so in the commit message. An increase
+# should be a decision somebody made, not one nobody noticed.

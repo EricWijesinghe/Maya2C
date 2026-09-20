@@ -175,6 +175,18 @@ Two behaviours worth naming:
   reaches. There is nothing to query, and a field returning something plausible
   would be worse than its absence.
 - **No measured wasm signing figures.** `wasm-pack` is not installed on this
-  host, so the `.wasm` artifact was not produced and browser signing time and
-  bundle size are unmeasured. Expect materially worse than native — there is no
-  AVX2 and no SHA extensions in wasm — and measure before promising a UX.
+  host, so the packaged `.wasm` artifact was not produced and browser signing
+  time and bundle size are unmeasured. Expect materially worse than native —
+  there is no AVX2 and no SHA extensions in wasm — and measure before promising
+  a UX.
+
+  The crate itself **does** now compile for `wasm32-unknown-unknown`, as of
+  2026-09-20; until then it never had. `getrandom` refuses that target unless
+  it is told where entropy comes from, and it reaches this crate only
+  transitively — through `maya-crypto-pq` at 0.4 and through `fips204`'s
+  `rand_core` 0.6 at 0.2, so *both* majors need their browser backend turned
+  on, and a transitive dependency's feature cannot be enabled from outside.
+  Both are named in `sdks/sdk-wasm/Cargo.toml` under a
+  `cfg(target_arch = "wasm32")` table for that reason and no other, with the
+  matching `--cfg getrandom_backend="wasm_js"` in `.cargo/config.toml`.
+  `.github/workflows/nightly.yml` builds it so it cannot rot back.

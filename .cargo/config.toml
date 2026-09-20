@@ -41,6 +41,19 @@ rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 # in a 289 GB `target/`. Not worth it for a linker change nobody has measured a
 # need for. If that changes, the evidence goes in an ADR first.
 
+# Browser wasm.
+#
+# getrandom 0.4 refuses to build for wasm32-unknown-unknown unless it is told
+# which entropy source to use: the target has no OS to ask. The browser answer
+# is `crypto.getRandomValues`, selected by this cfg *and* by getrandom's
+# `wasm_js` feature, which `sdks/sdk-wasm` turns on.
+#
+# Only this target is affected. Before 2026-09-20 nothing set it, and
+# `cargo build -p maya-sdk-wasm --target wasm32-unknown-unknown` had therefore
+# never succeeded — docs/sdk.md recorded the .wasm artifact as unbuilt.
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
+
 # ---------------------------------------------------------------------------
 # Build parallelism
 # ---------------------------------------------------------------------------

@@ -83,9 +83,11 @@ One mechanical commit, nothing else in it. ADR-001 has the reasoning.
 - [ ] `chacha20poly1305` 0.10 / 0.11 split — ADR-005
 - [ ] `ed25519-dalek` 2.2 vs libp2p's 3.0 — must close before `THREAT_INTEL_ACTIVATION_HEIGHT` moves — ADR-005
 - [x] `clippy::needless_range_loop` in `bins/neural-gas-trainer/src/network.rs:110` — fixed, weights verified unchanged
-- [ ] 1,700 `clippy::pedantic` diagnostics (489 cast lints, 308 `doc_markdown`, 118 more casts). `warn`, not denied — ADR-003
+- [ ] 1,707 `clippy::pedantic` diagnostics (489 cast lints, 308 `doc_markdown`, 118 more casts). `warn`, not denied — ADR-003. Ratcheted by `scripts/lint_debt.sh`, so it cannot grow unnoticed
 - [ ] 73 `clippy::expect_used` in `--lib --bins`. Not gated; `unwrap_used` is
 - [ ] `proc-macro-error2 v2.0.1` future-incompatibility (transitive, via a proc-macro dependency)
+- [ ] `wasm-pack` is not installed, so the packaged `.wasm` and its size and
+      signing figures are still unmeasured — `docs/sdk.md`
 - [ ] Raise the machine's commit limit, or lower `[profile.dev.package."*"]`
       to `opt-level = 2`, so `jobs` need not be pinned to 4 —
       `reports/02-layout.md` §1

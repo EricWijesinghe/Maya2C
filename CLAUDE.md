@@ -336,8 +336,10 @@ finish before starting another; `cargo clean` if it is already wedged. See
 - **Comments say why, not what.** This repository's manifests and modules
   explain the reasoning behind a boundary, a version pin or a parameter set.
   That prose is the documentation — do not strip it when editing near it.
-- `clippy::pedantic` is `warn`, not `deny`, and there are 1,700 of them.
-  Do not add more; cleaning them up is tracked in `PROGRESS.md`.
+- `clippy::pedantic` is `warn`, not `deny`, and there are 1,707 of them.
+  The count is ratcheted: `scripts/lint_debt.sh --check` fails if it rises,
+  and `nightly.yml` runs it. It may fall freely. If a change legitimately
+  raises it, run `--update` and say why in the commit message.
 
 ## Development Environment
 

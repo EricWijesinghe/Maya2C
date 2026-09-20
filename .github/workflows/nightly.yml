@@ -159,3 +159,36 @@ jobs:
 
       - name: Documentation coverage
         run: bash scripts/doc_coverage.sh --check
+
+  # ---------------------------------------------------------------------
+  # Lint debt. `clippy::pedantic` is `warn`, not `deny` (ADR-003), which
+  # means the count can grow without anything noticing. This is what
+  # notices. Not in ci.yml: each distinct set of clippy flags is a distinct
+  # fingerprint, so this is a third full clippy pass, and debt growth does
+  # not need to block a pull request.
+  # ---------------------------------------------------------------------
+  lint-debt:
+    name: clippy debt ratchet
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free runner disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev llvm-dev libssl-dev pkg-config mold
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-15
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: lint-debt
+
+      # Fails if the count is above lint-debt.txt. It may go down freely.
+      - name: Ratchet
+        run: bash scripts/lint_debt.sh --check

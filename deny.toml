@@ -77,6 +77,14 @@ allow = [
     "Unicode-3.0",
     "Unlicense",
     "Zlib",
+    # Boost Software License. Permissive, no copyleft, no attribution
+    # requirement in binaries. Arrives through `xxhash-rust`.
+    "BSL-1.0",
+    # Community Data License Agreement, permissive variant. It licenses
+    # *data*, not code, which is exactly what it is doing here: `webpki-roots`
+    # ships Mozilla's CA certificate set. Permissive, and it places no terms
+    # on the code that reads it.
+    "CDLA-Permissive-2.0",
 ]
 
 # `dyn-eq` (MPL-2.0), and nothing else under that license.
@@ -101,6 +109,59 @@ allow = [
 # should be deleted rather than inherited.
 [[licenses.exceptions]]
 crate = "dyn-eq"
+allow = ["MPL-2.0"]
+
+# The `uniffi` family (MPL-2.0), and nothing else under that license.
+#
+# `maya-sdk-ffi` is the uniffi bindings crate; uniffi *is* the product there,
+# so this is not a dependency that could be swapped out. Nine crates because
+# uniffi is split that way, not because nine decisions were made.
+#
+# Admitted by name rather than by adding "MPL-2.0" to `allow`, for the same
+# reason `dyn-eq` is: MPL-2.0 is file-level copyleft. It binds modifications to
+# uniffi's own files, which this project does not make, and places no terms on
+# the code that links it — but allowing the license outright would admit the
+# next MPL crate silently, and allowing the crates means the next one fails
+# this check and gets its own paragraph.
+#
+# Found on 2026-09-20 by running `cargo deny check` for the first time in this
+# phase. It was already failing: `.github/workflows/security-audit.yml` has run
+# this gate all along. Revisit if `maya-sdk-ffi` ever stops shipping uniffi
+# bindings.
+[[licenses.exceptions]]
+crate = "uniffi"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+crate = "uniffi_bindgen"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+crate = "uniffi_build"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+crate = "uniffi_core"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+crate = "uniffi_internal_macros"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+crate = "uniffi_macros"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+crate = "uniffi_meta"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+crate = "uniffi_pipeline"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+crate = "uniffi_udl"
 allow = ["MPL-2.0"]
 
 [licenses.private]

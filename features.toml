@@ -853,6 +853,8 @@ tier = "extended"
 class = "REAL"
 status = "verified"
 tests = ["crate:maya-sdk-ffi", "crate:maya-sdk-wasm", "crates/node/tests/hybrid_parity_tests.rs", "crates/node/tests/ledger_parity_tests.rs"]
+gate = "cargo build -p maya-sdk-wasm --target wasm32-unknown-unknown"
+note = "The parity tests run on the host. The browser bindings additionally have to *compile* for wasm32, which they did not until 2026-09-20 -- getrandom reaches the crate transitively at two majors and both needed their browser backend named. See docs/sdk.md; nightly.yml builds that target."
 
 [[feature]]
 id = "latex-technical-reference-generator"
