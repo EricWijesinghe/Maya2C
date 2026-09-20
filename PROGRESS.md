@@ -36,6 +36,10 @@ Report: `reports/00-inventory.md`, `reports/01-foundation.md`.
 - [x] `[workspace.lints]` — `unsafe_op_in_unsafe_fn = deny`, `clippy::pedantic = warn`, `clippy::unwrap_used = warn` (denied in CI on lib/bins), wired into all 45 members
 - [x] Profiles — `dev`, `dev.package."*"`, `release`, `dist`, `ci`, `fuzz` — ADR-003
 - [x] `cargo clean` and cold rebuild, measured — `reports/01-foundation.md`
+- [x] Full test suite green: 2,468 tests across 167 binaries, 0 failed, 6 skipped
+- [x] `cargo fmt --all` (157 diffs / 55 files) and `rustfmt.toml`
+- [x] `.gitattributes` — the generated-weights drift check could not pass before it
+- [x] `resolver = "3"` stated; `default-members` is the core tier
 - [x] `xtask` — `cargo xtask disk` (30 GiB ceiling), `cargo xtask coverage`
 - [x] `features.toml` — 90 entries; 43 verified, 30 working, 17 planned — ADR-004
 - [x] `docs/adr/` — ADR-001 … ADR-005
@@ -43,6 +47,10 @@ Report: `reports/00-inventory.md`, `reports/01-foundation.md`.
 - [x] `CLAUDE.md` revision with the Standing Orders
 - [x] `.github/workflows/ci.yml` and `nightly.yml`
 - [ ] CI observed green on a real push (needs a push; nothing local can prove it)
+- [ ] Bring the *sum* of artifact directories under 30 GiB. The root `target/`
+      is 29.6 GiB and under it; `fuzz/`, `wallet-gui/src-tauri/` and
+      `app-maya2c/` are separate workspaces holding 19.5 GiB with their own
+      profiles — ADR-003
 
 ### Phase B — physical layout — **not started**
 
@@ -70,7 +78,9 @@ One mechanical commit, nothing else in it. ADR-001 has the reasoning.
 
 - [ ] `chacha20poly1305` 0.10 / 0.11 split — ADR-005
 - [ ] `ed25519-dalek` 2.2 vs libp2p's 3.0 — must close before `THREAT_INTEL_ACTIVATION_HEIGHT` moves — ADR-005
-- [ ] `clippy::needless_range_loop` in `neural-gas-trainer/src/network.rs:110`
+- [x] `clippy::needless_range_loop` in `neural-gas-trainer/src/network.rs:110` — fixed, weights verified unchanged
+- [ ] 1,700 `clippy::pedantic` diagnostics (489 cast lints, 308 `doc_markdown`, 118 more casts). `warn`, not denied — ADR-003
+- [ ] 73 `clippy::expect_used` in `--lib --bins`. Not gated; `unwrap_used` is
 - [ ] `proc-macro-error2 v2.0.1` future-incompatibility (transitive, via a proc-macro dependency)
 
 ---

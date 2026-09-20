@@ -125,13 +125,30 @@ They stay.
 
 ## Consequences
 
+Measured after the change, on the machine above
+(`reports/01-foundation.md` §1, §4, §8):
+
+| | Before | After |
+|---|---|---|
+| root `target/`, everything built and tested | 316.0 GiB | **29.6 GiB** |
+| all nine artifact directories | 336.5 GiB | 50.2 GiB |
+| `cargo build --workspace --all-targets`, cold | ~52 min (recorded) | **4m 54s** |
+| `cargo nextest run --workspace` | needed `CARGO_BUILD_JOBS=1` | 2,468 tests pass at 24 jobs |
+
 - **Every fingerprint in `target/` was invalidated**, which is why this change
   was made together with the lint policy and immediately before a
   `cargo clean`: doing it later would have meant a second full rebuild, on a
   volume that did not have room for two copies.
-- Cold build time goes up: every dependency now compiles at `opt-level = 3`,
-  where before only the thirty named ones did. The measured figure is in
-  `reports/01-foundation.md`.
+- Cold build time did **not** go up, despite every dependency now compiling at
+  `opt-level = 3` where before only the thirty named ones did. The saving from
+  not writing full debug info is larger than the cost of optimizing.
+- The `LNK1102: out of memory` failure that forced `CARGO_BUILD_JOBS=1` is
+  gone, because its cause was debug-info volume per link. `.cargo/config.toml`
+  therefore does not pin `jobs = 1`.
+- The 30 GiB ceiling is met by the root `target/` and **not** by the sum. The
+  20.6 GiB that survives a root `cargo clean` belongs to `fuzz/`,
+  `wallet-gui/src-tauri/` and `app-maya2c/` — separate workspaces with their
+  own profiles, which this ADR does not reach.
 - Debugging a dependency's locals now needs a one-off build with
   `RUSTFLAGS=-Cdebuginfo=2` or a temporary package override.
 - `sccache` stays off. It does not cache incremental builds, so it and

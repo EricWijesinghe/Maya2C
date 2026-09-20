@@ -78,8 +78,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     if total > CEILING_BYTES {
         let msg = format!(
-            "build artifacts are {} , over the {} ceiling. `cargo clean` frees \
-             the root target/; a cold rebuild after one takes about 52 minutes.",
+            "build artifacts are {}, over the {} ceiling. `cargo clean` frees \
+             the root target/ only -- the nested workspaces (fuzz/, \
+             wallet-gui/src-tauri/, app-maya2c/) keep theirs, and they are \
+             about 19.5 GiB of this. Rebuilding the root from cold measured \
+             4m 54s for `--workspace --all-targets` on 2026-09-20.",
             human(total),
             human(CEILING_BYTES)
         );

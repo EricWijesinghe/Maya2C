@@ -249,9 +249,12 @@ invariants before removing it.
 bytes twice, and a full disk reports as `os error 112` or rustc `0xc0000409` —
 never as "out of space". Run `cargo xtask disk` *before* starting a long build,
 not after it fails. Measured 2026-09-20: 336.5 GiB across all artifact
-directories before `cargo clean`, 20.6 GiB after (`fuzz/target` 10.2 GiB and
-`wallet-gui/src-tauri/target` 8.7 GiB survive a root clean; they are separate
-workspaces).
+directories before `cargo clean`, 20.6 GiB immediately after, and 50.2 GiB
+once everything had been rebuilt and tested. The root `target/` is 29.6 GiB
+of that, down from 316.0 GiB. `fuzz/target` (10.2 GiB) and
+`wallet-gui/src-tauri/target` (8.7 GiB) survive a root clean; they are
+separate workspaces with their own profiles, and they are why the *sum* is
+still over the 30 GiB ceiling while the root is under it.
 
 **Profiles are load-bearing, not tuning** — [ADR-003](docs/adr/ADR-003-build-profiles.md).
 `[profile.dev] debug = "line-tables-only"` and
@@ -268,18 +271,29 @@ Measured on this machine, 2026-09-20, from a clean tree:
 |---|---|
 | `cargo clean` | 1m 28s, 188,085 files, 317.4 GiB |
 | `cargo check --workspace --all-targets` | 4m 34s, 0 errors, 0 warnings |
-| `cargo clippy --workspace --all-targets` | 1,889 warnings, all `pedantic` |
+| `cargo clippy --workspace --all-targets` | 1,700 diagnostics, all `pedantic` or `unwrap_used` |
+| `cargo build --workspace --all-targets` | 4m 54s |
+| `cargo nextest run --workspace` | 2,468 tests across 167 binaries, **2,468 passed**, 6 skipped, 529.6s |
+| root `target/` afterwards | **29.6 GiB**, from 316.0 GiB |
 
 `cargo clippy --workspace --lib --bins -- -D clippy::unwrap_used` reports
 **zero**: all 457 `unwrap()` warnings are in `#[cfg(test)]` code. That is the
 CI gate.
 
-**`cargo nextest run --workspace` has historically needed `CARGO_BUILD_JOBS=1`.**
-Two dozen concurrent `link.exe` processes, each linking a test binary carrying
-wasmtime, arkworks, halo2 and `tract-onnx`, end in `LNK1102: out of memory` on
-32 GB — reported by nextest as ordinary test failures, which is what it is
-*not*. The workspace-wide `line-tables-only` change addresses the cause; the
-current measurement is in `reports/01-foundation.md`.
+**Two claims this file used to make are now measured and were wrong.** A cold
+rebuild is about **five minutes**, not 52 — the 52-minute figure predates the
+profile change. And `cargo nextest run --workspace` **no longer needs
+`CARGO_BUILD_JOBS=1`**: it linked 167 test binaries at 24 jobs without
+`LNK1102: out of memory`, which is why `.cargo/config.toml` deliberately does
+not pin `jobs = 1`. If that regresses, the cause is debug-info volume per
+link, and the fix is the profile rather than the job count.
+
+**Mixing `cargo check` or `cargo clippy` with `cargo build` in a freshly
+cleaned tree can wedge it.** `--all-targets` under check/clippy emits `.rmeta`
+and no `.rlib`; a later link then fails with `crate X required to be available
+in rlib format` and a cascade of `can't find crate`, which reads as a profile
+bug and is not one. `cargo clean -p <the named crates>` fixes it. See
+`reports/01-foundation.md` §4.
 
 ## Code Conventions
 
@@ -294,7 +308,7 @@ current measurement is in `reports/01-foundation.md`.
 - **Comments say why, not what.** This repository's manifests and modules
   explain the reasoning behind a boundary, a version pin or a parameter set.
   That prose is the documentation — do not strip it when editing near it.
-- `clippy::pedantic` is `warn`, not `deny`, and there are 1,889 of them.
+- `clippy::pedantic` is `warn`, not `deny`, and there are 1,700 of them.
   Do not add more; cleaning them up is tracked in `PROGRESS.md`.
 
 ## Development Environment
