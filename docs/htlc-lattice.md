@@ -1,8 +1,14 @@
 # Lattice HTLCs (HTLC-L)
 
-**Status: RESEARCH.** `HTLC_L_ACTIVATION_HEIGHT = u64::MAX` (`crates/node/src/state/context.rs`).
-Every HTLC transaction is refused before that height, so no network runs this
-until somebody writes down a height and the reasons below have answers.
+**Status: RESEARCH** for the lattice lock this document describes:
+`HTLC_L_ACTIVATION_HEIGHT = u64::MAX` (`crates/node/src/state/context.rs`).
+Every lattice-lock transaction is refused before that height, so no network
+runs it until somebody writes down a height and the reasons below have answers.
+
+**Hash locks are REAL** and share everything below except the lock itself:
+SHA3-256, BLAKE3 or SHA-256 over a 32-byte preimage, live from genesis
+(`HASH_LOCK_ACTIVATION_HEIGHT = 0`). Why that is already post-quantum, and
+why SHA-256 is among them, is ADR-012.
 
 | Piece | Where |
 |---|---|

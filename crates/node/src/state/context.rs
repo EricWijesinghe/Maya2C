@@ -24,6 +24,11 @@ pub struct BlockContext {
     /// [`HTLC_L_ACTIVATION_HEIGHT`] everywhere the node builds a context. Tests
     /// set it with [`Self::with_htlc_activation`].
     pub htlc_activation: u64,
+    /// First height at which hash-lock HTLC transactions execute.
+    ///
+    /// [`HASH_LOCK_ACTIVATION_HEIGHT`] everywhere the node builds a context.
+    /// Tests set it with [`Self::with_hash_lock_activation`].
+    pub hash_lock_activation: u64,
     /// First height whose block commits accounts as a sparse tree.
     ///
     /// [`STATELESS_ACTIVATION_HEIGHT`] everywhere the node builds a context.
@@ -88,6 +93,16 @@ pub const SUITE_ENVELOPE_ACTIVATION_HEIGHT: u64 = u64::MAX;
 /// atomic with.
 pub const HTLC_L_ACTIVATION_HEIGHT: u64 = u64::MAX;
 
+/// First height at which hash-lock HTLCs execute: genesis.
+///
+/// The one HTLC family that is REAL (ADR-012). Neither of the lattice lock's
+/// open questions applies: a claim costs one 256-bit hash, not a lattice
+/// verification, and the counterparty need not run this chain's verifier —
+/// a SHA-256 lock is matched by a Bitcoin script. Zero rather than a later
+/// height because no block before this change could carry an HTLC payload at
+/// all (the lattice gate refused every one), so no history is reinterpreted.
+pub const HASH_LOCK_ACTIVATION_HEIGHT: u64 = 0;
+
 /// First height at which contracts can verify zkML proofs: none.
 ///
 /// The research-branch pattern (`crypto/dag/registry.rs`, `lattice-pow`): the
@@ -107,6 +122,7 @@ impl BlockContext {
             height,
             zkml_activation: ZKML_ACTIVATION_HEIGHT,
             htlc_activation: HTLC_L_ACTIVATION_HEIGHT,
+            hash_lock_activation: HASH_LOCK_ACTIVATION_HEIGHT,
             stateless_activation: STATELESS_ACTIVATION_HEIGHT,
             threat_intel_activation: THREAT_INTEL_ACTIVATION_HEIGHT,
             iot_activation: IOT_ACTIVATION_HEIGHT,
@@ -172,6 +188,26 @@ impl BlockContext {
     #[must_use]
     pub const fn htlc_active(self) -> bool {
         self.height >= self.htlc_activation
+    }
+
+    /// The same context with hash-lock HTLCs active from `height` on.
+    #[must_use]
+    pub const fn with_hash_lock_activation(self, height: u64) -> Self {
+        Self {
+            hash_lock_activation: height,
+            ..self
+        }
+    }
+
+    /// Whether a transaction on `lock` executes in this block: the lattice
+    /// gate for a lattice lock, the hash-lock gate otherwise.
+    #[must_use]
+    pub const fn lock_active(self, lock: &maya_htlc_lattice::Lock) -> bool {
+        if lock.is_lattice() {
+            self.htlc_active()
+        } else {
+            self.height >= self.hash_lock_activation
+        }
     }
 
     /// The same context with zkML verification active from `height` on.

@@ -10,7 +10,7 @@ use custom_l1_node::core::TxKind;
 use custom_l1_node::core::htlc_payload::{HtlcClaim, HtlcLock, HtlcRefund};
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
 use custom_l1_node::state::htlc::derive_lock_id;
-use maya_htlc_lattice::{Address, Commitment, CommitmentId, LatticeSecret};
+use maya_htlc_lattice::{Address, CommitmentId, Lock, SwapSecret};
 
 use crate::chain::{LockState, LockView, SwapChain};
 use crate::error::{Result, WatcherError};
@@ -24,8 +24,9 @@ use crate::swap::{ChainSide, Leg, LockId, Phase, Role, Swap};
 pub struct RespondRequest {
     /// The initiator's lock on the Maya chain, which pays this watcher.
     pub inbound_lock_id: LockId,
-    /// The commitment, as the initiator sent it. Checked against the lock.
-    pub commitment: Commitment,
+    /// The lock (digest or commitment), as the initiator sent it. Checked
+    /// against the inbound lock on chain.
+    pub lock: Lock,
     /// The least the inbound lock must escrow.
     pub min_inbound_amount: u64,
     /// Whom this watcher's lock on the counterparty chain pays.
@@ -41,7 +42,7 @@ pub struct RespondRequest {
 /// The responder's lock, as an initiator learns of it.
 #[derive(Clone, Copy, Debug)]
 pub struct InitiatedSwap {
-    /// The commitment the initiator locked under.
+    /// The id of the lock the initiator locked under.
     pub commitment_id: CommitmentId,
     /// The responder's lock on the counterparty chain, which pays this watcher.
     pub inbound_lock_id: LockId,
@@ -67,7 +68,7 @@ pub struct Worker {
     key: HybridSigningKey,
     margins: Margins,
     journal: Journal,
-    secrets: BTreeMap<CommitmentId, LatticeSecret>,
+    secrets: BTreeMap<CommitmentId, SwapSecret>,
     pending: Pending,
 }
 
@@ -108,10 +109,10 @@ impl Worker {
     ///
     /// # Errors
     ///
-    /// [`WatcherError::Refused`] if the secret produces no valid commitment.
-    pub fn add_secret(&mut self, secret: LatticeSecret) -> Result<CommitmentId> {
+    /// [`WatcherError::Refused`] if the secret produces no valid lock.
+    pub fn add_secret(&mut self, secret: SwapSecret) -> Result<CommitmentId> {
         let id = secret
-            .commitment()
+            .lock()
             .map_err(|e| WatcherError::Refused(e.to_string()))?
             .id();
         self.secrets.insert(id, secret);
@@ -125,7 +126,7 @@ impl Worker {
         }
     }
 
-    /// Initiates a swap: locks on the Maya chain under the secret's commitment
+    /// Initiates a swap: locks on the Maya chain under the secret's lock
     /// and starts watching for the refund at once.
     ///
     /// # Errors
@@ -134,19 +135,19 @@ impl Worker {
     /// journal, signing or RPC failure.
     pub async fn initiate(
         &mut self,
-        secret: LatticeSecret,
+        secret: SwapSecret,
         recipient: Address,
         amount: u64,
         expiry_height: u64,
     ) -> Result<LockId> {
-        let commitment = secret
-            .commitment()
+        let lock = secret
+            .lock()
             .map_err(|e| WatcherError::Refused(e.to_string()))?;
         let lock = HtlcLock {
             recipient,
             amount,
             expiry_height,
-            commitment,
+            lock,
         };
         let lock_id = self
             .fund(ChainSide::Maya, lock, Role::Initiator, None)
@@ -208,7 +209,7 @@ impl Worker {
     ///
     /// As [`Worker::accept_response`], plus [`WatcherError::DuplicateSwap`].
     pub async fn respond(&mut self, request: RespondRequest) -> Result<LockId> {
-        let commitment_id = request.commitment.id();
+        let commitment_id = request.lock.id();
         if self.journal.get(&commitment_id).is_some() {
             return Err(WatcherError::DuplicateSwap(hex::encode(commitment_id)));
         }
@@ -242,7 +243,7 @@ impl Worker {
             recipient: request.outbound_recipient,
             amount: request.outbound_amount,
             expiry_height: request.outbound_expiry,
-            commitment: request.commitment,
+            lock: request.lock,
         };
         self.fund(ChainSide::Counterparty, lock, Role::Responder, Some(leg))
             .await
@@ -261,7 +262,7 @@ impl Worker {
             .refresh(side, chain.as_ref(), &self.key)
             .await?;
         let lock_id = derive_lock_id(&self.key.address(), self.pending.next_nonce(side)?);
-        let commitment_id = lock.commitment.id();
+        let commitment_id = lock.lock.id();
         self.journal.insert(Swap {
             commitment_id,
             role,
@@ -344,11 +345,11 @@ impl Worker {
                     continue;
                 }
             };
-            let opening = self
+            let unlock = self
                 .secrets
                 .get(&swap.commitment_id)
-                .map(LatticeSecret::opening);
-            for action in decide(&swap, &observation, opening.as_ref(), &self.margins) {
+                .map(SwapSecret::unlock);
+            for action in decide(&swap, &observation, unlock.as_ref(), &self.margins) {
                 if let Err(error) = self.execute(&swap, &action).await {
                     report
                         .failures
@@ -393,13 +394,13 @@ impl Worker {
             Action::Claim {
                 side,
                 lock_id,
-                opening,
+                unlock,
             } => (
                 *side,
                 Purpose::Claim(id),
                 TxKind::HtlcClaim(Box::new(HtlcClaim {
                     lock_id: *lock_id,
-                    opening: opening.clone(),
+                    unlock: unlock.clone(),
                 })),
             ),
             Action::Refund { side, lock_id } => (

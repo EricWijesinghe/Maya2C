@@ -3,7 +3,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use maya_htlc_lattice::{LatticeSecret, Opening};
+use maya_htlc_lattice::{LatticeSecret, Unlock};
 use maya_htlc_watcher::{
     Action, Alert, BlockRate, ChainPoint, ChainSide, Journal, Leg, LockState, LockView, Margins,
     Observation, Outcome, PairingError, Phase, Role, Swap, WatcherError, check_pairing, decide,
@@ -21,8 +21,8 @@ fn margins() -> Margins {
     }
 }
 
-fn opening() -> Opening {
-    LatticeSecret::from_entropy([3; 32]).opening()
+fn opening() -> Unlock {
+    Unlock::Opening(LatticeSecret::from_entropy([3; 32]).opening())
 }
 
 fn view(expiry_height: u64, state: LockState) -> LockView {
@@ -39,7 +39,7 @@ fn view(expiry_height: u64, state: LockState) -> LockView {
 fn claimed(height: u64) -> LockState {
     LockState::Claimed {
         height,
-        opening: opening(),
+        unlock: opening(),
     }
 }
 
@@ -172,7 +172,7 @@ fn the_responder_claims_the_moment_the_opening_appears() {
         vec![Action::Claim {
             side: ChainSide::Maya,
             lock_id: MAYA_LOCK,
-            opening: opening(),
+            unlock: opening(),
         }]
     );
 }
@@ -242,7 +242,7 @@ fn the_initiator_reveals_while_there_is_room_to_bury_the_claim() {
         vec![Action::Claim {
             side: ChainSide::Counterparty,
             lock_id: COUNTERPARTY_LOCK,
-            opening: secret.clone(),
+            unlock: secret.clone(),
         }]
     );
 }

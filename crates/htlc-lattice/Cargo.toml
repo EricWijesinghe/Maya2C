@@ -22,8 +22,18 @@ path = "src/lib.rs"
 # crate links no randomness source it could be tempted to use.
 [dependencies]
 sha3.workspace = true
+# Hash locks (`src/lock.rs`). `sha2` is pure Rust like `sha3`; SHA-256 is the
+# hash lock other chains can check.
+sha2.workspace = true
 zeroize = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
+
+# BLAKE3 hash locks. Everywhere but a Kani build: `blake3` compiles assembly
+# Kani cannot, and a cargo *feature* would let two node builds disagree about
+# whether a BLAKE3 claim is valid (ADR-002). cargo-kani sets `--cfg kani`, so
+# this is skipped exactly there and nowhere else.
+[target.'cfg(not(kani))'.dependencies]
+blake3.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true

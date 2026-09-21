@@ -1,4 +1,6 @@
-//! Executing the lattice HTLC transitions: lock, claim, refund.
+//! Executing the HTLC transitions — lock, claim, refund — for hash locks
+//! (REAL, active from genesis) and lattice locks (RESEARCH, dark). Each
+//! transition is gated by the family of the lock it touches (ADR-012).
 //!
 //! ## A claim or refund that loses is a no-op, never an error
 //!
@@ -31,7 +33,7 @@
 //! gets a front-runner nothing but the chance to pay the right party early.
 
 use maya_htlc_lattice::{
-    ClaimOutcome, LockRecord, RefundOutcome, Settlement, decide_claim, decide_refund,
+    ClaimOutcome, Lock, LockRecord, RefundOutcome, Settlement, decide_claim, decide_refund,
 };
 use maya_ledger_math as ledger_math;
 
@@ -43,7 +45,7 @@ use crate::state::db::{Overlay, StateDB};
 use crate::state::htlc::{derive_lock_id, lock_key};
 
 impl StateDB {
-    /// Escrows the sender's coin under a commitment.
+    /// Escrows the sender's coin under a hash lock or a commitment.
     ///
     /// # Errors
     ///
@@ -58,7 +60,7 @@ impl StateDB {
         payload: &HtlcLock,
         context: BlockContext,
     ) -> Result<LockId> {
-        require_active(context)?;
+        require_active(context, &payload.lock)?;
         if payload.amount == 0 {
             return Err(NodeError::Htlc("a lock must escrow something".to_owned()));
         }
@@ -95,14 +97,14 @@ impl StateDB {
             amount: payload.amount,
             created_height: context.height,
             expiry_height: payload.expiry_height,
-            commitment: payload.commitment.clone(),
+            lock: payload.lock.clone(),
             settlement: Settlement::Open,
         };
         StateDB::put_record(overlay, lock_key(&id), record.encode());
         Ok(id)
     }
 
-    /// Pays a lock's recipient if the opening opens it inside the window.
+    /// Pays a lock's recipient if the unlock opens it inside the window.
     ///
     /// Returns why it did not rather than raising — see the module docs.
     ///
@@ -116,15 +118,15 @@ impl StateDB {
         payload: &HtlcClaim,
         context: BlockContext,
     ) -> Result<ClaimOutcome> {
-        require_active(context)?;
         let Some(mut record) = self.htlc_record(overlay, &payload.lock_id)? else {
             return Ok(ClaimOutcome::UnknownLock);
         };
+        require_active(context, &record.lock)?;
         let outcome = decide_claim(
             record.status(),
             record.expiry_height,
             context.height,
-            || record.commitment.verify(&payload.opening).is_ok(),
+            || record.lock.verify(&payload.unlock).is_ok(),
         );
         if !outcome.settled() {
             return Ok(outcome);
@@ -133,7 +135,7 @@ impl StateDB {
         self.credit_escrow(overlay, &record.recipient, record.amount)?;
         record.settlement = Settlement::Claimed {
             height: context.height,
-            opening: payload.opening.clone(),
+            unlock: payload.unlock.clone(),
         };
         StateDB::put_record(overlay, lock_key(&payload.lock_id), record.encode());
         Ok(outcome)
@@ -150,10 +152,10 @@ impl StateDB {
         payload: &HtlcRefund,
         context: BlockContext,
     ) -> Result<RefundOutcome> {
-        require_active(context)?;
         let Some(mut record) = self.htlc_record(overlay, &payload.lock_id)? else {
             return Ok(RefundOutcome::UnknownLock);
         };
+        require_active(context, &record.lock)?;
         let outcome = decide_refund(record.status(), record.expiry_height, context.height);
         if !outcome.settled() {
             return Ok(outcome);
@@ -181,13 +183,18 @@ impl StateDB {
     }
 }
 
-/// Refuses every HTLC transaction before the activation height.
-fn require_active(context: BlockContext) -> Result<()> {
-    if context.htlc_active() {
+/// Refuses a transaction on `lock` before its family's activation height.
+fn require_active(context: BlockContext, lock: &Lock) -> Result<()> {
+    if context.lock_active(lock) {
         Ok(())
     } else {
         Err(NodeError::Htlc(format!(
-            "lattice HTLCs are not active at height {}",
+            "{} HTLCs are not active at height {}",
+            if lock.is_lattice() {
+                "lattice"
+            } else {
+                "hash-lock"
+            },
             context.height
         )))
     }

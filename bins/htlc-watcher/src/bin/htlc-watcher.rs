@@ -6,7 +6,9 @@
 //! `MAYA_HTLC_WATCHER_PASSWORD`, as the pool's treasury does. An initiator's
 //! swap secrets are hex files passed with `--secret`: they are exactly as
 //! sensitive as the keystore and are **not** encrypted, so keep them on the
-//! same footing as the password.
+//! same footing as the password. A file holds `<family>:<64 hex>`, the family
+//! one of `sha3-256`, `blake3`, `sha256` (hash-lock preimages) or `lattice`
+//! (a lattice seed); bare hex is read as `lattice`, the only kind there was.
 
 use std::error::Error;
 use std::path::PathBuf;
@@ -16,7 +18,9 @@ use std::time::Duration;
 use tokio::sync::watch;
 use zeroize::Zeroizing;
 
-use maya_htlc_lattice::{LatticeSecret, SEED_BYTES};
+use maya_htlc_lattice::{
+    HashFunction, LatticeSecret, PREIMAGE_BYTES, Preimage, SEED_BYTES, SwapSecret,
+};
 use maya_htlc_watcher::rpc::RpcChain;
 use maya_htlc_watcher::{Journal, Margins, Result as WatcherResult, StepReport, Worker};
 
@@ -86,20 +90,46 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
 }
 
 /// Reads a hex secret straight into its zeroizing wrapper.
-fn load_secret(path: &PathBuf) -> Result<LatticeSecret, Box<dyn Error>> {
+fn load_secret(path: &PathBuf) -> Result<SwapSecret, Box<dyn Error>> {
     let text = Zeroizing::new(std::fs::read_to_string(path)?);
-    let hex_text = text.trim();
-    if hex_text.len() != 2 * SEED_BYTES {
+    let (family, hex_text) = text
+        .trim()
+        .split_once(':')
+        .unwrap_or(("lattice", text.trim()));
+    // Each family's own length: a lattice seed and a preimage are both 32
+    // bytes today, and nothing should rely on that staying true.
+    let expected = if family == "lattice" {
+        SEED_BYTES
+    } else {
+        PREIMAGE_BYTES
+    };
+    if hex_text.len() != 2 * expected {
         return Err(format!(
-            "{}: a secret is {} hex characters",
+            "{}: a {family} secret is {} hex characters",
             path.display(),
-            2 * SEED_BYTES
+            2 * expected
         )
         .into());
     }
-    Ok(LatticeSecret::generate(|buf| {
-        hex::decode_to_slice(hex_text, buf)
-    })?)
+    let function = match family {
+        "lattice" => {
+            return Ok(SwapSecret::Lattice(LatticeSecret::generate(|buf| {
+                hex::decode_to_slice(hex_text, buf)
+            })?));
+        }
+        "sha3-256" => HashFunction::Sha3_256,
+        "blake3" => HashFunction::Blake3,
+        "sha256" => HashFunction::Sha256,
+        other => {
+            return Err(format!("{}: unknown secret family {other:?}", path.display()).into());
+        }
+    };
+    let mut bytes = Zeroizing::new([0u8; PREIMAGE_BYTES]);
+    hex::decode_to_slice(hex_text, bytes.as_mut_slice())?;
+    Ok(SwapSecret::Hash {
+        function,
+        preimage: Preimage::new(*bytes),
+    })
 }
 
 fn print_tick(tick: WatcherResult<StepReport>) {

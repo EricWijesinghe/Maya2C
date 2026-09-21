@@ -31,7 +31,10 @@ use custom_l1_node::state::htlc::derive_lock_id;
 use custom_l1_node::state::{Account, Address, BlockContext, Module, StateDB};
 
 use maya_htlc_lattice::params::{K, L, N};
-use maya_htlc_lattice::{LatticeSecret, LockRecord, Opening, Settlement};
+use maya_htlc_lattice::{
+    HashFunction, LatticeSecret, Lock, LockRecord, Opening, Preimage, Settlement, SwapSecret,
+    Unlock,
+};
 use maya_htlc_watcher::{
     BlockRate, InitiatedSwap, Journal, LockView, Margins, Outcome, Phase, RespondRequest,
     SwapChain, WatcherError, Worker,
@@ -94,18 +97,40 @@ struct LocalChain {
     db: StateDB,
     height: Mutex<u64>,
     pool: Mutex<Vec<Transaction>>,
+    /// Mine with the context the node builds (lattice locks dark) rather
+    /// than with HTLC-L switched on.
+    production: bool,
     _dir: TempDir,
 }
 
 impl LocalChain {
     fn new(funded: &[(Address, u64)]) -> Arc<Self> {
+        Self::with_context(funded, false)
+    }
+
+    /// A chain mining with exactly the node's context: hash locks live,
+    /// lattice locks dark.
+    fn production(funded: &[(Address, u64)]) -> Arc<Self> {
+        Self::with_context(funded, true)
+    }
+
+    fn with_context(funded: &[(Address, u64)], production: bool) -> Arc<Self> {
         let (db, dir) = open_db(funded);
         Arc::new(Self {
             db,
             height: Mutex::new(0),
             pool: Mutex::new(Vec::new()),
+            production,
             _dir: dir,
         })
+    }
+
+    fn context(&self, height: u64) -> BlockContext {
+        if self.production {
+            BlockContext::at_height(height)
+        } else {
+            active(height)
+        }
     }
 
     fn height(&self) -> u64 {
@@ -131,7 +156,9 @@ impl LocalChain {
         let mut transactions = std::mem::take(&mut *self.pool.lock().expect("pool"));
         transactions.sort_by_key(|tx| (tx.sender(), tx.nonce));
         for tx in transactions {
-            let _refused = self.db.apply_block(&block_of(vec![tx]), active(height));
+            let _refused = self
+                .db
+                .apply_block(&block_of(vec![tx]), self.context(height));
         }
     }
 
@@ -248,12 +275,15 @@ fn lock_kind(
         recipient,
         amount,
         expiry_height,
-        commitment: secret.commitment().expect("commit"),
+        lock: Lock::Lattice(secret.commitment().expect("commit")),
     }))
 }
 
-fn claim_kind(lock_id: LockId, opening: Opening) -> TxKind {
-    TxKind::HtlcClaim(Box::new(HtlcClaim { lock_id, opening }))
+fn claim_kind(lock_id: LockId, unlock: impl Into<Unlock>) -> TxKind {
+    TxKind::HtlcClaim(Box::new(HtlcClaim {
+        lock_id,
+        unlock: unlock.into(),
+    }))
 }
 
 fn refund_kind(lock_id: LockId) -> TxKind {
@@ -278,7 +308,7 @@ async fn a_swap_between_two_chains_settles_both_legs() {
     let secret = LatticeSecret::from_entropy([1; 32]);
     let commitment = secret.commitment().expect("commit");
     let alice_lock = alice_watcher
-        .initiate(secret, bob, 4_000, 80)
+        .initiate(SwapSecret::Lattice(secret), bob, 4_000, 80)
         .await
         .expect("initiate");
     chain_a.mine();
@@ -286,7 +316,7 @@ async fn a_swap_between_two_chains_settles_both_legs() {
     let bob_lock = bob_watcher
         .respond(RespondRequest {
             inbound_lock_id: alice_lock,
-            commitment: commitment.clone(),
+            lock: Lock::Lattice(commitment.clone()),
             min_inbound_amount: 4_000,
             outbound_recipient: alice,
             outbound_amount: 3_000,
@@ -330,8 +360,8 @@ async fn a_swap_between_two_chains_settles_both_legs() {
     // Both chains hold the same opening, published by Alice's claim on B and
     // reused by Bob's watcher on A.
     assert_eq!(
-        chain_a.lock(&alice_lock).revealed_opening(),
-        chain_b.lock(&bob_lock).revealed_opening()
+        chain_a.lock(&alice_lock).revealed_unlock(),
+        chain_b.lock(&bob_lock).revealed_unlock()
     );
 }
 
@@ -353,7 +383,7 @@ async fn the_watcher_claims_from_the_revelation_alone() {
     let bob_lock = bob_watcher
         .respond(RespondRequest {
             inbound_lock_id: alice_lock,
-            commitment: secret.commitment().expect("commit"),
+            lock: Lock::Lattice(secret.commitment().expect("commit")),
             min_inbound_amount: 4_000,
             outbound_recipient: alice,
             outbound_amount: 3_000,
@@ -392,7 +422,7 @@ async fn a_watcher_refuses_a_lock_that_does_not_pay_it_or_pairs_too_tightly() {
     chain_a.send(lock_kind(bob, 4_000, 40, &secret), &alice_key);
     let request = |inbound_lock_id| RespondRequest {
         inbound_lock_id,
-        commitment: secret.commitment().expect("commit"),
+        lock: Lock::Lattice(secret.commitment().expect("commit")),
         min_inbound_amount: 4_000,
         outbound_recipient: alice,
         outbound_amount: 3_000,
@@ -433,7 +463,7 @@ async fn an_unrevealed_swap_refunds_both_sides() {
     bob_watcher
         .respond(RespondRequest {
             inbound_lock_id: alice_lock,
-            commitment: secret.commitment().expect("commit"),
+            lock: Lock::Lattice(secret.commitment().expect("commit")),
             min_inbound_amount: 4_000,
             outbound_recipient: alice,
             outbound_amount: 3_000,
@@ -520,7 +550,7 @@ fn a_late_reveal_costs_the_initiator_both_legs() {
         panic!("not a claim");
     };
     chain_b.send(refund_kind(bob_lock), &bob_key);
-    chain_a.send(claim_kind(alice_lock, published.opening.clone()), &bob_key);
+    chain_a.send(claim_kind(alice_lock, published.unlock.clone()), &bob_key);
 
     assert_eq!(chain_b.balance(&bob), 10_000);
     assert_eq!(chain_a.balance(&bob), 4_000);
@@ -642,7 +672,8 @@ fn out_of_bound_noise_has_no_wire_encoding() {
     // that decodes, so it never reaches the verifier.
     let fixture = locked();
     let mut bytes = payload(&claim_kind(fixture.lock_id, fixture.secret.opening()));
-    bytes[1 + 32] = (bytes[1 + 32] & 0xf0) | 0x09;
+    // One more byte: the unlock's family tag.
+    bytes[1 + 32 + 1] = (bytes[1 + 32 + 1] & 0xf0) | 0x09;
     let error = TxKind::decode(&mut ByteReader::new(&bytes)).expect_err("refused");
     assert!(
         error.to_string().contains("not canonically encoded"),
@@ -655,15 +686,17 @@ fn a_trivially_openable_commitment_cannot_be_locked() {
     // t = 0: s = 0, e = 0 would open it, so anyone could claim.
     let secret = LatticeSecret::from_entropy([10; 32]);
     let mut bytes = payload(&lock_kind([2; 32], 1, 10, &secret));
-    let t = 1 + 32 + 8 + 8 + 32;
+    let t = 1 + 32 + 8 + 8 + 1 + 32; // payload tag, fields, lock tag, seed
     bytes[t..].fill(0);
     let error = TxKind::decode(&mut ByteReader::new(&bytes)).expect_err("refused");
     assert!(error.to_string().contains("trivially openable"), "{error}");
 }
 
 #[test]
-fn a_sha256_preimage_is_not_a_claim() {
-    // What a classical HTLC's claim carries: a lock id and 32 bytes.
+fn an_untagged_preimage_is_not_a_claim() {
+    // A lock id and 32 bytes with no unlock tag: neither a preimage claim nor
+    // an opening. (A *tagged* preimage is a claim — on a hash lock; see the
+    // hash-lock group below.)
     let mut bytes = payload(&refund_kind([1; 32]));
     bytes[0] = payload(&claim_kind(
         [1; 32],
@@ -753,4 +786,234 @@ fn every_htlc_kind_round_trips_through_a_transaction() {
         assert_eq!(decoded.kind, tx.kind);
         decoded.verify().expect("signature survives");
     }
+}
+
+// ---------------------------------------------------------------------------
+// 5. hash locks — REAL, live from genesis in the node's own context
+// ---------------------------------------------------------------------------
+
+fn hash_lock_kind(
+    recipient: Address,
+    amount: u64,
+    expiry_height: u64,
+    function: HashFunction,
+    preimage: &Preimage,
+) -> TxKind {
+    TxKind::HtlcLock(Box::new(HtlcLock {
+        recipient,
+        amount,
+        expiry_height,
+        lock: Lock::hash(function, preimage),
+    }))
+}
+
+#[tokio::test]
+async fn a_sha256_hash_lock_swap_settles_both_legs_with_no_activation_override() {
+    let (alice_key, alice) = keypair();
+    let (bob_key, bob) = keypair();
+    // Production contexts: nothing here switches a gate on.
+    let chain_a = LocalChain::production(&[(alice, 10_000)]);
+    let chain_b = LocalChain::production(&[(bob, 10_000)]);
+    let journals = TempDir::new().expect("journals");
+    let mut alice_watcher = worker(&chain_a, &chain_b, alice_key, &journals, "alice");
+    let mut bob_watcher = worker(&chain_a, &chain_b, bob_key, &journals, "bob");
+
+    let preimage = Preimage::new([0x42; 32]);
+    // Bob learns only the digest — what a Bitcoin script would lock under.
+    let lock = Lock::hash(HashFunction::Sha256, &preimage);
+    let alice_lock = alice_watcher
+        .initiate(
+            SwapSecret::Hash {
+                function: HashFunction::Sha256,
+                preimage: preimage.clone(),
+            },
+            bob,
+            4_000,
+            80,
+        )
+        .await
+        .expect("initiate");
+    chain_a.mine();
+
+    let bob_lock = bob_watcher
+        .respond(RespondRequest {
+            inbound_lock_id: alice_lock,
+            lock: lock.clone(),
+            min_inbound_amount: 4_000,
+            outbound_recipient: alice,
+            outbound_amount: 3_000,
+            outbound_expiry: 40,
+            rate: BlockRate::EQUAL,
+        })
+        .await
+        .expect("respond");
+    chain_b.mine();
+    alice_watcher
+        .accept_response(InitiatedSwap {
+            commitment_id: lock.id(),
+            inbound_lock_id: bob_lock,
+            min_inbound_amount: 3_000,
+            rate: BlockRate::EQUAL,
+        })
+        .await
+        .expect("accept");
+
+    settle(
+        &mut [&mut alice_watcher, &mut bob_watcher],
+        &[&chain_a, &chain_b],
+        20,
+    )
+    .await;
+
+    assert_eq!(
+        outcome_of(&alice_watcher),
+        Phase::Finished(Outcome::Swapped)
+    );
+    assert_eq!(outcome_of(&bob_watcher), Phase::Finished(Outcome::Swapped));
+    assert_eq!(
+        (chain_a.balance(&alice), chain_a.balance(&bob)),
+        (6_000, 4_000)
+    );
+    assert_eq!(
+        (chain_b.balance(&bob), chain_b.balance(&alice)),
+        (7_000, 3_000)
+    );
+    // The preimage Alice published on B is the one Bob's watcher reused on A.
+    let revealed = Unlock::Preimage(preimage);
+    assert_eq!(chain_b.lock(&bob_lock).revealed_unlock(), Some(&revealed));
+    assert_eq!(chain_a.lock(&alice_lock).revealed_unlock(), Some(&revealed));
+}
+
+#[test]
+fn every_hash_function_locks_and_claims_in_production() {
+    for function in [
+        HashFunction::Sha3_256,
+        HashFunction::Blake3,
+        HashFunction::Sha256,
+    ] {
+        let (alice_key, alice) = keypair();
+        let (bob_key, bob) = keypair();
+        let chain = LocalChain::production(&[(alice, 10_000), (bob, 0)]);
+        let preimage = Preimage::new([7; 32]);
+        chain.send(
+            hash_lock_kind(bob, 2_500, 50, function, &preimage),
+            &alice_key,
+        );
+        let lock_id = derive_lock_id(&alice, 0);
+        assert_eq!(chain.balance(&alice), 7_500, "{function:?}: escrowed");
+
+        chain.send(claim_kind(lock_id, preimage), &bob_key);
+        assert_eq!(chain.balance(&bob), 2_500, "{function:?}: claimed");
+        assert!(matches!(
+            chain.lock(&lock_id).settlement,
+            Settlement::Claimed { .. }
+        ));
+    }
+}
+
+#[test]
+fn a_hash_lock_refunds_at_expiry_and_a_late_preimage_is_a_no_op() {
+    let (alice_key, alice) = keypair();
+    let (bob_key, bob) = keypair();
+    let chain = LocalChain::production(&[(alice, 10_000), (bob, 0)]);
+    let preimage = Preimage::new([9; 32]);
+    chain.send(
+        hash_lock_kind(bob, 4_000, 10, HashFunction::Sha3_256, &preimage),
+        &alice_key,
+    );
+    let lock_id = derive_lock_id(&alice, 0);
+
+    // Before the expiry a refund does nothing.
+    chain.send(refund_kind(lock_id), &alice_key);
+    assert_eq!(chain.balance(&alice), 6_000);
+
+    chain.mine_to(10);
+    chain.send(refund_kind(lock_id), &alice_key);
+    assert_eq!(chain.balance(&alice), 10_000, "refunded at T");
+
+    // The right preimage, too late: a valid transaction that moves nothing.
+    chain.send(claim_kind(lock_id, preimage), &bob_key);
+    assert_eq!(chain.balance(&bob), 0);
+    assert!(matches!(
+        chain.lock(&lock_id).settlement,
+        Settlement::Refunded { .. }
+    ));
+}
+
+#[test]
+fn a_forged_preimage_is_rejected_and_the_lock_stays_open() {
+    let (alice_key, alice) = keypair();
+    let (mallory_key, mallory) = keypair();
+    let chain = LocalChain::production(&[(alice, 10_000), (mallory, 0)]);
+    let preimage = Preimage::new([1; 32]);
+    chain.send(
+        hash_lock_kind(mallory, 4_000, 100, HashFunction::Blake3, &preimage),
+        &alice_key,
+    );
+    let lock_id = derive_lock_id(&alice, 0);
+
+    let mut near = [1u8; 32];
+    near[31] ^= 1;
+    for forged in [
+        Unlock::Preimage(Preimage::new([0; 32])),
+        Unlock::Preimage(Preimage::new(near)),
+        // An opening is the other family's unlock and opens no hash lock.
+        Unlock::Opening(LatticeSecret::from_entropy([1; 32]).opening()),
+    ] {
+        chain.send(claim_kind(lock_id, forged), &mallory_key);
+        assert_eq!(chain.balance(&mallory), 0);
+        assert_eq!(chain.lock(&lock_id).settlement, Settlement::Open);
+    }
+    // The same preimage under another function is another lock.
+    assert_ne!(
+        Lock::hash(HashFunction::Sha256, &preimage),
+        Lock::hash(HashFunction::Blake3, &preimage)
+    );
+}
+
+#[test]
+fn lattice_locks_stay_dark_while_hash_locks_are_live() {
+    let (alice_key, alice) = keypair();
+    let (db, _dir) = open_db(&[(alice, 10_000)]);
+    let context = BlockContext::at_height(5);
+    let lattice = block_of(vec![signed(
+        lock_kind([2; 32], 1_000, 100, &LatticeSecret::from_entropy([13; 32])),
+        0,
+        &alice_key,
+    )]);
+    assert!(db.apply_block(&lattice, context).is_err(), "RESEARCH: dark");
+    let hash = block_of(vec![signed(
+        hash_lock_kind(
+            [2; 32],
+            1_000,
+            100,
+            HashFunction::Sha256,
+            &Preimage::new([3; 32]),
+        ),
+        0,
+        &alice_key,
+    )]);
+    db.apply_block(&hash, context).expect("REAL: live");
+    assert_eq!(db.get_account(&alice).expect("account").balance, 9_000);
+}
+
+#[test]
+fn a_claim_or_refund_on_an_unknown_lock_is_a_valid_no_op_in_production() {
+    // The gate is the lock's family, read from its record. With no record
+    // there is no family and nothing to gate: the transaction is invariant
+    // 7's losing race, a no-op that leaves its block valid. Before hash
+    // locks the lattice gate ran first and voided the block instead.
+    let (key, address) = keypair();
+    let (db, _dir) = open_db(&[(address, 1_000)]);
+    let context = BlockContext::at_height(3);
+    let claim = claim_kind([0xaa; 32], Preimage::new([1; 32]));
+    db.apply_block(&block_of(vec![signed(claim, 0, &key)]), context)
+        .expect("unknown-lock claim is a no-op");
+    db.apply_block(
+        &block_of(vec![signed(refund_kind([0xbb; 32]), 1, &key)]),
+        context,
+    )
+    .expect("unknown-lock refund is a no-op");
+    let account = db.get_account(&address).expect("account");
+    assert_eq!((account.balance, account.nonce), (1_000, 2));
 }

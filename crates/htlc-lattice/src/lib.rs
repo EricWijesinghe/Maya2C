@@ -1,6 +1,14 @@
-//! Lattice hash-time-locked contracts (HTLC-L).
+//! Hash-time-locked contracts: hash locks (REAL) and lattice locks (HTLC-L,
+//! RESEARCH).
 //!
-//! A lock escrows value under a commitment `t = A·s + e` and an expiry height.
+//! [`Lock`] is either a 256-bit digest of a 32-byte preimage — SHA3-256,
+//! BLAKE3, or SHA-256, the one Bitcoin and Ethereum can check — or a
+//! Module-LWE commitment. Hash locks are already post-quantum (Grover needs
+//! about 2^128 sequential evaluations) and are live on the node from genesis;
+//! everything below about the lattice lock is the RESEARCH family, dark until
+//! its activation height. ADR-012.
+//!
+//! A lattice lock escrows value under a commitment `t = A·s + e` and an expiry height.
 //! Before the expiry, whoever publishes a short `(s, e)` that opens `t` pays the
 //! lock's named recipient; from the expiry on, a refund repays the sender.
 //! Two locks on two chains under **one** commitment are an atomic swap: the
@@ -30,6 +38,7 @@
 
 pub mod commitment;
 pub mod error;
+pub mod lock;
 pub mod matrix;
 pub mod opening;
 pub mod params;
@@ -42,6 +51,7 @@ mod proofs;
 
 pub use commitment::{Commitment, CommitmentId, centered};
 pub use error::{Error, Result};
+pub use lock::{HashFunction, Lock, PREIMAGE_BYTES, Preimage, SwapSecret, Unlock};
 pub use matrix::Matrix;
 pub use opening::Opening;
 pub use params::{COMMITMENT_BYTES, DIGEST_BYTES, ETA, OPENING_BYTES, SEED_BYTES};

@@ -1,4 +1,4 @@
-//! The wire forms of the lattice HTLC transitions.
+//! The wire forms of the HTLC transitions — hash locks and lattice locks.
 //!
 //! Three actions, and the split between them is who bears a failure. A lock is
 //! the sender's own transaction, so a bad one — no balance, an expiry already
@@ -6,11 +6,12 @@
 //! the expiry boundary as a matter of course, and the loser of that race must
 //! not void the block the winner is in. See `crate::state::htlc_exec`.
 //!
-//! Sizes: a lock carries a 4,448-byte commitment and a claim a 1,408-byte
-//! opening. Both are smaller than the 11,165-byte hybrid signature on the same
-//! transaction, so HTLC-L does not change what bounds a block.
+//! Sizes: a hash lock carries a 33-byte tagged digest and its claim a 33-byte
+//! tagged preimage; a lattice lock a 4,449-byte commitment and its claim a
+//! 1,409-byte opening. All are smaller than the 11,165-byte hybrid signature
+//! on the same transaction, so neither changes what bounds a block.
 
-use maya_htlc_lattice::{COMMITMENT_BYTES, Commitment, OPENING_BYTES, Opening};
+use maya_htlc_lattice::{Lock, Unlock};
 
 use crate::core::codec::ByteReader;
 use crate::error::{NodeError, Result};
@@ -28,17 +29,18 @@ pub struct HtlcLock {
     pub amount: u64,
     /// First height at which a claim is refused and a refund admitted.
     pub expiry_height: u64,
-    /// What an opening must open. The same bytes on both chains of a swap.
-    pub commitment: Commitment,
+    /// What a claim must unlock. The same digest (or commitment) on both
+    /// chains of a swap.
+    pub lock: Lock,
 }
 
-/// Claim a lock by publishing its opening.
+/// Claim a lock by publishing what unlocks it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HtlcClaim {
     /// Which lock.
     pub lock_id: LockId,
-    /// The short `(s, e)`.
-    pub opening: Opening,
+    /// The preimage, or the short `(s, e)`.
+    pub unlock: Unlock,
 }
 
 /// Return an expired lock's escrow to its sender.
@@ -54,22 +56,26 @@ impl HtlcLock {
         buf.extend_from_slice(&self.recipient);
         buf.extend_from_slice(&self.amount.to_le_bytes());
         buf.extend_from_slice(&self.expiry_height.to_le_bytes());
-        buf.extend_from_slice(&self.commitment.encode());
+        self.lock.encode_into(buf);
     }
 
     /// Reads the wire form.
     ///
     /// # Errors
     ///
-    /// Returns [`NodeError::Decode`] for a truncated payload or a commitment
-    /// that is non-canonical or trivially openable.
+    /// Returns [`NodeError::Decode`] for a truncated payload, an unknown lock
+    /// tag, or a commitment that is non-canonical or trivially openable.
     pub fn decode(reader: &mut ByteReader<'_>) -> Result<Self> {
+        let recipient = reader.read_array::<32>()?;
+        let amount = reader.read_u64()?;
+        let expiry_height = reader.read_u64()?;
+        let (lock, used) = Lock::decode(reader.peek_remaining()).map_err(lattice)?;
+        reader.read_slice(used)?;
         Ok(Self {
-            recipient: reader.read_array::<32>()?,
-            amount: reader.read_u64()?,
-            expiry_height: reader.read_u64()?,
-            commitment: Commitment::decode(reader.read_slice(COMMITMENT_BYTES)?)
-                .map_err(lattice)?,
+            recipient,
+            amount,
+            expiry_height,
+            lock,
         })
     }
 }
@@ -78,7 +84,7 @@ impl HtlcClaim {
     /// Appends the wire form.
     pub fn encode_into(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&self.lock_id);
-        buf.extend_from_slice(&self.opening.encode());
+        self.unlock.encode_into(buf);
     }
 
     /// Reads the wire form.
@@ -89,10 +95,10 @@ impl HtlcClaim {
     /// non-canonical opening. An opening outside the noise bound has no
     /// encoding at all, so it fails here, before any state is read.
     pub fn decode(reader: &mut ByteReader<'_>) -> Result<Self> {
-        Ok(Self {
-            lock_id: reader.read_array::<32>()?,
-            opening: Opening::decode(reader.read_slice(OPENING_BYTES)?).map_err(lattice)?,
-        })
+        let lock_id = reader.read_array::<32>()?;
+        let (unlock, used) = Unlock::decode(reader.peek_remaining()).map_err(lattice)?;
+        reader.read_slice(used)?;
+        Ok(Self { lock_id, unlock })
     }
 }
 
@@ -114,7 +120,7 @@ impl HtlcRefund {
     }
 }
 
-/// Turns a lattice decode failure into a node error.
+/// Turns an HTLC decode failure into a node error.
 fn lattice(error: maya_htlc_lattice::Error) -> NodeError {
     NodeError::Decode(format!("htlc: {error}"))
 }

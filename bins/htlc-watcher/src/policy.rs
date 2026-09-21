@@ -6,7 +6,7 @@
 
 use thiserror::Error;
 
-use maya_htlc_lattice::{Opening, claim_window_open};
+use maya_htlc_lattice::{Unlock, claim_window_open};
 
 use crate::chain::{LockState, LockView};
 use crate::swap::{ChainSide, Leg, LockId, Outcome, Role, Swap};
@@ -181,8 +181,8 @@ pub enum Action {
         side: ChainSide,
         /// Which lock.
         lock_id: LockId,
-        /// The opening to publish.
-        opening: Opening,
+        /// The preimage or opening to publish.
+        unlock: Unlock,
     },
     /// Submit a refund.
     Refund {
@@ -199,12 +199,12 @@ pub enum Action {
 
 /// Decides one swap.
 ///
-/// `secret` is the initiator's opening, if the operator supplied the secret.
+/// `secret` is the initiator's unlock, if the operator supplied the secret.
 #[must_use]
 pub fn decide(
     swap: &Swap,
     observation: &Observation,
-    secret: Option<&Opening>,
+    secret: Option<&Unlock>,
     margins: &Margins,
 ) -> Vec<Action> {
     let Some(outbound) = &observation.outbound else {
@@ -273,7 +273,7 @@ fn claim(
     tip: u64,
     inbound: &LockView,
     outbound: &LockView,
-    secret: Option<&Opening>,
+    secret: Option<&Unlock>,
     margins: &Margins,
 ) -> Option<Action> {
     if inbound.state != LockState::Locked {
@@ -281,18 +281,18 @@ fn claim(
     }
     // A broadcast now lands in the next block at the earliest.
     let next = tip.saturating_add(1);
-    let claim = |opening: &Opening| Action::Claim {
+    let claim = |unlock: &Unlock| Action::Claim {
         side: leg.side,
         lock_id: leg.lock_id,
-        opening: opening.clone(),
+        unlock: unlock.clone(),
     };
     match swap.role {
         Role::Responder => {
-            let LockState::Claimed { opening, .. } = &outbound.state else {
+            let LockState::Claimed { unlock, .. } = &outbound.state else {
                 return None;
             };
             Some(if claim_window_open(inbound.expiry_height, next) {
-                claim(opening)
+                claim(unlock)
             } else {
                 Action::Alert(Alert::ClaimWindowClosed)
             })

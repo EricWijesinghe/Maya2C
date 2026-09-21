@@ -255,9 +255,9 @@ pub struct SubmitTransactionResult {
     pub accepted: bool,
 }
 
-/// A lattice HTLC lock, as `htlc_get_lock` reports it.
+/// An HTLC lock, as `htlc_get_lock` reports it.
 ///
-/// Carries the opening once claimed: that is the field a counterparty's
+/// Carries the unlock once claimed: that is the field a counterparty's
 /// watcher is polling for.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HtlcLockInfo {
@@ -273,28 +273,35 @@ pub struct HtlcLockInfo {
     pub created_height: u64,
     /// First height at which a claim is refused.
     pub expiry_height: u64,
-    /// Hex-encoded commitment id — what the two legs of a swap compare.
+    /// Hex-encoded lock id — what the two legs of a swap compare
+    /// (`maya_htlc_lattice::Lock::id`).
     pub commitment_id: String,
+    /// `sha3-256`, `blake3`, `sha256` or `lattice`.
+    pub lock_kind: String,
+    /// Hex-encoded digest, for a hash lock — what another chain's script
+    /// locks under to be the other leg.
+    pub hash_digest: Option<String>,
     /// `locked`, `claimed` or `refunded`.
     pub status: String,
     /// Height of the settling block, once settled.
     pub settled_height: Option<u64>,
-    /// Hex-encoded opening, once claimed.
-    pub opening: Option<String>,
+    /// Hex-encoded unlock (`maya_htlc_lattice::Unlock` encoding: a tag, then
+    /// the preimage or the opening), once claimed.
+    pub unlock: Option<String>,
 }
 
 impl HtlcLockInfo {
     /// Builds a response for one lock.
     #[must_use]
     pub fn new(lock_id: &[u8; 32], record: &maya_htlc_lattice::LockRecord) -> Self {
-        use maya_htlc_lattice::Settlement;
-        let (status, settled_height, opening) = match &record.settlement {
+        use maya_htlc_lattice::{HashFunction, Lock, Settlement};
+        let (status, settled_height, unlock) = match &record.settlement {
             Settlement::Open => ("locked", None, None),
-            Settlement::Claimed { height, opening } => (
-                "claimed",
-                Some(*height),
-                Some(hex::encode(opening.encode())),
-            ),
+            Settlement::Claimed { height, unlock } => {
+                let mut bytes = Vec::new();
+                unlock.encode_into(&mut bytes);
+                ("claimed", Some(*height), Some(hex::encode(bytes)))
+            }
             Settlement::Refunded { height } => ("refunded", Some(*height), None),
         };
         Self {
@@ -304,10 +311,23 @@ impl HtlcLockInfo {
             amount: record.amount,
             created_height: record.created_height,
             expiry_height: record.expiry_height,
-            commitment_id: hex::encode(record.commitment.id()),
+            commitment_id: hex::encode(record.lock.id()),
+            lock_kind: match &record.lock {
+                Lock::Hash { function, .. } => match function {
+                    HashFunction::Sha3_256 => "sha3-256",
+                    HashFunction::Blake3 => "blake3",
+                    HashFunction::Sha256 => "sha256",
+                },
+                Lock::Lattice(_) => "lattice",
+            }
+            .to_owned(),
+            hash_digest: match &record.lock {
+                Lock::Hash { digest, .. } => Some(hex::encode(digest)),
+                Lock::Lattice(_) => None,
+            },
             status: status.to_owned(),
             settled_height,
-            opening,
+            unlock,
         }
     }
 }

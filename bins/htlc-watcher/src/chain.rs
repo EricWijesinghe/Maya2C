@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 
 use custom_l1_node::rpc::HtlcLockInfo;
-use maya_htlc_lattice::{Address, CommitmentId, LockRecord, Opening, Settlement};
+use maya_htlc_lattice::{Address, CommitmentId, LockRecord, Settlement, Unlock};
 
 use crate::error::{Result, WatcherError};
 use crate::swap::LockId;
@@ -13,12 +13,12 @@ use crate::swap::LockId;
 pub enum LockState {
     /// Escrowed.
     Locked,
-    /// Claimed at `height`, publishing `opening`.
+    /// Claimed at `height`, publishing `unlock`.
     Claimed {
         /// Height of the claiming block.
         height: u64,
-        /// The published opening.
-        opening: Opening,
+        /// The published preimage or opening.
+        unlock: Unlock,
     },
     /// Refunded at `height`.
     Refunded {
@@ -38,7 +38,7 @@ pub struct LockView {
     pub amount: u64,
     /// First height at which a claim is refused.
     pub expiry_height: u64,
-    /// The commitment's id.
+    /// The lock's id (`maya_htlc_lattice::Lock::id`).
     pub commitment_id: CommitmentId,
     /// Where it stands.
     pub state: LockState,
@@ -50,9 +50,9 @@ impl LockView {
     pub fn from_record(record: &LockRecord) -> Self {
         let state = match &record.settlement {
             Settlement::Open => LockState::Locked,
-            Settlement::Claimed { height, opening } => LockState::Claimed {
+            Settlement::Claimed { height, unlock } => LockState::Claimed {
                 height: *height,
-                opening: opening.clone(),
+                unlock: unlock.clone(),
             },
             Settlement::Refunded { height } => LockState::Refunded { height: *height },
         };
@@ -61,27 +61,31 @@ impl LockView {
             recipient: record.recipient,
             amount: record.amount,
             expiry_height: record.expiry_height,
-            commitment_id: record.commitment.id(),
+            commitment_id: record.lock.id(),
             state,
         }
     }
 
-    /// A view of an RPC report. The opening is decoded and so bound-checked
-    /// here: a node that reported an out-of-bound "opening" gets an error, not
-    /// a claim transaction the chain would ignore.
+    /// A view of an RPC report. The unlock is decoded and so bound-checked
+    /// here: a node that reported an out-of-bound "opening" or a short
+    /// preimage gets an error, not a claim transaction the chain would ignore.
     ///
     /// # Errors
     ///
     /// [`WatcherError::Rpc`] for malformed hex, an unknown status, or a claimed
-    /// lock without a decodable opening.
+    /// lock without a decodable unlock.
     pub fn from_info(info: &HtlcLockInfo) -> Result<Self> {
-        let state = match (info.status.as_str(), info.settled_height, &info.opening) {
+        let state = match (info.status.as_str(), info.settled_height, &info.unlock) {
             ("locked", _, _) => LockState::Locked,
-            ("claimed", Some(height), Some(opening)) => LockState::Claimed {
-                height,
-                opening: Opening::decode(&hex_bytes(opening, "opening")?)
-                    .map_err(|e| WatcherError::Rpc(format!("opening: {e}")))?,
-            },
+            ("claimed", Some(height), Some(unlock)) => {
+                let bytes = hex_bytes(unlock, "unlock")?;
+                let (unlock, used) = Unlock::decode(&bytes)
+                    .map_err(|e| WatcherError::Rpc(format!("unlock: {e}")))?;
+                if used != bytes.len() {
+                    return Err(WatcherError::Rpc("unlock has trailing bytes".to_owned()));
+                }
+                LockState::Claimed { height, unlock }
+            }
             ("refunded", Some(height), _) => LockState::Refunded { height },
             (status, _, _) => {
                 return Err(WatcherError::Rpc(format!(

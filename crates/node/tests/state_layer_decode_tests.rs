@@ -127,9 +127,11 @@ fn an_account_proof_verifies_from_a_state_holding_rwa_and_htlc_records() {
         recipient: [7; 32],
         amount: 1_000,
         expiry_height: 100,
-        commitment: LatticeSecret::from_entropy([1; 32])
-            .commitment()
-            .expect("commit"),
+        lock: maya_htlc_lattice::Lock::Lattice(
+            LatticeSecret::from_entropy([1; 32])
+                .commitment()
+                .expect("commit"),
+        ),
     }));
     let context = BlockContext::at_height(1).with_htlc_activation(0);
     db.apply_block(&block_of(vec![signed(issue, 0, &key)]), context)

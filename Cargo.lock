@@ -4706,13 +4706,16 @@ dependencies = [
  "ciborium",
  "cid",
  "hex",
+ "maya-crypto-pq",
  "multihash",
  "reqwest",
  "serde_json",
+ "sha3 0.11.0",
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
  "unsigned-varint",
+ "zeroize",
  "zstd",
 ]
 
@@ -4889,7 +4892,9 @@ version = "0.1.0"
 name = "maya-htlc-lattice"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "criterion",
+ "sha2 0.10.9",
  "sha3 0.11.0",
  "thiserror 2.0.20",
  "zeroize",
