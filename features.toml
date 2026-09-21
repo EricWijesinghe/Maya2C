@@ -2722,8 +2722,9 @@ domain = "Cryptography and key management"
 paths = "`crates/crypto-pq/src/envelope.rs`, `crates/crypto-pq/src/agility/`"
 tier = "core"
 class = "RESEARCH"
-status = "planned"
-tests = []
+status = "working"
+tests = ["crate:maya-crypto-pq", "crates/crypto-pq/tests/agility_migration_tests.rs"]
+note = "1,000,000-account emergency migration is a SIM (keyed-hash authorization); real signatures cover the same paths in unit tests."
 
 [[subsystem]]
 id = "kem-suites-dualkem-xwing"

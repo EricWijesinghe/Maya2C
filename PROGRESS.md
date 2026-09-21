@@ -127,7 +127,7 @@ crates rather than duplicating them (D1).
 - [x] P0 — ADR-007 (suites), ADR-008 (Plonky3), ADR-009 (KEMs), ADR-010 (entropy); vision rows; `features.toml` entries
 - [x] P1 — suite registry `0x01/0x10/0x11/0x20/0x21/0x30` in `crypto-pq::suite`
 - [x] P2 — NIST ACVP vectors vendored (`crates/crypto-pq/tests/vectors/acvp/`), ML-DSA/SLH-DSA/ML-KEM KATs pass
-- [ ] P1b — suite envelope + crypto-agility engine (policy, audit, migration, 1,000,000-account sim)
+- [x] P1b — suite envelope + crypto-agility engine (policy, audit, migration, 1,000,000-account sim: 500 window blocks, 41 sweep blocks, no failed transfer)
 - [ ] P3 — ML-KEM-1024, HQC-128/256 (draft) + KATs, DualKem, X-Wing + draft vectors
 - [ ] P4 — secret hygiene sweep, dudect timing harness
 - [ ] P5 — `hal/entropy`

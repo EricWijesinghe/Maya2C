@@ -10,6 +10,9 @@
 //! - [`suite`] — the signature-suite registry (ADR-007): Ed25519, ML-DSA-65/87,
 //!   SLH-DSA-SHA2-128s / SHAKE-256f, and the ML-DSA + SLH-DSA hybrid, each
 //!   behind one trait and a one-byte id.
+//! - [`envelope`] — the suite-tagged signature encoding.
+//! - [`agility`] — default-suite policy, the security audit, and migration
+//!   off a deprecated suite.
 //!
 //! ## Why this crate exists at all
 //!
@@ -35,6 +38,8 @@
 //! reach for the wrong parameter set by accident, because no other parameter
 //! set is nameable from outside.
 
+pub mod agility;
+pub mod envelope;
 pub mod hqc;
 pub mod kem;
 pub mod sig;
