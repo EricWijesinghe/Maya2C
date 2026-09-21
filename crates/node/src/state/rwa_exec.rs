@@ -21,9 +21,10 @@
 //!
 //! ## Eligibility is read, not proved, on the transfer path
 //!
-//! A Groth16 pairing check is one to two milliseconds. On a block with ten
-//! thousand transfers that is ten to twenty seconds of validation every node
-//! pays, forever, for a check whose answer changes rarely. So the proof is
+//! A disclosure proof is a STARK (ADR-008); the joinsplit, the nearest measured
+//! one, is ~383 KB. On a block with ten thousand transfers, one per transfer
+//! would be gigabytes every node downloads and verifies, forever, for a check
+//! whose answer changes rarely. So the proof is
 //! verified once in its own transaction and cached in `r:elg:`; the transfer
 //! reads a record and a height.
 //!

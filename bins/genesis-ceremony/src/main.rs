@@ -17,21 +17,19 @@
 //!
 //! # This will not produce a mainnet genesis, and that is deliberate
 //!
-//! `docs/mainnet-readiness.md §1`: the shielded pool's Groth16 parameters come
-//! from a reproducible test setup rather than a ceremony. Anyone able to re-run
-//! that setup holds the toxic waste and can mint shielded value that no supply
-//! audit would reveal.
+//! `docs/mainnet-readiness.md §1`: the shielded pool's circuit has had no
+//! independent audit. One missing constraint in the joinsplit AIR lets anyone
+//! mint shielded value that no supply audit would reveal.
 //!
 //! Three other places already refuse a value-bearing chain id — the node at
 //! startup, both terraform module sets, and a test pinning
-//! `SETUP_IS_TRUSTED = false`. This is the fourth, and it refuses for the same
+//! `CIRCUIT_IS_AUDITED = false`. This is the fourth, and it refuses for the same
 //! reason: a genesis file is the one artefact that cannot be revised after the
 //! fact, so the tool that mints it is the wrong place to be permissive.
 //!
-//! Lifting the block needs a multi-party ceremony with at least one honest
-//! participant destroying their contribution, the parameters committed and
-//! independently verified, and only then the flag flipped. That is calendar
-//! time and external participants. It is not a flag on this binary.
+//! Lifting the block needs an independent audit of the joinsplit AIR, its
+//! findings fixed, and only then the flag flipped. That is calendar time and
+//! external reviewers. It is not a flag on this binary.
 //!
 //! # Secret material never reaches stdout
 //!
@@ -231,12 +229,12 @@ fn refuse_value_bearing(chain_id: &str) -> Result<(), Box<dyn Error>> {
         return Err(format!(
             "refusing to mint a genesis for value-bearing chain id '{chain_id}'.\n\
              \n\
-             The shielded pool's Groth16 parameters come from a reproducible test\n\
-             setup, not a ceremony: anyone able to re-run it can mint shielded value\n\
-             that no supply audit reveals. See docs/mainnet-readiness.md section 1.\n\
+             The shielded pool's circuit has had no independent audit: one missing\n\
+             constraint lets anyone mint shielded value that no supply audit reveals.\n\
+             See docs/mainnet-readiness.md section 1.\n\
              \n\
              Three other guards refuse the same ids — the node at startup, both\n\
-             terraform module sets, and a test pinning SETUP_IS_TRUSTED = false.\n\
+             terraform module sets, and a test pinning CIRCUIT_IS_AUDITED = false.\n\
              A genesis file cannot be revised after the fact, so this one refuses\n\
              too.\n\
              \n\

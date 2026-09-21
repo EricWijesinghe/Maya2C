@@ -63,10 +63,10 @@
           - maya_chain_id not in maya_value_bearing_chains
         fail_msg: >-
           {{ maya_chain_id }} is value-bearing. Mainnet is blocked while the
-          shielded pool uses an untrusted Groth16 setup: anyone able to re-run
-          that setup holds the toxic waste and can mint shielded value no supply
-          audit would reveal. Run a real ceremony and set
-          prove::SETUP_IS_TRUSTED before deploying a value-bearing chain.
+          shielded pool's circuit is unaudited: one missing constraint lets
+          anyone mint shielded value no supply audit would reveal. Have the
+          joinsplit AIR independently audited and set
+          pool::CIRCUIT_IS_AUDITED before deploying a value-bearing chain.
         quiet: true
 
     - name: Require a genesis state root to verify against

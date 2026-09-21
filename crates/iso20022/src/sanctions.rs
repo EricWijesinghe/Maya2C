@@ -2,11 +2,11 @@
 //!
 //! ## Why this is here and the proof is not
 //!
-//! The proof lives in `maya_zk_privacy::sanctions`, which owns the field, the
-//! Poseidon hash and the tree. This module owns the one thing that crate must
+//! The proof lives in `maya_zk_stark::sanctions`, which owns the field, the
+//! Poseidon2 hash and the tree. This module owns the one thing that crate must
 //! never need to know: what an IBAN is.
 //!
-//! The split is not tidiness. `zk-privacy` pulls in the whole arkworks stack,
+//! The split is not tidiness. `zk-stark` pulls in the whole Plonky3 stack,
 //! and this crate's whole point is to be light enough to fuzz an XML decoder in
 //! — so the seam between them is 32 opaque bytes, produced here and consumed
 //! there.
@@ -36,11 +36,11 @@
 //! this design comes from the *proof* — the verifier never sees the digest at
 //! all — not from the digest being hard to invert. A design that leaked the
 //! digest and called it anonymised would be wrong; see
-//! `maya_zk_privacy::sanctions`.
+//! `maya_zk_stark::sanctions`.
 
 use crate::party::{AccountId, Bic};
 
-/// Bytes in a list identifier, matching `maya_zk_privacy::sanctions::Identifier`.
+/// Bytes in a list identifier, matching `maya_zk_stark::sanctions::Identifier`.
 pub const IDENTIFIER_BYTES: usize = 32;
 
 /// The 32 bytes a sanctions list holds for one party.

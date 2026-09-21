@@ -48,11 +48,11 @@ pub enum WalletError {
     #[error("air-gapped transfer: {0}")]
     Airgap(String),
 
-    /// Shielding was refused because the pool's trusted setup is unceremonied.
+    /// Shielding was refused because the pool's circuit is unaudited.
     ///
-    /// Not a transient failure and not something a retry fixes: the parameters
-    /// come from a reproducible setup, and lifting it needs a multi-party
-    /// ceremony. A wallet must say so rather than presenting it as an outage.
+    /// Not a transient failure and not something a retry fixes: lifting it
+    /// needs an independent audit of the joinsplit AIR. A wallet must say so
+    /// rather than presenting it as an outage.
     #[error("shielded pool unavailable: {0}")]
     ShieldedUnavailable(String),
 

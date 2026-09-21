@@ -5,17 +5,16 @@ the last one will refuse to run on mainnet.
 
 ## Mainnet is blocked, and this pipeline enforces it rather than working around it
 
-The shielded pool's Groth16 parameters come from a reproducible test setup, not
-a ceremony. Anyone able to re-run that setup holds the toxic waste and can mint
-shielded value that no supply audit would reveal — including the supply
-endpoints this repo serves publicly.
+The shielded pool's circuit has had no independent audit. One missing
+constraint lets anyone mint shielded value that no supply audit would reveal —
+including the supply endpoints this repo serves publicly.
 
 Six independent places refuse a value-bearing chain id. This pipeline adds two
 more and removes none:
 
 | Where | When it fires |
 |---|---|
-| `crates/zk-privacy/src/prove.rs` | `SETUP_IS_TRUSTED = false` |
+| `crates/zk-stark/src/pool/mod.rs` | `CIRCUIT_IS_AUDITED = false` |
 | `bins/maya2c-node/src/main.rs` | the node exits at startup |
 | `bins/genesis-ceremony/src/main.rs` | refuses to mint the genesis |
 | `infra/terraform/modules/node-pool/variables.tf` | `terraform validate`, before any provider call |

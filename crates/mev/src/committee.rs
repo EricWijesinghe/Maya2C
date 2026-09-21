@@ -80,10 +80,9 @@ impl Committee {
     /// duration of the call. A distributed key generation protocol — each
     /// member contributing a polynomial, nobody ever holding `s` — removes
     /// that, and **is not built here**. The intended deployment is generation
-    /// at genesis alongside the chain's other parameters, exactly as
-    /// `zk-privacy` handles its Groth16 setup, with the same honest caveat:
-    /// a compromised setup means every sealed transaction was readable from
-    /// the start.
+    /// at genesis alongside the chain's other parameters, with the honest
+    /// caveat that a compromised setup means every sealed transaction was
+    /// readable from the start.
     ///
     /// What that costs is bounded, and worth stating precisely. A leaked setup
     /// does **not** let anyone forge a transaction, spend a coin, or change a

@@ -34,14 +34,14 @@
 //! |---|---|
 //! | Subject and issuer keys | ML-DSA-65 + SLH-DSA — post-quantum |
 //! | An issuer's attestation | signed with that pair, verified natively by consensus — post-quantum |
-//! | A holder's disclosure proof | Groth16 over BLS12-381 — **not** post-quantum |
+//! | A holder's disclosure proof | Plonky3 STARK, no setup — post-quantum (ADR-008) |
 //!
 //! The split is not an oversight. Verifying ML-DSA inside a circuit would be
 //! 10^7 to 10^8 constraints, so the issuer's signature is checked by the chain
 //! and never enters one; what the circuit proves is membership under a root the
-//! chain already vouches for. That leaves the *presentation* forgeable by a
-//! quantum adversary even though the attestation is not — the same standing
-//! caveat as the shielded pool, stated here rather than left to be inferred.
+//! chain already vouches for. Until 2026-09-21 that proof was Groth16, which
+//! left the *presentation* forgeable by a quantum adversary; it is now a
+//! hash-based STARK (`maya_zk_stark::credential`), so both halves are.
 //!
 //! ## Chain-free
 //!

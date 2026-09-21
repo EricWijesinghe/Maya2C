@@ -59,7 +59,7 @@ serde = { workspace = true, features = ["derive"] }
 toml.workspace = true
 serde_json.workspace = true
 maya-vm = { path = "../vm" }
-maya-zk-privacy = { path = "../zk-privacy" }
+maya-zk-stark = { path = "../zk-stark" }
 # The trading engine's arithmetic: the constant-product curve, the order book
 # matcher, and the batch clearing that prices a block's swaps at one price.
 # A separate crate for the same reason `ledger-math` is one — it is the other
@@ -228,10 +228,6 @@ flatbuffers = "25"
 # existed to test against. Here there would be none.
 sha2.workspace = true
 ed25519-dalek = { version = "2.2", features = ["rand_core"] }
-# Shielded tests build joinsplits directly, which means constructing field
-# elements and seeding a deterministic RNG.
-ark-bls12-381.workspace = true
-ark-std.workspace = true
 # Contract tests assemble small modules from WAT so they exercise the
 # transaction path without depending on a wasm toolchain being installed.
 wat.workspace = true

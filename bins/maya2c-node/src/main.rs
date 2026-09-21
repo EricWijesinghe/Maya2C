@@ -80,8 +80,8 @@ const DAG_PREPARE_LOOKAHEAD: u64 = 100;
 /// Chain ids treated as carrying real value.
 ///
 /// A node serving one of these refuses to start while the shielded pool's
-/// Groth16 parameters come from a reproducible setup, because anyone able to
-/// re-run that setup can mint hidden coins that no supply audit would reveal.
+/// circuit is unaudited, because a missing constraint lets anyone mint hidden
+/// coins that no supply audit would reveal.
 const VALUE_BEARING_CHAINS: &[&str] = &["maya-mainnet", "mainnet"];
 
 struct Args {
@@ -551,13 +551,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let config = GenesisConfig::from_json(&genesis_json)?;
 
     // Refuse to serve a value-bearing chain while shielded transactions rest on
-    // a setup anyone can reproduce. Failing at startup is the point: the
-    // alternative is a live mainnet whose supply cannot be audited, and an
-    // inflation bug there leaves no trace to notice later.
+    // an unaudited circuit. Failing at startup is the point: the alternative is
+    // a live mainnet whose supply cannot be audited, and an inflation bug there
+    // leaves no trace to notice later.
     if VALUE_BEARING_CHAINS.contains(&config.chain_id.as_str())
-        && !maya_zk_privacy::prove::setup_is_trusted()
+        && !maya_zk_stark::pool::circuit_is_audited()
     {
-        return Err(custom_l1_node::NodeError::UntrustedShieldedSetup {
+        return Err(custom_l1_node::NodeError::UnauditedShieldedCircuit {
             network: config.chain_id.clone(),
         }
         .into());

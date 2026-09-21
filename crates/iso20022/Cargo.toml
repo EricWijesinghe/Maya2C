@@ -25,8 +25,8 @@ path = "src/lib.rs"
 [dependencies]
 # The list-identifier digest. Already in the tree through `archive`, and the
 # hash this crate needs is a domain-separated digest rather than anything
-# algebraic — the Poseidon side of the sanctions scheme lives in `zk-privacy`,
-# which is where arkworks belongs.
+# algebraic — the Poseidon2 side of the sanctions scheme lives in `zk-stark`,
+# which is where the proving stack belongs.
 blake3 = "1"
 # Pull parser, not a DOM: a bank rail is where an entity-expansion bomb
 # arrives, and quick-xml expands no entities of its own — `escape` handles the

@@ -54,7 +54,7 @@ for blocked in "${VALUE_BEARING[@]}"; do
     if [ "$CHAIN_ID" = "$blocked" ]; then
         die "refusing to build a cluster on '$CHAIN_ID'.
 
-Mainnet is blocked while the shielded pool uses an untrusted Groth16 setup.
+Mainnet is blocked while the shielded pool's circuit is unaudited.
 This script would not get far — the ceremony tool and the node both refuse the
 same ids — but failing here costs a second instead of a build."
     fi

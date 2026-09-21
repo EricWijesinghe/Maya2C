@@ -16,7 +16,7 @@ description = "Constant-product AMM and limit order book matching, isolated so i
 # Every function here decides how much value moves in a trade. That is exactly
 # the class of arithmetic worth model-checking, and Kani compiles a crate
 # together with its whole dependency graph. One dependency on `rocksdb` (C++),
-# `libp2p`, or the `ark-*` stack and `cargo kani -p maya-dex` stops being
+# `libp2p`, or a proving stack and `cargo kani -p maya-dex` stops being
 # possible rather than merely slow.
 #
 # The consequence is visible in the API: nothing here hashes, so pair and LP

@@ -37,7 +37,7 @@ use maya_iso20022::camt053::{self, Direction, Entry, Statement};
 use maya_iso20022::party::{AccountId, Bic, Currency, Iban, Party};
 use maya_iso20022::{Error, pacs008, pacs009, sanctions, xml};
 
-use maya_zk_privacy::sanctions::{SanctionsList, prove, verify};
+use maya_zk_stark::sanctions::{SanctionsList, prove, verify};
 
 use tempfile::TempDir;
 
@@ -505,8 +505,8 @@ fn a_party_not_on_the_list_clears_it_without_revealing_who_they_are() {
         let witness = list
             .absence_witness(&identifier)
             .expect("this party is not listed");
-        let proof = prove(&witness, root).expect("prove");
-        assert!(verify(&proof, root).expect("verify"));
+        let proof = prove(&witness, &root).expect("prove");
+        assert_eq!(verify(&proof, &root), Ok(()));
     }
 }
 
@@ -529,7 +529,10 @@ fn a_listed_party_cannot_produce_a_proof() {
     let creditor = sanctions::identifier_for_account(&intent.creditor.account);
     let root = list.root().expect("root");
     let witness = list.absence_witness(&creditor).expect("creditor is clear");
-    assert!(verify(&prove(&witness, root).expect("prove"), root).expect("verify"));
+    assert_eq!(
+        verify(&prove(&witness, &root).expect("prove"), &root),
+        Ok(())
+    );
 }
 
 #[test]

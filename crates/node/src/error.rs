@@ -357,12 +357,12 @@ pub enum NodeError {
         limit: usize,
     },
 
-    /// The shielded setup is untrusted and the network claims to hold value.
+    /// The shielded circuit is unaudited and the network claims to hold value.
     #[error(
-        "the shielded pool uses a reproducible test setup, which cannot secure \
-         real value on network '{network}'"
+        "the shielded pool's circuit has not been independently audited, so it \
+         cannot secure real value on network '{network}'"
     )]
-    UntrustedShieldedSetup {
+    UnauditedShieldedCircuit {
         /// Network the node was asked to serve.
         network: String,
     },

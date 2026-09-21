@@ -62,6 +62,6 @@ Linux (manylinux), macOS and Windows, CPython 3.9+.
 ## Status
 
 Pre-launch. The chain this signs for refuses to run on a value-bearing chain id
-while its shielded pool uses an untrusted Groth16 setup — see
+while its shielded pool's circuit is unaudited — see
 `docs/mainnet-readiness.md` in the repository. Keys generated now are real keys;
 the network they are for is not yet.

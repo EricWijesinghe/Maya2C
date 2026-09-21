@@ -7,29 +7,42 @@ what still stands between that fleet and a value-bearing mainnet.
 
 ## 1. Mainnet is blocked, and the block is deliberate
 
-The shielded pool's Groth16 parameters come from a reproducible test setup, not
-from a ceremony. Anyone able to re-run that setup holds the toxic waste, and
-with it can mint shielded value that no supply audit would reveal — including
-the supply endpoints this repo serves to CoinGecko and CoinMarketCap.
+The shielded pool is a Plonky3 STARK (ADR-008): no trusted setup, soundness
+from hash collision resistance alone. What it has not had is an independent
+audit of its joinsplit AIR. One missing constraint would let anyone mint
+shielded value that no supply audit would reveal — including the supply
+endpoints this repo serves to CoinGecko and CoinMarketCap. (Until 2026-09-21
+the reason was a Groth16 setup nobody had run a ceremony for; that pool is
+gone.)
 
 Three independent places refuse a value-bearing chain:
 
 | Where | What happens |
 |---|---|
-| `crates/zk-privacy/src/prove.rs:48` | `SETUP_IS_TRUSTED = false` |
+| `crates/zk-stark/src/pool/mod.rs` | `CIRCUIT_IS_AUDITED = false` |
 | `bins/maya2c-node/src/main.rs` (`VALUE_BEARING_CHAINS`) | The node exits at startup on `mainnet` / `maya-mainnet` |
 | `infra/terraform/modules/*/variables.tf` | `terraform plan` fails for those chain ids, in both clouds |
-| `crates/zk-privacy/tests/proof_tests.rs:55` | A test asserts the flag stays false |
+| `crates/zk-stark/src/pool/tests.rs` | A test asserts the flag stays false |
 
 **Everything in this runbook deploys a non-value-bearing chain id.** That is a
 real, fully multi-region network — it is simply not one anybody should put money
 on yet.
 
-To lift the block you need a multi-party ceremony where at least one participant
-is honest and destroys their contribution, the resulting parameters committed and
-independently verified, and only then `SETUP_IS_TRUSTED` flipped and the test
-updated. That is calendar time and external participants, not a code change.
+To lift the block you need an independent audit of the joinsplit AIR
+(`crates/zk-stark/src/pool/joinsplit.rs` and the gadgets it uses), its findings
+fixed, and only then `CIRCUIT_IS_AUDITED` flipped and the test updated. That is
+calendar time and external reviewers, not a code change.
 Nothing else in this document depends on it.
+
+Assumptions the audit should examine explicitly, not rediscover:
+
+- Nullifier uniqueness *within* one joinsplit is enforced by the node
+  (`DuplicateNullifier`, `crates/node/src/state/shielded.rs`), not the AIR.
+- Public amounts are range-checked when `JoinSplitPublic` is built from `u64`s,
+  not inside the AIR; every verifier must build it that way.
+- The sanctions proof range-checks `x` and both differences in-circuit, but the
+  bracketing leaves `lo`/`hi` only through tree membership — so its gap argument
+  rests on Poseidon2 preimage resistance as well as collision resistance.
 
 ---
 
@@ -383,7 +396,7 @@ and observer, so it pages on somebody else's broken clock.
 
 ## 11. Checklist
 
-- [ ] Ceremony run, `SETUP_IS_TRUSTED` flipped — **only if deploying a value-bearing chain**
+- [ ] Circuit audited, `CIRCUIT_IS_AUDITED` flipped — **only if deploying a value-bearing chain**
 - [ ] State bucket created, versioned, public access blocked
 - [ ] Cluster prerequisites installed in every region (section 2)
 - [ ] Nine seed identities generated and stored as Secrets

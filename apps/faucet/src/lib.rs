@@ -23,7 +23,7 @@
 //!
 //! # It refuses value-bearing chains
 //!
-//! The sixth guard, alongside `SETUP_IS_TRUSTED`, the node's startup check,
+//! The sixth guard, alongside `CIRCUIT_IS_AUDITED`, the node's startup check,
 //! both terraform module sets, the genesis ceremony, and the wallet's shielded
 //! composer. A faucet that dispensed on mainnet would be handing out real value
 //! from a key sitting in a web service.

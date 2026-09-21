@@ -38,7 +38,7 @@ COPY crates/l2-flash/Cargo.toml crates/l2-flash/Cargo.toml
 COPY crates/vm/Cargo.toml crates/vm/Cargo.toml
 COPY apps/explorer/Cargo.toml apps/explorer/Cargo.toml
 COPY apps/wallet-gui/core/Cargo.toml apps/wallet-gui/core/Cargo.toml
-COPY crates/zk-privacy/Cargo.toml crates/zk-privacy/Cargo.toml
+COPY crates/zk-stark/Cargo.toml crates/zk-stark/Cargo.toml
 COPY crates/crypto-pq/Cargo.toml crates/crypto-pq/Cargo.toml
 COPY crates/ledger-math/Cargo.toml crates/ledger-math/Cargo.toml
 COPY hal/cuda-miner/Cargo.toml hal/cuda-miner/Cargo.toml
@@ -47,11 +47,11 @@ COPY crates/stratum-v2/Cargo.toml crates/stratum-v2/Cargo.toml
 COPY bins/pool-service/Cargo.toml bins/pool-service/Cargo.toml
 
 RUN mkdir -p src/bin bins/l1-wallet/src crates/l2-flash/src crates/vm/src apps/explorer/src \
-             apps/wallet-gui/core/src crates/zk-privacy/src crates/crypto-pq/src crates/ledger-math/src \
+             apps/wallet-gui/core/src crates/zk-stark/src crates/crypto-pq/src crates/ledger-math/src \
              hal/cuda-miner/src crates/stratum-v2/src bins/pool-service/src/bin \
     && for stub in src/lib.rs bins/l1-wallet/src/lib.rs crates/l2-flash/src/lib.rs \
                    crates/vm/src/lib.rs apps/explorer/src/lib.rs apps/wallet-gui/core/src/lib.rs \
-                   crates/zk-privacy/src/lib.rs crates/crypto-pq/src/lib.rs \
+                   crates/zk-stark/src/lib.rs crates/crypto-pq/src/lib.rs \
                    crates/ledger-math/src/lib.rs hal/cuda-miner/src/lib.rs \
                    crates/stratum-v2/src/lib.rs bins/pool-service/src/lib.rs; do \
            touch "$stub"; \

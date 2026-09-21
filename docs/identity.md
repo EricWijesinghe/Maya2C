@@ -7,7 +7,7 @@ without the chain ever learning a fact about a person.
 - `crates/node/src/state/identity.rs` — prefixes, and their place in the state root.
 - `crates/node/src/state/identity_exec.rs` — registration, rotation, revocation, anchoring.
 - `crates/node/src/core/identity_payload.rs` — the wire forms.
-- `crates/zk-privacy/src/credential.rs` — the disclosure circuit.
+- `crates/zk-stark/src/credential.rs` — the disclosure AIR.
 - `crates/node/tests/identity_tests.rs`, `fuzz/fuzz_targets/did_decode.rs`.
 
 ---
@@ -84,13 +84,14 @@ Three details that are decisions:
 |---|---|
 | Subject and issuer keys | ML-DSA-65 + SLH-DSA — post-quantum |
 | An issuer's attestation | signed with that pair, verified natively by consensus — post-quantum |
-| A holder's disclosure proof | Groth16 over BLS12-381 — **not** post-quantum |
+| A holder's disclosure proof | Plonky3 STARK, no setup — post-quantum (ADR-008; was Groth16 until 2026-09-21) |
 
 The split is forced, not chosen. Selective disclosure normally verifies the
 issuer's signature *inside* the circuit. Verifying ML-DSA-65 in R1CS means an
 NTT over a 23-bit prime, 256-coefficient polynomials, a 6×5 matrix and SHAKE256
 — on the order of **10⁷–10⁸ constraints**, against a joinsplit circuit that is a
-few tens of thousands. Groth16 setup at that size is not something anyone ships.
+few tens of thousands. No proof system in this tree makes that affordable per
+presentation.
 
 BBS+ is the industry answer to exactly this problem and is pairing-based, so it
 is not post-quantum either and defeats the premise outright.

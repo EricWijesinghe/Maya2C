@@ -179,8 +179,8 @@ property the existing profile overrides exist to preserve — raising
 
 ## What this does not cover
 
-The shielded pool still proves joinsplits with Groth16 over BLS12-381, a
-pairing-based system whose soundness rests on discrete log. A quantum adversary
-who cannot forge a transfer under this scheme can still forge a shielded proof
-and mint hidden supply. Replacing that proof system is separate work, and until
-it happens the chain's post-quantum security is the weaker of the two halves.
+The shielded pool. Until 2026-09-21 it proved joinsplits with Groth16 over
+BLS12-381, which a quantum adversary could forge; it now proves them with a
+Plonky3 STARK whose soundness rests on hash collision resistance alone
+(ADR-008, `crates/zk-stark/src/pool/`). What that half still lacks is an
+independent audit of its circuit, not a post-quantum argument.

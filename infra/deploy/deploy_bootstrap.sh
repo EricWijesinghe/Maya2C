@@ -126,8 +126,8 @@ if [ "$DRY_RUN" != "1" ]; then
     for blocked in "${VALUE_BEARING_CHAINS[@]}"; do
         if [ "$CHAIN_ID" = "$blocked" ]; then
             die "chain id '$CHAIN_ID' is value-bearing and the node will refuse to
-start on it. The shielded pool's Groth16 parameters come from a reproducible
-test setup, not a ceremony. See docs/mainnet-readiness.md section 1."
+start on it. The shielded pool's circuit has not been independently audited.
+See docs/mainnet-readiness.md section 1."
         fi
     done
 

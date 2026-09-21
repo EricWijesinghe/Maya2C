@@ -17,13 +17,12 @@
 # This is a non-value-bearing chain, deliberately
 # ---------------------------------------------------------------------------
 #
-# chainId is `maya-genesis-rc1`. The shielded pool's Groth16 parameters come
-# from a reproducible test setup rather than a ceremony, so anyone able to
-# re-run it can mint shielded value no supply audit reveals. See
-# docs/mainnet-readiness.md section 1.
+# chainId is `maya-genesis-rc1`. The shielded pool's circuit has had no
+# independent audit, and one missing constraint lets anyone mint shielded value
+# no supply audit reveals. See docs/mainnet-readiness.md section 1.
 #
 # Four independent places refuse a value-bearing chain id: the node at startup,
-# both terraform module sets, a test pinning SETUP_IS_TRUSTED = false, and the
+# both terraform module sets, a test pinning CIRCUIT_IS_AUDITED = false, and the
 # genesis-ceremony binary. Changing the value below does not lift any of them —
 # it produces a fleet that will not start.
 #

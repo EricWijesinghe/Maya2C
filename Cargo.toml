@@ -69,7 +69,6 @@ members = [
     "crates/vm",
     "apps/explorer",
     "apps/wallet-gui/core",
-    "crates/zk-privacy",
     "crates/crypto-pq",
     "crates/ledger-math",
     # GPU miner. A member so it cannot rot, but its `cuda` feature is off by
@@ -358,11 +357,6 @@ tracing-subscriber = "0.3"
 wat = "1"
 zeroize = "1"
 
-# arkworks, for the Groth16 shielded pool. Pinned exactly for the same reason
-# as halo2-axiom: proving and verifying keys are tied to an encoding.
-ark-bls12-381 = "=0.6.0"
-ark-std = "=0.6.0"
-
 # --- Deliberate exceptions, kept literal in the member that needs them -------
 #
 # chacha20poly1305   0.10 here (node, `mev`, `custody-mpc`, `confidential-ai`,
@@ -497,7 +491,7 @@ debug = false
 # Release builds: what a node operator runs.
 #
 # `lto = "thin"` rather than the `"fat"` the foundation brief asked for.
-# Fat LTO across RocksDB, wasmtime, arkworks, halo2 and libp2p in one unit is
+# Fat LTO across RocksDB, wasmtime, Plonky3 and libp2p in one unit is
 # an hours-long link for a single-digit gain nobody here has measured. `dist`
 # below is where fat LTO lives, for tagged builds that can afford it.
 #
@@ -607,9 +601,6 @@ opt-level = 3
 [profile.dev.package.sha2]
 opt-level = 3
 
-# And again for the SNARK stack. A joinsplit proof is ~17k constraints of
-# field arithmetic; unoptimized it takes tens of seconds instead of a fraction
-# of one, which makes the shielded tests look hung rather than slow.
 # And for the code-based KEM. HQC-192 decapsulation runs a Reed-Muller and a
 # Reed-Solomon decoder over ~18 kbit codewords; unoptimized that is tens of
 # milliseconds per handshake against ML-KEM's fraction of one, which makes the
@@ -625,36 +616,6 @@ opt-level = 3
 opt-level = 3
 
 [profile.dev.package.shake]
-opt-level = 3
-
-[profile.dev.package.ark-ff]
-opt-level = 3
-
-[profile.dev.package.ark-ec]
-opt-level = 3
-
-[profile.dev.package.ark-poly]
-opt-level = 3
-
-[profile.dev.package.ark-bls12-381]
-opt-level = 3
-
-[profile.dev.package.ark-groth16]
-opt-level = 3
-
-[profile.dev.package.ark-crypto-primitives]
-opt-level = 3
-
-[profile.dev.package.ark-r1cs-std]
-opt-level = 3
-
-[profile.dev.package.ark-relations]
-opt-level = 3
-
-[profile.dev.package.ark-serialize]
-opt-level = 3
-
-[profile.dev.package.ark-std]
 opt-level = 3
 
 # A claim's verification is two million i64 additions; unoptimized, every

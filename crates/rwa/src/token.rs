@@ -58,7 +58,7 @@ pub struct TransferRule {
 
 /// The three shapes a rule may take.
 ///
-/// Exactly the shapes `zk_privacy::credential::Predicate` proves, because a
+/// Exactly the shapes `maya_zk_stark::credential::Predicate` proves, because a
 /// rule the disclosure circuit cannot evaluate is a rule no holder can satisfy
 /// privately — and one they must therefore satisfy by revealing the value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -158,9 +158,9 @@ pub const MAX_TRUSTED_ISSUERS: usize = 16;
 /// A cached "this holder cleared the rule" record.
 ///
 /// Written when a holder's proof is verified, read on every transfer. The
-/// alternative — a Groth16 pairing check inside each transfer — is one to two
-/// milliseconds a time, which on a ten-thousand-transfer block is ten to twenty
-/// seconds of validation that every node pays. So the proof is checked once,
+/// alternative — a STARK disclosure proof inside each transfer, hundreds of
+/// kilobytes apiece — would put gigabytes into a ten-thousand-transfer block
+/// for every node to download and verify. So the proof is checked once,
 /// in its own transaction, and the transfer path reads a record.
 ///
 /// It expires. An eligibility that never went stale would be a jurisdiction

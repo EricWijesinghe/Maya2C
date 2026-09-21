@@ -28,14 +28,13 @@
 //!
 //! # The shielded pool is not usable for value
 //!
-//! `maya_zk_privacy::prove::SETUP_IS_TRUSTED` is `false`. The Groth16 parameters
-//! come from a reproducible test setup rather than a ceremony, so anyone able
-//! to re-run it holds the toxic waste and can mint shielded value no supply
-//! audit would reveal. Four guards refuse a value-bearing chain id over
-//! exactly this.
+//! `maya_zk_stark::pool::CIRCUIT_IS_AUDITED` is `false`. The STARK has no
+//! setup, but its joinsplit AIR has had no independent audit, and one missing
+//! constraint lets anyone mint shielded value no supply audit would reveal.
+//! Several guards refuse a value-bearing chain id over exactly this.
 //!
 //! A wallet is the place a user would meet that, so [`ShieldedComposer`]
-//! refuses a value-bearing chain and reports [`SetupTrust`] rather than
+//! refuses a value-bearing chain and reports [`CircuitTrust`] rather than
 //! quietly composing something the network will not honour. The status is a
 //! return value, not a doc comment, because a doc comment cannot be rendered
 //! in a confirmation dialog.
@@ -55,29 +54,29 @@ use crate::error::{Result, WalletError};
 /// relaxing all of them together.
 const VALUE_BEARING_CHAINS: &[&str] = &["maya-mainnet", "mainnet"];
 
-/// Whether the shielded pool's trusted setup can be relied on.
+/// Whether the shielded pool's circuit can be relied on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SetupTrust {
-    /// Parameters came from a real multi-party ceremony.
-    Ceremony,
-    /// Parameters came from a reproducible test setup.
+pub enum CircuitTrust {
+    /// The joinsplit AIR passed an independent audit.
+    Audited,
+    /// The joinsplit AIR has had no independent audit.
     ///
-    /// Anyone able to re-run it can mint shielded value invisibly. The current
-    /// state, and the reason `SETUP_IS_TRUSTED` is `false`.
-    Reproducible,
+    /// A missing constraint would let anyone mint shielded value invisibly.
+    /// The current state, and the reason `CIRCUIT_IS_AUDITED` is `false`.
+    Unaudited,
 }
 
-impl SetupTrust {
+impl CircuitTrust {
     /// The wallet's current view.
     ///
-    /// Read from `zk-privacy`'s own flag rather than duplicated, so it cannot
+    /// Read from `zk-stark`'s own flag rather than duplicated, so it cannot
     /// drift from the thing it describes.
     #[must_use]
     pub fn current() -> Self {
-        if maya_zk_privacy::prove::SETUP_IS_TRUSTED {
-            Self::Ceremony
+        if maya_zk_stark::pool::CIRCUIT_IS_AUDITED {
+            Self::Audited
         } else {
-            Self::Reproducible
+            Self::Unaudited
         }
     }
 
@@ -85,12 +84,12 @@ impl SetupTrust {
     #[must_use]
     pub const fn warning(self) -> Option<&'static str> {
         match self {
-            Self::Ceremony => None,
-            Self::Reproducible => Some(
-                "The shielded pool's parameters come from a reproducible test setup, \
-                 not a ceremony. Anyone able to re-run that setup can mint shielded \
-                 value that no supply audit would reveal. Do not shield anything you \
-                 are not prepared to lose.",
+            Self::Audited => None,
+            Self::Unaudited => Some(
+                "The shielded pool's circuit has not been independently audited. A \
+                 missing constraint would let anyone mint shielded value that no \
+                 supply audit would reveal. Do not shield anything you are not \
+                 prepared to lose.",
             ),
         }
     }
@@ -166,11 +165,11 @@ pub fn compose_swap(
     Ok(tx)
 }
 
-/// Composes shielded transactions, subject to the setup's trust state.
+/// Composes shielded transactions, subject to the circuit's trust state.
 #[derive(Debug)]
 pub struct ShieldedComposer {
     chain_id: String,
-    trust: SetupTrust,
+    trust: CircuitTrust,
 }
 
 impl ShieldedComposer {
@@ -179,20 +178,20 @@ impl ShieldedComposer {
     pub fn new(chain_id: impl Into<String>) -> Self {
         Self {
             chain_id: chain_id.into(),
-            trust: SetupTrust::current(),
+            trust: CircuitTrust::current(),
         }
     }
 
-    /// The setup's trust state.
+    /// The circuit's trust state.
     #[must_use]
-    pub const fn trust(&self) -> SetupTrust {
+    pub const fn trust(&self) -> CircuitTrust {
         self.trust
     }
 
     /// Whether this composer will produce anything on its chain.
     #[must_use]
     pub fn is_available(&self) -> bool {
-        !(self.trust == SetupTrust::Reproducible
+        !(self.trust == CircuitTrust::Unaudited
             && VALUE_BEARING_CHAINS.contains(&self.chain_id.as_str()))
     }
 
@@ -206,22 +205,22 @@ impl ShieldedComposer {
     ///
     /// # Why this is separate from composing
     ///
-    /// Generating a Groth16 proof takes seconds. Refusing *after* that work
+    /// Generating a joinsplit STARK takes seconds. Refusing *after* that work
     /// would mean a user watches a spinner and is then told no — so the refusal
     /// happens first, and a UI can grey the option out before anyone clicks it.
     ///
     /// # Errors
     ///
     /// [`WalletError::ShieldedUnavailable`] on a value-bearing chain while the
-    /// setup is unceremonied.
+    /// circuit is unaudited.
     pub fn check(&self) -> Result<()> {
         if self.is_available() {
             return Ok(());
         }
         Err(WalletError::ShieldedUnavailable(format!(
-            "refusing to shield on '{}': the pool's parameters come from a \
-             reproducible test setup, so shielded value can be minted by anyone \
-             able to re-run it. See docs/mainnet-readiness.md section 1.",
+            "refusing to shield on '{}': the pool's circuit is unaudited, so a \
+             missing constraint could let anyone mint shielded value. See \
+             docs/mainnet-readiness.md section 1.",
             self.chain_id
         )))
     }
@@ -262,15 +261,15 @@ mod tests {
     }
 
     #[test]
-    fn the_setup_trust_state_is_read_from_zk_privacy() {
-        // Not duplicated. If the ceremony happens and the flag flips, this
+    fn the_circuit_trust_state_is_read_from_zk_stark() {
+        // Not duplicated. If the audit happens and the flag flips, this
         // follows without an edit here.
-        let expected = if maya_zk_privacy::prove::SETUP_IS_TRUSTED {
-            SetupTrust::Ceremony
+        let expected = if maya_zk_stark::pool::CIRCUIT_IS_AUDITED {
+            CircuitTrust::Audited
         } else {
-            SetupTrust::Reproducible
+            CircuitTrust::Unaudited
         };
-        assert_eq!(SetupTrust::current(), expected);
+        assert_eq!(CircuitTrust::current(), expected);
     }
 
     #[test]
@@ -278,10 +277,10 @@ mod tests {
         // The guard a wallet user would actually meet.
         for chain in ["maya-mainnet", "mainnet"] {
             let composer = ShieldedComposer::new(chain);
-            if composer.trust() == SetupTrust::Reproducible {
+            if composer.trust() == CircuitTrust::Unaudited {
                 assert!(!composer.is_available(), "{chain} must be refused");
                 let error = composer.check().expect_err("must refuse");
-                assert!(format!("{error}").contains("reproducible test setup"));
+                assert!(format!("{error}").contains("circuit is unaudited"));
             }
         }
     }
@@ -294,12 +293,12 @@ mod tests {
     }
 
     #[test]
-    fn an_untrusted_setup_always_carries_a_warning() {
+    fn an_unaudited_circuit_always_carries_a_warning() {
         // The warning is a return value rather than a doc comment because a
         // doc comment cannot be rendered in a confirmation dialog.
         let composer = ShieldedComposer::new("maya-genesis-rc1");
-        if composer.trust() == SetupTrust::Reproducible {
-            let warning = composer.warning().expect("an untrusted setup warns");
+        if composer.trust() == CircuitTrust::Unaudited {
+            let warning = composer.warning().expect("an unaudited circuit warns");
             assert!(warning.contains("mint shielded value"));
         }
     }

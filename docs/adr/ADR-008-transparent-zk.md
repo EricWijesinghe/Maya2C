@@ -32,8 +32,9 @@ statements — not just the privacy of old ones.
    *conjectured* soundness: `log_blowup = 2`, 100 queries, 16 bits of query
    grinding — Plonky3's own `new_benchmark_zk` preset — written next to the
    config in `crates/zk-stark/src/config.rs`. The level is computed, not
-   asserted: Plonky3's estimator gives the spend AIR **114 bits conjectured and
-   101 bits proven** (`pool::tests::report_proof_sizes_and_security`), bounded
+   asserted: Plonky3's estimator gives the joinsplit AIR **113 bits conjectured
+   and 99 bits proven** (`pool::tests::report_proof_size_and_security`; the
+   P7a spend AIR measured 114 / 101), bounded
    by the ~124-bit challenge extension and the 128-bit Keccak collision
    resistance. The first draft of this ADR named `log_blowup = 3` with 38
    queries; the measured preset replaced it.
@@ -46,8 +47,22 @@ statements — not just the privacy of old ones.
    re-expressed as a STARK. It was dark (activation `u64::MAX`, invariant 22)
    and forgeable, so nothing that worked stops working.
 6. **The gate.** `crates/zk-stark/tests/pqc_zk_tests.rs` runs `cargo tree
-   --workspace -e normal,build` and fails if `ark-groth16`, `ark-bn254`,
-   `halo2`, `halo2curves` or `bls12_381` appears.
+   --workspace -e normal,build,dev` (host, offline) and scans `Cargo.lock` for
+   every other target, and fails if `ark-groth16`,
+   `ark-bn254`, `ark-bls12-381`, `ark-snark`, any `halo2*`, `bls12_381`,
+   `bellman` or `snark-verifier` appears. Dev edges are included because a
+   test-only Groth16 would still be a second, weaker proof system in the tree.
+7. **The mainnet block moves, it does not lift.** `SETUP_IS_TRUSTED` went with
+   `zk-privacy`. Its guards now read `pool::CIRCUIT_IS_AUDITED = false`: there
+   is no setup to trust, but an under-constrained AIR has the same consequence
+   — hidden supply — and the negative tests only cover constraints this tree
+   knows about.
+
+**Done 2026-09-21.** `zk-privacy` is deleted rather than rebuilt: the joinsplit,
+credential and sanctions statements live in `zk-stark` itself (`pool/`,
+`credential.rs`, `sanctions.rs`), since a second crate would hold only
+re-exports. The node verifies joinsplits through `maya_zk_stark::pool::verify`;
+the block cap fell from 64 to 16 joinsplits because a proof is ~0.4 MB.
 
 ## Alternatives considered
 

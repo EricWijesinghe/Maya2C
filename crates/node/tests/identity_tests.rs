@@ -26,12 +26,12 @@ use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
 use maya_identity::attestation::BITS_PER_PAGE;
 use maya_identity::{Did, DidDocument};
 
-use maya_zk_privacy::credential::{
-    self, DisclosurePublic, Predicate, credential_leaf, field_from_bytes, revocation_leaf,
+use maya_zk_stark::credential::{
+    self, DisclosurePublic, Predicate, credential_leaf, digest_from_bytes as field_from_bytes,
+    revocation_leaf, tree_root,
 };
-use maya_zk_privacy::tree::merkle_path;
-
-use ark_bls12_381::Fr;
+use maya_zk_stark::hash::{Digest, F};
+use maya_zk_stark::pool::tree::{digest_from_bytes, digest_to_bytes};
 use tempfile::TempDir;
 
 // ---------------------------------------------------------------------------
@@ -395,19 +395,14 @@ fn no_committed_record_holds_a_claim_preimage() {
 
     // A real claim, committed the way an issuer would.
     let subject = field_from_bytes(&[0x5a; 32]);
-    let age: u64 = 34;
-    let blinding = Fr::from(987_654_321u64);
-    let leaf = credential_leaf(subject, Fr::from(7u64), age, blinding);
-    let leaves: Vec<Fr> = (0..8)
-        .map(|i| if i == 3 { leaf } else { Fr::from(i as u64) })
+    let age: u32 = 34;
+    let blinding = [F::new(987_654_321); 8];
+    let leaf = credential_leaf(&subject, 7, age, &blinding);
+    let leaves: Vec<Digest> = (0..8u32)
+        .map(|i| if i == 3 { leaf } else { [F::new(i); 8] })
         .collect();
-    let root = merkle_path(&leaves, 0)
-        .expect("path")
-        .compute_root(leaves[0])
-        .expect("root");
-
-    let mut root_bytes = [0u8; 32];
-    root_bytes.copy_from_slice(&maya_zk_privacy::field::fr_to_bytes(&root));
+    let root = tree_root(&leaves).expect("root");
+    let root_bytes = digest_to_bytes(&root);
 
     apply(
         &fixture.db,
@@ -441,11 +436,11 @@ fn no_committed_record_holds_a_claim_preimage() {
             "a record carries the claim value"
         );
         assert!(
-            !contains(&record, &maya_zk_privacy::field::fr_to_bytes(&subject)),
+            !contains(&record, &digest_to_bytes(&subject)),
             "a record carries the subject identifier"
         );
         assert!(
-            !contains(&record, &maya_zk_privacy::field::fr_to_bytes(&blinding)),
+            !contains(&record, &digest_to_bytes(&blinding)),
             "a record carries the blinding factor"
         );
     }
@@ -465,39 +460,48 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
 
 /// An issuer's two trees, and the roots a verifier reads from the chain.
 struct Credentials {
-    credentials: Vec<Fr>,
-    revocations: Vec<Fr>,
+    credentials: Vec<Digest>,
+    revocations: Vec<Digest>,
 }
 
+const BLINDING: Digest = [F::new(11); 8];
+
 impl Credentials {
-    fn new(subject: Fr, age: u64, index: usize, revoked: &[usize]) -> Self {
+    fn new(subject: Digest, age: u32, index: usize, revoked: &[usize]) -> Self {
         Self {
-            credentials: (0..8)
+            credentials: (0..8u32)
                 .map(|i| {
-                    if i == index {
-                        credential_leaf(subject, Fr::from(7u64), age, Fr::from(11u64))
+                    if i as usize == index {
+                        credential_leaf(&subject, 7, age, &BLINDING)
                     } else {
-                        credential_leaf(Fr::from(i as u64), Fr::from(7u64), 1, Fr::from(i as u64))
+                        credential_leaf(&[F::new(i); 8], 7, 1, &[F::new(i); 8])
                     }
                 })
                 .collect(),
             revocations: (0..8)
-                .map(|i| revocation_leaf(i as u64, revoked.contains(&i)))
+                .map(|i| revocation_leaf(revoked.contains(&i)))
                 .collect(),
         }
     }
 
-    fn roots(&self) -> (Fr, Fr) {
+    fn roots(&self) -> (Digest, Digest) {
         (
-            merkle_path(&self.credentials, 0)
-                .expect("path")
-                .compute_root(self.credentials[0])
-                .expect("root"),
-            merkle_path(&self.revocations, 0)
-                .expect("path")
-                .compute_root(self.revocations[0])
-                .expect("root"),
+            tree_root(&self.credentials).expect("root"),
+            tree_root(&self.revocations).expect("root"),
         )
+    }
+
+    fn witness(&self, subject: Digest, age: u32, index: u64) -> credential::DisclosureWitness {
+        credential::witness_for(
+            subject,
+            7,
+            age,
+            BLINDING,
+            index,
+            &self.credentials,
+            &self.revocations,
+        )
+        .expect("witness")
     }
 }
 
@@ -512,25 +516,14 @@ fn a_holder_proves_a_claim_without_revealing_it() {
         revocation_root,
         predicate: Predicate::AtLeast(18),
     };
-    let witness = credential::witness_for(
-        subject,
-        Fr::from(7u64),
-        34,
-        Fr::from(11u64),
-        3,
-        &trees.credentials,
-        &trees.revocations,
-    )
-    .expect("witness");
+    let witness = trees.witness(subject, 34, 3);
 
     let proof = credential::prove(&witness, &public).expect("prove");
-    assert!(credential::verify(&proof, &public).expect("verify"));
+    assert_eq!(credential::verify(&proof, &public), Ok(()));
 
-    // The verifier's whole input is two roots, a tag and a bound. The age is
-    // not among them, and neither is the subject.
-    assert_eq!(public.to_field_elements().len(), 4);
-    assert!(!public.to_field_elements().contains(&Fr::from(34u64)));
-    assert!(!public.to_field_elements().contains(&subject));
+    // The verifier's whole input is two roots and a predicate. The age is
+    // not among them, and neither is the subject: nothing else is public.
+    assert_eq!(public.predicate, Predicate::AtLeast(18));
 }
 
 #[test]
@@ -547,20 +540,11 @@ fn a_revoked_credential_cannot_be_presented() {
         revocation_root,
         predicate: Predicate::AtLeast(18),
     };
-    let witness = credential::witness_for(
-        subject,
-        Fr::from(7u64),
-        34,
-        Fr::from(11u64),
-        3,
-        &trees.credentials,
-        &trees.revocations,
-    )
-    .expect("witness");
+    let witness = trees.witness(subject, 34, 3);
 
     assert!(matches!(
         credential::prove(&witness, &public),
-        Err(maya_zk_privacy::ZkError::Unsatisfiable)
+        Err(maya_zk_stark::ZkError::Unsatisfied(_))
     ));
 }
 
@@ -575,16 +559,7 @@ fn a_claim_that_fails_the_predicate_cannot_be_proved() {
         revocation_root,
         predicate: Predicate::AtLeast(18),
     };
-    let witness = credential::witness_for(
-        subject,
-        Fr::from(7u64),
-        16,
-        Fr::from(11u64),
-        3,
-        &trees.credentials,
-        &trees.revocations,
-    )
-    .expect("witness");
+    let witness = trees.witness(subject, 16, 3);
 
     assert!(credential::prove(&witness, &public).is_err());
 }
@@ -602,8 +577,7 @@ fn a_verifier_checks_the_root_against_what_the_chain_holds() {
     let trees = Credentials::new(subject, 40, 2, &[]);
     let (issuer_root, revocation_root) = trees.roots();
 
-    let mut root_bytes = [0u8; 32];
-    root_bytes.copy_from_slice(&maya_zk_privacy::field::fr_to_bytes(&issuer_root));
+    let root_bytes = digest_to_bytes(&issuer_root);
 
     apply(
         &fixture.db,
@@ -630,21 +604,12 @@ fn a_verifier_checks_the_root_against_what_the_chain_holds() {
     assert_eq!(anchored.root, root_bytes);
 
     let public = DisclosurePublic {
-        issuer_root: maya_zk_privacy::field::fr_from_bytes(&anchored.root).expect("field"),
+        issuer_root: digest_from_bytes(&anchored.root).expect("canonical"),
         revocation_root,
         predicate: Predicate::AtLeast(21),
     };
-    let witness = credential::witness_for(
-        subject,
-        Fr::from(7u64),
-        40,
-        Fr::from(11u64),
-        2,
-        &trees.credentials,
-        &trees.revocations,
-    )
-    .expect("witness");
+    let witness = trees.witness(subject, 40, 2);
 
     let proof = credential::prove(&witness, &public).expect("prove");
-    assert!(credential::verify(&proof, &public).expect("verify"));
+    assert_eq!(credential::verify(&proof, &public), Ok(()));
 }

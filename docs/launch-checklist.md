@@ -7,20 +7,20 @@ launch.
 
 ## The block is still in place, and nothing here lifted it
 
-`docs/mainnet-readiness.md §1`: the shielded pool's Groth16 parameters come
-from a reproducible test setup rather than a ceremony. Anyone able to re-run it
-holds the toxic waste and can mint shielded value that no supply audit reveals
-— including the supply endpoints this repo serves to aggregators.
+`docs/mainnet-readiness.md §1`: the shielded pool's circuit has had no
+independent audit. One missing constraint in the joinsplit AIR lets anyone mint
+shielded value that no supply audit reveals — including the supply endpoints
+this repo serves to aggregators.
 
 **Four independent guards refuse a value-bearing chain id.** A fifth was added
 by this work:
 
 | Guard | Behaviour |
 |---|---|
-| `crates/zk-privacy/src/prove.rs:48` | `SETUP_IS_TRUSTED = false` |
+| `crates/zk-stark/src/pool/mod.rs` | `CIRCUIT_IS_AUDITED = false` |
 | `bins/maya2c-node/src/main.rs` `VALUE_BEARING_CHAINS` | node exits at startup |
 | `infra/terraform/modules/*/variables.tf` | `terraform plan` fails |
-| `crates/zk-privacy/tests/proof_tests.rs:55` | test pins the flag false |
+| `crates/zk-stark/src/pool/tests.rs` | test pins the flag false |
 | **`bins/genesis-ceremony/src/main.rs`** | **refuses to mint the genesis file** |
 
 The ceremony binary is the newest and, for this purpose, the most important: a
@@ -167,7 +167,7 @@ Both terminate untrusted HTTP, and neither is part of consensus.
 | `telemetry` | Yes; it holds no key and moves no value | `docs/telemetry.md` |
 
 The faucet is a hot wallet with a public endpoint, which is why the chain
-refusal is a sixth guard beside `SETUP_IS_TRUSTED`, the node's startup check,
+refusal is a sixth guard beside `CIRCUIT_IS_AUDITED`, the node's startup check,
 both terraform module sets, the ceremony, and the wallet composer. It is
 refused at construction rather than per request, so a misconfigured deployment
 fails to start instead of failing on the first request somebody is watching.
@@ -255,8 +255,8 @@ fatal, per `deny.toml`'s `unmaintained = "workspace"`.
 
 ## Outstanding before a value-bearing launch
 
-1. **Groth16 trusted setup ceremony.** The block above. Everything else is
-   downstream of it.
+1. **Independent audit of the joinsplit AIR.** The block above. Everything
+   else is downstream of it.
 2. **Compile `docs/reference.tex`.** Generated, never built.
 3. **Replace every placeholder in `infra/k8s/deploy.yaml`.**
 4. **Move the ceremony's `*.secret` files to their custodians** and remove them

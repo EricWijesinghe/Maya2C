@@ -205,13 +205,16 @@ impl ParameterKey {
                 max: 32,
                 default: 8,
             },
-            // A joinsplit is a Groth16 verification. The ceiling is the
-            // verification budget, and zero would silently disable the shielded
-            // pool rather than removing it.
+            // A joinsplit carries a ~0.4 MB STARK. The ceiling is what an
+            // 8 MiB gossip frame holds beside the rest of a block, and zero
+            // would silently disable the shielded pool rather than removing it.
+            // Not yet read by the node: `MAX_SHIELDED_PER_BLOCK` enforces the
+            // cap directly, and these bounds only keep a proposal from
+            // recording a value the node would not honour.
             Self::ShieldedMaxPerBlock => Bounds {
                 min: 1,
-                max: 256,
-                default: 64,
+                max: 16,
+                default: 16,
             },
             // 1 MiB to 64 MiB of contract memory. The upper end is what a node
             // must be able to allocate for one call; the lower end is what a

@@ -32,149 +32,51 @@ documentation, not from an editorial judgement made here.
 \tableofcontents
 \newpage
 \section{The node}
-\noindent\texttt{src}
+\noindent\texttt{crates/node\textbackslash{}src}
 
-\subsection{bin/genesis-ceremony.rs}
-Genesis ceremony: root keys, treasury allocation, and a locked state root.
+\subsection{config.rs}
+\texttt{config.toml}: the operational settings a node reads from disk.
 
-Where [\texttt{genesis}](../genesis/index.html) turns a set of allocations into a
-\texttt{genesis.json}, this drives the whole launch step: it generates the root
-signing keys, funds the DAO treasury, writes the genesis file, and prints a
-commitment sheet that every operator can diff.
+\subsubsection{What is deliberately absent, and why it is absent from the *type*}
 
-\begin{verbatim}
-genesis-ceremony --chain-id maya-genesis-rc1 \
-                 --timestamp 1767225600 \
-                 --difficulty-bits 22 \
-                 --roots 3 \
-                 --treasury-share-bps 2000 \
-                 --supply 21000000000 \
-                 --out-dir ./ceremony
-\end{verbatim}
+There is no consensus field here. Not "there is one and you should not set
+it" — there is no field, so no configuration file can express one.
 
-\subsubsection{This will not produce a mainnet genesis, and that is deliberate}
-
-\texttt{docs/mainnet-readiness.md §1}: the shielded pool's Groth16 parameters come
-from a reproducible test setup rather than a ceremony. Anyone able to re-run
-that setup holds the toxic waste and can mint shielded value that no supply
-audit would reveal.
-
-Three other places already refuse a value-bearing chain id — the node at
-startup, both terraform module sets, and a test pinning
-\texttt{SETUP\_IS\_TRUSTED = false}. This is the fourth, and it refuses for the same
-reason: a genesis file is the one artefact that cannot be revised after the
-fact, so the tool that mints it is the wrong place to be permissive.
-
-Lifting the block needs a multi-party ceremony with at least one honest
-participant destroying their contribution, the parameters committed and
-independently verified, and only then the flag flipped. That is calendar
-time and external participants. It is not a flag on this binary.
-
-\subsubsection{Secret material never reaches stdout}
-
-Root secret keys are written to files, one per root, and the terminal sees
-only their public halves and a commitment digest. A key echoed to a
-terminal is a key in a scrollback buffer, a terminal multiplexer's capture
-file, and whatever CI collected the job log — and a root key that leaked at
-generation time cannot be rotated, because it is the thing the chain's
-identity is built on.
-
-\subsection{bin/genesis.rs}
-Genesis file generator.
-
-Produces the \texttt{genesis.json} every node on a network must share. The output
-is deterministic: the same inputs always yield the same file, the same
-genesis block id, and the same state root, so operators can diff files
-across regions to confirm the fleet agrees.
+[\texttt{crate::consensus::ChainConfig}] carries three values and every one of them
+is consensus:
 
 \begin{verbatim}
-genesis --chain-id l1-testnet-1 \
-        --timestamp 1756252800 \
-        --difficulty-bits 18 \
-        --alloc <ADDR>:1000000 \
-        --alloc <ADDR>:500000 \
-        --out genesis.json
+| Field | What a per-host override does |
+|---|---|
+| `verify_pow` | `false` makes a node that accepts **any** block |
+| `pow_limit` | a different difficulty floor is a different network |
+| `dag.activation_height` | decides which proof-of-work rule applies when |
 \end{verbatim}
 
-Timestamp defaults to now, but pin it explicitly for a real launch —
-otherwise every operator who regenerates the file gets a different chain.
+A node whose file disagrees with its peers forks — silently, and usually
+only under load. Chain rules come from \texttt{genesis.json}, which is one shared
+artefact every operator diffs against the ceremony's \texttt{COMMITMENT.txt}. That
+is the whole reason it is a distributed file rather than a local one, and
+putting any of it here would turn a typo into a chain split.
 
-\subsection{bin/miner.rs}
-Standalone ArgonBlake miner.
+The same reasoning \texttt{crates/governance/src/limits.rs} uses: the safest way to stop a
+value being set is for there to be no way to name it.
 
-Fetches a candidate header, searches for a satisfying nonce across several
-threads, and submits the solved block back to the chain.
-
-\subsubsection{On "fetches from the node"}
-
-The candidate source is abstracted behind [\texttt{CandidateSource}], but only the
-in-process [\texttt{LocalSource}] is implemented today. A miner in a *separate*
-process cannot share the node's storage: RocksDB takes an exclusive lock on
-its directory, so two processes cannot open the same database. Connecting a
-remote miner therefore requires an RPC endpoint (\texttt{getblocktemplate} /
-\texttt{submitblock}), which this node does not yet expose. The trait is where that
-implementation slots in; nothing else here changes.
-
-\subsubsection{Usage}
+\subsubsection{Precedence}
 
 \begin{verbatim}
-miner --state ./chain-data --blocks 5 --bits 10 --threads 4
+command-line flag  >  config.toml  >  compiled default
 \end{verbatim}
 
-\texttt{--bits} sets the genesis difficulty as a count of required leading zero
-bits. Each attempt costs a 32 MiB Argon2id pass (tens of milliseconds), so
-expected time is roughly \texttt{2\textasciicircum{}bits × 30ms ÷ threads}. Values above \textasciitilde{}16 are not
-practical on one machine.
+A flag beats the file so an operator can override one setting for one run
+without editing state that outlives the run — which is what people actually
+do at three in the morning.
 
-\subsection{bin/node.rs}
-L1 node daemon.
+\subsubsection{Unknown keys are an error}
 
-Loads a genesis file, opens persistent state, joins the P2P mesh, serves
-JSON-RPC, and optionally mines.
-
-\begin{verbatim}
-node --genesis /config/genesis.json \
-     --data-dir /data \
-     --rpc-addr 0.0.0.0:8545 \
-     --p2p-port 30333 \
-     --bootnode /dns4/seed-node/tcp/30333 \
-     --mine --threads 2
-\end{verbatim}
-
-\subsubsection{Node identity}
-
-The libp2p keypair is persisted at \texttt{<data-dir>/node\_key}. A seed node that
-regenerated its identity on restart would change its \texttt{PeerId} and invalidate
-every bootnode address pointing at it, so the key is written once and reused.
-
-\subsection{bin/peerid.rs}
-Prints the \texttt{PeerId} of a node identity, generating one if asked.
-
-\subsubsection{Why this exists}
-
-Cross-region bootnode multiaddrs name the peer they expect:
-
-\begin{verbatim}
-/dns4/seed-0-eu.p2p.example.com/tcp/30333/p2p/12D3KooW...
-\end{verbatim}
-
-Without the \texttt{/p2p/} component a dial cannot be authenticated — the node
-connects to whatever answers on that address and learns its identity
-afterwards, which is exactly the opening a DNS hijack needs. But the \texttt{PeerId}
-is derived from a key the pod would normally create on its own first boot,
-long after the manifests naming it were written.
-
-This breaks that circle. An operator generates the nine seed identities up
-front, reads their \texttt{PeerId}s here, writes them into the overlays, and ships
-the keys as Secrets.
-
-\begin{verbatim}
-# Generate a seed identity and print who it will be.
-peerid --data-dir ./seeds/eu-0 --create
-
-# Read the identity of a key that already exists.
-peerid --key ./seeds/eu-0/node_key
-\end{verbatim}
+\texttt{deny\_unknown\_fields} on every struct. A typo like \texttt{p2p\_prot = 30333} would
+otherwise be silently ignored and the node would listen on the default,
+which is the failure mode where the config *looks* applied and is not.
 
 \subsection{consensus/chain.rs}
 Block index, fork choice, and chain reorganization.
@@ -199,6 +101,10 @@ If applying the new branch fails partway — an invalid transaction in a block
 a peer sent — the chain must not be left straddling two branches. Everything
 applied so far is rolled back and the original branch is restored before the
 error is returned, so a failed reorg is a no-op rather than corruption.
+
+\subsection{consensus/chain/store.rs}
+The persistent half of [\texttt{Chain}]: opening a stored chain, importing headers
+ahead of their bodies, adopting a snapshot, and pruning.
 
 \subsection{consensus/difficulty.rs}
 Difficulty retargeting and cumulative chain work.
@@ -345,6 +251,55 @@ The voter's weight is read from chain state at the height the vote lands —
 their locked stake plus their decayed work credit. A ballot that carried its
 own weight would be a ballot whose weight the voter chose.
 
+\subsection{core/htlc\_payload.rs}
+The wire forms of the lattice HTLC transitions.
+
+Three actions, and the split between them is who bears a failure. A lock is
+the sender's own transaction, so a bad one — no balance, an expiry already
+past — is an error. A claim and a refund are not: they race each other at
+the expiry boundary as a matter of course, and the loser of that race must
+not void the block the winner is in. See \texttt{crate::state::htlc\_exec}.
+
+Sizes: a lock carries a 4,448-byte commitment and a claim a 1,408-byte
+opening. Both are smaller than the 11,165-byte hybrid signature on the same
+transaction, so HTLC-L does not change what bounds a block.
+
+\subsection{core/identity\_payload.rs}
+The wire forms of the identity transitions.
+
+\subsubsection{Rotation is authorised by the key it replaces}
+
+That is the whole security argument, and it needs no new cryptography. A
+transaction is already signed by a hybrid pair and the sender's address is
+BLAKE3 over both halves — so a rotation transaction *sent from the subject's
+own address* is, by construction, signed by the key the document currently
+names. The new key is data inside that transaction.
+
+ML-DSA-65 is a lattice signature. The brief asked for "post-quantum lattice
+proofs" for rotation, and this is one: the proof that the old key authorised
+the new is the old key's signature over a payload naming it. A second proof
+system alongside would be another thing to get wrong for nothing.
+
+\subsubsection{Why the new key rides in the payload rather than being derived}
+
+The subject signs with the old key and names the new one. The alternative —
+deriving the next key from the current one — would make the whole chain of
+keys computable from any single one of them, which is the opposite of what
+rotation is for.
+
+\subsubsection{What none of these carry}
+
+A claim. \texttt{AnchorAttestation} carries a Merkle root; \texttt{SetRevocationBit}
+carries an index. There is no field in any of them a personal fact could go
+in, and that is checked by \texttt{tests/identity\_tests.rs} scanning committed
+state rather than by reading the types.
+
+\subsection{core/iot\_payload.rs}
+The wire forms of the IoT anchor transactions.
+
+Every layout and bound belongs to \texttt{maya-iot-anchor}; each message has one
+fixed size, so this file only slices that many bytes off the reader.
+
 \subsection{core/mod.rs}
 Core chain data structures.
 
@@ -414,6 +369,16 @@ never speak for them.
 
 [\texttt{Transaction}]: crate::core::Transaction
 
+\subsection{core/rwa\_payload.rs}
+The wire forms of the RWA transitions.
+
+Five actions, and the split between them is about who bears the cost of a
+failure. Issuance, distribution and attestation are the issuer's own
+transactions, so a bad one is an error and fails only that transaction's
+block-worth of intent. A \textbf{DvP is not}: it names a counterparty, and an
+error there would let anyone void a block by submitting a swap they know
+cannot settle. See \texttt{crate::state::rwa\_exec}.
+
 \subsection{core/sealed\_payload.rs}
 Wire forms of the two sealed-mempool transactions.
 
@@ -438,6 +403,30 @@ A committee member publishing a decryption share is doing something on the
 public record: it is attributable, it is checkable, and a member who does it
 wrong should be identifiable afterwards. Gossiping shares off-chain would be
 cheaper and would leave nothing behind.
+
+\subsection{core/suite\_tx.rs}
+Wire version 7: suite-tagged transactions — ADR-007.
+
+\begin{verbatim}
+7 ‖ inputs ‖ outputs ‖ suite:u8 ‖ pk_len:u32le ‖ pk ‖ nonce:u64le
+  ‖ has_sig:u8 [‖ sig_len:u32le ‖ sig] ‖ has_payload:u8 [‖ payload]
+\end{verbatim}
+
+Both lengths must equal the registry's for the suite — checked before the
+bytes are read, so a hostile length costs nothing — and the signing bytes
+commit to the suite id as well as the key, so a signature cannot be
+re-presented under another suite that happens to accept the same bytes.
+
+Dark until \texttt{SUITE\_ENVELOPE\_ACTIVATION\_HEIGHT}: see
+[\texttt{Transaction::verify\_at}].
+
+\subsection{core/threat\_payload.rs}
+The wire form of an attack attestation.
+
+The layout and every bound belong to \texttt{maya-threat-intel}; this file only
+slices the transaction reader so that crate sees exactly one attestation.
+The header is read first and the declared length checked against the
+evidence cap before a byte of evidence is read.
 
 \subsection{core/transaction.rs}
 Transactions and their hybrid ML-DSA-65 + SLH-DSA-SHA2-128s authorization.
@@ -469,6 +458,14 @@ hash-based proof check out. There is no single-signature frame, no optional
 second half, and no wire version that accepts one: a transaction with one
 valid signature is exactly as rejected as a transaction with none.
 [\texttt{crate::crypto::hybrid}] explains why that is worth 11 kilobytes.
+
+\subsubsection{Suite-tagged transactions (wire version 7)}
+
+ADR-007's envelope: one signature under the suite its id names, carried in
+[\texttt{Transaction::suite\_auth}], encoded by [\texttt{crate::core::suite\_tx}]. Dark:
+[\texttt{Transaction::verify}] refuses every one, and only
+[\texttt{Transaction::verify\_at}] at or past \texttt{SUITE\_ENVELOPE\_ACTIVATION\_HEIGHT}
+(\texttt{u64::MAX}) can accept one. The hybrid fields are unused on such a frame.
 
 \subsection{crypto/argon\_blake.rs}
 ArgonBlake: a memory-hard hybrid proof-of-work hash.
@@ -513,7 +510,7 @@ than the build host.
 
 The only remaining lever would be replacing the Argon2 implementation, which
 would change the digest. That is a hard fork: see
-\texttt{argon\_blake\_matches\_the\_frozen\_known\_answer} in \texttt{crates/node/tests/crypto\_tests.rs}.
+\texttt{argon\_blake\_matches\_the\_frozen\_known\_answer} in \texttt{tests/crypto\_tests.rs}.
 
 \subsubsection{Why the salt is derived, not random}
 
@@ -531,7 +528,7 @@ derived from.
 
 A miner needs the full 4 GiB dataset resident, because it reads pages of it
 at random and recomputing one on demand would cost far more than the memory
-it saves. A *validator* reads only [\texttt{ACCESSES}] pages per block, so it can
+it saves. A *validator* reads only [\texttt{ACCESSES}](super::ACCESSES) pages per block, so it can
 afford to recompute each one — and recomputing needs nothing but this
 \textasciitilde{}64 MiB cache.
 
@@ -680,13 +677,13 @@ constant rather than a moving deadline.
 \subsubsection{Hashing primitive}
 
 BLAKE3 throughout, where Ethash uses Keccak. It is already the chain's hash
-(\texttt{crates/node/src/core/block.rs:76}, \texttt{crates/node/src/crypto/argon\_blake.rs:84}), so this adds no
+(\texttt{src/core/block.rs:76}, \texttt{src/crypto/argon\_blake.rs:84}), so this adds no
 dependency and no second primitive to audit.
 
 Domain separation uses derived keys rather than \texttt{Hasher::new\_derive\_key} in
 the hot loop: \texttt{new\_derive\_key} re-hashes the context *string* on every call,
 and dataset generation makes on the order of 10⁸ of them. The context is
-hashed once into a 32-byte key ([\texttt{cache\_key}], [\texttt{item\_key}], [\texttt{mix\_key}])
+hashed once into a 32-byte key (\texttt{cache\_key}, \texttt{item\_key}, \texttt{mix\_key})
 and keyed hashing is used thereafter, which is one compression per call.
 
 \subsection{crypto/dag/params.rs}
@@ -861,12 +858,10 @@ is bulk and speed, both of which are real:
 \subsubsection{Scope of the guarantee}
 
 This module makes *transparent transaction authorization* quantum-resistant.
-It does not make the chain post-quantum. The shielded pool proves joinsplits
-with Groth16 over BLS12-381 (see \texttt{maya\_zk\_privacy::prove}), a pairing-based
-system whose soundness rests on discrete log. A quantum adversary that cannot
-forge a transfer under this module can still forge a shielded proof and mint
-hidden supply. Replacing that proof system is separate work, and until it
-happens the chain's post-quantum security is the weaker of the two halves.
+The shielded pool's half is \texttt{maya\_zk\_stark::pool}: a hash-based STARK with no
+setup (ADR-008), replacing the Groth16 pool whose pairing-based soundness a
+quantum adversary could break. What that half still lacks is an independent
+audit of its circuit — \texttt{CIRCUIT\_IS\_AUDITED} — not a post-quantum argument.
 
 \subsubsection{Deterministic signing}
 
@@ -952,6 +947,17 @@ when, interpreted as a big-endian integer, it is less than or equal to that
 threshold. Because both values are 32 bytes, lexicographic byte comparison
 is exactly integer comparison — no bignum arithmetic required.
 
+\subsection{crypto/suites.rs}
+The node's side of ADR-007: suite ids, addresses, and the activation gate.
+
+The registry, the envelope and the migration engine live in
+\texttt{maya\_crypto\_pq}; this module is the thin layer that decides *when* the
+chain accepts them. Until [\texttt{SUITE\_ENVELOPE\_ACTIVATION\_HEIGHT}] every
+suite-tagged transaction is refused, so the v5/v6 hybrid format stays the
+only one any block can contain.
+
+[\texttt{SUITE\_ENVELOPE\_ACTIVATION\_HEIGHT}]: crate::state::context::SUITE\_ENVELOPE\_ACTIVATION\_HEIGHT
+
 \subsection{error.rs}
 Error types for the node.
 
@@ -976,7 +982,7 @@ Reproducibility here rests on three things:
   different ids can never share a genesis block, and a block mined for one
   cannot be replayed onto the other.
 
-\subsection{crates/governance/mod.rs}
+\subsection{governance/mod.rs}
 On-chain governance: what the chain stores about proposals, stake, and the
 rules currently in force.
 
@@ -1010,10 +1016,10 @@ collects the whole subsystem — which is what lets it fold into the state
 root as a single layer and journal into the undo record with no new section
 at all.
 
-\subsection{crates/governance/record.rs}
+\subsection{governance/record.rs}
 What the chain stores about proposals, stake, and the rules in force.
 
-\subsection{crates/governance/work.rs}
+\subsection{governance/work.rs}
 Recent hash power, as a number the chain can hold.
 
 \subsubsection{The problem this solves}
@@ -1056,6 +1062,37 @@ every [\texttt{WORK\_HALF\_LIFE\_BLOCKS}]. Halving is exact in integer arithmeti
 it is a shift — where a fractional decay would need a rounding rule, and a
 rounding rule in voting weight is a bias in whichever direction it falls.
 
+\subsection{iso20022\_bridge.rs}
+The chain side of the ISO 20022 bridge: bank accounts to chain addresses,
+and committed state back to a statement.
+
+\texttt{maya\_iso20022} deliberately knows nothing about blocks. This module is the
+other half of that seam — it is where a [\texttt{PaymentIntent}] becomes something
+the chain can hold, and where committed state becomes a \texttt{camt.053} a
+counterparty can reconcile against.
+
+\subsubsection{Virtual accounts}
+
+A bank account has no Maya2C keypair. So each one is mapped to an address
+\textbf{derived} from its list identifier rather than generated: the same IBAN
+always maps to the same address, on every node, without anybody storing a
+table. That matters twice over — a table is state that can disagree between
+nodes, and a table is a thing an operator can edit to redirect a payment.
+
+Nobody holds the private key to a derived address, which is the point:
+value at one moves only through the bridge, because there is no signature
+that could move it any other way. It also means value there is
+\textbf{unrecoverable} if the bridge is switched off, which is stated here rather
+than discovered.
+
+\subsubsection{What a statement is drawn from}
+
+[\texttt{StatementSource::for\_block}] reads a committed block only. It never reads
+an overlay, a mempool, or a block that has not applied — a
+statement is what a bank reconciles against, and reporting a payment that a
+reorg then removes is worse than reporting it late. Every entry it renders
+is \texttt{BOOK}, because there is no other status a committed block can produce.
+
 \subsection{metrics/mod.rs}
 Prometheus instrumentation.
 
@@ -1094,6 +1131,53 @@ surface on an endpoint that carries operational data.
 
 Hyper is used directly rather than a framework because the node already
 pulls it in through jsonrpsee, so this costs no new dependency.
+
+\subsection{network/behaviour.rs}
+Composed network behaviour: gossipsub, Kademlia, and identify.
+
+The three compose deliberately:
+
+- \textbf{gossipsub} broadcasts blocks and transactions.
+- \textbf{kad} provides dynamic peer discovery so the mesh is not statically
+  configured.
+- \textbf{identify} is what makes Kademlia usable in practice: a peer learns its
+  dialable addresses from what other peers observe, and those addresses are
+  what get inserted into the routing table. Without it, Kademlia knows peer
+  IDs it has no way to reach.
+
+\subsection{network/evidence\_tap.rs}
+Carries each inbound gossip message's author signature to the driver, so a
+rejected message can become evidence.
+
+Gossipsub checks the signature in its codec — Strict mode, before the
+behaviour sees the message — and then drops it: the [\texttt{Message}] handed to
+the application has no signature field. This [\texttt{DataTransform}], the one hook
+that sees the [\texttt{RawMessage}], puts the signature in front of the message
+data, and the driver takes it off again with [\texttt{split}].
+
+In the message rather than in a table beside it, on purpose. A table keyed
+by author and sequence number is shared state that a flood of validly signed
+messages can evict before the driver claims an entry, which silently turns
+evidence capture off. A signature riding inside its own message cannot be
+evicted, is gone once the message is judged, and exists only for messages
+gossipsub actually delivers.
+
+Nothing else changes. Gossipsub's default message id is the author plus the
+sequence number, never the data, and forwarding uses the raw message, not
+this one.
+
+\subsection{network/gossip\_score.rs}
+Gossipsub's own peer scoring, configured to punish what is provable and
+nothing else.
+
+[\texttt{crate::network::peer\_health}] decides quarantine. This is the second,
+cheaper layer: gossipsub keeps a score per peer for mesh management, and a
+peer below its thresholds stops receiving gossip from us, then stops being
+heard (graylisting). Left at its defaults it would also score *quietness* —
+mesh delivery deficits, time in mesh, slow delivery — and a quiet or distant
+honest peer would sink. So those components are switched off and only P4,
+invalid message deliveries, carries weight: a peer loses score here only for
+messages this node rejected.
 
 \subsection{network/identity.rs}
 The persisted libp2p identity.
@@ -1146,6 +1230,106 @@ A node owns a libp2p \texttt{Swarm} and a [\texttt{Mempool}]. Because a \texttt{
 task and is controlled through an mpsc command channel; observers subscribe
 to a broadcast channel of [\texttt{NodeEvent}]. That keeps all swarm access on one
 thread while still letting many callers publish and watch.
+
+\subsection{network/node/build.rs}
+Building a [\texttt{Node}]: the transport, the upgrade chain, and the swarm.
+
+Split from \texttt{node.rs} to keep that file within the project's size limit, as
+\texttt{guard.rs} and \texttt{relay.rs} were. A child module, so it can fill in the node's
+private fields.
+
+\subsection{network/node/guard.rs}
+The driver's half of the peer guard: gossip verdicts, quarantine, and block
+sync.
+
+What is scored, and why lateness and double proposals are not, is in
+[\texttt{crate::network::peer\_health}]. The fetch protocol and its bounds are in
+[\texttt{crate::network::sync}]. Split from \texttt{node.rs} to keep that file within the
+project's size limit; it is a child module so it can reach the driver's
+private state.
+
+\subsection{network/node/relay.rs}
+The driver's half of the block relay.
+
+The relay itself — sealed chunks, the XDP program, AF\_XDP — is
+\texttt{maya\_ebpf\_net}; the key exchange is [\texttt{crate::network::relay\_key}]. This
+module joins them to the node:
+
+- agrees keys on each new connection, and forgets a peer's keys when its
+  last connection closes;
+- seals a published block into datagrams for every keyed peer, on the
+  blocking pool rather than the swarm task;
+- takes reassembled bodies from the receive path and hands them to
+  [\texttt{NodeDriver::gossiped\_block}], the function a gossiped block reaches;
+- mirrors peer-guard quarantines into the XDP blocklist.
+
+\subsubsection{A relay decides nothing}
+
+A relayed body is validated by the same code as a gossiped one and emits the
+same [\texttt{NodeEvent::BlockReceived}]. The only rule here that gossip lacks is
+framing: a peer that names one block id and delivers another is scored,
+because an honest sender never does and a dishonest one could otherwise
+re-deliver one body under endless fresh ids.
+
+\subsubsection{One hop}
+
+A node relays the blocks it publishes and never re-relays one it received.
+Gossip carries a block onward after validating it; a relay that forwarded
+on receipt would turn one block into thousands of datagrams per hop ahead
+of any validation.
+
+\subsection{network/node/threat.rs}
+The driver's half of the threat-intel registry: turning a rejected gossip
+message into evidence, and remembering where peers connected from.
+
+Split from \texttt{node.rs} for size, as \texttt{guard.rs} and \texttt{relay.rs} were.
+
+The node emits evidence; it never submits it. Submitting needs a funded
+chain key, and the node holds none — so an operator's tool, or a test, turns
+[\texttt{NodeEvent::AttackEvidence}] into a signed \texttt{TxKind::AttestAttack}.
+
+\subsection{network/peer\_health.rs}
+Evidence that a peer is Byzantine, and quarantine.
+
+\subsubsection{What counts}
+
+Only what a peer is provably responsible for. With gossip validation on
+(\texttt{behaviour.rs}), an honest node forwards a message only after it checked
+it, so a message that fails the same stateless check came from a peer that
+either wrote it or relayed it unchecked. Either is the peer's fault.
+
+\begin{verbatim}
+| Offence | Evidence | Weight |
+|---|---|---|
+| [`Offence::MalformedFrame`] | gossip bytes that do not decode | 25 |
+| [`Offence::InvalidSignature`] | a transaction whose hybrid signature fails | 50 |
+| [`Offence::TxRootMismatch`] | a block body that disagrees with its header — invariant 24's relay substitution | 50 |
+| [`Offence::InvalidBlock`] | a block the chain refuses for a reason inside the block | 50 |
+| [`Offence::BadSyncResponse`] | a sync answer carrying blocks nobody asked for, or undecodable ones | 50 |
+\end{verbatim}
+
+\subsubsection{What does not, and why}
+
+- \textbf{Late block propagation.} A distant honest peer is late, and scoring
+  lateness would let an attacker get honest peers quarantined by being
+  closer — the first step of an eclipse. It is recorded for monitoring
+  ([\texttt{PeerHealth::observe\_latency}]) and never scored.
+- \textbf{Double proposals.} A proof-of-work block has no proposer. Two blocks at
+  one height are a fork, forks are normal, and relaying both is honest.
+- \textbf{Transactions refused for state reasons} — a stale nonce, an
+  insufficient balance, a full pool. Honest relays race each other, so these
+  are \texttt{Ignore}, not \texttt{Reject}.
+- \textbf{Unknown parents.} A block whose parent has not arrived is out of order,
+  not wrong.
+
+\subsubsection{Quarantine}
+
+A score decays with a half-life. Crossing [\texttt{GuardConfig::quarantine\_score}]
+quarantines the peer: the driver blacklists it in gossipsub (every message
+it relays or authored is dropped), blocks its connections, and disconnects
+it. Quarantine expires, because a node that bans forever eventually bans an
+honest peer that was briefly misconfigured; each repeat doubles the length
+up to a cap. This is all node-local and changes no consensus rule.
 
 \subsection{network/pq/dual.rs}
 \begin{framed}\noindent\textbf{Status.} This module ships disabled. It is reachable only when an operator opts in, and a stock node behaves as though it were absent.\end{framed}
@@ -1208,7 +1392,7 @@ property rather than inventing it.
 
 \subsubsection{Why the context string changes}
 
-[\texttt{KDF\_CONTEXT}] is not the single-KEM one. If both protocols derived under
+\texttt{KDF\_CONTEXT} is not the single-KEM one. If both protocols derived under
 the same context, a dual session and an ML-KEM-only session that happened to
 share an ML-KEM transcript would derive related keys, and the second KEM
 would be contributing nothing at exactly the moment it was supposed to
@@ -1269,7 +1453,7 @@ failing to authenticate.
 Handshake cost measurement: bytes on the wire, segments, and wall clock.
 
 \textbf{Test and benchmark infrastructure.} It lives in the library rather than
-in \texttt{crates/node/tests/} for the same reason [\texttt{crate::network::sim}] does: an integration
+in \texttt{tests/} for the same reason [\texttt{crate::network::sim}] does: an integration
 test cannot reach a \texttt{\#[cfg(test)]} item. Nothing on a production path calls
 any of it.
 
@@ -1288,7 +1472,7 @@ asserting that threshold would be worse than no test:
   CI runner.
 
 So this reports. [\texttt{Measurement}] carries the numbers; the caller decides
-what to make of them, and \texttt{crates/node/tests/dualkem\_latency\_tests.rs} prints a table.
+what to make of them, and \texttt{tests/dualkem\_latency\_tests.rs} prints a table.
 
 \subsubsection{The number that actually matters, and the trap in it}
 
@@ -1449,14 +1633,88 @@ Every length is checked against [\texttt{MAX\_FRAME\_LEN}] before a single byte 
 allocated, mirroring the discipline in [\texttt{crate::core::codec}]. A peer that
 announces a 4 GiB frame gets an error, not an allocation.
 
+\subsection{network/radio\_gateway.rs}
+The node side of the radio link: headers out, headers in, and a relay
+queue in between.
+
+\subsubsection{Why this is a gateway and not a libp2p transport}
+
+The plan for this subsystem was a \texttt{TransportKind::Radio} beside \texttt{Memory} and
+\texttt{Tcp}. Working through the link budget says it should not be, and the reason
+is worth writing down rather than discovering later.
+
+A libp2p connection opens with multistream-select, a Noise handshake and a
+yamux negotiation. Maya2C's Noise is ML-KEM-768: a 1,184-byte encapsulation
+key and a 1,088-byte ciphertext, before any protocol negotiation and before
+one byte of payload. At SF12 the link carries 26 bytes of fountain payload
+per frame and each frame costs 2.47 seconds of airtime against a 1\% duty
+cycle — roughly 246 seconds of enforced silence apiece.
+
+That handshake is therefore \textbf{hours}, repeated per connection, to move a
+144-byte header. A transport that cannot complete its own handshake inside
+the useful lifetime of what it carries is not a transport.
+
+So the radio path is a gateway: it takes headers from the chain, puts them
+on the air as fountain symbols, takes symbols off the air, and hands
+recovered headers back. No session, no negotiation, no per-peer state that
+has to survive a week of intermittent contact. This is the shape every
+working LoRa mesh converges on, and it is what the architecture vision meant
+by "low-bandwidth header relay".
+
+\subsubsection{A gateway decides nothing}
+
+\texttt{docs/architecture-vision.md} §3: a transport may not change consensus. So
+this module hands a recovered header to exactly the code a TCP peer's header
+reaches, and there is no branch anywhere that asks how it arrived. The one
+thing it may do is *refuse to carry* — airtime is finite and somebody has to
+choose — and that choice is by height, which is public and not a judgement
+about validity.
+
+\subsection{network/relay\_key.rs}
+Relay key exchange: two contributions over a connection that is already
+authenticated and post-quantum sealed.
+
+The block relay (\texttt{maya\_ebpf\_net}) seals every chunk under a per-peer key.
+That key needs three things: nobody but the two peers knows it, it binds the
+peer the connection authenticated, and it is fresh for each connection. The
+libp2p connection already gives the first two — Noise authenticates the
+\texttt{PeerId}, and the ML-KEM layer makes what crosses it confidential against a
+recording adversary — so the exchange rides on it rather than inventing a
+handshake:
+
+\begin{verbatim}
+lower PeerId                          higher PeerId
+RelayKeyRequest { contribution, port } ──►
+                                      ◄── RelayKeyResponse { contribution, port }
+both: derive_keys(request, response, requester id, responder id)
+\end{verbatim}
+
+Only the peer with the lower id asks, so two nodes that dial each other at
+once do not run two exchanges and end up holding different keys.
+
+\subsubsection{Where datagrams go}
+
+A peer names a \textbf{port}, never an address. Relay datagrams are sent to the
+IP the libp2p connection came from. Letting a peer name the address would
+let it point a node's block bursts — thousands of datagrams per block — at
+a victim: reflection, with the node as the amplifier. A peer with no IP
+(the in-process memory transport) gets no relay.
+
+\subsubsection{What this does not protect}
+
+The contributions travel through the CBOR codec, which copies them into
+buffers this crate cannot zeroize. The derived keys are zeroized on drop;
+the contributions' copies in libp2p's buffers are not. They are only useful
+to someone who can already read the node's memory.
+
 \subsection{network/sim.rs}
 Network simulation support: a transport that injects latency.
 
 \textbf{This is test and benchmark infrastructure.} It lives in the library
-rather than in \texttt{crates/node/tests/} because an integration test cannot reach a
+rather than in \texttt{tests/} because an integration test cannot reach a
 \texttt{\#[cfg(test)]} item, and building a node with a modified transport requires
 a constructor the library exports. Nothing on a production path constructs a
-[\texttt{DelayTransport}], and [\texttt{crate::network::Node::new\_memory}] is unaffected.
+\texttt{DelayStream}-wrapped transport, and [\texttt{crate::network::Node::new\_memory}] is unaffected.
 
 \subsubsection{What it is for}
 
@@ -1486,8 +1744,76 @@ A passing run here is evidence that latency alone does not break
 propagation. It is not evidence that the protocol survives a bad network,
 and the tests that use it say so.
 
+\subsection{network/sync.rs}
+Block sync: fetching a missing parent from the peer that relayed its child.
+
+The one repair a peer can need that proof of work does not already give.
+A node's state cannot be corrupted by a peer — every block is validated and
+its state root checked (invariant 24) — but a node that received a child
+before its parent holds an orphan until the parent arrives, and gossip does
+not resend history. So the importer asks the relay for the missing ids, and
+whatever comes back goes through \texttt{Chain::insert\_block} like any other block:
+the heavier valid chain wins, and a lie is refused and scored.
+
+There are no "consensus proofs" beyond that. A set of honest nodes vouching
+for a state would need a known committee, and on an open proof-of-work
+network a vote is free to forge. Work is the proof.
+
+\subsubsection{Bounds}
+
+Requests carry at most [\texttt{MAX\_BLOCKS\_PER\_REQUEST}] ids. A response stops
+adding blocks at [\texttt{MAX\_RESPONSE\_PAYLOAD}] bytes and is refused on the wire
+past [\texttt{MAX\_RESPONSE\_BYTES}]. Each peer may ask [\texttt{REQUESTS\_PER\_WINDOW}] times
+per [\texttt{REQUEST\_WINDOW}]; beyond that it is answered with nothing.
+
 \subsection{network/topics.rs}
 Gossip topic identifiers.
+
+\subsection{neural\_gas/features.rs}
+Extracting the six features from a block.
+
+Q16 fixed point throughout, each clamped to \texttt{±4.0}. The order is
+consensus once the rule activates, and it matches \texttt{fee-market}'s
+\texttt{model::Feature}:
+
+\begin{verbatim}
+| Index | Feature | Definition |
+|---|---|---|
+| 0 | fullness | block bytes / target |
+| 1 | mean transaction size | (block bytes / transactions) / 16 KiB |
+| 2 | access overlap | transactions naming an account another transaction names / transactions |
+| 3 | fuel per byte | Σ declared `gas_limit` / block bytes / 1,000 |
+| 4 | cross-shard | transactions whose accounts fall in more than one shard / transactions |
+| 5 | size trend | (block bytes − previous block bytes) / target, signed |
+\end{verbatim}
+
+\subsection{neural\_gas/mod.rs}
+Block features for the neural base-fee gain.
+
+The network and the fee rule live in \texttt{fee-market} (\texttt{src/model/},
+\texttt{src/rule.rs}), which nothing in this crate links: \texttt{tests/fee\_market\_tests.rs}
+fails if any file under \texttt{src/} names that crate, and it stays true here.
+This module does the half that needs chain types — reading a block — and
+hands back six integers. The fee market's research branch reads them; no
+consensus path calls either side. \texttt{tests/neural\_fee\_tests.rs} pins the
+constants the two halves share.
+
+\subsubsection{What the brief asked for, and what a validator can compute}
+
+Every feature is a function of the block and nothing else: no clock, no
+allocator, no node-local measurement. A fee that depended on something one
+node measured differently from another would split the chain, for the reason
+invariant 28 gives about the breaker.
+
+\begin{verbatim}
+| Brief | Here |
+|---|---|
+| tx size | mean transaction size and block fullness |
+| state access overlap | accounts named by more than one transaction — the static access set, because execution builds one merged overlay per block and tracking per-transaction reads would allocate in the hot loop (execution directive 3) |
+| memory allocation depth | **not computable deterministically**; replaced by declared contract fuel per byte |
+| inter-shard dependencies | transactions whose accounts span more than one `blockgraph` shard. Hypothetical: no shards execute |
+| historical DAG vertex metrics | the DAG here is the proof-of-work dataset, not a transaction graph; the features describe the parent block |
+\end{verbatim}
 
 \subsection{oracle/beacon.rs}
 The randomness beacon.
@@ -1637,6 +1963,52 @@ the *current* set, the same threshold that moves a price. There is no
 separate admin key, because a separate admin key is a single point of
 failure sitting above a construction built to avoid one.
 
+\subsection{rpc/bootstrap.rs}
+Serving and fetching what a pruned node bootstraps from, over JSON-RPC.
+
+Server: \texttt{get\_tip\_height}, \texttt{get\_headers}, \texttt{get\_snapshot\_manifest} and
+\texttt{get\_snapshot\_chunk}, next to the existing \texttt{get\_block\_by\_height}.
+Client: [\texttt{RpcBootstrapSource}], a
+[\texttt{crate::state\_pruner::snapshot::BootstrapSource}] over those methods.
+
+JSON-RPC rather than a libp2p protocol for now, as \texttt{backfill\_loop} already
+does for history. Nothing here is trusted: the bootstrap validates every
+header, checks every chunk against the manifest, and checks the imported
+state against the header's root.
+
+\subsection{rpc/limit.rs}
+Per-peer RPC rate limiting.
+
+\subsubsection{Why this exists}
+
+Before it, there was no rate limiting anywhere in \texttt{src/rpc} or
+\texttt{src/network}. A \texttt{config.toml} field naming a limit over code that did not
+enforce one would be worse than no field at all: an operator reads it, sets
+it, and believes they are protected.
+
+\subsubsection{What it protects against, and what it does not}
+
+It bounds how fast \textbf{one address} can make this node work. That is the
+cheap attack: a single client issuing \texttt{get\_block\_by\_height} in a loop makes
+a node read and serialise blocks instead of validating them, and costs the
+attacker almost nothing.
+
+It is \textbf{not} a defence against a distributed flood. A thousand addresses at
+the limit each are a thousand times the limit, and no per-peer bucket can
+see that. That needs a global ceiling or something in front of the node, and
+\texttt{maya-api-gateway} is the layer where that belongs.
+
+Stating the boundary matters more than the feature: a limiter described as
+"rate limiting" without it invites someone to treat the node's RPC as
+publicly exposable, which it is not.
+
+\subsubsection{A token bucket, not a fixed window}
+
+A fixed window admits twice the rate across a boundary — 50 requests at
+0.999 s and 50 more at 1.001 s is 100 in two milliseconds, and every
+attacker knows it. A bucket refills continuously, so the sustained rate is
+the sustained rate and the burst is stated explicitly.
+
 \subsection{rpc/market.rs}
 Market-data endpoints for listing aggregators.
 
@@ -1723,6 +2095,8 @@ JSON-RPC interface.
 | `get_mining_candidate` | `[]` | [`types::MiningCandidate`] |
 | `submit_block` | `[block_hex]` | [`types::SubmitBlockResult`] |
 | `get_supply` | `[]` | [`market::SupplyReport`] |
+| `threat_indicators` | `[]` | `Vec<`[`types::ThreatIndicatorInfo`]`>` |
+| `threat_peer_addresses` | `[]` | `Vec<`[`types::PeerAddressInfo`]`>` — only with [`RpcContext::with_peers`] |
 \end{verbatim}
 
 \texttt{submit\_block} is the counterpart to \texttt{get\_mining\_candidate}: a candidate a
@@ -1741,6 +2115,19 @@ Argon2id pass that would stall the reactor, so it runs on a blocking thread.
 The chain sits behind a \texttt{Mutex} because fork choice mutates it and the reorg
 path must be serialized — two concurrent reorgs would interleave undo
 journals and corrupt state.
+
+\subsection{rpc/types.rs}
+JSON-RPC wire types.
+
+These are deliberately *not* \texttt{serde} derives on the core consensus structs.
+The consensus encoding is a hash preimage: changing a field name or ordering
+there changes block and transaction hashes. Keeping the JSON representation
+in its own layer lets the API evolve — renamed fields, added conveniences
+like \texttt{height} — without touching anything a signature or proof-of-work
+commits to.
+
+Byte arrays cross the wire as lowercase hex strings, since JSON has no byte
+type and numeric arrays are both larger and harder to read.
 
 \subsection{sealed/mod.rs}
 The sealed mempool's chain state: the committee, the pending envelopes, and
@@ -1805,6 +2192,45 @@ coins" in one place and "base units" everywhere else is how a listing ends
 up wrong by a power of ten. How a wallet chooses to render an asset is the
 wallet's business.
 
+\subsection{state/blocks.rs}
+The block store: every block this node has accepted, kept in the same
+RocksDB as state.
+
+\subsubsection{Why it exists}
+
+Until 2026-09-12 no block was persisted anywhere. \texttt{Chain} held every block
+in memory, and RocksDB held only the current state and the undo journals. A
+node that had applied one block could not restart. On boot \texttt{seed\_state}
+rewrote the genesis allocations over the evolved state, the genesis root
+check then failed, and \texttt{Chain::new} rebuilt from genesis alone.
+
+\subsubsection{Why the same database}
+
+A block's canonical-index entry and the tip pointer are written in the
+**same \texttt{WriteBatch}** as the state that block produced (see
+\texttt{StateDB::apply\_canonical} and \texttt{StateDB::revert\_canonical}). A crash can
+therefore never leave state at one block and the tip at another. A second
+database would need a two-phase commit to promise that.
+
+\subsubsection{Layout}
+
+\begin{verbatim}
+| Key | Value |
+|---|---|
+| `blk:h:<id>` | header (144 B) ‖ height (u64 LE) ‖ cumulative work (U256 BE) |
+| `blk:b:<id>` | the block's wire encoding |
+| `blk:n:<height BE>` | id of the active-chain block at that height |
+| `blk:meta` | genesis id ‖ tip id ‖ prune horizon (u64 LE) |
+\end{verbatim}
+
+Headers stay for every block, forever: 144 bytes each, carrying the
+\texttt{state\_root} and \texttt{tx\_root} a pruned body is verified against. Bodies and
+undo journals are what \texttt{state\_pruner} removes.
+
+Every key here is under
+[\texttt{BLOCK\_STORE\_PREFIX}](crate::state::commitments::BLOCK\_STORE\_PREFIX), which is local-only: never
+in the state root and never carried in a snapshot.
+
 \subsection{state/channel.rs}
 On-chain payment channel records.
 
@@ -1834,6 +2260,26 @@ chain stores that one hash. A victim punishes fraud by supplying the
 preimage, which they only possess because the closer handed it over when
 advancing past that state. Storing the secrets themselves would grow
 on-chain state without bound for no gain.
+
+\subsection{state/commitments.rs}
+The two state layers that used to sit outside the state root: contracts
+and the nullifier set.
+
+Until 2026-09-11 the root folded accounts, channels, trading, oracle,
+governance, the sealed mempool and the shielded pool, and nothing else. Two
+things RocksDB persisted were missing:
+
+- \textbf{Contract code and storage} (\texttt{code:}, \texttt{cstate:}). Two nodes could
+  disagree about a contract's storage and agree on every state root. That
+  hid the divergence until it reached a balance.
+- \textbf{The nullifier set} (\texttt{null:}). The pool's Poseidon root commits to the
+  notes that exist, not to which of them were spent. A state snapshot that
+  left a nullifier out would have verified against the root, and the node
+  that loaded it would accept a second spend of that note.
+
+Both fold in the way every other layer does: only when non-empty, so a chain
+that never deployed a contract and never spent a note keeps the root it
+always had.
 
 \subsection{state/context.rs}
 Execution context for a block.
@@ -1942,9 +2388,9 @@ stated here and repeated at each site.
 
 \subsubsection{When a swap actually happens}
 
-Not where it sits in the block. [\texttt{StateDB::stage\_swap}] takes the trader's
+Not where it sits in the block. \texttt{StateDB::stage\_swap} takes the trader's
 input into escrow and adds them to that pool's batch; every batch settles in
-[\texttt{StateDB::settle\_trading}] once the whole block has been staged, at one
+\texttt{StateDB::settle\_trading} once the whole block has been staged, at one
 price per pool. See [\texttt{maya\_dex::batch}] for what that buys and what it does
 not.
 
@@ -1961,7 +2407,7 @@ ordinary transactions with an immediate effect, and one that fails is one
 somebody built wrong.
 
 \textbf{Rule changes do not.} Finalizing a closed vote and applying a passed
-proposal both happen in [\texttt{StateDB::settle\_governance}], once, at the end of
+proposal both happen in \texttt{StateDB::settle\_governance}, once, at the end of
 the block, in proposal-identifier order. Two reasons, and the first is
 fatal:
 
@@ -1981,6 +2427,328 @@ to remove the checks that would have let anyone react.
 
 It cannot reach native code at all. There is no key whose value is a
 program.
+
+\subsection{state/htlc.rs}
+Lattice HTLC records in the state, and their place in the root.
+
+Invariant 25: one prefix in \texttt{RECORD\_LAYERS}, one
+[\texttt{StateLayer}](crate::state::proof::StateLayer), and the undo journal covers
+everything written through \texttt{put\_record}. The layer folds only when
+non-empty, so a chain with no locks keeps the root it had before HTLC-L.
+
+\begin{verbatim}
+| Prefix | Holds |
+|---|---|
+| `h:lk:<lock id>` | one [`LockRecord`], including the opening once claimed |
+\end{verbatim}
+
+One record per lock rather than a record plus a revelation index: a lock
+changes exactly once after it is written, and the watcher always knows the
+lock id it is waiting on.
+
+\subsection{state/htlc\_exec.rs}
+Executing the lattice HTLC transitions: lock, claim, refund.
+
+\subsubsection{A claim or refund that loses is a no-op, never an error}
+
+Invariant 7. A claim and a refund for the same lock race each other at the
+expiry boundary as the *ordinary* case: the recipient's watcher claims late,
+the sender's watcher refunds early, and whichever is in the earlier block
+wins. If the loser were an \texttt{Err} it would void the winner's block — and a
+claim carrying a wrong opening would be a way for anyone to void any block.
+So every losing outcome returns, the nonce advances, and nothing moves.
+
+A *lock* is different. It is the sender's own transaction with no
+counterparty whose block it could void, so a lock that cannot be made is an
+error, as issuance is in \texttt{crate::state::rwa\_exec}.
+
+\subsubsection{Neither claims nor refunds are gated by the circuit breaker}
+
+[\texttt{Module::of}](crate::state::Module::of) maps them to no module. A breaker
+that halted claims for \texttt{BREAKER\_BLOCKS} while a lock's expiry passed would
+let the refund through and hand the swap to the refunder — the safety
+mechanism committing the theft. Halting *new locks* is safe, so locks are
+gated and settlement is not, which is invariant 28's rule about transfers
+applied to value already promised.
+
+\subsubsection{Permissionless}
+
+Anyone may submit a claim or a refund. A claim pays the recipient the lock
+named and a refund the sender, so the submitter chooses only *when*, and
+only inside the window the timelock already allows. That is what lets a
+watcher settle for its owner, and why copying an opening out of the mempool
+gets a front-runner nothing but the chance to pay the right party early.
+
+\subsection{state/identity.rs}
+Identity records in the state: their prefixes, and their place in the root.
+
+\subsubsection{Everything here is under the state root}
+
+Invariant 25: every persisted consensus record is under the state root, or
+it is on an explicit local-only list. These are consensus records — a
+verifier decides whether to accept a credential by reading them — so they
+get a prefix in [\texttt{RECORD\_LAYERS}](crate::state::commitments) and a
+[\texttt{StateLayer}](crate::state::proof::StateLayer) of their own, and the undo
+journal covers them for free
+because they go through \texttt{put\_record} into \texttt{overlay.records}.
+
+The layer folds only when it is non-empty, like every other. So a chain
+where nobody has registered a DID produces exactly the state root it would
+have produced before this subsystem existed — the same property invariant 11
+gives the oracle, and the reason adding identity to an existing chain is not
+a fork.
+
+\subsubsection{Three prefixes, and why they are separate}
+
+\begin{verbatim}
+| Prefix | Holds |
+|---|---|
+| `i:did:<address>` | the subject's [`DidDocument`] |
+| `i:att:<issuer><schema>` | an issuer's [`CryptographicAttestation`] |
+| `i:rev:<issuer><page>` | one [`RevocationPage`] of that issuer's bitmap |
+\end{verbatim}
+
+Separate rather than one record per issuer, because they change at different
+rates and for different reasons. A revocation is a single bit flipped by the
+issuer, possibly many times a day; an attestation root changes when the
+issuer reissues, which is rare. Folding them together would mean rewriting
+the root record — and journalling the whole of it — on every revocation.
+
+\subsection{state/identity\_exec.rs}
+Executing the identity transitions.
+
+\subsubsection{Every one of these acts on the sender's own DID}
+
+Registration, rotation and revocation take their subject from
+\texttt{Transaction::sender}, never from a field. There is no way to express "do
+this to somebody else's DID", so there is no authorisation check to get
+wrong — the signature that made the transaction valid *is* the
+authorisation, and the address it produces is the subject.
+
+That is the same construction the rest of the chain uses and it is worth
+being explicit about, because the alternative reads as harmless: a \texttt{subject}
+field plus a check that it equals the sender is one refactor away from a
+\texttt{subject} field plus a check somebody removed.
+
+\subsubsection{Rotation is the interesting one}
+
+The transaction is signed by the key the document currently names — by
+construction, since the address is BLAKE3 over that key pair. So the *old*
+key authorises the new one, which is exactly what rotation has to mean. The
+epoch must advance by exactly one, which is what stops a replayed rotation
+reinstalling a key.
+
+A revoked subject cannot rotate. Otherwise revocation would be a state a
+subject could leave, and "revoked" would mean "revoked for now".
+
+\subsubsection{Nothing here writes a claim}
+
+\texttt{AnchorAttestation} writes a root. \texttt{SetRevocationBit} flips a bit. Neither
+has a field a personal fact could travel in, and
+\texttt{tests/identity\_tests.rs} checks committed state for preimages rather than
+trusting that reading.
+
+\subsection{state/invariant\_guard/anomaly.rs}
+The anomaly checks: conditions a block may satisfy the rules and still be
+wrong about.
+
+[Conservation](super::conservation) refuses a block that creates value.
+These two refuse nothing — the block commits — and instead halt the module
+that produced the anomaly for [\texttt{BREAKER\_BLOCKS}] blocks. The split is the
+whole design: a conservation failure has no innocent reading, and an
+anomaly does.
+
+[\texttt{BREAKER\_BLOCKS}]: super::limits::BREAKER\_BLOCKS
+
+\subsection{state/invariant\_guard/breaker.rs}
+The circuit breaker: which module is in emergency read-only mode, and
+until when.
+
+\subsubsection{Why it is consensus state}
+
+A breaker decides which transactions are valid. If one node halted the DEX
+and another did not, the two would disagree about whether a block
+containing a swap is valid, and that is a chain split rather than a
+difference of local policy. So the breaker is derived from committed state
+and the block being executed, it is stored in the state root like every
+other consensus record, and nothing node-local ever reaches it — no clock,
+no configuration, no flag. That is invariant 28.
+
+\subsubsection{Why it lives under the governance prefix}
+
+\texttt{g:guard:<module>} is under \texttt{GOVERNANCE\_PREFIX}, so it folds into the
+\texttt{Governance} state-root layer and the generic \texttt{records} undo journal already
+covers it. A new prefix would have needed a new layer, a new entry in
+\texttt{RECORD\_LAYERS}, and a new undo section — three places to forget, for a
+record that is eighteen bytes. A reorg restores it exactly as it restores a
+ballot.
+
+Both of those are \texttt{pub(crate)}, so they are named here rather than linked:
+an intra-doc link to a private item renders as plain text on a public build
+anyway, and rustdoc warns about it.
+
+\subsubsection{Why an expired record is not deleted}
+
+A breaker clears by its height passing, not by a write. The record stays as
+the chain's own account of what tripped and when, at eighteen bytes per
+module and at most one record per module, and a later trip overwrites it.
+Deleting it would cost a write on the block that clears it and lose the only
+on-chain evidence that anything happened.
+
+\subsection{state/invariant\_guard/conservation.rs}
+Value conservation: the one equation every block has to satisfy.
+
+\subsubsection{The equation}
+
+For every asset, native and registered, what a block moves must equal what
+it issues:
+
+\begin{verbatim}
+Σ holdings delta  ==  supply delta
+\end{verbatim}
+
+The left side is every place on this chain that can hold value, which is a
+closed list:
+
+\begin{verbatim}
+| Asset | Held in |
+|---|---|
+| Native | `acct:` balances, `chan:` capacity, the shielded pool's public balance, `g:lock:` stakes, `g:prop:` deposits, `h:lk:` HTLC escrow |
+| Registered | `d:bal:` balances, `d:pool:` reserves, `d:ord:` escrow |
+| LP share | `d:bal:` balances |
+\end{verbatim}
+
+The right side is zero for the native coin — there is no mint operation and
+no block reward, so the genesis allocation is the supply forever. For a
+registered asset it is the change in \texttt{d:asset:<id>.total\_supply}, which is
+non-zero exactly once, at registration. For a share asset it is the change
+in its pool's \texttt{total\_shares}.
+
+\subsubsection{Why a delta and not a sum}
+
+Summing every account each block would make block execution O(state), so
+execution would slow down for the life of the chain. The overlay already
+holds exactly what the block touched, so every term here is a difference
+between an overlay value and its committed one: O(touched), which for a
+normal block is a handful of keys.
+
+It is also not weaker. Conservation over deltas, applied to every block from
+genesis, is an induction: if the total was right before the block and the
+block moved a net zero, the total is right after it. An absolute
+\texttt{MAX\_SUPPLY} scan would check the same fact more slowly, and only for the
+assets it remembered to look at.
+
+\subsubsection{Why a violation fails the block}
+
+This is not an anomaly threshold, and there is no judgement in it. A block
+that creates a unit from nothing is invalid in the same way a block with the
+wrong state root is invalid — it is refused, nothing is committed, and no
+breaker is written, because there is no state to protect. The
+[breaker](super::breaker) exists for the other case: a block that is valid
+and suspicious.
+
+\subsection{state/invariant\_guard/limits.rs}
+The guard's thresholds, and why each is the number it is.
+
+Compiled in, and reachable by no [\texttt{ParameterKey}]. This is invariant 12's
+rule applied to the guard: a governable threshold is one proposal away from
+being set to a value that disables the check, and a monitor an attacker can
+turn off before the attack is not a monitor.
+
+[\texttt{ParameterKey}]: maya\_governance::ParameterKey
+
+\subsection{state/invariant\_guard/mod.rs}
+The invariant guard: what has to be true of a block before it commits, and
+what happens when it is not.
+
+\subsubsection{Where it runs}
+
+[\texttt{StateDB::stage\_block}] is the single place a block's overlay is produced.
+Every commit path funnels through it — \texttt{apply\_block},
+\texttt{apply\_block\_journaled}, \texttt{apply\_block\_checked}, and \texttt{preview\_root} — so one
+hook at the end of it covers all four. \texttt{preview\_root} is the one that makes
+this more than a check: a miner assembling a candidate through
+[\texttt{Chain::candidate\_block}](crate::consensus::chain::Chain::candidate\_block)
+runs the same guard, so it refuses to build a block that breaks an invariant
+rather than minting one the network then rejects.
+
+\subsubsection{The two kinds of check, and why they differ}
+
+\begin{verbatim}
+| Kind | Example | Outcome |
+|---|---|---|
+| [Conservation](conservation) | a block creates a unit of an asset from nothing | the block is **invalid**; nothing commits |
+| [Anomaly](anomaly) | a pool is suddenly worth less per share | the block commits and the module is **halted** for [`BREAKER_BLOCKS`](limits::BREAKER_BLOCKS) blocks |
+\end{verbatim}
+
+A conservation failure has no innocent reading, so it is refused exactly as
+a wrong state root is refused. An anomaly does have one — a threshold is a
+judgement about what is unusual, not about what is legal — so the block
+stands and the affected module stops accepting new work while somebody
+looks.
+
+\subsubsection{What this guard does not claim to catch}
+
+The brief that produced it names re-entrancy, integer overflow and
+flash-loan manipulation. Two of those three attacks have no surface on this
+chain and the third is not what the phrase usually means, which
+\texttt{tests/exploit\_replays.rs} demonstrates rather than asserts:
+
+- \textbf{Re-entrancy} needs a contract-to-contract call. The VM exposes nine
+  host functions and none of them calls a contract or moves value, and
+  \texttt{Vm::validate} refuses an unknown import at deploy.
+- \textbf{Integer overflow} is already refused: \texttt{ledger-math} is checked
+  arithmetic, Kani-verified, and every call site turns \texttt{None} into
+  [\texttt{BalanceOverflow}](crate::error::NodeError::BalanceOverflow), which
+  fails the whole block.
+- \textbf{Flash loans} do not exist. \texttt{SwapRoute} is self-funded — no borrow, no
+  callback — and \texttt{l2-flash} is a payment-channel network rather than a
+  lending one.
+
+What the guard is actually for is the class underneath all three: value
+created from nothing by *any* future bug, across transparent accounts, AMM
+reserves, channel escrow, governance locks and the shielded pool. Each of
+those five is checked today only by its own local rules, and a bug in one of
+them is invisible to the other four.
+
+\subsubsection{Invariant 28}
+
+The guard reads only committed state and the block. No clock, no
+configuration, no node-local value, ever. A breaker that trips on one node
+and not another changes which transactions are valid on each, which is a
+chain split — the same reason invariant 24's state-root check reads only
+what execution produced.
+
+[\texttt{StateDB::stage\_block}]: crate::state::db::StateDB
+
+\subsection{state/iot.rs}
+IoT anchor records: one per device, under \texttt{v:}, one layer of the state root
+(invariant 25).
+
+- \texttt{v:dev:<device id>} — [\texttt{DeviceRecord::encode}].
+
+Each batch overwrites its device's record, so state grows with the number
+of devices, never with the number of readings.
+
+\subsection{state/iot\_exec.rs}
+Executing the IoT anchor transactions.
+
+\subsubsection{Who bears a failure}
+
+- \textbf{Owner transactions} — enrollment, revocation — are the sender's own, so
+  a bad proof, a second enrollment, or a revocation by someone else is an
+  error, as an HTLC lock that cannot be made is.
+- \textbf{Device messages} are relayed by any gateway. A bad signature is the
+  relay's error, but everything that merely *loses* — an unknown device, a
+  duplicate relay, a batch overtaken by a newer one, a device already
+  terminal — is a no-op, because two gateways racing is ordinary and an
+  error would void the block the winner is in (invariant 7).
+- \textbf{Clone evidence} conflicting with a recorded batch is detected inside
+  \texttt{SubmitTelemetry} itself, so a copied key is caught even if nobody files a
+  \texttt{ProveEquivocation}.
+
+Tamper reports, equivocation proofs and revocations belong to no breaker
+module: halting them while a key is being abused would protect the abuser.
 
 \subsection{state/merkle.rs}
 Binary Merkle tree over the account set.
@@ -2024,7 +2792,7 @@ submission that fails is a submission somebody built wrong, so it is an
 no-op.
 
 The beacon is different. It is *staged* during the block and folded once at
-the end, by [\texttt{StateDB::settle\_oracle}], because the accumulator must advance
+the end, by \texttt{StateDB::settle\_oracle}, because the accumulator must advance
 exactly once per block whether or not a proof arrived. Folding it where the
 transaction sits would make the beacon a function of how many beacon
 transactions a miner chose to include.
@@ -2062,7 +2830,10 @@ root = H(flash      ‖ root ‖ channels_root)    if any channel exists
 root = H(dex        ‖ root ‖ dex_root)         if any `d:` record exists
 root = H(oracle     ‖ root ‖ oracle_root)      if any `o:` record exists
 root = H(governance ‖ root ‖ governance_root)  if any `g:` record exists
-root = H(shielded   ‖ root ‖ pool_root)        if any note exists
+root = H(sealed     ‖ root ‖ sealed_root)      if any `m:` record exists
+root = H(shielded   ‖ root ‖ pool_state)       if the pool is not empty
+root = H(contracts  ‖ root ‖ contracts_root)   if any code or storage exists
+root = H(nullifiers ‖ root ‖ nullifiers_root)  if any nullifier exists
 \end{verbatim}
 
 Each layer folds in \textbf{only when it holds something}, which is what keeps a
@@ -2088,6 +2859,71 @@ It also does not prove \textbf{absence}. Showing that an account is *not* in the
 tree would need the two neighbouring leaves and an ordering argument, and
 nothing in this node needs that yet.
 
+\subsection{state/rwa.rs}
+RWA records in the state, and their place in the root.
+
+Invariant 25: one prefix in \texttt{RECORD\_LAYERS}, one
+[\texttt{StateLayer}](crate::state::proof::StateLayer), and the
+undo journal covers everything written through \texttt{put\_record}. The layer folds
+only when non-empty, so a chain with no tokenised assets produces the root
+it would have produced before the subsystem existed.
+
+\begin{verbatim}
+| Prefix | Holds |
+|---|---|
+| `r:tok:<asset>` | the [`RwaToken`] |
+| `r:cap:<asset><page>` | one [`CapTablePage`] |
+| `r:leg:<asset><doc>` | a [`LegalAttestation`] |
+| `r:dist:<asset><round>` | a [`RevenueDistribution`], so a round cannot be replayed |
+| `r:elig:<asset><holder>` | a cached [`Eligibility`] |
+\end{verbatim}
+
+Separate records rather than one per asset, because they change at different
+rates: a cap table page moves on every transfer, a token record never after
+issuance. Folding them together would journal the token on every trade.
+
+\subsection{state/rwa\_exec.rs}
+Executing the RWA transitions: issuance, DvP, gated transfers, revenue.
+
+\subsubsection{A DvP that cannot settle is a no-op, never an error}
+
+Invariant 7, and it is not an analogy — it is the same rule:
+
+> A trade that merely *loses* is a no-op, never an \texttt{Err}. A failing
+> transaction fails its whole block here, so making any of these an error
+> hands every trader a way to void a block.
+
+Delivery-versus-payment means both legs or neither. The obvious
+implementation returns an error when a leg cannot settle — and on this chain
+that voids the block, so anyone could kill any block by submitting a DvP
+they know will fail. The counterparty does not even have to be involved.
+
+So \texttt{settle\_dvp} — \texttt{pub(crate)}, so named here rather than linked —
+applies both legs to the overlay or applies
+nothing. The nonce advances, the fee is spent, and the state is exactly what
+it was. Atomicity comes from the overlay mutation being all-or-nothing, not
+from an error unwinding it.
+
+\subsubsection{Eligibility is read, not proved, on the transfer path}
+
+A disclosure proof is a STARK (ADR-008); the joinsplit, the nearest measured
+one, is \textasciitilde{}383 KB. On a block with ten thousand transfers, one per transfer
+would be gigabytes every node downloads and verifies, forever, for a check
+whose answer changes rarely. So the proof is
+verified once in its own transaction and cached in \texttt{r:elg:}; the transfer
+reads a record and a height.
+
+The cache expires, in \textbf{block height} rather than time (invariant 9): a
+miner may write any \texttt{header.timestamp}, so a freshness rule measured in
+seconds would read as safety and provide none.
+
+\subsubsection{Distribution places exactly what it debits}
+
+\texttt{ledger\_math::distribute} is Kani-checked to place exactly the total. That
+is not a fairness nicety — the invariant guard refuses any block whose value
+deltas do not balance, so a rounding rule that lost a base unit would be a
+distribution nobody can mine.
+
 \subsection{state/sealed\_exec.rs}
 Executing the sealed mempool: taking envelopes in, taking shares in, and
 opening what is due.
@@ -2103,9 +2939,10 @@ bounded.
 
 \subsubsection{Where the revealed batch executes, and why it matters}
 
-[\texttt{StateDB::settle\_sealed}] runs after every plaintext transaction in the
-block has been staged and *before* [\texttt{crate::state::db::StateDB}]'s trading
-pass. Both halves of that sentence are load-bearing.
+\texttt{StateDB::settle\_sealed} — \texttt{pub(crate)}, so it is named here rather than
+linked — runs after every plaintext transaction in the block has been staged
+and *before* [\texttt{crate::state::db::StateDB}]'s trading pass. Both halves of
+that sentence are load-bearing.
 
 After the plaintext transactions: a miner who assembles the reveal block
 learns the plaintexts while building it, and could place a transaction of
@@ -2173,25 +3010,105 @@ essentially every shielded transaction would fail.
 
 \subsubsection{Cost, and why it is capped}
 
-Verifying a joinsplit is a pairing check — measured at roughly 2–4 ms,
-against about 200 µs for an ML-DSA-65 signature. That is a 10–20× asymmetry
-between what a transaction costs to make and what it costs every node to
-check, so the number of joinsplits per block is bounded for the same reason
-[\texttt{MAX\_BATCH\_CLOSURES}](crate::core::payload::MAX\_BATCH\_CLOSURES) is.
+A joinsplit proof is a Plonky3 STARK (ADR-008): about 0.4 MB on the wire
+and a verification that hashes its way through FRI queries. The cap on
+joinsplits per block is set by size first — sixteen proofs are \textasciitilde{}6 MB of an
+8 MiB gossip frame — and bounds verification work for the same reason
+[\texttt{MAX\_BATCH\_CLOSURES}](crate::core::payload::MAX\_BATCH\_CLOSURES) does.
 
-The asymmetry narrowed only because signatures got more expensive, not
-because proofs got cheaper. It was 50× against ed25519's \textasciitilde{}50 µs.
+\subsubsection{Post-quantum, with no setup}
 
-\subsubsection{This pool is not post-quantum}
+Until 2026-09-21 this pool verified Groth16 over BLS12-381: pairing-based,
+so a quantum adversary could forge a proof and mint hidden supply, and its
+parameters came from a setup nobody had run for real. The STARK's
+soundness rests only on hash collision resistance (Poseidon2 inside,
+Keccak outside) and it has no setup at all — \texttt{maya\_zk\_stark::pool}.
 
-Worth stating beside the cost, because the two are easy to conflate.
-Transaction authorization moved to ML-DSA-65, but joinsplits are proved with
-Groth16 over BLS12-381 — a pairing-based system whose soundness rests on
-discrete log. An adversary with a quantum computer cannot forge a transfer
-and *can* forge a shielded proof, which means minting hidden supply that no
-audit of the transparent chain would reveal. Closing that gap needs a
-different proof system, and until then the chain's post-quantum security is
-the weaker of its two halves.
+\subsection{state/stateless.rs}
+\begin{framed}\noindent\textbf{Status.} This module is a research branch. It is present in the tree and no consensus path reaches it. Nothing described here is part of the running chain.\end{framed}
+
+Stateless verification of transfer blocks. Research branch.
+
+\subsubsection{The switch}
+
+From [\texttt{STATELESS\_ACTIVATION\_HEIGHT}] the block being staged writes one
+record, \texttt{sl:accounts-sparse}, and from then on the accounts root under the
+state root is \texttt{maya-stateless-core}'s sparse tree instead of
+\texttt{state::merkle}'s address-ordered one. The marker sits under its own layer,
+so the switch is itself committed, journalled and reverted like any record,
+and \texttt{state\_root()} can tell which tree to build without being told a
+height. The activation block's *pre*-state is still dense, so the first
+block a stateless node can check is the one after it.
+
+\subsubsection{What a witness can decide}
+
+A block whose transactions are all \texttt{TxKind::Transfer}, on a state with no
+\texttt{m:}, \texttt{o:} or \texttt{g:} records. That is not caution but the list of everything
+\texttt{StateDB::stage\_block} does besides staging transactions:
+
+\begin{verbatim}
+| Pass | Reads | Inert when |
+|---|---|---|
+| `settle_sealed` | envelopes due at this height (`m:`) | the sealed layer is absent |
+| `settle_trading` | pairs this block's DEX transactions touched | no transaction is a DEX kind |
+| `settle_oracle` | the authority registry (`o:`) | the oracle layer is absent |
+| `settle_governance` | every proposal (`g:`) | the governance layer is absent |
+| `check_anomalies` | pool records and the shielded pool the block wrote | no transaction is a DEX or shielded kind |
+\end{verbatim}
+
+Conservation holds by construction for transfers — a debit of exactly the
+output total — and a transfer maps to no breaker module. Anything else is
+[\texttt{StatelessError::Unverifiable}]: a stateless node cannot say, which is not
+the same as saying no.
+
+\subsubsection{Invalid is a verdict; unverifiable is not}
+
+A witness is not under the block id or the proof of work. A relay can
+corrupt it, and a body that fails its header's \texttt{tx\_root} may be a relay's
+substitution under an honest header — invariant 24's censorship case. So
+both are \texttt{Unverifiable}, and the caller fetches again. \texttt{Invalid} is reserved
+for what the block's own contents decide once the witness has matched the
+parent root: a bad signature, a broken transfer rule, or a declared state
+root the transfers do not produce.
+
+\subsection{state/threat.rs}
+Threat-intel records: one indicator per author, one marker per piece of
+evidence.
+
+Every key is under \texttt{t:}, one layer of the state root (invariant 25):
+
+- \texttt{t:in:<author>} — [\texttt{ThreatIndicator::encode}];
+- \texttt{t:ev:<evidence id>} — the height that recorded it, little-endian.
+
+The marker is what makes a second copy of the same evidence a no-op. Its id
+covers the offence kind and the signed bytes but not the signature, so an
+author who re-signs one message has produced the same evidence, not more.
+
+\subsection{state/threat\_exec.rs}
+Executing an attack attestation.
+
+\subsubsection{What is checked, in order}
+
+1. The author's gossipsub signature over the rebuilt signed bytes, with
+   \texttt{verify\_strict}. Strict, because consensus needs one answer: a signature
+   libp2p's looser check accepted and this one refuses is evidence nobody can
+   attest — evasion by the author, never a way to frame someone else.
+2. That the frame decodes and then fails the check the kind names. A frame
+   that verifies is a lie about an honest author and is refused.
+
+Both are stateless, so a miner learns whether an attestation is valid
+before including it.
+
+\subsubsection{Invalid evidence is an error; repeated evidence is a no-op}
+
+The attestation is its submitter's own transaction with nobody else's
+outcome riding on it, so evidence that does not verify fails the block —
+as an HTLC lock that cannot be made does (\texttt{crate::state::htlc\_exec}). A
+*second copy* of evidence already on chain is different: two honest
+observers of the same offence submit it independently as the ordinary case,
+and if the later one were an error it would void the block the earlier one
+sits in. So it returns, the nonce advances, and nothing is written —
+invariant 7's rule applied to a race between reporters.
 
 \subsection{state/undo.rs}
 Undo journal for reverting a committed block.
@@ -2224,8 +3141,111 @@ see \texttt{maya\_vm::config}. What this layer must not do is introduce
 non-determinism of its own, which is why the host is populated from committed
 state through ordered maps and nothing else.
 
+\subsection{state/zkml.rs}
+The node's answer to \texttt{host\_verify\_zkml\_proof}: there is no verifier.
+
+The halo2/KZG-over-BN254 verifier this module used to call was removed on
+2026-09-21 (ADR-008): a pairing-based proof is forgeable by a quantum
+adversary, and its SRS was derived from a public seed, so anyone could
+forge one today (invariant 22). zkML becomes PLANNED until it is
+re-expressed as a transparent STARK.
+
+The host function stays in the VM's ABI — removing an import a deployed
+module links against is a harder break than answering it — and it was
+dark anyway: \texttt{ZKML\_ACTIVATION\_HEIGHT} is \texttt{u64::MAX}, so
+\texttt{ContractHost::verify\_zkml} returns before reaching [\texttt{verdict}]. If it is
+ever reached, the answer is \texttt{Malformed}, which stops the call rather than
+guessing at a boolean.
+
+\subsection{state\_pruner/archive.rs}
+The uploader: archive a batch, read every copy back, and only then prune.
+
+\subsection{state\_pruner/cold.rs}
+Fetching a pruned block back, from an archive nobody has to trust.
+
+Three checks, each against something this node already holds:
+
+1. every archive section hashes to its CID ([\texttt{maya\_archive::open\_archive}]);
+2. the archive's root is the one the receipt recorded when this node wrote
+   it and read it back;
+3. the decoded block's id is the id of the \textbf{header this node kept}, and
+   its transactions match that header's \texttt{tx\_root}.
+
+The third is what makes an untrusted archive safe. The kept header's proof
+of work was checked when it arrived, and the header commits to the
+transactions. Before the header carried \texttt{tx\_root}, a body fetched from
+anywhere could not have been tied to anything.
+
+\subsection{state\_pruner/mod.rs}
+Historical pruning: dropping old block bodies and undo journals, after a
+verified copy of them exists somewhere else.
+
+\subsubsection{What "final" means here}
+
+This chain is proof of work. Nothing is ever final, so this module does not
+pretend it is. A \textbf{pruned node} instead adopts a local policy: a block at
+least [\texttt{PRUNE\_DEPTH}] below the tip on the active chain will not be
+reorganised away, and such a node refuses any reorg reaching below its
+horizon ([\texttt{crate::error::NodeError::BelowPruneHorizon}]). An archive node
+prunes nothing, has no horizon, and is unaffected. Pruning is opt-in and
+off by default.
+
+[\texttt{PRUNE\_DEPTH}] is one DAG epoch, 30,000 blocks, about 5.2 days at 15-second
+blocks. That is far deeper than any honest reorg on a working network.
+
+\subsubsection{What is kept}
+
+Every header, forever: 144 bytes each, about 4.3 MB per 30,000 blocks.
+A header carries \texttt{tx\_root} and \texttt{state\_root}, which is all a pruned body is
+ever verified against. Those are the "light Merkle roots" left where the
+blocks were. Bodies and undo journals below the horizon are deleted.
+
+\subsubsection{Ordering: archive, verify, then delete}
+
+[\texttt{archive::Archiver::archive}] writes the batch to every configured store
+and \textbf{reads each copy back and verifies it} before returning a receipt.
+[\texttt{crate::consensus::Chain::prune}] is only ever called with that receipt.
+So a body is never deleted before a checked copy of it exists. Pruning
+without any archive ([\texttt{ArchivePolicy::None}]) is possible, as it is for a
+Bitcoin pruned node, but it has to be chosen explicitly.
+
+\subsection{state\_pruner/snapshot.rs}
+State snapshots, and bootstrapping a pruned node from one.
+
+\subsubsection{What a new pruned node downloads}
+
+1. \textbf{Every header}, genesis to tip. 144 bytes each, fully validated: the
+   exact retarget rule, proof of work, cumulative work.
+2. **The state at a height \texttt{H} at least K below the tip**, as a snapshot:
+   every key/value under a committed prefix, in chunks.
+3. **The bodies above \texttt{H}**, applied with full validation.
+
+Nothing below \texttt{H} but headers. That is the whole saving.
+
+\subsubsection{Why the snapshot can be believed}
+
+Each chunk is checked against the manifest's chunk hashes. That only proves
+the server was consistent. The snapshot is then imported, the state root
+recomputed, and the result required to equal \texttt{header(H).state\_root}. That
+header's proof of work was checked in step 1, and its state root is checked
+by every full node since the tx\_root fix. A server that lies about one
+balance, drops one nullifier or changes one contract slot produces a
+different root, and the import is refused and wiped. The root covers every
+committed prefix (see \texttt{state::commitments}), and a key under any other
+prefix is refused on sight.
+
+What this cannot rule out is the SPV limitation: a source that shows only
+a lower-work fork of headers. That is the same eclipse problem a light
+client has, and the answer is the same: ask more than one peer.
+
+\subsubsection{Snapshots at rest}
+
+[\texttt{Snapshots::take}] makes a RocksDB checkpoint (hard links, cheap) at the
+current tip. [\texttt{Snapshots::serveable}] serves the newest one at least K deep,
+so what a new node adopts is below the depth a pruned node treats as final.
+
 \section{Ledger arithmetic}
-\noindent\texttt{ledger-math\textbackslash{}src}
+\noindent\texttt{crates/ledger-math\textbackslash{}src}
 
 \subsection{lib.rs}
 Ledger value arithmetic for \texttt{custom-l1-node}, isolated so it can be proved.
@@ -2243,9 +3263,9 @@ has no semantics for the C++ and no appetite for the rest, so
 possible one.
 
 A dependency-free leaf crate is. The node calls into this crate rather than
-inlining the arithmetic, so what the proofs in [\texttt{proofs}] establish is a
-property of the code that actually executes when a block is applied — not of
-a restatement of it that could drift.
+inlining the arithmetic, so what the proofs in \texttt{proofs} (compiled only under
+Kani) establish is a property of the code that actually executes when a
+block is applied — not of a restatement of it that could drift.
 
 \subsubsection{What is proved, and what is not}
 
@@ -2255,8 +3275,12 @@ over all \texttt{u64} inputs, and CBMC discharges it without a loop bound.
 [\texttt{total\_outputs}] is the exception. It folds over a sequence, so its harness
 carries a \texttt{\#[kani::unwind]} bound and an accompanying \texttt{kani::assume} on the
 length. That proof is bounded — it holds for sequences up to the bound, not
-for all sequences. It is stated that way in [\texttt{proofs}] rather than left for
-a reader to infer.
+for all sequences. It is stated that way in \texttt{proofs} (compiled only under
+Kani) rather than left for a reader to infer.
+
+[\texttt{distribute}] is only partly proved: Kani covers its placement of the
+spare, and its flooring is checked by exhaustive enumeration over a small
+domain. The split, and why, is at the top of \texttt{proofs}.
 
 \subsubsection{What these functions deliberately do not do}
 
@@ -2300,6 +3324,12 @@ a very good test:
   [\texttt{PROVED\_OUTPUT\_COUNT}] below, which is smaller than the 65,536 outputs the
   wire codec will accept, and that gap is real rather than an oversight —
   see the constant's documentation.
+- [\texttt{distribute}]'s placement of the spare is proved here, \textbf{bounded} at
+  three holders but at every magnitude. Its flooring and sort are not: a
+  harness through them has to decide a symbolic 128-bit division per holder
+  and did not finish in fifteen minutes. Those are checked exhaustively over
+  a small domain by \texttt{every\_small\_distribution\_is\_exact\_and\_fair} in the
+  crate's unit tests instead, which is a finite enumeration, not a proof.
 
 [\texttt{credit}]: super::credit
 [\texttt{debit}]: super::debit
@@ -2307,9 +3337,84 @@ a very good test:
 [\texttt{combined\_balance}]: super::combined\_balance
 [\texttt{settle\_pool}]: super::settle\_pool
 [\texttt{total\_outputs}]: super::total\_outputs
+[\texttt{distribute}]: super::distribute
 
 \section{Post-quantum primitives}
-\noindent\texttt{crypto-pq\textbackslash{}src}
+\noindent\texttt{crates/crypto-pq\textbackslash{}src}
+
+\subsection{agility/audit.rs}
+The security-level audit.
+
+Run against a policy, it reports every suite that is below
+[\texttt{MIN\_PQ\_SECURITY\_BITS}](super::MIN\_PQ\_SECURITY\_BITS) and still able to
+sign — on testnet and mainnet [\texttt{SuitePolicy::permitted}] already refuses
+those, so in practice this fires on devnet, which is where Ed25519 lives —
+and every deprecated suite that accounts still need to leave. Findings are
+data for an operator or a governance proposal; the audit changes nothing.
+
+\subsection{agility/migration.rs}
+Moving accounts off a deprecated suite.
+
+\subsubsection{The schedule}
+
+1. \textbf{Deprecation} (\texttt{SuitePolicy::with\_deprecation}). The suite still
+   signs. An account can [\texttt{rotate}](MigrationState::rotate) to a key in an
+   active suite, authorized by its current key, or
+   [\texttt{commit\_recovery}](MigrationState::commit\_recovery) — register the hash
+   of an upgraded public key without switching yet.
+2. \textbf{Sunset.} The suite stops signing. [\texttt{sweep\_step}](MigrationState::sweep\_step)
+   walks the accounts a bounded number per block and moves every balance
+   still held under a sunset key into the vault.
+3. \textbf{Vault.} A vault entry opens only to the key whose commitment the
+   account registered while its old key was still trusted, and only with a
+   signature by that new key in a suite that is active. The old key cannot
+   open it — after sunset, it is assumed broken.
+
+An account that registered nothing stays locked. Proving ownership after
+the fact needs a proof of knowledge of the wallet seed, which is a STARK
+over the key derivation: PLANNED, not built, and said so here rather than
+papered over with a path that trusts the broken key.
+
+\subsubsection{No downtime}
+
+The sweep is incremental: each call examines at most \texttt{budget} accounts,
+resuming from a cursor, so a block's migration work is bounded and every
+other account keeps transacting while it runs. \texttt{tests/agility\_migration\_tests.rs}
+runs that with 1,000,000 accounts.
+
+\subsection{agility/mod.rs}
+The crypto-agility engine — ADR-007.
+
+Three parts, each a pure function of its inputs so the node can run it
+inside consensus without a clock or a random number:
+
+- [\texttt{SuitePolicy}] — the governance-chosen default suite and every suite's
+  deprecation schedule, by block height. Changing it returns a new policy;
+  nothing is mutated in place, so a rejected proposal leaves no trace.
+- [\texttt{audit}] — flags every live suite whose claimed post-quantum security
+  is below [\texttt{MIN\_PQ\_SECURITY\_BITS}], and every deprecated suite accounts
+  still need to leave.
+- [\texttt{migration}] — moves accounts off a deprecated suite: a window in which
+  the old key can register an upgraded one, then a sweep of whatever is
+  left into a vault only an upgraded key can open.
+
+Heights are \texttt{u64}; nothing here reads wall-clock time (Standing Order 4).
+
+\subsection{envelope.rs}
+The suite-tagged signature envelope — ADR-007.
+
+\begin{verbatim}
+version:u8 ‖ suite:u8 ‖ pk_len:u32le ‖ pk ‖ sig_len:u32le ‖ sig
+\end{verbatim}
+
+Variable-length on the wire, exact-length per suite: both lengths are
+checked against the registry row *before* anything is allocated for them,
+so a hostile length prefix costs the decoder nothing.
+
+A pre-envelope hybrid signature (the node's v1 transaction encoding) is a
+valid suite \texttt{0x30} envelope once the two-byte header and the lengths are
+prepended — [\texttt{SignedEnvelope::from\_legacy\_hybrid}] — so history keeps
+verifying after the switch.
 
 \subsection{hqc.rs}
 HQC-192 (draft FIPS 207) key encapsulation — the second KEM.
@@ -2430,6 +3535,74 @@ An adversary with a quantum computer *present at connection time* could
 still impersonate a peer. That is an active attack requiring the machine to
 exist and be on the wire, not the recording attack this closes.
 
+\subsection{kem\_suite/dual.rs}
+The dual KEM: ML-KEM and HQC together — ADR-009.
+
+\begin{verbatim}
+ss = SHA3-256( "maya2c.dualkem.v1" ‖ id
+             ‖ ss_mlkem ‖ ss_hqc
+             ‖ ct_mlkem ‖ ct_hqc
+             ‖ ek_mlkem ‖ ek_hqc )
+\end{verbatim}
+
+Lattices and codes fail independently, so an adversary who breaks one
+still faces the other: the output is a PRF of both secrets. Both
+ciphertexts are bound (the brief), and so are both encapsulation keys — the
+X-Wing argument, which stops a ciphertext for one key being replayed
+against another when a component KEM is not ciphertext-binding.
+
+Wire format: \texttt{ek = ek\_mlkem ‖ ek\_hqc}, \texttt{ct = ct\_mlkem ‖ ct\_hqc}.
+
+\subsection{kem\_suite/hqc.rs}
+HQC-128 and HQC-256 — \textbf{draft standard}.
+
+NIST selected HQC in March 2025 as the code-based backup to ML-KEM; FIPS
+207 is not final. The backend is pinned to a release candidate that
+matches the reference implementation's KATs (\texttt{tests/kem\_kat\_tests.rs}),
+and every name here says *draft* so nobody reads it as a finished standard.
+
+\textbf{Not constant-time.} \texttt{benches/dudect.rs} measured decapsulation of a
+valid versus a random ciphertext at |t| = 26.9 (null control 2.5): a
+remote attacker who can time decapsulation of chosen ciphertexts has a
+side channel. ADR-009's addendum records it; the \texttt{hqc} feature that gates
+this module is off by default and nothing on a transport path enables it.
+
+Randomness is drawn from the OS through \texttt{getrandom} and fed to the
+backend's deterministic entry points, so an entropy failure is an error
+the caller sees rather than a panic inside the backend's RNG adapter.
+
+\subsection{kem\_suite/ml\_kem.rs}
+ML-KEM-768 and ML-KEM-1024 (FIPS 203).
+
+Randomness comes from \texttt{getrandom} into FIPS 203's seeded entry points
+(\texttt{KeyGen\_internal(d, z)}, \texttt{Encaps\_internal(m)}), so an entropy failure is
+an error rather than a panic in the backend's RNG adapter — and the same
+entry points are the ones the ACVP vectors exercise.
+
+\subsection{kem\_suite/mod.rs}
+KEM suites — ADR-009.
+
+ML-KEM-768/1024 (FIPS 203, final), HQC-128/256 (\textbf{draft}: NIST's 2025
+selection, FIPS 207 not yet published), X-Wing (ML-KEM-768 + X25519, per
+draft-connolly-cfrg-xwing-kem), and two dual-KEM combiners that pair an
+ML-KEM with an HQC so that breaking one family is not enough.
+
+This is the primitive layer; wiring any of it into the transport is Master
+Prompt 7. The pre-existing [\texttt{crate::kem}] (ML-KEM-768) and [\texttt{crate::hqc}]
+(HQC-192) modules keep serving the current handshake unchanged.
+
+Every suite takes and returns byte slices with exact per-suite lengths,
+checked on the way in: the bytes come from a peer.
+
+\subsection{kem\_suite/xwing.rs}
+X-Wing: ML-KEM-768 + X25519 (draft-connolly-cfrg-xwing-kem).
+
+The reason to carry a classical half at all: ML-KEM is new code. A bug in
+a young implementation is a likelier failure today than a break of
+X25519, and X-Wing's combiner is secure if *either* half is. The
+construction, key expansion and combiner are the draft's, via the \texttt{RustCrypto}
+crate, and \texttt{tests/kem\_kat\_tests.rs} runs the draft's own vectors.
+
 \subsection{lib.rs}
 Post-quantum primitives, isolated behind concrete APIs.
 
@@ -2440,6 +3613,14 @@ Two modules, one for each thing the chain needs:
   \texttt{custom\_l1\_node::crypto::keys}.
 - [\texttt{kem}] — ML-KEM-768 (FIPS 203), the key encapsulation the P2P transport
   layers over its Noise session.
+- [\texttt{suite}] — the signature-suite registry (ADR-007): Ed25519, ML-DSA-65/87,
+  SLH-DSA-SHA2-128s / SHAKE-256f, and the ML-DSA + SLH-DSA hybrid, each
+  behind one trait and a one-byte id.
+- [\texttt{envelope}] — the suite-tagged signature encoding.
+- [\texttt{kem\_suite}] — ML-KEM-768/1024, HQC-128/256 (draft), X-Wing, and the
+  ML-KEM + HQC dual-KEM combiners (ADR-009).
+- [\texttt{agility}] — default-suite policy, the security audit, and migration
+  off a deprecated suite.
 
 \subsubsection{Why this crate exists at all}
 
@@ -2532,8 +3713,94 @@ matching the ML-DSA half. This is forced by consensus: the transaction id
 hashes the signature, so a hedged signer would give one authorized payload
 two different ids.
 
+\subsection{suite/ed25519.rs}
+Suite \texttt{0x01}: Ed25519, for devnet and legacy data only.
+
+Zero post-quantum security — Shor's algorithm recovers the key from the
+public key — so the registry marks it \texttt{mainnet\_allowed: false} and the
+audit flags it. It exists because devnet tooling and some legacy records
+use it, and reading legacy data is the point of crypto-agility.
+
+**\texttt{verify\_strict} only.** Plain \texttt{verify} accepts small-order public keys
+and the mixed-order encodings that make Ed25519 signatures malleable
+between implementations; in a consensus rule, "two correct nodes disagree
+about validity" is a fork. \texttt{verify\_strict} rejects both.
+
+\subsection{suite/hybrid.rs}
+Suite \texttt{0x30}: ML-DSA-65 \textbf{and} SLH-DSA-SHA2-128s.
+
+Valid only if both halves verify. A forger has to break Module-LWE *and*
+the hash function, so the suite survives a cryptanalytic surprise in either
+family alone — the reason every transaction on the chain has carried this
+pair.
+
+**Byte-compatible with \texttt{custom\_l1\_node::crypto::hybrid}.** The public key
+is \texttt{ml\_dsa\_pk ‖ slh\_pk}, the signature \texttt{ml\_dsa\_sig ‖ slh\_sig}, and keys
+derive from a 32-byte chain key under the node's own domain strings, so an
+existing account's key and every signature it ever made are a valid \texttt{0x30}
+key and signature unchanged. \texttt{crates/node/tests/suite\_parity\_tests.rs} pins
+that against the node's \texttt{fips204} implementation.
+
+\textbf{Both halves are always checked.} No early return after the first
+failure, so the time taken does not tell a forger which half they got
+wrong.
+
+\subsection{suite/ml\_dsa.rs}
+Suites \texttt{0x10} and \texttt{0x11}: ML-DSA-65 and ML-DSA-87 (FIPS 204).
+
+\textbf{Deterministic signing, empty context.} FIPS 204 permits both hedged and
+deterministic signing; the node has always signed deterministically
+(\texttt{custom\_l1\_node::crypto::keys}), and a suite that signed differently would
+make the \texttt{0x30} hybrid's lattice half disagree with the node byte for byte.
+Domain separation lives inside the signed message, where the caller puts
+it, so the FIPS context string is empty — a second place to put a domain is
+a second encoding of the same intent that also verifies.
+
+Keys are held in seed form (\texttt{ξ}, 32 bytes). The expanded key is recomputed
+from it, which costs a few microseconds and means only 32 secret bytes ever
+need wiping.
+
+\subsection{suite/mod.rs}
+Signature suites: a closed registry, one trait, and a dispatcher.
+
+Every signature the chain accepts is named by a one-byte [\texttt{SuiteId}], and
+the id travels with the signature in an [\texttt{crate::envelope}]. An algorithm
+can then be retired or introduced without reinterpreting a single byte that
+was written under the old one — the property ADR-007 calls crypto-agility.
+
+\subsubsection{Why the registry is closed}
+
+A suite that exists on some nodes and not others is a fork, so the set of
+ids is a \texttt{\#[repr(u8)]} enum and an unknown byte is a decode error, never a
+fallback. Governance chooses *among* compiled suites ([\texttt{crate::agility}]);
+adding one is a code change with its own KAT vectors.
+
+\subsubsection{Sizes}
+
+Every length below is asserted at compile time against the backing crate's
+own constants, and the ACVP tests in \texttt{tests/acvp\_tests.rs} check the
+encodings against NIST's. They are final FIPS 204/205 sizes: ML-DSA-65 is
+3,309 bytes, not the 3,293 of the 2023 draft.
+
+\subsection{suite/slh\_dsa.rs}
+Suites \texttt{0x20} and \texttt{0x21}: SLH-DSA-SHA2-128s and SLH-DSA-SHAKE-256f
+(FIPS 205).
+
+Stateless hash-based signatures: their security rests on the hash
+function alone, which is why they are the conservative half of the hybrid
+and the cold-vault suite. \texttt{128s} is small and slow to sign; \texttt{256f} is
+category 5 and fast to sign, at 49,856 bytes a signature — acceptable for a
+vault that signs rarely, unacceptable for a payment.
+
+Signing is deterministic (\texttt{opt\_rand} absent) with an empty context, for
+the same reasons as ML-DSA: see \texttt{ml\_dsa.rs}.
+
+This is the crate that instantiates \texttt{slh-dsa} (invariant 2), and these are
+concrete types, so the monomorphized code lands here, where the dev
+profile optimizes it.
+
 \section{Verifiable random function}
-\noindent\texttt{vrf\textbackslash{}src}
+\noindent\texttt{crates/vrf\textbackslash{}src}
 
 \subsection{ecvrf.rs}
 RFC 9381 \texttt{ECVRF-EDWARDS25519-SHA512-TAI}.
@@ -2638,7 +3905,7 @@ nobody could operate.
 
 \subsubsection{What pins the implementation}
 
-RFC 9381's own test vectors, in \texttt{crates/node/tests/rfc9381\_vectors.rs}. This is
+RFC 9381's own test vectors, in \texttt{tests/rfc9381\_vectors.rs}. This is
 consensus code and there is no second implementation on this chain to
 disagree with it, so the check has to come from outside the repository or it
 is a check against itself.
@@ -2663,200 +3930,338 @@ post-quantum VRF is not standardized today and will be; on the day it lands,
 either every stored key already says what it is, or the upgrade is a hard
 fork of the key registry. One byte now, or a migration later.
 
-\section{Shielded pool}
-\noindent\texttt{zk-privacy\textbackslash{}src}
+\section{Transparent proofs and the shielded pool}
+\noindent\texttt{crates/zk-stark\textbackslash{}src}
 
-\subsection{circuit.rs}
-The joinsplit circuit.
+\subsection{config.rs}
+The one STARK configuration — ADR-008.
 
-One statement covers every shielded operation. A joinsplit consumes
-[\texttt{JOINSPLIT\_INPUTS}] notes and creates [\texttt{JOINSPLIT\_OUTPUTS}] notes, with two
-public value terms bridging the transparent side:
+- \textbf{PCS:} FRI over BabyBear with the *hiding* variant, so proofs reveal
+  nothing about the witness beyond the public values.
+- \textbf{Commitments and transcript:} Keccak-f[1600]. The outer layer of the
+  proof rests on the hash with the longest cryptanalysis record; Poseidon2
+  is used only *inside* the AIRs, where it is cheap to arithmetise.
+- \textbf{FRI:} blowup 4 (\texttt{log\_blowup = 2}), 100 queries, 16 bits of query
+  grinding — Plonky3's \texttt{new\_benchmark\_zk} preset. The security level this
+  gives is *computed*, not asserted: [\texttt{crate::security\_bits}] runs
+  Plonky3's own estimator, and \texttt{reports/02-crypto.md} records both the
+  conjectured and the proven figure.
+- \textbf{Blinding randomness:} fresh from the OS for every proving
+  configuration. A fixed seed would make proofs deterministic in the
+  witness, which is exactly what zero-knowledge must not be.
+
+\subsection{credential.rs}
+Selective disclosure — ADR-008.
+
+> I know a claim value \texttt{v}, a subject, a schema and a blinding factor such
+> that \texttt{leaf = compress(compress(v, schema, 0.. ‖ subject), blind)} is in
+> the issuer's tree under \texttt{issuer\_root}; \texttt{v} satisfies the public
+> predicate; and the position of that leaf in the revocation tree under
+> \texttt{revocation\_root} holds the *unrevoked* leaf.
+
+Public: the two roots and the predicate. The value, subject, schema,
+blinding and index stay private. The issuer's signature is not in here —
+the chain verifies it natively when the root is anchored, which is why
+only membership under an anchored root has to be proved.
+
+Values are below \texttt{2\textasciicircum{}29} so that \texttt{v = bound + d} in the field is the
+integer equation (\texttt{bound + d < 2\textasciicircum{}30 < p}). The predicate is coarse on
+purpose — \texttt{AtLeast(18)}, not a birth date — because a fine predicate
+leaks through the public input however private the value is.
+
+Unlike the Groth16 presentation this replaces, it is post-quantum and has
+no setup.
+
+\subsection{dual.rs}
+Two Merkle paths side by side, one Poseidon2 permutation for each per row.
+
+Shared by the credential and sanctions statements, which both need two
+paths whose *positions* are related: the credential's leaf and its
+revocation bit sit at the same index of two trees, and a sanctions gap is
+two leaves at adjacent indices of one tree.
+
+Layout, \texttt{DEPTH = 16}, 32 rows:
 
 \begin{verbatim}
-| Operation | `public_in` | `public_out` |
+| row | path A | path B |
 |---|---|---|
-| Shield (mint into the pool) | amount | 0 |
-| Shielded transfer | 0 | 0 |
-| Unshield (withdraw) | 0 | amount |
+| 0 | leaf pre-image, first hash | leaf pre-image, first hash |
+| 1 | `compress(row-0 digest, second)` → leaf | the same → leaf |
+| 2 … 17 | Merkle levels 0 … 15 | Merkle levels 0 … 15 |
+| 18 … 31 | padding | padding |
 \end{verbatim}
 
-Fixed arity is what makes the operations indistinguishable. A spend with one
-real input pads with a zero-value dummy, and nothing on chain says which is
-which.
+Each path carries its own bit and sibling columns and an index accumulator
+\texttt{acc}, which starts at 0 and adds \texttt{bit · 2\textasciicircum{}level} on each level row, so on
+the last level row it holds the leaf's index — small enough (\texttt{< 2\textasciicircum{}16}) to
+be compared in the field.
 
-\subsubsection{What the circuit proves}
+\subsection{gadgets/key.rs}
+Knowledge of a hash-based signing key's secret, bound to a message.
 
-For each input note: that the prover knows a spending key whose address owns
-the note, that the note's commitment sits in the tree under the public
-anchor, and that the published nullifier is the one that note yields. For
-each output: that the published commitment opens to a note of the claimed
-value. Across all four: that value is conserved.
+The key pair is \texttt{pk = compress(sk, KEY)}. The proof shows knowledge of an
+\texttt{sk} hashing to the public \texttt{pk}, and the message is a public value: the
+verifier's Fiat–Shamir transcript absorbs every public value before it
+draws a challenge, so a proof made for one message fails for another. That
+makes the proof a signature of knowledge — post-quantum, because it rests
+only on Poseidon2 preimage resistance.
 
-\subsubsection{What it deliberately does not prove}
+This is the key-ownership piece of the shielded pool: a note's owner
+proves they hold the \texttt{sk} behind the \texttt{pk} committed in the note.
 
-That \texttt{public\_in} and \texttt{public\_out} are within 64 bits. Those arrive from the
-transaction's wire format, where they are already \texttt{u64}, and the verifier
-supplies them — a prover cannot choose them independently of what the node
-reads off the wire. The *private* note values do get an explicit range
-check, because a prover chooses those freely and unconstrained values would
-let a sum wrap the field modulus and fake conservation.
+\subsection{gadgets/merkle.rs}
+Merkle path: a leaf is a member of the tree with a given root.
 
-\subsection{error.rs}
-Errors raised by the shielded pool primitives.
+One row per level, \texttt{depth} rows, \texttt{depth} a power of two. Row \texttt{i} holds the
+node entering level \texttt{i} (\texttt{cur}), its sibling, and the path bit: with the
+bit 0 the permutation input is \texttt{cur ‖ sib}, with the bit 1 \texttt{sib ‖ cur}, and
+the next row's \texttt{cur} is this row's digest. The first row's \texttt{cur} is the
+public leaf, the last row's digest the public root.
 
-\subsection{field.rs}
-Conversions between chain bytes and field elements.
+Set membership is this statement with the set committed as the tree.
 
-\subsubsection{Why 32-byte values are split}
+\subsection{gadgets/mod.rs}
+Reusable AIR gadgets.
 
-A BLS12-381 scalar holds 255 bits, so a 32-byte address does not fit. The
-tempting shortcut — reduce the address modulo \texttt{r} — is a correctness bug:
-the map stops being injective, and two distinct addresses collapse to the
-same field element. In a shielded pool that means two distinct notes with
-the same commitment, so splitting into two 128-bit limbs is not a stylistic
-choice.
+Each gadget is a small, standalone statement with its own AIR, native
+witness check, prover and verifier, and each is also the building block
+the shielded pool's AIRs repeat:
+
+\begin{verbatim}
+| Gadget | Proves | Public |
+|---|---|---|
+| [`range`] | a committed value is below `2^bits` (≤ 60) | the commitment |
+| [`merkle`] | a leaf is in the tree with a given root (set membership) | leaf, root |
+| [`key`] | knowledge of the secret behind a hash-based public key, bound to a message | public key, message |
+\end{verbatim}
+
+\subsection{gadgets/poseidon.rs}
+One Poseidon2 permutation per trace row, embedded at a column offset.
+
+Every gadget and pool AIR in this crate is a row-per-hash design: columns
+\texttt{[0, POSEIDON\_COLS)} of each row hold the upstream \texttt{p3-poseidon2-air}
+permutation columns, evaluated through Plonky3's \texttt{SubAirBuilder}, and the
+gadget's own columns follow. The gadget then constrains what goes *into*
+each permutation (\texttt{inputs}) and what comes *out* (the last round's
+\texttt{post}), which is all it needs to know about the hash.
+
+\subsection{gadgets/range.rs}
+Range proof: a committed value is below \texttt{2\textasciicircum{}bits}.
+
+The value is split into two 30-bit limbs so every limb, and every sum the
+constraints form, stays below the BabyBear modulus (\texttt{p ≈ 2\textasciicircum{}31}) — there is
+no wraparound for a prover to hide an out-of-range value in. The
+commitment is \texttt{C = P(lo, hi, 0, 0, 0, 0, 0, 0 ‖ r)[..8]} with an 8-element
+blinding \texttt{r}, so the proof reveals \texttt{C} and nothing else about the value.
+
+Row 0 carries the statement; row 1 is an honest permutation of zero that
+only exists because the hiding PCS needs more than one row.
 
 \subsection{hash.rs}
-Poseidon hashing, native and in-circuit.
+Poseidon2 over BabyBear, width 16 — the one hash inside every AIR here.
 
-Both forms live here deliberately. They must agree on every input for the
-scheme to work at all — a native commitment the circuit computes differently
-is a note nobody can ever spend — and keeping them apart is how that drift
-happens. \texttt{native\_and\_circuit\_agree} in the tests is the guard.
+The round constants are the standard ones \texttt{p3-baby-bear} ships
+(\texttt{BABYBEAR\_POSEIDON2\_RC\_16\_*}, the Horizen Labs instance), not random
+ones: a proof system whose hash constants came from a seed somebody chose
+is a proof system with a trapdoor somebody might have chosen. The native
+permutation and the AIR's [\texttt{round\_constants}] are built from the same
+arrays, and \texttt{tests/gadget\_tests.rs} checks the AIR's output equals the
+native permutation's.
+
+Two-to-one compression is the truncated permutation \texttt{P(l ‖ r)[..8]} — the
+construction Plonky3's own Merkle trees use. A digest is 8 field elements,
+about 248 bits, so collision resistance is \textasciitilde{}124 bits classically and a
+generic quantum collision search (BHT) gets no further than \textasciitilde{}83; the
+commitment and Merkle hashing in this crate rest on that.
 
 \subsection{lib.rs}
-Shielded pool primitives for Maya2C.
+Transparent, post-quantum zero-knowledge proofs — ADR-008.
 
-Transparent transactions publish sender, recipient, and amount. A shielded
-transaction publishes none of them. What reaches the chain is a *joinsplit*:
-a fixed-arity statement that consumes two note commitments and creates two
-more, proved in zero knowledge.
+One proof system: Plonky3 uni-STARKs over BabyBear with hiding FRI and
+Keccak commitments. No trusted setup, no pairing, nothing a quantum
+computer's discrete-log algorithm breaks; soundness rests on hash
+collision resistance. \texttt{tests/pqc\_zk\_tests.rs} checks the dependency graph
+has no Groth16, BN254, BLS12-381 or halo2 left in it.
 
-\subsubsection{Layout}
+- [\texttt{hash}] — Poseidon2 (width 16), the in-circuit hash, with the standard
+  constants.
+- [\texttt{gadgets}] — reusable AIRs: range proof, Merkle path (set membership),
+  and knowledge of a hash-based signing key's secret.
+- [\texttt{pool}] — the shielded pool: notes, commitments, nullifiers, the
+  commitment tree, and the 2-in-2-out joinsplit that shields, transfers
+  and unshields.
+- [\texttt{credential}] — selective disclosure: membership, a predicate on the
+  value, and an unrevoked bit at the same index.
+- [\texttt{sanctions}] — non-membership in a sorted list, by an adjacent-leaf gap.
+
+Every constraint has a negative test that tampers with one witness
+consistently — everything downstream recomputed — so only the constraint
+under test can refuse it (invariant 23's lesson, carried over from the
+zkML circuit this crate replaces).
+
+\subsection{pool/joinsplit.rs}
+The joinsplit AIR: two notes in, two notes out, with transparent edges.
+
+128 rows, one Poseidon2 permutation each; roles fixed by periodic selector
+columns the verifier supplies, so no witness can switch a check off.
 
 \begin{verbatim}
-| Module | Role |
+| rows | role |
 |---|---|
-| [`params`] | Consensus constants: depth, domains, Poseidon configuration |
-| [`field`] | Chain bytes to field elements, and the 128-bit limb split |
-| [`hash`] | Poseidon, native and in-circuit — kept together so they agree |
-| [`note`] | Notes, commitments, nullifiers |
-| [`tree`] | The append-only commitment tree |
-| [`circuit`] | The joinsplit statement |
-| [`prove`] | Setup, proving, verification |
-| [`wallet`] | Assembling joinsplits, with the padding that hides arity |
+| `36i + 0` | input `i` key: `sk ‖ KEY` → address |
+| `36i + 1` | input `i` value layer: `lo, hi, 0.. ‖ address` |
+| `36i + 2` | input `i` commitment: `layer ‖ rho ‖ rand` |
+| `36i + 3 … 36i + 34` | input `i` Merkle path, 32 levels, up to the anchor |
+| `36i + 35` | input `i` nullifier: `sk ‖ NULLIFIER, rho, 0..` |
+| `72 + 2j`, `73 + 2j` | output `j` value layer and commitment |
+| 76–127 | padding: honest permutations, nothing else |
 \end{verbatim}
 
-\subsubsection{Security status}
+\textbf{Dummy inputs.} An unused input slot carries a zero-value note with
+\texttt{is\_dummy = 1}: its value is forced to zero and its Merkle root is not
+compared with the anchor (there is no leaf to find), but its key,
+commitment and nullifier are computed like any other, so the published
+nullifier still binds to *something* and nothing on chain tells a dummy
+from a real spend. Marking a real note dummy gains nothing: its value
+becomes zero.
 
-\textbf{This pool is not safe for real value.} Groth16 requires a per-circuit
-trusted setup, and this crate generates one deterministically from a fixed
-seed ([\texttt{params::SETUP\_SEED}]). The toxic waste is therefore reproducible by
-anyone who runs the setup, and whoever holds it can forge proofs — which in
-a shielded pool means minting coins that no supply audit can detect, because
-the values are hidden.
+\textbf{Conservation} over 27-bit limbs, with \texttt{A = in₀ + in₁ + public\_in} and
+\texttt{B = out₀ + out₁ + public\_out + fee}:
 
-Making this safe requires a multi-party computation ceremony where at least
-one participant destroys their contribution, followed by an audit. Until
-then this is a testnet construction. See [\texttt{prove}] for the guard that keeps
-the test key off a production network.
+\begin{verbatim}
+A_lo + 4·2^27 = B_lo + c·2^27        A_hi + c = B_hi + 4        0 ≤ c ≤ 7
+\end{verbatim}
 
-\subsection{note.rs}
-Shielded notes: the coins in the pool.
+which says \texttt{A = B} as integers: \texttt{A\_lo ≤ 3(2\textasciicircum{}27−1)}, \texttt{B\_lo ≤ 4(2\textasciicircum{}27−1)}, so
+every side is below \texttt{11·2\textasciicircum{}27 < p ≈ 15·2\textasciicircum{}27} and nothing wraps.
 
-A note is a private record of value. What reaches the chain is only its
-*commitment* — a Poseidon hash binding the value, the owner, and two random
-blinding factors. The commitment reveals nothing, and it is hiding because
-\texttt{rand} is uniform: two notes of the same value to the same owner have
-unrelated commitments.
+\textbf{Public values} (57): anchor, both nullifiers, both output commitments,
+the limbs of \texttt{public\_in}, \texttt{public\_out} and \texttt{fee}, and the recipient as
+eleven 24-bit words — bound by the transcript, so a miner who rewrites the
+recipient invalidates the proof.
 
-\subsubsection{Spending}
+\subsection{pool/mod.rs}
+The shielded pool's statement — ADR-008.
 
-Spending publishes a *nullifier* derived from the spending key and the
-note's \texttt{rho}. It is unlinkable to the commitment without the spending key,
-so an observer cannot tell which note was consumed — but it is deterministic
-for a given note, so spending the same note twice publishes the same
-nullifier and the second attempt is rejected.
+One AIR, [\texttt{joinsplit::JoinSplitAir}]: two notes in, two notes out, value
+entering and leaving through public amounts. Shielding (transparent → note),
+transfer (notes → notes) and unshielding (notes → transparent) are the same
+statement with different edges, built by [\texttt{wallet}]. The state machine —
+anchor window, nullifier set, pool balance — belongs to the chain
+(\texttt{crates/node/src/state/shielded.rs}); this crate proves and verifies.
 
-\texttt{rho} must be unique per note. Two notes sharing a \texttt{rho} under one spending
-key produce the same nullifier, which makes the second unspendable.
+\subsection{pool/note.rs}
+Keys, notes, commitments and nullifiers.
 
-\subsection{params.rs}
-Consensus parameters for the shielded pool.
+\begin{verbatim}
+address = compress(sk, KEY)
+cm      = compress(compress(lo, hi, 0.. ‖ address), rho ‖ rand)
+nf      = compress(sk, NULLIFIER, rho, 0, 0, 0)
+\end{verbatim}
 
-Everything here is consensus. Changing a domain separator, the tree depth,
-or the Poseidon configuration changes the commitments and nullifiers every
-existing note hashes to, which invalidates the entire pool.
+Values are two 27-bit limbs, so a note holds less than \texttt{2\textasciicircum{}54} (about
+1.8·10\textasciicircum{}16 base units). 27 rather than 30 bits because the joinsplit adds up
+to four limbs in one equation and every such sum must stay below the
+BabyBear modulus, \texttt{p ≈ 15·2\textasciicircum{}27} — see \texttt{joinsplit.rs}.
 
-\subsection{prove.rs}
-Groth16 setup, proving, and verification.
+\texttt{rho} (4 elements, \textasciitilde{}124 bits) makes every note unique, so every nullifier
+is; \texttt{rand} hides the commitment. The nullifier needs \texttt{sk}, so only the
+owner can compute it, and it is a function of the note, so spending a note
+twice publishes the same nullifier twice.
 
-\subsubsection{The trusted setup problem}
+\subsection{pool/tree.rs}
+The note-commitment tree: incremental, depth 32, stored as a frontier.
 
-Groth16 needs structured reference strings generated from secret randomness.
-Whoever knows that randomness — the "toxic waste" — can produce proofs of
-false statements. Here, that means minting shielded coins out of nothing,
-and because a shielded pool hides values, no supply audit would ever notice.
+A node keeps only the *frontier* — for each level, the last left child
+still waiting for a right sibling — plus the leaf count. That is 32
+digests however many notes exist, and it is enough to append and to
+compute the root. Wallets, which do need paths, rebuild them from the
+leaves they watched ([\texttt{merkle\_path}]).
 
-This module generates the parameters deterministically from
-[\texttt{SETUP\_SEED}](crate::params::SETUP\_SEED). That makes them reproducible,
-which is exactly what a test suite needs and exactly what a real deployment
-must never have: anyone can re-run the setup and recover the toxic waste.
+Empty positions are the zero digest and an empty subtree is the hash of
+two empty ones, so the root of a partly filled tree is well defined.
 
-[\texttt{SETUP\_IS\_TRUSTED}] is \texttt{false} for that reason, and the node refuses to
-serve a network that claims to hold real value while this is so. Replacing
-this with the output of a multi-party ceremony — where at least one honest
-participant destroys their contribution — is what would make the pool sound.
+\subsection{pool/wallet.rs}
+Building joinsplits from a wallet's point of view.
 
-\subsubsection{Why the key is pinned}
+Every joinsplit has exactly two inputs and two outputs; the builder pads
+with zero-value dummies, so an observer cannot tell a one-note spend from
+a two-note one.
 
-The verifying key is consensus. A different key rejects every proof the
-network has already accepted. [\texttt{PINNED\_VERIFYING\_KEY\_HASH}] fails the build's
-tests if a dependency bump, a constraint reordering, or a parameter change
-alters it, so the hard fork is caught here rather than in production.
+\subsection{pool/witness.rs}
+Joinsplit witness → trace and public values, with the native checks.
 
-\subsection{tree.rs}
-The note commitment tree.
+\subsection{proof.rs}
+Proving, verifying, and measuring what a proof is worth.
 
-An append-only Poseidon Merkle tree of fixed depth. Notes are only ever
-added, never removed — spending a note publishes a nullifier instead, so the
-tree's history stays intact and old Merkle paths keep verifying.
+\subsection{sanctions.rs}
+Proving an identifier is \textbf{not} on a sanctions list, without revealing it.
 
-\subsubsection{Two representations}
+> I know a 32-byte identifier \texttt{x} and two leaves \texttt{lo < x < hi} at adjacent
+> positions \texttt{i}, \texttt{i + 1} of the sorted list committed to by \texttt{root}.
 
-[\texttt{CommitmentTree}] keeps only the *frontier*: the pending left sibling at
-each level. That makes appending and re-rooting \texttt{O(depth)} instead of
-\texttt{O(notes)}, which matters because a node re-roots on every block, and it
-makes a reorg cheap — restoring the frontier and the count is enough to
-rewind the tree exactly.
+Adjacency is what makes a gap a proof: two *neighbours* of a sorted list
+leave no room for \texttt{x} between them. The two sentinels (all-zero and
+all-\texttt{0xff}) make every identifier bracketable. Identifiers compare as
+big-endian bytes — \texttt{<[u8; 32]>::cmp} natively — held in the AIR as sixteen
+16-bit limbs, and \texttt{x − lo − 1 ≥ 0} and \texttt{hi − x − 1 ≥ 0} are proved by
+limb-wise borrow chains whose differences are range-checked, so a negative
+result cannot hide in the field.
 
-[\texttt{merkle\_path}] builds an authentication path from the full leaf set. It is
-\texttt{O(notes)} and belongs to the wallet side, which needs a path to prove a
-spend and has the leaves anyway.
-
-\subsubsection{Why leaves need no domain tag}
-
-Internal nodes hash two children with no separator, so an internal node's
-digest could in principle be presented as a leaf. That is harmless here:
-spending a leaf requires opening it as a note commitment *and* proving
-knowledge of the spending key behind its address. Passing off an internal
-node would mean finding a Poseidon preimage of that specific shape.
-
-\subsection{wallet.rs}
-Assembling joinsplits.
-
-The circuit has fixed arity — always two inputs and two outputs — but real
-spends rarely do. This module pads the difference with dummies so that a
-one-note spend and a two-note spend are the same shape on chain, and derives
-the blinding factors that keep the new notes hiding.
-
-All three shielded operations are the same call with different public value
-terms; [\texttt{shield}], [\texttt{transfer}], and [\texttt{unshield}] are thin wrappers that name
-them.
+What this does not prove: that \texttt{x} is the party in the payment (bind it
+by committing to \texttt{x} in the payment), or that \texttt{root} is the right list
+(the verifier must know which root it expects).
 
 \section{Contract execution}
-\noindent\texttt{vm\textbackslash{}src}
+\noindent\texttt{crates/vm\textbackslash{}src}
+
+\subsection{cache.rs}
+Compiling a contract once instead of on every call.
+
+\subsubsection{What this is, and what it is not}
+
+It is \textbf{not} a JIT. The VM has been a JIT since it was written: \texttt{Config} at
+\texttt{crate::config} sets \texttt{Strategy::Cranelift}, so wasmtime compiles every module
+to native x86-64 or aarch64 before it runs, and there is no interpreter in
+this tree to be slower than.
+
+What was missing is that the compile happened \textbf{again on every call}.
+\texttt{Vm::call} handed the same bytes to \texttt{Module::new} each time and Cranelift
+optimised them from scratch. This holds the result.
+
+\subsubsection{Why a cache cannot change gas}
+
+Gas is wasmtime fuel (invariant 21), and fuel is instrumentation the compiler
+injects per Wasm operator. The same bytes under the same configuration
+produce the same instrumentation, so a cached module charges exactly what a
+freshly compiled one charges. \texttt{a\_cached\_call\_burns\_identical\_fuel} asserts
+that rather than assuming it, because "gas is unchanged" is the entire safety
+argument for caching anything on a consensus path.
+
+\subsubsection{The configuration is part of the key}
+
+Not just the bytecode. A cache keyed on bytes alone would, after a change to
+\texttt{deterministic\_config} — NaN canonicalisation, a proposal flag, the stack cap
+— keep serving modules compiled under the *old* settings until the process
+restarted. Two nodes would then be running the same contract under two
+compilers, which is the one way a cache can fork a chain.
+
+So the key is \texttt{BLAKE3(config digest || bytecode)}, and a configuration change
+invalidates every entry by construction rather than by anybody remembering.
+
+\subsubsection{Bounded, and evicting the least recently used}
+
+An unbounded cache is a node that dies from the number of distinct contracts
+it has seen — which is a number an attacker chooses, by deploying junk. So
+there is a cap, and the entry not touched for longest goes first: a contract
+called once by an attacker should not evict one called every block.
+
+\subsubsection{Not shared between engines}
+
+A \texttt{Module} is bound to the \texttt{Engine} that compiled it, and instantiating it
+against another is an error rather than a subtle wrong answer. The cache
+lives inside \texttt{Vm} beside its engine for that reason, and the config digest in
+the key is a second guard on the same thing.
 
 \subsection{config.rs}
 Deterministic engine configuration.
@@ -2976,8 +4381,45 @@ either returns a result or an error, and the node applies state only on
 success, a trap partway through leaves nothing behind. The
 \texttt{gas\_exhaustion\_reverts\_all\_writes} test pins that.
 
+\subsection{zkml.rs}
+The zkML verification host function's contract with the rest of the VM:
+its bounds, its price, and its answers.
+
+The verifier itself is not here. \texttt{maya-vm} links no pairing library — the
+node supplies verification through [\texttt{crate::HostState::verify\_zkml}], the
+same seam that keeps chain types out of the VM. That keeps the VM's
+dependency set to wasmtime, and it means a host that has not opted in has
+no verifier at all rather than a disabled one.
+
+\subsubsection{The price is measured, and it is large on purpose}
+
+Gas is wasmtime fuel, about one unit per wasm instruction, and fuel cannot
+see native work. A host function that verifies a pairing-based proof does
+\textasciitilde{}6 ms of native work (release build, \texttt{crates/zkml-prover/benches/verify.rs}); a tight
+guest loop on the same machine burns \textasciitilde{}16.6 million fuel per millisecond
+(\texttt{crates/vm/tests/fuel\_calibration\_tests.rs}). So the honest charge is on the order
+of a hundred million fuel, and [\texttt{ZKML\_VERIFY\_BASE\_FUEL}] is set at roughly
+9 ms' worth for headroom.
+
+That is fifteen times the VM's default gas ceiling, which means a contract
+calling this must ask for a larger \texttt{gas\_limit}. That is correct: a call that
+verifies a proof *is* fifteen times as much work as the default call budget,
+and a price that pretended otherwise would let a contract loop over
+verifications at a fraction of what they cost the validators running it.
+
+The per-byte charge covers copying the buffers out of guest memory and
+hashing the key. The verification itself does not grow with the byte
+counts: the verifier accepts one circuit shape, reads a fixed number of
+points, and refuses trailing bytes afterwards.
+
+\subsubsection{Charged before any work}
+
+The fuel is taken first. A call that cannot pay traps without a byte having
+been read and without a pairing having been computed — otherwise
+"out of gas" would arrive after the work it was meant to bound.
+
 \section{Trading engine}
-\noindent\texttt{dex\textbackslash{}src}
+\noindent\texttt{crates/dex\textbackslash{}src}
 
 \subsection{amm.rs}
 Constant-product automated market maker.
@@ -3163,7 +4605,7 @@ whole dependency graph* — which rules out anything that reaches RocksDB's
 C++ or the \texttt{ark-*} stack.
 
 So this crate has no dependencies, and the node calls into it rather than
-inlining the arithmetic. What [\texttt{proofs}] establishes is a property of the
+inlining the arithmetic. What \texttt{proofs} (compiled only under Kani) establishes is a property of the
 code that runs when a block is applied, not of a restatement of it.
 
 The visible cost of that boundary is that nothing here hashes. Pair
@@ -3301,7 +4743,7 @@ a very good test:
 Identifiers, units, and the scale every price is quoted in.
 
 \section{Governance}
-\noindent\texttt{governance\textbackslash{}src}
+\noindent\texttt{crates/governance\textbackslash{}src}
 
 \subsection{error.rs}
 Why a governance operation was refused.
@@ -3459,7 +4901,7 @@ a very good test:
   sequence length to assume.
 - What they do *not* cover is a sequence of operations. Each proves a
   property of one transition; the composition of many transitions is covered
-  by the tests in \texttt{proposal.rs} and \texttt{crates/node/tests/governance\_tests.rs}. Said here
+  by the tests in \texttt{proposal.rs} and \texttt{tests/governance\_tests.rs}. Said here
   rather than left to be inferred from the absence.
 
 \subsection{proposal.rs}
@@ -3528,7 +4970,7 @@ A tally that wrapped would not merely be wrong, it would be wrong in the
 direction of whoever arranged the wrap.
 
 \section{Threshold-encrypted mempool}
-\noindent\texttt{mev\textbackslash{}src}
+\noindent\texttt{crates/mev\textbackslash{}src}
 
 \subsection{cipher.rs}
 Sealing a transaction to a committee, and opening it once the committee agrees.
@@ -3661,7 +5103,7 @@ shares* — points on the curve — so the committee key is never materialized
 anywhere after the setup that created it. See [\texttt{crate::cipher::combine}].
 
 \section{Payment channels}
-\noindent\texttt{l2-flash\textbackslash{}src}
+\noindent\texttt{crates/l2-flash\textbackslash{}src}
 
 \subsection{channel.rs}
 Bidirectionally signed payment channels.
@@ -3794,7 +5236,7 @@ grows the amount as it goes. Searching forward would require knowing the
 final amount before the fees that determine it.
 
 \section{SPV light client}
-\noindent\texttt{light-client\textbackslash{}src}
+\noindent\texttt{crates/light-client\textbackslash{}src}
 
 \subsection{chain.rs}
 Following headers, and believing proofs against them.
@@ -3834,7 +5276,7 @@ An SPV light client: headers, fork choice, and state proofs.
 A full node downloads every transaction, executes it, and computes the state
 root itself. It needs no trust at all — it checks everything.
 
-A light client downloads only \textbf{headers}, which are 112 bytes each, and
+A light client downloads only \textbf{headers}, which are 144 bytes each, and
 verifies two things:
 
 1. Each header's proof of work is valid, and the chain it is on has more
@@ -3872,13 +5314,35 @@ running a node — a wallet, an exchange's deposit watcher, a rollup's
 settlement checker. The cross-chain half of a bridge is a message-passing
 protocol on top of this, and it is not built here.
 
+\subsection{stateless.rs}
+\begin{framed}\noindent\textbf{Status.} This module is a research branch. It is present in the tree and no consensus path reaches it. Nothing described here is part of the running chain.\end{framed}
+
+Checking blocks, not only headers. Research branch.
+
+[\texttt{LightClient}] follows headers and believes that whatever produced a state
+root was legal — the SPV trade-off in \texttt{lib.rs}. For transfer blocks a
+witness removes that belief: [\texttt{StatelessValidator}] re-runs each block's
+transfers against its witness and checks the declared root, holding 32 bytes
+of state between blocks and one block's witness while it works.
+
+What it still does not do:
+
+- \textbf{Proof of work.} That is [\texttt{crate::HeaderChain}]'s job, and its DAG cache
+  is tens of megabytes. [\texttt{LightClient::verify\_block}] joins the two: a
+  work-checked header, and a block checked against it.
+- \textbf{Anything but transfers,} or any chain whose oracle, governance or
+  sealed mempool holds records. Those answer
+  [\texttt{LightClientError::BlockUnverifiable}], which is not a verdict — see
+  \texttt{custom\_l1\_node::state::stateless}.
+- \textbf{Fetch witnesses.} No gossip topic carries them yet.
+
 \section{Pool protocol}
-\noindent\texttt{stratum-v2\textbackslash{}src}
+\noindent\texttt{crates/stratum-v2\textbackslash{}src}
 
 \subsection{codec.rs}
 Bounds-checked reader and writer for Stratum V2's primitive types.
 
-Deliberately the same shape as \texttt{crates/node/src/core/codec.rs}: every read is range
+Deliberately the same shape as \texttt{src/core/codec.rs}: every read is range
 checked, every collection length is capped before anything is reserved, and
 [\texttt{Reader::finish}] refuses trailing bytes so one value cannot have two
 encodings. The node's reader could not simply be reused because it returns
@@ -3888,7 +5352,7 @@ discipline is copied on purpose, not reinvented.
 \subsubsection{Endianness}
 
 Stratum V2 is little-endian throughout, which happens to match the node's
-wire format (\texttt{crates/node/src/core/block.rs:33-41}). Integers here are therefore LE.
+wire format (\texttt{src/core/block.rs:33-41}). Integers here are therefore LE.
 
 \textbf{Except targets and hashes.} See [\texttt{Reader::read\_bytes32}].
 
@@ -3918,8 +5382,8 @@ mentions a Bitcoin header, so there is nothing to adapt.
 \subsubsection{The extension namespace}
 
 Extension type \texttt{0x0000} is the reserved SV2 mining protocol, and this is not
-that: Maya2C's mining messages carry a \texttt{state\_root} and a 256-bit target
-where SV2 carries a merkle root and \texttt{nbits}. Using \texttt{0x0000} would announce
+that: Maya2C's mining messages carry a \texttt{state\_root}, a \texttt{tx\_root} where SV2
+puts its merkle root, and a 256-bit target where SV2 has \texttt{nbits}. Using \texttt{0x0000} would announce
 wire compatibility that does not exist, and the failure mode — a stock SV2
 client parsing our \texttt{NewMiningJob} as its own — is a client mining garbage
 rather than a client reporting an error.
@@ -3940,8 +5404,8 @@ around Maya2C's header.
 It is \textbf{not} wire-compatible with stock Stratum V2 clients, and it does not
 pretend to be. SV2's mining messages assume a Bitcoin header: they carry a
 \texttt{merkle\_root}, a compact \texttt{nbits}, a rollable \texttt{version}, and a coinbase to
-hold an extranonce. Maya2C's 112-byte header (\texttt{crates/node/src/core/block.rs:9-41}) has
-none of those. No SRI or Braiins client could mine this chain even against a
+hold an extranonce. Maya2C's 144-byte header (\texttt{src/core/block.rs}) keeps
+only the root, as \texttt{tx\_root}. No SRI or Braiins client could mine this chain even against a
 byte-perfect implementation of the specification — it would need an
 ArgonBlake hasher and a Maya2C header builder, at which point it is a
 different client.
@@ -3963,7 +5427,7 @@ values meet chain types one layer up, in the pool daemon.
 
 \subsubsection{Decoding discipline}
 
-Copied from \texttt{crates/node/src/core/codec.rs} rather than reinvented:
+Copied from \texttt{src/core/codec.rs} rather than reinvented:
 
 - every read is range-checked, so a truncated frame is an error and never a
   panic — a pool that aborts on a malformed frame is a pool that one
@@ -3990,17 +5454,17 @@ The mining sub-protocol, adapted to Maya2C's header.
 \subsubsection{What changed from the specification, and why}
 
 Stratum V2's mining messages are shaped around a Bitcoin header. Maya2C's is
-112 bytes of \texttt{prev\_hash ‖ state\_root ‖ timestamp ‖ nonce ‖ difficulty\_target}
-(\texttt{crates/node/src/core/block.rs:33-41}) — no version field, no merkle root, no compact
-\texttt{nbits}, and no coinbase to hide an extranonce in. Four adaptations follow.
+144 bytes of `prev\_hash ‖ state\_root ‖ timestamp ‖ nonce ‖ difficulty\_target
+‖ tx\_root\texttt{ (}src/core/block.rs\texttt{) — no version field, no compact }nbits`, and
+no coinbase to hide an extranonce in. Four adaptations follow.
 Message numbering still matches SV2 slot for slot, so the correspondence
 stays readable.
 
 \begin{verbatim}
 | SV2 field | Here | Why |
 |---|---|---|
-| `merkle_root` in `NewMiningJob` | `state_root` | The header commits to post-execution state, not to a transaction tree (`crates/node/src/state/db.rs:626-634`) |
-| `nbits` (U32 compact) in `SetNewPrevHash` | `target` (32 bytes) | Maya2C targets are full 256-bit values compared bytewise (`crates/node/src/crypto/pow.rs:16-18`); there is no compact form to pack into |
+| `merkle_root` in `NewMiningJob` | `tx_root` **and** `state_root` | The header commits to the transaction tree, as in SV2, and also to the post-execution state, which the chain checks |
+| `nbits` (U32 compact) in `SetNewPrevHash` | `target` (32 bytes) | Maya2C targets are full 256-bit values compared bytewise (`src/crypto/pow.rs:16-18`); there is no compact form to pack into |
 | `version` in jobs and shares | *absent* | The header has no version field to roll |
 | `SetExtranoncePrefix` | [`SetNonceRange`] | No coinbase means no extranonce; see below |
 | `ntime` (U32) | `timestamp` (U64) | The header's timestamp is a `u64` |
@@ -4014,7 +5478,7 @@ the 8-byte \texttt{nonce} — and with tens of thousands of connections on one j
 every one of them would otherwise start at zero and walk the same path.
 
 Each channel is therefore assigned a disjoint half-open nonce range at open
-time, the way \texttt{crates/node/src/consensus/miner.rs:6-10} already partitions across
+time, the way \texttt{src/consensus/miner.rs:6-10} already partitions across
 threads. Two channels cannot collide by construction rather than by luck,
 duplicate detection becomes exact, and a submitted nonce outside a channel's
 range is rejected without hashing anything — which, at 25 ms per ArgonBlake
@@ -4034,7 +5498,7 @@ Phase 6 work, and an empty variant that decodes into nothing is worse than
 an honest [\texttt{Sv2Error::UnknownMessageType}].
 
 \section{Pool daemon}
-\noindent\texttt{pool-service\textbackslash{}src}
+\noindent\texttt{bins/pool-service\textbackslash{}src}
 
 \subsection{api.rs}
 The JSON API.
@@ -4095,12 +5559,12 @@ Mining channels: nonce ranges, per-channel state, and the registry.
 
 Bitcoin gives each miner its own search space through the coinbase
 extranonce. Maya2C has no coinbase, so the only field a miner may vary is
-the header's 8-byte nonce (\texttt{crates/node/src/core/block.rs:23}). With tens of thousands
+the header's 8-byte nonce (\texttt{src/core/block.rs:23}). With tens of thousands
 of channels on one job, every one of them would otherwise start at zero and
 walk the same path — the pool would pay many miners for the same hash.
 
 Each channel is therefore assigned a disjoint half-open range at open time,
-the way \texttt{crates/node/src/consensus/miner.rs} already partitions across threads. Three
+the way \texttt{src/consensus/miner.rs} already partitions across threads. Three
 things follow, and all three are load-bearing:
 
 1. Two channels cannot collide by construction rather than by luck.
@@ -4143,7 +5607,7 @@ The daemon: the Stratum listener, and the loops around it.
 
 \subsubsection{Transport}
 
-The pool reuses \texttt{crates/node/src/network/pq} — Noise-style XX over X25519 with an
+The pool reuses \texttt{src/network/pq} — Noise-style XX over X25519 with an
 ML-KEM-768 exchange layered inside, ChaCha20Poly1305, 64 KiB frames.
 \texttt{docs/stratum-v2.md} §6 gives the reasoning: SV2 specifies
 \texttt{Noise\_NX\_secp256k1\_…}, and adopting it would introduce secp256k1 — the one
@@ -4189,7 +5653,7 @@ Work templates, and the ids miners submit against.
 
 \subsubsection{Jobs go stale fast here}
 
-\texttt{TARGET\_BLOCK\_TIME} is fifteen seconds (\texttt{crates/node/src/consensus/difficulty.rs:32}).
+\texttt{TARGET\_BLOCK\_TIME} is fifteen seconds (\texttt{src/consensus/difficulty.rs:32}).
 A ten-minute chain can afford to measure its stale-grace window in seconds;
 this one cannot. Job push has to be sub-second and the grace window is one
 job deep — see [\texttt{crate::channel::ChannelState::current\_job}] for why one and
@@ -4198,7 +5662,7 @@ not zero, and not three.
 \subsubsection{The pool builds empty blocks}
 
 \texttt{get\_mining\_candidate} returns a header over the current state root and no
-transaction list (\texttt{crates/node/src/rpc/server.rs:147}), and \texttt{submit\_block} takes a whole
+transaction list (\texttt{src/rpc/server.rs:147}), and \texttt{submit\_block} takes a whole
 block. The pool therefore submits \texttt{Block::new(header, vec![])}, which is what
 the node's own miner does. This is not a limitation being worked around: on
 a chain that burns fees to \texttt{FEE\_SINK} there is no fee revenue to collect by
@@ -4241,7 +5705,7 @@ restore is a file restore.
 
 RocksDB is a blocking API, and wrapping it in \texttt{async\_trait} would produce
 futures that block their executor thread anyway — the appearance of async
-without the property. \texttt{crates/node/src/rpc/server.rs} already calls \texttt{StateDB} straight
+without the property. \texttt{src/rpc/server.rs} already calls \texttt{StateDB} straight
 from request handlers for the same reason. Every read a request handler
 makes here is a point lookup or a short bounded scan; the one unbounded walk
 ([\texttt{ShareLedger::window}]) runs on the payout task, never on a request.
@@ -4259,7 +5723,7 @@ The durable share ledger.
 
 \subsubsection{Key layout}
 
-One column family, prefixed keys, matching \texttt{crates/node/src/state/db.rs} rather than
+One column family, prefixed keys, matching \texttt{src/state/db.rs} rather than
 inventing a second convention in the same repository:
 
 \begin{verbatim}
@@ -4342,7 +5806,7 @@ point produces one transaction or none, never two.
 \subsection{metrics.rs}
 Prometheus instrumentation for the pool.
 
-Built on the node's registry conventions (\texttt{crates/node/src/metrics/mod.rs}) and served
+Built on the node's registry conventions (\texttt{src/metrics/mod.rs}) and served
 by the node's exporter through
 [\texttt{custom\_l1\_node::metrics::server::Exposition}] — one accept loop, one
 routing table, one set of decisions about what an exporter should refuse to
@@ -4350,7 +5814,7 @@ serve.
 
 \subsubsection{Labels are a closed set, and here that matters more than usual}
 
-\texttt{crates/node/src/metrics/mod.rs} refuses open-ended label values because a hostile peer
+\texttt{src/metrics/mod.rs} refuses open-ended label values because a hostile peer
 could otherwise create unbounded time series and exhaust the scraper. The
 pool has the same exposure through a wider door: a rejection reason derived
 from error text, or a per-worker label taken from the \texttt{user\_identity} a
@@ -4424,7 +5888,7 @@ the pool would have double-counted the outcome.
 \subsubsection{How the pool knows a payout landed}
 
 There is no \texttt{get\_transaction} RPC to ask. What there is, is
-\texttt{crates/node/src/state/db.rs:418}: a transaction is valid only when \texttt{tx.nonce} equals
+\texttt{src/state/db.rs:418}: a transaction is valid only when \texttt{tx.nonce} equals
 the sender's current nonce exactly, so transactions from one account are
 strictly sequential. The pool is the only spender from the treasury, so the
 account's nonce advancing past a batch's reserved nonce means *that batch's
@@ -4455,7 +5919,7 @@ difficulty, and a share contributes its own weight to filling it.
 That is also what makes the scheme resistant to the obvious manipulation.
 Splitting one rig across ten workers produces ten times the shares at a
 tenth the difficulty each, for the same total weight and the same payout —
-[\texttt{tests::splitting\_a\_farm\_across\_workers\_changes\_nothing}] states it as an
+\texttt{tests::splitting\_a\_farm\_across\_workers\_changes\_nothing} states it as an
 assertion rather than a claim.
 
 \subsubsection{Why the denominator is what accumulated, not `N`}
@@ -4499,7 +5963,7 @@ and much weaker door into the parts that handle money.
 
 Three listeners, three audiences: miners, operators, and Prometheus. The
 exporter carries per-pool operational data and stays inside the pod network
-(\texttt{crates/node/src/metrics/mod.rs} gives that reasoning); this one is the page a miner
+(\texttt{src/metrics/mod.rs} gives that reasoning); this one is the page a miner
 opens.
 
 \subsection{session.rs}
@@ -4543,7 +6007,7 @@ divergence shows up as blocks the pool submits and the network refuses —
 after the shares behind them have been paid for.
 
 \texttt{pow\_hash\_at} also picks the rule by height, ArgonBlake below the DAG
-activation and hashimoto above it (\texttt{crates/node/src/core/block.rs:142}). Hashing at the
+activation and hashimoto above it (\texttt{src/core/block.rs:142}). Hashing at the
 wrong height is the same class of error as hashing with the wrong function.
 
 \subsubsection{Order of operations is a cost decision}
@@ -4650,7 +6114,7 @@ scope here. It is named in \texttt{docs/pool-service.md} rather than left implie
 
 \subsubsection{Nonces are the idempotency mechanism}
 
-\texttt{crates/node/src/state/db.rs:418} requires \texttt{tx.nonce == sender.nonce} exactly, so
+\texttt{src/state/db.rs:418} requires \texttt{tx.nonce == sender.nonce} exactly, so
 transactions from one account are strictly sequential and a nonce is a slot
 that exists once. A batch reserves its slot before it is signed and keeps
 it across restarts, which is what makes "crashed after signing, before
@@ -4690,7 +6154,7 @@ The share validation pipeline.
 \subsubsection{Why this is a separate stage at all}
 
 One share is 25.4 ms of Argon2id below the DAG fork
-(\texttt{crates/node/src/crypto/argon\_blake.rs}). Running that on the task that owns a socket
+(\texttt{src/crypto/argon\_blake.rs}). Running that on the task that owns a socket
 would put it in front of every other message that connection has queued, and
 at 50,000 connections would put it in front of the Tokio runtime itself.
 Shares therefore cross a bounded channel into a pool of blocking workers,
@@ -4712,7 +6176,7 @@ does that under load is a pool miners leave under load.
 
 Argon2id over 32 MiB means each concurrent verification holds 32 MiB. Eight
 workers is a quarter-gigabyte of working set, which is the same arithmetic
-\texttt{crates/node/src/consensus/miner.rs} does for mining threads and the same cap it lands
+\texttt{src/consensus/miner.rs} does for mining threads and the same cap it lands
 on. \texttt{spawn\_blocking}'s default pool of 512 threads would be sixteen
 gigabytes.
 
@@ -4752,7 +6216,7 @@ the miners, who did the work and would not be credited for it. Raising
 targets sheds the same load onto arithmetic that has not happened yet.
 
 \section{Lattice proof of work}
-\noindent\texttt{lattice-pow\textbackslash{}src}
+\noindent\texttt{crates/lattice-pow\textbackslash{}src}
 
 \subsection{basis.rs}
 \begin{framed}\noindent\textbf{Status.} This module is a research branch. It is present in the tree and no consensus path reaches it. Nothing described here is part of the running chain.\end{framed}
@@ -4940,7 +6404,7 @@ The rule: is this vector a point of the block's lattice, and is it short
 enough to have cost what the target says it should have cost?
 
 \section{Batch references and shard scheduling}
-\noindent\texttt{blockgraph\textbackslash{}src}
+\noindent\texttt{crates/blockgraph\textbackslash{}src}
 
 \subsection{batch.rs}
 \begin{framed}\noindent\textbf{Status.} This module is a research branch. It is present in the tree and no consensus path reaches it. Nothing described here is part of the running chain.\end{framed}
@@ -5029,7 +6493,7 @@ of them per second is 558 MB/s of signature bytes before any payload. See
 
 \subsubsection{Deterministic execution instead of two-phase commit}
 
-[\texttt{schedule}] partitions an already-ordered transaction list into *waves*.
+[\texttt{schedule}](fn@crate::schedule) partitions an already-ordered transaction list into *waves*.
 Within a wave no two transactions touch a common shard, so a wave may be
 executed in parallel in any order; between waves, conflicting transactions
 keep their original relative order. Executing the waves in sequence produces
@@ -5148,12 +6612,180 @@ Which of the 64 partitions an account's state lives in.
 
 Worth separating, because the two get conflated. A *shard* is a partition of
 state; a *thread* is an execution resource. This module defines the first.
-[\texttt{crate::schedule}] decides what may run concurrently, and how many threads
+[\texttt{crate::schedule}](fn@crate::schedule) decides what may run concurrently, and how many threads
 actually serve a wave is a deployment question that changes no result — the
 state root is the same on one core and on sixty-four.
 
+\subsection{shard\_manager/handoff.rs}
+\begin{framed}\noindent\textbf{Status.} This module is a research branch. It is present in the tree and no consensus path reaches it. Nothing described here is part of the running chain.\end{framed}
+
+Moving per-shard record caches from one map to another.
+
+The brief called this inter-shard teleportation. What moves is each leaf's
+in-memory cache of the records under its range — the working set a lane
+keeps hot. State itself does not move: every leaf reads one database and
+commits to one root.
+
+\subsubsection{Atomic}
+
+[\texttt{ShardStores::apply}] checks the plan was built for the map the stores are
+on before it touches a record, and from then on cannot fail: every record
+is placed by the new map's own lookup, so it lands in exactly one leaf and in
+key order. There is no half-moved state to observe or to roll back.
+
+That covers the stores, not the stores *and* the manager together. The
+sequence is \texttt{observe}, \texttt{apply}, \texttt{commit}, and it holds only if nothing
+calls \texttt{observe} between the last two: an interleaved tick makes \texttt{commit}
+refuse the plan after \texttt{apply} has already moved the caches. Both take
+\texttt{\&mut}, so a caller owning the two keeps them in step by calling them in
+order; one sharing them across threads must hold one lock across all three.
+
+\subsubsection{Batched}
+
+Records leave an old leaf in key order and new leaves are key ranges, so the
+records going from one old leaf to one new leaf are contiguous. Each such run
+is one [\texttt{Relocation}], which is what a lane handing its range to another
+would hand over in one message.
+
+\subsubsection{No proof}
+
+Both sides of the handoff are this process. A proof of a relabel that the
+receiver can redo would cost more than redoing it — see
+[\texttt{crate::shard\_manager}].
+
+\subsection{shard\_manager/map.rs}
+\begin{framed}\noindent\textbf{Status.} This module is a research branch. It is present in the tree and no consensus path reaches it. Nothing described here is part of the running chain.\end{framed}
+
+A tiling of the address space by binary prefixes.
+
+A leaf is a prefix of the address's first 32 bits: \texttt{depth} leading bits
+fixed, the rest free. Leaves are held in key order and must cover the space
+exactly once, so a leaf is a contiguous key range — a RocksDB range scan, as
+for the fixed partition — and lookup is a binary search.
+
+Merges are \textbf{buddy} merges only: two leaves merge exactly when they are the
+two halves of one parent. So every map is reachable from the root by splits
+alone, and there is one map for any set of leaves rather than several that
+cover the same space differently.
+
+\subsection{shard\_manager/metrics.rs}
+\begin{framed}\noindent\textbf{Status.} This module is a research branch. It is present in the tree and no consensus path reaches it. Nothing described here is part of the running chain.\end{framed}
+
+What one scheduling tick looked like, per leaf.
+
+Three signals, each chosen because it decides something:
+
+- \textbf{Density} ([\texttt{TickSample::load}]): transactions touching each leaf. The
+  split trigger.
+- \textbf{Straddling} ([\texttt{TickSample::straddling}]): transactions touching *both*
+  halves of a leaf. Splitting a leaf whose load mostly straddles turns
+  intra-shard conflicts into cross-shard ones and buys no parallelism, so it
+  vetoes the split.
+- \textbf{Cross-shard delay} ([\texttt{TickSample::waves}], [\texttt{TickSample::cross\_shard}]):
+  how many sequential waves the tick needed, and how many transactions
+  spanned leaves. A wave is the unit of waiting.
+
+Memory pressure is supplied by the caller in permille. It is this node's own
+reading, which is only acceptable because the map is not consensus (see
+[\texttt{crate::shard\_manager}]).
+
+\subsection{shard\_manager/mod.rs}
+\begin{framed}\noindent\textbf{Status.} This module is a research branch. It is present in the tree and no consensus path reaches it. Nothing described here is part of the running chain.\end{framed}
+
+Elastic shards: a per-node partition that bisects under load and merges
+when idle.
+
+\subsubsection{A shard map here is an execution choice, not consensus}
+
+The fixed partition in [\texttt{crate::shard}] is 64 prefixes of the address. This
+module lets a node use a *different* tiling of the same address space — from
+4 leaves up to 64, deeper where it is hot — and change it while it runs.
+That is safe to do locally, and only locally, because of what
+[\texttt{crate::schedule}](fn@crate::schedule) already guarantees:
+
+- Two transactions naming a common address land in the same leaf under
+  *every* tiling, so they conflict under every map and keep their order.
+- Two transactions naming disjoint addresses may or may not share a leaf.
+  Sharing one serialises them; not sharing lets them run together. Either
+  way the waves reach the serial state.
+
+So the state root does not depend on the map, and inputs no other node can
+see — how many threads this machine has, how much memory it has left — are
+legitimate triggers. They would not be if the map were consensus: a split
+on one node and not another would be a chain split, the failure invariant
+28 and execution directive 2 exist to prevent.
+
+Two consequences worth stating:
+
+- **The fixed [\texttt{crate::shard\_of}] stays.** \texttt{src/neural\_gas/features.rs}
+  reads it to compute a fee feature, and a feature that moved with each
+  node's load would be a consensus value that differs between nodes.
+- **The guarantee rests on access sets naming every address a transaction
+  touches.** That is the existing contract of [\texttt{crate::schedule}](fn@crate::schedule), and
+  \texttt{core::batch::access\_for\_transaction} in the node meets it only for plain
+  transfers today. With a set that is too narrow a per-node map is worse
+  than a fixed one: two nodes on different maps group the same transactions
+  into different waves, so the bug diverges between nodes rather than
+  hiding on all of them alike. That set has to be fixed before any consensus
+  path reaches the scheduler. See \texttt{docs/blockgraph.md}.
+
+\subsubsection{Pieces}
+
+- [\texttt{map}]: the tiling, lookup, split and buddy merge.
+- [\texttt{metrics}]: what one scheduling tick looked like.
+- [\texttt{policy}]: when to split and when to merge.
+- [\texttt{handoff}]: moving per-shard record caches to a new map.
+
+\subsubsection{"Teleportation" and why there is no proof}
+
+A split or a merge relabels key ranges. All shards live in one process over
+one state, so no record leaves the machine and nothing needs a proof: a
+zero-knowledge proof that a relabel was done correctly would prove, at a cost
+orders of magnitude above redoing it, a fact every node recomputes. The only
+proof systems in this tree are also not post-quantum. What does move is each
+shard's in-memory record cache, and [\texttt{handoff}] moves it atomically: a plan
+built for another map is refused before anything is touched.
+
+\subsubsection{Rounds}
+
+Narwhal's rounds come from certificates, and this chain has no committee
+(\texttt{docs/blockgraph.md}). The unit here is the \textbf{tick}: one scheduled block.
+
+\subsection{shard\_manager/policy.rs}
+\begin{framed}\noindent\textbf{Status.} This module is a research branch. It is present in the tree and no consensus path reaches it. Nothing described here is part of the running chain.\end{framed}
+
+When to split and when to merge.
+
+\subsubsection{The rules}
+
+- \textbf{Split} a leaf whose load has exceeded \texttt{split\_permille} of one lane's
+  capacity for \texttt{split\_streak} consecutive ticks. One tick at or below the
+  line resets the streak: "100 consecutive rounds" means consecutive.
+- \textbf{Merge} two buddy leaves whose *combined* load has stayed under
+  \texttt{merge\_permille} of one lane for \texttt{merge\_streak} ticks. Combined, so the
+  merged leaf starts below the line; and \texttt{merge\_permille < split\_permille}
+  is enforced, so a merge can never be the first half of a re-split.
+- A leaf created by a rebalance does neither for \texttt{cooldown\_ticks}.
+- A split is vetoed while memory pressure is at or above
+  \texttt{memory\_veto\_permille} (every leaf is a lane and a cache), and for a leaf
+  whose load straddles its halves above \texttt{straddle\_veto\_permille} (see
+  [\texttt{super::metrics}]).
+- Splits and merges never share a tick, and the map stays within
+  \texttt{min\_shards..=max\_shards}. Where the bound binds, the busiest leaves split
+  first and the idlest pairs merge first, ties broken by key order, so a
+  decision is a function of the sample and nothing else.
+
+\subsubsection{Plan, then commit}
+
+[\texttt{ShardManager::observe}] proposes a [\texttt{Rebalance}] without adopting it. The
+caller moves its caches ([\texttt{super::handoff}]) and then calls
+[\texttt{ShardManager::commit}], which refuses a plan built for another map or
+another tick. A handoff that fails leaves the manager on the old map. A
+caller must not \texttt{observe} between \texttt{apply} and \texttt{commit}; see
+[\texttt{super::handoff}] for why.
+
 \section{API gateway}
-\noindent\texttt{api-gateway\textbackslash{}src}
+\noindent\texttt{crates/api-gateway\textbackslash{}src}
 
 \subsection{allowlist.rs}
 Which node methods the gateway will call, and — more importantly — which it
@@ -5187,6 +6819,14 @@ the next \texttt{submit\_block}.
   Exposing it publicly means anyone can make every node on the network do
   full block validation on demand, which is an amplification vector with no
   upside: a real miner talks to its own node.
+
+- **\texttt{get\_headers}\textbf{, }\texttt{get\_snapshot\_manifest}** and
+  **\texttt{get\_snapshot\_chunk}** — what a pruned node bootstraps from. A snapshot
+  chunk is a slice of the whole committed state and a header range is up to
+  2,000 headers a call, so both are cheap to ask for and expensive to
+  answer. Node-to-node work, on the node's own port, not a public endpoint.
+- **\texttt{get\_tip\_height}** — harmless in itself, and excluded only to keep the
+  public surface to what the REST layer already covers.
 
 Both stay reachable on the node's own RPC port, to the operator who is
 already inside the trust boundary.
@@ -5301,7 +6941,7 @@ so a hostile length never becomes a hostile allocation — the discipline
 \texttt{core/codec.rs} applies on the wire, applied at the edge.
 
 \section{Language bindings}
-\noindent\texttt{sdk-ffi\textbackslash{}src}
+\noindent\texttt{sdks/sdk-ffi\textbackslash{}src}
 
 \subsection{bin/uniffi-bindgen.rs}
 The bindings generator, as uniffi requires it: a binary in the crate that
@@ -5355,7 +6995,7 @@ the hash-based half. Callers building interactive software should sign off
 the UI thread; see \texttt{sdks/sdk-ffi/README.md} for measured figures.
 
 \section{Browser bindings}
-\noindent\texttt{sdk-wasm\textbackslash{}src}
+\noindent\texttt{sdks/sdk-wasm\textbackslash{}src}
 
 \subsection{lib.rs}
 Browser-side signing and verification for Maya2C, via wasm-bindgen.
@@ -5374,7 +7014,7 @@ SLH-DSA-SHA2-128s — both of which are pure Rust and both of which build for
 wasm.
 
 \textbf{That is duplication of consensus-critical encoding.} Duplication is
-dangerous when it is undetected, so it is detected: \texttt{crates/node/tests/parity\_tests.rs}
+dangerous when it is undetected, so it is detected: \texttt{tests/parity\_tests.rs}
 signs with the node's implementation and verifies with this one, and the
 reverse, and compares addresses and encodings byte for byte. Drift fails a
 test rather than producing a transaction the chain silently rejects.

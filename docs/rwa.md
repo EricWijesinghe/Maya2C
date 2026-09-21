@@ -45,7 +45,7 @@ So an issuer cannot supply logic. A `TransferRule` names three things — a clai
 schema, a predicate, and the credential issuers whose word counts — and the
 binary evaluates them. The issuer **selects** a rule; it does not write one.
 
-The predicate shapes are exactly the three `zk_privacy::credential::Predicate`
+The predicate shapes are exactly the three `maya_zk_stark::credential::Predicate`
 proves. A rule the disclosure circuit cannot evaluate is a rule no holder can
 satisfy privately, and therefore one they must satisfy by revealing the value.
 
@@ -111,9 +111,10 @@ what the issuer's fell. Not "roughly", not "within dust".
 
 ## Why eligibility is cached rather than proved per transfer
 
-A Groth16 pairing check is one to two milliseconds. On a block with ten thousand
-transfers that is **ten to twenty seconds** of validation every node pays,
-forever, for a check whose answer changes rarely.
+A disclosure proof is a STARK (ADR-008); the joinsplit, the nearest measured
+one, is ~383 KB. On a block with ten thousand transfers, one per transfer would
+be **gigabytes** every node downloads and verifies, forever, for a check whose
+answer changes rarely.
 
 So the proof is verified once in its own transaction and cached in `r:elg:`; the
 transfer path reads a record and a height. The cache expires — an eligibility

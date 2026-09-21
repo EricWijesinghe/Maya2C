@@ -87,9 +87,19 @@ pub fn prove<A: StarkAir>(
 /// [`ZkError::Malformed`] if the bytes do not decode, [`ZkError::Rejected`]
 /// if the proof does not verify.
 pub fn verify<A: StarkAir>(air: &A, proof: &Proof, public: &[F]) -> Result<(), ZkError> {
+    verify_bytes(air, &proof.bytes, public)
+}
+
+/// [`verify`] over a borrowed encoding, so a caller holding the bytes inside a
+/// larger structure — a transaction — need not copy up to a megabyte first.
+///
+/// # Errors
+///
+/// As [`verify`].
+pub fn verify_bytes<A: StarkAir>(air: &A, bytes: &[u8], public: &[F]) -> Result<(), ZkError> {
     let config = config::config()?;
     let decoded: p3_uni_stark::Proof<Config> =
-        postcard::from_bytes(&proof.bytes).map_err(|e| ZkError::Malformed(e.to_string()))?;
+        postcard::from_bytes(bytes).map_err(|e| ZkError::Malformed(e.to_string()))?;
     p3_uni_stark::verify(&config, air, &decoded, public)
         .map_err(|e| ZkError::Rejected(format!("{e:?}")))
 }

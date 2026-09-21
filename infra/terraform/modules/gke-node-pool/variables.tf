@@ -22,7 +22,7 @@ variable "chain_id" {
   # blocked in one cloud and permitted in the other is not a blocked mainnet.
   validation {
     condition     = !contains(["mainnet", "maya-mainnet"], var.chain_id)
-    error_message = "Mainnet is blocked while the shielded pool uses an untrusted Groth16 setup. Run a ceremony and set prove::SETUP_IS_TRUSTED before deploying a value-bearing chain."
+    error_message = "Mainnet is blocked while the shielded pool's circuit is unaudited. Have the joinsplit AIR independently audited and set pool::CIRCUIT_IS_AUDITED before deploying a value-bearing chain."
   }
 }
 

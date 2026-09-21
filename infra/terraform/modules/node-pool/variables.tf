@@ -13,11 +13,11 @@ variable "chain_id" {
   type        = string
 
   # The node itself refuses to start on a value-bearing chain while the shielded
-  # pool's proving parameters come from a reproducible setup. Catching it here
+  # pool's circuit is unaudited. Catching it here
   # means the mistake surfaces at plan time rather than as a CrashLoopBackOff.
   validation {
     condition     = !contains(["mainnet", "maya-mainnet"], var.chain_id)
-    error_message = "Mainnet is blocked while the shielded pool uses an untrusted Groth16 setup. Run a ceremony and set prove::SETUP_IS_TRUSTED before deploying a value-bearing chain."
+    error_message = "Mainnet is blocked while the shielded pool's circuit is unaudited. Have the joinsplit AIR independently audited and set pool::CIRCUIT_IS_AUDITED before deploying a value-bearing chain."
   }
 }
 

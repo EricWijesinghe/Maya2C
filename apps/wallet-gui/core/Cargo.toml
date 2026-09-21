@@ -55,10 +55,10 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 # because the node already uses it everywhere and the wallet already links it
 # transitively — a second hash function here would be a second thing to review.
 blake3.workspace = true
-# For `SetupTrust`, which reads `SETUP_IS_TRUSTED` from the crate that owns it
-# rather than duplicating the flag. A wallet is where a user would meet an
-# unceremonied trusted setup, so the state must not be able to drift from it.
-maya-zk-privacy = { path = "../../../crates/zk-privacy" }
+# For `CircuitTrust`, which reads `CIRCUIT_IS_AUDITED` from the crate that owns
+# it rather than duplicating the flag. A wallet is where a user would meet an
+# unaudited shielded circuit, so the state must not be able to drift from it.
+maya-zk-stark = { path = "../../../crates/zk-stark" }
 
 [dev-dependencies]
 tempfile.workspace = true

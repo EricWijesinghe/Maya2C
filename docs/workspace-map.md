@@ -31,7 +31,7 @@ Since the phase B move ([ADR-001](adr/ADR-001-workspace-layout.md)):
 | `crates/node` | Node daemon: consensus, chain, p2p, RPC, metrics. The workspace's root package until 2026-09-20; now an ordinary member |
 | `crates/ledger-math` | All `u64` credit/debit/nonce math. Kani-verifiable — keep RocksDB out |
 | `crates/crypto-pq` | SLH-DSA instantiation. Must stay the monomorphizing crate |
-| `crates/zk-privacy` | Groth16 shielded joinsplits |
+| `crates/zk-stark` | Plonky3 STARKs, no setup: shielded joinsplits, credential disclosure, sanctions non-membership (ADR-008) |
 | `crates/vm` | Wasm contract execution |
 | `crates/l2-flash` | L2 settlement |
 | `bins/l1-wallet`, `apps/wallet-gui/core` | CLI + GUI wallet |

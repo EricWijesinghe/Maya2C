@@ -21,7 +21,8 @@
 //! hybrid pair, and verifying ML-DSA-65 in R1CS means an NTT over a 23-bit
 //! prime, 256-coefficient polynomials, a 6×5 matrix and SHAKE256 — on the order
 //! of 10^7 to 10^8 constraints, against a joinsplit circuit that is a few tens
-//! of thousands. Groth16 setup at that size is not something anyone ships.
+//! of thousands. No proof system in this tree makes that affordable per
+//! presentation.
 //!
 //! BBS+ is the industry answer and is pairing-based, which is not post-quantum
 //! and so defeats the premise.
@@ -32,11 +33,10 @@
 //! show membership under a root the chain already vouches for — no signature in
 //! the circuit at all.
 //!
-//! **The holder's proof is Groth16 over BLS12-381 and is not post-quantum.**
-//! The attestation is; the disclosure is not. A quantum adversary could forge a
-//! presentation, though not an attestation. That is the same standing caveat as
-//! the shipped shielded pool, and it is written here rather than left for
-//! somebody to infer from the dependency list.
+//! The holder's proof is a Plonky3 STARK (`maya_zk_stark::credential`,
+//! ADR-008): hash-based, no setup, post-quantum like the attestation. It
+//! replaced a Groth16 presentation over BLS12-381 that a quantum adversary
+//! could have forged.
 //!
 //! ## Revocation is a bitmap, and the bitmap has a root
 //!

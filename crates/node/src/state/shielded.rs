@@ -16,35 +16,27 @@
 //!
 //! ## Cost, and why it is capped
 //!
-//! Verifying a joinsplit is a pairing check — measured at roughly 2–4 ms,
-//! against about 200 µs for an ML-DSA-65 signature. That is a 10–20× asymmetry
-//! between what a transaction costs to make and what it costs every node to
-//! check, so the number of joinsplits per block is bounded for the same reason
-//! [`MAX_BATCH_CLOSURES`](crate::core::payload::MAX_BATCH_CLOSURES) is.
+//! A joinsplit proof is a Plonky3 STARK (ADR-008): about 0.4 MB on the wire
+//! and a verification that hashes its way through FRI queries. The cap on
+//! joinsplits per block is set by size first — sixteen proofs are ~6 MB of an
+//! 8 MiB gossip frame — and bounds verification work for the same reason
+//! [`MAX_BATCH_CLOSURES`](crate::core::payload::MAX_BATCH_CLOSURES) does.
 //!
-//! The asymmetry narrowed only because signatures got more expensive, not
-//! because proofs got cheaper. It was 50× against ed25519's ~50 µs.
+//! ## Post-quantum, with no setup
 //!
-//! ## This pool is not post-quantum
-//!
-//! Worth stating beside the cost, because the two are easy to conflate.
-//! Transaction authorization moved to ML-DSA-65, but joinsplits are proved with
-//! Groth16 over BLS12-381 — a pairing-based system whose soundness rests on
-//! discrete log. An adversary with a quantum computer cannot forge a transfer
-//! and *can* forge a shielded proof, which means minting hidden supply that no
-//! audit of the transparent chain would reveal. Closing that gap needs a
-//! different proof system, and until then the chain's post-quantum security is
-//! the weaker of its two halves.
+//! Until 2026-09-21 this pool verified Groth16 over BLS12-381: pairing-based,
+//! so a quantum adversary could forge a proof and mint hidden supply, and its
+//! parameters came from a setup nobody had run for real. The STARK's
+//! soundness rests only on hash collision resistance (Poseidon2 inside,
+//! Keccak outside) and it has no setup at all — `maya_zk_stark::pool`.
 
 use std::collections::VecDeque;
 
 use maya_ledger_math as ledger_math;
 use maya_ledger_math::SettleError;
-use maya_zk_privacy::circuit::JoinSplitPublic;
-use maya_zk_privacy::field::{fr_from_bytes, fr_to_bytes};
-use maya_zk_privacy::params::{ANCHOR_WINDOW, TREE_DEPTH};
-use maya_zk_privacy::prove;
-use maya_zk_privacy::tree::CommitmentTree;
+use maya_zk_stark::Proof;
+use maya_zk_stark::pool::tree::{CommitmentTree, TREE_DEPTH, digest_from_bytes, digest_to_bytes};
+use maya_zk_stark::pool::{ANCHOR_WINDOW, JoinSplitPublic};
 
 use crate::core::codec::ByteReader;
 use crate::core::payload::ShieldedJoinSplit;
@@ -54,9 +46,9 @@ use crate::state::db::{Overlay, POOL_KEY, StateDB, nullifier_key_bytes};
 
 /// Joinsplits allowed in one block.
 ///
-/// A pairing check is ~50× the cost of a signature check, so an uncapped block
-/// would let one cheap transaction impose unbounded work on every node.
-pub const MAX_SHIELDED_PER_BLOCK: usize = 64;
+/// Sixteen ~0.4 MB proofs fit an 8 MiB gossip frame with room for the rest of
+/// the block; sixty-four, the Groth16-era cap, would not.
+pub const MAX_SHIELDED_PER_BLOCK: usize = 16;
 
 /// The shielded pool's consensus state.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -87,7 +79,7 @@ impl ShieldedPool {
     pub fn new() -> Self {
         let tree = CommitmentTree::new();
         let mut anchors = VecDeque::with_capacity(ANCHOR_WINDOW);
-        anchors.push_back(fr_to_bytes(&tree.root()));
+        anchors.push_back(digest_to_bytes(&tree.root()));
         Self {
             tree,
             anchors,
@@ -130,7 +122,7 @@ impl ShieldedPool {
     /// The current tree root.
     #[must_use]
     pub fn root(&self) -> [u8; 32] {
-        fr_to_bytes(&self.tree.root())
+        digest_to_bytes(&self.tree.root())
     }
 
     /// The pool's contribution to the state root: a commitment to everything
@@ -167,7 +159,7 @@ impl ShieldedPool {
     /// Returns [`NodeError::Decode`] if the commitment is not a canonical field
     /// element, or [`NodeError::ShieldedPoolFull`] once the tree is full.
     pub fn append(&mut self, commitment: &[u8; 32]) -> Result<u64> {
-        let element = fr_from_bytes(commitment)
+        let element = digest_from_bytes(commitment)
             .map_err(|_| NodeError::Decode("note commitment is not canonical".to_string()))?;
         self.tree
             .append(element)
@@ -199,7 +191,7 @@ impl ShieldedPool {
             match slot {
                 Some(node) => {
                     buf.push(1);
-                    buf.extend_from_slice(&fr_to_bytes(node));
+                    buf.extend_from_slice(&digest_to_bytes(node));
                 }
                 None => {
                     buf.push(0);
@@ -234,7 +226,7 @@ impl ShieldedPool {
             let node = reader.read_array::<32>()?;
             *slot = match present {
                 0 => None,
-                1 => Some(fr_from_bytes(&node).map_err(|_| {
+                1 => Some(digest_from_bytes(&node).map_err(|_| {
                     NodeError::Decode("frontier node is not canonical".to_string())
                 })?),
                 other => {
@@ -275,22 +267,22 @@ impl ShieldedPool {
 /// correspondence. Two copies of this mapping that disagreed would produce
 /// proofs no node could verify.
 #[must_use]
-pub fn encode_joinsplit(public: &JoinSplitPublic, proof: [u8; 192]) -> ShieldedJoinSplit {
+pub fn encode_joinsplit(public: &JoinSplitPublic, proof: &Proof) -> ShieldedJoinSplit {
     ShieldedJoinSplit {
-        anchor: fr_to_bytes(&public.anchor),
+        anchor: digest_to_bytes(&public.anchor),
         nullifiers: [
-            fr_to_bytes(&public.nullifiers[0]),
-            fr_to_bytes(&public.nullifiers[1]),
+            digest_to_bytes(&public.nullifiers[0]),
+            digest_to_bytes(&public.nullifiers[1]),
         ],
         commitments: [
-            fr_to_bytes(&public.commitments[0]),
-            fr_to_bytes(&public.commitments[1]),
+            digest_to_bytes(&public.commitments[0]),
+            digest_to_bytes(&public.commitments[1]),
         ],
         public_in: public.public_in,
         public_out: public.public_out,
         fee: public.fee,
         recipient: public.recipient,
-        proof,
+        proof: proof.as_bytes().to_vec(),
     }
 }
 
@@ -316,7 +308,7 @@ pub fn verify_joinsplit(joinsplit: &ShieldedJoinSplit) -> Result<()> {
     }
 
     let field = |bytes: &[u8; 32], what: &str| {
-        fr_from_bytes(bytes)
+        digest_from_bytes(bytes)
             .map_err(|_| NodeError::Decode(format!("{what} is not a canonical field element")))
     };
 
@@ -336,16 +328,8 @@ pub fn verify_joinsplit(joinsplit: &ShieldedJoinSplit) -> Result<()> {
         recipient: joinsplit.recipient,
     };
 
-    let accepted = prove::verify(&joinsplit.proof, &public)
-        .map_err(|error| NodeError::ProofVerification(error.to_string()))?;
-
-    if accepted {
-        Ok(())
-    } else {
-        Err(NodeError::ProofVerification(
-            "the joinsplit proof does not satisfy its public inputs".to_string(),
-        ))
-    }
+    maya_zk_stark::pool::verify_bytes(&joinsplit.proof, &public)
+        .map_err(|error| NodeError::ProofVerification(error.to_string()))
 }
 
 /// Where fees go.
@@ -480,6 +464,15 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
+    /// A distinct canonical commitment per `n` (any 32 bytes of small words).
+    fn commitment(n: u64) -> [u8; 32] {
+        let mut out = [0u8; 32];
+        out[..8].copy_from_slice(&(n + 1).to_le_bytes());
+        out[4..8].fill(0); // keep every word below the modulus
+        out[8..12].copy_from_slice(&u32::try_from(n % 1_000).unwrap().to_le_bytes());
+        out
+    }
+
     #[test]
     fn a_new_pool_accepts_only_the_empty_anchor() {
         let pool = ShieldedPool::new();
@@ -492,10 +485,7 @@ mod tests {
     fn appending_advances_the_root() {
         let mut pool = ShieldedPool::new();
         let before = pool.root();
-        pool.append(&fr_to_bytes(
-            &maya_zk_privacy::note::Note::dummy(1u64.into(), 2u64.into()).commitment(),
-        ))
-        .expect("append");
+        pool.append(&commitment(1)).expect("append");
         assert_ne!(pool.root(), before);
         assert_eq!(pool.note_count(), 1);
     }
@@ -506,11 +496,7 @@ mod tests {
         let original = pool.root();
 
         for value in 0..10u64 {
-            pool.append(&fr_to_bytes(
-                &maya_zk_privacy::note::Note::dummy((value + 1).into(), (value + 100).into())
-                    .commitment(),
-            ))
-            .expect("append");
+            pool.append(&commitment(value)).expect("append");
             pool.seal_anchor();
         }
 
@@ -524,11 +510,7 @@ mod tests {
         let original = pool.root();
 
         for value in 0..(ANCHOR_WINDOW as u64 + 5) {
-            pool.append(&fr_to_bytes(
-                &maya_zk_privacy::note::Note::dummy((value + 1).into(), (value + 100).into())
-                    .commitment(),
-            ))
-            .expect("append");
+            pool.append(&commitment(value)).expect("append");
             pool.seal_anchor();
         }
 
@@ -540,11 +522,7 @@ mod tests {
     fn a_pool_round_trips_through_storage() {
         let mut pool = ShieldedPool::new();
         for value in 0..7u64 {
-            pool.append(&fr_to_bytes(
-                &maya_zk_privacy::note::Note::dummy((value + 1).into(), (value + 100).into())
-                    .commitment(),
-            ))
-            .expect("append");
+            pool.append(&commitment(value)).expect("append");
             pool.seal_anchor();
         }
 

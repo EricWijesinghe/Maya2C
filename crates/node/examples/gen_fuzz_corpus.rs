@@ -310,7 +310,7 @@ fn payload_seeds() -> Vec<(String, Vec<u8>)> {
         public_out: u64::MAX - 1,
         fee: 1,
         recipient: [0x06; 32],
-        proof: [0x07; 192],
+        proof: vec![0x07; 192],
     };
 
     let kinds = vec![

@@ -16,7 +16,7 @@ description = "Proposal lifecycle, vote tallying, and the bounds a proposal may 
 # What this crate decides is which changes to the chain's own rules are
 # permissible. That is the last place a bug should be hard to check, and Kani
 # compiles a crate together with its whole dependency graph. One dependency on
-# `rocksdb` (C++) or the `ark-*` stack and `cargo kani -p maya-governance` stops
+# `rocksdb` (C++) or a proving stack and `cargo kani -p maya-governance` stops
 # being possible rather than merely slow.
 #
 # The visible consequence: nothing here hashes or stores. Proposal identifiers

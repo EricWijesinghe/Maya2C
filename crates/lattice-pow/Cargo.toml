@@ -16,7 +16,7 @@ description = "Lattice proof-of-work verification, isolated so it can be formall
 # Every function here decides whether a block is valid. That is exactly the
 # class of code worth model-checking, and Kani compiles a crate together with
 # its whole dependency graph. One dependency on `rocksdb` (C++), `libp2p`, or
-# the `ark-*` stack and `cargo kani -p maya-lattice-pow` stops being possible
+# a proving stack and `cargo kani -p maya-lattice-pow` stops being possible
 # rather than merely slow.
 #
 # The consequence is visible in the API: nothing here hashes, so the basis

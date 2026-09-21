@@ -36,12 +36,10 @@
 //! ## Scope of the guarantee
 //!
 //! This module makes *transparent transaction authorization* quantum-resistant.
-//! It does not make the chain post-quantum. The shielded pool proves joinsplits
-//! with Groth16 over BLS12-381 (see `maya_zk_privacy::prove`), a pairing-based
-//! system whose soundness rests on discrete log. A quantum adversary that cannot
-//! forge a transfer under this module can still forge a shielded proof and mint
-//! hidden supply. Replacing that proof system is separate work, and until it
-//! happens the chain's post-quantum security is the weaker of the two halves.
+//! The shielded pool's half is `maya_zk_stark::pool`: a hash-based STARK with no
+//! setup (ADR-008), replacing the Groth16 pool whose pairing-based soundness a
+//! quantum adversary could break. What that half still lacks is an independent
+//! audit of its circuit — `CIRCUIT_IS_AUDITED` — not a post-quantum argument.
 //!
 //! ## Deterministic signing
 //!

@@ -168,13 +168,14 @@ const TAG_REPORT_TAMPER: u8 = 47;
 const TAG_PROVE_EQUIVOCATION: u8 = 48;
 const TAG_REVOKE_DEVICE: u8 = 49;
 
-/// Encoded size of a [`ShieldedJoinSplit`].
+/// Largest joinsplit proof accepted on the wire.
 ///
-/// Fixed width by construction: anchor, two nullifiers, two commitments, three
-/// amounts, a recipient, and the proof. Nothing here is variable-length, which
-/// is what keeps every shielded transaction the same size on the wire — a
-/// variable size would leak how many real inputs a spend had.
-pub const JOINSPLIT_SIZE: usize = 32 + 32 * 2 + 32 * 2 + 8 * 3 + 32 + 192;
+/// A STARK proof has no fixed width the way a Groth16 one did, but for one
+/// AIR its size varies only with encoding, not with the witness, so the
+/// frame still says nothing about how many real inputs a spend had. The
+/// bound is `maya_zk_stark::pool::MAX_PROOF_BYTES`, checked before the bytes
+/// are read.
+pub const MAX_JOINSPLIT_PROOF: usize = maya_zk_stark::pool::MAX_PROOF_BYTES;
 
 /// Largest contract module a deployment may carry.
 ///
@@ -239,12 +240,12 @@ pub struct ShieldedJoinSplit {
     pub fee: u64,
     /// Transparent account receiving `public_out`.
     pub recipient: [u8; 32],
-    /// The Groth16 proof.
-    pub proof: [u8; 192],
+    /// The Plonky3 STARK proof (ADR-008), at most [`MAX_JOINSPLIT_PROOF`] bytes.
+    pub proof: Vec<u8>,
 }
 
 impl ShieldedJoinSplit {
-    /// Appends the fixed-width encoding.
+    /// Appends the encoding: fixed-width fields, then the length-prefixed proof.
     pub fn encode_into(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&self.anchor);
         for nullifier in &self.nullifiers {
@@ -257,6 +258,9 @@ impl ShieldedJoinSplit {
         buf.extend_from_slice(&self.public_out.to_le_bytes());
         buf.extend_from_slice(&self.fee.to_le_bytes());
         buf.extend_from_slice(&self.recipient);
+        let len =
+            u32::try_from(self.proof.len()).expect("proofs are bounded by MAX_JOINSPLIT_PROOF");
+        buf.extend_from_slice(&len.to_le_bytes());
         buf.extend_from_slice(&self.proof);
     }
 
@@ -264,17 +268,32 @@ impl ShieldedJoinSplit {
     ///
     /// # Errors
     ///
-    /// Returns [`NodeError::Decode`] if the section is truncated.
+    /// Returns [`NodeError::Decode`] if the section is truncated or the proof
+    /// is longer than [`MAX_JOINSPLIT_PROOF`] — refused before it is read.
     pub fn decode(reader: &mut ByteReader<'_>) -> Result<Self> {
+        let anchor = reader.read_array::<32>()?;
+        let nullifiers = [reader.read_array::<32>()?, reader.read_array::<32>()?];
+        let commitments = [reader.read_array::<32>()?, reader.read_array::<32>()?];
+        let public_in = reader.read_u64()?;
+        let public_out = reader.read_u64()?;
+        let fee = reader.read_u64()?;
+        let recipient = reader.read_array::<32>()?;
+        let len = usize::try_from(reader.read_u32()?).unwrap_or(usize::MAX);
+        if len > MAX_JOINSPLIT_PROOF {
+            return Err(NodeError::Decode(format!(
+                "joinsplit proof of {len} bytes exceeds {MAX_JOINSPLIT_PROOF}"
+            )));
+        }
+        let proof = reader.read_slice(len)?.to_vec();
         Ok(Self {
-            anchor: reader.read_array::<32>()?,
-            nullifiers: [reader.read_array::<32>()?, reader.read_array::<32>()?],
-            commitments: [reader.read_array::<32>()?, reader.read_array::<32>()?],
-            public_in: reader.read_u64()?,
-            public_out: reader.read_u64()?,
-            fee: reader.read_u64()?,
-            recipient: reader.read_array::<32>()?,
-            proof: reader.read_array::<192>()?,
+            anchor,
+            nullifiers,
+            commitments,
+            public_in,
+            public_out,
+            fee,
+            recipient,
+            proof,
         })
     }
 }

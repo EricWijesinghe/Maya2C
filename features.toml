@@ -1823,14 +1823,15 @@ status = "verified"
 tests = ["crates/node/tests/dualkem_latency_tests.rs", "crates/node/tests/dualkem_negotiation_tests.rs"]
 
 [[subsystem]]
-id = "zero-knowledge-proofs-arkworks"
-name = "Zero-knowledge proofs (arkworks)"
+id = "shielded-pool-stark-joinsplit"
+name = "Shielded pool (STARK joinsplit)"
 domain = "Cryptography and key management"
-paths = "`crates/zk-privacy`"
+paths = "`crates/zk-stark/src/pool/`, `crates/node/src/state/shielded.rs`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-zk-privacy", "crates/node/tests/shielded_tests.rs", "crates/zk-privacy/tests/circuit_tests.rs", "crates/zk-privacy/tests/proof_tests.rs"]
+tests = ["crate:maya-zk-stark", "crates/node/tests/shielded_tests.rs", "crates/node/tests/exploit_replays.rs", "crates/zk-stark/tests/pqc_zk_tests.rs"]
+note = "Replaced the Groth16/BLS12-381 pool (crates/zk-privacy, removed 2026-09-21; ADR-008). 2-in-2-out joinsplit AIR, 2^8 rows; proof ~383 KB (382,689 and 382,703 B measured; hiding randomness varies it), 113 bits conjectured / 99 proven. Mainnet stays blocked on CIRCUIT_IS_AUDITED = false: no independent audit of the AIR yet."
 
 [[subsystem]]
 id = "zero-knowledge-proofs-halo2-kzg"
@@ -1897,11 +1898,11 @@ tests = ["crates/node/tests/identity_tests.rs"]
 id = "selective-disclosure-credentials"
 name = "Selective disclosure credentials"
 domain = "Cryptography and key management"
-paths = "`crates/zk-privacy/src/credential.rs`"
+paths = "`crates/zk-stark/src/credential.rs`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["crate:maya-zk-privacy", "crates/node/tests/identity_tests.rs"]
+tests = ["crate:maya-zk-stark", "crates/zk-stark/tests/statement_tests.rs", "crates/node/tests/identity_tests.rs"]
 
 [[subsystem]]
 id = "lattice-htlc-l-atomic-swaps"
@@ -2454,11 +2455,11 @@ tests = ["crates/api-gateway/tests/gateway_tests.rs", "crates/api-gateway/tests/
 id = "sanctions-non-membership-proofs"
 name = "Sanctions non-membership proofs"
 domain = "Security and macro engines"
-paths = "`crates/zk-privacy/src/sanctions.rs`, `crates/iso20022/src/sanctions.rs`"
+paths = "`crates/zk-stark/src/sanctions.rs`, `crates/iso20022/src/sanctions.rs`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["crate:maya-zk-privacy", "crates/node/tests/iso20022_tests.rs"]
+tests = ["crate:maya-zk-stark", "crates/zk-stark/tests/statement_tests.rs", "crates/node/tests/iso20022_tests.rs"]
 
 [[subsystem]]
 id = "real-world-asset-primitives"
@@ -2758,10 +2759,10 @@ name = "Transparent STARKs (Plonky3)"
 domain = "Cryptography and key management"
 paths = "`crates/zk-stark`"
 tier = "core"
-class = "RESEARCH"
+class = "REAL"
 status = "working"
-tests = ["crate:maya-zk-stark", "crates/zk-stark/tests/gadget_tests.rs"]
-note = "ADR-008. Every constraint has a consistent-lie negative; the suite also passes in release, where only the verifier can refuse. Spend proof 285 KB; 114 bits conjectured / 101 proven."
+tests = ["crate:maya-zk-stark", "crates/zk-stark/tests/gadget_tests.rs", "crates/zk-stark/tests/statement_tests.rs", "crates/zk-stark/tests/pqc_zk_tests.rs"]
+note = "ADR-008. REAL since the node's shielded pool verifies through it. Every constraint has a consistent-lie negative; the suite also passes in release, where only the verifier can refuse. pqc_zk_tests gates the dependency graph: no Groth16, BN254, BLS12-381 or halo2."
 
 [[subsystem]]
 id = "forward-secure-archival-keys"

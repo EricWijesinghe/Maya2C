@@ -1,6 +1,6 @@
 //! Shielded transactions end to end through the L1 state transition.
 //!
-//! `crates/zk-privacy/tests/` covers the circuit and the proof system in isolation.
+//! `crates/zk-stark/src/pool/tests.rs` covers the AIR and the proof system in isolation.
 //! These cover the integration: real proofs inside real transactions inside
 //! real blocks, committed to RocksDB, with the pool's effect on total supply
 //! checked at every step.
@@ -19,16 +19,14 @@ use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::error::NodeError;
 use custom_l1_node::state::shielded::{FEE_SINK, encode_joinsplit};
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
+use maya_zk_stark::gadgets::merkle::MerklePath;
+use maya_zk_stark::hash::Digest;
+use maya_zk_stark::pool as zkpool;
+use maya_zk_stark::pool::note::{Note, SpendingKey};
+use maya_zk_stark::pool::tree::{CommitmentTree, digest_from_bytes, digest_to_bytes, merkle_path};
+use maya_zk_stark::pool::wallet::{self, Payment, Spend};
 
-use ark_bls12_381::Fr;
-use ark_std::rand::SeedableRng;
-use ark_std::rand::rngs::StdRng;
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
-use maya_zk_privacy::field::fr_from_bytes;
-use maya_zk_privacy::note::{Note, SpendingKey};
-use maya_zk_privacy::tree::{MerklePath, merkle_path};
-use maya_zk_privacy::wallet::{self, Payment, Spend};
-use maya_zk_privacy::{CommitmentTree, prove};
 use tempfile::TempDir;
 
 // ---------------------------------------------------------------------------
@@ -89,22 +87,18 @@ fn transparent_total(db: &StateDB, addresses: &[Address]) -> u64 {
 }
 
 /// The anchor a wallet would build against right now.
-fn current_anchor(db: &StateDB) -> Fr {
-    fr_from_bytes(&db.stored_pool().expect("pool").root()).expect("canonical anchor")
+fn current_anchor(db: &StateDB) -> Digest {
+    digest_from_bytes(&db.stored_pool().expect("pool").root()).expect("canonical anchor")
 }
 
 /// Rebuilds the commitment tree from notes the test knows about, so it can
 /// produce authentication paths. A real wallet does the same from the notes it
 /// has scanned off chain.
 fn paths_for(notes: &[Note]) -> Vec<MerklePath> {
-    let leaves: Vec<Fr> = notes.iter().map(Note::commitment).collect();
+    let leaves: Vec<Digest> = notes.iter().map(Note::commitment).collect();
     (0..leaves.len())
         .map(|index| merkle_path(&leaves, index as u64).expect("path"))
         .collect()
-}
-
-fn rng(seed: u64) -> StdRng {
-    StdRng::seed_from_u64(seed)
 }
 
 // ---------------------------------------------------------------------------
@@ -117,17 +111,10 @@ fn shielding_moves_transparent_value_into_the_pool() {
     let sender = address_of(&owner);
     let (db, _dir) = open_state(&[(sender, 10_000)]);
 
-    let recipient = SpendingKey(Fr::from(7u64));
-    let built = wallet::shield(
-        1_000,
-        10,
-        recipient.address(),
-        current_anchor(&db),
-        &mut rng(1),
-    )
-    .expect("build");
-    let proof = prove::prove(&built.witness).expect("prove");
-    let joinsplit = encode_joinsplit(&built.witness.public(), proof);
+    let recipient = SpendingKey::from_words([7; 8]);
+    let built = wallet::shield(1_000, 10, recipient.address(), current_anchor(&db)).expect("build");
+    let (proof, public) = zkpool::prove(&built.witness).expect("prove");
+    let joinsplit = encode_joinsplit(&public, &proof);
 
     db.apply_block(
         &block_of(vec![shielded_tx(joinsplit, 0, &owner)]),
@@ -152,16 +139,15 @@ fn shielding_conserves_total_supply() {
     let built = wallet::shield(
         1_000,
         10,
-        SpendingKey(Fr::from(7u64)).address(),
+        SpendingKey::from_words([7; 8]).address(),
         current_anchor(&db),
-        &mut rng(2),
     )
     .expect("build");
-    let proof = prove::prove(&built.witness).expect("prove");
+    let (proof, public) = zkpool::prove(&built.witness).expect("prove");
 
     db.apply_block(
         &block_of(vec![shielded_tx(
-            encode_joinsplit(&built.witness.public(), proof),
+            encode_joinsplit(&public, &proof),
             0,
             &owner,
         )]),
@@ -186,17 +172,16 @@ fn shielding_more_than_the_balance_is_rejected() {
     let built = wallet::shield(
         1_000,
         10,
-        SpendingKey(Fr::from(7u64)).address(),
+        SpendingKey::from_words([7; 8]).address(),
         current_anchor(&db),
-        &mut rng(3),
     )
     .expect("build");
-    let proof = prove::prove(&built.witness).expect("prove");
+    let (proof, public) = zkpool::prove(&built.witness).expect("prove");
 
     let error = db
         .apply_block(
             &block_of(vec![shielded_tx(
-                encode_joinsplit(&built.witness.public(), proof),
+                encode_joinsplit(&public, &proof),
                 0,
                 &owner,
             )]),
@@ -222,22 +207,16 @@ fn shield_transfer_and_unshield_across_blocks() {
     let payout = address_of(&withdrawer);
     let (db, _dir) = open_state(&[(sender, 10_000)]);
 
-    let alice = SpendingKey(Fr::from(11u64));
-    let bob = SpendingKey(Fr::from(22u64));
+    let alice = SpendingKey::from_words([11; 8]);
+    let bob = SpendingKey::from_words([22; 8]);
 
     // --- Block 1: shield 1,000 (fee 10) into a note for Alice. ---
-    let shield = wallet::shield(
-        1_000,
-        10,
-        alice.address(),
-        current_anchor(&db),
-        &mut rng(10),
-    )
-    .expect("build shield");
-    let proof = prove::prove(&shield.witness).expect("prove shield");
+    let shield =
+        wallet::shield(1_000, 10, alice.address(), current_anchor(&db)).expect("build shield");
+    let (proof, public) = zkpool::prove(&shield.witness).expect("prove shield");
     db.apply_block(
         &block_of(vec![shielded_tx(
-            encode_joinsplit(&shield.witness.public(), proof),
+            encode_joinsplit(&public, &proof),
             0,
             &owner,
         )]),
@@ -257,7 +236,7 @@ fn shield_transfer_and_unshield_across_blocks() {
     let transfer = wallet::transfer(
         vec![Spend {
             note: alice_note,
-            key: alice,
+            key: &alice,
             path: paths[0].clone(),
         }],
         vec![
@@ -272,13 +251,12 @@ fn shield_transfer_and_unshield_across_blocks() {
         ],
         current_anchor(&db),
         5,
-        &mut rng(11),
     )
     .expect("build transfer");
-    let proof = prove::prove(&transfer.witness).expect("prove transfer");
+    let (proof, public) = zkpool::prove(&transfer.witness).expect("prove transfer");
     db.apply_block(
         &block_of(vec![shielded_tx(
-            encode_joinsplit(&transfer.witness.public(), proof),
+            encode_joinsplit(&public, &proof),
             1,
             &owner,
         )]),
@@ -304,7 +282,7 @@ fn shield_transfer_and_unshield_across_blocks() {
     let unshield = wallet::unshield(
         vec![Spend {
             note: bob_note,
-            key: bob,
+            key: &bob,
             path: paths[bob_index].clone(),
         }],
         Vec::new(),
@@ -312,13 +290,12 @@ fn shield_transfer_and_unshield_across_blocks() {
         5,
         payout,
         current_anchor(&db),
-        &mut rng(12),
     )
     .expect("build unshield");
-    let proof = prove::prove(&unshield.witness).expect("prove unshield");
+    let (proof, public) = zkpool::prove(&unshield.witness).expect("prove unshield");
     db.apply_block(
         &block_of(vec![shielded_tx(
-            encode_joinsplit(&unshield.witness.public(), proof),
+            encode_joinsplit(&public, &proof),
             2,
             &owner,
         )]),
@@ -343,24 +320,17 @@ fn shield_transfer_and_unshield_across_blocks() {
 // ---------------------------------------------------------------------------
 
 /// Shields once and returns the state, the note created, and the signer.
-fn shielded_fixture(seed: u64) -> (StateDB, TempDir, Note, HybridSigningKey, Vec<Note>) {
+fn shielded_fixture(_seed: u64) -> (StateDB, TempDir, Note, HybridSigningKey, Vec<Note>) {
     let owner = generate_signing_key().expect("keygen");
     let sender = address_of(&owner);
     let (db, dir) = open_state(&[(sender, 10_000)]);
 
-    let alice = SpendingKey(Fr::from(11u64));
-    let shield = wallet::shield(
-        1_000,
-        0,
-        alice.address(),
-        current_anchor(&db),
-        &mut rng(seed),
-    )
-    .expect("build");
-    let proof = prove::prove(&shield.witness).expect("prove");
+    let alice = SpendingKey::from_words([11; 8]);
+    let shield = wallet::shield(1_000, 0, alice.address(), current_anchor(&db)).expect("build");
+    let (proof, public) = zkpool::prove(&shield.witness).expect("prove");
     db.apply_block(
         &block_of(vec![shielded_tx(
-            encode_joinsplit(&shield.witness.public(), proof),
+            encode_joinsplit(&public, &proof),
             0,
             &owner,
         )]),
@@ -377,8 +347,8 @@ fn shielded_fixture(seed: u64) -> (StateDB, TempDir, Note, HybridSigningKey, Vec
 /// Takes the anchor explicitly rather than reading the current root: a second
 /// spend attempt has to prove against the tree as it stood when the note's path
 /// was built, which is exactly the situation the anchor window exists for.
-fn respend(note: Note, notes: &[Note], anchor: Fr, seed: u64) -> ShieldedJoinSplit {
-    let alice = SpendingKey(Fr::from(11u64));
+fn respend(note: Note, notes: &[Note], anchor: Digest, _seed: u64) -> ShieldedJoinSplit {
+    let alice = SpendingKey::from_words([11; 8]);
     let index = notes
         .iter()
         .position(|candidate| candidate.commitment() == note.commitment())
@@ -388,7 +358,7 @@ fn respend(note: Note, notes: &[Note], anchor: Fr, seed: u64) -> ShieldedJoinSpl
     let built = wallet::transfer(
         vec![Spend {
             note,
-            key: alice,
+            key: &alice,
             path: paths[index].clone(),
         }],
         vec![Payment {
@@ -397,11 +367,10 @@ fn respend(note: Note, notes: &[Note], anchor: Fr, seed: u64) -> ShieldedJoinSpl
         }],
         anchor,
         0,
-        &mut rng(seed),
     )
     .expect("build");
-    let proof = prove::prove(&built.witness).expect("prove");
-    encode_joinsplit(&built.witness.public(), proof)
+    let (proof, public) = zkpool::prove(&built.witness).expect("prove");
+    encode_joinsplit(&public, &proof)
 }
 
 #[test]
@@ -478,7 +447,7 @@ fn an_unknown_anchor_is_rejected() {
 
     let mut joinsplit = respend(note, &notes, current_anchor(&db), 51);
     // A root the pool has never held.
-    joinsplit.anchor = maya_zk_privacy::field::fr_to_bytes(&Fr::from(123_456_789u64));
+    joinsplit.anchor = digest_to_bytes(&[maya_zk_stark::hash::F::new(123_456_789); 8]);
 
     let error = db
         .apply_block(
@@ -521,12 +490,12 @@ fn redirecting_a_withdrawal_is_rejected() {
     let (db, _dir, note, owner, notes) = shielded_fixture(70);
     let thief = address_of(&generate_signing_key().expect("keygen"));
 
-    let alice = SpendingKey(Fr::from(11u64));
+    let alice = SpendingKey::from_words([11; 8]);
     let paths = paths_for(&notes);
     let built = wallet::unshield(
         vec![Spend {
             note,
-            key: alice,
+            key: &alice,
             path: paths[0].clone(),
         }],
         Vec::new(),
@@ -534,12 +503,11 @@ fn redirecting_a_withdrawal_is_rejected() {
         0,
         address_of(&owner),
         current_anchor(&db),
-        &mut rng(71),
     )
     .expect("build");
-    let proof = prove::prove(&built.witness).expect("prove");
+    let (proof, public) = zkpool::prove(&built.witness).expect("prove");
 
-    let mut joinsplit = encode_joinsplit(&built.witness.public(), proof);
+    let mut joinsplit = encode_joinsplit(&public, &proof);
     joinsplit.recipient = thief;
 
     let error = db
@@ -670,16 +638,15 @@ fn the_state_root_commits_to_the_pool() {
     let built = wallet::shield(
         1_000,
         10,
-        SpendingKey(Fr::from(7u64)).address(),
+        SpendingKey::from_words([7; 8]).address(),
         current_anchor(&shielded),
-        &mut rng(110),
     )
     .expect("build");
-    let proof = prove::prove(&built.witness).expect("prove");
+    let (proof, public) = zkpool::prove(&built.witness).expect("prove");
     shielded
         .apply_block(
             &block_of(vec![shielded_tx(
-                encode_joinsplit(&built.witness.public(), proof),
+                encode_joinsplit(&public, &proof),
                 0,
                 &owner,
             )]),
@@ -708,7 +675,9 @@ fn an_empty_pool_leaves_the_state_root_unchanged() {
     // root alone.
     let mut expected = CommitmentTree::new();
     assert_eq!(expected.count(), 0);
-    expected.append(Fr::from(1u64)).expect("append");
+    expected
+        .append([maya_zk_stark::hash::F::new(1); 8])
+        .expect("append");
     assert_ne!(db.state_root().expect("root"), [0u8; 32]);
     assert_eq!(db.state_root().expect("root"), accounts_only);
 }

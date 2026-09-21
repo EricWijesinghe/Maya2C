@@ -9,7 +9,7 @@ story, and everything below is a consequence of it.
 per request, so a misconfigured deployment fails to start instead of failing on
 the first request somebody is watching.
 
-This is the sixth such guard, alongside `SETUP_IS_TRUSTED`, the node's startup
+This is the sixth such guard, alongside `CIRCUIT_IS_AUDITED`, the node's startup
 check, both terraform module sets, the genesis ceremony, and the wallet's
 shielded composer. The list is repeated in each rather than shared, so that
 relaxing one is a decision about one.

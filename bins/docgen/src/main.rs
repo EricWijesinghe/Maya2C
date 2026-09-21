@@ -39,24 +39,24 @@ use std::path::{Path, PathBuf};
 /// whatever crate somebody added next, and the order of a reference is part of
 /// what makes it readable — consensus before the things layered on it.
 const CRATES: &[(&str, &str)] = &[
-    ("src", "The node"),
-    ("ledger-math", "Ledger arithmetic"),
-    ("crypto-pq", "Post-quantum primitives"),
-    ("vrf", "Verifiable random function"),
-    ("zk-privacy", "Shielded pool"),
-    ("vm", "Contract execution"),
-    ("dex", "Trading engine"),
-    ("governance", "Governance"),
-    ("mev", "Threshold-encrypted mempool"),
-    ("l2-flash", "Payment channels"),
-    ("light-client", "SPV light client"),
-    ("stratum-v2", "Pool protocol"),
-    ("pool-service", "Pool daemon"),
-    ("lattice-pow", "Lattice proof of work"),
-    ("blockgraph", "Batch references and shard scheduling"),
-    ("api-gateway", "API gateway"),
-    ("sdk-ffi", "Language bindings"),
-    ("sdk-wasm", "Browser bindings"),
+    ("crates/node", "The node"),
+    ("crates/ledger-math", "Ledger arithmetic"),
+    ("crates/crypto-pq", "Post-quantum primitives"),
+    ("crates/vrf", "Verifiable random function"),
+    ("crates/zk-stark", "Transparent proofs and the shielded pool"),
+    ("crates/vm", "Contract execution"),
+    ("crates/dex", "Trading engine"),
+    ("crates/governance", "Governance"),
+    ("crates/mev", "Threshold-encrypted mempool"),
+    ("crates/l2-flash", "Payment channels"),
+    ("crates/light-client", "SPV light client"),
+    ("crates/stratum-v2", "Pool protocol"),
+    ("bins/pool-service", "Pool daemon"),
+    ("crates/lattice-pow", "Lattice proof of work"),
+    ("crates/blockgraph", "Batch references and shard scheduling"),
+    ("crates/api-gateway", "API gateway"),
+    ("sdks/sdk-ffi", "Language bindings"),
+    ("sdks/sdk-wasm", "Browser bindings"),
 ];
 
 /// Lines of a doc block treated as its opening claim, when there is no
@@ -447,13 +447,13 @@ fn main() {
     let mut counts: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
 
     for (dir, title) in CRATES {
-        let root = if *dir == "src" {
-            PathBuf::from("src")
-        } else {
-            PathBuf::from(dir).join("src")
-        };
+        let root = PathBuf::from(dir).join("src");
+        // A missing root is a stale entry, not an empty crate. Skipping it is
+        // how this list once pointed at a pre-ADR-001 layout and generated an
+        // empty reference without a word.
         if !root.exists() {
-            continue;
+            eprintln!("{} does not exist; update CRATES", root.display());
+            std::process::exit(1);
         }
 
         let mut modules = collect(&root);

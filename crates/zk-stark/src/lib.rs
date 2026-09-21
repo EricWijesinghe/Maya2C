@@ -11,7 +11,11 @@
 //! - [`gadgets`] — reusable AIRs: range proof, Merkle path (set membership),
 //!   and knowledge of a hash-based signing key's secret.
 //! - [`pool`] — the shielded pool: notes, commitments, nullifiers, the
-//!   commitment tree, and the mint / transfer / unshield statements.
+//!   commitment tree, and the 2-in-2-out joinsplit that shields, transfers
+//!   and unshields.
+//! - [`credential`] — selective disclosure: membership, a predicate on the
+//!   value, and an unrevoked bit at the same index.
+//! - [`sanctions`] — non-membership in a sorted list, by an adjacent-leaf gap.
 //!
 //! Every constraint has a negative test that tampers with one witness
 //! consistently — everything downstream recomputed — so only the constraint
@@ -19,10 +23,13 @@
 //! zkML circuit this crate replaces).
 
 pub mod config;
+pub mod credential;
+pub mod dual;
 pub mod gadgets;
 pub mod hash;
 pub mod pool;
 pub mod proof;
+pub mod sanctions;
 
 pub use proof::{Proof, StarkAir, prove, security_bits, verify};
 

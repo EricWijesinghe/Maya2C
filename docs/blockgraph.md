@@ -203,8 +203,9 @@ every record is placed by the new map's own lookup and cannot fail. Records
 travel in contiguous runs, one per old-leaf/new-leaf pair.
 
 A proof that a relabel was done correctly would prove, at far more cost than
-redoing it, a fact the receiver recomputes. The only proof systems in the tree
-are Groth16 and halo2, neither post-quantum, and the halo2 SRS is public-seed.
+redoing it, a fact the receiver recomputes. The tree's one proof system is now
+the Plonky3 STARK (ADR-008), whose proofs run to hundreds of kilobytes — larger
+than most relabels they would attest.
 
 ### Tested
 

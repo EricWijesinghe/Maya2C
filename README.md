@@ -16,9 +16,10 @@ transaction, which is the price of not betting the chain on one lattice
 assumption. Transport is libp2p with an ML-KEM-768 layer over Noise, and an
 optional HQC-192 second KEM behind a flag.
 
-**Mainnet is deliberately blocked.** `SETUP_IS_TRUSTED` is `false`: the Groth16
-parameters come from a reproducible test setup, not a ceremony, and six separate
-guards refuse a value-bearing chain id. See
+**Mainnet is deliberately blocked.** `CIRCUIT_IS_AUDITED` is `false`: the
+shielded pool is a transparent STARK with no setup, but its joinsplit AIR has
+had no independent audit, and six separate guards refuse a value-bearing chain
+id. See
 [docs/mainnet-readiness.md](docs/mainnet-readiness.md) — that block is the first
 thing to read before anything else here matters.
 
@@ -29,7 +30,7 @@ thing to read before anything else here matters.
 | *(root)* `custom-l1-node` | Node daemon: consensus, chain, p2p, RPC, metrics |
 | `ledger-math` | All `u64` credit/debit/nonce math. Kani-verifiable — no C/C++ in its graph |
 | `crypto-pq` | SLH-DSA instantiation. Must stay the monomorphizing crate |
-| `zk-privacy` | Groth16 shielded joinsplits |
+| `zk-stark` | Plonky3 STARKs: shielded joinsplits, credentials, sanctions proofs |
 | `vm` | Wasm contract execution |
 | `l2-flash` | L2 settlement |
 | `wallet`, `apps/wallet-gui/` | CLI wallet, and a Tauri desktop wallet whose keys never leave the Rust core |
