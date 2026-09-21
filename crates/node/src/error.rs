@@ -401,6 +401,12 @@ pub enum NodeError {
     #[error("iot anchor: {0}")]
     Iot(String),
 
+    /// A suite-tagged (v7) transaction was refused: before
+    /// `SUITE_ENVELOPE_ACTIVATION_HEIGHT`, under a suite the policy does not
+    /// let sign at this height, or because its signature does not verify.
+    #[error("signature suite: {0}")]
+    SignatureSuite(String),
+
     /// An asset ticker was empty, contained something other than uppercase
     /// ASCII and digits, or carried interior padding.
     ///

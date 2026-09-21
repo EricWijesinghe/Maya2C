@@ -1,6 +1,6 @@
 # Critical Invariants
 
-Twenty-eight properties this tree must not lose, each with the reason it
+Thirty-one properties this tree must not lose, each with the reason it
 exists. They are numbered, the numbers are referenced from code comments and
 from `docs/adr/`, and **a number is never reused**: if an invariant is
 retired, its entry stays with the retirement recorded.
@@ -22,7 +22,9 @@ phase that did it.
 3. **`cuda-miner`'s `cuda` feature stays default-off** so
    `cargo build --workspace` works on GPU-less runners.
 4. **`fips204` compiles only the `ml-dsa-65` parameter set.** A compiled-in set
-   is a set someone can select by accident.
+   is a set someone can select by accident. *Extended by 29 (2026-09-21):* still
+   true of `fips204`; ML-DSA-87 arrives through `ml-dsa` in the closed suite
+   registry, which is the form of the same rule that survives crypto-agility.
 5. **`[profile.dev.package.*]` overrides are load-bearing, not tuning.** Without
    them `cargo test` reads as hung, not slow. Do not "clean them up".
 6. **`dex` must stay dependency-free**, for the same reason as `ledger-math`.
@@ -195,3 +197,27 @@ phase that did it.
     is already under the state root per 25.
     `crates/node/tests/exploit_replays.rs` pins it; see
     [docs/invariant-guard.md](docs/invariant-guard.md).
+29. **Only parameter sets named in the signature-suite registry are compiled
+    into a signature path, and every FIPS one has NIST known answers.**
+    `SuiteId` is a closed `#[repr(u8)]` enum; an unknown byte is a decode error,
+    never a fallback, because a suite some nodes know and others do not is a
+    fork. Adding a suite is a code change plus ACVP vectors, never a governance
+    act — governance only chooses among compiled suites. Pinned by
+    `crates/crypto-pq/src/suite/tests.rs`
+    (`every_byte_either_names_a_suite_or_is_refused`) and
+    `crates/crypto-pq/tests/acvp_tests.rs` — ADR-007.
+30. **Suite `0x30` is the node's hybrid, byte for byte.** Same seed domains, same
+    deterministic FIPS 204/205 signing, same `ml_dsa_pk ‖ slh_pk` and
+    `ml_dsa_sig ‖ slh_sig` layout — so every account and every historical
+    signature is already a valid `0x30` envelope and the envelope can land
+    without migrating anyone. `fips204` (node) and `ml-dsa` (suite) must stay
+    the same function of the same seed; `crates/node/tests/suite_parity_tests.rs`
+    pins keys and signatures across both — ADR-007.
+31. **No suite-tagged (wire version 7) transaction verifies before
+    `SUITE_ENVELOPE_ACTIVATION_HEIGHT`, and `Transaction::verify` never accepts
+    one.** `verify` has no height, so it refuses outright; only `verify_at`
+    at or past the height, under a `SuitePolicy` that lets the suite sign, can
+    accept one. The height is `u64::MAX`, so a v5/v6 chain cannot observe that
+    v7 exists. Moving it requires switching the consensus call sites from
+    `verify` to `verify_at` first. Pinned by
+    `crates/node/tests/suite_parity_tests.rs` — ADR-007.

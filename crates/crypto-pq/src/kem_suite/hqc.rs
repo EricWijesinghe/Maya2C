@@ -5,6 +5,12 @@
 //! matches the reference implementation's KATs (`tests/kem_kat_tests.rs`),
 //! and every name here says *draft* so nobody reads it as a finished standard.
 //!
+//! **Not constant-time.** `benches/dudect.rs` measured decapsulation of a
+//! valid versus a random ciphertext at |t| = 26.9 (null control 2.5): a
+//! remote attacker who can time decapsulation of chosen ciphertexts has a
+//! side channel. ADR-009's addendum records it; the `hqc` feature that gates
+//! this module is off by default and nothing on a transport path enables it.
+//!
 //! Randomness is drawn from the OS through `getrandom` and fed to the
 //! backend's deterministic entry points, so an entropy failure is an error
 //! the caller sees rather than a panic inside the backend's RNG adapter.

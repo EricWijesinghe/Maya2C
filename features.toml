@@ -2723,8 +2723,8 @@ paths = "`crates/crypto-pq/src/envelope.rs`, `crates/crypto-pq/src/agility/`"
 tier = "core"
 class = "RESEARCH"
 status = "working"
-tests = ["crate:maya-crypto-pq", "crates/crypto-pq/tests/agility_migration_tests.rs"]
-note = "1,000,000-account emergency migration is a SIM (keyed-hash authorization); real signatures cover the same paths in unit tests."
+tests = ["crate:maya-crypto-pq", "crates/crypto-pq/tests/agility_migration_tests.rs", "crates/node/tests/suite_parity_tests.rs"]
+note = "Node carries it as wire v7, dark until SUITE_ENVELOPE_ACTIVATION_HEIGHT (u64::MAX); governance default via DefaultSignatureSuite. 1,000,000-account emergency migration is a SIM (keyed-hash authorization); real signatures cover the same paths in unit tests."
 
 [[subsystem]]
 id = "kem-suites-dualkem-xwing"

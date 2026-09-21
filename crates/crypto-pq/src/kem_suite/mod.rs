@@ -12,12 +12,18 @@
 //! Every suite takes and returns byte slices with exact per-suite lengths,
 //! checked on the way in: the bytes come from a peer.
 
+// HQC and the dual KEMs built on it are behind the `hqc` feature: its
+// decapsulation measured not constant-time (ADR-009 addendum).
+#[cfg(feature = "hqc")]
 mod dual;
+#[cfg(feature = "hqc")]
 mod hqc;
 mod ml_kem;
 mod xwing;
 
+#[cfg(feature = "hqc")]
 pub use dual::{DualKem768Hqc128, DualKem1024Hqc256};
+#[cfg(feature = "hqc")]
 pub use hqc::{Hqc128, Hqc256};
 pub use ml_kem::{MlKem768, MlKem1024};
 pub use xwing::XWing;

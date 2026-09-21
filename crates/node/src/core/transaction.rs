@@ -27,9 +27,18 @@
 //! second half, and no wire version that accepts one: a transaction with one
 //! valid signature is exactly as rejected as a transaction with none.
 //! [`crate::crypto::hybrid`] explains why that is worth 11 kilobytes.
+//!
+//! ## Suite-tagged transactions (wire version 7)
+//!
+//! ADR-007's envelope: one signature under the suite its id names, carried in
+//! [`Transaction::suite_auth`], encoded by [`crate::core::suite_tx`]. Dark:
+//! [`Transaction::verify`] refuses every one, and only
+//! [`Transaction::verify_at`] at or past `SUITE_ENVELOPE_ACTIVATION_HEIGHT`
+//! (`u64::MAX`) can accept one. The hybrid fields are unused on such a frame.
 
 use crate::core::codec::ByteReader;
 use crate::core::payload::TxKind;
+use crate::core::suite_tx::{self, SuiteAuth};
 use crate::crypto::hybrid::{
     HYBRID_PUBLIC_KEY_LEN, HYBRID_SIGNATURE_LENGTH, HybridPublicKey, HybridSignature,
     HybridSigningKey, HybridVerifyingKey,
@@ -120,6 +129,9 @@ pub struct Transaction {
     /// What the transaction does. [`TxKind::Transfer`] adds nothing to the
     /// wire or signing encoding.
     pub kind: TxKind,
+    /// A suite-tagged authorization (wire version 7), in place of the hybrid
+    /// `public_key` / `signature`. `None` on every v5/v6 transaction.
+    pub suite_auth: Option<Box<SuiteAuth>>,
 }
 
 impl Transaction {
@@ -133,6 +145,7 @@ impl Transaction {
             public_key: Box::new(HybridPublicKey::default()),
             nonce,
             kind: TxKind::Transfer,
+            suite_auth: None,
         }
     }
 
@@ -146,6 +159,7 @@ impl Transaction {
             public_key: Box::new(HybridPublicKey::default()),
             nonce,
             kind,
+            suite_auth: None,
         }
     }
 
@@ -162,7 +176,10 @@ impl Transaction {
     /// nothing.
     #[must_use]
     pub fn sender(&self) -> [u8; ADDRESS_LEN] {
-        self.public_key.address()
+        match &self.suite_auth {
+            Some(auth) => crate::crypto::suites::suite_address(auth.suite, &auth.public_key),
+            None => self.public_key.address(),
+        }
     }
 
     /// Canonical byte encoding covered by the signature.
@@ -175,6 +192,9 @@ impl Transaction {
     /// signature authorize a different transaction.
     #[must_use]
     pub fn signing_bytes(&self) -> Vec<u8> {
+        if let Some(auth) = &self.suite_auth {
+            return suite_tx::signing_bytes(self, auth);
+        }
         let mut buf = Vec::with_capacity(
             TX_DOMAIN.len()
                 + 16
@@ -185,18 +205,7 @@ impl Transaction {
         );
 
         buf.extend_from_slice(TX_DOMAIN);
-
-        buf.extend_from_slice(&(self.inputs.len() as u64).to_le_bytes());
-        for input in &self.inputs {
-            buf.extend_from_slice(&input.prev_tx);
-            buf.extend_from_slice(&input.index.to_le_bytes());
-        }
-
-        buf.extend_from_slice(&(self.outputs.len() as u64).to_le_bytes());
-        for output in &self.outputs {
-            buf.extend_from_slice(&output.amount.to_le_bytes());
-            buf.extend_from_slice(&output.recipient);
-        }
+        self.encode_io_into(&mut buf);
 
         // Both whole keys, not the address they hash to. Committing to the
         // address instead would let any preimage of that address — were one
@@ -242,9 +251,15 @@ impl Transaction {
 
     /// Verifies both signatures against the payload and public keys.
     ///
-    /// Both must pass. This is the single chokepoint every authorization path
-    /// in the node runs through — block execution, mempool admission, RPC
+    /// Both must pass. This is the chokepoint every authorization path in the
+    /// node runs through today — block execution, mempool admission, RPC
     /// submission — so the both-or-nothing rule is stated once, here.
+    ///
+    /// It refuses every suite-tagged (v7) transaction, because it has no
+    /// height to check activation against. [`Transaction::verify_at`] is the
+    /// height-aware entry point; activating v7 means switching *every* caller
+    /// of this function to it in one change (invariant 31), or mempool and
+    /// block execution would disagree about the same transaction.
     ///
     /// # Errors
     ///
@@ -255,6 +270,13 @@ impl Transaction {
     /// [`NodeError::HashSignatureVerification`] when the hash-based proof does
     /// not.
     pub fn verify(&self) -> Result<()> {
+        if self.suite_auth.is_some() {
+            // No height here, and suite-tagged transactions verify only at or
+            // past their activation height: see `verify_at`.
+            return Err(NodeError::SignatureSuite(
+                "suite-tagged transactions verify only through verify_at".into(),
+            ));
+        }
         let signature = self
             .signature
             .as_deref()
@@ -270,6 +292,9 @@ impl Transaction {
     /// the signature because a signature cannot commit to itself.
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
+        if let Some(auth) = &self.suite_auth {
+            return suite_tx::encode(self, auth);
+        }
         let mut buf = Vec::with_capacity(
             1 + 8
                 + self.inputs.len() * INPUT_SIZE
@@ -285,18 +310,7 @@ impl Transaction {
         } else {
             WIRE_VERSION
         });
-
-        buf.extend_from_slice(&(self.inputs.len() as u64).to_le_bytes());
-        for input in &self.inputs {
-            buf.extend_from_slice(&input.prev_tx);
-            buf.extend_from_slice(&input.index.to_le_bytes());
-        }
-
-        buf.extend_from_slice(&(self.outputs.len() as u64).to_le_bytes());
-        for output in &self.outputs {
-            buf.extend_from_slice(&output.amount.to_le_bytes());
-            buf.extend_from_slice(&output.recipient);
-        }
+        self.encode_io_into(&mut buf);
 
         self.public_key.encode_into(&mut buf);
         buf.extend_from_slice(&self.nonce.to_le_bytes());
@@ -340,29 +354,16 @@ impl Transaction {
                  required"
             )));
         }
+        if version == suite_tx::WIRE_VERSION_SUITE {
+            return suite_tx::decode(&mut reader);
+        }
         if version != WIRE_VERSION && version != WIRE_VERSION_PAYLOAD {
             return Err(NodeError::Decode(format!(
                 "unsupported transaction wire version {version}"
             )));
         }
 
-        let input_count = reader.read_collection_len(INPUT_SIZE)?;
-        let mut inputs = Vec::with_capacity(input_count);
-        for _ in 0..input_count {
-            inputs.push(TxInput {
-                prev_tx: reader.read_array::<32>()?,
-                index: reader.read_u32()?,
-            });
-        }
-
-        let output_count = reader.read_collection_len(OUTPUT_SIZE)?;
-        let mut outputs = Vec::with_capacity(output_count);
-        for _ in 0..output_count {
-            outputs.push(TxOutput {
-                amount: reader.read_u64()?,
-                recipient: reader.read_array::<ADDRESS_LEN>()?,
-            });
-        }
+        let (inputs, outputs) = Self::decode_io(&mut reader)?;
 
         let public_key = Box::new(HybridPublicKey::decode(&mut reader)?);
         let nonce = reader.read_u64()?;
@@ -395,7 +396,45 @@ impl Transaction {
             public_key,
             nonce,
             kind,
+            suite_auth: None,
         })
+    }
+
+    /// Appends the counted inputs and outputs, the section every wire and
+    /// signing encoding shares.
+    pub(crate) fn encode_io_into(&self, buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&(self.inputs.len() as u64).to_le_bytes());
+        for input in &self.inputs {
+            buf.extend_from_slice(&input.prev_tx);
+            buf.extend_from_slice(&input.index.to_le_bytes());
+        }
+        buf.extend_from_slice(&(self.outputs.len() as u64).to_le_bytes());
+        for output in &self.outputs {
+            buf.extend_from_slice(&output.amount.to_le_bytes());
+            buf.extend_from_slice(&output.recipient);
+        }
+    }
+
+    /// Reads what [`Self::encode_io_into`] wrote.
+    pub(crate) fn decode_io(reader: &mut ByteReader<'_>) -> Result<(Vec<TxInput>, Vec<TxOutput>)> {
+        let input_count = reader.read_collection_len(INPUT_SIZE)?;
+        let mut inputs = Vec::with_capacity(input_count);
+        for _ in 0..input_count {
+            inputs.push(TxInput {
+                prev_tx: reader.read_array::<32>()?,
+                index: reader.read_u32()?,
+            });
+        }
+
+        let output_count = reader.read_collection_len(OUTPUT_SIZE)?;
+        let mut outputs = Vec::with_capacity(output_count);
+        for _ in 0..output_count {
+            outputs.push(TxOutput {
+                amount: reader.read_u64()?,
+                recipient: reader.read_array::<ADDRESS_LEN>()?,
+            });
+        }
+        Ok((inputs, outputs))
     }
 
     /// Transaction identifier: BLAKE3 over the signed payload and both
@@ -411,6 +450,9 @@ impl Transaction {
     pub fn txid(&self) -> [u8; 32] {
         let mut hasher = blake3::Hasher::new();
         hasher.update(&self.signing_bytes());
+        if let Some(signature) = self.suite_auth.as_ref().and_then(|a| a.signature.as_ref()) {
+            hasher.update(signature);
+        }
         if let Some(signature) = &self.signature {
             hasher.update(&signature.lattice);
             hasher.update(&signature.hash_based);

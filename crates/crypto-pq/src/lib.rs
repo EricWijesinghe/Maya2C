@@ -42,6 +42,7 @@
 
 pub mod agility;
 pub mod envelope;
+#[cfg(feature = "hqc")]
 pub mod hqc;
 pub mod kem;
 pub mod kem_suite;

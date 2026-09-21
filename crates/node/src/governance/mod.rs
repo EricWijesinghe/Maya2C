@@ -42,9 +42,9 @@ pub(crate) const GOVERNANCE_PREFIX: &[u8] = b"g:";
 
 /// Storage key for the parameter table.
 ///
-/// One blob rather than one key per parameter. The table is nine entries, it is
+/// One blob rather than one key per parameter. The table is ten entries, it is
 /// read whole on every block that consults any rule, and splitting it would
-/// turn one lookup into nine.
+/// turn one lookup into ten.
 pub(crate) const PARAMETERS_KEY: &[u8] = b"g:params";
 
 /// Storage key for the chain-wide totals that quorum is measured against.

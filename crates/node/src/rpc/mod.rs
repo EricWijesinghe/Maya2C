@@ -32,6 +32,6 @@ pub use market_http::{MarketServer, MarketState, serve as serve_market};
 pub use server::{RpcContext, RpcServer, build_module, serve};
 pub use types::{
     AccountInfo, BlockInfo, HeaderInfo, HtlcLockInfo, IotDeviceInfo, MiningCandidate, OutputInfo,
-    PeerAddressInfo, SubmitBlockResult, SubmitTransactionResult, ThreatIndicatorInfo,
+    PeerAddressInfo, SubmitBlockResult, SubmitTransactionResult, SuiteKeyInfo, ThreatIndicatorInfo,
     TransactionInfo,
 };

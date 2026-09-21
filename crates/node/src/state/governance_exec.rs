@@ -370,6 +370,7 @@ impl StateDB {
             ParameterChange { key, value: *value }
                 .validate()
                 .map_err(governance_error)?;
+            crate::crypto::suites::check_parameter(key, *value)?;
         }
 
         let proposal = Proposal::open(
@@ -555,6 +556,7 @@ impl StateDB {
             ParameterChange { key, value: *value }
                 .validate()
                 .map_err(governance_error)?;
+            crate::crypto::suites::check_parameter(key, *value)?;
             table = table.with(key, *value);
         }
         Self::put_record(overlay, PARAMETERS_KEY.to_vec(), table.encode());

@@ -37,7 +37,14 @@ fips204 = { workspace = true, features = ["default-rng"] }
 # Its own crate rather than a module here, because `slh-dsa` is generic over its
 # parameter set and monomorphizes into whichever crate instantiates it — see
 # crates/crypto-pq/Cargo.toml for the measurement that forced this.
-maya-crypto-pq = { path = "../crypto-pq" }
+#
+# `hqc` for `network::pq::dual`, the opt-in dual-KEM handshake. HQC
+# decapsulation is not constant-time (ADR-009 addendum), which is exploitable
+# against a *static* key decapsulating many chosen ciphertexts. The handshake
+# draws a fresh HQC key pair per connection, so each key decapsulates exactly
+# one ciphertext and there is nothing to accumulate. Any new use of HQC in the
+# node must keep that property, or not use HQC.
+maya-crypto-pq = { path = "../crypto-pq", features = ["hqc"] }
 # The AEAD sealing every frame of the post-quantum transport layer. Already in
 # the tree via the wallet keystore, so this adds no new dependency.
 chacha20poly1305.workspace = true

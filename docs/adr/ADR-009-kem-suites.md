@@ -71,8 +71,15 @@ sample sizes. Raw output: `reports/dudect.txt`.
 
 Consequences, until an HQC implementation measures clean:
 
-- HQC must not be enabled on any transport path. `pq-transport.md` already
-  keeps it off; this is now a second, measured reason.
+- HQC is behind `maya-crypto-pq`'s `hqc` feature, **off by default**, so no
+  crate uses it without asking. The one crate that asks is the node, for the
+  opt-in `network::pq::dual` handshake (`--dual-kem`, default off), and that
+  use is safe *because it is ephemeral*: a timing side channel on
+  decapsulation recovers a key only by accumulating many chosen-ciphertext
+  decapsulations under the same key, and the handshake draws a fresh HQC key
+  pair per connection, so every key decapsulates exactly one ciphertext. HQC
+  must never be used with a static decapsulation key (custody sealing, any
+  long-lived identity) until it measures clean.
 - A dual KEM whose HQC half leaks is, against a timing adversary, only as
   strong as its ML-KEM half. The combiner is still correct; it is the
   "breaking one family is not enough" claim that weakens to "breaking ML-KEM

@@ -53,15 +53,23 @@ drafts — ML-DSA-65 is 3,309 bytes, not the 3,293 of the draft):
 5. **Ed25519 is devnet-only.** `SuiteInfo::mainnet_allowed` is false for
    `0x01`; the policy refuses it on any network that is not devnet, and the
    audit flags it (0 post-quantum bits).
-6. **Invariant 4 is superseded, not rewritten.** Its replacement (invariant
-   29) is: *only parameter sets named in the registry are compiled into the
-   signature path, and every one has a KAT test.* The accident invariant 4
-   guarded against is still ruled out, by the closed enum.
-7. **Activation.** The node switches its transaction encoding to the envelope
-   at `SUITE_ENVELOPE_ACTIVATION_HEIGHT`, which is `u64::MAX` until somebody
-   writes a height down. Before it, the v1 encoding is the only one accepted;
-   after it, v1 is still decodable (it is `0x30` without a header) so history
-   replays.
+6. **Invariant 4 is extended, not rewritten.** It stays true of `fips204`
+   (still `ml-dsa-65` only); invariant 29 states the rule for the registry:
+   *only parameter sets named in it are compiled into a signature path, and
+   every FIPS one has NIST known answers.* Invariants 30 (the `0x30` parity)
+   and 31 (v7 dark until activation) record the rest of this decision.
+7. **Activation.** The node carries suite-tagged transactions as wire
+   version 7 (`crates/node/src/core/suite_tx.rs`) beside the hybrid v5/v6
+   frames, with its own signing domain and its own address domain
+   (`BLAKE3-derive-key(suite ‖ pk)`), so a v7 account can never collide with
+   a hybrid one. `Transaction::verify` refuses every v7 frame; only
+   `verify_at` at or past `SUITE_ENVELOPE_ACTIVATION_HEIGHT` — `u64::MAX`
+   until somebody writes a height down — under a `SuitePolicy` that lets the
+   suite sign can accept one. v5/v6 stay valid forever, and are `0x30`
+   envelopes without the header, so history replays unchanged. Governance
+   chooses the default through `ParameterKey::DefaultSignatureSuite` (tag 10,
+   range `0x10..=0x30`, default ML-DSA-87); the node re-checks the byte names a
+   permitted suite, because the governance crate cannot know the registry.
 
 ## Alternatives considered
 

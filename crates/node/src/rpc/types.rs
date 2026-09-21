@@ -73,6 +73,20 @@ pub struct TransactionInfo {
     /// Both proofs or neither — there is no half-signed transaction — so this
     /// stays a single flag.
     pub signed: bool,
+    /// For a suite-tagged (v7) transaction, its suite byte and hex public key;
+    /// the two hybrid key fields are then empty. Absent for every v5/v6
+    /// transaction, so existing clients see the same JSON as before (ADR-007).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suite: Option<SuiteKeyInfo>,
+}
+
+/// A suite-tagged transaction's key, as the API reports it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SuiteKeyInfo {
+    /// The registry byte (ADR-007), e.g. `0x11` for ML-DSA-87.
+    pub id: u8,
+    /// Hex-encoded public key.
+    pub public_key: String,
 }
 
 impl From<&Transaction> for TransactionInfo {
@@ -80,8 +94,16 @@ impl From<&Transaction> for TransactionInfo {
         Self {
             txid: hex::encode(tx.txid()),
             sender: hex::encode(tx.sender()),
-            lattice_public_key: hex::encode(tx.public_key.lattice),
-            hash_public_key: hex::encode(tx.public_key.hash_based),
+            lattice_public_key: if tx.suite_auth.is_some() {
+                String::new()
+            } else {
+                hex::encode(tx.public_key.lattice)
+            },
+            hash_public_key: if tx.suite_auth.is_some() {
+                String::new()
+            } else {
+                hex::encode(tx.public_key.hash_based)
+            },
             nonce: tx.nonce,
             outputs: tx
                 .outputs
@@ -91,7 +113,14 @@ impl From<&Transaction> for TransactionInfo {
                     amount: output.amount,
                 })
                 .collect(),
-            signed: tx.signature.is_some(),
+            signed: match &tx.suite_auth {
+                Some(auth) => auth.signature.is_some(),
+                None => tx.signature.is_some(),
+            },
+            suite: tx.suite_auth.as_ref().map(|auth| SuiteKeyInfo {
+                id: auth.suite.to_byte(),
+                public_key: hex::encode(&auth.public_key),
+            }),
         }
     }
 }

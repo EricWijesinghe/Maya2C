@@ -68,6 +68,17 @@ pub const THREAT_INTEL_ACTIVATION_HEIGHT: u64 = u64::MAX;
 /// oracle, governance or the sealed mempool can be followed statelessly.
 pub const STATELESS_ACTIVATION_HEIGHT: u64 = u64::MAX;
 
+/// First height at which suite-tagged (wire version 7) transactions verify:
+/// none.
+///
+/// The research-branch pattern. ADR-007: before this moves, the suite a
+/// migrated account signs with must be committed to by its address, the
+/// governance default (`ParameterKey::DefaultSignatureSuite`) must be read by
+/// the mempool's admission path, and `Transaction::verify` call sites must be
+/// switched to `verify_at`. Until then every v7 frame is refused, so no v5/v6
+/// chain can observe that the format exists.
+pub const SUITE_ENVELOPE_ACTIVATION_HEIGHT: u64 = u64::MAX;
+
 /// First height at which lattice HTLC locks, claims and refunds execute: none.
 ///
 /// The research-branch pattern, as for zkML. What has to be decided first is

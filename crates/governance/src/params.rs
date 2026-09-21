@@ -77,6 +77,9 @@ pub enum ParameterKey {
     VmDefaultGasLimit,
     /// Stake a proposer must lock alongside a proposal.
     GovernanceProposalDeposit,
+    /// The signature suite new accounts are created under (ADR-007), as its
+    /// registry byte. Read only once suite-tagged transactions activate.
+    DefaultSignatureSuite,
 }
 
 /// Every key, in tag order.
@@ -93,6 +96,7 @@ pub const ALL_KEYS: &[ParameterKey] = &[
     ParameterKey::VmMaxModuleBytes,
     ParameterKey::VmDefaultGasLimit,
     ParameterKey::GovernanceProposalDeposit,
+    ParameterKey::DefaultSignatureSuite,
 ];
 
 /// The permitted range and starting value of one parameter.
@@ -128,6 +132,7 @@ impl ParameterKey {
             Self::VmMaxModuleBytes => 7,
             Self::VmDefaultGasLimit => 8,
             Self::GovernanceProposalDeposit => 9,
+            Self::DefaultSignatureSuite => 10,
         }
     }
 
@@ -155,6 +160,7 @@ impl ParameterKey {
             7 => Ok(Self::VmMaxModuleBytes),
             8 => Ok(Self::VmDefaultGasLimit),
             9 => Ok(Self::GovernanceProposalDeposit),
+            10 => Ok(Self::DefaultSignatureSuite),
             other => Err(GovernanceError::UnknownParameter { tag: other }),
         }
     }
@@ -238,6 +244,18 @@ impl ParameterKey {
                 max: 1_000_000_000,
                 default: 10_000,
             },
+            // A registry byte, not a quantity: the range spans the
+            // post-quantum ids (0x10 ML-DSA-65 .. 0x30 the hybrid) and so
+            // excludes Ed25519 (0x01) by construction. A byte inside the range
+            // that names no suite is refused by the node when it reads the
+            // table (`crypto::suites::default_suite`), because this crate has
+            // no dependencies and cannot know the registry. ML-DSA-87 (0x11)
+            // is the brief's mainnet default.
+            Self::DefaultSignatureSuite => Bounds {
+                min: 0x10,
+                max: 0x30,
+                default: 0x11,
+            },
         }
     }
 
@@ -254,6 +272,7 @@ impl ParameterKey {
             Self::VmMaxModuleBytes => "vm.max_module_bytes",
             Self::VmDefaultGasLimit => "vm.default_gas_limit",
             Self::GovernanceProposalDeposit => "governance.proposal_deposit",
+            Self::DefaultSignatureSuite => "crypto.default_signature_suite",
         }
     }
 
@@ -330,7 +349,7 @@ mod tests {
         // A key absent from `ALL_KEYS` would be governable but invisible to
         // genesis, so the table would start without it and read a default that
         // exists in no one place.
-        assert_eq!(count, 9);
+        assert_eq!(count, 10);
     }
 
     #[test]
@@ -338,7 +357,7 @@ mod tests {
         // A node that skipped an unknown key would execute a proposal it did
         // not understand and then build on a state every upgraded node
         // disagrees with. Refusing turns a silent fork into a stopped node.
-        for tag in [0u16, 10, 999, u16::MAX] {
+        for tag in [0u16, 11, 999, u16::MAX] {
             assert_eq!(
                 ParameterKey::from_tag(tag),
                 Err(GovernanceError::UnknownParameter { tag })

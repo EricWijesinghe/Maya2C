@@ -131,7 +131,7 @@ crates rather than duplicating them (D1).
 - [x] P3 — ML-KEM-1024, HQC-128/256 (draft) + reference KATs, DualKem, X-Wing + draft vectors
 - [x] P4 — secret hygiene (compile-time `!Display`/`!Copy`/`ZeroizeOnDrop` checks, `secrecy` master seed, `subtle` compares, `confidential-ai` Shamir share fixed), dudect harness with positive and null controls — **HQC decaps leaks (|t| 26.9)**, ADR-009 addendum
 - [x] P5 — `hal/entropy`: SP 800-90B health tests (Table 2 cutoffs), CAVP-validated HMAC-DRBG (480/480), OS + RDSEED + four SIM models + Casimir RESEARCH stub, tamper line, `entropy-dump` + `scripts/entropy_battery.sh`
-- [ ] P6 — node: v2 envelope behind activation height, parity test, invariant 29 supersedes 4
+- [x] P6 — node: wire v7 suite-tagged transactions dark behind `SUITE_ENVELOPE_ACTIVATION_HEIGHT = u64::MAX`; `ParameterKey::DefaultSignatureSuite` (tag 10, default ML-DSA-87) checked by the node at proposal and execution; `fips204` ↔ `ml-dsa` parity for suite `0x30`; invariants 29–31; rust-reviewer + security-reviewer findings fixed (HQC now behind an off-by-default feature)
 - [ ] P7 — `crates/zk-stark` (Plonky3), `zk-privacy` rebuilt, arkworks/halo2 removed, `pqc_zk_tests.rs`
 - [ ] P8 — custody: on-chain m-of-n, RESEARCH threshold feature, 3-of-5 with failures
 - [ ] P9 — HTLC hash-locks (REAL) + Module-LWE (RESEARCH), `htlc_lattice_tests.rs`

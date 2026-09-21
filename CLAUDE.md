@@ -171,13 +171,14 @@ sync and satellite/light-cone consensus with 9, TEE attestation with 11.
 
 ## Critical Invariants
 
-Twenty-eight of them, in [docs/invariants.md](docs/invariants.md). They are
+Thirty-one of them, in [docs/invariants.md](docs/invariants.md). They are
 numbered, the numbers are cited from code comments and ADRs, and **a number is
 never reused**.
 
 Read them before changing: `ledger-math`, `dex`, `governance`, `fee-market` or
-`threat-intel` (dependency-freedom for Kani — 1, 6, 12); `crypto-pq` (2);
-`fips204` features (4); the dev profile overrides (5); DEX or oracle write
+`threat-intel` (dependency-freedom for Kani — 1, 6, 12); `crypto-pq` (2, 29);
+`fips204` features (4); the suite registry or the hybrid (29, 30); the
+transaction wire format or `Transaction::verify` (31); the dev profile overrides (5); DEX or oracle write
 paths (7, 8, 9, 17); governance (12, 13); `custody-mpc` (18, 19); zkML
 (20–23); `Chain::insert_block` or any apply path (24); any new state prefix
 (25); the block store (26); pruning (27); the invariant guard (28).

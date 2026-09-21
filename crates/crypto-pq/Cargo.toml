@@ -52,7 +52,7 @@ ml-kem = { version = "=0.3.2", features = ["getrandom", "zeroize"] }
 # encoding would silently break every connection between mismatched nodes. The
 # pin makes that a build failure. The same reasoning as `slh-dsa` above, with
 # more force — FIPS 203 was final when `ml-kem` was pinned; FIPS 207 is not.
-hqc-kem = "=0.1.0-rc.0"
+hqc-kem = { version = "=0.1.0-rc.0", optional = true }
 # The RNG trait `hqc-kem` takes for key generation and encapsulation.
 #
 # A deliberate exception to the root manifest's rule that entropy comes straight
@@ -60,10 +60,10 @@ hqc-kem = "=0.1.0-rc.0"
 # `&mut impl rand::CryptoRng`, so there is no door that skips it. `SysRng` is
 # `getrandom` wearing the trait — the same source the rule prefers — so the
 # exception costs a trait bound, not an entropy source.
-rand = { version = "0.10", default-features = false, features = ["sys_rng"] }
+rand = { version = "0.10", default-features = false, features = ["sys_rng"], optional = true }
 # For `UnwrapErr`, which adapts the fallible OS generator to the infallible
 # `CryptoRng` bound `hqc-kem` requires. See `hqc::os_rng`.
-rand_core = { version = "0.10", default-features = false }
+rand_core = { version = "0.10", default-features = false, optional = true }
 # ML-DSA-65 and ML-DSA-87 (FIPS 204) for the suite registry — ADR-007.
 #
 # RustCrypto rather than `fips204` because both parameter sets must be
@@ -92,7 +92,18 @@ zeroize.workspace = true
 getrandom.workspace = true
 thiserror.workspace = true
 
+[features]
+# HQC (both the HQC-192 handshake module and the HQC-128/256 suites and the
+# dual KEMs built on them). Off by default because `hqc-kem =0.1.0-rc.0`
+# decapsulation measured NOT constant-time (dudect |t| = 26.9, ADR-009
+# addendum): a crate that does not ask for it cannot put HQC on a path an
+# attacker can time. Nothing in the node or the transport enables it.
+hqc = ["dep:hqc-kem", "dep:rand", "dep:rand_core"]
+
 [dev-dependencies]
+# This crate's own tests, KATs and dudect benches do exercise HQC: the
+# self-dependency turns the feature on for test builds only.
+maya-crypto-pq = { path = ".", features = ["hqc"] }
 # ACVP vectors are JSON; hex fields decode through `hex`.
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

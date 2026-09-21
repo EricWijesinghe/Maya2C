@@ -12,6 +12,7 @@ pub mod oracle_payload;
 pub mod payload;
 pub mod rwa_payload;
 pub mod sealed_payload;
+pub mod suite_tx;
 pub mod threat_payload;
 pub mod transaction;
 

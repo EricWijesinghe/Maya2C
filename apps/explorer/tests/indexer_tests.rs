@@ -63,6 +63,7 @@ impl StubChain {
                         amount: 100,
                     }],
                     signed: true,
+                    suite: None,
                 })
                 .collect(),
             raw: String::new(),
