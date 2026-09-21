@@ -61,8 +61,11 @@ dieharder_pool() {
   echo "entropy_battery: Dieharder pool -> $OUT/dieharder-pool.txt"
 }
 
-for src in pool os rdseed sim-thermal sim-homodyne-qrng; do
-  sts "$src" || echo "entropy_battery: STS $src could not run" >&2
-done
+# ONLY_DIEHARDER=1 re-runs just the Dieharder suite.
+if [ "${ONLY_DIEHARDER:-0}" != 1 ]; then
+  for src in pool os rdseed sim-thermal sim-homodyne-qrng; do
+    sts "$src" || echo "entropy_battery: STS $src could not run" >&2
+  done
+fi
 # SKIP_DIEHARDER=1 for a quick STS-only run; the full suite takes about an hour.
 [ "${SKIP_DIEHARDER:-0}" = 1 ] || dieharder_pool

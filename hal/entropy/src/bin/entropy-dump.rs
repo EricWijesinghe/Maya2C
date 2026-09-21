@@ -40,8 +40,12 @@ fn run(args: &[String]) -> Result<(), String> {
         return Err("usage: entropy-dump <source> <bytes> <out-file | ->".into());
     };
     let total: usize = bytes.parse().map_err(|e| format!("bytes: {e}"))?;
-    let mut file =
-        std::io::BufWriter::new(std::fs::File::create(path).map_err(|e| format!("{path}: {e}"))?);
+    let sink: Box<dyn std::io::Write> = if path == "-" {
+        Box::new(std::io::stdout().lock())
+    } else {
+        Box::new(std::fs::File::create(path).map_err(|e| format!("{path}: {e}"))?)
+    };
+    let mut file = std::io::BufWriter::new(sink);
     let mut buf = vec![0u8; CHUNK];
     let mut pool = (name == "pool").then(|| EntropyPool::new(b"entropy-dump", TamperLine::new()));
     let mut raw = if pool.is_none() {
