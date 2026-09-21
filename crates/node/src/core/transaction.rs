@@ -35,8 +35,15 @@
 //! [`Transaction::verify`] refuses every one, and only
 //! [`Transaction::verify_at`] at or past `SUITE_ENVELOPE_ACTIVATION_HEIGHT`
 //! (`u64::MAX`) can accept one. The hybrid fields are unused on such a frame.
+//!
+//! ## Multisig transactions (wire version 8)
+//!
+//! An m-of-n policy over the suite registry ([`crate::core::multisig_tx`]),
+//! carried in [`Transaction::multisig`]. The sender is the policy's address,
+//! so the account is the policy. Dark on the same gate as version 7.
 
 use crate::core::codec::ByteReader;
+use crate::core::multisig_tx::{self, MultisigAuth};
 use crate::core::payload::TxKind;
 use crate::core::suite_tx::{self, SuiteAuth};
 use crate::crypto::hybrid::{
@@ -132,6 +139,9 @@ pub struct Transaction {
     /// A suite-tagged authorization (wire version 7), in place of the hybrid
     /// `public_key` / `signature`. `None` on every v5/v6 transaction.
     pub suite_auth: Option<Box<SuiteAuth>>,
+    /// An m-of-n authorization (wire version 8), in place of both of the
+    /// above. `None` on every other transaction.
+    pub multisig: Option<Box<MultisigAuth>>,
 }
 
 impl Transaction {
@@ -146,6 +156,7 @@ impl Transaction {
             nonce,
             kind: TxKind::Transfer,
             suite_auth: None,
+            multisig: None,
         }
     }
 
@@ -160,6 +171,7 @@ impl Transaction {
             nonce,
             kind,
             suite_auth: None,
+            multisig: None,
         }
     }
 
@@ -176,6 +188,9 @@ impl Transaction {
     /// nothing.
     #[must_use]
     pub fn sender(&self) -> [u8; ADDRESS_LEN] {
+        if let Some(auth) = &self.multisig {
+            return multisig_tx::multisig_address(auth.policy());
+        }
         match &self.suite_auth {
             Some(auth) => crate::crypto::suites::suite_address(auth.suite, &auth.public_key),
             None => self.public_key.address(),
@@ -192,6 +207,9 @@ impl Transaction {
     /// signature authorize a different transaction.
     #[must_use]
     pub fn signing_bytes(&self) -> Vec<u8> {
+        if let Some(auth) = &self.multisig {
+            return multisig_tx::signing_bytes(self, auth);
+        }
         if let Some(auth) = &self.suite_auth {
             return suite_tx::signing_bytes(self, auth);
         }
@@ -270,9 +288,9 @@ impl Transaction {
     /// [`NodeError::HashSignatureVerification`] when the hash-based proof does
     /// not.
     pub fn verify(&self) -> Result<()> {
-        if self.suite_auth.is_some() {
-            // No height here, and suite-tagged transactions verify only at or
-            // past their activation height: see `verify_at`.
+        if self.suite_auth.is_some() || self.multisig.is_some() {
+            // No height here, and suite-tagged and multisig transactions
+            // verify only at or past their activation height: see `verify_at`.
             return Err(NodeError::SignatureSuite(
                 "suite-tagged transactions verify only through verify_at".into(),
             ));
@@ -292,6 +310,9 @@ impl Transaction {
     /// the signature because a signature cannot commit to itself.
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
+        if let Some(auth) = &self.multisig {
+            return multisig_tx::encode(self, auth);
+        }
         if let Some(auth) = &self.suite_auth {
             return suite_tx::encode(self, auth);
         }
@@ -357,6 +378,9 @@ impl Transaction {
         if version == suite_tx::WIRE_VERSION_SUITE {
             return suite_tx::decode(&mut reader);
         }
+        if version == multisig_tx::WIRE_VERSION_MULTISIG {
+            return multisig_tx::decode(&mut reader);
+        }
         if version != WIRE_VERSION && version != WIRE_VERSION_PAYLOAD {
             return Err(NodeError::Decode(format!(
                 "unsupported transaction wire version {version}"
@@ -397,6 +421,7 @@ impl Transaction {
             nonce,
             kind,
             suite_auth: None,
+            multisig: None,
         })
     }
 
@@ -438,7 +463,8 @@ impl Transaction {
     }
 
     /// Transaction identifier: BLAKE3 over the signed payload and both
-    /// signatures.
+    /// signatures — or, for a multisig transaction, the signed payload alone
+    /// (see the comment in the body).
     ///
     /// Including the signatures is what makes the id commit to a specific
     /// authorization rather than merely to an intent. It is sound only because
@@ -453,6 +479,13 @@ impl Transaction {
         if let Some(signature) = self.suite_auth.as_ref().and_then(|a| a.signature.as_ref()) {
             hasher.update(signature);
         }
+        // A multisig transaction's approvals are deliberately *not* hashed.
+        // Any quorum of the policy authorizes the same spend, so hashing the
+        // approvals would give one spend as many valid ids as it has quorums,
+        // and anyone holding a spare approval could re-encode a broadcast
+        // transaction under a new id, orphaning every child that spends it
+        // by the old one. The signing bytes already commit to the policy and
+        // everything the spend does.
         if let Some(signature) = &self.signature {
             hasher.update(&signature.lattice);
             hasher.update(&signature.hash_based);

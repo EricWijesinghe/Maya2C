@@ -29,6 +29,7 @@ use std::sync::Arc;
 
 use maya_custody_mpc::dkg::{Custodian, CustodianShare, Dealing, Roster, VaultPolicy};
 use maya_custody_mpc::error::CustodyError;
+use maya_custody_mpc::pq_kx::X25519_MLKEM768;
 use maya_custody_mpc::session::{SigningSession, VaultDescriptor, respond};
 use maya_custody_mpc::tls::{
     CustodianDirectory, client_config, identity_of, peer_identity, read_frame, server_config,
@@ -39,7 +40,7 @@ use rcgen::{
     BasicConstraints, CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, Issuer, KeyPair,
     KeyUsagePurpose,
 };
-use rustls::RootCertStore;
+use rustls::{NamedGroup, RootCertStore};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::{TlsAcceptor, TlsConnector};
@@ -157,6 +158,15 @@ async fn a_quorum_signs_over_mutual_tls() {
         for _ in 0..3 {
             let (socket, _) = listener.accept().await.expect("accept");
             let mut stream = acceptor.accept(socket).await.expect("handshake");
+            // The hop is post-quantum: the only group either side offers.
+            assert_eq!(
+                stream
+                    .get_ref()
+                    .1
+                    .negotiated_key_exchange_group()
+                    .map(rustls::crypto::SupportedKxGroup::name),
+                Some(NamedGroup::X25519MLKEM768)
+            );
             write_frame(&mut stream, &Frame::Request(Box::new(request.clone())))
                 .await
                 .expect("write request");
@@ -213,13 +223,16 @@ async fn a_client_without_a_certificate_is_refused() {
         server_config(pki.server_chain, pki.server_key, roots(&pki.root)).expect("server config"),
     ));
 
-    let anonymous = rustls::ClientConfig::builder_with_provider(Arc::new(
-        rustls::crypto::ring::default_provider(),
-    ))
-    .with_safe_default_protocol_versions()
-    .expect("versions")
-    .with_root_certificates(roots(&pki.root))
-    .with_no_client_auth();
+    // The hybrid group, so the only thing this client lacks is a certificate.
+    let anonymous =
+        rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::CryptoProvider {
+            kx_groups: vec![X25519_MLKEM768],
+            ..rustls::crypto::ring::default_provider()
+        }))
+        .with_protocol_versions(&[&rustls::version::TLS13])
+        .expect("versions")
+        .with_root_certificates(roots(&pki.root))
+        .with_no_client_auth();
     let connector = TlsConnector::from(Arc::new(anonymous));
 
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
@@ -329,4 +342,137 @@ fn an_index_missing_from_the_directory_is_refused() {
         directory.authorize(3, Some([7; 32])),
         Err(CustodyError::ImpersonatedCustodian { claimed: 3 })
     );
+}
+
+#[tokio::test]
+async fn a_classical_only_custodian_cannot_connect() {
+    // A custodian with a valid certificate but only the classical groups:
+    // the combiner offers nothing it can agree on, so there is no fallback to
+    // a key exchange a recording could later break.
+    let pki = pki();
+    let acceptor = TlsAcceptor::from(Arc::new(
+        server_config(pki.server_chain, pki.server_key, roots(&pki.root)).expect("server config"),
+    ));
+    let classical = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .expect("versions")
+    .with_root_certificates(roots(&pki.root))
+    .with_client_auth_cert(pki.client_chain, pki.client_key)
+    .expect("client auth");
+    let connector = TlsConnector::from(Arc::new(classical));
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let address = listener.local_addr().expect("addr");
+    let server = tokio::spawn(async move {
+        let (socket, _) = listener.accept().await.expect("accept");
+        acceptor.accept(socket).await.map(|_| ())
+    });
+    let stream = TcpStream::connect(address).await.expect("connect");
+    let name = ServerName::try_from("localhost").expect("name");
+    let client = connector.connect(name, stream).await;
+
+    assert!(server.await.expect("join").is_err(), "the combiner refuses");
+    assert!(client.is_err(), "and the custodian learns so");
+}
+
+/// How one custodian behaves in [`ceremony_with_faults`].
+#[derive(Clone, Copy)]
+enum Behaviour {
+    /// Answers correctly.
+    Honest,
+    /// Completes the handshake, reads the request, and dies.
+    Crashes,
+    /// Answers with a contribution corrupted in transit.
+    Corrupts,
+}
+
+/// Runs one session over TLS with five custodians behaving as told, and
+/// returns what the combiner ended with.
+async fn ceremony_with_faults(behaviours: [Behaviour; 5]) -> SigningSession {
+    let pki = pki();
+    let (descriptor, held) = vault();
+    let acceptor = TlsAcceptor::from(Arc::new(
+        server_config(pki.server_chain, pki.server_key, roots(&pki.root)).expect("server config"),
+    ));
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let address = listener.local_addr().expect("addr");
+
+    let mut session = SigningSession::open(descriptor, b"pay bob 7".to_vec());
+    let request = session.request();
+    let combiner = tokio::spawn(async move {
+        for _ in 0..5 {
+            let (socket, _) = listener.accept().await.expect("accept");
+            let mut stream = acceptor.accept(socket).await.expect("handshake");
+            write_frame(&mut stream, &Frame::Request(Box::new(request.clone())))
+                .await
+                .expect("write request");
+            // A dead peer and a refused contribution are both survivable:
+            // the combiner notes nothing and waits for the next custodian.
+            if let Ok(Frame::Contribution(sealed)) = read_frame(&mut stream).await {
+                let _refused = session.accept_sealed(&sealed);
+            }
+        }
+        session
+    });
+
+    for (index, behaviour) in behaviours.into_iter().enumerate() {
+        let connector = TlsConnector::from(Arc::new(
+            client_config(
+                pki.client_chain.clone(),
+                pki.client_key.clone_key(),
+                roots(&pki.root),
+            )
+            .expect("client config"),
+        ));
+        let stream = TcpStream::connect(address).await.expect("connect");
+        let name = ServerName::try_from("localhost").expect("name");
+        let mut stream = connector.connect(name, stream).await.expect("handshake");
+        let Frame::Request(request) = read_frame(&mut stream).await.expect("read") else {
+            panic!("expected a request");
+        };
+        match behaviour {
+            Behaviour::Crashes => drop(stream),
+            Behaviour::Honest | Behaviour::Corrupts => {
+                let mut sealed = respond(&request, &held[index]).expect("respond");
+                if matches!(behaviour, Behaviour::Corrupts) {
+                    let middle = sealed.body.len() / 2;
+                    sealed.body[middle] ^= 0x01;
+                }
+                write_frame(&mut stream, &Frame::Contribution(sealed))
+                    .await
+                    .expect("write");
+            }
+        }
+    }
+    combiner.await.expect("combiner")
+}
+
+#[tokio::test]
+async fn three_of_five_signs_through_a_crash_and_a_corrupted_share() {
+    use Behaviour::{Corrupts, Crashes, Honest};
+    let session = ceremony_with_faults([Crashes, Corrupts, Honest, Honest, Honest]).await;
+    assert_eq!(
+        session.contributors().len(),
+        3,
+        "only the three honest count"
+    );
+    session
+        .sign()
+        .expect("three honest custodians are a quorum");
+}
+
+#[tokio::test]
+async fn three_failures_leave_a_three_of_five_vault_unable_to_sign() {
+    use Behaviour::{Corrupts, Crashes, Honest};
+    let session = ceremony_with_faults([Crashes, Corrupts, Crashes, Honest, Honest]).await;
+    assert_eq!(session.contributors().len(), 2);
+    assert!(matches!(
+        session.sign(),
+        Err(CustodyError::ShortOfThreshold {
+            received: 2,
+            threshold: 3
+        })
+    ));
 }

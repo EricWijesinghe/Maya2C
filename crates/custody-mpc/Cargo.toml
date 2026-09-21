@@ -54,6 +54,12 @@ rustls-pki-types = { version = "1", optional = true }
 # dependency.
 default = ["tls"]
 tls = ["dep:tokio", "dep:tokio-rustls", "dep:rustls", "dep:rustls-pki-types"]
+# RESEARCH, off by default and in no default build (ADR-011). Compiles the
+# interface a true threshold lattice scheme must meet — dealerless keygen,
+# partial signatures, aggregation into one signature an existing suite
+# verifies — and nothing that implements it: no scheme is chosen yet, and
+# `threshold::activate` refuses until one is.
+threshold-lattice = []
 
 [dev-dependencies]
 hex.workspace = true

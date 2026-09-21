@@ -152,6 +152,11 @@ jobs:
       - name: Test (whole workspace)
         run: cargo nextest run --cargo-profile ci --workspace --no-fail-fast
 
+      # RESEARCH features no default build enables. Compiled and tested here
+      # so their contract cannot rot while nobody turns them on (ADR-011).
+      - name: Test (research features)
+        run: cargo nextest run --cargo-profile ci -p maya-custody-mpc --features threshold-lattice --no-fail-fast
+
       # Now that the suite has run green, check that every test `features.toml`
       # names is a target that run would have executed. Cheap — it lists, it
       # does not build.

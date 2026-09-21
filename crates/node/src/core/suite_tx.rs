@@ -168,14 +168,25 @@ impl Transaction {
         Ok(())
     }
 
-    /// Verifies at `height` under `policy`: the hybrid rule for v5/v6, and
-    /// for v7 the activation gate, the policy, then the suite's signature.
+    /// Verifies at `height` under `policy`: the hybrid rule for v5/v6; for v7
+    /// the activation gate, the policy, then the suite's signature; for v8 the
+    /// gate and policy for every listed key, then the quorum.
     ///
     /// # Errors
     ///
     /// As [`Transaction::verify`] for hybrid transactions;
     /// [`NodeError::SignatureSuite`] or [`NodeError::MissingSignature`] for v7.
     pub fn verify_at(&self, height: u64, policy: &SuitePolicy) -> Result<()> {
+        if let Some(multisig) = &self.multisig {
+            // One authorization per transaction: a frame carrying two would
+            // let the signed bytes and the checked authority disagree.
+            if self.suite_auth.is_some() || self.signature.is_some() {
+                return Err(NodeError::SignatureSuite(
+                    "a multisig transaction carries no other authorization".into(),
+                ));
+            }
+            return crate::core::multisig_tx::verify_at(self, multisig, height, policy);
+        }
         let Some(auth) = &self.suite_auth else {
             return self.verify();
         };

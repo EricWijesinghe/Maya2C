@@ -137,6 +137,16 @@ impl<'a> ByteReader<'a> {
         self.bytes.len().saturating_sub(self.position)
     }
 
+    /// The unconsumed bytes, without consuming them.
+    ///
+    /// For a nested decoder that reports how much it used — the multisig
+    /// policy, whose length depends on the suites it lists. The caller must
+    /// then `read_slice` exactly that many, so the position stays authoritative.
+    #[must_use]
+    pub fn peek_remaining(&self) -> &'a [u8] {
+        self.bytes.get(self.position..).unwrap_or(&[])
+    }
+
     /// Returns an error if any input remains unconsumed.
     ///
     /// Trailing bytes mean the frame is not what the sender claimed, and

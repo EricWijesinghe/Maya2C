@@ -367,7 +367,10 @@ pub fn witness_for(
 ) -> Result<DisclosureWitness, ZkError> {
     let path = |leaves: &[Digest]| -> Result<MerklePath, ZkError> {
         let full = crate::pool::tree::merkle_path(leaves, index)?;
-        Ok(MerklePath { siblings: full.siblings[..dual::DEPTH].to_vec(), index })
+        Ok(MerklePath {
+            siblings: full.siblings[..dual::DEPTH].to_vec(),
+            index,
+        })
     };
     Ok(DisclosureWitness {
         subject,
@@ -387,5 +390,9 @@ pub fn witness_for(
 pub fn tree_root(leaves: &[Digest]) -> Result<Digest, ZkError> {
     let first = *leaves.first().ok_or(ZkError::Unsatisfied("empty tree"))?;
     let full = crate::pool::tree::merkle_path(leaves, 0)?;
-    Ok(MerklePath { siblings: full.siblings[..dual::DEPTH].to_vec(), index: 0 }.root(&first))
+    Ok(MerklePath {
+        siblings: full.siblings[..dual::DEPTH].to_vec(),
+        index: 0,
+    }
+    .root(&first))
 }

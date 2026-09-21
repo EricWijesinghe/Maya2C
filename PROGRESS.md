@@ -134,7 +134,7 @@ crates rather than duplicating them (D1).
 - [x] P6 — node: wire v7 suite-tagged transactions dark behind `SUITE_ENVELOPE_ACTIVATION_HEIGHT = u64::MAX`; `ParameterKey::DefaultSignatureSuite` (tag 10, default ML-DSA-87) checked by the node at proposal and execution; `fips204` ↔ `ml-dsa` parity for suite `0x30`; invariants 29–31; rust-reviewer + security-reviewer findings fixed (HQC now behind an off-by-default feature)
 - [x] P7a — `crates/zk-stark` (Plonky3, hiding FRI + Keccak): range / Merkle / key gadgets and a mint·transfer·unshield pool, consistent-lie negatives rejected by the verifier in release; zkML (halo2/KZG/BN254) removed, invariants 20–23 retired
 - [x] P7b — node shielded pool on `zk-stark` (2-in-2-out joinsplit AIR, ~383 KB proof, 113/99 bits), credentials and sanctions as STARKs; `zk-privacy` and arkworks deleted; `tests/pqc_zk_tests.rs` gates `cargo tree` + `Cargo.lock`; mainnet block re-keyed to `CIRCUIT_IS_AUDITED = false`; docgen paths fixed
-- [ ] P8 — custody: on-chain m-of-n, RESEARCH threshold feature, 3-of-5 with failures
+- [x] P8 — custody (ADR-011): `crypto-pq::multisig` m-of-n policies + node wire v8 multisig accounts (dark on the v7 gate; txid excludes approvals); custody TLS hop X25519MLKEM768-only; 3-of-5 over PQ TLS through a crash, a corrupted share, three failures, and a classical-only peer; `threshold-lattice` RESEARCH interface refusing until a scheme is chosen
 - [ ] P9 — HTLC hash-locks (REAL) + Module-LWE (RESEARCH), `htlc_lattice_tests.rs`
 - [ ] P10 — forward-secure archival keys, SLH-DSA seals, 100-epoch test
 - [ ] P11 — Ledger app: DISPLAY_ADDRESS, RAM measurement, Speculos tests

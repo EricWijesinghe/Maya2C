@@ -43,7 +43,10 @@ const CRATES: &[(&str, &str)] = &[
     ("crates/ledger-math", "Ledger arithmetic"),
     ("crates/crypto-pq", "Post-quantum primitives"),
     ("crates/vrf", "Verifiable random function"),
-    ("crates/zk-stark", "Transparent proofs and the shielded pool"),
+    (
+        "crates/zk-stark",
+        "Transparent proofs and the shielded pool",
+    ),
     ("crates/vm", "Contract execution"),
     ("crates/dex", "Trading engine"),
     ("crates/governance", "Governance"),

@@ -9,8 +9,8 @@
 use std::process::Command;
 
 use maya_zk_stark::Proof;
-use maya_zk_stark::pool::tree::CommitmentTree;
 use maya_zk_stark::pool::note::SpendingKey;
+use maya_zk_stark::pool::tree::CommitmentTree;
 use maya_zk_stark::pool::{self, wallet};
 
 /// Crates whose presence would mean a pairing, a trusted setup, or both.
@@ -69,11 +69,21 @@ fn no_pairing_or_trusted_setup_crate_is_in_the_workspace_graph() {
         .collect();
     // A graph this small would mean the command printed nothing useful, and
     // an empty list contains no forbidden crate.
-    assert!(names.len() > 100, "cargo tree listed only {} packages", names.len());
-    assert!(names.contains(&"p3-uni-stark"), "the STARK prover is in the graph");
+    assert!(
+        names.len() > 100,
+        "cargo tree listed only {} packages",
+        names.len()
+    );
+    assert!(
+        names.contains(&"p3-uni-stark"),
+        "the STARK prover is in the graph"
+    );
 
     let found: Vec<&&str> = FORBIDDEN.iter().filter(|f| names.contains(f)).collect();
-    assert!(found.is_empty(), "pairing-based crates re-entered the graph: {found:?}");
+    assert!(
+        found.is_empty(),
+        "pairing-based crates re-entered the graph: {found:?}"
+    );
 }
 
 #[test]
@@ -90,7 +100,10 @@ fn no_pairing_or_trusted_setup_crate_is_in_the_lockfile() {
     assert!(names.contains(&"p3-uni-stark"), "the lockfile was parsed");
 
     let found: Vec<&&str> = FORBIDDEN.iter().filter(|f| names.contains(f)).collect();
-    assert!(found.is_empty(), "pairing-based crates are in Cargo.lock: {found:?}");
+    assert!(
+        found.is_empty(),
+        "pairing-based crates are in Cargo.lock: {found:?}"
+    );
 }
 
 #[test]

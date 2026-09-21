@@ -102,6 +102,10 @@ pub mod transport;
 pub mod vss;
 
 #[cfg(feature = "tls")]
+pub mod pq_kx;
+#[cfg(feature = "threshold-lattice")]
+pub mod threshold;
+#[cfg(feature = "tls")]
 pub mod tls;
 
 pub use error::{CustodyError, Result};

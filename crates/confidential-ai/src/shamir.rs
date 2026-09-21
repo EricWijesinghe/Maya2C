@@ -27,7 +27,12 @@ pub struct Share {
 
 impl core::fmt::Debug for Share {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "Share {{ x: {}, y: <{} bytes redacted> }}", self.x, self.y.len())
+        write!(
+            f,
+            "Share {{ x: {}, y: <{} bytes redacted> }}",
+            self.x,
+            self.y.len()
+        )
     }
 }
 
@@ -36,7 +41,12 @@ impl PartialEq for Share {
         // Lengths and `x` are public; the bytes are compared without an early exit.
         self.x == other.x
             && self.y.len() == other.y.len()
-            && self.y.iter().zip(&other.y).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
+            && self
+                .y
+                .iter()
+                .zip(&other.y)
+                .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+                == 0
     }
 }
 
@@ -201,11 +211,20 @@ mod tests {
 
     #[test]
     fn a_share_does_not_print_its_bytes() {
-        let share = Share { x: 3, y: vec![0xAB; 4] };
+        let share = Share {
+            x: 3,
+            y: vec![0xAB; 4],
+        };
         let text = format!("{share:?}");
         assert!(text.contains("x: 3") && text.contains("redacted"));
         assert!(!text.to_lowercase().contains("ab"));
         assert_eq!(share.clone(), share);
-        assert_ne!(Share { x: 3, y: vec![0xAB, 0xAB, 0xAB, 0xAA] }, share);
+        assert_ne!(
+            Share {
+                x: 3,
+                y: vec![0xAB, 0xAB, 0xAB, 0xAA]
+            },
+            share
+        );
     }
 }

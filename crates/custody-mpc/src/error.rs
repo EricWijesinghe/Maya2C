@@ -152,4 +152,9 @@ pub enum CustodyError {
     /// A wire message that does not decode.
     #[error("malformed wire message: {0}")]
     Malformed(&'static str),
+
+    /// Threshold lattice signing was asked for, and no scheme has been chosen
+    /// in an ADR (ADR-011). Not a transient failure.
+    #[error("no threshold lattice signing scheme has been chosen (ADR-011)")]
+    NoThresholdScheme,
 }

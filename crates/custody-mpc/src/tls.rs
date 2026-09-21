@@ -89,10 +89,21 @@ where
     Frame::decode(&body).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
 }
 
-/// The `ring` provider, as an owned handle.
+/// The `ring` provider with its key exchange replaced by `X25519MLKEM768`
+/// alone ([`crate::pq_kx`]).
+///
+/// Only the hybrid is offered: a peer that cannot do it fails the handshake
+/// rather than falling back to a classical group a recording could later
+/// break. That also makes TLS 1.3 the only version that can complete.
 fn provider() -> Arc<rustls::crypto::CryptoProvider> {
-    Arc::new(rustls::crypto::ring::default_provider())
+    Arc::new(rustls::crypto::CryptoProvider {
+        kx_groups: vec![crate::pq_kx::X25519_MLKEM768],
+        ..rustls::crypto::ring::default_provider()
+    })
 }
+
+/// TLS 1.3 only: the hybrid group has no TLS 1.2 codepoint.
+const VERSIONS: &[&rustls::SupportedProtocolVersion] = &[&rustls::version::TLS13];
 
 /// A server configuration that **requires** a client certificate.
 ///
@@ -118,7 +129,7 @@ pub fn server_config(
     .map_err(invalid)?;
 
     ServerConfig::builder_with_provider(provider())
-        .with_safe_default_protocol_versions()
+        .with_protocol_versions(VERSIONS)
         .map_err(invalid)?
         .with_client_cert_verifier(verifier)
         .with_single_cert(chain, key)
@@ -137,7 +148,7 @@ pub fn client_config(
     combiner_roots: RootCertStore,
 ) -> io::Result<ClientConfig> {
     ClientConfig::builder_with_provider(provider())
-        .with_safe_default_protocol_versions()
+        .with_protocol_versions(VERSIONS)
         .map_err(invalid)?
         .with_root_certificates(combiner_roots)
         .with_client_auth_cert(chain, key)

@@ -44,3 +44,8 @@ The observation that would make this worth reopening.
 | [004](ADR-004-reality-ledger.md) | `features.toml` as the reality ledger | Accepted |
 | [005](ADR-005-dependency-unification.md) | One version per dependency, and the duplication that remains | Accepted |
 | [006](ADR-006-simulation-harness.md) | A hand-rolled deterministic simulator, not `madsim` or `turmoil` | Accepted |
+| [007](ADR-007-signature-suites.md) | Signature suites, a registry, and a suite-tagged envelope | Accepted |
+| [008](ADR-008-transparent-zk.md) | Plonky3 STARKs as the only proof system | Accepted |
+| [009](ADR-009-kem-suites.md) | KEM suites and the two combiners | Accepted |
+| [010](ADR-010-entropy.md) | Entropy — every source health-tested, all mixed into one HMAC-DRBG | Accepted |
+| [011](ADR-011-threshold-custody.md) | Threshold custody — on-chain multisig now, threshold lattice signing later | Accepted |

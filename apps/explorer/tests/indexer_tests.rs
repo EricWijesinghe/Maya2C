@@ -64,6 +64,7 @@ impl StubChain {
                     }],
                     signed: true,
                     suite: None,
+                    multisig: None,
                 })
                 .collect(),
             raw: String::new(),

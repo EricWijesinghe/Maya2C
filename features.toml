@@ -1853,6 +1853,29 @@ tier = "extended"
 class = "REAL"
 status = "verified"
 tests = ["crates/custody-mpc/tests/ceremony_tests.rs", "crates/custody-mpc/tests/sharing_tests.rs", "crates/custody-mpc/tests/tls_tests.rs", "crates/custody-mpc/tests/transport_tests.rs", "crates/node/tests/custody_parity_tests.rs"]
+note = "ADR-011. The TLS hop negotiates X25519MLKEM768 only (custody_mpc::pq_kx); 3-of-5 tested through a crash, a corrupted share, and three failures. Still reconstructs the key per signature, as its crate docs say."
+
+[[subsystem]]
+id = "m-of-n-ml-dsa-multisig"
+name = "m-of-n ML-DSA multisig accounts"
+domain = "Cryptography and key management"
+paths = "`crates/crypto-pq/src/multisig.rs`, `crates/node/src/core/multisig_tx.rs`"
+tier = "core"
+class = "RESEARCH"
+status = "working"
+tests = ["crates/crypto-pq/tests/multisig_tests.rs", "crates/node/tests/multisig_tests.rs"]
+note = "ADR-011. The account is the policy's address; up to 16 post-quantum suite keys, strictly ordered approvals, every presented signature must verify. Wire v8, dark on SUITE_ENVELOPE_ACTIVATION_HEIGHT with the v7 envelope."
+
+[[subsystem]]
+id = "threshold-lattice-signing"
+name = "Threshold lattice signing"
+domain = "Cryptography and key management"
+paths = "`crates/custody-mpc/src/threshold.rs` (feature `threshold-lattice`)"
+tier = "extended"
+class = "RESEARCH"
+status = "stub"
+tests = []
+note = "ADR-011. Interface only: no peer-reviewed scheme is chosen, and threshold::activate refuses until one is. Candidates and criteria are in the ADR."
 
 [[subsystem]]
 id = "verifiable-random-function-rfc-9381"

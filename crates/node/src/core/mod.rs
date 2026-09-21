@@ -8,6 +8,7 @@ pub mod governance_payload;
 pub mod htlc_payload;
 pub mod identity_payload;
 pub mod iot_payload;
+pub mod multisig_tx;
 pub mod oracle_payload;
 pub mod payload;
 pub mod rwa_payload;

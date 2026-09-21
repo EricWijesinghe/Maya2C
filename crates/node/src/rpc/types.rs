@@ -78,6 +78,21 @@ pub struct TransactionInfo {
     /// transaction, so existing clients see the same JSON as before (ADR-007).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub suite: Option<SuiteKeyInfo>,
+    /// For a multisig (v8) transaction, its policy and who approved; the
+    /// hybrid key fields are then empty. Absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub multisig: Option<MultisigInfo>,
+}
+
+/// A multisig transaction's policy, as the API reports it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MultisigInfo {
+    /// `m`.
+    pub threshold: usize,
+    /// Every listed key, in policy order.
+    pub keys: Vec<SuiteKeyInfo>,
+    /// Indices of the keys whose approvals the transaction carries.
+    pub approved_by: Vec<u8>,
 }
 
 /// A suite-tagged transaction's key, as the API reports it.
@@ -94,12 +109,12 @@ impl From<&Transaction> for TransactionInfo {
         Self {
             txid: hex::encode(tx.txid()),
             sender: hex::encode(tx.sender()),
-            lattice_public_key: if tx.suite_auth.is_some() {
+            lattice_public_key: if tx.suite_auth.is_some() || tx.multisig.is_some() {
                 String::new()
             } else {
                 hex::encode(tx.public_key.lattice)
             },
-            hash_public_key: if tx.suite_auth.is_some() {
+            hash_public_key: if tx.suite_auth.is_some() || tx.multisig.is_some() {
                 String::new()
             } else {
                 hex::encode(tx.public_key.hash_based)
@@ -113,13 +128,27 @@ impl From<&Transaction> for TransactionInfo {
                     amount: output.amount,
                 })
                 .collect(),
-            signed: match &tx.suite_auth {
-                Some(auth) => auth.signature.is_some(),
-                None => tx.signature.is_some(),
+            signed: match (&tx.multisig, &tx.suite_auth) {
+                (Some(auth), _) => auth.approvals().len() >= auth.policy().threshold(),
+                (None, Some(auth)) => auth.signature.is_some(),
+                (None, None) => tx.signature.is_some(),
             },
             suite: tx.suite_auth.as_ref().map(|auth| SuiteKeyInfo {
                 id: auth.suite.to_byte(),
                 public_key: hex::encode(&auth.public_key),
+            }),
+            multisig: tx.multisig.as_ref().map(|auth| MultisigInfo {
+                threshold: auth.policy().threshold(),
+                keys: auth
+                    .policy()
+                    .keys()
+                    .iter()
+                    .map(|key| SuiteKeyInfo {
+                        id: key.suite.to_byte(),
+                        public_key: hex::encode(&key.public_key),
+                    })
+                    .collect(),
+                approved_by: auth.approvals().iter().map(|a| a.index).collect(),
             }),
         }
     }

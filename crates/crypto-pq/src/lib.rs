@@ -46,5 +46,6 @@ pub mod envelope;
 pub mod hqc;
 pub mod kem;
 pub mod kem_suite;
+pub mod multisig;
 pub mod sig;
 pub mod suite;
