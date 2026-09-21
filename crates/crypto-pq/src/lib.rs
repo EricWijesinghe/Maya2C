@@ -11,6 +11,8 @@
 //!   SLH-DSA-SHA2-128s / SHAKE-256f, and the ML-DSA + SLH-DSA hybrid, each
 //!   behind one trait and a one-byte id.
 //! - [`envelope`] — the suite-tagged signature encoding.
+//! - [`kem_suite`] — ML-KEM-768/1024, HQC-128/256 (draft), X-Wing, and the
+//!   ML-KEM + HQC dual-KEM combiners (ADR-009).
 //! - [`agility`] — default-suite policy, the security audit, and migration
 //!   off a deprecated suite.
 //!
@@ -42,5 +44,6 @@ pub mod agility;
 pub mod envelope;
 pub mod hqc;
 pub mod kem;
+pub mod kem_suite;
 pub mod sig;
 pub mod suite;

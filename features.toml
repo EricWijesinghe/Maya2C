@@ -2730,11 +2730,12 @@ note = "1,000,000-account emergency migration is a SIM (keyed-hash authorization
 id = "kem-suites-dualkem-xwing"
 name = "KEM suites: ML-KEM-1024, HQC-128/256 (draft), DualKem, X-Wing"
 domain = "Cryptography and key management"
-paths = "`crates/crypto-pq`"
+paths = "`crates/crypto-pq/src/kem_suite/`"
 tier = "core"
 class = "RESEARCH"
-status = "planned"
-tests = []
+status = "verified"
+tests = ["crate:maya-crypto-pq", "crates/crypto-pq/tests/acvp_tests.rs", "crates/crypto-pq/tests/kem_kat_tests.rs"]
+note = "ADR-009. ML-KEM against NIST ACVP; HQC against the reference KATs (draft standard); X-Wing against the draft's vectors. Transport wiring is Master Prompt 7."
 
 [[subsystem]]
 id = "entropy-hal"
