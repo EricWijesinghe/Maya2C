@@ -46,6 +46,9 @@ pub enum ArchiveError {
     /// An HTTP failure talking to a remote store.
     #[error("http: {0}")]
     Http(String),
+    /// A seal, a transition, or the key chain refused.
+    #[error("seal: {0}")]
+    Seal(String),
 }
 
 /// Result alias for this crate.

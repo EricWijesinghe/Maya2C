@@ -1928,6 +1928,17 @@ status = "working"
 tests = ["crate:maya-zk-stark", "crates/zk-stark/tests/statement_tests.rs", "crates/node/tests/identity_tests.rs"]
 
 [[subsystem]]
+id = "hash-lock-htlc-atomic-swaps"
+name = "Hash-lock HTLC atomic swaps (SHA3-256, BLAKE3, SHA-256)"
+domain = "Cryptography and key management"
+paths = "`crates/htlc-lattice/src/lock.rs`, `bins/htlc-watcher`, `crates/node/src/state/htlc_exec.rs`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crate:maya-htlc-lattice", "bins/htlc-watcher/tests/policy_tests.rs", "crates/node/tests/htlc_lattice_tests.rs"]
+note = "ADR-012. Live from genesis (HASH_LOCK_ACTIVATION_HEIGHT = 0). 32-byte preimages; 256-bit digests are post-quantum (Grover ~2^128 sequential). SHA-256 included because Bitcoin and Ethereum can check it; its known answer is pinned. Swap, refund at T, and forged preimages tested in the node's production context."
+
+[[subsystem]]
 id = "lattice-htlc-l-atomic-swaps"
 name = "Lattice HTLC-L atomic swaps"
 domain = "Cryptography and key management"
@@ -2791,8 +2802,9 @@ note = "ADR-008. REAL since the node's shielded pool verifies through it. Every 
 id = "forward-secure-archival-keys"
 name = "Forward-secure archival keys and SLH-DSA seals"
 domain = "Cryptography and key management"
-paths = "`crates/archive`"
+paths = "`crates/archive/src/seal.rs`, `docs/resealing.md`"
 tier = "extended"
 class = "RESEARCH"
-status = "planned"
-tests = []
+status = "working"
+tests = ["crates/archive/tests/seal_tests.rs"]
+note = "SLH-DSA-SHAKE-256f seals; one-way SHAKE256 seed chain, each epoch's key certifying the next before it is erased. 100 epochs tested, plus a compromise at epoch 50 that cannot backdate. RESEARCH until the node's archive task seals what it writes: nothing calls it yet."

@@ -18,6 +18,13 @@ path = "src/lib.rs"
 # fuzzable without RocksDB or libp2p in the graph.
 [dependencies]
 blake3 = "1"
+# Forward-secure seals (`src/seal.rs`): SLH-DSA-SHAKE-256f from the suite
+# registry, so a seal is verified by the same NIST-vectored code a
+# transaction is; SHAKE256 for the one-way seed chain; zeroizing buffers for
+# every seed.
+maya-crypto-pq = { path = "../crypto-pq" }
+sha3.workspace = true
+zeroize.workspace = true
 cid = "0.11"
 ciborium = "0.2"
 hex.workspace = true

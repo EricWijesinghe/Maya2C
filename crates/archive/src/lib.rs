@@ -30,6 +30,7 @@ pub mod car;
 pub mod error;
 pub mod kubo;
 pub mod manifest;
+pub mod seal;
 pub mod store;
 
 use std::io::Read;

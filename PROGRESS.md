@@ -135,8 +135,8 @@ crates rather than duplicating them (D1).
 - [x] P7a — `crates/zk-stark` (Plonky3, hiding FRI + Keccak): range / Merkle / key gadgets and a mint·transfer·unshield pool, consistent-lie negatives rejected by the verifier in release; zkML (halo2/KZG/BN254) removed, invariants 20–23 retired
 - [x] P7b — node shielded pool on `zk-stark` (2-in-2-out joinsplit AIR, ~383 KB proof, 113/99 bits), credentials and sanctions as STARKs; `zk-privacy` and arkworks deleted; `tests/pqc_zk_tests.rs` gates `cargo tree` + `Cargo.lock`; mainnet block re-keyed to `CIRCUIT_IS_AUDITED = false`; docgen paths fixed
 - [x] P8 — custody (ADR-011): `crypto-pq::multisig` m-of-n policies + node wire v8 multisig accounts (dark on the v7 gate; txid excludes approvals); custody TLS hop X25519MLKEM768-only; 3-of-5 over PQ TLS through a crash, a corrupted share, three failures, and a classical-only peer; `threshold-lattice` RESEARCH interface refusing until a scheme is chosen
-- [ ] P9 — HTLC hash-locks (REAL) + Module-LWE (RESEARCH), `htlc_lattice_tests.rs`
-- [ ] P10 — forward-secure archival keys, SLH-DSA seals, 100-epoch test
+- [x] P9 — HTLC (ADR-012): `Lock`/`Unlock` over SHA3-256, BLAKE3, SHA-256 hash locks (REAL, live at height 0) and Module-LWE locks (RESEARCH, dark); watcher `SwapSecret`; `htlc_lattice_tests.rs` hash-lock swap, refund at T, forged preimages, in the node's production context
+- [x] P10 — `archive::seal`: forward-secure SLH-DSA-SHAKE-256f epoch keys (one-way seed chain, certified transitions, erasure by move), 100-epoch test + epoch-50 compromise test, `docs/resealing.md` (seal, content-hash and key-compromise procedures)
 - [ ] P11 — Ledger app: DISPLAY_ADDRESS, RAM measurement, Speculos tests
 - [ ] P12 — `benches/crypto.rs`, CSV/MD export, `reports/02-crypto.md`
 
