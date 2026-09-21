@@ -62,6 +62,12 @@ signature on the chain is a hybrid pair and both halves must verify; see
 | Selective disclosure credentials | **RESEARCH** | `crates/zk-privacy/src/credential.rs` | Issuer anchors a Poseidon root on chain, signed with the hybrid pair and verified **natively** by consensus; the holder proves membership, a predicate and an unset revocation bit in-circuit. Verifying ML-DSA inside a circuit would be 10^7–10^8 constraints, so the issuer's signature never enters one. **The holder's proof is Groth16 and is not post-quantum** |
 | Lattice HTLC-L atomic swaps | **RESEARCH** | `htlc-lattice`, `htlc-watcher`, `crates/node/src/state/htlc_exec.rs` | `HTLC_L_ACTIVATION_HEIGHT = u64::MAX`. The lock is a Module-LWE instance `t = A·s + e` under ML-DSA-65's parameters; a claim reveals the short `(s, e)` before `expiry_height`. **Maya2C↔Maya2C only**: an atomic swap needs both chains to check the same predicate, and Bitcoin cannot check this one. Claims are never gated by the circuit breaker, because a halted claim beside a live refund is theft — [htlc-lattice.md](htlc-lattice.md) |
 | Physical QKD, KM-API interface | **PLANNED** | — | ETSI GS QKD 014-style key-management interface to external QKD hardware. No code |
+| Signature-suite registry (`0x01` Ed25519, `0x10`/`0x11` ML-DSA-65/87, `0x20`/`0x21` SLH-DSA-SHA2-128s/SHAKE-256f, `0x30` hybrid) | **RESEARCH** | `crates/crypto-pq/src/suite/` | ADR-007. Closed `SuiteId` enum, exact per-suite sizes, NIST ACVP vectors for every FIPS set. `0x30` is today's hybrid byte for byte. Dark until the suite-tagged envelope activates (`SUITE_ENVELOPE_ACTIVATION_HEIGHT = u64::MAX`) |
+| Suite-tagged envelope and crypto-agility engine | **PLANNED** | `crates/crypto-pq/src/envelope.rs`, `agility/` | ADR-007. Governance-chosen default suite, security-level audit (< 128 PQ bits flagged), deprecation windows, vault migration |
+| KEM suites: ML-KEM-1024, HQC-128/256 (**draft**), DualKem, X-Wing | **PLANNED** | `crates/crypto-pq` | ADR-009. Transport wiring is Master Prompt 7 |
+| Entropy HAL: OS, RDSEED, SP 800-90B health tests, SP 800-90A HMAC-DRBG | **PLANNED** | `hal/entropy` | ADR-010. Thermal, micro-voltage, Brownian and homodyne-QRNG sources are **SIM**; Casimir cavity is **RESEARCH** |
+| Transparent STARKs (Plonky3) | **PLANNED** | `crates/zk-stark` | ADR-008. Replaces Groth16 and halo2/KZG; no trusted setup anywhere |
+| Forward-secure archival keys and SLH-DSA seals | **PLANNED** | `crates/archive` | Epoch key evolution with erasure; re-sealing plan |
 
 ## 2. Consensus and execution
 

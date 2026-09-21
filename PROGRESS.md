@@ -118,6 +118,27 @@ rather than starting.
 | 9 | Clients | Tauri wallet, Leptos explorer and dashboard, API gateway, SDKs, faucet — SHIPPED |
 | 10 | Deployment | `infra/docker/Dockerfile`, `infra/docker/docker-compose.yml`, `infra/k8s/`, `infra/terraform/`, `infra/deploy/` exist and are **not** covered by `features.toml` or by any test |
 
+### Master Prompt 2 — cryptography — **in progress**
+
+Plan approved 2026-09-21. Brief-vs-tree findings (F1–F8) and decisions
+D1–D4 are recorded in ADR-007 .. ADR-010; the new work extends existing
+crates rather than duplicating them (D1).
+
+- [x] P0 — ADR-007 (suites), ADR-008 (Plonky3), ADR-009 (KEMs), ADR-010 (entropy); vision rows; `features.toml` entries
+- [x] P1 — suite registry `0x01/0x10/0x11/0x20/0x21/0x30` in `crypto-pq::suite`
+- [x] P2 — NIST ACVP vectors vendored (`crates/crypto-pq/tests/vectors/acvp/`), ML-DSA/SLH-DSA/ML-KEM KATs pass
+- [ ] P1b — suite envelope + crypto-agility engine (policy, audit, migration, 1,000,000-account sim)
+- [ ] P3 — ML-KEM-1024, HQC-128/256 (draft) + KATs, DualKem, X-Wing + draft vectors
+- [ ] P4 — secret hygiene sweep, dudect timing harness
+- [ ] P5 — `hal/entropy`
+- [ ] P6 — node: v2 envelope behind activation height, parity test, invariant 29 supersedes 4
+- [ ] P7 — `crates/zk-stark` (Plonky3), `zk-privacy` rebuilt, arkworks/halo2 removed, `pqc_zk_tests.rs`
+- [ ] P8 — custody: on-chain m-of-n, RESEARCH threshold feature, 3-of-5 with failures
+- [ ] P9 — HTLC hash-locks (REAL) + Module-LWE (RESEARCH), `htlc_lattice_tests.rs`
+- [ ] P10 — forward-secure archival keys, SLH-DSA seals, 100-epoch test
+- [ ] P11 — Ledger app: DISPLAY_ADDRESS, RAM measurement, Speculos tests
+- [ ] P12 — `benches/crypto.rs`, CSV/MD export, `reports/02-crypto.md`
+
 ---
 
 ## How to resume

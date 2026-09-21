@@ -1,0 +1,11 @@
+NIST ACVP-Server 975de31eb83d87039ec88934fdc47d8c312b892d
+SHA-256 of the untrimmed upstream file, then the trimmed size vendored here.
+
+e67ee6540d40e11506c3c4e3b1f79fc1cefcd49820db99fc61f87cc8ba463baf  ML-DSA-keyGen-FIPS204.json  (upstream, 882437 B) -> 272163 B, 20 cases
+72dcaf5f69853ca267ccd16af9cb40949786aca0fcfbf05d1ebeba132b93af22  ML-DSA-sigGen-FIPS204.json  (upstream, 8971659 B) -> 1188447 B, 40 cases
+47cdd6314c7f746d02421ffcba89d4dbc7bb875ac49e07a029fdfc26fba55437  ML-DSA-sigVer-FIPS204.json  (upstream, 4533178 B) -> 1774521 B, 60 cases
+a556952ce869bb89c3a3196a701dad89647c193a34c86eafb61a9d710d5b810f  ML-KEM-encapDecap-FIPS203.json  (upstream, 1465634 B) -> 783790 B, 80 cases
+d7a62a2c3476957f56dd8d24f9004ea6776ccfe995ffe71a65bb9506dc9c7b1b  ML-KEM-keyGen-FIPS203.json  (upstream, 558841 B) -> 170486 B, 20 cases
+d7c53a1b6450087047b57aae83a5a51a0ac89ecdb23ebe071e83fbb69ae9d920  SLH-DSA-keyGen-FIPS205.json  (upstream, 75294 B) -> 10604 B, 20 cases
+62b42e7c27fda5de8a94aba2943ae413b59b6ea08141f3bc035b1eceae235dba  SLH-DSA-sigGen-FIPS205.json  (upstream, 38178342 B) -> 1489974 B, 28 cases
+a013fc2104f4ed4799d96d51141f65b965969b2cf10646626a021b6d456ce792  SLH-DSA-sigVer-FIPS205.json  (upstream, 30731848 B) -> 1501090 B, 36 cases

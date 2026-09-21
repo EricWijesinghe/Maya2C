@@ -64,10 +64,36 @@ rand = { version = "0.10", default-features = false, features = ["sys_rng"] }
 # For `UnwrapErr`, which adapts the fallible OS generator to the infallible
 # `CryptoRng` bound `hqc-kem` requires. See `hqc::os_rng`.
 rand_core = { version = "0.10", default-features = false }
+# ML-DSA-65 and ML-DSA-87 (FIPS 204) for the suite registry — ADR-007.
+#
+# RustCrypto rather than `fips204` because both parameter sets must be
+# available, and the brief prefers the crate whose ACVP harness is upstream.
+# Pinned exactly: pre-1.0 and in the consensus path, like `slh-dsa` above.
+# `default-features = false` drops `pkcs8`, which pulls a DER stack nothing here
+# reads.
+ml-dsa = { version = "=0.1.1", default-features = false, features = ["alloc", "zeroize"] }
+# Ed25519, devnet-only suite `0x01`. 3.0 because libp2p 0.57 already pulls it,
+# so this adds no second curve25519-dalek. `pkcs8` for the key format the brief
+# asks for; `verify_strict` is the only verification this crate exposes.
+ed25519-dalek = { version = "=3.0.0", default-features = false, features = ["zeroize", "pkcs8", "alloc"] }
+# X-Wing (ML-KEM-768 + X25519), ADR-009. The draft's construction, exactly.
+x-wing = { version = "=0.1.0", features = ["zeroize"] }
+# The DualKem combiner's KDF, ADR-009 — the hash FIPS 203 itself uses.
+sha3 = { version = "0.11", default-features = false }
+# Constant-time equality for every secret comparison in the suite and KEM code.
+subtle = { version = "2.6", default-features = false }
 blake3.workspace = true
 zeroize.workspace = true
 getrandom.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+# ACVP vectors are JSON; hex fields decode through `hex`.
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+hex.workspace = true
+# The HQC KAT PRNG is SHAKE256 over the seed, as in the reference harness.
+shake = "0.1"
 
 [lints]
 workspace = true

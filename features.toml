@@ -2701,3 +2701,66 @@ status = "verified"
 tests = []
 gate = "cargo xtask coverage && cargo xtask disk"
 note = "`cargo xtask disk` and `cargo xtask coverage`."
+
+# --- Master Prompt 2: cryptography (ADR-007 .. ADR-010) -------------------
+
+[[subsystem]]
+id = "signature-suite-registry"
+name = "Signature-suite registry"
+domain = "Cryptography and key management"
+paths = "`crates/crypto-pq/src/suite/`"
+tier = "core"
+class = "RESEARCH"
+status = "verified"
+tests = ["crate:maya-crypto-pq", "crates/crypto-pq/tests/acvp_tests.rs"]
+note = "ADR-007. Verified against NIST ACVP vectors; dark until the suite-tagged envelope activates."
+
+[[subsystem]]
+id = "suite-envelope-crypto-agility"
+name = "Suite-tagged envelope and crypto-agility engine"
+domain = "Cryptography and key management"
+paths = "`crates/crypto-pq/src/envelope.rs`, `crates/crypto-pq/src/agility/`"
+tier = "core"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[subsystem]]
+id = "kem-suites-dualkem-xwing"
+name = "KEM suites: ML-KEM-1024, HQC-128/256 (draft), DualKem, X-Wing"
+domain = "Cryptography and key management"
+paths = "`crates/crypto-pq`"
+tier = "core"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[subsystem]]
+id = "entropy-hal"
+name = "Entropy HAL: health-tested sources into an SP 800-90A HMAC-DRBG"
+domain = "Cryptography and key management"
+paths = "`hal/entropy`"
+tier = "extended"
+class = "REAL"
+status = "planned"
+tests = []
+
+[[subsystem]]
+id = "transparent-stark-plonky3"
+name = "Transparent STARKs (Plonky3)"
+domain = "Cryptography and key management"
+paths = "`crates/zk-stark`"
+tier = "core"
+class = "RESEARCH"
+status = "planned"
+tests = []
+
+[[subsystem]]
+id = "forward-secure-archival-keys"
+name = "Forward-secure archival keys and SLH-DSA seals"
+domain = "Cryptography and key management"
+paths = "`crates/archive`"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []

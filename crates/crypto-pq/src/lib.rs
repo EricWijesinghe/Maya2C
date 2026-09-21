@@ -7,6 +7,9 @@
 //!   `custom_l1_node::crypto::keys`.
 //! - [`kem`] — ML-KEM-768 (FIPS 203), the key encapsulation the P2P transport
 //!   layers over its Noise session.
+//! - [`suite`] — the signature-suite registry (ADR-007): Ed25519, ML-DSA-65/87,
+//!   SLH-DSA-SHA2-128s / SHAKE-256f, and the ML-DSA + SLH-DSA hybrid, each
+//!   behind one trait and a one-byte id.
 //!
 //! ## Why this crate exists at all
 //!
@@ -35,3 +38,4 @@
 pub mod hqc;
 pub mod kem;
 pub mod sig;
+pub mod suite;

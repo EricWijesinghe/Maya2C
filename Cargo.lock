@@ -2551,6 +2551,7 @@ version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29fcf32e6c73d1079f83ab4d782de2d81620346a5f38c6237a86a22f8368980a"
 dependencies = [
+ "pkcs8 0.11.0",
  "signature 3.0.0",
 ]
 
@@ -2577,7 +2578,9 @@ checksum = "6ebaa1a2bf1290ab3bfe5a7b771d050ebffab2711c19a81691c683a5144a25de"
 dependencies = [
  "curve25519-dalek 5.0.0",
  "ed25519 3.0.0",
+ "serde",
  "sha2 0.11.0",
+ "signature 3.0.0",
  "subtle",
  "zeroize",
 ]
@@ -5298,13 +5301,22 @@ name = "maya-crypto-pq"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "ed25519-dalek 3.0.0",
  "getrandom 0.4.3",
+ "hex",
  "hqc-kem",
+ "ml-dsa",
  "ml-kem",
  "rand 0.10.2",
  "rand_core 0.10.1",
+ "serde",
+ "serde_json",
+ "sha3 0.11.0",
+ "shake",
  "slh-dsa",
+ "subtle",
  "thiserror 2.0.20",
+ "x-wing",
  "zeroize",
 ]
 
@@ -5964,6 +5976,22 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "ml-dsa"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "add6b9d92e496f16f4526d68ff29da1483aba4b119baeab8bed3b9e3544a6f3d"
+dependencies = [
+ "crypto-common 0.2.2",
+ "ctutils",
+ "hybrid-array",
+ "module-lattice",
+ "pkcs8 0.11.0",
+ "shake",
+ "signature 3.0.0",
+ "zeroize",
 ]
 
 [[package]]
@@ -8259,6 +8287,7 @@ version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28d567dcbaf0049cb8ac2608a76cd95ff9e4412e1899d389ee400918ca7537f5"
 dependencies = [
+ "digest 0.11.3",
  "rand_core 0.10.1",
 ]
 
@@ -10886,6 +10915,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05f360fc0b24296329c78fda852a1e9ae82de9cf7b27dae4b7f62f118f77b9ed"
 dependencies = [
  "tap",
+]
+
+[[package]]
+name = "x-wing"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b51507b887016c3925c84591108dadb8c099f776eb04fec6a60ae3519fee856f"
+dependencies = [
+ "kem",
+ "ml-kem",
+ "sha3 0.12.0",
+ "shake",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]
