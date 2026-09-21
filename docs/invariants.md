@@ -102,7 +102,7 @@ phase that did it.
     instead of a signature under a key that owns nothing. It is the reason
     `interpolate_opening` returns the blinding factor alongside the secret, and
     the reason there is no public way to obtain one without the other.
-20. **No ONNX runtime on the consensus path.** The node depends on `maya-zkml`,
+20. *[Retired 2026-09-21 with `crates/zkml` and `crates/zkml-prover` — ADR-008. Kept for the record; the number is not reused.]* **No ONNX runtime on the consensus path.** The node depends on `maya-zkml`,
     which is the verifier only; `tract-onnx` lives in `maya-zkml-prover`, which
     the node takes as a dev-dependency and nothing more. A separate crate rather
     than a feature, because a feature can be switched on by any crate in the
@@ -110,7 +110,7 @@ phase that did it.
     Most ONNX models are floating point, and a float in a consensus rule is a rounding
     mode two validators can disagree on. Verification checks a proof; nothing
     in a block runs a model. See `docs/zkml.md`.
-21. **A host function that does native work charges fuel for it, first.** Gas
+21. *[Retired 2026-09-21 with `crates/zkml` and `crates/zkml-prover` — ADR-008. Kept for the record; the number is not reused. 21 still binds `host_verify_zkml_proof`, which stays in the VM ABI and answers "no verifier".]* **A host function that does native work charges fuel for it, first.** Gas
     is wasmtime fuel and cannot see native work, so `host_verify_zkml_proof`
     charges a *measured* price (`crates/vm/src/zkml.rs`, calibrated by
     `crates/vm/tests/fuel_calibration_tests.rs` and `crates/zkml-prover/benches/verify.rs`) before
@@ -118,13 +118,13 @@ phase that did it.
     deliberately no tensor host function: guest wasm is priced exactly by the
     fuel meter, and a hand-set per-MAC price would be consensus-critical and
     wrong on some machine.
-22. **zkML stays dark until its SRS is real and gas is capped.** The SRS in
+22. *[Retired 2026-09-21 with `crates/zkml` and `crates/zkml-prover` — ADR-008. Kept for the record; the number is not reused.]* **zkML stays dark until its SRS is real and gas is capped.** The SRS in
     `crates/zkml/src/srs.rs` is derived from a public seed, so anyone can forge proofs;
     and no cap bounds a call's `gas_limit`, so a fuel price bounds nothing
     absolutely. `ZKML_ACTIVATION_HEIGHT` is `u64::MAX`, and
     `state::zkml::check_setup` refuses mainnet the moment it is anything else
     while `SRS_IS_TRUSTED` is false.
-23. **Every constraint in `crates/zkml/src/circuit.rs` has a test that fails without
+23. *[Retired 2026-09-21 with `crates/zkml` and `crates/zkml-prover` — ADR-008. Kept for the record; the number is not reused.]* **Every constraint in `crates/zkml/src/circuit.rs` has a test that fails without
     it.** Negative tests hand the circuit a lie that is *consistent* — everything
     downstream recomputed — so only the guard under test can refuse it. A lie
     left inconsistent is caught by some other constraint, and the test then

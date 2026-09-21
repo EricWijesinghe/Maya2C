@@ -1,0 +1,44 @@
+[package]
+name = "maya-zk-stark"
+version.workspace = true
+# Not published. See crates/dex/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Transparent, post-quantum STARKs (Plonky3): Poseidon2 gadgets and the shielded pool — ADR-008"
+
+# Plonky3, pinned exactly: a 0.x line, and the proof format is consensus once
+# anything verifies these on chain. Every crate from one release, so the field,
+# the AIR builder traits and the FRI implementation agree.
+[dependencies]
+p3-air = "=0.7.0"
+p3-baby-bear = "=0.7.0"
+p3-challenger = "=0.7.0"
+p3-commit = "=0.7.0"
+p3-dft = "=0.7.0"
+p3-field = "=0.7.0"
+p3-fri = "=0.7.0"
+p3-keccak = "=0.7.0"
+p3-matrix = "=0.7.0"
+p3-merkle-tree = "=0.7.0"
+p3-poseidon2 = "=0.7.0"
+p3-poseidon2-air = "=0.7.0"
+p3-security = "=0.7.0"
+p3-symmetric = "=0.7.0"
+p3-uni-stark = "=0.7.0"
+# The hiding PCS takes an RNG for its blinding values. Seeded from the OS per
+# proof — a fixed seed would make the "zero-knowledge" proofs deterministic
+# functions of the witness, which is to say not zero-knowledge.
+rand = { version = "0.10", default-features = false, features = ["std_rng"] }
+getrandom.workspace = true
+# Proof bytes for size measurement and the wire.
+serde.workspace = true
+postcard = { version = "1.1", default-features = false, features = ["alloc"] }
+zeroize.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+p3-matrix = "=0.7.0"
+
+[lints]
+workspace = true

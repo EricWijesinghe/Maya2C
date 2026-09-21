@@ -29,10 +29,14 @@ statements — not just the privacy of old ones.
    Merkle commitments and the Fiat–Shamir transcript, so the outer layer uses a
    hash with decades of cryptanalysis.
 3. **Security target.** FRI parameters are chosen for at least 100 bits of
-   *conjectured* soundness (log_blowup = 3, 38 queries, 16 bits of grinding in
-   the default config), and the chosen figures are written next to the config
-   in `crates/zk-stark/src/config.rs`. "Conjectured" is the honest word: the
-   proven bound for FRI is lower, and the report says so.
+   *conjectured* soundness: `log_blowup = 2`, 100 queries, 16 bits of query
+   grinding — Plonky3's own `new_benchmark_zk` preset — written next to the
+   config in `crates/zk-stark/src/config.rs`. The level is computed, not
+   asserted: Plonky3's estimator gives the spend AIR **114 bits conjectured and
+   101 bits proven** (`pool::tests::report_proof_sizes_and_security`), bounded
+   by the ~124-bit challenge extension and the 128-bit Keccak collision
+   resistance. The first draft of this ADR named `log_blowup = 3` with 38
+   queries; the measured preset replaced it.
 4. **Halo2-IPA is not permitted anywhere.** It would be transparent but not
    post-quantum. No crate in the workspace may use it; nothing is exempted.
 5. **What goes.** `ark-groth16`, `ark-bls12-381`, `ark-snark` and the rest of

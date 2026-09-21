@@ -1762,7 +1762,7 @@ note = "The foundation brief's range runs to prompt 162; docs/trajectory.md defi
 id = "benchmark"
 name = "Benchmark"
 domain = "Named separately by the foundation brief"
-paths = "`crates/node/benches/`, `crates/vm/benches/`, `crates/htlc-lattice/benches/`, `crates/zkml-prover/benches/`"
+paths = "`crates/node/benches/`, `crates/vm/benches/`, `crates/htlc-lattice/benches/`, `crates/crypto-pq/benches/`"
 tier = "core"
 class = "REAL"
 status = "verified"
@@ -1839,8 +1839,9 @@ domain = "Cryptography and key management"
 paths = "`crates/zkml`"
 tier = "extended"
 class = "RESEARCH"
-status = "working"
-tests = ["crates/node/tests/zkml_block_tests.rs", "crates/zkml-prover/tests/circuit_tests.rs", "crates/zkml-prover/tests/proof_tests.rs"]
+status = "planned"
+tests = []
+note = "Retired 2026-09-21 with crates/zkml and crates/zkml-prover: halo2/KZG over BN254 is neither transparent nor post-quantum, and its SRS was forgeable (ADR-008). PLANNED until re-expressed as a Plonky3 STARK."
 
 [[subsystem]]
 id = "mpc-tss-threshold-custody-m-of-n"
@@ -2059,8 +2060,9 @@ domain = "Consensus and execution"
 paths = "`crates/zkml`, `crates/zkml-prover`"
 tier = "extended"
 class = "RESEARCH"
-status = "working"
-tests = ["crates/zkml-prover/tests/circuit_tests.rs", "crates/zkml-prover/tests/proof_tests.rs"]
+status = "planned"
+tests = []
+note = "Retired 2026-09-21 with crates/zkml and crates/zkml-prover: halo2/KZG over BN254 is neither transparent nor post-quantum, and its SRS was forgeable (ADR-008). PLANNED until re-expressed as a Plonky3 STARK."
 
 [[subsystem]]
 id = "stateless-transfer-verification"
@@ -2231,8 +2233,9 @@ domain = "AI and hardware integration"
 paths = "`crates/zkml`"
 tier = "extended"
 class = "RESEARCH"
-status = "working"
-tests = ["crates/node/tests/zkml_block_tests.rs"]
+status = "planned"
+tests = []
+note = "Retired 2026-09-21 with crates/zkml and crates/zkml-prover: halo2/KZG over BN254 is neither transparent nor post-quantum, and its SRS was forgeable (ADR-008). PLANNED until re-expressed as a Plonky3 STARK."
 
 [[subsystem]]
 id = "onnx-import-key-generation-proving"
@@ -2241,8 +2244,9 @@ domain = "AI and hardware integration"
 paths = "`crates/zkml-prover`"
 tier = "extended"
 class = "RESEARCH"
-status = "working"
-tests = ["crates/node/tests/zkml_block_tests.rs", "crates/zkml-prover/tests/circuit_tests.rs", "crates/zkml-prover/tests/proof_tests.rs"]
+status = "planned"
+tests = []
+note = "Retired 2026-09-21 with crates/zkml-prover (ADR-008). PLANNED until zkML is re-expressed as a Plonky3 STARK."
 
 [[subsystem]]
 id = "gpu-mining-cuda"
@@ -2755,8 +2759,9 @@ domain = "Cryptography and key management"
 paths = "`crates/zk-stark`"
 tier = "core"
 class = "RESEARCH"
-status = "planned"
-tests = []
+status = "working"
+tests = ["crate:maya-zk-stark", "crates/zk-stark/tests/gadget_tests.rs"]
+note = "ADR-008. Every constraint has a consistent-lie negative; the suite also passes in release, where only the verifier can refuse. Spend proof 285 KB; 114 bits conjectured / 101 proven."
 
 [[subsystem]]
 id = "forward-secure-archival-keys"

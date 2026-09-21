@@ -1,57 +1,55 @@
-//! The node's answer to `host_verify_zkml_proof`.
+//! The node's answer to `host_verify_zkml_proof`: there is no verifier.
 //!
-//! `maya-vm` defines the question and charges for it; `maya-zkml` knows how to
-//! check a proof; this is the ten lines that join them, and the one policy
-//! decision that belongs to neither: **what a mismatched model id means.**
+//! The halo2/KZG-over-BN254 verifier this module used to call was removed on
+//! 2026-09-21 (ADR-008): a pairing-based proof is forgeable by a quantum
+//! adversary, and its SRS was derived from a public seed, so anyone could
+//! forge one today (invariant 22). zkML becomes PLANNED until it is
+//! re-expressed as a transparent STARK.
 //!
-//! A contract names the model it expects and supplies a verifying key. If the
-//! key is not that model, the proof — however valid for the key it came with —
-//! says nothing about the model the contract asked about. That is
-//! [`ZkmlVerdict::Invalid`], a `0` the contract can act on, and not a trap:
-//! whoever supplied the key may be the transaction's sender rather than the
-//! contract's author, and a trap would hand them a way to abort the block.
+//! The host function stays in the VM's ABI — removing an import a deployed
+//! module links against is a harder break than answering it — and it was
+//! dark anyway: `ZKML_ACTIVATION_HEIGHT` is `u64::MAX`, so
+//! `ContractHost::verify_zkml` returns before reaching [`verdict`]. If it is
+//! ever reached, the answer is `Malformed`, which stops the call rather than
+//! guessing at a boolean.
 
 use maya_vm::zkml::{ZKML_MODEL_ID_LEN, ZkmlVerdict};
-use maya_zkml::ZkmlError;
 
-/// Checks the key names the model, then checks the proof.
+/// Why nothing can verify a zkML proof.
+pub const NO_VERIFIER: &str =
+    "no zkML verifier: the halo2/KZG one was removed (ADR-008); a STARK verifier is planned";
+
+/// Always [`ZkmlVerdict::Malformed`]: there is no verifier to ask.
 #[must_use]
 pub fn verdict(
-    model_id: &[u8; ZKML_MODEL_ID_LEN],
-    vk: &[u8],
-    public: &[i64],
-    proof: &[u8],
+    _model_id: &[u8; ZKML_MODEL_ID_LEN],
+    _vk: &[u8],
+    _public: &[i64],
+    _proof: &[u8],
 ) -> ZkmlVerdict {
-    if maya_zkml::verify::model_id(vk) != *model_id {
-        return ZkmlVerdict::Invalid;
-    }
-    match maya_zkml::verify::verify(vk, public, proof) {
-        Ok(true) => ZkmlVerdict::Valid,
-        Ok(false) => ZkmlVerdict::Invalid,
-        Err(error @ (ZkmlError::MalformedKey(_) | ZkmlError::Oversized { .. })) => {
-            ZkmlVerdict::Malformed(error.to_string())
-        }
-        // Every other variant belongs to the prover or the importer and cannot
-        // come out of `verify`. If one ever did, "malformed" is the answer that
-        // stops the call rather than guessing at a boolean.
-        Err(other) => ZkmlVerdict::Malformed(other.to_string()),
-    }
+    ZkmlVerdict::Malformed(NO_VERIFIER.to_string())
 }
 
-/// Refuses to start a value-bearing chain with zkML active on an untrusted SRS.
-///
-/// A no-op while `activation` is `u64::MAX`, which it is everywhere today. It
-/// exists so that the day somebody sets a height, the node refuses mainnet
-/// until `maya_zkml::srs::SRS_IS_TRUSTED` is also true — rather than that being
-/// a second change somebody has to remember. `bins/maya2c-node/src/main.rs` calls it at
-/// startup, beside the Groth16 setup check.
+/// Refused setup.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("zkML activation on {chain_id}: {NO_VERIFIER}")]
+pub struct ZkmlUnavailable {
+    /// The chain that tried.
+    pub chain_id: String,
+}
+
+/// Refuses any chain that sets a zkML activation height: there is nothing
+/// for it to activate.
 ///
 /// # Errors
 ///
-/// [`ZkmlError::UntrustedSetup`] for a value-bearing chain with zkML reachable.
-pub fn check_setup(chain_id: &str, activation: u64) -> Result<(), ZkmlError> {
+/// [`ZkmlUnavailable`] for any `activation` other than `u64::MAX`.
+pub fn check_setup(chain_id: &str, activation: u64) -> Result<(), ZkmlUnavailable> {
     if activation == u64::MAX {
-        return Ok(());
+        Ok(())
+    } else {
+        Err(ZkmlUnavailable {
+            chain_id: chain_id.to_owned(),
+        })
     }
-    maya_zkml::srs::check_chain(chain_id)
 }

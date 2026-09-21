@@ -1,5 +1,14 @@
 # zkML inference verification
 
+> **Retired 2026-09-21 (ADR-008).** `crates/zkml` and `crates/zkml-prover` were
+> removed from the workspace: halo2 with KZG over BN254 is neither transparent
+> nor post-quantum, and the SRS below was derivable from a public seed. The
+> VM's `host_verify_zkml_proof` stays in the ABI and answers *no verifier*
+> (`crates/node/src/state/zkml.rs`). zkML is PLANNED until it is re-expressed
+> as a Plonky3 STARK over `crates/zk-stark`. What follows is the record of the
+> removed system, kept because its measurements and its mutation sweep are
+> the useful part.
+
 A contract can now ask "did model *M* classify input *x* as class *c*?" and get
 the answer from a proof, without running *M*. That works end to end, in a
 block, and is measured. It is also dark on every network, not post-quantum, and

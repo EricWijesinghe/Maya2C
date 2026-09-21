@@ -57,7 +57,6 @@ extended = [
     "dep:maya-htlc-watcher",
     "dep:maya-threat-firewall",
     "dep:maya-neural-gas-trainer",
-    "dep:maya-zkml-prover",
     "dep:maya-confidential-ai",
     "dep:l2-flash",
 ]
@@ -95,7 +94,6 @@ maya-custody-mpc = { path = "../custody-mpc", optional = true }
 maya-htlc-watcher = { path = "../../bins/htlc-watcher", optional = true }
 maya-threat-firewall = { path = "../../bins/threat-firewall", optional = true }
 maya-neural-gas-trainer = { path = "../../bins/neural-gas-trainer", optional = true }
-maya-zkml-prover = { path = "../zkml-prover", optional = true }
 maya-confidential-ai = { path = "../confidential-ai", optional = true }
 l2-flash = { path = "../l2-flash", optional = true }
 

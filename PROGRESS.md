@@ -132,7 +132,8 @@ crates rather than duplicating them (D1).
 - [x] P4 — secret hygiene (compile-time `!Display`/`!Copy`/`ZeroizeOnDrop` checks, `secrecy` master seed, `subtle` compares, `confidential-ai` Shamir share fixed), dudect harness with positive and null controls — **HQC decaps leaks (|t| 26.9)**, ADR-009 addendum
 - [x] P5 — `hal/entropy`: SP 800-90B health tests (Table 2 cutoffs), CAVP-validated HMAC-DRBG (480/480), OS + RDSEED + four SIM models + Casimir RESEARCH stub, tamper line, `entropy-dump` + `scripts/entropy_battery.sh`
 - [x] P6 — node: wire v7 suite-tagged transactions dark behind `SUITE_ENVELOPE_ACTIVATION_HEIGHT = u64::MAX`; `ParameterKey::DefaultSignatureSuite` (tag 10, default ML-DSA-87) checked by the node at proposal and execution; `fips204` ↔ `ml-dsa` parity for suite `0x30`; invariants 29–31; rust-reviewer + security-reviewer findings fixed (HQC now behind an off-by-default feature)
-- [ ] P7 — `crates/zk-stark` (Plonky3), `zk-privacy` rebuilt, arkworks/halo2 removed, `pqc_zk_tests.rs`
+- [x] P7a — `crates/zk-stark` (Plonky3, hiding FRI + Keccak): range / Merkle / key gadgets and a mint·transfer·unshield pool, consistent-lie negatives rejected by the verifier in release; zkML (halo2/KZG/BN254) removed, invariants 20–23 retired
+- [ ] P7b — `zk-privacy` rebuilt on `zk-stark` (node 2-in-2-out joinsplit, credentials, sanctions); arkworks removed; `tests/pqc_zk_tests.rs` cargo-tree gate
 - [ ] P8 — custody: on-chain m-of-n, RESEARCH threshold feature, 3-of-5 with failures
 - [ ] P9 — HTLC hash-locks (REAL) + Module-LWE (RESEARCH), `htlc_lattice_tests.rs`
 - [ ] P10 — forward-secure archival keys, SLH-DSA seals, 100-epoch test

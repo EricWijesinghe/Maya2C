@@ -59,11 +59,6 @@ serde = { workspace = true, features = ["derive"] }
 toml.workspace = true
 serde_json.workspace = true
 maya-vm = { path = "../vm" }
-# zkML proof verification, for `host_verify_zkml_proof`. The verifier only:
-# proving and ONNX import are in `maya-zkml-prover`, which is a dev-dependency
-# here and nothing more, so an ONNX runtime cannot end up on a consensus path.
-# Dark until `ZKML_ACTIVATION_HEIGHT` is set -- see crates/node/src/state/context.rs.
-maya-zkml = { path = "../zkml" }
 maya-zk-privacy = { path = "../zk-privacy" }
 # The trading engine's arithmetic: the constant-product curve, the order book
 # matcher, and the batch clearing that prices a block's swaps at one price.
@@ -189,9 +184,6 @@ maya-wallet-core = { path = "../../apps/wallet-gui/core" }
 # `maya-sdk-wasm` above and for the same reason: `custody-mpc` must not link
 # RocksDB, so it reimplements the derivation and this test is what catches drift.
 maya-custody-mpc = { path = "../custody-mpc", default-features = false }
-# For `tests/zkml_block_tests.rs`, which proves inference off-chain and then
-# verifies it inside a block. Test-only: the node never links a prover.
-maya-zkml-prover = { path = "../zkml-prover" }
 # For `tests/fee_market_tests.rs`, which runs the fee rule over real
 # transaction sizes and checks nothing in consensus calls it yet.
 maya-fee-market = { path = "../fee-market" }

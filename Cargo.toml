@@ -150,16 +150,9 @@ members = [
     # `tests/custody_parity_tests.rs` in the node's own suite is what pins its
     # key derivation to `crypto::hybrid`.
     "crates/custody-mpc",
-    # zkML proof verification. A member so the circuit's soundness tests run in
-    # the workspace suite. `vm` does not depend on it: the node supplies
-    # verification through `HostState`, the same seam that keeps chain types out
-    # of the VM. `tract-onnx` is behind the `prover` feature and never reaches
-    # the consensus path -- see docs/zkml.md.
-    "crates/zkml",
-    # Its off-chain half: ONNX import via tract, key generation, proving. A
-    # separate member rather than a feature so the node cannot reach tract even
-    # through feature unification, and so its higher rust-version stays its own.
-    "crates/zkml-prover",
+    # (crates/zkml and crates/zkml-prover were removed on 2026-09-21: halo2 with
+    # KZG over BN254 is neither transparent nor post-quantum — ADR-008. The VM's
+    # `host_verify_zkml_proof` stays in the ABI and answers "no verifier".)
     # Network telemetry collector. No chain dependency — it aggregates what
     # nodes and miners report, and verifies none of it, which is stated at the
     # top of its `lib.rs` because every number it serves is a claim.
@@ -243,6 +236,11 @@ members = [
     # zeroization. The thermal, micro-voltage, Brownian and homodyne-QRNG
     # sources are SIM and stay out of a production pool without `sim-sources`.
     "hal/entropy",
+    # Transparent, post-quantum STARKs (ADR-008): Plonky3 over BabyBear with
+    # hiding FRI and Keccak commitments; Poseidon2 gadgets and the shielded
+    # pool. Replaces Groth16 (arkworks) and halo2/KZG — no trusted setup and
+    # no pairing anywhere in the workspace.
+    "crates/zk-stark",
     # Workspace automation: `cargo xtask disk` and `cargo xtask coverage`. A
     # member so it is type-checked by the same `cargo check --workspace` that
     # gates everything else, and so the ledger test in it runs in the ordinary
@@ -262,8 +260,6 @@ members = [
 # `rust-version = "1.88"` is the real floor, not edition 2024's 1.85: the code
 # uses `u64::is_multiple_of` (1.87) and `slice::as_chunks` (1.88). A stale
 # toolchain then fails with one clear message instead of a wall of errors.
-# `maya-zkml-prover` overrides it to 1.91 — `tract-onnx`'s patched releases
-# need it, and nothing the node links depends on that crate (invariant 20).
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
@@ -326,10 +322,6 @@ futures-util = "0.3"
 # socket. What libp2p uses for the same job.
 futures_ringbuf = "0.4"
 getrandom = "0.4"
-# Pinned exactly: the SRS in `crates/zkml/src/srs.rs` and the proving key are tied to
-# this implementation's encoding, so a patch release is a consensus-visible
-# change even while zkML is dark.
-halo2-axiom = "=0.5.3"
 hex = "0.4"
 http-body-util = "0.1"
 hyper = "1"
@@ -379,9 +371,9 @@ ark-std = "=0.6.0"
 #                    crypto code, which is not a workspace-layout change. The
 #                    two use sites never exchange ciphertext. Tracked in
 #                    PROGRESS.md, not fixed here.
-# rand / rand_core   `crypto-pq` is on the 0.10 generation, `zkml`,
-#                    `zkml-prover` and `iot-anchor` on 0.6/0.8 because that is
-#                    what their ecosystems (halo2, tract, digest 0.10) require.
+# rand / rand_core   `crypto-pq` and `zk-stark` are on the 0.10 generation,
+#                    `iot-anchor` on 0.6 because that is what its ecosystem
+#                    (`fips204`'s `rand_core`, digest 0.10) requires.
 #                    A major-version split with a reason is not drift.
 # zeroize            `iot-anchor` needs `default-features = false`; it is
 #                    `no_std` and heap-free. Putting that here would force the
@@ -601,6 +593,14 @@ opt-level = 3
 [profile.dev.package.maya-crypto-pq]
 opt-level = 3
 
+# The same lesson for the STARK prover: Plonky3's prover and verifier are
+# generic over the configuration, so they monomorphize into the crate that
+# names it. Unoptimized, a 32-row proof takes minutes and the tests read as
+# hung. Debug assertions stay on, so the prover's own constraint check still
+# runs in tests — which is what the tampered-witness negatives rely on.
+[profile.dev.package.maya-zk-stark]
+opt-level = 3
+
 [profile.dev.package.slh-dsa]
 opt-level = 3
 
@@ -657,21 +657,6 @@ opt-level = 3
 [profile.dev.package.ark-std]
 opt-level = 3
 
-# And for the zkML verifier, on the crate that instantiates it. halo2's prover
-# and verifier are generic over the commitment scheme and monomorphize into
-# `maya-zkml` -- the same lesson `maya-crypto-pq` taught for SLH-DSA, where the
-# override on the generic crate optimized none of the work. `halo2curves-axiom`
-# is the BN254 field and pairing arithmetic, which is not generic and has to be
-# optimized where it lives. Without these a single proof in the test suite
-# takes long enough to read as a hang.
-[profile.dev.package.maya-zkml]
-opt-level = 3
-
-# The prover monomorphizes halo2's proving generics, so it needs its own
-# override for the same reason the verifier crate does.
-[profile.dev.package.maya-zkml-prover]
-opt-level = 3
-
 # A claim's verification is two million i64 additions; unoptimized, every
 # block test that settles a swap spends most of its time here.
 [profile.dev.package.maya-htlc-lattice]
@@ -680,13 +665,4 @@ opt-level = 3
 # A Ring-SIS node digest is about 900,000 i64 additions, and every test tree
 # built with the research backend spends nearly all of its time there.
 [profile.dev.package.maya-stateless-core]
-opt-level = 3
-
-[profile.dev.package.halo2-axiom]
-opt-level = 3
-
-[profile.dev.package.halo2curves-axiom]
-opt-level = 3
-
-[profile.dev.package.blake2b_simd]
 opt-level = 3
