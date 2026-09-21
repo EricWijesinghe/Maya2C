@@ -2744,8 +2744,9 @@ domain = "Cryptography and key management"
 paths = "`hal/entropy`"
 tier = "extended"
 class = "REAL"
-status = "planned"
-tests = []
+status = "verified"
+tests = ["crate:maya-entropy", "hal/entropy/tests/drbg_cavp_tests.rs"]
+note = "ADR-010. DRBG verified against NIST CAVP (480 cases); SP 800-90B cutoffs match Table 2. Thermal, micro-voltage, Brownian and homodyne-QRNG sources are SIM; Casimir is RESEARCH. No wallet or node caller yet."
 
 [[subsystem]]
 id = "transparent-stark-plonky3"

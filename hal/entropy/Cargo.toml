@@ -1,0 +1,32 @@
+[package]
+name = "maya-entropy"
+version.workspace = true
+# Not published. See crates/dex/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Health-tested entropy sources mixed into an SP 800-90A HMAC-DRBG, with tamper zeroization (ADR-010)"
+
+[features]
+# Admit SIM and RESEARCH sources into a pool. Off by default: a production
+# build refuses them outright (ADR-010 §5, Standing Order 3). The unit tests of
+# the models themselves do not need it; only a pool that mixes them does.
+sim-sources = []
+
+[dependencies]
+# HMAC-SHA-256 for the DRBG, SP 800-90A §10.1.2. The same `hmac 0.12` /
+# `sha2 0.10` generation the Ledger app and the rest of the tree use.
+hmac = "0.12"
+sha2.workspace = true
+# The OS source, and the entropy the SIM models shape.
+getrandom.workspace = true
+zeroize = { workspace = true, features = ["derive"] }
+thiserror.workspace = true
+# SIM sources announce themselves in the log when constructed (Standing Order 3).
+tracing.workspace = true
+
+[dev-dependencies]
+hex.workspace = true
+
+[lints]
+workspace = true

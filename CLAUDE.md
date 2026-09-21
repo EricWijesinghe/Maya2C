@@ -1,7 +1,7 @@
 # Maya2C
 
 Post-quantum L1 blockchain node in Rust (edition 2024, `rust-version = 1.88`,
-`nightly-2026-07-15`). A virtual workspace of 54 members plus nine crates
+`nightly-2026-07-15`). A virtual workspace of 55 members plus nine crates
 deliberately outside it; the node is `crates/node` — [ADR-001](docs/adr/ADR-001-workspace-layout.md).
 
 ## Identity and Mission
@@ -110,13 +110,13 @@ PowerShell profile and `~/.bashrc`.
 
 ## Workspace Map
 
-44 members plus the root package, and nine tracked crates that are **not**
+55 members, and nine tracked crates that are **not**
 members because they target a different architecture or must keep their
 dependency graph away from the node's: `fuzz/`, `offsec-sandbox/`,
 `hal/iot-firmware/`, `hal/ebpf-net/programs/`, `apps/dashboard/`, `apps/wallet-gui/ui/`,
 `apps/wallet-gui/src-tauri/`, `apps/ledger-maya2c/`, `contracts/token-swap/`. Six of the
 nine cannot be built for the host at all, so "the workspace builds" is a claim
-about 45 of 54 crates.
+about 55 of 64 crates.
 
 What each one is for, and why it is a separate crate:
 [docs/workspace-map.md](docs/workspace-map.md). Membership itself comes from
