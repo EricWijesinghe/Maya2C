@@ -2735,7 +2735,7 @@ tier = "core"
 class = "RESEARCH"
 status = "verified"
 tests = ["crate:maya-crypto-pq", "crates/crypto-pq/tests/acvp_tests.rs", "crates/crypto-pq/tests/kem_kat_tests.rs"]
-note = "ADR-009. ML-KEM against NIST ACVP; HQC against the reference KATs (draft standard); X-Wing against the draft's vectors. Transport wiring is Master Prompt 7."
+note = "ADR-009. ML-KEM against NIST ACVP; HQC against the reference KATs (draft standard); X-Wing against the draft's vectors. HQC decapsulation measured NOT constant-time (dudect |t| = 26.9) — ADR-009 addendum. Transport wiring is Master Prompt 7."
 
 [[subsystem]]
 id = "entropy-hal"

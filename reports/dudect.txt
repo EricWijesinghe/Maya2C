@@ -1,0 +1,28 @@
+# dudect run — 2026-09-21T08:48Z, rustc 1.99.0-nightly (da80ed070 2026-07-14), release profile
+# source: crates/crypto-pq/benches/dudect.rs (inputs prepared before measurement) — interpretation in reports/02-crypto.md
+
+running 10 benches
+bench control_naive_eq       seeded with 0x6de21230a8e179e3
+bench control_naive_eq       ... : n == +0.016M, max t = +473.75986, max tau = +3.71248, (5/tau)^2 = 1
+bench ct_eq_shared_secret    seeded with 0x2b3bdb01be60a367
+bench ct_eq_shared_secret    ... : n == +0.100M, max t = +1.71813, max tau = +0.00543, (5/tau)^2 = 846891
+bench ed25519_sign           seeded with 0xe220e3634d74b98d
+bench ed25519_sign           ... : n == +0.029M, max t = -2.15624, max tau = -0.01260, (5/tau)^2 = 157387
+bench hqc_128_decaps         seeded with 0x6317a899bf0dcefc
+bench hqc_128_decaps         ... : n == +0.003M, max t = +26.92825, max tau = +0.47730, (5/tau)^2 = 109
+bench hqc_128_decaps_null    seeded with 0x2d3dc970cebcfe7b
+bench hqc_128_decaps_null    ... : n == +0.025M, max t = +2.53017, max tau = +0.01613, (5/tau)^2 = 96102
+bench ml_dsa_65_sign         seeded with 0x9d7b236cebad1fe1
+bench ml_dsa_65_sign         ... : n == +0.003M, max t = -9.68071, max tau = -0.18830, (5/tau)^2 = 705
+bench ml_dsa_65_verify       seeded with 0x73f8598be2586a50
+bench ml_dsa_65_verify       ... : n == +0.032M, max t = +2.11044, max tau = +0.01182, (5/tau)^2 = 178886
+bench ml_kem_768_decaps      seeded with 0x150c666e033a5a2f
+bench ml_kem_768_decaps      ... : n == +0.059M, max t = -2.23136, max tau = -0.00918, (5/tau)^2 = 296757
+bench ml_kem_768_decaps_null seeded with 0x5c5fb4f38d4d7957
+bench ml_kem_768_decaps_null ... : n == +0.094M, max t = -2.04163, max tau = -0.00664, (5/tau)^2 = 566582
+bench x_wing_decaps          seeded with 0x18f70527e99dfbed
+bench x_wing_decaps          ... : n == +0.091M, max t = -1.40424, max tau = -0.00467, (5/tau)^2 = 1147589
+
+dudect benches complete
+
+exit: 0

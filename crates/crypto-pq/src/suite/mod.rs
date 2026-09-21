@@ -29,6 +29,7 @@ pub use hybrid::{HybridMlDsa65SlhDsa128s, HybridSigningKey};
 pub use ml_dsa::{MlDsa65, MlDsa87};
 pub use slh_dsa::{SlhDsaSha2_128s, SlhDsaShake256f};
 
+use secrecy::{ExposeSecret as _, ExposeSecretMut as _, SecretBox};
 use zeroize::{ZeroizeOnDrop, Zeroizing};
 
 /// Length of the master seed every suite derives its key from.
@@ -229,14 +230,15 @@ pub enum SuiteError {
 ///
 /// Every suite takes the same 32 bytes and expands them under its own domain
 /// string, so one wallet seed can hold a key in each suite without any two
-/// sharing material.
-pub struct MasterSeed(Zeroizing<[u8; SEED_LEN]>);
+/// sharing material. Held in a `secrecy::SecretBox`: zeroized on drop, never
+/// `Clone`, and every read is a visible `expose_secret()`.
+pub struct MasterSeed(SecretBox<[u8; SEED_LEN]>);
 
 impl MasterSeed {
-    /// Wraps existing seed bytes.
+    /// Wraps existing seed bytes. The caller's copy is the caller's to wipe.
     #[must_use]
     pub fn from_bytes(bytes: [u8; SEED_LEN]) -> Self {
-        Self(Zeroizing::new(bytes))
+        Self(SecretBox::new(Box::new(bytes)))
     }
 
     /// Draws a fresh seed from the operating system.
@@ -245,15 +247,15 @@ impl MasterSeed {
     ///
     /// [`SuiteError::Entropy`] if the OS generator fails. Fatal, not retried.
     pub fn generate() -> Result<Self, SuiteError> {
-        let mut bytes = Zeroizing::new([0u8; SEED_LEN]);
-        getrandom::fill(bytes.as_mut()).map_err(|_| SuiteError::Entropy)?;
-        Ok(Self(bytes))
+        let mut seed = SecretBox::new(Box::new([0u8; SEED_LEN]));
+        getrandom::fill(seed.expose_secret_mut()).map_err(|_| SuiteError::Entropy)?;
+        Ok(Self(seed))
     }
 
     /// The seed bytes.
     #[must_use]
     pub fn expose(&self) -> &[u8; SEED_LEN] {
-        &self.0
+        self.0.expose_secret()
     }
 }
 

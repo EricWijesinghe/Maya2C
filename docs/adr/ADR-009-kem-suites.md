@@ -60,3 +60,23 @@ Every HQC type, log line and report row carries the word *draft*.
   `reports/02-crypto.md`.
 - HQC's pin is on a release candidate of a draft; a bump is a transport
   compatibility review.
+
+## Addendum 2026-09-21 — HQC decapsulation is not constant-time
+
+`benches/dudect.rs` (inputs prepared before measurement, null controls
+alongside) measured `hqc-kem =0.1.0-rc.0` HQC-128 decapsulation of a valid
+ciphertext against a random one at **|t| = 26.9** (null control, valid vs
+valid: 2.5). ML-KEM-768 (|t| = 2.2) and X-Wing (1.4) show no leak at the same
+sample sizes. Raw output: `reports/dudect.txt`.
+
+Consequences, until an HQC implementation measures clean:
+
+- HQC must not be enabled on any transport path. `pq-transport.md` already
+  keeps it off; this is now a second, measured reason.
+- A dual KEM whose HQC half leaks is, against a timing adversary, only as
+  strong as its ML-KEM half. The combiner is still correct; it is the
+  "breaking one family is not enough" claim that weakens to "breaking ML-KEM
+  is still necessary".
+- Re-run `cargo bench -p maya-crypto-pq --bench dudect -- --filter hqc` on
+  every `hqc-kem` bump; the pin exists partly so that this result stays true
+  of the code that ships.

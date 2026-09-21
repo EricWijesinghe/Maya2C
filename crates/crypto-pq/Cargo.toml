@@ -84,6 +84,9 @@ x-wing = { version = "=0.1.0", features = ["zeroize", "hazmat"] }
 sha3 = { version = "0.11", default-features = false }
 # Constant-time equality for every secret comparison in the suite and KEM code.
 subtle = { version = "2.6", default-features = false }
+# `SecretBox` for the master seed: access is an explicit `expose_secret()`,
+# greppable, and the box zeroizes on drop.
+secrecy = "0.10"
 blake3.workspace = true
 zeroize.workspace = true
 getrandom.workspace = true
@@ -96,6 +99,16 @@ serde_json.workspace = true
 hex.workspace = true
 # The HQC KAT PRNG is SHAKE256 over the seed, as in the reference harness.
 shake = "0.1"
+# Compile-time proof that secret types implement neither `Display` nor
+# `Copy`: a secret that can be formatted with `{}` or copied implicitly has
+# already escaped.
+static_assertions = "1.1"
+# Timing-leak tests for signing, verification and decapsulation (benches/dudect.rs).
+dudect-bencher = "0.7"
+
+[[bench]]
+name = "dudect"
+harness = false
 
 [lints]
 workspace = true

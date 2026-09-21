@@ -13,13 +13,34 @@ use crate::error::{Error, Result};
 use crate::random::Randomness;
 
 /// One share: an evaluation point and the polynomial values there.
-#[derive(Clone, Debug, PartialEq, Eq)]
+///
+/// Secret while it is held: a threshold of these is the seed. So the bytes
+/// are wiped on drop, `Debug` prints only the evaluation point and length,
+/// and equality runs in time independent of where two shares differ.
+#[derive(Clone, zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
 pub struct Share {
     /// Evaluation point, `1..=255`.
     pub x: u8,
     /// One byte per secret byte.
     pub y: Vec<u8>,
 }
+
+impl core::fmt::Debug for Share {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "Share {{ x: {}, y: <{} bytes redacted> }}", self.x, self.y.len())
+    }
+}
+
+impl PartialEq for Share {
+    fn eq(&self, other: &Self) -> bool {
+        // Lengths and `x` are public; the bytes are compared without an early exit.
+        self.x == other.x
+            && self.y.len() == other.y.len()
+            && self.y.iter().zip(&other.y).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
+    }
+}
+
+impl Eq for Share {}
 
 fn gf_mul(mut a: u8, mut b: u8) -> u8 {
     let mut product = 0u8;
@@ -176,5 +197,15 @@ mod tests {
         assert!(split(&[1], 4, 3, &mut rng).is_err());
         let shares = split(&[1, 2], 2, 3, &mut rng).expect("split");
         assert!(combine(&[shares[0].clone(), shares[0].clone()], 2).is_err());
+    }
+
+    #[test]
+    fn a_share_does_not_print_its_bytes() {
+        let share = Share { x: 3, y: vec![0xAB; 4] };
+        let text = format!("{share:?}");
+        assert!(text.contains("x: 3") && text.contains("redacted"));
+        assert!(!text.to_lowercase().contains("ab"));
+        assert_eq!(share.clone(), share);
+        assert_ne!(Share { x: 3, y: vec![0xAB, 0xAB, 0xAB, 0xAA] }, share);
     }
 }

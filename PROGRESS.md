@@ -129,7 +129,7 @@ crates rather than duplicating them (D1).
 - [x] P2 — NIST ACVP vectors vendored (`crates/crypto-pq/tests/vectors/acvp/`), ML-DSA/SLH-DSA/ML-KEM KATs pass
 - [x] P1b — suite envelope + crypto-agility engine (policy, audit, migration, 1,000,000-account sim: 500 window blocks, 41 sweep blocks, no failed transfer)
 - [x] P3 — ML-KEM-1024, HQC-128/256 (draft) + reference KATs, DualKem, X-Wing + draft vectors
-- [ ] P4 — secret hygiene sweep, dudect timing harness
+- [x] P4 — secret hygiene (compile-time `!Display`/`!Copy`/`ZeroizeOnDrop` checks, `secrecy` master seed, `subtle` compares, `confidential-ai` Shamir share fixed), dudect harness with positive and null controls — **HQC decaps leaks (|t| 26.9)**, ADR-009 addendum
 - [ ] P5 — `hal/entropy`
 - [ ] P6 — node: v2 envelope behind activation height, parity test, invariant 29 supersedes 4
 - [ ] P7 — `crates/zk-stark` (Plonky3), `zk-privacy` rebuilt, arkworks/halo2 removed, `pqc_zk_tests.rs`

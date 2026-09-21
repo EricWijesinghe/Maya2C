@@ -173,11 +173,9 @@ impl SharedSecret {
     /// caller has to notice.
     #[must_use]
     pub fn ct_eq(&self, other: &Self) -> bool {
-        let mut diff = 0u8;
-        for (a, b) in self.0.iter().zip(other.0.iter()) {
-            diff |= a ^ b;
-        }
-        diff == 0
+        // `subtle` rather than a hand-written XOR fold: its `black_box`
+        // barrier stops the optimiser turning the fold back into an early exit.
+        subtle::ConstantTimeEq::ct_eq(self.0.as_slice(), other.0.as_slice()).into()
     }
 }
 
