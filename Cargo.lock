@@ -4822,6 +4822,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-da"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "maya-sim",
+ "reed-solomon-simd",
+]
+
+[[package]]
 name = "maya-dag-bft"
 version = "0.1.0"
 dependencies = [
