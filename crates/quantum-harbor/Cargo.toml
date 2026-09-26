@@ -1,0 +1,14 @@
+[package]
+name = "maya-quantum-harbor"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Quantum exposure tool: classifies Bitcoin outputs and Ethereum accounts by whether their public key is already on-chain"
+
+[dependencies]
+sha2.workspace = true
+
+[lints]
+workspace = true

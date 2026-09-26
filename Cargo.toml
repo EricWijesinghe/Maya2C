@@ -281,6 +281,7 @@ members = [
     "crates/interop",
     "crates/lanes",
     "crates/privacy",
+    "crates/quantum-harbor",
     "bins/maya2c-signer",
     "bins/maya2c-mcp",
     # Parallel execution byte-identical to sequential (Master Prompt 12 §1,
