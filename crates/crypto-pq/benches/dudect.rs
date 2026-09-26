@@ -7,7 +7,9 @@
 //! run could afford — and the numbers go into `reports/dudect.txt` exactly as
 //! printed, not as a pass/fail.
 //!
-//! Run with `cargo bench -p maya-crypto-pq --bench dudect`.
+//! Run with `bash scripts/dudect.sh` (all benches, written to
+//! `reports/dudect.txt`) or `bash scripts/dudect.sh --filter <name>`. Not
+//! `cargo bench`: cargo appends `--bench`, which dudect-bencher rejects.
 //!
 //! | bench | Left class | Right class | expected |
 //! |---|---|---|---|
@@ -94,14 +96,21 @@ fn decaps<K: KemSuite>(runner: &mut CtRunner, rng: &mut BenchRng, samples: usize
     // `encapsulate` (which warms the key's cache lines) with the timed
     // `decapsulate` for one class only is exactly the artefact that made the
     // first run report a leak here.
+    // Both classes' buffers are allocated by the same statement and filled
+    // afterwards. Taking one class straight from `encapsulate` and the other
+    // from `bytes` allocates them through different paths, which puts them in
+    // different places -- a difference the timer can see that the algorithm
+    // does not have. That artefact is worth more than it sounds: with it, HQC
+    // measured |t| = 26.9 here.
     let inputs: Vec<(Class, Vec<u8>)> = (0..samples)
         .map(|_| {
             let (left, c) = draw(rng);
-            let ct = if left {
-                K::encapsulate(&ek).expect("encapsulate").0
+            let mut ct = vec![0u8; K::CIPHERTEXT_LEN];
+            if left {
+                ct.copy_from_slice(&K::encapsulate(&ek).expect("encapsulate").0[..]);
             } else {
-                bytes(rng, K::CIPHERTEXT_LEN)
-            };
+                rng.fill_bytes(&mut ct);
+            }
             (c, ct)
         })
         .collect();
@@ -115,7 +124,11 @@ fn decaps<K: KemSuite>(runner: &mut CtRunner, rng: &mut BenchRng, samples: usize
 fn decaps_null<K: KemSuite>(runner: &mut CtRunner, rng: &mut BenchRng, samples: usize) {
     let (dk, ek) = K::generate().expect("generate");
     let inputs: Vec<(Class, Vec<u8>)> = (0..samples)
-        .map(|_| (draw(rng).1, K::encapsulate(&ek).expect("encapsulate").0))
+        .map(|_| {
+            let mut ct = vec![0u8; K::CIPHERTEXT_LEN];
+            ct.copy_from_slice(&K::encapsulate(&ek).expect("encapsulate").0[..]);
+            (draw(rng).1, ct)
+        })
         .collect();
     for (c, ct) in inputs {
         runner.run_one(c, || K::decapsulate(&dk, &ct).map(|s| s.as_bytes()[0]));

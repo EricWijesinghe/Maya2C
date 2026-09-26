@@ -6,7 +6,8 @@
 //! and every name here says *draft* so nobody reads it as a finished standard.
 //!
 //! **Not constant-time.** `benches/dudect.rs` measured decapsulation of a
-//! valid versus a random ciphertext at |t| = 26.9 (null control 2.5): a
+//! valid versus a random ciphertext at |t| = 47.5 over 176,000 samples on an
+//! idle machine (null control 2.3; `reports/02-crypto.md` section 5): a
 //! remote attacker who can time decapsulation of chosen ciphertexts has a
 //! side channel. ADR-009's addendum records it; the `hqc` feature that gates
 //! this module is off by default and nothing on a transport path enables it.

@@ -1,28 +1,28 @@
-# dudect run — 2026-09-21T08:48Z, rustc 1.99.0-nightly (da80ed070 2026-07-14), release profile
-# source: crates/crypto-pq/benches/dudect.rs (inputs prepared before measurement) — interpretation in reports/02-crypto.md
+# dudect run — 2026-09-26T12:32Z, rustc 1.99.0-nightly (da80ed070 2026-07-14), release profile
+# source: crates/crypto-pq/benches/dudect.rs (inputs prepared before measurement; both classes allocated alike) — interpretation in reports/02-crypto.md
+
 
 running 10 benches
-bench control_naive_eq       seeded with 0x6de21230a8e179e3
-bench control_naive_eq       ... : n == +0.016M, max t = +473.75986, max tau = +3.71248, (5/tau)^2 = 1
-bench ct_eq_shared_secret    seeded with 0x2b3bdb01be60a367
-bench ct_eq_shared_secret    ... : n == +0.100M, max t = +1.71813, max tau = +0.00543, (5/tau)^2 = 846891
-bench ed25519_sign           seeded with 0xe220e3634d74b98d
-bench ed25519_sign           ... : n == +0.029M, max t = -2.15624, max tau = -0.01260, (5/tau)^2 = 157387
-bench hqc_128_decaps         seeded with 0x6317a899bf0dcefc
-bench hqc_128_decaps         ... : n == +0.003M, max t = +26.92825, max tau = +0.47730, (5/tau)^2 = 109
-bench hqc_128_decaps_null    seeded with 0x2d3dc970cebcfe7b
-bench hqc_128_decaps_null    ... : n == +0.025M, max t = +2.53017, max tau = +0.01613, (5/tau)^2 = 96102
-bench ml_dsa_65_sign         seeded with 0x9d7b236cebad1fe1
-bench ml_dsa_65_sign         ... : n == +0.003M, max t = -9.68071, max tau = -0.18830, (5/tau)^2 = 705
-bench ml_dsa_65_verify       seeded with 0x73f8598be2586a50
-bench ml_dsa_65_verify       ... : n == +0.032M, max t = +2.11044, max tau = +0.01182, (5/tau)^2 = 178886
-bench ml_kem_768_decaps      seeded with 0x150c666e033a5a2f
-bench ml_kem_768_decaps      ... : n == +0.059M, max t = -2.23136, max tau = -0.00918, (5/tau)^2 = 296757
-bench ml_kem_768_decaps_null seeded with 0x5c5fb4f38d4d7957
-bench ml_kem_768_decaps_null ... : n == +0.094M, max t = -2.04163, max tau = -0.00664, (5/tau)^2 = 566582
-bench x_wing_decaps          seeded with 0x18f70527e99dfbed
-bench x_wing_decaps          ... : n == +0.091M, max t = -1.40424, max tau = -0.00467, (5/tau)^2 = 1147589
+bench control_naive_eq       seeded with 0xf3e731a749086eba
+bench control_naive_eq       ... : n == +0.018M, max t = +525.88430, max tau = +3.90736, (5/tau)^2 = 1
+bench ct_eq_shared_secret    seeded with 0xb352b42c7222b447
+bench ct_eq_shared_secret    ... : n == +0.087M, max t = +1.48502, max tau = +0.00505, (5/tau)^2 = 980631
+bench ed25519_sign           seeded with 0x15fa3d5be8c75735
+bench ed25519_sign           ... : n == +0.039M, max t = -1.51579, max tau = -0.00768, (5/tau)^2 = 424158
+bench hqc_128_decaps         seeded with 0xbe8a9514ca5b6bc8
+bench hqc_128_decaps         ... : n == +0.002M, max t = +10.33081, max tau = +0.25356, (5/tau)^2 = 388
+bench hqc_128_decaps_null    seeded with 0xbefc04c81404afe7
+bench hqc_128_decaps_null    ... : n == +0.025M, max t = -2.26168, max tau = -0.01433, (5/tau)^2 = 121793
+bench ml_dsa_65_sign         seeded with 0xe33df501fcb7b53c
+bench ml_dsa_65_sign         ... : n == +0.003M, max t = -23.75167, max tau = -0.45897, (5/tau)^2 = 118
+bench ml_dsa_65_verify       seeded with 0x00410ec23f0b1491
+bench ml_dsa_65_verify       ... : n == +0.039M, max t = +2.41923, max tau = +0.01230, (5/tau)^2 = 165138
+bench ml_kem_768_decaps      seeded with 0xad934062c6f1e422
+bench ml_kem_768_decaps      ... : n == +0.018M, max t = +2.41537, max tau = +0.01820, (5/tau)^2 = 75449
+bench ml_kem_768_decaps_null seeded with 0x2d4a5c152ddaf407
+bench ml_kem_768_decaps_null ... : n == +0.013M, max t = +1.98364, max tau = +0.01746, (5/tau)^2 = 81979
+bench x_wing_decaps          seeded with 0x40a806d6b9f2753e
+bench x_wing_decaps          ... : n == +0.096M, max t = +1.82266, max tau = +0.00589, (5/tau)^2 = 721466
 
 dudect benches complete
 
-exit: 0

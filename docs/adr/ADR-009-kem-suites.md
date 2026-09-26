@@ -87,3 +87,23 @@ Consequences, until an HQC implementation measures clean:
 - Re-run `cargo bench -p maya-crypto-pq --bench dudect -- --filter hqc` on
   every `hqc-kem` bump; the pin exists partly so that this result stays true
   of the code that ships.
+
+## Addendum 2026-09-27 -- the figure was partly the harness; the leak is not
+
+The 26.9 above came from a harness whose two classes allocated their
+ciphertext buffers through different paths (one from `encapsulate`, one from a
+fresh `Vec`), which the timer can see. `benches/dudect.rs` now allocates both
+alike. On an idle machine (`scripts/dudect.sh`):
+
+| Run | n | max abs t | tau |
+|---|---|---|---|
+| Fixed size | 2k | 10.3 | 0.25 |
+| Continuous, 5 minutes | 176k | **47.5** | 0.11 |
+| Null control (valid vs valid) | 25k | 2.3 | 0.01 |
+
+A t that keeps growing with n at a steady tau is a leak, not noise, so the
+consequences above stand unchanged. Inspection of `hqc-kem 0.1.0-rc.0`'s
+decapsulation did not find the variable-time step (the comparison, the
+decoders and the field arithmetic are all masked or fixed-bound); locating it
+needs probes inside a vendored copy. Revisit when a new `hqc-kem` release, or
+another HQC implementation, is available to measure with the same harness.

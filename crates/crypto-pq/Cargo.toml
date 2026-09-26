@@ -95,8 +95,8 @@ thiserror.workspace = true
 [features]
 # HQC (both the HQC-192 handshake module and the HQC-128/256 suites and the
 # dual KEMs built on them). Off by default because `hqc-kem =0.1.0-rc.0`
-# decapsulation measured NOT constant-time (dudect |t| = 26.9, ADR-009
-# addendum): a crate that does not ask for it cannot put HQC on a path an
+# decapsulation measured NOT constant-time (dudect |t| = 47.5 at n = 176k on
+# a clean run, ADR-009 addenda): a crate that does not ask for it cannot put HQC on a path an
 # attacker can time. Nothing in the node or the transport enables it.
 hqc = ["dep:hqc-kem", "dep:rand", "dep:rand_core"]
 

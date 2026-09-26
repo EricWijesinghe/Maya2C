@@ -12,28 +12,30 @@ stated. Kani, Speculos and the Ledger build run in WSL Ubuntu 24.04.
 
 | Brief item | State | Evidence |
 |---|---|---|
-| Signature suites `0x01/0x10/0x11/0x20/0x21/0x30`, governance default, agility | Built, **dark** behind `SUITE_ENVELOPE_ACTIVATION_HEIGHT` | §3, ADR-007 |
+| Signature suites `0x01/0x10/0x11/0x20/0x21/0x30`, governance default, agility | **Live from genesis** (2026-09-27); `0x01` refused under mainnet rules | §3, ADR-007, ADR-013 |
 | KEMs: ML-KEM-768/1024, HQC-128/256 (draft), DualKem, X-Wing | Built; HQC off by default | §4, ADR-009 |
 | ArgonBlake | Already the consensus PoW before this work | §8 |
-| Secret memory safety: zeroize, secrecy, subtle, dudect | Built; **one real leak found** | §5 |
+| Secret memory safety: zeroize, secrecy, subtle, dudect | Built; **one real leak found** (HQC), one harness artefact fixed | §5 |
 | Entropy: SP 800-90A DRBG, 90B health tests, SIM sources, SP 800-22, Dieharder | Built, RESEARCH | §6, ADR-010 |
 | Transparent ZK: no Groth16/BN254/trusted setup | Done; the pairing pool is deleted | §7, ADR-008 |
-| Threshold custody: m-of-n REAL, threshold lattice RESEARCH | m-of-n built and dark; threshold lattice is an interface that refuses | §9, ADR-011 |
+| Threshold custody: m-of-n REAL, threshold lattice RESEARCH | m-of-n **REAL**, spends through the apply path; threshold lattice is an interface that refuses | §9, ADR-011, ADR-013 |
 | HTLC: hash-locks REAL, Module-LWE RESEARCH | Hash locks **live from genesis** | §10, ADR-012 |
 | Archival: forward-secure keys, SLH-DSA seals, 100 epochs | Built, RESEARCH | §11 |
 | Ledger app: APDUs, RAM measurement, Speculos | Signs suite `0x10`; 8/8 on two devices | §12, `docs/ledger-feasibility.md` |
 | `benches/crypto.rs`, CSV/Markdown export | Done | §2 |
 
-Three things in the brief turned out to be false or impossible as stated, and
-are reported rather than worked around:
+Two things in the brief turned out to be false or impossible as stated, and
+are reported rather than worked around. (A third — "m-of-n multisig REAL
+now", which could not be REAL while the v7 envelope was dark — was resolved on
+2026-09-27 by ADR-013, which met ADR-007's three activation preconditions and
+moved the height to genesis. `crates/node/tests/suite_envelope_live_tests.rs`
+moves value with a v7 transfer and a 3-of-5 spend through `apply_block` at the
+node's own context.)
 
-1. **"m-of-n multisig REAL now."** By this repository's definition REAL means
-   reachable by consensus. Multisig rides the v7 envelope, which is dark, so it
-   is RESEARCH until that gate moves. The code and its tests are real.
-2. **"If the Ledger cannot fit ML-DSA, target Stax/Flex."** Stax and Flex have
+1. **"If the Ledger cannot fit ML-DSA, target Stax/Flex."** Stax and Flex have
    *less* app RAM (36 KiB) than a Nano S Plus (40 KiB). The fallback does not
    exist; a low-memory signer was written instead.
-3. **"Threshold lattice signing behind a feature."** The brief also requires a
+2. **"Threshold lattice signing behind a feature."** The brief also requires a
    peer-reviewed scheme chosen in an ADR first. None is chosen, so the feature
    compiles an interface that refuses (ADR-011 lists the candidates).
 
@@ -136,8 +138,8 @@ ephemeral dual handshake. §5 says why that matters.
 
 ## 5. Secret memory safety, and the leak dudect found
 
-`cargo bench -p maya-crypto-pq --bench dudect` — full output in
-`reports/dudect.txt`.
+`bash scripts/dudect.sh` — full output in `reports/dudect.txt`. (Not
+`cargo bench`, which appends a `--bench` argument dudect-bencher rejects.)
 
 Compile-time checks assert that no secret type implements `Display`, `Copy` or
 `Clone` where it must not, and that every one is `ZeroizeOnDrop`. The master
@@ -148,29 +150,49 @@ establish that it works: a deliberately naive byte-by-byte compare shows
 *t* = 473.8 (leaking, as intended), and a null test of the same function
 against itself shows *t* = 2.5 (no signal).
 
-| Operation | max &#124;t&#124; | Reading |
-|---|---|---|
-| `ct_eq` on a shared secret | 1.7 | constant-time |
-| ML-KEM-768 decapsulation | 2.2 | constant-time |
-| ML-KEM-768 decapsulation (null control) | 2.0 | — |
-| X-Wing decapsulation | 1.4 | constant-time |
-| ML-DSA-65 verify | 2.1 | constant-time |
-| Ed25519 sign | 2.2 | constant-time |
-| **HQC-128 decapsulation** | **26.9** | **not constant-time** |
-| HQC-128 decapsulation (null control) | 2.5 | — |
-| ML-DSA-65 sign | 9.7 | see below |
-| naive compare (positive control) | 473.8 | leaking, as designed |
+Re-measured 2026-09-27 on an idle machine with the corrected harness (below);
+`reports/dudect.txt` is that run, exactly as printed.
 
-Two results need stating plainly:
+| Operation | max &#124;t&#124; | n | Reading |
+|---|---|---|---|
+| `ct_eq` on a shared secret | 1.5 | 87k | constant-time |
+| ML-KEM-768 decapsulation | 2.4 | 18k | constant-time |
+| ML-KEM-768 decapsulation (null control) | 2.0 | 13k | — |
+| X-Wing decapsulation | 1.8 | 96k | constant-time |
+| ML-DSA-65 verify | 2.4 | 39k | constant-time |
+| Ed25519 sign | 1.5 | 39k | constant-time |
+| **HQC-128 decapsulation** | **10.3** | 2k | **leaks** — confirmed below |
+| HQC-128 decapsulation, continuous | **47.5** | 176k | **leaks**, effect size tau = 0.11 |
+| HQC-128 decapsulation (null control) | 2.3 | 25k | — |
+| ML-DSA-65 sign | 23.8 | 3k | see below |
+| naive compare (positive control) | 525.9 | 18k | leaking, as designed |
 
-- **HQC-128 decapsulation leaks timing.** 26.9 against a null control of 2.5 on
-  the same function is not noise. This is recorded in ADR-009's addendum, and it
-  is why HQC is off by default and never the sole KEM: in the dual handshake an
-  attacker who recovers the HQC half still faces ML-KEM.
-- **ML-DSA-65 signing shows 9.7**, which is expected rather than alarming: FIPS
-  204 signing is a rejection loop whose *number of iterations* depends on the
-  key and message, so its wall time varies by construction. What must not vary
-  is verification, and that measures 2.1.
+What changed, and what did not:
+
+- **The first HQC figure was partly the harness.** The original run reported
+  |t| = 26.9 at n = 3k. Its two classes took their ciphertext buffers from
+  different allocation paths -- one straight out of `encapsulate`, the other
+  from a fresh `Vec` -- which puts them in different places in memory, a
+  difference the timer can see and the algorithm does not have. With both
+  classes allocated by the same statement the fixed-size run reads 10.3.
+- **The leak underneath is real.** A five-minute continuous run of that bench
+  alone reaches |t| = 47.5 at n = 176k with a stable effect size (tau = 0.11).
+  A leak's t grows with the square root of n; noise's does not. Two earlier
+  continuous runs reported tau near 0.7, but they had overlapped each other on
+  this machine, so they are not used here -- contention inflated them.
+- **Where it is, is not known.** Reading `hqc-kem 0.1.0-rc.0`'s decapsulation
+  found no variable-time step: the ciphertext comparison folds every byte with
+  no early exit, Berlekamp-Massey and Forney run fixed bounds with masks,
+  `gf_mul` and `gf_inverse` are table-free, the encryption path samples with
+  the fixed-cost modular method, and the rejection sampler is keygen-only.
+  Finding it needs timing probes inside a vendored copy, which this report did
+  not do. The mitigation is unchanged and is why the number matters less than
+  it looks: HQC is off by default, draft-labelled, and never the only KEM -- in
+  the dual combiner an attacker who recovers the HQC half still faces ML-KEM.
+- **ML-DSA-65 signing** is expected to differ: FIPS 204 signing is a rejection
+  loop whose *number of iterations* depends on the key and the message, and the
+  classes are one fixed key against a pool of 32. What must not vary is
+  verification, and that measures 2.4.
 
 ## 6. Entropy
 
@@ -255,7 +277,9 @@ same construction on a busier machine, and the 3.09 ms standard deviation over
   and the account *is* the policy's address, so a spend must present the policy
   the address commits to. Strictly increasing approvals make a repeated signer
   unrepresentable; every presented signature must verify. 3-of-5 tested with two
-  members offline, at the policy level and on the node (wire v8).
+  members offline, at the policy level and on the node (wire v8), and since
+  ADR-013 through `StateDB::apply_block` at the production context: the quorum
+  moves 400 units, two approvals move nothing.
 - A review found **txid malleability** here: hashing the approvals gave one
   spend as many transaction ids as it has quorums. The v8 txid now covers the
   signing bytes only, pinned by a test with two quorums and a superset.
@@ -329,16 +353,16 @@ The full account is in `docs/ledger-feasibility.md`. In short:
   that the device's own SLIP-0010 derivation matches an independent host
   derivation of the same phrase, and that an approved transfer is signed to the
   library's exact bytes while a rejected one returns `0x6985`.
-- The signature is suite `0x10`, not the hybrid: a device signature is valid
-  bytes the chain accepts once the v7 envelope activates.
+- The signature is suite `0x10`, not the hybrid, and since ADR-013 a v7
+  transaction the chain accepts from genesis.
 
 ## 13. What is still open
 
 - **The shielded circuit has had no independent audit.** Six guards refuse a
   value-bearing chain id while `CIRCUIT_IS_AUDITED` is false.
 - **HQC decapsulation leaks timing** (§5).
-- **The v7 envelope, multisig and lattice HTLCs are dark.** Activating them is a
-  decision with an ADR, not a flag.
+- **Lattice HTLCs are dark** (ADR-012). The v7 envelope and multisig were
+  activated at genesis by ADR-013.
 - **`shielded.max_per_block` is governance-declared but unread** by the node,
   which enforces its own constant. Pre-existing; documented in
   `docs/governance.md`.
