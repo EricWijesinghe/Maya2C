@@ -84,6 +84,10 @@ rustc-ice-*.txt
 /contracts/token-swap/target/
 /apps/dashboard/target/
 /hal/ebpf-net/programs/target/
+# Within target-contracts/ only the built modules are kept (tests load them
+# without a wasm toolchain); cargo's scratch directories are not.
+/target-contracts/wasm32-unknown-unknown/release/.fingerprint/
+/target-contracts/wasm32-unknown-unknown/release/deps/
 
 # The example firmware is its own workspace.
 /hal/iot-firmware/target/
