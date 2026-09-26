@@ -26,10 +26,25 @@ all-features = true
 
 [advisories]
 version = 2
-# No `ignore` list. An advisory that has to be accepted should be accepted in a
-# commit that says why, not carried silently in a config file — and the empty
-# list is what makes adding an entry a reviewable event.
-ignore = []
+# An advisory that has to be accepted is accepted in a commit that says why,
+# never carried silently — which is what makes an entry here a reviewable event.
+ignore = [
+    # `ringbuf` 0.3.3, reached only through `futures_ringbuf` 0.4.0. Two reasons
+    # this one cannot bite, and both have to hold for the entry to stay:
+    #
+    # 1. It is a dev-dependency of `crates/node` and `bins/pool-service` and of
+    #    nothing else — `cargo tree -i futures_ringbuf -e normal` prints
+    #    "nothing to print". No node, miner, wallet or service binary links it.
+    # 2. The bug needs an element's `Drop` to panic between the in-place drop and
+    #    `advance_read_index()`. `futures_ringbuf::Endpoint` is a
+    #    `RingBuffer<u8>` (endpoint.rs:27-40); dropping a `u8` is a no-op that
+    #    has no code to panic from, so the window does not exist for this type.
+    #
+    # There is no upstream fix to take: 0.4.0 is the newest `futures_ringbuf`
+    # and it pins `ringbuf` 0.3. Revisit when it moves to 0.5.2 or later, or
+    # replace the in-memory duplex in the transport tests with `tokio::io::duplex`.
+    { id = "RUSTSEC-2026-0293", reason = "dev-dependency only, and a RingBuffer<u8> has no droppable element to panic" },
+]
 # `unmaintained` is a real signal but not a vulnerability, and it fires on
 # transitive crates nobody here can act on. Surfaced, not fatal.
 unmaintained = "workspace"
