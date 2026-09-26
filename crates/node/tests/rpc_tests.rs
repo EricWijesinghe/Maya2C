@@ -402,12 +402,15 @@ async fn submit_block_rejects_insufficient_proof_of_work() {
         .await
         .expect("get_mining_candidate");
 
-    // Submit the candidate unsolved: nonce 0 will almost certainly miss.
+    // Submit a header that provably misses the target. At the test's 6-bit
+    // difficulty an arbitrary nonce *hits* 1 time in 64, so nonce 0 alone
+    // made this test fail about that often; step until the check says no.
     let header_bytes = hex::decode(&candidate.header_bytes).expect("hex");
-    let block = Block::new(
-        BlockHeader::from_bytes(&header_bytes).expect("decode header"),
-        Vec::new(),
-    );
+    let mut header = BlockHeader::from_bytes(&header_bytes).expect("decode header");
+    while header.meets_difficulty().expect("pow hash") {
+        header.nonce += 1;
+    }
+    let block = Block::new(header, Vec::new());
 
     let result: Result<SubmitBlockResult, _> = node
         .client
