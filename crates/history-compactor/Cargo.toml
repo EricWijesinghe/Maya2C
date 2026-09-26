@@ -1,0 +1,21 @@
+[package]
+name = "maya-history-compactor"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "History compaction: a Merkle Mountain Range over every block, so one old transaction is checked against a constant-size commitment plus an archive fetch"
+
+# BLAKE3 only. The compactor sits between the pruner and the archive and
+# decides whether a byte string fetched from a stranger's archive is the block
+# the chain committed to, so it is kept small enough to fuzz and to read.
+[dependencies]
+blake3.workspace = true
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "compactor_bench"
+harness = false

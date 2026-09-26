@@ -1,0 +1,26 @@
+[package]
+name = "maya-dag-bft"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Consensus modes (argonblake-pow, pouw-lattice, dag-bft) and a sans-IO Narwhal/Bullshark DAG-BFT engine driven by the deterministic simulator"
+
+# BLAKE3 for vertex digests and the sim state root, nothing else. The engine is
+# sans-IO -- it returns messages rather than sending them -- so the same code
+# runs under `maya-sim` in tests and under a transport in a node, and a
+# dependency with its own scheduling or RNG would break seed replay
+# (ADR-006).
+[dependencies]
+blake3.workspace = true
+
+[dev-dependencies]
+maya-sim = { path = "../../sim" }
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "ordering_bench"
+harness = false

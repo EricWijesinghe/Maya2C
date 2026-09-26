@@ -2809,3 +2809,36 @@ class = "RESEARCH"
 status = "working"
 tests = ["crates/archive/tests/seal_tests.rs"]
 note = "SLH-DSA-SHAKE-256f seals; one-way SHAKE256 seed chain, each epoch's key certifying the next before it is erased. 100 epochs tested, plus a compromise at epoch 50 that cannot backdate. RESEARCH until the node's archive task seals what it writes: nothing calls it yet."
+
+[[subsystem]]
+id = "history-compactor"
+name = "History compaction (MMR accumulator)"
+domain = "Consensus and execution"
+paths = "`crates/history-compactor`"
+tier = "core"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-history-compactor", "crates/history-compactor/tests/compaction_tests.rs"]
+note = "Master Prompt 3 §6, accumulator half only. 1M blocks fold in 0.31 s; pruned node holds 7 peaks (224 B); max proof 818 B (reports/03-state.md). Not a validity proof: recursive STARK folding is not started."
+
+[[subsystem]]
+id = "dag-bft"
+name = "DAG-BFT ordering (Narwhal + Bullshark) and consensus modes"
+domain = "Consensus and execution"
+paths = "`crates/dag-bft`"
+tier = "core"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-dag-bft", "crates/dag-bft/tests/modes_sim.rs"]
+note = "ADR-015. All three modes run under maya-sim. Ordering figures only (no signatures, execution or disk) — not TPS. Not wired into custom-l1-node."
+
+[[subsystem]]
+id = "vm-execution-tiers"
+name = "WASM execution tiers (Cranelift, Pulley) with identical gas"
+domain = "Consensus and execution"
+paths = "`crates/vm/src/tier.rs`"
+tier = "core"
+class = "RESEARCH"
+status = "working"
+tests = ["crates/vm/tests/tier_differential_tests.rs"]
+note = "Master Prompt 5 §2. Differential corpus + token_swap: gas, output, events, storage and error class identical in Cranelift cold/cached and Pulley. Pulley 19x slower on this host (reports/05-vm.md)."

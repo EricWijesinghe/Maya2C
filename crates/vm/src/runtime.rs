@@ -208,6 +208,21 @@ impl Vm {
         })
     }
 
+    /// Builds a VM compiling to `tier`. Gas is identical in every tier —
+    /// see [`crate::tier`] — so this is a node-local performance choice.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VmError::EngineConfig`] if the engine cannot be built.
+    pub fn with_tier(tier: crate::tier::Tier) -> Result<Self> {
+        let (engine, digest) = crate::tier::tier_engine(tier)?;
+        Ok(Self {
+            engine,
+            cache: ModuleCache::new(digest),
+            default_gas: 10_000_000,
+        })
+    }
+
     /// The underlying engine.
     #[must_use]
     pub fn engine(&self) -> &Engine {

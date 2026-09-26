@@ -4808,6 +4808,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-dag-bft"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "maya-sim",
+]
+
+[[package]]
 name = "maya-dex"
 version = "0.1.0"
 
@@ -4899,6 +4907,13 @@ version = "0.1.0"
 [[package]]
 name = "maya-governance"
 version = "0.1.0"
+
+[[package]]
+name = "maya-history-compactor"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+]
 
 [[package]]
 name = "maya-htlc-lattice"
