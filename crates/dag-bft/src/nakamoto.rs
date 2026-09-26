@@ -151,7 +151,14 @@ mod tests {
     use super::*;
 
     fn block(parent: Digest, height: u64, miner: u16, work: u128) -> WorkBlock {
-        WorkBlock { parent, height, miner, work, batch: vec![], mode: ConsensusMode::ArgonBlakePow }
+        WorkBlock {
+            parent,
+            height,
+            miner,
+            work,
+            batch: vec![],
+            mode: ConsensusMode::ArgonBlakePow,
+        }
     }
 
     #[test]
@@ -164,7 +171,11 @@ mod tests {
         assert_eq!(fc.tip(), a2.digest());
         let b1 = block(GENESIS, 1, 1, 25);
         assert!(fc.add(b1.clone()));
-        assert_eq!(fc.tip(), b1.digest(), "25 work beats 20 work at lower height");
+        assert_eq!(
+            fc.tip(),
+            b1.digest(),
+            "25 work beats 20 work at lower height"
+        );
     }
 
     #[test]

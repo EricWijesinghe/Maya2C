@@ -58,9 +58,21 @@ mod tests {
     fn gps_clocks_gain_about_38_microseconds_a_day() {
         // The textbook figures: SR −7.2 µs/day, GR +45.7 µs/day, net +38.5.
         let o = circular_orbit(GPS_ORBIT_M);
-        assert!((o.special_us_per_day + 7.2).abs() < 0.2, "{}", o.special_us_per_day);
-        assert!((o.general_us_per_day - 45.7).abs() < 0.3, "{}", o.general_us_per_day);
-        assert!((o.net_us_per_day() - 38.5).abs() < 0.5, "{}", o.net_us_per_day());
+        assert!(
+            (o.special_us_per_day + 7.2).abs() < 0.2,
+            "{}",
+            o.special_us_per_day
+        );
+        assert!(
+            (o.general_us_per_day - 45.7).abs() < 0.3,
+            "{}",
+            o.general_us_per_day
+        );
+        assert!(
+            (o.net_us_per_day() - 38.5).abs() < 0.5,
+            "{}",
+            o.net_us_per_day()
+        );
     }
 
     #[test]

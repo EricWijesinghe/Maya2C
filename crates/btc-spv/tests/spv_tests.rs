@@ -1,6 +1,11 @@
 //! Real mainnet headers, the retarget rule, and a six-block reorg.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::cast_possible_truncation, clippy::needless_range_loop)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::cast_possible_truncation,
+    clippy::needless_range_loop
+)]
 
 use maya_btc_spv::{
     Header, HeaderChain, HeaderError, Params, merkle_root, prove, sha256d, target_from_compact,
@@ -62,7 +67,10 @@ fn real_mainnet_headers_hash_meet_their_targets_and_chain() {
     assert_eq!(chain.height(), 2);
     assert_eq!(chain.confirmations(&headers[0].1), 3);
     // Genesis has one transaction, so its merkle root is that txid.
-    assert_eq!(merkle_root(&[headers[0].0.merkle_root]), headers[0].0.merkle_root);
+    assert_eq!(
+        merkle_root(&[headers[0].0.merkle_root]),
+        headers[0].0.merkle_root
+    );
 }
 
 #[test]
@@ -74,7 +82,10 @@ fn a_tampered_mainnet_header_is_refused() {
     assert_eq!(chain.add(forged), Err(HeaderError::InsufficientWork));
     let mut easier = headers[1].0;
     easier.bits = 0x207f_ffff;
-    assert!(matches!(chain.add(easier), Err(HeaderError::WrongDifficulty { .. })));
+    assert!(matches!(
+        chain.add(easier),
+        Err(HeaderError::WrongDifficulty { .. })
+    ));
     let mut orphan = headers[2].0;
     orphan.prev = [9; 32];
     assert_eq!(chain.add(orphan), Err(HeaderError::UnknownParent));
@@ -93,7 +104,10 @@ fn the_retarget_rule_clamps_to_four_times_and_the_pow_limit() {
     // Compact encoding keeps three bytes of mantissa, so compare encodings.
     assert_eq!(fast, maya_btc_spv::compact_from_target(t0.div_u64(4)));
     // Slow at the easiest difficulty: capped at the limit.
-    assert_eq!(p.retarget(0, two_weeks * 10, 0x1d00_ffff), Some(0x1d00_ffff));
+    assert_eq!(
+        p.retarget(0, two_weeks * 10, 0x1d00_ffff),
+        Some(0x1d00_ffff)
+    );
     // A real-chain retarget vector is not included: it needs the timestamps
     // of blocks 30240 and 32255, which this test would have to take on
     // trust. The rule is checked against its definition above instead.
@@ -115,7 +129,13 @@ fn mine(prev: [u8; 32], time: u32, tag: u8) -> Header {
     h
 }
 
-fn extend(chain: &mut HeaderChain, from: [u8; 32], start_time: u32, n: u32, tag: u8) -> Vec<[u8; 32]> {
+fn extend(
+    chain: &mut HeaderChain,
+    from: [u8; 32],
+    start_time: u32,
+    n: u32,
+    tag: u8,
+) -> Vec<[u8; 32]> {
     let mut prev = from;
     let mut hashes = Vec::new();
     for i in 0..n {
@@ -139,12 +159,22 @@ fn a_six_block_reorg_displaces_a_shallow_deposit_and_not_a_deep_one() {
     let fork_point = honest[3];
     let attack = extend(&mut chain, fork_point, 1_600_000_000 + 2_400, 7, 100);
     assert_eq!(chain.tip(), *attack.last().unwrap(), "more work wins");
-    assert_eq!(chain.confirmations(&deposit_block), 0, "the 6-deep deposit is gone");
+    assert_eq!(
+        chain.confirmations(&deposit_block),
+        0,
+        "the 6-deep deposit is gone"
+    );
     // A bridge that waited for 8 confirmations would not yet have credited it,
     // so it loses nothing: depth is the policy, and it is stated.
 
     // The honest chain comes back with more work and the deposit returns.
-    let more = extend(&mut chain, *honest.last().unwrap(), 1_600_000_000 + 6_000, 3, 200);
+    let more = extend(
+        &mut chain,
+        *honest.last().unwrap(),
+        1_600_000_000 + 6_000,
+        3,
+        200,
+    );
     assert_eq!(chain.tip(), *more.last().unwrap());
     assert_eq!(chain.confirmations(&deposit_block), 9);
 }

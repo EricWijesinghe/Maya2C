@@ -33,7 +33,9 @@ fn bag(leaves: u64, peaks: &[Hash]) -> Hash {
 
 /// Heights of the perfect trees for `leaves` leaves, tallest first.
 fn peak_heights(leaves: u64) -> impl Iterator<Item = u32> {
-    (0..u64::BITS).rev().filter(move |bit| leaves >> bit & 1 == 1)
+    (0..u64::BITS)
+        .rev()
+        .filter(move |bit| leaves >> bit & 1 == 1)
 }
 
 /// A node position as a vector index. Positions come from the archive's own
@@ -274,7 +276,12 @@ mod tests {
         for h in 0..300 {
             compactor.append(&leaf(h));
             archive.append(&leaf(h));
-            assert_eq!(compactor.commitment(), archive.commitment(), "length {}", h + 1);
+            assert_eq!(
+                compactor.commitment(),
+                archive.commitment(),
+                "length {}",
+                h + 1
+            );
             assert_eq!(compactor.peak_count(), (h + 1).count_ones() as usize);
         }
     }

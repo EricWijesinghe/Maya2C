@@ -29,7 +29,6 @@ pub struct Trace {
     pub undeclared: bool,
 }
 
-
 /// Synthetic per-transaction work: `iterations` rounds of an integer mix,
 /// standing in for signature and VM cost. The result is folded into nothing
 /// observable except through `black_box`, so it cannot change semantics.
@@ -55,7 +54,11 @@ pub fn run(tx: &Tx, work: u32, mut read: impl FnMut(Key) -> u64) -> Trace {
         t.reads.push((k, v));
         v
     };
-    let hot = tx.writes.iter().copied().find(|k| (HOT_BASE..maya_loadgen::CONTRACT_BASE).contains(k));
+    let hot = tx
+        .writes
+        .iter()
+        .copied()
+        .find(|k| (HOT_BASE..maya_loadgen::CONTRACT_BASE).contains(k));
     let success = match tx.kind {
         Kind::Transfer | Kind::TokenTransfer => {
             // Operands come from the write set; the read set is only the
@@ -93,6 +96,9 @@ pub fn run(tx: &Tx, work: u32, mut read: impl FnMut(Key) -> u64) -> Trace {
     }
     let writes = t.writes.len() as u64;
     let reads = t.reads.len() as u64;
-    t.receipt = Receipt { success, gas: BASE_GAS + READ_GAS * reads + WRITE_GAS * writes };
+    t.receipt = Receipt {
+        success,
+        gas: BASE_GAS + READ_GAS * reads + WRITE_GAS * writes,
+    };
     t
 }

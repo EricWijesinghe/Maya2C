@@ -97,3 +97,7 @@ rustc-ice-*.txt
 .env.production*
 infra/terraform/terraform.tfvars
 infra/ansible/inventory/production.ini
+
+# cargo-mutants output (reports/08-security.md quotes the summary)
+mutants.out/
+mutants.out.old/

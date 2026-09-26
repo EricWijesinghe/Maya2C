@@ -172,11 +172,37 @@ mod tests {
             p.sort_unstable();
             p
         };
-        let v = Vertex { round: 1, author: 0, parents, batch: vec![] };
-        let ok = Certificate { vertex: v.clone(), votes: vec![0, 1, 2] };
+        let v = Vertex {
+            round: 1,
+            author: 0,
+            parents,
+            batch: vec![],
+        };
+        let ok = Certificate {
+            vertex: v.clone(),
+            votes: vec![0, 1, 2],
+        };
         assert!(ok.is_well_formed(c));
-        assert!(!Certificate { vertex: v.clone(), votes: vec![0, 1] }.is_well_formed(c));
-        assert!(!Certificate { vertex: v.clone(), votes: vec![0, 1, 1] }.is_well_formed(c));
-        assert!(!Certificate { vertex: v, votes: vec![0, 1, 9] }.is_well_formed(c));
+        assert!(
+            !Certificate {
+                vertex: v.clone(),
+                votes: vec![0, 1]
+            }
+            .is_well_formed(c)
+        );
+        assert!(
+            !Certificate {
+                vertex: v.clone(),
+                votes: vec![0, 1, 1]
+            }
+            .is_well_formed(c)
+        );
+        assert!(
+            !Certificate {
+                vertex: v,
+                votes: vec![0, 1, 9]
+            }
+            .is_well_formed(c)
+        );
     }
 }

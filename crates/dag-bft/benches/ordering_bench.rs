@@ -17,8 +17,13 @@ use maya_dag_bft::{Committee, Dest, Params, Validator};
 
 fn run(n: u16, batch: usize, txs_per_node: u64) -> (u64, f64, u64) {
     let committee = Committee::new(n);
-    let params = Params { batch_size: batch, anchor_timeout_ms: 0 };
-    let mut nodes: Vec<Validator> = (0..n).map(|i| Validator::new(i, committee, params)).collect();
+    let params = Params {
+        batch_size: batch,
+        anchor_timeout_ms: 0,
+    };
+    let mut nodes: Vec<Validator> = (0..n)
+        .map(|i| Validator::new(i, committee, params))
+        .collect();
     for (i, v) in nodes.iter_mut().enumerate() {
         for k in 0..txs_per_node {
             v.submit(k * u64::from(n) + i as u64);
@@ -42,7 +47,11 @@ fn run(n: u16, batch: usize, txs_per_node: u64) -> (u64, f64, u64) {
             messages += 1;
             let out = nodes[to as usize].handle(0, from, m.clone());
             if to == 0 {
-                committed_at_0 += out.committed.iter().map(|c| c.vertex.batch.len() as u64).sum::<u64>();
+                committed_at_0 += out
+                    .committed
+                    .iter()
+                    .map(|c| c.vertex.batch.len() as u64)
+                    .sum::<u64>();
             }
             for (d, m2) in out.sends {
                 queue.push_back((to, d, m2));
@@ -60,9 +69,20 @@ fn run(n: u16, batch: usize, txs_per_node: u64) -> (u64, f64, u64) {
 fn main() {
     println!("dag-bft ordering bench: all validators in one thread, free delivery");
     println!("(ORDERING throughput only: no signatures, no execution, no disk. Not TPS.)");
-    println!("{:>4} {:>6} {:>12} {:>9} {:>14} {:>12}", "n", "batch", "tx ordered", "wall s", "tx-refs/s", "msgs");
-    for (n, batch, per) in [(4u16, 500usize, 20_000u64), (10, 500, 10_000), (20, 500, 5_000), (50, 500, 2_000)] {
+    println!(
+        "{:>4} {:>6} {:>12} {:>9} {:>14} {:>12}",
+        "n", "batch", "tx ordered", "wall s", "tx-refs/s", "msgs"
+    );
+    for (n, batch, per) in [
+        (4u16, 500usize, 20_000u64),
+        (10, 500, 10_000),
+        (20, 500, 5_000),
+        (50, 500, 2_000),
+    ] {
         let (tx, secs, msgs) = run(n, batch, per);
-        println!("{n:>4} {batch:>6} {tx:>12} {secs:>9.3} {:>14.0} {msgs:>12}", tx as f64 / secs);
+        println!(
+            "{n:>4} {batch:>6} {tx:>12} {secs:>9.3} {:>14.0} {msgs:>12}",
+            tx as f64 / secs
+        );
     }
 }

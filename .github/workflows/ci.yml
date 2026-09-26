@@ -42,6 +42,32 @@ jobs:
       - name: features.toml
         run: cargo xtask coverage
 
+  # The protocol spec's conformance suite (spec/README.md). The node side,
+  # crates/node/tests/conformance.rs, runs in the `test` job with the rest of
+  # the workspace; this job checks the vectors are what the reference
+  # produces now and replays them through the independent TypeScript verifier.
+  spec:
+    name: spec conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-15
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: spec
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Vectors match the reference
+        run: cargo run -p maya-spec-ref --bin spec-vectors -- --check
+      - name: Independent verifier (TypeScript, own BLAKE3)
+        run: node spec/verifier-ts/verify.ts
+      - name: Rule coverage (gaps are listed, not fatal)
+        run: cargo xtask spec-coverage
+
   fmt:
     name: rustfmt
     runs-on: ubuntu-latest

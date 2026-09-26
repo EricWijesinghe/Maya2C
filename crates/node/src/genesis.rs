@@ -27,6 +27,7 @@ use maya_vrf::keys::VrfPublicKey;
 use crate::oracle::registry::{OracleAuthority, OracleRegistry};
 use crate::sealed::CommitteeRecord;
 use crate::state::{Account, Address, StateDB};
+use crate::upgrade::{ProtocolUpgrade, UpgradeSchedule};
 
 /// A premined balance assigned at genesis.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -84,6 +85,12 @@ pub struct GenesisConfig {
     /// allocation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub treasury: Option<TreasuryGenesis>,
+    /// Scheduled protocol upgrades (`crate::upgrade`). Empty by default and
+    /// hashed into nothing, so every existing genesis keeps its id and root;
+    /// a node reaching a scheduled version it does not implement halts with
+    /// "upgrade required before height H" instead of forking.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub protocol_upgrades: Vec<ProtocolUpgrade>,
 }
 
 /// The DAO treasury as it is funded at genesis.
@@ -246,6 +253,15 @@ fn decode_point(what: &str, encoded: &str) -> Result<[u8; 32]> {
 }
 
 impl GenesisConfig {
+    /// The validated upgrade schedule.
+    ///
+    /// # Errors
+    ///
+    /// [`NodeError::Decode`] if the upgrades are out of order.
+    pub fn upgrade_schedule(&self) -> Result<UpgradeSchedule> {
+        UpgradeSchedule::new(self.protocol_upgrades.clone())
+    }
+
     /// Validates the configuration.
     ///
     /// # Errors
@@ -257,6 +273,7 @@ impl GenesisConfig {
         if self.chain_id.is_empty() {
             return Err(NodeError::Decode("chain_id must not be empty".to_string()));
         }
+        self.upgrade_schedule()?;
 
         if self.pow_limit_bits > self.difficulty_bits {
             return Err(NodeError::Decode(format!(

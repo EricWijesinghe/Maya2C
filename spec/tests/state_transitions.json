@@ -1,0 +1,643 @@
+{
+  "cases": [
+    {
+      "block": [
+        {
+          "from": "k0",
+          "nonce": "0",
+          "outputs": [
+            {
+              "amount": "10",
+              "to": "k1"
+            }
+          ],
+          "signature": "valid"
+        }
+      ],
+      "expect": {
+        "post": [
+          {
+            "address": "97decdfee6eaeb1426b68aa425405a9f914d92de021b8eeff51e38cab6435a45",
+            "balance": "990",
+            "nonce": "1"
+          },
+          {
+            "address": "ecba7065c0a79928549e31561dab183a394cd44d1448d498510d4a94c0c31ffe",
+            "balance": "10",
+            "nonce": "0"
+          }
+        ],
+        "post_root": "bfd496c4101d21422121235ea2889b8a458b1e6ec3e84cb08b62c8c75c7d8780",
+        "result": "ok"
+      },
+      "id": "transfer-basic",
+      "pre": [
+        {
+          "account": "k0",
+          "balance": "1000",
+          "nonce": "0"
+        },
+        {
+          "account": "k1",
+          "balance": "0",
+          "nonce": "0"
+        }
+      ],
+      "pre_root": "ecb71febbee01145b0134f164c87395efc114c41d07b84231b483c5f1f90d154",
+      "rules": [
+        "TX-1",
+        "STF-1",
+        "STF-3",
+        "STF-4",
+        "STF-5",
+        "ROOT-1",
+        "ROOT-2",
+        "ROOT-4"
+      ]
+    },
+    {
+      "block": [
+        {
+          "from": "k0",
+          "nonce": "0",
+          "outputs": [
+            {
+              "amount": "5",
+              "to": "k1"
+            }
+          ],
+          "signature": "invalid"
+        }
+      ],
+      "expect": {
+        "error": "BadSignature",
+        "result": "error",
+        "tx_index": 0
+      },
+      "id": "bad-signature",
+      "pre": [
+        {
+          "account": "k0",
+          "balance": "1000",
+          "nonce": "0"
+        }
+      ],
+      "pre_root": "58eb5f529cef3c008f55c27aa289ac64bc220f2af31ac808c1ecd5ce0f79bbe0",
+      "rules": [
+        "TX-1"
+      ]
+    },
+    {
+      "block": [
+        {
+          "from": "k0",
+          "nonce": "2",
+          "outputs": [
+            {
+              "amount": "1",
+              "to": "k1"
+            }
+          ],
+          "signature": "valid"
+        }
+      ],
+      "expect": {
+        "error": "InvalidNonce",
+        "result": "error",
+        "tx_index": 0
+      },
+      "id": "replayed-nonce",
+      "pre": [
+        {
+          "account": "k0",
+          "balance": "1000",
+          "nonce": "3"
+        }
+      ],
+      "pre_root": "a6525a08af3b9d24ba08b8cd4e6b772946f2e3edd454e7837bc19c11a6cb081e",
+      "rules": [
+        "STF-1"
+      ]
+    },
+    {
+      "block": [
+        {
+          "from": "k0",
+          "nonce": "4",
+          "outputs": [
+            {
+              "amount": "1",
+              "to": "k1"
+            }
+          ],
+          "signature": "valid"
+        }
+      ],
+      "expect": {
+        "error": "InvalidNonce",
+        "result": "error",
+        "tx_index": 0
+      },
+      "id": "skipped-nonce",
+      "pre": [
+        {
+          "account": "k0",
+          "balance": "1000",
+          "nonce": "3"
+        }
+      ],
+      "pre_root": "a6525a08af3b9d24ba08b8cd4e6b772946f2e3edd454e7837bc19c11a6cb081e",
+      "rules": [
+        "STF-1"
+      ]
+    },
+    {
+      "block": [
+        {
+          "from": "k0",
+          "nonce": "0",
+          "outputs": [
+            {
+              "amount": "18446744073709551615",
+              "to": "k1"
+            },
+            {
+              "amount": "1",
+              "to": "k2"
+            }
+          ],
+          "signature": "valid"
+        }
+      ],
+      "expect": {
+        "error": "BalanceOverflow",
+        "result": "error",
+        "tx_index": 0
+      },
+      "id": "outputs-overflow",
+      "pre": [
+        {
+          "account": "k0",
+          "balance": "18446744073709551615",
+          "nonce": "0"
+        }
+      ],
+      "pre_root": "cbe702f125d71c6838b0e13baedb8bcd2f42a36bf1228baef6d44c16919f30f3",
+      "rules": [
+        "STF-2"
+      ]
+    },
+    {
+      "block": [
+        {
+          "from": "k0",
+          "nonce": "0",
+          "outputs": [
+            {
+              "amount": "30",
+              "to": "k1"
+            },
+            {
+              "amount": "20",
+              "to": "k2"
+            }
+          ],
+          "signature": "valid"
+        }
+      ],
+      "expect": {
+        "post": [
+          {
+            "address": "14c4c078597ca33904851eeabe6e6a28dddca3bd3a40e32e1558c72696a50b2b",
+            "balance": "20",
+            "nonce": "0"
+          },
+          {
+            "address": "97decdfee6eaeb1426b68aa425405a9f914d92de021b8eeff51e38cab6435a45",
+            "balance": "50",
+            "nonce": "1"
+          },
+          {
+            "address": "ecba7065c0a79928549e31561dab183a394cd44d1448d498510d4a94c0c31ffe",
+            "balance": "30",
+            "nonce": "0"
+          }
+        ],
+        "post_root": "0f2c8647bc859ff0b10b787503794e9fa7af7e3ce8f1434ec3952305d9e1e436",
+        "result": "ok"
+      },
+      "id": "multi-output",
+      "pre": [
+        {
+          "account": "k0",
+          "balance": "100",
+          "nonce": "0"
+        }
+      ],
+      "pre_root": "a713c2e0179b930724299719ecd40471452ebeb75c339fa9bc91de6540737a44",
+      "rules": [
+        "STF-2",
+        "ROOT-3"
+      ]
+    },
+    {
+      "block": [
+        {
+          "from": "k0",
+          "nonce": "0",
+          "outputs": [
+            {
+              "amount": "101",
+              "to": "k1"
+            }
+          ],
+          "signature": "valid"
+        }
+      ],
+      "expect": {
+        "error": "InsufficientBalance",
+        "result": "error",
+        "tx_index": 0
+      },
+      "id": "overdraft",
+      "pre": [
+        {
+          "account": "k0",
+          "balance": "100",
+          "nonce": "0"
+        }
+      ],
+      "pre_root": "a713c2e0179b930724299719ecd40471452ebeb75c339fa9bc91de6540737a44",
+      "rules": [
+        "STF-3"
+      ]
+    },
+    {
+      "block": [
+        {
+          "from": "k0",
+          "nonce": "0",
+          "outputs": [
+            {
+              "amount": "100",
+              "to": "k1"
+            }
+          ],
+          "signature": "valid"
+        }
+      ],
+      "expect": {
+        "post": [
+          {
+            "address": "97decdfee6eaeb1426b68aa425405a9f914d92de021b8eeff51e38cab6435a45",
+            "balance": "0",
+            "nonce": "1"
+          },
+          {
+            "address": "ecba7065c0a79928549e31561dab183a394cd44d1448d498510d4a94c0c31ffe",
+            "balance": "100",
+            "nonce": "0"
+          }
+        ],
+        "post_root": "cdd3c7a13ef2153fbc2bc7e023e65b07c8febfd5ca2d7dd7004fafa617519567",
+        "result": "ok"
+      },
+      "id": "spend-exact-balance",
+      "pre": [
+        {
+          "account": "k0",
+          "balance": "100",
+          "nonce": "0"
+        }
+      ],
+      "pre_root": "a713c2e0179b930724299719ecd40471452ebeb75c339fa9bc91de6540737a44",
+      "rules": [
+        "STF-3"
+      ]
+    },
+    {
+      "block": [
+        {
+          "from": "k0",
+          "nonce": "18446744073709551615",
+          "outputs": [
+            {
+              "amount": "1",
+              "to": "k1"
+            }
+          ],
+          "signature": "valid"
+        }
+      ],
+      "expect": {
+        "error": "BalanceOverflow",
+        "result": "error",
+        "tx_index": 0
+      },
+      "id": "nonce-overflow",
+      "pre": [
+        {
+          "account": "k0",
+          "balance": "100",
+          "nonce": "18446744073709551615"
+        }
+      ],
+      "pre_root": "ff5052babd2f4739c182dd13bca8410e0bd9a5be7cfeef8d4857e332ceb2bb67",
+      "rules": [
+        "STF-4"
+      ]
+    },
+    {
+      "block": [
+        {
+          "from": "k0",
+          "nonce": "0",
+          "outputs": [
+            {
+              "amount": "10",
+              "to": "k1"
+            }
+          ],
+          "signature": "valid"
+        }
+      ],
+      "expect": {
+        "error": "BalanceOverflow",
+        "result": "error",
+        "tx_index": 0
+      },
+      "id": "recipient-overflow",
+      "pre": [
+        {
+          "account": "k0",
+          "balance": "100",
+          "nonce": "0"
+        },
+        {
+          "account": "k1",
+          "balance": "18446744073709551610",
+          "nonce": "0"
+        }
+      ],
+      "pre_root": "8f412094f61264b39eacedf59ceb4d03188e17c019d1cc24fcead501c7f0ae41",
+      "rules": [
+        "STF-5"
+      ]
+    },
+    {
+      "block": [
+        {
+          "from": "k0",
+          "nonce": "0",
+          "outputs": [
+            {
+              "amount": "100",
+              "to": "k0"
+            }
+          ],
+          "signature": "valid"
+        }
+      ],
+      "expect": {
+        "post": [
+          {
+            "address": "97decdfee6eaeb1426b68aa425405a9f914d92de021b8eeff51e38cab6435a45",
+            "balance": "100",
+            "nonce": "1"
+          }
+        ],
+        "post_root": "62e1989a2037888636b83797e36590a0772f7f5db94531099b36df0c0b9c6aaf",
+        "result": "ok"
+      },
+      "id": "self-transfer-nets-zero",
+      "pre": [
+        {
+          "account": "k0",
+          "balance": "100",
+          "nonce": "0"
+        }
+      ],
+      "pre_root": "a713c2e0179b930724299719ecd40471452ebeb75c339fa9bc91de6540737a44",
+      "rules": [
+        "STF-6"
+      ]
+    },
+    {
+      "block": [
+        {
+          "from": "k0",
+          "nonce": "0",
+          "outputs": [
+            {
+              "amount": "7",
+              "to": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+            }
+          ],
+          "signature": "valid"
+        }
+      ],
+      "expect": {
+        "post": [
+          {
+            "address": "97decdfee6eaeb1426b68aa425405a9f914d92de021b8eeff51e38cab6435a45",
+            "balance": "93",
+            "nonce": "1"
+          },
+          {
+            "address": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "balance": "7",
+            "nonce": "0"
+          }
+        ],
+        "post_root": "dd62c161c206c6bf694e8cba1d4c9822ca8789b52beaf7350dd9f5a7211403b9",
+        "result": "ok"
+      },
+      "id": "credit-creates-account",
+      "pre": [
+        {
+          "account": "k0",
+          "balance": "100",
+          "nonce": "0"
+        }
+      ],
+      "pre_root": "a713c2e0179b930724299719ecd40471452ebeb75c339fa9bc91de6540737a44",
+      "rules": [
+        "STF-7"
+      ]
+    },
+    {
+      "block": [
+        {
+          "from": "k3",
+          "nonce": "0",
+          "outputs": [
+            {
+              "amount": "1",
+              "to": "k1"
+            }
+          ],
+          "signature": "valid"
+        }
+      ],
+      "expect": {
+        "error": "InsufficientBalance",
+        "result": "error",
+        "tx_index": 0
+      },
+      "id": "absent-sender-has-nothing",
+      "pre": [],
+      "pre_root": "0000000000000000000000000000000000000000000000000000000000000000",
+      "rules": [
+        "STF-7"
+      ]
+    },
+    {
+      "block": [
+        {
+          "from": "k3",
+          "nonce": "0",
+          "outputs": [],
+          "signature": "valid"
+        }
+      ],
+      "expect": {
+        "post": [
+          {
+            "address": "4064d9505b73d7d9be160906145ff7ac17008f29946af2e2026028a8d3b02a25",
+            "balance": "0",
+            "nonce": "1"
+          }
+        ],
+        "post_root": "9ace468ad9ca475018abbba1d915d0ccbbf8e19b57f937596a34d21ae51ea612",
+        "result": "ok"
+      },
+      "id": "absent-sender-zero-outputs",
+      "pre": [],
+      "pre_root": "0000000000000000000000000000000000000000000000000000000000000000",
+      "rules": [
+        "STF-7",
+        "ROOT-3"
+      ]
+    },
+    {
+      "block": [
+        {
+          "from": "k0",
+          "nonce": "0",
+          "outputs": [
+            {
+              "amount": "60",
+              "to": "k1"
+            }
+          ],
+          "signature": "valid"
+        },
+        {
+          "from": "k1",
+          "nonce": "0",
+          "outputs": [
+            {
+              "amount": "50",
+              "to": "k2"
+            }
+          ],
+          "signature": "valid"
+        }
+      ],
+      "expect": {
+        "post": [
+          {
+            "address": "14c4c078597ca33904851eeabe6e6a28dddca3bd3a40e32e1558c72696a50b2b",
+            "balance": "50",
+            "nonce": "0"
+          },
+          {
+            "address": "97decdfee6eaeb1426b68aa425405a9f914d92de021b8eeff51e38cab6435a45",
+            "balance": "40",
+            "nonce": "1"
+          },
+          {
+            "address": "ecba7065c0a79928549e31561dab183a394cd44d1448d498510d4a94c0c31ffe",
+            "balance": "10",
+            "nonce": "1"
+          }
+        ],
+        "post_root": "7c78c054672cbdf92d41a447bf82bb47312f1350394bc7ef8bb8ec6efde61259",
+        "result": "ok"
+      },
+      "id": "chained-in-block",
+      "pre": [
+        {
+          "account": "k0",
+          "balance": "100",
+          "nonce": "0"
+        }
+      ],
+      "pre_root": "a713c2e0179b930724299719ecd40471452ebeb75c339fa9bc91de6540737a44",
+      "rules": [
+        "STF-8"
+      ]
+    },
+    {
+      "block": [
+        {
+          "from": "k0",
+          "nonce": "0",
+          "outputs": [
+            {
+              "amount": "10",
+              "to": "k1"
+            }
+          ],
+          "signature": "valid"
+        },
+        {
+          "from": "k0",
+          "nonce": "0",
+          "outputs": [
+            {
+              "amount": "10",
+              "to": "k1"
+            }
+          ],
+          "signature": "valid"
+        }
+      ],
+      "expect": {
+        "error": "InvalidNonce",
+        "result": "error",
+        "tx_index": 1
+      },
+      "id": "one-bad-tx-voids-block",
+      "pre": [
+        {
+          "account": "k0",
+          "balance": "100",
+          "nonce": "0"
+        }
+      ],
+      "pre_root": "a713c2e0179b930724299719ecd40471452ebeb75c339fa9bc91de6540737a44",
+      "rules": [
+        "STF-8"
+      ]
+    },
+    {
+      "block": [],
+      "expect": {
+        "post": [],
+        "post_root": "0000000000000000000000000000000000000000000000000000000000000000",
+        "result": "ok"
+      },
+      "id": "empty-state",
+      "pre": [],
+      "pre_root": "0000000000000000000000000000000000000000000000000000000000000000",
+      "rules": [
+        "ROOT-3"
+      ]
+    }
+  ],
+  "format": 1,
+  "generator": "maya-spec-ref spec-vectors",
+  "spec": "spec/03-state.md",
+  "u64": "decimal strings"
+}

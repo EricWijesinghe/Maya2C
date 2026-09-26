@@ -327,6 +327,13 @@ harness = false
 name = "ebpf_bench"
 harness = false
 
+# The transaction path stage by stage: verify (1 thread and every core),
+# apply_block, allocations per transaction, write amplification and peak RSS.
+# Its own counting allocator, like hybrid_footprint, so no criterion.
+[[bench]]
+name = "apply_pipeline"
+harness = false
+
 # The root package inherits the same lint policy as every member.
 [lints]
 workspace = true

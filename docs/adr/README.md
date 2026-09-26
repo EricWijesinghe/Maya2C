@@ -57,3 +57,4 @@ The observation that would make this worth reopening.
 | [017](ADR-017-parallel-execution.md) | Parallel execution — optimistic with in-order validation first | Accepted |
 | [018](ADR-018-async-execution.md) | Synchronous execution for v1; asynchronous (D = 2) next | Accepted |
 | [019](ADR-019-storage-engine.md) | Stay on RocksDB until it is the measured bottleneck | Accepted |
+| [020](ADR-020-spec-conformance-and-upgrades.md) | A spec with an independent reference; upgrades halt instead of fork | Accepted |

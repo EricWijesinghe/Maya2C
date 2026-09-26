@@ -8,7 +8,13 @@ pub fn execute(base: &State, txs: &[Tx], work: u32) -> BlockResult {
     let mut writes = State::new();
     let mut receipts = Vec::with_capacity(txs.len());
     for tx in txs {
-        let t = run(tx, work, |k| writes.get(&k).or_else(|| base.get(&k)).copied().unwrap_or(0));
+        let t = run(tx, work, |k| {
+            writes
+                .get(&k)
+                .or_else(|| base.get(&k))
+                .copied()
+                .unwrap_or(0)
+        });
         for (k, v) in &t.writes {
             writes.insert(*k, *v);
         }

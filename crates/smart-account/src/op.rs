@@ -105,13 +105,21 @@ impl Action {
                 out.extend_from_slice(to);
                 out.extend_from_slice(&amount.to_le_bytes());
             }
-            Self::AddKey { suite, public_key, weight } => {
+            Self::AddKey {
+                suite,
+                public_key,
+                weight,
+            } => {
                 out.push(2);
                 out.push(suite.to_byte());
                 put(out, public_key);
                 out.push(*weight);
             }
-            Self::RotateKey { old, suite, public_key } => {
+            Self::RotateKey {
+                old,
+                suite,
+                public_key,
+            } => {
                 out.push(3);
                 out.extend_from_slice(old);
                 out.push(suite.to_byte());
@@ -121,7 +129,11 @@ impl Action {
                 out.push(4);
                 p.encode(out);
             }
-            Self::AddSessionKey { suite, public_key, scope } => {
+            Self::AddSessionKey {
+                suite,
+                public_key,
+                scope,
+            } => {
                 out.push(5);
                 out.push(suite.to_byte());
                 put(out, public_key);
@@ -144,7 +156,11 @@ impl Action {
                 out.extend_from_slice(&(g.threshold as u64).to_le_bytes());
                 out.extend_from_slice(&g.delay_blocks.to_le_bytes());
             }
-            Self::ApproveRecovery { target, suite, public_key } => {
+            Self::ApproveRecovery {
+                target,
+                suite,
+                public_key,
+            } => {
                 out.push(9);
                 out.extend_from_slice(target);
                 out.push(suite.to_byte());
@@ -173,6 +189,11 @@ impl Op {
 
     /// Wire size: signing bytes plus each (key hash, signature).
     pub fn encoded_len(&self) -> usize {
-        self.signing_bytes().len() + self.signatures.iter().map(|(_, s)| 32 + 8 + s.len()).sum::<usize>()
+        self.signing_bytes().len()
+            + self
+                .signatures
+                .iter()
+                .map(|(_, s)| 32 + 8 + s.len())
+                .sum::<usize>()
     }
 }

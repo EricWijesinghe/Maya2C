@@ -27,6 +27,7 @@ fn config(treasury: Option<TreasuryGenesis>) -> GenesisConfig {
         oracle: None,
         sealed: None,
         treasury,
+        protocol_upgrades: Vec::new(),
     }
 }
 

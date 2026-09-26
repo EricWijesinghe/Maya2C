@@ -194,6 +194,8 @@ fn run() -> Result<(), Box<dyn Error>> {
         // sheet operators can diff — see the `genesis-ceremony` binary. This
         // tool produces plain allocations.
         treasury: None,
+        // No upgrades scheduled: a schedule is a governance decision.
+        protocol_upgrades: Vec::new(),
     };
 
     // Fails loudly on a bad address, duplicate allocation, or a floor harder

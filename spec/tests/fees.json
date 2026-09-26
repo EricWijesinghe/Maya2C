@@ -1,0 +1,231 @@
+{
+  "cases": [
+    {
+      "base_fee_paid": "1000",
+      "expect": {
+        "burned": "800",
+        "treasury": "200"
+      },
+      "fn": "split",
+      "id": "split-1000-2000",
+      "rules": [
+        "FEE-1"
+      ],
+      "treasury_bps": "2000"
+    },
+    {
+      "base_fee_paid": "7",
+      "expect": {
+        "burned": "6",
+        "treasury": "1"
+      },
+      "fn": "split",
+      "id": "split-7-2000",
+      "rules": [
+        "FEE-1"
+      ],
+      "treasury_bps": "2000"
+    },
+    {
+      "base_fee_paid": "18446744073709551615",
+      "expect": {
+        "burned": "14757395258967641292",
+        "treasury": "3689348814741910323"
+      },
+      "fn": "split",
+      "id": "split-18446744073709551615-2000",
+      "rules": [
+        "FEE-1"
+      ],
+      "treasury_bps": "2000"
+    },
+    {
+      "base_fee_paid": "1000",
+      "expect": {
+        "burned": "1000",
+        "treasury": "0"
+      },
+      "fn": "split",
+      "id": "split-1000-0",
+      "rules": [
+        "FEE-1"
+      ],
+      "treasury_bps": "0"
+    },
+    {
+      "base_fee_paid": "1000",
+      "expect": {
+        "burned": "0",
+        "treasury": "1000"
+      },
+      "fn": "split",
+      "id": "split-1000-10000",
+      "rules": [
+        "FEE-1"
+      ],
+      "treasury_bps": "10000"
+    },
+    {
+      "base_fee_paid": "1000",
+      "expect": {
+        "burned": "0",
+        "treasury": "1000"
+      },
+      "fn": "split",
+      "id": "split-1000-20000",
+      "rules": [
+        "FEE-1"
+      ],
+      "treasury_bps": "20000"
+    },
+    {
+      "denominator": "8",
+      "expect": "1000",
+      "floor": "1",
+      "fn": "next_base_fee",
+      "id": "at-target",
+      "parent_base_fee": "1000",
+      "parent_size": "1000000",
+      "rules": [
+        "FEE-3"
+      ],
+      "target": "1000000"
+    },
+    {
+      "denominator": "8",
+      "expect": "9000",
+      "floor": "1",
+      "fn": "next_base_fee",
+      "id": "full-block",
+      "parent_base_fee": "8000",
+      "parent_size": "2000000",
+      "rules": [
+        "FEE-3"
+      ],
+      "target": "1000000"
+    },
+    {
+      "denominator": "8",
+      "expect": "7000",
+      "floor": "1",
+      "fn": "next_base_fee",
+      "id": "empty-block",
+      "parent_base_fee": "8000",
+      "parent_size": "0",
+      "rules": [
+        "FEE-3"
+      ],
+      "target": "1000000"
+    },
+    {
+      "denominator": "8",
+      "expect": "2",
+      "floor": "1",
+      "fn": "next_base_fee",
+      "id": "rise-at-least-one",
+      "parent_base_fee": "1",
+      "parent_size": "1000001",
+      "rules": [
+        "FEE-3"
+      ],
+      "target": "1000000"
+    },
+    {
+      "denominator": "8",
+      "expect": "18446744073709551615",
+      "floor": "1",
+      "fn": "next_base_fee",
+      "id": "saturate-high",
+      "parent_base_fee": "18446744073709551615",
+      "parent_size": "2000000",
+      "rules": [
+        "FEE-3"
+      ],
+      "target": "1000000"
+    },
+    {
+      "denominator": "8",
+      "expect": "5",
+      "floor": "5",
+      "fn": "next_base_fee",
+      "id": "floor-holds",
+      "parent_base_fee": "1",
+      "parent_size": "0",
+      "rules": [
+        "FEE-4"
+      ],
+      "target": "1000000"
+    },
+    {
+      "denominator": "8",
+      "expect": "100",
+      "floor": "1",
+      "fn": "next_base_fee",
+      "id": "zero-target",
+      "parent_base_fee": "100",
+      "parent_size": "5000",
+      "rules": [
+        "FEE-2"
+      ],
+      "target": "0"
+    },
+    {
+      "denominator": "0",
+      "expect": "100",
+      "floor": "1",
+      "fn": "next_base_fee",
+      "id": "zero-denominator",
+      "parent_base_fee": "100",
+      "parent_size": "5000",
+      "rules": [
+        "FEE-2"
+      ],
+      "target": "1000"
+    },
+    {
+      "base_fee": "10",
+      "expect": {
+        "result": "ok"
+      },
+      "fn": "admit",
+      "id": "admit-exact",
+      "max_fee": "10000",
+      "rules": [
+        "FEE-5"
+      ],
+      "size_bytes": "1000"
+    },
+    {
+      "base_fee": "10",
+      "expect": {
+        "error": "Underpriced",
+        "result": "error"
+      },
+      "fn": "admit",
+      "id": "admit-one-short",
+      "max_fee": "9999",
+      "rules": [
+        "FEE-5"
+      ],
+      "size_bytes": "1000"
+    },
+    {
+      "base_fee": "10",
+      "expect": {
+        "error": "Underpriced",
+        "result": "error"
+      },
+      "fn": "admit",
+      "id": "admit-huge-size",
+      "max_fee": "18446744073709551615",
+      "rules": [
+        "FEE-5"
+      ],
+      "size_bytes": "18446744073709551615"
+    }
+  ],
+  "format": 1,
+  "generator": "maya-spec-ref spec-vectors",
+  "spec": "spec/04-fees.md",
+  "u64": "decimal strings"
+}

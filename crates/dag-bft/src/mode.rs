@@ -109,12 +109,18 @@ mod tests {
         for m in ConsensusMode::ALL {
             assert_eq!(m.name().parse::<ConsensusMode>(), Ok(m));
         }
-        assert!(matches!("pos".parse::<ConsensusMode>(), Err(ModeError::Unknown(_))));
+        assert!(matches!(
+            "pos".parse::<ConsensusMode>(),
+            Err(ModeError::Unknown(_))
+        ));
     }
 
     #[test]
     fn production_accepts_only_dag_bft() {
-        assert_eq!(ConsensusMode::DagBft.validate(true), Ok(ConsensusMode::DagBft));
+        assert_eq!(
+            ConsensusMode::DagBft.validate(true),
+            Ok(ConsensusMode::DagBft)
+        );
         for m in [ConsensusMode::ArgonBlakePow, ConsensusMode::PouwLattice] {
             assert_eq!(m.validate(true), Err(ModeError::NotAllowedInProduction(m)));
             assert_eq!(m.validate(false), Ok(m));

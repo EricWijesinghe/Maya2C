@@ -1,7 +1,7 @@
 //! The extended square, its header, repair, and sampling.
 
-use crate::merkle::{CellProof, merkle_root};
 use crate::Hash;
+use crate::merkle::{CellProof, merkle_root};
 
 /// What a light client holds: the square size and the row/column roots.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -75,12 +75,32 @@ impl Extended {
             }
         }
         let row_roots = (0..w)
-            .map(|r| merkle_root(&(0..w).map(|c| cells[r * w + c].as_slice()).collect::<Vec<_>>()))
+            .map(|r| {
+                merkle_root(
+                    &(0..w)
+                        .map(|c| cells[r * w + c].as_slice())
+                        .collect::<Vec<_>>(),
+                )
+            })
             .collect();
         let col_roots = (0..w)
-            .map(|c| merkle_root(&(0..w).map(|r| cells[r * w + c].as_slice()).collect::<Vec<_>>()))
+            .map(|c| {
+                merkle_root(
+                    &(0..w)
+                        .map(|r| cells[r * w + c].as_slice())
+                        .collect::<Vec<_>>(),
+                )
+            })
             .collect();
-        Self { header: Header { k, row_roots, col_roots }, cells, chunk }
+        Self {
+            header: Header {
+                k,
+                row_roots,
+                col_roots,
+            },
+            cells,
+            chunk,
+        }
     }
 
     /// Side of the extended square.
@@ -92,7 +112,10 @@ impl Extended {
     pub fn cell(&self, row: usize, col: usize) -> (Vec<u8>, CellProof) {
         let w = self.width();
         let row_cells: Vec<&[u8]> = (0..w).map(|c| self.cells[row * w + c].as_slice()).collect();
-        (self.cells[row * w + col].clone(), CellProof::build(row, col, &row_cells))
+        (
+            self.cells[row * w + col].clone(),
+            CellProof::build(row, col, &row_cells),
+        )
     }
 }
 
@@ -119,24 +142,38 @@ impl Square {
             for is_row in [true, false] {
                 for line in 0..w {
                     let idx = |i: usize| if is_row { line * w + i } else { i * w + line };
-                    let present: Vec<(usize, Vec<u8>)> =
-                        (0..w).filter_map(|i| self.cells[idx(i)].clone().map(|c| (i, c))).collect();
+                    let present: Vec<(usize, Vec<u8>)> = (0..w)
+                        .filter_map(|i| self.cells[idx(i)].clone().map(|c| (i, c)))
+                        .collect();
                     if present.len() == w || present.len() < k {
                         continue;
                     }
-                    let originals = present.iter().filter(|(i, _)| *i < k).map(|(i, c)| (*i, c.as_slice()));
-                    let recovery = present.iter().filter(|(i, _)| *i >= k).map(|(i, c)| (*i - k, c.as_slice()));
+                    let originals = present
+                        .iter()
+                        .filter(|(i, _)| *i < k)
+                        .map(|(i, c)| (*i, c.as_slice()));
+                    let recovery = present
+                        .iter()
+                        .filter(|(i, _)| *i >= k)
+                        .map(|(i, c)| (*i - k, c.as_slice()));
                     let Ok(restored) = reed_solomon_simd::decode(k, k, originals, recovery) else {
                         continue;
                     };
                     let mut full: Vec<Vec<u8>> = (0..k)
                         .map(|i| {
-                            self.cells[idx(i)].clone().or_else(|| restored.get(&i).cloned()).unwrap_or_default()
+                            self.cells[idx(i)]
+                                .clone()
+                                .or_else(|| restored.get(&i).cloned())
+                                .unwrap_or_default()
                         })
                         .collect();
                     full = rs_extend(&full);
                     let root = merkle_root(&full.iter().map(Vec::as_slice).collect::<Vec<_>>());
-                    let committed = if is_row { self.header.row_roots[line] } else { self.header.col_roots[line] };
+                    let committed = if is_row {
+                        self.header.row_roots[line]
+                    } else {
+                        self.header.col_roots[line]
+                    };
                     if root != committed {
                         return Err((is_row, line));
                     }

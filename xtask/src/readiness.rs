@@ -27,7 +27,10 @@ const COMPONENTS: &[Component] = &[
         name: "Crypto: ML-DSA / SLH-DSA / hybrid",
         owner: "crypto-pq",
         spec: &["spec/crypto.md"],
-        vectors: &["spec/tests/crypto_kat.json", "crates/crypto-pq/tests/vectors/acvp"],
+        vectors: &[
+            "spec/tests/crypto_kat.json",
+            "crates/crypto-pq/tests/vectors/acvp",
+        ],
         tests: &["crates/crypto-pq/tests/acvp_tests.rs"],
         fuzz: &["fuzz/fuzz_targets/tx_decode.rs"],
         formal: &[],
@@ -50,7 +53,10 @@ const COMPONENTS: &[Component] = &[
         owner: "node::core",
         spec: &["spec/encoding.md"],
         vectors: &["spec/tests/encoding.json"],
-        tests: &["crates/node/tests/malleability_tests.rs", "crates/node/tests/payload_tests.rs"],
+        tests: &[
+            "crates/node/tests/malleability_tests.rs",
+            "crates/node/tests/payload_tests.rs",
+        ],
         fuzz: &["fuzz/fuzz_targets/tx_decode.rs"],
         formal: &[],
         bench: &[],
@@ -61,8 +67,14 @@ const COMPONENTS: &[Component] = &[
         owner: "node::state, ledger-math",
         spec: &["spec/state-transition.md"],
         vectors: &["spec/tests/state_transitions.json"],
-        tests: &["crates/node/tests/state_tests.rs", "crates/node/tests/exploit_replays.rs"],
-        fuzz: &["fuzz/fuzz_targets/block_decode.rs", "fuzz/fuzz_targets/account_decode.rs"],
+        tests: &[
+            "crates/node/tests/state_tests.rs",
+            "crates/node/tests/exploit_replays.rs",
+        ],
+        fuzz: &[
+            "fuzz/fuzz_targets/block_decode.rs",
+            "fuzz/fuzz_targets/account_decode.rs",
+        ],
         formal: &["formal/lean/Maya2C/Supply.lean"],
         bench: &[],
         runbook: &["docs/runbooks/corrupted-state.md"],
@@ -74,7 +86,10 @@ const COMPONENTS: &[Component] = &[
         vectors: &["spec/tests/fees.json", "formal/lean/vectors/fee_split.txt"],
         tests: &["crates/fee-market/tests/lean_differential.rs"],
         fuzz: &[],
-        formal: &["formal/lean/Maya2C/FeeSplit.lean", "formal/z3/fee_market.py"],
+        formal: &[
+            "formal/lean/Maya2C/FeeSplit.lean",
+            "formal/z3/fee_market.py",
+        ],
         bench: &["reports/18-economics.md"],
         runbook: &[],
     },
@@ -116,7 +131,10 @@ const COMPONENTS: &[Component] = &[
         owner: "vm",
         spec: &["spec/vm.md"],
         vectors: &[],
-        tests: &["crates/vm/tests/vm_tests.rs", "crates/vm/tests/tier_differential_tests.rs"],
+        tests: &[
+            "crates/vm/tests/vm_tests.rs",
+            "crates/vm/tests/tier_differential_tests.rs",
+        ],
         fuzz: &[],
         formal: &[],
         bench: &["docs/vm-module-cache.md", "reports/05-vm.md"],
@@ -127,7 +145,10 @@ const COMPONENTS: &[Component] = &[
         owner: "governance",
         spec: &["spec/governance.md"],
         vectors: &[],
-        tests: &["crates/node/tests/governance_tests.rs", "crates/governance/tests/limits_tests.rs"],
+        tests: &[
+            "crates/node/tests/governance_tests.rs",
+            "crates/governance/tests/limits_tests.rs",
+        ],
         fuzz: &[],
         formal: &["crates/governance/src/proofs.rs"],
         bench: &[],
@@ -138,7 +159,10 @@ const COMPONENTS: &[Component] = &[
         owner: "node::network",
         spec: &["spec/networking.md"],
         vectors: &[],
-        tests: &["crates/node/tests/network_tests.rs", "crates/node/tests/pq_transport_tests.rs"],
+        tests: &[
+            "crates/node/tests/network_tests.rs",
+            "crates/node/tests/pq_transport_tests.rs",
+        ],
         fuzz: &[],
         formal: &[],
         bench: &[],
@@ -149,7 +173,10 @@ const COMPONENTS: &[Component] = &[
         owner: "node::rpc, api-gateway",
         spec: &["spec/rpc.md"],
         vectors: &[],
-        tests: &["crates/node/tests/rpc_tests.rs", "crates/api-gateway/tests/gateway_tests.rs"],
+        tests: &[
+            "crates/node/tests/rpc_tests.rs",
+            "crates/api-gateway/tests/gateway_tests.rs",
+        ],
         fuzz: &[],
         formal: &[],
         bench: &[],
@@ -226,6 +253,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
     } else {
         std::fs::write(&path, &text).map_err(|e| e.to_string())?;
     }
-    println!("readiness: {evidence} cells with evidence, {gaps} gaps ({} components)", COMPONENTS.len());
+    println!(
+        "readiness: {evidence} cells with evidence, {gaps} gaps ({} components)",
+        COMPONENTS.len()
+    );
     Ok(())
 }

@@ -55,7 +55,11 @@ pub fn prove(txids: &[[u8; 32]], index: usize) -> Option<MerkleProof> {
     let mut i = index;
     let mut siblings = Vec::new();
     while level.len() > 1 {
-        let sibling = if i ^ 1 < level.len() { level[i ^ 1] } else { level[i] };
+        let sibling = if i ^ 1 < level.len() {
+            level[i ^ 1]
+        } else {
+            level[i]
+        };
         siblings.push(sibling);
         level = level
             .chunks(2)
@@ -89,7 +93,9 @@ impl MerkleProof {
         let mut width = self.tx_count as usize;
         let mut siblings = self.siblings.iter();
         while width > 1 {
-            let Some(s) = siblings.next() else { return false };
+            let Some(s) = siblings.next() else {
+                return false;
+            };
             let is_last_odd = i ^ 1 >= width;
             if is_last_odd && *s != hash {
                 return false; // only the right edge may pair with itself
@@ -97,7 +103,11 @@ impl MerkleProof {
             if !is_last_odd && *s == hash {
                 return false; // a duplicate anywhere else is the CVE shape
             }
-            hash = if i.is_multiple_of(2) { pair(&hash, s) } else { pair(s, &hash) };
+            hash = if i.is_multiple_of(2) {
+                pair(&hash, s)
+            } else {
+                pair(s, &hash)
+            };
             i /= 2;
             width = width.div_ceil(2);
         }

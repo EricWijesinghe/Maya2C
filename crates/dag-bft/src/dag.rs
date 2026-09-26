@@ -82,7 +82,10 @@ impl Dag {
 
     /// Certificates of `round`, by author.
     pub fn round(&self, round: u64) -> impl Iterator<Item = &Certificate> {
-        self.rounds.get(&round).into_iter().flat_map(BTreeMap::values)
+        self.rounds
+            .get(&round)
+            .into_iter()
+            .flat_map(BTreeMap::values)
     }
 
     /// Number of certificates in `round`.

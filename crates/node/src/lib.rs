@@ -67,6 +67,7 @@ pub mod rpc;
 pub mod sealed;
 pub mod state;
 pub mod state_pruner;
+pub mod upgrade;
 
 pub use crate::core::{Block, BlockHeader, Transaction, TxInput, TxOutput};
 pub use crypto::{argon_blake_hash, meets_target, target_from_leading_zero_bits};

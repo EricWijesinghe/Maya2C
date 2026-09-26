@@ -150,7 +150,13 @@ impl Registry {
 
     /// Creates an account owned by one key. Its id is derived from the first
     /// key and a salt and never changes, whatever keys it has later.
-    pub fn create(&mut self, suite: SuiteId, public_key: &[u8], salt: u64, balance: u64) -> AccountId {
+    pub fn create(
+        &mut self,
+        suite: SuiteId,
+        public_key: &[u8],
+        salt: u64,
+        balance: u64,
+    ) -> AccountId {
         let hash = key_hash(suite, public_key);
         let mut h = blake3::Hasher::new_derive_key("maya2c/smart-account/id/v1");
         h.update(&hash);
@@ -163,7 +169,11 @@ impl Registry {
                 id,
                 balance,
                 nonce: 0,
-                keys: vec![KeyEntry { hash, weight: 1, role: KeyRole::Owner }],
+                keys: vec![KeyEntry {
+                    hash,
+                    weight: 1,
+                    role: KeyRole::Owner,
+                }],
                 threshold: 1,
                 policy: Policy::default(),
                 guardians: GuardianSet::default(),
@@ -189,7 +199,10 @@ impl Registry {
     }
 
     fn authorise(&self, op: &Op, height: u64) -> Result<Authority, AccountError> {
-        let account = self.accounts.get(&op.account).ok_or(AccountError::UnknownAccount)?;
+        let account = self
+            .accounts
+            .get(&op.account)
+            .ok_or(AccountError::UnknownAccount)?;
         if op.nonce != account.nonce {
             return Err(AccountError::BadNonce);
         }
@@ -202,7 +215,11 @@ impl Registry {
         let mut seen = BTreeSet::new();
         let mut cost = 0u64;
         for (hash, sig) in &op.signatures {
-            let entry = account.keys.iter().find(|k| k.hash == *hash).ok_or(AccountError::UnknownKey)?;
+            let entry = account
+                .keys
+                .iter()
+                .find(|k| k.hash == *hash)
+                .ok_or(AccountError::UnknownKey)?;
             if !seen.insert(*hash) {
                 return Err(AccountError::UnknownKey);
             }
@@ -246,8 +263,14 @@ impl Registry {
                 if fee_due > *max_fee {
                     return Err(AccountError::FeeAboveMaximum);
                 }
-                let a = self.accounts.get_mut(&op.account).ok_or(AccountError::UnknownAccount)?;
-                a.balance = a.balance.checked_sub(fee_due).ok_or(AccountError::Insufficient)?;
+                let a = self
+                    .accounts
+                    .get_mut(&op.account)
+                    .ok_or(AccountError::UnknownAccount)?;
+                a.balance = a
+                    .balance
+                    .checked_sub(fee_due)
+                    .ok_or(AccountError::Insufficient)?;
             }
             FeeSpec::Token { token, max_amount } => {
                 let price = self.prices.get(token).ok_or(AccountError::NoPrice)?;
@@ -259,7 +282,10 @@ impl Registry {
                 *bal = bal.checked_sub(cost).ok_or(AccountError::Insufficient)?;
             }
             FeeSpec::Sponsored { paymaster } => {
-                let pm = self.paymasters.get_mut(paymaster).ok_or(AccountError::SponsorRefused)?;
+                let pm = self
+                    .paymasters
+                    .get_mut(paymaster)
+                    .ok_or(AccountError::SponsorRefused)?;
                 if !pm.charge(&op.account, day, fee_due) {
                     return Err(AccountError::SponsorRefused);
                 }
@@ -275,7 +301,9 @@ impl Registry {
     pub fn apply(&mut self, op: &Op, height: u64, fee_due: u64) -> Result<(), AccountError> {
         let authority = self.authorise(op, height)?;
         let snapshot = self.clone();
-        let result = self.charge_fee(op, fee_due, height).and_then(|()| self.execute(op, &authority, height));
+        let result = self
+            .charge_fee(op, fee_due, height)
+            .and_then(|()| self.execute(op, &authority, height));
         match result {
             Ok(()) => {
                 if let Some(a) = self.accounts.get_mut(&op.account) {
@@ -292,23 +320,45 @@ impl Registry {
 
     fn execute(&mut self, op: &Op, authority: &Authority, height: u64) -> Result<(), AccountError> {
         let owner = matches!(authority, Authority::Owner);
-        let need_owner = |ok: bool| if ok { Ok(()) } else { Err(AccountError::OutOfScope) };
+        let need_owner = |ok: bool| {
+            if ok {
+                Ok(())
+            } else {
+                Err(AccountError::OutOfScope)
+            }
+        };
         match &op.action {
             Action::Transfer { to, amount } => self.transfer(&op.account, to, *amount, height),
-            Action::AddKey { suite, public_key, weight } => {
+            Action::AddKey {
+                suite,
+                public_key,
+                weight,
+            } => {
                 need_owner(owner)?;
                 let hash = key_hash(*suite, public_key);
                 self.keys.insert(hash, (*suite, public_key.clone()));
                 let a = self.account_mut(&op.account)?;
-                a.keys.push(KeyEntry { hash, weight: *weight, role: KeyRole::Owner });
+                a.keys.push(KeyEntry {
+                    hash,
+                    weight: *weight,
+                    role: KeyRole::Owner,
+                });
                 Ok(())
             }
-            Action::RotateKey { old, suite, public_key } => {
+            Action::RotateKey {
+                old,
+                suite,
+                public_key,
+            } => {
                 need_owner(owner)?;
                 let hash = key_hash(*suite, public_key);
                 self.keys.insert(hash, (*suite, public_key.clone()));
                 let a = self.account_mut(&op.account)?;
-                let entry = a.keys.iter_mut().find(|k| k.hash == *old).ok_or(AccountError::UnknownKey)?;
+                let entry = a
+                    .keys
+                    .iter_mut()
+                    .find(|k| k.hash == *old)
+                    .ok_or(AccountError::UnknownKey)?;
                 entry.hash = hash;
                 Ok(())
             }
@@ -317,12 +367,20 @@ impl Registry {
                 self.account_mut(&op.account)?.policy = p.clone();
                 Ok(())
             }
-            Action::AddSessionKey { suite, public_key, scope } => {
+            Action::AddSessionKey {
+                suite,
+                public_key,
+                scope,
+            } => {
                 need_owner(owner)?;
                 let hash = key_hash(*suite, public_key);
                 self.keys.insert(hash, (*suite, public_key.clone()));
                 let a = self.account_mut(&op.account)?;
-                a.keys.push(KeyEntry { hash, weight: 0, role: KeyRole::Session(scope.clone()) });
+                a.keys.push(KeyEntry {
+                    hash,
+                    weight: 0,
+                    role: KeyRole::Session(scope.clone()),
+                });
                 Ok(())
             }
             Action::CancelPending { id } => {
@@ -335,7 +393,11 @@ impl Registry {
                 self.account_mut(&op.account)?.guardians = g.clone();
                 Ok(())
             }
-            Action::ApproveRecovery { target, suite, public_key } => {
+            Action::ApproveRecovery {
+                target,
+                suite,
+                public_key,
+            } => {
                 need_owner(owner)?;
                 self.approve_recovery(&op.account, target, *suite, public_key, height)
             }
@@ -349,10 +411,18 @@ impl Registry {
     }
 
     fn account_mut(&mut self, id: &AccountId) -> Result<&mut Account, AccountError> {
-        self.accounts.get_mut(id).ok_or(AccountError::UnknownAccount)
+        self.accounts
+            .get_mut(id)
+            .ok_or(AccountError::UnknownAccount)
     }
 
-    fn transfer(&mut self, from: &AccountId, to: &AccountId, amount: u64, height: u64) -> Result<(), AccountError> {
+    fn transfer(
+        &mut self,
+        from: &AccountId,
+        to: &AccountId,
+        amount: u64,
+        height: u64,
+    ) -> Result<(), AccountError> {
         if !self.accounts.contains_key(to) {
             return Err(AccountError::UnknownAccount);
         }
@@ -362,32 +432,58 @@ impl Registry {
         if !p.allow_list.is_empty() && !p.allow_list.contains(to) {
             return Err(AccountError::Policy("recipient not on the allow-list"));
         }
-        let spent = a.spent.get(&day).copied().unwrap_or(0).saturating_add(amount);
+        let spent = a
+            .spent
+            .get(&day)
+            .copied()
+            .unwrap_or(0)
+            .saturating_add(amount);
         if p.daily_limit > 0 && spent > p.daily_limit {
             return Err(AccountError::Policy("daily limit"));
         }
-        let spent_to = a.spent_to.get(&(*to, day)).copied().unwrap_or(0).saturating_add(amount);
+        let spent_to = a
+            .spent_to
+            .get(&(*to, day))
+            .copied()
+            .unwrap_or(0)
+            .saturating_add(amount);
         if p.per_recipient_daily > 0 && spent_to > p.per_recipient_daily {
             return Err(AccountError::Policy("per-recipient daily limit"));
         }
-        a.balance = a.balance.checked_sub(amount).ok_or(AccountError::Insufficient)?;
+        a.balance = a
+            .balance
+            .checked_sub(amount)
+            .ok_or(AccountError::Insufficient)?;
         a.spent.insert(day, spent);
         a.spent_to.insert((*to, day), spent_to);
         if p.delay_above > 0 && amount > p.delay_above {
             let release_at = height + p.delay_blocks;
             let id = self.next_pending;
             self.next_pending += 1;
-            self.account_mut(from)?.pending.insert(id, Pending { to: *to, amount, release_at });
+            self.account_mut(from)?.pending.insert(
+                id,
+                Pending {
+                    to: *to,
+                    amount,
+                    release_at,
+                },
+            );
             return Ok(());
         }
         let b = self.account_mut(to)?;
-        b.balance = b.balance.checked_add(amount).ok_or(AccountError::Insufficient)?;
+        b.balance = b
+            .balance
+            .checked_add(amount)
+            .ok_or(AccountError::Insufficient)?;
         Ok(())
     }
 
     fn cancel_pending(&mut self, account: &AccountId, id: u64) -> Result<(), AccountError> {
         let a = self.account_mut(account)?;
-        let p = a.pending.remove(&id).ok_or(AccountError::Pending("no such pending transfer"))?;
+        let p = a
+            .pending
+            .remove(&id)
+            .ok_or(AccountError::Pending("no such pending transfer"))?;
         a.balance += p.amount;
         Ok(())
     }
@@ -396,24 +492,47 @@ impl Registry {
     /// `threshold` distinct guardians; each approval is that guardian's own
     /// op nonce-checked and signed — here the caller passes guardians whose
     /// ops were already applied as `ApproveRecovery`-style authorisations.
-    pub fn guardian_cancel(&mut self, account: &AccountId, id: u64, guardians: &[AccountId]) -> Result<(), AccountError> {
-        let a = self.accounts.get(account).ok_or(AccountError::UnknownAccount)?;
-        let distinct: BTreeSet<_> = guardians.iter().filter(|g| a.guardians.guardians.contains(g)).collect();
+    pub fn guardian_cancel(
+        &mut self,
+        account: &AccountId,
+        id: u64,
+        guardians: &[AccountId],
+    ) -> Result<(), AccountError> {
+        let a = self
+            .accounts
+            .get(account)
+            .ok_or(AccountError::UnknownAccount)?;
+        let distinct: BTreeSet<_> = guardians
+            .iter()
+            .filter(|g| a.guardians.guardians.contains(g))
+            .collect();
         if distinct.len() < a.guardians.threshold.max(1) {
             return Err(AccountError::Recovery("not enough guardians"));
         }
         self.cancel_pending(account, id)
     }
 
-    fn release_pending(&mut self, account: &AccountId, id: u64, height: u64) -> Result<(), AccountError> {
+    fn release_pending(
+        &mut self,
+        account: &AccountId,
+        id: u64,
+        height: u64,
+    ) -> Result<(), AccountError> {
         let a = self.account_mut(account)?;
-        let p = a.pending.get(&id).ok_or(AccountError::Pending("no such pending transfer"))?.clone();
+        let p = a
+            .pending
+            .get(&id)
+            .ok_or(AccountError::Pending("no such pending transfer"))?
+            .clone();
         if height < p.release_at {
             return Err(AccountError::Pending("delay not over"));
         }
         a.pending.remove(&id);
         let b = self.account_mut(&p.to)?;
-        b.balance = b.balance.checked_add(p.amount).ok_or(AccountError::Insufficient)?;
+        b.balance = b
+            .balance
+            .checked_add(p.amount)
+            .ok_or(AccountError::Insufficient)?;
         Ok(())
     }
 
@@ -437,7 +556,9 @@ impl Registry {
             quorum_at: None,
         });
         if req.suite != suite || req.public_key != public_key {
-            return Err(AccountError::Recovery("a different key is already proposed"));
+            return Err(AccountError::Recovery(
+                "a different key is already proposed",
+            ));
         }
         req.approvals.insert(*guardian);
         if req.quorum_at.is_none() && req.approvals.len() >= threshold {
@@ -447,9 +568,17 @@ impl Registry {
     }
 
     fn finalize_recovery(&mut self, target: &AccountId, height: u64) -> Result<(), AccountError> {
-        let t = self.accounts.get(target).ok_or(AccountError::UnknownAccount)?;
-        let req = t.recovery.clone().ok_or(AccountError::Recovery("no recovery in progress"))?;
-        let at = req.quorum_at.ok_or(AccountError::Recovery("no guardian quorum yet"))?;
+        let t = self
+            .accounts
+            .get(target)
+            .ok_or(AccountError::UnknownAccount)?;
+        let req = t
+            .recovery
+            .clone()
+            .ok_or(AccountError::Recovery("no recovery in progress"))?;
+        let at = req
+            .quorum_at
+            .ok_or(AccountError::Recovery("no guardian quorum yet"))?;
         if height < at + t.guardians.delay_blocks {
             return Err(AccountError::Recovery("cancel window still open"));
         }
@@ -457,7 +586,11 @@ impl Registry {
         self.keys.insert(hash, (req.suite, req.public_key.clone()));
         let t = self.account_mut(target)?;
         t.keys.retain(|k| !matches!(k.role, KeyRole::Owner));
-        t.keys.push(KeyEntry { hash, weight: t.threshold.max(1), role: KeyRole::Owner });
+        t.keys.push(KeyEntry {
+            hash,
+            weight: t.threshold.max(1),
+            role: KeyRole::Owner,
+        });
         t.recovery = None;
         Ok(())
     }

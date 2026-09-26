@@ -17,7 +17,9 @@
 
 use std::collections::BTreeMap;
 
-use crate::header::{BlockHash, Header, compact_from_target, target_from_compact, work_from_target};
+use crate::header::{
+    BlockHash, Header, compact_from_target, target_from_compact, work_from_target,
+};
 use crate::u256::U256;
 
 /// Network parameters.
@@ -113,8 +115,20 @@ impl HeaderChain {
         let chainwork = target_from_compact(header.bits).map_or(U256::ZERO, work_from_target);
         let hash = header.hash();
         let mut entries = BTreeMap::new();
-        entries.insert(hash, Entry { header, height, chainwork });
-        Self { params, entries, tip: hash, root_height: height }
+        entries.insert(
+            hash,
+            Entry {
+                header,
+                height,
+                chainwork,
+            },
+        );
+        Self {
+            params,
+            entries,
+            tip: hash,
+            root_height: height,
+        }
     }
 
     /// Best tip hash.
@@ -129,17 +143,25 @@ impl HeaderChain {
 
     /// Cumulative work of the best tip since the checkpoint.
     pub fn chainwork(&self) -> U256 {
-        self.entries.get(&self.tip).map_or(U256::ZERO, |e| e.chainwork)
+        self.entries
+            .get(&self.tip)
+            .map_or(U256::ZERO, |e| e.chainwork)
     }
 
     /// Confirmations of `hash` on the best chain (1 = it is the tip), or 0 if
     /// it is not on the best chain.
     pub fn confirmations(&self, hash: &BlockHash) -> u32 {
-        let Some(target) = self.entries.get(hash) else { return 0 };
+        let Some(target) = self.entries.get(hash) else {
+            return 0;
+        };
         let mut cursor = self.tip;
         while let Some(e) = self.entries.get(&cursor) {
             if e.height == target.height {
-                return if cursor == *hash { self.height() - target.height + 1 } else { 0 };
+                return if cursor == *hash {
+                    self.height() - target.height + 1
+                } else {
+                    0
+                };
             }
             if e.height < target.height {
                 return 0;
@@ -177,7 +199,10 @@ impl HeaderChain {
             .ok_or(HeaderError::RetargetBeforeCheckpoint)?;
         self.params
             .retarget(first.header.time, parent.header.time, parent.header.bits)
-            .ok_or(HeaderError::WrongDifficulty { expected: 0, found: parent.header.bits })
+            .ok_or(HeaderError::WrongDifficulty {
+                expected: 0,
+                found: parent.header.bits,
+            })
     }
 
     fn median_time_past(&self, parent: &Entry) -> u32 {
@@ -201,10 +226,16 @@ impl HeaderChain {
         if self.entries.contains_key(&hash) {
             return Err(HeaderError::Duplicate);
         }
-        let parent = self.entries.get(&header.prev).ok_or(HeaderError::UnknownParent)?;
+        let parent = self
+            .entries
+            .get(&header.prev)
+            .ok_or(HeaderError::UnknownParent)?;
         let expected = self.expected_bits(parent)?;
         if header.bits != expected {
-            return Err(HeaderError::WrongDifficulty { expected, found: header.bits });
+            return Err(HeaderError::WrongDifficulty {
+                expected,
+                found: header.bits,
+            });
         }
         if !header.meets_own_target() {
             return Err(HeaderError::InsufficientWork);
@@ -215,7 +246,14 @@ impl HeaderChain {
         let work = target_from_compact(header.bits).map_or(U256::ZERO, work_from_target);
         let chainwork = parent.chainwork.checked_add(work).unwrap_or(U256::MAX);
         let height = parent.height + 1;
-        self.entries.insert(hash, Entry { header, height, chainwork });
+        self.entries.insert(
+            hash,
+            Entry {
+                header,
+                height,
+                chainwork,
+            },
+        );
         // Strictly more work to move: an equal-work sibling never displaces
         // the tip a node already follows, as in Core.
         if chainwork > self.chainwork() {

@@ -25,7 +25,12 @@ pub enum Attack {
 
 impl Attack {
     /// Every attack, in report order.
-    pub const ALL: [Self; 4] = [Self::Halt, Self::Censor, Self::ConflictingFinality, Self::LongRange];
+    pub const ALL: [Self; 4] = [
+        Self::Halt,
+        Self::Censor,
+        Self::ConflictingFinality,
+        Self::LongRange,
+    ];
 
     /// Name for tables.
     pub const fn name(self) -> &'static str {
@@ -76,7 +81,10 @@ mod tests {
     fn thresholds_are_the_bft_bounds() {
         // 10M supply, half staked: 5M staked; > 1/3 is 1,666,670 tokens.
         assert_eq!(tokens_needed(Attack::Halt, 500_000, 10_000_000), 1_666_670);
-        assert_eq!(tokens_needed(Attack::Censor, 500_000, 10_000_000), 3_333_335);
+        assert_eq!(
+            tokens_needed(Attack::Censor, 500_000, 10_000_000),
+            3_333_335
+        );
         assert_eq!(tokens_needed(Attack::LongRange, 500_000, 10_000_000), 0);
         assert!(Attack::ConflictingFinality.slashable() && !Attack::Halt.slashable());
         assert_eq!(weak_subjectivity_days(21), 10);

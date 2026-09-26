@@ -57,8 +57,13 @@ fn run_dag(
     secs: u64,
 ) -> DagRun {
     let committee = Committee::new(n);
-    let params = Params { batch_size: 500, anchor_timeout_ms: 1_000 };
-    let mut nodes: Vec<Validator> = (0..n).map(|i| Validator::new(i, committee, params)).collect();
+    let params = Params {
+        batch_size: 500,
+        anchor_timeout_ms: 1_000,
+    };
+    let mut nodes: Vec<Validator> = (0..n)
+        .map(|i| Validator::new(i, committee, params))
+        .collect();
     for (i, v) in nodes.iter_mut().enumerate() {
         for k in 0..txs_per_node {
             v.submit(k * u64::from(n) + i as u64);
@@ -120,7 +125,11 @@ fn assert_prefix_consistent<T: PartialEq + std::fmt::Debug>(logs: &[&Vec<T>]) {
     for a in logs {
         for b in logs {
             let common = a.len().min(b.len());
-            assert_eq!(a[..common], b[..common], "logs diverge within their common prefix");
+            assert_eq!(
+                a[..common],
+                b[..common],
+                "logs diverge within their common prefix"
+            );
         }
     }
 }
@@ -167,7 +176,10 @@ fn one_crashed_validator_of_five_does_not_stop_commits() {
         let run = run_dag(w, 5, 2_000, &crashed, None, 30);
         let orders = honest(&run.orders, &crashed);
         assert_prefix_consistent(&orders);
-        assert!(orders.iter().all(|o| o.len() > 2_000), "progress with f = 1 crashed");
+        assert!(
+            orders.iter().all(|o| o.len() > 2_000),
+            "progress with f = 1 crashed"
+        );
     });
 }
 
@@ -184,7 +196,10 @@ fn a_minority_partition_stalls_nobody_forever_and_heals_consistently() {
         assert_prefix_consistent(&run.orders.iter().collect::<Vec<_>>());
         // After healing, the minority catches up to within a few anchors.
         let lens: Vec<usize> = run.anchors.iter().map(Vec::len).collect();
-        let (lo, hi) = (lens.iter().min().copied().unwrap_or(0), lens.iter().max().copied().unwrap_or(0));
+        let (lo, hi) = (
+            lens.iter().min().copied().unwrap_or(0),
+            lens.iter().max().copied().unwrap_or(0),
+        );
         assert!(hi - lo <= 3, "anchor counts after heal: {lens:?}");
         let roots: BTreeSet<_> = run
             .ledgers
@@ -253,18 +268,29 @@ fn run_work(w: &mut World<Ev>, mode: ConsensusMode, n: u16, blocks: u64) -> Vec<
 
 #[test]
 fn both_work_modes_converge_on_one_chain_and_one_state_root() {
-    for (seed, mode) in [(0x0A26_0B1A, ConsensusMode::ArgonBlakePow), (0x0B0E_1A77, ConsensusMode::PouwLattice)] {
+    for (seed, mode) in [
+        (0x0A26_0B1A, ConsensusMode::ArgonBlakePow),
+        (0x0B0E_1A77, ConsensusMode::PouwLattice),
+    ] {
         replay(seed, move |w: &mut World<Ev>| {
             // Wide-area latency and reordering, but no loss: this engine has
             // no block-fetch path, so a lost block would orphan its children
             // forever. (The DAG engine above does fetch, and runs with loss.)
-            w.net_mut().set_link(LinkModel { loss_ppm: 0, ..LinkModel::wide_area() });
+            w.net_mut().set_link(LinkModel {
+                loss_ppm: 0,
+                ..LinkModel::wide_area()
+            });
             let chains = run_work(w, mode, 5, 200);
             // Tips may still differ by an equal-work race at the very end;
             // what must agree is everything six blocks deep.
             let confirmed: BTreeSet<_> = chains
                 .iter()
-                .map(|fc| fc.confirmed(6).iter().map(|b| b.digest()).collect::<Vec<_>>())
+                .map(|fc| {
+                    fc.confirmed(6)
+                        .iter()
+                        .map(|b| b.digest())
+                        .collect::<Vec<_>>()
+                })
                 .collect();
             assert_eq!(confirmed.len(), 1, "{mode}: nodes disagree six blocks deep");
             let roots: BTreeSet<_> = chains
@@ -279,8 +305,16 @@ fn both_work_modes_converge_on_one_chain_and_one_state_root() {
                     l.root()
                 })
                 .collect();
-            assert_eq!(roots.len(), 1, "{mode}: same confirmed chain, same state root");
-            assert!(chains[0].height() > 150, "{mode}: height {}", chains[0].height());
+            assert_eq!(
+                roots.len(),
+                1,
+                "{mode}: same confirmed chain, same state root"
+            );
+            assert!(
+                chains[0].height() > 150,
+                "{mode}: height {}",
+                chains[0].height()
+            );
         });
     }
 }
@@ -296,5 +330,9 @@ fn the_same_transactions_give_the_same_root_whichever_mode_ordered_them_in_the_s
         b.apply(*tx);
     }
     assert_eq!(a.root(), b.root());
-    assert_eq!(a.supply(), Ledger::new().supply(), "transfers conserve supply");
+    assert_eq!(
+        a.supply(),
+        Ledger::new().supply(),
+        "transfers conserve supply"
+    );
 }

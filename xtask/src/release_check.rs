@@ -58,17 +58,39 @@ pub fn run(args: &[String]) -> Result<(), String> {
     println!("release-check: build maya2c-node --features production (profile {PROFILE})");
     let status = Command::new("cargo")
         .current_dir(&root)
-        .args(["build", "--profile", PROFILE, "-p", "maya2c-node", "--no-default-features", "--features", "maya2c-node/production"])
+        .args([
+            "build",
+            "--profile",
+            PROFILE,
+            "-p",
+            "maya2c-node",
+            "--no-default-features",
+            "--features",
+            "maya2c-node/production",
+        ])
         .status()
         .map_err(|e| format!("cannot run cargo: {e}"))?;
     if !status.success() {
-        return Err("the production build failed (the build guard or a compile error; see above)".into());
+        return Err(
+            "the production build failed (the build guard or a compile error; see above)".into(),
+        );
     }
     println!("  [ok]   production build compiled");
 
     let tree = output(
         &root,
-        &["tree", "-p", "maya2c-node", "--no-default-features", "--features", "maya2c-node/production", "-e", "features", "--prefix", "none"],
+        &[
+            "tree",
+            "-p",
+            "maya2c-node",
+            "--no-default-features",
+            "--features",
+            "maya2c-node/production",
+            "-e",
+            "features",
+            "--prefix",
+            "none",
+        ],
     )?;
     let mut failures = Vec::new();
     for f in FORBIDDEN_FEATURES {
@@ -90,7 +112,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
     );
 
     let bin = root.join("target").join(PROFILE).join("maya2c-node");
-    match Command::new("nm").args(["-C", "--defined-only"]).arg(&bin).output() {
+    match Command::new("nm")
+        .args(["-C", "--defined-only"])
+        .arg(&bin)
+        .output()
+    {
         Ok(o) if o.status.success() => {
             let symbols = String::from_utf8_lossy(&o.stdout);
             let hits: Vec<&String> = sim
@@ -109,7 +135,14 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let dark: Vec<&String> = research.iter().filter(|p| linked(p)).collect();
     println!(
         "  [info] RESEARCH crates linked dark for consensus determinism (ADR-002): {}",
-        if dark.is_empty() { "none".to_string() } else { dark.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ") }
+        if dark.is_empty() {
+            "none".to_string()
+        } else {
+            dark.iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        }
     );
 
     if failures.is_empty() {
@@ -140,11 +173,16 @@ fn force_sim(root: &Path) -> Result<(), String> {
         .map_err(|e| format!("cannot run cargo: {e}"))?;
     let stderr = String::from_utf8_lossy(&out.stderr);
     let fired = stderr.contains("a `production` build has a SIM, RESEARCH");
-    if let Some(line) = stderr.lines().find(|l| l.contains("error: a `production` build")) {
+    if let Some(line) = stderr
+        .lines()
+        .find(|l| l.contains("error: a `production` build"))
+    {
         println!("  {line}");
     }
     if out.status.success() {
-        println!("release-check --force-sim: the build SUCCEEDED; the guard did not fire (this is a bug)");
+        println!(
+            "release-check --force-sim: the build SUCCEEDED; the guard did not fire (this is a bug)"
+        );
         return Err("guard did not fire".into());
     }
     if fired {
@@ -162,7 +200,11 @@ fn output(root: &Path, args: &[&str]) -> Result<String, String> {
         .output()
         .map_err(|e| format!("cannot run cargo: {e}"))?;
     if !o.status.success() {
-        return Err(format!("cargo {} failed: {}", args.join(" "), String::from_utf8_lossy(&o.stderr)));
+        return Err(format!(
+            "cargo {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&o.stderr)
+        ));
     }
     Ok(String::from_utf8_lossy(&o.stdout).into_owned())
 }

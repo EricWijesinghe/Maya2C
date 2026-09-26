@@ -40,7 +40,10 @@ fn main() {
     )
     .ok();
     println!("maya-vm tier bench (median wall time per call; gas identical across tiers)");
-    println!("{:<12} {:<26} {:>14} {:>12}", "tier", "workload", "median us", "gas");
+    println!(
+        "{:<12} {:<26} {:>14} {:>12}",
+        "tier", "workload", "median us", "gas"
+    );
     let mut rows = Vec::new();
     for tier in Tier::ALL {
         let vm = Vm::with_tier(tier).unwrap();
@@ -48,29 +51,61 @@ fn main() {
         let cold = median_us(
             || {
                 let fresh = Vm::with_tier(tier).unwrap();
-                let _ = fresh.execute(&loop_wasm, [1; 32], &[], 100_000_000, MemoryState::at_height(1));
+                let _ = fresh.execute(
+                    &loop_wasm,
+                    [1; 32],
+                    &[],
+                    100_000_000,
+                    MemoryState::at_height(1),
+                );
             },
             11,
         );
         let gas = vm
-            .execute(&loop_wasm, [1; 32], &[], 100_000_000, MemoryState::at_height(1))
+            .execute(
+                &loop_wasm,
+                [1; 32],
+                &[],
+                100_000_000,
+                MemoryState::at_height(1),
+            )
             .outcome
             .unwrap()
             .gas_used;
         let warm = median_us(
             || {
-                let _ = vm.execute(&loop_wasm, [1; 32], &[], 100_000_000, MemoryState::at_height(1));
+                let _ = vm.execute(
+                    &loop_wasm,
+                    [1; 32],
+                    &[],
+                    100_000_000,
+                    MemoryState::at_height(1),
+                );
             },
             31,
         );
-        println!("{:<12} {:<26} {:>14.1} {:>12}", tier.name(), "200k-iteration loop, cold", cold, gas);
-        println!("{:<12} {:<26} {:>14.1} {:>12}", tier.name(), "200k-iteration loop, cached", warm, gas);
+        println!(
+            "{:<12} {:<26} {:>14.1} {:>12}",
+            tier.name(),
+            "200k-iteration loop, cold",
+            cold,
+            gas
+        );
+        println!(
+            "{:<12} {:<26} {:>14.1} {:>12}",
+            tier.name(),
+            "200k-iteration loop, cached",
+            warm,
+            gas
+        );
         rows.push(warm);
         if let Some(code) = &swap {
             let mut init = vec![0u8];
             init.extend_from_slice(&1_000_000u64.to_le_bytes());
             init.extend_from_slice(&2_000_000u64.to_le_bytes());
-            let state = vm.execute(code, [1; 32], &init, 10_000_000, MemoryState::at_height(1)).state;
+            let state = vm
+                .execute(code, [1; 32], &init, 10_000_000, MemoryState::at_height(1))
+                .state;
             let mut call = vec![1u8];
             call.extend_from_slice(&1_000u64.to_le_bytes());
             let gas = vm
@@ -84,10 +119,19 @@ fn main() {
                 },
                 101,
             );
-            println!("{:<12} {:<26} {:>14.1} {:>12}", tier.name(), "token_swap swap, cached", t, gas);
+            println!(
+                "{:<12} {:<26} {:>14.1} {:>12}",
+                tier.name(),
+                "token_swap swap, cached",
+                t,
+                gas
+            );
         }
     }
     if let [cranelift, pulley] = rows[..] {
-        println!("pulley / cranelift on the cached loop: {:.1}x slower", pulley / cranelift);
+        println!(
+            "pulley / cranelift on the cached loop: {:.1}x slower",
+            pulley / cranelift
+        );
     }
 }

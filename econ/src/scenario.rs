@@ -67,25 +67,79 @@ const BASE_TPS: f64 = 20.0;
 
 /// Every scenario the reports run, in report order.
 pub fn all() -> Vec<Scenario> {
-    let s = |name, shocks| Scenario { name, days: TWO_YEARS, base_tps: BASE_TPS, shocks };
+    let s = |name, shocks| Scenario {
+        name,
+        days: TWO_YEARS,
+        base_tps: BASE_TPS,
+        shocks,
+    };
     vec![
         s("baseline", vec![]),
-        s("low usage for 2 years (0.05x)", vec![Shock::Usage { day: 0, until: TWO_YEARS, factor: 0.05 }]),
-        s("sudden 100x usage from day 90", vec![Shock::Usage { day: 90, until: TWO_YEARS, factor: 100.0 }]),
-        s("80% price drop on day 180", vec![Shock::Price { day: 180, factor: 0.2 }]),
-        s("large holder exits staking (30% of stake, day 120)", vec![Shock::StakeExit { day: 120, ppm: 300_000 }]),
+        s(
+            "low usage for 2 years (0.05x)",
+            vec![Shock::Usage {
+                day: 0,
+                until: TWO_YEARS,
+                factor: 0.05,
+            }],
+        ),
+        s(
+            "sudden 100x usage from day 90",
+            vec![Shock::Usage {
+                day: 90,
+                until: TWO_YEARS,
+                factor: 100.0,
+            }],
+        ),
+        s(
+            "80% price drop on day 180",
+            vec![Shock::Price {
+                day: 180,
+                factor: 0.2,
+            }],
+        ),
+        s(
+            "large holder exits staking (30% of stake, day 120)",
+            vec![Shock::StakeExit {
+                day: 120,
+                ppm: 300_000,
+            }],
+        ),
         s(
             "fee-market spam campaign (days 60-67)",
-            vec![Shock::Spam { day: 60, days: 7, budget: 2_000_000 * crate::params::UNIT }],
+            vec![Shock::Spam {
+                day: 60,
+                days: 7,
+                budget: 2_000_000 * crate::params::UNIT,
+            }],
         ),
         // Master Prompt 6 §6 macro shocks.
-        s("MP6: 30% currency devaluation (costs x1.43)", vec![Shock::Costs { day: 100, factor: 1.0 / 0.7 }]),
-        s("MP6: 50% market crash", vec![Shock::Price { day: 100, factor: 0.5 }]),
+        s(
+            "MP6: 30% currency devaluation (costs x1.43)",
+            vec![Shock::Costs {
+                day: 100,
+                factor: 1.0 / 0.7,
+            }],
+        ),
+        s(
+            "MP6: 50% market crash",
+            vec![Shock::Price {
+                day: 100,
+                factor: 0.5,
+            }],
+        ),
         s(
             "MP6: liquidity shock (demand -90% 60 days, 20% unstake)",
             vec![
-                Shock::Usage { day: 100, until: 160, factor: 0.1 },
-                Shock::StakeExit { day: 100, ppm: 200_000 },
+                Shock::Usage {
+                    day: 100,
+                    until: 160,
+                    factor: 0.1,
+                },
+                Shock::StakeExit {
+                    day: 100,
+                    ppm: 200_000,
+                },
             ],
         ),
     ]

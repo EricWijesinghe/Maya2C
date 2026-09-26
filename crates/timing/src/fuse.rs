@@ -72,7 +72,12 @@ pub fn marzullo(readings: &[Reading]) -> Option<Fused> {
         })
         .map(|r| r.source)
         .collect();
-    Some(Fused { low_ns: low, high_ns: high, agreeing, outliers })
+    Some(Fused {
+        low_ns: low,
+        high_ns: high,
+        agreeing,
+        outliers,
+    })
 }
 
 #[cfg(test)]
@@ -80,7 +85,11 @@ mod tests {
     use super::*;
 
     fn r(source: Source, offset_ns: i64, uncertainty_ns: u64) -> Reading {
-        Reading { source, offset_ns, uncertainty_ns }
+        Reading {
+            source,
+            offset_ns,
+            uncertainty_ns,
+        }
     }
 
     #[test]
@@ -102,7 +111,11 @@ mod tests {
 
     #[test]
     fn no_majority_means_time_is_unknown() {
-        let readings = [r(Source::Ntp, 0, 10), r(Source::Ptp, 1_000, 10), r(Source::Gnss, 2_000, 10)];
+        let readings = [
+            r(Source::Ntp, 0, 10),
+            r(Source::Ptp, 1_000, 10),
+            r(Source::Gnss, 2_000, 10),
+        ];
         assert_eq!(marzullo(&readings), None);
     }
 }

@@ -52,7 +52,12 @@ impl Ledger {
             return;
         };
         self.balances.insert(from, debited);
-        let credited = self.balances.get(&to).copied().unwrap_or(0).saturating_add(amount);
+        let credited = self
+            .balances
+            .get(&to)
+            .copied()
+            .unwrap_or(0)
+            .saturating_add(amount);
         self.balances.insert(to, credited);
         self.applied += 1;
     }

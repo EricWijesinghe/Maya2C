@@ -10,9 +10,13 @@
 #![allow(clippy::unwrap_used)]
 
 use maya_fee_market::limits::{MAX_TARGET_BLOCK_BYTES, MAX_TREASURY_BPS, MIN_TARGET_BLOCK_BYTES};
-use maya_fee_market::model::{FEATURE_FRAC_BITS, FEATURE_LIMIT, FEATURE_ONE, INPUTS, MAX_GAIN_BPS, UNIT_GAIN_BPS, WEIGHT_FRAC_BITS};
+use maya_fee_market::model::{
+    FEATURE_FRAC_BITS, FEATURE_LIMIT, FEATURE_ONE, INPUTS, MAX_GAIN_BPS, UNIT_GAIN_BPS,
+    WEIGHT_FRAC_BITS,
+};
 use maya_fee_market::{
-    ConfigError, FeeClaim, FeeConfig, Features, MODEL_V1, Model, TxFee, apply_block_fees, neural_next_base_fee,
+    ConfigError, Features, FeeClaim, FeeConfig, MODEL_V1, Model, TxFee, apply_block_fees,
+    neural_next_base_fee,
 };
 
 #[test]
@@ -30,30 +34,64 @@ fn validation_accepts_every_boundary_value_and_rejects_one_past() {
         c.validate()
     };
     assert_eq!(at(|c| c.treasury_bps = MAX_TREASURY_BPS), Ok(()));
-    assert_eq!(at(|c| c.treasury_bps = MAX_TREASURY_BPS + 1), Err(ConfigError::TreasuryShare(MAX_TREASURY_BPS + 1)));
+    assert_eq!(
+        at(|c| c.treasury_bps = MAX_TREASURY_BPS + 1),
+        Err(ConfigError::TreasuryShare(MAX_TREASURY_BPS + 1))
+    );
     assert_eq!(at(|c| c.initial_base_fee = c.min_base_fee), Ok(()));
-    assert_eq!(at(|c| c.target_block_bytes = MIN_TARGET_BLOCK_BYTES), Ok(()));
-    assert_eq!(at(|c| c.target_block_bytes = MIN_TARGET_BLOCK_BYTES - 1), Err(ConfigError::Target(MIN_TARGET_BLOCK_BYTES - 1)));
-    assert_eq!(at(|c| c.target_block_bytes = MAX_TARGET_BLOCK_BYTES), Ok(()));
-    assert_eq!(at(|c| c.target_block_bytes = MAX_TARGET_BLOCK_BYTES + 1), Err(ConfigError::Target(MAX_TARGET_BLOCK_BYTES + 1)));
+    assert_eq!(
+        at(|c| c.target_block_bytes = MIN_TARGET_BLOCK_BYTES),
+        Ok(())
+    );
+    assert_eq!(
+        at(|c| c.target_block_bytes = MIN_TARGET_BLOCK_BYTES - 1),
+        Err(ConfigError::Target(MIN_TARGET_BLOCK_BYTES - 1))
+    );
+    assert_eq!(
+        at(|c| c.target_block_bytes = MAX_TARGET_BLOCK_BYTES),
+        Ok(())
+    );
+    assert_eq!(
+        at(|c| c.target_block_bytes = MAX_TARGET_BLOCK_BYTES + 1),
+        Err(ConfigError::Target(MAX_TARGET_BLOCK_BYTES + 1))
+    );
 }
 
 #[test]
 fn a_fee_of_exactly_the_base_fee_is_accepted_and_one_less_is_not() {
     let c = FeeConfig::TESTING;
-    let claim = [FeeClaim { beneficiary: [7; 32] }];
+    let claim = [FeeClaim {
+        beneficiary: [7; 32],
+    }];
     let size = 1_000;
-    let exact = TxFee { size_bytes: size, max_fee: c.initial_base_fee * size, max_tip: 0 };
+    let exact = TxFee {
+        size_bytes: size,
+        max_fee: c.initial_base_fee * size,
+        max_tip: 0,
+    };
     assert!(apply_block_fees(&c, 1, None, &[exact], &claim).is_ok());
-    let short = TxFee { max_fee: exact.max_fee - 1, ..exact };
+    let short = TxFee {
+        max_fee: exact.max_fee - 1,
+        ..exact
+    };
     assert!(apply_block_fees(&c, 1, None, &[short], &claim).is_err());
 }
 
 #[test]
 fn a_zero_target_or_denominator_means_no_change() {
-    assert_eq!(neural_next_base_fee(100, 5_000, 0, 8, 1, UNIT_GAIN_BPS), 100);
-    assert_eq!(neural_next_base_fee(100, 5_000, 1_000, 0, 1, UNIT_GAIN_BPS), 100);
-    assert_eq!(neural_next_base_fee(0, 5_000, 1_000, 0, 7, UNIT_GAIN_BPS), 7, "the floor still holds");
+    assert_eq!(
+        neural_next_base_fee(100, 5_000, 0, 8, 1, UNIT_GAIN_BPS),
+        100
+    );
+    assert_eq!(
+        neural_next_base_fee(100, 5_000, 1_000, 0, 1, UNIT_GAIN_BPS),
+        100
+    );
+    assert_eq!(
+        neural_next_base_fee(0, 5_000, 1_000, 0, 7, UNIT_GAIN_BPS),
+        7,
+        "the floor still holds"
+    );
 }
 
 /// The network recomputed from its public weights, in `i128`, without sharing
@@ -105,7 +143,10 @@ fn weights_digest(m: &Model) -> u64 {
             h = h.wrapping_mul(0x0100_0000_01b3);
         }
     };
-    m.hidden_weights.iter().flatten().for_each(|&w| eat(i64::from(w)));
+    m.hidden_weights
+        .iter()
+        .flatten()
+        .for_each(|&w| eat(i64::from(w)));
     m.hidden_bias.iter().for_each(|&b| eat(i64::from(b)));
     m.output_weights.iter().for_each(|&w| eat(i64::from(w)));
     eat(i64::from(m.output_bias));

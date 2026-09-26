@@ -58,10 +58,27 @@ fn main() {
     let archive_nodes = 2 * blocks - u64::from(blocks.count_ones());
     println!("history-compactor bench (MMR accumulator; NOT a validity proof)");
     println!("blocks                         {blocks}");
-    println!("pruned fold time               {:.3} s ({:.0} ns/block)", fold.as_secs_f64(), fold.as_nanos() as f64 / blocks as f64);
-    println!("pruned node memory             {} peaks x 32 B = {} B", pruned.peak_count(), pruned.peak_count() * 32);
-    println!("archive build time             {:.3} s", archive_time.as_secs_f64());
-    println!("archive memory                 {archive_nodes} nodes x 32 B = {:.1} MiB", (archive_nodes * 32) as f64 / 1_048_576.0);
+    println!(
+        "pruned fold time               {:.3} s ({:.0} ns/block)",
+        fold.as_secs_f64(),
+        fold.as_nanos() as f64 / blocks as f64
+    );
+    println!(
+        "pruned node memory             {} peaks x 32 B = {} B",
+        pruned.peak_count(),
+        pruned.peak_count() * 32
+    );
+    println!(
+        "archive build time             {:.3} s",
+        archive_time.as_secs_f64()
+    );
+    println!(
+        "archive memory                 {archive_nodes} nodes x 32 B = {:.1} MiB",
+        (archive_nodes * 32) as f64 / 1_048_576.0
+    );
     println!("max inclusion proof            {proof_bytes} B");
-    println!("prove+verify ({samples} samples)   {:.1} us each", prove_verify.as_micros() as f64 / samples as f64);
+    println!(
+        "prove+verify ({samples} samples)   {:.1} us each",
+        prove_verify.as_micros() as f64 / samples as f64
+    );
 }

@@ -51,7 +51,9 @@ impl InclusionProof {
     /// Parses bytes from an untrusted archive. Shape is checked here; whether
     /// the hashes are right is [`InclusionProof::verify`]'s job.
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
-        let (header, body) = bytes.split_at_checked(HEADER_LEN).ok_or(DecodeError::Truncated)?;
+        let (header, body) = bytes
+            .split_at_checked(HEADER_LEN)
+            .ok_or(DecodeError::Truncated)?;
         let u64_at = |at: usize| {
             let mut b = [0u8; 8];
             b.copy_from_slice(&header[at..at + 8]);

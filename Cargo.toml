@@ -271,6 +271,7 @@ members = [
     # Workload generator (Master Prompt 12 §0): seeded transaction mixes with
     # configurable contention and Zipfian access. Dependency-free.
     "crates/loadgen",
+    "crates/spec-ref",
     # Parallel execution byte-identical to sequential (Master Prompt 12 §1,
     # ADR-017): optimistic + in-order validation, and declared-access waves.
     "crates/parallel-exec",

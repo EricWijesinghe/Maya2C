@@ -151,7 +151,11 @@ impl Validator {
         let mut out = Output::default();
         match msg {
             Message::Propose(v) => self.on_propose(from, &v, &mut out),
-            Message::Vote { digest, round, voter } => self.on_vote(digest, round, voter, &mut out),
+            Message::Vote {
+                digest,
+                round,
+                voter,
+            } => self.on_vote(digest, round, voter, &mut out),
             Message::Cert(c) => self.on_cert(from, c, &mut out),
             Message::Fetch(d) => {
                 if let Some(c) = self.dag.by_digest(&d).or_else(|| self.buffer.get(&d)) {
@@ -181,7 +185,10 @@ impl Validator {
             return;
         }
         let digest = v.digest();
-        let probe = Certificate { vertex: v.clone(), votes: Vec::new() };
+        let probe = Certificate {
+            vertex: v.clone(),
+            votes: Vec::new(),
+        };
         let missing = self.dag.missing_parents(&probe);
         if !missing.is_empty() {
             for d in missing {
@@ -203,7 +210,11 @@ impl Validator {
         if *slot == digest {
             out.sends.push((
                 Dest::To(from),
-                Message::Vote { digest, round: v.round, voter: self.id },
+                Message::Vote {
+                    digest,
+                    round: v.round,
+                    voter: self.id,
+                },
             ));
         }
     }
@@ -273,7 +284,10 @@ impl Validator {
     fn progress(&mut self, now_ms: u64, out: &mut Output) {
         let committed = self.committer.try_commit(&self.dag, self.committee);
         if !committed.is_empty() {
-            let horizon = self.committer.last_committed_round().saturating_sub(GC_DEPTH);
+            let horizon = self
+                .committer
+                .last_committed_round()
+                .saturating_sub(GC_DEPTH);
             self.dag.collect_below(horizon);
             self.committer.collect_below(horizon);
             self.voted = self.voted.split_off(&(horizon, 0));
@@ -325,7 +339,12 @@ impl Validator {
         }
         let take = self.params.batch_size.min(self.mempool.len());
         let batch: Vec<u64> = self.mempool.drain(..take).collect();
-        let vertex = Vertex { round, author: self.id, parents, batch };
+        let vertex = Vertex {
+            round,
+            author: self.id,
+            parents,
+            batch,
+        };
         let digest = vertex.digest();
         self.voted.insert((round, self.id), digest);
         self.round = round;
