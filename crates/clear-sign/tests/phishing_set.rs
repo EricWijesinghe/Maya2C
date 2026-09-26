@@ -10,7 +10,11 @@
 //! shape), owner/key change, fake airdrop claim. Each case must raise the
 //! warning its family is defined by — not merely some warning.
 
-#![allow(clippy::unwrap_used, clippy::cast_possible_truncation, clippy::too_many_lines)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::cast_possible_truncation,
+    clippy::too_many_lines
+)]
 
 use std::collections::BTreeSet;
 

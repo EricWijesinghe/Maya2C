@@ -277,6 +277,7 @@ members = [
     "crates/deposit-watcher",
     "crates/treasury",
     "crates/clear-sign",
+    "crates/contract-safety",
     "bins/maya2c-signer",
     # Parallel execution byte-identical to sequential (Master Prompt 12 §1,
     # ADR-017): optimistic + in-order validation, and declared-access waves.

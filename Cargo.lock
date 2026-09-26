@@ -4761,6 +4761,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-contract-safety"
+version = "0.1.0"
+
+[[package]]
 name = "maya-crypto-pq"
 version = "0.1.0"
 dependencies = [
