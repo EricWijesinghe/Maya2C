@@ -33,10 +33,18 @@
 #   ./deploy-production.sh                          # dry run, cloud target: plans only
 #   ./deploy-production.sh --target local-k3d       # dry run, full pipeline on k3d
 #   ./deploy-production.sh --target local-k3d --keep   # leave the cluster up
+#   ./deploy-production.sh --target local-docker    # dry run, NODES containers, no Kubernetes
 #   APPROVED=infrastructure,hardening,rollout ./deploy-production.sh --apply
 #
 # Environment (non-secret): NODES (default 12), BIN_PROFILE (default ci),
 # CLUSTER (default maya2c-local), SKIP_BUILD=1 to reuse target/<profile>/maya2c-node.
+#
+# local-docker exists because k3d is not always runnable: it pulls its helper
+# images from ghcr.io, and k3s needs a nested container runtime. Both fail in
+# a sandbox whose egress policy blocks ghcr or whose kernel refuses nested
+# runc (measured in reports/10-launch.md). The node, image, genesis and smoke
+# test are identical; only the scheduler is missing, and the certificate says
+# which target ran.
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -69,9 +77,12 @@ done
 # of a CI run reads the same as the terminal.
 # ---------------------------------------------------------------------------
 bar() { # bar <done> <total>
-    local done=$1 total=$2 width=24 fill
+    local done=$1 total=$2 width=24 fill i out=""
     fill=$((done * width / total))
-    printf '[%s%s]' "$(printf '#%.0s' $(seq 1 $fill) 2>/dev/null)" "$(printf '.%.0s' $(seq 1 $((width - fill))) 2>/dev/null)"
+    for ((i = 0; i < width; i++)); do
+        if ((i < fill)); then out+="#"; else out+="."; fi
+    done
+    printf '[%s]' "$out"
 }
 phase() { printf '\n== Phase %s: %s %s\n' "$1" "$2" "$(bar "$3" 4)"; }
 step() { printf '   %-58s' "$1"; }
@@ -97,6 +108,7 @@ rollback() {
     for ((i = ${#COMPLETED[@]} - 1; i >= 0; i--)); do
         case "${COMPLETED[$i]}" in
             local-cluster) ((KEEP)) || k3d cluster delete "$CLUSTER" >/dev/null 2>&1 || true ;;
+            local-docker) ((KEEP)) || docker_down ;;
             infrastructure) echo "   terraform destroy would run here (only after APPROVED apply)" >&2 ;;
         esac
     done
@@ -104,6 +116,17 @@ rollback() {
 trap rollback EXIT
 
 need() { command -v "$1" >/dev/null 2>&1; }
+
+docker_down() {
+    docker ps -aq --filter "label=maya2c.cluster=$CLUSTER" | xargs -r docker rm -f >/dev/null 2>&1 || true
+    docker network rm "$CLUSTER" >/dev/null 2>&1 || true
+}
+
+# The genesis the k8s ConfigMap carries, so both local targets boot the same chain.
+extract_genesis() {
+    awk '/^  genesis.json: \|/{on=1; next} on && /^    /{sub(/^    /, ""); print; next} on{exit}' \
+        infra/k8s/base/configmap.yaml
+}
 
 # ---------------------------------------------------------------------------
 phase A "pre-flight" 0
@@ -114,9 +137,10 @@ fi
 for tool in cargo git; do
     step "tool: $tool"; need "$tool" && ok || die "$tool is required"
 done
-if [[ "$TARGET" == local-k3d ]]; then
-    for tool in docker k3d kubectl; do
-        step "tool: $tool"; need "$tool" && ok || die "$tool is required for --target local-k3d"
+if [[ "$TARGET" == local-* ]]; then
+    tools=(docker); [[ "$TARGET" == local-k3d ]] && tools+=(k3d kubectl)
+    for tool in "${tools[@]}"; do
+        step "tool: $tool"; need "$tool" && ok || die "$tool is required for --target $TARGET"
     done
     step "docker daemon"; docker info >/dev/null 2>&1 && ok || die "docker daemon not reachable"
 fi
@@ -147,6 +171,11 @@ if [[ "$TARGET" == local-k3d ]]; then
         ok
     fi
     COMPLETED+=(local-cluster)
+elif [[ "$TARGET" == local-docker ]]; then
+    step "docker network $CLUSTER"
+    docker_down
+    docker network create --label "maya2c.cluster=$CLUSTER" "$CLUSTER" >/dev/null || die "docker network create failed"
+    COMPLETED+=(local-docker); ok
 else
     step "terraform plan (infra/terraform)"
     if need terraform; then
@@ -169,6 +198,8 @@ phase C "hardening" 2
 if [[ "$TARGET" == local-k3d ]]; then
     step "namespace + network policy"
     kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - >/dev/null && ok || die "namespace"
+elif [[ "$TARGET" == local-docker ]]; then
+    step "containers: read-only rootfs, cap-drop ALL, no-new-privs"; ok "(applied per container in phase D)"
 else
     step "ansible-playbook --check infra/ansible/setup_node.yml"
     if need ansible-playbook; then
@@ -189,13 +220,42 @@ else
     cargo build --profile "$BIN_PROFILE" -p maya2c-node >/dev/null 2>&1 || die "cargo build failed"
     ok
 fi
-if [[ "$TARGET" != local-k3d ]]; then
-    step "validators + RPC gateways"; skip "cloud rollout needs APPROVED=rollout"
-else
+if [[ "$TARGET" == local-* ]]; then
     CTX=$(mktemp -d); cp "$BIN" "$CTX/maya2c-node"
     step "image maya2c/node:local"
     docker build -q -t maya2c/node:local -f infra/docker/Dockerfile.local "$CTX" >/dev/null || die "docker build failed"
     rm -rf "$CTX"; ok
+fi
+if [[ "$TARGET" == cloud ]]; then
+    step "validators + RPC gateways"; skip "cloud rollout needs APPROVED=rollout"
+elif [[ "$TARGET" == local-docker ]]; then
+    GEN=$(mktemp -d); extract_genesis > "$GEN/genesis.json"; chmod 755 "$GEN"; chmod 644 "$GEN/genesis.json"
+    step "start $NODES nodes (maya-seed-0 .. maya-seed-$((NODES - 1)))"
+    for ((i = 0; i < NODES; i++)); do
+        docker run -d --name "maya-seed-$i" --network "$CLUSTER" --label "maya2c.cluster=$CLUSTER" \
+            --read-only --tmpfs /data:uid=10001,mode=0700 --cap-drop ALL --security-opt no-new-privileges \
+            -v "$GEN/genesis.json:/config/genesis.json:ro" maya2c/node:local \
+            --genesis /config/genesis.json --data-dir /data --rpc-addr 0.0.0.0:8545 \
+            --metrics-addr 0.0.0.0:9600 --market-addr 0.0.0.0:8546 --p2p-port 30333 >/dev/null \
+            || die "docker run maya-seed-$i failed"
+    done
+    ok
+    step "smoke: get_supply over JSON-RPC on every node (timeout 5 min)"
+    req='{"jsonrpc":"2.0","id":1,"method":"get_supply","params":[]}'
+    deadline=$(( $(date +%s) + 300 ))
+    while :; do
+        answered=0
+        for ((i = 0; i < NODES; i++)); do
+            docker exec "maya-seed-$i" curl -sf -H 'content-type: application/json' -d "$req" \
+                http://127.0.0.1:8545 2>/dev/null | grep -q '"result"' && answered=$((answered + 1))
+        done
+        [[ "$answered" -eq "$NODES" ]] && break
+        (( $(date +%s) > deadline )) && die "only $answered/$NODES nodes answered JSON-RPC; docker logs maya-seed-0"
+        sleep 5
+    done
+    ok "($answered/$NODES answered)"
+    rm -rf "$GEN"
+else
     step "import image into k3d"
     retry 3 5 k3d image import maya2c/node:local -c "$CLUSTER" >/dev/null 2>&1 && ok || die "k3d image import failed"
     step "apply overlay local-k3d ($NODES replicas)"
@@ -227,8 +287,9 @@ fi
 
 ELAPSED=$(( $(date +%s) - START ))
 trap - EXIT
-if [[ "$TARGET" == local-k3d && "$KEEP" == 0 ]]; then
-    k3d cluster delete "$CLUSTER" >/dev/null 2>&1 || true
+if [[ "$KEEP" == 0 ]]; then
+    [[ "$TARGET" == local-k3d ]] && { k3d cluster delete "$CLUSTER" >/dev/null 2>&1 || true; }
+    [[ "$TARGET" == local-docker ]] && docker_down
 fi
 cat <<EOF
 
