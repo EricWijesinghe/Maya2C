@@ -3085,3 +3085,14 @@ class = "RESEARCH"
 status = "working"
 tests = ["crates/interop/tests/interop_tests.rs"]
 note = "Master Prompt 25. Real Ethereum mainnet genesis header hashes correctly; finality (sync-committee BLS) is not verified; no ZK; intents use a stand-in verifier."
+
+[[subsystem]]
+id = "local-fee-markets-lanes"
+name = "Local fee markets, per-app cap and reserved lanes"
+domain = "Consensus and execution"
+paths = "`crates/lanes`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crates/lanes/tests/viral_app.rs", "crates/lanes/tests/lanes_tests.rs"]
+note = "Master Prompt 26. [SIM] viral app at 60% of demand: other apps' fees 1.0x with local fees + per-app cap (global target above cap + demand), 370x under a global market. Not wired into the node."
