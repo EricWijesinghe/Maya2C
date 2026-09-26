@@ -75,32 +75,32 @@ jobs:
       # package.json and the lock disagree, rather than quietly resolving
       # something new on the day the release happens.
       - name: Install
-        working-directory: sdk-js
+        working-directory: sdks/sdk-js
         run: npm ci
 
       - name: Typecheck
-        working-directory: sdk-js
+        working-directory: sdks/sdk-js
         run: npm run typecheck
 
       - name: Test
-        working-directory: sdk-js
+        working-directory: sdks/sdk-js
         run: npm test
 
       - name: Build
-        working-directory: sdk-js
+        working-directory: sdks/sdk-js
         run: npm run build
 
       # What would ship, before it ships. `files` in package.json is a
       # whitelist, and this is where a mistake in it becomes visible.
       - name: Show the tarball contents
-        working-directory: sdk-js
+        working-directory: sdks/sdk-js
         run: npm pack --dry-run
 
       - name: Check the tag matches package.json
         # A tag that disagrees with the version publishes something nobody
         # asked for, under a number that then cannot be reused.
         if: github.event_name == 'push'
-        working-directory: sdk-js
+        working-directory: sdks/sdk-js
         run: |
           tag="${GITHUB_REF_NAME#v}"
           pkg="$(node -p "require('./package.json').version")"
@@ -111,7 +111,7 @@ jobs:
 
       - name: Publish
         if: github.event_name == 'push' || inputs.dry_run == false
-        working-directory: sdk-js
+        working-directory: sdks/sdk-js
         # `--provenance` attaches a signed attestation linking the tarball to
         # this workflow run and this commit, so a consumer can check that what
         # they installed was built from what they can read.
