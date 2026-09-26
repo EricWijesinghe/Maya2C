@@ -165,7 +165,6 @@ not that every DONE WHEN criterion is met.
 - [ ] ADR-026: decide the contract `caller` host function — blocks every ownership contract
 - [ ] Human-only DONE WHEN items: usability studies (MP22, MP29), developer study (MP24), beginner course test (MP30), external audits (MP20), a public testnet (MP19, MP30)
 - [ ] Every `APPROVED: <step>` item: grants, hackathon, benchmark report, beat-bar table, announcement — none given, nothing published
-- [ ] `target-contracts/` has build fingerprints tracked in git; untrack them
 - [ ] `docs/site/.gitignore` names `crates/node/src/content/...` (a pre-move path), so the generated Starlight pages are tracked; fix the path and untrack them in one commit
 
 ---
