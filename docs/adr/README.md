@@ -51,3 +51,4 @@ The observation that would make this worth reopening.
 | [011](ADR-011-threshold-custody.md) | Threshold custody — on-chain multisig now, threshold lattice signing later | Accepted |
 | [012](ADR-012-hash-lock-htlcs.md) | Hash-lock HTLCs are live; lattice locks stay RESEARCH | Accepted |
 | [013](ADR-013-suite-envelope-activation.md) | The suite envelope and multisig are live from genesis | Accepted |
+| [014](ADR-014-threshold-raccoon.md) | Threshold Raccoon for threshold lattice custody (RESEARCH) | Accepted |

@@ -1,6 +1,7 @@
 # ADR-011: Threshold custody — on-chain multisig now, threshold lattice signing later
 
 **Status:** Accepted
+**Amended by:** [ADR-014](ADR-014-threshold-raccoon.md), 2026-09-27 — the threshold lattice scheme is chosen (Threshold Raccoon).
 **Amended by:** [ADR-013](ADR-013-suite-envelope-activation.md), 2026-09-27 — the multisig class: the envelope is live from genesis.
 **Date:** 2026-09-21
 

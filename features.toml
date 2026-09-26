@@ -1870,12 +1870,13 @@ note = "ADR-011. The account is the policy's address; up to 16 post-quantum suit
 id = "threshold-lattice-signing"
 name = "Threshold lattice signing"
 domain = "Cryptography and key management"
-paths = "`crates/custody-mpc/src/threshold.rs` (feature `threshold-lattice`)"
+paths = "`crates/custody-mpc/src/threshold/` (feature `threshold-lattice`)"
 tier = "extended"
 class = "RESEARCH"
-status = "stub"
-tests = []
-note = "ADR-011. Interface only: no peer-reviewed scheme is chosen, and threshold::activate refuses until one is. Candidates and criteria are in the ADR."
+status = "working"
+tests = ["crate:maya-custody-mpc", "crates/custody-mpc/tests/threshold_tests.rs"]
+gate = "cargo test -p maya-custody-mpc --features threshold-lattice (nightly.yml); the known-answer test is the unit test threshold::kat"
+note = "ADR-014. Threshold Raccoon (EUROCRYPT 2024), ported from the authors' reference masksign/ec24-thrc@8ef114a and reproducing its 3-of-5 known answers bit for bit (A, key, 5 shares, 25 pair seeds, every round message, the signature). Dealerless keygen is this repository's and not peer-reviewed (passive security; a bad dealer costs availability, tested). Output is a Raccoon signature no registry suite verifies, so it authorises custody off chain only."
 
 [[subsystem]]
 id = "verifiable-random-function-rfc-9381"

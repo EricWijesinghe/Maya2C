@@ -18,7 +18,7 @@ stated. Kani, Speculos and the Ledger build run in WSL Ubuntu 24.04.
 | Secret memory safety: zeroize, secrecy, subtle, dudect | Built; **one real leak found** (HQC), one harness artefact fixed | §5 |
 | Entropy: SP 800-90A DRBG, 90B health tests, SIM sources, SP 800-22, Dieharder | Built, RESEARCH | §6, ADR-010 |
 | Transparent ZK: no Groth16/BN254/trusted setup | Done; the pairing pool is deleted | §7, ADR-008 |
-| Threshold custody: m-of-n REAL, threshold lattice RESEARCH | m-of-n **REAL**, spends through the apply path; threshold lattice is an interface that refuses | §9, ADR-011, ADR-013 |
+| Threshold custody: m-of-n REAL, threshold lattice RESEARCH | m-of-n **REAL**, spends through the apply path; threshold lattice is **Threshold Raccoon** (RESEARCH), bit-exact with the authors' reference, dealerless keygen | §9, ADR-011, ADR-013 |
 | HTLC: hash-locks REAL, Module-LWE RESEARCH | Hash locks **live from genesis** | §10, ADR-012 |
 | Archival: forward-secure keys, SLH-DSA seals, 100 epochs | Built, RESEARCH | §11 |
 | Ledger app: APDUs, RAM measurement, Speculos | Signs suite `0x10`; 8/8 on two devices | §12, `docs/ledger-feasibility.md` |
@@ -35,9 +35,16 @@ node's own context.)
 1. **"If the Ledger cannot fit ML-DSA, target Stax/Flex."** Stax and Flex have
    *less* app RAM (36 KiB) than a Nano S Plus (40 KiB). The fallback does not
    exist; a low-memory signer was written instead.
-2. **"Threshold lattice signing behind a feature."** The brief also requires a
-   peer-reviewed scheme chosen in an ADR first. None is chosen, so the feature
-   compiles an interface that refuses (ADR-011 lists the candidates).
+2. **"True threshold lattice signing (DKG + partial signature aggregation),
+   enable only after a peer-reviewed scheme is chosen."** The two conditions do
+   not meet in the literature. The peer-reviewed scheme chosen (Threshold
+   Raccoon, EUROCRYPT 2024; ADR-014) assumes a *trusted dealer* -- its paper
+   puts a DKG "outside of the scope of this work" -- and a dealer holds the
+   whole key, which the brief forbids. So signing is the peer-reviewed scheme,
+   and the dealerless keygen is this repository's own construction, labelled
+   as not peer-reviewed. Separately, a Threshold Raccoon signature is a
+   *Raccoon* signature, which is not a NIST standard, so it authorises custody
+   off chain and signs no transaction.
 
 ## 2. Benchmarks
 
@@ -305,8 +312,29 @@ construction. None of these figures is a datasheet number.
   an impostor holding a valid certificate from the institution's own CA and a
   crash; a proof made for another session and an unexpected server key are
   refused.
-- **Threshold lattice signing** is an interface that refuses: no peer-reviewed
-  scheme is chosen. ADR-011 lists the candidates and the criteria.
+- **Threshold lattice signing is Threshold Raccoon-128** (ADR-014), behind
+  `threshold-lattice`. Ported from the scheme authors' own reference
+  (`masksign/ec24-thrc`, commit `8ef114a`) and checked against it **bit for
+  bit** over a 3-of-5 session with two parties offline: `A`, the key, all five
+  shares, all 25 pairwise seeds, every commitment, mask, MAC and response, and
+  the signature (`scripts/traccoon_vectors.py`, `tests/threshold_tests.rs`).
+  The reference's 256-bit Gaussian samples are the one input replayed rather
+  than recomputed, and the test checks each is requested with the reference's
+  seed and width. That test caught a real bug on its first run: the reference
+  samples `A` in the NTT domain, and the port had taken those values as
+  coefficients -- a valid key, just not the reference's.
+- **The keygen is dealerless** (`threshold::dkg`, this repository's, not
+  peer-reviewed): each party commits to its piece of the key before revealing
+  it and Shamir-deals it, and the group secret is never summed anywhere. Over
+  it, any three of five sign with two offline, two cannot, a crash after round
+  one aborts the session and a retry signs, a lying signer is caught in round
+  three, a session id is never answered twice, and a dealer who sends a bad
+  share costs availability, not security.
+- **One finding in the reference itself:** its modulus (Raccoon's, a product
+  of two primes) misses the paper's own Lemma 3.2 condition at `nu_t = 37`.
+  Worked out in ADR-014, the effect is a doubled rounding error on a
+  coefficient with probability 9.1 × 10^-8, far inside the verification bound's
+  slack.
 
 ## 10. HTLCs
 
@@ -382,7 +410,11 @@ The full account is in `docs/ledger-feasibility.md`. In short:
 - **`shielded.max_per_block` is governance-declared but unread** by the node,
   which enforces its own constant. Pre-existing; documented in
   `docs/governance.md`.
-- **No threshold lattice scheme is chosen** (ADR-011).
+- **The threshold keygen is not verifiable** (ADR-014): a malicious dealer
+  can deny service, and naming it needs lattice verifiable secret sharing.
+  Threshold Raccoon's output is not a standard signature, so threshold custody
+  still cannot sign a *transaction*; that needs a peer-reviewed threshold
+  ML-DSA.
 - **Custody certificates are classical**, and are no longer what
   authentication rests on: the ML-DSA-87 exporter signature is (ADR-011
   amendment).

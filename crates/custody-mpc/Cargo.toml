@@ -28,6 +28,9 @@ maya-crypto-pq = { path = "../crypto-pq" }
 chacha20poly1305.workspace = true
 # Commitments, transcripts, and the XOF that derives the second generator.
 blake3.workspace = true
+# SHAKE128/256 and SHA3-256 for Threshold Raccoon's XOFs, PRFs and MACs, which
+# the authors' reference specifies. Only the `threshold-lattice` feature.
+sha3 = { workspace = true, optional = true }
 # ML-DSA-65. Only the 65 parameter set, matching the node — a compiled-in set
 # is a set someone can select by accident.
 fips204 = { workspace = true, features = ["default-rng"] }
@@ -56,15 +59,17 @@ rustls-pki-types = { version = "1", optional = true }
 # dependency.
 default = ["tls"]
 tls = ["dep:tokio", "dep:tokio-rustls", "dep:rustls", "dep:rustls-pki-types"]
-# RESEARCH, off by default and in no default build (ADR-011). Compiles the
-# interface a true threshold lattice scheme must meet — dealerless keygen,
-# partial signatures, aggregation into one signature an existing suite
-# verifies — and nothing that implements it: no scheme is chosen yet, and
-# `threshold::activate` refuses until one is.
-threshold-lattice = []
+# RESEARCH, off by default and in no default build (ADR-014). Threshold
+# Raccoon (EUROCRYPT 2024), ported from the authors' reference and pinned to
+# its vectors, plus a dealerless keygen that is this repository's own and not
+# peer-reviewed. Its output is a Raccoon signature, which no registry suite
+# verifies, so it authorises custody off chain and signs nothing on it.
+threshold-lattice = ["dep:sha3"]
 
 [dev-dependencies]
 hex.workspace = true
+# Reads the Threshold Raccoon known-answer fixture (tests/fixtures/traccoon_kat.json).
+serde_json.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "io-util", "net", "time"] }
 # Self-signed certificates for the loopback mTLS test. A dev-dependency: no
 # shipped code generates a certificate.

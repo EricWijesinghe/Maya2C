@@ -60,6 +60,12 @@ jobs:
           cargo check -p maya-wgpu-miner --features gpu
           cargo check -p maya-ebpf-net --features xdp
 
+      # RESEARCH behind a feature, so the default workspace run compiles its
+      # tests to nothing. Run here, not merely checked: the known-answer test
+      # pins the port to the authors' reference, and a check would not.
+      - name: Threshold Raccoon (threshold-lattice)
+        run: cargo test -p maya-custody-mpc --features threshold-lattice
+
   # ---------------------------------------------------------------------
   # Fuzzing. The decoders of untrusted input, from a persisted corpus.
   # ---------------------------------------------------------------------
