@@ -2931,3 +2931,14 @@ status = "working"
 tests = ["crates/da/tests/da_tests.rs"]
 note = "Master Prompt 13 §6. Hash-based commitments only. Withholding test uses maya-sim's RNG; measured detection matches (1-p)^s."
 
+[[subsystem]]
+id = "state-sync"
+name = "State sync with per-chunk verification"
+domain = "Consensus and execution"
+paths = "`crates/state-sync`"
+tier = "core"
+class = "RESEARCH"
+status = "working"
+tests = ["crates/state-sync/tests/sync_tests.rs"]
+note = "Master Prompt 14 §2. Liars banned, every record imported once; 100M-account run in reports/14-scale.md."
+

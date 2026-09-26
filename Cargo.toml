@@ -281,6 +281,9 @@ members = [
     # Data availability (Master Prompt 13 §6): 2D Reed-Solomon, hash-based
     # commitments, sampling. No KZG. RESEARCH.
     "crates/da",
+    # State sync (Master Prompt 14 §2): per-chunk verification against a
+    # committed root, parallel download, bans for bad chunks. RESEARCH.
+    "crates/state-sync",
     # Workspace automation: `cargo xtask disk` and `cargo xtask coverage`. A
     # member so it is type-checked by the same `cargo check --workspace` that
     # gates everything else, and so the ledger test in it runs in the ordinary
