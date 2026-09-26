@@ -1,0 +1,68 @@
+{
+  "title": "Maya2C SLOs",
+  "uid": "maya-slo",
+  "schemaVersion": 39,
+  "description": "One panel per SLO in docs/SLO.md. Panels whose metric the node does not emit yet are marked in their title; cargo xtask slo-check names them.",
+  "panels": [
+    {
+      "id": "finality",
+      "title": "Finality latency (p50, p99)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, rate(maya_finality_latency_seconds_bucket[5m]))"
+        }
+      ]
+    },
+    {
+      "id": "liveness",
+      "title": "Blocks imported per minute",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(maya_blocks_imported_total[5m]) * 60"
+        }
+      ]
+    },
+    {
+      "id": "rpc",
+      "title": "RPC success ratio and p99",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(maya_rpc_requests_total{status=\"ok\"}[5m])) / sum(rate(maya_rpc_requests_total[5m]))"
+        }
+      ]
+    },
+    {
+      "id": "sync",
+      "title": "State sync duration",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "maya_sync_duration_seconds"
+        }
+      ]
+    },
+    {
+      "id": "validators",
+      "title": "Missed rounds per validator",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "maya_validator_missed_rounds"
+        }
+      ]
+    },
+    {
+      "id": "tip-age",
+      "title": "Age of the newest block seen",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, rate(maya_block_observed_age_seconds_bucket[5m]))"
+        }
+      ]
+    }
+  ]
+}

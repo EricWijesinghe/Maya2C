@@ -1,0 +1,41 @@
+# Prometheus alerting rules, one per SLO in docs/SLO.md. `cargo xtask
+# slo-check` requires each alert named there to exist here. Rules on metrics
+# the node does not emit yet evaluate to nothing and never fire — slo-check
+# reports those SLOs as gaps rather than letting a silent alert pass for one.
+groups:
+  - name: maya-slo
+    rules:
+      - alert: FinalitySlow
+        expr: histogram_quantile(0.5, rate(maya_finality_latency_seconds_bucket[5m])) > 2
+        for: 10m
+        labels: {severity: page}
+        annotations: {runbook: docs/runbooks/fell-behind.md}
+      - alert: FinalitySlowP99
+        expr: histogram_quantile(0.99, rate(maya_finality_latency_seconds_bucket[5m])) > 6
+        for: 10m
+        labels: {severity: page}
+        annotations: {runbook: docs/runbooks/fell-behind.md}
+      - alert: ProductionStalled
+        # No block imported for 10 target spacings (150 s at 15 s blocks).
+        expr: increase(maya_blocks_imported_total[150s]) == 0
+        for: 5m
+        labels: {severity: page}
+        annotations: {runbook: docs/runbooks/chain-halt.md}
+      - alert: RpcErrors
+        expr: 1 - (sum(rate(maya_rpc_requests_total{status="ok"}[30m])) / sum(rate(maya_rpc_requests_total[30m]))) > 0.001
+        for: 15m
+        labels: {severity: ticket}
+        annotations: {runbook: docs/runbooks/rpc-overload.md}
+      - alert: RpcSlow
+        expr: histogram_quantile(0.99, rate(maya_rpc_duration_seconds_bucket{method="get_balance"}[5m])) > 0.25
+        for: 15m
+        labels: {severity: ticket}
+        annotations: {runbook: docs/runbooks/rpc-overload.md}
+      - alert: SyncSlow
+        expr: maya_sync_duration_seconds > 7200
+        labels: {severity: ticket}
+        annotations: {runbook: docs/runbooks/snapshot-corrupt.md}
+      - alert: ValidatorMissing
+        expr: maya_validator_missed_rounds > 1000
+        labels: {severity: page}
+        annotations: {runbook: docs/runbooks/signer-unreachable.md}
