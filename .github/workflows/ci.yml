@@ -42,6 +42,11 @@ jobs:
       - name: features.toml
         run: cargo xtask coverage
 
+      # The prior-art standing order: a "first"/"only"/"unprecedented" claim
+      # on a public surface must cite a completed search that permits it.
+      - name: Superlative claims
+        run: cargo xtask claims-check
+
   # The protocol spec's conformance suite (spec/README.md). The node side,
   # crates/node/tests/conformance.rs, runs in the `test` job with the rest of
   # the workspace; this job checks the vectors are what the reference

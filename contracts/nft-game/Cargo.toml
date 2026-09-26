@@ -1,0 +1,26 @@
+[package]
+name = "nft-game"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "NFT game reference contract for the Maya VM (ERC-721 subset); blocked on caller identity, see ADR-026"
+
+# Not a workspace member, for the reason contracts/token-swap gives: it builds
+# for wasm32-unknown-unknown with no std, and the host workspace's dependency
+# graph cannot compile for that target.
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+
+# Same profile as token-swap, for the same reasons: size and instruction count
+# are stored and metered on chain, and overflow must trap.
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+overflow-checks = true

@@ -3129,3 +3129,14 @@ class = "REAL"
 status = "verified"
 tests = ["crates/design-system/tests/design_tests.rs", "apps/explorer/tests/budget_tests.rs"]
 note = "Master Prompt 29. Both themes pass AA on all 13 required pairs; 10 flows with no dead ends; screenshot diffs pinned to one Playwright image. Used by the explorer; the wallet UI still has its own stylesheet. Translations unreviewed; no usability study, no device measurements."
+
+[[subsystem]]
+id = "reference-apps"
+name = "Reference applications: payments, DEX front end, DAO, quantum-safe vault, NFT game"
+domain = "Consensus and execution"
+paths = "`crates/reference-apps`, `contracts/nft-game`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crates/reference-apps/tests/apps.rs", "crates/reference-apps/tests/nft_game.rs"]
+note = "Master Prompt 30 §1. Four apps compose existing crates and pass their user stories in process; none runs on a testnet (none is public; smart accounts are not a node transaction type). The NFT contract runs in the VM and demonstrates that ownership cannot be checked without a caller host function (ADR-026)."

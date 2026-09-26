@@ -5160,6 +5160,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-reference-apps"
+version = "0.1.0"
+dependencies = [
+ "maya-clear-sign",
+ "maya-crypto-pq",
+ "maya-design-system",
+ "maya-dex",
+ "maya-governance",
+ "maya-privacy",
+ "maya-quantum-harbor",
+ "maya-smart-account",
+ "maya-treasury",
+ "maya-vm",
+]
+
+[[package]]
 name = "maya-rwa"
 version = "0.1.0"
 dependencies = [

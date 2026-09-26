@@ -128,6 +128,14 @@ fn hex4(a: &Address) -> String {
 #[must_use]
 pub fn render(e: &Effect) -> String {
     match e {
+        // The all-zero token is the native coin; "token 0000…0000" reads as a
+        // suspicious unknown token, which is the opposite of the truth.
+        Effect::Transfer { token, to, amount } if *token == [0; 32] => {
+            format!(
+                "Send {amount} base units of the native coin to {}",
+                hex4(to)
+            )
+        }
         Effect::Transfer { token, to, amount } => {
             format!("Send {amount} of token {} to {}", hex4(token), hex4(to))
         }
