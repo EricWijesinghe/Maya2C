@@ -258,6 +258,12 @@ members = [
     # SIM: the economic model as code (Master Prompts 6 §6, 18). Calls the
     # chain's own fee-market and dex rules so the model cannot drift from them.
     "econ",
+    # Transport HAL (Master Prompt 7 §4): one Link trait, REAL link profiles
+    # and SIM/RESEARCH models, QKD mixing rules. Not linked by the node.
+    "hal/link-sim",
+    # Timing service (Master Prompt 7 §5): Marzullo fusion, relativistic
+    # offsets, and the integer bounded-drift check consensus may use.
+    "crates/timing",
     # Workspace automation: `cargo xtask disk` and `cargo xtask coverage`. A
     # member so it is type-checked by the same `cargo check --workspace` that
     # gates everything else, and so the ledger test in it runs in the ordinary

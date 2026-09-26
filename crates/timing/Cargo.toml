@@ -1,0 +1,16 @@
+[package]
+name = "maya-timing"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Timing service: Marzullo fusion of NTP/PTP/GNSS/atomic sources, relativistic corrections for orbital nodes, and the bounded-drift check consensus may use"
+
+# Deliberately empty. The bounded-drift check is the one function here a
+# consensus rule may call, and it is integer-only; the relativity model uses
+# floats and is off the consensus path (Standing Order 4).
+[dependencies]
+
+[lints]
+workspace = true

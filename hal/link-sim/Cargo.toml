@@ -1,0 +1,22 @@
+[package]
+name = "maya-link-sim"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Transport HAL: one Link trait over REAL links and SIM/RESEARCH models (FSO, satellite RF, subsea acoustic, OAM, quantum repeaters, neutrino, orbital delay), QKD key mixing rules"
+
+# BLAKE3 for the QKD key mixer only. Every model here is SIM or RESEARCH and
+# says so; none of it is linked by the node (Standing Order 3). The tests
+# drive DAG-BFT across modelled links, so the engine and the simulator are
+# dev-dependencies.
+[dependencies]
+blake3.workspace = true
+
+[dev-dependencies]
+maya-sim = { path = "../../sim" }
+maya-dag-bft = { path = "../../crates/dag-bft" }
+
+[lints]
+workspace = true

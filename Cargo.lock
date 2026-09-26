@@ -5008,6 +5008,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-link-sim"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "maya-dag-bft",
+ "maya-sim",
+]
+
+[[package]]
 name = "maya-mev"
 version = "0.1.0"
 dependencies = [
@@ -5181,6 +5190,10 @@ dependencies = [
  "maya-wallet-core",
  "maya-wgpu-miner",
 ]
+
+[[package]]
+name = "maya-timing"
+version = "0.1.0"
 
 [[package]]
 name = "maya-vm"

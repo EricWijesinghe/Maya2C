@@ -117,8 +117,10 @@ below that line is intent.
 | Satellite uplink | **PLANNED** | — | Same fragmenter, a different link MTU and no duty cycle. Deferred until the terrestrial path is real |
 | LEO free-space laser mesh | **PLANNED** | — | Optical inter-satellite links |
 | CCSDS delay-tolerant networking (BPv7) | **PLANNED** | — | Bundle Protocol v7 store-and-forward, for links where round-trip time exceeds any sane timeout |
-| Subsea acoustic signalling | **PLANNED** | — | |
-| Subterranean neutrino signalling | **PLANNED** | — | |
+| Transport HAL models (SIM) | **RESEARCH** | `link-sim` | One `Link` trait (MTU, latency, loss, bandwidth, cost, class) over REAL profiles and SIM models: FSO with a 15 dB fade margin and RF fallback, Ku-band rain fade, subsea acoustic, OAM with phase-front recovery, Werner-state repeater chains with a F > 0.95 gate, orbital light time / line of sight / Doppler. QKD is mixed into the PQ secret, dropped at QBER ≥ 11%, and entanglement yields no key without a classical transcript. Tests drive DAG-BFT across an Earth–Mars 3–22 min link. Policy models, not physics simulators |
+| Timing service | **RESEARCH** | `timing` | Marzullo fusion of NTP/PTP/GNSS/atomic/pulsar intervals (outliers flagged, no majority = time unknown), SR+GR rate offsets (GPS +38.5 µs/day reproduced), and the integer `within_drift` check — the only time rule a consensus path may use. Sub-picosecond network agreement is stated as unachievable |
+| Subsea acoustic signalling | **PLANNED** | — | No modem code. A SIM latency/loss model (1,500 m/s) exists in `link-sim` for routing policy only |
+| Subterranean neutrino signalling | **PLANNED** | — | No code that signals. `link-sim` has a RESEARCH model at the one demonstrated rate (~0.1 bit/s, MINERvA 2012) and a repetition decoder |
 
 A note on the transports above: none of them may change consensus. A block is a
 block regardless of the medium that carried it, and the chain must never
