@@ -4857,6 +4857,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-design-system"
+version = "0.1.0"
+
+[[package]]
 name = "maya-dex"
 version = "0.1.0"
 
@@ -4928,6 +4932,7 @@ dependencies = [
  "hex",
  "jsonrpsee",
  "leptos",
+ "maya-design-system",
  "serde",
  "serde_json",
  "sqlx",

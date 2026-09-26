@@ -3118,3 +3118,14 @@ class = "REAL"
 status = "verified"
 tests = ["crates/quantum-harbor/tests/exposure_tests.rs"]
 note = "Master Prompt 28 §1. Verified on Bitcoin's real genesis coinbase (id equals the genesis merkle root); Ethereum rule tested on synthetic accounts (RPC unreachable)."
+
+[[subsystem]]
+id = "design-system"
+name = "Shared design system: WCAG-checked tokens, wallet flow model, security-UX detectors, catalog"
+domain = "Consensus and execution"
+paths = "`crates/design-system`, `design/`"
+tier = "extended"
+class = "REAL"
+status = "verified"
+tests = ["crates/design-system/tests/design_tests.rs", "apps/explorer/tests/budget_tests.rs"]
+note = "Master Prompt 29. Both themes pass AA on all 13 required pairs; 10 flows with no dead ends; screenshot diffs pinned to one Playwright image. Used by the explorer; the wallet UI still has its own stylesheet. Translations unreviewed; no usability study, no device measurements."

@@ -30,6 +30,7 @@
 pub mod error;
 pub mod indexer;
 pub mod model;
+pub mod plain;
 pub mod server;
 pub mod store;
 pub mod ui;
