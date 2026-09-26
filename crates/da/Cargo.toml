@@ -1,0 +1,25 @@
+[package]
+name = "maya-da"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Data availability: 2D Reed-Solomon extension with hash-based (Merkle) commitments and availability sampling; no KZG"
+
+# reed-solomon-simd is already in the lock through `archive` (the DNA codec's
+# outer code). BLAKE3 for the commitments: hash-based, post-quantum, and no
+# trusted setup -- KZG is neither PQ nor transparent (Master Prompt 13 §6).
+[dependencies]
+reed-solomon-simd = "3.1.0"
+blake3.workspace = true
+
+[dev-dependencies]
+maya-sim = { path = "../../sim" }
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "da_bench"
+harness = false

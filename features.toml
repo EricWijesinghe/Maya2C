@@ -2920,3 +2920,14 @@ status = "working"
 tests = ["crates/smart-account/tests/account_tests.rs"]
 note = "Master Prompts 13 §2 and 22 §1-5. Real ML-DSA-65 signatures in every test. Launch-blocking per ADR-016; not yet a node transaction type."
 
+[[subsystem]]
+id = "data-availability"
+name = "Data availability (2D Reed-Solomon + sampling)"
+domain = "Consensus and execution"
+paths = "`crates/da`"
+tier = "core"
+class = "RESEARCH"
+status = "working"
+tests = ["crates/da/tests/da_tests.rs"]
+note = "Master Prompt 13 §6. Hash-based commitments only. Withholding test uses maya-sim's RNG; measured detection matches (1-p)^s."
+
