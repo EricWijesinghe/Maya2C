@@ -1,0 +1,14 @@
+[package]
+name = "maya-interop"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Interoperability without trusted bridges: Ethereum header verification, per-route value caps that grow with clean history, proof-settled intent escrow"
+
+[dependencies]
+sha3.workspace = true
+
+[lints]
+workspace = true

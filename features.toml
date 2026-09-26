@@ -3074,3 +3074,14 @@ class = "REAL"
 status = "working"
 tests = ["bins/maya2c-mcp/tests/mcp_tasks.rs"]
 note = "Master Prompt 24 §5. Decode, clear-sign review, error explanation, node RPC; writes refused to non-loopback nodes. 10/10 task set."
+
+[[subsystem]]
+id = "interop-proof-routes"
+name = "Interop: Ethereum header verification, route caps, intent escrow"
+domain = "Kernel, networking and transport"
+paths = "`crates/interop`, `spec/interop/`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crates/interop/tests/interop_tests.rs"]
+note = "Master Prompt 25. Real Ethereum mainnet genesis header hashes correctly; finality (sync-committee BLS) is not verified; no ZK; intents use a stand-in verifier."
