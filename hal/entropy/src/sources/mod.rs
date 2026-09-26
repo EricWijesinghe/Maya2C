@@ -124,12 +124,20 @@ mod tests {
 
     #[test]
     fn the_os_source_passes_the_health_tests() {
+        // At the declared 8 bits/byte one honest 64 KiB draw trips the
+        // repetition test with probability ~2⁻⁸ (SP 800-90B's α = 2⁻²⁰ per
+        // sample), so one draw failing is expected now and then. A broken
+        // source fails both draws; an honest one does so ~2⁻¹⁶ of the time.
         let mut source = OsSource;
-        let mut buf = vec![0u8; 65_536];
-        source.fill(&mut buf).expect("os");
-        assert_eq!(
-            HealthMonitor::new(source.min_entropy_millibits()).check(&buf),
-            Ok(())
+        let mut draw = || {
+            let mut buf = vec![0u8; 65_536];
+            source.fill(&mut buf).expect("os");
+            HealthMonitor::new(source.min_entropy_millibits()).check(&buf)
+        };
+        let first = draw();
+        assert!(
+            first.is_ok() || draw().is_ok(),
+            "two draws failed: {first:?}"
         );
     }
 

@@ -33,7 +33,6 @@ pub struct MerklePath {
 
 impl MerklePath {
     /// The root this path and `leaf` hash to.
-    #[must_use]
     pub fn root(&self, leaf: &Digest) -> Digest {
         self.siblings
             .iter()

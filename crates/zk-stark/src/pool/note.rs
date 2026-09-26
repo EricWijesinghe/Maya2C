@@ -32,7 +32,6 @@ pub const MAX_VALUE: u64 = (1 << VALUE_BITS) - 1;
 pub const NONCE: usize = 4;
 
 /// The two limbs of `value`. The caller has checked `value <= MAX_VALUE`.
-#[must_use]
 pub fn limbs(value: u64) -> [F; 2] {
     let mask = (1u64 << LIMB_BITS) - 1;
     [
@@ -133,13 +132,11 @@ impl Note {
     }
 
     /// `compress(lo, hi, 0.. ‖ address)`.
-    #[must_use]
     pub fn value_layer(&self) -> Digest {
         compress(&value_digest(self.value), &self.address.0)
     }
 
     /// `rho ‖ rand`.
-    #[must_use]
     pub fn nonce_digest(&self) -> Digest {
         let mut d = [F::ZERO; DIGEST];
         d[..NONCE].copy_from_slice(&self.rho);
@@ -148,20 +145,17 @@ impl Note {
     }
 
     /// The commitment.
-    #[must_use]
     pub fn commitment(&self) -> Digest {
         compress(&self.value_layer(), &self.nonce_digest())
     }
 
     /// The nullifier under `sk`.
-    #[must_use]
     pub fn nullifier(&self, sk: &Digest) -> Digest {
         compress(sk, &nullifier_right(&self.rho))
     }
 }
 
 /// `lo, hi, 0, 0, 0, 0, 0, 0`.
-#[must_use]
 pub fn value_digest(value: u64) -> Digest {
     let [lo, hi] = limbs(value);
     let mut d = [F::ZERO; DIGEST];
@@ -171,7 +165,6 @@ pub fn value_digest(value: u64) -> Digest {
 }
 
 /// `NULLIFIER, rho, 0, 0, 0`.
-#[must_use]
 pub fn nullifier_right(rho: &[F; NONCE]) -> Digest {
     let mut d = domain(Domain::Nullifier);
     d[1..=NONCE].copy_from_slice(rho);

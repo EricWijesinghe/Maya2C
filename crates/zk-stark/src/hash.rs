@@ -60,13 +60,11 @@ pub fn permutation() -> Poseidon2BabyBear<WIDTH> {
 }
 
 /// `P(state)`.
-#[must_use]
 pub fn permute(state: [F; WIDTH]) -> [F; WIDTH] {
     permutation().permute(state)
 }
 
 /// Two-to-one compression: `P(left ‖ right)[..8]`.
-#[must_use]
 pub fn compress(left: &Digest, right: &Digest) -> Digest {
     let mut state = [F::default(); WIDTH];
     state[..DIGEST].copy_from_slice(left);

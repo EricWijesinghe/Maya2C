@@ -44,7 +44,7 @@ const DIFF: usize = SCHEMA + 1;
 const VBITS: usize = DIFF + 1;
 const DBITS: usize = VBITS + VALUE_BITS;
 const END: usize = DBITS + VALUE_BITS;
-const REVOCATION_TAG: u32 = 0x7265_76;
+const REVOCATION_TAG: u32 = 0x0072_6576; // ASCII "rev"
 
 /// What is disclosed about the value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -147,13 +147,11 @@ fn revocation_first(revoked: bool) -> [F; WIDTH] {
 }
 
 /// A credential leaf, as the issuer builds it.
-#[must_use]
 pub fn credential_leaf(subject: &Digest, schema: u32, value: u32, blinding: &Digest) -> Digest {
     compress(&compress(&value_digest(value, schema), subject), blinding)
 }
 
 /// A revocation-tree leaf.
-#[must_use]
 pub fn revocation_leaf(revoked: bool) -> Digest {
     let s = revocation_first(revoked);
     let d0 = compress(
@@ -343,7 +341,6 @@ pub fn verify(proof: &Proof, public: &DisclosurePublic) -> Result<(), ZkError> {
 /// For identifiers and subjects that arrive as bytes; not injective above p,
 /// which for a hash-derived identifier is a 2^-4 per-word nudge, not a
 /// collision an adversary can steer.
-#[must_use]
 pub fn digest_from_bytes(bytes: &[u8; 32]) -> Digest {
     core::array::from_fn(|i| {
         let w = u32::from_le_bytes(bytes[4 * i..4 * i + 4].try_into().expect("4 bytes"));

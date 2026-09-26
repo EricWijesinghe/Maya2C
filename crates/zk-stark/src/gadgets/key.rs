@@ -20,7 +20,6 @@ use p3_matrix::dense::RowMajorMatrix;
 const ROWS: usize = 2;
 
 /// `pk = compress(sk, KEY)`.
-#[must_use]
 pub fn public_key(sk: &Digest) -> Digest {
     compress(sk, &domain(Domain::Key))
 }

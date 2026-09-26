@@ -95,14 +95,12 @@ impl<AB: AirBuilder<F = F>> Air<AB> for RangeAir {
 }
 
 /// The two limbs of `value`, which must be below `2^60`.
-#[must_use]
 pub fn limbs(value: u64) -> [F; 2] {
     let mask = (1u64 << LIMB_BITS) - 1;
     [F::from_u64(value & mask), F::from_u64(value >> LIMB_BITS)]
 }
 
 /// `C = P(lo, hi, 0.. ‖ blind)[..8]`.
-#[must_use]
 pub fn commit(value: u64, blind: &Digest) -> Digest {
     crate::hash::compress(&limb_digest(value), blind)
 }

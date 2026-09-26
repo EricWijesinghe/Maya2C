@@ -27,8 +27,8 @@ pub const DIGEST_BYTES: usize = 4 * DIGEST;
 #[must_use]
 pub fn digest_to_bytes(d: &Digest) -> [u8; DIGEST_BYTES] {
     let mut out = [0u8; DIGEST_BYTES];
-    for (chunk, x) in out.chunks_exact_mut(4).zip(d) {
-        chunk.copy_from_slice(&x.as_canonical_u32().to_le_bytes());
+    for (chunk, x) in out.as_chunks_mut::<4>().0.iter_mut().zip(d) {
+        *chunk = x.as_canonical_u32().to_le_bytes();
     }
     out
 }
@@ -41,8 +41,8 @@ pub fn digest_to_bytes(d: &Digest) -> [u8; DIGEST_BYTES] {
 /// [`ZkError::Malformed`] for a word at or above the modulus.
 pub fn digest_from_bytes(bytes: &[u8; DIGEST_BYTES]) -> Result<Digest, ZkError> {
     let mut out = [F::ZERO; DIGEST];
-    for (x, chunk) in out.iter_mut().zip(bytes.chunks_exact(4)) {
-        let word = u32::from_le_bytes(chunk.try_into().expect("4 bytes"));
+    for (x, chunk) in out.iter_mut().zip(bytes.as_chunks::<4>().0) {
+        let word = u32::from_le_bytes(*chunk);
         if word >= MODULUS {
             return Err(ZkError::Malformed("digest word is not canonical".into()));
         }
@@ -61,7 +61,6 @@ fn empty_roots() -> [Digest; TREE_DEPTH + 1] {
 }
 
 /// The root of a tree that holds no notes.
-#[must_use]
 pub fn empty_root() -> Digest {
     empty_roots()[TREE_DEPTH]
 }
@@ -135,7 +134,6 @@ impl CommitmentTree {
     /// Folds the frontier bottom-up: at each level set in `count` the stored
     /// left node absorbs the partial subtree to its right (or an empty one);
     /// at each clear level the partial subtree is paired with an empty one.
-    #[must_use]
     pub fn root(&self) -> Digest {
         let empty = empty_roots();
         let mut partial: Option<Digest> = None;

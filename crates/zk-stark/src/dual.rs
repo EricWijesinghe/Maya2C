@@ -181,12 +181,11 @@ fn next_pow<AB: AirBuilder>(sel: &[E<AB>]) -> E<AB> {
     sel[S_ROW1].clone() + sel[POW].clone() * E::<AB>::from(AB::F::TWO)
 }
 
+/// Permutation input rows, and per row the extra columns `(bit, sibling, acc)`.
+type PathRows = (Vec<[F; WIDTH]>, Vec<(F, Digest, F)>);
+
 /// Rows for one path: two leaf rows, then its Merkle levels.
-fn path_rows(
-    first: [F; WIDTH],
-    second: Digest,
-    path: &MerklePath,
-) -> (Vec<[F; WIDTH]>, Vec<(F, Digest, F)>) {
+fn path_rows(first: [F; WIDTH], second: Digest, path: &MerklePath) -> PathRows {
     let d0: Digest = permute(first)[..DIGEST].try_into().expect("8");
     let mut states = vec![first, state(&d0, &second)];
     let mut extra = vec![(F::ZERO, [F::ZERO; DIGEST], F::ZERO); 2];

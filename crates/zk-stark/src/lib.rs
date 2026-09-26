@@ -22,6 +22,12 @@
 //! under test can refuse it (invariant 23's lesson, carried over from the
 //! zkML circuit this crate replaces).
 
+// AIR constraints index several trace-column arrays by the same column
+// number (`nx[c]` against `r.x[c]`, `inputs[k]` against `rev[k]`); an index
+// loop states that correspondence directly, where zipped iterators would hide
+// it. Clippy's `needless_range_loop` is therefore allowed crate-wide.
+#![allow(clippy::needless_range_loop)]
+
 pub mod config;
 pub mod credential;
 pub mod dual;
