@@ -3096,3 +3096,14 @@ class = "RESEARCH"
 status = "working"
 tests = ["crates/lanes/tests/viral_app.rs", "crates/lanes/tests/lanes_tests.rs"]
 note = "Master Prompt 26. [SIM] viral app at 60% of demand: other apps' fees 1.0x with local fees + per-app cap (global target above cap + demand), 370x under a global market. Not wired into the node."
+
+[[subsystem]]
+id = "pq-viewing-keys"
+name = "Post-quantum viewing keys and per-transaction disclosure"
+domain = "Cryptography and key management"
+paths = "`crates/privacy`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crates/privacy/tests/privacy_tests.rs"]
+note = "Master Prompt 27 §2. ML-KEM-768 sealed envelopes; account key opens all, disclosure key opens one. Non-membership proof measured at 731,521 bytes; the shielded pool itself stays dark (unaudited)."
