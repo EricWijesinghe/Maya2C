@@ -27,6 +27,7 @@
 
 pub mod arweave;
 pub mod car;
+pub mod dna;
 pub mod error;
 pub mod kubo;
 pub mod manifest;

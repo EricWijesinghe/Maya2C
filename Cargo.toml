@@ -595,6 +595,12 @@ opt-level = 3
 [profile.dev.package.maya-zk-stark]
 opt-level = 3
 
+# The DNA codec's 1 MB round trip (`crates/archive/tests/dna_tests.rs`, the
+# brief's own test) screens, Reed-Solomon-codes and reads back ~49,000
+# strands five times over: measured 44 s unoptimized. Debug assertions stay on.
+[profile.dev.package.maya-archive]
+opt-level = 3
+
 [profile.dev.package.slh-dsa]
 opt-level = 3
 

@@ -166,6 +166,17 @@ missing path would 404 every icon and look like a browser problem.
 
 Dependency caches live on **D:** (`UV_CACHE_DIR=D:\Caches\uv_cache`,
 `NPM_CONFIG_CACHE=D:\Caches\npm_cache`, set at user scope and pinned again in
-`.mcp.json`). Do not create parallel cache dirs. Known deviation: `CARGO_HOME`
-is still `C:\Users\EricW\.cargo` — relocating it means re-downloading the
-registry and re-installing every cargo binary, left alone deliberately.
+`.mcp.json`). Do not create parallel cache dirs.
+
+Nothing this project generates should land on **C:**, which ran down to
+26.7 GB free on 2026-09-22. Moved off it that day:
+
+| What | Now | Why it is safe |
+|---|---|---|
+| `CARGO_HOME` (registry, `bin/`, advisory-db) | `D:\Caches\cargo` | moved whole, not re-downloaded; `C:\Users\EricW\.cargo` is a junction to it, so `PATH` is unchanged |
+| `RUSTUP_HOME` (toolchains) | `D:\Caches\rustup` | same, junction at `C:\Users\EricW\.rustup` |
+| WSL `Ubuntu-24.04` disk (55.6 GB) | `E:\WSL\Ubuntu-24.04\ext4.vhdx` | `wsl --manage Ubuntu-24.04 --move`, the supported path |
+| `TEMP` / `TMP` (user scope) | `D:\Temp` | rust-analyzer copies every proc-macro DLL into `TEMP` per session (`proc-macro-srv*`, up to 887 MB each, 36 were left behind) |
+
+`CARGO_HOME` and `RUSTUP_HOME` are also set at user scope. The junctions stay
+anyway: anything that resolved `~/.cargo` before the move still finds it.

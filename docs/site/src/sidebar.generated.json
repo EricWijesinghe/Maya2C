@@ -1,0 +1,90 @@
+[
+  {
+    "label": "Batch references and deterministic sharded execution",
+    "link": "/reference/blockgraph"
+  },
+  {
+    "label": "Threshold custody for Maya2C",
+    "link": "/reference/custody-mpc"
+  },
+  {
+    "label": "The DAG proof of work",
+    "link": "/reference/dag-pow"
+  },
+  {
+    "label": "The native DEX",
+    "link": "/reference/dex"
+  },
+  {
+    "label": "The testnet faucet",
+    "link": "/reference/faucet"
+  },
+  {
+    "label": "Fee market",
+    "link": "/reference/fee-market"
+  },
+  {
+    "label": "Governance",
+    "link": "/reference/governance"
+  },
+  {
+    "label": "Hybrid ML-DSA-65 + SLH-DSA-SHA2-128s transaction authorization",
+    "link": "/reference/hybrid-signatures"
+  },
+  {
+    "label": "Lattice proof of work",
+    "link": "/reference/lattice-pow"
+  },
+  {
+    "label": "Launch checklist",
+    "link": "/reference/launch-checklist"
+  },
+  {
+    "label": "Can a Ledger sign a Maya2C transaction?",
+    "link": "/reference/ledger-feasibility"
+  },
+  {
+    "label": "Maya2C multi-region deployment runbook",
+    "link": "/reference/mainnet-readiness"
+  },
+  {
+    "label": "The oracle",
+    "link": "/reference/oracle"
+  },
+  {
+    "label": "The Maya2C pool service",
+    "link": "/reference/pool-service"
+  },
+  {
+    "label": "Post-quantum P2P transport (FIPS 203 / ML-KEM-768)",
+    "link": "/reference/pq-transport"
+  },
+  {
+    "label": "Pruning, archives, and pruned bootstrap",
+    "link": "/reference/pruning"
+  },
+  {
+    "label": "SDKs and the API gateway",
+    "link": "/reference/sdk"
+  },
+  {
+    "label": "Automated security audit",
+    "link": "/reference/security-audit"
+  },
+  {
+    "label": "Stratum V2 for Maya2C",
+    "link": "/reference/stratum-v2"
+  },
+  {
+    "label": "Network telemetry",
+    "link": "/reference/telemetry"
+  },
+  {
+    "label": "The wgpu GPU miner",
+    "link": "/reference/wgpu-miner"
+  },
+  {
+    "label": "zkML inference verification",
+    "link": "/reference/zkml"
+  }
+]

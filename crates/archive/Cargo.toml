@@ -38,6 +38,13 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 serde_json.workspace = true
 thiserror.workspace = true
 unsigned-varint = { version = "0.8", features = ["std"] }
+# The DNA archive codec (`src/dna/`). Two different jobs, two crates:
+# `reed-solomon-simd` is the *outer* erasure code across strands -- a lost
+# strand is an erasure whose index is known -- and `reed-solomon` is the
+# *inner* code that corrects substitutions inside one strand, which an
+# erasure-only code cannot do. Both MIT; neither was in the lock before.
+reed-solomon-simd = "3.1.0"
+reed-solomon = "0.2.1"
 # The C library is already linked through RocksDB's `zstd-sys`; this adds only
 # the safe wrapper.
 zstd = "0.13"
