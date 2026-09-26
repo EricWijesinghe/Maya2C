@@ -73,6 +73,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # .cargo/config.toml links through clang + mold on Linux; a runner
+      # without mold fails at the first build script.
+      - name: Install mold
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq mold clang
       # `librocksdb-sys` builds RocksDB's C++ and binds it with bindgen, which
       # needs libclang. Every job that compiles `custom-l1-node` needs this.
       - name: Install RocksDB build dependencies
@@ -143,6 +147,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # .cargo/config.toml links through clang + mold on Linux; a runner
+      # without mold fails at the first build script.
+      - name: Install mold
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq mold clang
       # No RocksDB dependencies here, and that is the point. `maya-ledger-math`
       # has an empty dependency table, so this job compiles one leaf crate to a
       # goto-binary rather than the node's entire C++-linking graph — which is
@@ -182,6 +190,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # .cargo/config.toml links through clang + mold on Linux; a runner
+      # without mold fails at the first build script.
+      - name: Install mold
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq mold clang
       - name: Install RocksDB build dependencies
         run: |
           sudo apt-get update
@@ -256,6 +268,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # .cargo/config.toml links through clang + mold on Linux; a runner
+      # without mold fails at the first build script.
+      - name: Install mold
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq mold clang
       - name: Install RocksDB build dependencies
         run: |
           sudo apt-get update

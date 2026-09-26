@@ -33,6 +33,10 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+      # .cargo/config.toml links through clang + mold on Linux; a runner
+      # without mold fails at the first build script.
+      - name: Install mold
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq mold clang
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-07-15
@@ -113,6 +117,10 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+      # .cargo/config.toml links through clang + mold on Linux; a runner
+      # without mold fails at the first build script.
+      - name: Install mold
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq mold clang
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-07-15
@@ -213,6 +221,10 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+      # .cargo/config.toml links through clang + mold on Linux; a runner
+      # without mold fails at the first build script.
+      - name: Install mold
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq mold clang
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-07-15

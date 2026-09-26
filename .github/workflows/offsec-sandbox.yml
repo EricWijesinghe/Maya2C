@@ -47,6 +47,10 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+      # .cargo/config.toml links through clang + mold on Linux; a runner
+      # without mold fails at the first build script.
+      - name: Install mold
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq mold clang
       - name: Install RocksDB build dependencies
         run: |
           sudo apt-get update
@@ -91,6 +95,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # .cargo/config.toml links through clang + mold on Linux; a runner
+      # without mold fails at the first build script.
+      - name: Install mold
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq mold clang
       # The runner image ships SDKs this job never touches; removing them
       # frees roughly 25 GB for the three builds above.
       - name: Free runner disk
