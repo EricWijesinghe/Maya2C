@@ -1,0 +1,24 @@
+[package]
+name = "maya-state-sync"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "State sync: chunked snapshots verified per chunk against a committed root on arrival, parallel download from many peers, and bans for peers that serve bad chunks"
+
+# BLAKE3 for chunk hashes and the manifest tree. The simulator drives the
+# downloader in tests and in the 100M-account run; the downloader itself is
+# sans-IO so a node can drive it over libp2p request-response.
+[dependencies]
+blake3.workspace = true
+# The network model for `simulate` (the 100M-account run and the tests).
+# Dependency-free and deterministic; the downloader itself does not use it.
+maya-sim = { path = "../../sim" }
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "state-sync-sim"
+path = "src/bin/state-sync-sim.rs"

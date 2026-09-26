@@ -59,19 +59,21 @@ fn certificate<S: SignatureSuite>(id: SuiteId, validators: usize, threads: usize
         sigs: keys[..quorum].iter().map(|(sk, _)| S::sign(sk, &digest).unwrap()).collect(),
     };
     let bytes = cert.bitmap.len() + cert.sigs.iter().map(Vec::len).sum::<usize>();
+    // Verifiers hold public keys only; signing keys never cross a thread.
+    let pks: Vec<Vec<u8>> = keys.into_iter().map(|(_, pk)| pk).collect();
     let t = Instant::now();
     for (i, s) in cert.sigs.iter().enumerate() {
-        verify(id, &keys[i].1, &digest, s).unwrap();
+        verify(id, &pks[i], &digest, s).unwrap();
     }
     let serial = t.elapsed().as_secs_f64() * 1e3;
     let t = Instant::now();
     let chunk = quorum.div_ceil(threads);
     std::thread::scope(|scope| {
         for (c, part) in cert.sigs.chunks(chunk).enumerate() {
-            let keys = &keys;
+            let pks = &pks;
             scope.spawn(move || {
                 for (j, s) in part.iter().enumerate() {
-                    verify(id, &keys[c * chunk + j].1, &digest, s).unwrap();
+                    verify(id, &pks[c * chunk + j], &digest, s).unwrap();
                 }
             });
         }
