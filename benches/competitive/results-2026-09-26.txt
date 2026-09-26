@@ -1,0 +1,19 @@
+date:     2026-09-26T19:48Z
+commit:   e42a92c
+cpu:      Intel(R) Xeon(R) Processor @ 2.80GHz x 4
+rustc:    rustc 1.99.0-nightly (da80ed070 2026-07-14)
+
+SKIPPED  bitcoind devnet: binary not installed
+SKIPPED  geth devnet: binary not installed
+SKIPPED  solana-test-validator devnet: binary not installed
+SKIPPED  sui devnet: binary not installed
+
+== primitive level (same machine, same run; not a chain comparison) ==
+== verifications per second, one core ==
+Ed25519 (classical)         18680 verify/s   pk    32 B   sig     64 B
+ML-DSA-65                    5620 verify/s   pk  1952 B   sig   3309 B
+ML-DSA-87                    3056 verify/s   pk  2592 B   sig   4627 B
+SLH-DSA-SHA2-128s            1382 verify/s   pk    32 B   sig   7856 B
+SLH-DSA-SHAKE-256f            112 verify/s   pk    64 B   sig  49856 B
+Hybrid 65 + 128s             1083 verify/s   pk  1984 B   sig  11165 B
+
