@@ -64,10 +64,13 @@ jobs:
       - name: With the kernel path
         run: cargo test -p maya-ebpf-net --features xdp
 
+      # Same gate as ci.yml's clippy job: `clippy::pedantic` is `warn` by
+      # workspace policy and ratcheted by scripts/lint_debt.sh, so a bare
+      # `-D warnings` would turn that backlog into errors here only.
       - name: Clippy
         run: >
           cargo clippy -p maya-ebpf-net-common -p maya-ebpf-net --features xdp
-          --all-targets -- -D warnings
+          --all-targets -- -A clippy::pedantic -A clippy::unwrap_used -D warnings
 
   # ---------------------------------------------------------------------------
   kernel:
