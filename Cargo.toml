@@ -240,6 +240,17 @@ members = [
     # pool. Replaces Groth16 (arkworks) and halo2/KZG — no trusted setup and
     # no pairing anywhere in the workspace.
     "crates/zk-stark",
+    # History compaction (Master Prompt 3 §6): a Merkle Mountain Range over
+    # every block, so a pruned node keeps 32 bytes and still checks an old
+    # transaction an archive serves. BLAKE3 only, so the proof decoder that
+    # reads a stranger's bytes fuzzes alone. An accumulator, not a validity
+    # proof -- see its lib.rs.
+    "crates/history-compactor",
+    # Consensus modes and the DAG-BFT engine (Master Prompt 4, ADR-015):
+    # Narwhal certification and the Bullshark commit rule as a sans-IO state
+    # machine, plus the most-work fork choice the two work modes share.
+    # RESEARCH: it runs under `maya-sim`, not yet in the node's main loop.
+    "crates/dag-bft",
     # Workspace automation: `cargo xtask disk` and `cargo xtask coverage`. A
     # member so it is type-checked by the same `cargo check --workspace` that
     # gates everything else, and so the ledger test in it runs in the ordinary
