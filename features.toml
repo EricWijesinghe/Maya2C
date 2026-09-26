@@ -2968,7 +2968,7 @@ note = "Master Prompt 15 §4. Genesis-scheduled versions; a block at an unsuppor
 [[subsystem]]
 id = "hash-migration-rehearsal"
 name = "State-commitment hash migration (rehearsed procedure)"
-domain = "Cryptography"
+domain = "Cryptography and key management"
 paths = "`crates/node/tests/hash_migration_rehearsal.rs`, `docs/CRYPTO_WATCH.md`"
 tier = "core"
 class = "RESEARCH"
@@ -2979,7 +2979,7 @@ note = "Master Prompt 15 §6. Re-commitment at an epoch boundary with a dual-has
 [[subsystem]]
 id = "performance-regression-gate"
 name = "Performance regression gate and node pipeline benchmark"
-domain = "Operations"
+domain = "Tooling and formal verification"
 paths = "`scripts/bench_gate.py`, `benchmarks/`, `crates/node/benches/apply_pipeline.rs`"
 tier = "core"
 class = "REAL"
@@ -2990,7 +2990,7 @@ note = "Master Prompt 12 §5. Gate and history format built and self-tested; the
 [[subsystem]]
 id = "remote-validator-signer"
 name = "Remote validator signer with slashing protection"
-domain = "Cryptography"
+domain = "Cryptography and key management"
 paths = "`crates/signer`, `bins/maya2c-signer`"
 tier = "core"
 class = "RESEARCH"
@@ -3001,10 +3001,32 @@ note = "Master Prompt 16 §1-2. Keystore backend only (ADR-022); not called by t
 [[subsystem]]
 id = "dos-guard"
 name = "Pre-KEM and admission denial-of-service defences"
-domain = "Networking"
+domain = "Kernel, networking and transport"
 paths = "`crates/dos-guard`"
 tier = "core"
 class = "RESEARCH"
 status = "working"
 tests = ["crates/dos-guard/tests/attack_sim.rs", "crates/dos-guard/tests/units.rs"]
 note = "Master Prompt 16 §4. [SIM] scenarios pass; not wired into the node's libp2p stack."
+
+[[subsystem]]
+id = "exchange-deposit-watcher"
+name = "Exchange deposit reference service (exactly-once crediting)"
+domain = "Tooling and formal verification"
+paths = "`crates/deposit-watcher`"
+tier = "extended"
+class = "REAL"
+status = "verified"
+tests = ["crates/deposit-watcher/tests/deposits.rs"]
+note = "Master Prompt 17 §1. 100,090 deposits across 40 SIGKILLs: ledger equals ground truth. Reads a BlockSource trait; a node-RPC source is not written."
+
+[[subsystem]]
+id = "offline-signing-loop"
+name = "Air-gapped transaction signing loop"
+domain = "Cryptography and key management"
+paths = "`crates/node/tests/offline_signing.rs`, `docs/integrations/CUSTODY.md`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/offline_signing.rs"]
+note = "Master Prompt 17 §2. Unsigned frame out, signed frame back, admitted by a real mempool and applied; a tampered frame is refused."

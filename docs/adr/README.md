@@ -60,3 +60,5 @@ The observation that would make this worth reopening.
 | [020](ADR-020-spec-conformance-and-upgrades.md) | A spec with an independent reference; upgrades halt instead of fork | Accepted |
 | [021](ADR-021-vote-certificates.md) | Vote certificates — a signature list for v1, a 100-validator cap from its measured cost | Accepted |
 | [022](ADR-022-remote-signer-backends.md) | Remote signer — keystore backend now, HSM/KMS when one can be tested | Accepted |
+| [023](ADR-023-evm-compatibility-honesty.md) | EVM compatibility is not in v1; when it comes it is labelled classical | Accepted |
+| [024](ADR-024-oracle-choice.md) | Oracles — the native module, optional, named authorities until staking exists | Accepted |
