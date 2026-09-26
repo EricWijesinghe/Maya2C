@@ -2842,3 +2842,26 @@ class = "RESEARCH"
 status = "working"
 tests = ["crates/vm/tests/tier_differential_tests.rs"]
 note = "Master Prompt 5 §2. Differential corpus + token_swap: gas, output, events, storage and error class identical in Cranelift cold/cached and Pulley. Pulley 19x slower on this host (reports/05-vm.md)."
+
+[[subsystem]]
+id = "btc-spv"
+name = "Bitcoin SPV header tracker"
+domain = "Consensus and execution"
+paths = "`crates/btc-spv`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-btc-spv", "crates/btc-spv/tests/spv_tests.rs"]
+note = "Master Prompt 6 §3. Real mainnet headers 0-2 verified; 6-block reorg displaces a 6-deep deposit. Not called by the node; lock/mint is Master Prompt 25."
+
+[[subsystem]]
+id = "econ-sim"
+name = "Agent-based economic simulator"
+domain = "Security and macro engines"
+paths = "`econ`"
+tier = "extended"
+class = "SIM"
+status = "working"
+tests = ["crate:maya-econ", "econ/tests/scenario_tests.rs"]
+note = "Master Prompts 6 §6 and 18. Uses fee-market and dex directly. reports/18-economics.md has the run."
+

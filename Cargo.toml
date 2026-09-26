@@ -251,6 +251,13 @@ members = [
     # machine, plus the most-work fork choice the two work modes share.
     # RESEARCH: it runs under `maya-sim`, not yet in the node's main loop.
     "crates/dag-bft",
+    # Bitcoin SPV (Master Prompt 6 §3): header rules bit-exact with Core,
+    # retargeting, chainwork fork choice, reorgs, merkle proofs. SHA-256 only,
+    # because it parses bytes a relayer chose.
+    "crates/btc-spv",
+    # SIM: the economic model as code (Master Prompts 6 §6, 18). Calls the
+    # chain's own fee-market and dex rules so the model cannot drift from them.
+    "econ",
     # Workspace automation: `cargo xtask disk` and `cargo xtask coverage`. A
     # member so it is type-checked by the same `cargo check --workspace` that
     # gates everything else, and so the ledger test in it runs in the ordinary
