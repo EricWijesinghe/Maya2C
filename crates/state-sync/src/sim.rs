@@ -3,6 +3,8 @@
 //! (latency plus each server's uplink serialisation); verification is real
 //! work on real bytes, and its CPU time is measured separately.
 
+#![allow(clippy::cast_precision_loss)]
+
 use std::time::Instant;
 
 use maya_sim::{Duration, Instant as SimInstant, LinkModel, NodeId, World};

@@ -9,7 +9,7 @@
 //!
 //! What this covers: process death at any instruction, including mid
 //! `WriteBatch`. What it does not: power loss, where unsynced OS buffers are
-//! lost too — RocksDB's WAL is not fsynced per write here, which is a stated
+//! lost too — the `RocksDB` WAL is not fsynced per write here, which is a stated
 //! storage choice (ADR-019), not an oversight.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]

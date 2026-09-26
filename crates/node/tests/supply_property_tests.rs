@@ -9,7 +9,7 @@
 //! and self-transfers; a block with any invalid transaction must be refused
 //! whole and leave the state root untouched.
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::cast_possible_truncation, clippy::single_match_else)]
 
 use custom_l1_node::core::{Block, BlockHeader, Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
@@ -67,7 +67,7 @@ fn random_transfer_sequences_conserve_supply_and_failed_blocks_change_nothing() 
             let from = (next(&mut seed) % HOLDERS as u64) as usize;
             let to = addrs[(next(&mut seed) % addrs.len() as u64) as usize];
             // Mostly affordable, sometimes an overdraft.
-            let amount = if next(&mut seed) % 5 == 0 { 50_000 } else { next(&mut seed) % 3_000 };
+            let amount = if next(&mut seed).is_multiple_of(5) { 50_000 } else { next(&mut seed) % 3_000 };
             // Mostly the right nonce, sometimes a replay or a gap.
             let nonce = match next(&mut seed) % 8 {
                 0 => local[from].wrapping_sub(1),

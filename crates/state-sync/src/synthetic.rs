@@ -40,7 +40,9 @@ impl SyntheticState {
     /// every record.
     pub fn balance_sum(chunk: &[u8]) -> u128 {
         chunk
-            .chunks_exact(ACCOUNT_BYTES)
+            .as_chunks::<ACCOUNT_BYTES>()
+            .0
+            .iter()
             .map(|r| {
                 let mut b = [0u8; 8];
                 b.copy_from_slice(&r[32..40]);
