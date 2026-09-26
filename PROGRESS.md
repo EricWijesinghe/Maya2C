@@ -138,7 +138,7 @@ crates rather than duplicating them (D1).
 - [x] P9 — HTLC (ADR-012): `Lock`/`Unlock` over SHA3-256, BLAKE3, SHA-256 hash locks (REAL, live at height 0) and Module-LWE locks (RESEARCH, dark); watcher `SwapSecret`; `htlc_lattice_tests.rs` hash-lock swap, refund at T, forged preimages, in the node's production context
 - [x] P10 — `archive::seal`: forward-secure SLH-DSA-SHAKE-256f epoch keys (one-way seed chain, certified transitions, erasure by move), 100-epoch test + epoch-50 compromise test, `docs/resealing.md` (seal, content-hash and key-compromise procedures)
 - [x] P11 — Ledger app signs suite-0x10 v7 transfers: low-memory ML-DSA-65 (= fips204 + NIST ACVP, ~23 KiB peak stack on Cortex-M vs >140 KiB), GET_PUBLIC_KEY / DISPLAY_ADDRESS / SIGN_TRANSACTION / GET_PAGE with review, node-written parity fixture; Speculos 8/8 on Nano S Plus and Nano X (`scripts/ledger_speculos.sh`); Stax/Flex build
-- [ ] P12 — `benches/crypto.rs`, CSV/MD export, `reports/02-crypto.md`
+- [x] P12 — `crates/node/benches/crypto.rs`: 6 suites × keygen/sign/verify, 7 KEMs × generate/encapsulate/decapsulate, 4 hashes, size tables; CSV + Markdown exported from criterion's own estimates (43 rows, `reports/crypto-bench.{csv,md}`); `reports/02-crypto.md` reads them beside the ACVP, dudect, entropy, STARK, custody, HTLC, archive and Ledger results
 
 ---
 

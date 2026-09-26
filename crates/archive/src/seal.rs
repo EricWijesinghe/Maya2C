@@ -126,11 +126,9 @@ impl EpochSigner {
             .checked_add(1)
             .ok_or_else(|| ArchiveError::Seal("epoch counter exhausted".into()))?;
         let next = Self::at(epoch, shake(&[EVOLVE_DOMAIN, self.seed.as_slice()]));
-        let signature = SlhDsaShake256f::sign(
-            &self.key,
-            &transition_message(epoch, &next.public_key),
-        )
-        .map_err(|e| ArchiveError::Seal(e.to_string()))?;
+        let signature =
+            SlhDsaShake256f::sign(&self.key, &transition_message(epoch, &next.public_key))
+                .map_err(|e| ArchiveError::Seal(e.to_string()))?;
         let transition = Transition {
             epoch,
             public_key: next.public_key.clone(),
@@ -205,7 +203,10 @@ impl KeyChain {
                 self.tip()
             )));
         }
-        let tip_key = self.keys.last().ok_or_else(|| ArchiveError::Seal("empty chain".into()))?;
+        let tip_key = self
+            .keys
+            .last()
+            .ok_or_else(|| ArchiveError::Seal("empty chain".into()))?;
         SlhDsaShake256f::verify(
             tip_key,
             &transition_message(transition.epoch, &transition.public_key),

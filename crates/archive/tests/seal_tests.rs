@@ -38,7 +38,9 @@ fn run() -> History {
         chain.verify(&seal).expect("fresh seal verifies");
         seals.push(seal);
         let (next, transition) = signer.evolve().expect("evolve");
-        chain.admit(transition.clone()).expect("certified transition");
+        chain
+            .admit(transition.clone())
+            .expect("certified transition");
         transitions.push(transition);
         signer = next;
     }
@@ -84,7 +86,9 @@ fn a_compromise_at_epoch_50_cannot_forge_the_past() {
     }
     // The attacker holds `signer`: epoch 50. It seals as 50 …
     let stolen = signer.seal(&root(7)).expect("seal");
-    chain.verify(&stolen).expect("epoch 50 is the attacker's now");
+    chain
+        .verify(&stolen)
+        .expect("epoch 50 is the attacker's now");
 
     // … but a seal claiming epoch 49, or any earlier one, signed by the only
     // key it has, is refused: the signature is not by that epoch's key.
@@ -126,6 +130,9 @@ fn tampered_seals_and_transitions_are_refused() {
     };
     assert!(chain.admit(skipped).is_err(), "no skipping");
     transition.public_key[0] ^= 1;
-    assert!(chain.admit(transition).is_err(), "key bound to its certificate");
+    assert!(
+        chain.admit(transition).is_err(),
+        "key bound to its certificate"
+    );
     assert_eq!(chain.tip(), 0);
 }

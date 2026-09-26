@@ -1,0 +1,44 @@
+group,function,parameter,mean_ns,median_ns,std_dev_ns
+hash,argon_blake (consensus PoW),,30710121.7,31656340.6,3092775.4
+hash,blake3 (64 B),,245.8,242.3,22.8
+hash,sha256 (64 B),,89.3,89.1,18.0
+hash,sha3-256 (64 B),,728.4,731.3,65.8
+kem,decapsulate,Dual ML-KEM-1024+HQC-256,2848101.6,2847957.9,135341.2
+kem,decapsulate,Dual ML-KEM-768+HQC-128,579048.8,576889.9,31245.7
+kem,decapsulate,HQC-128 (draft),393481.1,342764.4,96851.0
+kem,decapsulate,HQC-256 (draft),2271338.9,2464857.6,471991.8
+kem,decapsulate,ML-KEM-1024,75183.9,74347.2,4255.1
+kem,decapsulate,ML-KEM-768,38234.0,38831.8,8079.5
+kem,decapsulate,X-Wing,147784.1,160838.2,28416.6
+kem,encapsulate,Dual ML-KEM-1024+HQC-256,1754056.8,1802142.0,253010.2
+kem,encapsulate,Dual ML-KEM-768+HQC-128,285200.1,278594.3,56907.5
+kem,encapsulate,HQC-128 (draft),269262.9,287703.1,56367.3
+kem,encapsulate,HQC-256 (draft),1514871.7,1496372.3,284897.2
+kem,encapsulate,ML-KEM-1024,73080.6,72086.7,8357.0
+kem,encapsulate,ML-KEM-768,42394.5,42910.6,3880.7
+kem,encapsulate,X-Wing,126056.0,129165.2,28769.5
+kem,generate,Dual ML-KEM-1024+HQC-256,805516.6,899540.9,199810.2
+kem,generate,Dual ML-KEM-768+HQC-128,191140.3,196851.1,28438.4
+kem,generate,HQC-128 (draft),153402.7,150907.5,24395.1
+kem,generate,HQC-256 (draft),822151.6,831974.1,118025.9
+kem,generate,ML-KEM-1024,76404.0,75768.3,3741.5
+kem,generate,ML-KEM-768,45330.1,47243.6,6731.3
+kem,generate,X-Wing,62512.3,66133.5,13156.8
+signature,keygen_from_seed,Ed25519,18107.5,17779.2,5634.9
+signature,keygen_from_seed,ML-DSA-65,266466.0,246123.1,59797.6
+signature,keygen_from_seed,ML-DSA-65+SLH-DSA-SHA2-128s,23193815.2,24240983.0,3038515.0
+signature,keygen_from_seed,ML-DSA-87,404962.0,392786.1,49675.8
+signature,keygen_from_seed,SLH-DSA-SHA2-128s,23380670.3,24531352.9,2490669.1
+signature,keygen_from_seed,SLH-DSA-SHAKE-256f,15343600.8,15273550.5,2222464.7
+signature,sign,Ed25519,23847.3,23741.3,7409.5
+signature,sign,ML-DSA-65,628621.6,600971.8,255596.9
+signature,sign,ML-DSA-65+SLH-DSA-SHA2-128s,159580822.5,164979850.0,41781251.7
+signature,sign,ML-DSA-87,1679244.0,1498044.9,634906.4
+signature,sign,SLH-DSA-SHA2-128s,189672740.0,195202850.0,17009661.9
+signature,sign,SLH-DSA-SHAKE-256f,266158200.0,273643200.0,31842437.4
+signature,verify,Ed25519,72955.8,68410.9,12418.2
+signature,verify,ML-DSA-65,166031.2,155420.6,42237.6
+signature,verify,ML-DSA-65+SLH-DSA-SHA2-128s,403223.0,406853.1,51122.6
+signature,verify,ML-DSA-87,259447.1,259447.5,42425.0
+signature,verify,SLH-DSA-SHA2-128s,169185.3,179656.7,39461.6
+signature,verify,SLH-DSA-SHAKE-256f,7484351.0,7158622.5,883395.4

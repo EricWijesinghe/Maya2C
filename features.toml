@@ -1768,7 +1768,7 @@ class = "REAL"
 status = "verified"
 tests = []
 gate = "cargo bench --workspace --no-run"
-note = "13 criterion targets. Standing Order 2: a number in a brief is a target, and benches/algo_comparison.rs states in its own output what it could not measure rather than leaving a silent gap."
+note = "14 criterion targets. benches/crypto.rs covers every signature suite, every KEM and the hashes, and exports reports/crypto-bench.{csv,md} from criterion's own estimates (MAYA_CRYPTO_REPORT=1); the figures are read in reports/02-crypto.md. Standing Order 2: a number in a brief is a target, and benches/algo_comparison.rs states in its own output what it could not measure rather than leaving a silent gap."
 
 [[feature]]
 id = "memory"
