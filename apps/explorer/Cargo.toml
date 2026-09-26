@@ -22,6 +22,9 @@ path = "src/main.rs"
 # Reused rather than redeclared: the node already defines the wire types the
 # explorer displays, so depending on it keeps the two from drifting apart.
 custom-l1-node = { path = "../../crates/node" }
+# The shared tokens (Master Prompt 29): one palette for every interface,
+# checked against WCAG AA in its own tests.
+maya-design-system = { path = "../../crates/design-system" }
 
 # SSR only. A hydrating build needs cargo-leptos and wasm-bindgen to produce a
 # client bundle; this renders on the server and pushes updates over WebSocket.

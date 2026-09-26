@@ -58,7 +58,7 @@ pub fn Shell(
     children: Children,
 ) -> impl IntoView {
     view! {
-        <html>
+        <html data-theme="command">
             <head>
                 <meta charset="utf-8"/>
                 <meta name="viewport" content="width=device-width, initial-scale=1"/>
@@ -89,7 +89,7 @@ pub fn Shell(
                 <meta name="twitter:card" content="summary_large_image"/>
                 <meta name="twitter:image" content="/assets/og-image.png"/>
 
-                <style>{STYLES}</style>
+                <style>{styles()}</style>
             </head>
             <body>
                 <nav class="nav">
@@ -322,7 +322,9 @@ pub fn block_page(block: IndexedBlock, transactions: Vec<IndexedTx>) -> String {
 pub fn transaction_page(transaction: Option<IndexedTx>, query: String) -> String {
     let body = match transaction {
         Some(tx) => view! {
-            <section class="panel">
+            <p class="plain">{crate::plain::describe(&tx)}</p>
+            <details class="panel">
+                <summary>"Technical view"</summary>
                 <dl class="detail">
                     <dt>"Txid"</dt><dd class="mono">{tx.txid.clone()}</dd>
                     <dt>"Block"</dt>
@@ -336,7 +338,7 @@ pub fn transaction_page(transaction: Option<IndexedTx>, query: String) -> String
                     <dt>"Value"</dt><dd>{tx.total_out.to_string()}</dd>
                     <dt>"Signed"</dt><dd>{if tx.signed { "yes" } else { "no" }}</dd>
                 </dl>
-            </section>
+            </details>
         }
         .into_any(),
         None if query.is_empty() => view! {
@@ -428,9 +430,14 @@ pub fn not_found_page(what: String) -> String {
 // assets
 // ---------------------------------------------------------------------------
 
+/// The shared design-system tokens, then the explorer's own rules. The
+/// explorer renders the "command" theme, its signature dark look; the calm
+/// theme is the same tokens under `data-theme="calm"`.
+fn styles() -> String {
+    format!("{}{STYLES}", maya_design_system::tokens::css())
+}
+
 const STYLES: &str = r#"
-:root { color-scheme: light dark; --fg:#e6e6e6; --bg:#12141a; --muted:#8a91a0;
-        --panel:#1a1d26; --accent:#5ad1a0; --border:#272b36; }
 * { box-sizing: border-box; }
 body { margin:0; font:14px/1.5 ui-sans-serif,system-ui,sans-serif;
        background:var(--bg); color:var(--fg); }
@@ -465,7 +472,10 @@ th { color:var(--muted); font-size:0.75rem; text-transform:uppercase;
 td a { color:var(--accent); text-decoration:none; }
 .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:0.85em; }
 .muted { color:var(--muted); }
-.error { color:#ff8a8a; }
+.error { color:var(--danger); }
+.plain { font-size:1.05rem; margin:0 0 1rem; }
+details.panel summary { cursor:pointer; color:var(--muted); margin-bottom:0.75rem; }
+:focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
 .chart { display:flex; align-items:flex-end; gap:3px; height:120px;
          padding-top:0.5rem; }
 .bar { flex:1; min-width:2px; background:var(--accent); opacity:0.75;
@@ -479,7 +489,8 @@ td a { color:var(--accent); text-decoration:none; }
 .search input { flex:1; padding:0.55rem 0.7rem; background:var(--panel);
                 border:1px solid var(--border); border-radius:6px;
                 color:var(--fg); font-family:ui-monospace,monospace; }
-.search button { padding:0.55rem 1.1rem; background:var(--accent); color:#0b0d12;
+.search button { padding:0.55rem 1.1rem; background:var(--accent); color:var(--on-accent);
+                 min-height:var(--touch-target);
                  border:0; border-radius:6px; font-weight:600; cursor:pointer; }
 @media (max-width:600px) { .detail { grid-template-columns:1fr; } }
 "#;

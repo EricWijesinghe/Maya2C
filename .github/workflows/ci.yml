@@ -68,6 +68,28 @@ jobs:
       - name: Rule coverage (gaps are listed, not fatal)
         run: cargo xtask spec-coverage
 
+  # Screenshot diffs of the design-system specimen (Master Prompt 29). Pinned
+  # to one Playwright image because font rasterisation differs between hosts:
+  # the baselines are only comparable with the Chromium and fonts that drew
+  # them. The token and specimen goldens themselves are checked by the
+  # maya-design-system tests in the `test` job.
+  visual:
+    name: visual regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container: mcr.microsoft.com/playwright:v1.56.1-noble
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the matching Playwright package
+        run: npm install --no-save --prefix design/visual playwright@1.56.1
+      - name: Compare against baselines
+        run: node design/visual/regress.mjs
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: visual-diff
+          path: design/visual/out/
+
   fmt:
     name: rustfmt
     runs-on: ubuntu-latest

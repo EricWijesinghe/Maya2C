@@ -1,0 +1,16 @@
+[package]
+name = "maya-design-system"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Shared design tokens (two themes, WCAG-checked), wallet flow model, security-UX detectors and message catalog for the Maya2C interfaces"
+
+# No dependencies on purpose: the explorer (SSR), the wallet UI (WASM) and the
+# portal all read these tokens, and a dependency-free crate builds for every
+# one of those targets without feature juggling.
+[dependencies]
+
+[lints]
+workspace = true
