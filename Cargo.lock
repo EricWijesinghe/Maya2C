@@ -5405,6 +5405,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya2c-mcp"
+version = "0.1.0"
+dependencies = [
+ "custom-l1-node",
+ "hex",
+ "maya-clear-sign",
+ "serde_json",
+]
+
+[[package]]
 name = "maya2c-miner"
 version = "0.1.0"
 dependencies = [

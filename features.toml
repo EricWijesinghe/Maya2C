@@ -3063,3 +3063,14 @@ class = "RESEARCH"
 status = "working"
 tests = ["crates/contract-safety/tests/exploit_table.rs"]
 note = "Master Prompt 23. 20 historical exploit patterns: 4 VM, 4 invariant, 7 rate-limited (delayed), 5 not blocked. Not wired into crates/vm."
+
+[[subsystem]]
+id = "mcp-server"
+name = "Model Context Protocol server for AI assistants"
+domain = "Tooling and formal verification"
+paths = "`bins/maya2c-mcp`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["bins/maya2c-mcp/tests/mcp_tasks.rs"]
+note = "Master Prompt 24 §5. Decode, clear-sign review, error explanation, node RPC; writes refused to non-loopback nodes. 10/10 task set."

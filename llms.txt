@@ -1,0 +1,32 @@
+# Maya2C
+
+> A post-quantum Layer-1 node in Rust. Every transaction carries two
+> signatures, ML-DSA-65 (FIPS 204) and SLH-DSA-SHA2-128s (FIPS 205), and both
+> must verify. Consensus today is proof of work; DAG-BFT is built but not
+> wired in (ADR-015). No public network exists.
+
+Facts an assistant gets wrong without these:
+
+- An address is `blake3("custom-l1-node.address.v3" || ml_dsa_pk || slh_dsa_pk)`, 32 bytes. It is not a public key.
+- A plain transfer (wire v5) is 13,215 bytes. There is no memo field. Nonces are strict: exactly the sender's next nonce.
+- Amounts are base units. No decimals constant and no ticker symbol are defined.
+- Fees are not charged on any network yet (the fee market is inactive).
+- v7 (suite-tagged) and v8 (multisig) transactions are active from genesis (ADR-013).
+
+## Specification
+- [spec/README.md](spec/README.md): rule IDs, and how conformance vectors are made
+- [spec/01-encoding.md](spec/01-encoding.md), [spec/02-transactions.md](spec/02-transactions.md), [spec/03-state.md](spec/03-state.md), [spec/04-fees.md](spec/04-fees.md), [spec/05-consensus.md](spec/05-consensus.md)
+- [spec/tests/](spec/tests/): language-neutral JSON vectors (every u64 is a decimal string)
+
+## Building and testing
+- [CLAUDE.md](CLAUDE.md): standing orders, build commands, workspace map
+- [docs/BENCHMARK_METHODOLOGY.md](docs/BENCHMARK_METHODOLOGY.md): how every number is produced
+
+## Integrating
+- [docs/integrations/EXCHANGES.md](docs/integrations/EXCHANGES.md), [docs/integrations/CUSTODY.md](docs/integrations/CUSTODY.md)
+- [docs/NODE_TYPES.md](docs/NODE_TYPES.md)
+- `maya2c-mcp`: an MCP server with decode_transaction, review_intent, explain_error, rpc_call (writes refused to non-local nodes)
+
+## What is real
+- [features.toml](features.toml): 120+ subsystems, each REAL, RESEARCH or SIM, with a named test
+- [docs/architecture-vision.md](docs/architecture-vision.md)
