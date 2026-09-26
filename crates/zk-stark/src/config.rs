@@ -2,7 +2,7 @@
 //!
 //! - **PCS:** FRI over BabyBear with the *hiding* variant, so proofs reveal
 //!   nothing about the witness beyond the public values.
-//! - **Commitments and transcript:** Keccak-f[1600]. The outer layer of the
+//! - **Commitments and transcript:** `Keccak-f[1600]`. The outer layer of the
 //!   proof rests on the hash with the longest cryptanalysis record; Poseidon2
 //!   is used only *inside* the AIRs, where it is cheap to arithmetise.
 //! - **FRI:** blowup 4 (`log_blowup = 2`), 100 queries, 16 bits of query
