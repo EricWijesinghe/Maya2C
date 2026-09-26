@@ -330,3 +330,8 @@ harness = false
 # The root package inherits the same lint policy as every member.
 [lints]
 workspace = true
+
+# maya-build-guard has no items to use: it exists only so its features unify
+# with the rest of the build and fire compile_error! (crates/build-guard).
+[package.metadata.cargo-machete]
+ignored = ["maya-build-guard"]

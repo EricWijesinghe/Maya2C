@@ -145,6 +145,7 @@ mod device {
         // test, and `tests/ledger_tests.rs` checks its output under Speculos
         // against a host SLIP-0010 derivation of the same phrase.
         #[allow(unsafe_code)]
+        // SAFETY: both buffers are live and sized as above; nulls are allowed.
         unsafe {
             ledger_device_sdk::sys::os_perso_derive_node_with_seed_key(
                 ledger_device_sdk::sys::HDW_ED25519_SLIP10,

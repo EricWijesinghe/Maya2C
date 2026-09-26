@@ -15,7 +15,7 @@ started.** The mainnet binary cannot start today by design (ADR-016).
 | Criterion | Evidence | State |
 |---|---|---|
 | Workspace builds and every test passes | `reports/raw-test-baseline-2026-09-27.log` (2,626 passed, 0 failed) | PASS |
-| 12-node local cluster comes up from genesis | `scripts/local_cluster.sh`; `deploy-production.sh --target local-k3d` (`reports/10-launch.md`) | see report |
+| 12-node local cluster comes up from genesis | `scripts/local_cluster.sh`; `deploy-production.sh --target local-docker` ran 12/12 RPC-healthy (not peered); `--target local-k3d` blocked in this sandbox (`reports/10-launch.md`) | partial |
 | Reality ledger claims backed | `cargo xtask coverage` | PASS |
 
 ## Gate 2 — Devnet (persistent, team-operated)
