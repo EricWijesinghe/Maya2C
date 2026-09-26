@@ -15,6 +15,7 @@
 
 mod coverage;
 mod disk;
+mod go_no_go;
 mod readiness;
 mod release_check;
 mod slo_check;
@@ -39,6 +40,7 @@ fn main() -> ExitCode {
         "readiness" => readiness::run(rest),
         "spec-coverage" => spec_coverage::run(rest),
         "slo-check" => slo_check::run(rest),
+        "go-no-go" => go_no_go::run(rest),
         "help" | "--help" | "-h" => {
             usage();
             return ExitCode::SUCCESS;
@@ -76,7 +78,9 @@ cargo xtask <command>
                         positive and a negative vector for it. --strict fails
                         on any consensus rule without both.
   slo-check             Fail if any SLO in docs/SLO.md lacks a registered
-                        metric, a dashboard panel, an alert or a runbook."
+                        metric, a dashboard panel, an alert or a runbook.
+  go-no-go              Compute every mainnet launch gate from evidence:
+                        PASS (with its evidence), FAIL, or NEEDS HUMAN."
     );
 }
 
