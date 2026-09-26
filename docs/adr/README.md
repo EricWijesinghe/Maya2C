@@ -62,3 +62,4 @@ The observation that would make this worth reopening.
 | [022](ADR-022-remote-signer-backends.md) | Remote signer — keystore backend now, HSM/KMS when one can be tested | Accepted |
 | [023](ADR-023-evm-compatibility-honesty.md) | EVM compatibility is not in v1; when it comes it is labelled classical | Accepted |
 | [024](ADR-024-oracle-choice.md) | Oracles — the native module, optional, named authorities until staking exists | Accepted |
+| [025](ADR-025-mev-position.md) | The mainnet MEV position — batch settlement in core, sealed mempool optional | Accepted |

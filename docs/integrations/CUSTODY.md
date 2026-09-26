@@ -24,8 +24,7 @@ threshold scheme exists in this tree only as RESEARCH
 (`crates/custody-mpc`, feature `threshold-lattice`) and is not audited.
 Until one is, **on-chain m-of-n multisig is the supported path**: each
 signer holds a whole key and the chain checks m signatures. The multisig
-transaction (wire v8, ADR-013) is dark at activation height `u64::MAX` today;
-activating it is a governance decision.
+transaction (wire v8) is active from genesis (ADR-013, `SUITE_ENVELOPE_ACTIVATION_HEIGHT = 0`).
 
 ## Air-gapped signing
 

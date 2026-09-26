@@ -33,5 +33,5 @@ u8   signature_flag          0 = unsigned, 1 = signed
 ## Gaps
 
 - Version 6 payload encodings (`TxKind`) have no vectors.
-- Versions 7 and 8 are dark (activation height `u64::MAX`) and have no vectors.
+- Versions 7 and 8 are active from genesis (`SUITE_ENVELOPE_ACTIVATION_HEIGHT = 0`, ADR-013) and have no vectors yet.
 - Block and header encodings: see [05-consensus.md](05-consensus.md).
