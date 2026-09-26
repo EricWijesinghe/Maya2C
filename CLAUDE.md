@@ -263,7 +263,9 @@ Four things that will otherwise cost a day each:
 Measured 2026-09-20: cold `cargo check --workspace --all-targets` 4m 34s,
 cold build 4m 54s, `cargo nextest run --workspace` 2,515 tests across 169
 binaries all passing, root `target/` 26.4 GiB and 27.7 GiB across every
-artifact directory.
+artifact directory. Measured 2026-09-26 (80 members, 4 vCPU cloud VM):
+`cargo test --workspace --profile ci --no-fail-fast` 2,793 passed, 0 failed,
+6 ignored across 320 test binaries (doc-tests included) in 41m 0s.
 
 ## Code Conventions
 
@@ -278,7 +280,7 @@ artifact directory.
 - **Comments say why, not what.** This repository's manifests and modules
   explain the reasoning behind a boundary, a version pin or a parameter set.
   That prose is the documentation — do not strip it when editing near it.
-- `clippy::pedantic` is `warn`, not `deny`, and 1,175 remain at the last ratchet.
+- `clippy::pedantic` is `warn`, not `deny`, and 1,143 remain at the last ratchet.
   The count is ratcheted: `scripts/lint_debt.sh --check` fails if it rises,
   and `nightly.yml` runs it. It may fall freely. If a change legitimately
   raises it, run `--update` and say why in the commit message.
