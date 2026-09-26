@@ -3052,3 +3052,14 @@ class = "RESEARCH"
 status = "working"
 tests = ["crates/clear-sign/tests/phishing_set.rs"]
 note = "Master Prompt 22 §4. 220 synthesized drainer cases in 11 families all flagged; no wallet simulates contract calls yet, so it is not user-facing."
+
+[[subsystem]]
+id = "contract-safety-runtime"
+name = "Safe-by-default contract rules (resources, capabilities, invariants, rate limits)"
+domain = "Consensus and execution"
+paths = "`crates/contract-safety`"
+tier = "core"
+class = "RESEARCH"
+status = "working"
+tests = ["crates/contract-safety/tests/exploit_table.rs"]
+note = "Master Prompt 23. 20 historical exploit patterns: 4 VM, 4 invariant, 7 rate-limited (delayed), 5 not blocked. Not wired into crates/vm."

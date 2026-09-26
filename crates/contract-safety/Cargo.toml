@@ -1,0 +1,15 @@
+[package]
+name = "maya-contract-safety"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Safe-by-default contract runtime rules: move-only resources, capabilities, re-entrancy off by default, declared invariants with rollback, outflow rate limits"
+
+# Dependency-free: these are execution rules, and like ledger-math and dex
+# they should stay compilable by Kani.
+[dependencies]
+
+[lints]
+workspace = true
