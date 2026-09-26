@@ -1960,6 +1960,7 @@ dependencies = [
  "libp2p",
  "maya-archive",
  "maya-blockgraph",
+ "maya-build-guard",
  "maya-confidential-ai",
  "maya-crypto-pq",
  "maya-custody-mpc",
@@ -4741,6 +4742,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-build-guard"
+version = "0.1.0"
+
+[[package]]
 name = "maya-confidential-ai"
 version = "0.1.0"
 dependencies = [
@@ -4761,6 +4766,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hex",
  "hqc-kem",
+ "maya-build-guard",
  "maya-crypto-pq",
  "ml-dsa",
  "ml-kem",
@@ -4802,6 +4808,7 @@ dependencies = [
  "fips204",
  "getrandom 0.4.3",
  "hex",
+ "maya-build-guard",
  "maya-crypto-pq",
  "rcgen 0.14.10",
  "rustls",
@@ -4867,6 +4874,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hex",
  "hmac 0.12.1",
+ "maya-build-guard",
  "sha2 0.10.9",
  "thiserror 2.0.20",
  "tracing",
@@ -5017,6 +5025,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-loadgen"
+version = "0.1.0"
+
+[[package]]
 name = "maya-mev"
 version = "0.1.0"
 dependencies = [
@@ -5033,6 +5045,13 @@ name = "maya-neural-gas-trainer"
 version = "0.1.0"
 dependencies = [
  "maya-fee-market",
+]
+
+[[package]]
+name = "maya-parallel-exec"
+version = "0.1.0"
+dependencies = [
+ "maya-loadgen",
 ]
 
 [[package]]
@@ -5107,6 +5126,14 @@ name = "maya-sim"
 version = "0.1.0"
 
 [[package]]
+name = "maya-smart-account"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "maya-crypto-pq",
+]
+
+[[package]]
 name = "maya-stateless-core"
 version = "0.1.0"
 dependencies = [
@@ -5171,6 +5198,7 @@ dependencies = [
  "l1-wallet",
  "l2-flash",
  "maya-api-gateway",
+ "maya-build-guard",
  "maya-confidential-ai",
  "maya-cuda-miner",
  "maya-custody-mpc",

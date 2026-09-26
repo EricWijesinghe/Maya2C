@@ -2887,3 +2887,36 @@ status = "working"
 tests = ["crate:maya-timing"]
 note = "Master Prompt 7 §5. Marzullo fusion; SR/GR offsets reproduce GPS +38.5 µs/day; within_drift is the integer consensus check. No node caller yet."
 
+[[subsystem]]
+id = "loadgen"
+name = "Workload generator"
+domain = "Consensus and execution"
+paths = "`crates/loadgen`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:maya-loadgen"]
+note = "Master Prompt 12 §0. Seeded, reproducible; contention and Zipf verified by unit tests."
+
+[[subsystem]]
+id = "parallel-exec"
+name = "Parallel execution (optimistic + declared waves)"
+domain = "Consensus and execution"
+paths = "`crates/parallel-exec`"
+tier = "core"
+class = "RESEARCH"
+status = "working"
+tests = ["crates/parallel-exec/tests/differential.rs"]
+note = "ADR-017. 100,000 random blocks: parallel == sequential, byte for byte. Speedup curves in reports/12-performance.md. Not in the node."
+
+[[subsystem]]
+id = "smart-account"
+name = "Native smart accounts"
+domain = "Cryptography and key management"
+paths = "`crates/smart-account`"
+tier = "core"
+class = "RESEARCH"
+status = "working"
+tests = ["crates/smart-account/tests/account_tests.rs"]
+note = "Master Prompts 13 §2 and 22 §1-5. Real ML-DSA-65 signatures in every test. Launch-blocking per ADR-016; not yet a node transaction type."
+

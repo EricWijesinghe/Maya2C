@@ -1,0 +1,18 @@
+[package]
+name = "maya-smart-account"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Native smart accounts: keys registered once and rotated without changing the address, bounded validation, policy modules, session keys, guardian recovery, vaults and sponsored fees"
+
+# Signatures verify through the suite registry, so an account key is checked
+# by exactly the NIST-vectored code a transaction is. BLAKE3 for key hashes and
+# account ids.
+[dependencies]
+maya-crypto-pq = { path = "../crypto-pq" }
+blake3.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,26 @@
+[package]
+name = "maya-build-guard"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Compile-time guard: a `production` build fails if any SIM, RESEARCH, frontier, test-util or insecure feature is enabled anywhere in the graph"
+
+# Deliberately empty. This crate is a feature-unification point: every crate
+# with a SIM/RESEARCH/insecure switch forwards it here, the node's `production`
+# feature forwards here too, and cargo unifies features per build, so one
+# `cargo build` that sees both hits the compile_error! below
+# (Master Prompt 11 §3, ADR-016).
+[dependencies]
+
+[features]
+production = []
+sim = []
+research = []
+frontier = []
+test-util = []
+insecure = []
+
+[lints]
+workspace = true
