@@ -1,0 +1,17 @@
+[package]
+name = "maya-btc-spv"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Bitcoin SPV header tracker: consensus header rules, 2016-block retargeting, chainwork fork choice, reorgs and transaction inclusion proofs"
+
+# SHA-256 only. This crate decides whether bytes a relayer hands over are a
+# Bitcoin chain, so -- like `stratum-v2` and `iso20022` -- it links nothing
+# that is not needed to parse and hash them, and it fuzzes alone.
+[dependencies]
+sha2.workspace = true
+
+[lints]
+workspace = true

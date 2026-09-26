@@ -4734,6 +4734,13 @@ name = "maya-blockgraph"
 version = "0.1.0"
 
 [[package]]
+name = "maya-btc-spv"
+version = "0.1.0"
+dependencies = [
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "maya-confidential-ai"
 version = "0.1.0"
 dependencies = [
@@ -4843,6 +4850,14 @@ name = "maya-ebpf-net-common"
 version = "0.1.0"
 dependencies = [
  "aya",
+]
+
+[[package]]
+name = "maya-econ"
+version = "0.1.0"
+dependencies = [
+ "maya-dex",
+ "maya-fee-market",
 ]
 
 [[package]]

@@ -1,0 +1,24 @@
+[package]
+name = "maya-econ"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "SIM: agent-based economic simulator, cost-of-attack tables, stake concentration, MEV and fee-estimator analysis for Maya2C"
+
+# The fee rules and the AMM are the chain's own crates, not re-implementations:
+# the simulator calls `maya-fee-market`'s base-fee step and split and
+# `maya-dex`'s curve and batch auction, so a change to either rule changes the
+# simulation in the same commit (Master Prompt 18 §1: "the simulator and the
+# chain cannot drift apart"). Both are dependency-free leaves.
+[dependencies]
+maya-fee-market = { path = "../crates/fee-market" }
+maya-dex = { path = "../crates/dex" }
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "econ-sim"
+path = "src/bin/econ-sim.rs"
