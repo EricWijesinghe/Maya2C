@@ -31,16 +31,17 @@
 //! ## Suite-tagged transactions (wire version 7)
 //!
 //! ADR-007's envelope: one signature under the suite its id names, carried in
-//! [`Transaction::suite_auth`], encoded by [`crate::core::suite_tx`]. Dark:
-//! [`Transaction::verify`] refuses every one, and only
+//! [`Transaction::suite_auth`], encoded by [`crate::core::suite_tx`].
+//! [`Transaction::verify`] refuses every one, because it has no height; only
 //! [`Transaction::verify_at`] at or past `SUITE_ENVELOPE_ACTIVATION_HEIGHT`
-//! (`u64::MAX`) can accept one. The hybrid fields are unused on such a frame.
+//! can accept one — `0` since ADR-013, so from genesis. The hybrid fields are
+//! unused on such a frame.
 //!
 //! ## Multisig transactions (wire version 8)
 //!
 //! An m-of-n policy over the suite registry ([`crate::core::multisig_tx`]),
 //! carried in [`Transaction::multisig`]. The sender is the policy's address,
-//! so the account is the policy. Dark on the same gate as version 7.
+//! so the account is the policy. Behind the same gate as version 7.
 
 use crate::core::codec::ByteReader;
 use crate::core::multisig_tx::{self, MultisigAuth};

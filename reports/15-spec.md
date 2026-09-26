@@ -90,7 +90,7 @@ $ cargo xtask spec-coverage
 | CON-4 state root must match execution | needs a chain, not a function | invariant 24 tests, `crash_consistency_tests.rs` |
 | CON-5 retarget, CON-6 PoW, CON-7 most-work, CON-8 prune horizon | chain-level | `consensus/chain.rs` tests |
 | ROOT-5 extra state layers | vectors are accounts-only | `state::proof` tests |
-| TX-4 v7/v8 dark until activation | no v7 frame in the verifier | `suite_tx`/`multisig_tx` tests |
+| TX-4 v7/v8 verify only via `verify_at` (active from genesis, ADR-013) | no v7/v8 frame in the verifier | `suite_tx`/`multisig_tx` tests |
 
 CRY-1/2/3 count as covered through *external vectors* (ACVP, suite parity,
 suite registry tests). The tool checks each named path exists.

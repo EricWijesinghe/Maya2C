@@ -1,0 +1,15 @@
+[package]
+name = "maya-treasury"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Treasury spending rules (per-epoch limits, staged approval, public ledger) and allocation vesting (cliff, linear release, termination, clawback)"
+
+# Dependency-free, like ledger-math and dex: these are consensus rules once
+# wired, and Kani should be able to compile them.
+[dependencies]
+
+[lints]
+workspace = true

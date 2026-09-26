@@ -48,8 +48,9 @@ Each step is a governance action with a minimum duration, recorded as a MIP
 | 6. Old suite rejected | activation height after which the old suite's signatures are invalid | — |
 
 The mechanism exists today in part: suite-tagged (v7) and multisig (v8)
-transactions and the registry are built and dark at `u64::MAX`
-(`SUITE_ENVELOPE_ACTIVATION_HEIGHT`, ADR-007, ADR-013), and key rotation
+transactions and the closed suite registry are built and active from genesis
+(`SUITE_ENVELOPE_ACTIVATION_HEIGHT = 0`, ADR-013), governance chooses the
+default suite from the compiled set, and key rotation
 without an address change exists in `crates/smart-account`. Step 5's
 rotation-only rule is **not built**.
 

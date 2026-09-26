@@ -67,7 +67,7 @@ The signed bytes are admitted by a real `Mempool` and applied by a real
 - `docs/integrations/CUSTODY.md`:
   - HSMs must hold *both* halves of the hybrid;
   - elliptic-curve MPC does not apply to ML-DSA or SLH-DSA, so on-chain
-    multisig is the supported path (and it is dark today);
+    multisig (wire v8, active since genesis per ADR-013) is the supported path;
   - the air-gapped flow.
 - `chain/maya2c-testnet.json`:
   - listing metadata with **empty** RPC and explorer lists, because none

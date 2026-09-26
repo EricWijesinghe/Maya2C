@@ -5283,6 +5283,10 @@ name = "maya-timing"
 version = "0.1.0"
 
 [[package]]
+name = "maya-treasury"
+version = "0.1.0"
+
+[[package]]
 name = "maya-vm"
 version = "0.1.0"
 dependencies = [

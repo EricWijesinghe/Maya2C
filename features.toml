@@ -3030,3 +3030,14 @@ class = "REAL"
 status = "verified"
 tests = ["crates/node/tests/offline_signing.rs"]
 note = "Master Prompt 17 §2. Unsigned frame out, signed frame back, admitted by a real mempool and applied; a tampered frame is refused."
+
+[[subsystem]]
+id = "treasury-vesting-rules"
+name = "Treasury spending limits, staged approval and allocation vesting"
+domain = "Security and macro engines"
+paths = "`crates/treasury`"
+tier = "core"
+class = "RESEARCH"
+status = "working"
+tests = ["crates/treasury/tests/treasury_tests.rs"]
+note = "Master Prompt 18 §6. Dependency-free state machines; not wired into the node's governance path."
