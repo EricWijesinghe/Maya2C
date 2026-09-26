@@ -4847,6 +4847,14 @@ name = "maya-docgen"
 version = "0.1.0"
 
 [[package]]
+name = "maya-dos-guard"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "maya-crypto-pq",
+]
+
+[[package]]
 name = "maya-ebpf-net"
 version = "0.1.0"
 dependencies = [
@@ -5131,6 +5139,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-signer"
+version = "0.1.0"
+dependencies = [
+ "argon2",
+ "blake3",
+ "chacha20poly1305 0.10.1",
+ "getrandom 0.4.3",
+ "maya-crypto-pq",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.20",
+ "zeroize",
+]
+
+[[package]]
 name = "maya-sim"
 version = "0.1.0"
 
@@ -5387,6 +5411,16 @@ dependencies = [
  "custom-l1-node",
  "libp2p",
  "tempfile",
+]
+
+[[package]]
+name = "maya2c-signer"
+version = "0.1.0"
+dependencies = [
+ "maya-crypto-pq",
+ "maya-signer",
+ "serde_json",
+ "zeroize",
 ]
 
 [[package]]

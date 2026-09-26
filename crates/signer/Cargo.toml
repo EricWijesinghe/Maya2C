@@ -1,0 +1,26 @@
+[package]
+name = "maya-signer"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Remote validator signer: encrypted keystore, fsync'd slashing protection with EIP-3076-style interchange, and a mutually authenticated ML-KEM/ML-DSA channel"
+
+[dependencies]
+maya-crypto-pq = { path = "../crypto-pq" }
+argon2.workspace = true
+chacha20poly1305.workspace = true
+blake3.workspace = true
+getrandom.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+thiserror.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

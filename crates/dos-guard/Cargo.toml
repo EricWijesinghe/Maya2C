@@ -1,0 +1,23 @@
+[package]
+name = "maya-dos-guard"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Denial-of-service defences before expensive work: stateless handshake cookies, client puzzles, per-IP/subnet budgets, per-peer cost accounting, mempool admission policy, inbound diversity"
+
+# Time is passed in by the caller (`now_ms`), never read here, so every
+# decision is reproducible in a simulation and testable without sleeping.
+[dependencies]
+blake3.workspace = true
+
+[dev-dependencies]
+maya-crypto-pq = { path = "../crypto-pq" }
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "handshake_gate"
+harness = false
