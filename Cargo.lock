@@ -5128,6 +5128,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-privacy"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "chacha20poly1305 0.10.1",
+ "maya-crypto-pq",
+ "maya-zk-stark",
+ "zeroize",
+]
+
+[[package]]
 name = "maya-radio-transport"
 version = "0.1.0"
 dependencies = [

@@ -280,6 +280,7 @@ members = [
     "crates/contract-safety",
     "crates/interop",
     "crates/lanes",
+    "crates/privacy",
     "bins/maya2c-signer",
     "bins/maya2c-mcp",
     # Parallel execution byte-identical to sequential (Master Prompt 12 §1,
