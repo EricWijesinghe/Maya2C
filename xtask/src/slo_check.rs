@@ -83,7 +83,8 @@ fn check_row(root: &Path, metrics: &BTreeSet<String>, cells: &[&str]) -> Vec<Str
     gaps
 }
 
-pub fn run(_args: &[String]) -> Result<(), String> {
+pub fn run(args: &[String]) -> Result<(), String> {
+    let quiet = args.iter().any(|a| a == "--quiet");
     let root = crate::workspace_root();
     let metrics = node_metrics(&root)?;
     let slo = std::fs::read_to_string(root.join("docs/SLO.md")).map_err(|e| e.to_string())?;
@@ -99,16 +100,22 @@ pub fn run(_args: &[String]) -> Result<(), String> {
         rows += 1;
         let gaps = check_row(&root, &metrics, &cells);
         if gaps.is_empty() {
-            println!("ok    {}", cells[0]);
+            if !quiet {
+                println!("ok    {}", cells[0]);
+            }
         } else {
             failing += 1;
-            println!("GAP   {}: {}", cells[0], gaps.join("; "));
+            if !quiet {
+                println!("GAP   {}: {}", cells[0], gaps.join("; "));
+            }
         }
     }
-    println!(
-        "\n{rows} SLOs, {} with all four companions, {failing} with gaps",
-        rows - failing
-    );
+    if !quiet {
+        println!(
+            "\n{rows} SLOs, {} with all four companions, {failing} with gaps",
+            rows - failing
+        );
+    }
     if failing > 0 {
         return Err(format!(
             "{failing} SLOs lack a metric, dashboard panel, alert or runbook"

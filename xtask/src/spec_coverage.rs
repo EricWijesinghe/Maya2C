@@ -112,13 +112,16 @@ fn count_vectors(tests: &Path, rules: &mut BTreeMap<String, Rule>) -> Result<usi
 
 pub fn run(args: &[String]) -> Result<(), String> {
     let strict = args.iter().any(|a| a == "--strict");
+    let quiet = args.iter().any(|a| a == "--quiet");
     let root = crate::workspace_root().join("spec");
     let mut rules = rules(&root)?;
     let cases = count_vectors(&root.join("tests"), &mut rules)?;
-    println!(
-        "{:<8} {:<20} {:>4} {:>4}  status",
-        "rule", "section", "+", "-"
-    );
+    if !quiet {
+        println!(
+            "{:<8} {:<20} {:>4} {:>4}  status",
+            "rule", "section", "+", "-"
+        );
+    }
     let mut gaps = Vec::new();
     let ws = crate::workspace_root();
     for (id, r) in &rules {
@@ -136,18 +139,22 @@ pub fn run(args: &[String]) -> Result<(), String> {
         if status.starts_with("GAP") {
             gaps.push(id.as_str());
         }
-        println!(
-            "{id:<8} {:<20} {:>4} {:>4}  {status}",
-            r.section, r.pos, r.neg
-        );
+        if !quiet {
+            println!(
+                "{id:<8} {:<20} {:>4} {:>4}  {status}",
+                r.section, r.pos, r.neg
+            );
+        }
     }
     let covered = rules.len() - gaps.len() - rules.keys().filter(|k| k.starts_with("NET-")).count();
-    println!(
-        "\n{} rules, {cases} vectors; {covered} consensus rules covered, {} gaps: {}",
-        rules.len(),
-        gaps.len(),
-        gaps.join(" ")
-    );
+    if !quiet {
+        println!(
+            "\n{} rules, {cases} vectors; {covered} consensus rules covered, {} gaps: {}",
+            rules.len(),
+            gaps.len(),
+            gaps.join(" ")
+        );
+    }
     if strict && !gaps.is_empty() {
         return Err(format!(
             "{} consensus rules without full vector coverage",
