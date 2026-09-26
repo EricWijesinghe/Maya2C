@@ -114,7 +114,7 @@ jobs:
       - name: Kernel tests over veth
         run: >
           sudo -E env "PATH=$PATH"
-          MAYA_XDP_OBJECT="$GITHUB_WORKSPACE/ebpf-net/programs/target/bpfel-unknown-none/release/maya-relay-xdp"
+          MAYA_XDP_OBJECT="$GITHUB_WORKSPACE/hal/ebpf-net/programs/target/bpfel-unknown-none/release/maya-relay-xdp"
           cargo test -p maya-ebpf-net --features xdp --test xdp_veth -- --ignored --test-threads=1
 
   # ---------------------------------------------------------------------------
@@ -162,7 +162,7 @@ jobs:
         run: |
           sudo ./scripts/xdp_netns.sh up
           sudo -E env "PATH=$PATH" MAYA_XDP_BENCH=1 MAYA_XDP_SECONDS=3 \
-            MAYA_XDP_OBJECT="$GITHUB_WORKSPACE/ebpf-net/programs/target/bpfel-unknown-none/release/maya-relay-xdp" \
+            MAYA_XDP_OBJECT="$GITHUB_WORKSPACE/hal/ebpf-net/programs/target/bpfel-unknown-none/release/maya-relay-xdp" \
             cargo bench --features xdp --bench ebpf_bench 2>&1 | tee bench.txt
           sudo ./scripts/xdp_netns.sh down
           {
