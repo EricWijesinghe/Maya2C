@@ -1,7 +1,7 @@
 # Maya2C
 
 Post-quantum L1 blockchain node in Rust (edition 2024, `rust-version = 1.88`,
-`nightly-2026-07-15`). A virtual workspace of 55 members plus nine crates
+`nightly-2026-07-15`). A virtual workspace of 80 members plus ten crates
 deliberately outside it; the node is `crates/node` — [ADR-001](docs/adr/ADR-001-workspace-layout.md).
 
 ## Identity and Mission
@@ -17,7 +17,7 @@ places that must agree:
 
 | Question | Read |
 |---|---|
-| What does this tree contain, and does it work? | `features.toml` — 90 entries, gated by `cargo xtask coverage` |
+| What does this tree contain, and does it work? | `features.toml` — 164 register entries + 129 subsystems, gated by `cargo xtask coverage` |
 | Why is each subsystem the way it is? | [docs/architecture-vision.md](docs/architecture-vision.md) — the authority for status |
 | What is the build order? | [docs/trajectory.md](docs/trajectory.md) (a *plan*) and [PROGRESS.md](PROGRESS.md) (what is done) |
 
@@ -54,6 +54,31 @@ These apply to every task in this repository, without being restated.
 9. **A finding that contradicts the brief is reported, not worked around.**
    Three of the four duplications the foundation brief asked to merge did not
    exist; saying so was the deliverable.
+10. **No "first", "only" or "unprecedented"** in any document, UI or
+   announcement unless `docs/prior-art/<feature>.md` records a dated search
+   showing who else does something similar and exactly how Maya2C differs.
+   Enforced: `cargo xtask claims-check` in CI.
+
+## Production Standing Orders
+
+From Master Prompt 11, with how each is enforced *today*:
+
+- The mainnet binary is built with `--features production` — `cargo xtask release-check`.
+- Every performance number carries git commit, hardware, OS, kernel and the
+  exact command. **No `cargo xtask bench` exists yet**; `reports/12-baseline.md`
+  is the manual record.
+- "TPS" means signature-verified, executed, state-committed, finalized
+  transactions per second with the mix stated. None has been measured: the
+  node has no BFT finality (ADR-015).
+- Consensus-critical changes need a spec update, conformance vectors
+  (`cargo xtask spec-coverage`), an ADR if behaviour changes, and two human
+  reviewers (a note; not enforced).
+- No new core dependency without a `cargo vet` entry — **`cargo vet` is not set
+  up**; `cargo deny` is the only supply-chain gate.
+- CI fails on a >5% regression of tracked benchmarks — `scripts/bench_gate.py`,
+  gated on a `BENCH_RUNNER` that does not exist, so it never runs.
+- Secrets never enter the repo, logs or chat; anything that costs money or
+  touches real servers needs `APPROVED: <step name>`.
 
 ## Token Discipline (read first)
 
@@ -110,13 +135,13 @@ PowerShell profile and `~/.bashrc`.
 
 ## Workspace Map
 
-55 members, and nine tracked crates that are **not**
+80 members, and ten tracked crates that are **not**
 members because they target a different architecture or must keep their
 dependency graph away from the node's: `fuzz/`, `offsec-sandbox/`,
 `hal/iot-firmware/`, `hal/ebpf-net/programs/`, `apps/dashboard/`, `apps/wallet-gui/ui/`,
-`apps/wallet-gui/src-tauri/`, `apps/ledger-maya2c/`, `contracts/token-swap/`. Six of the
-nine cannot be built for the host at all, so "the workspace builds" is a claim
-about 55 of 64 crates.
+`apps/wallet-gui/src-tauri/`, `apps/ledger-maya2c/`, `contracts/token-swap/`,
+`contracts/nft-game/`. Seven of the ten cannot be built for the host at all, so
+"the workspace builds" is a claim about 80 of 90 crates.
 
 What each one is for, and why it is a separate crate:
 [docs/workspace-map.md](docs/workspace-map.md). Membership itself comes from
@@ -124,7 +149,7 @@ What each one is for, and why it is a separate crate:
 
 ## Tiers, classes and the reality ledger
 
-`features.toml` is the machine-readable answer to "does this work". 90 entries;
+`features.toml` is the machine-readable answer to "does this work": 164 register entries and 129 subsystems;
 `cargo xtask coverage` prints them and **fails** when one claims `working` or
 `verified` without naming a test that exists. Schema and rationale:
 [ADR-004](docs/adr/ADR-004-reality-ledger.md).
@@ -146,28 +171,21 @@ consensus).
 
 **Status** — `planned` / `stub` / `working` / `verified`.
 
-Current: 43 verified, 30 working, 17 planned; 28 core, 41 extended, 21 frontier.
+Subsystems now: 55 verified, 53 working, 21 planned; 50 core, 57 extended, 22 frontier.
 
 ## Roadmap Status
 
-Three buckets, and the distinction is not cosmetic: a subsystem never written
-and one written but deliberately dark look identical from outside, and
-mistaking either for shipped produces a safety argument resting on nothing.
+**SHIPPED** — in the tree, reachable, tested. **RESEARCH** — tested, but
+*nothing in consensus calls it* (usually activation height `u64::MAX`;
+promoting one is a written decision). **PLANNED** — no code; `grep` will not
+find it. A dark subsystem and an unwritten one look identical from outside.
+Detail and rationale: [docs/architecture-vision.md](docs/architecture-vision.md);
+ordering: [docs/trajectory.md](docs/trajectory.md); the thirty `Prompts/`
+briefs: [docs/master-prompts/README.md](docs/master-prompts/README.md).
 
-- **SHIPPED** — in the tree, reachable, tested.
-- **RESEARCH** — in the tree with tests, but *nothing in consensus calls it*.
-  Usually an activation height of `u64::MAX`. Promoting one is a decision
-  somebody writes down.
-- **PLANNED** — no code in this tree. `grep` will not find it.
-
-Per-subsystem detail with the rationale for each tag:
-[docs/architecture-vision.md](docs/architecture-vision.md). The same data in
-checkable form, plus the 164-entry prompt register: `features.toml`. Session
-ordering: [docs/trajectory.md](docs/trajectory.md), complete through ~48.
-
-Four PLANNED items collide with invariants already recorded and must be
-reconciled *before* code: the bytecode hot-patcher with 13, relativistic clock
-sync and satellite/light-cone consensus with 9, TEE attestation with 11.
+Four PLANNED items collide with recorded invariants and must be reconciled
+*before* code: the bytecode hot-patcher (13), relativistic clock sync and
+satellite/light-cone consensus (9), TEE attestation (11).
 
 ## Critical Invariants
 
@@ -192,22 +210,15 @@ Four standing rules, each stated with its *current* enforcement — a directive
 written as achieved is a directive nobody will implement. Expanded in
 [docs/architecture-vision.md](docs/architecture-vision.md) §7.
 
-1. **Zeroize cryptographic memory.** `zeroize` is already a dependency of every
-   crate holding key material (root, `crypto-pq`, `custody-mpc`, `mev`, `vrf`,
-   `wallet`, `apps/wallet-gui/core`, `apps/wallet-gui/src-tauri`, `app-maya2c`). New
-   secret types get `ZeroizeOnDrop`, not a manual `drop`. Keep secrets in typed
-   wrappers from generation to use — a `Vec<u8>` that went through a serializer
-   has already been copied.
-2. **Deterministic execution, WASM and state.** Enforced mechanically, not by
-   convention: `apply_block_journaled` refuses a `state_root` execution does not
-   reproduce (invariant 24), and no float may enter a consensus rule
-   (invariant 20). New consensus-path code must be reproducible bit-for-bit on
-   another machine and another toolchain, or it is not a consensus rule.
-3. **No dynamic heap allocation in critical consensus loops.** A target, not a
-   description of today: the apply path allocates, because RocksDB's interface
-   is owned buffers and the journal collects into `Vec`. Read it as — do not add
-   an allocation to an inner loop that lacked one, reuse buffers across
-   iterations, measure before calling a loop hot.
+1. **Zeroize cryptographic memory.** `zeroize` is a dependency of every crate
+   holding key material; new secret types get `ZeroizeOnDrop`, not a manual
+   `drop`, and stay in typed wrappers from generation to use (Standing Order 5).
+2. **Deterministic execution, WASM and state.** Enforced mechanically:
+   `apply_block_journaled` refuses a `state_root` execution does not reproduce
+   (invariant 24); no float enters a consensus rule (invariant 20).
+3. **No dynamic heap allocation in critical consensus loops.** A target, not
+   today: the apply path allocates (RocksDB owned buffers, the journal's `Vec`).
+   Do not add an allocation to an inner loop that lacked one; measure first.
 4. **No `unsafe` in core execution paths.** Holds today for `crates/node/src/state/`,
    `crates/node/src/chain.rs`, `ledger-math`, `dex`, `governance`, `fee-market`, `vrf` — the
    same crates whose dependency-freedom exists so Kani can compile them. Exempt
@@ -267,7 +278,7 @@ artifact directory.
 - **Comments say why, not what.** This repository's manifests and modules
   explain the reasoning behind a boundary, a version pin or a parameter set.
   That prose is the documentation — do not strip it when editing near it.
-- `clippy::pedantic` is `warn`, not `deny`, and there are 1,707 of them.
+- `clippy::pedantic` is `warn`, not `deny`, and 1,175 remain at the last ratchet.
   The count is ratcheted: `scripts/lint_debt.sh --check` fails if it rises,
   and `nightly.yml` runs it. It may fall freely. If a change legitimately
   raises it, run `--update` and say why in the commit message.

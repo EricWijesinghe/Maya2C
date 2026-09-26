@@ -42,6 +42,14 @@ repository fixes a decimal convention or a genesis total — the committed
 `crates/fee-market/src/supply.rs`, not a derivation. Once a value-bearing chain checks
 it, changing it is a hard fork.
 
+**Neural gain.** A second, independently switched rule scales the base fee's
+step by a gain from a compiled-in integer network. The gain is one-sided — it
+may only speed a rise or slow a fall — so the fee is never below what the linear
+rule would set, whatever features a producer writes.
+`neural_activation_height` is `u64::MAX` in both shipped configurations, so
+`apply_block_fees` charges exactly what it did before — see
+[neural-gas.md](/reference/neural-gas).
+
 ## The bounds no configuration may escape
 
 `crates/fee-market/src/limits.rs`, compiled in and reachable by no transaction, the way

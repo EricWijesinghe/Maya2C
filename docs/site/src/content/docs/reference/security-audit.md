@@ -99,7 +99,7 @@ targets under WSL or leave them to CI; corpus generation works everywhere. See
 ## 2. Proving the ledger arithmetic
 
 [`crates/ledger-math/`](https://github.com/maya2c/maya2c/blob/master/ledger-math) holds every `u64` credit, debit and nonce bump
-the chain performs, and [`crates/ledger-math/src/proofs.rs`](https://github.com/maya2c/maya2c/blob/master/ledger-math/src/proofs.rs)
+the chain performs, and [`crates/ledger-math/src/proofs.rs`](https://github.com/maya2c/maya2c/blob/master/crates/ledger-math/src/proofs.rs)
 model-checks them with [Kani](https://model-checking.github.io/kani/).
 
 ```bash
@@ -224,20 +224,20 @@ There is no `ignore` list under `[advisories]`, and the empty list is the point 
 an advisory that has to be accepted should be accepted in a commit that says
 why.
 
-### cargo-audit, and the one accepted advisory
+### cargo-audit disagrees, and that is expected
 
-`cargo audit` reads `Cargo.lock`; `cargo deny` resolves the dependency graph.
-That is why they disagree about `hickory-proto` 0.25.2, which carries two
-advisories from 2026-05-01. It is reachable only through `libp2p-dns` and
-`libp2p-mdns`, neither of which this workspace enables — `cargo tree -i
-hickory-proto` prints nothing for any target — but the resolver records
-optional dependencies in the lockfile whether or not a feature turns them on.
+`cargo audit` reads `Cargo.lock`, so it reports advisories for packages the
+build never compiles — today, `hickory-proto` and `lru`, which libp2p declares
+under a `dns` feature this workspace does not enable. `cargo deny` resolves the
+graph and reports advisories ok.
 
-Both are accepted in [`.cargo/audit.toml`](https://github.com/maya2c/maya2c/blob/master/.cargo/audit.toml), with that
-reasoning written next to them. The upstream fix is hickory >= 0.26.1, which
-needs libp2p 0.57: a bump across the transport and the ML-KEM wrapper, and so a
-deliberate change rather than an audit side effect. Delete both entries the
-moment `hickory-proto` leaves the lockfile.
+Neither is silenced. `deny.toml` keeps `ignore = []` on purpose, and no
+`.cargo/audit.toml` exists either: the discrepancy is written down instead, with
+the empirical check behind it, in
+[launch-checklist.md](/reference/launch-checklist#the-auditdeny-discrepancy-resolved).
+The upstream fix is hickory >= 0.26.1, which needs libp2p 0.57 — a bump across
+the transport and the ML-KEM wrapper, and so a deliberate change rather than an
+audit side effect.
 
 ---
 

@@ -136,6 +136,99 @@ towards the wider set. Anything added to `core::payload` touching state not name
 by an input or output must be reflected there, and the failure mode of
 forgetting is silent.
 
+## Elastic shards
+
+`crates/blockgraph/src/shard_manager/`. A node may schedule over its own tiling of
+the address space instead of the fixed 64 prefixes: 4 leaves up to 64, split
+where it is hot, merged where it is idle.
+
+### Why a node may choose its own map
+
+Two transactions naming a common address land in the same leaf under every
+tiling, so they conflict and keep their order under every map. Two naming
+disjoint addresses may share a leaf or not; sharing serialises them, not
+sharing lets them run together, and the waves reach the serial state either
+way. So the state root does not depend on the map, and the map can be driven
+by what only this node can see — its lane capacity and its memory. Were the
+map consensus, those inputs would split the chain.
+
+Two things stay fixed:
+
+- `shard_of` and its 64 prefixes. `crates/node/src/neural_gas/features.rs` computes a fee
+  feature from it, and a feature that moved with each node's load would differ
+  between nodes.
+- The access-set contract above. The guarantee is only as good as the access
+  sets, and `core::batch::access_for_transaction` names the sender and the
+  outputs and nothing a payload touches — pool records, contract storage,
+  proposals. For any kind but a plain transfer that set is too narrow, which
+  this section's scheduler would turn into a wrong root if it were ever wired
+  in. An elastic map makes it *worse*, not neutral: with correct sets the map
+  is irrelevant, but with a too-narrow set two nodes on different maps group
+  the same transactions into different waves, so a latent bug that a fixed
+  partition might hide on every node alike diverges between nodes instead. It
+  has to be fixed before any consensus path reaches the scheduler, elastic or
+  not.
+
+### The policy
+
+| Rule | Default |
+|---|---|
+| Split a leaf above `split_permille` of a lane for `split_streak` consecutive ticks | 800‰, 100 ticks |
+| Merge two buddy leaves whose *combined* load stays under `merge_permille` of one lane for `merge_streak` ticks | 400‰, 400 ticks |
+| A leaf created by a rebalance waits before splitting or merging | 200 ticks |
+| No split at or above this memory pressure | 900‰ |
+| No split of a leaf whose load straddles its halves above | 500‰ |
+| Bounds | 4 to 64 leaves |
+
+A tick is one scheduled block: Narwhal's rounds need certificates and there is
+no committee. `merge_permille < split_permille` is enforced, so a merge starts
+below the split line and cannot be the first half of a re-split; growing takes
+100 ticks a generation and shrinking 400, so load that comes and goes leaves
+the map large rather than oscillating. Where a bound binds, the busiest leaves
+split first and the idlest pairs merge first, ties by key order. Merges are
+buddy merges only, so every map is reachable from the root by splits and one
+set of leaves has one map. A leaf may go as deep as 32 key bits; a range
+deeper than that is somebody grinding keypairs, and the 64-leaf cap bounds what
+it can cost.
+
+`lane_capacity` defaults to 256 transactions per tick, and that figure is a
+placeholder. It is the one property of the machine in the policy and wants
+measuring.
+
+### The handoff, and why there is no proof
+
+The brief asked for inter-shard teleportation with zero-knowledge migration
+proofs. A split relabels key ranges; every leaf reads one database and commits
+to one root, so no record leaves the machine. What moves is each leaf's
+in-memory record cache, and `ShardStores::apply` moves it atomically: it
+refuses a plan built for another map before touching a record, and from then on
+every record is placed by the new map's own lookup and cannot fail. Records
+travel in contiguous runs, one per old-leaf/new-leaf pair.
+
+A proof that a relabel was done correctly would prove, at far more cost than
+redoing it, a fact the receiver recomputes. The tree's one proof system is now
+the Plonky3 STARK (ADR-008), whose proofs run to hundreds of kilobytes — larger
+than most relabels they would attest.
+
+### Tested
+
+`crates/blockgraph/tests/elastic_scaling_tests.rs`:
+
+- 4 → 8 → 16 → 32 → 64 at peak, the first split on the 100th hot tick, held at
+  64 under continued peak, then 64 → 32 → 16 → 8 → 4 when idle and held at 4,
+  with every cached record conserved and findable at every step;
+- load hovering at exactly the line, which never splits;
+- a split whose children sit at 60% each, which never merges back;
+- a ground 12-bit prefix, which deepens only its own quarter and stops at 64;
+- the memory and straddle vetoes;
+- waves under every map the scaling run passes through, against the serial
+  model with every wave reversed;
+- transactions sharing an address conflicting under randomly split maps.
+
+Three Kani harnesses in `proofs.rs` — children tile their parent (unbounded),
+`locate` names the one containing leaf (unbounded over key bits), split then
+merge is the identity (four-leaf map) — share the caveat below: not executed.
+
 ## What is tested
 
 | | |

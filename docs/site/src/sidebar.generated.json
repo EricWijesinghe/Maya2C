@@ -1,7 +1,59 @@
 [
   {
+    "label": "Benchmark methodology",
+    "link": "/reference/BENCHMARK_METHODOLOGY"
+  },
+  {
+    "label": "Crypto watch",
+    "link": "/reference/CRYPTO_WATCH"
+  },
+  {
+    "label": "Economic security",
+    "link": "/reference/ECONOMIC_SECURITY"
+  },
+  {
+    "label": "Genesis: rehearsal, launch sequence, and the first 90 days",
+    "link": "/reference/GENESIS"
+  },
+  {
+    "label": "Legal notice",
+    "link": "/reference/LEGAL_NOTICE"
+  },
+  {
+    "label": "Node types and what they need",
+    "link": "/reference/NODE_TYPES"
+  },
+  {
+    "label": "Roadmap after launch scope",
+    "link": "/reference/ROADMAP"
+  },
+  {
+    "label": "A second client",
+    "link": "/reference/SECOND_CLIENT"
+  },
+  {
+    "label": "Service level objectives — mainnet core",
+    "link": "/reference/SLO"
+  },
+  {
+    "label": "Testnet programme — plans, awaiting approval",
+    "link": "/reference/TESTNET_PROGRAM"
+  },
+  {
+    "label": "Architecture Vision",
+    "link": "/reference/architecture-vision"
+  },
+  {
     "label": "Batch references and deterministic sharded execution",
     "link": "/reference/blockgraph"
+  },
+  {
+    "label": "Building and testing Maya2C",
+    "link": "/reference/build"
+  },
+  {
+    "label": "Confidential federated training",
+    "link": "/reference/confidential-ai"
   },
   {
     "label": "Threshold custody for Maya2C",
@@ -16,6 +68,14 @@
     "link": "/reference/dex"
   },
   {
+    "label": "Block relay with an XDP/AF_XDP receive path",
+    "link": "/reference/ebpf-net"
+  },
+  {
+    "label": "Development environment",
+    "link": "/reference/environment"
+  },
+  {
     "label": "The testnet faucet",
     "link": "/reference/faucet"
   },
@@ -28,8 +88,32 @@
     "link": "/reference/governance"
   },
   {
+    "label": "Lattice HTLCs (HTLC-L)",
+    "link": "/reference/htlc-lattice"
+  },
+  {
     "label": "Hybrid ML-DSA-65 + SLH-DSA-SHA2-128s transaction authorization",
     "link": "/reference/hybrid-signatures"
+  },
+  {
+    "label": "Self-Sovereign Identity",
+    "link": "/reference/identity"
+  },
+  {
+    "label": "The Invariant Guard",
+    "link": "/reference/invariant-guard"
+  },
+  {
+    "label": "Critical Invariants",
+    "link": "/reference/invariants"
+  },
+  {
+    "label": "IoT anchor: hardware-anchored sensor identity",
+    "link": "/reference/iot-anchor"
+  },
+  {
+    "label": "The ISO 20022 Bridge",
+    "link": "/reference/iso20022"
   },
   {
     "label": "Lattice proof of work",
@@ -48,8 +132,20 @@
     "link": "/reference/mainnet-readiness"
   },
   {
+    "label": "Neural base-fee gain",
+    "link": "/reference/neural-gas"
+  },
+  {
+    "label": "offsec-sandbox: coverage-guided differential fuzzing",
+    "link": "/reference/offsec-sandbox"
+  },
+  {
     "label": "The oracle",
     "link": "/reference/oracle"
+  },
+  {
+    "label": "Peer guard: Byzantine peers, quarantine, and block sync",
+    "link": "/reference/peer-health"
   },
   {
     "label": "The Maya2C pool service",
@@ -64,12 +160,28 @@
     "link": "/reference/pruning"
   },
   {
+    "label": "Off-Grid Radio Transport",
+    "link": "/reference/radio-transport"
+  },
+  {
+    "label": "Re-sealing archives when algorithms age",
+    "link": "/reference/resealing"
+  },
+  {
+    "label": "Real-World Assets",
+    "link": "/reference/rwa"
+  },
+  {
     "label": "SDKs and the API gateway",
     "link": "/reference/sdk"
   },
   {
     "label": "Automated security audit",
     "link": "/reference/security-audit"
+  },
+  {
+    "label": "Stateless transfer verification",
+    "link": "/reference/stateless"
   },
   {
     "label": "Stratum V2 for Maya2C",
@@ -80,8 +192,24 @@
     "link": "/reference/telemetry"
   },
   {
+    "label": "Threat-intel registry",
+    "link": "/reference/threat-intel"
+  },
+  {
+    "label": "Master System Trajectory",
+    "link": "/reference/trajectory"
+  },
+  {
+    "label": "The VM Module Cache",
+    "link": "/reference/vm-module-cache"
+  },
+  {
     "label": "The wgpu GPU miner",
     "link": "/reference/wgpu-miner"
+  },
+  {
+    "label": "Workspace map",
+    "link": "/reference/workspace-map"
   },
   {
     "label": "zkML inference verification",

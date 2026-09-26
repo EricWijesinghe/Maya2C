@@ -91,7 +91,7 @@ moving its engine is a release.
 | `dex.max_fills_per_block` | 64–4096 | 1024 | Below 64 a crossed book never drains; above 4096 one block's matching is ~3 ms every node redoes |
 | `dex.max_orders_per_book` | 256–65536 | 4096 | Storage and book reconstruction, which escrow does not bound |
 | `oracle.max_feed_submissions_per_block` | 1–32 | 8 | Each is up to a quorum of post-quantum verifications at ~286 µs |
-| `shielded.max_per_block` | 1–256 | 64 | Groth16 verification budget |
+| `shielded.max_per_block` | 1–16 | 16 | Sixteen ~0.4 MB STARKs fill most of an 8 MiB gossip frame. **Not yet read by the node**, which enforces `MAX_SHIELDED_PER_BLOCK` directly |
 | `vm.max_memory_pages` | 16–1024 | 256 | 1 MiB to 64 MiB per call |
 | `vm.max_module_bytes` | 64 KiB–2 MiB | 512 KiB | Code is stored verbatim and kept forever |
 | `vm.default_gas_limit` | 1e5–1e9 | 1e7 | Too low and nothing completes; too high and one call outlasts a block |
