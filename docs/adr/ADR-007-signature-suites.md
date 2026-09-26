@@ -1,6 +1,7 @@
 # ADR-007: Signature suites, a registry, and a suite-tagged envelope
 
 **Status:** Accepted
+**Amended by:** [ADR-013](ADR-013-suite-envelope-activation.md), 2026-09-27 — §7 (activation): the envelope is live from genesis.
 **Date:** 2026-09-21
 
 ## Context

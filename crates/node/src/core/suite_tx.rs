@@ -10,8 +10,9 @@
 //! commit to the suite id as well as the key, so a signature cannot be
 //! re-presented under another suite that happens to accept the same bytes.
 //!
-//! Dark until `SUITE_ENVELOPE_ACTIVATION_HEIGHT`: see
-//! [`Transaction::verify_at`].
+//! Live from genesis (ADR-013), but only through [`Transaction::verify_at`]:
+//! the height-less `verify` refuses every v7 frame, so a path that forgets to
+//! pass a height fails closed.
 
 use maya_crypto_pq::agility::SuitePolicy;
 use maya_crypto_pq::suite::{self as pq_suite, SignatureSuite, SuiteId};

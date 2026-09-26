@@ -1861,10 +1861,10 @@ name = "m-of-n ML-DSA multisig accounts"
 domain = "Cryptography and key management"
 paths = "`crates/crypto-pq/src/multisig.rs`, `crates/node/src/core/multisig_tx.rs`"
 tier = "core"
-class = "RESEARCH"
-status = "working"
-tests = ["crates/crypto-pq/tests/multisig_tests.rs", "crates/node/tests/multisig_tests.rs"]
-note = "ADR-011. The account is the policy's address; up to 16 post-quantum suite keys, strictly ordered approvals, every presented signature must verify. Wire v8, dark on SUITE_ENVELOPE_ACTIVATION_HEIGHT with the v7 envelope."
+class = "REAL"
+status = "verified"
+tests = ["crates/crypto-pq/tests/multisig_tests.rs", "crates/node/tests/multisig_tests.rs", "crates/node/tests/suite_envelope_live_tests.rs"]
+note = "ADR-011. The account is the policy's address; up to 16 post-quantum suite keys, strictly ordered approvals, every presented signature must verify. Wire v8, live from genesis with the v7 envelope (ADR-013): a 3-of-5 spend with two members offline moves value through StateDB::apply_block, and two approvals do not."
 
 [[subsystem]]
 id = "threshold-lattice-signing"
@@ -2666,11 +2666,11 @@ name = "Ledger hardware wallet app"
 domain = "Supplement (not in architecture-vision.md)"
 paths = "`apps/ledger-maya2c`"
 tier = "frontier"
-class = "RESEARCH"
+class = "REAL"
 status = "working"
 tests = ["apps/ledger-maya2c/tests/apdu_tests.rs", "apps/ledger-maya2c/tests/lowmem_tests.rs", "apps/ledger-maya2c/tests/parity_tests.rs", "apps/ledger-maya2c/tests/ledger_tests.rs", "crates/node/tests/ledger_fixture_tests.rs"]
 gate = "cargo test --manifest-path apps/ledger-maya2c/Cargo.toml; scripts/ledger_speculos.sh"
-note = "Signs suite-0x10 (ML-DSA-65) v7 transfers with a low-memory ML-DSA-65 equal to fips204 and the NIST ACVP vectors; ~23 KiB peak stack on Cortex-M where fips204 needs >140 KiB. All 8 Speculos tests pass on Nano S Plus and Nano X (API level 27); builds for Stax and Flex. RESEARCH because v7 is dark until SUITE_ENVELOPE_ACTIVATION_HEIGHT. crates/node/tests/ledger_fixture_tests.rs is the part the workspace job runs."
+note = "Signs suite-0x10 (ML-DSA-65) v7 transfers with a low-memory ML-DSA-65 equal to fips204 and the NIST ACVP vectors; ~23 KiB peak stack on Cortex-M where fips204 needs >140 KiB. All 8 Speculos tests pass on Nano S Plus and Nano X (API level 27); builds for Stax and Flex. REAL since ADR-013: v7 verifies from genesis, so what the device signs is what consensus accepts. crates/node/tests/ledger_fixture_tests.rs is the part the workspace job runs."
 
 [[subsystem]]
 id = "mining-pool-service"
@@ -2760,10 +2760,10 @@ name = "Suite-tagged envelope and crypto-agility engine"
 domain = "Cryptography and key management"
 paths = "`crates/crypto-pq/src/envelope.rs`, `crates/crypto-pq/src/agility/`"
 tier = "core"
-class = "RESEARCH"
-status = "working"
-tests = ["crate:maya-crypto-pq", "crates/crypto-pq/tests/agility_migration_tests.rs", "crates/node/tests/suite_parity_tests.rs"]
-note = "Node carries it as wire v7, dark until SUITE_ENVELOPE_ACTIVATION_HEIGHT (u64::MAX); governance default via DefaultSignatureSuite. 1,000,000-account emergency migration is a SIM (keyed-hash authorization); real signatures cover the same paths in unit tests."
+class = "REAL"
+status = "verified"
+tests = ["crate:maya-crypto-pq", "crates/crypto-pq/tests/agility_migration_tests.rs", "crates/node/tests/suite_parity_tests.rs", "crates/node/tests/suite_envelope_live_tests.rs"]
+note = "Wire v7, live from genesis (ADR-013): consensus verifies under crypto::suites::verification_policy() (genesis schedule, mainnet rules, no state read); the mempool reads DefaultSignatureSuite. 1,000,000-account emergency migration is a SIM (keyed-hash authorization); real signatures cover the same paths in unit tests."
 
 [[subsystem]]
 id = "kem-suites-dualkem-xwing"

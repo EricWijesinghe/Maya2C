@@ -190,11 +190,15 @@ fn block_verifies_all_transaction_signatures() {
     let target = target_from_leading_zero_bits(0);
 
     let valid_block = Block::new(sample_header(target), vec![good.clone()]);
-    assert_eq!(valid_block.verify_transactions(), Ok(()));
+    assert_eq!(
+        valid_block.verify_transactions(1, &custom_l1_node::crypto::suites::verification_policy()),
+        Ok(())
+    );
 
     let invalid_block = Block::new(sample_header(target), vec![good, tampered]);
     assert_eq!(
-        invalid_block.verify_transactions(),
+        invalid_block
+            .verify_transactions(1, &custom_l1_node::crypto::suites::verification_policy()),
         Err(NodeError::SignatureVerification)
     );
 }

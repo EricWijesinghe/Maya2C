@@ -42,9 +42,13 @@ echo "lint_debt: running clippy across the workspace (this is a full pass)"
 output=$(cargo clippy --workspace --all-targets --message-format short 2>&1 || true)
 count=$(printf '%s\n' "$output" | grep -cE ':[0-9]+:[0-9]+: warning:' || true)
 
-if printf '%s\n' "$output" | grep -qE ':[0-9]+:[0-9]+: error'; then
+# Both shapes: a located diagnostic (`file:line:col: error`) and cargo's own
+# summary (`error: could not compile`). A deny-by-default clippy lint can show
+# only the second, and missing it once made a crate that failed to lint vanish
+# from the count: 346 "fewer" warnings that were really a compile error.
+if printf '%s\n' "$output" | grep -qE ':[0-9]+:[0-9]+: error|^error: could not compile'; then
     echo "lint_debt: clippy reported errors, not just warnings:" >&2
-    printf '%s\n' "$output" | grep -E ':[0-9]+:[0-9]+: error' | head -10 >&2
+    printf '%s\n' "$output" | grep -E ':[0-9]+:[0-9]+: error|^error' | head -10 >&2
     exit 1
 fi
 

@@ -73,16 +73,31 @@ pub const THREAT_INTEL_ACTIVATION_HEIGHT: u64 = u64::MAX;
 /// oracle, governance or the sealed mempool can be followed statelessly.
 pub const STATELESS_ACTIVATION_HEIGHT: u64 = u64::MAX;
 
-/// First height at which suite-tagged (wire version 7) transactions verify:
-/// none.
+/// First height at which suite-tagged (wire version 7) and multisig (wire
+/// version 8) transactions verify: genesis.
 ///
-/// The research-branch pattern. ADR-007: before this moves, the suite a
-/// migrated account signs with must be committed to by its address, the
-/// governance default (`ParameterKey::DefaultSignatureSuite`) must be read by
-/// the mempool's admission path, and `Transaction::verify` call sites must be
-/// switched to `verify_at`. Until then every v7 frame is refused, so no v5/v6
-/// chain can observe that the format exists.
-pub const SUITE_ENVELOPE_ACTIVATION_HEIGHT: u64 = u64::MAX;
+/// ADR-013 moved this from `u64::MAX`, and it moved only because the three
+/// conditions ADR-007 wrote down are now met, each checkable:
+///
+/// - **The address commits to the suite.** `crypto::suites::suite_address` is
+///   `BLAKE3-derive-key(suite ‖ pk)`, so the same key bytes read as another
+///   suite name a different account, and a v7 account can never collide with a
+///   hybrid one. A multisig account's address is the digest of its whole
+///   policy, so the quorum and every member suite are inside it too.
+/// - **The governance default is read.** `network::mempool::Mempool::validate`
+///   builds its policy from `ParameterKey::DefaultSignatureSuite` through the
+///   committed table.
+/// - **The consensus call sites use `verify_at`.** `state::db`'s
+///   `stage_transaction` (the apply path), `state::stateless` and
+///   `state::threat_exec` all pass a height and a policy.
+///
+/// Zero rather than a later height, for the reason
+/// [`HASH_LOCK_ACTIVATION_HEIGHT`] is zero: until this change every v7 and v8
+/// frame was refused at every height, so no block that any chain accepted can
+/// contain one and no history is reinterpreted. v5/v6 hybrid frames stay valid
+/// for ever — they are `0x30` envelopes without the header — so nothing has to
+/// migrate.
+pub const SUITE_ENVELOPE_ACTIVATION_HEIGHT: u64 = 0;
 
 /// First height at which lattice HTLC locks, claims and refunds execute: none.
 ///

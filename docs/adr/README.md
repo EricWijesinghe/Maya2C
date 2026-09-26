@@ -50,3 +50,4 @@ The observation that would make this worth reopening.
 | [010](ADR-010-entropy.md) | Entropy — every source health-tested, all mixed into one HMAC-DRBG | Accepted |
 | [011](ADR-011-threshold-custody.md) | Threshold custody — on-chain multisig now, threshold lattice signing later | Accepted |
 | [012](ADR-012-hash-lock-htlcs.md) | Hash-lock HTLCs are live; lattice locks stay RESEARCH | Accepted |
+| [013](ADR-013-suite-envelope-activation.md) | The suite envelope and multisig are live from genesis | Accepted |

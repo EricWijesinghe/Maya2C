@@ -1,5 +1,6 @@
 //! ADR-007 on the node: the `0x30` suite is today's hybrid byte for byte, and
-//! suite-tagged (v7) transactions are dark until their activation height.
+//! suite-tagged (v7) transactions verify from genesis through `verify_at`
+//! alone (ADR-013).
 //!
 //! The parity half is what lets the envelope land without migrating a single
 //! account: the node signs its hybrid half with `fips204`, the suite with
@@ -112,20 +113,37 @@ fn a_v7_frame_with_a_mismatched_length_or_trailing_bytes_is_refused() {
 }
 
 #[test]
-fn v7_is_refused_everywhere_before_activation() {
+fn v7_is_live_from_genesis_and_still_refused_by_verify() {
     assert_eq!(
-        SUITE_ENVELOPE_ACTIVATION_HEIGHT,
-        u64::MAX,
-        "dark until written down"
+        SUITE_ENVELOPE_ACTIVATION_HEIGHT, 0,
+        "ADR-013: live from genesis"
     );
     let (tx, _) = v7_transfer();
-    let policy = SuitePolicy::genesis(Network::Mainnet);
+    let policy = suites::verification_policy();
     assert!(
         tx.verify().is_err(),
-        "verify() never accepts a suite-tagged transaction"
+        "verify() has no height, so it never accepts a suite-tagged transaction"
     );
     for height in [0, 1_000_000, u64::MAX - 1] {
-        assert!(tx.verify_at(height, &policy).is_err(), "height {height}");
+        assert_eq!(tx.verify_at(height, &policy), Ok(()), "height {height}");
+    }
+}
+
+#[test]
+fn consensus_verifies_under_mainnet_rules_whatever_the_network() {
+    // Devnet's policy admits 0x01, which has no post-quantum security; the
+    // policy consensus uses must not, or a node's config would pick its rules.
+    let consensus = suites::verification_policy();
+    assert!(!consensus.permitted(SuiteId::Ed25519));
+    assert!(SuitePolicy::genesis(Network::Devnet).permitted(SuiteId::Ed25519));
+    for suite in [
+        SuiteId::MlDsa65,
+        SuiteId::MlDsa87,
+        SuiteId::SlhDsaSha2_128s,
+        SuiteId::SlhDsaShake256f,
+        SuiteId::HybridMlDsa65SlhDsa128s,
+    ] {
+        assert!(consensus.may_sign(suite, 0), "{suite:?}");
     }
 }
 
@@ -144,8 +162,16 @@ fn past_activation_v7_verifies_and_the_policy_applies() {
         .with_default(SuiteId::MlDsa65)
         .and_then(|p| p.with_deprecation(SuiteId::MlDsa87, 0, MIN_EMERGENCY_WINDOW, true))
         .expect("policy");
+    // Deprecated at 0 with the emergency window: it still signs inside the
+    // window (that is what a migration window is for) and not after it.
+    assert_eq!(
+        tx.verify_at(at, &deprecated),
+        Ok(()),
+        "inside the migration window the suite still signs"
+    );
     assert!(
-        tx.verify_at(at, &deprecated).is_err(),
+        tx.verify_at(at + MIN_EMERGENCY_WINDOW, &deprecated)
+            .is_err(),
         "a sunset suite cannot sign"
     );
 

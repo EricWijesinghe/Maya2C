@@ -75,7 +75,8 @@ impl StatelessValidator {
                 parent: hex::encode(block.header.prev_hash),
             });
         }
-        verify_block(&self.state_root, block, witness).map_err(|error| verdict(height, error))?;
+        verify_block(&self.state_root, height, block, witness)
+            .map_err(|error| verdict(height, error))?;
         self.tip_id = block.header.id();
         self.state_root = block.header.state_root;
         self.height = height;
@@ -109,7 +110,7 @@ impl LightClient {
             .chain()
             .header_at(parent_height)
             .ok_or(LightClientError::UnknownHeight(parent_height))?;
-        verify_block(&parent.header.state_root, block, witness)
+        verify_block(&parent.header.state_root, height, block, witness)
             .map_err(|error| verdict(height, error))
     }
 }

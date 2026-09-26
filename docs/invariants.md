@@ -213,11 +213,12 @@ phase that did it.
     without migrating anyone. `fips204` (node) and `ml-dsa` (suite) must stay
     the same function of the same seed; `crates/node/tests/suite_parity_tests.rs`
     pins keys and signatures across both — ADR-007.
-31. **No suite-tagged (wire version 7) transaction verifies before
-    `SUITE_ENVELOPE_ACTIVATION_HEIGHT`, and `Transaction::verify` never accepts
-    one.** `verify` has no height, so it refuses outright; only `verify_at`
-    at or past the height, under a `SuitePolicy` that lets the suite sign, can
-    accept one. The height is `u64::MAX`, so a v5/v6 chain cannot observe that
-    v7 exists. Moving it requires switching the consensus call sites from
-    `verify` to `verify_at` first. Pinned by
-    `crates/node/tests/suite_parity_tests.rs` — ADR-007.
+31. **Suite-tagged (v7) and multisig (v8) transactions verify only through
+    `verify_at`, under `crypto::suites::verification_policy()`, and
+    `Transaction::verify` never accepts one.** `verify` has no height, so it
+    refuses outright: a path that forgets to pass one fails closed. The policy
+    is a constant — the genesis schedule under mainnet rules — so neither a
+    governance vote nor a node's config can change which signatures a block's
+    validity rests on. `SUITE_ENVELOPE_ACTIVATION_HEIGHT` is 0 (ADR-013).
+    Pinned by `crates/node/tests/suite_parity_tests.rs` and
+    `crates/node/tests/suite_envelope_live_tests.rs` — ADR-007, ADR-013.

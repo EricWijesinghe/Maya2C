@@ -1,8 +1,9 @@
 //! m-of-n multisig on the node (wire version 8): a 3-of-5 ML-DSA account that
 //! spends with two members offline, and the ways a quorum cannot be faked.
 //!
-//! Dark on the same gate as the v7 envelope, so every accepting check runs at
-//! `SUITE_ENVELOPE_ACTIVATION_HEIGHT` and every height below it refuses.
+//! Live from genesis on the same gate as the v7 envelope (ADR-013). The
+//! height-less `Transaction::verify` still refuses every v8 frame, so a path
+//! that forgot to pass a height cannot accept one by accident.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -102,16 +103,17 @@ fn the_account_is_the_policy() {
 }
 
 #[test]
-fn it_is_dark_before_activation_and_through_verify() {
+fn it_is_live_from_genesis_and_still_refused_by_verify() {
     let keys = members();
     let tx = approve(draft(policy(&keys)), &keys, &[0, 1, 2]);
     let genesis = SuitePolicy::genesis(Network::Mainnet);
+    assert_eq!(AT, 0, "ADR-013: the envelope is live from genesis");
     assert!(
         tx.verify().is_err(),
         "verify() has no height and refuses v8"
     );
-    for height in [0, 1, AT - 1] {
-        assert!(tx.verify_at(height, &genesis).is_err(), "height {height}");
+    for height in [0, 1, 1_000_000] {
+        assert_eq!(tx.verify_at(height, &genesis), Ok(()), "height {height}");
     }
 }
 

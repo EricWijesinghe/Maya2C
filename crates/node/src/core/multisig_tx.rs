@@ -13,9 +13,9 @@
 //! ordering among signers.
 //!
 //! Each signature's length is the registry's for the key at its index,
-//! checked before the bytes are read. Dark exactly as v7 is: only
-//! [`Transaction::verify_at`] at or past `SUITE_ENVELOPE_ACTIVATION_HEIGHT`
-//! can accept one, and every listed key's suite must be admissible there.
+//! checked before the bytes are read. Gated exactly as v7 is: only
+//! [`Transaction::verify_at`] can accept one (live from genesis, ADR-013), and
+//! every listed key's suite must be admissible at that height.
 
 use maya_crypto_pq::agility::SuitePolicy;
 use maya_crypto_pq::multisig::{Approval, MAX_SIGNERS, MultisigPolicy};

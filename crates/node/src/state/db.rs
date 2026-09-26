@@ -17,6 +17,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use crate::config::StorageConfig;
+use maya_crypto_pq::agility::SuitePolicy;
 use maya_dex::batch::SwapIntent;
 use maya_dex::types::PairId;
 use maya_ledger_math as ledger_math;
@@ -712,6 +713,7 @@ impl StateDB {
         overlay: &mut Overlay,
         tx: &Transaction,
         context: BlockContext,
+        policy: &SuitePolicy,
     ) -> Result<()> {
         // Authorization first — an unsigned or forged transaction must never
         // reach the balance rules.
@@ -723,7 +725,14 @@ impl StateDB {
         // can move a single unit of value. There is deliberately no branch, no
         // configuration flag, and no legacy path that would accept one proof:
         // an adversary who broke either scheme in isolation gets nothing.
-        tx.verify()?;
+        //
+        // `verify_at` rather than `verify` because a suite-tagged (v7) or
+        // multisig (v8) frame needs the height and the policy to be judged at
+        // all, and `verify` has neither so it refuses them outright. For a
+        // v5/v6 hybrid frame the two are the same function: `verify_at` falls
+        // through to `verify`, and the both-schemes rule above is unchanged.
+        // ADR-013.
+        tx.verify_at(context.height, policy)?;
 
         // Derived from the keys the signatures were just checked against, never
         // read from a wire field. A transaction able to name a sender
@@ -800,8 +809,12 @@ impl StateDB {
         // and not a number its beneficiary chose.
         overlay.difficulty_target = block.header.difficulty_target;
 
+        // Once per block, not once per transaction: it is a constant, and
+        // building it inside the loop would suggest it could differ between two
+        // transactions of one block.
+        let policy = crate::crypto::suites::verification_policy();
         for tx in &block.transactions {
-            self.stage_transaction(&mut overlay, tx, context)?;
+            self.stage_transaction(&mut overlay, tx, context, &policy)?;
         }
 
         // Before trading, and after every plaintext transaction. Both halves

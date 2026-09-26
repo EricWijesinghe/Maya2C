@@ -14,9 +14,9 @@ its SLH-DSA half overflowed a 1 MiB desktop stack in this repository. ADR-007's
 suite envelope (wire v7) lets a transaction name a single suite, and `0x10` is
 ML-DSA-65 on its own: a complete signature, not half of one.
 
-The cost is activation. v7 is dark until `SUITE_ENVELOPE_ACTIVATION_HEIGHT`
-(`u64::MAX`). A device signature is valid bytes that the chain will accept on
-the day the envelope activates, and not before.
+v7 verifies from genesis (ADR-013, 2026-09-27), so a device signature is a
+transaction consensus accepts today. Until that ADR the envelope was dark and
+this paragraph said so.
 
 ## RAM: the measurement that decided it
 

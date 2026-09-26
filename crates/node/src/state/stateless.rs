@@ -259,6 +259,11 @@ fn fold_layers(accounts_root: &[u8; HASH_LEN], layers: &[LayerDigest]) -> [u8; H
 /// Verifies `block` from `witness` against its parent's state root, reading no
 /// database.
 ///
+/// `height` is the height `block` claims, which a header does not carry: the
+/// chain derives it from the index, so a stateless verifier has to be told. It
+/// is what decides whether a suite-tagged frame's suite may still sign, so
+/// passing the wrong one would judge a signature under the wrong schedule.
+///
 /// # Errors
 ///
 /// [`StatelessError::Invalid`] for a bad signature, a broken transfer rule, or
@@ -268,6 +273,7 @@ fn fold_layers(accounts_root: &[u8; HASH_LEN], layers: &[LayerDigest]) -> [u8; H
 /// does not open a key the block reads.
 pub fn verify_block(
     parent_state_root: &[u8; HASH_LEN],
+    height: u64,
     block: &Block,
     witness: StateWitness,
 ) -> core::result::Result<(), StatelessError> {
@@ -283,8 +289,13 @@ pub fn verify_block(
         })
         .map_err(|defect| StatelessError::Unverifiable(defect.to_string()))?;
 
+    // The same policy the apply path uses, and for the same reason it is a
+    // constant there: a stateless verifier holds an accounts witness and no
+    // governance column family, so a verification rule that read state would be
+    // one this path could not evaluate at all. ADR-013.
+    let policy = crate::crypto::suites::verification_policy();
     for tx in &block.transactions {
-        tx.verify()
+        tx.verify_at(height, &policy)
             .map_err(|error| StatelessError::Invalid(error.to_string()))?;
         let outputs = tx
             .outputs

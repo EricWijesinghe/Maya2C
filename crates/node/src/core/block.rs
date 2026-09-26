@@ -338,14 +338,25 @@ impl Block {
         })
     }
 
-    /// Verifies every transaction signature in the block.
+    /// Verifies every transaction signature in the block at `height` under
+    /// `policy` — the same `verify_at` the apply path runs.
+    ///
+    /// It takes the height and the policy because the height-less
+    /// `Transaction::verify` refuses every suite-tagged (v7) and multisig (v8)
+    /// frame (invariant 31), so a pre-check built on it would reject valid
+    /// blocks. Pass [`crate::crypto::suites::verification_policy`] to judge as
+    /// consensus does.
     ///
     /// # Errors
     ///
     /// Returns the first verification failure encountered.
-    pub fn verify_transactions(&self) -> Result<()> {
+    pub fn verify_transactions(
+        &self,
+        height: u64,
+        policy: &maya_crypto_pq::agility::SuitePolicy,
+    ) -> Result<()> {
         for transaction in &self.transactions {
-            transaction.verify()?;
+            transaction.verify_at(height, policy)?;
         }
         Ok(())
     }

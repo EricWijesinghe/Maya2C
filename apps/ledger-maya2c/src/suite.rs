@@ -5,10 +5,9 @@
 //! A hybrid (`0x30`) signature needs an SLH-DSA half the device cannot
 //! produce in its RAM (`sign.rs`, `docs/ledger-feasibility.md`). Suite `0x10`
 //! is a complete signature on its own: ADR-007's envelope names the suite,
-//! and a v7 transaction signed under `0x10` needs nothing else. What it does
-//! not have is activation — v7 is dark until `SUITE_ENVELOPE_ACTIVATION_HEIGHT`
-//! — so a device signature is valid bytes the chain will accept on the day the
-//! envelope activates, and not before.
+//! and a v7 transaction signed under `0x10` needs nothing else. v7 verifies
+//! from genesis (ADR-013), so what the device signs is what consensus
+//! accepts.
 //!
 //! # Byte-identical to the wallet
 //!

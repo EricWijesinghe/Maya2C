@@ -71,6 +71,28 @@ impl Mempool {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    /// The height admission judges against: the block after the stored tip.
+    ///
+    /// # Errors
+    ///
+    /// Propagates every read or decode failure.
+    fn admission_height(&self) -> Result<u64> {
+        // `chain_meta` is asked first because it is the one read that says
+        // "no chain yet" as a value (`None`) rather than as an error.
+        // `tip_height` reports a missing chain and a failed RocksDB read as the
+        // same `NodeError::Storage`, so matching on its error would turn a
+        // degraded store into "judge at genesis" — the wrong schedule, the day
+        // one has deprecations in it.
+        //
+        // A store no chain has been opened on judges at genesis: a node still
+        // gossips before it has caught up, and nothing it admits moves value
+        // until `stage_transaction` re-checks at the block's real height.
+        if self.state.chain_meta()?.is_none() {
+            return Ok(0);
+        }
+        Ok(self.state.tip_height()?.saturating_add(1))
+    }
+
     /// Validates `tx` against committed state without modifying the pool.
     ///
     /// # Errors
@@ -82,26 +104,32 @@ impl Mempool {
     /// [`NodeError::InsufficientBalance`] when the sender cannot cover the
     /// outputs, or [`NodeError::BalanceOverflow`] on arithmetic overflow.
     pub fn validate(&self, tx: &Transaction) -> Result<()> {
-        // Authorization before anything else: never let an unsigned or forged
-        // transaction reach the state lookups. Both signature schemes must
-        // pass, exactly as at block execution — the mempool applies the same
-        // rule earlier, it does not apply a weaker one.
+        // The state checks run *before* the signature, and that is a reversal
+        // of what this function used to do, for a cost reason (ADR-013):
         //
-        // Doing it first also matters more than it used to. Verifying a hybrid
-        // signature costs ~0.18 ms against ML-DSA's ~0.10 ms, so admission is
-        // now the cheapest place on the node to spend that, and the most
-        // important place not to spend it twice.
-        tx.verify()?;
-
-        // Evidence is stateless to check, so garbage never reaches a block
-        // template — the executor checks it again regardless.
-        if let crate::core::TxKind::AttestAttack(attestation) = &tx.kind {
-            crate::state::threat_exec::verify_evidence(attestation)?;
-        }
-        crate::state::iot_exec::admit(&self.state, &tx.sender(), &tx.kind)?;
-
+        // A v5/v6 hybrid signature costs ~0.18 ms, so verifying first was the
+        // cheap way to keep forgeries away from state. A v8 multisig frame can
+        // carry sixteen SLH-DSA-SHAKE-256f approvals at ~7.5 ms each, and a
+        // forged one is refused only after all of that work. Two RocksDB point
+        // reads are a rounding error beside it. So an account that holds
+        // nothing and has never sent — which costs an attacker nothing to name
+        // — is refused before a single signature is checked, and so is a stale
+        // nonce or an unaffordable spend. The sender is derived from the keys
+        // (or, for v8, the policy) the frame names, so reading it first trusts
+        // nothing: a forged frame reads the account its keys hash to.
+        //
+        // What this gives up: a forged frame from an empty account now fails as
+        // `EmptySender` rather than as a bad signature, so peer scoring sees a
+        // refusal, not a forgery. The executor's order is unchanged —
+        // `stage_transaction` still verifies before it reads a balance — so
+        // nothing about block validity moves.
         let sender_address = tx.sender();
         let sender = self.state.get_account(&sender_address)?;
+        if sender.balance == 0 && sender.nonce == 0 {
+            return Err(NodeError::EmptySender {
+                address: hex::encode(sender_address),
+            });
+        }
 
         // A nonce below the account's next expected value is a replay of
         // something already committed. Nonces *above* it are accepted: the
@@ -121,7 +149,6 @@ impl Mempool {
                 .checked_add(output.amount)
                 .ok_or(NodeError::BalanceOverflow)?;
         }
-
         if sender.balance < total_out {
             return Err(NodeError::InsufficientBalance {
                 address: hex::encode(sender_address),
@@ -129,6 +156,34 @@ impl Mempool {
                 available: sender.balance,
             });
         }
+
+        // Then the signature, with the same rule block execution applies, at
+        // the first height this transaction could execute at, under the policy
+        // governance has chosen:
+        //
+        // - Suite-tagged (v7) and multisig (v8) frames are judged here at all.
+        //   `verify` has no height, so it refuses them, and a mempool using it
+        //   would drop every one before the executor ever saw it.
+        // - The height is the tip's successor, the earliest block this
+        //   transaction can be included in. Admission is advisory:
+        //   `stage_transaction` re-checks at the block's real height.
+        // - The policy comes from the governance table, which is what makes
+        //   `ParameterKey::DefaultSignatureSuite` a parameter the node reads
+        //   rather than a number in a struct. It chooses what wallets should
+        //   sign with; it does not decide what verifies. Refusing to relay a
+        //   suite that blocks still accept would strand valid transactions
+        //   without changing any block's validity, so the admissibility test
+        //   here is the one consensus applies.
+        let height = self.admission_height()?;
+        let policy = crate::crypto::suites::policy(&self.state.parameters()?)?;
+        tx.verify_at(height, &policy)?;
+
+        // Evidence is stateless to check, so garbage never reaches a block
+        // template — the executor checks it again regardless.
+        if let crate::core::TxKind::AttestAttack(attestation) = &tx.kind {
+            crate::state::threat_exec::verify_evidence(attestation, height)?;
+        }
+        crate::state::iot_exec::admit(&self.state, &sender_address, &tx.kind)?;
 
         self.check_breaker(&tx.kind)
     }

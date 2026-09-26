@@ -116,6 +116,16 @@ pub enum NodeError {
         available: u64,
     },
 
+    /// Admission only: the sender holds nothing and has never sent, so no
+    /// transaction from it can be worth verifying. Checked before any
+    /// signature, because a v8 frame can cost sixteen SLH-DSA verifications and
+    /// an account that does not exist costs an attacker nothing (ADR-013).
+    #[error("sender {address} holds nothing and has never sent")]
+    EmptySender {
+        /// Hex-encoded sender address.
+        address: String,
+    },
+
     /// An arithmetic operation on balances would overflow `u64`.
     #[error("balance arithmetic overflowed")]
     BalanceOverflow,
@@ -401,9 +411,9 @@ pub enum NodeError {
     #[error("iot anchor: {0}")]
     Iot(String),
 
-    /// A suite-tagged (v7) transaction was refused: before
-    /// `SUITE_ENVELOPE_ACTIVATION_HEIGHT`, under a suite the policy does not
-    /// let sign at this height, or because its signature does not verify.
+    /// A suite-tagged (v7) or multisig (v8) transaction was refused: through
+    /// the height-less `verify`, under a suite the policy does not let sign at
+    /// this height, or because its signature does not verify.
     #[error("signature suite: {0}")]
     SignatureSuite(String),
 
