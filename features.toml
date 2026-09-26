@@ -2865,3 +2865,25 @@ status = "working"
 tests = ["crate:maya-econ", "econ/tests/scenario_tests.rs"]
 note = "Master Prompts 6 §6 and 18. Uses fee-market and dex directly. reports/18-economics.md has the run."
 
+[[subsystem]]
+id = "link-sim"
+name = "Transport HAL models (SIM)"
+domain = "Kernel, networking and transport"
+paths = "`hal/link-sim`"
+tier = "frontier"
+class = "SIM"
+status = "working"
+tests = ["crate:maya-link-sim", "hal/link-sim/tests/transport_tests.rs"]
+note = "Master Prompt 7 §4. Routing/failover policy models; every model reports its class. QKD mixing rules and entanglement_keys_require_classical_channel. Not linked by the node."
+
+[[subsystem]]
+id = "timing-service"
+name = "Timing service"
+domain = "Kernel, networking and transport"
+paths = "`crates/timing`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-timing"]
+note = "Master Prompt 7 §5. Marzullo fusion; SR/GR offsets reproduce GPS +38.5 µs/day; within_drift is the integer consensus check. No node caller yet."
+
