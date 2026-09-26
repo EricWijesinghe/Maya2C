@@ -44,6 +44,12 @@ ignore = [
     # and it pins `ringbuf` 0.3. Revisit when it moves to 0.5.2 or later, or
     # replace the in-memory duplex in the transport tests with `tokio::io::duplex`.
     { id = "RUSTSEC-2026-0293", reason = "dev-dependency only, and a RingBuffer<u8> has no droppable element to panic" },
+    # `atty` 0.2.14, reached only through `clap` 2 inside `dudect-bencher`, the
+    # constant-time harness `maya-crypto-pq` takes as a dev-dependency
+    # (`cargo tree -i atty -e normal` prints nothing). The unaligned read is on
+    # Windows only, and only under a custom global allocator; no shipped binary
+    # links it. Revisit when dudect-bencher leaves clap 2, or vendor the harness.
+    { id = "RUSTSEC-2021-0145", reason = "dev-dependency of the dudect harness only; Windows-only, custom-allocator-only" },
 ]
 # `unmaintained` is a real signal but not a vulnerability, and it fires on
 # transitive crates nobody here can act on. Surfaced, not fatal.

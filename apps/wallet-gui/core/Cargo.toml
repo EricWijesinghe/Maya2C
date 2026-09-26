@@ -44,7 +44,7 @@ serde_json.workspace = true
 # QR payloads are decoded and parsed in Rust, never in the frontend: a payment
 # URI is untrusted input and parsing it in JS would put an attacker's string
 # inside the trust boundary.
-rqrr = "0.10"
+rqrr = "0.11"
 image = { version = "0.25", default-features = false, features = ["png"] }
 
 jsonrpsee = { workspace = true, features = ["http-client"] }

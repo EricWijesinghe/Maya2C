@@ -1,4 +1,4 @@
-1178
+1175
 # clippy::pedantic diagnostics across `cargo clippy --workspace --all-targets`.
 #
 # Written by scripts/lint_debt.sh --update. The number may go down freely and

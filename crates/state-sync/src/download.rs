@@ -5,7 +5,7 @@
 //! chunk and re-queues whatever it still owed. Chunks are handed out lowest
 //! index first, so a restart can resume from a contiguous prefix.
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeSet, VecDeque};
 
 use crate::manifest::ChunkProof;
 
@@ -36,7 +36,7 @@ pub struct Downloader {
     chunks: u32,
     per_peer: usize,
     queue: VecDeque<u32>,
-    in_flight: BTreeMap<(u16, u32), ()>,
+    in_flight: BTreeSet<(u16, u32)>,
     peers: BTreeSet<u16>,
     banned: BTreeSet<u16>,
     done: BTreeSet<u32>,
@@ -54,7 +54,7 @@ impl Downloader {
             chunks,
             per_peer: per_peer.max(1),
             queue: (0..chunks).collect(),
-            in_flight: BTreeMap::new(),
+            in_flight: BTreeSet::new(),
             peers: peers.into_iter().collect(),
             banned: BTreeSet::new(),
             done: BTreeSet::new(),
@@ -83,12 +83,12 @@ impl Downloader {
         'fill: loop {
             let mut progressed = false;
             for &p in &peers {
-                let load = self.in_flight.keys().filter(|(q, _)| *q == p).count();
+                let load = self.in_flight.iter().filter(|(q, _)| *q == p).count();
                 if load >= self.per_peer {
                     continue;
                 }
                 let Some(c) = self.queue.pop_front() else { break 'fill };
-                self.in_flight.insert((p, c), ());
+                self.in_flight.insert((p, c));
                 out.push(Request { peer: p, chunk: c });
                 progressed = true;
             }
@@ -102,7 +102,7 @@ impl Downloader {
     /// A response arrived. Verifies it and returns what happened.
     pub fn receive(&mut self, peer: u16, chunk: u32, bytes: &[u8], proof: &ChunkProof) -> Vec<Event> {
         let mut events = Vec::new();
-        if self.in_flight.remove(&(peer, chunk)).is_none() || self.banned.contains(&peer) {
+        if !self.in_flight.remove(&(peer, chunk)) || self.banned.contains(&peer) {
             return events; // unsolicited or from a banned peer: ignore
         }
         self.bytes += bytes.len() as u64;
@@ -115,7 +115,7 @@ impl Downloader {
             self.banned.insert(peer);
             events.push(Event::Banned(peer));
             // Everything the liar still owed goes back to the front.
-            let owed: Vec<u32> = self.in_flight.keys().filter(|(p, _)| *p == peer).map(|(_, c)| *c).collect();
+            let owed: Vec<u32> = self.in_flight.iter().filter(|(p, _)| *p == peer).map(|(_, c)| *c).collect();
             for c in owed.into_iter().chain([chunk]).rev() {
                 self.in_flight.remove(&(peer, c));
                 self.queue.push_front(c);
