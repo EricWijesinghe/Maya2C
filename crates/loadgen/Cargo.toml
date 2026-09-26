@@ -1,0 +1,20 @@
+[package]
+name = "maya-loadgen"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Workload generator: seeded, reproducible transaction mixes with configurable contention and Zipfian account access"
+
+# Deliberately empty: a workload is a function of its seed and parameters, and
+# a dependency with its own RNG would make two runs of "the same" benchmark
+# different workloads (the reasoning maya-sim uses, ADR-006).
+[dependencies]
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "maya2c-loadgen"
+path = "src/bin/maya2c-loadgen.rs"

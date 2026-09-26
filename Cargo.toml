@@ -264,6 +264,20 @@ members = [
     # Timing service (Master Prompt 7 §5): Marzullo fusion, relativistic
     # offsets, and the integer bounded-drift check consensus may use.
     "crates/timing",
+    # The production build guard (Master Prompt 11 §3, ADR-016): a feature
+    # unification point whose compile_error! fires when `production` meets any
+    # sim/research/frontier/test-util/insecure switch in the same build.
+    "crates/build-guard",
+    # Workload generator (Master Prompt 12 §0): seeded transaction mixes with
+    # configurable contention and Zipfian access. Dependency-free.
+    "crates/loadgen",
+    # Parallel execution byte-identical to sequential (Master Prompt 12 §1,
+    # ADR-017): optimistic + in-order validation, and declared-access waves.
+    "crates/parallel-exec",
+    # Native smart accounts (Master Prompts 13 §2, 22): keys off the wire,
+    # rotation with a stable address, bounded validation, policies, session
+    # keys, guardians, vaults, sponsored fees. RESEARCH until the node runs it.
+    "crates/smart-account",
     # Workspace automation: `cargo xtask disk` and `cargo xtask coverage`. A
     # member so it is type-checked by the same `cargo check --workspace` that
     # gates everything else, and so the ledger test in it runs in the ordinary

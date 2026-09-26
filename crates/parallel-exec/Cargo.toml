@@ -1,0 +1,21 @@
+[package]
+name = "maya-parallel-exec"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Parallel block execution that is byte-identical to sequential: optimistic execution with in-order validation, and a declared-access-list wave scheduler"
+
+# Only the workload's transaction type. Threads are std::thread::scope; no
+# work-stealing runtime, because the result must not depend on which thread
+# ran what and the simplest way to see that is to have no scheduler to trust.
+[dependencies]
+maya-loadgen = { path = "../loadgen" }
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "speedup"
+harness = false
