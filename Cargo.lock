@@ -4746,6 +4746,10 @@ name = "maya-build-guard"
 version = "0.1.0"
 
 [[package]]
+name = "maya-clear-sign"
+version = "0.1.0"
+
+[[package]]
 name = "maya-confidential-ai"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,15 @@
+[package]
+name = "maya-clear-sign"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Clear signing: a transaction intent standard, plain-language rendering, and pre-sign review of claimed versus simulated effects"
+
+# Dependency-free: a wallet, the Ledger app and the explorer must all render
+# the same words from the same bytes.
+[dependencies]
+
+[lints]
+workspace = true

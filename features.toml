@@ -3041,3 +3041,14 @@ class = "RESEARCH"
 status = "working"
 tests = ["crates/treasury/tests/treasury_tests.rs"]
 note = "Master Prompt 18 §6. Dependency-free state machines; not wired into the node's governance path."
+
+[[subsystem]]
+id = "clear-signing-review"
+name = "Clear signing: intent standard and pre-sign review"
+domain = "Cryptography and key management"
+paths = "`crates/clear-sign`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crates/clear-sign/tests/phishing_set.rs"]
+note = "Master Prompt 22 §4. 220 synthesized drainer cases in 11 families all flagged; no wallet simulates contract calls yet, so it is not user-facing."
