@@ -17,6 +17,7 @@ mod coverage;
 mod disk;
 mod readiness;
 mod release_check;
+mod slo_check;
 mod spec_coverage;
 
 use std::process::ExitCode;
@@ -37,6 +38,7 @@ fn main() -> ExitCode {
         "release-check" => release_check::run(rest),
         "readiness" => readiness::run(rest),
         "spec-coverage" => spec_coverage::run(rest),
+        "slo-check" => slo_check::run(rest),
         "help" | "--help" | "-h" => {
             usage();
             return ExitCode::SUCCESS;
@@ -72,7 +74,9 @@ cargo xtask <command>
   spec-coverage [--strict]
                         List every spec/ rule and whether spec/tests/ has a
                         positive and a negative vector for it. --strict fails
-                        on any consensus rule without both."
+                        on any consensus rule without both.
+  slo-check             Fail if any SLO in docs/SLO.md lacks a registered
+                        metric, a dashboard panel, an alert or a runbook."
     );
 }
 
