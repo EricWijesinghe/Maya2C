@@ -13,6 +13,7 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+maya-build-guard = { path = "../build-guard" }
 blake3.workspace = true
 argon2.workspace = true
 # Entropy comes straight from the OS rather than through an RNG trait crate.
@@ -38,13 +39,14 @@ fips204 = { workspace = true, features = ["default-rng"] }
 # parameter set and monomorphizes into whichever crate instantiates it — see
 # crates/crypto-pq/Cargo.toml for the measurement that forced this.
 #
-# `hqc` for `network::pq::dual`, the opt-in dual-KEM handshake. HQC
+# `hqc` (the node's own default-on feature, below) for `network::pq::dual`,
+# the opt-in dual-KEM handshake. HQC
 # decapsulation is not constant-time (ADR-009 addendum), which is exploitable
 # against a *static* key decapsulating many chosen ciphertexts. The handshake
 # draws a fresh HQC key pair per connection, so each key decapsulates exactly
 # one ciphertext and there is nothing to accumulate. Any new use of HQC in the
 # node must keep that property, or not use HQC.
-maya-crypto-pq = { path = "../crypto-pq", features = ["hqc"] }
+maya-crypto-pq = { path = "../crypto-pq" }
 # The AEAD sealing every frame of the post-quantum transport layer. Already in
 # the tree via the wallet keystore, so this adds no new dependency.
 chacha20poly1305.workspace = true
@@ -161,6 +163,16 @@ libp2p = { workspace = true, features = [
 # socket, and the node links neither aya nor the AF_XDP `unsafe` in
 # `hal/ebpf-net/src/linux/`.
 xdp = ["maya-ebpf-net/xdp"]
+# The mainnet build (Master Prompt 11 §3, ADR-016). Forwards to the build
+# guard, which refuses to compile alongside any SIM, RESEARCH, frontier,
+# test-util or insecure switch anywhere in the same build.
+production = ["maya-build-guard/production"]
+# The opt-in dual-KEM handshake (`network::pq::dual`), which needs HQC. On by
+# default so a devnet node keeps offering it; a `production` build is made
+# with `--no-default-features`, leaves it out, and refuses a config that asks
+# for dual-KEM (ADR-016: HQC is a draft standard, ADR-009).
+hqc = ["maya-crypto-pq/hqc"]
+default = ["hqc"]
 
 [dev-dependencies]
 tempfile.workspace = true

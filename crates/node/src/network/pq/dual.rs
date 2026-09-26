@@ -62,12 +62,17 @@
 //! would be contributing nothing at exactly the moment it was supposed to
 //! matter. A new protocol gets a new context; that is what the string is for.
 
+#[cfg(feature = "hqc")]
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+#[cfg(feature = "hqc")]
 use zeroize::Zeroizing;
 
+#[cfg(feature = "hqc")]
 use maya_crypto_pq::{hqc, kem};
 
+#[cfg(feature = "hqc")]
 use crate::error::NodeError;
+#[cfg(feature = "hqc")]
 use crate::network::pq::handshake::SessionKeys;
 
 /// Wire version of the dual-KEM handshake.
@@ -79,13 +84,16 @@ use crate::network::pq::handshake::SessionKeys;
 /// stable ML-KEM path at all.
 pub const VERSION: u8 = 1;
 
+#[cfg(feature = "hqc")]
 /// Bytes the responder sends: version, then both encapsulation keys.
 pub const RESPONDER_MESSAGE_LEN: usize =
     1 + kem::ENCAPSULATION_KEY_LEN + hqc::ENCAPSULATION_KEY_LEN;
 
+#[cfg(feature = "hqc")]
 /// Bytes the initiator sends: version, then both ciphertexts.
 pub const INITIATOR_MESSAGE_LEN: usize = 1 + kem::CIPHERTEXT_LEN + hqc::CIPHERTEXT_LEN;
 
+#[cfg(feature = "hqc")]
 /// Total handshake bytes on the wire, both directions.
 ///
 /// 15,766 against the single-KEM handshake's 2,274.
@@ -99,11 +107,13 @@ pub const INITIATOR_MESSAGE_LEN: usize = 1 + kem::CIPHERTEXT_LEN + hqc::CIPHERTE
 /// So the cost is bandwidth, not latency. `network::pq::measure` reports both.
 pub const HANDSHAKE_BYTES: usize = RESPONDER_MESSAGE_LEN + INITIATOR_MESSAGE_LEN;
 
+#[cfg(feature = "hqc")]
 /// Domain separator for the dual-KEM key derivation.
 ///
 /// Deliberately not the single-KEM context. See the module documentation.
 const KDF_CONTEXT: &str = "maya2c 2026-09-01 p2p ml-kem-768 + hqc-192 dual session keys v1";
 
+#[cfg(feature = "hqc")]
 /// Domain separator prefixed to the transcript.
 const TRANSCRIPT_DOMAIN: &[u8] = b"maya2c.p2p.dualkem.mlkem768.hqc192.transcript.v1";
 
@@ -222,7 +232,17 @@ impl DualKemPolicy {
     /// [`crate::error::NodeError::Decode`] naming the accepted values.
     pub fn from_str_checked(value: &str) -> crate::error::Result<Self> {
         use core::str::FromStr as _;
-        Self::from_str(value).map_err(|e| crate::error::NodeError::Decode(e.to_string()))
+        let policy = Self::from_str(value).map_err(|e| crate::error::NodeError::Decode(e.to_string()))?;
+        // A build without HQC (every `production` build, ADR-016) cannot
+        // speak the dual protocol, so a configuration asking for it is an
+        // error at load time rather than a connection failure later.
+        if policy.offers() && !cfg!(feature = "hqc") {
+            return Err(crate::error::NodeError::Decode(format!(
+                "dual_kem = \"{value}\" needs the `hqc` feature, which this build omits \
+                 (production builds do: HQC is a draft standard, ADR-009, ADR-016)"
+            )));
+        }
+        Ok(policy)
     }
 
     /// Whether the protocol should be advertised to peers.
@@ -238,6 +258,7 @@ impl DualKemPolicy {
     }
 }
 
+#[cfg(feature = "hqc")]
 /// The four values a completed dual handshake binds into the session key.
 ///
 /// Grouped into a struct rather than passed as four arguments because the
@@ -255,6 +276,7 @@ pub struct Transcript<'a> {
     pub hqc_ciphertext: &'a [u8; hqc::CIPHERTEXT_LEN],
 }
 
+#[cfg(feature = "hqc")]
 /// Derives directional session keys from both shared secrets and the full
 /// transcript of both key exchanges.
 ///
@@ -308,6 +330,7 @@ pub fn derive_dual(
     }
 }
 
+#[cfg(feature = "hqc")]
 /// Runs the responder half: generate both keypairs, send both keys,
 /// decapsulate both ciphertexts.
 ///
@@ -372,6 +395,7 @@ where
     ))
 }
 
+#[cfg(feature = "hqc")]
 /// Runs the initiator half: receive both keys, encapsulate to both, send both
 /// ciphertexts.
 ///
@@ -427,6 +451,7 @@ where
     ))
 }
 
+#[cfg(feature = "hqc")]
 fn check_version(version: u8) -> Result<(), NodeError> {
     if version == VERSION {
         Ok(())
@@ -437,6 +462,7 @@ fn check_version(version: u8) -> Result<(), NodeError> {
     }
 }
 
+#[cfg(feature = "hqc")]
 async fn read_exact<S>(stream: &mut S, buf: &mut [u8]) -> Result<(), NodeError>
 where
     S: AsyncRead + Unpin,
@@ -447,6 +473,7 @@ where
         .map_err(|e| NodeError::PqHandshake(format!("dual-KEM handshake read failed: {e}")))
 }
 
+#[cfg(feature = "hqc")]
 async fn write_all<S>(stream: &mut S, buf: &[u8]) -> Result<(), NodeError>
 where
     S: AsyncWrite + Unpin,
@@ -473,7 +500,7 @@ where
         .map_err(|e| NodeError::PqHandshake(format!("dual-KEM handshake flush failed: {e}")))
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "hqc"))]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;

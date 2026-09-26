@@ -444,3 +444,56 @@ fn a_proof_follows_the_reorg() {
         LightClientError::ProofMismatch { .. }
     ));
 }
+
+// ---------------------------------------------------------------------------
+// a lying RPC server (Master Prompt 14 §3)
+// ---------------------------------------------------------------------------
+
+/// What a wallet talks to. The honest one answers from the real state; the
+/// liar keeps a state of its own in which the holder is richer, and answers
+/// every query with a perfectly well-formed proof *of that state*.
+struct Rpc<'a> {
+    state: &'a StateDB,
+    inflate_in_flight: bool,
+}
+
+impl Rpc<'_> {
+    fn balance_proof(&self, address: &Address) -> custom_l1_node::state::proof::AccountProof {
+        let mut proof = self.state.account_proof(address).expect("read").expect("exists");
+        if self.inflate_in_flight {
+            proof.account.balance *= 10;
+        }
+        proof
+    }
+}
+
+#[test]
+fn the_light_client_catches_a_lying_rpc_server() {
+    let (honest, holders, _d1) = funded();
+    let root = honest.state_root().expect("root");
+    let client = LightClient::new(chain(header([0u8; 32], root, 0)));
+    let who = holders[0].address();
+
+    // Honest server: the balance checks out.
+    let truthful = Rpc { state: &honest, inflate_in_flight: false };
+    assert_eq!(client.verified_balance(0, &truthful.balance_proof(&who)).expect("honest"), BALANCE);
+
+    // Liar 1 edits the balance in a real proof on the way out.
+    let editor = Rpc { state: &honest, inflate_in_flight: true };
+    assert!(client.verified_balance(0, &editor.balance_proof(&who)).is_err());
+
+    // Liar 2 runs a whole forged state in which the holder has ten times as
+    // much, and serves internally consistent proofs from it. They verify
+    // against the forged root, not the one the header chain committed to.
+    let dir = TempDir::new().expect("dir");
+    let forged = StateDB::open(dir.path()).expect("open");
+    for (i, h) in holders.iter().enumerate() {
+        let balance = if i == 0 { BALANCE * 10 } else { BALANCE };
+        forged.put_account(&h.address(), &Account { balance, nonce: 0 }).expect("fund");
+    }
+    let forger = Rpc { state: &forged, inflate_in_flight: false };
+    assert!(matches!(
+        client.verified_balance(0, &forger.balance_proof(&who)).unwrap_err(),
+        LightClientError::ProofMismatch { .. }
+    ));
+}

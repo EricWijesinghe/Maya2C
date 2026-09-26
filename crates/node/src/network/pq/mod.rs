@@ -224,9 +224,17 @@ where
     /// handshake ends up running the wrong exchange on a stream.
     fn upgrade_inbound(self, mut socket: C, protocol: Self::Info) -> Self::Future {
         async move {
+            #[cfg(feature = "hqc")]
             let keys = if protocol.as_ref() == dual::PROTOCOL {
                 dual::respond(&mut socket).await?
             } else {
+                handshake::respond(&mut socket).await?
+            };
+            // Without HQC the dual protocol is never offered (the config
+            // refuses it), so only the single-KEM exchange can be negotiated.
+            #[cfg(not(feature = "hqc"))]
+            let keys = {
+                let _ = &protocol; // only the single-KEM protocol can have been negotiated
                 handshake::respond(&mut socket).await?
             };
             Ok(PqStream::new(socket, keys, false))
@@ -249,9 +257,15 @@ where
     /// [`PqUpgrade::upgrade_inbound`].
     fn upgrade_outbound(self, mut socket: C, protocol: Self::Info) -> Self::Future {
         async move {
+            #[cfg(feature = "hqc")]
             let keys = if protocol.as_ref() == dual::PROTOCOL {
                 dual::initiate(&mut socket).await?
             } else {
+                handshake::initiate(&mut socket).await?
+            };
+            #[cfg(not(feature = "hqc"))]
+            let keys = {
+                let _ = &protocol;
                 handshake::initiate(&mut socket).await?
             };
             Ok(PqStream::new(socket, keys, true))

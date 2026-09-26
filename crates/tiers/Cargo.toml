@@ -73,9 +73,12 @@ frontier = [
     "dep:maya-cuda-miner",
     "dep:maya-wgpu-miner",
     "dep:maya-sim",
+    "maya-build-guard/frontier",
 ]
 
 [dependencies]
+# The frontier tier forwards to the production guard (ADR-016).
+maya-build-guard = { path = "../build-guard" }
 custom-l1-node = { path = "../node", optional = true }
 maya-light-client = { path = "../light-client", optional = true }
 maya-fee-market = { path = "../fee-market", optional = true }

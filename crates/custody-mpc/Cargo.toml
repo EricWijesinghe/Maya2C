@@ -11,6 +11,9 @@ rust-version.workspace = true
 description = "Threshold custody of a Maya2C chain key: dealerless VSS, quorum signing, and the reason this is not a threshold signature scheme"
 
 [dependencies]
+# Feature-unification point: `threshold-lattice` is RESEARCH (ADR-014) and
+# forwards to the guard's `research` feature (ADR-016).
+maya-build-guard = { path = "../build-guard" }
 # Ristretto, for the Pedersen commitments that make the dealing verifiable.
 # The same curve `maya-mev` and `maya-vrf` already use — two elliptic curves in
 # one codebase is two sets of encoding rules to get right.
@@ -64,7 +67,7 @@ tls = ["dep:tokio", "dep:tokio-rustls", "dep:rustls", "dep:rustls-pki-types"]
 # its vectors, plus a dealerless keygen that is this repository's own and not
 # peer-reviewed. Its output is a Raccoon signature, which no registry suite
 # verifies, so it authorises custody off chain and signs nothing on it.
-threshold-lattice = ["dep:sha3"]
+threshold-lattice = ["dep:sha3", "maya-build-guard/research"]
 
 [dev-dependencies]
 hex.workspace = true

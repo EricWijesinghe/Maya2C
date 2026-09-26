@@ -51,7 +51,9 @@ use std::time::{Duration, Instant};
 use futures::{AsyncRead, AsyncWrite};
 
 use crate::error::NodeError;
-use crate::network::pq::{dual, handshake};
+#[cfg(feature = "hqc")]
+use crate::network::pq::dual;
+use crate::network::pq::handshake;
 
 /// Bytes in a TCP segment on a conventional 1500-byte-MTU path.
 ///
@@ -144,6 +146,7 @@ where
     })
 }
 
+#[cfg(feature = "hqc")]
 /// Runs one dual-KEM handshake over the given stream pair and reports its cost.
 ///
 /// # Errors
@@ -207,6 +210,7 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "hqc")]
     #[test]
     fn the_dual_kem_responder_message_also_fits_the_initial_window() {
         // The correction, pinned. An early draft assumed the dual handshake
@@ -226,6 +230,7 @@ mod tests {
             handshake::RESPONDER_MESSAGE_LEN + handshake::INITIATOR_MESSAGE_LEN,
             2_274
         );
+        #[cfg(feature = "hqc")]
         assert_eq!(dual::HANDSHAKE_BYTES, 15_766);
     }
 }

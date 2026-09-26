@@ -11,9 +11,12 @@ description = "Health-tested entropy sources mixed into an SP 800-90A HMAC-DRBG,
 # Admit SIM and RESEARCH sources into a pool. Off by default: a production
 # build refuses them outright (ADR-010 §5, Standing Order 3). The unit tests of
 # the models themselves do not need it; only a pool that mixes them does.
-sim-sources = []
+sim-sources = ["maya-build-guard/sim"]
 
 [dependencies]
+# Feature-unification point: `sim-sources` forwards to its `sim` feature so a
+# production build that pulled SIM entropy in fails to compile (ADR-016).
+maya-build-guard = { path = "../../crates/build-guard" }
 # HMAC-SHA-256 for the DRBG, SP 800-90A §10.1.2. The same `hmac 0.12` /
 # `sha2 0.10` generation the Ledger app and the rest of the tree use.
 hmac = "0.12"
