@@ -35,4 +35,34 @@
 
 pub mod apdu;
 pub mod derive;
-pub mod sign;
+pub mod lowmem;
+pub mod review;
+pub mod suite;
+
+/// Only for the stack-size analysis in `docs/ledger-feasibility.md`: a bare
+/// `thumbv8m.main-none-eabi` staticlib built with `-Z emit-stack-sizes`. It
+/// needs a panic handler, and a reference that keeps the signer from being
+/// optimised away. The device binary brings its own handler for the device
+/// targets, and no default build enables the feature.
+#[cfg(all(feature = "stack-probe", target_os = "none"))]
+mod stack_probe {
+    #[panic_handler]
+    fn panic(_: &core::panic::PanicInfo) -> ! {
+        loop {}
+    }
+
+    type Keygen = fn(
+        &[u8; 32],
+        &mut [u8; crate::lowmem::PUBLIC_KEY_LEN],
+        &mut [u8; crate::lowmem::SECRET_KEY_LEN],
+    );
+    type Sign = fn(
+        &[u8; crate::lowmem::SECRET_KEY_LEN],
+        &[u8; 64],
+        &[u8; 32],
+        &mut [u8; crate::lowmem::SIGNATURE_LEN],
+    ) -> Result<(), crate::lowmem::Error>;
+
+    #[used]
+    static KEEP: (Keygen, Sign) = (crate::lowmem::keygen, crate::lowmem::sign_mu);
+}

@@ -2593,7 +2593,7 @@ paths = "`sdks/sdk-ffi`, `sdks/sdk-wasm`, `sdks/sdk-js`"
 tier = "extended"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-sdk-ffi", "crate:maya-sdk-wasm", "crates/node/tests/hybrid_parity_tests.rs", "crates/node/tests/ledger_parity_tests.rs"]
+tests = ["crate:maya-sdk-ffi", "crate:maya-sdk-wasm", "crates/node/tests/hybrid_parity_tests.rs"]
 gate = "cargo build -p maya-sdk-wasm --target wasm32-unknown-unknown"
 note = "The parity tests run on the host. The browser bindings additionally have to *compile* for wasm32, which they did not until 2026-09-20 -- getrandom reaches the crate transitively at two majors and both needed their browser backend named. See docs/sdk.md; nightly.yml builds that target."
 
@@ -2668,9 +2668,9 @@ paths = "`apps/ledger-maya2c`"
 tier = "frontier"
 class = "RESEARCH"
 status = "working"
-tests = ["apps/ledger-maya2c/tests/apdu_tests.rs", "apps/ledger-maya2c/tests/ledger_tests.rs", "crates/node/tests/ledger_parity_tests.rs"]
-gate = "cargo test --manifest-path apps/ledger-maya2c/Cargo.toml"
-note = "Nano S+/X/Stax app. Its own workspace and a cross target, so the workspace test job cannot reach its own tests; crates/node/tests/ledger_parity_tests.rs is the part that does run, and it pins the duplicated COIN_TYPE."
+tests = ["apps/ledger-maya2c/tests/apdu_tests.rs", "apps/ledger-maya2c/tests/lowmem_tests.rs", "apps/ledger-maya2c/tests/parity_tests.rs", "apps/ledger-maya2c/tests/ledger_tests.rs", "crates/node/tests/ledger_fixture_tests.rs"]
+gate = "cargo test --manifest-path apps/ledger-maya2c/Cargo.toml; scripts/ledger_speculos.sh"
+note = "Signs suite-0x10 (ML-DSA-65) v7 transfers with a low-memory ML-DSA-65 equal to fips204 and the NIST ACVP vectors; ~23 KiB peak stack on Cortex-M where fips204 needs >140 KiB. All 8 Speculos tests pass on Nano S Plus and Nano X (API level 27); builds for Stax and Flex. RESEARCH because v7 is dark until SUITE_ENVELOPE_ACTIVATION_HEIGHT. crates/node/tests/ledger_fixture_tests.rs is the part the workspace job runs."
 
 [[subsystem]]
 id = "mining-pool-service"

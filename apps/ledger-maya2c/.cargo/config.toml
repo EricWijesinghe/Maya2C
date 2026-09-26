@@ -1,0 +1,18 @@
+# Device builds only. `core` and `alloc` are built from source for the Ledger
+# targets by passing `-Zbuild-std` on the `cargo ledger build` command line
+# (see docs/ledger-feasibility.md), not here: an `[unstable] build-std` table
+# would apply to host `cargo test` too and rebuild `core` beside the host's.
+
+[target.nanosplus]
+runner = "speculos --model nanosp --display headless"
+
+[target.nanox]
+runner = "speculos --model nanox --display headless"
+
+# Nano X has 28 KiB of app SRAM. With the SDK's default 8 KiB heap the stack
+# is 19,872 bytes, short of the ~23 KiB signing needs (docs/ledger-feasibility.md);
+# 2 KiB of heap (NBGL's review strings need well under that) leaves ~26 KiB.
+# The other devices keep the default. The SDK's own ML-DSA notes give the same
+# setting for the same reason.
+[env]
+HEAP_SIZE = "nanox: 2048"

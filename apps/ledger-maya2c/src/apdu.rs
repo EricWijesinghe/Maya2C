@@ -6,9 +6,9 @@
 //!
 //! | Object | Bytes | APDUs |
 //! |---|---|---|
-//! | hybrid public key | 1,984 | 8 out |
-//! | hybrid signature | 11,165 | 44 out |
-//! | a signed transfer | ~13,000 | 52 in |
+//! | suite-`0x10` public key | 1,952 | 8 out |
+//! | suite-`0x10` signature | 3,309 | 13 out |
+//! | a transfer's signing bytes | ~2,100 | ~10 in |
 //!
 //! So every command is a sequence, and the sequence is where the bugs are: a
 //! chunk accepted out of order, a length that disagrees with what arrived, a
@@ -34,30 +34,23 @@ pub const CLA: u8 = 0xE0;
 /// Largest payload one APDU can carry.
 pub const MAX_APDU_PAYLOAD: usize = 255;
 
-/// Hybrid public key length, from `src/crypto/hybrid.rs`.
+/// `GET_PAGE`: page P2 of the last key or signature the device produced.
 ///
-/// Duplicated rather than imported: importing would mean depending on
-/// `custom-l1-node`, which pulls RocksDB's C++ into a Cortex-M binary. The
-/// duplication is pinned by a parity test instead.
-pub const HYBRID_PUBLIC_KEY_LEN: usize = 1984;
-
-/// Hybrid signature length: ML-DSA-65 (3,309) + SLH-DSA-SHA2-128s (7,856).
-pub const HYBRID_SIGNATURE_LEN: usize = 11165;
-
-/// ML-DSA-65 signature length on its own.
-///
-/// The device can produce this half. It is **not a valid Maya2C signature** —
-/// `HybridVerifyingKey::verify` checks both halves — and the constant exists so
-/// the measurement has something to name, not because a transaction can be
-/// built from it.
-pub const ML_DSA_SIGNATURE_LEN: usize = 3309;
+/// Outside [`Instruction`] because it is not a command with a payload of its
+/// own: it reads back what the previous one left, and the dispatcher answers
+/// it before any chunk assembly.
+pub const INS_GET_PAGE: u8 = 0x08;
 
 /// Largest transaction the device will accept for signing.
 ///
-/// A ceiling on RAM the host can make the device commit. 16 KiB is comfortably
-/// past a single transfer (~13 KB, dominated by the 11,165-byte signature the
-/// *previous* signer attached) while still being a bound rather than a wish.
-pub const MAX_TX_BYTES: usize = 16 * 1024;
+/// A ceiling on RAM the host can make the device commit — the largest single
+/// buffer the app holds. What arrives is a v7 transfer's *signing bytes*:
+/// ~2 KB, most of it the device's own 1,952-byte public key, plus 36 bytes per
+/// input and 40 per output, so 4 KiB covers the most a review will show
+/// (`review::MAX_INPUTS`, `MAX_OUTPUTS`) with room. It was 16 KiB when the
+/// signer was expected to be the hybrid, and that alone was 40% of a Nano S
+/// Plus's RAM.
+pub const MAX_TX_BYTES: usize = 4 * 1024;
 
 /// Commands this application answers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

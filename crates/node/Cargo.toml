@@ -174,7 +174,7 @@ futures_ringbuf.workspace = true
 # For `tests/hybrid_parity_tests.rs`, which pins the browser SDK's copy of the
 # hybrid construction against the node's authoritative one.
 maya-sdk-wasm = { path = "../../sdks/sdk-wasm" }
-# For `tests/ledger_parity_tests.rs`, which pins the Ledger app's duplicated
+# For `tests/ledger_fixture_tests.rs`, which pins the Ledger app's duplicated
 # COIN_TYPE against the wallet's. A dev-dependency cycle -- apps/wallet-gui/core
 # depends on this crate -- which Cargo permits, and which `maya-sdk-wasm` above
 # already relies on for the same kind of parity test.
@@ -227,6 +227,9 @@ flatbuffers = "25"
 # earlier in this tree, both of which were only caught because an authority
 # existed to test against. Here there would be none.
 sha2.workspace = true
+# `benches/crypto.rs` times SHA3-256 beside SHA-256 and BLAKE3: the suites and
+# the shielded pool both lean on Keccak, so its cost belongs in the table.
+sha3.workspace = true
 ed25519-dalek = { version = "2.2", features = ["rand_core"] }
 # Contract tests assemble small modules from WAT so they exercise the
 # transaction path without depending on a wasm toolchain being installed.
@@ -241,6 +244,12 @@ maya-stratum-v2 = { path = "../stratum-v2" }
 # an unoptimized hash runs on the order of seconds, which makes `cargo test`
 # look hung rather than slow. Optimize the hash crates even in dev/test while
 # leaving our own code unoptimized and debuggable.
+[[bench]]
+# Every primitive the chain uses, timed together, with the size table beside
+# the times; exports CSV and Markdown for reports/02-crypto.md.
+name = "crypto"
+harness = false
+
 [[bench]]
 name = "argon_blake"
 harness = false

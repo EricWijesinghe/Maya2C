@@ -1,0 +1,61 @@
+  4968  app_maya2c::lowmem::sign_mu
+  2408  app_maya2c::lowmem::keygen
+  1216  app_maya2c::lowmem::sample::accumulate_a_times
+  1096  app_maya2c::lowmem::sample::rej_bounded
+  1088  app_maya2c::lowmem::shake256
+  1088  app_maya2c::lowmem::sample::expand_mask
+   496  keccak::p1600
+   432  <digest::core_api::wrapper::CoreWrapper<sha3::Shake256Core> as digest::ExtendableOutput>::finalize_xof
+   408  <digest::core_api::xof_reader::XofReaderCoreWrapper<sha3::Shake128ReaderCore> as digest::XofReader>::read::{closure#0}
+   344  <digest::core_api::xof_reader::XofReaderCoreWrapper<sha3::Shake256ReaderCore> as digest::XofReader>::read::{closure#0}
+   184  <generic_array::GenericArray<u8, typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UTerm, typenum::bit::B1>, typenum::bit::B0>, typenum::bit::B1>, typenum::bit::B0>, typenum::bit::B1>, typenum::bit::B0>, typenum::bit::B0>, typenum::bit::B0>> as generic_array::sequence::GenericSequence<u8>>::generate::<<generic_array::GenericArray<u8, typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UTerm, typenum::bit::B1>, typenum::bit::B0>, typenum::bit::B1>, typenum::bit::B0>, typenum::bit::B1>, typenum::bit::B0>, typenum::bit::B0>, typenum::bit::B0>> as core::default::Default>::default::{closure#0}>
+   176  <digest::core_api::xof_reader::XofReaderCoreWrapper<sha3::Shake256ReaderCore> as digest::XofReader>::read
+   152  <generic_array::GenericArray<u8, typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UTerm, typenum::bit::B1>, typenum::bit::B0>, typenum::bit::B0>, typenum::bit::B0>, typenum::bit::B1>, typenum::bit::B0>, typenum::bit::B0>, typenum::bit::B0>> as generic_array::sequence::GenericSequence<u8>>::generate::<<generic_array::GenericArray<u8, typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UTerm, typenum::bit::B1>, typenum::bit::B0>, typenum::bit::B0>, typenum::bit::B0>, typenum::bit::B1>, typenum::bit::B0>, typenum::bit::B0>, typenum::bit::B0>> as core::default::Default>::default::{closure#0}>
+    96  <digest::core_api::wrapper::CoreWrapper<sha3::Shake256Core> as digest::Update>::update::{closure#0}
+    96  <digest::core_api::wrapper::CoreWrapper<sha3::Shake128Core> as digest::Update>::update::{closure#0}
+    64  app_maya2c::lowmem::poly::inv_ntt
+    56  app_maya2c::lowmem::poly::ntt
+    48  app_maya2c::lowmem::unpack_small
+    48  <app_maya2c::lowmem::poly::Challenge>::times
+    40  app_maya2c::lowmem::w_row
+    32  app_maya2c::lowmem::put_bits
+    32  <digest::core_api::wrapper::CoreWrapper<sha3::Shake256Core> as digest::Update>::update
+    32  <digest::core_api::wrapper::CoreWrapper<sha3::Shake128Core> as digest::Update>::update
+    32  <core::iter::adapters::zip::Zip<core::slice::iter::ChunksExact<u8>, core::slice::iter::IterMut<u64>> as core::iter::adapters::zip::ZipImpl<core::slice::iter::ChunksExact<u8>, core::slice::iter::IterMut<u64>>>::new
+    24  app_maya2c::lowmem::get_bits
+    24  <core::iter::adapters::zip::Zip<core::slice::iter::ChunksMut<u8>, core::slice::iter::Iter<u64>> as core::iter::adapters::zip::ZipImpl<core::slice::iter::ChunksMut<u8>, core::slice::iter::Iter<u64>>>::new
+    16  core::slice::copy_from_slice_impl::<u8>
+    16  app_maya2c::lowmem::poly::decompose
+    16  <digest::core_api::wrapper::CoreWrapper<sha3::Shake256Core> as core::default::Default>::default
+    16  <block_buffer::BlockBuffer<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UTerm, typenum::bit::B1>, typenum::bit::B0>, typenum::bit::B1>, typenum::bit::B0>, typenum::bit::B1>, typenum::bit::B0>, typenum::bit::B0>, typenum::bit::B0>, block_buffer::Eager> as core::default::Default>::default
+    16  <block_buffer::BlockBuffer<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UInt<typenum::uint::UTerm, typenum::bit::B1>, typenum::bit::B0>, typenum::bit::B0>, typenum::bit::B0>, typenum::bit::B1>, typenum::bit::B0>, typenum::bit::B0>, typenum::bit::B0>, block_buffer::Eager> as core::default::Default>::default
+     8  core::slice::index::slice_index_fail
+     8  core::slice::copy_from_slice_impl::len_mismatch_fail
+     8  core::result::unwrap_failed
+     8  core::panicking::panic_fmt
+     8  core::panicking::panic_bounds_check
+     8  app_maya2c::lowmem::poly::sub
+     8  app_maya2c::lowmem::poly::add
+     8  <i32>::abs
+     8  <core::ops::range::RangeTo<usize> as core::slice::index::SliceIndex<[u8]>>::index_mut
+     8  <core::ops::range::RangeFrom<usize> as core::slice::index::SliceIndex<[u8]>>::index_mut
+     8  <core::ops::range::RangeFrom<usize> as core::slice::index::SliceIndex<[u8]>>::index
+     8  <core::ops::range::Range<usize> as core::slice::index::SliceIndex<[u8]>>::index_mut
+     8  <core::iter::adapters::enumerate::Enumerate<core::slice::iter::Iter<i32>> as core::iter::traits::iterator::Iterator>::next
+     8  <[u8; 8] as core::ops::index::Index<core::ops::range::RangeTo<usize>>>::index
+     8  <[u8; 4032] as core::ops::index::IndexMut<core::ops::range::Range<usize>>>::index_mut
+     8  <[u8; 4032] as core::ops::index::Index<core::ops::range::Range<usize>>>::index
+     0  OUTLINED_FUNCTION_9
+     0  OUTLINED_FUNCTION_8
+     0  OUTLINED_FUNCTION_7
+     0  OUTLINED_FUNCTION_6
+     0  OUTLINED_FUNCTION_5
+     0  OUTLINED_FUNCTION_4
+     0  OUTLINED_FUNCTION_3
+     0  OUTLINED_FUNCTION_2
+     0  OUTLINED_FUNCTION_13
+     0  OUTLINED_FUNCTION_12
+     0  OUTLINED_FUNCTION_11
+     0  OUTLINED_FUNCTION_10
+     0  OUTLINED_FUNCTION_1
+     0  OUTLINED_FUNCTION_0

@@ -6,10 +6,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use app_maya2c::apdu::{
-    ApduError, Assembler, CLA, Chunk, Command, HYBRID_PUBLIC_KEY_LEN, HYBRID_SIGNATURE_LEN,
-    Instruction, MAX_APDU_PAYLOAD, MAX_TX_BYTES, Pages, parse,
+    ApduError, Assembler, CLA, Chunk, Command, Instruction, MAX_APDU_PAYLOAD, MAX_TX_BYTES, Pages,
+    parse,
 };
 use app_maya2c::derive::{COIN_TYPE, DerivationPath, HARDENED, PATH_LEN};
+use app_maya2c::suite::{PUBLIC_KEY_LEN, SIGNATURE_LEN};
 
 /// Builds a frame with a correct `Lc`.
 fn frame(ins: u8, p1: u8, p2: u8, payload: &[u8]) -> Vec<u8> {
@@ -201,20 +202,17 @@ fn a_payload_past_the_ceiling_is_refused() {
 
 #[test]
 fn a_signature_pages_into_the_expected_number_of_responses() {
-    // The number that makes this protocol awkward, asserted rather than
-    // assumed: 11,165 bytes over a 255-byte pipe is 44 responses.
-    assert_eq!(Pages::count_for(HYBRID_SIGNATURE_LEN), 44);
-    assert_eq!(Pages::count_for(HYBRID_PUBLIC_KEY_LEN), 8);
+    // Asserted rather than assumed: 3,309 bytes over a 255-byte pipe is 13
+    // responses, and a 1,952-byte key is 8.
+    assert_eq!(Pages::count_for(SIGNATURE_LEN), 13);
+    assert_eq!(Pages::count_for(PUBLIC_KEY_LEN), 8);
 
-    let signature = vec![0xABu8; HYBRID_SIGNATURE_LEN];
+    let signature = vec![0xABu8; SIGNATURE_LEN];
     let pages: Vec<&[u8]> = Pages::new(&signature).collect();
 
-    assert_eq!(pages.len(), 44);
+    assert_eq!(pages.len(), 13);
     assert!(pages.iter().all(|p| p.len() <= MAX_APDU_PAYLOAD));
-    assert_eq!(
-        pages.iter().map(|p| p.len()).sum::<usize>(),
-        HYBRID_SIGNATURE_LEN
-    );
+    assert_eq!(pages.iter().map(|p| p.len()).sum::<usize>(), SIGNATURE_LEN);
 }
 
 #[test]

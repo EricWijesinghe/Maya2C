@@ -27,17 +27,9 @@ path = "src/main.rs"
 [features]
 default = []
 
-# Attempt SLH-DSA on-device.
-#
-# Off by default and gated, because it is the experiment rather than the
-# product. `slh-dsa`'s own documentation says it "allocates signatures and
-# intermediate values on the stack, which may cause problems for environments
-# with limited stack space" — and its keygen overflowed a 1 MB stack on a
-# desktop during this project's genesis ceremony work. A Ledger has kilobytes.
-#
-# The feature exists so the measurement can be taken, not because it is
-# expected to fit.
-slh-experiment = ["dep:slh-dsa"]
+# Links the library as a bare staticlib for the thumbv8m stack-size analysis
+# (`docs/ledger-feasibility.md`). Never enabled in a device or host build.
+stack-probe = []
 
 # rustc does not know Ledger's device `target_os` values -- they come from the
 # SDK's own target JSONs, not from the built-in target list -- so every `cfg`
@@ -49,21 +41,20 @@ unexpected_cfgs = { level = "warn", check-cfg = [
 ] }
 
 [dependencies]
-# `#![no_std]`, no heap allocations, ships an embedded example. The one
-# component of this that is plausible on a Ledger.
-fips204 = { version = "0.4", default-features = false, features = ["ml-dsa-65"] }
 
 # Address derivation must match the node byte for byte. `default-features =
 # false` for no_std; the domain string is duplicated from
 # `src/crypto/hybrid.rs` and pinned by a parity test rather than trusted.
-blake3 = { version = "1.8", default-features = false }
+# Pinned to 1.8.2: 1.8.7's build script calls `is_windows_msvc()` first thing,
+# which indexes the dash-separated parts of the target name and panics on a
+# Ledger target (`nanosplus` has none). Host tests use the same pin.
+blake3 = { version = "=1.8.2", default-features = false }
 
-# SLIP-0010 over the same path the desktop wallet uses.
-hmac = { version = "0.12", default-features = false }
-sha2 = { version = "0.10", default-features = false }
 zeroize = { version = "1", default-features = false }
-
-slh-dsa = { version = "0.2.0-rc.5", default-features = false, optional = true }
+# The low-memory ML-DSA-65 in `src/lowmem/`: SHAKE128/256 streamed as they
+# are squeezed. The same `sha3` release `fips204` already links, so the device
+# carries one Keccak, not two.
+sha3 = { version = "0.10", default-features = false }
 
 # The Ledger SDK is only present when building for the device.
 #
@@ -77,10 +68,46 @@ slh-dsa = { version = "0.2.0-rc.5", default-features = false, optional = true }
 # Gating this way also means `--target thumbv8m.main-none-eabi --lib` checks the
 # protocol layer for ARM without needing the C SDK at all.
 [target.'cfg(any(target_os = "nanosplus", target_os = "stax", target_os = "flex", target_os = "nanox"))'.dependencies]
-ledger_device_sdk = "1.24"
+# `nano_nbgl` so the Nano models get the same NBGL review screens as Stax and
+# Flex. `sys` for the one raw syscall the SLIP-0010 derivation needs (`main.rs`):
+# the safe `derive_from_path_slip10` keeps the key bytes private, and the
+# BIP32 wrapper for ed25519 is Ledger's own scheme, not the SLIP-0010 the
+# desktop wallet uses.
+ledger_device_sdk = { version = "1.37", features = ["sys", "nano_nbgl"] }
+
+# What cargo-ledger and the SDK build read. `path` restricts the app to the
+# Maya2C coin type; `curve` is the curve the SLIP-0010 derivation runs over
+# (ed25519), not the signature scheme, which is ML-DSA-65.
+[package.metadata.ledger]
+name = "Maya2C"
+curve = ["ed25519"]
+flags = "0"
+path = ["44'/7331'"]
+
+[package.metadata.ledger.nanosplus]
+icon = "icons/maya2c_14x14.gif"
+
+[package.metadata.ledger.nanox]
+icon = "icons/maya2c_14x14.gif"
+
+[package.metadata.ledger.stax]
+icon = "icons/maya2c_32x32.gif"
+
+[package.metadata.ledger.flex]
+icon = "icons/maya2c_40x40.gif"
 
 [dev-dependencies]
+# The reference the low-memory signer is checked against byte for byte. Not
+# on the device: it needs 140-160 KiB of stack (`tests/memory_tests.rs`).
+fips204 = { version = "0.4", default-features = false, features = ["ml-dsa-65", "default-rng"] }
 hex = "0.4"
+# Reads the NIST ACVP ML-DSA vectors vendored in `crates/crypto-pq`.
+serde_json = "1"
+# The Speculos tests derive the wallet's key independently — BIP-39 then
+# SLIP-0010 — to check the device's own derivation syscall against it.
+hmac = "0.12"
+pbkdf2 = "0.12"
+sha2 = "0.10"
 
 [profile.release]
 # A Ledger app is flash-constrained before it is anything else.

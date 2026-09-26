@@ -137,7 +137,7 @@ crates rather than duplicating them (D1).
 - [x] P8 — custody (ADR-011): `crypto-pq::multisig` m-of-n policies + node wire v8 multisig accounts (dark on the v7 gate; txid excludes approvals); custody TLS hop X25519MLKEM768-only; 3-of-5 over PQ TLS through a crash, a corrupted share, three failures, and a classical-only peer; `threshold-lattice` RESEARCH interface refusing until a scheme is chosen
 - [x] P9 — HTLC (ADR-012): `Lock`/`Unlock` over SHA3-256, BLAKE3, SHA-256 hash locks (REAL, live at height 0) and Module-LWE locks (RESEARCH, dark); watcher `SwapSecret`; `htlc_lattice_tests.rs` hash-lock swap, refund at T, forged preimages, in the node's production context
 - [x] P10 — `archive::seal`: forward-secure SLH-DSA-SHAKE-256f epoch keys (one-way seed chain, certified transitions, erasure by move), 100-epoch test + epoch-50 compromise test, `docs/resealing.md` (seal, content-hash and key-compromise procedures)
-- [ ] P11 — Ledger app: DISPLAY_ADDRESS, RAM measurement, Speculos tests
+- [x] P11 — Ledger app signs suite-0x10 v7 transfers: low-memory ML-DSA-65 (= fips204 + NIST ACVP, ~23 KiB peak stack on Cortex-M vs >140 KiB), GET_PUBLIC_KEY / DISPLAY_ADDRESS / SIGN_TRANSACTION / GET_PAGE with review, node-written parity fixture; Speculos 8/8 on Nano S Plus and Nano X (`scripts/ledger_speculos.sh`); Stax/Flex build
 - [ ] P12 — `benches/crypto.rs`, CSV/MD export, `reports/02-crypto.md`
 
 ---
