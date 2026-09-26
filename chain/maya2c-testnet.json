@@ -1,0 +1,25 @@
+{
+  "_status": "No public network exists. This file is the shape a wallet or aggregator listing needs, filled with what is true today: a testnet chain id and no public endpoints.",
+  "chain_id": "maya-testnet",
+  "name": "Maya2C Testnet",
+  "native_currency": {
+    "name": "Maya2C",
+    "symbol": null,
+    "decimals": null,
+    "_decimals": "No decimals constant exists: every amount is in base units (crates/node/src/rpc/market.rs). A listing must not invent one; this is a decision to write down before launch.",
+    "_symbol": "No ticker symbol is defined anywhere in the tree ('MAYA' appears only as a test pair name in crates/node/src/rpc/market.rs). Choosing one is a launch decision."
+  },
+  "address": {
+    "encoding": "hex",
+    "bytes": 32,
+    "derivation": "blake3(\"custom-l1-node.address.v3\" || ml_dsa_65_pk || slh_dsa_sha2_128s_pk)"
+  },
+  "signature_scheme": "hybrid ML-DSA-65 + SLH-DSA-SHA2-128s (FIPS 204 + FIPS 205)",
+  "security_label": "post-quantum",
+  "rpc": [],
+  "explorers": [],
+  "genesis": "infra/k8s/base/configmap.yaml",
+  "icons": {
+    "png": "apps/dashboard/assets/logo.png"
+  }
+}
