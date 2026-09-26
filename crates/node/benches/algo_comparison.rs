@@ -22,23 +22,21 @@
 //!
 //! So: one group for hashes, one for signatures, and no arithmetic across them.
 //!
-//! # kHeavyHash is absent, deliberately
+//! # kHeavyHash lives in `benches/crypto.rs`
 //!
-//! There is no `kheavyhash` crate. Kaspa's own `kaspa-pow` exposes the right
-//! thing — `Matrix::generate` and `heavy_hash`, with an official test vector —
-//! but it depends unconditionally on `workflow-core 0.18`, which does not
-//! compile on this toolchain.
+//! `kaspa-pow` still does not build here (it depends unconditionally on
+//! `workflow-core 0.18`). This file used to refuse a reimplementation for want
+//! of official vectors to check it against, and that premise was wrong:
+//! rusty-kaspa's `matrix.rs` publishes known answers for `heavy_hash` and for
+//! `Matrix::generate`. `benches/support/kheavyhash.rs` ports upstream's code and
+//! `tests/kheavyhash_reference_tests.rs` checks it against both, and against
+//! cSHAKE256 written from NIST SP 800-185 -- the "authority to test against"
+//! this comment once said did not exist. The per-nonce row is in the crypto
+//! bench; this harness keeps its original comparison.
 //!
-//! Implementing it from the specification was refused. With no official vectors
-//! to check against, a wrong implementation would publish a number
-//! misrepresenting Kaspa's performance, and nothing would catch it. Two guessed
-//! constants earlier in this tree — an address domain and a hashimoto mix key —
-//! were both caught only because an authority existed to test against. Here
-//! there would be none.
-//!
-//! Note also that `kaspa_hashes::KHeavyHash` alone would have been the wrong
-//! measurement even if it had compiled: it is only the cSHAKE256 finalisation,
-//! and the 64x64 matrix multiply is the "heavy" in heavy hash.
+//! What stays true: `kaspa_hashes::KHeavyHash` alone would be the wrong
+//! measurement, being only the cSHAKE256 finalisation; the 64x64 matrix
+//! product is the "heavy" in heavy hash, and the reference times both.
 //!
 //! # Energy figures are modelled, not measured
 //!
@@ -242,16 +240,12 @@ fn sizes(_c: &mut Criterion) {
     println!("  network hashrate and a hardware mix, neither observable, and Maya2C");
     println!("  has no live network — its hashrate is zero and the quotient undefined.");
     println!();
-    println!("Omitted: kHeavyHash (Kaspa)");
-    println!("===========================");
+    println!("Elsewhere: kHeavyHash (Kaspa)");
+    println!("=============================");
     println!();
-    println!("  No `kheavyhash` crate exists. Kaspa's own `kaspa-pow` has the right");
-    println!("  implementation and an official test vector, but depends transitively");
-    println!("  on `workflow-core 0.18`, which does not compile on this toolchain.");
-    println!();
-    println!("  Hand-implementing it was refused: with no official vectors, a wrong");
-    println!("  implementation would publish a number misrepresenting Kaspa, and");
-    println!("  nothing here would catch it.");
+    println!("  Timed in benches/crypto.rs against a port checked by Kaspa's own");
+    println!("  known answers and by cSHAKE256 from NIST SP 800-185. A reference,");
+    println!("  not Kaspa's miner (upstream uses assembly Keccak; miners use GPUs).");
     println!();
 }
 

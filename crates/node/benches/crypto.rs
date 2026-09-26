@@ -13,11 +13,16 @@
 //!
 //! # What is not here
 //!
-//! **kHeavyHash.** There is no `kheavyhash` crate; Kaspa's `kaspa-pow` does not
-//! compile on this toolchain, and implementing it from the specification with no
-//! official vector to check against would publish a number misrepresenting
-//! another project's performance. `benches/algo_comparison.rs` explains that at
-//! length, and it is the same refusal here.
+//! **kHeavyHash is here as a reference, not as Kaspa's miner.** The row times
+//! `benches/support/kheavyhash.rs`, a port of rusty-kaspa's own code that
+//! `tests/kheavyhash_reference_tests.rs` checks against Kaspa's known answers
+//! and against cSHAKE256 re-derived from NIST SP 800-185. It is refused no
+//! longer because the reason it was refused — no official vector to check a
+//! reimplementation against — turned out to be wrong: upstream publishes them.
+//! What the number still is not is a claim about Kaspa's speed: upstream runs
+//! an assembly Keccak on x86-64, and real miners use GPUs. The bench asserts
+//! the known answer before it times anything, so a broken port cannot produce
+//! a row at all.
 //!
 //! **Energy.** Every joule figure would be seconds × an assumed wattage; RAPL
 //! is not readable on this machine. Seconds are measured, watts are not.
@@ -37,6 +42,14 @@ use std::time::Duration;
 use criterion::{BenchmarkId, Criterion};
 
 use custom_l1_node::crypto::argon_blake::argon_blake_hash;
+
+#[path = "support/kheavyhash.rs"]
+mod kheavyhash;
+// Only the heavy_hash answer is asserted here; the matrix-generation answer is
+// the test file's to check.
+#[allow(dead_code)]
+#[path = "../tests/fixtures/kaspa_kheavyhash.rs"]
+mod kaspa_vectors;
 use maya_crypto_pq::kem_suite::{
     DualKem768Hqc128, DualKem1024Hqc256, Hqc128, Hqc256, KemSuite, MlKem768, MlKem1024, XWing,
 };
@@ -154,6 +167,24 @@ fn hashes(c: &mut Criterion) {
     group.bench_function("sha3-256 (64 B)", |b| {
         use sha3::{Digest, Sha3_256};
         b.iter(|| black_box(Sha3_256::digest(black_box(header))));
+    });
+
+    // Refuse to time a port that does not reproduce upstream's answer.
+    assert_eq!(
+        kheavyhash::Matrix(kaspa_vectors::HEAVY_HASH_MATRIX)
+            .heavy_hash(&kaspa_vectors::HEAVY_HASH_INPUT),
+        kaspa_vectors::HEAVY_HASH_EXPECTED,
+        "the kHeavyHash reference no longer matches Kaspa's known answer"
+    );
+    // One template, many nonces: the matrix is built once per template, so
+    // the per-attempt cost is PowHash + matrix-vector product + HeavyHash.
+    let template = kheavyhash::State::new(&[0x11; 32], 1_789_200_000);
+    let mut nonce = 0u64;
+    group.bench_function("kheavyhash (Kaspa PoW, reference, per nonce)", |b| {
+        b.iter(|| {
+            nonce = nonce.wrapping_add(1);
+            black_box(template.pow(black_box(nonce)))
+        });
     });
     group.finish();
 }
@@ -305,6 +336,18 @@ fn sizes_markdown() -> String {
     out
 }
 
+/// One CSV field, quoted when it has to be (RFC 4180): a comma, a quote or a
+/// line break inside it. A bench name with commas in it otherwise splits into
+/// extra columns, and the first time that happened (the `kheavyhash` row) the
+/// report generator read the tail of its name as a mean.
+fn csv_field(field: &str) -> String {
+    if field.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", field.replace('"', "\"\""))
+    } else {
+        field.to_string()
+    }
+}
+
 fn export(criterion_dir: &Path, reports: &Path) {
     let mut rows = Vec::new();
     collect(criterion_dir, &mut Vec::new(), &mut rows);
@@ -324,7 +367,12 @@ fn export(criterion_dir: &Path, reports: &Path) {
         let _ = writeln!(
             csv,
             "{},{},{},{:.1},{:.1},{:.1}",
-            row.group, row.function, row.parameter, row.mean_ns, row.median_ns, row.std_dev_ns
+            csv_field(&row.group),
+            csv_field(&row.function),
+            csv_field(&row.parameter),
+            row.mean_ns,
+            row.median_ns,
+            row.std_dev_ns
         );
     }
 
@@ -383,12 +431,17 @@ fn main() {
         .output_directory(&criterion_dir)
         .configure_from_args();
 
-    signatures(&mut criterion);
-    kems(&mut criterion);
-    hashes(&mut criterion);
-    criterion.final_summary();
-
-    if std::env::var("MAYA_CRYPTO_REPORT").as_deref() == Ok("1") {
+    // `MAYA_CRYPTO_REPORT=1` measures, then exports. `=export` only re-reads
+    // the estimates the last run left in `target/criterion-crypto` -- for when
+    // the exporter itself changed and the numbers did not need re-measuring.
+    let report = std::env::var("MAYA_CRYPTO_REPORT").ok();
+    if report.as_deref() != Some("export") {
+        signatures(&mut criterion);
+        kems(&mut criterion);
+        hashes(&mut criterion);
+        criterion.final_summary();
+    }
+    if matches!(report.as_deref(), Some("1" | "export")) {
         export(&criterion_dir, &repo_root().join("reports"));
     }
 }

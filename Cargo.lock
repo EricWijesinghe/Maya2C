@@ -1956,6 +1956,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "jsonrpsee",
+ "keccak 0.1.6",
  "libp2p",
  "maya-archive",
  "maya-blockgraph",

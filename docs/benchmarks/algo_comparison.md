@@ -24,12 +24,14 @@ so its hashrate is zero and the quotient is undefined.
 **No `finalized` metric either.** Maya2C and Bitcoin have probabilistic
 finality: there is no finalisation event, only confirmations accumulating.
 
-**kHeavyHash (Kaspa) is absent.** No `kheavyhash` crate exists; Kaspa's own
-`kaspa-pow` has the right implementation and an official test vector but
-depends transitively on `workflow-core 0.18`, which does not compile on this
-toolchain. Hand-implementing it was refused: with no official vectors, a
-wrong implementation would publish a number misrepresenting Kaspa and
-nothing here would catch it.
+**kHeavyHash (Kaspa) is timed in `benches/crypto.rs`, not here.** The earlier
+refusal said there were no official vectors to check a reimplementation
+against; that was wrong -- rusty-kaspa publishes known answers for
+`heavy_hash` and for matrix generation. `benches/support/kheavyhash.rs` is a
+port of upstream's code, checked against both answers and against cSHAKE256
+re-derived from NIST SP 800-185 (`tests/kheavyhash_reference_tests.rs`). It
+is a reference, not Kaspa's miner: upstream uses an assembly Keccak and real
+miners use GPUs. This harness keeps its original four-way comparison.
 
 **Single machine.** These are one host's numbers. Nothing here supports a
 cross-machine claim.

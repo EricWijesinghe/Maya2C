@@ -41,59 +41,69 @@ node's own context.)
 
 ## 2. Benchmarks
 
-`MAYA_CRYPTO_REPORT=1 cargo bench --bench crypto` — 43 rows, every one exported
+`MAYA_CRYPTO_REPORT=1 cargo bench --bench crypto` — 44 rows, every one exported
 to `reports/crypto-bench.csv` (raw nanoseconds) and `reports/crypto-bench.md`
 (the full table, plus the size tables). The export is written from criterion's
-own `estimates.json`, so nothing in it is retyped by hand.
+own `estimates.json`, and this section is rebuilt from that CSV by script, so
+nothing in it is retyped by hand. Re-run 2026-09-27, all rows in one run.
 
 Means, 20 samples each, release profile, this machine:
 
 | Suite | keygen from seed | sign | verify | Public key | Signature |
 |---|---|---|---|---|---|
-| Ed25519 (`0x01`) | 18.11 µs | 23.85 µs | 72.96 µs | 32 B | 64 B |
-| ML-DSA-65 (`0x10`) | 266.47 µs | 628.62 µs | 166.03 µs | 1,952 B | 3,309 B |
-| ML-DSA-87 (`0x11`) | 404.96 µs | 1.68 ms | 259.45 µs | 2,592 B | 4,627 B |
-| SLH-DSA-SHA2-128s (`0x20`) | 23.38 ms | 189.67 ms | 169.19 µs | 32 B | 7,856 B |
-| SLH-DSA-SHAKE-256f (`0x21`) | 15.34 ms | 266.16 ms | 7.48 ms | 64 B | 49,856 B |
-| Hybrid (`0x30`) | 23.19 ms | 159.58 ms | 403.22 µs | 1,984 B | 11,165 B |
+| Ed25519 (`0x01`) | 15.90 µs | 13.41 µs | 32.49 µs | 32 B | 64 B |
+| ML-DSA-65 (`0x10`) | 155.23 µs | 252.57 µs | 80.19 µs | 1,952 B | 3,309 B |
+| ML-DSA-87 (`0x11`) | 299.36 µs | 720.40 µs | 210.31 µs | 2,592 B | 4,627 B |
+| SLH-DSA-SHA2-128s (`0x20`) | 17.24 ms | 162.11 ms | 146.74 µs | 32 B | 7,856 B |
+| SLH-DSA-SHAKE-256f (`0x21`) | 6.80 ms | 153.86 ms | 4.69 ms | 64 B | 49,856 B |
+| Hybrid (`0x30`) | 13.17 ms | 135.35 ms | 211.71 µs | 1,984 B | 11,165 B |
 
 | KEM | generate | encapsulate | decapsulate | Encapsulation key | Ciphertext |
 |---|---|---|---|---|---|
-| ML-KEM-768 | 45.33 µs | 42.39 µs | 38.23 µs | 1,184 B | 1,088 B |
-| ML-KEM-1024 | 76.40 µs | 73.08 µs | 75.18 µs | 1,568 B | 1,568 B |
-| HQC-128 (draft) | 153.40 µs | 269.26 µs | 393.48 µs | 2,241 B | 4,433 B |
-| HQC-256 (draft) | 822.15 µs | 1.51 ms | 2.27 ms | 7,237 B | 14,421 B |
-| X-Wing | 62.51 µs | 126.06 µs | 147.78 µs | 1,216 B | 1,120 B |
-| Dual ML-KEM-768+HQC-128 | 191.14 µs | 285.20 µs | 579.05 µs | 3,425 B | 5,521 B |
-| Dual ML-KEM-1024+HQC-256 | 805.52 µs | 1.75 ms | 2.85 ms | 8,805 B | 15,989 B |
+| ML-KEM-768 | 39.20 µs | 35.76 µs | 33.77 µs | 1,184 B | 1,088 B |
+| ML-KEM-1024 | 50.68 µs | 37.38 µs | 56.77 µs | 1,568 B | 1,568 B |
+| HQC-128 (draft) | 71.33 µs | 248.67 µs | 369.12 µs | 2,241 B | 4,433 B |
+| HQC-256 (draft) | 426.45 µs | 829.27 µs | 1.82 ms | 7,237 B | 14,421 B |
+| X-Wing | 39.63 µs | 93.25 µs | 84.47 µs | 1,216 B | 1,120 B |
+| Dual ML-KEM-768+HQC-128 | 97.25 µs | 227.33 µs | 311.62 µs | 3,425 B | 5,521 B |
+| Dual ML-KEM-1024+HQC-256 | 464.78 µs | 1.38 ms | 1.90 ms | 8,805 B | 15,989 B |
 
 | Hash | Mean |
 |---|---|
-| ArgonBlake, one 64-byte header (consensus PoW) | 30.71 ms |
-| BLAKE3, 64 B | 246 ns |
-| SHA-256, 64 B | 89 ns |
-| SHA3-256, 64 B | 728 ns |
+| ArgonBlake, one 64-byte header (consensus PoW) | 23.78 ms |
+| BLAKE3, 64 B | 123 ns |
+| SHA-256, 64 B | 71 ns |
+| SHA3-256, 64 B | 401 ns |
+| kHeavyHash, per nonce (Kaspa PoW, *reference*, see below) | 522 ns |
 
 What these numbers decide elsewhere in this report:
 
-- **The hybrid costs ~160 ms to sign and 403 µs to verify.** Signing is
+- **The hybrid costs 135.35 ms to sign and 211.71 µs to verify.** Signing is
   dominated by its SLH-DSA half, which is why a Ledger cannot produce one (§12)
   and why the `0x10` suite exists at all.
-- **Verification is what consensus pays**, and there ML-DSA-65 (166 µs) is
-  cheaper than the hybrid (403 µs) and 45× cheaper than SLH-DSA-SHAKE-256f
-  (7.48 ms). A block of 10,000 `0x21` verifications would be 75 seconds; that
-  suite is for cold vaults and archive seals, not transactions.
-- **SLH-DSA-SHAKE-256f signing is 266 ms**, which is the cost behind the
+- **Verification is what consensus pays**, and there ML-DSA-65 (80.19 µs) is
+  cheaper than the hybrid (211.71 µs) and 59× cheaper than SLH-DSA-SHAKE-256f
+  (4.69 ms). A block of 10,000 `0x21` verifications would be 47 seconds;
+  that suite is for cold vaults and archive seals, not transactions.
+- **SLH-DSA-SHAKE-256f signing is 153.86 ms**, which is the cost behind the
   100-epoch archive test in §11 (100 keygens plus 200 signatures).
-- **HQC costs about 10× ML-KEM** at the same level and its ciphertext is 4×
+- **HQC-128 decapsulation costs 11× ML-KEM-768's** and its ciphertext is 4×
   larger, before §5's timing finding. The dual handshake pays both.
-- **ArgonBlake is ~30.7 ms per attempt**: memory-hard by design, and the reason
+- **ArgonBlake is ~23.78 ms per attempt**: memory-hard by design, and the reason
   `[profile.dev.package.*]` overrides exist (ADR-003).
+- **kHeavyHash is 522 ns per nonce — for this reference, not for Kaspa.** The row
+  times `benches/support/kheavyhash.rs`, a port of rusty-kaspa's own code checked
+  against Kaspa's published known answers (`heavy_hash`, matrix generation) and
+  against cSHAKE256 re-derived from NIST SP 800-185
+  (`crates/node/tests/kheavyhash_reference_tests.rs`); the bench refuses to run
+  if the known answer fails. Upstream uses an assembly Keccak on x86-64 and
+  miners use GPUs, so this says what the construction costs on one core here,
+  not how fast Kaspa mines. Beside ArgonBlake it is ~45,555× cheaper per
+  attempt: kHeavyHash is compute-bound by design, ArgonBlake memory-bound.
 
 Caveats a reader should apply: 20 samples on a Windows laptop, so the standard
-deviations are wide (up to 26% of the mean for the hybrid's signing) and these
-are *relative* costs, not datasheet figures. kHeavyHash and energy are absent —
-§13 says why.
+deviations are wide (up to 21% of the mean for the hybrid's signing) and these
+are *relative* costs, not datasheet figures. Energy is absent — §13 says why.
 
 ## 3. Signature suites and crypto-agility
 
@@ -261,13 +271,14 @@ every other primitive, on the same machine and profile.
 
 Three stages: a BLAKE3 pre-hash of the header, **Argon2id over 32 MiB**, then a
 BLAKE3 XOF squeeze. The measurement says where the cost is: the whole hash is
-**30.71 ms** and BLAKE3 over the same 64 bytes is **246 ns**, so the memory-hard
+**23.78 ms** and BLAKE3 over the same 64 bytes is **123 ns**, so the memory-hard
 stage is essentially all of it — which is the point of the construction, and why
 no SIMD tuning of the BLAKE3 halves would matter.
 
-The module's own doc records ~25.4 ms from an earlier run; 30.71 ms here is the
-same construction on a busier machine, and the 3.09 ms standard deviation over
-20 samples covers most of the gap. Neither figure is a datasheet number.
+The module's own doc records ~25.4 ms from an earlier run, and the first run of
+this bench measured 30.71 ms; this one reads 23.78 ms with a 4.56 ms standard
+deviation over 20 samples. The spread across runs is the machine, not the
+construction. None of these figures is a datasheet number.
 
 ## 9. Threshold custody
 
@@ -375,9 +386,5 @@ The full account is in `docs/ledger-feasibility.md`. In short:
 - **Custody certificates are classical**, and are no longer what
   authentication rests on: the ML-DSA-87 exporter signature is (ADR-011
   amendment).
-- **kHeavyHash is not benchmarked.** There is no `kheavyhash` crate, Kaspa's
-  `kaspa-pow` does not compile on this toolchain, and implementing it from the
-  specification with no official vector would publish a number misrepresenting
-  another project's performance.
 - **No energy figures.** Every joule number would be measured seconds times an
   assumed wattage; RAPL is not readable on this machine.

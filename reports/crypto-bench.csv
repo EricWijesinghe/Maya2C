@@ -1,44 +1,45 @@
 group,function,parameter,mean_ns,median_ns,std_dev_ns
-hash,argon_blake (consensus PoW),,30710121.7,31656340.6,3092775.4
-hash,blake3 (64 B),,245.8,242.3,22.8
-hash,sha256 (64 B),,89.3,89.1,18.0
-hash,sha3-256 (64 B),,728.4,731.3,65.8
-kem,decapsulate,Dual ML-KEM-1024+HQC-256,2848101.6,2847957.9,135341.2
-kem,decapsulate,Dual ML-KEM-768+HQC-128,579048.8,576889.9,31245.7
-kem,decapsulate,HQC-128 (draft),393481.1,342764.4,96851.0
-kem,decapsulate,HQC-256 (draft),2271338.9,2464857.6,471991.8
-kem,decapsulate,ML-KEM-1024,75183.9,74347.2,4255.1
-kem,decapsulate,ML-KEM-768,38234.0,38831.8,8079.5
-kem,decapsulate,X-Wing,147784.1,160838.2,28416.6
-kem,encapsulate,Dual ML-KEM-1024+HQC-256,1754056.8,1802142.0,253010.2
-kem,encapsulate,Dual ML-KEM-768+HQC-128,285200.1,278594.3,56907.5
-kem,encapsulate,HQC-128 (draft),269262.9,287703.1,56367.3
-kem,encapsulate,HQC-256 (draft),1514871.7,1496372.3,284897.2
-kem,encapsulate,ML-KEM-1024,73080.6,72086.7,8357.0
-kem,encapsulate,ML-KEM-768,42394.5,42910.6,3880.7
-kem,encapsulate,X-Wing,126056.0,129165.2,28769.5
-kem,generate,Dual ML-KEM-1024+HQC-256,805516.6,899540.9,199810.2
-kem,generate,Dual ML-KEM-768+HQC-128,191140.3,196851.1,28438.4
-kem,generate,HQC-128 (draft),153402.7,150907.5,24395.1
-kem,generate,HQC-256 (draft),822151.6,831974.1,118025.9
-kem,generate,ML-KEM-1024,76404.0,75768.3,3741.5
-kem,generate,ML-KEM-768,45330.1,47243.6,6731.3
-kem,generate,X-Wing,62512.3,66133.5,13156.8
-signature,keygen_from_seed,Ed25519,18107.5,17779.2,5634.9
-signature,keygen_from_seed,ML-DSA-65,266466.0,246123.1,59797.6
-signature,keygen_from_seed,ML-DSA-65+SLH-DSA-SHA2-128s,23193815.2,24240983.0,3038515.0
-signature,keygen_from_seed,ML-DSA-87,404962.0,392786.1,49675.8
-signature,keygen_from_seed,SLH-DSA-SHA2-128s,23380670.3,24531352.9,2490669.1
-signature,keygen_from_seed,SLH-DSA-SHAKE-256f,15343600.8,15273550.5,2222464.7
-signature,sign,Ed25519,23847.3,23741.3,7409.5
-signature,sign,ML-DSA-65,628621.6,600971.8,255596.9
-signature,sign,ML-DSA-65+SLH-DSA-SHA2-128s,159580822.5,164979850.0,41781251.7
-signature,sign,ML-DSA-87,1679244.0,1498044.9,634906.4
-signature,sign,SLH-DSA-SHA2-128s,189672740.0,195202850.0,17009661.9
-signature,sign,SLH-DSA-SHAKE-256f,266158200.0,273643200.0,31842437.4
-signature,verify,Ed25519,72955.8,68410.9,12418.2
-signature,verify,ML-DSA-65,166031.2,155420.6,42237.6
-signature,verify,ML-DSA-65+SLH-DSA-SHA2-128s,403223.0,406853.1,51122.6
-signature,verify,ML-DSA-87,259447.1,259447.5,42425.0
-signature,verify,SLH-DSA-SHA2-128s,169185.3,179656.7,39461.6
-signature,verify,SLH-DSA-SHAKE-256f,7484351.0,7158622.5,883395.4
+hash,argon_blake (consensus PoW),,23779477.3,23293736.7,4561802.7
+hash,blake3 (64 B),,123.0,121.1,5.7
+hash,"kheavyhash (Kaspa PoW, reference, per nonce)",,522.0,476.7,97.1
+hash,sha256 (64 B),,70.7,66.4,11.3
+hash,sha3-256 (64 B),,400.7,400.4,8.6
+kem,decapsulate,Dual ML-KEM-1024+HQC-256,1903038.6,1808342.8,459291.6
+kem,decapsulate,Dual ML-KEM-768+HQC-128,311617.8,289952.9,56069.0
+kem,decapsulate,HQC-128 (draft),369117.5,358970.9,87640.0
+kem,decapsulate,HQC-256 (draft),1821601.9,1585653.1,502867.0
+kem,decapsulate,ML-KEM-1024,56770.6,58002.5,8417.5
+kem,decapsulate,ML-KEM-768,33768.4,31874.4,7827.8
+kem,decapsulate,X-Wing,84474.5,83684.9,2511.2
+kem,encapsulate,Dual ML-KEM-1024+HQC-256,1381828.0,1436103.6,312247.7
+kem,encapsulate,Dual ML-KEM-768+HQC-128,227325.6,190327.9,58725.1
+kem,encapsulate,HQC-128 (draft),248672.2,262658.3,38419.0
+kem,encapsulate,HQC-256 (draft),829269.8,827629.2,12464.6
+kem,encapsulate,ML-KEM-1024,37375.9,32695.3,9709.2
+kem,encapsulate,ML-KEM-768,35757.8,39853.4,7037.0
+kem,encapsulate,X-Wing,93252.4,91982.8,21951.3
+kem,generate,Dual ML-KEM-1024+HQC-256,464779.7,464856.1,7597.7
+kem,generate,Dual ML-KEM-768+HQC-128,97250.0,96976.3,1142.1
+kem,generate,HQC-128 (draft),71328.3,71251.0,608.4
+kem,generate,HQC-256 (draft),426445.7,425408.5,9409.4
+kem,generate,ML-KEM-1024,50676.1,37871.5,15879.1
+kem,generate,ML-KEM-768,39195.4,39894.2,5446.6
+kem,generate,X-Wing,39627.6,35467.7,8663.5
+signature,keygen_from_seed,Ed25519,15905.0,15317.2,4019.4
+signature,keygen_from_seed,ML-DSA-65,155231.5,143413.5,33523.0
+signature,keygen_from_seed,ML-DSA-65+SLH-DSA-SHA2-128s,13165435.4,13154979.6,90445.7
+signature,keygen_from_seed,ML-DSA-87,299355.9,327600.0,87181.9
+signature,keygen_from_seed,SLH-DSA-SHA2-128s,17236093.2,16345200.0,4163906.6
+signature,keygen_from_seed,SLH-DSA-SHAKE-256f,6799092.2,6832999.9,111674.5
+signature,sign,Ed25519,13410.0,12011.1,2736.4
+signature,sign,ML-DSA-65,252570.0,260537.3,54819.8
+signature,sign,ML-DSA-65+SLH-DSA-SHA2-128s,135354775.0,135066625.0,28582427.6
+signature,sign,ML-DSA-87,720398.8,620154.2,165747.5
+signature,sign,SLH-DSA-SHA2-128s,162108222.5,168813475.0,25947719.8
+signature,sign,SLH-DSA-SHAKE-256f,153857952.5,135854600.0,36164910.9
+signature,verify,Ed25519,32487.1,31582.6,2300.7
+signature,verify,ML-DSA-65,80186.9,80010.8,1001.9
+signature,verify,ML-DSA-65+SLH-DSA-SHA2-128s,211712.2,192949.5,41082.3
+signature,verify,ML-DSA-87,210313.4,217047.4,36573.3
+signature,verify,SLH-DSA-SHA2-128s,146741.3,147659.4,30267.6
+signature,verify,SLH-DSA-SHAKE-256f,4691940.5,4372235.2,1025401.9

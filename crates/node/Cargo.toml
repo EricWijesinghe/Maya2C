@@ -164,6 +164,10 @@ xdp = ["maya-ebpf-net/xdp"]
 
 [dev-dependencies]
 tempfile.workspace = true
+# Keccak-f[1600] for the kHeavyHash *reference* (benches/support/kheavyhash.rs)
+# and its SP 800-185 cross-check. Already in the lock through fips204 -> sha3
+# 0.10, so this adds no crate; dev-only because nothing shipped runs kHeavyHash.
+keccak = "0.1.6"
 # `tests/fuzz_harness.rs` only: a seeded RNG so a soak run replays exactly. The
 # coverage-guided search and its LibAFL/Z3 graph live in the out-of-workspace
 # `offsec-sandbox` crate, never here — see docs/offsec-sandbox.md.
