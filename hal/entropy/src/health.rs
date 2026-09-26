@@ -243,12 +243,35 @@ mod tests {
         ));
     }
 
+    /// A fixed stream, not the OS source: at H = 8 the repetition cutoff is 4,
+    /// and four equal bytes in a row occur with probability 2⁻²⁴ per position,
+    /// so a fresh 2²⁰-byte OS draw trips it about 1 run in 16 — α = 2⁻²⁰ per
+    /// sample is the standard's accepted false-alarm rate, not a defect. A
+    /// deterministic SHA-256 counter stream passes or fails the same way on
+    /// every run.
     #[test]
     fn a_good_source_passes_a_million_samples() {
+        use sha2::{Digest, Sha256};
+        let buf: Vec<u8> = (0u64..(1 << 15))
+            .flat_map(|i| Sha256::digest(i.to_le_bytes()))
+            .collect();
         let mut monitor = HealthMonitor::new(8_000);
-        let mut buf = vec![0u8; 1 << 20];
-        getrandom::fill(&mut buf).expect("os entropy");
         assert_eq!(monitor.check(&buf), Ok(()));
         assert_eq!(monitor.samples(), 1 << 20);
+    }
+
+    /// The false-alarm rate above, measured: of 64 independent 64 KiB OS
+    /// draws, the expected number that trip is 64 × 2¹⁶ × 2⁻²⁴ = 0.25, so a
+    /// monitor that trips on most of them is miscalibrated.
+    #[test]
+    fn os_entropy_trips_only_at_the_standards_rate() {
+        let tripped = (0..64)
+            .filter(|_| {
+                let mut buf = vec![0u8; 1 << 16];
+                getrandom::fill(&mut buf).expect("os entropy");
+                HealthMonitor::new(8_000).check(&buf).is_err()
+            })
+            .count();
+        assert!(tripped <= 8, "{tripped} of 64 draws tripped");
     }
 }

@@ -59,7 +59,6 @@ fn state_of(id: &Identifier) -> [F; WIDTH] {
 }
 
 /// The tree leaf for an identifier: `compress(P(limbs)[..8], 0)`.
-#[must_use]
 pub fn leaf(id: &Identifier) -> Digest {
     let d0: Digest = permute(state_of(id))[..DIGEST].try_into().expect("8");
     compress(&d0, &[F::ZERO; DIGEST])

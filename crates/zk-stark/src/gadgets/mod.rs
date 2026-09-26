@@ -32,7 +32,6 @@ pub enum Domain {
 }
 
 /// The domain as a digest-shaped constant: the tag, then zeros.
-#[must_use]
 pub fn domain(tag: Domain) -> Digest {
     let mut out = [F::default(); DIGEST];
     out[0] = F::from_u32(tag as u32);
@@ -68,7 +67,6 @@ pub fn assemble(
 }
 
 /// `left ‖ right` as a permutation input.
-#[must_use]
 pub fn state(left: &Digest, right: &Digest) -> [F; WIDTH] {
     let mut s = [F::default(); WIDTH];
     s[..DIGEST].copy_from_slice(left);
@@ -117,7 +115,6 @@ impl SecretDigest {
     }
 
     /// The secret as field elements.
-    #[must_use]
     pub fn to_field(&self) -> Digest {
         digest_from_words(&self.0)
     }
@@ -130,7 +127,6 @@ impl core::fmt::Debug for SecretDigest {
 }
 
 /// Field elements from `u32` words, reduced mod p.
-#[must_use]
 pub fn digest_from_words(words: &[u32; DIGEST]) -> Digest {
     core::array::from_fn(|i| F::from_u32(words[i]))
 }

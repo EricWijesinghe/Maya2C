@@ -6,6 +6,9 @@
 //! (invariant 23's lesson). "Refuses" means: the prover's own constraint check
 //! panics (debug builds), or it produces a proof the verifier rejects.
 
+// Traces are built column by column, as the AIR reads them (see lib.rs).
+#![allow(clippy::needless_range_loop)]
+
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use maya_zk_stark::gadgets::key::{self, KeyAir};

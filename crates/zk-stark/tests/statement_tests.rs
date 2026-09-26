@@ -244,9 +244,5 @@ fn the_adjacency_guard_refuses_a_non_neighbouring_bracket() {
     w.hi = id(30);
     w.hi_path = list.absence_witness(&id(35)).expect("absent").lo_path;
     assert!(sanctions::prove(&w, &root).is_err(), "native check");
-    assert!(refused(
-        &AbsenceAir::default(),
-        sanctions::trace(&w),
-        &root.to_vec()
-    ));
+    assert!(refused(&AbsenceAir::default(), sanctions::trace(&w), &root));
 }

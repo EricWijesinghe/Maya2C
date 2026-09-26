@@ -167,8 +167,20 @@ features.toml: {} register entries + {} subsystems, all claims backed{}.",
 /// job is what says they pass; this says the ledger's names point at things
 /// that job would have executed.
 fn verify_targets(ledger: &Ledger) -> Result<Vec<String>, String> {
+    // Format and colour pinned: CI sets CARGO_TERM_COLOR=always, and ANSI
+    // escapes around `pkg::binary` made every entry look missing.
     let out = std::process::Command::new("cargo")
-        .args(["nextest", "list", "--workspace", "--run-ignored", "all"])
+        .args([
+            "nextest",
+            "list",
+            "--workspace",
+            "--run-ignored",
+            "all",
+            "--message-format",
+            "oneline",
+            "--color",
+            "never",
+        ])
         .output()
         .map_err(|e| format!("cannot run `cargo nextest list`: {e}"))?;
     if !out.status.success() {
