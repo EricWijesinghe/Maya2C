@@ -5139,6 +5139,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-quantum-harbor"
+version = "0.1.0"
+dependencies = [
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "maya-radio-transport"
 version = "0.1.0"
 dependencies = [

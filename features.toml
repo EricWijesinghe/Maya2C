@@ -3107,3 +3107,14 @@ class = "RESEARCH"
 status = "working"
 tests = ["crates/privacy/tests/privacy_tests.rs"]
 note = "Master Prompt 27 §2. ML-KEM-768 sealed envelopes; account key opens all, disclosure key opens one. Non-membership proof measured at 731,521 bytes; the shielded pool itself stays dark (unaudited)."
+
+[[subsystem]]
+id = "quantum-exposure-tool"
+name = "Quantum exposure tool for Bitcoin outputs and Ethereum accounts"
+domain = "Cryptography and key management"
+paths = "`crates/quantum-harbor`"
+tier = "extended"
+class = "REAL"
+status = "verified"
+tests = ["crates/quantum-harbor/tests/exposure_tests.rs"]
+note = "Master Prompt 28 §1. Verified on Bitcoin's real genesis coinbase (id equals the genesis merkle root); Ethereum rule tested on synthetic accounts (RPC unreachable)."
