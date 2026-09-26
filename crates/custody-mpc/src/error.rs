@@ -157,4 +157,10 @@ pub enum CustodyError {
     /// in an ADR (ADR-011). Not a transient failure.
     #[error("no threshold lattice signing scheme has been chosen (ADR-011)")]
     NoThresholdScheme,
+
+    /// A peer failed post-quantum authentication ([`crate::pq_auth`]): its
+    /// ML-DSA-87 key is not one this side expects, or its signature does not
+    /// cover this TLS session's exporter. The static reason says which.
+    #[error("peer post-quantum authentication failed: {0}")]
+    PeerAuthentication(&'static str),
 }

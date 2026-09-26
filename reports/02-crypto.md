@@ -287,8 +287,13 @@ same construction on a busier machine, and the 3.09 ms standard deviation over
   codepoint `0x11EC`) and nothing else, so a recording of today's session cannot
   be broken later. 3-of-5 over it survives a crashed custodian and a corrupted
   share, refuses three failures, and refuses a classical-only peer.
-  Authentication is still classical — `webpki` verifies no ML-DSA certificate —
-  and that is stated in ADR-011 rather than glossed.
+  The certificate is still classical (`webpki` verifies no ML-DSA
+  certificate), but since 2026-09-27 authentication does not rest on it: each
+  side signs the session's TLS exporter with a pinned ML-DSA-87 key
+  (`custody-mpc::pq_auth`, ADR-011 amendment). A 3-of-5 ceremony signs through
+  an impostor holding a valid certificate from the institution's own CA and a
+  crash; a proof made for another session and an unexpected server key are
+  refused.
 - **Threshold lattice signing** is an interface that refuses: no peer-reviewed
   scheme is chosen. ADR-011 lists the candidates and the criteria.
 
@@ -367,7 +372,9 @@ The full account is in `docs/ledger-feasibility.md`. In short:
   which enforces its own constant. Pre-existing; documented in
   `docs/governance.md`.
 - **No threshold lattice scheme is chosen** (ADR-011).
-- **Custody TLS authentication is classical** (ADR-011).
+- **Custody certificates are classical**, and are no longer what
+  authentication rests on: the ML-DSA-87 exporter signature is (ADR-011
+  amendment).
 - **kHeavyHash is not benchmarked.** There is no `kheavyhash` crate, Kaspa's
   `kaspa-pow` does not compile on this toolchain, and implementing it from the
   specification with no official vector would publish a number misrepresenting

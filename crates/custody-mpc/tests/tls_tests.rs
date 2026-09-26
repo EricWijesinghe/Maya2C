@@ -27,8 +27,13 @@
 
 use std::sync::Arc;
 
+use maya_crypto_pq::suite::MasterSeed;
 use maya_custody_mpc::dkg::{Custodian, CustodianShare, Dealing, Roster, VaultPolicy};
 use maya_custody_mpc::error::CustodyError;
+use maya_custody_mpc::pq_auth::{
+    PqIdentity, Role, authenticate, authenticate_within, client_exporter, identity_of_key,
+    server_exporter,
+};
 use maya_custody_mpc::pq_kx::X25519_MLKEM768;
 use maya_custody_mpc::session::{SigningSession, VaultDescriptor, respond};
 use maya_custody_mpc::tls::{
@@ -386,13 +391,42 @@ enum Behaviour {
     Crashes,
     /// Answers with a contribution corrupted in transit.
     Corrupts,
+    /// Holds a valid TLS certificate from the institution's CA, but an ML-DSA
+    /// key the combiner has never been told about.
+    Impostor,
+}
+
+fn pq(seed: u8) -> PqIdentity {
+    PqIdentity::from_seed(&MasterSeed::from_bytes([seed; 32]))
+}
+
+/// Custodian `index`'s long-term key (0-based, as `held` is).
+fn custodian_pq(index: usize) -> PqIdentity {
+    pq(0x30 + u8::try_from(index).expect("small"))
 }
 
 /// Runs one session over TLS with five custodians behaving as told, and
 /// returns what the combiner ended with.
+///
+/// Every connection is authenticated post-quantum ([`maya_custody_mpc::pq_auth`])
+/// after the handshake, and every contribution is checked against the
+/// directory by the ML-DSA identity that authenticated -- not by the classical
+/// certificate -- so what signs is what a quantum adversary could not fake.
 async fn ceremony_with_faults(behaviours: [Behaviour; 5]) -> SigningSession {
     let pki = pki();
     let (descriptor, held) = vault();
+    let combiner_pq = pq(0x2f);
+    let combiner_pk = combiner_pq.public_key();
+    let mut directory = CustodianDirectory::new();
+    let mut roster_keys = Vec::new();
+    for index in 0..5usize {
+        let key = custodian_pq(index).public_key();
+        directory.insert(
+            u8::try_from(index + 1).expect("small"),
+            identity_of_key(&key),
+        );
+        roster_keys.push(key);
+    }
     let acceptor = TlsAcceptor::from(Arc::new(
         server_config(pki.server_chain, pki.server_key, roots(&pki.root)).expect("server config"),
     ));
@@ -405,12 +439,28 @@ async fn ceremony_with_faults(behaviours: [Behaviour; 5]) -> SigningSession {
         for _ in 0..5 {
             let (socket, _) = listener.accept().await.expect("accept");
             let mut stream = acceptor.accept(socket).await.expect("handshake");
+            let exporter = server_exporter(&stream).expect("exporter");
+            // A peer that fails post-quantum authentication never sees the
+            // request: the connection ends here.
+            let Ok(peer) = authenticate(
+                &mut stream,
+                &exporter,
+                Role::Responder,
+                &combiner_pq,
+                |pk| roster_keys.iter().any(|known| known.as_slice() == pk),
+            )
+            .await
+            else {
+                continue;
+            };
             write_frame(&mut stream, &Frame::Request(Box::new(request.clone())))
                 .await
                 .expect("write request");
             // A dead peer and a refused contribution are both survivable:
             // the combiner notes nothing and waits for the next custodian.
-            if let Ok(Frame::Contribution(sealed)) = read_frame(&mut stream).await {
+            if let Ok(Frame::Contribution(sealed)) = read_frame(&mut stream).await
+                && directory.authorize(sealed.dealer, Some(peer)).is_ok()
+            {
                 let _refused = session.accept_sealed(&sealed);
             }
         }
@@ -429,10 +479,25 @@ async fn ceremony_with_faults(behaviours: [Behaviour; 5]) -> SigningSession {
         let stream = TcpStream::connect(address).await.expect("connect");
         let name = ServerName::try_from("localhost").expect("name");
         let mut stream = connector.connect(name, stream).await.expect("handshake");
+        let exporter = client_exporter(&stream).expect("exporter");
+        let me = match behaviour {
+            Behaviour::Impostor => pq(0xee),
+            _ => custodian_pq(index),
+        };
+        let authenticated = authenticate(&mut stream, &exporter, Role::Initiator, &me, |pk| {
+            pk == combiner_pk.as_slice()
+        })
+        .await;
+        if matches!(behaviour, Behaviour::Impostor) {
+            assert!(authenticated.is_err(), "an unknown ML-DSA key is refused");
+            continue;
+        }
+        assert_eq!(authenticated, Ok(identity_of_key(&combiner_pk)));
         let Frame::Request(request) = read_frame(&mut stream).await.expect("read") else {
             panic!("expected a request");
         };
         match behaviour {
+            Behaviour::Impostor => unreachable!("handled above"),
             Behaviour::Crashes => drop(stream),
             Behaviour::Honest | Behaviour::Corrupts => {
                 let mut sealed = respond(&request, &held[index]).expect("respond");
@@ -475,4 +540,212 @@ async fn three_failures_leave_a_three_of_five_vault_unable_to_sign() {
             threshold: 3
         })
     ));
+}
+
+#[tokio::test]
+async fn three_of_five_signs_with_an_impostor_and_a_crash_under_pq_authentication() {
+    // Custodian 2's slot is taken by somebody holding a valid certificate from
+    // the institution's own CA -- exactly what a forged classical signature
+    // would give an attacker -- but no ML-DSA key the combiner knows.
+    use Behaviour::{Crashes, Honest, Impostor};
+    let session = ceremony_with_faults([Honest, Impostor, Crashes, Honest, Honest]).await;
+    assert_eq!(session.contributors().len(), 3);
+    session
+        .sign()
+        .expect("three authenticated custodians are a quorum");
+}
+
+// ---------------------------------------------------------------------------
+// pq_auth, one connection at a time
+// ---------------------------------------------------------------------------
+
+/// One TLS connection. The server authenticates as `server`, pinning
+/// `client_pin`; the client authenticates as `client`, pinning `server_pin`,
+/// over `forged_exporter` if given and the session's own otherwise.
+async fn pq_connection(
+    server: PqIdentity,
+    client_pin: Vec<u8>,
+    client: PqIdentity,
+    server_pin: Vec<u8>,
+    forged_exporter: Option<[u8; 32]>,
+) -> (
+    maya_custody_mpc::Result<[u8; 32]>,
+    maya_custody_mpc::Result<[u8; 32]>,
+) {
+    let pki = pki();
+    let acceptor = TlsAcceptor::from(Arc::new(
+        server_config(pki.server_chain, pki.server_key, roots(&pki.root)).expect("server config"),
+    ));
+    let connector = TlsConnector::from(Arc::new(
+        client_config(pki.client_chain, pki.client_key, roots(&pki.root)).expect("client config"),
+    ));
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let address = listener.local_addr().expect("addr");
+
+    let responder = tokio::spawn(async move {
+        let (socket, _) = listener.accept().await.expect("accept");
+        let mut stream = acceptor.accept(socket).await.expect("handshake");
+        let exporter = server_exporter(&stream).expect("exporter");
+        authenticate(&mut stream, &exporter, Role::Responder, &server, |pk| {
+            pk == client_pin.as_slice()
+        })
+        .await
+    });
+
+    let socket = TcpStream::connect(address).await.expect("connect");
+    let name = ServerName::try_from("localhost").expect("name");
+    let mut stream = connector.connect(name, socket).await.expect("handshake");
+    let exporter = forged_exporter.unwrap_or_else(|| client_exporter(&stream).expect("exporter"));
+    let initiated = authenticate(&mut stream, &exporter, Role::Initiator, &client, |pk| {
+        pk == server_pin.as_slice()
+    })
+    .await;
+    drop(stream);
+    (initiated, responder.await.expect("responder"))
+}
+
+#[tokio::test]
+async fn both_ends_authenticate_with_ml_dsa_bound_to_the_session() {
+    let (server, client) = (pq(1), pq(2));
+    let (server_pk, client_pk) = (server.public_key(), client.public_key());
+    let (initiated, responded) =
+        pq_connection(server, client_pk.clone(), client, server_pk.clone(), None).await;
+    assert_eq!(initiated, Ok(identity_of_key(&server_pk)));
+    assert_eq!(responded, Ok(identity_of_key(&client_pk)));
+}
+
+#[tokio::test]
+async fn a_server_with_an_unexpected_ml_dsa_key_is_refused() {
+    // The TLS certificate is valid; the post-quantum key is not the pinned one.
+    let (server, client) = (pq(3), pq(4));
+    let client_pk = client.public_key();
+    let pinned_elsewhere = pq(5).public_key();
+    let (initiated, _) = pq_connection(server, client_pk, client, pinned_elsewhere, None).await;
+    assert!(matches!(
+        initiated,
+        Err(CustodyError::PeerAuthentication(_))
+    ));
+}
+
+#[tokio::test]
+async fn a_proof_made_for_another_session_is_refused() {
+    // The honest client's key, signing an exporter that is not this session's:
+    // what a relay or a replay of a captured proof would present.
+    let (server, client) = (pq(6), pq(7));
+    let (server_pk, client_pk) = (server.public_key(), client.public_key());
+    let (_, responded) =
+        pq_connection(server, client_pk, client, server_pk, Some([0x55; 32])).await;
+    assert_eq!(
+        responded,
+        Err(CustodyError::PeerAuthentication(
+            "the peer's signature does not cover this session"
+        ))
+    );
+}
+
+/// A server that completes the TLS handshake and then runs `behave` on the raw
+/// stream instead of authenticating; the client authenticates as `client`,
+/// pinning `server_pin`, under `deadline`.
+async fn against_a_misbehaving_server<B, Fut>(
+    client: PqIdentity,
+    server_pin: Vec<u8>,
+    deadline: std::time::Duration,
+    behave: B,
+) -> maya_custody_mpc::Result<[u8; 32]>
+where
+    B: FnOnce(tokio_rustls::server::TlsStream<TcpStream>) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = ()> + Send,
+{
+    let pki = pki();
+    let acceptor = TlsAcceptor::from(Arc::new(
+        server_config(pki.server_chain, pki.server_key, roots(&pki.root)).expect("server config"),
+    ));
+    let connector = TlsConnector::from(Arc::new(
+        client_config(pki.client_chain, pki.client_key, roots(&pki.root)).expect("client config"),
+    ));
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let address = listener.local_addr().expect("addr");
+    let server = tokio::spawn(async move {
+        let (socket, _) = listener.accept().await.expect("accept");
+        behave(acceptor.accept(socket).await.expect("handshake")).await;
+    });
+    let socket = TcpStream::connect(address).await.expect("connect");
+    let name = ServerName::try_from("localhost").expect("name");
+    let mut stream = connector.connect(name, socket).await.expect("handshake");
+    let exporter = client_exporter(&stream).expect("exporter");
+    let result = authenticate_within(
+        deadline,
+        &mut stream,
+        &exporter,
+        Role::Initiator,
+        &client,
+        |pk| pk == server_pin.as_slice(),
+    )
+    .await;
+    server.abort();
+    result
+}
+
+#[tokio::test]
+async fn a_proof_reflected_back_to_its_sender_is_refused() {
+    // The server echoes the client's own proof. Pin the client's own key as
+    // the "server", so the only thing standing between the echo and success
+    // is the signed role byte.
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    let client = pq(8);
+    let own_key = client.public_key();
+    let info = maya_crypto_pq::suite::SuiteId::MlDsa87.info();
+    let result = against_a_misbehaving_server(
+        client,
+        own_key,
+        std::time::Duration::from_secs(10),
+        move |mut stream| async move {
+            let mut proof = vec![0u8; info.public_key_len + info.signature_len];
+            stream
+                .read_exact(&mut proof)
+                .await
+                .expect("read the client's proof");
+            stream.write_all(&proof).await.expect("echo it");
+            stream.flush().await.expect("flush");
+            // Keep the connection open until the client has judged the echo.
+            let mut rest = [0u8; 1];
+            let _eof = stream.read(&mut rest).await;
+        },
+    )
+    .await;
+    assert_eq!(
+        result,
+        Err(CustodyError::PeerAuthentication(
+            "the peer's signature does not cover this session"
+        ))
+    );
+}
+
+#[tokio::test]
+async fn a_peer_that_goes_silent_is_timed_out() {
+    // Valid certificate, completed handshake, then nothing: without a
+    // deadline this would hold a sequential combiner for ever.
+    use tokio::io::AsyncReadExt as _;
+    let started = std::time::Instant::now();
+    let result = against_a_misbehaving_server(
+        pq(9),
+        pq(10).public_key(),
+        std::time::Duration::from_millis(300),
+        |mut stream| async move {
+            let mut sink = vec![0u8; 16 * 1024];
+            loop {
+                if matches!(stream.read(&mut sink).await, Ok(0) | Err(_)) {
+                    break;
+                }
+            }
+        },
+    )
+    .await;
+    assert_eq!(
+        result,
+        Err(CustodyError::PeerAuthentication(
+            "the peer did not complete authentication in time"
+        ))
+    );
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
 }

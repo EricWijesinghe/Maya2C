@@ -10,7 +10,11 @@
 //! What TLS does provide, and what nothing else here provides:
 //!
 //! - **Peer authentication, both ways.** [`server_config`] demands a client
-//!   certificate. A custodian talks to the combiner it expects, and the
+//!   certificate. That certificate is classical, so a ceremony should also run
+//!   [`crate::pq_auth::authenticate`] straight after the handshake and
+//!   provision its [`CustodianDirectory`] with
+//!   [`crate::pq_auth::identity_of_key`]: then who contributed rests on an
+//!   ML-DSA-87 signature over this session, not on the certificate. A custodian talks to the combiner it expects, and the
 //!   combiner learns which custodian is on the other end before it accepts a
 //!   frame. Without it, "custodian 3 contributed" means "somebody claimed to be
 //!   custodian 3".

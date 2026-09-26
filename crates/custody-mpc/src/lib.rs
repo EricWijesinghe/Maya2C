@@ -102,6 +102,8 @@ pub mod transport;
 pub mod vss;
 
 #[cfg(feature = "tls")]
+pub mod pq_auth;
+#[cfg(feature = "tls")]
 pub mod pq_kx;
 #[cfg(feature = "threshold-lattice")]
 pub mod threshold;

@@ -80,9 +80,19 @@ of draft-ietf-tls-ecdhe-mlkem (codepoint `0x11EC`) as a rustls
 It is the **only** group offered, and TLS 1.3 is the only version, so a
 classical-only peer fails the handshake instead of downgrading.
 
-Authentication stays classical: `webpki` verifies no ML-DSA certificate.
-Forging it needs a quantum adversary active during the handshake. Recording
-the traffic is not enough.
+The certificate stays classical: `webpki` verifies no ML-DSA certificate.
+**Amended 2026-09-27:** authentication no longer rests on it. After the
+handshake each side signs the session's TLS exporter (RFC 8446 section 7.5,
+RFC 9266's `tls-exporter`) with a pinned ML-DSA-87 key, role byte included
+(`custody-mpc::pq_auth`). The exporter is derived from a secret that includes
+ML-KEM-768, so a man in the middle holds two sessions with two exporters and
+cannot produce the honest peer's signature over its own; a captured proof does
+not cover a later session; and a signed role byte stops reflection. The
+directory is provisioned with `identity_of_key(ml_dsa_pk)`, so "custodian 3
+contributed" rests on the post-quantum key. Tested in `tls_tests.rs`: both ends
+authenticate, an unexpected server key and a proof for another session are
+refused, and a 3-of-5 ceremony signs through an impostor holding a *valid
+certificate from the institution's own CA* plus a crash.
 
 The combined 64-byte secret is handed to rustls as a plain `Vec`, and
 rustls's `SharedSecret` does not zeroize on drop. Every rustls key-exchange
