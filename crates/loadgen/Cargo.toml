@@ -18,3 +18,7 @@ workspace = true
 [[bin]]
 name = "maya2c-loadgen"
 path = "src/bin/maya2c-loadgen.rs"
+
+[[bin]]
+name = "maya2c-rpc-load"
+path = "src/bin/maya2c-rpc-load.rs"

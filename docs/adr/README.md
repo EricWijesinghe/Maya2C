@@ -58,3 +58,4 @@ The observation that would make this worth reopening.
 | [018](ADR-018-async-execution.md) | Synchronous execution for v1; asynchronous (D = 2) next | Accepted |
 | [019](ADR-019-storage-engine.md) | Stay on RocksDB until it is the measured bottleneck | Accepted |
 | [020](ADR-020-spec-conformance-and-upgrades.md) | A spec with an independent reference; upgrades halt instead of fork | Accepted |
+| [021](ADR-021-vote-certificates.md) | Vote certificates — a signature list for v1, a 100-validator cap from its measured cost | Accepted |
