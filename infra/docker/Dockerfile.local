@@ -1,0 +1,21 @@
+# Runtime-only image around a node binary built on the host.
+#
+# For `deploy-production.sh --target local-k3d`, where rebuilding the whole
+# workspace inside Docker (infra/docker/Dockerfile) would double a 20-minute
+# compile for a throwaway cluster. The production image stays the multi-stage,
+# statically linked one; this one is never pushed anywhere.
+#
+# The base must carry at least the host's glibc, because the binary is
+# dynamically linked against it: ubuntu:24.04 matches the build host (glibc
+# 2.39); debian:bookworm (2.36) fails with "GLIBC_2.38 not found".
+FROM ubuntu:24.04
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates libstdc++6 curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -g 10001 l1 && useradd -u 10001 -g l1 -d /home/l1 -m l1 \
+    && mkdir -p /data /config && chown -R l1:l1 /data /config
+COPY maya2c-node /usr/local/bin/maya2c-node
+USER l1
+VOLUME ["/data"]
+EXPOSE 8545 8546 9600 30333
+ENTRYPOINT ["/usr/local/bin/maya2c-node"]

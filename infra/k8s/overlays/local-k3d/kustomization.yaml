@@ -1,0 +1,66 @@
+# Local k3d dry-run overlay (Master Prompt 10 DONE WHEN: "12 simulated nodes").
+#
+# Twelve seed replicas of the real node binary on a throwaway k3d cluster.
+# Everything cloud-shaped is removed rather than faked: no Ingress (no
+# ingress controller), no ServiceMonitor or PrometheusRule (no Prometheus operator CRDs), no
+# zone anti-affinity (one host has one zone), k3s's local-path storage
+# instead of `maya-retain`, and requests small enough for one machine.
+# `deploy-production.sh --target local-k3d` applies it.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: maya-local
+
+resources:
+  - namespace.yaml
+  - ../../base
+
+images:
+  - name: ghcr.io/maya2c/node
+    newName: maya2c/node
+    newTag: local
+
+patches:
+  - target: {kind: Ingress}
+    patch: |-
+      $patch: delete
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: not-used
+  - target: {kind: ServiceMonitor}
+    patch: |-
+      $patch: delete
+      apiVersion: monitoring.coreos.com/v1
+      kind: ServiceMonitor
+      metadata:
+        name: not-used
+  - target: {kind: PrometheusRule}
+    patch: |-
+      $patch: delete
+      apiVersion: monitoring.coreos.com/v1
+      kind: PrometheusRule
+      metadata:
+        name: not-used
+  - target: {kind: StatefulSet, name: maya-seed}
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 12
+      - op: remove
+        path: /spec/template/spec/affinity
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
+      - op: replace
+        path: /spec/template/spec/initContainers/0/imagePullPolicy
+        value: Never
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value: {requests: {cpu: 50m, memory: 96Mi}, limits: {memory: 512Mi}}
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/storageClassName
+        value: local-path
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/resources/requests/storage
+        value: 1Gi

@@ -90,3 +90,10 @@ rustc-ice-*.txt
 
 # Session handoff notes are per-machine working state.
 /.claude/session-handoff.md
+
+# Written by scripts/configure_environment.sh. The .age file is encrypted, but
+# it is still per-operator state and never belongs in the repository; the two
+# generated configs carry operator-specific (non-secret) values.
+.env.production*
+infra/terraform/terraform.tfvars
+infra/ansible/inventory/production.ini
