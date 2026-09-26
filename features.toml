@@ -2986,3 +2986,25 @@ class = "REAL"
 status = "planned"
 tests = []
 note = "Master Prompt 12 §5. Gate and history format built and self-tested; the nightly job runs only on a fixed-spec runner named by BENCH_RUNNER, and none is registered, so it is not live."
+
+[[subsystem]]
+id = "remote-validator-signer"
+name = "Remote validator signer with slashing protection"
+domain = "Cryptography"
+paths = "`crates/signer`, `bins/maya2c-signer`"
+tier = "core"
+class = "RESEARCH"
+status = "working"
+tests = ["crates/signer/tests/signer_tests.rs"]
+note = "Master Prompt 16 §1-2. Keystore backend only (ADR-022); not called by the node until consensus signing is wired."
+
+[[subsystem]]
+id = "dos-guard"
+name = "Pre-KEM and admission denial-of-service defences"
+domain = "Networking"
+paths = "`crates/dos-guard`"
+tier = "core"
+class = "RESEARCH"
+status = "working"
+tests = ["crates/dos-guard/tests/attack_sim.rs", "crates/dos-guard/tests/units.rs"]
+note = "Master Prompt 16 §4. [SIM] scenarios pass; not wired into the node's libp2p stack."

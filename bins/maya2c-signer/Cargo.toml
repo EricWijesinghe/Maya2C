@@ -1,0 +1,16 @@
+[package]
+name = "maya2c-signer"
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Remote validator signer process: keystore backend, slashing protection, PQ-authenticated channel to the node"
+
+[dependencies]
+maya-signer = { path = "../../crates/signer" }
+maya-crypto-pq = { path = "../../crates/crypto-pq" }
+serde_json.workspace = true
+zeroize.workspace = true
+
+[lints]
+workspace = true

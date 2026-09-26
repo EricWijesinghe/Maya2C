@@ -272,6 +272,9 @@ members = [
     # configurable contention and Zipfian access. Dependency-free.
     "crates/loadgen",
     "crates/spec-ref",
+    "crates/signer",
+    "crates/dos-guard",
+    "bins/maya2c-signer",
     # Parallel execution byte-identical to sequential (Master Prompt 12 §1,
     # ADR-017): optimistic + in-order validation, and declared-access waves.
     "crates/parallel-exec",
