@@ -30,7 +30,8 @@ mod u256;
 
 pub use chain::{HeaderChain, HeaderError, Params};
 pub use header::{
-    BlockHash, HEADER_LEN, Header, compact_from_target, sha256d, target_from_compact, work_from_target,
+    BlockHash, HEADER_LEN, Header, compact_from_target, sha256d, target_from_compact,
+    work_from_target,
 };
 pub use merkle::{MerkleProof, merkle_root, prove};
 pub use u256::U256;

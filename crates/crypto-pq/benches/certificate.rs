@@ -15,8 +15,8 @@
 use std::time::Instant;
 
 use maya_crypto_pq::suite::{
-    Ed25519, HybridMlDsa65SlhDsa128s, MasterSeed, MlDsa65, MlDsa87, SignatureSuite, SlhDsaSha2_128s,
-    SlhDsaShake256f, SuiteId, verify,
+    Ed25519, HybridMlDsa65SlhDsa128s, MasterSeed, MlDsa65, MlDsa87, SignatureSuite,
+    SlhDsaSha2_128s, SlhDsaShake256f, SuiteId, verify,
 };
 
 fn per_core<S: SignatureSuite>(id: SuiteId, n: usize) -> (f64, usize, usize) {
@@ -56,7 +56,10 @@ fn certificate<S: SignatureSuite>(id: SuiteId, validators: usize, threads: usize
             }
             b
         },
-        sigs: keys[..quorum].iter().map(|(sk, _)| S::sign(sk, &digest).unwrap()).collect(),
+        sigs: keys[..quorum]
+            .iter()
+            .map(|(sk, _)| S::sign(sk, &digest).unwrap())
+            .collect(),
     };
     let bytes = cert.bitmap.len() + cert.sigs.iter().map(Vec::len).sum::<usize>();
     // Verifiers hold public keys only; signing keys never cross a thread.
@@ -91,12 +94,24 @@ fn main() {
     let cores = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
     println!("== verifications per second, one core ==");
     let rows = [
-        ("Ed25519 (classical)", per_core::<Ed25519>(SuiteId::Ed25519, 2_000)),
+        (
+            "Ed25519 (classical)",
+            per_core::<Ed25519>(SuiteId::Ed25519, 2_000),
+        ),
         ("ML-DSA-65", per_core::<MlDsa65>(SuiteId::MlDsa65, 2_000)),
         ("ML-DSA-87", per_core::<MlDsa87>(SuiteId::MlDsa87, 2_000)),
-        ("SLH-DSA-SHA2-128s", per_core::<SlhDsaSha2_128s>(SuiteId::SlhDsaSha2_128s, 200)),
-        ("SLH-DSA-SHAKE-256f", per_core::<SlhDsaShake256f>(SuiteId::SlhDsaShake256f, 50)),
-        ("Hybrid 65 + 128s", per_core::<HybridMlDsa65SlhDsa128s>(SuiteId::HybridMlDsa65SlhDsa128s, 200)),
+        (
+            "SLH-DSA-SHA2-128s",
+            per_core::<SlhDsaSha2_128s>(SuiteId::SlhDsaSha2_128s, 200),
+        ),
+        (
+            "SLH-DSA-SHAKE-256f",
+            per_core::<SlhDsaShake256f>(SuiteId::SlhDsaShake256f, 50),
+        ),
+        (
+            "Hybrid 65 + 128s",
+            per_core::<HybridMlDsa65SlhDsa128s>(SuiteId::HybridMlDsa65SlhDsa128s, 200),
+        ),
     ];
     for (name, (rate, pk, sig)) in rows {
         println!("{name:<22} {rate:>10.0} verify/s   pk {pk:>5} B   sig {sig:>6} B");
@@ -106,6 +121,8 @@ fn main() {
         certificate::<MlDsa65>(SuiteId::MlDsa65, n, cores);
         certificate::<MlDsa87>(SuiteId::MlDsa87, n, cores);
     }
-    println!("\noption (b) STARK-aggregated certificate: NOT BUILT (needs an ML-DSA verifier circuit in zk-stark)");
+    println!(
+        "\noption (b) STARK-aggregated certificate: NOT BUILT (needs an ML-DSA verifier circuit in zk-stark)"
+    );
     println!("option (c) hash-based multisignature: NOT BUILT (RESEARCH; no standardised scheme)");
 }

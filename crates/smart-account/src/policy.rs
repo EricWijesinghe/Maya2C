@@ -24,7 +24,12 @@ pub struct Policy {
 
 impl Policy {
     pub(crate) fn encode(&self, out: &mut Vec<u8>) {
-        for v in [self.daily_limit, self.per_recipient_daily, self.delay_above, self.delay_blocks] {
+        for v in [
+            self.daily_limit,
+            self.per_recipient_daily,
+            self.delay_above,
+            self.delay_blocks,
+        ] {
             out.extend_from_slice(&v.to_le_bytes());
         }
         out.extend_from_slice(&(self.allow_list.len() as u64).to_le_bytes());

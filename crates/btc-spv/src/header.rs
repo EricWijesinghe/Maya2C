@@ -76,8 +76,7 @@ impl Header {
     /// Whether the hash meets the header's own target. Says nothing about
     /// whether `bits` is the *right* target — that is the chain's check.
     pub fn meets_own_target(&self) -> bool {
-        target_from_compact(self.bits)
-            .is_some_and(|t| U256::from_le_bytes(&self.hash()) <= t)
+        target_from_compact(self.bits).is_some_and(|t| U256::from_le_bytes(&self.hash()) <= t)
     }
 }
 
@@ -88,7 +87,9 @@ pub fn target_from_compact(bits: u32) -> Option<U256> {
     let mantissa = bits & 0x007f_ffff;
     let negative = bits & 0x0080_0000 != 0 && mantissa != 0;
     let overflow = mantissa != 0
-        && (exponent > 34 || (mantissa > 0xff && exponent > 33) || (mantissa > 0xffff && exponent > 32));
+        && (exponent > 34
+            || (mantissa > 0xff && exponent > 33)
+            || (mantissa > 0xffff && exponent > 32));
     if negative || overflow {
         return None;
     }
@@ -138,7 +139,11 @@ pub(crate) fn shl(v: U256, n: u32) -> U256 {
 pub(crate) fn shr(v: U256, n: u32) -> U256 {
     let mut out = [0u64; 4];
     let (limbs, bits) = ((n / 64) as usize, n % 64);
-    for (i, o) in out.iter_mut().enumerate().take(4usize.saturating_sub(limbs)) {
+    for (i, o) in out
+        .iter_mut()
+        .enumerate()
+        .take(4usize.saturating_sub(limbs))
+    {
         let src = i + limbs;
         *o = v.0[src] >> bits;
         if bits > 0 && src + 1 < 4 {
@@ -165,7 +170,14 @@ mod tests {
     #[test]
     fn compact_round_trips_on_core_vectors() {
         // Values from Bitcoin Core's arith_uint256_tests.cpp.
-        for bits in [0x1d00_ffffu32, 0x1b04_04cb, 0x1705_a3f8, 0x0412_3456, 0x0500_9234, 0x207f_ffff] {
+        for bits in [
+            0x1d00_ffffu32,
+            0x1b04_04cb,
+            0x1705_a3f8,
+            0x0412_3456,
+            0x0500_9234,
+            0x207f_ffff,
+        ] {
             let t = target_from_compact(bits).expect("valid");
             assert_eq!(compact_from_target(t), bits, "{bits:#x}");
         }

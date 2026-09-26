@@ -236,7 +236,9 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             // Embedded mining is a proof-of-work devnet tool; a production
             // build does not accept the flag at all (ADR-016).
             "--mine" if cfg!(feature = "production") => {
-                return Err("--mine is a devnet flag and is not available in a production build".into());
+                return Err(
+                    "--mine is a devnet flag and is not available in a production build".into(),
+                );
             }
             "--mine" => args.mine = true,
             "--prune" => args.prune_depth = args.prune_depth.or(Some(PRUNE_DEPTH)),
@@ -602,10 +604,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
     )?);
 
     let genesis_block = config.genesis_block()?;
-    let chain_config = ChainConfig::with_pow_limit(config.pow_limit());
+    let chain_config =
+        ChainConfig::with_pow_limit(config.pow_limit()).with_upgrades(&config.upgrade_schedule()?);
     let chain = Arc::new(Mutex::new(
         open_or_bootstrap(&args, &config, &state, genesis_block.clone(), chain_config).await?,
     ));
+
+    // A tip already at or past an unsupported upgrade: say so at start-up
+    // rather than on the first block that arrives.
+    custom_l1_node::upgrade::refuse_unsupported(
+        chain_config.unsupported_upgrade,
+        lock_chain(&chain).height() + 1,
+    )?;
 
     println!("chain id:    {}", config.chain_id);
     println!("genesis id:  {}", hex::encode(genesis_block.header.id()));

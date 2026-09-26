@@ -10,8 +10,14 @@ use maya_dex::{Direction, FeeSchedule, Pool, SwapIntent, clear_batch};
 /// the attempt loses money.
 pub fn sandwich_continuous(pool: Pool, victim_in: u64, attack_in: u64) -> Option<i128> {
     let front = pool.swap_exact_in(Direction::QuoteToBase, attack_in).ok()?;
-    let victim = front.pool.swap_exact_in(Direction::QuoteToBase, victim_in).ok()?;
-    let back = victim.pool.swap_exact_in(Direction::BaseToQuote, front.amount_out).ok()?;
+    let victim = front
+        .pool
+        .swap_exact_in(Direction::QuoteToBase, victim_in)
+        .ok()?;
+    let back = victim
+        .pool
+        .swap_exact_in(Direction::BaseToQuote, front.amount_out)
+        .ok()?;
     Some(i128::from(back.amount_out) - i128::from(attack_in))
 }
 
@@ -20,7 +26,10 @@ pub fn sandwich_continuous(pool: Pool, victim_in: u64, attack_in: u64) -> Option
 pub fn sandwich_batch(pool: Pool, victim_in: u64, attack_in: u64) -> Option<i128> {
     // The attacker's sell must be sized before the price is known; they sell
     // what their buy would have bought on the curve, their best guess.
-    let guess = pool.swap_exact_in(Direction::QuoteToBase, attack_in).ok()?.amount_out;
+    let guess = pool
+        .swap_exact_in(Direction::QuoteToBase, attack_in)
+        .ok()?
+        .amount_out;
     let intent = |id: u8, direction, amount_in| SwapIntent {
         id: [id; 32],
         trader: [id; 32],
@@ -37,7 +46,12 @@ pub fn sandwich_batch(pool: Pool, victim_in: u64, attack_in: u64) -> Option<i128
         ],
     )
     .ok()?;
-    let got = |id: u8| out.cleared.iter().find(|t| t.id == [id; 32]).map(|t| t.amount_out);
+    let got = |id: u8| {
+        out.cleared
+            .iter()
+            .find(|t| t.id == [id; 32])
+            .map(|t| t.amount_out)
+    };
     let bought = got(1)?;
     let sold_for = got(3)?;
     // Net: quote received for the sell, minus quote paid for the buy, with

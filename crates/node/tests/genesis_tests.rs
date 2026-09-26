@@ -39,6 +39,7 @@ fn config() -> GenesisConfig {
         // configured without any of these three has, and every one of them
         // must be able to be absent without disturbing it.
         treasury: None,
+        protocol_upgrades: Vec::new(),
     }
 }
 

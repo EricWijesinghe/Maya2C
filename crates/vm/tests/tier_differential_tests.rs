@@ -100,7 +100,13 @@ struct Observed {
     storage: Vec<Option<Vec<u8>>>,
 }
 
-fn observe(vm: &Vm, code: &[u8], input: &[u8], gas: u64, state: MemoryState) -> (Observed, MemoryState) {
+fn observe(
+    vm: &Vm,
+    code: &[u8],
+    input: &[u8],
+    gas: u64,
+    state: MemoryState,
+) -> (Observed, MemoryState) {
     let exec = vm.execute(code, CONTRACT, input, gas, state);
     let result = match exec.outcome {
         Ok(o) => Ok((o.output, o.gas_used, o.events.len())),
@@ -108,14 +114,20 @@ fn observe(vm: &Vm, code: &[u8], input: &[u8], gas: u64, state: MemoryState) -> 
         Err(e) => Err(format!("{:?}", core::mem::discriminant(&e))),
     };
     let storage = (b'0'..b'8')
-        .map(|d| exec.state.storage_get_for_test(&CONTRACT, &[b'k', b'e', b'y', d]))
+        .map(|d| {
+            exec.state
+                .storage_get_for_test(&CONTRACT, &[b'k', b'e', b'y', d])
+        })
         .collect();
     (Observed { result, storage }, exec.state)
 }
 
 fn vms() -> Vec<(&'static str, Vm)> {
     vec![
-        ("cranelift", Vm::with_tier(Tier::Cranelift).expect("cranelift")),
+        (
+            "cranelift",
+            Vm::with_tier(Tier::Cranelift).expect("cranelift"),
+        ),
         ("pulley", Vm::with_tier(Tier::Pulley).expect("pulley")),
     ]
 }
@@ -174,6 +186,9 @@ fn the_token_swap_contract_costs_the_same_gas_in_every_tier() {
         }
         per_tier.push((tier, trace));
     }
-    assert_eq!(per_tier[0].1, per_tier[1].1, "token swap diverges between tiers");
+    assert_eq!(
+        per_tier[0].1, per_tier[1].1,
+        "token swap diverges between tiers"
+    );
     assert!(per_tier[0].1.iter().all(Result::is_ok));
 }

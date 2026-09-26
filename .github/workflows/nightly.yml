@@ -198,3 +198,27 @@ jobs:
       # Fails if the count is above lint-debt.txt. It may go down freely.
       - name: Ratchet
         run: bash scripts/lint_debt.sh --check
+
+  # ---------------------------------------------------------------------
+  # Performance regression gate (Master Prompt 12 §5). A 5 % threshold is
+  # below the run-to-run noise of a shared GitHub runner, so this job runs
+  # only on a fixed-spec self-hosted runner named by the repository variable
+  # BENCH_RUNNER, and is skipped while none is registered. Its spec is
+  # recorded in reports/12-performance.md; history is benchmarks/history.csv.
+  # ---------------------------------------------------------------------
+  bench-gate:
+    name: performance regression gate
+    if: vars.BENCH_RUNNER != ''
+    runs-on: ${{ vars.BENCH_RUNNER }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-15
+      - name: Tracked benchmarks
+        run: |
+          cargo bench -p maya-parallel-exec --bench speedup > speedup.log
+          cargo bench -p custom-l1-node --bench apply_pipeline > apply.log
+      - name: Gate
+        run: python3 scripts/bench_gate.py --runner "${{ vars.BENCH_RUNNER }}" speedup.log apply.log

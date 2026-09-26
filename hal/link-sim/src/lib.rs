@@ -109,9 +109,21 @@ impl Link for RealLink {
     }
     fn profile(&self) -> Profile {
         match self {
-            Self::Quic => Profile { mtu: 1_200, latency_us: 40_000, loss_ppm: 1_000, bandwidth_bps: 1_000_000_000, cost_per_mb_micro: 10 },
+            Self::Quic => Profile {
+                mtu: 1_200,
+                latency_us: 40_000,
+                loss_ppm: 1_000,
+                bandwidth_bps: 1_000_000_000,
+                cost_per_mb_micro: 10,
+            },
             // LoRa SF7/125 kHz: 5.47 kbit/s raw; the 222-byte EU868 payload cap.
-            Self::LoRa => Profile { mtu: 222, latency_us: 300_000, loss_ppm: 50_000, bandwidth_bps: 5_470, cost_per_mb_micro: 0 },
+            Self::LoRa => Profile {
+                mtu: 222,
+                latency_us: 300_000,
+                loss_ppm: 50_000,
+                bandwidth_bps: 5_470,
+                cost_per_mb_micro: 0,
+            },
         }
     }
 }
@@ -121,7 +133,11 @@ impl Link for RealLink {
 /// This is the FSO → RF fallback rule, and every other one.
 pub fn choose<'a>(links: &'a [&'a dyn Link], bytes: u64, deadline_us: u64) -> Option<&'a dyn Link> {
     let up = || links.iter().copied().filter(|l| l.profile().is_up());
-    up().filter(|l| l.profile().delivery_us(bytes).is_some_and(|t| t <= deadline_us))
-        .min_by_key(|l| l.profile().cost_per_mb_micro)
-        .or_else(|| up().min_by_key(|l| l.profile().delivery_us(bytes).unwrap_or(u64::MAX)))
+    up().filter(|l| {
+        l.profile()
+            .delivery_us(bytes)
+            .is_some_and(|t| t <= deadline_us)
+    })
+    .min_by_key(|l| l.profile().cost_per_mb_micro)
+    .or_else(|| up().min_by_key(|l| l.profile().delivery_us(bytes).unwrap_or(u64::MAX)))
 }

@@ -52,7 +52,9 @@ fn crash_child() {
     let mut chain = open(Path::new(&dir));
     loop {
         let timestamp = 1_000_000 + (chain.height() + 1) * 15;
-        let block = chain.candidate_block(timestamp, Vec::new()).expect("candidate");
+        let block = chain
+            .candidate_block(timestamp, Vec::new())
+            .expect("candidate");
         chain.insert_block(block).expect("insert");
     }
 }
@@ -62,14 +64,20 @@ fn check(dir: &Path) -> u64 {
     let tip = chain.get(&chain.tip()).expect("tip record");
     let root = chain.state().state_root().expect("root");
     if chain.height() > 0 {
-        assert_eq!(root, tip.header.state_root, "state root disagrees with the tip header");
+        assert_eq!(
+            root, tip.header.state_root,
+            "state root disagrees with the tip header"
+        );
     }
     chain.height()
 }
 
 #[test]
 fn kill_nine_during_commit_always_restarts_consistent() {
-    let runs: u32 = std::env::var("CRASH_RUNS").ok().and_then(|v| v.parse().ok()).unwrap_or(1_000);
+    let runs: u32 = std::env::var("CRASH_RUNS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1_000);
     let dir = tempfile::TempDir::new().expect("dir");
     let exe = std::env::current_exe().expect("test binary");
     let mut height = check(dir.path());
@@ -81,7 +89,13 @@ fn kill_nine_during_commit_always_restarts_consistent() {
         seed ^= seed << 17;
         let delay = Duration::from_millis(20 + seed % 80);
         let mut child = Command::new(&exe)
-            .args(["crash_child", "--exact", "--nocapture", "--test-threads", "1"])
+            .args([
+                "crash_child",
+                "--exact",
+                "--nocapture",
+                "--test-threads",
+                "1",
+            ])
             .env("MAYA_CRASH_CHILD", dir.path())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -91,12 +105,20 @@ fn kill_nine_during_commit_always_restarts_consistent() {
         child.kill().expect("SIGKILL"); // SIGKILL on Unix: no destructors, no flush
         child.wait().expect("reap");
         let now = check(dir.path());
-        assert!(now >= height, "run {run} (seed {seed:#x}): height went back from {height} to {now}");
+        assert!(
+            now >= height,
+            "run {run} (seed {seed:#x}): height went back from {height} to {now}"
+        );
         if now > height {
             advanced += 1;
         }
         height = now;
     }
-    println!("{runs} kill -9 runs: every restart consistent; final height {height}; {advanced} runs committed at least one block");
-    assert!(advanced > runs / 4, "most runs should have committed something");
+    println!(
+        "{runs} kill -9 runs: every restart consistent; final height {height}; {advanced} runs committed at least one block"
+    );
+    assert!(
+        advanced > runs / 4,
+        "most runs should have committed something"
+    );
 }

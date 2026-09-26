@@ -2942,3 +2942,47 @@ status = "working"
 tests = ["crates/state-sync/tests/sync_tests.rs"]
 note = "Master Prompt 14 §2. Liars banned, every record imported once; 100M-account run in reports/14-scale.md."
 
+
+[[subsystem]]
+id = "protocol-spec-conformance"
+name = "Protocol specification, reference implementation and conformance vectors"
+domain = "Consensus and execution"
+paths = "`spec/`, `crates/spec-ref`, `spec/verifier-ts`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/conformance.rs"]
+note = "Master Prompt 15 §1-3. 46 vectors from a reference sharing no node code; the node and an independent TypeScript verifier (own BLAKE3) both pass; `cargo xtask spec-coverage` lists 7 uncovered consensus rules."
+
+[[subsystem]]
+id = "protocol-upgrade-halt"
+name = "Protocol upgrade schedule and halt-before-fork"
+domain = "Consensus and execution"
+paths = "`crates/node/src/upgrade.rs`"
+tier = "core"
+class = "REAL"
+status = "working"
+tests = ["crates/node/tests/upgrade_rehearsal.rs"]
+note = "Master Prompt 15 §4. Genesis-scheduled versions; a block at an unsupported version's height is refused with 'upgrade required before height H'. 100-node rehearsal: 30 late nodes halt and catch up. Headers carry no version field; governance cannot yet set the schedule."
+
+[[subsystem]]
+id = "hash-migration-rehearsal"
+name = "State-commitment hash migration (rehearsed procedure)"
+domain = "Cryptography"
+paths = "`crates/node/tests/hash_migration_rehearsal.rs`, `docs/CRYPTO_WATCH.md`"
+tier = "core"
+class = "RESEARCH"
+status = "working"
+tests = ["crates/node/tests/hash_migration_rehearsal.rs"]
+note = "Master Prompt 15 §6. Re-commitment at an epoch boundary with a dual-hash bridge record; the node implements no second hash."
+
+[[subsystem]]
+id = "performance-regression-gate"
+name = "Performance regression gate and node pipeline benchmark"
+domain = "Operations"
+paths = "`scripts/bench_gate.py`, `benchmarks/`, `crates/node/benches/apply_pipeline.rs`"
+tier = "core"
+class = "REAL"
+status = "planned"
+tests = []
+note = "Master Prompt 12 §5. Gate and history format built and self-tested; the nightly job runs only on a fixed-spec runner named by BENCH_RUNNER, and none is registered, so it is not live."

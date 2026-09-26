@@ -69,7 +69,13 @@ fn a_lying_archive_is_caught() {
 
     // A transaction that was never in the block.
     assert_eq!(
-        verify_transaction(&commitment, &leaf, &block_proof, b"mint 1e9 to mallory", &proof),
+        verify_transaction(
+            &commitment,
+            &leaf,
+            &block_proof,
+            b"mint 1e9 to mallory",
+            &proof
+        ),
         Err(VerifyError::TxNotInBlock)
     );
     // A block that was never in the chain, with its own consistent tx root.
@@ -77,11 +83,20 @@ fn a_lying_archive_is_caught() {
     let forged = leaf_for(h, &forged_txs);
     let forged_proof = tx_proof(&forged_txs, 0).expect("in range");
     assert_eq!(
-        verify_transaction(&commitment, &forged, &block_proof, &forged_txs[0], &forged_proof),
+        verify_transaction(
+            &commitment,
+            &forged,
+            &block_proof,
+            &forged_txs[0],
+            &forged_proof
+        ),
         Err(VerifyError::BlockNotCommitted)
     );
     // The right block presented at another height.
-    let moved = BlockLeaf { height: h + 1, ..leaf };
+    let moved = BlockLeaf {
+        height: h + 1,
+        ..leaf
+    };
     assert_eq!(
         verify_transaction(&commitment, &moved, &block_proof, &txs[0], &proof),
         Err(VerifyError::BlockNotCommitted)
@@ -102,11 +117,17 @@ fn the_decoder_refuses_malformed_bytes_without_panicking() {
     assert_eq!(InclusionProof::decode(&[]), Err(DecodeError::Truncated));
     let mut header = vec![0u8; 18];
     header[16] = 65;
-    assert_eq!(InclusionProof::decode(&header), Err(DecodeError::TooManyHashes));
+    assert_eq!(
+        InclusionProof::decode(&header),
+        Err(DecodeError::TooManyHashes)
+    );
     header[16] = 1;
     assert_eq!(InclusionProof::decode(&header), Err(DecodeError::Truncated));
     header.extend_from_slice(&[0u8; 33]);
-    assert_eq!(InclusionProof::decode(&header), Err(DecodeError::TrailingBytes));
+    assert_eq!(
+        InclusionProof::decode(&header),
+        Err(DecodeError::TrailingBytes)
+    );
     // Every prefix of a real proof, and a cheap deterministic byte stream.
     let (_, archive) = chain();
     let real = archive.prove(1234).expect("held").encode();

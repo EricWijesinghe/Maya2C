@@ -35,7 +35,9 @@ fn main() {
             proof.path.len() * 32
         );
     }
-    println!("\n== leader upload: plain gossip vs erasure-coded dispersal (MODEL, {UPLINK_BPS:.0e} bit/s uplink) ==");
+    println!(
+        "\n== leader upload: plain gossip vs erasure-coded dispersal (MODEL, {UPLINK_BPS:.0e} bit/s uplink) =="
+    );
     for n in [100u64, 300] {
         for batch_mib in [1u64, 8] {
             let b = batch_mib * 1_048_576;

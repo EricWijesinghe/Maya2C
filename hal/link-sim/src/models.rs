@@ -1,7 +1,11 @@
 //! SIM and RESEARCH link models. Each states the physics it takes from the
 //! literature in one line, and nothing more is claimed.
 
-#![allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
 
 use crate::{Class, Link, PPM, Profile};
 
@@ -121,7 +125,11 @@ impl Link for Oam {
         Class::Sim
     }
     fn profile(&self) -> Profile {
-        let lost = if self.recovery { self.turbulence / 25 } else { self.turbulence / 8 };
+        let lost = if self.recovery {
+            self.turbulence / 25
+        } else {
+            self.turbulence / 8
+        };
         let usable = self.modes.saturating_sub(lost);
         Profile {
             mtu: 9_000,
@@ -147,7 +155,13 @@ impl Link for Neutrino {
         Class::Research
     }
     fn profile(&self) -> Profile {
-        Profile { mtu: 32, latency_us: 1_000, loss_ppm: 10_000, bandwidth_bps: 0, cost_per_mb_micro: u64::MAX }
+        Profile {
+            mtu: 32,
+            latency_us: 1_000,
+            loss_ppm: 10_000,
+            bandwidth_bps: 0,
+            cost_per_mb_micro: u64::MAX,
+        }
     }
 }
 

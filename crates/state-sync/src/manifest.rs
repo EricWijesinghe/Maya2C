@@ -46,7 +46,10 @@ impl Manifest {
 
     /// The committed root.
     pub fn root(&self) -> [u8; 32] {
-        self.levels.last().and_then(|l| l.first().copied()).unwrap_or([0; 32])
+        self.levels
+            .last()
+            .and_then(|l| l.first().copied())
+            .unwrap_or([0; 32])
     }
 
     /// Chunks in the snapshot.
@@ -80,7 +83,11 @@ impl ChunkProof {
         while width > 1 {
             if i ^ 1 < width {
                 let Some(sib) = s.next() else { return false };
-                h = if i.is_multiple_of(2) { node(&h, sib) } else { node(sib, &h) };
+                h = if i.is_multiple_of(2) {
+                    node(&h, sib)
+                } else {
+                    node(sib, &h)
+                };
             }
             i /= 2;
             width = width.div_ceil(2);

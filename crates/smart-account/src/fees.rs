@@ -73,7 +73,8 @@ impl TokenPrice {
         if self.native == 0 {
             return None;
         }
-        let base = (u128::from(native_fee) * u128::from(self.token)).div_ceil(u128::from(self.native));
+        let base =
+            (u128::from(native_fee) * u128::from(self.token)).div_ceil(u128::from(self.native));
         let with_margin = (base * u128::from(10_000 + TOKEN_MARGIN_BPS)).div_ceil(10_000);
         u64::try_from(with_margin).ok()
     }
@@ -99,7 +100,9 @@ impl Paymaster {
             return false;
         }
         let spent = self.spent.get(&(*account, day)).copied().unwrap_or(0);
-        let Some(next) = spent.checked_add(fee) else { return false };
+        let Some(next) = spent.checked_add(fee) else {
+            return false;
+        };
         if next > self.per_account_daily || fee > self.budget {
             return false;
         }

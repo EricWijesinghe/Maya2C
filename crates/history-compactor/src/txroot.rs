@@ -100,7 +100,11 @@ impl TxProof {
                 let Some(s) = siblings.next() else {
                     return false;
                 };
-                hash = if i.is_multiple_of(2) { tx_node(&hash, s) } else { tx_node(s, &hash) };
+                hash = if i.is_multiple_of(2) {
+                    tx_node(&hash, s)
+                } else {
+                    tx_node(s, &hash)
+                };
             }
             i /= 2;
             width = width.div_ceil(2);

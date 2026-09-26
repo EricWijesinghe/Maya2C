@@ -1,7 +1,11 @@
 //! Runs every scenario and analysis and prints Markdown for
 //! `reports/18-economics.md`. `cargo run -p maya-econ --release --bin econ-sim`.
 
-#![allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+#![allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
 
 use maya_econ::attack::{Attack, tokens_needed, weak_subjectivity_days};
 use maya_econ::concentration::{apply_cap, gini_ppm, nakamoto_coefficient};
@@ -18,7 +22,10 @@ fn main() {
     // price, so each row shows what the *shock* does rather than a set that
     // was never viable. The draft's own price input and its break-even are
     // printed first, so the choice is visible.
-    let p = EconParams { genesis_price: (1.5 * draft.break_even_price()).round(), ..draft };
+    let p = EconParams {
+        genesis_price: (1.5 * draft.break_even_price()).round(),
+        ..draft
+    };
     println!("{SIM_BANNER}\n");
     println!(
         "Draft parameters: {} validators at {:.0} fiat/yr each, emission {:.1}%/yr, operator share of rewards {:.1}%.",
@@ -34,7 +41,9 @@ fn main() {
         p.genesis_price
     );
     println!("## Scenarios (730 days each, seed 42)\n");
-    println!("| Scenario | min staking | final validators (min) | supply change | peak base fee | max fee/tx (fiat) | stable |");
+    println!(
+        "| Scenario | min staking | final validators (min) | supply change | peak base fee | max fee/tx (fiat) | stable |"
+    );
     println!("|---|---|---|---|---|---|---|");
     for s in scenario::all() {
         let r = run(&p, &s, 42);
@@ -48,7 +57,11 @@ fn main() {
             r.supply_change_ppm() as f64 / 1e4,
             r.days.iter().map(|d| d.peak_base_fee).max().unwrap_or(0),
             r.max_fee_fiat(),
-            if r.is_stable(p.validators, Stability::DEFAULT) { "yes" } else { "**no**" }
+            if r.is_stable(p.validators, Stability::DEFAULT) {
+                "yes"
+            } else {
+                "**no**"
+            }
         );
     }
 
@@ -68,7 +81,10 @@ fn main() {
             if a.slashable() { "yes" } else { "no" }
         );
     }
-    println!("\nWeak-subjectivity period for a 21-day unbonding: {} days.", weak_subjectivity_days(21));
+    println!(
+        "\nWeak-subjectivity period for a 21-day unbonding: {} days.",
+        weak_subjectivity_days(21)
+    );
 
     println!("\n## Stake concentration (synthetic power-law set of 100 validators)\n");
     let mut rng = Rng::new(7);
@@ -103,12 +119,24 @@ fn main() {
     let mut rng = Rng::new(9);
     let sizes: Vec<u64> = (0..50_000)
         .map(|i| {
-            let surge = if (10_000..12_000).contains(&i) { 2.0 } else { 0.8 };
-            ((f.target_block_bytes as f64 * surge * rng.noise(0.4)) as u64).min(2 * f.target_block_bytes)
+            let surge = if (10_000..12_000).contains(&i) {
+                2.0
+            } else {
+                0.8
+            };
+            ((f.target_block_bytes as f64 * surge * rng.noise(0.4)) as u64)
+                .min(2 * f.target_block_bytes)
         })
         .collect();
     for k in [1u32, 3, 10] {
-        let a = measure(&sizes, k, f.target_block_bytes, f.change_denominator, f.min_base_fee, 1_000);
+        let a = measure(
+            &sizes,
+            k,
+            f.target_block_bytes,
+            f.change_denominator,
+            f.min_base_fee,
+            1_000,
+        );
         println!(
             "- k = {k}: {} quotes, {} exceeded, mean over-estimate {:.1}%",
             a.samples,

@@ -84,7 +84,8 @@ impl EconParams {
     /// the price needed).
     #[allow(clippy::cast_precision_loss)]
     pub fn break_even_price(&self) -> f64 {
-        let emission_tokens = self.genesis_supply as f64 * self.emission_ppm_per_year as f64 / 1e6 / UNIT as f64;
+        let emission_tokens =
+            self.genesis_supply as f64 * self.emission_ppm_per_year as f64 / 1e6 / UNIT as f64;
         let operator_tokens = emission_tokens * self.operator_share_ppm() as f64 / 1e6;
         f64::from(self.validators) * self.validator_cost_per_year / operator_tokens
     }

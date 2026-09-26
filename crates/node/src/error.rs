@@ -130,6 +130,20 @@ pub enum NodeError {
     #[error("balance arithmetic overflowed")]
     BalanceOverflow,
 
+    /// The upgrade schedule puts a protocol version this binary does not
+    /// implement in force at the height being validated (`crate::upgrade`).
+    #[error(
+        "upgrade required before height {height}: protocol version {version} activates there and this binary supports up to version {supported}"
+    )]
+    UpgradeRequired {
+        /// The version that activates.
+        version: u32,
+        /// Its activation height.
+        height: u64,
+        /// The newest version this binary implements.
+        supported: u32,
+    },
+
     /// The computed post-state root did not match the value committed in the
     /// block header.
     #[error("state root mismatch: header commits {expected}, execution produced {actual}")]

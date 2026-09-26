@@ -442,6 +442,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         oracle: None,
         sealed: None,
         treasury,
+        protocol_upgrades: Vec::new(),
     };
 
     config.validate()?;
@@ -814,6 +815,7 @@ fn assemble(args: &Args) -> Result<(), Box<dyn Error>> {
         oracle: None,
         sealed: None,
         treasury,
+        protocol_upgrades: Vec::new(),
     };
 
     config.validate()?;

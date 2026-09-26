@@ -32,7 +32,14 @@ pub struct Accuracy {
 }
 
 /// Replays `sizes` through the base-fee rule and scores `k`-block quotes.
-pub fn measure(sizes: &[u64], k: u32, target: u64, denominator: u64, floor: u64, start: u64) -> Accuracy {
+pub fn measure(
+    sizes: &[u64],
+    k: u32,
+    target: u64,
+    denominator: u64,
+    floor: u64,
+    start: u64,
+) -> Accuracy {
     let mut fees = Vec::with_capacity(sizes.len() + 1);
     let mut fee = start;
     fees.push(fee);
@@ -48,7 +55,8 @@ pub fn measure(sizes: &[u64], k: u32, target: u64, denominator: u64, floor: u64,
         if realised > quote {
             violations += 1;
         }
-        over += u128::from(quote.saturating_sub(realised)) * 1_000_000 / u128::from(realised.max(1));
+        over +=
+            u128::from(quote.saturating_sub(realised)) * 1_000_000 / u128::from(realised.max(1));
         samples += 1;
     }
     Accuracy {

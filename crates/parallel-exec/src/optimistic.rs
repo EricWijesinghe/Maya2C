@@ -25,8 +25,17 @@ pub fn execute(base: &State, txs: &[Tx], threads: usize, work: u32) -> (BlockRes
 
     let mut committed: State = State::new();
     let mut receipts = Vec::with_capacity(txs.len());
-    let mut stats = Stats { reexecuted: 0, waves: 1 };
-    let view = |committed: &State, k| committed.get(&k).or_else(|| base.get(&k)).copied().unwrap_or(0);
+    let mut stats = Stats {
+        reexecuted: 0,
+        waves: 1,
+    };
+    let view = |committed: &State, k| {
+        committed
+            .get(&k)
+            .or_else(|| base.get(&k))
+            .copied()
+            .unwrap_or(0)
+    };
     for (tx, spec) in txs.iter().zip(speculative) {
         let still_valid = spec.reads.iter().all(|(k, v)| view(&committed, *k) == *v);
         let trace = if still_valid {
@@ -40,7 +49,13 @@ pub fn execute(base: &State, txs: &[Tx], threads: usize, work: u32) -> (BlockRes
         }
         receipts.push(trace.receipt);
     }
-    (BlockResult { writes: committed, receipts }, stats)
+    (
+        BlockResult {
+            writes: committed,
+            receipts,
+        },
+        stats,
+    )
 }
 
 /// Phase 1: run every transaction against `base`, in parallel.
@@ -48,7 +63,10 @@ fn speculate(base: &State, txs: &[Tx], threads: usize, work: u32) -> Vec<Trace> 
     // Spawning costs more than a handful of transactions; below two per
     // worker, run inline. Same result either way.
     if threads == 1 || txs.len() < 2 * threads {
-        return txs.iter().map(|tx| run(tx, work, |k| base.get(&k).copied().unwrap_or(0))).collect();
+        return txs
+            .iter()
+            .map(|tx| run(tx, work, |k| base.get(&k).copied().unwrap_or(0)))
+            .collect();
     }
     let chunk = txs.len().div_ceil(threads);
     let mut out: BTreeMap<usize, Vec<Trace>> = BTreeMap::new();
@@ -58,8 +76,10 @@ fn speculate(base: &State, txs: &[Tx], threads: usize, work: u32) -> Vec<Trace> 
             .enumerate()
             .map(|(i, part)| {
                 s.spawn(move || {
-                    let traces: Vec<Trace> =
-                        part.iter().map(|tx| run(tx, work, |k| base.get(&k).copied().unwrap_or(0))).collect();
+                    let traces: Vec<Trace> = part
+                        .iter()
+                        .map(|tx| run(tx, work, |k| base.get(&k).copied().unwrap_or(0)))
+                        .collect();
                     (i, traces)
                 })
             })

@@ -48,7 +48,12 @@ pub struct Downloader {
 
 impl Downloader {
     /// A download of `chunks` chunks under `root` from `peers`.
-    pub fn new(root: [u8; 32], chunks: u32, peers: impl IntoIterator<Item = u16>, per_peer: usize) -> Self {
+    pub fn new(
+        root: [u8; 32],
+        chunks: u32,
+        peers: impl IntoIterator<Item = u16>,
+        per_peer: usize,
+    ) -> Self {
         Self {
             root,
             chunks,
@@ -87,7 +92,9 @@ impl Downloader {
                 if load >= self.per_peer {
                     continue;
                 }
-                let Some(c) = self.queue.pop_front() else { break 'fill };
+                let Some(c) = self.queue.pop_front() else {
+                    break 'fill;
+                };
                 self.in_flight.insert((p, c));
                 out.push(Request { peer: p, chunk: c });
                 progressed = true;
@@ -100,7 +107,13 @@ impl Downloader {
     }
 
     /// A response arrived. Verifies it and returns what happened.
-    pub fn receive(&mut self, peer: u16, chunk: u32, bytes: &[u8], proof: &ChunkProof) -> Vec<Event> {
+    pub fn receive(
+        &mut self,
+        peer: u16,
+        chunk: u32,
+        bytes: &[u8],
+        proof: &ChunkProof,
+    ) -> Vec<Event> {
         let mut events = Vec::new();
         if !self.in_flight.remove(&(peer, chunk)) || self.banned.contains(&peer) {
             return events; // unsolicited or from a banned peer: ignore
@@ -115,7 +128,12 @@ impl Downloader {
             self.banned.insert(peer);
             events.push(Event::Banned(peer));
             // Everything the liar still owed goes back to the front.
-            let owed: Vec<u32> = self.in_flight.iter().filter(|(p, _)| *p == peer).map(|(_, c)| *c).collect();
+            let owed: Vec<u32> = self
+                .in_flight
+                .iter()
+                .filter(|(p, _)| *p == peer)
+                .map(|(_, c)| *c)
+                .collect();
             for c in owed.into_iter().chain([chunk]).rev() {
                 self.in_flight.remove(&(peer, c));
                 self.queue.push_front(c);

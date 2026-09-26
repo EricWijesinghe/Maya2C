@@ -19,7 +19,11 @@ const TABLE: u64 = 65_536;
 
 impl Zipf {
     /// Sampler over `n` ranks with exponent `s_x100 / 100`.
-    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
     pub fn new(n: u64, s_x100: u32) -> Self {
         let n = n.max(1);
         let size = n.min(TABLE);
@@ -64,7 +68,9 @@ mod tests {
         let mut counts = vec![0u32; 1_000];
         let mut x = 7u64;
         for _ in 0..200_000 {
-            x = x.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+            x = x
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
             counts[usize::try_from(z.sample(x >> 1)).unwrap_or(0)] += 1;
         }
         assert!(counts[0] > counts[1] && counts[1] > counts[10] && counts[10] > counts[500]);

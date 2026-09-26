@@ -7,7 +7,11 @@
 //! `epoch_blocks / SAMPLED_BLOCKS`. The base fee carries across days, so its
 //! dynamics are the real rule's; only the day's totals are extrapolated.
 
-#![allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+#![allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
 
 use maya_fee_market::{MAX_SUPPLY, next_base_fee, split};
 
@@ -76,7 +80,10 @@ pub struct Stability {
 
 impl Stability {
     /// The criteria the reports apply.
-    pub const DEFAULT: Self = Self { min_staking_ppm: 333_333, min_validator_share_ppm: 666_667 };
+    pub const DEFAULT: Self = Self {
+        min_staking_ppm: 333_333,
+        min_validator_share_ppm: 666_667,
+    };
 }
 
 impl Run {
@@ -92,7 +99,10 @@ impl Run {
 
     /// Highest average-transaction fee seen, fiat.
     pub fn max_fee_fiat(&self) -> f64 {
-        self.days.iter().map(|d| d.fee_per_tx_fiat).fold(0.0, f64::max)
+        self.days
+            .iter()
+            .map(|d| d.fee_per_tx_fiat)
+            .fold(0.0, f64::max)
     }
 
     /// Supply change over the run, ppm of the start (negative = deflation).
@@ -130,7 +140,8 @@ pub fn run(params: &EconParams, scenario: &Scenario, seed: u64) -> Run {
     let mut rng = Rng::new(seed);
     let mut st = State {
         supply: params.genesis_supply,
-        staked: (u128::from(params.genesis_supply) * u128::from(params.initial_staking_ppm) / 1_000_000) as u64,
+        staked: (u128::from(params.genesis_supply) * u128::from(params.initial_staking_ppm)
+            / 1_000_000) as u64,
         base_fee: params.fees.initial_base_fee,
         validators: params.validators,
         price: params.genesis_price,
@@ -142,7 +153,10 @@ pub fn run(params: &EconParams, scenario: &Scenario, seed: u64) -> Run {
         apply_step_shocks(&mut st, scenario, day);
         days.push(simulate_day(params, scenario, day, &mut st, &mut rng));
     }
-    Run { name: scenario.name, days }
+    Run {
+        name: scenario.name,
+        days,
+    }
 }
 
 fn apply_step_shocks(st: &mut State, scenario: &Scenario, day: u64) {
@@ -161,7 +175,11 @@ fn apply_step_shocks(st: &mut State, scenario: &Scenario, day: u64) {
 
 fn usage_factor(scenario: &Scenario, day: u64) -> f64 {
     scenario.shocks.iter().fold(1.0, |f, s| match *s {
-        Shock::Usage { day: d, until, factor } if day >= d && day < until => f * factor,
+        Shock::Usage {
+            day: d,
+            until,
+            factor,
+        } if day >= d && day < until => f * factor,
         _ => f,
     })
 }
@@ -173,7 +191,13 @@ fn spam_active(scenario: &Scenario, day: u64) -> bool {
         .any(|s| matches!(*s, Shock::Spam { day: d, days, .. } if day >= d && day < d + days))
 }
 
-fn simulate_day(params: &EconParams, scenario: &Scenario, day: u64, st: &mut State, rng: &mut Rng) -> Day {
+fn simulate_day(
+    params: &EconParams,
+    scenario: &Scenario,
+    day: u64,
+    st: &mut State,
+    rng: &mut Rng,
+) -> Day {
     let target = params.fees.target_block_bytes;
     let max_block = 2 * target;
     let (mut burned, mut treasury, mut tips, mut used) = (0u64, 0u64, 0u64, 0u64);
@@ -187,7 +211,8 @@ fn simulate_day(params: &EconParams, scenario: &Scenario, day: u64, st: &mut Sta
     for _ in 0..SAMPLED_BLOCKS {
         let fee_fiat = st.base_fee as f64 * params.avg_tx_bytes as f64 / UNIT as f64 * st.price;
         let elasticity = (WILLINGNESS_FIAT * rng.noise(0.5) / fee_fiat.max(1e-12)).min(1.0);
-        let txs = scenario.base_tps * params.block_secs as f64 * usage * rng.noise(0.3) * elasticity;
+        let txs =
+            scenario.base_tps * params.block_secs as f64 * usage * rng.noise(0.3) * elasticity;
         let mut bytes = ((txs * params.avg_tx_bytes as f64) as u64).min(max_block);
         if spam && spam_budget > 0 {
             let room = max_block - bytes;
@@ -234,7 +259,8 @@ fn simulate_day(params: &EconParams, scenario: &Scenario, day: u64, st: &mut Sta
     let yield_ppm = if st.staked == 0 {
         u64::MAX
     } else {
-        (u128::from(emitted) * u128::from(params.epochs_per_year()) * 1_000_000 / u128::from(st.staked)) as u64
+        (u128::from(emitted) * u128::from(params.epochs_per_year()) * 1_000_000
+            / u128::from(st.staked)) as u64
     };
     let liquid = st.supply.saturating_sub(st.staked);
     if yield_ppm > params.delegator_hurdle_ppm {

@@ -79,7 +79,12 @@ pub struct Mix {
 
 impl Mix {
     /// A realistic-looking default: mostly transfers.
-    pub const DEFAULT: Self = Self { transfer: 60, token: 25, call: 14, deploy: 1 };
+    pub const DEFAULT: Self = Self {
+        transfer: 60,
+        token: 25,
+        call: 14,
+        deploy: 1,
+    };
 }
 
 /// Workload parameters.
@@ -101,7 +106,14 @@ pub struct Params {
 
 impl Default for Params {
     fn default() -> Self {
-        Self { seed: 1, accounts: 100_000, hot_keys: 8, contention_ppm: 100_000, zipf_s_x100: 100, mix: Mix::DEFAULT }
+        Self {
+            seed: 1,
+            accounts: 100_000,
+            hot_keys: 8,
+            contention_ppm: 100_000,
+            zipf_s_x100: 100,
+            mix: Mix::DEFAULT,
+        }
     }
 }
 
@@ -156,7 +168,8 @@ impl Workload {
         self.next_id += 1;
         let pick = self.next_u64() % 100;
         let m = self.params.mix;
-        let hot = self.params.hot_keys > 0 && self.next_u64() % 1_000_000 < u64::from(self.params.contention_ppm);
+        let hot = self.params.hot_keys > 0
+            && self.next_u64() % 1_000_000 < u64::from(self.params.contention_ppm);
         let hot_key = HOT_BASE + self.next_u64() % self.params.hot_keys.max(1);
         let amount = 1 + self.next_u64() % 1_000;
         let (kind, sender, mut reads, mut writes) = if pick < u64::from(m.transfer) {
@@ -165,7 +178,12 @@ impl Workload {
         } else if pick < u64::from(m.transfer + m.token) {
             let (a, b) = self.two_accounts();
             let token = CONTRACT_BASE + (self.next_u64() % 16) * 1_000_000;
-            (Kind::TokenTransfer, a, vec![a, token + 1 + a % 999_999, token + 1 + b % 999_999, token], vec![a, token + 1 + a % 999_999, token + 1 + b % 999_999])
+            (
+                Kind::TokenTransfer,
+                a,
+                vec![a, token + 1 + a % 999_999, token + 1 + b % 999_999, token],
+                vec![a, token + 1 + a % 999_999, token + 1 + b % 999_999],
+            )
         } else if pick < u64::from(m.transfer + m.token + m.call) {
             let a = self.account();
             let slot = CONTRACT_BASE + (1 << 30) + self.next_u64() % 10_000;
@@ -180,7 +198,14 @@ impl Workload {
             reads.push(hot_key);
             writes.push(hot_key);
         }
-        Tx { id, kind, sender, reads, writes, amount }
+        Tx {
+            id,
+            kind,
+            sender,
+            reads,
+            writes,
+            amount,
+        }
     }
 
     /// The next `n` transactions.
@@ -204,10 +229,24 @@ mod tests {
     #[test]
     fn contention_controls_the_share_touching_hot_keys() {
         for ppm in [0u32, 100_000, 500_000, 900_000] {
-            let txs = Workload::new(Params { contention_ppm: ppm, ..Params::default() }).take(20_000);
-            let hot = txs.iter().filter(|t| t.writes.iter().any(|k| (HOT_BASE..CONTRACT_BASE).contains(k))).count();
+            let txs = Workload::new(Params {
+                contention_ppm: ppm,
+                ..Params::default()
+            })
+            .take(20_000);
+            let hot = txs
+                .iter()
+                .filter(|t| {
+                    t.writes
+                        .iter()
+                        .any(|k| (HOT_BASE..CONTRACT_BASE).contains(k))
+                })
+                .count();
             let expected = 20_000 * ppm as usize / 1_000_000;
-            assert!(hot.abs_diff(expected) < 20_000 / 50 + 1, "ppm {ppm}: {hot} vs {expected}");
+            assert!(
+                hot.abs_diff(expected) < 20_000 / 50 + 1,
+                "ppm {ppm}: {hot} vs {expected}"
+            );
         }
     }
 

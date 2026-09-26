@@ -17,6 +17,7 @@ mod coverage;
 mod disk;
 mod readiness;
 mod release_check;
+mod spec_coverage;
 
 use std::process::ExitCode;
 
@@ -35,6 +36,7 @@ fn main() -> ExitCode {
         "coverage" => coverage::run(rest),
         "release-check" => release_check::run(rest),
         "readiness" => readiness::run(rest),
+        "spec-coverage" => spec_coverage::run(rest),
         "help" | "--help" | "-h" => {
             usage();
             return ExitCode::SUCCESS;
@@ -66,7 +68,11 @@ cargo xtask <command>
                         SIM crate or forbidden feature is linked. --force-sim
                         forces a SIM feature in and must fail at the guard.
   readiness [--check]   Regenerate READINESS.md from evidence on disk;
-                        --check fails if it is stale."
+                        --check fails if it is stale.
+  spec-coverage [--strict]
+                        List every spec/ rule and whether spec/tests/ has a
+                        positive and a negative vector for it. --strict fails
+                        on any consensus rule without both."
     );
 }
 

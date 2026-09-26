@@ -34,6 +34,7 @@ use crate::crypto::dag::registry::{CacheRegistry, DagConfig};
 use crate::crypto::pow::meets_target;
 use crate::error::{NodeError, Result};
 use crate::state::{BlockContext, StateDB};
+use crate::upgrade::{ProtocolUpgrade, UpgradeSchedule, refuse_unsupported};
 
 /// Opening a stored chain, importing headers ahead of bodies, and pruning.
 mod store;
@@ -55,6 +56,12 @@ pub struct ChainConfig {
     ///
     /// [`DAG_ACTIVATION_HEIGHT`]: crate::crypto::dag::DAG_ACTIVATION_HEIGHT
     pub dag: DagConfig,
+    /// The first scheduled protocol upgrade this binary does not implement,
+    /// from genesis (`UpgradeSchedule::first_unsupported`). A block at or past
+    /// its height is refused with `UpgradeRequired` rather than validated
+    /// under the old rules. Only this one entry matters to validation, which
+    /// is what keeps the config `Copy`.
+    pub unsupported_upgrade: Option<ProtocolUpgrade>,
 }
 
 impl Default for ChainConfig {
@@ -63,6 +70,7 @@ impl Default for ChainConfig {
             verify_pow: true,
             pow_limit: default_pow_limit(),
             dag: DagConfig::MAINNET,
+            unsupported_upgrade: None,
         }
     }
 }
@@ -81,6 +89,7 @@ impl ChainConfig {
             verify_pow: false,
             pow_limit: unlimited_pow_limit(),
             dag: DagConfig::MAINNET,
+            unsupported_upgrade: None,
         }
     }
 
@@ -94,7 +103,15 @@ impl ChainConfig {
             verify_pow: true,
             pow_limit,
             dag: DagConfig::MAINNET,
+            unsupported_upgrade: None,
         }
+    }
+
+    /// The same configuration with a protocol upgrade schedule.
+    #[must_use]
+    pub fn with_upgrades(mut self, upgrades: &UpgradeSchedule) -> Self {
+        self.unsupported_upgrade = upgrades.first_unsupported();
+        self
     }
 
     /// The same configuration with a different proof-of-work schedule.
@@ -319,6 +336,10 @@ impl Chain {
         let parent = self.require(&parent_id)?;
         let height = parent.height + 1;
         let parent_work = parent.total_work;
+
+        // Before any rule is applied: a height governed by a protocol version
+        // this binary does not implement is not ours to judge (spec/ §4).
+        refuse_unsupported(self.config.unsupported_upgrade, height)?;
 
         // At or below the horizon the parent's undo journal is gone, so a
         // block forking there could never be reorganised onto. Refused before

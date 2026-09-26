@@ -459,7 +459,11 @@ struct Rpc<'a> {
 
 impl Rpc<'_> {
     fn balance_proof(&self, address: &Address) -> custom_l1_node::state::proof::AccountProof {
-        let mut proof = self.state.account_proof(address).expect("read").expect("exists");
+        let mut proof = self
+            .state
+            .account_proof(address)
+            .expect("read")
+            .expect("exists");
         if self.inflate_in_flight {
             proof.account.balance *= 10;
         }
@@ -475,12 +479,27 @@ fn the_light_client_catches_a_lying_rpc_server() {
     let who = holders[0].address();
 
     // Honest server: the balance checks out.
-    let truthful = Rpc { state: &honest, inflate_in_flight: false };
-    assert_eq!(client.verified_balance(0, &truthful.balance_proof(&who)).expect("honest"), BALANCE);
+    let truthful = Rpc {
+        state: &honest,
+        inflate_in_flight: false,
+    };
+    assert_eq!(
+        client
+            .verified_balance(0, &truthful.balance_proof(&who))
+            .expect("honest"),
+        BALANCE
+    );
 
     // Liar 1 edits the balance in a real proof on the way out.
-    let editor = Rpc { state: &honest, inflate_in_flight: true };
-    assert!(client.verified_balance(0, &editor.balance_proof(&who)).is_err());
+    let editor = Rpc {
+        state: &honest,
+        inflate_in_flight: true,
+    };
+    assert!(
+        client
+            .verified_balance(0, &editor.balance_proof(&who))
+            .is_err()
+    );
 
     // Liar 2 runs a whole forged state in which the holder has ten times as
     // much, and serves internally consistent proofs from it. They verify
@@ -489,11 +508,18 @@ fn the_light_client_catches_a_lying_rpc_server() {
     let forged = StateDB::open(dir.path()).expect("open");
     for (i, h) in holders.iter().enumerate() {
         let balance = if i == 0 { BALANCE * 10 } else { BALANCE };
-        forged.put_account(&h.address(), &Account { balance, nonce: 0 }).expect("fund");
+        forged
+            .put_account(&h.address(), &Account { balance, nonce: 0 })
+            .expect("fund");
     }
-    let forger = Rpc { state: &forged, inflate_in_flight: false };
+    let forger = Rpc {
+        state: &forged,
+        inflate_in_flight: false,
+    };
     assert!(matches!(
-        client.verified_balance(0, &forger.balance_proof(&who)).unwrap_err(),
+        client
+            .verified_balance(0, &forger.balance_proof(&who))
+            .unwrap_err(),
         LightClientError::ProofMismatch { .. }
     ));
 }

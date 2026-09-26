@@ -27,7 +27,8 @@ impl SyntheticState {
     pub fn chunk(&self, index: u32) -> Vec<u8> {
         let first = u64::from(index) * self.per_chunk;
         let last = (first + self.per_chunk).min(self.accounts);
-        let mut out = Vec::with_capacity(usize::try_from(last - first).unwrap_or(0) * ACCOUNT_BYTES);
+        let mut out =
+            Vec::with_capacity(usize::try_from(last - first).unwrap_or(0) * ACCOUNT_BYTES);
         for i in first..last {
             out.extend_from_slice(blake3::hash(&i.to_le_bytes()).as_bytes());
             out.extend_from_slice(&(i.wrapping_mul(2_654_435_761) % 1_000_000_000).to_le_bytes());

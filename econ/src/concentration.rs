@@ -56,7 +56,11 @@ pub fn apply_cap(stakes: &[u64], cap_ppm: u64) -> Vec<u64> {
         if excess == 0 {
             break;
         }
-        let below: u128 = out.iter().filter(|s| **s < cap).map(|s| u128::from(*s)).sum();
+        let below: u128 = out
+            .iter()
+            .filter(|s| **s < cap)
+            .map(|s| u128::from(*s))
+            .sum();
         if below == 0 {
             break;
         }

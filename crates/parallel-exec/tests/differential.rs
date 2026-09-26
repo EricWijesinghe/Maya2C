@@ -1,7 +1,11 @@
 //! Parallel == sequential, byte for byte, on 100,000 random blocks
 //! (Master Prompt 12 DONE WHEN). Any mismatch prints its seed.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::cast_possible_truncation)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::cast_possible_truncation
+)]
 
 use maya_loadgen::{Params, Workload};
 use maya_parallel_exec::{State, optimistic, sequential, waves};
@@ -49,19 +53,32 @@ fn parallel_equals_sequential_on_100k_random_blocks() {
         let threads = 1 + (seed >> 16) as usize % 8;
         let reference = sequential::execute(&base, &txs, 0);
         let (opt, stats) = optimistic::execute(&base, &txs, threads, 0);
-        assert_eq!(opt, reference, "optimistic diverged: block {block} seed {seed:#x} threads {threads}");
+        assert_eq!(
+            opt, reference,
+            "optimistic diverged: block {block} seed {seed:#x} threads {threads}"
+        );
         let declared_ref = waves::sequential_with_declarations(&base, &txs, 0);
         let (wv, _) = waves::execute(&base, &txs, threads, 0);
-        assert_eq!(wv, declared_ref, "waves diverged: block {block} seed {seed:#x} threads {threads}");
+        assert_eq!(
+            wv, declared_ref,
+            "waves diverged: block {block} seed {seed:#x} threads {threads}"
+        );
         reexecuted += stats.reexecuted;
         total_txs += n;
     }
-    println!("{BLOCKS} blocks, {total_txs} txs, {reexecuted} optimistic re-executions: parallel == sequential every time");
+    println!(
+        "{BLOCKS} blocks, {total_txs} txs, {reexecuted} optimistic re-executions: parallel == sequential every time"
+    );
 }
 
 #[test]
 fn gas_does_not_depend_on_thread_count() {
-    let txs = Workload::new(Params { contention_ppm: 500_000, accounts: 32, ..Params::default() }).take(2_000);
+    let txs = Workload::new(Params {
+        contention_ppm: 500_000,
+        accounts: 32,
+        ..Params::default()
+    })
+    .take(2_000);
     let mut base = State::new();
     for a in 0..32 {
         base.insert(a, 10_000);

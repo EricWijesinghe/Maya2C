@@ -29,7 +29,10 @@ fn levels(cells: &[&[u8]]) -> Vec<Vec<Hash>> {
 
 /// Root over `cells` (count must be a power of two).
 pub fn merkle_root(cells: &[&[u8]]) -> Hash {
-    levels(cells).last().and_then(|l| l.first().copied()).unwrap_or([0; 32])
+    levels(cells)
+        .last()
+        .and_then(|l| l.first().copied())
+        .unwrap_or([0; 32])
 }
 
 /// A cell and its path to a row root.
@@ -67,7 +70,11 @@ impl CellProof {
         let mut h = leaf(cell);
         let mut i = self.col;
         for s in &self.path {
-            h = if i.is_multiple_of(2) { node(&h, s) } else { node(s, &h) };
+            h = if i.is_multiple_of(2) {
+                node(&h, s)
+            } else {
+                node(s, &h)
+            };
             i /= 2;
         }
         h == *row_root

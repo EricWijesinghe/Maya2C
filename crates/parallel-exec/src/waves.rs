@@ -51,7 +51,10 @@ pub fn assign(txs: &[Tx]) -> Vec<usize> {
 fn enforce_declarations(mut t: Trace) -> Trace {
     if t.undeclared {
         t.writes.clear();
-        t.receipt = Receipt { success: false, gas: BASE_GAS };
+        t.receipt = Receipt {
+            success: false,
+            gas: BASE_GAS,
+        };
     }
     t
 }
@@ -67,7 +70,10 @@ pub fn execute(base: &State, txs: &[Tx], threads: usize, work: u32) -> (BlockRes
         let view = &committed;
         let read = |k: Key| view.get(&k).or_else(|| base.get(&k)).copied().unwrap_or(0);
         let results: Vec<(usize, Trace)> = if threads <= 1 || members.len() < 2 * threads {
-            members.iter().map(|&i| (i, enforce_declarations(run(&txs[i], work, read)))).collect()
+            members
+                .iter()
+                .map(|&i| (i, enforce_declarations(run(&txs[i], work, read))))
+                .collect()
         } else {
             let chunk = members.len().div_ceil(threads);
             std::thread::scope(|s| {
@@ -98,8 +104,20 @@ pub fn execute(base: &State, txs: &[Tx], threads: usize, work: u32) -> (BlockRes
             traces[i] = Some(t);
         }
     }
-    let receipts = traces.into_iter().map(|t| t.map(|t| t.receipt).unwrap_or_default()).collect();
-    (BlockResult { writes: committed, receipts }, Stats { reexecuted: 0, waves: n_waves })
+    let receipts = traces
+        .into_iter()
+        .map(|t| t.map(|t| t.receipt).unwrap_or_default())
+        .collect();
+    (
+        BlockResult {
+            writes: committed,
+            receipts,
+        },
+        Stats {
+            reexecuted: 0,
+            waves: n_waves,
+        },
+    )
 }
 
 /// The sequential reference under the same declaration rule.
@@ -107,7 +125,13 @@ pub fn sequential_with_declarations(base: &State, txs: &[Tx], work: u32) -> Bloc
     let mut writes = State::new();
     let mut receipts = Vec::with_capacity(txs.len());
     for tx in txs {
-        let t = enforce_declarations(run(tx, work, |k| writes.get(&k).or_else(|| base.get(&k)).copied().unwrap_or(0)));
+        let t = enforce_declarations(run(tx, work, |k| {
+            writes
+                .get(&k)
+                .or_else(|| base.get(&k))
+                .copied()
+                .unwrap_or(0)
+        }));
         for (k, v) in &t.writes {
             writes.insert(*k, *v);
         }

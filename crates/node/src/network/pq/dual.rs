@@ -232,7 +232,8 @@ impl DualKemPolicy {
     /// [`crate::error::NodeError::Decode`] naming the accepted values.
     pub fn from_str_checked(value: &str) -> crate::error::Result<Self> {
         use core::str::FromStr as _;
-        let policy = Self::from_str(value).map_err(|e| crate::error::NodeError::Decode(e.to_string()))?;
+        let policy =
+            Self::from_str(value).map_err(|e| crate::error::NodeError::Decode(e.to_string()))?;
         // A build without HQC (every `production` build, ADR-016) cannot
         // speak the dual protocol, so a configuration asking for it is an
         // error at load time rather than a connection failure later.

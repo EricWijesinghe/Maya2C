@@ -9,7 +9,12 @@
 //! and self-transfers; a block with any invalid transaction must be refused
 //! whole and leave the state root untouched.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::cast_possible_truncation, clippy::single_match_else)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::cast_possible_truncation,
+    clippy::single_match_else
+)]
 
 use custom_l1_node::core::{Block, BlockHeader, Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
@@ -42,18 +47,30 @@ fn block_of(transactions: Vec<Transaction>) -> Block {
 }
 
 fn supply(db: &StateDB, addrs: &[Address]) -> u128 {
-    addrs.iter().map(|a| u128::from(db.get_account(a).unwrap().balance)).sum()
+    addrs
+        .iter()
+        .map(|a| u128::from(db.get_account(a).unwrap().balance))
+        .sum()
 }
 
 #[test]
 fn random_transfer_sequences_conserve_supply_and_failed_blocks_change_nothing() {
     let dir = TempDir::new().unwrap();
     let db = StateDB::open(dir.path()).unwrap();
-    let keys: Vec<HybridSigningKey> = (0..HOLDERS).map(|_| generate_signing_key().unwrap()).collect();
+    let keys: Vec<HybridSigningKey> = (0..HOLDERS)
+        .map(|_| generate_signing_key().unwrap())
+        .collect();
     let mut addrs: Vec<Address> = keys.iter().map(HybridSigningKey::address).collect();
     addrs.push([0xEE; 32]); // a receive-only account
     for k in &keys {
-        db.put_account(&k.address(), &Account { balance: 10_000, nonce: 0 }).unwrap();
+        db.put_account(
+            &k.address(),
+            &Account {
+                balance: 10_000,
+                nonce: 0,
+            },
+        )
+        .unwrap();
     }
     let total = supply(&db, &addrs);
     let mut nonces = [0u64; HOLDERS];
@@ -67,14 +84,25 @@ fn random_transfer_sequences_conserve_supply_and_failed_blocks_change_nothing() 
             let from = (next(&mut seed) % HOLDERS as u64) as usize;
             let to = addrs[(next(&mut seed) % addrs.len() as u64) as usize];
             // Mostly affordable, sometimes an overdraft.
-            let amount = if next(&mut seed).is_multiple_of(5) { 50_000 } else { next(&mut seed) % 3_000 };
+            let amount = if next(&mut seed).is_multiple_of(5) {
+                50_000
+            } else {
+                next(&mut seed) % 3_000
+            };
             // Mostly the right nonce, sometimes a replay or a gap.
             let nonce = match next(&mut seed) % 8 {
                 0 => local[from].wrapping_sub(1),
                 1 => local[from] + 1,
                 _ => local[from],
             };
-            let mut tx = Transaction::new(vec![], vec![TxOutput { amount, recipient: to }], nonce);
+            let mut tx = Transaction::new(
+                vec![],
+                vec![TxOutput {
+                    amount,
+                    recipient: to,
+                }],
+                nonce,
+            );
             tx.sign(&keys[from]).unwrap();
             txs.push(tx);
             local[from] = local[from].max(nonce.wrapping_add(1));
@@ -84,17 +112,29 @@ fn random_transfer_sequences_conserve_supply_and_failed_blocks_change_nothing() 
             Ok(_) => {
                 applied += 1;
                 for tx in &txs {
-                    let from = keys.iter().position(|k| k.address() == tx.sender()).unwrap();
+                    let from = keys
+                        .iter()
+                        .position(|k| k.address() == tx.sender())
+                        .unwrap();
                     nonces[from] += 1;
                 }
             }
             Err(_) => {
                 refused += 1;
-                assert_eq!(db.state_root().unwrap(), before, "a refused block changed state");
+                assert_eq!(
+                    db.state_root().unwrap(),
+                    before,
+                    "a refused block changed state"
+                );
             }
         }
         assert_eq!(supply(&db, &addrs), total, "supply changed");
     }
-    println!("{BLOCKS} random blocks: {applied} applied, {refused} refused whole; supply constant at {total}");
-    assert!(applied > 0 && refused > 0, "the generator must exercise both paths");
+    println!(
+        "{BLOCKS} random blocks: {applied} applied, {refused} refused whole; supply constant at {total}"
+    );
+    assert!(
+        applied > 0 && refused > 0,
+        "the generator must exercise both paths"
+    );
 }
