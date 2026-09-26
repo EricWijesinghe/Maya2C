@@ -11,7 +11,7 @@ description = "The validating node daemon: consensus, chain, peer-to-peer, RPC, 
 # and uses nothing that is not part of that library's public surface — which is
 # what made the split possible without widening the API.
 [dependencies]
-custom-l1-node = { path = "../../crates/node" }
+custom-l1-node = { path = "../../crates/node", default-features = false }
 maya-archive = { path = "../../crates/archive" }
 maya-zk-stark = { path = "../../crates/zk-stark" }
 jsonrpsee.workspace = true
@@ -19,6 +19,13 @@ libp2p.workspace = true
 tokio.workspace = true
 hex.workspace = true
 serde_json.workspace = true
+
+[features]
+# Devnet default: the node's default features (the HQC dual-KEM handshake).
+default = ["custom-l1-node/default"]
+# The only way the mainnet binary is built (Production Standing Orders):
+# `cargo build -p maya2c-node --no-default-features --features production`.
+production = ["custom-l1-node/production"]
 
 [[bin]]
 name = "maya2c-node"

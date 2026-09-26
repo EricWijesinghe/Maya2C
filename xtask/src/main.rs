@@ -15,6 +15,8 @@
 
 mod coverage;
 mod disk;
+mod readiness;
+mod release_check;
 
 use std::process::ExitCode;
 
@@ -31,6 +33,8 @@ fn main() -> ExitCode {
     let result = match cmd {
         "disk" => disk::run(rest),
         "coverage" => coverage::run(rest),
+        "release-check" => release_check::run(rest),
+        "readiness" => readiness::run(rest),
         "help" | "--help" | "-h" => {
             usage();
             return ExitCode::SUCCESS;
@@ -56,7 +60,13 @@ cargo xtask <command>
                         above the ceiling in xtask/src/disk.rs.
   coverage [--quiet]    Read features.toml, print the ledger, and fail if an
                         entry claims `working` or `verified` without naming a
-                        test that exists."
+                        test that exists.
+  release-check [--force-sim]
+                        Build maya2c-node --features production and prove no
+                        SIM crate or forbidden feature is linked. --force-sim
+                        forces a SIM feature in and must fail at the guard.
+  readiness [--check]   Regenerate READINESS.md from evidence on disk;
+                        --check fails if it is stale."
     );
 }
 
@@ -69,4 +79,38 @@ pub fn workspace_root() -> std::path::PathBuf {
         .parent()
         .expect("xtask/ always has a parent")
         .to_path_buf()
+}
+
+/// `(member directory, package name)` for every workspace member, read from
+/// the manifests (no `cargo metadata`: these commands run before a build).
+pub fn members(root: &std::path::Path) -> Result<Vec<(String, String)>, String> {
+    #[derive(serde::Deserialize)]
+    struct Root {
+        workspace: Ws,
+    }
+    #[derive(serde::Deserialize)]
+    struct Ws {
+        members: Vec<String>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Member {
+        package: Pkg,
+    }
+    #[derive(serde::Deserialize)]
+    struct Pkg {
+        name: String,
+    }
+    let text = std::fs::read_to_string(root.join("Cargo.toml")).map_err(|e| e.to_string())?;
+    let manifest: Root = toml::from_str(&text).map_err(|e| e.to_string())?;
+    manifest
+        .workspace
+        .members
+        .into_iter()
+        .map(|dir| {
+            let text = std::fs::read_to_string(root.join(&dir).join("Cargo.toml"))
+                .map_err(|e| format!("{dir}: {e}"))?;
+            let m: Member = toml::from_str(&text).map_err(|e| format!("{dir}: {e}"))?;
+            Ok((dir, m.package.name))
+        })
+        .collect()
 }

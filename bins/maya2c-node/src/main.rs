@@ -84,6 +84,23 @@ const DAG_PREPARE_LOOKAHEAD: u64 = 100;
 /// coins that no supply audit would reveal.
 const VALUE_BEARING_CHAINS: &[&str] = &["maya-mainnet", "mainnet"];
 
+/// The consensus mode this binary implements (ADR-015). A production build
+/// accepts only `dag-bft`, and DAG-BFT is not wired into this node yet, so a
+/// production binary refuses to start rather than run a devnet mode on a
+/// network that expects mainnet rules (Master Prompt 11 §3, ADR-016).
+const CONSENSUS_MODE: &str = "argonblake-pow";
+
+/// Refuses a devnet-only consensus mode in a production build.
+fn check_consensus_mode() -> Result<(), String> {
+    if cfg!(feature = "production") && CONSENSUS_MODE != "dag-bft" {
+        return Err(format!(
+            "production build: consensus mode `{CONSENSUS_MODE}` is devnet-only; mainnet runs \
+             dag-bft, which is not yet wired into this node (ADR-015, ADR-016)"
+        ));
+    }
+    Ok(())
+}
+
 struct Args {
     genesis: PathBuf,
     data_dir: PathBuf,
@@ -216,6 +233,11 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
                 std::process::exit(0);
             }
             "--dual-kem" => args.dual_kem = value()?.parse()?,
+            // Embedded mining is a proof-of-work devnet tool; a production
+            // build does not accept the flag at all (ADR-016).
+            "--mine" if cfg!(feature = "production") => {
+                return Err("--mine is a devnet flag and is not available in a production build".into());
+            }
             "--mine" => args.mine = true,
             "--prune" => args.prune_depth = args.prune_depth.or(Some(PRUNE_DEPTH)),
             "--prune-depth" => args.prune_depth = Some(value()?.parse()?),
@@ -520,6 +542,7 @@ async fn mining_loop(chain: Arc<Mutex<Chain>>, network: NodeHandle, threads: usi
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    check_consensus_mode()?;
     let args = parse_args()?;
 
     // The file first, then the flags over it. A flag beats the file so an

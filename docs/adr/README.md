@@ -53,3 +53,7 @@ The observation that would make this worth reopening.
 | [013](ADR-013-suite-envelope-activation.md) | The suite envelope and multisig are live from genesis | Accepted |
 | [014](ADR-014-threshold-raccoon.md) | Threshold Raccoon for threshold lattice custody (RESEARCH) | Accepted |
 | [015](ADR-015-consensus-design.md) | One consensus design — DAG-BFT orders, work never does | Accepted |
+| [016](ADR-016-launch-scope.md) | Launch scope freeze — what mainnet v1 is, and what waits | Accepted |
+| [017](ADR-017-parallel-execution.md) | Parallel execution — optimistic with in-order validation first | Accepted |
+| [018](ADR-018-async-execution.md) | Synchronous execution for v1; asynchronous (D = 2) next | Accepted |
+| [019](ADR-019-storage-engine.md) | Stay on RocksDB until it is the measured bottleneck | Accepted |
