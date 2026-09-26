@@ -13,8 +13,10 @@
 //!
 //! Run as `cargo xtask <command>` (the alias is in `.cargo/config.toml`).
 
+mod claims_check;
 mod coverage;
 mod disk;
+mod eco_metrics;
 mod go_no_go;
 mod readiness;
 mod release_check;
@@ -41,6 +43,8 @@ fn main() -> ExitCode {
         "spec-coverage" => spec_coverage::run(rest),
         "slo-check" => slo_check::run(rest),
         "go-no-go" => go_no_go::run(rest),
+        "eco-metrics" => eco_metrics::run(rest),
+        "claims-check" => claims_check::run(rest),
         "help" | "--help" | "-h" => {
             usage();
             return ExitCode::SUCCESS;
@@ -80,7 +84,13 @@ cargo xtask <command>
   slo-check             Fail if any SLO in docs/SLO.md lacks a registered
                         metric, a dashboard panel, an alert or a runbook.
   go-no-go              Compute every mainnet launch gate from evidence:
-                        PASS (with its evidence), FAIL, or NEEDS HUMAN."
+                        PASS (with its evidence), FAIL, or NEEDS HUMAN.
+  eco-metrics           Ecosystem metrics computable from this repository
+                        (active developers, retention, contracts), with a
+                        named gap for each one that needs chain data.
+  claims-check          Fail if a public surface calls a feature \"first\",
+                        \"only\" or \"unprecedented\" without citing a completed
+                        docs/prior-art/ search that permits the claim."
     );
 }
 

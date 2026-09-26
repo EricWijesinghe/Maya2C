@@ -1,0 +1,28 @@
+[package]
+name = "maya-reference-apps"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Reference applications (payments, DEX front end, DAO, quantum-safe vault, NFT game) built on the Maya2C libraries, as templates"
+
+# Each app composes libraries the chain already has; none adds protocol code.
+# That is the point of a template: what a team copies must be what exists.
+[dependencies]
+maya-crypto-pq = { path = "../crypto-pq" }
+maya-smart-account = { path = "../smart-account" }
+maya-dex = { path = "../dex" }
+maya-clear-sign = { path = "../clear-sign" }
+maya-design-system = { path = "../design-system" }
+maya-governance = { path = "../governance" }
+maya-treasury = { path = "../treasury" }
+maya-privacy = { path = "../privacy" }
+maya-quantum-harbor = { path = "../quantum-harbor" }
+
+[dev-dependencies]
+# The NFT game is a WASM contract; its test runs it in the real VM.
+maya-vm = { path = "../vm" }
+
+[lints]
+workspace = true

@@ -63,3 +63,4 @@ The observation that would make this worth reopening.
 | [023](ADR-023-evm-compatibility-honesty.md) | EVM compatibility is not in v1; when it comes it is labelled classical | Accepted |
 | [024](ADR-024-oracle-choice.md) | Oracles — the native module, optional, named authorities until staking exists | Accepted |
 | [025](ADR-025-mev-position.md) | The mainnet MEV position — batch settlement in core, sealed mempool optional | Accepted |
+| [026](ADR-026-contract-caller-identity.md) | Contracts need to know who called them — a `caller` host function at an activation height | Proposed |
