@@ -32,7 +32,7 @@ A pool splits a block reward. There is not one. So:
 - **`--reward-per-block` has no default.** What a found block distributes is
   operator policy. A plausible-looking default would be a policy invented by the
   binary; the daemon refuses to start without one
-  ([`config.rs`](https://github.com/maya2c/maya2c/blob/master/pool-service/src/config.rs)).
+  ([`config.rs`](https://github.com/maya2c/maya2c/blob/master/bins/pool-service/src/config.rs)).
 
 A coinbase or block subsidy would make mining self-sustaining and remove the
 treasury entirely. It is a hard fork — it changes `apply_block_checked` and the
@@ -254,7 +254,7 @@ GPU worker would submit is what these submit.
 
 ## 11. Deployment
 
-[`infra/k8s/pool/`](https://github.com/maya2c/maya2c/blob/master/k8s/pool) carries a Deployment, Services, a `ServiceMonitor`,
+[`infra/k8s/pool/`](https://github.com/maya2c/maya2c/blob/master/infra/k8s/pool) carries a Deployment, Services, a `ServiceMonitor`,
 and a `PrometheusRule`. [`infra/grafana/pool.json`](grafana/pool.json) is the
 dashboard.
 

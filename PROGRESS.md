@@ -147,6 +147,29 @@ crates rather than duplicating them (D1).
 
 ---
 
+## Master Prompts 1–30 (`Prompts/`) — branch `claude/task-0g86kl`
+
+A different numbering from the sections above: the thirty briefs in
+`Prompts/`, executed in order. Per-prompt DONE WHEN verdicts are in
+[docs/master-prompts/README.md](docs/master-prompts/README.md); each prompt's
+evidence is `reports/NN-*.md`. Ticked = its report exists with real output,
+not that every DONE WHEN criterion is met.
+
+- [x] MP01–MP10 — foundation through launch pipeline (`reports/01`…`10`)
+- [x] MP11 reality audit, gap register, release check · MP12 execution baseline and bottlenecks · MP13 PQ weight, ADR-021 · MP14 horizontal scale
+- [x] MP15 spec + conformance + upgrade halt · MP16 remote signer, dos-guard · MP17 deposit watcher, integration docs · MP18 treasury, economics
+- [x] MP19 SLOs, runbooks, restart rehearsal · MP20 audit packets, `go-no-go` (NO-GO) · MP21 weakness map, beat bars, prior art
+- [x] MP22 clear signing · MP23 contract safety · MP24 MCP server · MP25 interop primitives · MP26 lanes · MP27 viewing keys · MP28 quantum harbor
+- [x] MP29 design system, screenshot diffs, explorer plain language (`reports/29-interface.md`)
+- [x] MP30 reference apps, migration kits, eco-metrics, claims-check, public-proof drafts (`reports/30-adoption.md`)
+- [ ] ADR-026: decide the contract `caller` host function — blocks every ownership contract
+- [ ] Human-only DONE WHEN items: usability studies (MP22, MP29), developer study (MP24), beginner course test (MP30), external audits (MP20), a public testnet (MP19, MP30)
+- [ ] Every `APPROVED: <step>` item: grants, hackathon, benchmark report, beat-bar table, announcement — none given, nothing published
+- [ ] `target-contracts/` has build fingerprints tracked in git; untrack them
+- [ ] `docs/site/.gitignore` names `crates/node/src/content/...` (a pre-move path), so the generated Starlight pages are tracked; fix the path and untrack them in one commit
+
+---
+
 ## How to resume
 
 1. `cargo xtask coverage` — the ledger, and whether every claim is still backed.

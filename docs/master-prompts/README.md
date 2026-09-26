@@ -35,36 +35,40 @@ on evidence. "Partial" means some are.
 |---|---|---|---|---|
 | 01 | Foundation | — | **Met** | — (`reports/01-foundation.md`) |
 | 02 | Cryptography, ZK, custody | — | **Met, with findings** | Every section built and tested (`reports/02-crypto.md`). What stays open is outside the tree: HQC decapsulation in `hqc-kem 0.1.0-rc.0` leaks (|t| 47.5, n = 176k), so HQC stays draft and never sole; the shielded circuit awaits an external audit; threshold custody signs off chain only until a peer-reviewed threshold ML-DSA exists |
-| 03 | State, storage, economics | 6 / 3 / 2 | Not met | DNA archive codec absent; recursive history compaction absent; no `reports/03-state.md` |
-| 04 | Consensus, mining, scaling | 5 / 4 / 0 | Not met | No `ConsensusMode` / consensus ADR; DAG (`blockgraph`) not called by consensus; no `reports/04-consensus.md` |
-| 05 | VM, contracts, on-chain AI | 4 / 2 / 0 | Partial | Pulley tier, differential gas tests, revm/SBF; no `reports/05-vm.md` |
-| 06 | DeFi, finance, identity, physical | 6 / 2 / 0 | Not met | Compliance ZK proofs, macro-shock simulator, SPV 6-block reorg test; no `reports/06-finance.md` |
-| 07 | Networking, transports, time | 5 / 0 / 0 | Partial | FSO / acoustic / OAM SIM models, timing service; no `reports/07-network.md` |
-| 08 | Security, formal verification | 5 / 2 / 1 | Not met | No Lean/Aeneas pipeline, no Z3 symbolic execution, no `THREAT_MODEL.md` / `SECURITY.md` |
-| 09 | Governance, wallets, explorer, SDKs | 7 / 1 / 1 | Partial | Animated-QR PQ signature export, passkey unlock, uniffi / TypeScript SDKs |
-| 10 | Infrastructure, release, genesis | 1 / 2 / 4 | Not met | `deploy-production.sh`, `configure_environment.sh`, `LAUNCH.md`, pre-ignition audit, release workflow |
-| 11 | Production baseline, scope freeze | 0 / 3 / 9 | Not met | ADR-launch-scope; production standing orders; `crates/loadgen`; `READINESS.md` |
-| 12 | Execution performance | 0 / 7 / 15 | Not met | Loadgen, parallel-execution ADR, crash-consistency (1k `kill -9`), 100k differential blocks |
-| 13 | PQ weight: signatures, bandwidth, DA | 0 / 5 / 11 | Not met | Certificate aggregation bench + ADR, 2D RS data availability, withholding test |
-| 14 | State sync, light clients, sharding, RPC | 0 / 5 / 8 | Not met | `NODE_TYPES.md`, 100M-account sync bench, RPC scaling curve |
-| 15 | Protocol spec, conformance, upgrades | 0 / 4 / 13 | Not met | No `spec/`, no conformance vectors, no independent verifier, no upgrade rehearsal |
-| 16 | Validator and key security | 0 / 6 / 12 | Not met | `bins/maya2c-signer`, slashing-protection DB, DoS sim scenarios |
-| 17 | Integration layer | 0 / 3 / 23 | Not met | Mesh (Rosetta) API; exchange / custodian integration docs |
-| 18 | Economic security, launch economics | 0 / 1 / 19 | Not met | Economic simulator (`crates/econ-sim`) |
-| 19 | Operations, public testnet | 0 / 2 / 20 | Not met | `docs/SLO.md`, runbooks, k8s operator, 12-node k3d automation |
-| 20 | Mainnet readiness | 0 / 0 / 24 | Not met | Audit packets, `cargo xtask go-no-go`, genesis plan |
-| 21 | Weakness map, beat bars | 0 / 0 / 13 | Not met | `WEAKNESS_MAP.md`, `BEAT_BARS.md` with sourced prior art |
-| 22 | Accounts without pain | 0 / 1 / 21 | Not met | Smart-account validation, guardian recovery, intent display |
-| 23 | Safe-by-default contracts | 0 / 3 / 9 | Not met | Contract SDK with resource types and capabilities; `bins/maya2c-cli` is empty |
-| 24 | Developer platform | 0 / 2 / 10 | Not met | CLI (`dev`, `fork`, `replay`, debugger); SDKs from one definition |
-| 25 | Interop without trusted bridges | 0 / 0 / 10 | Not met | ZK light clients of other chains; trust-assumptions table |
-| 26 | Scale without fragmentation | 0 / 0 / 7 | Not met | Everything |
-| 27 | Privacy primitive, compliance | 0 / 2 / 8 | Not met | Shielded pool blocked on an external circuit audit (`CIRCUIT_IS_AUDITED = false`) |
-| 28 | Quantum-safe harbor | 0 / 2 / 7 | Not met | Migration service for other chains' assets |
-| 29 | Wallet, explorer, portal UI | 0 / 2 / 12 | Not met | Shared design system across the three apps |
-| 30 | Adoption engine, public proof | 0 / 1 / 11 | Not met | Five reference applications |
+| 03 | State, storage, economics | — | Partial | Fee market inactive (activation `u64::MAX`, ADR-016); recursive-compaction validity folding not started — `reports/03-state.md` |
+| 04 | Consensus, mining, scaling | — | Partial | Modes run in sim at engine level; node TPS not measurable because DAG-BFT is not wired (ADR-015); GPU parity skipped (no GPU) — `reports/04-consensus.md` |
+| 05 | VM, contracts, on-chain AI | — | Partial | Multi-VM phase A (revm, SBF) not built; zkML retired (ADR-008) — `reports/05-vm.md` |
+| 06 | DeFi, finance, identity, physical | — | Partial | CBDC / dark pool, tax calculators and the Ethereum light client not built — `reports/06-finance.md` |
+| 07 | Networking, transports, time | — | **Met**, eBPF load skipped with a stated reason | XDP load needs `CAP_NET_ADMIN`; runs in `ebpf-net.yml` — `reports/07-network.md` |
+| 08 | Security, formal verification | — | **Met** (report complete; invariants proven or listed open) | Line coverage not measured (no llvm-cov); Kani not run this session — `reports/08-security.md` |
+| 09 | Governance, wallets, explorer, SDKs | — | Partial | SDK e2e against a node not built; wallet GUI WebDriver suite never run — `reports/09-product.md` |
+| 10 | Infrastructure, release, genesis | — | Met in substance, not to the letter | 12/12 nodes via `--target local-docker`; k3d blocked by egress and nested runc; nodes not peered — `reports/10-launch.md` |
+| 11 | Production baseline, scope freeze | — | **Met** | Full run 2,626 passed / 0 failed; gap register, release check — `reports/11-reality-audit.md`, `reports/11-gap-register.md` |
+| 12 | Execution performance | — | Partial | Bottlenecks measured; the #1 fix (verify-once cache, 93 % of apply) designed not built; pipelining, PGO not done; bench-gate runner does not exist — `reports/12-performance.md` |
+| 13 | PQ weight: signatures, bandwidth, DA | — | Partial | Bytes, bandwidth, storage and DA withholding measured; ADR-021; verify cache and hybrid key-hash frame not built — `reports/13-pq-weight.md` |
+| 14 | State sync, light clients, sharding, RPC | — | Partial | 100M-account sync 9.4 s (SIM), RPC curve, `NODE_TYPES.md`; recursive chain-validity STARK and per-method RPC accounting not built — `reports/14-scale.md` |
+| 15 | Protocol spec, conformance, upgrades | — | **Met**, with 7 listed rule gaps | Vectors pass the node and an independent TS verifier; CI job not yet observed on GitHub — `reports/15-spec.md` |
+| 16 | Validator and key security | — | Partial | HSM/KMS backend not built (ADR-022); no incident or pause rehearsal — `reports/16-validator-security.md` |
+| 17 | Integration layer | — | Partial | No Mesh (Rosetta) API, no WalletConnect; deposit service and offline signing pass — `reports/17-integrations.md` |
+| 18 | Economic security, launch economics | — | Partial | Fee parameters only partly justified by measurement; legal review is external — `reports/18-economics.md` |
+| 19 | Operations, public testnet | — | Not met | `slo-check` fails (6 of 7 SLOs lack a node metric); no k8s operator; 9 of 20 runbooks unrehearsed — `reports/19-operations.md` |
+| 20 | Mainnet readiness | — | Artefacts met; verdict **NO-GO** | `go-no-go`: 4 PASS, 10 FAIL, 2 NEEDS HUMAN; no external audit — `reports/20-mainnet-readiness.md` |
+| 21 | Weakness map, beat bars | — | Partial | Competitive harness SKIPs every chain (no devnet binaries reachable); 7 of 10 prior-art files not fully searched — `reports/21-strategy.md` |
+| 22 | Accounts without pain | — | Partial | 20-person usability study needs participants — `reports/22-accounts.md` |
+| 23 | Safe-by-default contracts | — | Partial | Rules pass in `contract-safety` but are not wired into the VM; no proven templates — `reports/23-contract-safety.md` |
+| 24 | Developer platform | — | Partial | `dev`/fork/replay/debugger not built; developer study needs participants — `reports/24-devx.md` |
+| 25 | Interop without trusted bridges | — | Partial | No ZK or finality verification of Ethereum; no devnets — `reports/25-interop.md` |
+| 26 | Scale without fragmentation | — | Partial | Multi-machine validator not built; lanes and viral-app sim pass — `reports/26-scale.md` |
+| 27 | Privacy primitive, compliance | — | Partial | Private contract state not built; shielded pool awaits external audit; no mobile proving — `reports/27-privacy.md` |
+| 28 | Quantum-safe harbor | — | Partial | Real Bitcoin data yes, Ethereum synthetic only (RPC blocked); no devnets or bridge — `reports/28-quantum-harbor.md` |
+| 29 | Wallet, explorer, portal UI | — | Partial | Design system + screenshot diffs in CI; no usability study, no device budgets, wallet e2e never run — `reports/29-interface.md` |
+| 30 | Adoption engine, public proof | — | Partial | Contracts cannot learn their caller (ADR-026, Proposed) — blocks every ownership template; no testnet; approvals pending — `reports/30-adoption.md` |
 
-**Two prompts met, three partial, twenty-five not met.**
+**Updated 2026-09-26 at the end of the `claude/task-0g86kl` run: six met
+(01, 02, 07, 08, 11, 15), one met in substance (10), twenty-one partial, one not met
+(19), and MP20's artefacts complete with a computed NO-GO.** The
+`Sat / Part / Miss` counts of the earlier audit are superseded by each
+report's own DONE WHEN table and are not re-derived here.
 
 ## Requirements no amount of code satisfies
 

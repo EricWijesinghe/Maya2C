@@ -3,137 +3,177 @@ title: 'Can a Ledger sign a Maya2C transaction?'
 editUrl: false
 # GENERATED from docs/ledger-feasibility.md by scripts/ingest.mjs. Edit the source, not this.
 ---
-**Not today, and the obstacle is the hash-based half.**
+**Yes, for suite `0x10` (ML-DSA-65 alone), on Nano S Plus and Nano X under
+Speculos, with a low-memory ML-DSA-65 written for the purpose. The hybrid
+(`0x30`) still does not fit.**
 
-This records what was built, what was measured, and — importantly — what was
-not, so the conclusion can be checked rather than taken on trust.
+This records what was built, what was measured, and what was not, so the
+conclusion can be checked rather than taken on trust.
 
-## The constraint the brief did not state
+## Why suite `0x10`, and what it costs
 
-A Maya2C signature is a **hybrid pair**, and `HybridVerifyingKey::verify`
-(`crates/node/src/crypto/hybrid.rs:338-340`) checks both halves:
+The chain's legacy signature is a hybrid, ML-DSA-65 + SLH-DSA-SHA2-128s, and
+its SLH-DSA half overflowed a 1 MiB desktop stack in this repository. ADR-007's
+suite envelope (wire v7) lets a transaction name a single suite, and `0x10` is
+ML-DSA-65 on its own: a complete signature, not half of one.
 
-| Half | Scheme | Bytes |
+v7 verifies from genesis (ADR-013, 2026-09-27), so a device signature is a
+transaction consensus accepts today. Until that ADR the envelope was dark and
+this paragraph said so.
+
+## RAM: the measurement that decided it
+
+**App SRAM, from the SDK's link scripts**
+(`ledger_secure_sdk_sys-1.16.4/devices/*/<device>_layout.ld`). Statics, heap
+and stack share it:
+
+| Device | SRAM | Stack after `.bss` (as built) |
 |---|---|---|
-| lattice | ML-DSA-65, FIPS 204 | 3,309 |
-| hash-based | SLH-DSA-SHA2-128s, FIPS 205 | 7,856 |
-| | **signature** | **11,165** |
-| | public key | 1,984 |
+| Nano S Plus | 40 KiB | 32,180 B |
+| Stax, Flex | 36 KiB | 26,980 B |
+| Nano X | 28 KiB | 19,872 B with the default 8 KiB heap; **26,016 B** with `HEAP_SIZE = "nanox: 2048"` |
 
-A device that produces only the lattice half has produced nothing the chain
-accepts. "Implement `SIGN_TRANSACTION (ML-DSA-65)`" is therefore not a smaller
-version of the job — it is a device that cannot make a valid transaction.
+The brief's fallback, "if it cannot fit on Nano S Plus, target Stax/Flex",
+rests on a false premise: Stax and Flex have *less* app RAM than a Nano S Plus.
 
-## What was measured
+**Stock `fips204` does not fit any of them.** On a Linux host, the smallest
+thread stack each operation completes on, less a 142 KiB baseline for a thread
+that does nothing (`tests/memory_tests.rs`, 1 KiB resolution, release build):
 
-| Fact | Value | How |
+| Operation | `fips204` 0.4.6 | `lowmem` (this crate) |
 |---|---|---|
-| Protocol layer + `fips204` compile for Cortex-M | **yes** | `cargo check --target thumbv8m.main-none-eabi --lib`, clean |
-| `fips204` ARM release rlib | 493 KiB | built here |
-| `blake3` ARM release rlib | 185 KiB | built here |
-| SLH-DSA keygen peak stack, x86-64 | **> 1 MiB** | it overflowed the default main-thread stack in this repo; `bins/genesis-ceremony/src/main.rs` now runs on a 16 MiB thread because of it |
-| Hybrid signature over a 255-byte APDU | 44 responses | `crates/node/tests/apdu_tests.rs`, asserted |
-| Hybrid public key over a 255-byte APDU | 8 responses | same |
+| keygen | ~143 KiB | within the 1–2 KiB noise of the baseline |
+| sign | ~158 KiB | within the 1–2 KiB noise of the baseline |
+| verify | ~43 KiB | — |
 
-`fips204` is `#![no_std]` with **no heap allocations** and ships an embedded
-example. The lattice half is the plausible one.
+**`lowmem` on the device CPU, from the compiler.** These are
+`-Z emit-stack-sizes` frames of the linked `nanosplus` ELF, read with
+`llvm-readobj --stack-sizes`. The raw table is
+`reports/ledger/stack-sizes-thumbv8m.txt`. The deepest signing chain is:
 
-`slh-dsa`'s own documentation (`slh-dsa-0.2.0-rc.5/src/lib.rs:20`) says it
-"allocates signatures and intermediate values on the stack, which may cause
-problems for environments with limited stack space". The 1 MiB overflow above is
-that warning being right.
+`device::run` 8,176 → `sign_transaction` 6,584 → `sign_into` 1,160 →
+`attempt` 4,856 → `w_row` → `accumulate_a_times` 1,208 → `finalize_xof` 440 →
+`keccak::p1600` 488. That is **about 23 KiB**, against 32 KiB available on
+Nano S Plus.
 
-## What was *not* measured, and why
+The first device build put every handler inline in `run`: one 28,008-byte
+frame. The stack overflowed on the first `GET_PUBLIC_KEY`. Speculos showed it
+as the app exiting. Separating the handlers (`#[inline(never)]`) and writing
+keys and signatures into caller-owned buffers fixed it.
 
-**Peak stack on ARM, per function.** `-Z emit-stack-sizes` was enabled and
-`llvm-readobj --stack-sizes` run over the ARM rlibs. It reports two 32-byte
-frames and nothing else, because ML-DSA-65's code is generic and is not
-monomorphised until a **final link** — and linking a device binary needs
-Ledger's C SDK, which is not present here.
+## How the low-memory signer works, and why it is trusted
 
-So the decisive number for a device is not in this document. What replaces it is
-an order-of-magnitude argument: a routine that overflows 1 MiB on x86-64 is not
-going to fit in a budget measured in kilobytes, and the ARM frames would have to
-be ~100× smaller for the conclusion to change.
+`src/lowmem/` computes FIPS 204 KeyGen and Sign while holding a few 1 KiB
+polynomials instead of `fips204`'s full matrix and vectors:
 
-**Anything about real hardware.** No device, no Speculos, no
-`arm-none-eabi-gcc`. `apps/ledger-maya2c/tests/ledger_tests.rs` is written and every
-test in it is `#[ignore]`.
+- `Â` is never stored. Each entry is sampled from SHAKE128 and multiplied
+  into an accumulator as it arrives.
+- `y`, `s1` and `s2` are regenerated from their seeds when needed.
+- `w = Â·y` is produced one row at a time. Each row's `w1` is absorbed straight
+  into the challenge hash, and the row is recomputed for the hints.
 
-## Where the device build stops
+It is trusted because it is not a new function. It equals **NIST ACVP**
+ML-DSA-65 keyGen (10 cases) and sigGen (20 cases: deterministic and hedged,
+internal and external interface), and it equals **`fips204` byte for byte**
+over 64 random keys and messages (`tests/lowmem_tests.rs`). The price is time:
+each attempt runs `ExpandMask` and the NTT k·ℓ times instead of ℓ.
 
-`cargo check --target thumbv8m.main-none-eabi` on the **binary** fails in the
-SDK's build script:
+## Byte-identical to the wallet
 
-```
-thread 'main' panicked at ledger_secure_sdk_sys-1.16.4/build.rs:252:
-Unsupported target_os: none
-```
+| Step | Device | Pinned by |
+|---|---|---|
+| Chain key | SLIP-0010 ed25519 at `m/44'/7331'/a'/0'/i'`, the `HDW_ED25519_SLIP10` syscall | `tests/ledger_tests.rs` under Speculos, against an independent host BIP-39 → SLIP-0010 derivation (itself checked against the published vectors) |
+| Key | `ξ = BLAKE3-derive-key("…suite 0x10 ml-dsa-65 xi v1", chain key)`, then KeyGen | `tests/parity_tests.rs`, against a fixture the node writes (`crates/node/tests/ledger_fixture_tests.rs`) |
+| Address | the node's `suite_address` | same fixture |
+| Signature | deterministic, `rnd = 0³²`, empty context | same fixture: the device signs the node's own v7 transfer to the node's own bytes |
 
-That is not a bug in the app. Ledger does not build against a stock triple — it
-ships its own target JSONs whose `target_os` is the device name. From that build
-script's `SPECS`:
+## The protocol
 
-| Device | `target_os` | Triple | SDK env var |
-|---|---|---|---|
-| Nano X | `nanox` | `thumbv6m-none-eabi` | `NANOX_SDK` |
-| Nano S Plus | `nanosplus` | `thumbv8m.main-none-eabi` | `NANOSP_SDK` |
-| Stax | `stax` | `thumbv8m.main-none-eabi` | `STAX_SDK` |
-| Flex | `flex` | `thumbv8m.main-none-eabi` | `FLEX_SDK` |
+| INS | Command | Behaviour |
+|---|---|---|
+| `02` | `GET_PUBLIC_KEY` | path → page 0 of the 1,952-byte key |
+| `06` | `DISPLAY_ADDRESS` | shows the address and waits for approval; returns it only once confirmed |
+| `04` | `SIGN_TRANSACTION` | chunk 0 is the path, then the v7 signing bytes (≤ 4 KiB) → review → page 0 of the 3,309-byte signature |
+| `08` | `GET_PAGE` | page P2 of the last key or signature |
 
-`app-maya2c` gates the SDK dependency on exactly those four values, so
-`--target thumbv8m.main-none-eabi --lib` checks the protocol layer for ARM
-without needing the C SDK at all. That is how the "compiles for Cortex-M" row
-above was obtained.
+The review (`src/review.rs`) refuses before any screen appears if the bytes:
 
-To go further you need a Ledger C SDK checkout, `LEDGER_SDK_PATH` (or the
-per-device variable), an ARM C toolchain, and the device target JSON.
+- are not under the v7 signing domain;
+- are for another suite, or for any key other than this device's;
+- are a payload kind rather than a plain transfer;
+- have more than 4 outputs or 32 inputs.
 
-## What exists
+What is shown is every output (amount and recipient), the paying account and
+the nonce.
 
-```
-apps/ledger-maya2c/
-  crates/node/src/apdu.rs     framing, chunk assembly, response paging   20 tests, host
-  crates/node/src/derive.rs   path validation, address derivation        pinned to the node
-  crates/node/src/sign.rs     ML-DSA-65 keygen and signing from a seed
-  crates/node/src/main.rs     device shell; SIGN_TRANSACTION returns 0x6A81
-  crates/node/tests/apdu_tests.rs      20 passing
-  crates/node/tests/ledger_tests.rs    4, all #[ignore]
-crates/node/tests/ledger_parity_tests.rs   4 passing, in the node's suite
-```
+## Speculos: what ran
 
-`SIGN_TRANSACTION` refuses rather than returning a lattice-only signature. A
-device that emitted 3,309 bytes and called it done would look like it worked and
-would produce transactions every node rejects.
+`scripts/ledger_speculos.sh` builds the app and starts Speculos with a fixed
+BIP-39 phrase. It then runs `tests/ledger_tests.rs`, driving the buttons
+through Speculos's REST API.
 
-### A bug the parity test exists for
+- Nano S Plus, API level 27: **8 of 8 pass**.
+- Nano X (`DEVICE=nanox`), API level 27: **8 of 8 pass**.
 
-The app's first address derivation used
-`blake3::Hasher::new_derive_key(ADDRESS_DOMAIN)`. The node prefixes the domain
-into a **plain** hasher (`crates/node/src/crypto/hybrid.rs:216`). Those produce different
-digests from identical input, and the failure mode is an address no key can
-spend from, reported by nothing.
+Stax and Flex build (74.8 KB of code each); their touch-screen flows are not
+driven by these tests.
 
-It was caught by reading the node rather than by a test. `crates/node/tests/ledger_parity_tests.rs`
-now pins the derivation against `address_of` over freshly generated keys, and
-separately asserts that the keyed form does *not* match — so a future "tidy-up"
-back to `new_derive_key` fails loudly.
+Environment, set up in WSL Ubuntu 24.04:
 
-## Options, if a Ledger is wanted
+- `gcc-arm-none-eabi`, `clang`, `qemu-user-static`;
+- Speculos 0.27.0 and ledgerblue, in a venv;
+- `cargo-ledger` 1.14.0;
+- `ledger-secure-sdk` at branch `API_LEVEL_27`. Speculos refuses `master`,
+  which declares API level 0.
 
-1. **Reduce the parameter set.** SLH-DSA-SHA2-128**s** is the small-signature,
-   slow-signing variant. The `f` variants sign faster with larger signatures;
-   neither obviously fits. This is a consensus change and affects every
-   signature on the chain.
-2. **Split custody.** Device holds the lattice key, host holds the hash-based
-   one. Produces valid transactions and **ends the device's value** — a
-   compromised host forges the half the device does not hold.
-3. **Wait for the ecosystem.** Ledger's secure element gains PQ primitives, or a
-   stack-optimised SLH-DSA appears. Neither is in hand.
-4. **Accept that this chain's signature does not fit a Ledger** and treat the
-   air-gapped QR flow in `apps/wallet-gui/core/src/airgap.rs` as the offline story.
-   It already exists, already works, and already handles the 11,165-byte
-   signature — in 512 frames if it must.
+Two build fixes were needed:
 
-Option 4 is the honest default. The others are decisions somebody makes
-deliberately, with this document in front of them.
+- `blake3` is pinned to 1.8.2, because 1.8.7's build script panics on a
+  single-word target name.
+- `-Zbuild-std` goes on the command line, not in `.cargo/config.toml`, where
+  it would break host `cargo test`.
+
+## Review findings
+
+Both reviewers ran over this change. Fixed here:
+
+- **Key-dependent intermediates were not zeroized.** Only the top-level secret
+  key was. `ρ'`, `ρ''` and the polynomial scratch buffers hold `s1`, `s2`, `t0`
+  and the mask `y` in the clear, and any of those recovers the key. All are
+  `Zeroizing` now, which also covers the rejection loop's early returns. The
+  attack this closes is physical — SRAM read off a seized device — which is
+  what a hardware wallet exists to resist.
+- **The derivation syscall's failure was invisible.** It returns `void` and
+  signals failure by throwing, so a Rust caller sees only the buffer. An
+  all-zero result is now refused with `0x6F01` rather than signing under a key
+  the recovery phrase does not control.
+- **An amount could lose its unit label on screen.** The field buffer was 24
+  bytes; 20 digits plus " base units" is 31. It is 40 now, with a compile-time
+  assertion, because a review screen must not truncate silently.
+- **Two silent zero fallbacks** in `keygen` became `expect`: a broken invariant
+  there would have minted a working-looking wrong key.
+
+Reported and not changed:
+
+- **"The review cannot show the fee, so an invisible fee could drain the
+  account."** That is true of a UTXO chain and not of this one. A transfer
+  debits the sender exactly the sum of its outputs, and there is no fee field
+  (`crates/node/src/state/db.rs`: `total_outputs`, then `debit`). A
+  transaction's `inputs` are encoded and read by no state transition, so the
+  outputs on screen are the whole debit.
+- **Addresses are shown as 64 hex characters**, which is easy to skim rather
+  than compare. There is no shorter checksummed form for a suite-`0x10`
+  address yet; inventing one here would be a new address format nothing else
+  in the tree understands.
+
+## What was not measured
+
+- **Signing time on hardware.** Speculos does not emulate device timing. The
+  full suite, UI included, runs in about 17 s on this machine, which says
+  nothing about a real secure element.
+- **Real hardware.** No device was used.
+- **The SDK's own ML-DSA** (`ledger_device_sdk::mldsa`, Ledger's C
+  `lib_cxng`). Its keygen draws internal randomness and takes no seed, so its
+  keys cannot be re-derived from the recovery phrase. Its signing is not
+  documented as deterministic, so its signatures would not match the wallet's
+  transaction ids. It was read, not used.
