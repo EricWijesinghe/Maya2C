@@ -989,6 +989,7 @@ impl StateDB {
         }
         overlay.difficulty_target = difficulty_target;
         let policy = crate::crypto::suites::verification_policy();
+        self.prewarm_verification(&transactions, context.height, &policy);
         let mut kept = Vec::with_capacity(transactions.len());
         for tx in transactions {
             if matches!(tx.kind, crate::core::TxKind::Transfer) {
@@ -1011,6 +1012,42 @@ impl StateDB {
             }
         }
         kept
+    }
+
+    /// Verifies `transactions` on every core, filling the verified-signature
+    /// cache, before the sequential pass that decides the block.
+    ///
+    /// Verification is a pure function of a transaction's bytes, so running it
+    /// out of order and in parallel cannot change what the sequential pass
+    /// decides — that pass still calls `verify_at` through the cache for every
+    /// transaction, in order, and a failure here is simply not cached.
+    /// Measured on the DAG-BFT builder: first-time verification was the
+    /// largest part of building a 909-transaction block.
+    fn prewarm_verification(
+        &self,
+        transactions: &[Transaction],
+        height: u64,
+        policy: &SuitePolicy,
+    ) {
+        const MIN_PER_THREAD: usize = 32;
+        let threads = std::thread::available_parallelism()
+            .map_or(1, usize::from)
+            .min(transactions.len() / MIN_PER_THREAD)
+            .max(1);
+        if threads == 1 {
+            return;
+        }
+        let chunk = transactions.len().div_ceil(threads);
+        std::thread::scope(|scope| {
+            for part in transactions.chunks(chunk) {
+                scope.spawn(move || {
+                    for tx in part {
+                        // Failures are the sequential pass's to report.
+                        let _ = self.verified.verify(tx, height, policy);
+                    }
+                });
+            }
+        });
     }
 
     /// Stages a plain transfer, restoring exactly what it could have written

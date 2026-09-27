@@ -6,7 +6,31 @@
 end-to-end against a local kind/k3d cluster with 12 simulated nodes;
 reports/10-launch.md and LAUNCH.md exist."*
 
-## 1. Result
+## 0. Update 2026-09-27: k3d, to the letter — **met**
+
+On a machine with ghcr.io access (Windows 11 host, WSL2 Ubuntu 24.04, Docker
+29.1.3, k3d v5.9.0, kubectl v1.37.1; commit `e57e1ec`), the brief's path ran
+unchanged:
+
+```
+$ NODES=12 ./deploy-production.sh --target local-k3d
+   k3d cluster maya2c-local (1 server, 2 agents)             ok
+   namespace + network policy                                ok
+   build maya2c-node (--profile ci)                          ok
+   import image into k3d                                     ok
+   apply overlay local-k3d (12 replicas)                     ok
+   wait for 12 nodes Ready (timeout 15 min)                  ok (12/12)
+   smoke: get_supply over JSON-RPC on every node             ok (12/12 answered)
+   |   mode .......... dry-run      target ........ local-k3d      |
+   |   nodes ......... 12           elapsed ....... 636s           |
+```
+
+Full log: `reports/data/deploy-local-k3d-2026-09-27.txt`. The DONE WHEN is met
+to the letter. What it proves is unchanged from §1: the pipeline, not a
+network — the twelve pods run the proof-of-work devnet genesis of the overlay
+and are not peered into one DAG-BFT committee.
+
+## 1. Result (2026-09-26, cloud sandbox)
 
 **The k3d path could not run in this environment. A Docker-only path with
 the same binary, image, genesis and smoke test completed with 12 of 12 nodes

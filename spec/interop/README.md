@@ -8,7 +8,7 @@ table the brief asks to publish, and the message shape.
 | Connection | What an attacker must break | Status |
 |---|---|---|
 | Bitcoin → Maya2C | Bitcoin's proof of work beyond the confirmation depth: an attacker must out-mine Bitcoin for that many blocks (`crates/btc-spv`: compact targets, retarget, chainwork, reorgs; real mainnet headers 0–2 in tests) | header verification built; no value moves |
-| Ethereum → Maya2C | today, only Keccak-256 and RLP. Headers hash-check and link (`crates/interop::eth`, verified on the real mainnet genesis header), but **finality is not verified**. Sync-committee signatures are BLS12-381, which a quantum computer breaks, and no STARK wraps them | header hashing only; **not a light client of finality** |
+| Ethereum → Maya2C | two thirds of Ethereum's current 512-member sync committee (BLS12-381), plus SHA-256 and Keccak-256. `interop::beacon` verifies the committee against a trusted bootstrap root, the aggregate signature over the attested header, and Merkle branches down to the finalized execution block hash, which `interop::eth` checks against the full header (real mainnet fixtures in tests). **The trusted bootstrap root is an assumption** (weak subjectivity), committee handover across periods is not built, BLS falls to a quantum computer, and no STARK wraps any of it | finality light client built and tested on mainnet data; no value moves |
 | Solana, Cosmos | not built | — |
 | Any route | a bug in the route's own code loses at most the route's current cap (`routes::Route`: starts small, grows with clean days, an incident resets it) | built, tested |
 

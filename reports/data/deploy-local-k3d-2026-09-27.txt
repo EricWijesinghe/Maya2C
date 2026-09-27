@@ -1,0 +1,42 @@
+   mode=dry-run target=local-k3d nodes=12                    ok 
+   tool: cargo                                               ok 
+   tool: git                                                 ok 
+   tool: docker                                              ok 
+   tool: k3d                                                 ok 
+   tool: kubectl                                             ok 
+   docker daemon                                             ok 
+   features.toml claims backed (cargo xtask coverage)        ok 
+   formal proofs (Lean models, if lean is installed)         SKIP (lean not installed)
+   secrets present (.env.production.age)                     SKIP (not needed for dry-run/local-k3d)
+
+== Phase B: infrastructure [######..................]
+   k3d cluster maya2c-local (1 server, 2 agents)             ok 
+
+== Phase C: hardening [############............]
+   namespace + network policy                                ok 
+
+== Phase D: rollout [##################......]
+   build maya2c-node (--profile ci)                          ok 
+   image maya2c/node:local                                   DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+ok 
+   import image into k3d                                     ok 
+   apply overlay local-k3d (12 replicas)                     ok 
+   wait for 12 nodes Ready (timeout 15 min)                  ok (12/12)
+   smoke: get_supply over JSON-RPC on every node             ok (12/12 answered)
+
+   +--------------------------------------------------------------+
+   |                 MAYA2C LAUNCH CERTIFICATE                    |
+   |                                                              |
+   |   mode .......... dry-run                                    |
+   |   target ........ local-k3d                                  |
+   |   nodes ......... 12                                         |
+   |   elapsed ....... 636s                                       |
+   |                                                              |
+   |   A dry run proves the pipeline, not a network. No value     |
+   |   moved and no public endpoint exists.                       |
+   +--------------------------------------------------------------+
+
+[exited with code 0]
