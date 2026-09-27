@@ -94,6 +94,7 @@ struct Mesh {
     members: Vec<Member>,
     queue: VecDeque<(usize, Vec<u8>)>,
     now: u64,
+    equivocations: Vec<maya_dag_bft::Equivocation>,
 }
 
 impl Mesh {
@@ -142,6 +143,7 @@ impl Mesh {
             members,
             queue: VecDeque::new(),
             now: 0,
+            equivocations: Vec::new(),
         };
         for (i, step) in opening {
             mesh.absorb(i, step);
@@ -150,6 +152,7 @@ impl Mesh {
     }
 
     fn absorb(&mut self, from: usize, step: Step) {
+        self.equivocations.extend(step.equivocations);
         self.queue
             .extend(step.frames.into_iter().map(|f| (from, f)));
     }
@@ -329,4 +332,99 @@ fn a_registration_joins_the_committee_and_evidence_removes_an_equivocator() {
     let h = mesh.members[0].chain.height();
     mesh.run_until(|m| m.members.iter().all(|x| x.chain.height() >= h + 3));
     mesh.agree();
+}
+
+/// Incident-response rehearsal (Master Prompt 16 §5), timed in engine time.
+///
+/// A validator key is stolen and the thief signs a second proposal for a
+/// round the real validator already proposed in. The rehearsal follows
+/// `docs/runbooks/` incident flow end to end through consensus: honest nodes
+/// detect it, anyone turns the detection into evidence, the chain tombstones
+/// the key and burns half its bond, and the operator rejoins under a fresh key
+/// at the next epoch — without the chain stopping at any step.
+#[test]
+fn incident_rehearsal_a_stolen_key_is_detected_slashed_and_replaced() {
+    let mut mesh = Mesh::new();
+    mesh.run_until(|m| m.members.iter().all(|x| x.chain.height() >= 3));
+    let keys0: Arc<[VerifyingKey]> = genesis().bft.unwrap().verifying_keys().unwrap().into();
+    let t_steal = mesh.now;
+
+    // The thief's conflicting proposal for validator 2's current round.
+    let round = mesh.members[2].driver.round().max(1);
+    let thief = MlDsaAuthenticator::validator(validator_key(2), Arc::clone(&keys0));
+    let forged = Vertex {
+        epoch: 0,
+        round,
+        author: 2,
+        timestamp_ms: 424_242,
+        parents: vec![],
+        batch: vec![],
+    };
+    let signature = thief.sign(&forged.digest());
+    let frame = Envelope {
+        epoch: 0,
+        from: 2,
+        to: BROADCAST,
+        message: Message::Propose { vertex: forged, signature },
+    }
+    .encode();
+    mesh.queue.push_back((2, frame));
+    mesh.run_until(|m| !m.equivocations.is_empty());
+    assert!(!mesh.equivocations.is_empty(), "no honest node noticed the double proposal");
+    let t_detect = mesh.now;
+
+    // Response: whoever saw it files the evidence — here, the operator.
+    let evidence = mesh.equivocations[0].clone();
+    let frame_of = |v: &Vertex, sig: &[u8]| {
+        Envelope {
+            epoch: v.epoch,
+            from: v.author,
+            to: BROADCAST,
+            message: Message::Propose { vertex: v.clone(), signature: sig.to_vec() },
+        }
+        .encode()
+    };
+    mesh.submit(&staking_tx(
+        StakingAction::ReportEquivocation {
+            first: frame_of(&evidence.first, &evidence.first_signature),
+            second: frame_of(&evidence.second, &evidence.second_signature),
+        },
+        0,
+    ));
+    let offender = validator_id(&validator_key(2).verifying_key().to_bytes());
+    let retired = |m: &Mesh| {
+        m.members.iter().all(|x| {
+            x.chain
+                .state()
+                .committed_staking()
+                .unwrap()
+                .is_some_and(|r| r.staking.retired.contains(&offender))
+        })
+    };
+    mesh.run_until(retired);
+    assert!(retired(&mesh), "evidence never landed");
+    let t_slashed = mesh.now;
+
+    // Recovery: a fresh key, registered with a fresh bond, seated next epoch.
+    mesh.submit(&register(4, 10_000, 1));
+    let fresh = validator_id(&validator_key(4).verifying_key().to_bytes());
+    let seated = |m: &Mesh| {
+        m.members.iter().all(|x| {
+            let r = x.chain.state().committed_staking().unwrap().unwrap();
+            r.staking.active.contains(&fresh) && !r.staking.active.contains(&offender)
+        })
+    };
+    mesh.run_until(seated);
+    assert!(seated(&mesh), "the replacement key never joined the committee");
+    let t_rejoined = mesh.now;
+    let h = mesh.members[0].chain.height();
+    mesh.run_until(|m| m.members.iter().all(|x| x.chain.height() >= h + 3));
+    mesh.agree();
+    println!(
+        "incident rehearsal (engine time): detected {} ms after the stolen key signed; tombstoned {} ms after detection; replacement seated {} ms after that; chain kept finalizing throughout (height {} and agreeing)",
+        t_detect - t_steal,
+        t_slashed - t_detect,
+        t_rejoined - t_slashed,
+        mesh.members[0].chain.height()
+    );
 }
