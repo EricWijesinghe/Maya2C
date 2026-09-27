@@ -5,10 +5,10 @@ use jsonrpsee::core::client::{ClientT, Error as ClientError};
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
 
-use custom_l1_node::rpc::{AccountInfo, HtlcLockInfo, SubmitTransactionResult};
+use custom_l1_node::rpc::{AccountInfo, FeeInfo, HtlcLockInfo, SubmitTransactionResult};
 use maya_htlc_lattice::Address;
 
-use crate::chain::{LockView, SwapChain};
+use crate::chain::{Fees, LockView, SwapChain};
 use crate::error::{Result, WatcherError};
 use crate::swap::LockId;
 
@@ -83,5 +83,35 @@ impl SwapChain for RpcChain {
             .await
             .map_err(|e| self.failure("send_raw_transaction", e))?;
         Ok(())
+    }
+
+    async fn account(&self, address: &Address) -> Result<Option<(u64, u64)>> {
+        let account: AccountInfo = self
+            .client
+            .request("get_balance", rpc_params![hex::encode(address)])
+            .await
+            .map_err(|e| self.failure("get_balance", e))?;
+        Ok(Some((account.balance, account.nonce)))
+    }
+
+    async fn fees(&self) -> Result<Option<Fees>> {
+        let info: FeeInfo = self
+            .client
+            .request("get_fee_info", rpc_params![])
+            .await
+            .map_err(|e| self.failure("get_fee_info", e))?;
+        if !info.active {
+            return Ok(None);
+        }
+        let collector = hex::decode(&info.collector)
+            .ok()
+            .and_then(|b| <[u8; 32]>::try_from(b).ok())
+            .ok_or_else(|| {
+                WatcherError::Rpc(format!("{} get_fee_info: bad collector", self.url))
+            })?;
+        Ok(Some(Fees {
+            base_fee: info.base_fee,
+            collector,
+        }))
     }
 }

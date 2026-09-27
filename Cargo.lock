@@ -6098,6 +6098,7 @@ dependencies = [
  "jsonrpsee",
  "l1-wallet",
  "maya-htlc-lattice",
+ "maya2c-cli",
  "serde",
  "serde_json",
  "tempfile",

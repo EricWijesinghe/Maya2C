@@ -233,6 +233,8 @@ fn main() -> anyhow::Result<()> {
                 bin_dir,
                 stop_after_deploys: None,
                 node_args: Vec::new(),
+                chain_id: maya2c_cli::dev::CHAIN_ID.to_string(),
+                base_fee: None,
             };
             tokio::runtime::Runtime::new()?.block_on(maya2c_cli::dev::run(&options))?;
             Ok(())

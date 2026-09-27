@@ -36,6 +36,8 @@ zeroize.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+# `dev::launch`: two real single-validator devnets for devnet_swap_tests.
+maya2c-cli = { path = "../maya2c-cli" }
 
 [lints]
 workspace = true

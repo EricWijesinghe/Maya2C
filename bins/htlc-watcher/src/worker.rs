@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use tokio::sync::watch;
 
-use custom_l1_node::core::TxKind;
 use custom_l1_node::core::htlc_payload::{HtlcClaim, HtlcLock, HtlcRefund};
+use custom_l1_node::core::{TxKind, TxOutput};
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
 use custom_l1_node::state::htlc::derive_lock_id;
 use maya_htlc_lattice::{Address, CommitmentId, Lock, SwapSecret};
@@ -274,6 +274,7 @@ impl Worker {
             },
             phase: Phase::Active,
         })?;
+        let recipient = lock.recipient;
         self.pending
             .submit(
                 side,
@@ -283,7 +284,44 @@ impl Worker {
                 TxKind::HtlcLock(Box::new(lock)),
             )
             .await?;
+        self.pay_allowance(side, recipient, commitment_id).await?;
         Ok(lock_id)
+    }
+
+    /// Pays the counterparty enough to submit its claim, when its account on
+    /// `side` is empty.
+    ///
+    /// The node refuses any transaction from an account that holds nothing and
+    /// has never sent (`EmptySender`, ADR-013), and a claim's fee is an output
+    /// debited before the claim releases the escrow. So a counterparty new to
+    /// the chain — the usual case for a swap — could never claim. Found by the
+    /// two-devnet swap test; the in-process tests bypass admission. Paying the
+    /// fee here, with the lock, keeps the node's admission rule as it is.
+    async fn pay_allowance(
+        &mut self,
+        side: ChainSide,
+        recipient: Address,
+        commitment_id: CommitmentId,
+    ) -> Result<()> {
+        let chain = self.chain(side);
+        if chain.account(&recipient).await? != Some((0, 0)) {
+            return Ok(());
+        }
+        let amount = match chain.fees().await? {
+            Some(fees) => claim_fee(&self.key, fees)?,
+            // No fees: one unit is enough to stop being an empty account.
+            None => 1,
+        };
+        self.pending
+            .submit_with_outputs(
+                side,
+                chain.as_ref(),
+                &self.key,
+                Purpose::Allowance(commitment_id),
+                TxKind::Transfer,
+                vec![TxOutput { amount, recipient }],
+            )
+            .await
     }
 
     fn check_inbound(
@@ -418,6 +456,13 @@ impl Worker {
             return Ok(());
         }
         let chain = self.chain(side);
+        // An empty account's transaction is refused outright; the
+        // counterparty's fee allowance (`pay_allowance`) follows its lock by
+        // one nonce and may not have landed yet. Wait a tick rather than send
+        // something certain to be refused.
+        if chain.account(&self.key.address()).await? == Some((0, 0)) {
+            return Ok(());
+        }
         self.pending
             .submit(side, chain.as_ref(), &self.key, purpose, kind)
             .await
@@ -448,4 +493,16 @@ impl Worker {
             }
         }
     }
+}
+
+/// What a claim will pay in fees on a chain with `fees`: measured on a probe
+/// claim signed with this watcher's key, the same size class as any hybrid
+/// signer's.
+fn claim_fee(key: &HybridSigningKey, fees: crate::chain::Fees) -> Result<u64> {
+    let probe = TxKind::HtlcClaim(Box::new(HtlcClaim {
+        lock_id: [0; 32],
+        unlock: maya_htlc_lattice::Unlock::Preimage(maya_htlc_lattice::Preimage::new([0; 32])),
+    }));
+    let tx = crate::submit::sign_with_fee(&probe, Vec::new(), 0, key, Some(fees))?;
+    Ok(tx.outputs.last().map_or(0, |fee| fee.amount))
 }

@@ -23,7 +23,8 @@ use serde_json::json;
 pub const DEV_PASSWORD: &str = "maya2c-dev";
 /// Balance of each pre-funded account, base units.
 pub const DEV_BALANCE: u64 = 1_000_000_000;
-const CHAIN_ID: &str = "maya2c-dev";
+/// The default `chain_id`.
+pub const CHAIN_ID: &str = "maya2c-dev";
 const POLL: Duration = Duration::from_millis(50);
 const WATCH_POLL: Duration = Duration::from_millis(300);
 const BOOT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -52,6 +53,11 @@ pub struct Options {
     /// Extra `maya2c-node` flags, e.g. `--snapshot-interval 5` so the chain
     /// can be forked or replayed from.
     pub node_args: Vec<String>,
+    /// The genesis `chain_id`: two dev chains side by side are two networks.
+    pub chain_id: String,
+    /// Turn the fee market on with this initial (and minimum) base fee per
+    /// byte. `None` is a fee-free chain, the default for `maya2c dev`.
+    pub base_fee: Option<u64>,
 }
 
 /// What happened, measured.
@@ -105,10 +111,15 @@ fn prepare(o: &Options) -> anyhow::Result<(Vec<(HybridSigningKey, String)>, Path
     let now = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
+    let mut bft = json!({ "validators": [String::from_utf8_lossy(&validator.stdout).trim()], "anchor_timeout_ms": 500 });
+    if let Some(fee) = o.base_fee {
+        bft["fees"] = json!({ "initial_base_fee": fee, "min_base_fee": fee,
+            "target_block_bytes": 2_621_440, "change_denominator": 8 });
+    }
     let genesis = json!({
-        "chain_id": CHAIN_ID, "timestamp": now, "difficulty_bits": 0, "pow_limit_bits": 0,
+        "chain_id": o.chain_id, "timestamp": now, "difficulty_bits": 0, "pow_limit_bits": 0,
         "allocations": accounts.iter().map(|(_, a)| json!({ "address": a, "balance": DEV_BALANCE })).collect::<Vec<_>>(),
-        "bft": { "validators": [String::from_utf8_lossy(&validator.stdout).trim()], "anchor_timeout_ms": 500 }
+        "bft": bft
     });
     let genesis_path = o.dir.join("genesis.json");
     std::fs::write(&genesis_path, genesis.to_string())?;

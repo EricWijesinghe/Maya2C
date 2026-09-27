@@ -9,10 +9,10 @@
 
 | Condition | Result |
 |---|---|
-| Ethereum ZK light client verifies real mainnet headers | **partly.** 64 consecutive real Prague-era mainnet headers (26065574–637) are recomputed from their fields and chained, plus the genesis header. There is **no ZK and no finality (sync-committee) verification** |
+| Ethereum ZK light client verifies real mainnet headers | **partly: real finality, not ZK.** `interop::beacon` verifies a real mainnet sync-committee finality update (505/512 BLS signers) down to a Keccak-checked execution header; 64 real headers are also chained. The verification runs natively, not inside a ZK proof — see "Beacon finality" |
 | Trust-assumptions table published | **yes**, `spec/interop/README.md` |
 | Rate limits and caps | **pass** |
-| Intent settlement end to end on devnets | **no devnets.** The escrow logic passes with a stand-in verifier |
+| Intent settlement end to end on devnets | **yes, by hash-locked swap** (2026-09-27): two real devnet nodes with different chain ids, the user's and the solver's watchers over JSON-RPC, settled in 8.3 s. The light-client-proof escrow variant still uses a stand-in verifier |
 | Attack simulations | **pass** for the ones modelled (below) |
 
 ## Ethereum headers
@@ -83,3 +83,67 @@ These exercise every optional field through Prague (base fee, withdrawals,
 blob gas, parent beacon root, requests hash). A valid-looking chain is not a
 finalized one: finality is the beacon chain's sync-committee signature, which
 this crate does not verify, and nothing here is a ZK proof.
+
+## Beacon finality (re-run 2026-09-27)
+
+```
+$ cargo test -p maya-interop --test eth_beacon_finality_tests -- --nocapture
+mainnet: 505/512 sync-committee signers finalized beacon slot 15304160 → execution block 26065629 (0xcfd95d43925f2e1b9b507149f001307bdd1090e5c3f9c8677ee7be26861df226), whose Keccak header hash verifies
+test a_real_mainnet_finality_update_verifies_down_to_the_execution_header ... ok
+test a_forged_proof_fails_at_the_step_it_forges ... ok
+```
+
+The update, the committee and the execution header are real mainnet data
+fetched into `crates/interop/tests/fixtures` (`scripts/eth_beacon_fixture.py`).
+This was recorded in the master-prompt ledger when it landed and is only now
+written up here. What remains for the brief's "ZK" light client: the same
+checks inside a proof, so a chain can verify them cheaply. The BLS aggregate
+check is classical cryptography either way.
+
+## Intent settlement on two devnets (2026-09-27)
+
+`bins/htlc-watcher/tests/devnet_swap_tests.rs` starts two single-validator
+DAG-BFT nodes (`maya2c-devnet-a`, `maya2c-devnet-b`), **both charging fees**,
+through `maya2c_cli::dev::launch`. The intent is "4,000 on A for at least
+3,000 on B". Neither party starts with an account on the other chain:
+
+1. The user's watcher locks 4,000 on A under a SHA-256 digest.
+2. The solver's watcher sees it over RPC and locks 3,000 on B for the user,
+   with a shorter expiry.
+3. The user's claim on B reveals the preimage.
+4. The solver's watcher reads it from B's state and claims on A.
+
+No bridge, no relayer, no trusted party. Every step is a signed,
+fee-paying transaction through a real node's mempool and DAG-BFT block
+production.
+
+```
+$ cargo test -p maya-htlc-watcher --test devnet_swap_tests -- --nocapture
+intent settled across two fee-charging devnets in 9.396056s; fees and allowances paid: user 79666 on A, solver 79666 on B
+test an_intent_settles_across_two_devnets_by_hash_locked_swap ... ok
+```
+
+**What running it on real nodes found (the in-process tests bypass
+admission and fees):**
+
+1. **The watcher paid no fees.** It predates ADR-029, so on any fee-charging
+   chain every lock, claim and refund it sent was refused as `FeeTooLow`. It
+   now adds the fee output `l1-wallet` adds: twice the base fee on the signed
+   size, read from `get_fee_info` through `SwapChain::fees`.
+2. **A counterparty new to a chain could never claim.** The node refuses any
+   transaction from an account that holds nothing and has never sent
+   (`EmptySender`, ADR-013). A claim's fee is an output debited *before* the
+   claim releases the escrow, so it cannot pay from what it claims. A first
+   fix exempted such claims in the mempool. The security review found it
+   reopened the free signature-verification amplification ADR-013 closed (a
+   self-funded lock to a throwaway address, never settled, exempts that
+   address forever), and it did not work with fees on anyway. **It was
+   reverted.** Instead, each watcher pays the counterparty a **fee
+   allowance** with its lock when the counterparty's account there is empty.
+   The allowance is a probe claim's fee, or 1 unit on a fee-free chain. A
+   watcher also waits a tick instead of claiming from its own still-empty
+   account. The node's admission rule is unchanged.
+
+The cost is visible: about 80,000 units per side at a base fee of 1 per
+byte, because hybrid ML-DSA + SLH-DSA transactions are large and the fee
+carries a 2× margin.

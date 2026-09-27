@@ -127,6 +127,28 @@ pub trait SwapChain: Send + Sync {
 
     /// Submits signed transaction bytes. A duplicate is success.
     async fn broadcast(&self, raw: &[u8]) -> Result<()>;
+
+    /// The chain's fee terms, if it charges fees (ADR-029): the base fee per
+    /// byte and the collector every fee output pays. `None` where fees are
+    /// off, which is the default for a chain that never says otherwise.
+    async fn fees(&self) -> Result<Option<Fees>> {
+        Ok(None)
+    }
+
+    /// An account's `(balance, nonce)`, or `None` where the chain does not
+    /// say — in which case no fee allowance is paid.
+    async fn account(&self, _address: &Address) -> Result<Option<(u64, u64)>> {
+        Ok(None)
+    }
+}
+
+/// A chain's fee terms.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Fees {
+    /// Base fee per transaction byte.
+    pub base_fee: u64,
+    /// The address fee outputs pay.
+    pub collector: Address,
 }
 
 fn hex_bytes(text: &str, what: &str) -> Result<Vec<u8>> {
