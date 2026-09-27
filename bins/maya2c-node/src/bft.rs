@@ -240,6 +240,13 @@ pub(super) async fn bft_loop(
                 if !step.blocks.is_empty() {
                     metrics.set_height(lock_chain(&chain).height());
                 }
+                let now = now_ms();
+                for anchor in &step.anchor_times_ms {
+                    metrics.record_import();
+                    // u64 ms to f64 s: exact below 2^53 ms, i.e. ~285,000 years.
+                    #[allow(clippy::cast_precision_loss)]
+                    metrics.observe_finality(now.saturating_sub(*anchor) as f64 / 1_000.0);
+                }
                 act(step, &network, &pools, &mut feed).await;
             }
             // A storage fault here means a vote could not be made durable, so

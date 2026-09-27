@@ -209,13 +209,15 @@ impl Staking {
             .get_mut(&id)
             .ok_or(StakeError::UnknownValidator)?;
         let cut = bps_of(v.self_bond, bps);
-        v.self_bond -= cut;
+        // `bps_of` never exceeds its input today; checked anyway, so a future
+        // caller with an unvalidated rate refuses instead of panicking.
+        v.self_bond = v.self_bond.checked_sub(cut).ok_or(StakeError::Overflow)?;
         burned = burned.checked_add(cut).ok_or(StakeError::Overflow)?;
         let mut delegated_cut: u64 = 0;
         for ((_, validator), amount) in &mut self.delegations {
             if *validator == id {
                 let cut = bps_of(*amount, bps);
-                *amount -= cut;
+                *amount = amount.checked_sub(cut).ok_or(StakeError::Overflow)?;
                 delegated_cut = delegated_cut.checked_add(cut).ok_or(StakeError::Overflow)?;
             }
         }
@@ -226,7 +228,7 @@ impl Staking {
         for u in &mut self.unbonding {
             if u.validator == id {
                 let cut = bps_of(u.amount, bps);
-                u.amount -= cut;
+                u.amount = u.amount.checked_sub(cut).ok_or(StakeError::Overflow)?;
                 burned = burned.checked_add(cut).ok_or(StakeError::Overflow)?;
             }
         }

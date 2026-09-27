@@ -36,7 +36,9 @@ use custom_l1_node::metrics::{Metrics, server as metrics_server};
 use custom_l1_node::network::EpochClock;
 use custom_l1_node::network::pq::dual::DualKemPolicy;
 use custom_l1_node::network::{Mempool, Node, NodeHandle, load_or_create_identity};
-use custom_l1_node::rpc::{MarketFeed, MarketQuote, MarketState, RpcContext, serve, serve_market};
+use custom_l1_node::rpc::{
+    MarketFeed, MarketQuote, MarketState, RpcContext, serve_market, serve_metered,
+};
 use custom_l1_node::state::StateDB;
 use custom_l1_node::state_pruner::PRUNE_DEPTH;
 
@@ -355,6 +357,22 @@ async fn metrics_sample_loop(
         if let Ok(pool) = state.stored_pool() {
             metrics.set_shielded(pool.note_count(), pool.balance());
         }
+
+        // DAG-BFT with staking: slots each committee member led this epoch
+        // whose anchor never committed (SLO validator-downtime).
+        if let Ok(Some(record)) = state.committed_staking() {
+            let missed: Vec<([u8; 32], u64)> = record
+                .expected
+                .iter()
+                .map(|(id, e)| {
+                    (
+                        *id,
+                        e.saturating_sub(record.authored.get(id).copied().unwrap_or(0)),
+                    )
+                })
+                .collect();
+            metrics.set_missed_rounds(&missed);
+        }
     }
 }
 
@@ -636,9 +654,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         ChainConfig::with_pow_limit(config.pow_limit())
     }
     .with_upgrades(&config.upgrade_schedule()?);
+    let metrics = Arc::new(Metrics::new());
+    let opened = std::time::Instant::now();
     let chain = Arc::new(Mutex::new(
         open_or_bootstrap(&args, &config, &state, genesis_block.clone(), chain_config).await?,
     ));
+    metrics.set_sync_duration(opened.elapsed());
 
     // A tip already at or past an unsupported upgrade: say so at start-up
     // rather than on the first block that arrives.
@@ -710,11 +731,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // --- RPC ---
-    let rpc = serve(args.rpc_addr, rpc_context).await?;
+    let rpc = serve_metered(args.rpc_addr, rpc_context, Arc::clone(&metrics)).await?;
     println!("rpc:         http://{}", rpc.address);
 
     // --- Metrics ---
-    let metrics = Arc::new(Metrics::new());
     match args.metrics_addr {
         Some(address) => {
             let exporter = metrics_server::serve(address, Arc::clone(&metrics)).await?;
