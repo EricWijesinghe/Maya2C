@@ -13,8 +13,8 @@
 | Deposit service, 100,000 deposits with restarts | **passes**: 100,090 deposits, 40 SIGKILLs |
 | Offline signing loop, e2e | **passes** |
 | WalletConnect flow, e2e | **not done.** WalletConnect v2 needs a relay project id from WalletConnect Cloud — an account the owner registers |
-| 5-minute developer path on three OSes | **Linux only**, partly (§5) |
-| Every guide's commands in CI | **not done** |
+| 5-minute developer path on three OSes | **measured on Windows and Linux** (§7): from source 9 m 45 s / 7 m 14 s, so not met; with built binaries about 3 s to a deployed contract. macOS needs a Mac |
+| Every guide's commands in CI | **checked, not executed**: `cargo xtask guides-check` in CI resolves every package, test, binary, xtask/`maya2c` command and script a guide names (§7) |
 
 ## 1. Deposit service
 
@@ -197,4 +197,34 @@ the custodian flow the Construction API would serve.
 The driver is Rust (`xtask/src/mesh_check.rs` over `xtask/src/devnet.rs`),
 not a script. `mesh-cli` itself is a downloaded Go binary
 (`D:/Tools/mesh-cli`), passed with `--mesh-cli`.
+
+## 7. Developer path on two OSes, and guides in CI (2026-09-28)
+
+The path is: build what `maya2c dev` needs from a cold target directory,
+then run `maya2c dev --watch contract.wasm` with the real `nft-game` module
+until its deploy is committed. Nothing else was running during either
+measurement.
+
+| | Windows 11 (workstation) | Linux (WSL2 Ubuntu 24.04, kernel 6.18) |
+|---|---|---|
+| Cold `cargo build -p maya2c-cli -p maya2c-node` (`jobs = 4`) | 9 m 41 s (582 s; 3.1 GB) | 7 m 11 s (431 s) |
+| `maya2c dev`: node answering RPC | 1.10 s | 0.63 s |
+| first block | 1.78 s | 1.72 s |
+| launch to deploy committed | 3.08 s | 2.76 s |
+| **total, from source** | **9 m 45 s** | **7 m 14 s** |
+
+**The brief's 5 minutes is not met from source on either OS.** The compile
+dominates, and the debug node is most of it. Measured, not tuned: with the
+two binaries prebuilt, the path is about 3 seconds. That makes release
+binaries the way to meet it; they are an owner-approved publish step
+(Standing Order 6). macOS was not measured: no Mac is available here.
+
+**Guides.** `cargo xtask guides-check` (a CI step) reads every shell block in
+`docs/` and `README.md`. It resolves each command that names a workspace
+package, test/bin/example/bench target, `cargo xtask` command, `maya2c`
+command or script. Anything else is counted as not checkable, not as passed.
+Its first run found `docs/zkml.md` testing and benching a crate removed on
+2026-09-21; that section is now marked historical. Executing every command
+is not attempted: several start nodes for minutes, or need Docker, a GPU or
+another OS.
 
