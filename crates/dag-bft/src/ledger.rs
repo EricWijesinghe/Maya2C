@@ -67,6 +67,16 @@ impl Ledger {
         self.balances.values().map(|b| u128::from(*b)).sum()
     }
 
+    /// [`Ledger::apply`] for a transaction the engine carried as bytes: the
+    /// simulator submits each id as eight little-endian bytes. Anything else
+    /// is refused, like an overdraft.
+    pub fn apply_bytes(&mut self, tx: &[u8]) {
+        match <[u8; 8]>::try_from(tx) {
+            Ok(id) => self.apply(u64::from_le_bytes(id)),
+            Err(_) => self.refused += 1,
+        }
+    }
+
     /// Transfers applied.
     pub fn applied(&self) -> u64 {
         self.applied

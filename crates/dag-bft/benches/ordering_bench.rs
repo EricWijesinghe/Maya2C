@@ -20,13 +20,14 @@ fn run(n: u16, batch: usize, txs_per_node: u64) -> (u64, f64, u64) {
     let params = Params {
         batch_size: batch,
         anchor_timeout_ms: 0,
+        ..Params::default()
     };
     let mut nodes: Vec<Validator> = (0..n)
         .map(|i| Validator::new(i, committee, params))
         .collect();
     for (i, v) in nodes.iter_mut().enumerate() {
         for k in 0..txs_per_node {
-            v.submit(k * u64::from(n) + i as u64);
+            v.submit((k * u64::from(n) + i as u64).to_le_bytes().to_vec());
         }
     }
     let mut queue = VecDeque::new();

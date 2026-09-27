@@ -53,26 +53,46 @@ impl Committee {
     }
 }
 
+/// One opaque transaction as the engine carries it. The engine never parses
+/// it: the node decodes it when a committed sub-DAG becomes a block, and the
+/// simulator's ledger reads a little-endian `u64` out of it.
+pub type Payload = Vec<u8>;
+
 /// One validator's proposal for one round.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Vertex {
+    /// Committee epoch. Part of the digest, so a signature made for one
+    /// epoch's DAG can never be replayed into the next one's.
+    pub epoch: u64,
     /// DAG round; genesis is round 0.
     pub round: u64,
     /// Proposer.
     pub author: ValidatorId,
+    /// The author's clock when it proposed, in milliseconds. Certified with
+    /// the vertex, so every node reads the same value: the node derives a
+    /// block's timestamp from its anchor's, never from its own clock.
+    pub timestamp_ms: u64,
     /// Digests of at least 2f + 1 certificates from `round - 1`, sorted.
     pub parents: Vec<Digest>,
-    /// Transaction ids carried. In a node these are worker-batch digests
-    /// (Narwhal): the vertex references payload, it never carries it.
-    pub batch: Vec<u64>,
+    /// Transactions carried inline. Narwhal separates payload into worker
+    /// batches referenced by digest; inline payload is the v1 simplification
+    /// ADR-027 records, bounded by `Params::max_batch_bytes`.
+    pub batch: Vec<Payload>,
 }
 
 impl Vertex {
     /// The genesis vertex every node creates identically for `author`.
     pub fn genesis(author: ValidatorId) -> Self {
+        Self::genesis_in(0, author)
+    }
+
+    /// The genesis vertex of `epoch`'s DAG for `author`.
+    pub fn genesis_in(epoch: u64, author: ValidatorId) -> Self {
         Self {
+            epoch,
             round: 0,
             author,
+            timestamp_ms: 0,
             parents: Vec::new(),
             batch: Vec::new(),
         }
@@ -81,43 +101,60 @@ impl Vertex {
     /// Content digest; what votes and parent links refer to.
     pub fn digest(&self) -> Digest {
         let mut h = blake3::Hasher::new();
-        h.update(b"maya2c/dag-bft/vertex/v1");
+        h.update(b"maya2c/dag-bft/vertex/v2");
+        h.update(&self.epoch.to_le_bytes());
         h.update(&self.round.to_le_bytes());
         h.update(&self.author.to_le_bytes());
+        h.update(&self.timestamp_ms.to_le_bytes());
         h.update(&(self.parents.len() as u64).to_le_bytes());
         for p in &self.parents {
             h.update(p);
         }
         h.update(&(self.batch.len() as u64).to_le_bytes());
         for tx in &self.batch {
-            h.update(&tx.to_le_bytes());
+            h.update(&(tx.len() as u64).to_le_bytes());
+            h.update(tx);
         }
         *h.finalize().as_bytes()
+    }
+
+    /// Bytes of payload carried.
+    pub fn payload_bytes(&self) -> usize {
+        self.batch.iter().map(Vec::len).sum()
     }
 }
 
 /// A vertex with a quorum of votes: proof it was reliably broadcast, so no
 /// author can have two certified vertices in one round.
 ///
-/// Votes are validator ids here. In a node each vote is an ML-DSA signature
-/// over the digest (Master Prompt 13 decides how the 2f + 1 of them are
-/// aggregated); the simulator checks only the count, and that is the one
-/// thing it takes on trust.
+/// Each vote is a signature by the voter over the vertex digest, made and
+/// checked through [`crate::Authenticator`]. The node signs with ML-DSA-65
+/// and carries the 2f + 1 signatures side by side (ADR-021 measured why they
+/// are not aggregated); the simulator's [`crate::Unauthenticated`] leaves them
+/// empty, and that is the one thing a simulation takes on trust.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Certificate {
     /// The certified vertex.
     pub vertex: Vertex,
     /// Distinct voters, sorted.
     pub votes: Vec<ValidatorId>,
+    /// `signatures[i]` is `votes[i]`'s signature over the vertex digest.
+    pub signatures: Vec<Vec<u8>>,
 }
 
 impl Certificate {
     /// Genesis certificates need no votes; every node makes the same ones.
     pub fn genesis(committee: Committee) -> Vec<Self> {
+        Self::genesis_in(0, committee)
+    }
+
+    /// `epoch`'s genesis certificates.
+    pub fn genesis_in(epoch: u64, committee: Committee) -> Vec<Self> {
         (0..committee.size())
             .map(|a| Self {
-                vertex: Vertex::genesis(a),
+                vertex: Vertex::genesis_in(epoch, a),
                 votes: (0..committee.size()).collect(),
+                signatures: vec![Vec::new(); usize::from(committee.size())],
             })
             .collect()
     }
@@ -139,7 +176,13 @@ impl Certificate {
             self.vertex.parents.len() >= usize::from(committee.quorum())
                 && self.vertex.parents.windows(2).all(|w| w[0] < w[1])
         };
-        sorted_distinct && members && enough && parents_ok && self.vertex.author < committee.size()
+        let paired = self.signatures.len() == self.votes.len();
+        sorted_distinct
+            && members
+            && enough
+            && parents_ok
+            && paired
+            && self.vertex.author < committee.size()
     }
 }
 
@@ -173,36 +216,41 @@ mod tests {
             p
         };
         let v = Vertex {
+            epoch: 0,
             round: 1,
             author: 0,
+            timestamp_ms: 0,
             parents,
             batch: vec![],
         };
-        let ok = Certificate {
+        let cert = |votes: Vec<ValidatorId>| Certificate {
             vertex: v.clone(),
-            votes: vec![0, 1, 2],
+            signatures: vec![Vec::new(); votes.len()],
+            votes,
         };
-        assert!(ok.is_well_formed(c));
-        assert!(
-            !Certificate {
-                vertex: v.clone(),
-                votes: vec![0, 1]
-            }
-            .is_well_formed(c)
-        );
-        assert!(
-            !Certificate {
-                vertex: v.clone(),
-                votes: vec![0, 1, 1]
-            }
-            .is_well_formed(c)
-        );
-        assert!(
-            !Certificate {
-                vertex: v,
-                votes: vec![0, 1, 9]
-            }
-            .is_well_formed(c)
-        );
+        assert!(cert(vec![0, 1, 2]).is_well_formed(c));
+        assert!(!cert(vec![0, 1]).is_well_formed(c));
+        assert!(!cert(vec![0, 1, 1]).is_well_formed(c));
+        assert!(!cert(vec![0, 1, 9]).is_well_formed(c));
+        let mut unpaired = cert(vec![0, 1, 2]);
+        unpaired.signatures.pop();
+        assert!(!unpaired.is_well_formed(c), "a vote without its signature");
+    }
+
+    #[test]
+    fn the_digest_binds_epoch_timestamp_and_payload_boundaries() {
+        let base = Vertex::genesis_in(3, 1);
+        let mut other_epoch = base.clone();
+        other_epoch.epoch = 4;
+        let mut other_time = base.clone();
+        other_time.timestamp_ms = 1;
+        assert_ne!(base.digest(), other_epoch.digest());
+        assert_ne!(base.digest(), other_time.digest());
+        // Length-prefixed, so moving a byte between two payloads changes it.
+        let mut split_a = base.clone();
+        split_a.batch = vec![vec![1, 2], vec![3]];
+        let mut split_b = base;
+        split_b.batch = vec![vec![1], vec![2, 3]];
+        assert_ne!(split_a.digest(), split_b.digest());
     }
 }
