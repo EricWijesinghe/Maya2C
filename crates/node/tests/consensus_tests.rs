@@ -336,8 +336,27 @@ fn reverting_a_block_restores_state_exactly() {
     assert_eq!(state.get_account(&alice_addr).map(|a| a.balance), Ok(750));
     assert_eq!(state.get_account(&bob_addr).map(|a| a.balance), Ok(250));
     assert!(state.has_undo(&block_id).expect("undo present"));
+    // The Mesh view of the block: exactly the two balances it moved.
+    let moved = state
+        .balance_changes(&block_id)
+        .expect("read")
+        .expect("kept with the block");
+    let mut expected = vec![(alice_addr, 1_000, 750), (bob_addr, 0, 250)];
+    expected.sort_by_key(|(address, _, _)| *address);
+    assert_eq!(
+        moved
+            .iter()
+            .map(|c| (c.address, c.before, c.after))
+            .collect::<Vec<_>>(),
+        expected
+    );
 
     state.revert_block(&block_id).expect("revert");
+    assert_eq!(
+        state.balance_changes(&block_id),
+        Ok(None),
+        "gone with the block"
+    );
 
     assert_eq!(
         state.get_account(&alice_addr),

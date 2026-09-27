@@ -27,6 +27,7 @@ use crate::core::payload::ChannelId;
 use crate::core::{Block, Transaction};
 use crate::error::{NodeError, Result};
 use crate::state::account::{Account, Address};
+use crate::state::balance_changes;
 use crate::state::channel::ChannelRecord;
 use crate::state::context::BlockContext;
 use crate::state::merkle::{HASH_LEN, account_leaf, merkle_path, merkle_root};
@@ -1135,9 +1136,20 @@ impl StateDB {
         let (overlay, new_root) = self.stage_checked(block, context)?;
         let undo = self.capture_undo(&overlay)?;
 
+        // The Mesh Data API's view of the block (`state::balance_changes`):
+        // every balance it moved, from the same before/after pair the journal
+        // and the overlay already hold.
+        let moved = balance_changes::changes(&undo.entries, |address| {
+            overlay.accounts.get(address).map(|a| a.balance)
+        });
+
         let mut batch = WriteBatch::default();
         self.write_overlay(&mut batch, &overlay);
         batch.put(undo_key(block_id), undo.encode());
+        batch.put(
+            balance_changes::balance_changes_key(block_id),
+            balance_changes::encode(&moved),
+        );
         extra(&mut batch);
         self.db.write(batch).map_err(storage_err)?;
 
@@ -1219,10 +1231,29 @@ impl StateDB {
         }
 
         batch.delete(&key);
+        batch.delete(balance_changes::balance_changes_key(block_id));
         extra(&mut batch);
         self.db.write(batch).map_err(storage_err)?;
 
         Ok(())
+    }
+
+    /// Every balance `block_id` moved, before and after, in address order;
+    /// `None` for a block this node did not apply through the journaled path
+    /// (genesis) or has pruned.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Storage`] on a read or decode failure.
+    pub fn balance_changes(
+        &self,
+        block_id: &[u8; HASH_LEN],
+    ) -> Result<Option<Vec<balance_changes::BalanceChange>>> {
+        self.db
+            .get(balance_changes::balance_changes_key(block_id))
+            .map_err(storage_err)?
+            .map(|bytes| balance_changes::decode(&bytes))
+            .transpose()
     }
 
     /// Whether an undo journal exists for `block_id`.

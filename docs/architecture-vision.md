@@ -198,7 +198,8 @@ is a fork; §7 states the rule.
 |---|---|---|---|
 | Tauri 2.0 desktop wallet | **SHIPPED** | `apps/wallet-gui/` | Plus the CLI wallet in `wallet` |
 | Leptos block explorer and dashboard | **SHIPPED** | `explorer`, `apps/dashboard/` | `apps/dashboard/` is not a workspace member — CSR Leptos is `wasm32` only |
-| Axum REST/GraphQL gateway | **SHIPPED** | `api-gateway` | Talks JSON-RPC to a node, never opens the state database |
+| Axum REST/GraphQL gateway | **SHIPPED** | `api-gateway` | Talks JSON-RPC to a node, never opens the state database. `maya2c-gateway` serves it; the TypeScript SDK reaches a live node through it (`scripts/sdk_e2e.py`) |
+| Mesh (Rosetta) Data API | **SHIPPED** (tool) | `mesh-api`, node `get_balance_changes` | One `BALANCE_CHANGE` per balance a block moved, from the undo journal's before/after pair, so fees, burns and rewards reconcile without modelling each. Checked by `mesh-cli check:data`. Construction API absent: Mesh has no post-quantum curve or signature type |
 | Multi-language SDKs | **SHIPPED** | `sdk-ffi`, `sdk-wasm`, `sdk-js` | Which bindings are generated but never compiled: [sdk.md](sdk.md) |
 | LaTeX technical reference generator | **SHIPPED** | `docgen` | Generated from module documentation |
 | Testnet faucet | **SHIPPED** | `faucet` | Two independent rate-limit buckets — invariant 16 |

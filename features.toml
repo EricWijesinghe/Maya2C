@@ -3211,3 +3211,15 @@ tier = "extended"
 class = "RESEARCH"
 status = "working"
 tests = ["crate:maya-permissioned-finance", "crates/permissioned-finance/tests/compliance_tests.rs"]
+
+[[subsystem]]
+id = "mesh-data-api"
+name = "Mesh (Rosetta) Data API: network, block, account; per-block balance changes from the undo journal"
+domain = "Integration"
+paths = "`crates/mesh-api`, `crates/node/src/state/balance_changes.rs`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:maya-mesh-api", "crates/node/tests/consensus_tests.rs"]
+note = "Master Prompt 17. scripts/mesh_check.py runs mesh-cli check:data against a devnet. No Construction API: Mesh defines no post-quantum signature type."
+

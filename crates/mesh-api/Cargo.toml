@@ -1,0 +1,35 @@
+[package]
+name = "maya-mesh-api"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Mesh (formerly Rosetta) Data API for a Maya2C node, for exchange and custodian integration"
+
+# Talks to the node over JSON-RPC, like api-gateway and explorer: it can run on
+# another host, and RocksDB stays out of a process that serves HTTP.
+[dependencies]
+axum = { workspace = true, features = ["json"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal"] }
+jsonrpsee = { workspace = true, features = ["http-client"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+hex.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+clap = { workspace = true, features = ["derive", "env"] }
+anyhow = "1"
+async-trait.workspace = true
+
+[dev-dependencies]
+tower = { workspace = true, features = ["util"] }
+http-body-util.workspace = true
+
+[[bin]]
+name = "maya2c-mesh"
+path = "src/main.rs"
+
+[lints]
+workspace = true

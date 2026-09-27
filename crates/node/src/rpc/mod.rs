@@ -3,6 +3,9 @@
 //! | Method | Params | Returns |
 //! |---|---|---|
 //! | `get_balance` | `[address_hex]` | [`types::AccountInfo`] |
+//! | `get_account_at_tip` | `[address_hex]` | [`types::AccountAtTip`] |
+//! | `get_balance_changes` | `[height]` | [`types::BalanceChangesInfo`] |
+//! | `get_balance_at_height` | `[address_hex, height]` | `{address, balance, height, block_id}` |
 //! | `send_raw_transaction` | `[tx_hex]` | [`types::SubmitTransactionResult`] |
 //! | `get_block_by_height` | `[height]` | [`types::BlockInfo`] |
 //! | `get_mining_candidate` | `[]` | [`types::MiningCandidate`] |

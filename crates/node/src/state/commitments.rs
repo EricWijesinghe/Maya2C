@@ -92,7 +92,11 @@ pub fn is_committed(key: &[u8]) -> bool {
 
 /// Prefixes that are deliberately outside the root: data about this node's
 /// history, not state. Never carried in a snapshot.
-pub const LOCAL_ONLY_PREFIXES: &[&[u8]] = &[crate::state::db::UNDO_PREFIX, BLOCK_STORE_PREFIX];
+pub const LOCAL_ONLY_PREFIXES: &[&[u8]] = &[
+    crate::state::db::UNDO_PREFIX,
+    BLOCK_STORE_PREFIX,
+    crate::state::balance_changes::BALANCE_CHANGES_PREFIX,
+];
 
 /// Hashes one spent nullifier into its leaf of the nullifier layer.
 #[must_use]

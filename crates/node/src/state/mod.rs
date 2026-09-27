@@ -13,6 +13,7 @@
 
 pub mod account;
 pub mod asset;
+pub mod balance_changes;
 pub mod blocks;
 pub mod channel;
 pub mod commitments;

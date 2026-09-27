@@ -322,6 +322,7 @@ impl Chain {
             }
             batch.delete(body_key(expected));
             batch.delete(undo_key(expected));
+            batch.delete(crate::state::balance_changes::balance_changes_key(expected));
         }
         if let Some(receipt) = receipt {
             batch.put(receipt.key(), receipt.encode());

@@ -15,11 +15,14 @@
 
 mod claims_check;
 mod coverage;
+mod devnet;
 mod disk;
 mod eco_metrics;
 mod go_no_go;
+mod mesh_check;
 mod readiness;
 mod release_check;
+mod sdk_e2e;
 mod slo_check;
 mod spec_coverage;
 
@@ -45,6 +48,8 @@ fn main() -> ExitCode {
         "go-no-go" => go_no_go::run(rest),
         "eco-metrics" => eco_metrics::run(rest),
         "claims-check" => claims_check::run(rest),
+        "mesh-check" => mesh_check::run(rest),
+        "sdk-e2e" => sdk_e2e::run(rest),
         "help" | "--help" | "-h" => {
             usage();
             return ExitCode::SUCCESS;
@@ -90,7 +95,12 @@ cargo xtask <command>
                         named gap for each one that needs chain data.
   claims-check          Fail if a public surface calls a feature \"first\",
                         \"only\" or \"unprecedented\" without citing a completed
-                        docs/prior-art/ search that permits the claim."
+                        docs/prior-art/ search that permits the claim.
+  mesh-check            Run mesh-cli check:data against a one-validator
+                        devnet and maya2c-mesh [--mesh-cli PATH]
+                        [--timeout SECS] [--workdir DIR].
+  sdk-e2e               Run the TypeScript SDK's live-node test through
+                        maya2c-gateway against a one-validator devnet."
     );
 }
 

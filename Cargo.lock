@@ -6180,6 +6180,26 @@ name = "maya-loadgen"
 version = "0.1.0"
 
 [[package]]
+name = "maya-mesh-api"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "clap 4.6.6",
+ "hex",
+ "http-body-util",
+ "jsonrpsee",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "maya-mev"
 version = "0.1.0"
 dependencies = [
