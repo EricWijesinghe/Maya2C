@@ -3181,3 +3181,13 @@ class = "REAL"
 status = "working"
 tests = []
 gate = "bash scripts/operator_rehearsal.sh on k3d (Linux/WSL2; install, snapshot restore, rolling upgrade); log in reports/data/operator-rehearsal-2026-09-27.txt"
+
+[[subsystem]]
+id = "multivm-phase-a"
+name = "Multi-VM Phase A: revm and solana-sbpf over one account mapping, gas converted to Maya VM gas"
+domain = "Execution"
+paths = "`crates/multivm`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-multivm", "crates/multivm/tests/multivm_tests.rs"]
