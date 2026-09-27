@@ -16,12 +16,19 @@ path = "src/main.rs"
 
 [dependencies]
 maya-vm = { path = "../../crates/vm" }
+# `maya2c dev`: transaction construction and the wallet's keystore and RPC
+# client, so a dev deploy is exactly what a real one is.
+custom-l1-node = { path = "../../crates/node" }
+l1-wallet = { path = "../l1-wallet" }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "signal"] }
+serde_json.workspace = true
 clap = { workspace = true, features = ["derive"] }
 anyhow = "1"
 hex.workspace = true
 
 [dev-dependencies]
 wat.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true

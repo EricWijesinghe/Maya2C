@@ -2,6 +2,7 @@
 //! testing without a terminal.
 
 pub mod debug;
+pub mod dev;
 
 use maya_vm::host::{ContractId, MemoryState};
 use maya_vm::runtime::Vm;

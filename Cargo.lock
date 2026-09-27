@@ -6595,8 +6595,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap 4.6.6",
+ "custom-l1-node",
  "hex",
+ "l1-wallet",
  "maya-vm",
+ "serde_json",
+ "tempfile",
+ "tokio",
  "wat",
 ]
 
