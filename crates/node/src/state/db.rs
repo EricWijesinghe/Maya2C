@@ -237,6 +237,9 @@ pub struct StateDB {
     /// Signatures already verified, shared by mempool admission, the DAG-BFT
     /// builder and block application (`state::verified`).
     verified: crate::state::verified::VerifiedCache,
+    /// The last block preview, reused when that block is applied unchanged
+    /// (`state::preview`), and the write generation it is checked against.
+    preview: crate::state::preview::PreviewCache,
 }
 
 impl StateDB {
@@ -290,6 +293,7 @@ impl StateDB {
         Ok(Self {
             db,
             verified: crate::state::verified::VerifiedCache::default(),
+            preview: crate::state::preview::PreviewCache::default(),
         })
     }
 
@@ -341,6 +345,7 @@ impl StateDB {
     }
 
     pub(crate) fn raw_put(&self, key: &[u8], value: &[u8]) -> Result<()> {
+        let _writing = self.preview.begin_write();
         self.db.put(key, value).map_err(storage_err)
     }
 
@@ -888,7 +893,10 @@ impl StateDB {
         // touched by this block at all.
         let mut batch = WriteBatch::default();
         self.write_overlay(&mut batch, &overlay);
-        self.db.write(batch).map_err(storage_err)?;
+        let writing = self.preview.begin_write();
+        let written = self.db.write(batch).map_err(storage_err);
+        drop(writing);
+        written?;
 
         Ok(new_root)
     }
@@ -1097,8 +1105,15 @@ impl StateDB {
     ///
     /// Returns the first validation error `block` would hit if applied.
     pub fn preview_root(&self, block: &Block, context: BlockContext) -> Result<[u8; HASH_LEN]> {
+        // Read before staging: a write during the staging makes the kept
+        // preview stale, and `keep` then declines it.
+        let staging = self.preview.begin_preview();
+        let generation = self.preview.generation();
         let overlay = self.stage_block(block, context)?;
-        self.root_with_overlay(&overlay)
+        let root = self.root_with_overlay(&overlay)?;
+        drop(staging);
+        self.preview.keep(block, context, generation, overlay, root);
+        Ok(root)
     }
 
     /// Executes `block`, checks the state root its header declares, commits
@@ -1156,14 +1171,39 @@ impl StateDB {
             balance_changes::encode(&moved),
         );
         extra(&mut batch);
-        self.db.write(batch).map_err(storage_err)?;
+        let writing = self.preview.begin_write();
+        let written = self.db.write(batch).map_err(storage_err);
+        drop(writing);
+        written?;
 
         Ok(new_root)
     }
 
+    /// `(reused, recomputed)`: checked applies that took the block's kept
+    /// preview, and those that staged afresh (`state::preview`).
+    #[must_use]
+    pub fn preview_stats(&self) -> (u64, u64) {
+        self.preview.stats()
+    }
+
+    /// Writes a batch of **block-store** keys (`blk:` headers and bodies)
+    /// without advancing the preview generation (`state::preview`).
+    ///
+    /// Staging never reads the block store — no state module loads a header,
+    /// a body or the canonical index — so storing the block a node just
+    /// previewed cannot change what applying it computes. Advancing here made
+    /// every preview stale: `insert_block` stores the body before it applies.
+    /// Only `state::blocks` calls this, for header and body writes.
+    pub(crate) fn write_block_store(&self, batch: WriteBatch) -> Result<()> {
+        self.db.write(batch).map_err(storage_err)
+    }
+
     /// Writes a batch built elsewhere in the crate.
     pub(crate) fn write_batch(&self, batch: WriteBatch) -> Result<()> {
-        self.db.write(batch).map_err(storage_err)
+        let writing = self.preview.begin_write();
+        let written = self.db.write(batch).map_err(storage_err);
+        drop(writing);
+        written
     }
 
     /// Writes a `RocksDB` checkpoint of the whole database to `path`: hard
@@ -1238,7 +1278,10 @@ impl StateDB {
         batch.delete(&key);
         batch.delete(balance_changes::balance_changes_key(block_id));
         extra(&mut batch);
-        self.db.write(batch).map_err(storage_err)?;
+        let writing = self.preview.begin_write();
+        let written = self.db.write(batch).map_err(storage_err);
+        drop(writing);
+        written?;
 
         Ok(())
     }
@@ -1291,7 +1334,10 @@ impl StateDB {
 
         let mut batch = WriteBatch::default();
         self.write_overlay(&mut batch, &overlay);
-        self.db.write(batch).map_err(storage_err)?;
+        let writing = self.preview.begin_write();
+        let written = self.db.write(batch).map_err(storage_err);
+        drop(writing);
+        written?;
 
         Ok(new_root)
     }
@@ -1304,8 +1350,13 @@ impl StateDB {
         block: &Block,
         context: BlockContext,
     ) -> Result<(Overlay, [u8; HASH_LEN])> {
-        let overlay = self.stage_block(block, context)?;
-        let new_root = self.root_with_overlay(&overlay)?;
+        let (overlay, new_root) = if let Some(kept) = self.preview.take(block, context) {
+            kept
+        } else {
+            let overlay = self.stage_block(block, context)?;
+            let root = self.root_with_overlay(&overlay)?;
+            (overlay, root)
+        };
         if new_root != block.header.state_root {
             return Err(NodeError::StateRootMismatch {
                 expected: hex::encode(block.header.state_root),

@@ -35,6 +35,7 @@ pub mod iot;
 pub mod iot_exec;
 pub mod merkle;
 pub mod oracle_exec;
+pub(crate) mod preview;
 pub mod proof;
 pub mod rwa;
 pub mod rwa_exec;

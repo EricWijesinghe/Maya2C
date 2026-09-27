@@ -97,7 +97,10 @@ fn markdown_files(dir: &Path, out: &mut Vec<PathBuf>) {
             ) {
                 markdown_files(&path, out);
             }
-        } else if name.ends_with(".md") {
+        } else if path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("md"))
+        {
             out.push(path);
         }
     }
@@ -148,7 +151,7 @@ fn resolve(cmd: &str, root: &Path, pkgs: &Targets) -> Option<Result<(), String>>
                 .then_some(())
                 .ok_or(format!("no `cargo xtask {sub}`")),
         ),
-        ["maya2c", sub, ..] | ["./target/debug/maya2c", sub, ..] => Some(
+        ["maya2c" | "./target/debug/maya2c", sub, ..] => Some(
             CLI_COMMANDS
                 .contains(sub)
                 .then_some(())

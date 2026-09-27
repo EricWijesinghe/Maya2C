@@ -9,7 +9,7 @@ Ranked by share of measured time on the path a block takes through a node.
 
 | # | Bottleneck | Evidence | Status |
 |---|---|---|---|
-| 1 | **`apply_block` verifies every signature again.** Mempool admission already verified it. | verify 0.990 of 1.062 ms/tx = **93 %** of apply, optimized (96 % in `ci`) | **open.** Designed, not built (below) |
+| 1 | **`apply_block` verifies every signature again.** Mempool admission already verified it. | verify 0.990 of 1.062 ms/tx = **93 %** of apply, optimized (96 % in `ci`) | **fixed** 2026-09-27: `state::verified` verify-once cache, plus parallel pre-verification in the builder (`reports/13-pq-weight.md` §9) |
 | 2 | **Hybrid signature verification itself.** | 1,010 verifications/s on one core; 3,086/s on 4 (x3.06) | inherent to the post-quantum choice; Master Prompt 13 |
 | 3 | **Skewed account access defeats parallel execution.** | Zipf(1.0) accounts: best speedup 1.24x at any hot-key share; uniform accounts, heavy work: **3.56x** on 4 cores (§2) | measured; a workload property, not a scheduler bug |
 | 4 | **Scheduler overhead at transfer granularity.** | at ~4.4 µs/tx of work, optimistic on 1 thread runs at 0.87x of sequential; `waves` on 2 threads at 0.30x (it spawns per wave) | measured; sequential below a work threshold is the fix |
@@ -115,7 +115,8 @@ does not cover power loss: the WAL is not fsynced per write (ADR-019).
   1 in verification, 8 in state work, 9 total in `apply_block`. Execution
   directive 3 treats this as a target, not a description: the journal and
   RocksDB's owned-buffer interface allocate. No change was made.
-- Zero-copy decode, mimalloc/jemalloc comparison, PGO and BOLT: **not done.**
+- **PGO: measured, no gain, not adopted** (§7). Zero-copy decode, an
+  allocator comparison and BOLT: not done.
 
 ## 5. Regression gate
 
@@ -141,8 +142,52 @@ run look like a regression or an improvement it is not.
 
 ## 6. Pipelining, async execution, storage
 
-- Pipelined stages with bounded channels: **not built**. The node's
-  signature check is where it was.
+- Pipelined stages with bounded channels: **not built** as such. The
+  signature check moved: verify-once and parallel pre-verification (row 1).
+  Block building no longer stages a block twice (§7).
 - Asynchronous execution: ADR-018. Synchronous for v1, D = 2 later.
 - Storage engine: ADR-019. Stay on RocksDB. Separating the flat state from the
   authenticated tree was not done.
+
+## 7. PGO and preview reuse, measured (2026-09-28, Windows 11 workstation)
+
+Workload: `crates/node/examples/bft_tps.rs 2000 5`, the `perf` profile, four
+DAG-BFT validators in one process, 10,000 transfers verified, executed and
+committed on every node. Three runs each; run-to-run spread on this machine
+is about ±15 %, so only medians are compared.
+
+**PGO** (`cargo xtask pgo`: plain, instrumented + training run,
+`-Cprofile-use`, each in its own target directory):
+
+```
+pgo: bft_tps 2000 accounts x 5 (perf profile), 3 runs each
+  baseline  [1028.0, 1053.0, 1438.0] tx/s  median 1053
+  pgo       [1532.0, 1031.0, 1051.0] tx/s  median 1051
+  ratio     0.998
+```
+
+There is no measurable gain, so PGO is not adopted. The cost is not in branch
+layout; it is in the work below.
+
+**Preview reuse** (`state::preview`): a node building a block staged it for
+the header's state root, then staged it again when inserting it. The preview's
+overlay and root are now kept, and reused only for the identical block,
+context and committed state (a write generation). The header's root is still
+compared on every apply. The first version was never hit: `insert_block`
+stores the block body, a block-store write that bumped the generation.
+Block-store writes cannot change what staging computes, since no state module
+reads the block store, so they no longer count.
+
+```
+= 1084 tx/s   building + inserting, 4 nodes: 6.13 s   reused the builder's preview: 44, staged afresh: 0
+= 1113 tx/s   building + inserting, 4 nodes: 6.04 s   reused the builder's preview: 44, staged afresh: 0
+= 1099 tx/s   building + inserting, 4 nodes: 6.09 s   reused the builder's preview: 44, staged afresh: 0
+```
+
+Every apply reused its preview. Block building and insertion went from
+6.8 s (`reports/04-consensus.md` §6) to 6.1 s, and the median from 1,053 to
+1,099 tx/s (+4 %). That is modest, and it says where the time is:
+`root_with_overlay` reads **every** account from RocksDB and hashes the whole
+tree for each root. The next step is an incremental authenticated state tree
+(the §6 storage item), not more caching.
+
