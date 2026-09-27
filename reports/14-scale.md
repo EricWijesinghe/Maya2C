@@ -102,6 +102,33 @@ geographic simulation. ADR-021 has the full table. Under the finality SLO
 
 **Design limit: 100 validators for v1**, on a 1 Gbit/s, 4-core validator.
 
+### 5a. Measured (2026-09-27)
+
+`crates/node/examples/committee_scale.rs`: n real DAG-BFT engines with ML-DSA-65
+authenticators, every frame encoded with the node's wire codec and delivered
+to every other validator (gossip floods, so addressed votes reach everyone
+and are decoded and dropped). Empty vertices: consensus overhead alone.
+`--profile perf`, Windows 11, Intel family 6 model 198, one core doing each
+validator's work in turn.
+
+| n | CPU ms / round / validator | MB received / round / validator | at 1 s rounds: cores | Mbit/s |
+|---|---|---|---|---|
+| 4 | 4.0 | 0.06 | 0.00 | 0 |
+| 16 | 32.0 | 1.18 | 0.03 | 9 |
+| 32 | 101.5 | 4.77 | 0.10 | 38 |
+| 64 | 351.6 | 19.56 | 0.35 | 156 |
+| 100 | 844.9 | 47.97 | 0.84 | 384 |
+
+Both grow as n²: every validator verifies and receives every other's
+proposal, vote and certificate. **Bandwidth binds first**: at n = 100 a
+validator receives 384 Mbit/s of consensus traffic alone — within a 1 Gbit/s
+link, but at about 40 % of it before any transaction payload; n ≈ 160 would
+fill it. The measured limit therefore **confirms the design limit of 100** and
+says why: it is set by flooding, and the largest share is votes, which are
+addressed to one author but flooded to all. Sending votes point-to-point
+(a request-response protocol beside gossip) is the change that would move it.
+
+
 **Not done:**
 
 - The geographic simulation with published inter-region RTTs at
