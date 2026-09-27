@@ -103,7 +103,12 @@ fn median(mut xs: Vec<f64>) -> f64 {
     xs[xs.len() / 2]
 }
 
-fn llvm_profdata() -> Result<PathBuf, String> {
+/// A tool from the toolchain's `llvm-tools` component.
+///
+/// # Errors
+///
+/// `rustc` could not be asked, or the component is missing.
+pub(crate) fn llvm_tool(name: &str) -> Result<PathBuf, String> {
     let sysroot = Command::new("rustc")
         .args(["--print", "sysroot"])
         .current_dir(crate::workspace_root())
@@ -122,10 +127,10 @@ fn llvm_profdata() -> Result<PathBuf, String> {
         .join("lib/rustlib")
         .join(host)
         .join("bin")
-        .join(format!("llvm-profdata{EXE}"));
+        .join(format!("{name}{EXE}"));
     tool.exists()
         .then_some(tool)
-        .ok_or_else(|| "llvm-profdata missing: rustup component add llvm-tools".to_string())
+        .ok_or_else(|| format!("{name} missing: rustup component add llvm-tools"))
 }
 
 /// Entry point.
@@ -135,7 +140,7 @@ fn llvm_profdata() -> Result<PathBuf, String> {
 /// A failed build or run, or no `llvm-profdata`.
 pub fn run(args: &[String]) -> Result<(), String> {
     let o = options(args)?;
-    let profdata = llvm_profdata()?;
+    let profdata = llvm_tool("llvm-profdata")?;
     let _ = std::fs::remove_dir_all(o.work.join("profiles"));
     let raw = o.work.join("profiles");
     let merged = o.work.join("merged.profdata");

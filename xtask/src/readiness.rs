@@ -26,7 +26,7 @@ const COMPONENTS: &[Component] = &[
     Component {
         name: "Crypto: ML-DSA / SLH-DSA / hybrid",
         owner: "crypto-pq",
-        spec: &["spec/crypto.md"],
+        spec: &["spec/08-crypto.md"],
         vectors: &[
             "spec/tests/crypto_kat.json",
             "crates/crypto-pq/tests/vectors/acvp",
@@ -40,7 +40,7 @@ const COMPONENTS: &[Component] = &[
     Component {
         name: "Crypto: ML-KEM + hybrid handshake",
         owner: "crypto-pq, node::network::pq",
-        spec: &["spec/crypto.md"],
+        spec: &["spec/08-crypto.md"],
         vectors: &["crates/crypto-pq/tests/kem_kat_tests.rs"],
         tests: &["crates/crypto-pq/tests/kem_kat_tests.rs"],
         fuzz: &[],
@@ -51,7 +51,7 @@ const COMPONENTS: &[Component] = &[
     Component {
         name: "Types and encoding",
         owner: "node::core",
-        spec: &["spec/encoding.md"],
+        spec: &["spec/01-encoding.md"],
         vectors: &["spec/tests/encoding.json"],
         tests: &[
             "crates/node/tests/malleability_tests.rs",
@@ -65,7 +65,7 @@ const COMPONENTS: &[Component] = &[
     Component {
         name: "State transition",
         owner: "node::state, ledger-math",
-        spec: &["spec/state-transition.md"],
+        spec: &["spec/03-state.md"],
         vectors: &["spec/tests/state_transitions.json"],
         tests: &[
             "crates/node/tests/state_tests.rs",
@@ -77,12 +77,12 @@ const COMPONENTS: &[Component] = &[
         ],
         formal: &["formal/lean/Maya2C/Supply.lean"],
         bench: &[],
-        runbook: &["docs/runbooks/corrupted-state.md"],
+        runbook: &["docs/runbooks/db-corruption.md"],
     },
     Component {
         name: "Fee market",
         owner: "fee-market",
-        spec: &["spec/fees.md"],
+        spec: &["spec/04-fees.md"],
         vectors: &["spec/tests/fees.json", "formal/lean/vectors/fee_split.txt"],
         tests: &["crates/fee-market/tests/lean_differential.rs"],
         fuzz: &[],
@@ -95,8 +95,8 @@ const COMPONENTS: &[Component] = &[
     },
     Component {
         name: "Consensus: dag-bft",
-        owner: "dag-bft (not wired into node)",
-        spec: &["spec/consensus.md"],
+        owner: "dag-bft, node::consensus::bft",
+        spec: &["spec/05-consensus.md"],
         vectors: &["spec/tests/commit_rule.json"],
         tests: &["crates/dag-bft/tests/modes_sim.rs"],
         fuzz: &[],
@@ -113,14 +113,14 @@ const COMPONENTS: &[Component] = &[
         fuzz: &[],
         formal: &[],
         bench: &[],
-        runbook: &["docs/runbooks/mempool-flood.md"],
+        runbook: &["docs/runbooks/mempool-full.md"],
     },
     Component {
         name: "Staking and slashing",
-        owner: "(not built)",
-        spec: &["spec/staking.md"],
+        owner: "staking, node::state::staking",
+        spec: &["spec/06-staking.md"],
         vectors: &[],
-        tests: &["crates/staking/tests/slashing_tests.rs"],
+        tests: &["crates/staking/tests/scenario.rs"],
         fuzz: &[],
         formal: &[],
         bench: &[],
@@ -157,7 +157,7 @@ const COMPONENTS: &[Component] = &[
     Component {
         name: "p2p (TCP/QUIC)",
         owner: "node::network",
-        spec: &["spec/networking.md"],
+        spec: &["spec/07-networking.md"],
         vectors: &[],
         tests: &[
             "crates/node/tests/network_tests.rs",
@@ -185,7 +185,7 @@ const COMPONENTS: &[Component] = &[
     Component {
         name: "Multisig custody",
         owner: "crypto-pq::multisig",
-        spec: &["spec/transactions.md"],
+        spec: &["spec/02-transactions.md"],
         vectors: &[],
         tests: &["crates/crypto-pq/tests/multisig_tests.rs"],
         fuzz: &[],

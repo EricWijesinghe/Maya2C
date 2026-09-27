@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use maya_spec_ref::stf::{Account, Transfer, apply_block};
 use maya_spec_ref::wire::{self, Frame};
-use maya_spec_ref::{Address, fees, header, root};
+use maya_spec_ref::{Address, consensus, fees, header, root};
 use serde_json::{Value, json};
 
 fn hex(bytes: &[u8]) -> String {
@@ -140,7 +140,7 @@ fn state_transitions(k: &BTreeMap<String, Address>) -> Value {
             k,
             "transfer-basic",
             &[
-                "TX-1", "STF-1", "STF-3", "STF-4", "STF-5", "ROOT-1", "ROOT-2", "ROOT-4",
+                "TX-1", "STF-1", "STF-3", "STF-4", "STF-5", "ROOT-1", "ROOT-2", "ROOT-4", "ROOT-5",
             ],
             &json!([acct("k0", 1000, 0), acct("k1", 0, 0)]),
             &json!([tx("k0", 0, &[("k1", 10)])]),
@@ -252,6 +252,7 @@ fn state_transitions(k: &BTreeMap<String, Address>) -> Value {
         ),
         stf_case(k, "empty-state", &["ROOT-3"], &json!([]), &json!([])),
     ];
+    let cases: Vec<Value> = cases.into_iter().chain(declared_root_cases(k)).collect();
     json!({"format": 1, "u64": "decimal strings", "spec": "spec/03-state.md", "generator": "maya-spec-ref spec-vectors", "cases": cases})
 }
 
@@ -370,6 +371,145 @@ fn encoding_vectors(k: &BTreeMap<String, Address>) -> Value {
     json!({"format": 1, "u64": "decimal strings", "spec": "spec/01-encoding.md", "generator": "maya-spec-ref spec-vectors", "cases": cases})
 }
 
+/// CON-4: the same block with its header declaring the root execution
+/// produces (accepted) or another one (refused, nothing written).
+fn declared_root_cases(k: &BTreeMap<String, Address>) -> Vec<Value> {
+    let pre = json!([acct("k0", 1000, 0), acct("k1", 0, 0)]);
+    let block = json!([tx("k0", 0, &[("k1", 10)])]);
+    let honest = stf_case(k, "declared-root-matches", &["CON-4"], &pre, &block);
+    let root = honest["expect"]["post_root"].clone();
+    let mut matches = honest.clone();
+    matches["declared_state_root"] = root;
+    let mut lies = stf_case(k, "declared-root-mismatch", &["CON-4"], &pre, &block);
+    lies["declared_state_root"] = json!(FRESH);
+    lies["expect"] = json!({"result": "error", "error": "StateRootMismatch"});
+    vec![matches, lies]
+}
+
+fn target(lead_zero_bytes: usize, fill: u8) -> [u8; 32] {
+    let mut t = [fill; 32];
+    t[..lead_zero_bytes].fill(0);
+    t
+}
+
+fn retarget_cases() -> Vec<Value> {
+    let limit = target(4, 0xFF);
+    let previous = target(5, 0x7F);
+    let expected = consensus::EXPECTED_TIMESPAN;
+    let mut cases: Vec<Value> = [
+        ("retarget-on-time", expected),
+        ("retarget-slow-window", expected * 2),
+        ("retarget-fast-window", expected / 2),
+        ("retarget-clamped-slow", expected * 10),
+        ("retarget-clamped-fast", 1),
+    ]
+    .iter()
+    .map(|(id, span)| {
+        let next = consensus::retarget(&previous, *span, &limit);
+        json!({"id": id, "rules": ["CON-5"], "fn": "retarget", "previous": hex(&previous), "timespan": span.to_string(), "pow_limit": hex(&limit), "expect": {"result": "ok", "target": hex(&next)}})
+    })
+    .collect();
+    let easy = target(4, 0x80);
+    let capped = consensus::retarget(&easy, expected * 4, &limit);
+    cases.push(json!({"id": "retarget-capped-at-limit", "rules": ["CON-5"], "fn": "retarget", "previous": hex(&easy), "timespan": (expected * 4).to_string(), "pow_limit": hex(&limit), "expect": {"result": "ok", "target": hex(&capped)}}));
+    // A header declaring anything else is invalid.
+    let right = consensus::retarget(&previous, expected * 2, &limit);
+    let mut wrong = right;
+    wrong[31] ^= 1;
+    cases.push(json!({"id": "retarget-declared-wrong", "rules": ["CON-5"], "fn": "retarget", "previous": hex(&previous), "timespan": (expected * 2).to_string(), "pow_limit": hex(&limit), "declared": hex(&wrong), "expect": {"result": "error", "error": "WrongTarget"}}));
+    cases
+}
+
+fn pow_cases() -> Vec<Value> {
+    let t = target(2, 0x40);
+    let mut equal = t;
+    let mut above = t;
+    above[2] = 0x41;
+    let mut below = t;
+    below[31] = 0x3F;
+    equal[0] = 0;
+    [("pow-below-target", below), ("pow-equal-target", equal), ("pow-above-target", above)]
+        .iter()
+        .map(|(id, hash)| {
+            let expect = if consensus::meets_target(hash, &t) {
+                json!({"result": "ok"})
+            } else {
+                json!({"result": "error", "error": "InsufficientWork"})
+            };
+            json!({"id": id, "rules": ["CON-6"], "fn": "meets_target", "hash": hex(hash), "target": hex(&t), "expect": expect})
+        })
+        .collect()
+}
+
+fn fork_choice_cases() -> Vec<Value> {
+    let hard = target(6, 0xFF);
+    let easy = target(4, 0xFF);
+    // Three hard blocks against ten easy ones: fewer blocks, more work.
+    let a = vec![hard; 3];
+    let b = vec![easy; 10];
+    let (wa, wb) = (
+        consensus::cumulative_work(&a),
+        consensus::cumulative_work(&b),
+    );
+    let branch = |ts: &[[u8; 32]]| ts.iter().map(|t| json!(hex(t))).collect::<Vec<_>>();
+    let winner = if wa > wb { "a" } else { "b" };
+    let work_case = |id: &str, t: [u8; 32]| json!({"id": id, "rules": ["CON-7"], "fn": "work", "target": hex(&t), "expect": {"result": "ok", "work": hex(&consensus::work(&t))}});
+    vec![
+        work_case("work-of-a-target", hard),
+        work_case("work-of-the-zero-target-saturates", [0; 32]),
+        work_case("work-of-the-easiest-target-is-one", [0xFF; 32]),
+        json!({"id": "most-work-not-most-blocks", "rules": ["CON-7"], "fn": "fork_choice", "a": branch(&a), "b": branch(&b), "expect": {"result": "ok", "work_a": hex(&wa), "work_b": hex(&wb), "winner": winner}}),
+    ]
+}
+
+fn prune_cases() -> Vec<Value> {
+    [("prune-above-horizon", 101u64, 100u64), ("prune-at-horizon", 100, 100), ("prune-below-horizon", 40, 100)]
+        .iter()
+        .map(|(id, height, horizon)| {
+            let expect = if consensus::below_prune_horizon(*height, *horizon) {
+                json!({"result": "error", "error": "BelowPruneHorizon"})
+            } else {
+                json!({"result": "ok"})
+            };
+            json!({"id": id, "rules": ["CON-8"], "fn": "prune_horizon", "height": height.to_string(), "horizon": horizon.to_string(), "expect": expect})
+        })
+        .collect()
+}
+
+fn verification_cases() -> Vec<Value> {
+    [
+        ("v5-verify", 5u8, "verify", true),
+        ("v7-verify-needs-height", 7, "verify", true),
+        ("v7-verify-at", 7, "verify_at", true),
+        ("v7-verify-at-bad-signature", 7, "verify_at", false),
+        ("v8-verify-needs-height", 8, "verify", true),
+        ("v8-verify-at", 8, "verify_at", true),
+    ]
+    .iter()
+    .map(|(id, version, call, valid)| {
+        let expect = match consensus::verification(*version, call, *valid) {
+            Ok(()) => json!({"result": "ok"}),
+            Err(why) => json!({"result": "error", "error": why}),
+        };
+        json!({"id": id, "rules": ["TX-4"], "fn": "verification", "version": version, "call": call, "signature": if *valid { "valid" } else { "invalid" }, "height": "0", "expect": expect})
+    })
+    .collect()
+}
+
+fn consensus_vectors() -> Value {
+    let cases: Vec<Value> = [
+        retarget_cases(),
+        pow_cases(),
+        fork_choice_cases(),
+        prune_cases(),
+        verification_cases(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    json!({"format": 1, "u64": "decimal strings", "spec": "spec/05-consensus.md, spec/02-transactions.md", "generator": "maya-spec-ref spec-vectors", "cases": cases})
+}
+
 fn header_vectors(k: &BTreeMap<String, Address>) -> Value {
     let h = header::Header {
         prev_hash: [0x11; 32],
@@ -406,6 +546,7 @@ fn main() {
         ("fees.json", fee_vectors()),
         ("encoding.json", encoding_vectors(&k)),
         ("headers.json", header_vectors(&k)),
+        ("consensus.json", consensus_vectors()),
     ];
     let mut stale = Vec::new();
     for (name, doc) in outputs {

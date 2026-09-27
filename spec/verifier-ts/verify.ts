@@ -80,11 +80,16 @@ function stateTransitions(keys: Map<string, string>): number {
       const why = applyTx(post, tx);
       if (why) failure = [i, why];
     });
+    // CON-4: a declared state root must be the one execution produces.
+    if (failure === null && c.declared_state_root !== undefined && root(post) !== c.declared_state_root) {
+      failure = [-1, "StateRootMismatch"];
+    }
     if (c.expect.result === "ok") {
       check(failure === null, `${c.id}: rejected a valid block (${failure})`);
       check(root(post) === c.expect.post_root, `${c.id}: post_root`);
     } else {
-      check(failure !== null && failure[0] === c.expect.tx_index && failure[1] === c.expect.error, `${c.id}: expected ${c.expect.error} at ${c.expect.tx_index}, got ${failure}`);
+      const at = c.expect.tx_index ?? -1;
+      check(failure !== null && failure[0] === at && failure[1] === c.expect.error, `${c.id}: expected ${c.expect.error} at ${at}, got ${failure}`);
     }
   }
   return doc.cases.length;

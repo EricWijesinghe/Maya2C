@@ -26,7 +26,7 @@ order, and the first rule that fails is the result:
 
 ## Gaps
 
-- ROOT-5 has no vectors: every vector here is accounts-only.
+- ROOT-5 is pinned by the accounts-only vectors: the node folds every layer it has and must still reproduce the reference's accounts-only root. No vector yet populates a layer.
 - The end-of-block passes (sealed swaps, trading, oracle, governance,
   invariant guard) run after the transfers; with no records they are inert,
   which is what the vectors exercise. Their own rules are specified by code.

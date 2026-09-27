@@ -1,0 +1,335 @@
+{
+  "cases": [
+    {
+      "expect": {
+        "result": "ok",
+        "target": "00000000007f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f"
+      },
+      "fn": "retarget",
+      "id": "retarget-on-time",
+      "pow_limit": "00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "previous": "00000000007f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f",
+      "rules": [
+        "CON-5"
+      ],
+      "timespan": "1500"
+    },
+    {
+      "expect": {
+        "result": "ok",
+        "target": "0000000000fefefefefefefefefefefefefefefefefefefefefefefefefefefe"
+      },
+      "fn": "retarget",
+      "id": "retarget-slow-window",
+      "pow_limit": "00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "previous": "00000000007f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f",
+      "rules": [
+        "CON-5"
+      ],
+      "timespan": "3000"
+    },
+    {
+      "expect": {
+        "result": "ok",
+        "target": "00000000003fbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbf"
+      },
+      "fn": "retarget",
+      "id": "retarget-fast-window",
+      "pow_limit": "00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "previous": "00000000007f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f",
+      "rules": [
+        "CON-5"
+      ],
+      "timespan": "750"
+    },
+    {
+      "expect": {
+        "result": "ok",
+        "target": "0000000001fdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfc"
+      },
+      "fn": "retarget",
+      "id": "retarget-clamped-slow",
+      "pow_limit": "00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "previous": "00000000007f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f",
+      "rules": [
+        "CON-5"
+      ],
+      "timespan": "15000"
+    },
+    {
+      "expect": {
+        "result": "ok",
+        "target": "00000000001fdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfdf"
+      },
+      "fn": "retarget",
+      "id": "retarget-clamped-fast",
+      "pow_limit": "00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "previous": "00000000007f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f",
+      "rules": [
+        "CON-5"
+      ],
+      "timespan": "1"
+    },
+    {
+      "expect": {
+        "result": "ok",
+        "target": "00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "fn": "retarget",
+      "id": "retarget-capped-at-limit",
+      "pow_limit": "00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "previous": "0000000080808080808080808080808080808080808080808080808080808080",
+      "rules": [
+        "CON-5"
+      ],
+      "timespan": "6000"
+    },
+    {
+      "declared": "0000000000fefefefefefefefefefefefefefefefefefefefefefefefefefeff",
+      "expect": {
+        "error": "WrongTarget",
+        "result": "error"
+      },
+      "fn": "retarget",
+      "id": "retarget-declared-wrong",
+      "pow_limit": "00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "previous": "00000000007f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f",
+      "rules": [
+        "CON-5"
+      ],
+      "timespan": "3000"
+    },
+    {
+      "expect": {
+        "result": "ok"
+      },
+      "fn": "meets_target",
+      "hash": "000040404040404040404040404040404040404040404040404040404040403f",
+      "id": "pow-below-target",
+      "rules": [
+        "CON-6"
+      ],
+      "target": "0000404040404040404040404040404040404040404040404040404040404040"
+    },
+    {
+      "expect": {
+        "result": "ok"
+      },
+      "fn": "meets_target",
+      "hash": "0000404040404040404040404040404040404040404040404040404040404040",
+      "id": "pow-equal-target",
+      "rules": [
+        "CON-6"
+      ],
+      "target": "0000404040404040404040404040404040404040404040404040404040404040"
+    },
+    {
+      "expect": {
+        "error": "InsufficientWork",
+        "result": "error"
+      },
+      "fn": "meets_target",
+      "hash": "0000414040404040404040404040404040404040404040404040404040404040",
+      "id": "pow-above-target",
+      "rules": [
+        "CON-6"
+      ],
+      "target": "0000404040404040404040404040404040404040404040404040404040404040"
+    },
+    {
+      "expect": {
+        "result": "ok",
+        "work": "0000000000000000000000000000000000000000000000000001000000000000"
+      },
+      "fn": "work",
+      "id": "work-of-a-target",
+      "rules": [
+        "CON-7"
+      ],
+      "target": "000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+      "expect": {
+        "result": "ok",
+        "work": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "fn": "work",
+      "id": "work-of-the-zero-target-saturates",
+      "rules": [
+        "CON-7"
+      ],
+      "target": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "expect": {
+        "result": "ok",
+        "work": "0000000000000000000000000000000000000000000000000000000000000001"
+      },
+      "fn": "work",
+      "id": "work-of-the-easiest-target-is-one",
+      "rules": [
+        "CON-7"
+      ],
+      "target": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+      "a": [
+        "000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      ],
+      "b": [
+        "00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      ],
+      "expect": {
+        "result": "ok",
+        "winner": "a",
+        "work_a": "0000000000000000000000000000000000000000000000000003000000000000",
+        "work_b": "0000000000000000000000000000000000000000000000000000000a00000000"
+      },
+      "fn": "fork_choice",
+      "id": "most-work-not-most-blocks",
+      "rules": [
+        "CON-7"
+      ]
+    },
+    {
+      "expect": {
+        "result": "ok"
+      },
+      "fn": "prune_horizon",
+      "height": "101",
+      "horizon": "100",
+      "id": "prune-above-horizon",
+      "rules": [
+        "CON-8"
+      ]
+    },
+    {
+      "expect": {
+        "error": "BelowPruneHorizon",
+        "result": "error"
+      },
+      "fn": "prune_horizon",
+      "height": "100",
+      "horizon": "100",
+      "id": "prune-at-horizon",
+      "rules": [
+        "CON-8"
+      ]
+    },
+    {
+      "expect": {
+        "error": "BelowPruneHorizon",
+        "result": "error"
+      },
+      "fn": "prune_horizon",
+      "height": "40",
+      "horizon": "100",
+      "id": "prune-below-horizon",
+      "rules": [
+        "CON-8"
+      ]
+    },
+    {
+      "call": "verify",
+      "expect": {
+        "result": "ok"
+      },
+      "fn": "verification",
+      "height": "0",
+      "id": "v5-verify",
+      "rules": [
+        "TX-4"
+      ],
+      "signature": "valid",
+      "version": 5
+    },
+    {
+      "call": "verify",
+      "expect": {
+        "error": "NeedsHeight",
+        "result": "error"
+      },
+      "fn": "verification",
+      "height": "0",
+      "id": "v7-verify-needs-height",
+      "rules": [
+        "TX-4"
+      ],
+      "signature": "valid",
+      "version": 7
+    },
+    {
+      "call": "verify_at",
+      "expect": {
+        "result": "ok"
+      },
+      "fn": "verification",
+      "height": "0",
+      "id": "v7-verify-at",
+      "rules": [
+        "TX-4"
+      ],
+      "signature": "valid",
+      "version": 7
+    },
+    {
+      "call": "verify_at",
+      "expect": {
+        "error": "BadSignature",
+        "result": "error"
+      },
+      "fn": "verification",
+      "height": "0",
+      "id": "v7-verify-at-bad-signature",
+      "rules": [
+        "TX-4"
+      ],
+      "signature": "invalid",
+      "version": 7
+    },
+    {
+      "call": "verify",
+      "expect": {
+        "error": "NeedsHeight",
+        "result": "error"
+      },
+      "fn": "verification",
+      "height": "0",
+      "id": "v8-verify-needs-height",
+      "rules": [
+        "TX-4"
+      ],
+      "signature": "valid",
+      "version": 8
+    },
+    {
+      "call": "verify_at",
+      "expect": {
+        "result": "ok"
+      },
+      "fn": "verification",
+      "height": "0",
+      "id": "v8-verify-at",
+      "rules": [
+        "TX-4"
+      ],
+      "signature": "valid",
+      "version": 8
+    }
+  ],
+  "format": 1,
+  "generator": "maya-spec-ref spec-vectors",
+  "spec": "spec/05-consensus.md, spec/02-transactions.md",
+  "u64": "decimal strings"
+}
