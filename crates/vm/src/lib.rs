@@ -39,6 +39,7 @@ pub mod host;
 pub mod resources;
 pub mod runtime;
 pub mod tier;
+pub mod trace;
 pub mod zkml;
 
 pub use config::{MAX_MEMORY_PAGES, MAX_MODULE_BYTES, WASMTIME_VERSION, deterministic_engine};

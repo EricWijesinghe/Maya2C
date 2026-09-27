@@ -70,7 +70,7 @@ placeholders** — an earlier version of this section said they existed.
 
 ### SDK end to end (2026-09-27, Windows workstation)
 
-`python scripts/sdk_e2e.py` starts a one-validator DAG-BFT devnet, starts
+`cargo xtask sdk-e2e` starts a one-validator DAG-BFT devnet, starts
 `maya2c-gateway` in front of it, signs a transfer with
 `l1-wallet send --no-broadcast` (Rust), and runs
 `sdks/sdk-js/test/live-node.test.ts` against the gateway (TypeScript):

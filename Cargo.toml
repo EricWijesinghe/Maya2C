@@ -260,6 +260,8 @@ members = [
     "crates/permissioned-finance",
     # Mesh (Rosetta) Data API over a node's JSON-RPC (MP17). Not linked by the node.
     "crates/mesh-api",
+    # `maya2c`, the developer CLI (MP24): debugger, dev chain, replay, fork.
+    "bins/maya2c-cli",
     # Bitcoin SPV (Master Prompt 6 §3): header rules bit-exact with Core,
     # retargeting, chainwork fork choice, reorgs, merkle proofs. SHA-256 only,
     # because it parses bytes a relayer chose.

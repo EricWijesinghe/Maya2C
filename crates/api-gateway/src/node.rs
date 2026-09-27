@@ -107,7 +107,7 @@ const REFUSAL_CODES: [i32; 2] = [-32_602, -32_000];
 
 /// A call error the node chose to return (bad params, a refused transaction)
 /// is the caller's fault; anything else — transport, timeout, an internal
-/// error — is the gateway's or the node's. `scripts/sdk_e2e.py` found the
+/// error — is the gateway's or the node's. `cargo xtask sdk-e2e` found the
 /// first kind being reported as the second.
 fn classify(method: &str, error: jsonrpsee::core::ClientError) -> GatewayError {
     match &error {
@@ -134,7 +134,7 @@ impl NodeClient for RpcNodeClient {
 
     async fn send_raw_transaction(&self, raw: &str) -> Result<String, GatewayError> {
         // The node answers `{txid, accepted}`, not a bare hash. Until
-        // `scripts/sdk_e2e.py` ran against a real node, only the recorded
+        // `cargo xtask sdk-e2e` ran against a real node, only the recorded
         // node in the tests had spoken to this, and it answered a string.
         #[derive(serde::Deserialize)]
         struct Submitted {

@@ -1,0 +1,27 @@
+[package]
+name = "maya2c-cli"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "maya2c: the developer CLI - dev chain, time-travel debugger, replay, fork (Master Prompt 24)"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "maya2c"
+path = "src/main.rs"
+
+[dependencies]
+maya-vm = { path = "../../crates/vm" }
+clap = { workspace = true, features = ["derive"] }
+anyhow = "1"
+hex.workspace = true
+
+[dev-dependencies]
+wat.workspace = true
+
+[lints]
+workspace = true

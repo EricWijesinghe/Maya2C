@@ -6590,6 +6590,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya2c-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap 4.6.6",
+ "hex",
+ "maya-vm",
+ "wat",
+]
+
+[[package]]
 name = "maya2c-genesis"
 version = "0.1.0"
 dependencies = [
