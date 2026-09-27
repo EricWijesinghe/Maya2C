@@ -1,7 +1,6 @@
 # ADR-026: Contracts need to know who called them
 
-**Status:** Proposed. Not decided, because it changes the consensus-visible
-host surface.
+**Status:** Accepted (2026-09-27). Option 1, live from genesis — see "Decision".
 **Date:** 2026-09-26
 
 ## Context
@@ -62,3 +61,26 @@ Option 1, with the following conditions:
 - The migration kits (`docs/migration/`) must tell porting teams that this is
   the first thing that will not port.
 - The MP30 NFT template stays blocked.
+
+## Decision (2026-09-27)
+
+Option 1: `caller(out_ptr) -> i32` writes the transaction signer's 32-byte
+address and returns 0 (or -1 where no transaction exists, e.g. a dry run).
+
+**Activation height: genesis, not a later height.** The proposal asked for a
+written activation height because a new import is a new consensus rule. The
+rule it changes is deploy-time validation: before this, `validate` refused any
+module importing `caller`, so no deployed contract on any chain imports it,
+and turning it on changes the outcome of no past transaction. No chain is
+live, so no node running the old binary can disagree. A chain that goes live
+with a binary lacking `caller` would need the upgrade schedule (spec/ §4);
+that is the rule for every host function, recorded here rather than
+special-cased.
+
+No `origin`: there are still no contract-to-contract calls, so the caller is
+always the signer.
+
+`contracts/nft-game` now authorises by `caller`, and
+`crates/reference-apps/tests/nft_game.rs::only_the_owner_can_move_a_token`
+replaces `anyone_can_move_anyones_token`: Mallory can no longer move, level
+or mint.

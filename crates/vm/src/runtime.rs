@@ -482,6 +482,9 @@ pub const HOST_MODULE: &str = "env";
 /// what the linker actually registers, so the two cannot drift.
 pub const HOST_FUNCTIONS: &[&str] = &[
     "block_height",
+    // ADR-026: who signed the transaction. Live from genesis — no module
+    // could import it before it existed, so no deployed contract changes.
+    "caller",
     "get_balance",
     "storage_read",
     "storage_write",
@@ -511,6 +514,34 @@ fn register_host_functions<S: HostState + Send + 'static>(
             "env",
             "block_height",
             |caller: Caller<'_, CallContext<S>>| caller.data().state.block_height() as i64,
+        )
+        .map_err(wrap)?;
+
+    // caller(out_ptr: i32) -> i32
+    // Writes the signer's 32-byte address and returns 0, or returns -1 where
+    // no transaction exists (a dry run). ADR-026.
+    linker
+        .func_wrap(
+            "env",
+            "caller",
+            |mut caller: Caller<'_, CallContext<S>>, out_ptr: i32| -> i32 {
+                let Some(address) = caller.data().state.caller() else {
+                    return -1;
+                };
+                let Some(memory) = caller_memory(&mut caller) else {
+                    caller
+                        .data_mut()
+                        .fail(VmError::MissingExport("memory".into()));
+                    return -1;
+                };
+                match write_guest(&memory, &mut caller, out_ptr as u32, &address) {
+                    Ok(()) => 0,
+                    Err(error) => {
+                        caller.data_mut().fail(error);
+                        -1
+                    }
+                }
+            },
         )
         .map_err(wrap)?;
 

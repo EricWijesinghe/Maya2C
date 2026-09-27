@@ -57,6 +57,8 @@ pub struct ChainHost {
     /// Whether `host_verify_zkml_proof` answers. False unless the block's
     /// context says otherwise, which in the node it never does.
     zkml_active: bool,
+    /// The transaction's signer, reported by the `caller` host function.
+    caller: Option<Address>,
 }
 
 impl ChainHost {
@@ -109,6 +111,13 @@ impl ChainHost {
         self
     }
 
+    /// Names the transaction's signer, for the `caller` host function.
+    #[must_use]
+    pub fn with_caller(mut self, caller: Address) -> Self {
+        self.caller = Some(caller);
+        self
+    }
+
     /// Supplies the balances a call may observe.
     #[must_use]
     pub fn with_balances(mut self, balances: BTreeMap<Address, u64>) -> Self {
@@ -138,6 +147,10 @@ impl ChainHost {
 impl HostState for ChainHost {
     fn balance_of(&self, address: &VmAddress) -> u64 {
         self.balances.get(address).copied().unwrap_or(0)
+    }
+
+    fn caller(&self) -> Option<VmAddress> {
+        self.caller
     }
 
     fn block_height(&self) -> u64 {
