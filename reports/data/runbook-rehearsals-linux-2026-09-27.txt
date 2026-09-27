@@ -1,0 +1,7 @@
+[44s] disk-full: 24 MiB volume filled at height 125; node reported: miner: block rejected: storage error: IO error: No space left on device: While appending to file: /tmp/tmp.TwkRCiVjt7/ti
+[59s] disk-full: after freeing the space and restarting, the node reopened consistently and mined on to height 169
+[62s] memory-pressure: 48 MiB limit, node killed: OOMKilled=true exit=137
+[77s] memory-pressure: restarted without the limit, reopened consistently, height 40
+[102s] peer-starvation: a node started with no bootnode sits at height 0 while the network is at 71
+[104s] peer-starvation: restarted with a bootnode, caught up to 79 of 79
+[104s] RUNBOOK REHEARSALS PASSED in 104s

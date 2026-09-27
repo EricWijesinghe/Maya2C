@@ -92,3 +92,22 @@ now tests for the real dependency.
 - That the formal proofs cover the real code. They cover models of it
   (Lean), bounded integer encodings (Z3), and Kani harnesses that were not
   run this session.
+
+## Re-run 2026-09-27
+
+After DAG-BFT, staking, the live fee market and the security council landed:
+
+```
+$ cargo xtask go-no-go
+PASS         DAG-BFT wired into the node
+NEEDS HUMAN  Staking and slashing built   (features.toml: staking-and-slashing, verified)
+NEEDS HUMAN  Fee market active            (on any genesis with bft.fees; ADR-029)
+FAIL         External audits … / Attacknet ≥ 4 weeks / Incentivized testnet ≥ 4 weeks /
+             External validators / Genesis frozen in a signed file
+6 PASS, 6 FAIL, 4 NEEDS HUMAN — NO-GO
+```
+
+Every remaining FAIL is an act outside this repository: an external audit,
+weeks of a public attacknet and incentivized testnet, outside operators, and
+the owner signing a mainnet genesis. The gate reports them honestly, which is
+what the DONE WHEN asks of it.

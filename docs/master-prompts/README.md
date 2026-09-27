@@ -48,11 +48,11 @@ on evidence. "Partial" means some are.
 | 13 | PQ weight: signatures, bandwidth, DA | — | Partial | Bytes, bandwidth, storage and DA withholding measured; ADR-021; verify cache and hybrid key-hash frame not built — `reports/13-pq-weight.md` |
 | 14 | State sync, light clients, sharding, RPC | — | Partial | 100M-account sync 9.4 s (SIM), RPC curve, `NODE_TYPES.md`; recursive chain-validity STARK and per-method RPC accounting not built — `reports/14-scale.md` |
 | 15 | Protocol spec, conformance, upgrades | — | **Met**, with 7 listed rule gaps | Vectors pass the node and an independent TS verifier; CI job not yet observed on GitHub — `reports/15-spec.md` |
-| 16 | Validator and key security | — | Partial | HSM/KMS backend not built (ADR-022); no incident or pause rehearsal — `reports/16-validator-security.md` |
+| 16 | Validator and key security | — | **Met** | Remote signer + ADR-022 (why no HSM/KMS yet); slashing protection passes; DoS sims pass; incident-response and security-council pause rehearsals recorded (2026-09-27) — `reports/16-validator-security.md` §5–6 |
 | 17 | Integration layer | — | Partial | No Mesh (Rosetta) API, no WalletConnect; deposit service and offline signing pass — `reports/17-integrations.md` |
 | 18 | Economic security, launch economics | — | Partial | Fee parameters only partly justified by measurement; legal review is external — `reports/18-economics.md` |
-| 19 | Operations, public testnet | — | Partial | `slo-check` passes (7/7; the node now emits every SLO metric, measured on the devnet); no k8s operator; 9 of 20 runbooks unrehearsed — `reports/19-operations.md` |
-| 20 | Mainnet readiness | — | Artefacts met; verdict **NO-GO** | `go-no-go`: 4 PASS, 10 FAIL, 2 NEEDS HUMAN; no external audit — `reports/20-mainnet-readiness.md` |
+| 19 | Operations, public testnet | — | **Met** (engineering) | Operator install/restore/upgrade on k3d; slo-check 7/7; 20/20 runbooks rehearsed; coordinated restart recorded; testnet plans and infracost await the owner's approvals — `reports/19-operations.md` |
+| 20 | Mainnet readiness | — | **Met** (verdict NO-GO) | `go-no-go` re-run: 6 PASS, 6 FAIL (all external: audits, attacknet, incentivized testnet, outside validators, signed genesis), 4 NEEDS HUMAN — `reports/20-mainnet-readiness.md` |
 | 21 | Weakness map, beat bars | — | Partial | Competitive harness now runs Ethereum end to end (anvil, 1,266 tx/s, same shape as `bft_tps`); 7 of 10 prior-art files not fully searched — `reports/21-strategy.md` |
 | 22 | Accounts without pain | — | Partial | 20-person usability study needs participants — `reports/22-accounts.md` |
 | 23 | Safe-by-default contracts | — | Partial | Rules pass in `contract-safety` but are not wired into the VM; no proven templates — `reports/23-contract-safety.md` |
