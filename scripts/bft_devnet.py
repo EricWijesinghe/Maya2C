@@ -105,7 +105,7 @@ def setup(bins: Path, work: Path) -> tuple[list[str], str, list[str]]:
             "validators": pubkeys, "anchor_timeout_ms": 1000, "batch_size": 500,
             # ADR-029: fees live; the wallet adds the fee output itself.
             "fees": {"initial_base_fee": 1, "min_base_fee": 1,
-                     "target_block_bytes": 1_000_000, "change_denominator": 8},
+                     "target_block_bytes": 2_621_440, "change_denominator": 8},
             # ADR-028: the four validators bonded at genesis by the wallet's
             # address; epochs short enough to cross several in one run.
             "staking": {"epoch_blocks": 20,

@@ -143,3 +143,34 @@ fn the_base_fee_falls_on_empty_blocks_and_never_below_its_floor() {
         "twenty empty blocks left the base fee at {last}"
     );
 }
+
+/// The sizes the fee parameters are derived from (reports/18-economics.md §3a).
+#[test]
+fn measured_transfer_sizes_for_the_fee_derivation() {
+    use maya_crypto_pq::suite::SignatureSuite as _;
+    let hybrid = transfer(1, Some(1), 0).to_bytes().len();
+    let key = maya_crypto_pq::suite::MlDsa65::signing_key_from_seed(
+        &maya_crypto_pq::suite::MasterSeed::from_bytes([3; 32]),
+    );
+    let mut v7 = Transaction::new(
+        vec![],
+        vec![
+            TxOutput {
+                amount: 1,
+                recipient: [9; 32],
+            },
+            TxOutput {
+                amount: 1,
+                recipient: FEE_COLLECTOR,
+            },
+        ],
+        0,
+    );
+    v7.sign_with_suite::<maya_crypto_pq::suite::MlDsa65>(&key)
+        .unwrap();
+    let suite = v7.to_bytes().len();
+    println!(
+        "fee derivation sizes: hybrid (v5, ML-DSA-65 + SLH-DSA) transfer with fee output = {hybrid} B; ML-DSA-65 suite (v7) transfer with fee output = {suite} B"
+    );
+    assert!(suite < hybrid);
+}

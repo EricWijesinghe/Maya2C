@@ -46,7 +46,11 @@ const SIGNATURES: &[&str] = &[
 fn the_list_and_the_signatures_stay_the_same_length() {
     // The one thing a reader of the table above cannot check by eye.
     assert_eq!(HOST_FUNCTIONS.len(), SIGNATURES.len());
-    assert_eq!(HOST_FUNCTIONS.len(), 10, "the host surface changed size (caller: ADR-026)");
+    assert_eq!(
+        HOST_FUNCTIONS.len(),
+        10,
+        "the host surface changed size (caller: ADR-026)"
+    );
 }
 
 /// Every `linker.func_wrap("env", "<name>", …)` in the crate's own source.
