@@ -1,0 +1,21 @@
+[package]
+name = "maya-permissioned-finance"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Master Prompt 6 §4-5: a permissioned CBDC vault with ZK-KYC, a sealed-bid dark pool, and per-jurisdiction tax calculators"
+
+# RESEARCH: libraries with tests, none wired into block execution. The vault
+# gates onboarding on a STARK credential proof from crates/zk-stark.
+[dependencies]
+blake3.workspace = true
+maya-zk-stark = { path = "../zk-stark" }
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "darkpool_bench"
+harness = false

@@ -13,11 +13,11 @@ and registered invariant hooks; this report is complete.*
 |---|---|---|---|---|
 | DEX / AMM + batch auctions (§1) | `dex_tests.rs` 27 ✓, `crates/dex/tests/*` | yes | yes (AMM reserves, invariants 6–7) | met |
 | Payment channels "Maya Flash" (§2) | `channel_tests.rs` 26 ✓, `scale_tests.rs` 4 ✓ (1 ignored: 20k signatures, ~1 h) | yes | yes (channel layer under the state root) | met; machine barter / 10k IoT devices not built |
-| Cross-chain (§3) | **new** `crates/btc-spv` 9 ✓ | yes (new) | n/a (not on chain) | partial: Bitcoin SPV with 6-block reorg test; Ethereum light client and lock/mint not built |
+| Cross-chain (§3) | **new** `crates/btc-spv` 9 ✓; `interop::beacon` (Ethereum sync-committee light client, verified on a real mainnet fixture — `reports/25-interop.md`) | yes | n/a (not on chain) | partial: Bitcoin SPV with 6-block reorg test and an Ethereum light client; lock/mint not built |
 | ISO 20022 (§4) | `iso20022_tests.rs` 20 ✓ | yes | n/a (bridge) | met for parsing/generation; types hand-written, not generated from XSDs |
 | RWA (§4) | `rwa_tests.rs` 11 ✓ | yes | yes | `ten_thousand_dividends_settle_in_one_block` (the brief's number) and DvP present |
-| CBDC / dark pool (§4) | — | — | — | **not built** |
-| Compliance + tax (§5) | sanctions and credential STARK statements in `crates/zk-stark` (`sanctions.rs`, `statement_tests.rs`) | partial | — | tax calculators, `compliance_tests.rs` (500 tx) **not built**; `docs/LEGAL_NOTICE.md` **added** |
+| CBDC / dark pool (§4) | **new** `crates/permissioned-finance`: `vault_tests.rs` 3 ✓, `compliance_tests.rs` 4 ✓ | yes (new, RESEARCH) | n/a (not on chain) | built — §4 below; the MPC form of the dark pool is not |
+| Compliance + tax (§5) | sanctions and credential STARK statements in `crates/zk-stark`; **new** `permissioned_finance::tax` | yes (new) | — | US/UK/DE calculators and `compliance_tests.rs` (500 transactions) built; `docs/LEGAL_NOTICE.md` applies |
 | Macro-economic engines (§6) | **new** `econ/` 6 ✓ | yes (new, SIM) | n/a (simulation) | built as an agent-based simulator first, as the brief requires |
 | Identity (§7) | `identity_tests.rs` 15 ✓ | yes | yes | DID + attestations + selective disclosure; EEG/BCI SIM and PoP biometrics not built |
 | DePIN / IoT (§8) | `iot_anchor_tests.rs` 7 ✓ | yes | yes | enrollment → telemetry → tamper; energy protocol parsers, satellite NDVI oracle, swarms not built |
@@ -62,9 +62,46 @@ are scenario inputs. Real-time ZK proof-of-reserves is not built.
 
 ## 3. Not built
 
-CBDC/permissioned vaults with ZK-KYC; dark pool with MPC sealed bids and
-`benches/darkpool_bench.rs`; per-jurisdiction tax calculators and
-`compliance_tests.rs`; Ethereum sync-committee light client; generic L1/L2
-light-client framework; energy protocol parsers (Modbus/TCP, IEC 61850, IEEE
+Dark-pool matching under MPC (orders here are hidden until the batch
+closes, then revealed — §4); generic L1/L2 light-client framework; energy protocol parsers (Modbus/TCP, IEC 61850, IEEE
 1547) and grid SIM; satellite NDVI oracle; robot swarm auctions; EEG/BCI SIM;
 biometric proof-of-personhood; machine-to-machine barter with 10,000 devices.
+
+## 4. Permissioned finance (new, RESEARCH) — run for this report
+
+Run on the Windows workstation, 2026-09-27, `nightly-2026-07-15`.
+
+`cargo test -p maya-permissioned-finance -- --nocapture`: 7 passed
+(`compliance_tests` 4, `vault_tests` 3), 0 failed.
+
+- **CBDC vault** (`cbdc.rs`). Admission verifies a STARK proof
+  (`zk-stark::credential`) that some unrevoked credential in the KYC issuer's
+  tree carries a tier ≥ the one requested. Tested: a tier-1 holder cannot
+  produce a tier-2 proof, a revoked credential cannot be proved, a tier-2 proof
+  does not admit at tier 3, and a proof against another issuer's roots is
+  refused. Then `fifty_thousand_compliant_settlements_conserve_supply`:
+  `50000 settlements in 12.1 ms (4121774/s)` in a debug build, supply equal to
+  the sum of balances afterwards. Per-tier limits, freezes and issuer-only
+  minting each have a refusal test.
+- **Dark pool** (`darkpool.rs`). Orders enter as `BLAKE3(order ‖ salt)`
+  commitments; the book is commitments only until the batch closes. Reveals
+  must open their commitment; unrevealed orders do not trade. Clearing is at the
+  one price that maximises matched volume (lowest on a tie). The 500-order test
+  checks the price against a brute-force auction, bought = sold, and that no
+  unrevealed trader was filled. `cargo bench --bench darkpool_bench` (release):
+  `darkpool 1000 orders (best of 20): commit 0.323 ms, reveal 0.376 ms, clear
+  0.129 ms, total 0.828 ms; price Some(100)`.
+- **Tax** (`tax.rs`). US (FIFO, short/long split at 365 days), UK (single
+  average-cost pool), DE (FIFO, lots held > 365 days exempt), integer cents.
+  500 generated trades: US and DE gains sum exactly to net cash; the UK pool is
+  within one cent per disposal of it (allowable cost rounds down). A
+  hand-worked case pins each jurisdiction. Not tax advice.
+
+**Limits, stated:** the dark pool is commit-reveal, not MPC — prices and sizes
+are public after the batch closes. The KYC proof is not bound to the account
+being admitted: the credential circuit keeps the subject private and exposes
+no public input to bind it to, so a proof could be replayed by another account.
+Closing that needs a subject-commitment public input in
+`zk-stark::credential`, which changes a circuit other statements use; it is
+listed here rather than patched around.
+
