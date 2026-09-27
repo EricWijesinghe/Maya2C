@@ -114,6 +114,11 @@ pub struct BftGenesis {
     /// Most transactions per vertex.
     #[serde(default = "BftGenesis::default_batch_size")]
     pub batch_size: usize,
+    /// Least milliseconds between one validator's proposals unless a full
+    /// batch waits: what keeps an idle chain from minting empty blocks as
+    /// fast as the network turns rounds (ADR-027).
+    #[serde(default = "BftGenesis::default_round_interval_ms")]
+    pub round_interval_ms: u64,
 }
 
 impl BftGenesis {
@@ -122,6 +127,10 @@ impl BftGenesis {
     }
 
     const fn default_batch_size() -> usize {
+        500
+    }
+
+    const fn default_round_interval_ms() -> u64 {
         500
     }
 
@@ -538,6 +547,7 @@ impl GenesisConfig {
         h.update(&chain);
         h.update(&bft.anchor_timeout_ms.to_le_bytes());
         h.update(&(bft.batch_size as u64).to_le_bytes());
+        h.update(&bft.round_interval_ms.to_le_bytes());
         h.update(&(bft.validators.len() as u64).to_le_bytes());
         for key in &bft.validators {
             h.update(key.to_ascii_lowercase().as_bytes());

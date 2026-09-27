@@ -1,7 +1,8 @@
 //! L1 node daemon.
 //!
 //! Loads a genesis file, opens persistent state, joins the P2P mesh, serves
-//! JSON-RPC, and optionally mines.
+//! JSON-RPC, and either runs DAG-BFT (a genesis with a `bft` committee) or
+//! follows and optionally mines proof of work (a genesis without one).
 //!
 //! ```text
 //! node --genesis /config/genesis.json \
@@ -45,6 +46,7 @@ use libp2p::Multiaddr;
 // `crates/node/src/bin/node.rs`, because a `.rs` directly in `src/bin/` is
 // built as a binary of its own; in a package of its own that constraint is
 // gone.
+mod bft;
 mod import;
 mod pruning;
 use import::{backfill_loop, block_import_loop};
@@ -84,18 +86,25 @@ const DAG_PREPARE_LOOKAHEAD: u64 = 100;
 /// coins that no supply audit would reveal.
 const VALUE_BEARING_CHAINS: &[&str] = &["maya-mainnet", "mainnet"];
 
-/// The consensus mode this binary implements (ADR-015). A production build
-/// accepts only `dag-bft`, and DAG-BFT is not wired into this node yet, so a
-/// production binary refuses to start rather than run a devnet mode on a
-/// network that expects mainnet rules (Master Prompt 11 §3, ADR-016).
-const CONSENSUS_MODE: &str = "argonblake-pow";
+/// The consensus mode a genesis file selects (ADR-015 §5: the mode is a
+/// genesis parameter, never a per-host setting). A `bft` committee means
+/// `dag-bft`; its absence means the proof-of-work devnet mode.
+fn consensus_mode(config: &GenesisConfig) -> &'static str {
+    if config.bft.is_some() {
+        "dag-bft"
+    } else {
+        "argonblake-pow"
+    }
+}
 
-/// Refuses a devnet-only consensus mode in a production build.
-fn check_consensus_mode() -> Result<(), String> {
-    if cfg!(feature = "production") && CONSENSUS_MODE != "dag-bft" {
+/// Refuses a devnet-only consensus mode in a production build (Master Prompt
+/// 11 §3, ADR-016): a mainnet binary must never run a devnet mode on a network
+/// that expects mainnet rules.
+fn check_consensus_mode(mode: &str) -> Result<(), String> {
+    if cfg!(feature = "production") && mode != "dag-bft" {
         return Err(format!(
-            "production build: consensus mode `{CONSENSUS_MODE}` is devnet-only; mainnet runs \
-             dag-bft, which is not yet wired into this node (ADR-015, ADR-016)"
+            "production build: consensus mode `{mode}` is devnet-only; mainnet runs dag-bft, \
+             selected by a `bft` committee in genesis (ADR-015, ADR-027)"
         ));
     }
     Ok(())
@@ -129,6 +138,8 @@ struct Args {
     snapshot_interval: Option<u64>,
     /// Bootstrap a pruned node from this peer's JSON-RPC endpoint.
     bootstrap_from: Option<String>,
+    /// ML-DSA-65 validator key; absent means an observer on a DAG-BFT network.
+    validator_key: Option<PathBuf>,
 }
 
 impl Default for Args {
@@ -170,6 +181,7 @@ impl Default for Args {
             arweave_gateway: None,
             snapshot_interval: None,
             bootstrap_from: None,
+            validator_key: None,
         }
     }
 }
@@ -199,7 +211,9 @@ fn print_usage() {
          --arweave-gateway <URL>  also fetch archived batches from an Arweave gateway\n  \
          --snapshot-interval <N>  snapshot state every N blocks for pruned peers\n  \
          --bootstrap-from <URL>   bootstrap a pruned node from a peer's JSON-RPC\n  \
-         --mine               mine blocks on this node\n  \
+         --validator-key <PATH>  DAG-BFT validator key; without it the node observes\n  \
+         --generate-validator-key <PATH>  write a new validator key, print its public key\n  \
+         --mine               mine blocks on this node (proof-of-work devnets only)\n  \
          --threads <N>        mining threads (default: available parallelism, max 8)\n  \
          -h, --help           show this message"
     );
@@ -249,6 +263,11 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--arweave-gateway" => args.arweave_gateway = Some(value()?),
             "--snapshot-interval" => args.snapshot_interval = Some(value()?.parse()?),
             "--bootstrap-from" => args.bootstrap_from = Some(value()?),
+            "--validator-key" => args.validator_key = Some(PathBuf::from(value()?)),
+            "--generate-validator-key" => {
+                bft::generate_validator_key(Path::new(&value()?))?;
+                std::process::exit(0);
+            }
             "--threads" => args.threads = value()?.parse()?,
             "-h" | "--help" => {
                 print_usage();
@@ -544,7 +563,6 @@ async fn mining_loop(chain: Arc<Mutex<Chain>>, network: NodeHandle, threads: usi
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    check_consensus_mode()?;
     let args = parse_args()?;
 
     // The file first, then the flags over it. A flag beats the file so an
@@ -574,6 +592,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let genesis_json = std::fs::read_to_string(&args.genesis)
         .map_err(|e| format!("reading genesis file {}: {e}", args.genesis.display()))?;
     let config = GenesisConfig::from_json(&genesis_json)?;
+    let mode = consensus_mode(&config);
+    check_consensus_mode(mode)?;
+    if mode == "dag-bft" && args.mine {
+        return Err("--mine is a proof-of-work flag; this genesis runs dag-bft".into());
+    }
 
     // Refuse to serve a value-bearing chain while shielded transactions rest on
     // an unaudited circuit. Failing at startup is the point: the alternative is
@@ -604,8 +627,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
     )?);
 
     let genesis_block = config.genesis_block()?;
-    let chain_config =
-        ChainConfig::with_pow_limit(config.pow_limit()).with_upgrades(&config.upgrade_schedule()?);
+    // DAG-BFT verifies no work: a block is derived from certificates by this
+    // node, and nothing else may insert one (no gossip import, no
+    // `submit_block`, below). Proof of work verifies against the genesis floor.
+    let chain_config = if mode == "dag-bft" {
+        ChainConfig::without_pow_verification()
+    } else {
+        ChainConfig::with_pow_limit(config.pow_limit())
+    }
+    .with_upgrades(&config.upgrade_schedule()?);
     let chain = Arc::new(Mutex::new(
         open_or_bootstrap(&args, &config, &state, genesis_block.clone(), chain_config).await?,
     ));
@@ -618,6 +648,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     )?;
 
     println!("chain id:    {}", config.chain_id);
+    println!("consensus:   {mode}");
     println!("genesis id:  {}", hex::encode(genesis_block.header.id()));
     println!("difficulty:  {} leading zero bits", config.difficulty_bits);
     {
@@ -634,7 +665,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    let rpc_context = RpcContext::new(Arc::clone(&chain), Mempool::new(Arc::clone(&state)));
+    let rpc_pool = Mempool::new(Arc::clone(&state));
+    let rpc_context = RpcContext::new(Arc::clone(&chain), rpc_pool.clone());
+    let rpc_context = if mode == "dag-bft" {
+        rpc_context.refusing_blocks()
+    } else {
+        rpc_context
+    };
     let (rpc_context, pruning) = pruning_services(&args, &config.chain_id, rpc_context)?;
 
     // --- P2P ---
@@ -716,18 +753,42 @@ async fn main() -> Result<(), Box<dyn Error>> {
         None => println!("market:      disabled"),
     }
 
-    // Apply blocks arriving over gossip. Without this task the node decodes
-    // every gossiped block and then drops it on the floor.
-    tokio::spawn(block_import_loop(
-        Arc::clone(&chain),
-        network.clone(),
-        Arc::clone(&metrics),
-    ));
+    if let Some(committee) = &config.bft {
+        let signer = match &args.validator_key {
+            Some(path) => Some(bft::load_validator_key(path)?),
+            None => None,
+        };
+        let setup = bft::setup(committee, signer)?;
+        let (driver, opening) = bft::open(&setup, &args.data_dir, &chain)?;
+        let size = setup.committee.len();
+        match driver.validator_id() {
+            Some(id) => println!("dag-bft:     validator {id} of {size}"),
+            None => println!("dag-bft:     observer of {size} validators"),
+        }
+        tokio::spawn(bft::bft_loop(
+            Arc::clone(&chain),
+            network.clone(),
+            rpc_pool,
+            driver,
+            opening,
+            size,
+            Arc::clone(&metrics),
+        ));
+    } else {
+        // Apply blocks arriving over gossip. Without this task the node decodes
+        // every gossiped block and then drops it on the floor. Proof of work
+        // only: on DAG-BFT a gossiped block is a claim nobody derived.
+        tokio::spawn(block_import_loop(
+            Arc::clone(&chain),
+            network.clone(),
+            Arc::clone(&metrics),
+        ));
 
-    // Gossip only carries blocks minted after this node joined, so a peer
-    // starting from genesis needs an explicit pull to cover the gap.
-    if let Some(url) = args.sync_from.clone() {
-        tokio::spawn(backfill_loop(Arc::clone(&chain), url, Arc::clone(&metrics)));
+        // Gossip only carries blocks minted after this node joined, so a peer
+        // starting from genesis needs an explicit pull to cover the gap.
+        if let Some(url) = args.sync_from.clone() {
+            tokio::spawn(backfill_loop(Arc::clone(&chain), url, Arc::clone(&metrics)));
+        }
     }
 
     if let Some(pruning) = pruning {

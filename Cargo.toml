@@ -248,9 +248,12 @@ members = [
     "crates/history-compactor",
     # Consensus modes and the DAG-BFT engine (Master Prompt 4, ADR-015):
     # Narwhal certification and the Bullshark commit rule as a sans-IO state
-    # machine, plus the most-work fork choice the two work modes share.
-    # RESEARCH: it runs under `maya-sim`, not yet in the node's main loop.
+    # machine, plus the most-work fork choice the two work modes share. The
+    # node runs it behind ML-DSA signatures and a gossip transport (ADR-027).
     "crates/dag-bft",
+    # Validator registration, delegation, active-set selection, slashing and
+    # epoch rewards (ADR-028). Dependency-free so Kani can compile it.
+    "crates/staking",
     # Bitcoin SPV (Master Prompt 6 §3): header rules bit-exact with Core,
     # retargeting, chainwork fork choice, reorgs, merkle proofs. SHA-256 only,
     # because it parses bytes a relayer chose.

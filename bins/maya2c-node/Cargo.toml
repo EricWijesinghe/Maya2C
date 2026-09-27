@@ -14,6 +14,8 @@ description = "The validating node daemon: consensus, chain, peer-to-peer, RPC, 
 custom-l1-node = { path = "../../crates/node", default-features = false }
 maya-archive = { path = "../../crates/archive" }
 maya-zk-stark = { path = "../../crates/zk-stark" }
+maya-dag-bft = { path = "../../crates/dag-bft" }
+zeroize.workspace = true
 jsonrpsee.workspace = true
 libp2p.workspace = true
 tokio.workspace = true

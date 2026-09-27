@@ -22,7 +22,7 @@ use crate::network::peer_health::{
     Action, Offence, Verdict, classify_block_frame, classify_transaction,
 };
 use crate::network::sync::{self, BlockRequest, BlockResponse, MAX_BLOCKS_PER_REQUEST};
-use crate::network::topics::{blocks_topic, txs_topic};
+use crate::network::topics::{bft_topic, blocks_topic, txs_topic};
 
 impl NodeDriver {
     /// Validates one gossiped message and tells gossipsub what to do with it.
@@ -55,11 +55,24 @@ impl NodeDriver {
             self.gossiped_transaction(data)
         } else if message.topic == blocks_topic().hash() {
             self.gossiped_block(source, author, data, now)
+        } else if message.topic == bft_topic().hash() {
+            self.gossiped_bft(data)
         } else {
             Verdict::Ignore
         };
         self.report(source, id, verdict);
         self.attest(verdict, author, message.sequence_number, signature, data);
+    }
+
+    /// Relays a DAG-BFT frame that has the right version byte and hands it to
+    /// whoever runs consensus. Signatures are the engine's to check; the gossip
+    /// layer only refuses what cannot be a frame (`consensus::bft` module note).
+    fn gossiped_bft(&mut self, data: &[u8]) -> Verdict {
+        if data.first() != Some(&crate::consensus::bft::wire::WIRE_VERSION) {
+            return Verdict::Ignore;
+        }
+        self.emit(NodeEvent::BftFrame(std::sync::Arc::new(data.to_vec())));
+        Verdict::Accept
     }
 
     fn gossiped_transaction(&mut self, data: &[u8]) -> Verdict {
