@@ -49,6 +49,9 @@ pub struct Options {
     pub bin_dir: PathBuf,
     /// Stop after this many deployments (tests); `None` runs until killed.
     pub stop_after_deploys: Option<usize>,
+    /// Extra `maya2c-node` flags, e.g. `--snapshot-interval 5` so the chain
+    /// can be forked or replayed from.
+    pub node_args: Vec<String>,
 }
 
 /// What happened, measured.
@@ -65,7 +68,7 @@ pub struct Report {
 }
 
 /// Kills the node (and explorer) when dropped.
-struct Children(Vec<Child>);
+pub struct Children(Vec<Child>);
 
 impl Drop for Children {
     fn drop(&mut self) {
@@ -128,6 +131,7 @@ fn spawn_node(o: &Options, genesis: &Path) -> anyhow::Result<Child> {
         ])
         .arg("--validator-key")
         .arg(node_dir.join("validator.key"))
+        .args(&o.node_args)
         .stdout(log.try_clone()?)
         .stderr(log)
         .spawn()
@@ -179,12 +183,24 @@ fn modified(path: &Path) -> Option<SystemTime> {
     std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
-/// Runs the local loop until killed, or until `stop_after_deploys`.
+/// A running local chain: stops when dropped.
+pub struct LocalChain {
+    /// The node (and explorer) processes.
+    pub children: Children,
+    /// Pre-funded keys and their hex addresses.
+    pub accounts: Vec<(HybridSigningKey, String)>,
+    /// A client for the node.
+    pub client: NodeClient,
+    /// What start-up measured.
+    pub report: Report,
+}
+
+/// Starts the chain, waits for its first block, and prints how to use it.
 ///
 /// # Errors
 ///
-/// A missing binary, a node that does not come up, or a failed deploy.
-pub async fn run(o: &Options) -> anyhow::Result<Report> {
+/// A missing binary, or a node that does not come up.
+pub async fn launch(o: &Options) -> anyhow::Result<LocalChain> {
     let started = Instant::now();
     let (accounts, genesis) = prepare(o)?;
     let mut children = Children(vec![spawn_node(o, &genesis)?]);
@@ -207,7 +223,6 @@ pub async fn run(o: &Options) -> anyhow::Result<Report> {
     .context("first block")?;
     report.first_block = started.elapsed();
     report.accounts = accounts.iter().map(|(_, a)| a.clone()).collect();
-
     println!(
         "maya2c dev: chain up — RPC in {:?}, first block in {:?}",
         report.rpc_ready, report.first_block
@@ -235,6 +250,22 @@ pub async fn run(o: &Options) -> anyhow::Result<Report> {
         );
     }
 
+    Ok(LocalChain {
+        children,
+        accounts,
+        client,
+        report,
+    })
+}
+
+/// Runs the local loop until killed, or until `stop_after_deploys`.
+///
+/// # Errors
+///
+/// A missing binary, a node that does not come up, or a failed deploy.
+pub async fn run(o: &Options) -> anyhow::Result<Report> {
+    let local = launch(o).await?;
+    let (client, accounts, mut report) = (&local.client, &local.accounts, local.report.clone());
     let Some(watch) = &o.watch else {
         tokio::signal::ctrl_c().await?;
         return Ok(report);
@@ -251,7 +282,7 @@ pub async fn run(o: &Options) -> anyhow::Result<Report> {
             let t = Instant::now();
             let code =
                 std::fs::read(watch).with_context(|| format!("reading {}", watch.display()))?;
-            match deploy(&client, deployer, code).await {
+            match deploy(client, deployer, code).await {
                 Ok(id) => {
                     println!(
                         "  deployed  {} -> contract {id} in {:?}",

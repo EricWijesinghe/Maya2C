@@ -2,6 +2,8 @@
 //!
 //! ```text
 //! maya2c dev [--watch contract.wasm] [--accounts N] [--dir DIR]
+//! maya2c replay --from URL --genesis FILE <height> [--snapshot-depth N]
+//! maya2c fork   --from URL --genesis FILE [--rpc-port P] [--snapshot-depth N]
 //! maya2c debug <contract.wasm> [--input HEX] [--caller HEX] [--height N]
 //!              [--gas N] [--script "n;n;s;b;e"]
 //! ```
@@ -25,6 +27,43 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Re-execute a block of another network locally; succeeds only if the
+    /// state root it declares is reproduced.
+    Replay {
+        /// Source node JSON-RPC.
+        #[arg(long)]
+        from: String,
+        /// The network's genesis file.
+        #[arg(long)]
+        genesis: PathBuf,
+        /// Block height to replay.
+        height: u64,
+        /// Working directory, wiped on start.
+        #[arg(long, default_value = ".maya2c-replay")]
+        dir: PathBuf,
+        /// Start from the source's snapshot at least this deep instead of
+        /// executing every block from genesis.
+        #[arg(long)]
+        snapshot_depth: Option<u64>,
+    },
+    /// Copy another network's state locally and extend it with local blocks.
+    Fork {
+        /// Source node JSON-RPC.
+        #[arg(long)]
+        from: String,
+        /// The network's genesis file.
+        #[arg(long)]
+        genesis: PathBuf,
+        /// Working directory, wiped on start.
+        #[arg(long, default_value = ".maya2c-fork")]
+        dir: PathBuf,
+        /// Local JSON-RPC port.
+        #[arg(long, default_value_t = 8546)]
+        rpc_port: u16,
+        /// As for `replay`.
+        #[arg(long)]
+        snapshot_depth: Option<u64>,
+    },
     /// A local chain with pre-funded accounts; redeploys `--watch` on save.
     Dev {
         /// Contract to deploy now and on every change.
@@ -112,8 +151,66 @@ fn debug(
     }
 }
 
+fn replay(source: &maya2c_cli::fork::Source, height: u64) -> anyhow::Result<()> {
+    let runtime = tokio::runtime::Runtime::new()?;
+    let handle = runtime.handle().clone();
+    let r = maya2c_cli::fork::replay(source, height, handle)?;
+    println!("replayed block {} ({})", r.height, r.block_id);
+    println!("  state root {} — reproduced", r.state_root);
+    for txid in &r.txids {
+        println!("  tx {txid}");
+    }
+    for c in &r.changes {
+        println!("  {}  {} -> {}", hex::encode(c.address), c.before, c.after);
+    }
+    Ok(())
+}
+
+async fn fork(source: maya2c_cli::fork::Source, rpc_port: u16) -> anyhow::Result<()> {
+    let from = source.url.clone();
+    let fork = maya2c_cli::fork::start(source, ([127, 0, 0, 1], rpc_port).into()).await?;
+    println!("forked {from} at height {}", fork.forked_at);
+    println!(
+        "  rpc http://{} — local blocks every {:?} when the mempool is not empty",
+        fork.server.address,
+        maya2c_cli::fork::FORK_BLOCK_INTERVAL
+    );
+    tokio::signal::ctrl_c().await?;
+    Ok(())
+}
+
 fn main() -> anyhow::Result<()> {
     match Cli::parse().command {
+        Command::Replay {
+            from,
+            genesis,
+            height,
+            dir,
+            snapshot_depth,
+        } => replay(
+            &maya2c_cli::fork::Source {
+                url: from,
+                genesis,
+                dir,
+                snapshot_depth,
+            },
+            height,
+        ),
+        Command::Fork {
+            from,
+            genesis,
+            dir,
+            rpc_port,
+            snapshot_depth,
+        } => tokio::runtime::Runtime::new()?.block_on(fork(
+            maya2c_cli::fork::Source {
+                url: from,
+                genesis,
+                dir,
+                snapshot_depth,
+            },
+            rpc_port,
+        )),
         Command::Dev {
             watch,
             accounts,
@@ -135,6 +232,7 @@ fn main() -> anyhow::Result<()> {
                 explorer_port: Some(explorer_port),
                 bin_dir,
                 stop_after_deploys: None,
+                node_args: Vec::new(),
             };
             tokio::runtime::Runtime::new()?.block_on(maya2c_cli::dev::run(&options))?;
             Ok(())
