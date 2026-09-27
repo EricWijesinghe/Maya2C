@@ -1,25 +1,23 @@
 //! NFT game: an ERC-721 subset with a level per token, for the Maya VM.
 //!
-//! **Do not deploy.** Ported from the Solidity shape of ERC-721, where every
-//! state change checks `msg.sender`. The Maya VM gives a contract no caller
-//! identity (ADR-026), so this port has to take the acting account as an
-//! argument, and an argument is whatever the caller writes. The reference-app
-//! test `anyone_can_move_anyones_token` shows the result. The contract is kept
-//! because it is the concrete case the ADR is decided against, and because
-//! every line except the authorisation check is what the template will be.
+//! Every state change is authorised by the account that **signed the
+//! transaction**, read from the host's `caller` function (ADR-026) — the
+//! Maya equivalent of Solidity's `msg.sender`. The first version of this
+//! contract took the acting account as an argument, because the VM had no
+//! caller identity, and anyone could move anyone's token by claiming to be
+//! them; `crates/reference-apps/tests/nft_game.rs` kept that proof until the
+//! host function existed, and now proves the opposite.
 //!
 //! ## Calls (all integers little-endian)
 //!
 //! | Byte 0 | Method | Arguments | Returns |
 //! |---|---|---|---|
 //! | 0 | `init` | `admin: [u8; 32]` | nothing |
-//! | 1 | `mint` | `acting: [u8; 32]`, `id: u64`, `to: [u8; 32]` | nothing |
-//! | 2 | `transfer` | `acting: [u8; 32]`, `id: u64`, `to: [u8; 32]` | nothing |
+//! | 1 | `mint` (admin) | `id: u64`, `to: [u8; 32]` | nothing |
+//! | 2 | `transfer` (owner) | `id: u64`, `to: [u8; 32]` | nothing |
 //! | 3 | `owner_of` | `id: u64` | `owner: [u8; 32]` |
-//! | 4 | `level_up` | `acting: [u8; 32]`, `id: u64` | `level: u64` |
+//! | 4 | `level_up` (owner) | `id: u64` | `level: u64` |
 //! | 5 | `level_of` | `id: u64` | `level: u64` |
-//!
-//! `acting` is the account the caller **claims** to be. That is the gap.
 
 #![no_std]
 
@@ -36,6 +34,15 @@ unsafe extern "C" {
     fn storage_write(key_ptr: i32, key_len: i32, val_ptr: i32, val_len: i32);
     fn emit_event(topic_ptr: i32, topic_len: i32, data_ptr: i32, data_len: i32);
     fn block_height() -> i64;
+    fn caller(out_ptr: i32) -> i32;
+}
+
+/// The transaction's signer, or `None` outside a transaction.
+fn signer() -> Option<Account> {
+    let mut out = [0u8; 32];
+    // SAFETY: `out` is a live 32-byte buffer for the duration of the call.
+    let status = unsafe { caller(out.as_mut_ptr() as i32) };
+    (status == 0).then_some(out)
 }
 
 const INPUT_CAPACITY: usize = 128;
@@ -82,10 +89,9 @@ pub extern "C" fn invoke(len: i32) -> i64 {
 }
 
 fn mint(args: &[u8]) -> Option<()> {
-    let (acting, token, to) = (account(args, 0)?, id(args, 32)?, account(args, 40)?);
-    // The Solidity original: require(msg.sender == admin). Here `acting` is
-    // only a claim.
-    if read32(KEY_ADMIN)? != acting || load_owner(token).is_some() {
+    let (token, to) = (id(args, 0)?, account(args, 8)?);
+    // require(msg.sender == admin)
+    if read32(KEY_ADMIN)? != signer()? || load_owner(token).is_some() {
         return None;
     }
     store_owner(token, &to);
@@ -93,9 +99,9 @@ fn mint(args: &[u8]) -> Option<()> {
 }
 
 fn transfer(args: &[u8]) -> Option<()> {
-    let (acting, token, to) = (account(args, 0)?, id(args, 32)?, account(args, 40)?);
-    // The Solidity original: require(ownerOf(id) == msg.sender).
-    if load_owner(token)? != acting {
+    let (token, to) = (id(args, 0)?, account(args, 8)?);
+    // require(ownerOf(id) == msg.sender)
+    if load_owner(token)? != signer()? {
         return None;
     }
     store_owner(token, &to);
@@ -110,7 +116,7 @@ fn transfer(args: &[u8]) -> Option<()> {
 }
 
 fn level_up(args: &[u8]) -> i64 {
-    let (Some(acting), Some(token)) = (account(args, 0), id(args, 32)) else {
+    let (Some(acting), Some(token)) = (signer(), id(args, 0)) else {
         return -1;
     };
     if load_owner(token) != Some(acting) {

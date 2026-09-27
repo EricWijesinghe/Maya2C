@@ -133,6 +133,7 @@ impl StateDB {
         // folds after execution. That is what makes it unpredictable to the
         // transactions in this block rather than merely unknown to them.
         let host = ChainHost::new(context.height)
+            .with_caller(*caller)
             .with_storage(storage)
             .with_balances(balances)
             .with_oracle(

@@ -82,6 +82,15 @@ pub trait HostState {
     /// Balance of `address` in committed state.
     fn balance_of(&self, address: &Address) -> u64;
 
+    /// The account that signed the transaction making this call (ADR-026).
+    ///
+    /// There are no contract-to-contract calls, so the caller is always the
+    /// transaction's signer, and there is no `origin` to confuse it with.
+    /// `None` only where no transaction exists: dry runs and tests.
+    fn caller(&self) -> Option<Address> {
+        None
+    }
+
     /// Height of the block currently executing.
     fn block_height(&self) -> u64;
 
@@ -159,6 +168,8 @@ pub struct MemoryState {
     pub randomness: Option<[u8; RANDOMNESS_LEN]>,
     /// Price feeds reported to contracts.
     pub feeds: std::collections::BTreeMap<[u8; 32], OracleValue>,
+    /// The signer reported to contracts, if any.
+    pub caller: Option<Address>,
 }
 
 impl MemoryState {
@@ -189,6 +200,10 @@ impl MemoryState {
 impl HostState for MemoryState {
     fn balance_of(&self, address: &Address) -> u64 {
         self.balances.get(address).copied().unwrap_or(0)
+    }
+
+    fn caller(&self) -> Option<Address> {
+        self.caller
     }
 
     fn block_height(&self) -> u64 {
