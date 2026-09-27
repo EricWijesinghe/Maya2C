@@ -584,7 +584,14 @@ pub async fn serve(address: SocketAddr, context: RpcContext) -> crate::error::Re
 }
 
 /// [`serve`], recording every call in `metrics` (SLO rpc-availability and
-/// rpc-latency). Batched calls are passed through unmetered.
+/// rpc-latency) and refusing callers over `limiter`'s per-address rate with
+/// HTTP 429. Batched calls are passed through unmetered, and a batch costs
+/// one token.
+///
+/// The limiter needs each caller's address, which jsonrpsee's own server
+/// keeps to itself, so this runs the accept loop and hands every connection
+/// to jsonrpsee's service. Until it did, `rpc.rate_limit_per_second` was read
+/// from the config, printed at startup, and enforced nowhere.
 ///
 /// # Errors
 ///
@@ -593,6 +600,7 @@ pub async fn serve_metered(
     address: SocketAddr,
     context: RpcContext,
     metrics: std::sync::Arc<crate::metrics::Metrics>,
+    limiter: Arc<crate::rpc::limit::RateLimiter>,
 ) -> crate::error::Result<RpcServer> {
     check_peer_exposure(address, context.peers.is_some())?;
     let module =
@@ -607,17 +615,57 @@ pub async fn serve_metered(
                 std::sync::Arc::clone(&known),
             )
         });
-    let server = Server::builder()
-        .set_rpc_middleware(middleware)
-        .build(address)
+    let listener = tokio::net::TcpListener::bind(address)
         .await
         .map_err(|e| crate::error::NodeError::Network(format!("bind {address}: {e}")))?;
-    let local_address = server
+    let local_address = listener
         .local_addr()
         .map_err(|e| crate::error::NodeError::Network(format!("local address: {e}")))?;
+    let builder = Server::builder()
+        .set_rpc_middleware(middleware)
+        .to_service_builder();
+    let methods: jsonrpsee::server::Methods = module.into();
+    let (stop, handle) = jsonrpsee::server::stop_channel();
+
+    tokio::spawn(async move {
+        loop {
+            let (socket, remote) = tokio::select! {
+                accepted = listener.accept() => match accepted {
+                    Ok(pair) => pair,
+                    Err(error) => {
+                        eprintln!("rpc: accept failed: {error}");
+                        continue;
+                    }
+                },
+                () = stop.clone().shutdown() => break,
+            };
+            let (builder, methods, stop2, limiter) = (
+                builder.clone(),
+                methods.clone(),
+                stop.clone(),
+                Arc::clone(&limiter),
+            );
+            let service = tower::service_fn(move |request| {
+                let allowed = limiter.check(remote.ip());
+                let mut inner = builder.clone().build(methods.clone(), stop2.clone());
+                async move {
+                    if !allowed {
+                        return Ok(jsonrpsee::server::http::response::too_many_requests());
+                    }
+                    tower::Service::call(&mut inner, request).await
+                }
+            });
+            tokio::spawn(jsonrpsee::server::serve_with_graceful_shutdown(
+                socket,
+                service,
+                stop.clone().shutdown(),
+            ));
+        }
+    });
+
     Ok(RpcServer {
         address: local_address,
-        handle: server.start(module),
+        handle,
     })
 }
 

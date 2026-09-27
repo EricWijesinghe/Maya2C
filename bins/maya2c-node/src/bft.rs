@@ -189,7 +189,13 @@ async fn act(step: Step, network: &NodeHandle, pools: &[&Mempool], feed: &mut Fe
     // Ordered but not executed: no longer queued, still pooled, so the next
     // feed proposes them again. Forgetting when they were first seen restarts
     // their share grace, which is what spreads a nonce chain across rounds.
-    feed.forget(&step.dropped.iter().map(custom_l1_node::Transaction::txid).collect::<Vec<_>>());
+    feed.forget(
+        &step
+            .dropped
+            .iter()
+            .map(custom_l1_node::Transaction::txid)
+            .collect::<Vec<_>>(),
+    );
     if !step.included.is_empty() {
         for pool in pools {
             pool.remove_all(&step.included);

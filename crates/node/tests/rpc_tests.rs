@@ -459,3 +459,134 @@ async fn balances_seen_over_rpc_track_committed_state() {
     assert_eq!(alice_info.nonce, 1);
     assert_eq!(bob_info.balance, 400);
 }
+
+// ---------------------------------------------------------------------------
+// historical balances (the Mesh Data API's reads)
+// ---------------------------------------------------------------------------
+
+/// Commits `transactions` as the next block through the chain, as the node does.
+fn commit_next(node: &TestNode, transactions: Vec<Transaction>) {
+    let mut chain = node.chain.lock().expect("chain");
+    let timestamp = 1_700_000_000 + chain.height() + 1;
+    let block = chain
+        .candidate_block(timestamp, transactions)
+        .expect("candidate");
+    chain.insert_block(block).expect("insert");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn balances_at_past_heights_undo_each_later_blocks_changes() {
+    let alice = generate_signing_key().expect("keygen");
+    let alice_addr = address_of(&alice);
+    let bob_addr = [4u8; 32];
+    let node = start_node(&[(alice_addr, 1_000)], false).await;
+    commit_next(&node, vec![signed_transfer(&alice, bob_addr, 300, 0)]);
+    commit_next(&node, vec![signed_transfer(&alice, bob_addr, 200, 1)]);
+
+    let at = |address: Address, height: u64| {
+        let client = node.client.clone();
+        async move {
+            let reply: serde_json::Value = client
+                .request(
+                    "get_balance_at_height",
+                    rpc_params![hex::encode(address), height],
+                )
+                .await
+                .expect("get_balance_at_height");
+            reply["balance"].as_u64().expect("balance")
+        }
+    };
+    assert_eq!(
+        (
+            at(alice_addr, 0).await,
+            at(alice_addr, 1).await,
+            at(alice_addr, 2).await
+        ),
+        (1_000, 700, 500)
+    );
+    assert_eq!((at(bob_addr, 0).await, at(bob_addr, 1).await), (0, 300));
+
+    let changes: serde_json::Value = node
+        .client
+        .request("get_balance_changes", rpc_params![2u64])
+        .await
+        .expect("get_balance_changes");
+    let moved: Vec<(String, u64, u64)> = changes["changes"]
+        .as_array()
+        .expect("changes")
+        .iter()
+        .map(|c| {
+            (
+                c["address"].as_str().expect("address").to_string(),
+                c["before"].as_u64().expect("before"),
+                c["after"].as_u64().expect("after"),
+            )
+        })
+        .collect();
+    assert!(moved.contains(&(hex::encode(alice_addr), 700, 500)));
+    assert!(moved.contains(&(hex::encode(bob_addr), 300, 500)));
+
+    let above: Result<serde_json::Value, _> = node
+        .client
+        .request(
+            "get_balance_at_height",
+            rpc_params![hex::encode(alice_addr), 9u64],
+        )
+        .await;
+    assert!(above.is_err(), "a height above the tip is refused");
+}
+
+// ---------------------------------------------------------------------------
+// rate limiting
+// ---------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_caller_over_the_rate_limit_is_refused_with_429() {
+    use custom_l1_node::rpc::limit::RateLimiter;
+
+    let serve_limited = |rate: u32, burst: u32| async move {
+        let dir = TempDir::new().expect("temp dir");
+        let state = Arc::new(StateDB::open(dir.path()).expect("open state"));
+        let chain = Arc::new(Mutex::new(
+            Chain::open(
+                Arc::clone(&state),
+                genesis(TEST_DIFFICULTY_BITS),
+                ChainConfig::without_pow_verification(),
+            )
+            .expect("open chain"),
+        ));
+        let context = RpcContext::new(Arc::clone(&chain), Mempool::new(state));
+        let server = custom_l1_node::rpc::serve_metered(
+            "127.0.0.1:0".parse().expect("addr"),
+            context,
+            Arc::new(custom_l1_node::metrics::Metrics::new()),
+            Arc::new(RateLimiter::new(rate, burst)),
+        )
+        .await
+        .expect("serve");
+        let client = HttpClientBuilder::default()
+            .build(format!("http://{}", server.address))
+            .expect("client");
+        (client, server, dir)
+    };
+    let burst_of = |client: HttpClient| async move {
+        let mut ok = 0;
+        for _ in 0..10 {
+            let reply: Result<AccountInfo, _> = client
+                .request("get_balance", rpc_params![hex::encode([1u8; 32])])
+                .await;
+            ok += usize::from(reply.is_ok());
+        }
+        ok
+    };
+
+    // 2 per second with a burst of 3: ten immediate calls get about three
+    // through; the rest are refused before they reach a handler.
+    let (client, _server, _dir) = serve_limited(2, 3).await;
+    let admitted = burst_of(client).await;
+    assert!((3..=4).contains(&admitted), "admitted {admitted} of 10");
+
+    // Zero disables the limiter (`rpc.rate_limit_per_second = 0`).
+    let (client, _server2, _dir2) = serve_limited(0, 0).await;
+    assert_eq!(burst_of(client).await, 10);
+}

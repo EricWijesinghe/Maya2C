@@ -139,6 +139,9 @@ maya-lattice-pow = { path = "../lattice-pow" }
 # path reaches either.
 maya-blockgraph = { path = "../blockgraph" }
 jsonrpsee = { workspace = true, features = ["server", "http-client"] }
+# `tower::service_fn` for the RPC accept loop that sees each caller's address,
+# which is what `rpc::limit` keys on. Already in the tree through jsonrpsee.
+tower = { workspace = true, features = ["util"] }
 # The official Prometheus client. hyper and its util/body crates are already in
 # the tree via jsonrpsee, so the exporter adds no new transport dependency.
 prometheus-client.workspace = true

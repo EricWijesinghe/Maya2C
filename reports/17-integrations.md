@@ -181,11 +181,18 @@ the custodian flow the Construction API would serve.
   message, detail to the operator log. The gateway maps -32000 to a
   non-retryable 400, so a node fault would have looked like the client's
   mistake.
-- **Pre-existing, found here.** `rpc::limit::RateLimiter` was built and
-  tested but never wired into the server, so no RPC method is rate limited,
-  while `maya2c-node` binds `0.0.0.0:8545` by default. It needs a
-  connection-level layer (the per-call middleware does not see the peer
-  address); tracked as the next change.
+- **Pre-existing, found here, fixed.** `rpc::limit::RateLimiter` was built
+  and tested but never wired in. `rpc.rate_limit_per_second` (50) and
+  `rate_limit_burst` (100) were read from the config and printed at startup,
+  and nothing enforced them, while `maya2c-node` binds `0.0.0.0:8545` by
+  default. `serve_metered` now runs its own accept loop so each request is
+  checked against the caller's address, and refuses with HTTP 429.
+  `rpc_tests::a_caller_over_the_rate_limit_is_refused_with_429` checks that
+  ten immediate calls at 2/s burst 3 admit 3 or 4, and that 0 disables it.
+  `sdk-e2e` and `mesh-check` both still pass with it on.
+  **Operator note:** `maya2c-gateway` and `maya2c-mesh` on the same host
+  reach the node from 127.0.0.1, so every client behind them shares one
+  bucket. Size the limit for that, or set 0 where a gateway fronts the node.
 
 The driver is Rust (`xtask/src/mesh_check.rs` over `xtask/src/devnet.rs`),
 not a script. `mesh-cli` itself is a downloaded Go binary

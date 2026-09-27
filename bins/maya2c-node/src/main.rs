@@ -731,7 +731,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // --- RPC ---
-    let rpc = serve_metered(args.rpc_addr, rpc_context, Arc::clone(&metrics)).await?;
+    let limiter = Arc::new(custom_l1_node::rpc::limit::RateLimiter::new(
+        node_config.rpc.rate_limit_per_second,
+        node_config.rpc.rate_limit_burst,
+    ));
+    let rpc = serve_metered(args.rpc_addr, rpc_context, Arc::clone(&metrics), limiter).await?;
     println!("rpc:         http://{}", rpc.address);
 
     // --- Metrics ---
