@@ -111,25 +111,19 @@ pub fn run(args: &[String]) -> Result<(), String> {
         sim.len()
     );
 
-    let bin = root.join("target").join(PROFILE).join("maya2c-node");
-    match Command::new("nm")
-        .args(["-C", "--defined-only"])
-        .arg(&bin)
-        .output()
-    {
-        Ok(o) if o.status.success() => {
-            let symbols = String::from_utf8_lossy(&o.stdout);
+    match symbol_text(&root) {
+        Ok((source, symbols)) => {
             let hits: Vec<&String> = sim
                 .iter()
                 .filter(|pkg| symbols.contains(&format!("{}::", pkg.replace('-', "_"))))
                 .collect();
             if hits.is_empty() {
-                println!("  [ok]   symbol table: no symbol from any SIM crate");
+                println!("  [ok]   symbol table ({source}): no symbol from any SIM crate");
             } else {
                 failures.push(format!("SIM symbols in binary: {hits:?}"));
             }
         }
-        _ => println!("  [skip] symbol table: `nm` unavailable (binutils)"),
+        Err(why) => println!("  [skip] symbol table: {why}"),
     }
 
     let dark: Vec<&String> = research.iter().filter(|p| linked(p)).collect();
@@ -237,4 +231,34 @@ fn classified_packages(root: &Path) -> Result<(Vec<String>, Vec<String>), String
         sim.push("maya-sim".to_string());
     }
     Ok((sim, research))
+}
+
+/// The binary's symbol names as text, and where they came from. On MSVC the
+/// executable carries no symbol table — the names are in its PDB, read as
+/// bytes; elsewhere `llvm-nm` from the toolchain, or `nm`. The node's own
+/// crate must appear, so an unreadable source is a skip, never a silent pass.
+fn symbol_text(root: &Path) -> Result<(String, String), String> {
+    let dir = root.join("target").join(PROFILE);
+    let pdb = dir.join("maya2c_node.pdb");
+    let (source, text) = if pdb.exists() {
+        let bytes = std::fs::read(&pdb).map_err(|e| format!("{}: {e}", pdb.display()))?;
+        (pdb.display().to_string(), String::from_utf8_lossy(&bytes).into_owned())
+    } else {
+        let bin = dir.join(format!("maya2c-node{}", std::env::consts::EXE_SUFFIX));
+        let nm = crate::pgo::llvm_tool("llvm-nm").unwrap_or_else(|_| "nm".into());
+        let out = Command::new(&nm)
+            .args(["-C", "--defined-only"])
+            .arg(&bin)
+            .output()
+            .map_err(|e| format!("{}: {e}", nm.display()))?;
+        if !out.status.success() {
+            return Err(format!("{} failed on {}", nm.display(), bin.display()));
+        }
+        (nm.display().to_string(), String::from_utf8_lossy(&out.stdout).into_owned())
+    };
+    if text.contains("custom_l1_node::") {
+        Ok((source, text))
+    } else {
+        Err(format!("{source} names no custom_l1_node symbol, so it cannot vouch for absence"))
+    }
 }

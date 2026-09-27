@@ -119,6 +119,7 @@ fn kind(e: &NodeError) -> &'static str {
         | NodeError::SignatureVerification
         | NodeError::HashSignatureVerification
         | NodeError::MalformedPublicKey => "BadSignature",
+        NodeError::StateRootMismatch { .. } => "StateRootMismatch",
         _ => "Other",
     }
 }
@@ -159,7 +160,16 @@ fn run_stf_case(keys: &BTreeMap<String, HybridSigningKey>, case: &Value) {
         .map(|t| signed(keys, t))
         .collect();
     let expect = &case["expect"];
-    match db.apply_block(&block_of(txs), BlockContext::GENESIS) {
+    // CON-4: a case declaring a state root goes through the path that checks it.
+    let applied = match case["declared_state_root"].as_str() {
+        Some(declared) => {
+            let mut block = block_of(txs);
+            block.header.state_root = unhex(declared).try_into().unwrap();
+            db.apply_block_checked(&block, BlockContext::GENESIS)
+        }
+        None => db.apply_block(&block_of(txs), BlockContext::GENESIS),
+    };
+    match applied {
         Ok(root) => {
             assert_eq!(
                 expect["result"], "ok",

@@ -42,6 +42,14 @@ mod store;
 /// Content-addressed block identifier. See [`BlockHeader::id`].
 pub type BlockId = [u8; 32];
 
+/// CON-8 (`spec/05-consensus.md`): a block at or below the prune horizon is
+/// refused. Named so the conformance vectors reach the same predicate the
+/// chain applies.
+#[must_use]
+pub const fn below_prune_horizon(height: u64, horizon: u64) -> bool {
+    height <= horizon
+}
+
 /// Network parameters and validation switches.
 #[derive(Clone, Copy, Debug)]
 pub struct ChainConfig {
@@ -344,7 +352,7 @@ impl Chain {
         // At or below the horizon the parent's undo journal is gone, so a
         // block forking there could never be reorganised onto. Refused before
         // it costs a proof-of-work check or a byte of storage.
-        if height <= self.prune_horizon {
+        if below_prune_horizon(height, self.prune_horizon) {
             return Err(NodeError::BelowPruneHorizon {
                 height,
                 horizon: self.prune_horizon,

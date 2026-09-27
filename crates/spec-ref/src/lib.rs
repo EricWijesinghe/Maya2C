@@ -14,6 +14,7 @@
 //! its signature pair verifies as an input, because the post-quantum schemes
 //! are specified by FIPS 204/205 and checked by their own KATs.
 
+pub mod consensus;
 pub mod fees;
 pub mod header;
 pub mod root;

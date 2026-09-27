@@ -52,7 +52,8 @@
         "STF-5",
         "ROOT-1",
         "ROOT-2",
-        "ROOT-4"
+        "ROOT-4",
+        "ROOT-5"
       ]
     },
     {
@@ -633,6 +634,92 @@
       "pre_root": "0000000000000000000000000000000000000000000000000000000000000000",
       "rules": [
         "ROOT-3"
+      ]
+    },
+    {
+      "block": [
+        {
+          "from": "k0",
+          "nonce": "0",
+          "outputs": [
+            {
+              "amount": "10",
+              "to": "k1"
+            }
+          ],
+          "signature": "valid"
+        }
+      ],
+      "declared_state_root": "bfd496c4101d21422121235ea2889b8a458b1e6ec3e84cb08b62c8c75c7d8780",
+      "expect": {
+        "post": [
+          {
+            "address": "97decdfee6eaeb1426b68aa425405a9f914d92de021b8eeff51e38cab6435a45",
+            "balance": "990",
+            "nonce": "1"
+          },
+          {
+            "address": "ecba7065c0a79928549e31561dab183a394cd44d1448d498510d4a94c0c31ffe",
+            "balance": "10",
+            "nonce": "0"
+          }
+        ],
+        "post_root": "bfd496c4101d21422121235ea2889b8a458b1e6ec3e84cb08b62c8c75c7d8780",
+        "result": "ok"
+      },
+      "id": "declared-root-matches",
+      "pre": [
+        {
+          "account": "k0",
+          "balance": "1000",
+          "nonce": "0"
+        },
+        {
+          "account": "k1",
+          "balance": "0",
+          "nonce": "0"
+        }
+      ],
+      "pre_root": "ecb71febbee01145b0134f164c87395efc114c41d07b84231b483c5f1f90d154",
+      "rules": [
+        "CON-4"
+      ]
+    },
+    {
+      "block": [
+        {
+          "from": "k0",
+          "nonce": "0",
+          "outputs": [
+            {
+              "amount": "10",
+              "to": "k1"
+            }
+          ],
+          "signature": "valid"
+        }
+      ],
+      "declared_state_root": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "expect": {
+        "error": "StateRootMismatch",
+        "result": "error"
+      },
+      "id": "declared-root-mismatch",
+      "pre": [
+        {
+          "account": "k0",
+          "balance": "1000",
+          "nonce": "0"
+        },
+        {
+          "account": "k1",
+          "balance": "0",
+          "nonce": "0"
+        }
+      ],
+      "pre_root": "ecb71febbee01145b0134f164c87395efc114c41d07b84231b483c5f1f90d154",
+      "rules": [
+        "CON-4"
       ]
     }
   ],

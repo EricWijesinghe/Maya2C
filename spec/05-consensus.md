@@ -1,9 +1,11 @@
 # 5. Consensus — v0.1.0
 
-What the node enforces **today** is Nakamoto proof of work. The mainnet
-target, DAG-BFT (Narwhal certification, Bullshark commit), exists as
-`crates/dag-bft` with simulation tests and is **not wired into the node**
-(ADR-015); its rules are listed here as gaps, not specified as if they ran.
+The node runs one of two engines, chosen by its genesis: **DAG-BFT**
+(Narwhal certification, Bullshark commit, `crates/node/src/consensus/bft/`)
+when the genesis names a `bft` committee, and Nakamoto **proof of work**
+otherwise. Under DAG-BFT a block is derived from certificates and no work is
+verified, so CON-5, CON-6 and CON-7 apply to proof-of-work chains only;
+CON-1 to CON-4 and CON-8 apply to both.
 
 Node: `crates/node/src/core/block.rs`, `crates/node/src/consensus/`.
 
@@ -13,13 +15,17 @@ Node: `crates/node/src/core/block.rs`, `crates/node/src/consensus/`.
 - **CON-4** A block's declared `state_root` must equal the root its execution produces (invariant 24); otherwise it is invalid and nothing is written.
 - **CON-5** The declared difficulty target must equal the retarget rule's output for that height (every 100 blocks, 15 s target spacing); otherwise invalid.
 - **CON-6** The proof-of-work hash for the block's height must meet its target; otherwise invalid.
-- **CON-7** The active chain is the one with the greatest cumulative work.
+- **CON-7** The active chain is the one with the greatest cumulative work, a target's work being `2^256 ÷ (target + 1)`. *(positive only: a choice between valid branches, never a refusal)*
 - **CON-8** A block at or below the prune horizon is refused.
 
-## Gaps (no vectors)
+## Vectors and gaps
 
-CON-1 … CON-8 are pinned by the node's own tests (`chain.rs`, `tx_root`,
-`crash_consistency_tests.rs`) but have no language-neutral vectors yet.
-DAG construction, the commit rule, finality and fork-choice under DAG-BFT
-are specified only by `crates/dag-bft` and have no rule IDs until it is
-wired in.
+CON-1 to CON-3 are in `spec/tests/headers.json`, CON-4 in
+`state_transitions.json` (a declared root that matches and one that does
+not) and CON-5 to CON-8 in `consensus.json`. CON-6's vectors pin the
+comparison of a hash with a target; the proof-of-work hash itself
+(`argonblake-pow`) has no language-neutral vector.
+
+DAG construction, the commit rule, finality and fork choice under DAG-BFT
+are specified only by the node's code and `crates/dag-bft`, and have no rule
+IDs yet.

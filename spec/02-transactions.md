@@ -10,5 +10,5 @@ Reference: `crates/spec-ref/src/{wire,stf}.rs`. Node: `Transaction::verify`,
 
 ## Gaps
 
-- TX-4 has no vector: the verifier would need v7 and v8 frames.
+- TX-4's vectors (`consensus.json`) state the path, not the frame bytes: the reference does not re-implement signatures, so the node builds real v7 (ML-DSA-87) and v8 (2-of-3) frames and checks which call accepts them.
 - Typed payloads (channels, DEX, governance) are specified only by the node's code today.
