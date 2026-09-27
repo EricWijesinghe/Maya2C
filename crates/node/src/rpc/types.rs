@@ -15,6 +15,17 @@ use serde::{Deserialize, Serialize};
 use crate::core::{Block, BlockHeader, Transaction};
 use crate::state::Account;
 
+/// The fee market as a wallet needs it (ADR-029).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FeeInfo {
+    /// Whether this chain charges fees at all.
+    pub active: bool,
+    /// Base fee per serialized byte for the next block.
+    pub base_fee: u64,
+    /// Hex address a transaction pays its fee to, as an ordinary output.
+    pub collector: String,
+}
+
 /// An account's spendable balance and replay counter.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AccountInfo {

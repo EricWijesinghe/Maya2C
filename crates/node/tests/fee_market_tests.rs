@@ -173,11 +173,13 @@ fn every_network_runs_the_fee_market_disabled() {
 }
 
 #[test]
-fn nothing_in_the_node_calls_the_fee_market_yet() {
-    // The branch is inert only if no consensus path reaches it. A grep rather
-    // than a type-level guarantee, the same check `lattice-pow` and
-    // `blockgraph` are held to: the day this fails, someone has wired the fee
-    // market in, and that change needs its own review and an activation height.
+fn the_fee_market_is_reached_only_through_its_genesis_gate() {
+    // ADR-029 wired the base-fee step in, behind `genesis.bft.fees`: only the
+    // genesis parameter check and the fee record may name the crate. The day
+    // this fails, another path has started deciding fees and needs the same
+    // review ADR-029 had. A grep rather than a type-level guarantee, the check
+    // `lattice-pow` and `blockgraph` are held to.
+    const ALLOWED: [&str; 2] = ["genesis.rs", "fees.rs"];
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut stack = vec![root];
     let mut offenders = Vec::new();
@@ -188,7 +190,11 @@ fn nothing_in_the_node_calls_the_fee_market_yet() {
                 stack.push(path);
             } else if path.extension().is_some_and(|e| e == "rs") {
                 let text = std::fs::read_to_string(&path).expect("read file");
-                if text.contains("maya_fee_market") {
+                let allowed = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| ALLOWED.contains(&n));
+                if text.contains("maya_fee_market") && !allowed {
                     offenders.push(path.display().to_string());
                 }
             }

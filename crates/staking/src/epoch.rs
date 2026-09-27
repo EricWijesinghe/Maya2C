@@ -6,14 +6,20 @@ use alloc::vec::Vec;
 use crate::params::{BPS, bps_of};
 use crate::types::{Effect, StakeError, Staking, Status, ValidatorId};
 
-/// How much each active validator took part in the ending epoch: vertices it
-/// authored that reached a committed sub-DAG, out of the epoch's rounds.
-/// Counted by the node from certificates, which every node holds identically.
+/// How much each active validator took part in the ending epoch.
+///
+/// The node counts *anchor slots*: every even round names a leader, and the
+/// block header's seal says which anchors committed. A slot whose anchor never
+/// committed is a slot its leader missed. Both counts come from block headers,
+/// so every node computes the same numbers and a replaying node can check them.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Participation {
-    /// Rounds in the epoch.
+    /// Slots each validator is judged against when it has no `expected`
+    /// entry. The simulator and tests set only this.
     pub rounds: u64,
-    /// Committed vertices authored, per validator.
+    /// Slots each validator led, where known.
+    pub expected: BTreeMap<ValidatorId, u64>,
+    /// Slots whose anchor committed, per validator.
     pub authored: BTreeMap<ValidatorId, u64>,
 }
 
@@ -64,9 +70,6 @@ impl Staking {
         out: &mut EpochOutcome,
     ) -> Result<Vec<ValidatorId>, StakeError> {
         let mut jailed = Vec::new();
-        if p.rounds == 0 {
-            return Ok(jailed);
-        }
         let threshold = u128::from(self.params.downtime_threshold_bps);
         let until = self
             .epoch
@@ -74,8 +77,11 @@ impl Staking {
             .ok_or(StakeError::Overflow)?;
         for id in self.active.clone() {
             let authored = p.authored.get(&id).copied().unwrap_or(0);
-            // authored / rounds < threshold / BPS, in integers.
-            let down = u128::from(authored) * u128::from(BPS) < threshold * u128::from(p.rounds);
+            let expected = p.expected.get(&id).copied().unwrap_or(p.rounds);
+            // authored / expected < threshold / BPS, in integers. No slots, no
+            // judgement: a validator cannot miss what it was never given.
+            let down = expected > 0
+                && u128::from(authored) * u128::from(BPS) < threshold * u128::from(expected);
             if !down {
                 continue;
             }

@@ -123,6 +123,23 @@ impl Mempool {
         // refusal, not a forgery. The executor's order is unchanged —
         // `stage_transaction` still verifies before it reads a balance — so
         // nothing about block validity moves.
+        // The base fee against committed state (ADR-029): an underpaying
+        // transaction could never be built into a block, so pooling and
+        // relaying it only costs every peer. The block's own check still runs
+        // against the base fee at the height it lands.
+        if let Some(fees) = self.state.committed_fees()? {
+            let required = fees.required(tx.to_bytes().len());
+            let offered: u128 = tx
+                .outputs
+                .iter()
+                .filter(|o| o.recipient == crate::state::fees::FEE_COLLECTOR)
+                .map(|o| u128::from(o.amount))
+                .sum();
+            if offered < required {
+                return Err(NodeError::FeeTooLow { required, offered });
+            }
+        }
+
         let sender_address = tx.sender();
         let sender = self.state.get_account(&sender_address)?;
         if sender.balance == 0 && sender.nonce == 0 {

@@ -1,7 +1,7 @@
 //! Thin JSON-RPC client for the node.
 
 use anyhow::{Context, Result};
-use custom_l1_node::rpc::{AccountInfo, BlockInfo, SubmitTransactionResult};
+use custom_l1_node::rpc::{AccountInfo, BlockInfo, FeeInfo, SubmitTransactionResult};
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
@@ -44,6 +44,19 @@ impl NodeClient {
             .request("get_balance", rpc_params![address_hex])
             .await
             .with_context(|| format!("get_balance({address_hex})"))
+    }
+
+    /// The chain's fee market. A node that predates the method answers
+    /// "method not found", which the caller reads as "no fees".
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails.
+    pub async fn get_fee_info(&self) -> Result<FeeInfo> {
+        self.inner
+            .request("get_fee_info", rpc_params![])
+            .await
+            .context("get_fee_info")
     }
 
     /// Broadcasts a hex-encoded signed transaction.

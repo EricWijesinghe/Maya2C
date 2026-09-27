@@ -54,6 +54,7 @@ pub(crate) const RECORD_LAYERS: &[(&[u8], StateLayer)] = &[
     (crate::state::htlc::HTLC_PREFIX, StateLayer::Htlc),
     (crate::state::threat::THREAT_PREFIX, StateLayer::ThreatIntel),
     (crate::state::iot::IOT_PREFIX, StateLayer::Iot),
+    (crate::state::staking::STAKING_PREFIX, StateLayer::Staking),
     (
         crate::state::stateless::STATELESS_PREFIX,
         StateLayer::Stateless,

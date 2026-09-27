@@ -119,6 +119,117 @@ pub struct BftGenesis {
     /// fast as the network turns rounds (ADR-027).
     #[serde(default = "BftGenesis::default_round_interval_ms")]
     pub round_interval_ms: u64,
+    /// Staking (ADR-028). Absent: the genesis committee orders the chain for
+    /// ever and no `k:` record exists. Present: the genesis validators are
+    /// bonded at genesis and later committees come from stake.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub staking: Option<StakingGenesis>,
+    /// The fee market (ADR-029). Absent: transactions pay nothing, as on
+    /// every chain before this field. Present: charged from block 1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fees: Option<FeesGenesis>,
+}
+
+/// Genesis fee-market parameters, checked against `maya-fee-market`'s limits.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FeesGenesis {
+    /// Base fee at block 1, per serialized byte.
+    pub initial_base_fee: u64,
+    /// Floor for the base fee.
+    pub min_base_fee: u64,
+    /// Block size the base fee steers toward, in bytes.
+    pub target_block_bytes: u64,
+    /// The base fee moves by at most `1 / change_denominator` per block.
+    pub change_denominator: u64,
+}
+
+impl FeesGenesis {
+    /// The initial fee record.
+    ///
+    /// # Errors
+    ///
+    /// [`NodeError::Decode`] if the parameters are outside the fee market's
+    /// compiled-in bounds.
+    pub fn record(&self) -> Result<crate::state::fees::FeeRecord> {
+        let config = maya_fee_market::FeeConfig {
+            activation_height: 1,
+            target_block_bytes: self.target_block_bytes,
+            min_base_fee: self.min_base_fee,
+            change_denominator: self.change_denominator,
+            treasury_bps: 0,
+            initial_base_fee: self.initial_base_fee,
+            neural_activation_height: u64::MAX,
+        };
+        config
+            .validate()
+            .map_err(|e| NodeError::Decode(format!("bft.fees: {e:?}")))?;
+        Ok(crate::state::fees::FeeRecord {
+            base_fee: self.initial_base_fee,
+            min_base_fee: self.min_base_fee,
+            target_block_bytes: self.target_block_bytes,
+            change_denominator: self.change_denominator,
+        })
+    }
+}
+
+/// Genesis staking: epoch length, parameters, and the genesis bonds.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StakingGenesis {
+    /// Blocks per epoch.
+    pub epoch_blocks: u64,
+    /// One bond per genesis validator, in `validators` order.
+    pub bonds: Vec<GenesisBond>,
+    /// Least self bond. Defaults to the devnet value.
+    #[serde(default = "StakingGenesis::default_min_self_bond")]
+    pub min_self_bond: u64,
+    /// Largest committee. Defaults to the devnet value.
+    #[serde(default = "StakingGenesis::default_max_validators")]
+    pub max_validators: u16,
+}
+
+/// One genesis validator's bond.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GenesisBond {
+    /// Hex address of the operator: pays nothing at genesis, receives
+    /// commission and rewards, and alone may add to or unbond the bond.
+    pub operator: String,
+    /// The bond. Counts toward total supply.
+    pub bond: u64,
+    /// Commission, basis points.
+    #[serde(default)]
+    pub commission_bps: u16,
+}
+
+impl StakingGenesis {
+    const fn default_min_self_bond() -> u64 {
+        maya_staking::Params::DEVNET.min_self_bond
+    }
+
+    const fn default_max_validators() -> u16 {
+        maya_staking::Params::DEVNET.max_validators
+    }
+
+    /// Staking parameters.
+    #[must_use]
+    pub fn params(&self) -> maya_staking::Params {
+        maya_staking::Params {
+            min_self_bond: self.min_self_bond,
+            max_validators: self.max_validators,
+            ..maya_staking::Params::DEVNET
+        }
+    }
+
+    /// Sum of the genesis bonds.
+    ///
+    /// # Errors
+    ///
+    /// [`NodeError::Decode`] on overflow.
+    pub fn bonded(&self) -> Result<u64> {
+        self.bonds.iter().try_fold(0u64, |acc, b| {
+            acc.checked_add(b.bond)
+                .ok_or_else(|| NodeError::Decode("genesis bonds overflow u64".to_string()))
+        })
+    }
 }
 
 impl BftGenesis {
@@ -448,6 +559,11 @@ impl GenesisConfig {
                 NodeError::Decode("total supply overflows u64 with the treasury".to_string())
             })?;
         }
+        if let Some(staking) = self.bft.as_ref().and_then(|b| b.staking.as_ref()) {
+            total = total.checked_add(staking.bonded()?).ok_or_else(|| {
+                NodeError::Decode("total supply overflows u64 with genesis bonds".to_string())
+            })?;
+        }
         Ok(total)
     }
 
@@ -506,7 +622,80 @@ impl GenesisConfig {
             .iter()
             .map(|(address, account)| account_leaf(address, account))
             .collect();
-        Ok(merkle_root(&leaves))
+        let accounts = merkle_root(&leaves);
+        // The staking layer is the only other layer a genesis can hold that
+        // this function knows how to build; it folds in exactly as
+        // `StateDB::state_layers` would fold the seeded records.
+        let records = self.staking_records()?;
+        if records.is_empty() {
+            return Ok(accounts);
+        }
+        let leaves: Vec<[u8; 32]> = records
+            .iter()
+            .map(|(k, v)| crate::state::db::record_leaf((k, v)))
+            .collect();
+        Ok(crate::state::proof::StateLayer::Staking.fold(&accounts, &merkle_root(&leaves)))
+    }
+
+    /// The `k:` records a staking genesis seeds, in key order: the staking
+    /// state with every genesis validator bonded and forming the epoch-0
+    /// committee in `validators` order, each key, and committee 0.
+    ///
+    /// # Errors
+    ///
+    /// A malformed key or operator, a bond count that does not match the
+    /// validator count, or a bond the staking rules refuse.
+    pub fn staking_records(&self) -> Result<std::collections::BTreeMap<Vec<u8>, Vec<u8>>> {
+        use crate::state::staking::{
+            STATE_KEY, StakingRecord, committee_record, encode_committee, key_record, validator_id,
+        };
+        let mut records = std::collections::BTreeMap::new();
+        let Some(bft) = &self.bft else {
+            return Ok(records);
+        };
+        if let Some(fees) = &bft.fees {
+            records.insert(
+                crate::state::fees::FEE_KEY.to_vec(),
+                fees.record()?.encode(),
+            );
+        }
+        let Some(staking) = &bft.staking else {
+            return Ok(records);
+        };
+        if staking.bonds.len() != bft.validators.len() {
+            return Err(NodeError::Decode(
+                "bft.staking.bonds must name one bond per validator".to_string(),
+            ));
+        }
+        if staking.epoch_blocks == 0 {
+            return Err(NodeError::Decode(
+                "bft.staking.epoch_blocks must be positive".into(),
+            ));
+        }
+        let mut state = maya_staking::Staking::new(staking.params())
+            .map_err(|e| NodeError::Decode(format!("bft.staking params: {e:?}")))?;
+        let mut active = Vec::new();
+        for (key, bond) in bft.verifying_keys()?.iter().zip(&staking.bonds) {
+            let encoded = key.to_bytes();
+            let id = validator_id(&encoded);
+            let operator = decode_address(&bond.operator)?;
+            state
+                .register(operator, id, bond.bond, bond.commission_bps)
+                .map_err(|e| NodeError::Decode(format!("genesis bond refused: {e:?}")))?;
+            records.insert(key_record(&id), encoded.to_vec());
+            active.push(id);
+        }
+        state.active.clone_from(&active);
+        let record = StakingRecord {
+            staking: state,
+            epoch_blocks: staking.epoch_blocks,
+            last_round: 0,
+            expected: std::collections::BTreeMap::new(),
+            authored: std::collections::BTreeMap::new(),
+        };
+        records.insert(STATE_KEY.to_vec(), record.encode());
+        records.insert(committee_record(0), encode_committee(&active));
+        Ok(records)
     }
 
     /// The target genesis and its immediate descendants must satisfy.
@@ -548,6 +737,28 @@ impl GenesisConfig {
         h.update(&bft.anchor_timeout_ms.to_le_bytes());
         h.update(&(bft.batch_size as u64).to_le_bytes());
         h.update(&bft.round_interval_ms.to_le_bytes());
+        if let Some(fees) = &bft.fees {
+            h.update(b"fees");
+            for v in [
+                fees.initial_base_fee,
+                fees.min_base_fee,
+                fees.target_block_bytes,
+                fees.change_denominator,
+            ] {
+                h.update(&v.to_le_bytes());
+            }
+        }
+        if let Some(staking) = &bft.staking {
+            h.update(b"staking");
+            h.update(&staking.epoch_blocks.to_le_bytes());
+            h.update(&staking.min_self_bond.to_le_bytes());
+            h.update(&staking.max_validators.to_le_bytes());
+            for bond in &staking.bonds {
+                h.update(bond.operator.to_ascii_lowercase().as_bytes());
+                h.update(&bond.bond.to_le_bytes());
+                h.update(&bond.commission_bps.to_le_bytes());
+            }
+        }
         h.update(&(bft.validators.len() as u64).to_le_bytes());
         for key in &bft.validators {
             h.update(key.to_ascii_lowercase().as_bytes());
@@ -604,6 +815,11 @@ impl GenesisConfig {
         // else, and installing one has to be something a network chose.
         if let Some(sealed) = &self.sealed {
             state.seed_sealed_committee(&sealed.record()?)?;
+        }
+
+        // Staking, when configured: bonds held by the module, not accounts.
+        for (key, value) in self.staking_records()? {
+            state.raw_put(&key, &value)?;
         }
 
         let expected = self.state_root()?;

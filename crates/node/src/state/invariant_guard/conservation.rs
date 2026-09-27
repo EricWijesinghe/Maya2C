@@ -14,7 +14,7 @@
 //!
 //! | Asset | Held in |
 //! |---|---|
-//! | Native | `acct:` balances, `chan:` capacity, the shielded pool's public balance, `g:lock:` stakes, `g:prop:` deposits, `h:lk:` HTLC escrow |
+//! | Native | `acct:` balances, `chan:` capacity, the shielded pool's public balance, `g:lock:` stakes, `g:prop:` deposits, `h:lk:` HTLC escrow, `k:state` validator stake |
 //! | Registered | `d:bal:` balances, `d:pool:` reserves, `d:ord:` escrow |
 //! | LP share | `d:bal:` balances |
 //!
@@ -198,6 +198,8 @@ impl StateDB {
                 fold_proposal(staged, previous, ledger)?;
             } else if key.starts_with(HTLC_LOCK_PREFIX) {
                 fold_htlc_lock(staged, previous, ledger)?;
+            } else if key.as_slice() == crate::state::staking::STATE_KEY {
+                fold_staking(staged, previous, ledger)?;
             }
         }
         Ok(())
@@ -396,6 +398,25 @@ fn fold_htlc_lock(
         NATIVE_ASSET,
         diff(escrowed(staged)?, escrowed(previous)?),
     );
+    Ok(())
+}
+
+/// `k:state`: native coin held by staking — bonds, delegations and funds
+/// waiting out the unbonding delay (ADR-028). One record, so the delta is
+/// the difference of two totals.
+fn fold_staking(staged: Option<&[u8]>, previous: Option<&[u8]>, ledger: &mut Ledger) -> Result<()> {
+    let held = |bytes: Option<&[u8]>| -> Result<i128> {
+        Ok(match bytes {
+            Some(bytes) => i128::try_from(
+                crate::state::staking::StakingRecord::decode(bytes)?
+                    .staking
+                    .held(),
+            )
+            .map_err(|_| NodeError::InvariantViolation("staking holds more than i128".into()))?,
+            None => 0,
+        })
+    };
+    shift(ledger, NATIVE_ASSET, held(staged)? - held(previous)?);
     Ok(())
 }
 

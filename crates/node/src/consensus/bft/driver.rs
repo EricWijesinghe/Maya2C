@@ -15,7 +15,7 @@
 //!    seal with the tip's.
 
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use maya_dag_bft::{
@@ -70,6 +70,10 @@ pub struct BftDriver {
     logged: BTreeSet<(u64, Digest)>,
     /// Transactions handed to the engine and not yet seen in a block.
     queued: BTreeSet<[u8; 32]>,
+    /// Kept to build the next epoch's engine.
+    signer: Option<Arc<SigningKey>>,
+    params: Params,
+    dir: PathBuf,
 }
 
 impl core::fmt::Debug for BftDriver {
@@ -97,54 +101,86 @@ impl BftDriver {
         chain: &mut Chain,
         now_ms: u64,
     ) -> Result<(Self, Step)> {
-        let id = match &setup.signer {
+        let (epoch, committee) = Self::committee_of(setup, chain)?;
+        let mut step = Step::default();
+        let driver = Self::boot(
+            setup.signer.clone(),
+            setup.params,
+            dir.to_path_buf(),
+            epoch,
+            &committee,
+            chain,
+            now_ms,
+            &mut step,
+        )?;
+        Ok((driver, step))
+    }
+
+    /// The epoch and committee to run: staking's, where the chain has it,
+    /// else the genesis committee in `setup`.
+    fn committee_of(setup: &BftSetup, chain: &Chain) -> Result<(u64, Arc<[VerifyingKey]>)> {
+        match chain.state().committed_staking()? {
+            Some(record) => {
+                let keys = chain.state().validator_keys(&record.staking.active)?;
+                Ok((record.staking.epoch, keys.into()))
+            }
+            None => Ok((setup.epoch, Arc::clone(&setup.committee))),
+        }
+    }
+
+    /// Builds one epoch's engine, restores it from that epoch's safety log,
+    /// and starts it. A signer outside the committee runs as an observer: it
+    /// was not chosen this epoch, and it still has to follow the chain.
+    #[allow(clippy::too_many_arguments)]
+    fn boot(
+        signer: Option<Arc<SigningKey>>,
+        params: Params,
+        dir: PathBuf,
+        epoch: u64,
+        committee: &Arc<[VerifyingKey]>,
+        chain: &mut Chain,
+        now_ms: u64,
+        step: &mut Step,
+    ) -> Result<Self> {
+        let id = match &signer {
             None => None,
             Some(key) => {
                 let mine = key.verifying_key();
-                let index = setup
-                    .committee
+                committee
                     .iter()
                     .position(|k| *k == mine)
-                    .ok_or_else(|| {
-                        NodeError::Decode(
-                            "validator key is not in the genesis committee".to_string(),
-                        )
-                    })?;
-                Some(
-                    u16::try_from(index).map_err(|_| {
-                        NodeError::Decode("committee index exceeds u16".to_string())
-                    })?,
-                )
+                    .map(u16::try_from)
+                    .transpose()
+                    .map_err(|_| NodeError::Decode("committee index exceeds u16".to_string()))?
             }
         };
-        let size = u16::try_from(setup.committee.len())
+        let size = u16::try_from(committee.len())
             .map_err(|_| NodeError::Decode("committee exceeds u16".to_string()))?;
-        let committee = Committee::new(size);
-        let params = Params {
-            epoch: setup.epoch,
-            ..setup.params
-        };
-        let engine = match (id, &setup.signer) {
+        let engine_params = Params { epoch, ..params };
+        let engine = match (id, &signer) {
             (Some(id), Some(key)) => Validator::with_auth(
                 id,
-                committee,
-                params,
-                MlDsaAuthenticator::validator(Arc::clone(key), Arc::clone(&setup.committee)),
+                Committee::new(size),
+                engine_params,
+                MlDsaAuthenticator::validator(Arc::clone(key), Arc::clone(committee)),
             ),
             _ => Validator::observer(
-                committee,
-                params,
-                MlDsaAuthenticator::observer(Arc::clone(&setup.committee)),
+                Committee::new(size),
+                engine_params,
+                MlDsaAuthenticator::observer(Arc::clone(committee)),
             ),
         };
-        let (store, recovered) = SafetyStore::open(dir, setup.epoch)?;
+        let (store, recovered) = SafetyStore::open(&dir, epoch)?;
         let mut driver = Self {
             engine,
             id,
-            epoch: setup.epoch,
+            epoch,
             store,
             logged: BTreeSet::new(),
             queued: BTreeSet::new(),
+            signer,
+            params,
+            dir,
         };
         // Own proposals and votes first: they set the round, so replaying
         // certificates cannot make the engine sign a slot it already signed.
@@ -160,16 +196,21 @@ impl BftDriver {
                 Message::Cert(_) | Message::Fetch(_) => {}
             }
         }
-        let mut step = Step::default();
         for c in recovered.certificates {
             driver.logged.insert((c.vertex.round, c.digest()));
             let from = c.vertex.author;
             let out = driver.engine.handle(now_ms, from, Message::Cert(c));
-            driver.absorb(chain, out, &mut step)?;
+            driver.absorb(chain, now_ms, out, step)?;
         }
         let out = driver.engine.start(now_ms);
-        driver.absorb(chain, out, &mut step)?;
-        Ok((driver, step))
+        driver.absorb(chain, now_ms, out, step)?;
+        Ok(driver)
+    }
+
+    /// The committee epoch this driver runs.
+    #[must_use]
+    pub fn epoch(&self) -> u64 {
+        self.epoch
     }
 
     /// This node's validator id, or `None` for an observer.
@@ -222,7 +263,7 @@ impl BftDriver {
             self.log_certificate(c)?;
         }
         let out = self.engine.handle(now_ms, envelope.from, envelope.message);
-        self.absorb(chain, out, &mut step)?;
+        self.absorb(chain, now_ms, out, &mut step)?;
         Ok(step)
     }
 
@@ -234,7 +275,7 @@ impl BftDriver {
     pub fn on_tick(&mut self, chain: &mut Chain, now_ms: u64) -> Result<Step> {
         let mut step = Step::default();
         let out = self.engine.tick(now_ms);
-        self.absorb(chain, out, &mut step)?;
+        self.absorb(chain, now_ms, out, &mut step)?;
         Ok(step)
     }
 
@@ -247,7 +288,13 @@ impl BftDriver {
 
     /// Persists what must be persisted, turns sends into frames, and builds
     /// blocks from what committed.
-    fn absorb(&mut self, chain: &mut Chain, out: Output, step: &mut Step) -> Result<()> {
+    fn absorb(
+        &mut self,
+        chain: &mut Chain,
+        now_ms: u64,
+        out: Output,
+        step: &mut Step,
+    ) -> Result<()> {
         for (dest, message) in out.sends {
             let to = match dest {
                 Dest::All => BROADCAST,
@@ -274,7 +321,7 @@ impl BftDriver {
         step.equivocations.extend(out.equivocations);
         for sub_dag in out.sub_dags {
             let anchor = &sub_dag.anchor.vertex;
-            if self.already_built(chain, anchor.epoch, anchor.round) {
+            if anchor.epoch != self.epoch || self.already_built(chain, anchor.epoch, anchor.round) {
                 continue;
             }
             let block = build_block(chain, &sub_dag)?;
@@ -287,6 +334,12 @@ impl BftDriver {
                         self.queued.remove(txid);
                     }
                     step.included.extend(included);
+                    if self.next_epoch(chain)?.is_some() {
+                        // Everything the old engine committed after the
+                        // boundary block belongs to a committee that no
+                        // longer orders the chain.
+                        return self.switch_epoch(chain, now_ms, step);
+                    }
                 }
                 other => {
                     return Err(NodeError::Storage(format!(
@@ -300,6 +353,39 @@ impl BftDriver {
             .last_committed_round()
             .saturating_sub(maya_dag_bft::GC_DEPTH);
         self.logged = self.logged.split_off(&(horizon, [0; 32]));
+        Ok(())
+    }
+
+    /// The staking epoch the chain has moved to, if it is not this driver's.
+    fn next_epoch(&self, chain: &Chain) -> Result<Option<u64>> {
+        Ok(chain
+            .state()
+            .committed_staking()?
+            .map(|r| r.staking.epoch)
+            .filter(|e| *e != self.epoch))
+    }
+
+    /// Replaces this epoch's engine with the next one's, whose committee is
+    /// the staking module's new active set. Every node does this after the
+    /// same block, so every node switches at the same point in the order.
+    fn switch_epoch(&mut self, chain: &mut Chain, now_ms: u64, step: &mut Step) -> Result<()> {
+        let record = chain
+            .state()
+            .committed_staking()?
+            .ok_or_else(|| NodeError::Storage("staking record vanished".to_string()))?;
+        let committee: Arc<[VerifyingKey]> =
+            chain.state().validator_keys(&record.staking.active)?.into();
+        let next = Self::boot(
+            self.signer.clone(),
+            self.params,
+            self.dir.clone(),
+            record.staking.epoch,
+            &committee,
+            chain,
+            now_ms,
+            step,
+        )?;
+        *self = next;
         Ok(())
     }
 

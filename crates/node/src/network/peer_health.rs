@@ -196,6 +196,7 @@ pub fn classify_import(error: &NodeError) -> Option<Offence> {
         | NodeError::MalformedPublicKey
         | NodeError::InvalidNonce { .. }
         | NodeError::InsufficientBalance { .. }
+        | NodeError::FeeTooLow { .. }
         | NodeError::BalanceOverflow
         | NodeError::MixedTransactionKind(_)
         | NodeError::Decode(_)

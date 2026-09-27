@@ -91,6 +91,12 @@ enum Command {
         /// Sender nonce. Fetched from the node when omitted.
         #[arg(long)]
         nonce: Option<u64>,
+
+        /// Fee paid to the collector. Defaults to twice the base fee on the
+        /// transaction's size, the excess being the validators' tip, where
+        /// the chain charges fees; nothing where it does not.
+        #[arg(long)]
+        fee: Option<u64>,
     },
 }
 
@@ -223,6 +229,7 @@ async fn command_send(
     to: &str,
     amount: u64,
     nonce: Option<u64>,
+    fee: Option<u64>,
 ) -> Result<()> {
     let recipient = decode_address(to)?;
     let key = load_key(path)?;
@@ -237,7 +244,15 @@ async fn command_send(
         None => client.get_balance(&sender_hex).await?.nonce,
     };
 
-    let mut tx = Transaction::new(vec![], vec![TxOutput { amount, recipient }], nonce);
+    let outputs = with_fee(
+        &client,
+        &key,
+        vec![TxOutput { amount, recipient }],
+        nonce,
+        fee,
+    )
+    .await?;
+    let mut tx = Transaction::new(vec![], outputs, nonce);
     tx.sign(&key).context("signing the transaction")?;
 
     let raw = hex::encode(tx.to_bytes());
@@ -256,6 +271,41 @@ async fn command_send(
     Ok(())
 }
 
+/// Appends the fee output where the chain charges fees (ADR-029).
+///
+/// The size is measured on a signed probe that already carries the fee output
+/// — an output's encoding does not depend on its amount — so the fee covers
+/// exactly the bytes that will be sent.
+async fn with_fee(
+    client: &NodeClient,
+    key: &HybridSigningKey,
+    mut outputs: Vec<TxOutput>,
+    nonce: u64,
+    fee: Option<u64>,
+) -> Result<Vec<TxOutput>> {
+    let info = match client.get_fee_info().await {
+        Ok(info) if info.active => info,
+        _ => return Ok(outputs),
+    };
+    let collector = decode_address(&info.collector)?;
+    outputs.push(TxOutput {
+        amount: 0,
+        recipient: collector,
+    });
+    let amount = if let Some(fee) = fee {
+        fee
+    } else {
+        let mut probe = Transaction::new(vec![], outputs.clone(), nonce);
+        probe.sign(key).context("signing the fee probe")?;
+        let size = u64::try_from(probe.to_bytes().len())?;
+        info.base_fee.saturating_mul(size).saturating_mul(2)
+    };
+    if let Some(last) = outputs.last_mut() {
+        last.amount = amount;
+    }
+    Ok(outputs)
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -265,8 +315,21 @@ async fn main() -> Result<()> {
         Command::Address => command_address(&cli.keystore),
         Command::Balance { address } => command_balance(&cli.keystore, &cli.rpc_url, address).await,
         Command::Block { height } => command_block(&cli.rpc_url, height).await,
-        Command::Send { to, amount, nonce } => {
-            command_send(&cli.keystore, &cli.rpc_url, &to, amount, nonce).await
+        Command::Send {
+            to,
+            amount,
+            nonce,
+            fee,
+        } => {
+            Box::pin(command_send(
+                &cli.keystore,
+                &cli.rpc_url,
+                &to,
+                amount,
+                nonce,
+                fee,
+            ))
+            .await
         }
     }
 }
