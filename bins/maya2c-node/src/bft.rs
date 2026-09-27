@@ -82,6 +82,10 @@ pub(super) fn setup(
             batch_size: genesis.batch_size,
             anchor_timeout_ms: genesis.anchor_timeout_ms,
             min_round_interval_ms: genesis.round_interval_ms,
+            // Local, not consensus: how often a lost proposal or certificate
+            // is re-sent. Half the anchor timeout recovers a loss before the
+            // round would time out anyway.
+            resend_interval_ms: genesis.anchor_timeout_ms / 2,
             ..Params::default()
         },
     })

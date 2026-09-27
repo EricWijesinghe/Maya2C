@@ -141,6 +141,7 @@ fn main() {
             params: Params {
                 batch_size: 1_000,
                 min_round_interval_ms: 50,
+                resend_interval_ms: 500,
                 ..Params::default()
             },
         };
@@ -159,6 +160,7 @@ fn main() {
     let total = txs.len();
     let mut included = [0usize; VALIDATORS];
     let mut blocks = [0usize; VALIDATORS];
+    let mut build = std::time::Duration::ZERO;
     let started = Instant::now();
     let mut now = 0u64;
     while included.iter().any(|n| *n < total) && started.elapsed().as_secs() < 600 {
@@ -177,6 +179,7 @@ fn main() {
             }
             included[i] += step.included.len();
             blocks[i] += step.blocks.len();
+            build += step.build_time;
             queue.extend(step.frames.into_iter().map(|f| (i, f)));
         }
         for _ in 0..2_000 {
@@ -190,6 +193,7 @@ fn main() {
                 }
                 included[i] += step.included.len();
                 blocks[i] += step.blocks.len();
+                build += step.build_time;
                 queue.extend(step.frames.into_iter().map(|f| (i, f)));
             }
         }
@@ -210,6 +214,10 @@ fn main() {
         4.0 * total as f64 / secs,
         blocks[0],
         total as f64 / blocks[0].max(1) as f64,
+    );
+    println!(
+        "  of which building + inserting blocks (select, execute, state root, commit), summed over the 4 nodes: {:.2} s",
+        build.as_secs_f64()
     );
     assert!(
         included.iter().all(|n| *n == total),

@@ -89,6 +89,12 @@ pub struct Params {
     /// certificates arrive, which on an idle network is a stream of empty
     /// vertices; a node paces itself so an idle chain costs little.
     pub min_round_interval_ms: u64,
+    /// Least time between two re-broadcasts of this validator's pending
+    /// proposal or latest certificate. A re-broadcast only recovers a lost
+    /// message; sending a full vertex — megabytes when its batch is full — on
+    /// every tick made each peer decode and discard it every tick. Zero (the
+    /// simulator's value) re-broadcasts on every tick, as before.
+    pub resend_interval_ms: u64,
 }
 
 impl Default for Params {
@@ -99,6 +105,7 @@ impl Default for Params {
             anchor_timeout_ms: 1_000,
             epoch: 0,
             min_round_interval_ms: 0,
+            resend_interval_ms: 0,
         }
     }
 }
@@ -137,6 +144,8 @@ pub struct Validator<A = Unauthenticated> {
     waiting_since: Option<(u64, u64)>,
     /// When this validator last proposed, for `min_round_interval_ms`.
     last_proposed_ms: u64,
+    /// When `tick` last re-broadcast, for `resend_interval_ms`.
+    last_resend_ms: u64,
 }
 
 impl Validator<Unauthenticated> {
@@ -166,6 +175,7 @@ impl<A: Authenticator> Validator<A> {
             mempool: VecDeque::new(),
             waiting_since: None,
             last_proposed_ms: 0,
+            last_resend_ms: 0,
         }
     }
 
@@ -281,17 +291,21 @@ impl<A: Authenticator> Validator<A> {
     /// an anchor that timed out.
     pub fn tick(&mut self, now_ms: u64) -> Output {
         let mut out = Output::default();
-        if let Some((v, votes)) = &self.pending {
-            let signature = votes.get(&self.id).cloned().unwrap_or_default();
-            out.sends.push((
-                Dest::All,
-                Message::Propose {
-                    vertex: v.clone(),
-                    signature,
-                },
-            ));
-        } else if let Some(c) = self.dag.get(self.round, self.id) {
-            out.sends.push((Dest::All, Message::Cert(c.clone())));
+        let due = now_ms.saturating_sub(self.last_resend_ms) >= self.params.resend_interval_ms;
+        if due {
+            self.last_resend_ms = now_ms;
+            if let Some((v, votes)) = &self.pending {
+                let signature = votes.get(&self.id).cloned().unwrap_or_default();
+                out.sends.push((
+                    Dest::All,
+                    Message::Propose {
+                        vertex: v.clone(),
+                        signature,
+                    },
+                ));
+            } else if let Some(c) = self.dag.get(self.round, self.id) {
+                out.sends.push((Dest::All, Message::Cert(c.clone())));
+            }
         }
         self.progress(now_ms, &mut out);
         out
@@ -415,6 +429,13 @@ impl<A: Authenticator> Validator<A> {
 
     fn on_cert(&mut self, from: ValidatorId, c: Certificate, out: &mut Output) {
         if c.vertex.epoch != self.params.epoch || !c.is_well_formed(self.committee) {
+            return;
+        }
+        // A held slot answers before the digest does: certification leaves one
+        // certificate per slot, and the DAG refuses a second anyway, so a
+        // re-broadcast need not be hashed — which for a full vertex is
+        // megabytes — to be recognised.
+        if self.dag.get(c.vertex.round, c.vertex.author).is_some() {
             return;
         }
         let digest = c.digest();

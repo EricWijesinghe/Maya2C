@@ -63,6 +63,9 @@ pub struct Step {
     /// Each built block's anchor proposal time, milliseconds: what the
     /// finality-latency metric measures from.
     pub anchor_times_ms: Vec<u64>,
+    /// Wall time spent building and inserting this step's blocks — the
+    /// execution half of the node's work, as opposed to the protocol half.
+    pub build_time: std::time::Duration,
     /// Equivocations this node witnessed, for the staking module.
     pub equivocations: Vec<Equivocation>,
 }
@@ -335,6 +338,7 @@ impl BftDriver {
                 continue;
             }
             let anchor_time = anchor.timestamp_ms;
+            let started = std::time::Instant::now();
             let block = build_block(chain, &sub_dag)?;
             let included: Vec<[u8; 32]> =
                 block.transactions.iter().map(Transaction::txid).collect();
@@ -351,7 +355,9 @@ impl BftDriver {
                     step.dropped.push(tx);
                 }
             }
-            match chain.insert_block(block)? {
+            let inserted = chain.insert_block(block)?;
+            step.build_time += started.elapsed();
+            match inserted {
                 InsertOutcome::Extended { tip } => {
                     step.blocks.push(tip);
                     step.anchor_times_ms.push(anchor_time);

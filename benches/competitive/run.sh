@@ -6,9 +6,10 @@
 # dates. It never compares Maya2C lab numbers with another chain's production
 # numbers: every row says where it ran.
 #
-# Today it runs no other chain end to end: no devnet binary (bitcoind, geth,
-# solana-test-validator, sui) is installed on the machine that wrote it, and
-# each prints SKIPPED. What it does run is the primitive-level comparison
+# End to end, where the other chain's devnet is installed: Ethereum via
+# Foundry's anvil (eth_anvil_workload.py), the same shape as Maya2C's
+# examples/bft_tps.rs — 10,000 transfers from 2,000 accounts. Chains whose
+# devnet is absent print SKIPPED. It also runs the primitive-level comparison
 # that needs no other chain: signature verification per core for Ed25519
 # (the scheme Solana, Sui and Aptos sign with) beside Maya2C's hybrid.
 set -euo pipefail
@@ -19,6 +20,19 @@ OUT="benches/competitive/results-$(date -u +%Y-%m-%d).txt"
   echo "commit:   $(git rev-parse --short HEAD)"
   echo "cpu:      $(lscpu 2>/dev/null | awk -F: '/Model name/ {gsub(/^ +/,"",$2); print $2}') x $(nproc)"
   echo "rustc:    $(rustc --version)"
+  echo
+  if command -v anvil >/dev/null 2>&1 && python3 -c "import eth_account" 2>/dev/null; then
+    echo "== end to end: Ethereum (anvil) =="
+    python3 benches/competitive/eth_anvil_workload.py 10000 2000
+  else
+    echo "SKIPPED  anvil: binary or eth-account not installed"
+  fi
+  if [[ -x target/release/examples/bft_tps ]]; then
+    echo "== end to end: Maya2C (examples/bft_tps.rs, 4 validators in one process) =="
+    TPS_DIR="${TMPDIR:-/tmp}" target/release/examples/bft_tps 2000 5 | tail -1
+  else
+    echo "SKIPPED  Maya2C bft_tps: build with cargo build --release -p custom-l1-node --example bft_tps"
+  fi
   echo
   for chain in bitcoind geth solana-test-validator sui; do
     if command -v "$chain" >/dev/null 2>&1; then
