@@ -9,7 +9,7 @@ Hardware record: [12-baseline.md](12-baseline.md).
 
 | Condition | Result |
 |---|---|
-| Multi-machine validator prototype, measured | **not built**; one machine only. The single-machine parallel curves are in `reports/12-performance.md` (3.56x on 4 cores, uniform accounts) |
+| Multi-machine validator prototype, measured | **built and measured** (2026-09-27) as separate processes over pipes, one host: verification scales ×5.14 at 12 workers — see "Split validator" below. Not yet across a real network link |
 | Local fee markets and reserved lanes pass tests | **pass** (`crates/lanes`) |
 | Viral-app scenario keeps other apps within SLO | **yes, with a design rule this run found**, and a configuration that breaches it (below) |
 | Payments-grade targets (sub-second soft confirmation, finality in seconds) | not measurable: no BFT finality (ADR-015) |
@@ -72,3 +72,26 @@ test a_hot_app_raises_only_its_own_local_fee ... ok
 - A validator as a cluster (multi-machine execution with one state root).
 - Atomic cross-shard bundles: sharding is not in launch scope (ADR-016).
 - Wiring local fees and lanes into the node, whose fee market is inactive.
+
+## Split validator (added 2026-09-27)
+
+`crates/node/examples/split_validator.rs` moves the builder's heaviest stage,
+signature verification, out of the validator into worker processes — the
+coordinator keeps the order and the sequential execution that decides the
+block. Every transaction is serialized across the process boundary, as it
+would be to another machine. `--profile perf`, Windows 11, Intel family 6
+model 198 (24 threads), 8,000 ML-DSA-65 transfers (42.7 MB):
+
+| workers | verified tx/s | speedup |
+|---|---|---|
+| 1 | 7,104 | 1.00 |
+| 2 | 11,514 | 1.62 |
+| 4 | 19,828 | 2.79 |
+| 8 | 23,059 | 3.25 |
+| 12 | 36,530 | 5.14 |
+
+Measured wall time includes spawning the workers and the IPC, so the small
+counts understate steady-state scaling. What it does not include: network
+latency and bandwidth between machines (at 5.4 KB per transfer, 36,530 tx/s
+is ~1.6 Gbit/s — a real split needs a 10 Gbit/s link at that rate), and
+splitting execution itself, which stays sequential per block.
