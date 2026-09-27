@@ -85,6 +85,8 @@ async fn source(work: &std::path::Path) -> LocalChain {
         bin_dir: bin_dir(),
         stop_after_deploys: None,
         node_args: Vec::new(),
+        chain_id: maya2c_cli::dev::CHAIN_ID.to_string(),
+        base_fee: None,
     })
     .await
     .unwrap()

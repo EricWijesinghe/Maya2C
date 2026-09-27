@@ -52,6 +52,8 @@ async fn dev_starts_a_funded_chain_and_redeploys_on_save() {
         bin_dir: bin_dir(),
         stop_after_deploys: Some(2),
         node_args: Vec::new(),
+        chain_id: maya2c_cli::dev::CHAIN_ID.to_string(),
+        base_fee: None,
     };
 
     // Once the first deploy has landed: check an account is funded, then

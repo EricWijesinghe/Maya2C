@@ -17,11 +17,11 @@
 
 use std::collections::BTreeMap;
 
-use custom_l1_node::core::{Transaction, TxKind};
+use custom_l1_node::core::{Transaction, TxKind, TxOutput};
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
 use maya_htlc_lattice::CommitmentId;
 
-use crate::chain::SwapChain;
+use crate::chain::{Fees, SwapChain};
 use crate::error::{Result, WatcherError};
 use crate::swap::ChainSide;
 
@@ -34,6 +34,45 @@ pub enum Purpose {
     Claim(CommitmentId),
     /// Refunding a swap's outbound lock.
     Refund(CommitmentId),
+    /// The fee allowance paid to a swap's counterparty with this watcher's
+    /// lock, so a counterparty new to the chain can pay for its claim.
+    Allowance(CommitmentId),
+}
+
+/// Signs a transaction of `kind` with `outputs`, adding the fee output a
+/// fee-charging chain requires: twice the base fee on the signed size, as
+/// `l1-wallet` computes it. The fee output's amount is fixed-width, so the
+/// probe's size is the final size.
+///
+/// # Errors
+///
+/// [`WatcherError::Signing`].
+pub fn sign_with_fee(
+    kind: &TxKind,
+    mut outputs: Vec<TxOutput>,
+    nonce: u64,
+    key: &HybridSigningKey,
+    fees: Option<Fees>,
+) -> Result<Transaction> {
+    let sign = |outputs: Vec<TxOutput>| {
+        let mut tx = Transaction::with_kind(kind.clone(), nonce);
+        tx.outputs = outputs;
+        tx.sign(key)
+            .map_err(|e| WatcherError::Signing(e.to_string()))?;
+        Ok::<_, WatcherError>(tx)
+    };
+    let Some(fees) = fees else {
+        return sign(outputs);
+    };
+    outputs.push(TxOutput {
+        amount: 0,
+        recipient: fees.collector,
+    });
+    let size = u64::try_from(sign(outputs.clone())?.to_bytes().len()).unwrap_or(u64::MAX);
+    if let Some(fee) = outputs.last_mut() {
+        fee.amount = fees.base_fee.saturating_mul(size).saturating_mul(2);
+    }
+    sign(outputs)
 }
 
 /// `ChainSide` with an ordering, for map keys.
@@ -124,10 +163,26 @@ impl Pending {
         purpose: Purpose,
         kind: TxKind,
     ) -> Result<()> {
+        self.submit_with_outputs(side, chain, key, purpose, kind, Vec::new())
+            .await
+    }
+
+    /// [`Pending::submit`] with transfer outputs, e.g. a fee allowance.
+    ///
+    /// # Errors
+    ///
+    /// As [`Pending::submit`], and a failure reading the chain's fee terms.
+    pub async fn submit_with_outputs(
+        &mut self,
+        side: ChainSide,
+        chain: &dyn SwapChain,
+        key: &HybridSigningKey,
+        purpose: Purpose,
+        kind: TxKind,
+        outputs: Vec<TxOutput>,
+    ) -> Result<()> {
         let nonce = self.next_nonce(side)?;
-        let mut tx = Transaction::with_kind(kind, nonce);
-        tx.sign(key)
-            .map_err(|e| WatcherError::Signing(e.to_string()))?;
+        let tx = sign_with_fee(&kind, outputs, nonce, key, chain.fees().await?)?;
         let raw = tx.to_bytes();
 
         let side_key = Side::from(side);
