@@ -1981,6 +1981,7 @@ dependencies = [
  "maya-rwa",
  "maya-sdk-wasm",
  "maya-sim",
+ "maya-staking",
  "maya-stateless-core",
  "maya-stratum-v2",
  "maya-threat-firewall",

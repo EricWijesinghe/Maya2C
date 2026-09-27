@@ -167,6 +167,8 @@ const TAG_SUBMIT_TELEMETRY: u8 = 46;
 const TAG_REPORT_TAMPER: u8 = 47;
 const TAG_PROVE_EQUIVOCATION: u8 = 48;
 const TAG_REVOKE_DEVICE: u8 = 49;
+// Staking (ADR-028): one tag, the action carries its own sub-tag.
+const TAG_STAKING: u8 = 50;
 
 /// Largest joinsplit proof accepted on the wire.
 ///
@@ -537,6 +539,9 @@ pub enum TxKind {
     ProveEquivocation(Box<maya_iot_anchor::Equivocation>),
     /// Revoke a device the sender owns.
     RevokeDevice(maya_iot_anchor::DeviceId),
+    /// Register, bond, delegate, unbond, or report a validator's
+    /// equivocation — see [`crate::core::staking_payload`].
+    Staking(Box<crate::core::staking_payload::StakingAction>),
 }
 
 impl TxKind {
@@ -600,6 +605,7 @@ impl TxKind {
             Self::ReportTamper(_) => "report_tamper",
             Self::ProveEquivocation(_) => "prove_equivocation",
             Self::RevokeDevice(_) => "revoke_device",
+            Self::Staking(_) => "staking",
         }
     }
 
@@ -813,6 +819,10 @@ impl TxKind {
                 buf.push(TAG_REVOKE_DEVICE);
                 buf.extend_from_slice(device);
             }
+            Self::Staking(action) => {
+                buf.push(TAG_STAKING);
+                action.encode_into(buf);
+            }
             Self::RevealShare(share) => {
                 buf.push(TAG_REVEAL_SHARE);
                 share.encode_into(buf);
@@ -942,6 +952,9 @@ impl TxKind {
             TAG_REVOKE_DEVICE => Ok(Self::RevokeDevice(crate::core::iot_payload::decode_device(
                 reader,
             )?)),
+            TAG_STAKING => Ok(Self::Staking(Box::new(
+                crate::core::staking_payload::StakingAction::decode(reader)?,
+            ))),
             other => Err(NodeError::Decode(format!(
                 "unknown transaction payload tag {other}"
             ))),

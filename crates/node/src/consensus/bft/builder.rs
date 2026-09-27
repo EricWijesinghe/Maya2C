@@ -77,12 +77,11 @@ pub fn build_block(chain: &Chain, sub_dag: &SubDag) -> Result<Block> {
     let kept = chain
         .state()
         .select_applicable(ordered_transactions(sub_dag), context, target);
-    let mut block = match chain.candidate_block(timestamp, kept) {
-        Ok(block) => block,
-        Err(_) => chain.candidate_block(timestamp, Vec::new())?,
-    };
-    block.header.nonce = seal(anchor.epoch, anchor.round);
-    Ok(block)
+    let nonce = seal(anchor.epoch, anchor.round);
+    match chain.candidate_block_sealed(timestamp, kept, nonce) {
+        Ok(block) => Ok(block),
+        Err(_) => chain.candidate_block_sealed(timestamp, Vec::new(), nonce),
+    }
 }
 
 #[cfg(test)]

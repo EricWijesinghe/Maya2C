@@ -76,6 +76,9 @@ pub enum StateLayer {
     /// IoT anchor device records, under the `v:` prefix. Never present before
     /// activation, so it moves no existing root.
     Iot,
+    /// Staking records, under the `k:` prefix (ADR-028). Never present on a
+    /// chain without configured staking, so it moves no existing root.
+    Staking,
     /// The stateless marker, under the `sl:` prefix.
     ///
     /// Its presence is what says the accounts root beneath it is the sparse
@@ -113,6 +116,7 @@ pub const LAYER_ORDER: &[StateLayer] = &[
     StateLayer::Htlc,
     StateLayer::ThreatIntel,
     StateLayer::Iot,
+    StateLayer::Staking,
     StateLayer::Stateless,
     StateLayer::Shielded,
     StateLayer::Contracts,
@@ -141,6 +145,7 @@ impl StateLayer {
             Self::Htlc => "maya htlc-l state root v1",
             Self::ThreatIntel => "maya threat-intel state root v1",
             Self::Iot => "maya iot anchor state root v1",
+            Self::Staking => "maya staking state root v1",
             Self::Stateless => "maya stateless state root v1",
         }
     }
@@ -163,6 +168,7 @@ impl StateLayer {
             Self::Stateless => 12,
             Self::ThreatIntel => 13,
             Self::Iot => 14,
+            Self::Staking => 15,
         }
     }
 
@@ -184,6 +190,7 @@ impl StateLayer {
             12 => Some(Self::Stateless),
             13 => Some(Self::ThreatIntel),
             14 => Some(Self::Iot),
+            15 => Some(Self::Staking),
             _ => None,
         }
     }
@@ -215,6 +222,7 @@ impl StateLayer {
             Self::Stateless => "stateless",
             Self::ThreatIntel => "threat-intel",
             Self::Iot => "iot",
+            Self::Staking => "staking",
         }
     }
 }

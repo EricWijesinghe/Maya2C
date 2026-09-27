@@ -590,11 +590,28 @@ impl Chain {
     /// Returns an error if the tip is missing from the index, or if any of
     /// `transactions` would fail to apply.
     pub fn candidate_block(&self, timestamp: u64, transactions: Vec<Transaction>) -> Result<Block> {
+        self.candidate_block_sealed(timestamp, transactions, 0)
+    }
+
+    /// [`Chain::candidate_block`] with the header's `nonce` set *before* the
+    /// state root is computed. A DAG-BFT block's nonce is its seal, and the
+    /// staking pass reads it (ADR-028), so a root computed with nonce 0 and a
+    /// seal written afterwards would be a root no node reproduces.
+    ///
+    /// # Errors
+    ///
+    /// As [`Chain::candidate_block`].
+    pub fn candidate_block_sealed(
+        &self,
+        timestamp: u64,
+        transactions: Vec<Transaction>,
+        nonce: u64,
+    ) -> Result<Block> {
         let header = BlockHeader {
             prev_hash: self.tip,
             state_root: [0; 32],
             timestamp,
-            nonce: 0,
+            nonce,
             difficulty_target: self.next_target(&self.tip)?,
             tx_root: [0; 32],
         };

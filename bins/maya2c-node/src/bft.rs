@@ -105,8 +105,7 @@ pub(super) fn open(
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
-        .unwrap_or(0)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
 /// Transactions not yet handed to the engine, with when this node first saw
@@ -160,7 +159,7 @@ impl Feed {
     /// gossiped yet. The RPC pool is local; without this only this validator
     /// would ever learn of them, and a transaction outside its share would
     /// wait out [`SHARE_GRACE`] (measured: 3.7 s against 0.75 s in-share).
-    fn to_gossip(&mut self, rpc_pool: &Mempool) -> Vec<custom_l1_node::core::Transaction> {
+    fn unannounced(&mut self, rpc_pool: &Mempool) -> Vec<custom_l1_node::core::Transaction> {
         rpc_pool
             .snapshot()
             .into_iter()
@@ -227,7 +226,7 @@ pub(super) async fn bft_loop(
                 Err(RecvError::Closed) => return,
             },
             _ = ticker.tick() => {
-                for tx in feed.to_gossip(&rpc_pool) {
+                for tx in feed.unannounced(&rpc_pool) {
                     // Best effort: a lone node has nobody to tell.
                     let _ = network.publish_transaction(&tx).await;
                 }

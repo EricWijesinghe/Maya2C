@@ -170,7 +170,14 @@ fn a_thousand_validators_under_byzantine_faults_conserve_value() {
             })
             .collect();
         let outcome = s
-            .end_epoch(&Participation { rounds, authored }, REWARD_PER_EPOCH)
+            .end_epoch(
+                &Participation {
+                    rounds,
+                    authored,
+                    ..Participation::default()
+                },
+                REWARD_PER_EPOCH,
+            )
             .unwrap();
         rewards_in += u128::from(REWARD_PER_EPOCH);
         ledger.apply(&outcome.effects);
@@ -254,6 +261,7 @@ fn a_validator_that_misses_its_rounds_is_slashed_and_sits_out() {
             &Participation {
                 rounds: 100,
                 authored,
+                ..Participation::default()
             },
             0,
         )

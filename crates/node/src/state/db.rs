@@ -147,6 +147,12 @@ pub(crate) struct Overlay {
     /// context that every state transition takes would put a field in front of
     /// every reader for the sake of one.
     pub(crate) difficulty_target: [u8; HASH_LEN],
+    /// Base fee owed by this block's transactions so far, to be burned at the
+    /// end of the block (ADR-029). Zero where fees are not configured.
+    pub(crate) fee_burn: u128,
+    /// Serialized bytes of this block's transactions so far: what the next
+    /// base fee steps from.
+    pub(crate) fee_bytes: u64,
 }
 
 impl Overlay {
@@ -733,6 +739,7 @@ impl StateDB {
         // through to `verify`, and the both-schemes rule above is unchanged.
         // ADR-013.
         tx.verify_at(context.height, policy)?;
+        self.charge_fee(overlay, tx)?;
 
         // Derived from the keys the signatures were just checked against, never
         // read from a wire field. A transaction able to name a sender
@@ -834,6 +841,12 @@ impl StateDB {
         // transactions executing under two different sets of rules depending on
         // where they sat, which is a state divergence rather than a subtlety.
         self.settle_governance(&mut overlay, context)?;
+        // Burn the base fee before staking runs, so an epoch's reward pool is
+        // the tips alone.
+        self.settle_fees(&mut overlay)?;
+        // After governance and before the invariants: the epoch boundary moves
+        // bonds, rewards and slashes, which the conservation check must see.
+        self.settle_staking(&mut overlay, &block.header, context)?;
 
         // Last, over the finished overlay. Running it earlier would check
         // a half-built block: the trading pass moves reserves and the

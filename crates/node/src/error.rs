@@ -105,6 +105,17 @@ pub enum NodeError {
         actual: u64,
     },
 
+    /// The transaction's output to the fee collector is below the base fee on
+    /// its size (ADR-029). Knowable from the parent alone, so a block that
+    /// includes one is invalid, not unlucky.
+    #[error("fee too low: base fee requires {required}, the transaction pays {offered}")]
+    FeeTooLow {
+        /// `base_fee × size`.
+        required: u128,
+        /// Sum of the transaction's outputs to the collector.
+        offered: u128,
+    },
+
     /// The sender cannot cover the transaction's outputs.
     #[error("insufficient balance for {address}: need {required}, have {available}")]
     InsufficientBalance {

@@ -87,7 +87,14 @@ impl StateDB {
         // Value flow must come from exactly one mechanism. A channel operation
         // that also carried transfer outputs would have two, and reasoning
         // about conservation would stop being local.
-        if tx.kind.has_payload() && !tx.outputs.is_empty() {
+        // One exception, where fees are on: outputs that only pay the fee
+        // collector are the fee, not a second value flow (ADR-029).
+        let fee_only = tx
+            .outputs
+            .iter()
+            .all(|o| o.recipient == crate::state::fees::FEE_COLLECTOR)
+            && self.fee_record(overlay)?.is_some();
+        if tx.kind.has_payload() && !tx.outputs.is_empty() && !fee_only {
             return Err(NodeError::MixedTransactionKind(tx.kind.label()));
         }
 
@@ -282,6 +289,7 @@ impl StateDB {
                 self.prove_equivocation(overlay, evidence, context)
             }
             TxKind::RevokeDevice(device) => self.revoke_device(overlay, &sender, device, context),
+            TxKind::Staking(action) => self.apply_staking(overlay, &sender, action),
             TxKind::AttestLegal(payload) => self.attest_legal(
                 overlay,
                 &sender,

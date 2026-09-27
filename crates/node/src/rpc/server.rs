@@ -165,6 +165,21 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     module
+        .register_method("get_fee_info", |_params, ctx, _| {
+            let fees = ctx
+                .chain()
+                .state()
+                .committed_fees()
+                .map_err(|e| rejected(e.to_string()))?;
+            Ok::<_, ErrorObjectOwned>(crate::rpc::types::FeeInfo {
+                active: fees.is_some(),
+                base_fee: fees.map_or(0, |f| f.base_fee),
+                collector: hex::encode(crate::state::fees::FEE_COLLECTOR),
+            })
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
+    module
         .register_method("send_raw_transaction", |params, ctx, _| {
             let raw: String = params.one().map_err(|e| invalid_params(e.to_string()))?;
             let bytes = hex::decode(raw.trim_start_matches("0x"))

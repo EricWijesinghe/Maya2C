@@ -278,12 +278,12 @@ fn earth_and_mars(
             }
         };
         if base == 0 {
-            earth_commits[local as usize]
-                .extend(out.committed.iter().flat_map(|c| {
-                    c.vertex.batch.iter().map(|tx| {
-                        u64::from_le_bytes(tx.as_slice().try_into().expect("8-byte sim ids"))
-                    })
-                }));
+            earth_commits[local as usize].extend(out.committed.iter().flat_map(|c| {
+                c.vertex
+                    .batch
+                    .iter()
+                    .map(|tx| u64::from_le_bytes(tx.as_slice().try_into().expect("8-byte sim ids")))
+            }));
         } else if local == 0 {
             // Mars node 0 batches its locally final anchors to every Earth node.
             for c in &out.committed {

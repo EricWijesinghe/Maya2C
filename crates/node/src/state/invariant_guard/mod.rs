@@ -269,6 +269,11 @@ impl Module {
             TxKind::ReportTamper(_) | TxKind::ProveEquivocation(_) | TxKind::RevokeDevice(_) => {
                 None
             }
+
+            // Never halted. Evidence must always land (halting it would
+            // protect the equivocator), and unbonding already waits out a
+            // delay the breaker cannot shorten.
+            TxKind::Staking(_) => None,
         }
     }
 }
