@@ -73,16 +73,23 @@ pub fn root() -> PathBuf {
     crate::workspace_root()
 }
 
-/// A built binary under `target/debug`.
+/// Where prebuilt binaries are taken from instead of `target/debug`, so a
+/// rehearsal can run the exact artifacts that ship (`target/dist`).
+pub const BIN_DIR_ENV: &str = "MAYA2C_BIN_DIR";
+
+/// A built binary: under `$MAYA2C_BIN_DIR` if set, else `target/debug`.
 pub fn bin(name: &str) -> PathBuf {
-    root()
-        .join("target")
-        .join("debug")
-        .join(format!("{name}{EXE}"))
+    let dir = std::env::var_os(BIN_DIR_ENV)
+        .map_or_else(|| root().join("target").join("debug"), PathBuf::from);
+    dir.join(format!("{name}{EXE}"))
 }
 
-/// `cargo build -p` each package.
+/// `cargo build -p` each package; nothing when `$MAYA2C_BIN_DIR` names
+/// prebuilt binaries.
 pub fn build(packages: &[&str]) -> Result<()> {
+    if std::env::var_os(BIN_DIR_ENV).is_some() {
+        return Ok(());
+    }
     let mut cmd = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
     cmd.arg("build").current_dir(root()).stdout(Stdio::null());
     for p in packages {

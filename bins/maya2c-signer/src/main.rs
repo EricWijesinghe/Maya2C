@@ -105,6 +105,11 @@ fn serve(f: &BTreeMap<String, String>) -> Result<(), String> {
 }
 
 fn main() -> Result<(), String> {
+    // Operators ask a deployed binary what it is before anything else.
+    if std::env::args().nth(1).as_deref() == Some("--version") {
+        println!("{} {}", env!("CARGO_BIN_NAME"), env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     let (cmd, f) = args()?;
     match cmd.as_str() {
         "init" => {

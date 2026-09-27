@@ -82,15 +82,25 @@ NIST ACVP vectors (`crates/crypto-pq/tests/acvp_tests.rs`).
 ```
 $ cargo xtask spec-coverage
 …
-44 rules, 46 vectors; 34 consensus rules covered, 7 gaps: CON-4 CON-5 CON-6 CON-7 CON-8 ROOT-5 TX-4
+44 rules, 71 vectors; 41 consensus rules covered, 0 gaps:
 ```
 
-| Gap | Why | Evidence that exists instead |
-|---|---|---|
-| CON-4 state root must match execution | needs a chain, not a function | invariant 24 tests, `crash_consistency_tests.rs` |
-| CON-5 retarget, CON-6 PoW, CON-7 most-work, CON-8 prune horizon | chain-level | `consensus/chain.rs` tests |
-| ROOT-5 extra state layers | vectors are accounts-only | `state::proof` tests |
-| TX-4 v7/v8 verify only via `verify_at` (active from genesis, ADR-013) | no v7/v8 frame in the verifier | `suite_tx`/`multisig_tx` tests |
+The seven gaps this section used to list were closed on 2026-09-28, from
+`spec-ref`'s independent reference (`crates/spec-ref/src/consensus.rs`),
+replayed by `crates/node/tests/consensus_conformance.rs` and
+`conformance.rs`:
+
+| Rule | Vectors |
+|---|---|
+| CON-4 state root must match execution | a declared root that matches and one that does not (`state_transitions.json`), through `apply_block_checked` |
+| CON-5 retarget | on time, slow, fast, both clamps, the limit cap, and a declared target that disagrees |
+| CON-6 work check | a hash below, equal to and above the target (the comparison; the `argonblake-pow` hash itself has no vector) |
+| CON-7 most work | the work of a target, of the zero target (saturates) and of the easiest, and a short hard branch beating a long easy one |
+| CON-8 prune horizon | above, at and below it |
+| ROOT-5 extra layers | the accounts-only roots, which the node must reproduce with every layer present but empty |
+| TX-4 v7/v8 verify only via `verify_at` | real ML-DSA-87 v7 and 2-of-3 v8 frames built by the node; `verify` refuses them, `verify_at` accepts, a changed frame fails |
+
+The TypeScript verifier handles CON-4 but does not read `consensus.json`.
 
 CRY-1/2/3 count as covered through *external vectors* (ACVP, suite parity,
 suite registry tests). The tool checks each named path exists.
