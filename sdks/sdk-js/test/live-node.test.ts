@@ -1,7 +1,7 @@
 /**
  * The SDK against a real node, through the real gateway.
  *
- * Skipped unless `MAYA_GATEWAY_URL` is set: `scripts/sdk_e2e.py` starts a
+ * Skipped unless `MAYA_GATEWAY_URL` is set: `cargo xtask sdk-e2e` starts a
  * one-validator DAG-BFT devnet and `maya2c-gateway`, signs a transfer with the
  * Rust wallet (`l1-wallet send --no-broadcast`), and runs this file with:
  *
