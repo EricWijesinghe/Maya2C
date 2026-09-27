@@ -3191,3 +3191,23 @@ tier = "extended"
 class = "RESEARCH"
 status = "working"
 tests = ["crate:maya-multivm", "crates/multivm/tests/multivm_tests.rs"]
+
+[[subsystem]]
+id = "cbdc-vault-zk-kyc"
+name = "Permissioned CBDC vault: STARK credential proof admits at a KYC tier; per-tier limits, freezes, issuer-only mint"
+domain = "Finance"
+paths = "`crates/permissioned-finance/src/cbdc.rs`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-permissioned-finance", "crates/permissioned-finance/tests/vault_tests.rs"]
+
+[[subsystem]]
+id = "darkpool-and-tax"
+name = "Sealed-bid dark pool (commit-reveal, uniform-price clearing, auditor opening) and US/UK/DE capital-gains calculators"
+domain = "Finance"
+paths = "`crates/permissioned-finance/src/darkpool.rs`, `crates/permissioned-finance/src/tax.rs`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-permissioned-finance", "crates/permissioned-finance/tests/compliance_tests.rs"]

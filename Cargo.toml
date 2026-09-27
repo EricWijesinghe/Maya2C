@@ -257,6 +257,7 @@ members = [
     # Multi-VM Phase A: revm and solana-sbpf over one account state (MP5 §3).
     # RESEARCH: not called by block execution.
     "crates/multivm",
+    "crates/permissioned-finance",
     # Bitcoin SPV (Master Prompt 6 §3): header rules bit-exact with Core,
     # retargeting, chainwork fork choice, reorgs, merkle proofs. SHA-256 only,
     # because it parses bytes a relayer chose.
