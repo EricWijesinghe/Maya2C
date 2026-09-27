@@ -93,6 +93,25 @@ pub fn ethereum_exposure(is_contract: bool, nonce: u64) -> Exposure {
     }
 }
 
+/// EIP-7702's delegation designator: an account whose code starts with these
+/// bytes is an EOA that delegated to contract code. It still has a private
+/// key, and it signed the authorization, so its key is on chain.
+pub const EIP7702_DESIGNATOR: [u8; 3] = [0xef, 0x01, 0x00];
+
+/// Exposure of an Ethereum account from its code and nonce.
+///
+/// [`ethereum_exposure`] with one correction the real mainnet sample forced
+/// (`tests/ethereum_mainnet_tests.rs`): "has code" does not mean "has no
+/// key". A 7702-delegated EOA has code *and* a key, and is exposed.
+#[must_use]
+pub fn ethereum_exposure_of(code: &[u8], nonce: u64) -> Exposure {
+    if code.starts_with(&EIP7702_DESIGNATOR) {
+        Exposure::Exposed
+    } else {
+        ethereum_exposure(!code.is_empty(), nonce)
+    }
+}
+
 /// The plain-language explanation shown to a user.
 #[must_use]
 pub fn explain(e: Exposure) -> &'static str {
