@@ -6503,6 +6503,7 @@ dependencies = [
  "criterion",
  "hex",
  "maya-contract-safety",
+ "maya-zk-stark",
  "tempfile",
  "thiserror 2.0.20",
  "wasmtime",

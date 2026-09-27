@@ -36,6 +36,7 @@ pub mod cache;
 pub mod config;
 pub mod error;
 pub mod host;
+pub mod private;
 pub mod resources;
 pub mod runtime;
 pub mod tier;

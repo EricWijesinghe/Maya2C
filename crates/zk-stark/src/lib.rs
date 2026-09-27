@@ -28,12 +28,14 @@
 // it. Clippy's `needless_range_loop` is therefore allowed crate-wide.
 #![allow(clippy::needless_range_loop)]
 
+pub mod association;
 pub mod config;
 pub mod credential;
 pub mod dual;
 pub mod gadgets;
 pub mod hash;
 pub mod pool;
+pub mod private_state;
 pub mod proof;
 pub mod sanctions;
 pub mod zkml;

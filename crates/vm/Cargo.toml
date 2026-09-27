@@ -50,6 +50,9 @@ wasmtime = { version = "=48.0.1", default-features = false, features = [
 criterion = { workspace = true, features = ["html_reports"] }
 wat.workspace = true
 tempfile.workspace = true
+# private_state_tests: the STARK prover and verifier behind `maya_priv`. A
+# dev-dependency only: the VM itself stays free of the proof system.
+maya-zk-stark = { path = "../zk-stark" }
 
 # What the module cache saves, measured rather than targeted. See the file
 # header for why "JIT versus interpreted" is not the comparison being made.

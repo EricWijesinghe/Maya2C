@@ -8,9 +8,9 @@
 
 | Condition | Result |
 |---|---|
-| Private state and functions in contracts | **not built** |
+| Private state and functions in contracts | **built and tested in the VM** (2026-09-28): `maya-zk-stark::private_state` + the opt-in `maya_priv` VM imports; a WASM contract keeps a hidden balance as a commitment. Not on chain: needs an audit and an activation height |
 | Viewing keys pass tests | **yes**, `crates/privacy` (per account and per transaction) |
-| Association-set proofs pass tests | **the exclusion half, yes**: "not from a flagged set" is the existing STARK in `maya-zk-stark::sanctions`, measured here. Inclusion in an approved set is **not built** |
+| Association-set proofs pass tests | **both halves**: exclusion (`sanctions`) and, since 2026-09-28, inclusion in an approved set bound to a nullifier (`maya-zk-stark::association`) |
 | Mobile proving measured | **no.** Desktop only, recorded |
 | Privacy limits document | `docs/privacy/LIMITS.md` |
 
@@ -50,3 +50,61 @@ option.
 - Mobile proving.
 - An external cryptography audit, which is required before activation and
   is already in audit scope (a) (`docs/audit/README.md`).
+
+## Private contract state and association sets (2026-09-28)
+
+**Private state.** A contract keeps a private field as a 32-byte commitment
+`P(lo, hi, 0.. ‖ r)`. The owner proves an update off chain
+(`private_state::prove_debit` / `prove_credit`) that `C_old` opens to `v`,
+`C_new` opens to `v ∓ amount`, and `v - amount >= 0`. Only the two
+commitments and the amount are public. The contract checks the proof through
+the opt-in `maya_priv` import (`crates/vm/src/private.rs`, the host
+implements `PrivateVerifier`) and stores `C_new`. Values are two 29-bit limbs
+with an explicit borrow, so no equation can hold by wraparound. A field is
+capped at 2^58 base units.
+
+```
+$ cargo test -p maya-vm --test private_state_tests -- --nocapture
+private debit: prove 12.29ms (desktop, debug build), proof 236946 bytes, contract call Ok(1468144) gas
+test a_hidden_balance_is_debited_and_credited_by_proof ... ok
+```
+
+In that test, a WAT contract is opened with 1,000 hidden units, then:
+- debited 300 by proof, with only the amount emitted;
+- a replay of the same proof is refused;
+- a proof that lies about the amount is refused, and state is unchanged;
+- 45 is credited, leaving a hidden balance of 745.
+
+**Association sets.** `association` proves that a deposit
+`L = compress(s, AssociationLeaf)` is in an approved set's tree (depth 15),
+with the root and `nf = compress(s, AssociationNullifier)` public. `L`, `s`
+and the path stay private; `nf` makes the proof single-use. That is the
+Privacy Pools shape. The prior-art comparison is left for
+`docs/prior-art/` before any public claim (Standing Order 10). Measured:
+prove 16–103 ms, verify 7–9 ms, 345,625 bytes.
+
+**Soundness review (MP27 §4), before landing:**
+
+- **HIGH, fixed.** The association nullifier reused the pool's `Nullifier`
+  domain tag, so for a pool note built with `rho = 0` the two nullifiers of
+  one secret were equal. Fixed with its own domain tags
+  (`AssociationLeaf`, `AssociationNullifier`) and a test that every domain
+  tag is distinct.
+- **HIGH, fixed.** The debit's public amount limbs were range-checked only
+  by the Rust wrapper. A caller assembling public inputs directly could pass
+  a limb near p and satisfy the equations by wraparound. The amount is now
+  bit-decomposed inside the circuit, and a regression test forges exactly
+  that case.
+- The rest of both circuits was found sound; see the review in the commit.
+
+**Also fixed here:** `pqc_zk_tests` had failed since the multi-VM commit.
+`revm-precompile` brings in the BN254 and BLS12-381 pairing curves for the
+EVM's own precompiles. No Maya proof system uses them, so the guard is now
+scoped to what it protects. No pairing crate may be reachable from any
+workspace member but `maya-multivm`, and a third test pins that the two
+curves are reached only through the EVM engine.
+
+**Still not measured: mobile proving.** No phone is attached to this
+machine; the Android NDK (r30) is installed, so a phone with USB debugging
+can be measured directly.
+
