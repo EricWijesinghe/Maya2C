@@ -69,6 +69,8 @@ struct Member {
     chain: Chain,
     bft_dir: PathBuf,
     state_dir: PathBuf,
+    /// How far this member's clock runs ahead, for the clock-drift rehearsal.
+    skew_ms: u64,
 }
 
 struct Mesh {
@@ -132,6 +134,7 @@ impl Mesh {
             let (driver, step) = BftDriver::open(&setup, &bft_dir, &mut chain, 0).unwrap();
             members.push(Member {
                 driver: Some(driver),
+                skew_ms: 0,
                 chain,
                 bft_dir,
                 state_dir,
@@ -172,7 +175,7 @@ impl Mesh {
             let Some(driver) = m.driver.as_mut() else {
                 continue;
             };
-            let step = driver.on_tick(&mut m.chain, self.now).unwrap();
+            let step = driver.on_tick(&mut m.chain, self.now + m.skew_ms).unwrap();
             self.absorb(i, step);
         }
     }
@@ -191,7 +194,9 @@ impl Mesh {
                 let Some(driver) = m.driver.as_mut() else {
                     continue;
                 };
-                let step = driver.on_frame(&mut m.chain, self.now, &frame).unwrap();
+                let step = driver
+                    .on_frame(&mut m.chain, self.now + m.skew_ms, &frame)
+                    .unwrap();
                 self.absorb(i, step);
             }
         }
@@ -339,4 +344,51 @@ fn a_nonce_chain_split_across_validators_all_lands() {
     for i in 0..VALIDATORS {
         assert_eq!(mesh.balance(i, &RECIPIENT), 30, "member {i}");
     }
+}
+
+/// Runbook `clock-drift`: one validator's clock runs ten minutes fast.
+///
+/// What the runbook needs to know is what it breaks: liveness does not
+/// depend on agreement between clocks (the engine's only use of time is its
+/// own timeout), so the chain keeps finalizing. What drifts is block
+/// timestamps — a fast leader's anchors carry its clock, and the builder only
+/// clamps them to never run backwards. The size of that distortion is the
+/// rehearsal's number.
+#[test]
+fn clock_drift_rehearsal_a_fast_validator_skews_timestamps_but_not_liveness() {
+    const SKEW_MS: u64 = 10 * 60 * 1_000;
+    let mut mesh = Mesh::new(0);
+    // Engine clocks at the genesis time, as real ones would be; a few honest
+    // rounds first, then one validator's clock jumps ten minutes ahead.
+    mesh.now = 1_000_000 * 1_000;
+    mesh.run_to(3);
+    mesh.members[1].skew_ms = SKEW_MS;
+    let start_s = mesh.now / 1_000;
+    mesh.run_to(15);
+    let common = mesh.live().map(|m| m.chain.height()).min().unwrap();
+    assert!(
+        common >= 12,
+        "the chain stalled with a skewed validator: {common}"
+    );
+    mesh.agree_at(common);
+    let chain = &mesh.members[0].chain;
+    let stamps: Vec<u64> = chain
+        .active_chain()
+        .unwrap()
+        .iter()
+        .map(|id| chain.get(id).unwrap().header.timestamp)
+        .collect();
+    assert!(
+        stamps.windows(2).all(|w| w[1] >= w[0]),
+        "timestamps ran backwards"
+    );
+    let ahead = stamps.last().unwrap().saturating_sub(mesh.now / 1_000);
+    assert!(
+        ahead <= 1,
+        "one fast clock moved the median block time {ahead} s ahead"
+    );
+    println!(
+        "clock-drift: one validator 600 s fast; {common} blocks finalized and agreed in {} s of honest time;          timestamps monotonic; the chain's clock ends {ahead} s ahead of the honest one (median of certified times):          liveness and block time both unaffected",
+        mesh.now / 1_000 - start_s
+    );
 }
