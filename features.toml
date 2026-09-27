@@ -2043,11 +2043,11 @@ tests = ["crate:maya-governance", "crates/governance/tests/limits_tests.rs", "cr
 id = "eip-1559-base-fee-over-bytes"
 name = "EIP-1559 base fee over bytes"
 domain = "Consensus and execution"
-paths = "`crates/fee-market`"
-tier = "extended"
-class = "RESEARCH"
-status = "working"
-tests = ["crate:maya-fee-market", "crates/node/tests/fee_market_tests.rs"]
+paths = "`crates/fee-market`, `crates/node/src/state/fees.rs`, `crates/node/src/state/fee_exec.rs`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crate:maya-fee-market", "crates/node/tests/fee_market_tests.rs", "crates/node/tests/fee_market_live_tests.rs"]
 
 [[subsystem]]
 id = "neural-base-fee-gain"
@@ -2825,11 +2825,11 @@ note = "Master Prompt 3 §6, accumulator half only. 1M blocks fold in 0.31 s; pr
 id = "dag-bft"
 name = "DAG-BFT ordering (Narwhal + Bullshark) and consensus modes"
 domain = "Consensus and execution"
-paths = "`crates/dag-bft`"
+paths = "`crates/dag-bft`, `crates/node/src/consensus/bft/`, `bins/maya2c-node/src/bft.rs`"
 tier = "core"
-class = "RESEARCH"
-status = "working"
-tests = ["crate:maya-dag-bft", "crates/dag-bft/tests/modes_sim.rs"]
+class = "REAL"
+status = "verified"
+tests = ["crate:maya-dag-bft", "crates/dag-bft/tests/modes_sim.rs", "crates/dag-bft/tests/auth_and_restart.rs", "crates/node/tests/bft_node_tests.rs"]
 note = "ADR-015. All three modes run under maya-sim. Ordering figures only (no signatures, execution or disk) — not TPS. Not wired into custom-l1-node."
 
 [[subsystem]]
@@ -3140,3 +3140,44 @@ class = "REAL"
 status = "working"
 tests = ["crates/reference-apps/tests/apps.rs", "crates/reference-apps/tests/nft_game.rs"]
 note = "Master Prompt 30 §1. Four apps compose existing crates and pass their user stories in process; none runs on a testnet (none is public; smart accounts are not a node transaction type). The NFT contract runs in the VM and demonstrates that ownership cannot be checked without a caller host function (ADR-026)."
+
+[[subsystem]]
+id = "staking-and-slashing"
+name = "Staking, delegation, committee selection and slashing (ADR-028)"
+domain = "Consensus and execution"
+paths = "`crates/staking`, `crates/node/src/state/staking.rs`, `crates/node/src/state/staking_exec.rs`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crate:maya-staking", "crates/staking/tests/scenario.rs", "crates/node/tests/bft_staking_tests.rs"]
+
+[[subsystem]]
+id = "security-council-pause"
+name = "Security council bounded module pause"
+domain = "Governance"
+paths = "`crates/node/src/state/council.rs`, `crates/node/src/core/council_payload.rs`"
+tier = "core"
+class = "REAL"
+status = "verified"
+tests = ["crates/node/tests/council_pause_tests.rs"]
+
+[[subsystem]]
+id = "eth-beacon-light-client"
+name = "Ethereum beacon sync-committee light client"
+domain = "Interoperability"
+paths = "`crates/interop/src/beacon.rs`"
+tier = "extended"
+class = "RESEARCH"
+status = "verified"
+tests = ["crate:maya-interop", "crates/interop/tests/eth_beacon_finality_tests.rs", "crates/interop/tests/eth_mainnet_headers_tests.rs"]
+
+[[subsystem]]
+id = "k8s-operator"
+name = "MayaNetwork Kubernetes operator"
+domain = "Operations"
+paths = "`infra/operator/`, `scripts/operator_rehearsal.sh`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = []
+gate = "bash scripts/operator_rehearsal.sh on k3d (Linux/WSL2; install, snapshot restore, rolling upgrade); log in reports/data/operator-rehearsal-2026-09-27.txt"

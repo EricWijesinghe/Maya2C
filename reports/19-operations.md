@@ -12,7 +12,7 @@
 | Kubernetes operator | **not built.** No Kubernetes cluster can run in this sandbox (`reports/10-launch.md`: k3d blocked by egress, nested runc refused), so an operator could not be tested |
 | `cargo xtask slo-check` passes | **yes** (2026-09-27): 7 of 7. The node now registers and records finality latency, RPC requests and duration (middleware), sync duration and per-validator missed slots; a devnet scrape shows real values (§1a) |
 | 20 runbooks exist | **yes**, `docs/runbooks/` |
-| …and are rehearsed | **11 of 20** have a test or measured run behind them (index below); 9 do not |
+| …and are rehearsed | **20 of 20** (2026-09-27): the nine that lacked one now have a test or a measured run — see "Runbook rehearsals, completed" |
 | Coordinated-restart rehearsal | **recorded** (§3) |
 | Testnet phase plans | **written**, `docs/TESTNET_PROGRAM.md` |
 | infracost estimates | **none.** `infracost` is not installed and needs a pricing API key; **no approval is requested** |
@@ -148,3 +148,19 @@ upgrade is gated per replica on the chain advancing. Limits, stated: "v2" is
 the same binary under a new tag (the rollout mechanics, not a protocol
 change); the rehearsal chain is proof of work because a DAG-BFT node cannot
 yet catch up past the DAG's GC window (ADR-027).
+
+## Runbook rehearsals, completed (added 2026-09-27)
+
+| runbook | rehearsal | result |
+|---|---|---|
+| key-compromise | `bft_staking_tests::incident_rehearsal_…` | detected 250 ms, tombstoned 750 ms later, replacement seated 500 ms after |
+| mempool-full | `runbook_rehearsals.rs` | full pool refuses; one block drains; admission resumes |
+| deep-reorg | `runbook_rehearsals.rs` | 20 blocks reverted onto a heavier branch; state identical |
+| state-root-mismatch | `runbook_rehearsals.rs` | refused, tip holds, honest block lands |
+| db-corruption | `runbook_rehearsals.rs` | the node refuses to open a DB whose root is not its tip's; rebuilt by replaying its own block store |
+| clock-drift | `bft_node_tests::clock_drift_rehearsal_…` | 600 s skew: liveness unaffected; **found and fixed** a block-time bug (now the median of certified times; drift 0 s) |
+| disk-full | `scripts/runbook_rehearsals_linux.sh` | ENOSPC at height 125 reported as a storage error; space freed; reopened consistently, mined on to 169 |
+| memory-pressure | same script | OOM-killed at 48 MiB (exit 137); restarted, reopened consistently |
+| peer-starvation | same script | no bootnode: stuck at 0 while the network was at 71; with one: caught up to 79/79 |
+
+Linux log: `reports/data/runbook-rehearsals-linux-2026-09-27.txt` (WSL2 Ubuntu 24.04, Docker 29.1.3).
