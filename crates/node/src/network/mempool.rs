@@ -174,6 +174,16 @@ impl Mempool {
             });
         }
 
+        // A vault account's out-of-policy transaction (ADR-030) would only be
+        // dropped at block building; refuse it here, before the signature,
+        // with the reason, against committed state like the checks above.
+        self.state.vault_check(
+            &crate::state::db::Overlay::default(),
+            tx,
+            &sender_address,
+            self.admission_height()?,
+        )?;
+
         // Then the signature, with the same rule block execution applies, at
         // the first height this transaction could execute at, under the policy
         // governance has chosen:

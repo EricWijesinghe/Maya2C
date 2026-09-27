@@ -171,6 +171,8 @@ const TAG_REVOKE_DEVICE: u8 = 49;
 const TAG_STAKING: u8 = 50;
 // Security council pause and resume (state::council).
 const TAG_COUNCIL: u8 = 51;
+// Vault accounts (ADR-030): configure, request, execute, cancel.
+const TAG_VAULT: u8 = 52;
 
 /// Largest joinsplit proof accepted on the wire.
 ///
@@ -547,6 +549,8 @@ pub enum TxKind {
     /// A security-council pause or resume, carried by anyone, authorized by
     /// a quorum of council signatures — see [`crate::core::council_payload`].
     Council(Box<crate::core::council_payload::CouncilAction>),
+    /// A vault action — see [`crate::core::vault_payload`] and ADR-030.
+    Vault(Box<crate::core::vault_payload::VaultAction>),
 }
 
 impl TxKind {
@@ -612,6 +616,7 @@ impl TxKind {
             Self::RevokeDevice(_) => "revoke_device",
             Self::Staking(_) => "staking",
             Self::Council(_) => "council",
+            Self::Vault(_) => "vault",
         }
     }
 
@@ -833,6 +838,10 @@ impl TxKind {
                 buf.push(TAG_COUNCIL);
                 action.encode_into(buf);
             }
+            Self::Vault(action) => {
+                buf.push(TAG_VAULT);
+                action.encode_into(buf);
+            }
             Self::RevealShare(share) => {
                 buf.push(TAG_REVEAL_SHARE);
                 share.encode_into(buf);
@@ -967,6 +976,9 @@ impl TxKind {
             ))),
             TAG_COUNCIL => Ok(Self::Council(Box::new(
                 crate::core::council_payload::CouncilAction::decode(reader)?,
+            ))),
+            TAG_VAULT => Ok(Self::Vault(Box::new(
+                crate::core::vault_payload::VaultAction::decode(reader)?,
             ))),
             other => Err(NodeError::Decode(format!(
                 "unknown transaction payload tag {other}"

@@ -291,6 +291,7 @@ impl StateDB {
             TxKind::RevokeDevice(device) => self.revoke_device(overlay, &sender, device, context),
             TxKind::Staking(action) => self.apply_staking(overlay, &sender, action),
             TxKind::Council(action) => self.apply_council(overlay, action, context),
+            TxKind::Vault(action) => self.apply_vault(overlay, &sender, action, context),
             TxKind::AttestLegal(payload) => self.attest_legal(
                 overlay,
                 &sender,

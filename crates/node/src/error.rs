@@ -423,6 +423,10 @@ pub enum NodeError {
     #[error("htlc: {0}")]
     Htlc(String),
 
+    /// A vault action or a vault account's transaction refused (ADR-030).
+    #[error("vault: {0}")]
+    Vault(String),
+
     /// An attack attestation whose evidence does not verify, or one
     /// submitted before threat intel is active.
     ///

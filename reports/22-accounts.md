@@ -77,5 +77,6 @@ test result: ok. 3 passed; 0 failed …
   anything on-chain.
 - Paying fees in approved tokens at an oracle price.
 - Hardware-wallet rendering of intents.
-- Opt-in vault accounts in the node. They exist in the library.
+- ~~Opt-in vault accounts in the node.~~ Built 2026-09-27: ADR-030,
+  `TxKind::Vault`, invariant 32. See `reports/28-quantum-harbor.md`.
 - The usability study.

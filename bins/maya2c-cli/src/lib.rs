@@ -4,6 +4,7 @@
 pub mod debug;
 pub mod dev;
 pub mod fork;
+pub mod vault;
 
 use maya_vm::host::{ContractId, MemoryState};
 use maya_vm::runtime::Vm;

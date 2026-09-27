@@ -6598,6 +6598,7 @@ dependencies = [
  "clap 4.6.6",
  "custom-l1-node",
  "hex",
+ "jsonrpsee",
  "l1-wallet",
  "maya-vm",
  "serde_json",

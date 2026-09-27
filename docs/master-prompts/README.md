@@ -60,7 +60,7 @@ on evidence. "Partial" means some are.
 | 25 | Interop without trusted bridges | — | Partial | Beacon light client verifies **real mainnet finality** (505/512 signers); **intent settled across two real devnets** by hash-locked swap (8.3 s). Not ZK — `reports/25-interop.md` |
 | 26 | Scale without fragmentation | — | **Met** | Split-validator prototype measured (verification in worker processes: ×5.14 at 12 workers, 36,530 tx/s); local fee markets and lanes pass; viral-app sim keeps others within SLO. Caveat: processes on one host, not across a network — `reports/26-scale.md` |
 | 27 | Privacy primitive, compliance | — | Partial | Private contract state not built; shielded pool awaits external audit; no mobile proving — `reports/27-privacy.md` |
-| 28 | Quantum-safe harbor | — | Partial | Exposure tool on real Bitcoin **and** real Ethereum data (200 mainnet accounts; a sender key recovered from its signature; EIP-7702 fix). No PQ vaults on devnets — `reports/28-quantum-harbor.md` |
+| 28 | Quantum-safe harbor | — | Partial | Exposure tool on real BTC **and** ETH data; **PQ vaults end to end on a devnet** (ADR-030, invariant 32, honest risk label). No outside-asset bridge into vaults; archival re-sealing and custodian reports not built — `reports/28-quantum-harbor.md` |
 | 29 | Wallet, explorer, portal UI | — | Partial | Design system + screenshot diffs in CI; no usability study, no device budgets, wallet e2e never run — `reports/29-interface.md` |
 | 30 | Adoption engine, public proof | — | Partial | Caller identity live (ADR-026 accepted); NFT game runs through the node with owner checks. No public testnet; outside-developer port times and approvals pending — `reports/30-adoption.md` |
 

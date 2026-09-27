@@ -14,7 +14,7 @@
 //!
 //! | Asset | Held in |
 //! |---|---|
-//! | Native | `acct:` balances, `chan:` capacity, the shielded pool's public balance, `g:lock:` stakes, `g:prop:` deposits, `h:lk:` HTLC escrow, `k:state` validator stake |
+//! | Native | `acct:` balances, `chan:` capacity, the shielded pool's public balance, `g:lock:` stakes, `g:prop:` deposits, `h:lk:` HTLC escrow, `q:w:` vault withdrawals, `k:state` validator stake |
 //! | Registered | `d:bal:` balances, `d:pool:` reserves, `d:ord:` escrow |
 //! | LP share | `d:bal:` balances |
 //!
@@ -198,6 +198,8 @@ impl StateDB {
                 fold_proposal(staged, previous, ledger)?;
             } else if key.starts_with(HTLC_LOCK_PREFIX) {
                 fold_htlc_lock(staged, previous, ledger)?;
+            } else if key.starts_with(crate::state::vault::WITHDRAWAL_PREFIX) {
+                fold_vault_withdrawal(staged, previous, ledger)?;
             } else if key.as_slice() == crate::state::staking::STATE_KEY {
                 fold_staking(staged, previous, ledger)?;
             }
@@ -390,6 +392,26 @@ fn fold_htlc_lock(
     let escrowed = |bytes: Option<&[u8]>| -> Result<u64> {
         Ok(match bytes {
             Some(bytes) => htlc_decode(bytes)?.escrowed(),
+            None => 0,
+        })
+    };
+    shift(
+        ledger,
+        NATIVE_ASSET,
+        diff(escrowed(staged)?, escrowed(previous)?),
+    );
+    Ok(())
+}
+
+/// `q:w:`: native coin escrowed by an open vault withdrawal (ADR-030).
+fn fold_vault_withdrawal(
+    staged: Option<&[u8]>,
+    previous: Option<&[u8]>,
+    ledger: &mut Ledger,
+) -> Result<()> {
+    let escrowed = |bytes: Option<&[u8]>| -> Result<u64> {
+        Ok(match bytes {
+            Some(bytes) => crate::state::vault::Withdrawal::decode(bytes)?.escrowed(),
             None => 0,
         })
     };

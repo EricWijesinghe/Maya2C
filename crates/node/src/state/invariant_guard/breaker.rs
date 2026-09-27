@@ -289,10 +289,10 @@ mod tests {
             assert_eq!(Module::from_tag(tag), Some(module));
         }
         // Not `MODULES.len()`: a variant left out of `MODULES` would make that
-        // comparison agree with itself. 12 is the count this wire format has
-        // since `Iot` took tag 11.
-        assert_eq!(seen.len(), 12);
-        assert_eq!(Module::from_tag(12), None);
+        // comparison agree with itself. 13 is the count this wire format has
+        // since `Vault` took tag 12 (ADR-030).
+        assert_eq!(seen.len(), 13);
+        assert_eq!(Module::from_tag(13), None);
     }
 
     #[test]
@@ -300,7 +300,9 @@ mod tests {
         for &invariant in INVARIANTS {
             assert_eq!(Invariant::from_tag(invariant.tag()), Some(invariant));
         }
-        assert_eq!(Invariant::from_tag(2), None);
+        // 3, not 2: `CouncilPause` took tag 2. The council commit (4ea0403)
+        // left this asserting 2 was free, and the full suite caught it.
+        assert_eq!(Invariant::from_tag(3), None);
     }
 
     #[test]
