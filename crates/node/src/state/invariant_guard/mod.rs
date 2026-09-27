@@ -112,6 +112,9 @@ pub enum Module {
     /// `IoT` anchor enrollment and telemetry. Tamper reports, clone evidence and
     /// revocation belong to no module — see [`Module::of`].
     Iot,
+    /// Vault configuration, requests and execution (ADR-030). A cancel belongs
+    /// to no module — see [`Module::of`].
+    Vault,
 }
 
 /// Every module, in tag order. The guard iterates it so a new variant cannot be
@@ -129,6 +132,7 @@ pub const MODULES: &[Module] = &[
     Module::Htlc,
     Module::ThreatIntel,
     Module::Iot,
+    Module::Vault,
 ];
 
 impl Module {
@@ -148,6 +152,7 @@ impl Module {
             Self::Htlc => 9,
             Self::ThreatIntel => 10,
             Self::Iot => 11,
+            Self::Vault => 12,
         }
     }
 
@@ -167,6 +172,7 @@ impl Module {
             9 => Some(Self::Htlc),
             10 => Some(Self::ThreatIntel),
             11 => Some(Self::Iot),
+            12 => Some(Self::Vault),
             _ => None,
         }
     }
@@ -187,6 +193,7 @@ impl Module {
             Self::Htlc => "htlc-l locks",
             Self::ThreatIntel => "threat intel",
             Self::Iot => "iot anchor",
+            Self::Vault => "vault",
         }
     }
 
@@ -196,7 +203,7 @@ impl Module {
     /// Exhaustive on purpose — no wildcard arm — so adding a [`TxKind`] is a
     /// compile error here until somebody decides which module owns it.
     #[must_use]
-    pub const fn of(kind: &TxKind) -> Option<Self> {
+    pub fn of(kind: &TxKind) -> Option<Self> {
         match kind {
             // A transfer is the one thing that keeps working through every
             // breaker. It is also the one arm that does no work in
@@ -278,6 +285,15 @@ impl Module {
             // Never halted: a council that could pause itself could lock
             // itself out of undoing a mistaken pause.
             TxKind::Council(_) => None,
+
+            // A cancel returns escrow to its owner and is the guardian's one
+            // defence during the delay: halting it would hand a thief the
+            // race. Everything else in a vault can wait for a breaker — held
+            // value simply stays escrowed. The HTLC split, for the same reason.
+            TxKind::Vault(action) => match **action {
+                crate::core::vault_payload::VaultAction::Cancel { .. } => None,
+                _ => Some(Self::Vault),
+            },
         }
     }
 }

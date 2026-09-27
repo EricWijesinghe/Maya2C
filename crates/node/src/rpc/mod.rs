@@ -6,6 +6,7 @@
 //! | `get_account_at_tip` | `[address_hex]` | [`types::AccountAtTip`] |
 //! | `get_balance_changes` | `[height]` | [`types::BalanceChangesInfo`] |
 //! | `get_balance_at_height` | `[address_hex, height]` | `{address, balance, height, block_id}` |
+//! | `vault_get` | `[address_hex]` | the vault's policy and requests, or `null` (ADR-030) |
 //! | `send_raw_transaction` | `[tx_hex]` | [`types::SubmitTransactionResult`] |
 //! | `get_block_by_height` | `[height]` | [`types::BlockInfo`] |
 //! | `get_mining_candidate` | `[]` | [`types::MiningCandidate`] |

@@ -79,6 +79,10 @@ pub enum StateLayer {
     /// Staking records, under the `k:` prefix (ADR-028). Never present on a
     /// chain without configured staking, so it moves no existing root.
     Staking,
+    /// Vault policies and withdrawal escrow, under the `q:` prefix (ADR-030).
+    /// Never present on a chain where no account configured a vault, so it
+    /// moves no existing root.
+    Vault,
     /// The stateless marker, under the `sl:` prefix.
     ///
     /// Its presence is what says the accounts root beneath it is the sparse
@@ -117,6 +121,7 @@ pub const LAYER_ORDER: &[StateLayer] = &[
     StateLayer::ThreatIntel,
     StateLayer::Iot,
     StateLayer::Staking,
+    StateLayer::Vault,
     StateLayer::Stateless,
     StateLayer::Shielded,
     StateLayer::Contracts,
@@ -147,6 +152,7 @@ impl StateLayer {
             Self::Iot => "maya iot anchor state root v1",
             Self::Staking => "maya staking state root v1",
             Self::Stateless => "maya stateless state root v1",
+            Self::Vault => "maya vault state root v1",
         }
     }
 
@@ -169,6 +175,7 @@ impl StateLayer {
             Self::ThreatIntel => 13,
             Self::Iot => 14,
             Self::Staking => 15,
+            Self::Vault => 16,
         }
     }
 
@@ -191,6 +198,7 @@ impl StateLayer {
             13 => Some(Self::ThreatIntel),
             14 => Some(Self::Iot),
             15 => Some(Self::Staking),
+            16 => Some(Self::Vault),
             _ => None,
         }
     }
@@ -223,6 +231,7 @@ impl StateLayer {
             Self::ThreatIntel => "threat-intel",
             Self::Iot => "iot",
             Self::Staking => "staking",
+            Self::Vault => "vault",
         }
     }
 }

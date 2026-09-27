@@ -47,6 +47,7 @@ pub mod stateless;
 pub mod threat;
 pub mod threat_exec;
 pub mod undo;
+pub mod vault;
 pub mod verified;
 pub mod vm_exec;
 pub mod zkml;

@@ -98,7 +98,7 @@ impl RpcNodeClient {
         self.client
             .request(method, params)
             .await
-            .map_err(|e| classify(method, e))
+            .map_err(|e| classify(method, &e))
     }
 }
 
@@ -109,8 +109,8 @@ const REFUSAL_CODES: [i32; 2] = [-32_602, -32_000];
 /// is the caller's fault; anything else — transport, timeout, an internal
 /// error — is the gateway's or the node's. `cargo xtask sdk-e2e` found the
 /// first kind being reported as the second.
-fn classify(method: &str, error: jsonrpsee::core::ClientError) -> GatewayError {
-    match &error {
+fn classify(method: &str, error: &jsonrpsee::core::ClientError) -> GatewayError {
+    match error {
         jsonrpsee::core::ClientError::Call(call) if REFUSAL_CODES.contains(&call.code()) => {
             GatewayError::Rejected(format!("{method}: {}", call.message()))
         }

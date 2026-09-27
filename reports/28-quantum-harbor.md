@@ -10,7 +10,7 @@
 |---|---|
 | Exposure tool on real Bitcoin data | **yes**: Bitcoin's genesis coinbase, whose id equals the real genesis header's merkle root |
 | …on real Ethereum data | **yes** (2026-09-27): 200 accounts from mainnet blocks 26065698–99, and a sender's public key recovered from a real signature — see "Real Ethereum data" below |
-| PQ vaults end to end on devnets | **no devnets and no bridge.** The vault logic exists in `crates/smart-account` (delay + guardian cancel) |
+| PQ vaults end to end on devnets | **yes, for the native coin** (2026-09-27): vault accounts in the node (ADR-030) on a real devnet, with the honest risk label in `maya2c vault`. **No outside-asset bridge route exists**, so bridging BTC/ETH into a vault is not built |
 | Q-day playbook rehearsed in sim | **the mechanism is**: 1,000,000-account suite migration, no failed transfers. The human steps are not |
 
 ## Exposure tool
@@ -103,3 +103,59 @@ their key is exposed. `ethereum_exposure_of` now reads the designator.
 **What the sample is not.** Two blocks of active accounts are biased toward
 accounts that transact, and most ETH in the sample sits in contracts. It is a
 demonstration that the tool works on live data, not a chain-wide estimate.
+
+## PQ vaults on a devnet (2026-09-27)
+
+A vault is an account's opt-in policy (ADR-030): a delay in blocks, an
+instant limit per window, and guardians. Its keys are the chain's hybrid
+ML-DSA-65 + SLH-DSA keys, so both the owner's signature and the guardian's
+cancel are post-quantum. Over-limit withdrawals are escrowed and wait out the
+delay, and any guardian can cancel them. Nothing but a plain transfer or a
+vault action can leave a vault.
+
+```
+$ cargo test -p custom-l1-node --test vault_tests
+test the_fee_collector_is_not_a_way_around_the_limit ... ok
+test bad_policies_and_requests_are_refused ... ok
+test the_limit_bounds_a_window_not_a_transaction ... ok
+test a_matured_request_pays_and_only_once ... ok
+test a_stolen_key_waits_and_a_guardian_cancels ... ok
+test reconfiguration_waits_out_the_current_delay_and_can_be_cancelled ... ok
+test result: ok. 6 passed; 0 failed
+
+$ cargo test -p maya2c-cli --test vault_devnet_tests
+test result: ok. 1 passed; 0 failed   (a real node; every step through its mempool)
+```
+
+The devnet test is the stolen-key story end to end:
+
+1. The over-limit transfer is refused at admission, with the reason.
+2. The thief's 900,000,000 request is escrowed and cancelled by the guardian.
+3. The owner's 5,000 request waits five blocks and is then executed by a
+   third party.
+
+`maya2c vault <address>` prints the policy, the open requests and this risk
+label:
+
+> A vault protects against theft of your own key: withdrawals above the
+> limit wait out the delay, and any guardian can cancel them. It does NOT
+> protect against a thief who also holds a guardian key, or against transfers
+> within the per-window limit, which are instant. An asset bridged into a vault
+> is only as safe as the weakest of its source chain, the bridge route and
+> Maya2C; if the source chain is broken, the bridged representation is
+> affected too.
+
+**Review changed the design before it landed.** The rust and security
+reviewers found that fee outputs, excluded from the limit and uncapped, let
+a stolen key send the whole balance to the fee collector in one instant
+transaction. They also found that a per-transaction limit let thousands of
+in-limit transfers drain a vault in one round. Both are fixed (a fee
+headroom of 4x the required fee, and a per-window limit) and pinned by
+tests. Settled requests are deleted, so state stays bounded. The circuit
+breaker can halt vault configuration, requests and execution, but never a
+cancel. Details and remaining limits: ADR-030.
+
+**Not built:** bridging outside assets into a vault (no Master Prompt 25
+route exists for BTC or ETH), SLH-DSA archival re-sealing schedules, and
+custodian compliance reports.
+

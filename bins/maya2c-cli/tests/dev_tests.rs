@@ -16,14 +16,13 @@ fn bin_dir() -> PathBuf {
         .parent()
         .unwrap()
         .to_path_buf();
-    let node = dir.join(format!("maya2c-node{}", std::env::consts::EXE_SUFFIX));
-    if !node.exists() {
-        let status = std::process::Command::new(env!("CARGO"))
-            .args(["build", "-p", "maya2c-node"])
-            .status()
-            .expect("cargo build");
-        assert!(status.success(), "building maya2c-node");
-    }
+    // Always, not only when missing: a stale node binary once ran this test
+    // against pre-change consensus code. A no-op build costs a second.
+    let status = std::process::Command::new(env!("CARGO"))
+        .args(["build", "-p", "maya2c-node"])
+        .status()
+        .expect("cargo build");
+    assert!(status.success(), "building maya2c-node");
     dir
 }
 

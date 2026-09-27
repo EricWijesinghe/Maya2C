@@ -18,6 +18,7 @@ pub mod staking_payload;
 pub mod suite_tx;
 pub mod threat_payload;
 pub mod transaction;
+pub mod vault_payload;
 
 pub use block::{Block, BlockHeader, HEADER_LEN, TX_ROOT_RANGE, transaction_leaf};
 pub use dex_payload::{

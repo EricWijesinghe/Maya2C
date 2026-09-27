@@ -755,6 +755,11 @@ impl StateDB {
         // a forged half paired with an attacker-chosen partner key resolves to
         // an account that holds nothing.
         let sender_address = tx.sender();
+        // A vault account may send only in-limit transfers and vault actions
+        // (ADR-030), checked before a unit moves.
+        if let Some(vault) = self.vault_check(overlay, tx, &sender_address, context.height)? {
+            StateDB::store_vault(overlay, &sender_address, &vault);
+        }
         let mut sender = self.load(overlay, &sender_address)?;
 
         // Nonce check. This is the double-spend guard: the first spend bumps

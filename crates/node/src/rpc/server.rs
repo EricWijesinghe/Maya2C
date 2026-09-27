@@ -257,6 +257,39 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     module
+        .register_method("vault_get", |params, ctx, _| {
+            let address_hex: String = params.one().map_err(|e| invalid_params(e.to_string()))?;
+            let address = decode_array::<32>(&address_hex, "address")?;
+            let chain = ctx.chain();
+            let state = chain.state();
+            let Some(vault) = state.committed_vault(&address).map_err(internal)? else {
+                return Ok::<_, ErrorObjectOwned>(serde_json::Value::Null);
+            };
+            let height = chain.height();
+            let config = vault.effective(height);
+            let requests: Vec<serde_json::Value> = state
+                .committed_withdrawals(&address)
+                .map_err(internal)?
+                .iter()
+                .map(|(id, w)| {
+                    serde_json::json!({
+                        "id": id, "to": hex::encode(w.to), "amount": w.amount,
+                        "ready_height": w.ready_height,
+                    })
+                })
+                .collect();
+            Ok(serde_json::json!({
+                "delay_blocks": config.delay_blocks,
+                "limit": config.limit,
+                "guardians": config.guardians.iter().map(hex::encode).collect::<Vec<_>>(),
+                "pending_reconfiguration_height": vault.pending.as_ref().map(|(_, ready)| *ready),
+                "open_requests": vault.open,
+                "requests": requests,
+            }))
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
+    module
         .register_method("get_account_at_tip", |params, ctx, _| {
             let address_hex: String = params.one().map_err(|e| invalid_params(e.to_string()))?;
             let address = decode_array::<32>(&address_hex, "address")?;

@@ -1,6 +1,6 @@
 # Critical Invariants
 
-Thirty-one properties this tree must not lose, each with the reason it
+Thirty-two properties this tree must not lose, each with the reason it
 exists. They are numbered, the numbers are referenced from code comments and
 from `docs/adr/`, and **a number is never reused**: if an invariant is
 retired, its entry stays with the retirement recorded.
@@ -222,3 +222,13 @@ phase that did it.
     validity rests on. `SUITE_ENVELOPE_ACTIVATION_HEIGHT` is 0 (ADR-013).
     Pinned by `crates/node/tests/suite_parity_tests.rs` and
     `crates/node/tests/suite_envelope_live_tests.rs` — ADR-007, ADR-013.
+32. **A vault account moves at most its `limit` per window of `delay_blocks`
+    without a delayed, guardian-cancellable request, and by no door but a
+    plain transfer or a vault action.** Outputs to the fee collector count
+    toward the limit above 4x the required fee. Before review closed that
+    door, one transaction could send a vault's whole balance to the
+    collector. A settled request is deleted, so it cannot be settled twice,
+    and open withdrawals are counted by the conservation guard. Pinned by
+    `crates/node/tests/vault_tests.rs` (including
+    `the_fee_collector_is_not_a_way_around_the_limit` and
+    `the_limit_bounds_a_window_not_a_transaction`) — ADR-030.

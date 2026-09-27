@@ -27,6 +27,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Show an account's vault: policy, requests, and what it protects.
+    Vault {
+        /// The account, hex.
+        address: String,
+        /// Node JSON-RPC.
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc: String,
+    },
     /// Re-execute a block of another network locally; succeeds only if the
     /// state root it declares is reproduced.
     Replay {
@@ -179,8 +187,24 @@ async fn fork(source: maya2c_cli::fork::Source, rpc_port: u16) -> anyhow::Result
     Ok(())
 }
 
+async fn vault(rpc: &str, address: &str) -> anyhow::Result<()> {
+    match maya2c_cli::vault::status(rpc, address).await? {
+        None => println!("{address} has no vault: its transfers are instant and final."),
+        Some(v) => println!("{}", serde_json::to_string_pretty(&v)?),
+    }
+    println!(
+        "
+{}",
+        maya2c_cli::vault::RISK_LABEL
+    );
+    Ok(())
+}
+
 fn main() -> anyhow::Result<()> {
     match Cli::parse().command {
+        Command::Vault { address, rpc } => {
+            tokio::runtime::Runtime::new()?.block_on(vault(&rpc, &address))
+        }
         Command::Replay {
             from,
             genesis,

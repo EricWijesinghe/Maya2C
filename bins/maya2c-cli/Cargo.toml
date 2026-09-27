@@ -22,6 +22,8 @@ custom-l1-node = { path = "../../crates/node" }
 l1-wallet = { path = "../l1-wallet" }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "signal"] }
 serde_json.workspace = true
+# `maya2c vault`: the node's `vault_get`, which the wallet client lacks.
+jsonrpsee = { workspace = true, features = ["http-client"] }
 clap = { workspace = true, features = ["derive"] }
 anyhow = "1"
 hex.workspace = true

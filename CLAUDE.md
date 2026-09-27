@@ -189,7 +189,7 @@ satellite/light-cone consensus (9), TEE attestation (11).
 
 ## Critical Invariants
 
-Thirty-one of them, in [docs/invariants.md](docs/invariants.md). They are
+Thirty-two of them, in [docs/invariants.md](docs/invariants.md). They are
 numbered, the numbers are cited from code comments and ADRs, and **a number is
 never reused**.
 
@@ -199,7 +199,8 @@ Read them before changing: `ledger-math`, `dex`, `governance`, `fee-market` or
 transaction wire format or `Transaction::verify` (31); the dev profile overrides (5); DEX or oracle write
 paths (7, 8, 9, 17); governance (12, 13); `custody-mpc` (18, 19); zkML
 (20–23); `Chain::insert_block` or any apply path (24); any new state prefix
-(25); the block store (26); pruning (27); the invariant guard (28).
+(25); the block store (26); pruning (27); the invariant guard (28); vault
+accounts (32).
 
 An invariant earns a number only once a test pins the behaviour. A rule nobody
 checks is a comment, and it belongs beside the code it describes.
