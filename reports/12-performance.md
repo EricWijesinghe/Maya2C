@@ -186,8 +186,34 @@ reads the block store, so they no longer count.
 
 Every apply reused its preview. Block building and insertion went from
 6.8 s (`reports/04-consensus.md` §6) to 6.1 s, and the median from 1,053 to
-1,099 tx/s (+4 %). That is modest, and it says where the time is:
-`root_with_overlay` reads **every** account from RocksDB and hashes the whole
-tree for each root. The next step is an incremental authenticated state tree
-(the §6 storage item), not more caching.
+1,099 tx/s (+4 %).
+
+**Where the rest of the time goes, measured.** The builder was timed phase by
+phase (temporary instrumentation, removed), summed over the four nodes, in
+one 1,084 tx/s run:
+
+| phase | seconds | what it is |
+|---|---|---|
+| select (`select_applicable`) | 2.24 | mostly `prewarm_verification`: first-time ML-DSA verification of every transaction on every core |
+| insert (`insert_block`, preview reused) | 1.51 | undo capture, balance-change index, the RocksDB batch |
+| preview (`candidate_block_sealed`) | 1.31 | staging the kept transactions again (signatures now cached), settle passes, root |
+| decode (`ordered_transactions`) | 0.70 | decoding every certified batch's transaction bytes |
+
+**The state root is not the bottleneck at this scale**, which corrects the
+guess in `reports/04-consensus.md` §6. `examples/state_root_cost.rs`:
+
+```
+   2000 accounts: scan     0.49 ms, full root     0.88 ms (56% of it the scan), 0.44 µs/account
+  20000 accounts: scan     3.74 ms, full root     9.98 ms (37% of it the scan), 0.50 µs/account
+ 200000 accounts: scan    32.74 ms, full root    96.13 ms (34% of it the scan), 0.48 µs/account
+```
+
+A root costs about 0.48 µs per account, linearly: under a millisecond here,
+96 ms at 200,000 accounts, about 5 s at 10 million. So an incremental state
+tree is a requirement **before** a large state, not a fix for this benchmark.
+Here, first-time post-quantum signature verification is the largest single
+cost. It is inherent to the scheme. It spreads across processes
+(`reports/26`, split validator 36,530 tx/s) and shrinks with aggregation
+(`reports/13`). In this benchmark every one of four in-process nodes pays it
+for every transaction.
 
