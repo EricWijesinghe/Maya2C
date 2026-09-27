@@ -1,6 +1,7 @@
 //! `maya2c` — the developer CLI.
 //!
 //! ```text
+//! maya2c dev [--watch contract.wasm] [--accounts N] [--dir DIR]
 //! maya2c debug <contract.wasm> [--input HEX] [--caller HEX] [--height N]
 //!              [--gas N] [--script "n;n;s;b;e"]
 //! ```
@@ -24,6 +25,27 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// A local chain with pre-funded accounts; redeploys `--watch` on save.
+    Dev {
+        /// Contract to deploy now and on every change.
+        #[arg(long)]
+        watch: Option<PathBuf>,
+        /// Pre-funded accounts.
+        #[arg(long, default_value_t = 5)]
+        accounts: usize,
+        /// Working directory, wiped on start.
+        #[arg(long, default_value = ".maya2c-dev")]
+        dir: PathBuf,
+        /// JSON-RPC port.
+        #[arg(long, default_value_t = 8545)]
+        rpc_port: u16,
+        /// P2P port.
+        #[arg(long, default_value_t = 30333)]
+        p2p_port: u16,
+        /// Explorer port (needs `explorer` next to `maya2c`).
+        #[arg(long, default_value_t = 3000)]
+        explorer_port: u16,
+    },
     /// Run a contract call once and step through it, forward and backward.
     Debug {
         /// The contract's wasm.
@@ -92,6 +114,31 @@ fn debug(
 
 fn main() -> anyhow::Result<()> {
     match Cli::parse().command {
+        Command::Dev {
+            watch,
+            accounts,
+            dir,
+            rpc_port,
+            p2p_port,
+            explorer_port,
+        } => {
+            let bin_dir = std::env::current_exe()?
+                .parent()
+                .map(std::path::Path::to_path_buf)
+                .context("locating the maya2c executable")?;
+            let options = maya2c_cli::dev::Options {
+                dir,
+                accounts,
+                watch,
+                rpc_port,
+                p2p_port,
+                explorer_port: Some(explorer_port),
+                bin_dir,
+                stop_after_deploys: None,
+            };
+            tokio::runtime::Runtime::new()?.block_on(maya2c_cli::dev::run(&options))?;
+            Ok(())
+        }
         Command::Debug {
             wasm,
             input,
