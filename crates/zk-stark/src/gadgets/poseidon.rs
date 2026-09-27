@@ -50,6 +50,14 @@ pub fn eval_permutation<AB: AirBuilder<F = F>>(air: &PermAir, builder: &mut AB) 
     air.eval(&mut sub);
 }
 
+/// Evaluates a second permutation on columns `[offset, offset + POSEIDON_COLS)`:
+/// for AIRs that need two hashes in one row.
+pub fn eval_permutation_at<AB: AirBuilder<F = F>>(air: &PermAir, builder: &mut AB, offset: usize) {
+    let mut sub =
+        SubAirBuilder::<AB, PermAir, AB::Var>::new(builder, offset..offset + POSEIDON_COLS);
+    air.eval(&mut sub);
+}
+
 /// The 16 input variables of a row's permutation.
 pub fn inputs<T: Copy>(row: &[T]) -> [T; WIDTH] {
     let cols: &PermCols<T> = row[..POSEIDON_COLS].borrow();

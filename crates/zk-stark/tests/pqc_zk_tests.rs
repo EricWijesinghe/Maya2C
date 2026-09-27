@@ -28,6 +28,21 @@ const FORBIDDEN: &[&str] = &[
     "snark-verifier",
 ];
 
+/// Pairing curves the EVM's own precompiles need (ecAdd/ecMul/ecPairing over
+/// BN254, EIP-2537 over BLS12-381), pulled in by `revm-precompile` for
+/// `crates/multivm` (Master Prompt 5, RESEARCH). They are Ethereum's rules for
+/// EVM contracts, which ADR-023 labels classical-security; no Maya proof
+/// system uses them. Allowed only on that path — the next test checks it.
+const EVM_COMPAT_ONLY: &[&str] = &["ark-bn254", "ark-bls12-381"];
+/// The only packages allowed to depend on an [`EVM_COMPAT_ONLY`] crate.
+const EVM_PATH: &[&str] = &[
+    "revm-precompile",
+    "revm",
+    "revm-handler",
+    "revm-inspector",
+    "maya-multivm",
+];
+
 /// Every package the host build of the workspace compiles, across every edge
 /// kind, one per line.
 ///
@@ -35,11 +50,16 @@ const FORBIDDEN: &[&str] = &[
 /// disk, and a test must not reach the network to fetch them. The lockfile
 /// test below covers the other targets.
 fn workspace_packages() -> String {
+    cargo_tree(&["--workspace", "--exclude", "maya-multivm"])
+}
+
+/// `cargo tree` over the workspace with `extra` arguments, one package per line.
+fn cargo_tree(extra: &[&str]) -> String {
     let manifest = concat!(env!("CARGO_MANIFEST_DIR"), "/../../Cargo.toml");
     let output = Command::new(env!("CARGO"))
+        .arg("tree")
+        .args(extra)
         .args([
-            "tree",
-            "--workspace",
             "--manifest-path",
             manifest,
             "--edges",
@@ -99,11 +119,35 @@ fn no_pairing_or_trusted_setup_crate_is_in_the_lockfile() {
         .collect();
     assert!(names.contains(&"p3-uni-stark"), "the lockfile was parsed");
 
-    let found: Vec<&&str> = FORBIDDEN.iter().filter(|f| names.contains(f)).collect();
+    let found: Vec<&&str> = FORBIDDEN
+        .iter()
+        .filter(|f| names.contains(f) && !EVM_COMPAT_ONLY.contains(f))
+        .collect();
     assert!(
         found.is_empty(),
         "pairing-based crates are in Cargo.lock: {found:?}"
     );
+}
+
+/// The two EVM curves are in the lockfile since `crates/multivm` (2026-09-27);
+/// this pins that nothing but the EVM engine reaches them. Every other
+/// workspace member is covered by the graph test above, which excludes only
+/// `maya-multivm`.
+#[test]
+fn evm_pairing_curves_are_reached_only_through_the_evm_engine() {
+    for curve in EVM_COMPAT_ONLY {
+        let dependents = cargo_tree(&["--workspace", "--invert", curve]);
+        let names: Vec<&str> = dependents
+            .lines()
+            .filter_map(|line| line.split_whitespace().next())
+            .filter(|name| name != curve)
+            .collect();
+        let stray: Vec<&&str> = names.iter().filter(|n| !EVM_PATH.contains(n)).collect();
+        assert!(
+            stray.is_empty(),
+            "{curve} is reached outside the EVM engine via {stray:?}"
+        );
+    }
 }
 
 #[test]

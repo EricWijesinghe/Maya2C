@@ -29,7 +29,22 @@ pub enum Domain {
     Key = 0x6b_6579,
     /// `nf = compress(sk, NULLIFIER ‖ rho)`.
     Nullifier = 0x6e_756c,
+    /// An association-set deposit leaf, `compress(s, DEPOSIT)`
+    /// (`crate::association`).
+    AssociationLeaf = 0x61_736c,
+    /// An association-set nullifier, `compress(s, ASSOCIATION_NULLIFIER)`.
+    /// Its own tag: sharing `Nullifier` made it equal the pool's nullifier of
+    /// a note with `rho = 0` for the same secret (review, HIGH).
+    AssociationNullifier = 0x61_736e,
 }
+
+/// Every domain, so a test can check them pairwise.
+pub const DOMAINS: &[Domain] = &[
+    Domain::Key,
+    Domain::Nullifier,
+    Domain::AssociationLeaf,
+    Domain::AssociationNullifier,
+];
 
 /// The domain as a digest-shaped constant: the tag, then zeros.
 pub fn domain(tag: Domain) -> Digest {
@@ -129,4 +144,21 @@ impl core::fmt::Debug for SecretDigest {
 /// Field elements from `u32` words, reduced mod p.
 pub fn digest_from_words(words: &[u32; DIGEST]) -> Digest {
     core::array::from_fn(|i| F::from_u32(words[i]))
+}
+
+#[cfg(test)]
+mod domain_tests {
+    use super::*;
+
+    /// Every domain tag is distinct, so no fixed right-hand input of one
+    /// keyed hash equals another's (review: the association nullifier once
+    /// shared `Nullifier`'s tag, colliding with a pool note of `rho = 0`).
+    #[test]
+    fn every_domain_tag_is_distinct() {
+        for (i, a) in DOMAINS.iter().enumerate() {
+            for b in &DOMAINS[i + 1..] {
+                assert_ne!(*a as u32, *b as u32, "{a:?} and {b:?} share a tag");
+            }
+        }
+    }
 }

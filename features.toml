@@ -3245,3 +3245,25 @@ status = "verified"
 tests = ["crates/node/tests/vault_tests.rs", "bins/maya2c-cli/tests/vault_devnet_tests.rs"]
 note = "ADR-030, invariant 32. Master Prompts 22 and 28. No outside-asset bridge route exists, so vaults hold the native coin."
 
+[[subsystem]]
+id = "private-contract-state"
+name = "Private contract state: STARK-proved updates to a committed field, checked by the VM through opt-in maya_priv imports"
+domain = "Privacy"
+paths = "`crates/zk-stark/src/private_state.rs`, `crates/vm/src/private.rs`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crates/vm/tests/private_state_tests.rs", "crate:maya-zk-stark"]
+note = "Master Prompt 27 §1. Not on chain: maya_priv is off the consensus import surface; needs an audit and an activation height."
+
+[[subsystem]]
+id = "association-set-inclusion"
+name = "Association-set inclusion: a deposit is in an approved set, bound to a nullifier, without revealing which"
+domain = "Privacy"
+paths = "`crates/zk-stark/src/association.rs`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-zk-stark"]
+note = "Master Prompt 27 §2 (the inclusion half; exclusion is sanctions.rs)."
+
