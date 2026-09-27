@@ -233,6 +233,9 @@ pub(crate) fn undo_key(block_id: &[u8; HASH_LEN]) -> Vec<u8> {
 /// Persistent account state.
 pub struct StateDB {
     db: DB,
+    /// Signatures already verified, shared by mempool admission, the DAG-BFT
+    /// builder and block application (`state::verified`).
+    verified: crate::state::verified::VerifiedCache,
 }
 
 impl StateDB {
@@ -283,7 +286,10 @@ impl StateDB {
         opts.set_max_open_files(storage.max_open_files);
 
         let db = DB::open(&opts, path).map_err(storage_err)?;
-        Ok(Self { db })
+        Ok(Self {
+            db,
+            verified: crate::state::verified::VerifiedCache::default(),
+        })
     }
 
     /// Reads an account, returning [`Account::default`] for an unknown address.
@@ -738,7 +744,7 @@ impl StateDB {
         // v5/v6 hybrid frame the two are the same function: `verify_at` falls
         // through to `verify`, and the both-schemes rule above is unchanged.
         // ADR-013.
-        tx.verify_at(context.height, policy)?;
+        self.verified.verify(tx, context.height, policy)?;
         self.charge_fee(overlay, tx)?;
 
         // Derived from the keys the signatures were just checked against, never
@@ -942,6 +948,16 @@ impl StateDB {
             nullifiers: overlay.nullifiers.iter().copied().collect(),
             records,
         })
+    }
+
+    /// Verifies `tx` at `height`, answering from the verified-signature cache
+    /// when these exact bytes verified before (`state::verified`).
+    ///
+    /// # Errors
+    ///
+    /// As `Transaction::verify_at`.
+    pub fn verify_cached(&self, tx: &Transaction, height: u64, policy: &SuitePolicy) -> Result<()> {
+        self.verified.verify(tx, height, policy)
     }
 
     /// The longest prefix-closed subsequence of `transactions` that executes,
