@@ -19,8 +19,8 @@ and registered invariant hooks; this report is complete.*
 | CBDC / dark pool (§4) | **new** `crates/permissioned-finance`: `vault_tests.rs` 3 ✓, `compliance_tests.rs` 4 ✓ | yes (new, RESEARCH) | n/a (not on chain) | built — §4 below; the MPC form of the dark pool is not |
 | Compliance + tax (§5) | sanctions and credential STARK statements in `crates/zk-stark`; **new** `permissioned_finance::tax` | yes (new) | — | US/UK/DE calculators and `compliance_tests.rs` (500 transactions) built; `docs/LEGAL_NOTICE.md` applies |
 | Macro-economic engines (§6) | **new** `econ/` 6 ✓ | yes (new, SIM) | n/a (simulation) | built as an agent-based simulator first, as the brief requires |
-| Identity (§7) | `identity_tests.rs` 15 ✓ | yes | yes | DID + attestations + selective disclosure; EEG/BCI SIM and PoP biometrics not built |
-| DePIN / IoT (§8) | `iot_anchor_tests.rs` 7 ✓ | yes | yes | enrollment → telemetry → tamper; energy protocol parsers, satellite NDVI oracle, swarms not built |
+| Identity (§7) | `identity_tests.rs` 15 ✓ | yes | yes | DID + attestations + selective disclosure; **biometric PoP** (`crates/personhood`, §6 below); EEG/BCI SIM not built |
+| DePIN / IoT (§8) | `iot_anchor_tests.rs` 7 ✓ | yes | yes | enrollment → telemetry → tamper; **energy protocol parsers** (`hal/energy`, §5 below); satellite NDVI oracle, swarms not built |
 | Oracle (§8) | `oracle_tests.rs` 30 ✓ | yes | yes (invariant 9) | quorum median (one liar cannot move it) and stale-feed refusal present; a dispute window is not |
 | Settlement | `settlement_tests.rs` 20 ✓ | yes | yes | — |
 
@@ -62,10 +62,11 @@ are scenario inputs. Real-time ZK proof-of-reserves is not built.
 
 ## 3. Not built
 
-Dark-pool matching under MPC (orders here are hidden until the batch
-closes, then revealed — §4); generic L1/L2 light-client framework; energy protocol parsers (Modbus/TCP, IEC 61850, IEEE
-1547) and grid SIM; satellite NDVI oracle; robot swarm auctions; EEG/BCI SIM;
-biometric proof-of-personhood; machine-to-machine barter with 10,000 devices.
+Malicious-secure dark-pool MPC (share MACs, per-order proofs — §7 is
+semi-honest); generic L1/L2 light-client framework; IEC 61850
+MMS and sampled values; satellite NDVI oracle; robot swarm auctions; EEG/BCI
+SIM; liveness and uniqueness for proof-of-personhood; machine-to-machine
+barter with 10,000 devices.
 
 ## 4. Permissioned finance (new, RESEARCH) — run for this report
 
@@ -97,11 +98,136 @@ Run on the Windows workstation, 2026-09-27, `nightly-2026-07-15`.
   within one cent per disposal of it (allowable cost rounds down). A
   hand-worked case pins each jurisdiction. Not tax advice.
 
-**Limits, stated:** the dark pool is commit-reveal, not MPC — prices and sizes
-are public after the batch closes. The KYC proof is not bound to the account
+**Limits, stated:** `darkpool` is commit-reveal: prices and sizes are
+public after the batch closes (`mpc_darkpool`, §7, removes that). The KYC proof is not bound to the account
 being admitted: the credential circuit keeps the subject private and exposes
 no public input to bind it to, so a proof could be replayed by another account.
 Closing that needs a subject-commitment public input in
 `zk-stark::credential`, which changes a circuit other statements use; it is
 listed here rather than patched around.
 
+## 5. Energy protocols (new, RESEARCH) — 2026-09-28
+
+`hal/energy`, gateway-side; the node links none of it. Windows workstation,
+`nightly-2026-07-15`, debug build.
+
+- **Modbus/TCP** (`modbus.rs`): MBAP header and functions 03, 04, 06 and 16,
+  plus exception responses. Tested on the worked examples in the Modbus
+  Application Protocol specification v1.1b3 (§6.3, §6.6, §6.12, §7). Also
+  tested: out-of-range counts, byte counts that disagree, a wrong protocol id
+  or MBAP length, a response of the wrong size or table, and every truncated
+  prefix of a valid ADU, all refused without a panic.
+- **IEC 61850-8-1 GOOSE** (`goose.rs`): APPID header, BER `goosePdu`,
+  mandatory fields, and data sets of booleans, integers, unsigneds, 32-bit
+  floats, bit strings, strings, times and nested structures. Nesting is capped
+  at 8 and BER lengths at four bytes; `numDatSetEntries` must match. The test
+  frame is hand-encoded from the standard's ASN.1, **not captured from a
+  relay**. MMS and sampled values are not parsed.
+- **IEEE 1547-2018** (`ieee1547.rs`): the default frequency trip settings
+  (60 Hz) and the Category II voltage defaults, in integer mHz, per-mille and
+  ms. An excursion trips only once it has lasted its clearing time, and a
+  return inside the band resets it. The values are transcribed, not checked
+  against a purchased copy; an interconnection uses its utility's settings.
+  IEEE 1547 has no wire format of its own.
+- **Market** (`market.rs`, **SIM grid**): the price rises with
+  under-frequency and falls with over-frequency, clamped. Green certificates
+  are minted once per MWh since enrollment, never twice. A meter reading that
+  goes backwards is refused, and a certificate retires once.
+
+```
+$ cargo test -p maya-energy
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+```
+
+A security review of the parsers found no CRITICAL, HIGH or MEDIUM issue.
+
+## 6. Biometric proof-of-personhood (new, RESEARCH) — 2026-09-28
+
+`crates/personhood`, device-side. This is a Juels–Wattenberg fuzzy
+commitment: a 128-bit secret is bound to a 2,048-bit iris code by a 15×
+repetition code. The secret seeds an ML-DSA-65 key, and **only the public key
+is published**; the helper data never leaves the device. To prove presence,
+the device scans, corrects the scan to the secret, re-derives the key and
+signs the verifier's challenge. Proofs expire after 3 s and a challenge is
+accepted once; the verifier forgets challenges once they have expired, and
+its clock never runs back.
+
+Measured on synthetic templates with independent bit noise (debug build):
+
+```
+bit-flip rate 50/1000: 200/200 genuine scans accepted
+bit-flip rate 100/1000: 200/200 genuine scans accepted
+bit-flip rate 150/1000: 180/200 genuine scans accepted
+bit-flip rate 200/1000: 109/200 genuine scans accepted
+test result: ok. 4 passed; 0 failed; 1 ignored
+```
+
+Impostor templates never matched (200 of 200 refused). The brief's
+100,000 verifications, release build:
+
+```
+$ cargo test --release -p maya-personhood --test personhood_tests -- --ignored --nocapture
+100000 private verifications in 54.4676899s (scan, correct, derive key, sign, verify); 3 false rejects, each met by a rescan
+```
+
+That is 0.54 ms per verification. 3 false rejects at 5% noise matches the
+expected rate of about 2 per 100,000. A real iris code's noise is bursty,
+not independent, so these rates are not a biometric FRR.
+
+**Not built:**
+- **Liveness.** A replayed sensor feed passes; the brief's TEE needs
+  attestation that does not exist (invariant 11).
+- **Uniqueness.** One person could enrol twice; stopping that means comparing
+  templates at enrollment, which this design never sees.
+- **The iris extractor itself.**
+
+Repetition-code helper data leaks about the template, which is why it stays
+on the device. A security review found a stored hash of the secret would let
+whoever takes the helper test template guesses at one hash each; the
+recovered secret is now checked by re-deriving the key against the
+commitment instead (one ML-DSA key generation per guess). It also found the
+replay set grew without bound and was keyed on the nonce alone. Both are
+fixed, and the secret is a zeroizing type.
+
+## 7. Dark pool over secret shares (new, RESEARCH) — 2026-09-28
+
+`crates/permissioned-finance/src/mpc_darkpool.rs`. A trader turns an order
+into a demand curve and a supply curve over a 256-tick grid and splits each
+into additive shares mod 2^64, one per server. A server only adds what it
+receives, so no server — and no coalition missing one — sees an order.
+Published shares sum to the aggregate curves, which give the uniform price
+by the same rule as the open auction. Each trader computes its own pro-rata
+fill, and the fills are summed through the same sharing. Rounding goes to a
+public residual account, so bought = sold + residual.
+
+```
+$ cargo test -p maya-permissioned-finance --test mpc_darkpool_tests -- --nocapture
+mpc darkpool 2 orders, 3 servers: price None, volume 0, bought 0, sold 0, residual 0, 176.7µs
+mpc darkpool 10 orders, 3 servers: price Some(117), volume 850, bought 848, sold 850, residual -2, 278.3µs
+mpc darkpool 500 orders, 3 servers: price Some(119), volume 31627, bought 31564, sold 31627, residual -63, 12.2224ms
+mpc darkpool 1000 orders, 3 servers: price Some(121), volume 62116, bought 62116, sold 61993, residual 123, 27.4446ms
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+```
+
+Price and volume equal `darkpool::clear` at every size tested (debug build;
+the timing includes share generation for all three servers).
+
+**What it reveals:**
+- the aggregate curves, the price, the volume, the fill totals and the
+  residual;
+- a lone trader's order, through the aggregate.
+
+A security review found three problems, now fixed and tested:
+- **CRITICAL:** aggregates are sums mod 2^64, so two honest orders large
+  enough to wrap would have cleared at a wrong price. Orders are now capped
+  at 2^40 lots and batches at 2^20 orders, which keeps every sum below 2^60.
+- **HIGH:** sharing a fill among fewer than two servers returned the fill
+  itself. The splitter now refuses that for every caller.
+- **MEDIUM:** aggregates could be read mid-batch, which reveals orders as
+  differences between reads. They are published only once every server has
+  closed, and servers that saw different batches do not clear.
+
+**Security model:** semi-honest. There are no share MACs and no per-order
+proof, so a trader who shares a malformed curve or claims an inflated fill
+is not caught. Settlement on chain would reveal fills unless it goes through
+the shielded pool, which is not connected.

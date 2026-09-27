@@ -1,7 +1,7 @@
 # Maya2C
 
 Post-quantum L1 blockchain node in Rust (edition 2024, `rust-version = 1.88`,
-`nightly-2026-07-15`). A virtual workspace of 80 members plus ten crates
+`nightly-2026-07-15`). A virtual workspace of 87 members plus ten crates
 deliberately outside it; the node is `crates/node` — [ADR-001](docs/adr/ADR-001-workspace-layout.md).
 
 ## Identity and Mission
@@ -17,7 +17,7 @@ places that must agree:
 
 | Question | Read |
 |---|---|
-| What does this tree contain, and does it work? | `features.toml` — 164 register entries + 129 subsystems, gated by `cargo xtask coverage` |
+| What does this tree contain, and does it work? | `features.toml` — 164 register entries + 143 subsystems, gated by `cargo xtask coverage` |
 | Why is each subsystem the way it is? | [docs/architecture-vision.md](docs/architecture-vision.md) — the authority for status |
 | What is the build order? | [docs/trajectory.md](docs/trajectory.md) (a *plan*) and [PROGRESS.md](PROGRESS.md) (what is done) |
 
@@ -135,13 +135,13 @@ PowerShell profile and `~/.bashrc`.
 
 ## Workspace Map
 
-80 members, and ten tracked crates that are **not**
+87 members, and ten tracked crates that are **not**
 members because they target a different architecture or must keep their
 dependency graph away from the node's: `fuzz/`, `offsec-sandbox/`,
 `hal/iot-firmware/`, `hal/ebpf-net/programs/`, `apps/dashboard/`, `apps/wallet-gui/ui/`,
 `apps/wallet-gui/src-tauri/`, `apps/ledger-maya2c/`, `contracts/token-swap/`,
 `contracts/nft-game/`. Seven of the ten cannot be built for the host at all, so
-"the workspace builds" is a claim about 80 of 90 crates.
+"the workspace builds" is a claim about 87 of 97 crates.
 
 What each one is for, and why it is a separate crate:
 [docs/workspace-map.md](docs/workspace-map.md). Membership itself comes from
@@ -149,7 +149,7 @@ What each one is for, and why it is a separate crate:
 
 ## Tiers, classes and the reality ledger
 
-`features.toml` is the machine-readable answer to "does this work": 164 register entries and 129 subsystems;
+`features.toml` is the machine-readable answer to "does this work": 164 register entries and 143 subsystems;
 `cargo xtask coverage` prints them and **fails** when one claims `working` or
 `verified` without naming a test that exists. Schema and rationale:
 [ADR-004](docs/adr/ADR-004-reality-ledger.md).
@@ -171,7 +171,7 @@ consensus).
 
 **Status** — `planned` / `stub` / `working` / `verified`.
 
-Subsystems now: 55 verified, 53 working, 21 planned; 50 core, 57 extended, 22 frontier.
+Subsystems now: 61 verified, 62 working, 20 planned; 54 core, 66 extended, 23 frontier.
 
 ## Roadmap Status
 

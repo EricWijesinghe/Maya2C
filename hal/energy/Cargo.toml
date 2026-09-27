@@ -1,0 +1,16 @@
+[package]
+name = "maya-energy"
+version.workspace = true
+# Not published. See crates/dex/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Modbus/TCP and IEC 61850 GOOSE parsers, IEEE 1547 trip rules, frequency pricing and green certificates (gateway side)"
+
+# No dependency but `thiserror`: the parsers read hostile bytes from plant
+# networks, and a small graph is a small attack surface.
+[dependencies]
+thiserror.workspace = true
+
+[lints]
+workspace = true

@@ -12,6 +12,13 @@ description = "Master Prompt 6 §4-5: a permissioned CBDC vault with ZK-KYC, a s
 [dependencies]
 blake3.workspace = true
 maya-zk-stark = { path = "../zk-stark" }
+# `mpc_darkpool`: share randomness comes from the caller's RNG, as in
+# `iot-anchor`; `thiserror` for its refusals.
+rand_core = { version = "0.6", default-features = false }
+thiserror.workspace = true
+
+[dev-dependencies]
+rand_chacha.workspace = true
 
 [lints]
 workspace = true
