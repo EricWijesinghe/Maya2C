@@ -991,6 +991,16 @@ impl StateDB {
         let policy = crate::crypto::suites::verification_policy();
         let mut kept = Vec::with_capacity(transactions.len());
         for tx in transactions {
+            if matches!(tx.kind, crate::core::TxKind::Transfer) {
+                // A plain transfer writes only its sender's and recipients'
+                // accounts and the fee tallies, so those are saved and put
+                // back on failure instead of copying the whole overlay: the
+                // copy made building a 900-transaction block quadratic.
+                if self.stage_transfer_or_undo(&mut overlay, &tx, context, &policy) {
+                    kept.push(tx);
+                }
+                continue;
+            }
             let mut trial = overlay.clone();
             if self
                 .stage_transaction(&mut trial, &tx, context, &policy)
@@ -1001,6 +1011,36 @@ impl StateDB {
             }
         }
         kept
+    }
+
+    /// Stages a plain transfer, restoring exactly what it could have written
+    /// if it fails. Returns whether it was kept.
+    fn stage_transfer_or_undo(
+        &self,
+        overlay: &mut Overlay,
+        tx: &Transaction,
+        context: BlockContext,
+        policy: &SuitePolicy,
+    ) -> bool {
+        let touched: Vec<Address> = std::iter::once(tx.sender())
+            .chain(tx.outputs.iter().map(|o| o.recipient))
+            .collect();
+        let saved: Vec<(Address, Option<Account>)> = touched
+            .iter()
+            .map(|a| (*a, overlay.accounts.get(a).copied()))
+            .collect();
+        let fees = (overlay.fee_burn, overlay.fee_bytes);
+        if self.stage_transaction(overlay, tx, context, policy).is_ok() {
+            return true;
+        }
+        for (address, previous) in saved.into_iter().rev() {
+            match previous {
+                Some(account) => overlay.accounts.insert(address, account),
+                None => overlay.accounts.remove(&address),
+            };
+        }
+        (overlay.fee_burn, overlay.fee_bytes) = fees;
+        false
     }
 
     /// The state root `block` would produce, without writing anything.

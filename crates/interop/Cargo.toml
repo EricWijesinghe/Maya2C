@@ -10,5 +10,9 @@ description = "Interoperability without trusted bridges: Ethereum header verific
 [dependencies]
 sha3.workspace = true
 
+# The real-mainnet header test reads its JSON fixture.
+[dev-dependencies]
+serde_json.workspace = true
+
 [lints]
 workspace = true

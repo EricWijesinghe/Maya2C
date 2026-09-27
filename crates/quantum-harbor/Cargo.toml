@@ -10,5 +10,13 @@ description = "Quantum exposure tool: classifies Bitcoin outputs and Ethereum ac
 [dependencies]
 sha2.workspace = true
 
+# The mainnet exposure test only: Keccak for Ethereum hashes and addresses,
+# secp256k1 recovery to show the sender's key comes out of its signature.
+[dev-dependencies]
+serde_json.workspace = true
+sha3.workspace = true
+hex.workspace = true
+k256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
+
 [lints]
 workspace = true
