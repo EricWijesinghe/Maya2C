@@ -3061,8 +3061,8 @@ paths = "`crates/contract-safety`"
 tier = "core"
 class = "RESEARCH"
 status = "working"
-tests = ["crates/contract-safety/tests/exploit_table.rs"]
-note = "Master Prompt 23. 20 historical exploit patterns: 4 VM, 4 invariant, 7 rate-limited (delayed), 5 not blocked. Not wired into crates/vm."
+tests = ["crates/contract-safety/tests/exploit_table.rs", "crates/vm/tests/resource_tests.rs"]
+note = "Master Prompt 23. 20 historical exploit patterns: 4 VM, 4 invariant, 7 rate-limited (delayed), 5 not blocked. Enforced by the VM host through the opt-in maya_res imports (Vm::execute_with_resources); not on the consensus env surface."
 
 [[subsystem]]
 id = "mcp-server"

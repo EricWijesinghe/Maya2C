@@ -20,6 +20,9 @@ path = "src/lib.rs"
 # VM through the `HostState` trait instead.
 thiserror.workspace = true
 hex.workspace = true
+# The resource rules the opt-in `maya_res` imports enforce (`src/resources.rs`).
+# Dependency-free, so this adds no crate to the consensus VM's graph but itself.
+maya-contract-safety = { path = "../contract-safety" }
 
 # Pinned exactly, not caret. wasmtime does not guarantee stable fuel accounting
 # across releases, so the version is consensus-critical: two validators on

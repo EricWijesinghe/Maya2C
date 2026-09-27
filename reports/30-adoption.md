@@ -1,9 +1,10 @@
 # Report 30: Adoption, reference apps and public proof
 
 Master Prompt 30. **The headline finding came from building the reference
-apps: a Maya VM contract cannot learn who called it.** No contract that owns
-anything can be secured until that changes. ADR-026 proposes the fix, and it
-is reported rather than worked around.
+apps: a Maya VM contract could not learn who called it.** No contract that
+owns anything could be secured. ADR-026 proposed the fix; it is now accepted
+and live (see *Update 2026-09-27* at the end — sections 1–2 are kept as the
+record of the finding).
 
 | DONE WHEN | Status |
 |---|---|

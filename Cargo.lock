@@ -6478,6 +6478,7 @@ dependencies = [
  "blake3",
  "criterion",
  "hex",
+ "maya-contract-safety",
  "tempfile",
  "thiserror 2.0.20",
  "wasmtime",

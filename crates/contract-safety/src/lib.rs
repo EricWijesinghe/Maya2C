@@ -17,9 +17,10 @@
 //!   window. A transfer that would exceed the cap is queued for its guardians
 //!   instead of executing.
 //!
-//! This is the rule layer a VM host would call. **It is not wired into the
-//! WASM VM** (`crates/vm`); `reports/23-contract-safety.md` measures what it
-//! would block if it were.
+//! This is the rule layer the VM host calls: `crates/vm`'s opt-in
+//! `maya_res` import module (`maya_vm::resources`) routes every value-moving
+//! import through it. The consensus import surface (`env`) does not include
+//! it; `reports/23-contract-safety.md` has what that means.
 
 use std::collections::BTreeMap;
 
@@ -72,6 +73,9 @@ pub enum Fault {
         /// Queue position.
         pending: usize,
     },
+    /// The call body failed for a reason outside these rules — a VM trap or
+    /// running out of gas. It reverts like any other fault.
+    Aborted,
 }
 
 /// An invariant: a name and a predicate over the runtime's state.

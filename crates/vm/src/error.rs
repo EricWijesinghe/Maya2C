@@ -61,6 +61,11 @@ pub enum VmError {
     #[error("invalid host call: {0}")]
     InvalidHostCall(String),
 
+    /// A `maya_res` import broke a resource rule (`crate::resources`); the
+    /// whole call is reverted.
+    #[error("resource rule: {0:?}")]
+    Resource(maya_contract_safety::Fault),
+
     /// The engine itself could not be configured.
     ///
     /// Fatal: a node that cannot build the deterministic configuration must not

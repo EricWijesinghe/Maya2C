@@ -55,14 +55,14 @@ on evidence. "Partial" means some are.
 | 20 | Mainnet readiness | — | **Met** (verdict NO-GO) | `go-no-go` re-run: 6 PASS, 6 FAIL (all external: audits, attacknet, incentivized testnet, outside validators, signed genesis), 4 NEEDS HUMAN — `reports/20-mainnet-readiness.md` |
 | 21 | Weakness map, beat bars | — | **Met** | Dated WEAKNESS_MAP and BEAT_BARS; prior-art files exist for every headline feature (7 still say "partially searched", which blocks any superlative); harness runs Ethereum end to end via anvil; ADR-016 updated — `reports/21-strategy.md` |
 | 22 | Accounts without pain | — | Partial | 20-person usability study needs participants — `reports/22-accounts.md` |
-| 23 | Safe-by-default contracts | — | Partial | Rules pass in `contract-safety` but are not wired into the VM; no proven templates — `reports/23-contract-safety.md` |
+| 23 | Safe-by-default contracts | — | Met (VM, opt-in) | Resource and capability rules enforced by the VM host through the opt-in `maya_res` imports: 9 VM tests with real WASM, full revert on fault/trap/out-of-gas/invariant. Not on the consensus import surface; templates have listed open properties, not proofs — `reports/23-contract-safety.md` |
 | 24 | Developer platform | — | Partial | `dev`/fork/replay/debugger not built; developer study needs participants — `reports/24-devx.md` |
 | 25 | Interop without trusted bridges | — | Partial | Beacon light client verifies **real mainnet finality** (505/512 signers) down to a Keccak-checked execution header; 64 real headers chained. Not ZK; intents not run on devnets — `reports/25-interop.md` |
 | 26 | Scale without fragmentation | — | **Met** | Split-validator prototype measured (verification in worker processes: ×5.14 at 12 workers, 36,530 tx/s); local fee markets and lanes pass; viral-app sim keeps others within SLO. Caveat: processes on one host, not across a network — `reports/26-scale.md` |
 | 27 | Privacy primitive, compliance | — | Partial | Private contract state not built; shielded pool awaits external audit; no mobile proving — `reports/27-privacy.md` |
 | 28 | Quantum-safe harbor | — | Partial | Exposure tool on real Bitcoin **and** real Ethereum data (200 mainnet accounts; a sender key recovered from its signature; EIP-7702 fix). No PQ vaults on devnets — `reports/28-quantum-harbor.md` |
 | 29 | Wallet, explorer, portal UI | — | Partial | Design system + screenshot diffs in CI; no usability study, no device budgets, wallet e2e never run — `reports/29-interface.md` |
-| 30 | Adoption engine, public proof | — | Partial | Contracts cannot learn their caller (ADR-026, Proposed) — blocks every ownership template; no testnet; approvals pending — `reports/30-adoption.md` |
+| 30 | Adoption engine, public proof | — | Partial | Caller identity live (ADR-026 accepted); NFT game runs through the node with owner checks. No public testnet; outside-developer port times and approvals pending — `reports/30-adoption.md` |
 
 **Updated 2026-09-26 at the end of the `claude/task-0g86kl` run: six met
 (01, 02, 07, 08, 11, 15), one met in substance (10), twenty-one partial, one not met

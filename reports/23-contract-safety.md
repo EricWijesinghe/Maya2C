@@ -9,10 +9,10 @@
 
 | Condition | Result |
 |---|---|
-| Resource and capability checks pass tests | **pass**, in `crates/contract-safety`. They are **not VM tests**: the rules are not wired into `crates/vm` |
+| Resource and capability checks pass tests | **pass, as VM tests** (2026-09-27): `crates/vm/tests/resource_tests.rs` 9 ✓ — real WASM contracts calling `maya_res` imports, the VM host enforcing `contract-safety`. Opt-in, not on the consensus import surface (§ Wired into the VM) |
 | Invariant and rate-limit mechanisms | **pass** (rollback, queued outflows) |
 | Exploit replay table, honest | **complete**: 20 patterns, 5 not blocked |
-| Standard templates with proofs | **not built.** Open properties are listed below |
+| Standard templates with proofs | **no proofs; open properties listed** below, which the condition allows |
 
 `crates/contract-safety` is the rule layer a VM host would call:
 
@@ -87,10 +87,42 @@ Loss figures are not repeated here. Sources: the rekt.news leaderboard
 
 ## Not done
 
-- **Wiring into the WASM VM.** The host functions would call this layer on
-  every value-moving import; `crates/vm` does not yet.
+- **Putting `maya_res` on chain.** Resource balances would need a state
+  prefix under the root (invariant 25), an activation height, and a place in
+  `HOST_FUNCTIONS`; none exist, so no deployed contract can use it yet.
 - **Verified standard templates.** Token, NFT, multisig, vault, AMM, lending
   and governance, with proofs. The open properties each needs:
   conservation, no-unbacked-shares, solvency, and bounded outflow.
 - **`maya2c-cli contract check`**, the deploy safety report, and the
   upgrade authority/timelock/storage-layout checker.
+
+## Wired into the VM (2026-09-27)
+
+`crates/vm/src/resources.rs` adds `Vm::execute_with_resources` and five
+imports under a separate module, `maya_res`: `self`, `balance`, `transfer`,
+`mint`, `burn`. Each value-moving import charges `RESOURCE_OP_FUEL` (1,000)
+and calls `contract_safety::Runtime`; a broken rule traps the guest with
+`VmError::Resource`. The whole invocation is one `Runtime::call`, so a fault,
+a trap, running out of gas, or an invariant failing at the end restores
+balances, supply and capabilities.
+
+```
+$ cargo test -p maya-vm --test resource_tests
+test an_outflow_over_the_limit_is_queued_not_executed ... ok
+test a_contract_reads_its_id_and_balances ... ok
+test a_contract_moves_its_own_units_and_supply_is_conserved ... ok
+test the_consensus_surface_does_not_resolve_maya_res ... ok
+test a_declared_invariant_is_checked_when_the_call_ends ... ok
+test each_value_moving_import_is_metered ... ok
+test another_holders_units_need_their_capability_and_only_up_to_the_allowance ... ok
+test minting_and_burning_need_the_kinds_capability ... ok
+test any_failure_reverts_every_move_the_call_made ... ok
+test result: ok. 9 passed; 0 failed
+```
+
+The rest of `maya-vm`'s suites pass unchanged. `host_surface_tests` skips
+`resources.rs` on purpose, and `the_consensus_surface_does_not_resolve_maya_res`
+pins that `Vm::validate` refuses a module importing it. **Re-entrancy** cannot
+arise in this VM, because there is no cross-contract call import. The
+re-entry refusal is tested in `crates/contract-safety` only.
+
