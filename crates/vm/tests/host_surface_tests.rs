@@ -72,6 +72,13 @@ fn registered_names() -> Vec<String> {
         if path.extension().is_none_or(|ext| ext != "rs") {
             continue;
         }
+        // The opt-in `maya_res` module: registered only by
+        // `Vm::execute_with_resources`, never by `Vm::execute`.
+        // `resource_tests::the_consensus_surface_does_not_resolve_maya_res`
+        // pins that it stays off the consensus surface.
+        if path.file_name().is_some_and(|name| name == "resources.rs") {
+            continue;
+        }
         let source = std::fs::read_to_string(&path).expect("read source");
         for call in source.split("func_wrap(").skip(1) {
             let mut quoted = call.split('"').skip(1).step_by(2);

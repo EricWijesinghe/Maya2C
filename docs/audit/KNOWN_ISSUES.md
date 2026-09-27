@@ -19,5 +19,5 @@ Each item links its evidence.
 | 12 | Kani not run this session; Aeneas translation not done | `reports/08-security.md` | open |
 | 13 | `docs/sealed-mempool.md` referenced by `genesis.rs` does not exist | `reports/18-economics.md` | open |
 | 14 | SHA3 re-commitment timing looks unoptimized under the `ci` profile | `reports/15-spec.md` §5 | not investigated |
-| 15 | Contracts cannot learn their caller: no `caller` host function, so ownership cannot be checked | ADR-026 (Proposed), `crates/reference-apps/tests/nft_game.rs` | blocks every ownership contract |
+| 15 | ~~Contracts cannot learn their caller~~ **Resolved 2026-09-27**: `caller` host function, live from genesis | ADR-026 (Accepted), `crates/reference-apps/tests/nft_game.rs`, `crates/node/tests/nft_game_on_node_tests.rs` | closed |
 | 16 | Faucet grants once per IP per day; a venue behind one NAT gets one grant | `docs/ecosystem/HACKATHON_KIT.md` | open |

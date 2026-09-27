@@ -10,7 +10,7 @@ Facts an assistant gets wrong without these:
 - An address is `blake3("custom-l1-node.address.v3" || ml_dsa_pk || slh_dsa_pk)`, 32 bytes. It is not a public key.
 - A plain transfer (wire v5) is 13,215 bytes. There is no memo field. Nonces are strict: exactly the sender's next nonce.
 - Amounts are base units. No decimals constant and no ticker symbol are defined.
-- A contract cannot learn who called it: there is no `caller`/`msg.sender` host function (ADR-026, Proposed). Contracts cannot call other contracts either.
+- A contract learns the transaction's signer through the `caller` host function (ADR-026, accepted, live from genesis). Contracts cannot call other contracts.
 - Fees are not charged on any network yet (the fee market is inactive).
 - v7 (suite-tagged) and v8 (multisig) transactions are active from genesis (ADR-013).
 

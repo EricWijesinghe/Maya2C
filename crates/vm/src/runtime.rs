@@ -178,6 +178,9 @@ pub(crate) fn caller_memory<S: HostState + Send + 'static>(
     }
 }
 
+/// Registers imports beyond the consensus surface.
+pub(crate) type Registrar<S> = fn(&mut Linker<CallContext<S>>) -> Result<()>;
+
 /// A configured, reusable VM.
 ///
 /// The [`Engine`] holds compiled-code caches and is comparatively expensive to
@@ -304,7 +307,7 @@ impl Vm {
         gas_limit: u64,
         state: S,
     ) -> Execution<S> {
-        match self.run(wasm, contract, input, gas_limit, state) {
+        match self.run(wasm, contract, input, gas_limit, state, |_| Ok(())) {
             Ok((state, outcome)) => Execution {
                 state,
                 outcome: Ok(outcome),
@@ -317,14 +320,18 @@ impl Vm {
     }
 
     /// Inner execution, returning the state alongside either result.
+    ///
+    /// `extra` registers imports beyond the consensus surface; [`Vm::execute`]
+    /// passes none, `crate::resources` passes the `maya_res` module.
     #[allow(clippy::type_complexity)]
-    fn run<S: HostState + Send + 'static>(
+    pub(crate) fn run<S: HostState + Send + 'static>(
         &self,
         wasm: &[u8],
         contract: ContractId,
         input: &[u8],
         gas_limit: u64,
         state: S,
+        extra: Registrar<S>,
     ) -> core::result::Result<(S, Outcome), (S, VmError)> {
         // Compile before building the store, so a bad module never reaches it.
         //
@@ -355,7 +362,7 @@ impl Vm {
         }
 
         let mut linker: Linker<CallContext<S>> = Linker::new(&self.engine);
-        if let Err(error) = register_host_functions(&mut linker) {
+        if let Err(error) = register_host_functions(&mut linker).and_then(|()| extra(&mut linker)) {
             return Err((store.into_data().state, error));
         }
 
