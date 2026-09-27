@@ -31,6 +31,7 @@ pub mod dna;
 pub mod error;
 pub mod kubo;
 pub mod manifest;
+pub mod reseal;
 pub mod seal;
 pub mod store;
 

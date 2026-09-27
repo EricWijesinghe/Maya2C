@@ -90,6 +90,62 @@ impl Session {
         }
     }
 
+    /// Steps passed so far (0 = before the call).
+    #[must_use]
+    pub fn cursor(&self) -> usize {
+        self.cursor
+    }
+
+    /// Steps in the recording.
+    #[must_use]
+    pub fn total(&self) -> usize {
+        self.timeline.steps().len()
+    }
+
+    /// Moves the cursor to `k`, clamped to the recording.
+    pub fn goto(&mut self, k: usize) {
+        self.cursor = k.min(self.total());
+    }
+
+    /// Storage of every touched key at the cursor, as `(key, value)` text.
+    #[must_use]
+    pub fn storage_pairs(&self) -> Vec<(String, String)> {
+        self.timeline
+            .storage_after(self.cursor)
+            .iter()
+            .map(|((_, key), v)| (short(key), value(v.as_ref())))
+            .collect()
+    }
+
+    /// Events emitted up to the cursor, as `(topic, data)` text.
+    #[must_use]
+    pub fn event_pairs(&self) -> Vec<(String, String)> {
+        self.timeline
+            .events_after(self.cursor)
+            .iter()
+            .map(|e| (short(&e.topic), short(&e.data)))
+            .collect()
+    }
+
+    /// Gas for the whole call and how it ended.
+    #[must_use]
+    pub fn summary(&self) -> (Option<u64>, &str) {
+        (self.gas_used, &self.outcome)
+    }
+
+    /// The recording as text, one line per step after a first line for
+    /// "before the call": line `k + 1` is the state after step `k`.
+    #[must_use]
+    pub fn listing(&self) -> String {
+        std::iter::once("before the call".to_owned())
+            .chain(self.timeline.steps().iter().map(describe))
+            .collect::<Vec<_>>()
+            .join(
+                "
+",
+            )
+    }
+
     /// Where the cursor is, and the step it just passed.
     #[must_use]
     pub fn position(&self) -> String {

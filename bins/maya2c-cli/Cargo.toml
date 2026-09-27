@@ -27,6 +27,9 @@ jsonrpsee = { workspace = true, features = ["http-client"] }
 clap = { workspace = true, features = ["derive"] }
 anyhow = "1"
 hex.workspace = true
+# `maya2c custody-report`: a statement's canonical JSON and its digest.
+serde = { workspace = true, features = ["derive"] }
+sha2.workspace = true
 
 [dev-dependencies]
 wat.workspace = true

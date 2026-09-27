@@ -2803,12 +2803,12 @@ note = "ADR-008. REAL since the node's shielded pool verifies through it. Every 
 id = "forward-secure-archival-keys"
 name = "Forward-secure archival keys and SLH-DSA seals"
 domain = "Cryptography and key management"
-paths = "`crates/archive/src/seal.rs`, `docs/resealing.md`"
+paths = "`crates/archive/src/seal.rs`, `crates/archive/src/reseal.rs`, `docs/resealing.md`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["crates/archive/tests/seal_tests.rs"]
-note = "SLH-DSA-SHAKE-256f seals; one-way SHAKE256 seed chain, each epoch's key certifying the next before it is erased. 100 epochs tested, plus a compromise at epoch 50 that cannot backdate. RESEARCH until the node's archive task seals what it writes: nothing calls it yet."
+tests = ["crates/archive/tests/seal_tests.rs", "crates/archive/tests/reseal_tests.rs"]
+note = "SLH-DSA-SHAKE-256f seals; one-way SHAKE256 seed chain, each epoch's key certifying the next before it is erased. 100 epochs tested, plus a compromise at epoch 50 that cannot backdate. Re-sealing (Procedure A, Master Prompt 28): nested layers under any registry suite, verified layer by layer against a trust set; scheduled by the agility policy's deprecations. RESEARCH until the node's archive task seals what it writes: nothing calls it yet."
 
 [[subsystem]]
 id = "history-compactor"
@@ -3225,25 +3225,25 @@ note = "Master Prompt 17. scripts/mesh_check.py runs mesh-cli check:data against
 
 [[subsystem]]
 id = "maya2c-dev-cli"
-name = "maya2c developer CLI: dev chain, time-travel debugger, deterministic block replay, fork mode"
+name = "maya2c developer CLI: dev chain, time-travel debugger (CLI and DAP for VS Code), deterministic block replay, fork mode"
 domain = "Developer experience"
-paths = "`bins/maya2c-cli`, `crates/vm/src/trace.rs`"
+paths = "`bins/maya2c-cli`, `crates/vm/src/trace.rs`, `editors/vscode`"
 tier = "extended"
 class = "REAL"
 status = "working"
-tests = ["crate:maya2c-cli", "bins/maya2c-cli/tests/dev_tests.rs", "bins/maya2c-cli/tests/debugger_tests.rs", "bins/maya2c-cli/tests/fork_replay_tests.rs"]
+tests = ["crate:maya2c-cli", "bins/maya2c-cli/tests/dev_tests.rs", "bins/maya2c-cli/tests/debugger_tests.rs", "bins/maya2c-cli/tests/dap_tests.rs", "bins/maya2c-cli/tests/fork_replay_tests.rs"]
 note = "Master Prompt 24. Debugger steps host calls, not source lines; fork/replay copy eagerly and do not verify DAG-BFT certificates per header."
 
 [[subsystem]]
 id = "vault-accounts"
 name = "Vault accounts: delayed, guardian-cancellable withdrawals under hybrid PQ keys (the quantum-safe harbor)"
 domain = "Accounts"
-paths = "`crates/node/src/state/vault.rs`, `crates/node/src/core/vault_payload.rs`, `bins/maya2c-cli/src/vault.rs`"
+paths = "`crates/node/src/state/vault.rs`, `crates/node/src/core/vault_payload.rs`, `bins/maya2c-cli/src/vault.rs`, `bins/maya2c-cli/src/custody_report.rs`"
 tier = "core"
 class = "REAL"
 status = "verified"
 tests = ["crates/node/tests/vault_tests.rs", "bins/maya2c-cli/tests/vault_devnet_tests.rs"]
-note = "ADR-030, invariant 32. Master Prompts 22 and 28. No outside-asset bridge route exists, so vaults hold the native coin."
+note = "ADR-030, invariant 32. Master Prompts 22 and 28. `maya2c custody-report`: reconciled per-account statements over a height range, anchored to block ids, SHA-256 digested; tested against the devnet. No outside-asset bridge route exists, so vaults hold the native coin."
 
 [[subsystem]]
 id = "private-contract-state"

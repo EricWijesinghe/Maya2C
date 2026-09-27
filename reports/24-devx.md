@@ -53,9 +53,10 @@ market, v7/v8 active from genesis.
 
 - A language ADR with measured Wasm size and gas per language. AssemblyScript
   and TinyGo toolchains are not installed here.
-- A VS Code extension for the debugger (the CLI exists), lazy state loading
-  for fork mode, and source-line mapping for the debugger.
-  with a VS Code extension.
+- Lazy state loading for fork mode, and source-line mapping for the
+  debugger (it steps host calls; see the DAP section).
+- The VS Code extension has been tested through the adapter over stdio, not
+  by driving the VS Code UI.
 - The one-command test framework with coverage and gas snapshots.
 - Protocol revenue share for developers. The prior art is recorded (not
   searched) in `docs/prior-art/developer-revenue-share.md`; there is no fee
@@ -99,7 +100,7 @@ test a_refused_call_is_still_recorded_up_to_the_refusal ... ok
 
 - The debugger steps **host calls**, not source lines. The VM has no
   per-instruction hook, contracts carry no DWARF, and gas is known per call.
-  There is no VS Code extension; the CLI is the interface. Cross-contract
+  VS Code reaches it through `maya2c dap` (below). Cross-contract
   calls do not exist in the VM, so there are none to step into.
 - Fork and replay copy state **eagerly**, not lazily. The default is a full
   sync that executes every block from genesis; `--snapshot-depth` starts from
@@ -112,3 +113,24 @@ test a_refused_call_is_still_recorded_up_to_the_refusal ... ok
 - Replay is per block. Stepping through one transaction of a replayed block
   in the debugger is not wired; the debugger runs local calls.
 
+
+## The debugger in VS Code: `maya2c dap` (added 2026-09-28)
+
+`bins/maya2c-cli/src/dap.rs` is a Debug Adapter Protocol server in Rust over
+the same recording `maya2c debug` uses. `editors/vscode` is a manifest-only
+extension: VS Code starts `maya2c dap` and needs no TypeScript. It
+advertises `supportsStepBack`, so **Step Back** and **Reverse Continue** work
+and are exact. The frame's source is the recording, one line per host call;
+Variables shows storage at the cursor, events so far and the call; the debug
+console takes the CLI commands. Breakpoints are answered as unverified,
+because steps are host calls, not source lines.
+
+The test starts the real binary and speaks framed DAP to it over stdio,
+against `nft_game.wasm`: it launches, steps forward, clamps at the end,
+steps back so a written key reads `absent` again, jumps with goto, evaluates
+`l` and disconnects.
+
+```
+$ cargo test -p maya2c-cli --test dap_tests
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+```
