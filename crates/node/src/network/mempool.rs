@@ -193,7 +193,7 @@ impl Mempool {
         //   here is the one consensus applies.
         let height = self.admission_height()?;
         let policy = crate::crypto::suites::policy(&self.state.parameters()?)?;
-        tx.verify_at(height, &policy)?;
+        self.state.verify_cached(tx, height, &policy)?;
 
         // Evidence is stateless to check, so garbage never reaches a block
         // template — the executor checks it again regardless.

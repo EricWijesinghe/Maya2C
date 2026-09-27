@@ -155,6 +155,13 @@ impl Mesh {
 
     fn absorb(&mut self, from: usize, step: Step) {
         self.equivocations += step.equivocations.len();
+        // What the binary's feed does: ordered-but-dropped transactions go
+        // back to the validator that proposed them.
+        if let Some(driver) = self.members[from].driver.as_mut() {
+            for tx in &step.dropped {
+                driver.submit(tx);
+            }
+        }
         self.queue
             .extend(step.frames.into_iter().map(|f| (from, f)));
     }
@@ -316,4 +323,20 @@ fn a_validator_restarted_from_its_safety_log_rejoins_without_equivocating() {
         mesh.equivocations, 0,
         "the restarted validator signed a slot twice"
     );
+}
+
+#[test]
+fn a_nonce_chain_split_across_validators_all_lands() {
+    let mut mesh = Mesh::new(0);
+    // Nonce 1 goes to a validator that will likely order it before nonce 0
+    // reaches the chain; it must be re-proposed, not stranded.
+    mesh.submit(0, &transfer(10, 1));
+    mesh.submit(1, &transfer(10, 0));
+    mesh.submit(2, &transfer(10, 2));
+    mesh.run_to(12);
+    let common = mesh.live().map(|m| m.chain.height()).min().unwrap();
+    mesh.agree_at(common);
+    for i in 0..VALIDATORS {
+        assert_eq!(mesh.balance(i, &RECIPIENT), 30, "member {i}");
+    }
 }

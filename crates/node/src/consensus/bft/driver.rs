@@ -55,6 +55,12 @@ pub struct Step {
     pub blocks: Vec<BlockId>,
     /// Transactions those blocks included, to drop from the mempool.
     pub included: Vec<[u8; 32]>,
+    /// Transactions this node proposed that were ordered but not executed —
+    /// a nonce ahead of its predecessor, a conflict — and are no longer
+    /// queued. The caller re-submits the ones still valid; without this a
+    /// transfer whose nonce-1 sibling was ordered first by another validator
+    /// was stranded for good (measured: 25 of 100 in `examples/bft_tps.rs`).
+    pub dropped: Vec<Transaction>,
     /// Each built block's anchor proposal time, milliseconds: what the
     /// finality-latency metric measures from.
     pub anchor_times_ms: Vec<u64>,
@@ -331,6 +337,19 @@ impl BftDriver {
             let block = build_block(chain, &sub_dag)?;
             let included: Vec<[u8; 32]> =
                 block.transactions.iter().map(Transaction::txid).collect();
+            let kept: BTreeSet<[u8; 32]> = included.iter().copied().collect();
+            for tx in sub_dag
+                .certificates
+                .iter()
+                .filter(|c| Some(c.vertex.author) == self.id)
+                .flat_map(|c| c.vertex.batch.iter())
+                .filter_map(|bytes| Transaction::from_bytes(bytes).ok())
+            {
+                let id = tx.txid();
+                if !kept.contains(&id) && self.queued.remove(&id) {
+                    step.dropped.push(tx);
+                }
+            }
             match chain.insert_block(block)? {
                 InsertOutcome::Extended { tip } => {
                     step.blocks.push(tip);
