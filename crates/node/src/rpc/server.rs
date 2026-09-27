@@ -137,7 +137,7 @@ impl RpcContext {
     pub(crate) fn chain(&self) -> std::sync::MutexGuard<'_, Chain> {
         self.chain
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }
 

@@ -46,7 +46,7 @@ fn age_buckets() -> impl Iterator<Item = f64> {
 
 /// Bucket bounds for block import, in seconds.
 ///
-/// Import is validation plus a RocksDB batch, so the interesting range is much
+/// Import is validation plus a `RocksDB` batch, so the interesting range is much
 /// tighter than propagation.
 fn import_buckets() -> impl Iterator<Item = f64> {
     [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5].into_iter()

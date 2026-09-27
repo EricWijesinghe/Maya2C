@@ -14,7 +14,7 @@
 //! **Presence is activation.** A chain whose genesis configures no staking has
 //! no `k:state`, the layer is absent from its root, and a staking transaction
 //! is refused as inactive — the same "never present before activation, so it
-//! moves no existing root" rule the IoT and threat-intel layers follow.
+//! moves no existing root" rule the `IoT` and threat-intel layers follow.
 
 use std::collections::{BTreeMap, BTreeSet};
 

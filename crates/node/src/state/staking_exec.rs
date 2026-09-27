@@ -303,6 +303,7 @@ mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
     use maya_staking::{Params, Staking};
+    use std::collections::BTreeMap;
 
     fn committee(n: u8) -> Vec<[u8; 32]> {
         (0..n).map(|i| [i; 32]).collect()
@@ -317,8 +318,8 @@ mod tests {
             staking,
             epoch_blocks: 10,
             last_round: 0,
-            expected: Default::default(),
-            authored: Default::default(),
+            expected: BTreeMap::default(),
+            authored: BTreeMap::default(),
         }
     }
 

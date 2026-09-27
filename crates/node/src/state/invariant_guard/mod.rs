@@ -102,14 +102,14 @@ pub enum Module {
     /// Identity: DID registration, rotation, revocation, and the attestations
     /// and revocation bitmaps issuers publish.
     Identity,
-    /// Real-world assets: issuance, DvP, eligibility, revenue.
+    /// Real-world assets: issuance, `DvP`, eligibility, revenue.
     Rwa,
     /// Lattice HTLC **locks**. Claims and refunds belong to no module — see
     /// [`Module::of`].
     Htlc,
     /// Threat-intel attestations.
     ThreatIntel,
-    /// IoT anchor enrollment and telemetry. Tamper reports, clone evidence and
+    /// `IoT` anchor enrollment and telemetry. Tamper reports, clone evidence and
     /// revocation belong to no module — see [`Module::of`].
     Iot,
 }

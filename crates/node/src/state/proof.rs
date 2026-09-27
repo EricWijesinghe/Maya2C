@@ -73,7 +73,7 @@ pub enum StateLayer {
     /// Threat-intel indicators and evidence markers, under the `t:` prefix.
     /// Never present before activation, so it moves no existing root.
     ThreatIntel,
-    /// IoT anchor device records, under the `v:` prefix. Never present before
+    /// `IoT` anchor device records, under the `v:` prefix. Never present before
     /// activation, so it moves no existing root.
     Iot,
     /// Staking records, under the `k:` prefix (ADR-028). Never present on a

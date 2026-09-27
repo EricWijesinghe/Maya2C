@@ -46,7 +46,12 @@ count=$(printf '%s\n' "$output" | grep -cE ':[0-9]+:[0-9]+: warning:' || true)
 # summary (`error: could not compile`). A deny-by-default clippy lint can show
 # only the second, and missing it once made a crate that failed to lint vanish
 # from the count: 346 "fewer" warnings that were really a compile error.
-if printf '%s\n' "$output" | grep -qE ':[0-9]+:[0-9]+: error|^error: could not compile'; then
+#
+# A here-string, not `printf | grep -q`: under `pipefail`, `grep -q` exits at
+# the first match, printf dies of SIGPIPE on any output larger than the pipe
+# buffer, and the pipeline "fails" — so this guard skipped exactly the large
+# outputs it exists for (a real E0433 once passed as "175 fewer").
+if grep -qE ':[0-9]+:[0-9]+: error|^error: could not compile' <<<"$output"; then
     echo "lint_debt: clippy reported errors, not just warnings:" >&2
     printf '%s\n' "$output" | grep -E ':[0-9]+:[0-9]+: error|^error' | head -10 >&2
     exit 1
