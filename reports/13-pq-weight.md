@@ -159,3 +159,15 @@ They include:
 `cargo test -p maya-smart-account --profile ci`: `test result: ok. 10 passed; 0 failed`.
 `crates/smart-account` is not wired into
 the node's transaction format (ADR-016 names it core for launch).
+
+## 9. Update 2026-09-27
+
+- **Verify once:** built (`crates/node/src/state/verified.rs`): mempool
+  admission, the DAG-BFT builder and block application share one cache keyed
+  by the full wire encoding; the builder also verifies a block's transactions
+  on every core first. Block building fell from 10.6 s to 6.8 s in
+  `examples/bft_tps.rs` (`reports/04-consensus.md` §6).
+- Re-run here (Windows 11, Intel family 6 model 198):
+  `cargo test -p maya-smart-account` 10 passed; `cargo test -p maya-da` 5 passed.
+- Still true: the key-hash frame lives in `crates/smart-account`, not in the
+  node's transaction format; a node transaction still carries its key.
