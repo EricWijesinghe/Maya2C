@@ -6,14 +6,17 @@
 //! - [`darkpool`] — sealed-bid batch matching: orders are hiding commitments
 //!   until the batch closes, then clear at one uniform price; an auditor
 //!   opening reveals exactly the orders an auditor key was given.
+//! - [`mpc_darkpool`] — the same auction cleared over additive secret shares:
+//!   servers see only aggregate curves, never an order.
 //! - [`tax`] — per-jurisdiction capital-gains calculators as pure integer
 //!   functions over a transaction history.
 //!
 //! # Status and honest limits
 //!
-//! RESEARCH: nothing in consensus calls these. The dark pool hides orders
-//! *until the batch closes* (commit-reveal), not after — the brief's MPC
-//! matching that never reveals price and size is not built. The ZK-KYC proof
+//! RESEARCH: nothing in consensus calls these. [`darkpool`] hides orders
+//! *until the batch closes* (commit-reveal); [`mpc_darkpool`] never reveals
+//! an order to the servers, only the aggregate curves, under a semi-honest
+//! model (no share MACs, so a malformed share is not caught). The ZK-KYC proof
 //! shows a credential in the issuer's tree meets the tier without revealing
 //! which credential; binding that proof to the account being admitted needs
 //! the subject as a public input, which the credential circuit does not yet
@@ -21,6 +24,7 @@
 
 pub mod cbdc;
 pub mod darkpool;
+pub mod mpc_darkpool;
 pub mod tax;
 
 /// An account.

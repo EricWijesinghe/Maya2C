@@ -6005,6 +6005,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-energy"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "maya-entropy"
 version = "0.1.0"
 dependencies = [
@@ -6246,6 +6253,21 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "maya-zk-stark",
+ "rand_chacha 0.3.1",
+ "rand_core 0.6.4",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "maya-personhood"
+version = "0.1.0"
+dependencies = [
+ "fips204",
+ "rand_chacha 0.3.1",
+ "rand_core 0.6.4",
+ "sha3 0.11.0",
+ "thiserror 2.0.20",
+ "zeroize",
 ]
 
 [[package]]

@@ -2315,6 +2315,28 @@ status = "working"
 tests = ["crate:maya-confidential-ai", "crates/node/tests/federated_ai_tests.rs"]
 
 [[subsystem]]
+id = "biometric-proof-of-personhood"
+name = "Biometric proof-of-personhood: fuzzy commitment to an ML-DSA-65 key, challenge-bound expiring proofs"
+domain = "Identity"
+paths = "`crates/personhood`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crates/personhood/tests/personhood_tests.rs"]
+note = "Master Prompt 6 §7. 100,000 verifications in 54.5 s (release) with 3 false rejects at 5% bit noise, each met by a rescan; impostor templates never match. Synthetic templates: no iris extractor, no liveness (no TEE attestation, invariant 11), no uniqueness check across enrollments."
+
+[[subsystem]]
+id = "energy-protocols-markets"
+name = "Energy protocols and markets: Modbus/TCP, IEC 61850 GOOSE, IEEE 1547 trip rules, Δf pricing, green certificates"
+domain = "AI and hardware integration"
+paths = "`hal/energy`"
+tier = "frontier"
+class = "RESEARCH"
+status = "working"
+tests = ["hal/energy/tests/energy_tests.rs"]
+note = "Master Prompt 6 §8. Parsers tested on the Modbus specification's worked examples and on every truncated prefix; the GOOSE frame is hand-encoded from IEC 61850-8-1, not captured from a relay. The grid is SIM. Linked by nothing in the node."
+
+[[subsystem]]
 id = "iot-anchor-puf-tpm-sealed-device-identity-was-tp"
 name = "IoT anchor: PUF / TPM-sealed device identity (was \"TPM 2.0 / PUF hardware attestation\")"
 domain = "AI and hardware integration"
@@ -2538,13 +2560,14 @@ tests = ["crate:maya-ledger-math", "crates/node/tests/rwa_tests.rs"]
 
 [[subsystem]]
 id = "zk-dark-pools"
-name = "ZK dark pools"
+name = "Dark pools cleared by secret-shared computation (MPC); per-order ZK proofs planned"
 domain = "Security and macro engines"
-paths = "—"
+paths = "`crates/permissioned-finance/src/mpc_darkpool.rs`"
 tier = "extended"
 class = "RESEARCH"
-status = "planned"
-tests = []
+status = "working"
+tests = ["crates/permissioned-finance/tests/mpc_darkpool_tests.rs"]
+note = "Master Prompt 6 §4. Additive shares mod 2^64 over a 256-tick grid: servers see aggregate curves only, and the price matches the open auction's at 2-1,000 orders. Semi-honest: no share MACs and no per-order proof, so a malformed share or inflated fill is not caught. The aggregate reveals a lone trader's order."
 
 [[subsystem]]
 id = "relativistic-gravitational-clock-synchronisation"

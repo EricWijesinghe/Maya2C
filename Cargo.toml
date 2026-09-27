@@ -230,6 +230,14 @@ members = [
     # branch: IOT_ACTIVATION_HEIGHT is u64::MAX — see docs/iot-anchor.md. The
     # example firmware, `hal/iot-firmware/`, is its own workspace.
     "hal/iot-anchor",
+    # Energy protocols for DePIN gateways (Master Prompt 6 §8): Modbus/TCP and
+    # IEC 61850 GOOSE parsers, IEEE 1547 trip rules, Δf pricing and green
+    # certificates over a SIM grid. Gateway-side; the node links none of it.
+    "hal/energy",
+    # Biometric proof-of-personhood (Master Prompt 6 §7): a fuzzy commitment
+    # seeds an ML-DSA-65 key on the device; only its public key is published.
+    # Device-side; the node links none of it.
+    "crates/personhood",
     # Entropy HAL (ADR-010): OS and RDSEED sources, SP 800-90B health tests on
     # every source, one SP 800-90A HMAC-DRBG fed by all of them, tamper-driven
     # zeroization. The thermal, micro-voltage, Brownian and homodyne-QRNG

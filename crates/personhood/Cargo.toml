@@ -1,0 +1,24 @@
+[package]
+name = "maya-personhood"
+version.workspace = true
+# Not published. See crates/dex/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Device-side biometric proof-of-personhood: fuzzy commitment to an ML-DSA-65 key, challenge-bound expiring proofs"
+
+# Device-side: the node links none of this. The same crates `iot-anchor` uses
+# for the same job (a noisy physical source seeding an ML-DSA-65 key).
+[dependencies]
+# ML-DSA-65 only — invariant 4.
+fips204.workspace = true
+rand_core = { version = "0.6", default-features = false }
+sha3.workspace = true
+thiserror.workspace = true
+zeroize = { workspace = true, features = ["zeroize_derive"] }
+
+[dev-dependencies]
+rand_chacha.workspace = true
+
+[lints]
+workspace = true
