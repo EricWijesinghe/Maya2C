@@ -25,9 +25,15 @@ pub enum GatewayError {
     #[error("{0}")]
     BadRequest(String),
 
-    /// The node could not be reached, or answered with an error.
+    /// The node could not be reached, or failed internally.
     #[error("upstream node error: {0}")]
     Upstream(String),
+
+    /// The node was reached and refused the request itself — a bad nonce, an
+    /// invalid signature, malformed hex. The caller's fault, so 400 rather
+    /// than 502; the node's text stays in the log, as for [`Self::Upstream`].
+    #[error("rejected by the node: {0}")]
+    Rejected(String),
 
     /// A submitted payload exceeded its size ceiling.
     #[error("payload too large: {0}")]
@@ -44,7 +50,7 @@ impl GatewayError {
     pub const fn status(&self) -> StatusCode {
         match self {
             Self::MethodNotAllowed(_) | Self::NotFound => StatusCode::NOT_FOUND,
-            Self::BadRequest(_) => StatusCode::BAD_REQUEST,
+            Self::BadRequest(_) | Self::Rejected(_) => StatusCode::BAD_REQUEST,
             Self::PayloadTooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
             Self::Upstream(_) => StatusCode::BAD_GATEWAY,
         }
@@ -59,6 +65,7 @@ impl GatewayError {
     pub fn public_message(&self) -> String {
         match self {
             Self::Upstream(_) => "upstream node error".to_string(),
+            Self::Rejected(_) => "rejected by the node".to_string(),
             other => other.to_string(),
         }
     }
@@ -67,8 +74,10 @@ impl GatewayError {
 impl IntoResponse for GatewayError {
     fn into_response(self) -> Response {
         // Logged in full, returned in part.
-        if matches!(self, Self::Upstream(_)) {
-            tracing::warn!(error = %self, "upstream failure");
+        match &self {
+            Self::Upstream(_) => tracing::warn!(error = %self, "upstream failure"),
+            Self::Rejected(_) => tracing::info!(error = %self, "request refused by the node"),
+            _ => {}
         }
         let body = Json(serde_json::json!({ "error": self.public_message() }));
         (self.status(), body).into_response()
@@ -118,5 +127,18 @@ mod tests {
             StatusCode::BAD_GATEWAY
         );
         assert_eq!(GatewayError::NotFound.status(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            GatewayError::Rejected("x".into()).status(),
+            StatusCode::BAD_REQUEST
+        );
+    }
+
+    #[test]
+    fn a_refusal_is_the_callers_fault_but_hides_the_nodes_text() {
+        let error = GatewayError::Rejected(
+            "invalid nonce for a4fe…: expected 1, got 0".to_string(),
+        );
+        assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(error.public_message(), "rejected by the node");
     }
 }

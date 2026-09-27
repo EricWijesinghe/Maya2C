@@ -28,11 +28,18 @@ tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 hex.workspace = true
 async-trait.workspace = true
+# The `maya2c-gateway` binary (src/main.rs) only.
+clap = { workspace = true, features = ["derive", "env"] }
+anyhow = "1"
 # OpenAPI. Annotated on the REST routes only: the node's own interface is
 # JSON-RPC -- one endpoint with the method named in the body -- which OpenAPI
 # cannot describe usefully. A generated client would get a single `post`
 # function and no type safety.
 utoipa = { version = "5", features = ["axum_extras"] }
+
+[[bin]]
+name = "maya2c-gateway"
+path = "src/main.rs"
 
 [dev-dependencies]
 tower = { workspace = true, features = ["util"] }

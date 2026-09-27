@@ -98,7 +98,23 @@ impl RpcNodeClient {
         self.client
             .request(method, params)
             .await
-            .map_err(|e| GatewayError::Upstream(format!("{method}: {e}")))
+            .map_err(|e| classify(method, e))
+    }
+}
+
+/// JSON-RPC "invalid params", and the node's own refusal code.
+const REFUSAL_CODES: [i32; 2] = [-32_602, -32_000];
+
+/// A call error the node chose to return (bad params, a refused transaction)
+/// is the caller's fault; anything else — transport, timeout, an internal
+/// error — is the gateway's or the node's. `scripts/sdk_e2e.py` found the
+/// first kind being reported as the second.
+fn classify(method: &str, error: jsonrpsee::core::ClientError) -> GatewayError {
+    match &error {
+        jsonrpsee::core::ClientError::Call(call) if REFUSAL_CODES.contains(&call.code()) => {
+            GatewayError::Rejected(format!("{method}: {}", call.message()))
+        }
+        _ => GatewayError::Upstream(format!("{method}: {error}")),
     }
 }
 
@@ -117,6 +133,14 @@ impl NodeClient for RpcNodeClient {
     }
 
     async fn send_raw_transaction(&self, raw: &str) -> Result<String, GatewayError> {
-        self.call("send_raw_transaction", rpc_params![raw]).await
+        // The node answers `{txid, accepted}`, not a bare hash. Until
+        // `scripts/sdk_e2e.py` ran against a real node, only the recorded
+        // node in the tests had spoken to this, and it answered a string.
+        #[derive(serde::Deserialize)]
+        struct Submitted {
+            txid: String,
+        }
+        let submitted: Submitted = self.call("send_raw_transaction", rpc_params![raw]).await?;
+        Ok(submitted.txid)
     }
 }

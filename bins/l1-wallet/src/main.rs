@@ -5,6 +5,7 @@
 //! l1-wallet address                           print the address of a keystore
 //! l1-wallet balance                           query account state over RPC
 //! l1-wallet send --to <ADDR> --amount <VAL>   sign and broadcast a transfer
+//!               [--no-broadcast]              ... or only print the signed hex
 //! ```
 //!
 //! ## Password handling
@@ -97,6 +98,11 @@ enum Command {
         /// the chain charges fees; nothing where it does not.
         #[arg(long)]
         fee: Option<u64>,
+
+        /// Sign and print the raw transaction hex instead of broadcasting it,
+        /// for a different client (an SDK, a gateway) to submit.
+        #[arg(long)]
+        no_broadcast: bool,
     },
 }
 
@@ -230,6 +236,7 @@ async fn command_send(
     amount: u64,
     nonce: Option<u64>,
     fee: Option<u64>,
+    broadcast: bool,
 ) -> Result<()> {
     let recipient = decode_address(to)?;
     let key = load_key(path)?;
@@ -256,6 +263,11 @@ async fn command_send(
     tx.sign(&key).context("signing the transaction")?;
 
     let raw = hex::encode(tx.to_bytes());
+    if !broadcast {
+        println!("raw:      {raw}");
+        println!("txid:     {}", hex::encode(tx.txid()));
+        return Ok(());
+    }
     let result = client.send_raw_transaction(&raw).await?;
 
     println!("txid:     {}", result.txid);
@@ -320,6 +332,7 @@ async fn main() -> Result<()> {
             amount,
             nonce,
             fee,
+            no_broadcast,
         } => {
             Box::pin(command_send(
                 &cli.keystore,
@@ -328,6 +341,7 @@ async fn main() -> Result<()> {
                 amount,
                 nonce,
                 fee,
+                !no_broadcast,
             ))
             .await
         }
