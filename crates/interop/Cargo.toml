@@ -9,6 +9,11 @@ description = "Interoperability without trusted bridges: Ethereum header verific
 
 [dependencies]
 sha3.workspace = true
+# The beacon light client: SSZ is SHA-256 Merkle trees; sync-committee
+# signatures are BLS12-381, verified with supranational's blst (the library
+# Ethereum's own clients use).
+sha2.workspace = true
+blst = "0.3"
 
 # The real-mainnet header test reads its JSON fixture.
 [dev-dependencies]

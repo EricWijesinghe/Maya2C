@@ -67,8 +67,10 @@ impl Committer {
         let mut out = Vec::new();
         let mut round = self.last_committed_round + 2;
         while round < dag.highest_round() {
-            if let Some(anchor) = Self::anchor(dag, committee, round) {
-                let digest = anchor.digest();
+            if let (Some(anchor), Some(digest)) = (
+                Self::anchor(dag, committee, round),
+                Self::anchor_digest(dag, committee, round),
+            ) {
                 let votes = dag
                     .round(round + 1)
                     .filter(|c| c.vertex.parents.contains(&digest))
@@ -86,6 +88,11 @@ impl Committer {
         dag.get(round, committee.leader(round)?)
     }
 
+    /// The anchor's digest from the DAG's index: no rehash of its payload.
+    fn anchor_digest(dag: &Dag, committee: Committee, round: u64) -> Option<Digest> {
+        dag.digest_at(round, committee.leader(round)?)
+    }
+
     /// Commits `anchor` and every earlier uncommitted anchor linked to it.
     fn commit_chain(
         &mut self,
@@ -95,21 +102,27 @@ impl Committer {
         out: &mut Vec<SubDag>,
     ) {
         let mut chain = vec![anchor.clone()];
-        let mut current = anchor.digest();
+        let mut current = Self::anchor_digest(dag, committee, anchor.vertex.round)
+            .unwrap_or_else(|| anchor.digest());
         let mut round = anchor.vertex.round;
         while round >= self.last_committed_round + 4 {
             round -= 2;
-            if let Some(earlier) = Self::anchor(dag, committee, round)
-                && dag.has_path(&current, &earlier.digest())
+            if let (Some(earlier), Some(earlier_digest)) = (
+                Self::anchor(dag, committee, round),
+                Self::anchor_digest(dag, committee, round),
+            ) && dag.has_path(&current, &earlier_digest)
             {
-                current = earlier.digest();
+                current = earlier_digest;
                 chain.push(earlier.clone());
             }
         }
         for a in chain.iter().rev() {
             let mut certificates = Vec::new();
             self.order_history(dag, a, &mut certificates);
-            self.anchors.push(a.digest());
+            self.anchors.push(
+                dag.digest_at(a.vertex.round, a.vertex.author)
+                    .unwrap_or_else(|| a.digest()),
+            );
             out.push(SubDag {
                 anchor: a.clone(),
                 certificates,
@@ -121,7 +134,10 @@ impl Committer {
     /// Emits `anchor`'s causal history not yet ordered, by (round, author).
     fn order_history(&mut self, dag: &Dag, anchor: &Certificate, out: &mut Vec<Certificate>) {
         let mut seen = BTreeSet::new();
-        let mut stack = vec![anchor.digest()];
+        let mut stack = vec![
+            dag.digest_at(anchor.vertex.round, anchor.vertex.author)
+                .unwrap_or_else(|| anchor.digest()),
+        ];
         let mut history = Vec::new();
         while let Some(d) = stack.pop() {
             let Some(c) = dag.by_digest(&d) else {
@@ -135,7 +151,10 @@ impl Committer {
         }
         history.sort_by_key(|c| (c.vertex.round, c.vertex.author));
         for c in history {
-            self.ordered.insert((c.vertex.round, c.digest()));
+            let digest = dag
+                .digest_at(c.vertex.round, c.vertex.author)
+                .unwrap_or_else(|| c.digest());
+            self.ordered.insert((c.vertex.round, digest));
             out.push(c.clone());
         }
     }
