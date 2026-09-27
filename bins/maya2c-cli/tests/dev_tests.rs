@@ -51,6 +51,7 @@ async fn dev_starts_a_funded_chain_and_redeploys_on_save() {
         explorer_port: None,
         bin_dir: bin_dir(),
         stop_after_deploys: Some(2),
+        node_args: Vec::new(),
     };
 
     // Once the first deploy has landed: check an account is funded, then
