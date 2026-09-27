@@ -60,13 +60,14 @@ fn run_dag(
     let params = Params {
         batch_size: 500,
         anchor_timeout_ms: 1_000,
+        ..Params::default()
     };
     let mut nodes: Vec<Validator> = (0..n)
         .map(|i| Validator::new(i, committee, params))
         .collect();
     for (i, v) in nodes.iter_mut().enumerate() {
         for k in 0..txs_per_node {
-            v.submit(k * u64::from(n) + i as u64);
+            v.submit((k * u64::from(n) + i as u64).to_le_bytes().to_vec());
         }
     }
     let mut orders = vec![Vec::new(); n as usize];
@@ -105,8 +106,12 @@ fn run_dag(
         };
         for c in out.committed {
             for tx in &c.vertex.batch {
-                ledgers[id as usize].apply(*tx);
-                orders[id as usize].push(*tx);
+                ledgers[id as usize].apply_bytes(tx);
+                orders[id as usize].push(u64::from_le_bytes(
+                    tx.as_slice()
+                        .try_into()
+                        .expect("the sim submits 8-byte ids"),
+                ));
             }
         }
         dispatch(w, n, id, out.sends);

@@ -15,15 +15,15 @@
 //!
 //! # Status
 //!
-//! RESEARCH. The engine is sans-IO and runs under `maya-sim`; it is **not yet
-//! the node's main loop** — `custom-l1-node` still orders blocks by `PoW`. What
-//! wiring it in requires (vote signatures, a transport, epoch changes, the
-//! executor behind [`Ledger`]'s interface) is listed in ADR-015. Until then
-//! every throughput figure from this crate is an *ordering* figure, not TPS as
-//! the Production Standing Orders define it, and is labelled so.
+//! The engine is sans-IO: it runs under `maya-sim` with [`Unauthenticated`]
+//! (SIM — no keys), and in the node behind an ML-DSA-65 [`Authenticator`]
+//! with a gossip transport, one block per committed [`SubDag`] (ADR-027).
+//! A throughput figure from this crate alone is an *ordering* figure, not TPS
+//! as the Production Standing Orders define it, and is labelled so.
 
 #![warn(missing_docs)]
 
+mod auth;
 mod commit;
 mod dag;
 mod ledger;
@@ -32,10 +32,11 @@ mod nakamoto;
 mod validator;
 mod vertex;
 
-pub use commit::Committer;
+pub use auth::{Authenticator, Equivocation, Unauthenticated};
+pub use commit::{Committer, SubDag};
 pub use dag::Dag;
 pub use ledger::{ACCOUNTS, Ledger, OPENING_BALANCE};
 pub use mode::{ConsensusMode, ModeError};
 pub use nakamoto::{ForkChoice, GENESIS, WorkBlock};
 pub use validator::{Dest, GC_DEPTH, Message, Output, Params, Validator};
-pub use vertex::{Certificate, Committee, Digest, ValidatorId, Vertex};
+pub use vertex::{Certificate, Committee, Digest, Payload, ValidatorId, Vertex};

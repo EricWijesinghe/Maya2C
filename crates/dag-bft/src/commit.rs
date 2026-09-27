@@ -16,6 +16,17 @@ use std::collections::BTreeSet;
 use crate::dag::Dag;
 use crate::vertex::{Certificate, Committee, Digest};
 
+/// One committed anchor and the causal history it ordered: the unit the node
+/// turns into exactly one block, so block boundaries are a pure function of
+/// the DAG and not of when a node happened to run the rule.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SubDag {
+    /// The anchor.
+    pub anchor: Certificate,
+    /// Newly ordered certificates, ending with the anchor, by (round, author).
+    pub certificates: Vec<Certificate>,
+}
+
 /// Commit-rule state: what has been ordered so far.
 #[derive(Clone, Debug, Default)]
 pub struct Committer {
@@ -44,6 +55,15 @@ impl Committer {
 
     /// Runs the rule over `dag` and returns newly ordered certificates.
     pub fn try_commit(&mut self, dag: &Dag, committee: Committee) -> Vec<Certificate> {
+        self.try_commit_sub_dags(dag, committee)
+            .into_iter()
+            .flat_map(|s| s.certificates)
+            .collect()
+    }
+
+    /// Runs the rule over `dag` and returns one [`SubDag`] per newly
+    /// committed anchor, oldest first.
+    pub fn try_commit_sub_dags(&mut self, dag: &Dag, committee: Committee) -> Vec<SubDag> {
         let mut out = Vec::new();
         let mut round = self.last_committed_round + 2;
         while round < dag.highest_round() {
@@ -72,7 +92,7 @@ impl Committer {
         dag: &Dag,
         committee: Committee,
         anchor: &Certificate,
-        out: &mut Vec<Certificate>,
+        out: &mut Vec<SubDag>,
     ) {
         let mut chain = vec![anchor.clone()];
         let mut current = anchor.digest();
@@ -87,8 +107,13 @@ impl Committer {
             }
         }
         for a in chain.iter().rev() {
-            self.order_history(dag, a, out);
+            let mut certificates = Vec::new();
+            self.order_history(dag, a, &mut certificates);
             self.anchors.push(a.digest());
+            out.push(SubDag {
+                anchor: a.clone(),
+                certificates,
+            });
         }
         self.last_committed_round = anchor.vertex.round;
     }

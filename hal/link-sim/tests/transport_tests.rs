@@ -229,6 +229,7 @@ fn earth_and_mars(
     let params = Params {
         batch_size: 100,
         anchor_timeout_ms: 1_000,
+        ..Params::default()
     };
     let clusters = if with_mars { 2 } else { 1 };
     let mut nodes: Vec<Validator> = (0..5 * clusters)
@@ -236,7 +237,7 @@ fn earth_and_mars(
         .collect();
     for (i, v) in nodes.iter_mut().enumerate() {
         for k in 0..2_000u64 {
-            v.submit(k * 10 + i as u64);
+            v.submit((k * 10 + i as u64).to_le_bytes().to_vec());
         }
     }
     let send = |w: &mut World<Ev>, base: u16, from: u16, sends: Vec<(Dest, Message)>| {
@@ -278,7 +279,11 @@ fn earth_and_mars(
         };
         if base == 0 {
             earth_commits[local as usize]
-                .extend(out.committed.iter().flat_map(|c| c.vertex.batch.clone()));
+                .extend(out.committed.iter().flat_map(|c| {
+                    c.vertex.batch.iter().map(|tx| {
+                        u64::from_le_bytes(tx.as_slice().try_into().expect("8-byte sim ids"))
+                    })
+                }));
         } else if local == 0 {
             // Mars node 0 batches its locally final anchors to every Earth node.
             for c in &out.committed {

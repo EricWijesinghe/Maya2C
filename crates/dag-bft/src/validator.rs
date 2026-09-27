@@ -6,14 +6,19 @@
 //! [`Validator::tick`] and by fetching missing parents from whoever sent the
 //! child, so the engine is live over a lossy, reordering network.
 //!
+//! Every proposal, vote and certificate is checked through the
+//! [`Authenticator`], so the transport's idea of who sent a message is never
+//! trusted for anything but where to send a `Fetch` reply.
+//!
 //! Time is whatever the caller passes in milliseconds; the engine never
 //! reads a clock, so a simulator can drive it deterministically.
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 
-use crate::commit::Committer;
+use crate::auth::{Authenticator, Equivocation, Unauthenticated};
+use crate::commit::{Committer, SubDag};
 use crate::dag::Dag;
-use crate::vertex::{Certificate, Committee, Digest, ValidatorId, Vertex};
+use crate::vertex::{Certificate, Committee, Digest, Payload, ValidatorId, Vertex};
 
 /// Rounds kept behind the last committed anchor before garbage collection.
 pub const GC_DEPTH: u64 = 50;
@@ -21,8 +26,13 @@ pub const GC_DEPTH: u64 = 50;
 /// What validators say to each other.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Message {
-    /// An uncertified vertex, asking for votes.
-    Propose(Vertex),
+    /// An uncertified vertex, asking for votes, signed by its author.
+    Propose {
+        /// The vertex.
+        vertex: Vertex,
+        /// Its author's signature over the vertex digest.
+        signature: Vec<u8>,
+    },
     /// A vote for `digest`, sent to the vertex's author.
     Vote {
         /// Vertex voted for.
@@ -31,6 +41,8 @@ pub enum Message {
         round: u64,
         /// The voter.
         voter: ValidatorId,
+        /// The voter's signature over `digest`.
+        signature: Vec<u8>,
     },
     /// A certified vertex.
     Cert(Certificate),
@@ -52,8 +64,12 @@ pub enum Dest {
 pub struct Output {
     /// Messages to deliver.
     pub sends: Vec<(Dest, Message)>,
-    /// Certificates newly ordered, in commit order.
+    /// Certificates newly ordered, in commit order: `sub_dags` flattened.
     pub committed: Vec<Certificate>,
+    /// The same certificates grouped by the anchor that ordered them.
+    pub sub_dags: Vec<SubDag>,
+    /// Conflicting signed proposals seen, for the staking module.
+    pub equivocations: Vec<Equivocation>,
 }
 
 /// Engine parameters.
@@ -61,62 +77,95 @@ pub struct Output {
 pub struct Params {
     /// Most transactions per vertex.
     pub batch_size: usize,
+    /// Most payload bytes per vertex. A vertex over it is not voted for, so
+    /// one author cannot make every validator hold an unbounded proposal.
+    pub max_batch_bytes: usize,
     /// How long to wait for an anchor before advancing without it.
     pub anchor_timeout_ms: u64,
+    /// The committee epoch this engine instance runs; bound into every digest.
+    pub epoch: u64,
 }
 
 impl Default for Params {
     fn default() -> Self {
         Self {
             batch_size: 500,
+            max_batch_bytes: 4 * 1024 * 1024,
             anchor_timeout_ms: 1_000,
+            epoch: 0,
         }
     }
 }
 
-/// A validator.
+/// A validator. Without a type argument it is the simulator's
+/// [`Unauthenticated`] validator.
 #[derive(Debug)]
-pub struct Validator {
+pub struct Validator<A = Unauthenticated> {
     id: ValidatorId,
     committee: Committee,
     params: Params,
+    auth: A,
+    /// Whether this instance proposes and votes. An observer (a full node
+    /// without a validator key) runs the same DAG and commit rule on
+    /// certificates alone and derives the same blocks.
+    voting: bool,
     dag: Dag,
     committer: Committer,
     /// Round of the vertex most recently proposed.
     round: u64,
-    /// Own vertex awaiting votes, and the votes so far.
-    pending: Option<(Vertex, BTreeSet<ValidatorId>)>,
+    /// Own vertex awaiting votes, and the signed votes so far.
+    pending: Option<(Vertex, BTreeMap<ValidatorId, Vec<u8>>)>,
     /// One vote per (round, author): the rule that makes equivocation
     /// uncertifiable.
     voted: BTreeMap<(u64, ValidatorId), Digest>,
+    /// The first signed proposal seen per (round, author), kept to prove an
+    /// equivocation when a second one arrives.
+    seen: BTreeMap<(u64, ValidatorId), (Vertex, Vec<u8>)>,
     /// Certificates waiting for parents.
     buffer: BTreeMap<Digest, Certificate>,
-    mempool: VecDeque<u64>,
+    mempool: VecDeque<Payload>,
     /// When the node first had a quorum for `round` without the anchor.
     waiting_since: Option<(u64, u64)>,
 }
 
-impl Validator {
-    /// Validator `id` with the shared genesis.
+impl Validator<Unauthenticated> {
+    /// SIM: validator `id` with the shared genesis and no signatures.
     pub fn new(id: ValidatorId, committee: Committee, params: Params) -> Self {
+        Self::with_auth(id, committee, params, Unauthenticated)
+    }
+}
+
+impl<A: Authenticator> Validator<A> {
+    /// Validator `id`, signing and verifying through `auth`.
+    pub fn with_auth(id: ValidatorId, committee: Committee, params: Params, auth: A) -> Self {
         Self {
             id,
             committee,
             params,
-            dag: Dag::new(Certificate::genesis(committee)),
+            auth,
+            voting: true,
+            dag: Dag::new(Certificate::genesis_in(params.epoch, committee)),
             committer: Committer::new(),
             round: 0,
             pending: None,
             voted: BTreeMap::new(),
+            seen: BTreeMap::new(),
             buffer: BTreeMap::new(),
             mempool: VecDeque::new(),
             waiting_since: None,
         }
     }
 
+    /// A non-voting observer: follows certificates, commits, never signs.
+    pub fn observer(committee: Committee, params: Params, auth: A) -> Self {
+        let mut v = Self::with_auth(ValidatorId::MAX, committee, params, auth);
+        v.voting = false;
+        v
+    }
+
     /// Queues a transaction for a future vertex.
-    pub fn submit(&mut self, tx: u64) {
-        self.mempool.push_back(tx);
+    pub fn submit(&mut self, tx: impl Into<Payload>) {
+        self.mempool.push_back(tx.into());
     }
 
     /// Transactions not yet proposed.
@@ -139,10 +188,51 @@ impl Validator {
         self.round
     }
 
+    /// Round of the last committed anchor.
+    pub fn last_committed_round(&self) -> u64 {
+        self.committer.last_committed_round()
+    }
+
+    /// The committee epoch.
+    pub fn epoch(&self) -> u64 {
+        self.params.epoch
+    }
+
+    /// Restores a vote this validator cast before a restart, so it cannot
+    /// vote for a different vertex in the same slot afterwards.
+    pub fn restore_vote(&mut self, round: u64, author: ValidatorId, digest: Digest) {
+        self.voted.entry((round, author)).or_insert(digest);
+    }
+
+    /// Restores one of this validator's own signed proposals from before a
+    /// restart. The newest becomes pending again and sets the round, so the
+    /// validator re-broadcasts it rather than signing a second vertex for a
+    /// round it already proposed in — which would be an equivocation.
+    ///
+    /// Call for every recorded proposal, oldest first, *before* replaying
+    /// certificates, and before [`Validator::start`].
+    pub fn restore_proposal(&mut self, vertex: Vertex, signature: Vec<u8>) {
+        if vertex.author != self.id || vertex.epoch != self.params.epoch {
+            return;
+        }
+        let digest = vertex.digest();
+        self.voted.insert((vertex.round, self.id), digest);
+        self.seen
+            .insert((vertex.round, self.id), (vertex.clone(), signature.clone()));
+        if vertex.round >= self.round {
+            self.round = vertex.round;
+            let mut votes = BTreeMap::new();
+            votes.insert(self.id, signature);
+            self.pending = Some((vertex, votes));
+        }
+    }
+
     /// Proposes round 1.
     pub fn start(&mut self, now_ms: u64) -> Output {
         let mut out = Output::default();
-        self.try_advance(now_ms, &mut out);
+        if self.voting {
+            self.try_advance(now_ms, &mut out);
+        }
         out
     }
 
@@ -150,12 +240,15 @@ impl Validator {
     pub fn handle(&mut self, now_ms: u64, from: ValidatorId, msg: Message) -> Output {
         let mut out = Output::default();
         match msg {
-            Message::Propose(v) => self.on_propose(from, &v, &mut out),
+            Message::Propose { vertex, signature } => {
+                self.on_propose(from, vertex, signature, &mut out);
+            }
             Message::Vote {
                 digest,
                 round,
                 voter,
-            } => self.on_vote(digest, round, voter, &mut out),
+                signature,
+            } => self.on_vote(digest, round, voter, signature, &mut out),
             Message::Cert(c) => self.on_cert(from, c, &mut out),
             Message::Fetch(d) => {
                 if let Some(c) = self.dag.by_digest(&d).or_else(|| self.buffer.get(&d)) {
@@ -171,8 +264,15 @@ impl Validator {
     /// an anchor that timed out.
     pub fn tick(&mut self, now_ms: u64) -> Output {
         let mut out = Output::default();
-        if let Some((v, _)) = &self.pending {
-            out.sends.push((Dest::All, Message::Propose(v.clone())));
+        if let Some((v, votes)) = &self.pending {
+            let signature = votes.get(&self.id).cloned().unwrap_or_default();
+            out.sends.push((
+                Dest::All,
+                Message::Propose {
+                    vertex: v.clone(),
+                    signature,
+                },
+            ));
         } else if let Some(c) = self.dag.get(self.round, self.id) {
             out.sends.push((Dest::All, Message::Cert(c.clone())));
         }
@@ -180,14 +280,27 @@ impl Validator {
         out
     }
 
-    fn on_propose(&mut self, from: ValidatorId, v: &Vertex, out: &mut Output) {
-        if v.author != from || v.round == 0 || v.author >= self.committee.size() {
+    fn on_propose(&mut self, from: ValidatorId, v: Vertex, signature: Vec<u8>, out: &mut Output) {
+        if !self.voting
+            || v.epoch != self.params.epoch
+            || v.round == 0
+            || v.author >= self.committee.size()
+            || v.batch.len() > self.params.batch_size
+            || v.payload_bytes() > self.params.max_batch_bytes
+        {
             return;
         }
         let digest = v.digest();
+        if !self.auth.verify(v.author, &digest, &signature) {
+            return;
+        }
+        if !self.record_proposal(&v, &signature, digest, out) {
+            return;
+        }
         let probe = Certificate {
-            vertex: v.clone(),
+            vertex: v,
             votes: Vec::new(),
+            signatures: Vec::new(),
         };
         let missing = self.dag.missing_parents(&probe);
         if !missing.is_empty() {
@@ -196,6 +309,7 @@ impl Validator {
             }
             return; // the author re-proposes on its next tick
         }
+        let v = probe.vertex;
         let quorum_parents = v.parents.len() >= usize::from(self.committee.quorum())
             && v.parents.windows(2).all(|w| w[0] < w[1])
             && v.parents.iter().all(|p| {
@@ -209,28 +323,71 @@ impl Validator {
         let slot = self.voted.entry((v.round, v.author)).or_insert(digest);
         if *slot == digest {
             out.sends.push((
-                Dest::To(from),
+                Dest::To(v.author),
                 Message::Vote {
                     digest,
                     round: v.round,
                     voter: self.id,
+                    signature: self.auth.sign(&digest),
                 },
             ));
         }
     }
 
-    fn on_vote(&mut self, digest: Digest, round: u64, voter: ValidatorId, out: &mut Output) {
+    /// Remembers the first signed proposal per slot; reports a second,
+    /// different one as an equivocation. Returns whether `v` may be voted for.
+    fn record_proposal(
+        &mut self,
+        v: &Vertex,
+        signature: &[u8],
+        digest: Digest,
+        out: &mut Output,
+    ) -> bool {
+        let slot = (v.round, v.author);
+        match self.seen.get(&slot) {
+            None => {
+                self.seen.insert(slot, (v.clone(), signature.to_vec()));
+                true
+            }
+            Some((first, _)) if first.digest() == digest => true,
+            Some((first, first_signature)) => {
+                out.equivocations.push(Equivocation {
+                    first: first.clone(),
+                    first_signature: first_signature.clone(),
+                    second: v.clone(),
+                    second_signature: signature.to_vec(),
+                });
+                false
+            }
+        }
+    }
+
+    fn on_vote(
+        &mut self,
+        digest: Digest,
+        round: u64,
+        voter: ValidatorId,
+        signature: Vec<u8>,
+        out: &mut Output,
+    ) {
         let Some((vertex, votes)) = &mut self.pending else {
             return;
         };
-        if vertex.round != round || vertex.digest() != digest || voter >= self.committee.size() {
+        if vertex.round != round
+            || vertex.digest() != digest
+            || voter >= self.committee.size()
+            || votes.contains_key(&voter)
+            || !self.auth.verify(voter, &digest, &signature)
+        {
             return;
         }
-        votes.insert(voter);
+        votes.insert(voter, signature);
         if votes.len() >= usize::from(self.committee.quorum()) {
+            let (voters, signatures) = votes.iter().map(|(v, s)| (*v, s.clone())).unzip();
             let cert = Certificate {
                 vertex: vertex.clone(),
-                votes: votes.iter().copied().collect(),
+                votes: voters,
+                signatures,
             };
             self.pending = None;
             out.sends.push((Dest::All, Message::Cert(cert.clone())));
@@ -239,7 +396,21 @@ impl Validator {
     }
 
     fn on_cert(&mut self, from: ValidatorId, c: Certificate, out: &mut Output) {
-        if c.is_well_formed(self.committee) {
+        if c.vertex.epoch != self.params.epoch || !c.is_well_formed(self.committee) {
+            return;
+        }
+        let digest = c.digest();
+        // Before the signatures: a re-broadcast of a held certificate costs a
+        // lookup, not 2f + 1 verifications.
+        if self.dag.contains(&digest) || self.buffer.contains_key(&digest) {
+            return;
+        }
+        let authentic = c
+            .votes
+            .iter()
+            .zip(&c.signatures)
+            .all(|(voter, sig)| self.auth.verify(*voter, &digest, sig));
+        if authentic {
             self.accept(c, from, out);
         }
     }
@@ -256,6 +427,15 @@ impl Validator {
             }
             self.buffer.insert(digest, c);
             return;
+        }
+        // Our own vertex certified by someone else's broadcast (or replayed
+        // from disk after a restart): nothing is pending any more.
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|(v, _)| v.digest() == digest)
+        {
+            self.pending = None;
         }
         self.dag.insert(c);
         self.drain_buffer();
@@ -282,8 +462,10 @@ impl Validator {
     }
 
     fn progress(&mut self, now_ms: u64, out: &mut Output) {
-        let committed = self.committer.try_commit(&self.dag, self.committee);
-        if !committed.is_empty() {
+        let sub_dags = self
+            .committer
+            .try_commit_sub_dags(&self.dag, self.committee);
+        if !sub_dags.is_empty() {
             let horizon = self
                 .committer
                 .last_committed_round()
@@ -291,10 +473,15 @@ impl Validator {
             self.dag.collect_below(horizon);
             self.committer.collect_below(horizon);
             self.voted = self.voted.split_off(&(horizon, 0));
+            self.seen = self.seen.split_off(&(horizon, 0));
             self.buffer.retain(|_, c| c.vertex.round >= horizon);
         }
-        out.committed.extend(committed);
-        self.try_advance(now_ms, out);
+        out.committed
+            .extend(sub_dags.iter().flat_map(|s| s.certificates.iter().cloned()));
+        out.sub_dags.extend(sub_dags);
+        if self.voting {
+            self.try_advance(now_ms, out);
+        }
     }
 
     /// Proposes the next round once this round has a quorum (and, in an
@@ -323,11 +510,35 @@ impl Validator {
                     }
                 }
             }
-            self.propose(round + 1, out);
+            self.propose(round + 1, now_ms, out);
         }
     }
 
-    fn propose(&mut self, round: u64, out: &mut Output) {
+    /// Takes the next batch off the queue, within both the count and the byte
+    /// bound.
+    fn next_batch(&mut self) -> Vec<Payload> {
+        let mut batch = Vec::new();
+        let mut bytes = 0usize;
+        while batch.len() < self.params.batch_size {
+            let Some(next) = self.mempool.front() else {
+                break;
+            };
+            if bytes + next.len() > self.params.max_batch_bytes {
+                if batch.is_empty() {
+                    // One transaction over the bound on its own can never be
+                    // proposed; dropping it is the only way past it.
+                    self.mempool.pop_front();
+                    continue;
+                }
+                break;
+            }
+            bytes += next.len();
+            batch.extend(self.mempool.pop_front());
+        }
+        batch
+    }
+
+    fn propose(&mut self, round: u64, now_ms: u64, out: &mut Output) {
         let mut parents: Vec<Digest> = self.dag.round(round - 1).map(Certificate::digest).collect();
         parents.sort_unstable();
         // A vertex that never gathered a quorum is abandoned; its
@@ -337,25 +548,44 @@ impl Validator {
                 self.mempool.push_front(tx);
             }
         }
-        let take = self.params.batch_size.min(self.mempool.len());
-        let batch: Vec<u64> = self.mempool.drain(..take).collect();
         let vertex = Vertex {
+            epoch: self.params.epoch,
             round,
             author: self.id,
+            timestamp_ms: now_ms,
             parents,
-            batch,
+            batch: self.next_batch(),
         };
         let digest = vertex.digest();
+        let signature = self.auth.sign(&digest);
         self.voted.insert((round, self.id), digest);
+        self.seen
+            .insert((round, self.id), (vertex.clone(), signature.clone()));
         self.round = round;
         self.waiting_since = None;
         // Our own vote counts; with a committee of one that is a quorum.
-        let mut votes = BTreeSet::new();
-        votes.insert(self.id);
+        let mut votes = BTreeMap::new();
+        votes.insert(self.id, signature.clone());
         self.pending = Some((vertex.clone(), votes));
-        out.sends.push((Dest::All, Message::Propose(vertex)));
+        out.sends
+            .push((Dest::All, Message::Propose { vertex, signature }));
         if self.committee.quorum() <= 1 {
-            self.on_vote(digest, round, self.id, out);
+            self.certify_alone(out);
         }
+    }
+
+    /// A committee of one certifies its own vertex on its own vote.
+    fn certify_alone(&mut self, out: &mut Output) {
+        let Some((vertex, votes)) = self.pending.take() else {
+            return;
+        };
+        let (voters, signatures) = votes.into_iter().unzip();
+        let cert = Certificate {
+            vertex,
+            votes: voters,
+            signatures,
+        };
+        out.sends.push((Dest::All, Message::Cert(cert.clone())));
+        self.accept(cert, self.id, out);
     }
 }
