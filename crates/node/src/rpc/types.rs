@@ -49,6 +49,41 @@ impl AccountInfo {
     }
 }
 
+/// An account read together with the tip it was read at, under one lock, so
+/// a reconciler can pin the balance to a block (the Mesh Data API).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AccountAtTip {
+    /// The account.
+    #[serde(flatten)]
+    pub account: AccountInfo,
+    /// Height of the tip the account was read at.
+    pub height: u64,
+    /// Hex-encoded id of that tip.
+    pub block_id: String,
+}
+
+/// One account's balance across one block.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BalanceChangeInfo {
+    /// Hex-encoded address.
+    pub address: String,
+    /// Balance before the block.
+    pub before: u64,
+    /// Balance after the block.
+    pub after: u64,
+}
+
+/// Every balance a block moved (`state::balance_changes`).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BalanceChangesInfo {
+    /// Block height.
+    pub height: u64,
+    /// Hex-encoded block id.
+    pub block_id: String,
+    /// The changes, in address order.
+    pub changes: Vec<BalanceChangeInfo>,
+}
+
 /// A transaction output.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OutputInfo {

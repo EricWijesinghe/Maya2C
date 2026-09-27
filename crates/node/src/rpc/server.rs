@@ -35,6 +35,11 @@ const REJECTED: i32 = -32_000;
 /// JSON-RPC error code for an item that does not exist.
 const NOT_FOUND: i32 = -32_001;
 
+/// How far back `get_balance_at_height` walks: the retention depth. Beyond it
+/// the per-block changes are pruned anyway, so a deeper bound would only let
+/// one call walk further before failing.
+const MAX_BALANCE_REWIND: u64 = crate::state_pruner::PRUNE_DEPTH;
+
 fn invalid_params(message: impl Into<String>) -> ErrorObjectOwned {
     ErrorObjectOwned::owned(INVALID_PARAMS, message.into(), None::<()>)
 }
@@ -45,6 +50,78 @@ fn rejected(message: impl Into<String>) -> ErrorObjectOwned {
 
 fn not_found(message: impl Into<String>) -> ErrorObjectOwned {
     ErrorObjectOwned::owned(NOT_FOUND, message.into(), None::<()>)
+}
+
+/// JSON-RPC error code for a fault inside the node.
+const INTERNAL: i32 = -32_603;
+
+/// A storage fault: the detail goes to the operator's log, the caller gets a
+/// fixed message and a code that is not `REJECTED`. Reusing `REJECTED` told
+/// clients (and the gateway, which maps it to a non-retryable 400) that a
+/// corrupt or unreadable record was their mistake.
+#[allow(clippy::needless_pass_by_value)] // used as `.map_err(internal)`
+fn internal(error: crate::error::NodeError) -> ErrorObjectOwned {
+    eprintln!("rpc: internal error: {error}");
+    ErrorObjectOwned::owned(INTERNAL, "internal node error", None::<()>)
+}
+
+/// `address`'s balance after the block at `height`, and that block's id: the
+/// current balance with each later block's recorded change undone.
+///
+/// The walk runs **outside** the chain lock. Block production takes the same
+/// mutex, and holding it for up to `MAX_BALANCE_REWIND` reads would stall
+/// fork choice for every caller. The tip, its id and the current balance are
+/// read under the lock; afterwards the lock is taken again only to confirm
+/// that tip is still canonical at its height — any reorg at or below it would
+/// have replaced it, and the answer is refused rather than served torn. Not
+/// caught: a reorg away and back to the same tip within one walk. A DAG-BFT
+/// chain does not reorg committed blocks at all.
+fn balance_at_height(
+    ctx: &RpcContext,
+    address: &[u8; 32],
+    height: u64,
+) -> Result<(u64, [u8; 32]), ErrorObjectOwned> {
+    let (state, tip, tip_id, mut balance) = {
+        let chain = ctx.chain();
+        let balance = chain
+            .state()
+            .get_account(address)
+            .map_err(internal)?
+            .balance;
+        (
+            Arc::clone(chain.state()),
+            chain.height(),
+            chain.tip(),
+            balance,
+        )
+    };
+    if height > tip {
+        return Err(not_found(format!("height {height} is above the tip {tip}")));
+    }
+    if tip - height > MAX_BALANCE_REWIND {
+        return Err(invalid_params(format!(
+            "more than {MAX_BALANCE_REWIND} blocks back from the tip"
+        )));
+    }
+    let canonical = |h: u64| {
+        state
+            .canonical_id(h)
+            .map_err(internal)?
+            .ok_or_else(|| not_found(format!("no block at height {h}")))
+    };
+    for h in (height + 1..=tip).rev() {
+        let changes = state
+            .balance_changes(&canonical(h)?)
+            .map_err(internal)?
+            .ok_or_else(|| not_found(format!("changes for height {h} are not kept")))?;
+        balance = crate::state::balance_changes::before_block(&changes, address, balance);
+    }
+    let id = canonical(height)?;
+    let still = ctx.chain().state().canonical_id(tip).map_err(internal)?;
+    if still != Some(tip_id) {
+        return Err(rejected("the chain reorganized during the lookup; retry"));
+    }
+    Ok((balance, id))
 }
 
 /// Decodes a hex string into a fixed-size array.
@@ -161,6 +238,68 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 .map_err(|e| rejected(e.to_string()))?;
 
             Ok::<_, ErrorObjectOwned>(AccountInfo::new(&address, &account))
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
+    module
+        .register_method("get_balance_at_height", |params, ctx, _| {
+            let (address_hex, height): (String, u64) =
+                params.parse().map_err(|e| invalid_params(e.to_string()))?;
+            let address = decode_array::<32>(&address_hex, "address")?;
+            let (balance, id) = balance_at_height(ctx, &address, height)?;
+            Ok::<_, ErrorObjectOwned>(serde_json::json!({
+                "address": address_hex,
+                "balance": balance,
+                "height": height,
+                "block_id": hex::encode(id),
+            }))
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
+    module
+        .register_method("get_account_at_tip", |params, ctx, _| {
+            let address_hex: String = params.one().map_err(|e| invalid_params(e.to_string()))?;
+            let address = decode_array::<32>(&address_hex, "address")?;
+            // One guard for the tip and the read: blocks commit under it.
+            let chain = ctx.chain();
+            let account = chain.state().get_account(&address).map_err(internal)?;
+            Ok::<_, ErrorObjectOwned>(crate::rpc::types::AccountAtTip {
+                account: AccountInfo::new(&address, &account),
+                height: chain.height(),
+                block_id: hex::encode(chain.tip()),
+            })
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
+    module
+        .register_method("get_balance_changes", |params, ctx, _| {
+            let height: u64 = params.one().map_err(|e| invalid_params(e.to_string()))?;
+            let chain = ctx.chain();
+            let state = chain.state();
+            let id = state
+                .canonical_id(height)
+                .map_err(internal)?
+                .ok_or_else(|| not_found(format!("no block at height {height}")))?;
+            let changes = state
+                .balance_changes(&id)
+                .map_err(internal)?
+                .ok_or_else(|| {
+                    not_found(format!(
+                        "no balance changes kept for height {height} (genesis or pruned)"
+                    ))
+                })?;
+            Ok::<_, ErrorObjectOwned>(crate::rpc::types::BalanceChangesInfo {
+                height,
+                block_id: hex::encode(id),
+                changes: changes
+                    .iter()
+                    .map(|c| crate::rpc::types::BalanceChangeInfo {
+                        address: hex::encode(c.address),
+                        before: c.before,
+                        after: c.after,
+                    })
+                    .collect(),
+            })
         })
         .map_err(|e| rejected(e.to_string()))?;
 

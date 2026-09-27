@@ -258,6 +258,8 @@ members = [
     # RESEARCH: not called by block execution.
     "crates/multivm",
     "crates/permissioned-finance",
+    # Mesh (Rosetta) Data API over a node's JSON-RPC (MP17). Not linked by the node.
+    "crates/mesh-api",
     # Bitcoin SPV (Master Prompt 6 §3): header rules bit-exact with Core,
     # retargeting, chainwork fork choice, reorgs, merkle proofs. SHA-256 only,
     # because it parses bytes a relayer chose.

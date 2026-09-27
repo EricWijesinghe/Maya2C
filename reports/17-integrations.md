@@ -9,10 +9,10 @@
 
 | Condition | Result |
 |---|---|
-| mesh-cli `check:data` / `check:construction` | **not done.** No Mesh (Rosetta) API is implemented |
+| mesh-cli `check:data` / `check:construction` | **`check:data` passes** (2026-09-27, §6): 5/5, 410 reconciliations, 0 failed. **`check:construction` cannot run**: Mesh defines no post-quantum curve or signature type |
 | Deposit service, 100,000 deposits with restarts | **passes**: 100,090 deposits, 40 SIGKILLs |
 | Offline signing loop, e2e | **passes** |
-| WalletConnect flow, e2e | **not done.** No WalletConnect or provider API |
+| WalletConnect flow, e2e | **not done.** WalletConnect v2 needs a relay project id from WalletConnect Cloud — an account the owner registers |
 | 5-minute developer path on three OSes | **Linux only**, partly (§5) |
 | Every guide's commands in CI | **not done** |
 
@@ -105,3 +105,89 @@ local-docker devnet, on Linux (4 vCPU, `reports/12-baseline.md`):
 So "under 5 minutes on a fresh machine" is **borderline on Linux** and
 **unmeasured on macOS and Windows**. No template contract, deploy or verify
 step exists.
+
+## 6. Mesh Data API (2026-09-27, Windows workstation)
+
+`crates/mesh-api` (`maya2c-mesh`) serves `/network/{list,options,status}`,
+`/block`, `/account/balance` (current and historical) and `/mempool` over a
+node's JSON-RPC. The node gained three reads for it:
+
+- `get_balance_changes(height)`: every balance the block moved, before and
+  after. It is written in the same batch as the undo journal from the
+  journal's prior values and the overlay's new ones. It is deleted on revert
+  and pruned with the body (`state::balance_changes`, local-only under
+  invariant 25).
+- `get_account_at_tip(address)`: balance and tip read under one lock.
+- `get_balance_at_height(address, height)`: the current balance with each
+  later block's recorded change undone, bounded to 100,000 blocks back.
+
+Each block is served as its signed transactions (no operations) plus one
+`block-balance-changes:<id>` transaction with a `BALANCE_CHANGE` per moved
+balance. Fees, burns and staking payouts move balances without an output
+saying so. Taking the changes from the node's before/after record is what
+lets a reconciler's sums close.
+
+```
+$ cargo xtask mesh-check          # mesh-cli v0.10.4, one-validator DAG-BFT devnet
+sent 23 transfers
+Success: Reconciliation Coverage End Condition [Coverage: 100.000000]
+| Request/Response   | Rosetta implementation         | PASSED |
+| Response Assertion | All responses are correctly    | PASSED |
+| Block Syncing      | Blocks are connected into a    | PASSED |
+| Balance Tracking   | Account balances did not go    | PASSED |
+| Reconciliation     | No balance discrepancies were  | PASSED |
+| Blocks                   | # of blocks synced             |          46 |
+| Operations               | # of operations processed      |          88 |
+| Accounts                 | # of accounts seen             |          23 |
+| Active Reconciliations   | # of reconciliations performed |          88 |
+| Inactive Reconciliations | # of reconciliations performed |         322 |
+| Failed Reconciliations   | # of reconciliation failures   |           0 |
+mesh-check: passed
+```
+
+**What getting there found:**
+
+- **Tip-only reconciliation never finished.** With historical lookup off,
+  mesh-cli reconciles only at the tip. A devnet producing blocks as fast as
+  mesh-cli syncs them left it at 56 of 824 blocks after 900 s, with no
+  error. Historical lookup (`get_balance_at_height`) fixed it.
+- **An upstream mesh-cli bug.** In v0.10.4 the `reconciliation_coverage.index`
+  end condition is inverted: `if *Index < blockIndex { continue }` makes it a
+  maximum rather than the documented minimum. The check uses `account_count`
+  instead. It has not been reported upstream; that is an outward-facing step
+  for the owner.
+- **Windows paths.** mesh-cli splits the config file's directory on `/` only,
+  so a mixed `D:/…\mesh-config.json` resolved relative paths against the
+  wrong directory. The driver passes the config by its bare name.
+
+**Construction API: not implemented, and not checkable as specified.**
+`check:construction` signs with keys mesh-cli generates itself, from
+`CurveType` / `SignatureType` enumerations that contain no ML-DSA or hybrid
+scheme. Passing it needs a Mesh specification extension, a decision outside
+this repository. Offline signing (§2, and `l1-wallet send --no-broadcast`) covers
+the custodian flow the Construction API would serve.
+
+**Review (rust-reviewer + security-reviewer), and what changed:**
+
+- **CRITICAL, fixed.** The first `get_balance_at_height` walked up to
+  100,000 blocks while holding the chain mutex that block production takes.
+  One caller could stall fork choice. The walk now runs outside the lock; the
+  lock is retaken only to confirm the tip is still canonical, so a reorg
+  mid-walk is refused. The bound is now `PRUNE_DEPTH` (30,000), the depth the
+  changes are actually kept for. `mesh-check` re-run after the fix: 72
+  blocks, 710 reconciliations, 0 failed.
+- **MEDIUM, fixed.** Storage faults in the new methods used the "rejected"
+  code (-32000) with the RocksDB text. They are now -32603 with a fixed
+  message, detail to the operator log. The gateway maps -32000 to a
+  non-retryable 400, so a node fault would have looked like the client's
+  mistake.
+- **Pre-existing, found here.** `rpc::limit::RateLimiter` was built and
+  tested but never wired into the server, so no RPC method is rate limited,
+  while `maya2c-node` binds `0.0.0.0:8545` by default. It needs a
+  connection-level layer (the per-call middleware does not see the peer
+  address); tracked as the next change.
+
+The driver is Rust (`xtask/src/mesh_check.rs` over `xtask/src/devnet.rs`),
+not a script. `mesh-cli` itself is a downloaded Go binary
+(`D:/Tools/mesh-cli`), passed with `--mesh-cli`.
+
