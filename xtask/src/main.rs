@@ -19,6 +19,7 @@ mod devnet;
 mod disk;
 mod eco_metrics;
 mod go_no_go;
+mod guides_check;
 mod mesh_check;
 mod readiness;
 mod release_check;
@@ -50,6 +51,7 @@ fn main() -> ExitCode {
         "claims-check" => claims_check::run(rest),
         "mesh-check" => mesh_check::run(rest),
         "sdk-e2e" => sdk_e2e::run(rest),
+        "guides-check" => guides_check::run(rest),
         "help" | "--help" | "-h" => {
             usage();
             return ExitCode::SUCCESS;
@@ -100,7 +102,10 @@ cargo xtask <command>
                         devnet and maya2c-mesh [--mesh-cli PATH]
                         [--timeout SECS] [--workdir DIR].
   sdk-e2e               Run the TypeScript SDK's live-node test through
-                        maya2c-gateway against a one-validator devnet."
+                        maya2c-gateway against a one-validator devnet.
+  guides-check          Fail if a command in docs/ names a package, test,
+                        binary, xtask or maya2c command, or script that does
+                        not exist."
     );
 }
 

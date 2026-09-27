@@ -256,20 +256,19 @@ relative to a limit the sender chooses. That, with the SRS, is why this is dark.
 
 ## Reproducing the numbers
 
+**Historical.** `crates/zkml` and `crates/zkml-prover` — the halo2 circuit,
+prover and the benchmarks this page measured — were removed on 2026-09-21
+(pairing-based, trusted setup, not post-quantum; `Cargo.toml` records it).
+The commands that produced the numbers above no longer run.
+`host_verify_zkml_proof` stays in the VM's ABI and answers "no verifier".
+
+What exists now is a transparent replacement on the tree's own STARK
+(hash-based, no setup), a 16-feature linear classifier:
+
 ```powershell
-cargo test -p maya-zkml-prover                             # circuit + proofs, 38
+cargo test -p maya-zk-stark --lib zkml -- --nocapture   # prove and verify, timed
 cargo test -p maya-vm --test zkml_host_tests --test tensor_gas_tests
-cargo test --test zkml_block_tests                         # in a real block
-cargo bench -p maya-zkml-prover --bench verify             # the 6 ms
-cargo test -p maya-vm --release --test fuel_calibration_tests -- --nocapture
 ```
 
-The fixture:
-
-```powershell
-uv venv .zkml-venv; uv pip install --python .zkml-venv onnx numpy
-.zkml-venv/Scripts/python scripts/make_zkml_fixture.py
-```
-
-It is deterministic; regenerating it must reproduce the SHA-256 pinned in
-`crates/zkml-prover/tests/proof_tests.rs`.
+The old fixture (`scripts/make_zkml_fixture.py`) is kept for the record; the
+test that pinned its hash went with `crates/zkml-prover`.
