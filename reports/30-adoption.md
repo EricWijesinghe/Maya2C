@@ -127,3 +127,24 @@ and the second has no live light client to call.
 - Independent reproduction of the benchmark.
 - Every `APPROVED:` step. None was given, and nothing was published,
   announced or funded.
+
+## Update 2026-09-27: the ownership blocker is gone
+
+ADR-026 is accepted: the VM's `caller` host function reports the
+transaction's signer, live from genesis. `contracts/nft-game` authorises
+mint (admin), transfer and level-up (owner) by it, and now runs through the
+node's own transaction path:
+
+```
+$ cargo test -p custom-l1-node --test nft_game_on_node_tests -- --nocapture
+nft game on the node: deployed, minted to Alice; Mallory's signed theft was refused and changed nothing; Alice's transfer to Bob landed
+$ cargo test -p maya-reference-apps --test nft_game
+test only_the_signing_owner_moves_a_token ... ok
+test mint_transfer_and_level_up_follow_the_erc721_shape ... ok
+```
+
+Still open for this prompt's DONE WHEN: a public testnet to run the
+reference apps on (a local DAG-BFT devnet exists, `scripts/bft_devnet.py`),
+measured port times with outside developers, a live metrics dashboard on
+testnet data, and the owner's approvals of the grants, hackathon and
+public-report drafts.
