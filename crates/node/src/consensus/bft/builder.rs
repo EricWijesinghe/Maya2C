@@ -11,9 +11,13 @@
 //! - `nonce` packs the anchor: [`seal`] = epoch in the top 24 bits, round in
 //!   the low 40. It is how a restarted node knows which anchors it has already
 //!   turned into blocks, and how a reader finds a block's certificate.
-//! - `timestamp` is the anchor's certified proposal time, in seconds, clamped
-//!   to never run behind the parent. It is read from a signed vertex, not from
-//!   anyone's clock, so it is the same on every node.
+//! - `timestamp` is the **median** certified proposal time of the sub-DAG's
+//!   vertices, in seconds, clamped to never run behind the parent. Read from
+//!   signed vertices, not from anyone's clock, so it is the same on every
+//!   node; a median over vertices from at least 2f + 1 authors, so no f
+//!   faulty clocks can move it. (The first version used the anchor's own
+//!   time: the clock-drift rehearsal showed one validator ten minutes fast
+//!   leaving the chain's clock ten minutes ahead for good.)
 //! - `difficulty_target` is whatever the retarget rule yields at the chain's
 //!   unlimited floor; it carries no work and the chain verifies none.
 
@@ -55,6 +59,24 @@ fn ordered_transactions(sub_dag: &SubDag) -> Vec<Transaction> {
         .collect()
 }
 
+/// The median proposal time of the sub-DAG's certified vertices, ignoring
+/// genesis vertices (time 0). The upper median of an even count, so the rule
+/// has one answer. Falls back to the anchor's own time for a sub-DAG with no
+/// timed vertex, which only the first rounds can produce.
+fn median_time_ms(sub_dag: &SubDag) -> u64 {
+    let mut times: Vec<u64> = sub_dag
+        .certificates
+        .iter()
+        .map(|c| c.vertex.timestamp_ms)
+        .filter(|t| *t > 0)
+        .collect();
+    if times.is_empty() {
+        return sub_dag.anchor.vertex.timestamp_ms;
+    }
+    times.sort_unstable();
+    times[times.len() / 2]
+}
+
 /// Builds the block `sub_dag` orders on top of `chain`'s tip.
 ///
 /// Transactions that do not execute in order are dropped
@@ -71,7 +93,7 @@ fn ordered_transactions(sub_dag: &SubDag) -> Vec<Transaction> {
 pub fn build_block(chain: &Chain, sub_dag: &SubDag) -> Result<Block> {
     let anchor = &sub_dag.anchor.vertex;
     let parent = chain.get(&chain.tip()).map(|r| r.header.timestamp);
-    let timestamp = (anchor.timestamp_ms / 1_000).max(parent.unwrap_or(0));
+    let timestamp = (median_time_ms(sub_dag) / 1_000).max(parent.unwrap_or(0));
     let context = BlockContext::at_height(chain.height() + 1);
     let target = chain.next_target(&chain.tip())?;
     let kept = chain
