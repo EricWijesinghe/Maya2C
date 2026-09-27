@@ -51,6 +51,9 @@ def _args(name: str, namespace: str, spec: dict, ordinal_expr: bool = True) -> l
         "--genesis", "/config/genesis.json", "--data-dir", "/data",
         "--rpc-addr", "0.0.0.0:8545", "--p2p-port", "30333",
         "--snapshot-interval", str(spec.get("snapshotInterval", 10)),
+        # A snapshot is served only once it is this deep, and the depth is
+        # also how far back bodies are kept. Small on a rehearsal devnet.
+        "--prune-depth", str(spec.get("pruneDepth", 10)),
     ]
 
 
@@ -66,7 +69,14 @@ def _statefulset(name: str, namespace: str, spec: dict) -> dict:
 ord="${{POD_NAME##*-}}"
 extra=""
 if [ "$ord" != "0" ]; then
-  extra="--bootnode /dns4/{first}/tcp/30333 --bootstrap-from http://{first}:8545 --prune-depth {spec.get('pruneDepth', 10)}"
+  extra="--bootnode /dns4/{first}/tcp/30333 --sync-from http://{first}:8545"
+  # Bootstrap from a snapshot only when replica 0 has one deep enough: on a
+  # fresh install it has none and the node would refuse to start, so the
+  # replica backfills from genesis instead. After a restore, it has one.
+  manifest='{{"jsonrpc":"2.0","id":1,"method":"get_snapshot_manifest","params":[]}}'
+  if [ ! -e /data/state ] && curl -sf -m 3 -H 'content-type: application/json' -d "$manifest"       http://{first}:8545 | grep -q '"result"'; then
+    extra="$extra --bootstrap-from http://{first}:8545"
+  fi
 fi
 if [ "{'' if miner is None else miner}" = "$ord" ]; then extra="$extra --mine --threads 1"; fi
 exec /usr/local/bin/maya2c-node {base} $extra
