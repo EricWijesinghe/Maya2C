@@ -148,6 +148,11 @@ fn print_tick(tick: WatcherResult<StepReport>) {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    // Operators ask a deployed binary what it is before anything else.
+    if std::env::args().nth(1).as_deref() == Some("--version") {
+        println!("{} {}", env!("CARGO_BIN_NAME"), env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     let args = parse_args()?;
     let password = Zeroizing::new(
         std::env::var(PASSWORD_ENV).map_err(|_| format!("{PASSWORD_ENV} is not set"))?,

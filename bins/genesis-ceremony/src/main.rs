@@ -308,6 +308,11 @@ fn write_secret(path: &Path, bytes: &[u8]) -> Result<(), Box<dyn Error>> {
 const CEREMONY_STACK_BYTES: usize = 16 * 1024 * 1024;
 
 fn main() {
+    // Operators ask a deployed binary what it is before anything else.
+    if std::env::args().nth(1).as_deref() == Some("--version") {
+        println!("{} {}", env!("CARGO_BIN_NAME"), env!("CARGO_PKG_VERSION"));
+        return;
+    }
     // Not `fn main() -> Result<..>`: that path Debug-prints the error, which
     // renders a multi-line refusal as a single line of escaped newlines. The
     // refusal here is something an operator has to actually read.

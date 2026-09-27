@@ -132,6 +132,11 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
 }
 
 fn main() {
+    // Operators ask a deployed binary what it is before anything else.
+    if std::env::args().nth(1).as_deref() == Some("--version") {
+        println!("{} {}", env!("CARGO_BIN_NAME"), env!("CARGO_PKG_VERSION"));
+        return;
+    }
     // Not `fn main() -> Result<..>`, for the reason `genesis-ceremony.rs` gives
     // at its own `main`: that path Debug-prints the error, so a multi-line
     // refusal arrives as one line of escaped newline characters. The

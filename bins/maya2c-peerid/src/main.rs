@@ -119,6 +119,11 @@ fn resolve(args: &Args) -> Result<PeerId, Box<dyn Error>> {
 }
 
 fn main() {
+    // Operators ask a deployed binary what it is before anything else.
+    if std::env::args().nth(1).as_deref() == Some("--version") {
+        println!("{} {}", env!("CARGO_BIN_NAME"), env!("CARGO_PKG_VERSION"));
+        return;
+    }
     let args = match parse_args() {
         Ok(args) => args,
         Err(error) => {
