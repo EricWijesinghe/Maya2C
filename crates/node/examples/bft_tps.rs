@@ -219,6 +219,13 @@ fn main() {
         "  of which building + inserting blocks (select, execute, state root, commit), summed over the 4 nodes: {:.2} s",
         build.as_secs_f64()
     );
+    let (reused, recomputed) = chains.iter().fold((0, 0), |(r, c), chain| {
+        let (hit, miss) = chain.state().preview_stats();
+        (r + hit, c + miss)
+    });
+    println!(
+        "  block applies that reused the builder's preview: {reused}, staged afresh: {recomputed}"
+    );
     assert!(
         included.iter().all(|n| *n == total),
         "not every node included every transfer: {included:?}"

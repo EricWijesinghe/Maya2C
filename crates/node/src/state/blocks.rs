@@ -209,7 +209,7 @@ impl StateDB {
     pub fn store_block(&self, block: &Block, height: u64, total_work: U256) -> Result<()> {
         let mut batch = WriteBatch::default();
         Self::put_block_record(&mut batch, block, height, total_work);
-        self.write_batch(batch)
+        self.write_block_store(batch)
     }
 
     /// Stores a header without its body: a header validated ahead of the
@@ -219,7 +219,9 @@ impl StateDB {
     ///
     /// Returns [`NodeError::Storage`] if the write fails.
     pub fn store_header(&self, stored: &StoredHeader) -> Result<()> {
-        self.raw_put(&header_key(&stored.header.id()), &stored.encode())
+        let mut batch = WriteBatch::default();
+        batch.put(header_key(&stored.header.id()), stored.encode());
+        self.write_block_store(batch)
     }
 
     /// Forgets a block that was stored and then refused: its header and body.
@@ -231,7 +233,7 @@ impl StateDB {
         let mut batch = WriteBatch::default();
         batch.delete(header_key(id));
         batch.delete(body_key(id));
-        self.write_batch(batch)
+        self.write_block_store(batch)
     }
 
     /// Every stored header, in no particular order.
@@ -384,6 +386,52 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use crate::state::commitments::BLOCK_STORE_PREFIX;
+
+    /// `StateDB::write_block_store` skips the preview generation because no
+    /// state module reads the block store while staging (`state::preview`).
+    /// That is a claim about every file under `state/`, so it is checked
+    /// against the source rather than left in a comment (review, MEDIUM).
+    #[test]
+    fn no_state_module_but_the_block_store_reads_blocks() {
+        const READS: &[&str] = &[
+            "load_block",
+            "body_key",
+            "header_key",
+            "has_body",
+            "canonical_id",
+            "load_header",
+        ];
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/state");
+        let mut stack = vec![dir];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).expect("state dir") {
+                let path = entry.expect("entry").path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or_default();
+                let is_rust = path
+                    .extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("rs"));
+                if matches!(name, "blocks.rs" | "db.rs") || !is_rust {
+                    continue;
+                }
+                let source = std::fs::read_to_string(&path).expect("source");
+                for read in READS {
+                    assert!(
+                        !source.contains(read),
+                        "{} uses `{read}`: staging may now read the block store, so \
+                         `write_block_store` must advance the preview generation",
+                        path.display()
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn every_block_store_key_is_under_the_local_only_prefix() {

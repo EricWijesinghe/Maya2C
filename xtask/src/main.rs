@@ -21,6 +21,7 @@ mod eco_metrics;
 mod go_no_go;
 mod guides_check;
 mod mesh_check;
+mod pgo;
 mod readiness;
 mod release_check;
 mod sdk_e2e;
@@ -52,6 +53,7 @@ fn main() -> ExitCode {
         "mesh-check" => mesh_check::run(rest),
         "sdk-e2e" => sdk_e2e::run(rest),
         "guides-check" => guides_check::run(rest),
+        "pgo" => pgo::run(rest),
         "help" | "--help" | "-h" => {
             usage();
             return ExitCode::SUCCESS;
@@ -105,7 +107,9 @@ cargo xtask <command>
                         maya2c-gateway against a one-validator devnet.
   guides-check          Fail if a command in docs/ names a package, test,
                         binary, xtask or maya2c command, or script that does
-                        not exist."
+                        not exist.
+  pgo                   Measure profile-guided optimisation on bft_tps:
+                        baseline vs PGO build, medians of --runs runs."
     );
 }
 
