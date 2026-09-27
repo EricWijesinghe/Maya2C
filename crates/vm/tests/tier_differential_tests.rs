@@ -142,7 +142,10 @@ fn vms() -> Vec<(&'static str, Vm)> {
 // Recorded in reports/05-vm.md; ignored on Windows so the suite stays a
 // signal, not hidden: `cargo test -- --ignored` still runs it there.
 #[test]
-#[cfg_attr(windows, ignore = "Pulley fuel diverges from Cranelift on Windows; see the FINDING note")]
+#[cfg_attr(
+    windows,
+    ignore = "Pulley fuel diverges from Cranelift on Windows; see the FINDING note"
+)]
 fn every_corpus_module_costs_the_same_gas_in_every_tier() {
     let vms = vms();
     for (name, code) in corpus() {
@@ -166,7 +169,10 @@ fn every_corpus_module_costs_the_same_gas_in_every_tier() {
 }
 
 #[test]
-#[cfg_attr(windows, ignore = "Pulley fuel diverges from Cranelift on Windows; see the FINDING note")]
+#[cfg_attr(
+    windows,
+    ignore = "Pulley fuel diverges from Cranelift on Windows; see the FINDING note"
+)]
 fn the_token_swap_contract_costs_the_same_gas_in_every_tier() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../target-contracts/wasm32-unknown-unknown/release/token_swap.wasm");

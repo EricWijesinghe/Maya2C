@@ -15,7 +15,7 @@
 |---|---|
 | All scenarios run | **yes**: 9 scenarios, 730 days each |
 | Cost-of-attack tables | **yes**, `docs/ECONOMIC_SECURITY.md` |
-| Fee parameters justified by measured data | **partly** (§3) |
+| Fee parameters justified by measured data | **yes** (2026-09-27): derived, not only checked — §3a |
 | Treasury and vesting tests | **pass** (`crates/treasury`, 5 tests) |
 | Legal questions document | **exists** (`docs/legal/QUESTIONS_FOR_COUNSEL.md`) |
 
@@ -90,6 +90,42 @@ does that.
 choice this tree has not made. The multi-dimensional weights the brief names
 do not exist: the fee is one-dimensional, per byte. The spam scenario uses
 synthetic load, not `maya2c-loadgen` output.
+
+### 3a. The parameters, derived from the node's own measurements (2026-09-27)
+
+Inputs, each measured on the DAG-BFT node (ADR-027), not assumed:
+
+| input | value | source |
+|---|---|---|
+| transfer size, ML-DSA-65 suite (v7), with fee output | **5,377 B** | `fee_market_live_tests::measured_transfer_sizes_for_the_fee_derivation` |
+| transfer size, hybrid (v5), with fee output | **13,255 B** | same |
+| sustained verify+execute+commit per node | **~990 tx/s on ~6 threads** (4 nodes sharing 24) | `examples/bft_tps.rs`, `reports/04-consensus.md` §6 |
+| block cadence at `round_interval_ms = 500` | **0.96–1.03 blocks/s** | `scripts/bft_devnet.py` |
+| gossip frame ceiling | 8 MiB | `network::behaviour::MAX_GOSSIP_MESSAGE_BYTES` |
+
+Derivation:
+
+1. **Capacity to target at 50 %.** 990 tx/s × 0.5 ≈ 495 tx/s, so a full
+   block (2× target) still leaves the slowest measured node headroom.
+2. **Bytes.** 495 tx/s × 5,377 B ≈ 2.66 MB/s; at ~1 block/s that is
+   **`target_block_bytes` = 2,621,440 (2.5 MiB)**.
+3. **The frame bound.** A full block is 2× target = 5 MiB of payload, under
+   the 8 MiB gossip ceiling with room for certificates' signatures. An
+   all-hybrid mix (13,255 B) at the same byte target is ~198 tx/s — the fee is
+   per byte, so hybrid senders pay 2.5× for the same slot, which is the
+   intended pressure toward the smaller suite.
+4. **Bandwidth.** Inline payload travels twice (proposal and certificate):
+   ~5.2 MB/s ≈ 42 Mbit/s ingress per validator at target — well inside a
+   1 Gbit/s validator link.
+5. **`change_denominator` = 8**: ×1.125 per full block, doubling in 6 full
+   blocks ≈ 6 s at 1 block/s — spam is priced out within seconds (the
+   simulation above: 10 → 77,609 in 7 days of sustained attack).
+6. **`min_base_fee` = 1 per byte**: the floor; a v7 transfer then costs at
+   least 5,377 base units, the normal-load price in the simulations.
+
+`scripts/bft_devnet.py` now runs these values. What remains a choice rather
+than a derivation: the 50 % headroom and the ~6-thread validator floor; both
+are stated so they can be argued with.
 
 **Fee estimator.** `econ/src/estimator.rs` quotes a k-block guaranteed
 ceiling:
