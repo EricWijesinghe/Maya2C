@@ -1,0 +1,26 @@
+[package]
+name = "maya-multivm"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Multi-VM Phase A (Master Prompt 5 §3): revm and solana-sbpf hosted as engines over one Maya account state, with gas conversion"
+
+# Two foreign engines, deliberately outside `maya-vm` and outside the node: a
+# contract engine is consensus-critical, and neither is wired into block
+# execution (ADR-023 says what EVM compatibility does and does not mean).
+[dependencies]
+revm = { version = "43", default-features = false, features = ["std"] }
+solana-sbpf = "0.25"
+blake3.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+hex.workspace = true
+# The conversion-ratio test times the Maya VM beside the foreign engines.
+maya-vm = { path = "../vm" }
+wat.workspace = true
+
+[lints]
+workspace = true

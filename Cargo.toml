@@ -254,6 +254,9 @@ members = [
     # Validator registration, delegation, active-set selection, slashing and
     # epoch rewards (ADR-028). Dependency-free so Kani can compile it.
     "crates/staking",
+    # Multi-VM Phase A: revm and solana-sbpf over one account state (MP5 §3).
+    # RESEARCH: not called by block execution.
+    "crates/multivm",
     # Bitcoin SPV (Master Prompt 6 §3): header rules bit-exact with Core,
     # retargeting, chainwork fork choice, reorgs, merkle proofs. SHA-256 only,
     # because it parses bytes a relayer chose.

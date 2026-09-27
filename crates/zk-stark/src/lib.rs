@@ -36,6 +36,7 @@ pub mod hash;
 pub mod pool;
 pub mod proof;
 pub mod sanctions;
+pub mod zkml;
 
 pub use proof::{Proof, StarkAir, prove, security_bits, verify};
 
