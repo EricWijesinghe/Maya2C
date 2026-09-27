@@ -1,5 +1,6 @@
 //! Consensus: difficulty retargeting, cumulative work, fork choice, and mining.
 
+pub mod bft;
 pub mod chain;
 pub mod difficulty;
 pub mod miner;

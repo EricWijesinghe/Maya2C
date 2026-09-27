@@ -62,7 +62,7 @@ pub(crate) const POOL_KEY: &[u8] = b"shld:pool";
 ///
 /// Both maps are ordered so the Merkle root is a function of content rather
 /// than of the order transactions happened to touch things.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct Overlay {
     /// Accounts written by this block.
     pub(crate) accounts: BTreeMap<Address, Account>,
@@ -929,6 +929,49 @@ impl StateDB {
             nullifiers: overlay.nullifiers.iter().copied().collect(),
             records,
         })
+    }
+
+    /// The longest prefix-closed subsequence of `transactions` that executes,
+    /// in the order given: each transaction is staged on top of the ones kept
+    /// before it, and one that fails is dropped rather than failing the rest.
+    ///
+    /// What a DAG-BFT block builder needs (ADR-027). The committed sub-DAG is
+    /// an order, not a block: validators propose from their own mempools
+    /// concurrently, so it can carry a double spend, a stale nonce or the same
+    /// transaction twice. Every node runs this on the same state and the same
+    /// order, so every node drops the same transactions — the filter is part
+    /// of the ordering rule, not a local policy.
+    ///
+    /// Each trial stages onto a copy of the overlay, because a transaction can
+    /// fail after it has written (a typed payload rejected after the debit).
+    /// That is a copy per transaction: linear in the overlay, so quadratic in
+    /// a block's touched state. Measured in `reports/12-performance.md` before
+    /// anyone calls it free.
+    #[must_use]
+    pub fn select_applicable(
+        &self,
+        transactions: Vec<Transaction>,
+        context: BlockContext,
+        difficulty_target: [u8; HASH_LEN],
+    ) -> Vec<Transaction> {
+        let mut overlay = Overlay::new();
+        if self.mark_sparse_accounts(&mut overlay, context).is_err() {
+            return Vec::new();
+        }
+        overlay.difficulty_target = difficulty_target;
+        let policy = crate::crypto::suites::verification_policy();
+        let mut kept = Vec::with_capacity(transactions.len());
+        for tx in transactions {
+            let mut trial = overlay.clone();
+            if self
+                .stage_transaction(&mut trial, &tx, context, &policy)
+                .is_ok()
+            {
+                overlay = trial;
+                kept.push(tx);
+            }
+        }
+        kept
     }
 
     /// The state root `block` would produce, without writing anything.

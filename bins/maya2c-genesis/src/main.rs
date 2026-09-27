@@ -196,6 +196,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         treasury: None,
         // No upgrades scheduled: a schedule is a governance decision.
         protocol_upgrades: Vec::new(),
+        bft: None,
     };
 
     // Fails loudly on a bad address, duplicate allocation, or a floor harder
