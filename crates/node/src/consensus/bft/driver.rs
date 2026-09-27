@@ -55,6 +55,9 @@ pub struct Step {
     pub blocks: Vec<BlockId>,
     /// Transactions those blocks included, to drop from the mempool.
     pub included: Vec<[u8; 32]>,
+    /// Each built block's anchor proposal time, milliseconds: what the
+    /// finality-latency metric measures from.
+    pub anchor_times_ms: Vec<u64>,
     /// Equivocations this node witnessed, for the staking module.
     pub equivocations: Vec<Equivocation>,
 }
@@ -324,12 +327,14 @@ impl BftDriver {
             if anchor.epoch != self.epoch || self.already_built(chain, anchor.epoch, anchor.round) {
                 continue;
             }
+            let anchor_time = anchor.timestamp_ms;
             let block = build_block(chain, &sub_dag)?;
             let included: Vec<[u8; 32]> =
                 block.transactions.iter().map(Transaction::txid).collect();
             match chain.insert_block(block)? {
                 InsertOutcome::Extended { tip } => {
                     step.blocks.push(tip);
+                    step.anchor_times_ms.push(anchor_time);
                     for txid in &included {
                         self.queued.remove(txid);
                     }

@@ -435,16 +435,50 @@ pub async fn serve(address: SocketAddr, context: RpcContext) -> crate::error::Re
         .build(address)
         .await
         .map_err(|e| crate::error::NodeError::Network(format!("bind {address}: {e}")))?;
-
     let local_address = server
         .local_addr()
         .map_err(|e| crate::error::NodeError::Network(format!("local address: {e}")))?;
-
-    let handle = server.start(module);
-
     Ok(RpcServer {
         address: local_address,
-        handle,
+        handle: server.start(module),
+    })
+}
+
+/// [`serve`], recording every call in `metrics` (SLO rpc-availability and
+/// rpc-latency). Batched calls are passed through unmetered.
+///
+/// # Errors
+///
+/// As [`serve`].
+pub async fn serve_metered(
+    address: SocketAddr,
+    context: RpcContext,
+    metrics: std::sync::Arc<crate::metrics::Metrics>,
+) -> crate::error::Result<RpcServer> {
+    check_peer_exposure(address, context.peers.is_some())?;
+    let module =
+        build_module(context).map_err(|e| crate::error::NodeError::Network(e.to_string()))?;
+    let known: std::sync::Arc<std::collections::BTreeSet<String>> =
+        std::sync::Arc::new(module.method_names().map(str::to_string).collect());
+    let middleware =
+        jsonrpsee::server::middleware::rpc::RpcServiceBuilder::new().layer_fn(move |service| {
+            crate::rpc::metered::Metered::new(
+                service,
+                std::sync::Arc::clone(&metrics),
+                std::sync::Arc::clone(&known),
+            )
+        });
+    let server = Server::builder()
+        .set_rpc_middleware(middleware)
+        .build(address)
+        .await
+        .map_err(|e| crate::error::NodeError::Network(format!("bind {address}: {e}")))?;
+    let local_address = server
+        .local_addr()
+        .map_err(|e| crate::error::NodeError::Network(format!("local address: {e}")))?;
+    Ok(RpcServer {
+        address: local_address,
+        handle: server.start(module),
     })
 }
 

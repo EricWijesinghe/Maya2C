@@ -35,6 +35,7 @@ ROOT = Path(__file__).resolve().parent.parent
 VALIDATORS = 4
 P2P_BASE = 31_000
 RPC_BASE = 32_000
+METRICS_PORT = 33_000
 PASSWORD = "devnet-only-password"
 RECIPIENT = "77" * 32
 EXE = ".exe" if os.name == "nt" else ""
@@ -135,9 +136,51 @@ def start(bins: Path, work: Path, peers: list[str]) -> list[subprocess.Popen]:
                 cmd += ["--bootnode", f"/ip4/127.0.0.1/tcp/{P2P_BASE + j}/p2p/{peers[j]}"]
         if i < VALIDATORS:
             cmd += ["--validator-key", str(d / "validator.key")]
+        if i == 0:
+            cmd += ["--metrics-addr", f"127.0.0.1:{METRICS_PORT}"]
         log = open(d / "node.log", "w")
         procs.append(subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT))
     return procs
+
+
+def scrape() -> dict:
+    """Node 0's exporter: the SLO metrics with real values in them."""
+    with urllib.request.urlopen(f"http://127.0.0.1:{METRICS_PORT}/metrics", timeout=5) as r:
+        text = r.read().decode()
+    buckets, count, total = [], 0, 0.0
+    rpc_ok = rpc_err = 0
+    out = {}
+    for line in text.splitlines():
+        if line.startswith("maya_finality_latency_seconds_bucket"):
+            le = line.split('le="')[1].split('"')[0]
+            buckets.append((float("inf") if le == "+Inf" else float(le), float(line.split()[-1])))
+        elif line.startswith("maya_finality_latency_seconds_count"):
+            count = float(line.split()[-1])
+        elif line.startswith("maya_finality_latency_seconds_sum"):
+            total = float(line.split()[-1])
+        elif line.startswith("maya_rpc_requests_total"):
+            if 'outcome="ok"' in line:
+                rpc_ok += float(line.split()[-1])
+            else:
+                rpc_err += float(line.split()[-1])
+        elif line.startswith(("maya_sync_duration_seconds ", "maya_blocks_imported_total ")):
+            out[line.split()[0]] = float(line.split()[-1])
+
+    def quantile(q):
+        for le, c in buckets:
+            if count and c >= q * count:
+                return le
+        return None
+
+    out |= {
+        "finality_observations": count,
+        "finality_mean_s": round(total / count, 3) if count else None,
+        "finality_p50_bucket_le_s": quantile(0.5),
+        "finality_p99_bucket_le_s": quantile(0.99),
+        "rpc_calls_ok": rpc_ok,
+        "rpc_calls_error": rpc_err,
+    }
+    return out
 
 
 def send(bins: Path, work: Path, port: int, amount: int, nonce: int) -> None:
@@ -197,6 +240,7 @@ def main() -> int:
         common = min(h1)
         ids = [block_id(p, common) for p in ports]
         balances = [int(rpc(p, "get_balance", RECIPIENT)["balance"]) for p in ports]
+        report["metrics_node0"] = scrape()
         report |= {
             "elapsed_s": round(elapsed, 1),
             "heights": h1,

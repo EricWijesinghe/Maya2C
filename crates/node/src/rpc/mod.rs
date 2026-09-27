@@ -24,12 +24,13 @@ pub mod bootstrap;
 pub mod limit;
 pub mod market;
 pub mod market_http;
+pub mod metered;
 pub mod server;
 pub mod types;
 
 pub use market::{MarketFeed, MarketQuote, SupplyReport};
 pub use market_http::{MarketServer, MarketState, serve as serve_market};
-pub use server::{RpcContext, RpcServer, build_module, serve};
+pub use server::{RpcContext, RpcServer, build_module, serve, serve_metered};
 pub use types::FeeInfo;
 pub use types::{
     AccountInfo, BlockInfo, HeaderInfo, HtlcLockInfo, IotDeviceInfo, MiningCandidate, MultisigInfo,

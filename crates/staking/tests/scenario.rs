@@ -86,6 +86,7 @@ fn check(s: &Staking, ledger: &Ledger, rewards_in: u128) {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // one scenario, read top to bottom
 fn a_thousand_validators_under_byzantine_faults_conserve_value() {
     let mut rng = Lcg(0x5EED);
     let mut s = Staking::new(Params::DEVNET).unwrap();

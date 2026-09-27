@@ -52,6 +52,32 @@ fn import_buckets() -> impl Iterator<Item = f64> {
     [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5].into_iter()
 }
 
+/// Bucket bounds for finality and RPC latency, in seconds: around the SLO
+/// targets in `docs/SLO.md` (p50 2 s, p99 6 s finality; 250 ms RPC).
+fn latency_buckets() -> impl Iterator<Item = f64> {
+    [
+        0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 3.0, 4.0, 6.0, 10.0, 20.0, 60.0,
+    ]
+    .into_iter()
+}
+
+/// Labels for one RPC call.
+#[derive(Clone, Debug, Hash, PartialEq, Eq, prometheus_client::encoding::EncodeLabelSet)]
+pub struct RpcLabels {
+    /// The method, or `other` for a name the node does not serve: a label
+    /// taken from what a client typed would let anyone mint time series.
+    pub method: String,
+    /// `ok` or `error`.
+    pub outcome: &'static str,
+}
+
+/// Labels for one validator.
+#[derive(Clone, Debug, Hash, PartialEq, Eq, prometheus_client::encoding::EncodeLabelSet)]
+pub struct ValidatorLabels {
+    /// First 8 bytes of the validator id, hex. Bounded by the committee size.
+    pub validator: String,
+}
+
 /// Labels distinguishing why a block was rejected.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, prometheus_client::encoding::EncodeLabelSet)]
 pub struct RejectionLabels {
@@ -106,6 +132,18 @@ pub struct Metrics {
     block_observed_age: Histogram,
     /// Wall time spent validating and committing a block locally.
     block_import_duration: Histogram,
+
+    /// Anchor proposal to local commit, DAG-BFT (SLO finality-p50/p99).
+    finality_latency: Histogram,
+    /// RPC calls by method and outcome (SLO rpc-availability).
+    rpc_requests: Family<RpcLabels, Counter<u64, AtomicU64>>,
+    /// RPC call duration (SLO rpc-latency).
+    rpc_duration: Histogram,
+    /// How long the last startup took to reach a usable chain (SLO state-sync).
+    sync_duration: Gauge<f64, AtomicU64>,
+    /// Anchor slots missed this epoch, per committee member (SLO
+    /// validator-downtime).
+    validator_missed_rounds: Family<ValidatorLabels, Gauge<i64, AtomicI64>>,
 }
 
 impl Default for Metrics {
@@ -213,6 +251,42 @@ impl Metrics {
             block_import_duration.clone(),
         );
 
+        let finality_latency = Histogram::new(latency_buckets());
+        registry.register(
+            "finality_latency_seconds",
+            "DAG-BFT: from an anchor's certified proposal time to its block \
+             being built locally; includes proposer clock skew",
+            finality_latency.clone(),
+        );
+
+        let rpc_requests = Family::<RpcLabels, Counter>::default();
+        registry.register(
+            "rpc_requests",
+            "JSON-RPC calls, by method and outcome",
+            rpc_requests.clone(),
+        );
+
+        let rpc_duration = Histogram::new(latency_buckets());
+        registry.register(
+            "rpc_duration_seconds",
+            "JSON-RPC call duration, local clock",
+            rpc_duration.clone(),
+        );
+
+        let sync_duration = Gauge::<f64, AtomicU64>::default();
+        registry.register(
+            "sync_duration_seconds",
+            "Seconds the last startup spent opening or bootstrapping the chain",
+            sync_duration.clone(),
+        );
+
+        let validator_missed_rounds = Family::<ValidatorLabels, Gauge<i64, AtomicI64>>::default();
+        registry.register(
+            "validator_missed_rounds",
+            "Anchor slots a committee member led this epoch whose anchor never committed",
+            validator_missed_rounds.clone(),
+        );
+
         Self {
             registry,
             peers,
@@ -228,6 +302,44 @@ impl Metrics {
             pq_rotation_epoch,
             block_observed_age,
             block_import_duration,
+            finality_latency,
+            rpc_requests,
+            rpc_duration,
+            sync_duration,
+            validator_missed_rounds,
+        }
+    }
+
+    /// Observes one DAG-BFT block's finality latency.
+    pub fn observe_finality(&self, seconds: f64) {
+        self.finality_latency.observe(seconds.max(0.0));
+    }
+
+    /// Counts one RPC call and its duration.
+    pub fn observe_rpc(&self, method: String, ok: bool, duration: std::time::Duration) {
+        self.rpc_requests
+            .get_or_create(&RpcLabels {
+                method,
+                outcome: if ok { "ok" } else { "error" },
+            })
+            .inc();
+        self.rpc_duration.observe(duration.as_secs_f64());
+    }
+
+    /// Records how long startup took to reach a usable chain.
+    pub fn set_sync_duration(&self, duration: std::time::Duration) {
+        self.sync_duration.set(duration.as_secs_f64());
+    }
+
+    /// Replaces the per-validator missed-slot gauges.
+    pub fn set_missed_rounds(&self, missed: &[([u8; 32], u64)]) {
+        self.validator_missed_rounds.clear();
+        for (id, n) in missed {
+            self.validator_missed_rounds
+                .get_or_create(&ValidatorLabels {
+                    validator: hex::encode(&id[..8]),
+                })
+                .set(i64::try_from(*n).unwrap_or(i64::MAX));
         }
     }
 

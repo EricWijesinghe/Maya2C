@@ -4,7 +4,7 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
 use crate::params::{BPS, bps_of};
-use crate::types::{Effect, StakeError, Staking, Status, ValidatorId};
+use crate::types::{Address, Effect, StakeError, Staking, Status, ValidatorId};
 
 /// How much each active validator took part in the ending epoch.
 ///
@@ -112,12 +112,25 @@ impl Staking {
             .filter(|(_, t)| *t > 0)
             .collect();
         let total: u128 = earners.iter().map(|(_, t)| u128::from(*t)).sum();
+        // Delegations grouped by validator in one pass, so paying every
+        // validator is O(delegations), not O(validators × delegations): an
+        // attacker who mass-delegates dust must not make every node's epoch
+        // boundary quadratic. Grouping keeps each list in delegator order,
+        // which is the order the effects were emitted in before.
+        let mut by_validator: BTreeMap<ValidatorId, Vec<(Address, u64)>> = BTreeMap::new();
+        for ((delegator, validator), amount) in &self.delegations {
+            by_validator
+                .entry(*validator)
+                .or_default()
+                .push((*delegator, *amount));
+        }
         let mut paid: u64 = 0;
         if total > 0 {
             for (id, stake) in &earners {
                 let share = share_of(pool, *stake, total);
+                let delegations = by_validator.get(id).map_or(&[][..], Vec::as_slice);
                 paid = paid
-                    .checked_add(self.pay_validator(*id, share, out)?)
+                    .checked_add(self.pay_validator(*id, share, delegations, out)?)
                     .ok_or(StakeError::Overflow)?;
             }
         }
@@ -134,6 +147,7 @@ impl Staking {
         &self,
         id: ValidatorId,
         reward: u64,
+        delegations: &[(Address, u64)],
         out: &mut EpochOutcome,
     ) -> Result<u64, StakeError> {
         let Some(v) = self.validators.get(&id) else {
@@ -150,10 +164,7 @@ impl Staking {
             out.effects.push(Effect::Credit(v.operator, own));
             credited = own;
         }
-        for ((delegator, validator), amount) in &self.delegations {
-            if *validator != id {
-                continue;
-            }
+        for (delegator, amount) in delegations {
             let cut = share_of(rest, *amount, total);
             if cut > 0 {
                 out.effects.push(Effect::Credit(*delegator, cut));
