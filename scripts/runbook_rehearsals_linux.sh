@@ -40,15 +40,20 @@ node() {  # $1 data dir, $2 rpc port, $3 p2p port, rest: extra args
 mkdir -p "$WORK/tiny"
 mount -t tmpfs -o size=24m tmpfs "$WORK/tiny"
 pid=$(node "$WORK/tiny/data" 34001 34101 --mine --threads 2)
+sleep 10
+# Disks fill from something else — logs, another tenant — so fill it the same
+# way: everything but 64 KiB goes to a filler file while the node runs.
+free_kb=$(df --output=avail -k "$WORK/tiny" | tail -1)
+dd if=/dev/zero of="$WORK/tiny/filler" bs=1K count=$(( free_kb - 64 )) status=none 2>/dev/null || true
 until grep -qiE "no space|os error 28|storage" "$WORK/tiny/data.log" 2>/dev/null || ! kill -0 "$pid" 2>/dev/null; do sleep 2; done
 full_height=$(rpc 34001 get_tip_height)
 say "disk-full: 24 MiB volume filled at height $full_height; node reported: $(grep -m1 -iE 'no space|os error 28|storage' "$WORK/tiny/data.log" | cut -c1-120)"
 kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true
-mount -o remount,size=512m "$WORK/tiny"
+rm -f "$WORK/tiny/filler"  # the runbook's first step: free the space
 pid=$(node "$WORK/tiny/data" 34001 34101 --mine --threads 2)
 sleep 15
 h=$(rpc 34001 get_tip_height)
-say "disk-full: after growing the volume and restarting, the node reopened consistently and mined on to height $h"
+say "disk-full: after freeing the space and restarting, the node reopened consistently and mined on to height $h"
 kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true
 [[ "$h" != "-" ]] && (( h >= full_height )) || { say "FAIL: disk-full recovery"; exit 1; }
 
