@@ -98,6 +98,61 @@ pub struct GenesisConfig {
     /// the committee disagree about block zero rather than at round one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bft: Option<BftGenesis>,
+    /// The security council (Master Prompts 9, 16): who may pause one module
+    /// for a bounded time. Absent: no council, and no one can.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub security_council: Option<CouncilGenesis>,
+}
+
+/// The genesis security council.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CouncilGenesis {
+    /// Hex ML-DSA-65 verifying keys, by member index.
+    pub members: Vec<String>,
+    /// Approvals an action needs; more than half the members.
+    pub threshold: u8,
+    /// Longest pause one action may impose, in blocks.
+    pub max_pause_blocks: u64,
+}
+
+impl CouncilGenesis {
+    /// The initial council record.
+    ///
+    /// # Errors
+    ///
+    /// A malformed key, a duplicate member, or a threshold that is not a
+    /// strict majority (a minority could pause over the majority's head).
+    pub fn record(&self) -> Result<crate::state::council::CouncilRecord> {
+        let n = self.members.len();
+        if n == 0 || usize::from(self.threshold) * 2 <= n || usize::from(self.threshold) > n {
+            return Err(NodeError::Decode(format!(
+                "security_council: threshold {} of {n} is not a strict majority",
+                self.threshold
+            )));
+        }
+        let mut members = Vec::with_capacity(n);
+        for (i, m) in self.members.iter().enumerate() {
+            let bytes = hex::decode(m)
+                .map_err(|e| NodeError::Decode(format!("security_council.members[{i}]: {e}")))?;
+            let key: [u8; crate::crypto::keys::PUBLIC_KEY_LEN] = bytes
+                .as_slice()
+                .try_into()
+                .map_err(|_| NodeError::Decode(format!("security_council.members[{i}]: length")))?;
+            crate::crypto::keys::VerifyingKey::from_bytes(&key)?;
+            if members.contains(&key) {
+                return Err(NodeError::Decode(format!(
+                    "security_council.members[{i}] repeats"
+                )));
+            }
+            members.push(key);
+        }
+        Ok(crate::state::council::CouncilRecord {
+            threshold: self.threshold,
+            max_pause_blocks: self.max_pause_blocks,
+            nonce: 0,
+            members,
+        })
+    }
 }
 
 /// The genesis committee of a DAG-BFT network.
@@ -623,18 +678,44 @@ impl GenesisConfig {
             .map(|(address, account)| account_leaf(address, account))
             .collect();
         let accounts = merkle_root(&leaves);
-        // The staking layer is the only other layer a genesis can hold that
-        // this function knows how to build; it folds in exactly as
-        // `StateDB::state_layers` would fold the seeded records.
-        let records = self.staking_records()?;
-        if records.is_empty() {
-            return Ok(accounts);
+        // Record layers a genesis can seed (staking, the council), folded in
+        // the layer order and by prefix exactly as `StateDB::state_layers`
+        // folds them, so the seeded database reproduces this root.
+        let records = self.seeded_records()?;
+        let mut root = accounts;
+        for layer in crate::state::proof::LAYER_ORDER {
+            let Some((prefix, _)) = crate::state::commitments::RECORD_LAYERS
+                .iter()
+                .find(|(_, l)| l == layer)
+            else {
+                continue;
+            };
+            let leaves: Vec<[u8; 32]> = records
+                .iter()
+                .filter(|(k, _)| k.starts_with(prefix))
+                .map(|(k, v)| crate::state::db::record_leaf((k, v)))
+                .collect();
+            if !leaves.is_empty() {
+                root = layer.fold(&root, &merkle_root(&leaves));
+            }
         }
-        let leaves: Vec<[u8; 32]> = records
-            .iter()
-            .map(|(k, v)| crate::state::db::record_leaf((k, v)))
-            .collect();
-        Ok(crate::state::proof::StateLayer::Staking.fold(&accounts, &merkle_root(&leaves)))
+        Ok(root)
+    }
+
+    /// Every generic record a genesis seeds, in key order.
+    ///
+    /// # Errors
+    ///
+    /// As [`GenesisConfig::staking_records`] and [`CouncilGenesis::record`].
+    pub fn seeded_records(&self) -> Result<std::collections::BTreeMap<Vec<u8>, Vec<u8>>> {
+        let mut records = self.staking_records()?;
+        if let Some(council) = &self.security_council {
+            records.insert(
+                crate::state::council::COUNCIL_KEY.to_vec(),
+                council.record()?.encode(),
+            );
+        }
+        Ok(records)
     }
 
     /// The `k:` records a staking genesis seeds, in key order: the staking
@@ -817,8 +898,8 @@ impl GenesisConfig {
             state.seed_sealed_committee(&sealed.record()?)?;
         }
 
-        // Staking, when configured: bonds held by the module, not accounts.
-        for (key, value) in self.staking_records()? {
+        // Staking and the council, when configured: records, not accounts.
+        for (key, value) in self.seeded_records()? {
             state.raw_put(&key, &value)?;
         }
 

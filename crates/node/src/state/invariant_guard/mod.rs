@@ -274,6 +274,10 @@ impl Module {
             // protect the equivocator), and unbonding already waits out a
             // delay the breaker cannot shorten.
             TxKind::Staking(_) => None,
+
+            // Never halted: a council that could pause itself could lock
+            // itself out of undoing a mistaken pause.
+            TxKind::Council(_) => None,
         }
     }
 }
