@@ -12,7 +12,7 @@
 | `docs/strategy/WEAKNESS_MAP.md`, dated sources | **yes**: 11 weaknesses, researched by web search on 2026-09-26, each linked. Ethereum L2s, Aptos, Cosmos, Polkadot, Avalanche and TON **not researched**, and the page says so |
 | `docs/strategy/BEAT_BARS.md` | **yes**: 9 bars. None is beaten, 1 ties, 1 is worse |
 | Prior-art files for every headline feature of 22–30 | **yes**, 10 files. 7 say "not searched" or "partially searched", and such a file authorizes no superlative |
-| Competitive harness runs against another chain | **no.** `benches/competitive/run.sh` runs and records, but no other chain's devnet binary is installed here, so each chain prints SKIPPED. It runs the primitive-level comparison only |
+| Competitive harness runs against another chain | **yes** (2026-09-27): Ethereum end to end via Foundry's anvil 1.8.3 — 10,000 transfers from 2,000 accounts mined at 1,266 tx/s — beside Maya2C's `bft_tps` with the same shape (990 tx/s, 4 BFT validators in one process). Different threat models, stated on each row |
 | ADR-launch-scope updated | **already recorded** in ADR-016 § "Adoption-critical additions". One inaccuracy found (below) |
 | New standing order in CLAUDE.md | added in this branch's CLAUDE.md update |
 
@@ -58,3 +58,17 @@ checks" are launch core, and that both are "libraries today (`smart-account`,
 `contract-safety`)". **`contract-safety` does not exist** in this tree.
 Master Prompt 23 builds it; until then the ADR's sentence overstated the
 tree.
+
+## Competitive harness, run end to end (added 2026-09-27)
+
+`benches/competitive/eth_anvil_workload.py` (WSL2 Ubuntu 24.04, same host):
+
+```
+anvil (anvil Version: 1.8.3), block time 1 s: 10000/10000 ETH transfers from 2000 accounts mined in 7.90 s = 1266 tx/s over 9 blocks (single-process dev node: no consensus, no peers)
+```
+
+Maya2C, same shape (`crates/node/examples/bft_tps.rs`, perf profile): 990 tx/s
+finalized, four DAG-BFT validators in one process each verifying ML-DSA-65
+signatures and committing to RocksDB. The rows are not a ranking: anvil runs
+no consensus, verifies secp256k1, and does not fsync. They share a workload,
+which is what the harness is for.
