@@ -27,9 +27,11 @@ fn module_importing(module: &str, name: &str, signature: &str) -> Vec<u8> {
     wat::parse_str(&text).expect("valid WAT")
 }
 
-/// Signatures for the nine, in the same order as [`HOST_FUNCTIONS`].
+/// Signatures for the ten, in the same order as [`HOST_FUNCTIONS`].
 const SIGNATURES: &[&str] = &[
     "(result i64)",
+    // caller (ADR-026)
+    "(param i32) (result i32)",
     "(param i32) (result i64)",
     "(param i32 i32 i32 i32) (result i32)",
     "(param i32 i32 i32 i32)",
@@ -44,7 +46,7 @@ const SIGNATURES: &[&str] = &[
 fn the_list_and_the_signatures_stay_the_same_length() {
     // The one thing a reader of the table above cannot check by eye.
     assert_eq!(HOST_FUNCTIONS.len(), SIGNATURES.len());
-    assert_eq!(HOST_FUNCTIONS.len(), 9, "the host surface changed size");
+    assert_eq!(HOST_FUNCTIONS.len(), 10, "the host surface changed size (caller: ADR-026)");
 }
 
 /// Every `linker.func_wrap("env", "<name>", …)` in the crate's own source.
