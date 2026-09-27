@@ -1,0 +1,20 @@
+[1s] versions: k3d version v5.9.0; Client Version: v1.37.1; kopf 1.44.6
+[28s] cluster up
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+[33s] images v1, v2 imported
+[38s] operator running (pid 10268)
+[52s] install: 4 replicas Ready
+[64s] install: every replica at height >= 25 (31 31 26 30 )
+[110s] restore: replica 3 rebuilt from replica 0's snapshot (height before 30, now 162); {"generation":1,"replica":3,"seconds":44.7}
+[253s] upgrade: [{"replica":3,"seconds":35.4},{"replica":2,"seconds":35.4},{"replica":1,"seconds":35.4},{"replica":0,"seconds":35.5}]
+[253s]   devnet-0 image maya2c/node:v2 height 369
+[253s]   devnet-1 image maya2c/node:v2 height 363
+[254s]   devnet-2 image maya2c/node:v2 height 369
+[254s]   devnet-3 image maya2c/node:v2 height 364
+[254s] agreement: all 4 replicas hold the same block at height 368
+[254s] REHEARSAL PASSED in 254s
+
+[exited with code 0]

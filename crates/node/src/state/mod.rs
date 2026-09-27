@@ -18,6 +18,7 @@ pub mod channel;
 pub mod commitments;
 pub mod context;
 pub mod contracts;
+pub mod council;
 pub mod db;
 pub mod dex;
 pub mod dex_exec;

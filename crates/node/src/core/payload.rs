@@ -169,6 +169,8 @@ const TAG_PROVE_EQUIVOCATION: u8 = 48;
 const TAG_REVOKE_DEVICE: u8 = 49;
 // Staking (ADR-028): one tag, the action carries its own sub-tag.
 const TAG_STAKING: u8 = 50;
+// Security council pause and resume (state::council).
+const TAG_COUNCIL: u8 = 51;
 
 /// Largest joinsplit proof accepted on the wire.
 ///
@@ -542,6 +544,9 @@ pub enum TxKind {
     /// Register, bond, delegate, unbond, or report a validator's
     /// equivocation — see [`crate::core::staking_payload`].
     Staking(Box<crate::core::staking_payload::StakingAction>),
+    /// A security-council pause or resume, carried by anyone, authorized by
+    /// a quorum of council signatures — see [`crate::core::council_payload`].
+    Council(Box<crate::core::council_payload::CouncilAction>),
 }
 
 impl TxKind {
@@ -606,6 +611,7 @@ impl TxKind {
             Self::ProveEquivocation(_) => "prove_equivocation",
             Self::RevokeDevice(_) => "revoke_device",
             Self::Staking(_) => "staking",
+            Self::Council(_) => "council",
         }
     }
 
@@ -823,6 +829,10 @@ impl TxKind {
                 buf.push(TAG_STAKING);
                 action.encode_into(buf);
             }
+            Self::Council(action) => {
+                buf.push(TAG_COUNCIL);
+                action.encode_into(buf);
+            }
             Self::RevealShare(share) => {
                 buf.push(TAG_REVEAL_SHARE);
                 share.encode_into(buf);
@@ -954,6 +964,9 @@ impl TxKind {
             )?)),
             TAG_STAKING => Ok(Self::Staking(Box::new(
                 crate::core::staking_payload::StakingAction::decode(reader)?,
+            ))),
+            TAG_COUNCIL => Ok(Self::Council(Box::new(
+                crate::core::council_payload::CouncilAction::decode(reader)?,
             ))),
             other => Err(NodeError::Decode(format!(
                 "unknown transaction payload tag {other}"

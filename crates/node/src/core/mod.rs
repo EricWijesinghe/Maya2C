@@ -3,6 +3,7 @@
 pub mod batch;
 pub mod block;
 pub mod codec;
+pub mod council_payload;
 pub mod dex_payload;
 pub mod governance_payload;
 pub mod htlc_payload;

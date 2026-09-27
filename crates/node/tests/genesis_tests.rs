@@ -40,6 +40,7 @@ fn config() -> GenesisConfig {
         // must be able to be absent without disturbing it.
         treasury: None,
         protocol_upgrades: Vec::new(),
+        security_council: None,
         bft: None,
     }
 }

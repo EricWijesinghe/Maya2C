@@ -13,8 +13,8 @@
 | HSM/KMS backend | **not built.** ADR-022 explains why |
 | Slashing-protection tests | **pass** (below) |
 | DoS simulations, honest traffic inside SLO | **pass**, as a model (`[SIM]`) |
-| Incident-response rehearsal | **not rehearsed.** The document exists |
-| Emergency-pause rehearsal | a security-council pause **does not exist**; the automatic invariant breaker was exercised instead |
+| Incident-response rehearsal | **rehearsed** (2026-09-27): stolen key → detected 250 ms → tombstoned 750 ms later → replacement seated 500 ms after, chain finalizing throughout (§5) |
+| Emergency-pause rehearsal | **rehearsed** (2026-09-27): a security council now exists (2-of-3 in the rehearsal); a quorum closes one module in the block that carries its decision, transfers continue, lone/replayed/over-long actions are refused, the pause expires or is lifted (§6) |
 
 ## 1. Remote signer
 
@@ -130,3 +130,36 @@ possible to rehearse until one exists.
 - Per-peer accounting and the admission policy in the node itself: the node's
   mempool has capacity and validity checks but no per-sender cap or
   fee-bump rule.
+
+## 5. Incident-response rehearsal (added 2026-09-27)
+
+Through the node's own DAG-BFT and staking code, four validators and one
+spare on real RocksDB chains, timed in engine milliseconds:
+
+```
+$ cargo test -p custom-l1-node --test bft_staking_tests -- --nocapture
+incident rehearsal (engine time): detected 250 ms after the stolen key signed; tombstoned 750 ms after detection; replacement seated 500 ms after that; chain kept finalizing throughout (height 9 and agreeing)
+test incident_rehearsal_a_stolen_key_is_detected_slashed_and_replaced ... ok
+```
+
+The steps are the incident runbook's: detect (honest engines report the
+second signed proposal as `Equivocation`), contain (anyone files the two
+gossiped frames as `ReportEquivocation`; the key is tombstoned and half its
+bond burned), recover (the operator registers a fresh key, seated at the next
+epoch). What is not rehearsed: the human side — paging, communication, and
+the time a person takes to notice.
+
+## 6. Emergency pause — the security council (added 2026-09-27)
+
+`state::council` + `TxKind::Council` (payload tag 51): genesis names M-of-N
+ML-DSA-65 members; a quorum can pause **one module** for at most
+`max_pause_blocks`, or resume it. The pause is a breaker record (reason
+`CouncilPause`), so it can never stop transfers, staking or the council,
+and it expires on its own. Approvals sign the council's nonce: a replay is
+refused.
+
+```
+$ cargo test -p custom-l1-node --test council_pause_tests -- --nocapture
+pause rehearsal: quorum decided at height 2 and the module closed in that block (0 blocks' latency); transfers landed throughout; resumed at 4 after 2 of the 10 paused blocks; a lone member, a replayed approval and an over-long pause were each refused
+test result: ok. 2 passed; 0 failed
+```

@@ -28,6 +28,7 @@ fn config(treasury: Option<TreasuryGenesis>) -> GenesisConfig {
         sealed: None,
         treasury,
         protocol_upgrades: Vec::new(),
+        security_council: None,
         bft: None,
     }
 }

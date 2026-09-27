@@ -126,3 +126,25 @@ humans agreeing, not by 109 ms.
 - The staging network and every "measure on staging" item. Plan only,
   awaiting "APPROVED: staging-network". An infracost estimate must come
   first, and there is none.
+
+## Operator rehearsal on a real cluster (added 2026-09-27)
+
+`infra/operator/` — a `MayaNetwork` CRD and a kopf operator — rehearsed by
+`scripts/operator_rehearsal.sh` on k3d v5.9.0 in WSL2 (kubectl v1.37.1, kopf
+1.44.6), a four-replica proof-of-work devnet with one miner:
+
+```
+[52s]  install: 4 replicas Ready
+[64s]  install: every replica at height >= 25 (31 31 26 30)
+[110s] restore: replica 3 rebuilt from replica 0's snapshot (height before 30, now 162); {"generation":1,"replica":3,"seconds":44.7}
+[253s] upgrade: [{"replica":3,"seconds":35.4},{"replica":2,"seconds":35.4},{"replica":1,"seconds":35.4},{"replica":0,"seconds":35.5}]
+[254s] agreement: all 4 replicas hold the same block at height 368
+[254s] REHEARSAL PASSED in 254s
+```
+
+Full log: `reports/data/operator-rehearsal-2026-09-27.txt`. Install, snapshot
+restore and rolling upgrade — the DONE WHEN's three — each pass, and the
+upgrade is gated per replica on the chain advancing. Limits, stated: "v2" is
+the same binary under a new tag (the rollout mechanics, not a protocol
+change); the rehearsal chain is proof of work because a DAG-BFT node cannot
+yet catch up past the DAG's GC window (ADR-027).

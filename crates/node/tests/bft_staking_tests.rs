@@ -62,6 +62,7 @@ fn genesis() -> GenesisConfig {
         sealed: None,
         treasury: None,
         protocol_upgrades: Vec::new(),
+        security_council: None,
         bft: Some(BftGenesis {
             validators,
             anchor_timeout_ms: 1_000,
@@ -365,12 +366,18 @@ fn incident_rehearsal_a_stolen_key_is_detected_slashed_and_replaced() {
         epoch: 0,
         from: 2,
         to: BROADCAST,
-        message: Message::Propose { vertex: forged, signature },
+        message: Message::Propose {
+            vertex: forged,
+            signature,
+        },
     }
     .encode();
     mesh.queue.push_back((2, frame));
     mesh.run_until(|m| !m.equivocations.is_empty());
-    assert!(!mesh.equivocations.is_empty(), "no honest node noticed the double proposal");
+    assert!(
+        !mesh.equivocations.is_empty(),
+        "no honest node noticed the double proposal"
+    );
     let t_detect = mesh.now;
 
     // Response: whoever saw it files the evidence — here, the operator.
@@ -380,7 +387,10 @@ fn incident_rehearsal_a_stolen_key_is_detected_slashed_and_replaced() {
             epoch: v.epoch,
             from: v.author,
             to: BROADCAST,
-            message: Message::Propose { vertex: v.clone(), signature: sig.to_vec() },
+            message: Message::Propose {
+                vertex: v.clone(),
+                signature: sig.to_vec(),
+            },
         }
         .encode()
     };
@@ -415,7 +425,10 @@ fn incident_rehearsal_a_stolen_key_is_detected_slashed_and_replaced() {
         })
     };
     mesh.run_until(seated);
-    assert!(seated(&mesh), "the replacement key never joined the committee");
+    assert!(
+        seated(&mesh),
+        "the replacement key never joined the committee"
+    );
     let t_rejoined = mesh.now;
     let h = mesh.members[0].chain.height();
     mesh.run_until(|m| m.members.iter().all(|x| x.chain.height() >= h + 3));

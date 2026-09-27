@@ -58,6 +58,9 @@ pub enum Invariant {
     /// The shielded pool emptied faster than
     /// [`SHIELDED_DRAIN_BPS`](super::limits::SHIELDED_DRAIN_BPS) allows.
     ShieldedDrainRate,
+    /// Not a check: a quorum of the security council paused the module
+    /// (`state::council`). Bounded and self-expiring like the breaker.
+    CouncilPause,
 }
 
 impl Invariant {
@@ -67,6 +70,7 @@ impl Invariant {
         match self {
             Self::PoolValuePerShare => 0,
             Self::ShieldedDrainRate => 1,
+            Self::CouncilPause => 2,
         }
     }
 
@@ -76,6 +80,7 @@ impl Invariant {
         match tag {
             0 => Some(Self::PoolValuePerShare),
             1 => Some(Self::ShieldedDrainRate),
+            2 => Some(Self::CouncilPause),
             _ => None,
         }
     }
@@ -86,6 +91,7 @@ impl Invariant {
         match self {
             Self::PoolValuePerShare => "pool value per share",
             Self::ShieldedDrainRate => "shielded drain rate",
+            Self::CouncilPause => "security council pause",
         }
     }
 }
