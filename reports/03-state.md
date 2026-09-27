@@ -13,7 +13,7 @@ thread/core), 15 GiB RAM, Ubuntu 24.04.4, kernel 6.18.44, `rustc 1.99.0-nightly
 | DONE WHEN criterion | State | Evidence |
 |---|---|---|
 | Core state tests and property tests pass | **Met** | §1 |
-| Fee market is active | **Not met** | §2 — `fee-market` is at activation `u64::MAX`; ADR-016 makes activating it launch-blocking |
+| Fee market is active | **Met** (2026-09-27, on any genesis with `bft.fees`) | §7 — ADR-029; `tests/fee_market_live_tests.rs`; devnet run below |
 | Pruned-node test passes | **Met** (disk saving not measured) | §3 |
 | DNA round-trip passes under noise | **Met** | §4 |
 | `reports/03-state.md` has real numbers | this file | — |
@@ -127,3 +127,26 @@ this tree. That half of §6 is not started, and the brief's "folding time for
 - Tiered storage HAL (`hal/storage`: CXL, MRAM, NVMe-oF, glass SIMs) and
   `benches/cxl_bench.rs`; NUMA placement.
 - Hyperdimensional index (optional in the brief).
+
+## 7. The fee market, live (added 2026-09-27, ADR-029)
+
+Machine for this section: Windows 11, Intel family 6 model 198 (24 threads),
+dev profile. A fee is an ordinary signed output to `FEE_COLLECTOR`; the base
+fee on the transaction's serialized size burns to the sink each block, the
+remainder (the tip) pays validators at the staking epoch boundary.
+
+```
+$ cargo test -p custom-l1-node --test fee_market_live_tests
+test the_base_fee_falls_on_empty_blocks_and_never_below_its_floor ... ok
+test an_unpaid_transfer_is_refused_and_a_paid_one_burns_its_base_fee ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.36s
+```
+
+The same rules through the real binary: `scripts/bft_devnet.py` runs a genesis
+with `bft.fees` and `bft.staking`; `l1-wallet send` attaches the fee output
+itself (twice the base fee on the signed size). Five processes crossed two
+staking epochs, every node agreed at the common height, and each transfer was
+visible on all five in 1.9–3.0 s.
+
+What stays open: the fee *parameters* are devnet values; justifying mainnet
+values from measured traffic is Master Prompt 18's.

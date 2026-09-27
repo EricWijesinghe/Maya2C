@@ -1,0 +1,39 @@
+{
+  "hardware": {
+    "machine": "AMD64",
+    "processor": "Intel64 Family 6 Model 198 Stepping 2, GenuineIntel",
+    "system": "Windows 11",
+    "cpus": 24
+  },
+  "profile": "dev",
+  "commit": "adfd2f2",
+  "elapsed_s": 30.1,
+  "heights": [
+    29,
+    30,
+    30,
+    30,
+    31
+  ],
+  "blocks_per_s": [
+    0.96,
+    1.0,
+    1.0,
+    1.0,
+    1.03
+  ],
+  "transfer_visible_on_all_nodes_s": [
+    1.886,
+    2.075,
+    2.004
+  ],
+  "agree_at_common_height": true,
+  "common_height": 29,
+  "recipient_balance_per_node": [
+    300,
+    300,
+    300,
+    300,
+    300
+  ]
+}

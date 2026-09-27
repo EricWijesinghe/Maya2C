@@ -19,8 +19,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use maya_dag_bft::{
-    Certificate, Committee, Dest, Digest, Equivocation, Message, Output, Params, Validator,
-    ValidatorId,
+    Certificate, Committee, Dest, Equivocation, Message, Output, Params, Validator, ValidatorId,
 };
 
 use super::auth::MlDsaAuthenticator;
@@ -74,9 +73,11 @@ pub struct BftDriver {
     id: Option<ValidatorId>,
     epoch: u64,
     store: SafetyStore,
-    /// Certificates already written to the log, so a re-broadcast is not
-    /// appended every tick. Pruned with the engine's horizon.
-    logged: BTreeSet<(u64, Digest)>,
+    /// Slots whose certificate is already in the log, so a re-broadcast is not
+    /// appended every tick. Keyed by slot, not digest: hashing a megabyte
+    /// vertex on every receipt to dedupe a log was measurable, and
+    /// certification leaves one certificate per slot. Pruned with the horizon.
+    logged: BTreeSet<(u64, ValidatorId)>,
     /// Transactions handed to the engine and not yet seen in a block.
     queued: BTreeSet<[u8; 32]>,
     /// Kept to build the next epoch's engine.
@@ -206,7 +207,7 @@ impl BftDriver {
             }
         }
         for c in recovered.certificates {
-            driver.logged.insert((c.vertex.round, c.digest()));
+            driver.logged.insert((c.vertex.round, c.vertex.author));
             let from = c.vertex.author;
             let out = driver.engine.handle(now_ms, from, Message::Cert(c));
             driver.absorb(chain, now_ms, out, step)?;
@@ -289,7 +290,7 @@ impl BftDriver {
     }
 
     fn log_certificate(&mut self, c: &Certificate) -> Result<()> {
-        if self.logged.insert((c.vertex.round, c.digest())) {
+        if self.logged.insert((c.vertex.round, c.vertex.author)) {
             self.store.record_certificate(c)?;
         }
         Ok(())
@@ -376,7 +377,7 @@ impl BftDriver {
             .engine
             .last_committed_round()
             .saturating_sub(maya_dag_bft::GC_DEPTH);
-        self.logged = self.logged.split_off(&(horizon, [0; 32]));
+        self.logged = self.logged.split_off(&(horizon, 0));
         Ok(())
     }
 

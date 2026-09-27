@@ -9,7 +9,7 @@
 
 | Condition | Result |
 |---|---|
-| Ethereum ZK light client verifies real mainnet headers | **partly.** Header hashing is verified on the real mainnet genesis header. There is **no ZK and no finality verification**, and only one real header (see below) |
+| Ethereum ZK light client verifies real mainnet headers | **partly.** 64 consecutive real Prague-era mainnet headers (26065574–637) are recomputed from their fields and chained, plus the genesis header. There is **no ZK and no finality (sync-committee) verification** |
 | Trust-assumptions table published | **yes**, `spec/interop/README.md` |
 | Rate limits and caps | **pass** |
 | Intent settlement end to end on devnets | **no devnets.** The escrow logic passes with a stand-in verifier |
@@ -66,3 +66,20 @@ built.
 - ZK light clients (Ethereum, Solana, Cosmos) and the IBC v2 evaluation ADR.
 - A one-balance wallet view across chains.
 - Measured Maya2C ↔ Ethereum transfer time and cost.
+
+## Real mainnet headers (added 2026-09-27)
+
+`scripts/eth_headers_fixture.py` fetched 64 consecutive headers from a public
+endpoint into `crates/interop/tests/fixtures/eth_mainnet_headers.json`.
+
+```
+$ cargo test -p maya-interop --test eth_mainnet_headers_tests -- --nocapture
+mainnet blocks 26065574..=26065637 (64 headers, fetched 2026-09-27T01:54:20+00:00 from https://ethereum-rpc.publicnode.com): every hash recomputed, every parent link holds
+test sixty_four_real_mainnet_headers_hash_to_their_ids_and_link ... ok
+test a_real_header_with_one_field_changed_no_longer_links ... ok
+```
+
+These exercise every optional field through Prague (base fee, withdrawals,
+blob gas, parent beacon root, requests hash). A valid-looking chain is not a
+finalized one: finality is the beacon chain's sync-committee signature, which
+this crate does not verify, and nothing here is a ZK proof.

@@ -121,12 +121,15 @@ pub struct Validator<A = Unauthenticated> {
     round: u64,
     /// Own vertex awaiting votes, and the signed votes so far.
     pending: Option<(Vertex, BTreeMap<ValidatorId, Vec<u8>>)>,
+    /// `pending`'s digest, kept beside it: a vertex digest hashes the whole
+    /// payload, and every vote and certificate would otherwise rehash it.
+    pending_digest: Option<Digest>,
     /// One vote per (round, author): the rule that makes equivocation
     /// uncertifiable.
     voted: BTreeMap<(u64, ValidatorId), Digest>,
     /// The first signed proposal seen per (round, author), kept to prove an
     /// equivocation when a second one arrives.
-    seen: BTreeMap<(u64, ValidatorId), (Vertex, Vec<u8>)>,
+    seen: BTreeMap<(u64, ValidatorId), (Vertex, Vec<u8>, Digest)>,
     /// Certificates waiting for parents.
     buffer: BTreeMap<Digest, Certificate>,
     mempool: VecDeque<Payload>,
@@ -156,6 +159,7 @@ impl<A: Authenticator> Validator<A> {
             committer: Committer::new(),
             round: 0,
             pending: None,
+            pending_digest: None,
             voted: BTreeMap::new(),
             seen: BTreeMap::new(),
             buffer: BTreeMap::new(),
@@ -226,14 +230,17 @@ impl<A: Authenticator> Validator<A> {
         }
         let digest = vertex.digest();
         self.voted.insert((vertex.round, self.id), digest);
-        self.seen
-            .insert((vertex.round, self.id), (vertex.clone(), signature.clone()));
+        self.seen.insert(
+            (vertex.round, self.id),
+            (vertex.clone(), signature.clone(), digest),
+        );
         if vertex.round >= self.round {
             self.round = vertex.round;
             self.last_proposed_ms = vertex.timestamp_ms;
             let mut votes = BTreeMap::new();
             votes.insert(self.id, signature);
             self.pending = Some((vertex, votes));
+            self.pending_digest = Some(digest);
         }
     }
 
@@ -356,11 +363,12 @@ impl<A: Authenticator> Validator<A> {
         let slot = (v.round, v.author);
         match self.seen.get(&slot) {
             None => {
-                self.seen.insert(slot, (v.clone(), signature.to_vec()));
+                self.seen
+                    .insert(slot, (v.clone(), signature.to_vec(), digest));
                 true
             }
-            Some((first, _)) if first.digest() == digest => true,
-            Some((first, first_signature)) => {
+            Some((_, _, first_digest)) if *first_digest == digest => true,
+            Some((first, first_signature, _)) => {
                 out.equivocations.push(Equivocation {
                     first: first.clone(),
                     first_signature: first_signature.clone(),
@@ -384,7 +392,7 @@ impl<A: Authenticator> Validator<A> {
             return;
         };
         if vertex.round != round
-            || vertex.digest() != digest
+            || self.pending_digest != Some(digest)
             || voter >= self.committee.size()
             || votes.contains_key(&voter)
             || !self.auth.verify(voter, &digest, &signature)
@@ -401,7 +409,7 @@ impl<A: Authenticator> Validator<A> {
             };
             self.pending = None;
             out.sends.push((Dest::All, Message::Cert(cert.clone())));
-            self.accept(cert, self.id, out);
+            self.accept(cert, digest, self.id, out);
         }
     }
 
@@ -421,12 +429,11 @@ impl<A: Authenticator> Validator<A> {
             .zip(&c.signatures)
             .all(|(voter, sig)| self.auth.verify(*voter, &digest, sig));
         if authentic {
-            self.accept(c, from, out);
+            self.accept(c, digest, from, out);
         }
     }
 
-    fn accept(&mut self, c: Certificate, from: ValidatorId, out: &mut Output) {
-        let digest = c.digest();
+    fn accept(&mut self, c: Certificate, digest: Digest, from: ValidatorId, out: &mut Output) {
         if self.dag.contains(&digest) || c.vertex.round < self.dag.gc_round() {
             return;
         }
@@ -440,14 +447,10 @@ impl<A: Authenticator> Validator<A> {
         }
         // Our own vertex certified by someone else's broadcast (or replayed
         // from disk after a restart): nothing is pending any more.
-        if self
-            .pending
-            .as_ref()
-            .is_some_and(|(v, _)| v.digest() == digest)
-        {
+        if self.pending.is_some() && self.pending_digest == Some(digest) {
             self.pending = None;
         }
-        self.dag.insert(c);
+        self.dag.insert_digested(c, digest);
         self.drain_buffer();
     }
 
@@ -465,7 +468,7 @@ impl<A: Authenticator> Validator<A> {
             }
             for d in ready {
                 if let Some(c) = self.buffer.remove(&d) {
-                    self.dag.insert(c);
+                    self.dag.insert_digested(c, d);
                 }
             }
         }
@@ -555,7 +558,7 @@ impl<A: Authenticator> Validator<A> {
     }
 
     fn propose(&mut self, round: u64, now_ms: u64, out: &mut Output) {
-        let mut parents: Vec<Digest> = self.dag.round(round - 1).map(Certificate::digest).collect();
+        let mut parents: Vec<Digest> = self.dag.round_digests(round - 1);
         parents.sort_unstable();
         // A vertex that never gathered a quorum is abandoned; its
         // transactions go back to the front of the queue, not into the void.
@@ -575,8 +578,10 @@ impl<A: Authenticator> Validator<A> {
         let digest = vertex.digest();
         let signature = self.auth.sign(&digest);
         self.voted.insert((round, self.id), digest);
-        self.seen
-            .insert((round, self.id), (vertex.clone(), signature.clone()));
+        self.seen.insert(
+            (round, self.id),
+            (vertex.clone(), signature.clone(), digest),
+        );
         self.round = round;
         self.waiting_since = None;
         self.last_proposed_ms = now_ms;
@@ -584,6 +589,7 @@ impl<A: Authenticator> Validator<A> {
         let mut votes = BTreeMap::new();
         votes.insert(self.id, signature.clone());
         self.pending = Some((vertex.clone(), votes));
+        self.pending_digest = Some(digest);
         out.sends
             .push((Dest::All, Message::Propose { vertex, signature }));
         if self.committee.quorum() <= 1 {
@@ -602,7 +608,8 @@ impl<A: Authenticator> Validator<A> {
             votes: voters,
             signatures,
         };
+        let digest = self.pending_digest.unwrap_or_else(|| cert.digest());
         out.sends.push((Dest::All, Message::Cert(cert.clone())));
-        self.accept(cert, self.id, out);
+        self.accept(cert, digest, self.id, out);
     }
 }

@@ -9,7 +9,7 @@
 | Condition | Result |
 |---|---|
 | Exposure tool on real Bitcoin data | **yes**: Bitcoin's genesis coinbase, whose id equals the real genesis header's merkle root |
-| …on real Ethereum data | **rule implemented and tested on synthetic accounts.** No real Ethereum account data was reachable: every public RPC returned 403 (`reports/25-interop.md`) |
+| …on real Ethereum data | **yes** (2026-09-27): 200 accounts from mainnet blocks 26065698–99, and a sender's public key recovered from a real signature — see "Real Ethereum data" below |
 | PQ vaults end to end on devnets | **no devnets and no bridge.** The vault logic exists in `crates/smart-account` (delay + guardian cancel) |
 | Q-day playbook rehearsed in sim | **the mechanism is**: 1,000,000-account suite migration, no failed transfers. The human steps are not |
 
@@ -77,3 +77,29 @@ test a_million_accounts_migrate_without_downtime ... ok
 - Custodian reporting.
 - Publishing the crypto-agility crates for others' use. Licensing and
   publishing need a decision and "APPROVED: publish".
+
+## Real Ethereum data (added 2026-09-27)
+
+Fetched from `https://ethereum-rpc.publicnode.com` by
+`scripts/eth_exposure_fixture.py`, pinned at block 26,065,699, committed as
+`crates/quantum-harbor/tests/fixtures/eth_mainnet_sample.json`. Windows 11,
+Intel family 6 model 198.
+
+```
+$ cargo test -p maya-quantum-harbor --test ethereum_mainnet_tests -- --nocapture
+block 26065621: 0x0d95b7d8…f2e0 signed by 0xc917c3fa…5249 — public key 0458cba909179de21a9d898c… recovered from the signature
+mainnet block 26065699 sample (2 blocks): 200 accounts — 135 exposed EOAs, 9 never-signed EOAs, 56 contracts; 7 of the exposed are EIP-7702-delegated EOAs that a code check alone would call keyless; 177196.96 of 2235876.60 ETH (7.9%) sits behind exposed keys
+test result: ok. 2 passed; 0 failed
+```
+
+(The signed-transaction line names the transaction captured by the first
+fetch; the account sample was refetched with code prefixes. Both are real.)
+
+**What the real data changed.** The first version classified any account
+with code as "no key". Seven of the 200 accounts are EIP-7702-delegated EOAs
+— code `0xef0100…` — which have a private key and signed the delegation, so
+their key is exposed. `ethereum_exposure_of` now reads the designator.
+
+**What the sample is not.** Two blocks of active accounts are biased toward
+accounts that transact, and most ETH in the sample sits in contracts. It is a
+demonstration that the tool works on live data, not a chain-wide estimate.
