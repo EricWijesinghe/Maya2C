@@ -1149,7 +1149,7 @@ impl StateDB {
         self.db.write(batch).map_err(storage_err)
     }
 
-    /// Writes a RocksDB checkpoint of the whole database to `path`: hard
+    /// Writes a `RocksDB` checkpoint of the whole database to `path`: hard
     /// links where the filesystem allows, so it is cheap and immediate, and a
     /// consistent point-in-time copy.
     ///

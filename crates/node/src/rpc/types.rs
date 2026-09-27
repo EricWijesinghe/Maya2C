@@ -404,7 +404,7 @@ pub struct PeerAddressInfo {
     pub ip: String,
 }
 
-/// An IoT anchor device, as `iot_device` reports it: status and the latest
+/// An `IoT` anchor device, as `iot_device` reports it: status and the latest
 /// batch, never readings.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct IotDeviceInfo {

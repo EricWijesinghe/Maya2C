@@ -176,7 +176,7 @@ mod tests {
             from: 1,
             to: 0,
             message: Message::Vote {
-                digest: [round as u8; 32],
+                digest: [round.to_le_bytes()[0]; 32],
                 round,
                 voter: 1,
                 signature: vec![1, 2, 3],

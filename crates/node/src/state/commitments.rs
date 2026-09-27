@@ -3,7 +3,7 @@
 //!
 //! Until 2026-09-11 the root folded accounts, channels, trading, oracle,
 //! governance, the sealed mempool and the shielded pool, and nothing else. Two
-//! things RocksDB persisted were missing:
+//! things `RocksDB` persisted were missing:
 //!
 //! - **Contract code and storage** (`code:`, `cstate:`). Two nodes could
 //!   disagree about a contract's storage and agree on every state root. That

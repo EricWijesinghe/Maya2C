@@ -1,6 +1,6 @@
 //! Measured DAG-BFT throughput through the node's own code (Master Prompts 4
 //! and 12): transactions that are signature-verified, executed, committed to
-//! RocksDB and final, per second of wall time.
+//! `RocksDB` and final, per second of wall time.
 //!
 //! Four validators in one process, each with its own chain and state, frames
 //! passed through an in-memory mesh. Pre-signed ML-DSA-65 (v7) transfers from
@@ -165,7 +165,7 @@ fn main() {
     let mut now = 0u64;
     while included.iter().any(|n| *n < total) && started.elapsed().as_secs() < 600 {
         now += 50;
-        if now % 5_000 == 0 {
+        if now.is_multiple_of(5_000) {
             eprintln!(
                 "t={now} heights {:?} included {included:?} queue {}",
                 chains.iter().map(Chain::height).collect::<Vec<_>>(),

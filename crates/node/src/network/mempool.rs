@@ -5,7 +5,7 @@
 //! The map is a [`std::sync::RwLock`], not a `tokio::sync::RwLock`. Every
 //! critical section here is a pure in-memory map operation with no `.await`
 //! inside it, so the async-aware lock would buy nothing and cost more. The
-//! RocksDB reads that back validation happen *before* the write lock is taken —
+//! `RocksDB` reads that back validation happen *before* the write lock is taken —
 //! holding a std lock across blocking I/O is exactly the mistake this ordering
 //! avoids.
 //!
@@ -62,13 +62,13 @@ impl Mempool {
     fn read_pool(&self) -> std::sync::RwLockReadGuard<'_, HashMap<TxHash, Transaction>> {
         self.transactions
             .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     fn write_pool(&self) -> std::sync::RwLockWriteGuard<'_, HashMap<TxHash, Transaction>> {
         self.transactions
             .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// The height admission judges against: the block after the stored tip.

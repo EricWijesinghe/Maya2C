@@ -1,5 +1,5 @@
 //! DAG-BFT run by the node's own driver: four ML-DSA-65 validators and one
-//! observer, each on its own RocksDB state and chain, exchanging real wire
+//! observer, each on its own `RocksDB` state and chain, exchanging real wire
 //! frames through an in-memory mesh (ADR-027).
 //!
 //! What these pin, end to end through the code the binary runs:
