@@ -10,14 +10,35 @@
 | Condition | Result |
 |---|---|
 | Kubernetes operator | **not built.** No Kubernetes cluster can run in this sandbox (`reports/10-launch.md`: k3d blocked by egress, nested runc refused), so an operator could not be tested |
-| `cargo xtask slo-check` passes | **no.** It runs and fails honestly: 1 of 7 SLOs complete, and 6 lack a metric the node emits |
+| `cargo xtask slo-check` passes | **yes** (2026-09-27): 7 of 7. The node now registers and records finality latency, RPC requests and duration (middleware), sync duration and per-validator missed slots; a devnet scrape shows real values (§1a) |
 | 20 runbooks exist | **yes**, `docs/runbooks/` |
 | …and are rehearsed | **11 of 20** have a test or measured run behind them (index below); 9 do not |
 | Coordinated-restart rehearsal | **recorded** (§3) |
 | Testnet phase plans | **written**, `docs/TESTNET_PROGRAM.md` |
 | infracost estimates | **none.** `infracost` is not installed and needs a pricing API key; **no approval is requested** |
 
-## 1. slo-check
+## 1a. slo-check, after the metrics landed (2026-09-27)
+
+```
+$ cargo xtask slo-check
+ok    finality-p50
+ok    finality-p99
+ok    liveness
+ok    rpc-availability
+ok    rpc-latency
+ok    state-sync
+ok    validator-downtime
+
+7 SLOs, 7 with all four companions, 0 with gaps
+```
+
+Registration alone would be a dashboard of nothing, so node 0 of the
+five-process devnet was scraped (`scripts/bft_devnet.py`, dev profile):
+`maya_blocks_imported_total` 31, finality mean 0.55 s (p50/p99 bucket ≤ 1 s),
+68 RPC calls ok and 3 errors (the script's deliberate past-tip probes),
+`maya_sync_duration_seconds` 0.004.
+
+## 1. slo-check (2026-09-26)
 
 ```
 $ cargo xtask slo-check

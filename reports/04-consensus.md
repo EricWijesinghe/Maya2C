@@ -10,8 +10,8 @@ time; "wall" time is this machine's.
 |---|---|---|
 | All three consensus modes run in sim/ | **Met** (engine level) | §2, `crates/dag-bft/tests/modes_sim.rs` |
 | Reorg and DAG commit tests pass | **Met** | §1, §2 |
-| GPU/CPU parity passes (or skips with a reason) | **Skips with a reason** — no GPU on this machine | §4 |
-| `reports/04-consensus.md` has measured TPS and latency | **Ordering throughput and round latency measured in the simulator; TPS as defined by the Production Standing Orders is not measurable** — the node does not run DAG-BFT | §3 |
+| GPU/CPU parity passes (or skips with a reason) | **Met** (2026-09-27): 7/7 on an RTX 5070 Laptop GPU, including the five GPU-vs-CPU cases | §6 |
+| `reports/04-consensus.md` has measured TPS and latency | **Met** (2026-09-27): the node runs DAG-BFT (ADR-027); finalized TPS and finality latency measured through the node's own code and binary | §6 |
 
 ## 0. The design (ADR-015)
 
@@ -113,3 +113,50 @@ for the hashimoto PoW.
   in order across 3–22 minute delays without slowing the near cluster — the
   batching half of §8 — but there is no Tier 2/3 finality gadget.
 - Staking, slashing, rewards — **not built**; launch-blocking (ADR-016).
+
+## 6. Measured on the node (added 2026-09-27)
+
+Machine: Windows 11, Intel family 6 model 198 (24 threads), RTX 5070 Laptop
+GPU (driver 616.92). Commit `8ff8f81` unless stated.
+
+### GPU/CPU parity
+
+```
+$ cargo test -p maya-wgpu-miner --features gpu --test gpu_validation
+test the_flattened_dataset_addresses_the_same_pages ... ok
+test the_cpu_mix_reproduces_the_nodes_hashimoto ... ok
+test gpu_tests::adapters_report_their_limits ... ok
+test gpu_tests::the_gpu_mix_matches_the_cpu_mix ... ok
+test gpu_tests::an_empty_batch_dispatches_nothing ... ok
+test gpu_tests::a_partial_workgroup_is_computed_correctly ... ok
+test gpu_tests::the_gpu_digest_matches_the_nodes ... ok
+test result: ok. 7 passed; 0 failed
+```
+
+### TPS — as the Production Standing Orders define it
+
+Signature-verified, executed, state-committed, finalized transfers per
+second. `crates/node/examples/bft_tps.rs`: 10,000 pre-signed ML-DSA-65 (v7)
+transfers from 2,000 accounts; four DAG-BFT validators **in one process on
+one machine**, each with its own RocksDB state, so every transaction is
+verified, executed and committed four times on the same CPU. No link
+latency. Mix: 100% single-output transfers.
+
+| build | finalized tx/s | per-node verify+execute+commit /s | note |
+|---|---|---|---|
+| release (fat LTO), before the fixes below | 524–679 | 2,097–2,715 | three runs |
+| perf profile, re-broadcast limited | 650–916 | 2,599–3,663 | four runs; the machine was shared with a WSL build for some |
+| perf profile, + parallel verification | **990** | **3,959** | block building 10.6 s → 6.8 s of 10.1 s |
+
+The largest remaining cost is block building and insertion (67% of wall
+time): each transaction is staged three times (builder filter, state-root
+preview, apply) and each block computes the state root over every account
+twice. Those are the next targets; the numbers above are what the code does
+today.
+
+### Finality latency
+
+On the five-process localhost devnet (`scripts/bft_devnet.py`, dev profile,
+500 ms round pacing), scraped from node 0's exporter: 31 blocks, finality
+mean **0.55 s** (anchor proposal to local commit), p50 and p99 in the ≤ 1 s
+bucket; a submitted transfer was visible on all five nodes in 1.9–3.0 s.
