@@ -70,6 +70,11 @@ pub struct RpcContext {
     /// operator wires it: peer addresses are this node's private knowledge,
     /// so bind an RPC that carries them to a local interface.
     pub peers: Option<NodeHandle>,
+    /// Whether `submit_block` accepts blocks. False on a DAG-BFT network,
+    /// where a block is derived from certificates and a submitted one is only
+    /// somebody's claim (`consensus::bft`); the chain there verifies no work,
+    /// so accepting one would let anyone write the tip.
+    pub accepts_blocks: bool,
 }
 
 impl RpcContext {
@@ -83,6 +88,7 @@ impl RpcContext {
             snapshots: None,
             cold: None,
             peers: None,
+            accepts_blocks: true,
         }
     }
 
@@ -100,6 +106,15 @@ impl RpcContext {
     pub fn with_cold_blocks(self, cold: Arc<ColdBlocks>) -> Self {
         Self {
             cold: Some(cold),
+            ..self
+        }
+    }
+
+    /// The same context, refusing `submit_block` (a DAG-BFT node).
+    #[must_use]
+    pub fn refusing_blocks(self) -> Self {
+        Self {
+            accepts_blocks: false,
             ..self
         }
     }
@@ -238,6 +253,12 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
 
     module
         .register_async_method("submit_block", |params, ctx, _| async move {
+            if !ctx.accepts_blocks {
+                return Err(rejected(
+                    "this network is ordered by DAG-BFT; blocks are derived from                      certificates, not submitted"
+                        .to_string(),
+                ));
+            }
             let raw: String = params.one().map_err(|e| invalid_params(e.to_string()))?;
             let bytes = hex::decode(raw.trim_start_matches("0x"))
                 .map_err(|e| invalid_params(format!("block is not valid hex: {e}")))?;

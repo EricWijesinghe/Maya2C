@@ -23,4 +23,4 @@ pub use node::{Node, NodeEvent, NodeHandle, RelayConfig, RelayIngress};
 pub use peer_health::{GuardConfig, Offence, PeerReport};
 pub use pq::{EpochClock, PqUpgrade, ROTATION_INTERVAL_BLOCKS, SessionStats};
 pub use sim::{DelayStream, LATENCY_SWEEP, LatencyDial};
-pub use topics::{BLOCKS_TOPIC, TXS_TOPIC, blocks_topic, txs_topic};
+pub use topics::{BFT_TOPIC, BLOCKS_TOPIC, TXS_TOPIC, bft_topic, blocks_topic, txs_topic};

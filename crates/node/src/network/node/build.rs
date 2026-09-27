@@ -20,7 +20,7 @@ use crate::network::peer_health::GuardConfig;
 use crate::network::pq::dual::DualKemPolicy;
 use crate::network::pq::{EpochClock, PqUpgrade, SessionStats};
 use crate::network::sim::{DelayStream, LatencyDial};
-use crate::network::topics::{blocks_topic, txs_topic};
+use crate::network::topics::{bft_topic, blocks_topic, txs_topic};
 use crate::state::StateDB;
 
 /// Which transport a node is built on.
@@ -319,7 +319,7 @@ impl Node {
         };
         // Subscribe up front so a peer connecting immediately still sees us as
         // a member of both meshes.
-        for topic in [txs_topic(), blocks_topic()] {
+        for topic in [txs_topic(), blocks_topic(), bft_topic()] {
             swarm
                 .behaviour_mut()
                 .gossipsub

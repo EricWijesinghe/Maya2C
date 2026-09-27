@@ -1,0 +1,18 @@
+[package]
+name = "maya-staking"
+version.workspace = true
+# Not published. See crates/fee-market/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Validator registration, delegation, active-set selection, slashing and epoch rewards for DAG-BFT (ADR-028)"
+
+# Deliberately empty, for the reason `maya-ledger-math`, `maya-dex`,
+# `maya-governance` and `maya-fee-market` are: every function here decides how
+# much value moves or who orders the chain, and Kani compiles a crate together
+# with its whole dependency graph. Hashing a validator key into its id is the
+# node's job; this crate takes the 32-byte id as given.
+[dependencies]
+
+[lints]
+workspace = true

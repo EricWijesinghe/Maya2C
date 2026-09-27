@@ -1964,6 +1964,7 @@ dependencies = [
  "maya-confidential-ai",
  "maya-crypto-pq",
  "maya-custody-mpc",
+ "maya-dag-bft",
  "maya-dex",
  "maya-ebpf-net",
  "maya-fee-market",
@@ -5243,6 +5244,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-staking"
+version = "0.1.0"
+
+[[package]]
 name = "maya-state-sync"
 version = "0.1.0"
 dependencies = [
@@ -5481,9 +5486,11 @@ dependencies = [
  "jsonrpsee",
  "libp2p",
  "maya-archive",
+ "maya-dag-bft",
  "maya-zk-stark",
  "serde_json",
  "tokio",
+ "zeroize",
 ]
 
 [[package]]

@@ -7,7 +7,12 @@
 //! made without it, which is the only property these tests exercise. The
 //! node's ML-DSA authenticator is tested in `custom-l1-node`.
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::cast_possible_truncation,
+    clippy::needless_range_loop
+)]
 
 use std::collections::VecDeque;
 

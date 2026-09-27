@@ -84,6 +84,11 @@ pub struct Params {
     pub anchor_timeout_ms: u64,
     /// The committee epoch this engine instance runs; bound into every digest.
     pub epoch: u64,
+    /// Least time between two of this validator's proposals, unless a full
+    /// batch is waiting. Zero (the simulator's value) advances as fast as
+    /// certificates arrive, which on an idle network is a stream of empty
+    /// vertices; a node paces itself so an idle chain costs little.
+    pub min_round_interval_ms: u64,
 }
 
 impl Default for Params {
@@ -93,6 +98,7 @@ impl Default for Params {
             max_batch_bytes: 4 * 1024 * 1024,
             anchor_timeout_ms: 1_000,
             epoch: 0,
+            min_round_interval_ms: 0,
         }
     }
 }
@@ -126,6 +132,8 @@ pub struct Validator<A = Unauthenticated> {
     mempool: VecDeque<Payload>,
     /// When the node first had a quorum for `round` without the anchor.
     waiting_since: Option<(u64, u64)>,
+    /// When this validator last proposed, for `min_round_interval_ms`.
+    last_proposed_ms: u64,
 }
 
 impl Validator<Unauthenticated> {
@@ -153,6 +161,7 @@ impl<A: Authenticator> Validator<A> {
             buffer: BTreeMap::new(),
             mempool: VecDeque::new(),
             waiting_since: None,
+            last_proposed_ms: 0,
         }
     }
 
@@ -221,6 +230,7 @@ impl<A: Authenticator> Validator<A> {
             .insert((vertex.round, self.id), (vertex.clone(), signature.clone()));
         if vertex.round >= self.round {
             self.round = vertex.round;
+            self.last_proposed_ms = vertex.timestamp_ms;
             let mut votes = BTreeMap::new();
             votes.insert(self.id, signature);
             self.pending = Some((vertex, votes));
@@ -241,7 +251,7 @@ impl<A: Authenticator> Validator<A> {
         let mut out = Output::default();
         match msg {
             Message::Propose { vertex, signature } => {
-                self.on_propose(from, vertex, signature, &mut out);
+                self.on_propose(from, vertex, &signature, &mut out);
             }
             Message::Vote {
                 digest,
@@ -280,7 +290,7 @@ impl<A: Authenticator> Validator<A> {
         out
     }
 
-    fn on_propose(&mut self, from: ValidatorId, v: Vertex, signature: Vec<u8>, out: &mut Output) {
+    fn on_propose(&mut self, from: ValidatorId, v: Vertex, signature: &[u8], out: &mut Output) {
         if !self.voting
             || v.epoch != self.params.epoch
             || v.round == 0
@@ -291,10 +301,10 @@ impl<A: Authenticator> Validator<A> {
             return;
         }
         let digest = v.digest();
-        if !self.auth.verify(v.author, &digest, &signature) {
+        if !self.auth.verify(v.author, &digest, signature) {
             return;
         }
-        if !self.record_proposal(&v, &signature, digest, out) {
+        if !self.record_proposal(&v, signature, digest, out) {
             return;
         }
         let probe = Certificate {
@@ -510,6 +520,12 @@ impl<A: Authenticator> Validator<A> {
                     }
                 }
             }
+            let full = self.mempool.len() >= self.params.batch_size;
+            let early =
+                now_ms.saturating_sub(self.last_proposed_ms) < self.params.min_round_interval_ms;
+            if round > 0 && early && !full {
+                return; // the next tick retries
+            }
             self.propose(round + 1, now_ms, out);
         }
     }
@@ -563,6 +579,7 @@ impl<A: Authenticator> Validator<A> {
             .insert((round, self.id), (vertex.clone(), signature.clone()));
         self.round = round;
         self.waiting_since = None;
+        self.last_proposed_ms = now_ms;
         // Our own vote counts; with a committee of one that is a quorum.
         let mut votes = BTreeMap::new();
         votes.insert(self.id, signature.clone());

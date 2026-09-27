@@ -122,6 +122,9 @@ pub enum NodeEvent {
     RelayFailure(String),
     /// Kademlia inserted or refreshed a routing table entry.
     RoutingUpdated(PeerId),
+    /// A DAG-BFT frame arrived on the consensus topic. Decoded and verified by
+    /// `consensus::bft::BftDriver`, not here.
+    BftFrame(std::sync::Arc<Vec<u8>>),
     /// A peer subscribed to one of our topics.
     PeerSubscribed {
         /// The subscribing peer.
@@ -241,6 +244,16 @@ impl NodeHandle {
     /// As [`NodeHandle::publish_transaction`].
     pub async fn publish_block(&self, block: &crate::core::Block) -> Result<MessageId> {
         self.publish(blocks_topic(), block.to_bytes()).await
+    }
+
+    /// Publishes a DAG-BFT frame on `/l1/bft/1.0.0`.
+    ///
+    /// # Errors
+    ///
+    /// As [`NodeHandle::publish_transaction`].
+    pub async fn publish_bft(&self, frame: Vec<u8>) -> Result<MessageId> {
+        self.publish(crate::network::topics::bft_topic(), frame)
+            .await
     }
 
     async fn publish(&self, topic: IdentTopic, data: Vec<u8>) -> Result<MessageId> {
