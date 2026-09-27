@@ -443,6 +443,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         sealed: None,
         treasury,
         protocol_upgrades: Vec::new(),
+        bft: None,
     };
 
     config.validate()?;
@@ -816,6 +817,7 @@ fn assemble(args: &Args) -> Result<(), Box<dyn Error>> {
         sealed: None,
         treasury,
         protocol_upgrades: Vec::new(),
+        bft: None,
     };
 
     config.validate()?;

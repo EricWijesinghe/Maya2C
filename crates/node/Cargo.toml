@@ -47,6 +47,8 @@ fips204 = { workspace = true, features = ["default-rng"] }
 # one ciphertext and there is nothing to accumulate. Any new use of HQC in the
 # node must keep that property, or not use HQC.
 maya-crypto-pq = { path = "../crypto-pq" }
+# The DAG-BFT engine (ADR-015, ADR-027). Sans-IO; depends on blake3 alone.
+maya-dag-bft = { path = "../dag-bft" }
 # The AEAD sealing every frame of the post-quantum transport layer. Already in
 # the tree via the wallet keystore, so this adds no new dependency.
 chacha20poly1305.workspace = true

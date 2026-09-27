@@ -91,6 +91,71 @@ pub struct GenesisConfig {
     /// "upgrade required before height H" instead of forking.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub protocol_upgrades: Vec<ProtocolUpgrade>,
+    /// The DAG-BFT committee, on a network ordered by DAG-BFT (ADR-015,
+    /// ADR-027). Absent means proof of work, which is what every genesis file
+    /// written before this field meant; present, it is committed into the
+    /// genesis id (`chain_id_commitment`), so two operators who disagree about
+    /// the committee disagree about block zero rather than at round one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bft: Option<BftGenesis>,
+}
+
+/// The genesis committee of a DAG-BFT network.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BftGenesis {
+    /// Hex ML-DSA-65 verifying keys, in committee order: index `i` here is
+    /// validator id `i` in every vertex and vote. Order is consensus.
+    pub validators: Vec<String>,
+    /// How long a validator waits for a round's anchor before advancing
+    /// without it, in milliseconds. Consensus: it shapes the DAG, so every
+    /// validator must use the same value.
+    #[serde(default = "BftGenesis::default_anchor_timeout_ms")]
+    pub anchor_timeout_ms: u64,
+    /// Most transactions per vertex.
+    #[serde(default = "BftGenesis::default_batch_size")]
+    pub batch_size: usize,
+}
+
+impl BftGenesis {
+    const fn default_anchor_timeout_ms() -> u64 {
+        1_000
+    }
+
+    const fn default_batch_size() -> usize {
+        500
+    }
+
+    /// The decoded committee keys, in order.
+    ///
+    /// # Errors
+    ///
+    /// [`NodeError::Decode`] for an empty committee, a malformed key, or the
+    /// same key twice (one operator holding two votes).
+    pub fn verifying_keys(&self) -> Result<Vec<crate::crypto::keys::VerifyingKey>> {
+        if self.validators.is_empty() {
+            return Err(NodeError::Decode("bft.validators must not be empty".into()));
+        }
+        if self.validators.len() > usize::from(u16::MAX) {
+            return Err(NodeError::Decode("bft.validators exceeds u16".into()));
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        let mut keys = Vec::with_capacity(self.validators.len());
+        for (i, encoded) in self.validators.iter().enumerate() {
+            let bytes = hex::decode(encoded)
+                .map_err(|e| NodeError::Decode(format!("bft.validators[{i}]: {e}")))?;
+            let array: [u8; crate::crypto::keys::PUBLIC_KEY_LEN] = bytes
+                .as_slice()
+                .try_into()
+                .map_err(|_| NodeError::Decode(format!("bft.validators[{i}]: wrong key length")))?;
+            if !seen.insert(array) {
+                return Err(NodeError::Decode(format!(
+                    "bft.validators[{i}] duplicates an earlier key"
+                )));
+            }
+            keys.push(crate::crypto::keys::VerifyingKey::from_bytes(&array)?);
+        }
+        Ok(keys)
+    }
 }
 
 /// The DAO treasury as it is funded at genesis.
@@ -460,10 +525,24 @@ impl GenesisConfig {
     /// the two chains visibly distinct from block zero instead.
     #[must_use]
     pub fn chain_id_commitment(&self) -> [u8; 32] {
-        blake3::derive_key(
+        let chain = blake3::derive_key(
             "custom-l1-node genesis chain id v2",
             self.chain_id.as_bytes(),
-        )
+        );
+        let Some(bft) = &self.bft else {
+            return chain;
+        };
+        // Only when a committee is configured, so every proof-of-work genesis
+        // keeps the id it always had.
+        let mut h = blake3::Hasher::new_derive_key("maya2c genesis bft committee v1");
+        h.update(&chain);
+        h.update(&bft.anchor_timeout_ms.to_le_bytes());
+        h.update(&(bft.batch_size as u64).to_le_bytes());
+        h.update(&(bft.validators.len() as u64).to_le_bytes());
+        for key in &bft.validators {
+            h.update(key.to_ascii_lowercase().as_bytes());
+        }
+        *h.finalize().as_bytes()
     }
 
     /// Builds the genesis block.
