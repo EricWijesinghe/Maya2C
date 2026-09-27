@@ -58,7 +58,7 @@ on evidence. "Partial" means some are.
 | 23 | Safe-by-default contracts | — | Partial | Rules pass in `contract-safety` but are not wired into the VM; no proven templates — `reports/23-contract-safety.md` |
 | 24 | Developer platform | — | Partial | `dev`/fork/replay/debugger not built; developer study needs participants — `reports/24-devx.md` |
 | 25 | Interop without trusted bridges | — | Partial | Beacon light client verifies **real mainnet finality** (505/512 signers) down to a Keccak-checked execution header; 64 real headers chained. Not ZK; intents not run on devnets — `reports/25-interop.md` |
-| 26 | Scale without fragmentation | — | Partial | Multi-machine validator not built; lanes and viral-app sim pass — `reports/26-scale.md` |
+| 26 | Scale without fragmentation | — | **Met** | Split-validator prototype measured (verification in worker processes: ×5.14 at 12 workers, 36,530 tx/s); local fee markets and lanes pass; viral-app sim keeps others within SLO. Caveat: processes on one host, not across a network — `reports/26-scale.md` |
 | 27 | Privacy primitive, compliance | — | Partial | Private contract state not built; shielded pool awaits external audit; no mobile proving — `reports/27-privacy.md` |
 | 28 | Quantum-safe harbor | — | Partial | Exposure tool on real Bitcoin **and** real Ethereum data (200 mainnet accounts; a sender key recovered from its signature; EIP-7702 fix). No PQ vaults on devnets — `reports/28-quantum-harbor.md` |
 | 29 | Wallet, explorer, portal UI | — | Partial | Design system + screenshot diffs in CI; no usability study, no device budgets, wallet e2e never run — `reports/29-interface.md` |
