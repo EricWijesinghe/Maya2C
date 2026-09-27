@@ -37,6 +37,25 @@ impl Procs {
     pub fn push(&mut self, child: Child) {
         self.0.push(child);
     }
+
+    /// Kills child `index` and waits for it; it stays in place until replaced.
+    pub fn kill(&mut self, index: usize) {
+        if let Some(child) = self.0.get_mut(index) {
+            // Already exited is fine; there is nothing else to do on failure.
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+
+    /// Puts `child` in slot `index`, killing whatever was there.
+    pub fn replace(&mut self, index: usize, child: Child) {
+        self.kill(index);
+        if let Some(slot) = self.0.get_mut(index) {
+            *slot = child;
+        } else {
+            self.0.push(child);
+        }
+    }
 }
 
 impl Drop for Procs {

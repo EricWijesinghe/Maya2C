@@ -208,6 +208,38 @@ jobs:
         run: bash scripts/lint_debt.sh --check
 
   # ---------------------------------------------------------------------
+  # The deployment rehearsed on one runner: four maya2c-node validators as
+  # processes over libp2p, a transfer, one validator killed and restarted.
+  # Nightly, not per pull request: it builds release-shaped binaries and runs
+  # them for real, which is the point and also the cost.
+  # ---------------------------------------------------------------------
+  localnet:
+    name: four-validator localnet
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free runner disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev llvm-dev libssl-dev pkg-config mold
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-15
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: localnet
+      - name: Localnet
+        run: cargo xtask localnet
+      - name: Node logs on failure
+        if: failure()
+        run: tail -n 60 target/localnet/v*/node.log
+
+  # ---------------------------------------------------------------------
   # Performance regression gate (Master Prompt 12 §5). A 5 % threshold is
   # below the run-to-run noise of a shared GitHub runner, so this job runs
   # only on a fixed-spec self-hosted runner named by the repository variable
