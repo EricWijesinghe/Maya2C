@@ -41,7 +41,7 @@ on evidence. "Partial" means some are.
 | 06 | DeFi, finance, identity, physical | — | Partial | CBDC vault with ZK-KYC, dark pool (commit-reveal, 1,000 orders 0.83 ms), US/UK/DE tax and the 500-transaction compliance test built; MPC dark pool, lock/mint bridge, energy parsers, NDVI oracle, PoP biometrics not built — `reports/06-finance.md` |
 | 07 | Networking, transports, time | — | **Met**, eBPF load skipped with a stated reason | XDP load needs `CAP_NET_ADMIN`; runs in `ebpf-net.yml` — `reports/07-network.md` |
 | 08 | Security, formal verification | — | **Met** (report complete; invariants proven or listed open) | Line coverage not measured (no llvm-cov); Kani not run this session — `reports/08-security.md` |
-| 09 | Governance, wallets, explorer, SDKs | — | Partial | SDK e2e against a node not built; wallet GUI WebDriver suite never run — `reports/09-product.md` |
+| 09 | Governance, wallets, explorer, SDKs | — | Partial | SDK e2e **met for TypeScript** against a live node (found 2 gateway bugs); Go/Python SDKs are placeholders; wallet GUI WebDriver suite never run — `reports/09-product.md` |
 | 10 | Infrastructure, release, genesis | — | **Met** | `deploy-production.sh --target local-k3d` end to end on real k3d, 12/12 Ready and answering RPC (2026-09-27) — `reports/10-launch.md` §0 |
 | 11 | Production baseline, scope freeze | — | **Met** | Full run 2,626 passed / 0 failed; gap register, release check — `reports/11-reality-audit.md`, `reports/11-gap-register.md` |
 | 12 | Execution performance | — | Partial | Verify-once cache built and parallel verification added (block building 10.6 → 6.8 s); regression gate not live (no dedicated runner); pipelining and PGO not done — `reports/04-consensus.md` §6, `reports/12-performance.md` |
