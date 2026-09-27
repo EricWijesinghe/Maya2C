@@ -1,6 +1,8 @@
 //! The `maya2c` developer CLI (Master Prompt 24): the pieces that are worth
 //! testing without a terminal.
 
+pub mod custody_report;
+pub mod dap;
 pub mod debug;
 pub mod dev;
 pub mod fork;
@@ -34,4 +36,53 @@ pub fn record(
         Err(error) => (None, format!("failed: {error}")),
     };
     Ok((debug::Session::new(timeline, gas, outcome), state))
+}
+
+/// What a debug session runs: the call and the chain context it sees.
+pub struct CallSpec {
+    /// The contract's wasm.
+    pub wasm: Vec<u8>,
+    /// Call input.
+    pub input: Vec<u8>,
+    /// The signer the contract sees.
+    pub caller: Option<[u8; 32]>,
+    /// Block height the contract sees.
+    pub height: u64,
+    /// Gas limit.
+    pub gas: u64,
+}
+
+/// The contract id every debug session runs under.
+pub const DEBUG_CONTRACT: ContractId = [0xDB; 32];
+
+/// Parses a hex argument, `0x` optional.
+///
+/// # Errors
+///
+/// Not hex.
+pub fn parse_hex(what: &str, text: &str) -> anyhow::Result<Vec<u8>> {
+    hex::decode(text.trim_start_matches("0x"))
+        .map_err(|e| anyhow::anyhow!("{what} is not hex: {e}"))
+}
+
+/// Parses a 32-byte hex caller.
+///
+/// # Errors
+///
+/// Not hex, or not 32 bytes.
+pub fn parse_caller(text: &str) -> anyhow::Result<[u8; 32]> {
+    parse_hex("caller", text)?
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("caller must be 32 bytes"))
+}
+
+/// Records `spec` under [`DEBUG_CONTRACT`].
+///
+/// # Errors
+///
+/// As [`record`].
+pub fn record_spec(spec: &CallSpec) -> anyhow::Result<debug::Session> {
+    let mut state = MemoryState::at_height(spec.height);
+    state.caller = spec.caller;
+    Ok(record(&spec.wasm, DEBUG_CONTRACT, &spec.input, spec.gas, state)?.0)
 }

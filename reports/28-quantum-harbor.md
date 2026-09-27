@@ -72,9 +72,8 @@ test a_million_accounts_migrate_without_downtime ... ok
 
 ## Not done
 
-- Long-horizon custody configurations (archival SLH-DSA seals, scheduled
-  re-sealing).
-- Custodian reporting.
+- The node's archive task does not seal what it writes yet, so re-sealing
+  (below) runs on archives an operator seals, not automatically.
 - Publishing the crypto-agility crates for others' use. Licensing and
   publishing need a decision and "APPROVED: publish".
 
@@ -156,6 +155,45 @@ breaker can halt vault configuration, requests and execution, but never a
 cancel. Details and remaining limits: ADR-030.
 
 **Not built:** bridging outside assets into a vault (no Master Prompt 25
-route exists for BTC or ETH), SLH-DSA archival re-sealing schedules, and
-custodian compliance reports.
+route exists for BTC or ETH).
+
+## Long-horizon custody: re-sealing and custodian statements (added 2026-09-28)
+
+**Re-sealing** (`crates/archive/src/reseal.rs`, `docs/resealing.md`
+Procedure A). A re-seal wraps an archive's existing evidence under a
+successor suite instead of replacing it, so an archive sealed under
+SLH-DSA-SHAKE-256f, re-sealed under SLH-DSA-SHA2 and again under ML-DSA-87
+carries all three. A verifier checks the layers it trusts and skips the
+rest; a trusted layer that fails, or a layer over a different root, fails
+the check. Evidence has exactly one encoding (bytes padded inside a layer
+are refused), and layers stop at 16, on write as on read. The schedule is the agility policy governance already keeps: an
+archive is due once its outermost suite is deprecated, overdue at sunset,
+and a successor that is not itself active is refused.
+
+```
+$ cargo test -p maya-archive --test reseal_tests
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.92s
+```
+
+**Custodian statements** (`maya2c custody-report`,
+`bins/maya2c-cli/src/custody_report.rs`). For each account over a height
+range: the opening balance, every block that moved it, the closing balance
+and the vault policy. It reconciles or fails, so a missing block is an
+error, not a gap. It is anchored to the block ids at both ends and printed
+with a SHA-256 of its canonical JSON, so an auditor who runs it against
+their own node gets the same digest; CSV output is available. It is a read
+of the chain, not an attestation. Every read happens between two reads of
+the block id at `to`; if they differ, the chain reorganised and the report
+fails. Addresses and block ids must be 32 bytes of lowercase hex before they
+reach the CSV. The range is bounded by what the node
+keeps (`PRUNE_DEPTH` and its balance-rewind bound).
+
+Against the vault devnet run (a stolen-key request cancelled, a delayed
+withdrawal executed):
+
+```
+$ cargo test -p maya2c-cli --test vault_devnet_tests -- --nocapture
+custody report 1..=12: 3 + 1 movements, sha256 794c5912dce15c49f64e95d3465d751b5953bba5164fcc507b20cb1daf26c4dd
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 31.21s
+```
 

@@ -210,4 +210,33 @@ async fn a_vault_on_a_devnet_delays_cancels_and_pays() {
     assert!(shown["requests"].as_array().unwrap().is_empty());
     assert_eq!(shown["open_requests"], 0);
     println!("vault on a devnet: {shown}");
+
+    // The custodian's statement over the whole run reconciles for both sides,
+    // and shows the thief's cancelled attempt as escrow out and back.
+    let tip = height(client).await;
+    let (owner_hex, bob_hex) = (hex::encode(owner_addr), hex::encode(bob));
+    let report = maya2c_cli::custody_report::fetch(&url, &[owner_hex, bob_hex], 1, tip)
+        .await
+        .unwrap();
+    let (owner_s, bob_s) = (&report.accounts[0], &report.accounts[1]);
+    assert_eq!(owner_s.closing, balance(client, owner_addr).await);
+    assert!(
+        owner_s.vault.is_object(),
+        "the owner's vault policy is in the statement"
+    );
+    assert_eq!((bob_s.opening, bob_s.closing), (0, 5_000));
+    assert!(
+        owner_s
+            .movements
+            .iter()
+            .any(|m| m.before - m.after >= 900_000_000),
+        "the stolen-key request's escrow is a recorded movement"
+    );
+    println!(
+        "custody report {}..={tip}: {} + {} movements, sha256 {}",
+        report.from,
+        owner_s.movements.len(),
+        bob_s.movements.len(),
+        report.digest().unwrap()
+    );
 }

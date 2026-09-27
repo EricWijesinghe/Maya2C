@@ -42,10 +42,17 @@ Content addresses are still sound; only SLH-DSA-SHAKE-256f is in doubt.
    published out of band exactly as the first one was. Do not certify it
    from the old chain. Once the old algorithm is in doubt, a certificate it
    signed is worth no more than the old algorithm.
-3. **Re-seal every archive root.** The new seal signs
-   `domain_v2 ‖ epoch' ‖ root CID ‖ old seal bytes`, which binds the new
-   attestation to the old one rather than standing beside it. The old seal
-   stays in place.
+3. **Re-seal every archive root.** Implemented in
+   `crates/archive/src/reseal.rs`: a re-seal signs
+   `"maya2c archive reseal v1" ‖ suite byte ‖ root ‖ encoded old evidence`
+   (lengths prefixed), which binds the new attestation to the old one rather
+   than standing beside it. The old evidence stays inside the new, so layers
+   nest across generations. `reseal::schedule` says when: an archive is due
+   once governance deprecates its outermost layer's suite
+   (`maya_crypto_pq::agility`), overdue at sunset, and `reseal_if_due`
+   refuses a successor that is not itself active. The successor key is a
+   single published key, not an evolving chain: forward security covers the
+   original SLH-DSA layer only.
 4. **Publish both chains' transitions** alongside the archives. A verifier
    checks the newest seal it trusts and may also check the older ones.
 5. **Record the cut-over epoch** in the archive index. From that point,

@@ -1,0 +1,43 @@
+{
+  "name": "maya2c-debug",
+  "displayName": "Maya2C contract debugger",
+  "description": "Step Maya2C Wasm contract calls forward and backward over their recorded host calls (maya2c dap).",
+  "version": "0.1.0",
+  "publisher": "maya2c",
+  "private": true,
+  "license": "Apache-2.0",
+  "engines": { "vscode": "^1.80.0" },
+  "categories": ["Debuggers"],
+  "contributes": {
+    "breakpoints": [],
+    "debuggers": [
+      {
+        "type": "maya2c",
+        "label": "Maya2C contract",
+        "program": "maya2c",
+        "args": ["dap"],
+        "configurationAttributes": {
+          "launch": {
+            "required": ["program"],
+            "properties": {
+              "program": { "type": "string", "description": "The contract's .wasm." },
+              "input": { "type": "string", "description": "Call input, hex.", "default": "" },
+              "caller": { "type": "string", "description": "The signer the contract sees, 32 bytes hex." },
+              "height": { "type": "number", "description": "Block height the contract sees.", "default": 1 },
+              "gas": { "type": "number", "description": "Gas limit.", "default": 10000000 }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "maya2c",
+            "request": "launch",
+            "name": "Debug a contract call",
+            "program": "${workspaceFolder}/target/wasm32-unknown-unknown/release/contract.wasm",
+            "input": ""
+          }
+        ]
+      }
+    ]
+  }
+}

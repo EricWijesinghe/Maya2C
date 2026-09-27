@@ -6,6 +6,8 @@
 //! maya2c fork   --from URL --genesis FILE [--rpc-port P] [--snapshot-depth N]
 //! maya2c debug <contract.wasm> [--input HEX] [--caller HEX] [--height N]
 //!              [--gas N] [--script "n;n;s;b;e"]
+//! maya2c dap                 # Debug Adapter Protocol on stdio, for editors
+//! maya2c custody-report <ADDR>... --from H --to H [--csv]
 //! ```
 
 use std::io::{BufRead as _, Write as _};
@@ -13,10 +15,7 @@ use std::path::PathBuf;
 
 use anyhow::Context as _;
 use clap::{Parser, Subcommand};
-use maya_vm::host::MemoryState;
-
-/// The contract id a debugged call runs as; storage is keyed by it.
-const DEBUG_CONTRACT: [u8; 32] = [0xDB; 32];
+use maya2c_cli::CallSpec;
 
 #[derive(Parser)]
 #[command(name = "maya2c", version, about = "Maya2C developer CLI")]
@@ -35,6 +34,28 @@ enum Command {
         #[arg(long, default_value = "http://127.0.0.1:8545")]
         rpc: String,
     },
+    /// A custodian's statement: every balance movement of the given accounts
+    /// over a height range, reconciled, anchored to block ids and digested.
+    CustodyReport {
+        /// Accounts, hex.
+        #[arg(required = true)]
+        addresses: Vec<String>,
+        /// First block covered (at least 1).
+        #[arg(long)]
+        from: u64,
+        /// Last block covered.
+        #[arg(long)]
+        to: u64,
+        /// Emit CSV movements instead of the JSON statement.
+        #[arg(long)]
+        csv: bool,
+        /// Node JSON-RPC.
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc: String,
+    },
+    /// Serve the Debug Adapter Protocol on stdin/stdout, so an editor (the
+    /// VS Code extension in `editors/vscode`) drives the time-travel debugger.
+    Dap,
     /// Re-execute a block of another network locally; succeeds only if the
     /// state root it declares is reproduced.
     Replay {
@@ -123,17 +144,14 @@ fn debug(
     gas: u64,
     script: Option<&str>,
 ) -> anyhow::Result<()> {
-    let bytes = std::fs::read(wasm).with_context(|| format!("reading {}", wasm.display()))?;
-    let input = hex::decode(input.trim_start_matches("0x")).context("--input is not hex")?;
-    let mut state = MemoryState::at_height(height);
-    if let Some(c) = caller {
-        let raw = hex::decode(c.trim_start_matches("0x")).context("--caller is not hex")?;
-        state.caller = Some(
-            raw.try_into()
-                .map_err(|_| anyhow::anyhow!("--caller must be 32 bytes"))?,
-        );
-    }
-    let (mut session, _) = maya2c_cli::record(&bytes, DEBUG_CONTRACT, &input, gas, state)?;
+    let spec = CallSpec {
+        wasm: std::fs::read(wasm).with_context(|| format!("reading {}", wasm.display()))?,
+        input: maya2c_cli::parse_hex("--input", input)?,
+        caller: caller.map(maya2c_cli::parse_caller).transpose()?,
+        height,
+        gas,
+    };
+    let mut session = maya2c_cli::record_spec(&spec)?;
     println!("{}", session.command("list").unwrap_or_default());
     if let Some(script) = script {
         for line in script.split(';') {
@@ -200,8 +218,34 @@ async fn vault(rpc: &str, address: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn custody_report(
+    rpc: &str,
+    addresses: &[String],
+    from: u64,
+    to: u64,
+    csv: bool,
+) -> anyhow::Result<()> {
+    let report = maya2c_cli::custody_report::fetch(rpc, addresses, from, to).await?;
+    if csv {
+        print!("{}", report.csv());
+    } else {
+        println!("{}", String::from_utf8(report.canonical()?)?);
+    }
+    eprintln!("sha256 {}", report.digest()?);
+    Ok(())
+}
+
 fn main() -> anyhow::Result<()> {
     match Cli::parse().command {
+        Command::Dap => maya2c_cli::dap::serve(std::io::stdin().lock(), std::io::stdout().lock()),
+        Command::CustodyReport {
+            addresses,
+            from,
+            to,
+            csv,
+            rpc,
+        } => tokio::runtime::Runtime::new()?
+            .block_on(custody_report(&rpc, &addresses, from, to, csv)),
         Command::Vault { address, rpc } => {
             tokio::runtime::Runtime::new()?.block_on(vault(&rpc, &address))
         }
