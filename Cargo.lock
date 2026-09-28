@@ -5829,6 +5829,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-bci-sim"
+version = "0.1.0"
+dependencies = [
+ "maya-personhood",
+ "rand_chacha 0.3.1",
+ "rand_core 0.6.4",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "maya-blockgraph"
 version = "0.1.0"
 

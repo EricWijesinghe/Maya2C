@@ -2337,6 +2337,17 @@ tests = ["crates/btc-bridge/tests/bridge_tests.rs"]
 note = "Master Prompts 6 §3 and 25. Native transaction parsing checked on real block 900,000 (txids and the 1,562-leaf Merkle root). Mint once at depth 6; the six-block reorg test credits nothing reversed. Releases need the lock key's custody. Not wired into the node."
 
 [[subsystem]]
+id = "eeg-bci-authentication-sim"
+name = "EEG/BCI authentication simulator: EDF parser, spectral template, SSVEP liveness, 3 s proofs"
+domain = "Identity"
+paths = "`hal/bci-sim`"
+tier = "frontier"
+class = "SIM"
+status = "working"
+tests = ["hal/bci-sim/tests/bci_tests.rs"]
+note = "Master Prompt 6 §7. Synthetic EEG only, declared in every EDF header written. Template bits differ ~4.6% between sessions of one simulated subject and ~49% between subjects. Replayed recordings fail the stimulus check, which runs on the device (no TEE). Never run on human EEG."
+
+[[subsystem]]
 id = "energy-protocols-markets"
 name = "Energy protocols and markets: Modbus/TCP, IEC 61850 GOOSE, IEEE 1547 trip rules, Δf pricing, green certificates"
 domain = "AI and hardware integration"
@@ -2573,12 +2584,12 @@ tests = ["crate:maya-ledger-math", "crates/node/tests/rwa_tests.rs"]
 id = "zk-dark-pools"
 name = "Dark pools cleared by secret-shared computation (MPC); per-order ZK proofs planned"
 domain = "Security and macro engines"
-paths = "`crates/permissioned-finance/src/mpc_darkpool.rs`"
+paths = "`crates/permissioned-finance/src/mpc_darkpool.rs`, `crates/permissioned-finance/src/mpc_spdz.rs`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["crates/permissioned-finance/tests/mpc_darkpool_tests.rs"]
-note = "Master Prompt 6 §4. Additive shares mod 2^64 over a 256-tick grid: servers see aggregate curves only, and the price matches the open auction's at 2-1,000 orders. Semi-honest: no share MACs and no per-order proof, so a malformed share or inflated fill is not caught. The aggregate reveals a lone trader's order."
+tests = ["crates/permissioned-finance/tests/mpc_darkpool_tests.rs", "crates/permissioned-finance/tests/mpc_spdz_tests.rs"]
+note = "Master Prompt 6 §4. Additive shares mod 2^64 over a 256-tick grid: servers see aggregate curves only, and the price matches the open auction's at 2-1,000 orders. `mpc_spdz` adds SPDZ-style MACs over F_(2^61-1): a server that alters its shares is caught (probability 1 - 1/p), opening is commit-then-reveal enforced by the API. Trusted dealer (no OT/HE offline phase); traders still trusted for well-formed orders (no per-order proof). The aggregate reveals a lone trader's order."
 
 [[subsystem]]
 id = "relativistic-gravitational-clock-synchronisation"
