@@ -26,7 +26,7 @@
 //!
 //! | Target | Generated | Compiled and tested |
 //! |---|---|---|
-//! | Python | yes | **yes** — `sdks/sdk-ffi/tests/python/` |
+//! | Python | yes | **yes** — `sdks/sdk-ffi/bindings/python/test_bindings.py` |
 //! | Kotlin | yes | no — no `kotlinc` on the build host |
 //! | Swift | yes | no — no Swift toolchain on the build host |
 //!

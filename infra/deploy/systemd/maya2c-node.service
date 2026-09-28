@@ -9,9 +9,17 @@
 
 [Unit]
 Description=Maya2C node
-Documentation=https://github.com/maya2c/maya2c
+Documentation=https://github.com/EricWijesinghe/Maya2C
 After=network-online.target
 Wants=network-online.target
+
+# So a permanent failure surfaces as a failed unit instead of an infinite
+# restart loop that looks like it is doing something. Six starts in five
+# minutes, then stop and stay stopped. These are [Unit] keys: in [Service],
+# where they used to be, systemd-analyze reports "Unknown key name" and
+# ignores them, so the limit silently never applied.
+StartLimitIntervalSec=300
+StartLimitBurst=6
 
 [Service]
 Type=simple
@@ -29,12 +37,6 @@ ExecStart=/usr/local/bin/node \
 # immediately, every time.
 Restart=on-failure
 RestartSec=5s
-
-# So a permanent failure surfaces as a failed unit instead of an infinite
-# restart loop that looks like it is doing something. Six starts in five
-# minutes, then stop and stay stopped.
-StartLimitIntervalSec=300
-StartLimitBurst=6
 
 # Replaying blocks after an unclean shutdown takes minutes on a large chain.
 # systemd's 90-second default would SIGKILL it partway through and leave the
