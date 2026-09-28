@@ -12,15 +12,16 @@ const reference = JSON.parse(
 );
 
 export default defineConfig({
-  site: "https://docs.maya2c.example",
+  site: "https://maya2c.dev",
   integrations: [
     starlight({
       title: "Maya2C",
+      favicon: "/favicon.ico",
       description:
         "Post-quantum layer-1 blockchain. Hybrid ML-DSA + SLH-DSA signatures, " +
         "proof of work, shielded transfers.",
       social: [
-        { icon: "github", label: "GitHub", href: "https://github.com/maya2c/maya2c" },
+        { icon: "github", label: "GitHub", href: "https://github.com/EricWijesinghe/Maya2C" },
       ],
       sidebar: [
         {

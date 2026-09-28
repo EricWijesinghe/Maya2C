@@ -1,0 +1,55 @@
+# Publishes docs/site (the Astro site) to GitHub Pages at https://maya2c.dev.
+#
+# GitHub Pages rather than a separate host: the repository is public, so Pages
+# is free and needs no second account holding a deploy credential. The custom
+# domain comes from docs/site/public/CNAME; DNS for maya2c.dev points at
+# GitHub's Pages addresses.
+#
+# Runs on changes to the site or to docs/, because ingest.mjs copies docs/*.md
+# into the site: a docs edit that never redeploys is a stale site nobody notices.
+name: site
+
+on:
+  push:
+    branches: [master]
+    paths: ["docs/**", ".github/workflows/site.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; a newer push supersedes a queued one.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docs/site
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: docs/site/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/site/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

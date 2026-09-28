@@ -1,0 +1,51 @@
+---
+title: Maya2C
+description: A post-quantum layer-1 blockchain node, in Rust. Hybrid ML-DSA + SLH-DSA signatures on every transaction.
+template: splash
+hero:
+  tagline: A post-quantum layer-1 blockchain node, in Rust.
+  image:
+    file: ../../assets/logo.png
+  actions:
+    - text: Read the docs
+      link: /guides/api/
+      icon: right-arrow
+    - text: Source on GitHub
+      link: https://github.com/EricWijesinghe/Maya2C
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+{/* Copied to src/content/docs/index.mdx by scripts/ingest.mjs. Edit this file. */}
+
+<CardGrid>
+  <Card title="Two signatures per transaction" icon="seti:lock">
+    ML-DSA-65 (FIPS 204) and SLH-DSA-SHA2-128s (FIPS 205), and both must
+    verify. 11,165 bytes per transaction: the price of not betting the chain on
+    one lattice assumption.
+  </Card>
+  <Card title="Post-quantum transport" icon="rocket">
+    libp2p with an ML-KEM-768 layer over Noise, and an optional HQC-192 second
+    KEM behind a flag.
+  </Card>
+  <Card title="Rust, end to end" icon="seti:rust">
+    Node, wallet, explorer, miners and contract VM in one Rust workspace.
+    Ledger arithmetic is kept dependency-free so Kani can check it.
+  </Card>
+  <Card title="Honest status" icon="information">
+    Every subsystem is labelled working, verified, simulated or research in a
+    machine-checked ledger. A claim without a test fails CI.
+  </Card>
+</CardGrid>
+
+## Where it stands
+
+| | Status |
+|---|---|
+| Public testnet | **Not live yet.** Being prepared. |
+| Mainnet | **Deliberately blocked** until the shielded-pool circuit has an independent audit. See [mainnet readiness](/reference/mainnet-readiness/). |
+| Source | Public, on GitHub. |
+
+Nothing on this site is an offer of a token, and no token is for sale.
