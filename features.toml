@@ -2326,6 +2326,17 @@ tests = ["crates/personhood/tests/personhood_tests.rs"]
 note = "Master Prompt 6 §7. 100,000 verifications in 54.5 s (release) with 3 false rejects at 5% bit noise, each met by a rescan; impostor templates never match. Synthetic templates: no iris extractor, no liveness (no TEE attestation, invariant 11), no uniqueness check across enrollments."
 
 [[subsystem]]
+id = "btc-lock-mint-bridge"
+name = "Bitcoin lock/mint and burn/release over the SPV header chain"
+domain = "Interoperability"
+paths = "`crates/btc-bridge`, `docs/crosschain.md`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crates/btc-bridge/tests/bridge_tests.rs"]
+note = "Master Prompts 6 §3 and 25. Native transaction parsing checked on real block 900,000 (txids and the 1,562-leaf Merkle root). Mint once at depth 6; the six-block reorg test credits nothing reversed. Releases need the lock key's custody. Not wired into the node."
+
+[[subsystem]]
 id = "energy-protocols-markets"
 name = "Energy protocols and markets: Modbus/TCP, IEC 61850 GOOSE, IEEE 1547 trip rules, Δf pricing, green certificates"
 domain = "AI and hardware integration"

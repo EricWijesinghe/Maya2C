@@ -136,6 +136,12 @@ impl HeaderChain {
         self.tip
     }
 
+    /// A header this chain holds, on the best chain or a side branch; a
+    /// caller checks [`HeaderChain::confirmations`] before trusting it.
+    pub fn header(&self, hash: &BlockHash) -> Option<&Header> {
+        self.entries.get(hash).map(|e| &e.header)
+    }
+
     /// Best tip height.
     pub fn height(&self) -> u32 {
         self.entries.get(&self.tip).map_or(0, |e| e.height)

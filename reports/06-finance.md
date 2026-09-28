@@ -13,7 +13,7 @@ and registered invariant hooks; this report is complete.*
 |---|---|---|---|---|
 | DEX / AMM + batch auctions (§1) | `dex_tests.rs` 27 ✓, `crates/dex/tests/*` | yes | yes (AMM reserves, invariants 6–7) | met |
 | Payment channels "Maya Flash" (§2) | `channel_tests.rs` 26 ✓, `scale_tests.rs` 4 ✓ (1 ignored: 20k signatures, ~1 h) | yes | yes (channel layer under the state root) | met; machine barter / 10k IoT devices not built |
-| Cross-chain (§3) | **new** `crates/btc-spv` 9 ✓; `interop::beacon` (Ethereum sync-committee light client, verified on a real mainnet fixture — `reports/25-interop.md`) | yes | n/a (not on chain) | partial: Bitcoin SPV with 6-block reorg test and an Ethereum light client; lock/mint not built |
+| Cross-chain (§3) | **new** `crates/btc-spv` 9 ✓; `interop::beacon` (Ethereum sync-committee light client, verified on a real mainnet fixture — `reports/25-interop.md`) | yes | n/a (not on chain) | Bitcoin SPV, **Bitcoin lock/mint and burn/release** (`crates/btc-bridge`, §8 below) and an Ethereum light client; no Ethereum asset route |
 | ISO 20022 (§4) | `iso20022_tests.rs` 20 ✓ | yes | n/a (bridge) | met for parsing/generation; types hand-written, not generated from XSDs |
 | RWA (§4) | `rwa_tests.rs` 11 ✓ | yes | yes | `ten_thousand_dividends_settle_in_one_block` (the brief's number) and DvP present |
 | CBDC / dark pool (§4) | **new** `crates/permissioned-finance`: `vault_tests.rs` 3 ✓, `compliance_tests.rs` 4 ✓ | yes (new, RESEARCH) | n/a (not on chain) | built — §4 below; the MPC form of the dark pool is not |
@@ -231,3 +231,41 @@ A security review found three problems, now fixed and tested:
 proof, so a trader who shares a malformed curve or claims an inflated fill
 is not caught. Settlement on chain would reveal fills unless it goes through
 the shielded pool, which is not connected.
+
+## 8. Bitcoin lock/mint and burn/release (new, RESEARCH) — 2026-09-28
+
+`crates/btc-bridge`, over `btc-spv`'s header chain. Trust table and depth
+policy: [docs/crosschain.md](../docs/crosschain.md).
+
+- **Native validation of external transactions.** Transactions are parsed
+  here, legacy and segwit, and txids computed from the non-witness
+  serialization. Checked on real mainnet block 900,000 (fetched from
+  mempool.space, committed as a fixture): the header hashes to the block's
+  id, all 1,562 txids rebuild its Merkle root, and two segwit transactions
+  and one legacy transaction parse to their published txids.
+- **Lock → mint.** A deposit mints only when its block has at least 6
+  confirmations on the most-work chain and a Merkle proof places the
+  computed txid under that block's root. It must pay the lock script and
+  name exactly one recipient, and each Bitcoin transaction is used once.
+- **The brief's six-block reorg.** A deposit five deep is refused. An
+  attacker's six-block fork takes it off the best chain, and it is still
+  refused. When the honest chain returns, it mints. Nothing is credited
+  against a reversed deposit.
+- **Burn → release.** A burn opens a release that closes only on a proven
+  Bitcoin payment of at least the amount to the named script. The books
+  satisfy `supply + owed = locked` after every step.
+
+```
+$ cargo test -p maya-btc-bridge
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+```
+
+An adversarial audit found:
+- **CRITICAL:** a release could name the lock script, so one Bitcoin
+  transaction both minted and closed a release, creating unbacked wrapped
+  BTC;
+- **HIGH:** with two `OP_RETURN` recipients, the first one won;
+- **MEDIUM:** one transaction could be a deposit and a payout at once.
+
+All three are fixed, and each has a regression test. **Releases still need
+whoever holds the lock key**, because Bitcoin cannot check this chain.
