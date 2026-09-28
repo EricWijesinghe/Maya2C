@@ -18,6 +18,7 @@ mod coverage;
 mod devnet;
 mod disk;
 mod eco_metrics;
+mod evidence;
 mod go_no_go;
 mod guides_check;
 mod localnet;
@@ -28,6 +29,8 @@ mod release_check;
 mod sdk_e2e;
 mod slo_check;
 mod spec_coverage;
+mod status;
+mod sweep;
 
 use std::process::ExitCode;
 
@@ -56,6 +59,8 @@ fn main() -> ExitCode {
         "guides-check" => guides_check::run(rest),
         "pgo" => pgo::run(rest),
         "localnet" => localnet::localnet(),
+        "status" => status::run(rest),
+        "sweep" => sweep::run(rest),
         "help" | "--help" | "-h" => {
             usage();
             return ExitCode::SUCCESS;
@@ -114,7 +119,14 @@ cargo xtask <command>
                         baseline vs PGO build, medians of --runs runs.
   localnet              Four maya2c-node validators as processes over
                         libp2p on 127.0.0.1: one chain, a transfer on all,
-                        liveness with one killed, and its catch-up."
+                        liveness with one killed, and its catch-up.
+  status [--live]       Where the project stands, from evidence on disk: the
+                        last sweep, the gap register, the ledger, STATE.md's
+                        milestone and next tasks. Builds nothing unless --live.
+  sweep [--clean] [STEP...]
+                        Run every gate in order (fmt, unsafe, build, clippy,
+                        nextest, ledger, spec, readiness, lint-debt,
+                        doc-coverage, deny) and record reports/sweeps/."
     );
 }
 

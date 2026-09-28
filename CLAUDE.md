@@ -17,7 +17,7 @@ places that must agree:
 
 | Question | Read |
 |---|---|
-| What does this tree contain, and does it work? | `features.toml` — 164 register entries + 143 subsystems, gated by `cargo xtask coverage` |
+| What does this tree contain, and does it work? | `features.toml` — 164 register entries + 147 subsystems, gated by `cargo xtask coverage` |
 | Why is each subsystem the way it is? | [docs/architecture-vision.md](docs/architecture-vision.md) — the authority for status |
 | What is the build order? | [docs/trajectory.md](docs/trajectory.md) (a *plan*) and [PROGRESS.md](PROGRESS.md) (what is done) |
 
@@ -149,7 +149,7 @@ What each one is for, and why it is a separate crate:
 
 ## Tiers, classes and the reality ledger
 
-`features.toml` is the machine-readable answer to "does this work": 164 register entries and 143 subsystems;
+`features.toml` is the machine-readable answer to "does this work": 164 register entries and 147 subsystems;
 `cargo xtask coverage` prints them and **fails** when one claims `working` or
 `verified` without naming a test that exists. Schema and rationale:
 [ADR-004](docs/adr/ADR-004-reality-ledger.md).
@@ -171,7 +171,7 @@ consensus).
 
 **Status** — `planned` / `stub` / `working` / `verified`.
 
-Subsystems now: 61 verified, 62 working, 20 planned; 54 core, 66 extended, 23 frontier.
+Subsystems now (2026-09-28): 61 verified, 66 working, 20 planned; 54 core, 67 extended, 26 frontier.
 
 ## Roadmap Status
 
@@ -309,7 +309,110 @@ the chain, all of it about the cost of working on it.
 
 ## How to Resume
 
+Follow "Start of session" in the Operating Protocol below. The older
+checklist it replaces, still useful for detail:
+
 1. `cargo xtask coverage` — the ledger, and whether every claim is still backed.
 2. `cargo xtask disk` — artifact size, before starting anything long.
 3. `reports/01-foundation.md` — the last measured build and test numbers.
 4. [PROGRESS.md](PROGRESS.md) — the first unticked box.
+
+## Operating Protocol
+
+Adopted 2026-09-28. Mission and milestones: [docs/MISSION.md](docs/MISSION.md),
+[docs/EMPIRE.md](docs/EMPIRE.md). It adds to the Standing Orders above; where
+they overlap, the stricter rule wins.
+
+### Session protocol (every session)
+
+**Start of session**, before anything else:
+1. Read [STATE.md](STATE.md), [PROGRESS.md](PROGRESS.md) and the newest file in `reports/`.
+2. Run `cargo xtask status`: last sweep's build and test results, open
+   gaps, current milestone, top three next tasks. It builds nothing;
+   `--live` adds a `cargo check`.
+3. Say in one short paragraph where the project stands, what this session
+   will do, and why that is the highest-value work.
+4. If the plan differs from STATE.md's "Do next", say why.
+
+**During:** small steps — change → `cargo check` → tests → commit with a
+clear message → tick PROGRESS.md. Never leave the tree unbuildable at the
+end of a step. Work bigger than the session goes into
+[BACKLOG.md](BACKLOG.md), not into a start.
+
+**Parallel sessions:** one git worktree per session (`git worktree add`),
+never two sessions in one checkout, and message the other session before
+a long build (RISKS.md R11).
+
+**End of session**, non-negotiable, even when context is running out:
+update STATE.md; append decisions to [DECISIONS.md](DECISIONS.md) (a big one
+gets an ADR); write `reports/sessions/<date>-<topic>.md` with real command
+output; commit; then the three-line handover at the top of STATE.md (done /
+unfinished / exactly what to do first). If context is nearly exhausted,
+stop early and do this properly.
+
+### Choosing what to do next
+
+Never work on a lower band while a higher one has open items:
+
+| Band | What |
+|---|---|
+| P0 | Build broken, a previously passing test fails, or CI red |
+| P1 | A P0 row in `reports/11-gap-register.md` that is real work (reviewed guards are listed in DECISIONS.md) |
+| P2 | Making a claimed-working feature verified: tests, evidence, reports |
+| P3 | The current milestone's remaining work (EMPIRE.md) |
+| P4 | Adoption-critical: accounts, safe contracts, developer platform, wallet and explorer UX (MP 22, 23, 24, 29) |
+| P5 | Differentiators: PQ weight, interop, privacy, quantum harbor (MP 13, 25, 27, 28) |
+| P6 | Deferred and frontier modules — untouched until their milestone |
+
+Tie-breakers, in order: unblocks the most other work; reduces the biggest
+risk; what a developer or user would notice first.
+
+**Forbidden without Eric's explicit instruction:** starting a new frontier
+or research module; rewriting a working subsystem for elegance; adding a
+dependency to a core crate; expanding scope beyond
+[ADR-016](docs/adr/ADR-016-launch-scope.md).
+
+### Proof discipline
+
+1. **Done** means: code + tests that fail when the feature is broken + real
+   command output in `reports/` + `features.toml` updated + docs updated +
+   committed. Anything less is "in progress".
+2. **Self-audit.** Before any DONE WHEN claim, re-run its checks and paste
+   the output. Clean rebuilds (`cargo xtask sweep --clean`) are for sweeps;
+   a single claim uses a fresh run of its affected checks (DECISIONS.md,
+   2026-09-28). A check that cannot run is written "NOT VERIFIED: <reason>".
+   Never infer a result.
+3. **Red team.** For every finished feature, try to break it — input,
+   ordering, failure, attacker. Add the best attempt as a test and record
+   what was tried.
+4. **Verification sweep** every 10 sessions (or weekly):
+   `cargo xtask sweep --clean` runs every gate and writes
+   `reports/sweeps/`. Downgrade any feature whose status no longer holds.
+   Downgrades are good news: the system is honest.
+5. **No invented numbers.** No estimated benchmarks, no "approximately",
+   no number carried over from a prompt as if measured. A missing number is
+   written MISSING.
+
+### Reporting to Eric
+
+Every 5 sessions, and on request: `reports/executive/<date>.md`, plain
+language, one page at most — what now works (with evidence links), what
+broke or was downgraded, real numbers measured, risks ranked with what
+would reduce each, what is needed from Eric (decisions, approvals, money,
+people), and an honest distance to the current milestone in weeks of work,
+labelled as an estimate. No hype, no "revolutionary", no percentage not
+computed from evidence. If progress was slow, say so and why.
+
+### When to stop and ask Eric
+
+- A decision changes the protocol's security or economics.
+- Work would exceed ADR-016.
+- Two prompts conflict, or a prompt conflicts with a measurement.
+- Anything that costs money, touches a live server, publishes a package or
+  announces anything (`APPROVED: <step name>`).
+- A security flaw in a design Eric approved — say so immediately and
+  plainly.
+- A target in a prompt is not achievable as written — say so, with the
+  measurement, and propose the achievable version.
+
+[RISKS.md](RISKS.md) is reviewed every 10 sessions.

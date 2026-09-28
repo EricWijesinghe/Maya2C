@@ -15,3 +15,4 @@ exactly how Maya2C differs. A file marked "not searched" authorizes nothing.
 - [Privacy with viewing keys and association sets](privacy-viewing-keys.md) — not searched
 - [A harbor for quantum-exposed coins from other chains](quantum-harbor.md) — partially searched 2026-09-26
 - [Developer platform with an MCP server for agents](agent-developer-platform.md) — not searched
+- [Post-quantum peer-to-peer messenger (Maya Chat)](p2p-chat.md) — partially searched 2026-09-28
