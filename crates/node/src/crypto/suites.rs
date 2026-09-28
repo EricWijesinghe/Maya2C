@@ -19,7 +19,7 @@ use crate::state::context::SUITE_ENVELOPE_ACTIVATION_HEIGHT;
 
 /// Domain for the address of a suite-tagged key. Distinct from the hybrid
 /// address domain, so a v7 key can never collide with a v5 account.
-const SUITE_ADDRESS_DOMAIN: &str = "maya2c 2026-09-21 suite-tagged account address v1";
+pub use maya_crypto_pq::suite::SUITE_ADDRESS_DOMAIN;
 
 /// The address a suite-tagged key controls: `BLAKE3-derive-key(suite ‖ pk)`.
 ///
@@ -27,10 +27,9 @@ const SUITE_ADDRESS_DOMAIN: &str = "maya2c 2026-09-21 suite-tagged account addre
 /// another suite name a different account.
 #[must_use]
 pub fn suite_address(suite: SuiteId, public_key: &[u8]) -> [u8; 32] {
-    let mut hasher = blake3::Hasher::new_derive_key(SUITE_ADDRESS_DOMAIN);
-    hasher.update(&[suite.to_byte()]);
-    hasher.update(public_key);
-    *hasher.finalize().as_bytes()
+    // One implementation, in `crypto-pq`, so apps that do not link the node
+    // (chat, wallet) derive the same address.
+    maya_crypto_pq::suite::suite_address(suite, public_key)
 }
 
 /// The default suite governance has chosen.

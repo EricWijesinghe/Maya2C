@@ -257,6 +257,10 @@ members = [
     # built Tauri app through tauri-driver. Its tests are #[ignore]d: they
     # need the app and two drivers, which CI does not have.
     "apps/wallet-gui/e2e",
+    # Maya Chat (ADR-031): the first detached application - a post-quantum,
+    # peer-to-peer messenger with store-and-forward relays. Does not link the
+    # node; RESEARCH until externally reviewed.
+    "apps/chat",
     # Entropy HAL (ADR-010): OS and RDSEED sources, SP 800-90B health tests on
     # every source, one SP 800-90A HMAC-DRBG fed by all of them, tamper-driven
     # zeroization. The thermal, micro-voltage, Brownian and homodyne-QRNG

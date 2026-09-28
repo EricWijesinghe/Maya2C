@@ -26,7 +26,7 @@ pub use dual::{DualKem768Hqc128, DualKem1024Hqc256};
 #[cfg(feature = "hqc")]
 pub use hqc::{Hqc128, Hqc256};
 pub use ml_kem::{MlKem768, MlKem1024};
-pub use xwing::XWing;
+pub use xwing::{XWing, XWingKey};
 
 use subtle::ConstantTimeEq as _;
 use zeroize::{ZeroizeOnDrop, Zeroizing};
