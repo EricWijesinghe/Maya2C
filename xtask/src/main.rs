@@ -31,6 +31,7 @@ mod slo_check;
 mod spec_coverage;
 mod status;
 mod sweep;
+mod up;
 
 use std::process::ExitCode;
 
@@ -59,6 +60,8 @@ fn main() -> ExitCode {
         "guides-check" => guides_check::run(rest),
         "pgo" => pgo::run(rest),
         "localnet" => localnet::localnet(),
+        "up" => up::up(),
+        "down" => up::down(),
         "status" => status::run(rest),
         "sweep" => sweep::run(rest),
         "help" | "--help" | "-h" => {
@@ -120,6 +123,10 @@ cargo xtask <command>
   localnet              Four maya2c-node validators as processes over
                         libp2p on 127.0.0.1: one chain, a transfer on all,
                         liveness with one killed, and its catch-up.
+  up                    The whole ecosystem on this machine, left running:
+                        four validators, the API gateway, a chat relay and a
+                        funded devnet wallet. Prints the endpoints.
+  down                  Stop what `up` started.
   status [--live]       Where the project stands, from evidence on disk: the
                         last sweep, the gap register, the ledger, STATE.md's
                         milestone and next tasks. Builds nothing unless --live.
