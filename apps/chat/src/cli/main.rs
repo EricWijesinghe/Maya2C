@@ -7,6 +7,9 @@
 //! maya-chat --home DIR publish --relay ADDR       publish a prekey bundle
 //! maya-chat --home DIR send --relay ADDR --to HEX TEXT...
 //! maya-chat --home DIR recv --relay ADDR          fetch and print messages
+//! maya-chat --home DIR chat --relay ADDR [--to HEX] [--poll SECS]
+//!                                                 interactive: lines are
+//!                                                 sent, replies printed
 //! ```
 //!
 //! The identity seed is stored in `DIR/identity.key`, unencrypted in this
@@ -16,13 +19,16 @@
 //! from the seed, so a later run can read follow-up messages and refuses a
 //! replayed handshake.
 
+mod repl;
+
 use std::path::{Path, PathBuf};
 
-use maya_chat::client::Client;
+use libp2p::Multiaddr;
+use maya_chat::client::{Client, Received};
 use maya_chat::identity::Identity;
-use maya_chat::net::{self, Request, Response};
-use maya_chat::relay::{Relay, fetch_bytes};
-use maya_chat::{Address, ChatError, now};
+use maya_chat::net;
+use maya_chat::relay::Relay;
+use maya_chat::{Address, ChatError, courier, now};
 
 /// How long a published prekey stays valid, seconds.
 const PREKEY_TTL: u64 = 30 * 24 * 3_600;
@@ -35,6 +41,7 @@ struct Args {
     to: Option<String>,
     epoch: u32,
     stamp_bits: u32,
+    poll: u64,
     text: Vec<String>,
 }
 
@@ -47,6 +54,7 @@ fn args() -> Result<Args, String> {
         to: None,
         epoch: 1,
         stamp_bits: maya_chat::relay::STAMP_BITS,
+        poll: repl::DEFAULT_POLL_SECS,
         text: Vec::new(),
     };
     let mut it = std::env::args().skip(1);
@@ -64,6 +72,13 @@ fn args() -> Result<Args, String> {
             "--epoch" => a.epoch = value()?.parse().map_err(|_| "--epoch is a number")?,
             "--stamp-bits" => {
                 a.stamp_bits = value()?.parse().map_err(|_| "--stamp-bits is a number")?;
+            }
+            "--poll" => {
+                a.poll = value()?
+                    .parse()
+                    .ok()
+                    .filter(|s| *s > 0)
+                    .ok_or("--poll is a positive number of seconds")?;
             }
             _ if a.command.is_empty() => a.command = arg,
             _ => a.text.push(arg),
@@ -123,61 +138,24 @@ fn address(hex_text: &str) -> Result<Address, String> {
         .ok_or_else(|| format!("{hex_text} is not a 64-character hex address"))
 }
 
-async fn ask(relay: &str, request: Request) -> Result<Response, String> {
-    let addr = relay.parse().map_err(|e| format!("{relay}: {e}"))?;
-    match net::call(&addr, request).await.map_err(|e| e.to_string())? {
-        Response::Refused(why) => Err(format!("the relay refused: {why}")),
-        other => Ok(other),
+fn relay_addr(a: &Args) -> Result<Multiaddr, String> {
+    let relay = a.relay.as_deref().ok_or("--relay is required")?;
+    relay.parse().map_err(|e| format!("{relay}: {e}"))
+}
+
+fn why(e: &ChatError) -> String {
+    match e {
+        ChatError::NoSession => {
+            "no session, and the relay has no prekey for that address; ask them to `publish`".into()
+        }
+        other => other.to_string(),
     }
 }
 
-async fn send(a: &Args) -> Result<(), String> {
-    let relay = a.relay.as_deref().ok_or("--relay is required")?;
-    let to = address(a.to.as_deref().ok_or("--to is required")?)?;
-    let mut client = load_client(&a.home)?;
-    let bundle = if client.has_session(&to) {
-        None
-    } else {
-        let Response::Bundle(Some(bundle)) = ask(relay, Request::Bundle(to)).await? else {
-            return Err("the relay has no prekey for that address; ask them to `publish`".into());
-        };
-        Some(bundle)
-    };
-    let Response::Postage(bits) = ask(relay, Request::Postage).await? else {
-        return Err("unexpected answer to a postage request".into());
-    };
-    let envelope = client
-        .seal(to, bundle.as_ref(), a.text.join(" ").as_bytes(), now())
-        .and_then(|e| e.mint(bits))
-        .map_err(|e| e.to_string())?;
-    ask(relay, Request::Deposit(envelope)).await?;
-    // Saved only once the relay holds the message: a send that failed must
-    // not advance the chain past a message the peer will never see.
-    save_client(&a.home, &client)?;
-    println!("sent to {}", hex::encode(to));
-    Ok(())
-}
-
-async fn recv(a: &Args) -> Result<(), String> {
-    let mut client = load_client(&a.home)?;
-    let me = client.identity();
-    let relay = a.relay.as_deref().ok_or("--relay is required")?;
-    let Response::Challenge(nonce) = ask(relay, Request::Challenge(me.address())).await? else {
-        return Err("unexpected answer to a challenge request".into());
-    };
-    let signature = me
-        .sign(&fetch_bytes(&me.address(), &nonce))
-        .map_err(|e| e.to_string())?;
-    let request = Request::Fetch {
-        address: me.address(),
-        identity_key: me.public_key().to_vec(),
-        signature,
-    };
-    let Response::Envelopes(envelopes) = ask(relay, request).await? else {
-        return Err("unexpected answer to a fetch".into());
-    };
-    for envelope in &envelopes {
-        match client.open(envelope, now()) {
+/// Prints what [`courier::collect`] returned; the count of envelopes.
+fn show(results: &[Result<Received, ChatError>]) -> usize {
+    for result in results {
+        match result {
             Ok(r) => println!(
                 "from {}: {}",
                 hex::encode(r.from),
@@ -189,8 +167,31 @@ async fn recv(a: &Args) -> Result<(), String> {
             Err(e) => eprintln!("could not open a message: {e}"),
         }
     }
+    results.len()
+}
+
+async fn send(a: &Args) -> Result<(), String> {
+    let relay = relay_addr(a)?;
+    let to = address(a.to.as_deref().ok_or("--to is required")?)?;
+    let mut client = load_client(&a.home)?;
+    courier::deliver(&mut client, &relay, to, a.text.join(" ").as_bytes(), now())
+        .await
+        .map_err(|e| why(&e))?;
+    // Saved only once the relay holds the message: a send that failed must
+    // not advance the chain past a message the peer will never see.
     save_client(&a.home, &client)?;
-    println!("{} message(s)", envelopes.len());
+    println!("sent to {}", hex::encode(to));
+    Ok(())
+}
+
+async fn recv(a: &Args) -> Result<(), String> {
+    let relay = relay_addr(a)?;
+    let mut client = load_client(&a.home)?;
+    let results = courier::collect(&mut client, &relay, now())
+        .await
+        .map_err(|e| why(&e))?;
+    save_client(&a.home, &client)?;
+    println!("{} message(s)", show(&results));
     Ok(())
 }
 
@@ -237,11 +238,9 @@ async fn run(a: Args) -> Result<(), String> {
             let bundle = me
                 .prekey_bundle(a.epoch, now() + PREKEY_TTL)
                 .map_err(|e| e.to_string())?;
-            ask(
-                a.relay.as_deref().ok_or("--relay is required")?,
-                Request::Publish(bundle),
-            )
-            .await?;
+            courier::publish(&relay_addr(&a)?, bundle)
+                .await
+                .map_err(|e| e.to_string())?;
             println!(
                 "published prekey {} for {}",
                 a.epoch,
@@ -251,8 +250,9 @@ async fn run(a: Args) -> Result<(), String> {
         }
         "send" => send(&a).await,
         "recv" => recv(&a).await,
+        "chat" => repl::chat(&a).await,
         other => Err(format!(
-            "unknown command `{other}`: init, address, relay, publish, send, recv"
+            "unknown command `{other}`: init, address, relay, publish, send, recv, chat"
         )),
     }
 }

@@ -109,3 +109,46 @@ fn init_refuses_to_overwrite_an_identity() {
         .expect("run");
     assert!(!out.status.success());
 }
+
+#[test]
+fn an_interactive_chat_sends_lines_and_shows_replies() {
+    use std::io::Write as _;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (alice, bob) = (dir.path().join("alice"), dir.path().join("bob"));
+    let (_relay, relay) = start_relay(&dir.path().join("relay"));
+    run(&alice, &["init"]);
+    let bob_addr = run(&bob, &["init"]).trim().to_owned();
+    run(&bob, &["publish", "--relay", &relay]);
+
+    let mut chat = Command::new(BIN)
+        .arg("--home")
+        .arg(&alice)
+        .args(["chat", "--relay", &relay, "--poll", "60"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("spawn chat");
+    let mut stdin = chat.stdin.take().expect("stdin");
+    let mut out = BufReader::new(chat.stdout.take().expect("stdout")).lines();
+    let mut next = || out.next().expect("chat output").expect("read chat output");
+    assert!(next().starts_with("chatting as "));
+
+    writeln!(stdin, "/to {bob_addr}").expect("write");
+    assert!(next().starts_with("now talking to "));
+    writeln!(stdin, "hello from the prompt").expect("write");
+    assert_eq!(next(), "sent");
+
+    let got = run(&bob, &["recv", "--relay", &relay]);
+    assert!(got.contains("hello from the prompt"), "{got}");
+    let alice_addr = run(&alice, &["address"]).trim().to_owned();
+    run(
+        &bob,
+        &["send", "--relay", &relay, "--to", &alice_addr, "hi back"],
+    );
+
+    // End of input: the chat checks the mailbox once more, then leaves.
+    drop(stdin);
+    assert_eq!(next(), format!("from {bob_addr}: hi back"));
+    assert!(chat.wait().expect("wait").success());
+}
