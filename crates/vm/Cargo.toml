@@ -42,6 +42,10 @@ wasmtime = { version = "=48.0.1", default-features = false, features = [
     # Adds the interpreter only; native Cranelift output is unchanged, and gas
     # is identical across tiers (`tests/tier_differential_tests.rs`).
     "pulley",
+    # `Store::call_hook`, used only by `Vm::execute_traced` to record each host
+    # call's site for the debugger. Code only: nothing installs a hook on a
+    # consensus path, and a store without one runs exactly as before.
+    "call-hook",
     "runtime",
     "std",
 ] }

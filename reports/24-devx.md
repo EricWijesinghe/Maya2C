@@ -53,8 +53,10 @@ market, v7/v8 active from genesis.
 
 - A language ADR with measured Wasm size and gas per language. AssemblyScript
   and TinyGo toolchains are not installed here.
-- Lazy state loading for fork mode, and source-line mapping for the
-  debugger (it steps host calls; see the DAP section).
+- Lazy state loading for fork mode: **a finding, not a gap** (see "Source
+  lines and gas per line" below).
+- Mapping a guest trap (`unreachable`, a divide by zero) to its source
+  line. Host calls map; a trap never reaches the host.
 - The VS Code extension has been tested through the adapter over stdio, not
   by driving the VS Code UI.
 - The one-command test framework with coverage and gas snapshots.
@@ -134,3 +136,46 @@ steps back so a written key reads `absent` again, jumps with goto, evaluates
 $ cargo test -p maya2c-cli --test dap_tests
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
 ```
+
+## Source lines and gas per line (2026-09-28)
+
+The debugger now names the source line of every host call and the gas
+spent reaching it, for contracts built with debug info (`-g`).
+
+- **In the VM** (`crates/vm`): `Vm::execute_traced` installs a store call
+  hook only on this path. At each host call the hook records the wasm module
+  offset of the calling instruction and the fuel left. A review confirmed:
+  - the consensus path is bit-identical, since no hook is installed there
+    and `call-hook` is a cargo feature, not a configuration setting;
+  - the captured frame is the call instruction, not the one after it;
+  - no call site is attributed to the wrong step.
+- **In the debugger** (`bins/maya2c-cli/src/lines.rs`): the contract's own
+  DWARF line table, read with `gimli`, maps each offset to `file:line`.
+  Each sequence's end is recorded, after the review showed an offset
+  between two functions would otherwise take the earlier one's last line.
+  The CLI's listing shows the line, `profile` prints gas by line, and the
+  VS Code adapter opens the real source file at the line.
+
+The test compiles a small contract with `rustc -g` for wasm32 and debugs it:
+
+```
+$ cargo test -p maya2c-cli --test source_lines_tests -- --nocapture
+step 1 at probe.rs:12, step 2 at probe.rs:13
+gas by line: {("probe.rs", 12): 4128, ("probe.rs", 13): 21}
+test result: ok. 1 passed
+```
+
+Tracing costs no gas (`a_traced_call_burns_identical_gas_and_records_distinct_sites`).
+Gas is attributed to the host call it leads up to, so line 12's figure
+includes the call's setup. Gas after the last host call belongs to no line.
+
+**Lazy fork state is a finding (Standing Order 9).** The brief asks fork
+mode to "lazy-load state on demand". A fork makes its own blocks, and the
+node refuses any block whose state root it does not reproduce (invariant
+24). The root is computed over every account, and a node that fetched
+accounts only as they were touched cannot compute it. A lazy fork would
+have to run with root checks off, which is the one check fork mode exists
+to keep, or compute roots over partial state, which would make its roots
+differ from the source chain's. Fork mode stays eager (full copy, or from
+the source's snapshot with `--snapshot-depth`).
+

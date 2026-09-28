@@ -12,8 +12,10 @@
 //! | `s` / `storage` | storage of every touched key at the cursor |
 //! | `e` / `events` | events emitted up to the cursor |
 //! | `l` / `list` | every step, the cursor marked |
+//! | `p` / `profile` | gas per source line (contracts built with `-g`) |
 //! | `q` / `quit` | leave |
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use maya_vm::trace::{Step, Timeline};
@@ -21,6 +23,11 @@ use maya_vm::trace::{Step, Timeline};
 /// A cursor over a recorded call.
 pub struct Session {
     timeline: Timeline,
+    /// Each step's source position, when the contract carried DWARF.
+    lines: Vec<Option<crate::lines::Line>>,
+    /// Gas the guest spent before each step's host call, since the previous
+    /// one.
+    step_gas: Vec<Option<u64>>,
     cursor: usize,
     /// Gas for the whole call; per-step gas is not recorded.
     gas_used: Option<u64>,
@@ -84,10 +91,70 @@ impl Session {
     pub fn new(timeline: Timeline, gas_used: Option<u64>, outcome: String) -> Self {
         Self {
             timeline,
+            lines: Vec::new(),
+            step_gas: Vec::new(),
             cursor: 0,
             gas_used,
             outcome,
         }
+    }
+
+    /// Attaches each step's source position (see [`crate::lines`]).
+    #[must_use]
+    pub fn with_lines(mut self, lines: Vec<Option<crate::lines::Line>>) -> Self {
+        self.lines = lines;
+        self
+    }
+
+    /// Attaches the gas spent before each step (see [`crate::record`]).
+    #[must_use]
+    pub fn with_step_gas(mut self, step_gas: Vec<Option<u64>>) -> Self {
+        self.step_gas = step_gas;
+        self
+    }
+
+    /// Gas per source line: the gas spent leading up to each host call,
+    /// summed by the line that made the call. Gas after the last host call
+    /// belongs to no step and is not counted.
+    #[must_use]
+    pub fn gas_by_line(&self) -> BTreeMap<(String, u64), u64> {
+        let mut out = BTreeMap::new();
+        for (line, gas) in self.lines.iter().zip(&self.step_gas) {
+            if let (Some(line), Some(gas)) = (line, gas) {
+                *out.entry((line.file_name().to_owned(), line.line))
+                    .or_insert(0) += gas;
+            }
+        }
+        out
+    }
+
+    fn profile(&self) -> String {
+        let by_line = self.gas_by_line();
+        if by_line.is_empty() {
+            return "no source lines: build the contract with debug info (-g)".into();
+        }
+        by_line
+            .iter()
+            .fold(String::new(), |mut out, ((file, line), gas)| {
+                let _ = writeln!(out, "  {file}:{line}  {gas} gas");
+                out
+            })
+    }
+
+    /// The source position of the step the cursor just passed, if known.
+    #[must_use]
+    pub fn source(&self) -> Option<&crate::lines::Line> {
+        self.cursor
+            .checked_sub(1)
+            .and_then(|i| self.lines.get(i))
+            .and_then(Option::as_ref)
+    }
+
+    fn at(&self, index: usize) -> String {
+        self.lines
+            .get(index)
+            .and_then(Option::as_ref)
+            .map_or_else(String::new, |l| format!("  ({}:{})", l.file_name(), l.line))
     }
 
     /// Steps passed so far (0 = before the call).
@@ -155,7 +222,12 @@ impl Session {
             .checked_sub(1)
             .and_then(|i| self.timeline.steps().get(i))
         {
-            Some(step) => format!("[{}/{total}] {}", self.cursor, describe(step)),
+            Some(step) => format!(
+                "[{}/{total}] {}{}",
+                self.cursor,
+                describe(step),
+                self.at(self.cursor - 1)
+            ),
             None => format!("[0/{total}] before the call"),
         }
     }
@@ -183,9 +255,10 @@ impl Session {
             "s" | "storage" => self.storage(),
             "e" | "events" => self.events(),
             "l" | "list" => self.list(),
+            "p" | "profile" => self.profile(),
             "q" | "quit" => return None,
             "" => String::new(),
-            other => format!("unknown command `{other}` (n, b, g <k>, s, e, l, q)"),
+            other => format!("unknown command `{other}` (n, b, g <k>, s, e, l, p, q)"),
         };
         Some(out)
     }
@@ -222,7 +295,7 @@ impl Session {
         );
         for (i, step) in self.timeline.steps().iter().enumerate() {
             let mark = if i + 1 == self.cursor { ">" } else { " " };
-            let _ = writeln!(out, "{mark} {:>3} {}", i + 1, describe(step));
+            let _ = writeln!(out, "{mark} {:>3} {}{}", i + 1, describe(step), self.at(i));
         }
         out
     }
