@@ -1,0 +1,75 @@
+{
+ "generator": "pymavlink 2.4.50 (dialect common, MAVLink 2) and rosbags (ROS 2 Humble typestore), run once to produce this file",
+ "mavlink": [
+  {
+   "name": "HEARTBEAT",
+   "msgid": 0,
+   "seq": 42,
+   "sysid": 7,
+   "compid": 1,
+   "fields": {
+    "type": 2,
+    "autopilot": 3,
+    "base_mode": 81,
+    "custom_mode": 65536,
+    "system_status": 4,
+    "mavlink_version": 3
+   },
+   "bytes": "fd0900002a07010000000000010002035104034128"
+  },
+  {
+   "name": "GLOBAL_POSITION_INT",
+   "msgid": 33,
+   "seq": 43,
+   "sysid": 7,
+   "compid": 1,
+   "fields": {
+    "time_boot_ms": 123456,
+    "lat": 473977418,
+    "lon": 85455939,
+    "alt": 488000,
+    "relative_alt": 12000,
+    "vx": 150,
+    "vy": -20,
+    "vz": 5,
+    "hdg": 27000
+   },
+   "bytes": "fd1c00002b070121000040e201004a52401c43f4170540720700e02e00009600ecff05007869b21b"
+  }
+ ],
+ "ros2_cdr": [
+  {
+   "type": "geometry_msgs/msg/Pose",
+   "position": [
+    1.5,
+    -2.25,
+    10.0
+   ],
+   "orientation": [
+    0.0,
+    0.0,
+    0.7071067811865476,
+    0.7071067811865476
+   ],
+   "bytes": "00010000000000000000f83f00000000000002c0000000000000244000000000000000000000000000000000cd3b7f669ea0e63fcd3b7f669ea0e63f"
+  },
+  {
+   "type": "geometry_msgs/msg/PoseStamped",
+   "sec": 1700000000,
+   "nanosec": 5,
+   "frame_id": "map",
+   "position": [
+    1.5,
+    -2.25,
+    10.0
+   ],
+   "orientation": [
+    0.0,
+    0.0,
+    0.7071067811865476,
+    0.7071067811865476
+   ],
+   "bytes": "0001000000f1536505000000040000006d617000000000000000f83f00000000000002c0000000000000244000000000000000000000000000000000cd3b7f669ea0e63fcd3b7f669ea0e63f"
+  }
+ ]
+}

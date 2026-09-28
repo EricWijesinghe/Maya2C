@@ -6463,6 +6463,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-swarm"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "hex",
+ "serde_json",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "maya-telemetry"
 version = "0.1.0"
 dependencies = [

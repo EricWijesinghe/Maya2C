@@ -2348,6 +2348,17 @@ tests = ["hal/bci-sim/tests/bci_tests.rs"]
 note = "Master Prompt 6 §7. Synthetic EEG only, declared in every EDF header written. Template bits differ ~4.6% between sessions of one simulated subject and ~49% between subjects. Replayed recordings fail the stimulus check, which runs on the device (no TEE). Never run on human EEG."
 
 [[subsystem]]
+id = "robot-swarm-coordination"
+name = "Robot swarms: MAVLink 2 and ROS 2 CDR serialization, sealed task auctions, committed flight plans with provable conflicts"
+domain = "AI and hardware integration"
+paths = "`hal/swarm`"
+tier = "frontier"
+class = "RESEARCH"
+status = "working"
+tests = ["hal/swarm/tests/swarm_tests.rs"]
+note = "Master Prompt 6 §8. MAVLink HEARTBEAT and GLOBAL_POSITION_INT and ROS 2 Pose and PoseStamped match pymavlink and rosbags byte for byte. 100 simulated agents: 60 tasks auctioned by sealed bid, 1,770 plan pairs checked with no conflict, and an injected crossing proven against its commitments. No robot has flown with it."
+
+[[subsystem]]
 id = "energy-protocols-markets"
 name = "Energy protocols and markets: Modbus/TCP, IEC 61850 GOOSE, IEEE 1547 trip rules, Δf pricing, green certificates"
 domain = "AI and hardware integration"
@@ -2355,7 +2366,7 @@ paths = "`hal/energy`"
 tier = "frontier"
 class = "RESEARCH"
 status = "working"
-tests = ["hal/energy/tests/energy_tests.rs"]
+tests = ["hal/energy/tests/energy_tests.rs", "hal/energy/tests/scale_tests.rs"]
 note = "Master Prompt 6 §8. Parsers tested on the Modbus specification's worked examples and on every truncated prefix; the GOOSE frame is hand-encoded from IEC 61850-8-1, not captured from a relay. The grid is SIM. Linked by nothing in the node."
 
 [[subsystem]]
@@ -2681,8 +2692,8 @@ paths = "`crates/l2-flash`"
 tier = "extended"
 class = "REAL"
 status = "verified"
-tests = ["crates/l2-flash/tests/channel_tests.rs", "crates/l2-flash/tests/scale_tests.rs", "crates/node/tests/settlement_tests.rs"]
-note = "Off-chain settlement channels over the hybrid signature pair."
+tests = ["crates/l2-flash/tests/channel_tests.rs", "crates/l2-flash/tests/scale_tests.rs", "crates/l2-flash/tests/barter_tests.rs", "crates/node/tests/settlement_tests.rs"]
+note = "Off-chain settlement channels over the hybrid signature pair. `barter`: machine-to-machine SLAs with collateral slashing; 10,000 simulated devices x 100 ticks = 1,000,000 updates netted into one conserving settlement (accounting only; per-update signatures cost what channel_tests measures)."
 
 [[subsystem]]
 id = "command-line-wallet"
