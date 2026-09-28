@@ -6,6 +6,7 @@
 //!   symmetric chain per direction; each message key used once.
 //! - [`relay`] — store-and-forward mailboxes and prekey directories.
 //! - [`client`] — a user's sessions over a relay.
+//! - [`courier`] — publishing, delivering and collecting through a relay.
 //! - [`net`] — the `/maya-chat/1` libp2p protocol and a relay node.
 //!
 //! RESEARCH: unaudited. Do not rely on it for sensitive conversations until
@@ -13,6 +14,7 @@
 //! (mixnet) are later decisions, named in ADR-031.
 
 pub mod client;
+pub mod courier;
 pub mod identity;
 pub mod net;
 pub mod relay;

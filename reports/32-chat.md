@@ -14,7 +14,7 @@ Status: **RESEARCH / working**. Unaudited: do not use it for sensitive conversat
 | Relay | `src/relay.rs` | Prekey directory and store-and-forward mailboxes. Per mailbox: 1,000 envelopes or 16 MiB. Across the relay: 1 GiB, 100k bundles, 10k challenges. Envelopes are 256 KiB max and expire within 30 days. Only the owner can empty a mailbox, by signing a challenge that is valid for 120 s |
 | Client | `src/client.rs` | Sessions keyed by peer. A new handshake re-keys the session; a handshake it has already accepted is refused as a replay |
 | Network | `src/net.rs` | `/maya-chat/1`: libp2p request-response, CBOR bodies, TCP + Noise + Yamux, size caps |
-| CLI | `src/main.rs` | `init`, `address`, `relay`, `publish`, `send`, `recv` |
+| CLI | `src/cli/` | `init`, `address`, `relay`, `publish`, `send`, `recv`, and `chat`: an interactive session (lines typed are sent, the mailbox is polled, `/to HEX` switches peer). Send and receive go through `courier`, shared by both |
 
 Two defects were found by reading the code and fixed before any tests were written:
 
@@ -52,10 +52,14 @@ No performance figures were measured.
 | Gap | Next step | Cost | Who |
 |---|---|---|---|
 | External security review | Apply to NLnet NGI Zero (draft in `docs/funding/`); NLnet-funded projects can get a free Radically Open Security audit | Free; the application takes 1–2 h | Owner submits |
-| No interactive mode (one command per message) | A `chat` REPL over the saved session store | Code only | Claude |
 | Seed stored unencrypted in `identity.key` | Passphrase keystore shared with `maya-wallet-core` | Code only | Claude |
 | Group chat | MLS (RFC 9420) via `openmls`, with the PQ ciphersuite decision written as an ADR | Code only | Claude, then review |
 | Post-compromise security | Per-message KEM ratchet (as in SPQR / PQ3) | Code only | Claude, then review |
 | Metadata privacy (relays see who receives, when and how much) | Mixnet (e.g. Nym/Katzenpost) | Research first | Later phase |
 | Public relay | Deploy one relay on a free-tier VM | Free tier | Owner, with `APPROVED: chat-relay-deploy` |
 | Flooding a mailbox still costs only minutes of CPU | Proof-of-personhood stamp (`crates/personhood`) or contacts-only mailboxes | Code only, needs an ADR | Claude |
+
+## Update — interactive mode (2026-09-28)
+
+`maya-chat chat --relay ADDR [--to HEX] [--poll SECS]`. Stdin is read on its own thread so a blocking read cannot stall the mailbox polls. After a failed send, the chat reloads the saved sessions, so a message the relay never accepted does not advance the chain. `cargo test -p maya-chat`: 30 passed, 0 failed. That includes `an_interactive_chat_sends_lines_and_shows_replies`, which drives `chat` through a pipe against a real relay.
+

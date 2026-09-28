@@ -1,0 +1,10 @@
+# Without a per-test limit, one hung test holds the whole CI job until its
+# 90-minute timeout cancels it, and a cancelled job keeps no log naming the
+# test. With this, nextest kills a test after 20 minutes and fails it by name.
+#
+# 20 minutes is generous on purpose: the whole workspace ran in 883 s at the
+# 2026-09-28 sweep (reports/sweeps/2026-09-28.md), so no single test comes
+# near it. A test that legitimately needs longer belongs in nightly.yml with
+# its own override, not in this default.
+[profile.default]
+slow-timeout = { period = "60s", terminate-after = 20 }
