@@ -1,0 +1,113 @@
+# Prebuilt binaries for people who do not want a Rust toolchain:
+# maya2c-node (production features, the same build the testnet seed runs),
+# l1-wallet and maya2c-peerid, for Linux x86_64 and aarch64, Windows and macOS.
+#
+# Two modes, and only one of them publishes anything:
+#
+#   workflow_dispatch   builds every target and uploads them as workflow
+#                       artifacts. Nothing public changes. This is how the
+#                       aarch64 build (the Oracle Always Free shape, ADR-032)
+#                       gets tested without a release.
+#   tag node-v*         the same, then creates a GitHub Release with the
+#                       archives and a SHA256SUMS file. Pushing that tag
+#                       publishes, so it needs `APPROVED: release`
+#                       (CLAUDE.md, Standing Order 6).
+#
+# `node-v*`, not `v*`: publish_sdk.yml already fires on `v*` and publishes to
+# npm and PyPI. A binary release must not publish two packages as a side effect.
+name: release-binaries
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["node-v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, target: x86_64-unknown-linux-gnu, exe: "" }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, exe: "" }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, exe: ".exe" }
+          - { os: macos-14, target: aarch64-apple-darwin, exe: "" }
+    steps:
+      - uses: actions/checkout@v4
+
+      # RocksDB is C++ and bindgen needs libclang. .cargo/config.toml links
+      # x86_64 Linux through clang + mold; the other targets use their default.
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq clang mold
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-15
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Build
+        shell: bash
+        run: |
+          cargo build --release --locked --target ${{ matrix.target }} \
+            -p maya2c-node --no-default-features --features production
+          cargo build --release --locked --target ${{ matrix.target }} \
+            -p l1-wallet -p maya2c-peerid
+
+      # A binary that does not start is worse than no binary.
+      - name: Smoke test
+        shell: bash
+        run: |
+          dir=target/${{ matrix.target }}/release
+          "$dir/maya2c-node${{ matrix.exe }}" --help | head -1
+          "$dir/l1-wallet${{ matrix.exe }}" --version
+          "$dir/maya2c-node${{ matrix.exe }}" --generate-validator-key "$RUNNER_TEMP/v.key" | wc -c
+
+      - name: Package
+        shell: bash
+        run: |
+          name=maya2c-${{ matrix.target }}
+          mkdir -p "dist/$name"
+          for b in maya2c-node l1-wallet maya2c-peerid; do
+            cp "target/${{ matrix.target }}/release/$b${{ matrix.exe }}" "dist/$name/"
+          done
+          cp LICENSE* README.md "dist/$name/" 2>/dev/null || true
+          (cd dist && tar -czf "$name.tar.gz" "$name")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: maya2c-${{ matrix.target }}
+          path: dist/maya2c-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/node-v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum *.tar.gz | tee SHA256SUMS
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/*.tar.gz dist/SHA256SUMS \
+            --repo "${GITHUB_REPOSITORY}" --prerelease \
+            --title "${GITHUB_REF_NAME} (testnet, unaudited)" \
+            --notes "Testnet binaries. Not audited; mainnet is blocked. Verify downloads against SHA256SUMS."
