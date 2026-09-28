@@ -57,6 +57,14 @@ Each step marked **APPROVED** touches a live account and needs the owner's
 7. **DNS — `APPROVED: seed DNS`.** In Cloudflare, add `seed1.maya2c.dev` → A →
    `seed_public_ip`, **DNS only**. Add `rpc.maya2c.dev` too if you set `domain`.
 
+## Upgrading
+
+Changing `git_commit` and running `terraform apply` again does **not**
+redeploy: `lifecycle.ignore_changes` keeps Terraform from replacing the VM,
+because replacing it would destroy the validator key. To upgrade, SSH in and
+check out the new commit in `/opt/maya2c/src` (fetch it by full SHA, as
+cloud-init does), then re-run `infra/testnet-vm/install.sh`.
+
 ## Honest limits of one seed
 
 - **One validator is the whole committee.** If this VM stops, the chain stops
