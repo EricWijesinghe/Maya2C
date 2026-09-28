@@ -1,0 +1,19 @@
+[package]
+name = "maya-btc-bridge"
+version.workspace = true
+# Not published. See crates/dex/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Bitcoin lock/mint and burn/release verified by a header light client (RESEARCH)"
+
+[dependencies]
+maya-btc-spv = { path = "../btc-spv" }
+thiserror.workspace = true
+
+[dev-dependencies]
+hex.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

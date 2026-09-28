@@ -5833,6 +5833,16 @@ name = "maya-blockgraph"
 version = "0.1.0"
 
 [[package]]
+name = "maya-btc-bridge"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "maya-btc-spv",
+ "serde_json",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "maya-btc-spv"
 version = "0.1.0"
 dependencies = [

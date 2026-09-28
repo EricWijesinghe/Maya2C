@@ -274,6 +274,10 @@ members = [
     # retargeting, chainwork fork choice, reorgs, merkle proofs. SHA-256 only,
     # because it parses bytes a relayer chose.
     "crates/btc-spv",
+    # Lock/mint and burn/release over btc-spv's header chain (Master Prompt 6
+    # §3, 25): native Bitcoin transaction parsing, depth and Merkle checks,
+    # releases closed only by a proven payout. RESEARCH; nothing calls it.
+    "crates/btc-bridge",
     # SIM: the economic model as code (Master Prompts 6 §6, 18). Calls the
     # chain's own fee-market and dex rules so the model cannot drift from them.
     "econ",
