@@ -95,5 +95,28 @@ this chain and not another.
 
 ## Tested on
 
-See the end of this file: the host the installer was last run on, the
-commit, and what it checked.
+2026-09-28, a fresh Ubuntu 24.04 WSL2 distro used as a throwaway VM
+(systemd as PID 1, 11 GB RAM, x86_64), at commit `7eae3fc`, seed mode with
+the defaults:
+
+- **The first runs found three defects**, all fixed:
+  - `mold` was missing, so every build script failed to link;
+  - an interrupted rustup left a zero-byte binary that made cargo fail
+    silently;
+  - `ufw` failed to initialise, and on Oracle images it cannot open ports
+    at all, so it was replaced by the installer's own iptables chain.
+- **The release build took 12 min 14 s** with 2 jobs. The node was built
+  with `--features production`.
+- **Consensus:** all 4 validators agreed on block 3, and later on block 50.
+- **From another machine:**
+  - the gateway's `/health` returned `{"status":"ok"}`;
+  - two identities chatted through the relay on port 4001;
+  - node RPC on 32000 did not answer.
+- **Sandboxing:** `systemd-analyze security` scored every service 1.1
+  ("OK"; 0 is the safest, 10 the most exposed).
+- **Re-running the installer** (the upgrade path) kept the genesis, keys and
+  chain: the same block 3 id afterwards.
+
+Not yet tested: an aarch64 host (Oracle's Arm VM), HTTPS through Caddy
+(this needs a real domain pointing at the host), and join mode against a
+remote seed.
