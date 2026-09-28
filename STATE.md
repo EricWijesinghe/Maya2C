@@ -2,7 +2,7 @@
 
 ## Handover
 - **Done (2026-09-28):** one branch (`master`); CI fixed; operating system in place (`cargo xtask status`/`sweep`, MISSION, EMPIRE, ECOSYSTEM, RISKS, DECISIONS, BACKLOG, Operating Protocol); first clean sweep: 2,972 passed, 0 failed; two gates that were silently wrong fixed (lint ratchet false pass, doc-coverage red).
-- **Unfinished:** GitHub "nextest (core)" job on `master` was still running at handover; PR #3 (Maya Chat, other session) awaits CI and Eric's decision on chat's difference.
+- **Unfinished:** GitHub CI for `2748cb5` (review fixes to xtask/lint script) was queued at handover; `master` runs cancel each other on new pushes, so the last *completed* full CI is PR #3's (21 checks green, contains `69073e3`). Maya Chat merged (PR #3) — Eric's decision on its difference still open.
 - **Do first next session:** `cargo xtask status`; `gh run list --branch master` — if anything is red, fix it (P0); else "Do next" item 1.
 
 ## Current milestone and % complete by evidence
@@ -17,7 +17,7 @@ Clean sweep 2026-09-28 at `71c926a` — `reports/00-operating-baseline.md`, `rep
 Machine: Core Ultra 9 275HX, 31.4 GB, Windows 11 build 29671, rustc 1.99.0-nightly 2026-07-14.
 
 ## Open P0 and P1 gaps
-- P0 — none open locally. GitHub `nextest (core)` on `master` not yet observed finishing.
+- P0 — none open locally. Confirm CI on `master` at `2748cb5` or later finishes green.
 - P1 — gap register: 3 P0 rows, all reviewed guards, not work (DECISIONS.md); 0 P1.
 - P2 — core line coverage never measured (M1 #8).
 - P2 — property tests for fees, consensus, VM not found (M1 #5).
@@ -29,11 +29,11 @@ Machine: Core Ultra 9 275HX, 31.4 GB, Windows 11 build 29671, rustc 1.99.0-night
 3. Reconcile PROGRESS.md with git history; gap register in Rust that tells reviewed guards from gaps (P2).
 
 ## Blocked on Eric
-- **Maya Chat's difference.** PQ encryption already ships in Signal, iMessage, SimpleX (`docs/prior-art/p2p-chat.md`). Candidates: PQ identity signatures; chat identity = chain account. Decide whether chat continues and on which claim. PR #3 is open.
+- **Maya Chat's difference.** PQ encryption already ships in Signal, iMessage, SimpleX (`docs/prior-art/p2p-chat.md`). Candidates: PQ identity signatures; chat identity = chain account. Decide which claim chat stands on (its first version is merged, PR #3).
 - **EMPIRE Q1:** M1 needs all of MP06, or only its ADR-016 core parts? (Recommended: core parts.)
 - **`reports/31-handover.md` §4:** audits, testnet approvals, benchmark runner, study participants, signing certificate.
 
 ## Do not touch
 - P6 deferred and frontier modules (BACKLOG.md P6) until their milestone.
 - MP24 lazy fork state — conflicts with invariant 24.
-- `apps/chat`, ADR-031, `crates/crypto-pq` suite work — owned by the chat session until PR #3 merges.
+- `apps/chat`, ADR-031 — owned by the chat session (its own worktree).
