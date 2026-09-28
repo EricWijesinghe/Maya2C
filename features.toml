@@ -2359,6 +2359,17 @@ tests = ["hal/swarm/tests/swarm_tests.rs"]
 note = "Master Prompt 6 §8. MAVLink HEARTBEAT and GLOBAL_POSITION_INT and ROS 2 Pose and PoseStamped match pymavlink and rosbags byte for byte. 100 simulated agents: 60 tasks auctioned by sealed bid, 1,770 plan pairs checked with no conflict, and an injected crossing proven against its commitments. No robot has flown with it."
 
 [[subsystem]]
+id = "satellite-ndvi-oracle"
+name = "Satellite NDVI oracle for parametric insurance: real Sentinel-2 pixels, median of independent reporters, dispute window"
+domain = "AI and hardware integration"
+paths = "`crates/eo-oracle`, `bins/eo-fetch`"
+tier = "frontier"
+class = "RESEARCH"
+status = "working"
+tests = ["crates/eo-oracle/tests/oracle_tests.rs"]
+note = "Master Prompt 6 §8. Tested on real Sentinel-2 L2A pixels (one Central Valley field, June 2025, satellites 2A, 2B and 2C) fetched by eo-fetch from public COGs by HTTP range; integer NDVI 8,925, 8,692 and 8,346 bps matches a float cross-check, and the UTM projection matches PROJ to the millimetre. Reports count only once their committed pixels are opened and reproduce. Pixel provenance is not cryptographic: Sentinel-2 is unsigned."
+
+[[subsystem]]
 id = "energy-protocols-markets"
 name = "Energy protocols and markets: Modbus/TCP, IEC 61850 GOOSE, IEEE 1547 trip rules, Δf pricing, green certificates"
 domain = "AI and hardware integration"

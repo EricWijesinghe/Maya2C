@@ -3211,6 +3211,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "eo-fetch"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "flate2",
+ "reqwest",
+ "serde_json",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6043,6 +6053,16 @@ dependencies = [
  "thiserror 2.0.20",
  "tracing",
  "zeroize",
+]
+
+[[package]]
+name = "maya-eo-oracle"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "maya-crypto-pq",
+ "serde_json",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
