@@ -189,32 +189,50 @@ pub trait SecretStore: Send + Sync {
     fn delete(&self, name: &str) -> Result<()>;
 }
 
+/// Names a keychain namespace other than [`SERVICE`], so an end-to-end test
+/// can drive the real application without touching the user's own wallet
+/// entry (`apps/wallet-gui/e2e`). Unset in normal use.
+pub const SERVICE_ENV: &str = "MAYA_WALLET_KEYCHAIN_SERVICE";
+
 /// The real OS keychain.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct OsKeychain;
+#[derive(Debug, Clone)]
+pub struct OsKeychain {
+    service: String,
+}
+
+impl Default for OsKeychain {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl OsKeychain {
-    /// A handle to the OS keychain.
+    /// A handle to the OS keychain, under [`SERVICE`] unless [`SERVICE_ENV`]
+    /// names another namespace.
     #[must_use]
     pub fn new() -> Self {
-        Self
+        let service = std::env::var(SERVICE_ENV)
+            .ok()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| SERVICE.to_owned());
+        Self { service }
     }
 
-    fn entry(name: &str) -> Result<keyring::Entry> {
-        keyring::Entry::new(SERVICE, name)
+    fn entry(&self, name: &str) -> Result<keyring::Entry> {
+        keyring::Entry::new(&self.service, name)
             .map_err(|e| WalletError::Keychain(format!("opening entry '{name}': {e}")))
     }
 }
 
 impl SecretStore for OsKeychain {
     fn put(&self, name: &str, secret: &[u8]) -> Result<()> {
-        Self::entry(name)?
+        self.entry(name)?
             .set_secret(secret)
             .map_err(|e| WalletError::Keychain(format!("writing '{name}': {e}")))
     }
 
     fn get(&self, name: &str) -> Result<Option<Vec<u8>>> {
-        match Self::entry(name)?.get_secret() {
+        match self.entry(name)?.get_secret() {
             Ok(secret) => Ok(Some(secret)),
             // An absent entry is a normal state, not a failure.
             Err(keyring::Error::NoEntry) => Ok(None),
@@ -223,7 +241,7 @@ impl SecretStore for OsKeychain {
     }
 
     fn delete(&self, name: &str) -> Result<()> {
-        match Self::entry(name)?.delete_credential() {
+        match self.entry(name)?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => Err(WalletError::Keychain(format!("deleting '{name}': {e}"))),
         }

@@ -188,3 +188,35 @@ fiction. The protocol to run:
 4. Test the rendered wallet screens against the flow graphs (the WebDriver
    suite, once a driver exists).
 5. A native review of the ten catalogs, and extraction of every UI literal.
+
+## Wallet end to end (2026-09-28)
+
+`apps/wallet-gui/e2e` replaces the JavaScript specs that had never run
+(10 of their 12 element ids were not in the UI). It is a Rust W3C WebDriver
+client driving the release build through `tauri-driver` and `msedgedriver`
+154.0.4258.37. It covers:
+- create a wallet; the 24-word backup, with Continue gated on the
+  acknowledgement;
+- account 0, then Add account;
+- Lock; a wrong passphrase refused with its message; unlock;
+- relaunch opens at Unlock, and the phrase is never shown again.
+
+```
+$ cargo test -p maya-wallet-e2e -- --ignored
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.67s
+```
+
+**What it found.** The shipped wallet could not call any Tauri command. The
+UI invokes `window.__TAURI__.core.invoke`, which Tauri 2 defines only with
+`app.withGlobalTauri`, and the configuration lacked it. Create, unlock and
+send all waited forever, with no error. It is now set. Two changes support
+the suite:
+- the application honours `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`, which
+  wry's own arguments had overridden, so WebDriver could never attach;
+- the keychain namespace can be moved for a run
+  (`MAYA_WALLET_KEYCHAIN_SERVICE`), so the suite never touches the user's
+  wallet entry.
+
+**Not covered:** sending and the air-gapped flow, which need a node and a
+funded account; their logic is tested in `apps/wallet-gui/core/tests`.
+
