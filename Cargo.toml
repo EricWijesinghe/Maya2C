@@ -253,6 +253,10 @@ members = [
     # integer NDVI over committed pixels, median of independent reporters,
     # dispute window. RESEARCH; tested on real Sentinel-2 windows.
     "crates/eo-oracle",
+    # The wallet's end-to-end suite: a Rust WebDriver client that drives the
+    # built Tauri app through tauri-driver. Its tests are #[ignore]d: they
+    # need the app and two drivers, which CI does not have.
+    "apps/wallet-gui/e2e",
     # Entropy HAL (ADR-010): OS and RDSEED sources, SP 800-90B health tests on
     # every source, one SP 800-90A HMAC-DRBG fed by all of them, tamper-driven
     # zeroization. The thermal, micro-voltage, Brownian and homodyne-QRNG

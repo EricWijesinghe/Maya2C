@@ -12,6 +12,25 @@ pub mod commands;
 
 use commands::Session;
 
+/// wry's own WebView2 arguments (the mini menu and SmartScreen off), kept
+/// when automation adds its own.
+const WRY_DEFAULT_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection";
+
+/// Honours `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`. WebView2 reads it, but
+/// wry always passes arguments of its own, which win, so a WebDriver session
+/// (`msedgedriver` sets the variable to open a debugging port) could never
+/// attach — `apps/wallet-gui/e2e`. Unset in normal use, when nothing
+/// changes; anything that can set this process's environment could already
+/// control WebView2.
+fn with_automation_args<R: tauri::Runtime>(mut context: tauri::Context<R>) -> tauri::Context<R> {
+    if let Ok(extra) = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
+        for window in &mut context.config_mut().app.windows {
+            window.additional_browser_args = Some(format!("{WRY_DEFAULT_ARGS} {extra}"));
+        }
+    }
+    context
+}
+
 /// Builds and runs the application.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -37,6 +56,6 @@ pub fn run() {
             commands::fetch_account,
             commands::fee_options,
         ])
-        .run(tauri::generate_context!())
+        .run(with_automation_args(tauri::generate_context!()))
         .expect("error while running the wallet");
 }

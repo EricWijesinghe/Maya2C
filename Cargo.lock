@@ -6621,6 +6621,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-wallet-e2e"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde_json",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "maya-wgpu-miner"
 version = "0.1.0"
 dependencies = [
@@ -6670,6 +6679,7 @@ dependencies = [
  "anyhow",
  "clap 4.6.6",
  "custom-l1-node",
+ "gimli",
  "hex",
  "jsonrpsee",
  "l1-wallet",
@@ -6679,6 +6689,7 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "tokio",
+ "wasmparser 0.258.0",
  "wat",
 ]
 

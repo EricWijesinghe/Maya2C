@@ -1,68 +1,52 @@
-# WebDriver end-to-end suite
+# Wallet end-to-end suite
 
-**These tests have never been run, and cannot pass as written** (checked
-2026-09-28):
+The Maya Wallet driven through its real UI: the release build of the Tauri
+application, WebView2 through `tauri-driver` and `msedgedriver`, and a small
+W3C WebDriver client in Rust (`src/lib.rs`). No Node toolchain.
 
-- 10 of the 12 element ids `airgap.spec.mjs` drives (`create-wallet`,
-  `mnemonic-word`, `compose-transfer`, `sign-offline`, `frame-total`,
-  `frame-index`, `frame-next`, `scan-simulate-skip`, `scan-assemble`,
-  `scan-status`) appear nowhere in `apps/wallet-gui/ui/src`;
-- `wallet_creation.spec.mjs` and `transfer.spec.mjs`, listed below, do not
-  exist;
-- nothing sets the `global.__TAURI_DRIVER__` session the spec reads, and
-  there is no `package.json` for mocha or a WebDriver client.
+`tests/wallet_flows.rs` covers:
+- create a wallet; the 24-word backup, with Continue disabled until the
+  acknowledgement is ticked;
+- the wallet view: account 0, then Add account;
+- Lock; a wrong passphrase refused with its message; unlock;
+- relaunch: the stored wallet opens at Unlock and the phrase is never shown
+  again.
 
-The prerequisites are obtainable here: Edge WebView2 is 154.0.4258.37, so
-`msedgedriver` 154.0.4258.37 plus `cargo install tauri-driver` would drive a
-release build. What is missing is a suite written against the real UI.
+## Running it
 
-`tauri-driver` and `msedgedriver` are both absent from the development host, and
-Tauri's WebDriver support needs one of them plus a built application binary.
-The specs below are written and are believed correct; nothing has executed them.
-
-That is the same status as the Kotlin and Swift SDK bindings, and it is stated
-here for the same reason: a suite that has never run is not evidence, and
-listing it as passing coverage would be a green tick over something nobody
-executed.
-
-## Where the real coverage is
-
-In `apps/wallet-gui/core`, which is where the logic lives:
-
-| Area | Tests | Run |
-|---|---|---|
-| BIP-39 + SLIP-0010 derivation | `tests/hd_tests.rs` | yes |
-| Vault sealing and the OS keychain | `tests/vault_tests.rs` | yes |
-| Payment parsing, QR decode, signing | `tests/payment_tests.rs` | yes |
-| Air-gapped framing | `src/airgap.rs`, `tests/airgap_tests.rs` | yes |
-| Swap and shielded composers | `src/compose.rs` | yes |
-
-The Tauri commands in `src-tauri/src/commands.rs` are thin wrappers over those
-functions — they marshal arguments and map errors to strings. WebDriver would
-exercise the marshalling and the UI; it would not exercise anything that decides
-what a transaction contains.
-
-## Running these when a driver exists
-
-```bash
+```text
+cargo tauri build --no-bundle          # in apps/wallet-gui/src-tauri
 cargo install tauri-driver --locked
-# Windows: msedgedriver must match the installed Edge WebView2 version
-cargo build --manifest-path apps/wallet-gui/src-tauri/Cargo.toml --release
+# msedgedriver must match the installed Edge WebView2 version
 
-tauri-driver &
-npx mocha apps/wallet-gui/e2e/*.spec.mjs
+MAYA_WALLET_EXE=<abs path>/apps/wallet-gui/src-tauri/target/release/maya-wallet-gui.exe \
+TAURI_DRIVER=<path>/tauri-driver.exe EDGE_DRIVER=<path>/msedgedriver.exe \
+cargo test -p maya-wallet-e2e -- --ignored --nocapture
 ```
 
-## What each spec covers
+Measured 2026-09-28 on the Windows workstation (WebView2 and msedgedriver
+154.0.4258.37): 1 passed in 3.67 s.
 
-- `wallet_creation.spec.mjs` — create, record the phrase, unlock, derive.
-- `transfer.spec.mjs` — compose, sign, submit to a mock RPC, see the balance move.
-- `airgap.spec.mjs` — offline sign, step the frame animation, reassemble.
+The application runs with its keychain in a namespace of the run's own
+(`MAYA_WALLET_KEYCHAIN_SERVICE`), deleted afterwards. The test never sees,
+overwrites or leaves behind the user's wallet entry.
 
-## One thing WebDriver cannot check here
+## What running it found
 
-The air-gapped flow's real failure mode is a **camera** missing a frame off a
-**screen**. WebDriver drives the DOM; it can confirm the animation advances and
-that the assembler reports the right missing frames, but it cannot tell you
-whether a phone can actually read a version-20 QR code from a laptop display.
-That needs a person and a phone, and `docs/wallet.md` says so.
+The first run could not create a wallet. The UI calls
+`window.__TAURI__.core.invoke`, and Tauri 2 defines that global only with
+`app.withGlobalTauri`, which the configuration lacked. So every command the
+wallet makes — create, unlock, send — waited forever, in the shipped build
+too. It is now set.
+
+WebDriver also could not attach at first: wry always passes WebView2
+arguments of its own, which override the `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`
+that `msedgedriver` uses to open a debugging port. The application now
+honours that variable when it is set; it is unset in normal use.
+
+## Not covered
+
+- The air-gapped signing flow and sending need a node and a funded account.
+  The core library's tests cover their logic (`core/tests/`).
+- Reading the QR animation with a real camera is not something a DOM driver
+  can check.
