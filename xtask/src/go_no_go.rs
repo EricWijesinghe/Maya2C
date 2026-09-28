@@ -15,6 +15,17 @@ enum Verdict {
     Human(String),
 }
 
+/// The `status` of the `[[subsystem]]` with `id` in features.toml.
+fn subsystem_status<'a>(ledger: &'a str, id: &str) -> Option<&'a str> {
+    let start = ledger.find(&format!("id = \"{id}\""))?;
+    let entry = &ledger[start..];
+    let entry = &entry[..entry.find("[[").unwrap_or(entry.len())];
+    entry
+        .lines()
+        .find_map(|l| l.strip_prefix("status = \""))
+        .and_then(|rest| rest.strip_suffix('"'))
+}
+
 fn read(root: &Path, rel: &str) -> Option<String> {
     std::fs::read_to_string(root.join(rel)).ok()
 }
@@ -127,17 +138,19 @@ fn build_gates(root: &Path) -> Vec<(&'static str, Verdict)> {
         ),
         (
             "Staking and slashing built",
-            if ledger.contains("id = \"staking") {
-                Verdict::Human("features.toml has a staking entry; check its status".into())
-            } else {
-                Verdict::Fail("no staking subsystem in features.toml".into())
+            match subsystem_status(&ledger, "staking-and-slashing") {
+                Some(status @ ("verified" | "working")) => Verdict::Pass(format!(
+                    "features.toml staking-and-slashing: {status} (its tests are checked by `cargo xtask coverage`)"
+                )),
+                Some(status) => Verdict::Fail(format!("staking-and-slashing is {status}")),
+                None => Verdict::Fail("no staking subsystem in features.toml".into()),
             },
         ),
         (
             "Fee market active",
             if fee_linked {
                 Verdict::Human(
-                    "the node links maya-fee-market; confirm its activation height is finite"
+                    "the node links maya-fee-market and charges from block 1 when the genesis carries `bft.fees`; no mainnet genesis exists yet to confirm it does"
                         .into(),
                 )
             } else {
