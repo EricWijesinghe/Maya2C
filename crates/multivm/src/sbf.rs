@@ -81,13 +81,13 @@ pub fn run(program: &str, balance: u64, budget: u64) -> Result<SbfOutcome, Multi
         MemoryRegion::new(&raw mut *heap.as_slice_mut(), ebpf::MM_HEAP_START),
         MemoryRegion::new(&raw mut input[..], ebpf::MM_INPUT_START),
     ];
+    // Exercised by `tests/multivm_tests.rs` (normal exit, out-of-budget, bad
+    // memory access).
     // SAFETY: `MemoryMapping::new` requires every region's host memory to
-    // outlive the mapping and not be aliased while the VM runs. `stack`,
-    // `heap` and `input` are locals of this function, borrowed only through
-    // these raw regions, and the mapping (inside `meter`) and the VM are
-    // dropped before them at the end of this scope. The read-only region
-    // points into `executable`, which also outlives both. Exercised by
-    // `tests/multivm_tests.rs` (normal exit, out-of-budget, bad memory access).
+    // outlive the mapping and not be aliased while the VM runs. `stack`, `heap`
+    // and `input` are locals borrowed only through these raw regions, dropped
+    // after the mapping (inside `meter`) and the VM; the read-only region
+    // points into `executable`, which also outlives both.
     let mapping = unsafe { MemoryMapping::new(regions, config, executable.get_sbpf_version()) }
         .map_err(err)?;
     let mut meter = Meter {

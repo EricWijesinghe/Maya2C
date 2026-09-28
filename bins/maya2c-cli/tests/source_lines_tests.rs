@@ -17,6 +17,8 @@ extern "C" {
 }
 #[no_mangle]
 pub extern "C" fn invoke(_len: i32) -> i64 {
+    // SAFETY: each pointer/length pair names a live static byte string, which
+    // is all the host imports read.
     unsafe {
         storage_write(b"k1".as_ptr(), 2, b"vv".as_ptr(), 2);
         emit_event(b"t".as_ptr(), 1, b"d".as_ptr(), 1);
@@ -105,7 +107,8 @@ fn each_host_call_maps_to_the_line_that_made_it() {
     assert!(by_line.values().all(|gas| *gas > 0));
     let profile = session.command("p").unwrap();
     assert!(
-        profile.contains("probe.rs:12") && profile.contains("gas"),
+        profile.contains(&format!("probe.rs:{}", line_of("storage_write(b\"k1\"")))
+            && profile.contains("gas"),
         "{profile}"
     );
 }
