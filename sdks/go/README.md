@@ -1,12 +1,36 @@
-# sdks/go
+# sdks/go — Maya2C for Go
 
-Empty. There is no Go SDK.
+```go
+import maya2c "maya2c.dev/sdk"
 
-The foundation brief lists `go` under `sdks/`; it also says not to build
-product features in this phase. This is the reserved directory.
+client := maya2c.NewClient("http://127.0.0.1:8545")
+wallet := maya2c.NewWallet("l1-wallet", "wallet.key", password, client)
+txid, err := wallet.Transfer(recipient, 1_000)
+```
 
-Same constraint as `sdks/python`: the hybrid signature is not reimplemented.
-`sdks/sdk-ffi` is a `cdylib` with a C ABI, which cgo can call, and that keeps
-one implementation of the thing consensus checks. A pure-Go signer would be a
-second implementation of a consensus rule - `docs/invariants.md`, invariant 2,
-records what this project already pays to avoid exactly that.
+- `Client` — JSON-RPC: balances, the account at the tip (read with the tip's
+  height and id, for reconciliation), blocks, raw transaction submission.
+- `Wallet` — transfers built and signed by `l1-wallet`, the Rust wallet
+  shipped with the node, then submitted through `Client`. The password
+  reaches the child process in `L1_WALLET_PASSWORD`, never on a command line.
+
+Standard library only; no cgo.
+
+## Why signing goes through the Rust wallet
+
+A Maya2C signature is an ML-DSA-65 and SLH-DSA pair, and both must verify;
+the transaction wire format is a consensus rule too. A second implementation
+in Go would be a second thing that can disagree with the chain
+(`docs/invariants.md`, invariant 2). So this package never signs or encodes
+a transaction itself: it asks the one implementation consensus uses.
+
+## Tests
+
+`live_node_test.go` runs against a live devnet and skips without one:
+
+```
+$ GO=path/to/go cargo xtask sdk-e2e --lang go
+--- PASS: TestReadsTheChain
+--- PASS: TestATransferSignedInRustIsCredited   (credited in ~2 s)
+--- PASS: TestARefusalIsAnError
+```

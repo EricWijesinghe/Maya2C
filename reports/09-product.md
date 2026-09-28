@@ -114,3 +114,37 @@ Order 6) — unchanged.
 `docs/site` (Starlight) regenerates its sidebar from `docs/README.md`
 (`docs/site/scripts/ingest.mjs`); pages added by this work are listed there.
 `cargo doc --no-deps` was not re-run for this report.
+
+## Python and Go SDKs (2026-09-28)
+
+`sdks/python` (package `maya2c_sdk`) and `sdks/go` (module
+`maya2c.dev/sdk`) were empty directories. Both are now JSON-RPC clients
+using only their standard libraries: balances, the account at the tip,
+blocks, raw submission. They build and sign transfers through `l1-wallet`,
+the Rust wallet shipped with the node. Neither contains a second
+implementation of the hybrid signature or of the transaction wire format,
+which the empty READMEs had named as the constraint. The password reaches
+the wallet in `L1_WALLET_PASSWORD`, never on a command line.
+
+`cargo xtask sdk-e2e --lang python|go|ts|all` starts a one-validator
+devnet, and each SDK's live-node test runs against it. Windows workstation
+(Go 1.27.1, Python 3.12):
+
+```
+$ cargo xtask sdk-e2e --lang python
+Ran 3 tests in 1.921s
+OK
+python sdk: transfer a5ddbf803b8307cc... credited in 1.05 s
+
+$ GO=D:/Tools/go/bin/go.exe cargo xtask sdk-e2e --lang go
+--- PASS: TestReadsTheChain (0.18s)
+    live_node_test.go:55: go sdk: transfer d0e77164e333c6b2... credited in 2.005s
+--- PASS: TestATransferSignedInRustIsCredited (2.55s)
+--- PASS: TestARefusalIsAnError (0.00s)
+ok  	maya2c.dev/sdk	2.766s
+```
+
+Each suite covers chain reads, a Rust-signed transfer credited on chain, and
+a malformed transaction refused as an error rather than passing silently.
+Both run nightly in CI.
+
