@@ -8,6 +8,8 @@
 //!   opening reveals exactly the orders an auditor key was given.
 //! - [`mpc_darkpool`] — the same auction cleared over additive secret shares:
 //!   servers see only aggregate curves, never an order.
+//! - [`mpc_spdz`] — the same aggregation with SPDZ-style MACs, so a server
+//!   that alters its shares is caught.
 //! - [`tax`] — per-jurisdiction capital-gains calculators as pure integer
 //!   functions over a transaction history.
 //!
@@ -25,6 +27,7 @@
 pub mod cbdc;
 pub mod darkpool;
 pub mod mpc_darkpool;
+pub mod mpc_spdz;
 pub mod tax;
 
 /// An account.

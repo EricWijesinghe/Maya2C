@@ -62,10 +62,10 @@ are scenario inputs. Real-time ZK proof-of-reserves is not built.
 
 ## 3. Not built
 
-Malicious-secure dark-pool MPC (share MACs, per-order proofs — §7 is
-semi-honest); generic L1/L2 light-client framework; IEC 61850
+Per-order well-formedness proofs and a dealer-free offline phase for the
+dark-pool MPC (§9 catches dishonest servers, not dishonest traders); generic L1/L2 light-client framework; IEC 61850
 MMS and sampled values; satellite NDVI oracle; robot swarm auctions; EEG/BCI
-SIM; liveness and uniqueness for proof-of-personhood; machine-to-machine
+SIM (built since: §10); liveness and uniqueness for proof-of-personhood; machine-to-machine
 barter with 10,000 devices.
 
 ## 4. Permissioned finance (new, RESEARCH) — run for this report
@@ -269,3 +269,72 @@ An adversarial audit found:
 
 All three are fixed, and each has a regression test. **Releases still need
 whoever holds the lock key**, because Bitcoin cannot check this chain.
+
+## 9. Dark pool against dishonest servers (new, RESEARCH) — 2026-09-28
+
+`crates/permissioned-finance/src/mpc_spdz.rs`: SPDZ-style
+information-theoretic MACs (Damgård, Pastro, Smart, Zakarias 2012) over the
+prime field 2^61 − 1.
+- **Shares and inputs.** Every shared value carries shares of `α·v` under a
+  MAC key that no server knows. Traders input through dealer-prepared masks
+  and publish only `v − r`, which is uniform.
+- **Opening.** An opened aggregate is accepted only after every server
+  commits to its MAC residue and then reveals it, and the residues sum to
+  zero. The API enforces the order: one commitment per sum, and no reveal
+  without every server's commitment. A missing server aborts the check
+  rather than shrinking it.
+
+```
+$ cargo test -p maya-permissioned-finance --test mpc_spdz_tests -- --nocapture
+spdz 1 orders, 3 servers: price None, volume 0, 687.4µs
+spdz 10 orders, 3 servers: price Some(119), volume 955, 6.6979ms
+spdz 200 orders, 3 servers: price Some(124), volume 13057, 118.8805ms
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+```
+
+Price equals the open auction's at every size. A server that shifts its
+share, even while also shifting its MAC share by a guess at the key, is
+caught. So is one that reveals something other than it committed to.
+
+A review confirmed the algebra and the soundness of the check, and found
+the API permitted misuse. Those findings are fixed and tested:
+- **CRITICAL:** a check with no servers passed vacuously;
+- **HIGH:** a short residue panicked instead of being refused;
+- **HIGH:** a second residue on one sum would reveal a server's key share;
+- **HIGH:** commit-then-reveal was not enforced;
+- **MEDIUM:** a one-server dealer; a silent `unwrap_or(0)`.
+
+**Still trusted:**
+- the dealer, since SPDZ's offline phase (homomorphic encryption or
+  oblivious transfer) is not built;
+- traders, for well-formed orders, since no per-order proof exists.
+
+Fills stay in the semi-honest `mpc_darkpool` round.
+
+## 10. EEG / BCI authentication simulator (new, SIM) — 2026-09-28
+
+`hal/bci-sim`. Every recording it authenticates in its tests is
+synthetic and says so in its EDF header. It has never been run on human
+EEG.
+
+- **What is REAL:** the EDF parser (the format clinical EEG uses; tested
+  for round-trips and for truncated or inconsistent files). The pipeline
+  bins spectral power per channel and frequency into a 2,048-bit template,
+  which feeds `maya-personhood`'s fuzzy commitment: an ML-DSA-65 key,
+  proofs bound to a challenge, expiring after 3 s, and never accepted
+  twice.
+- **Spoofing:** the challenge implies a flicker frequency (SSVEP), and a
+  live occipital signal must respond at it. A replayed recording responds
+  at its own session's frequency and is refused. The check runs on the
+  device, so **a device that skips it defeats it**; it needs attested
+  hardware, which does not exist here (invariant 11).
+
+```
+$ cargo test -p maya-bci-sim -- --nocapture
+SIM: synthetic EEG (maya-bci-sim), not a human recording: of 2,048 template bits, sessions of one subject differ in [95, 93, 98, 91, 93, 101]; other subjects in [1045, 1006, 1007, 995, 1019, 983]
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.12s
+```
+
+These separations are the generator's, by construction. Whether human EEG
+features are this stable and this distinctive is an open research question.
+

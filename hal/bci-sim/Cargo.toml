@@ -1,0 +1,19 @@
+[package]
+name = "maya-bci-sim"
+version.workspace = true
+# Not published. See crates/dex/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "SIM: EEG/BCI authentication research simulator - EDF parser, spectral template, SSVEP liveness, over maya-personhood's fuzzy commitment"
+
+[dependencies]
+maya-personhood = { path = "../../crates/personhood" }
+# The synthetic generator's randomness; the device's signing RNG is the
+# caller's.
+rand_chacha.workspace = true
+rand_core = { version = "0.6", default-features = false }
+thiserror.workspace = true
+
+[lints]
+workspace = true

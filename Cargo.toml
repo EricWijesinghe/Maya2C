@@ -238,6 +238,10 @@ members = [
     # seeds an ML-DSA-65 key on the device; only its public key is published.
     # Device-side; the node links none of it.
     "crates/personhood",
+    # SIM: EEG/BCI authentication research simulator (Master Prompt 6 §7).
+    # EDF parser, spectral template over maya-personhood, SSVEP liveness.
+    # Synthetic recordings only; declared in every header it writes.
+    "hal/bci-sim",
     # Entropy HAL (ADR-010): OS and RDSEED sources, SP 800-90B health tests on
     # every source, one SP 800-90A HMAC-DRBG fed by all of them, tamper-driven
     # zeroization. The thermal, micro-voltage, Brownian and homodyne-QRNG
