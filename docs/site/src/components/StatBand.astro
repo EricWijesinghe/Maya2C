@@ -1,0 +1,78 @@
+---
+// Figures from evidence on disk, each with the date it was measured and
+// where it came from. They are not live: update them when a new sweep runs,
+// and never raise one without the run behind it (Standing Order 1).
+const stats = [
+  { value: 2972, label: "tests passing", source: "full sweep, 2026-09-28" },
+  { value: 148, label: "subsystems in the reality ledger", source: "features.toml" },
+  { value: 7, label: "SLOs, each with metric, alert and runbook", source: "cargo xtask slo-check" },
+  { value: 4, label: "validators with BFT finality, one killed and back", source: "cargo xtask localnet" },
+];
+---
+
+<section class="stat-band" aria-label="Measured today">
+  {
+    stats.map((s) => (
+      <div class="stat">
+        <span class="num" data-count={s.value}>{s.value.toLocaleString("en-US")}</span>
+        <span class="label">{s.label}</span>
+        <span class="source">{s.source}</span>
+      </div>
+    ))
+  }
+</section>
+
+<script>
+  // Counts up once when the band scrolls into view. The number is already in
+  // the HTML, so without JavaScript (or with reduced motion) nothing is lost.
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const nums = document.querySelectorAll<HTMLElement>(".stat-band .num");
+  if (!reduce && "IntersectionObserver" in window) {
+    const seen = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        const el = e.target as HTMLElement;
+        const end = Number(el.dataset.count);
+        const start = performance.now();
+        const step = (t: number) => {
+          const k = Math.min(1, (t - start) / 1200);
+          el.textContent = Math.round(end * (1 - (1 - k) ** 3)).toLocaleString("en-US");
+          if (k < 1) requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+        seen.unobserve(el);
+      }
+    });
+    nums.forEach((n) => seen.observe(n));
+  }
+</script>
+
+<style>
+  .stat-band {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: 1rem;
+    margin: 2.5rem 0 1rem;
+  }
+  .stat {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 1.25rem 1.25rem 1rem;
+    border-radius: 1rem;
+    border: 1px solid var(--sl-color-hairline);
+    background: linear-gradient(160deg, rgb(34 211 238 / 0.08), rgb(167 139 250 / 0.04));
+  }
+  .num {
+    font-size: clamp(2rem, 4vw, 2.75rem);
+    font-weight: 800;
+    line-height: 1;
+    background: linear-gradient(100deg, #22d3ee, #a78bfa);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    font-variant-numeric: tabular-nums;
+  }
+  .label { color: var(--sl-color-white); font-weight: 600; }
+  .source { font-size: 0.75rem; color: var(--sl-color-gray-3); font-family: var(--sl-font-mono); }
+</style>

@@ -1,15 +1,19 @@
 ---
 title: Maya2C
-description: A post-quantum layer-1 blockchain node, in Rust. Hybrid ML-DSA + SLH-DSA signatures on every transaction.
+description: A post-quantum layer-1 blockchain in Rust. DAG-BFT finality, NIST post-quantum signatures, and detached apps built on one identity.
 template: splash
 hero:
-  tagline: A post-quantum layer-1 blockchain node, in Rust.
+  title: Post-quantum, from the key to the chain.
+  tagline: A layer-1 blockchain in Rust with DAG-BFT finality and NIST post-quantum cryptography in every layer, and a claim ledger that fails CI when a feature has no test.
   image:
-    file: ../../assets/logo.png
+    file: ../../assets/hero-lattice.svg
   actions:
-    - text: Read the docs
-      link: /guides/api/
+    - text: Quickstart
+      link: /guides/quickstart/
       icon: right-arrow
+    - text: API reference
+      link: /guides/api/
+      variant: secondary
     - text: Source on GitHub
       link: https://github.com/EricWijesinghe/Maya2C
       icon: external
@@ -17,8 +21,17 @@ hero:
 ---
 
 import { Card, CardGrid } from "@astrojs/starlight/components";
+import StatBand from "../../components/StatBand.astro";
+import StackDiagram from "../../components/StackDiagram.astro";
+import EcosystemMap from "../../components/EcosystemMap.astro";
+import LaunchLadder from "../../components/LaunchLadder.astro";
 
 {/* Copied to src/content/docs/index.mdx by scripts/ingest.mjs. Edit this file. */}
+
+<StatBand />
+
+<p class="maya-eyebrow">Why it is built this way</p>
+<h2 class="maya-section-title">Security you can check, not take on trust</h2>
 
 <CardGrid>
   <Card title="Two signatures per transaction" icon="seti:lock">
@@ -26,26 +39,63 @@ import { Card, CardGrid } from "@astrojs/starlight/components";
     verify. 11,165 bytes per transaction: the price of not betting the chain on
     one lattice assumption.
   </Card>
-  <Card title="Post-quantum transport" icon="rocket">
+  <Card title="Finality in seconds" icon="rocket">
+    A certified DAG ordered by Bullshark. A block is derived from committed
+    certificates, never proposed, and a validator restarted from its safety
+    log cannot equivocate. Tested with one of four validators killed.
+  </Card>
+  <Card title="Post-quantum transport" icon="random">
     libp2p with an ML-KEM-768 layer over Noise, and an optional HQC-192 second
     KEM behind a flag.
   </Card>
-  <Card title="Rust, end to end" icon="seti:rust">
-    Node, wallet, explorer, miners and contract VM in one Rust workspace.
-    Ledger arithmetic is kept dependency-free so Kani can check it.
-  </Card>
-  <Card title="Honest status" icon="information">
-    Every subsystem is labelled working, verified, simulated or research in a
-    machine-checked ledger. A claim without a test fails CI.
+  <Card title="Honest by construction" icon="information">
+    Every subsystem is labelled verified, working, simulated or research in a
+    machine-checked ledger. A claim without a test fails CI, and so does the
+    word "first" without a dated search of who else did it.
   </Card>
 </CardGrid>
 
-## Where it stands
+<p class="maya-eyebrow">Architecture</p>
+<h2 class="maya-section-title">One stack, post-quantum at every layer</h2>
+
+<StackDiagram />
+
+<p class="maya-eyebrow">Ecosystem</p>
+<h2 class="maya-section-title">Detached apps on one identity</h2>
+
+An identity is an ML-DSA-65 key, and its address is the chain's own. The same
+key can sign a transaction, open a Maya Chat session or log in to the next
+app, and none of those apps links the node. Each can be replaced without
+touching the others.
+
+<EcosystemMap />
+
+<CardGrid>
+  <Card title="Maya Chat" icon="comment-alt">
+    Peer-to-peer messaging with X-Wing (ML-KEM-768 + X25519) handshakes signed
+    by ML-DSA identities, store-and-forward relays and proof-of-work postage.
+    Research status: unaudited.
+  </Card>
+  <Card title="Run it yourself" icon="laptop">
+    `cargo xtask up` starts four validators, the gateway, a chat relay and a
+    funded devnet wallet on one machine; `cargo xtask down` stops them.
+  </Card>
+</CardGrid>
+
+<p class="maya-eyebrow">Launch ladder</p>
+<h2 class="maya-section-title">Where it stands, gate by gate</h2>
+
+Computed by `cargo xtask go-no-go` from evidence on disk, never from intent.
+Today that is 8 gates passed, 5 not yet, and 3 that only a person can
+confirm.
+
+<LaunchLadder />
 
 | | Status |
 |---|---|
-| Public testnet | **Not live yet.** Being prepared. |
-| Mainnet | **Deliberately blocked** until the shielded-pool circuit has an independent audit. See [mainnet readiness](/reference/mainnet-readiness/). |
+| Public testnet | **Not live yet.** The one-command installer is tested; launch is the owner's decision. |
+| Mining | Works on a local devnet only. **There is no block reward**: the base fee is burned and validators earn tips (ADR-029). Nobody earns by mining. |
+| Mainnet | **Blocked** until an independent audit has reported and every launch gate passes. See [mainnet readiness](/reference/mainnet-readiness/). |
 | Source | Public, on GitHub. |
 
 Nothing on this site is an offer of a token, and no token is for sale.
