@@ -32,6 +32,8 @@ pub enum Request {
     Bundle(Address),
     /// Leave an envelope for its recipient.
     Deposit(Envelope),
+    /// Ask how much postage a deposit needs.
+    Postage,
     /// Ask for a challenge to empty a mailbox.
     Challenge(Address),
     /// Empty a mailbox, proving ownership.
@@ -54,6 +56,8 @@ pub enum Response {
     Bundle(Option<PrekeyBundle>),
     /// A challenge nonce.
     Challenge([u8; 32]),
+    /// Leading zero bits a deposit's stamp needs.
+    Postage(u32),
     /// The mailbox's envelopes.
     Envelopes(Vec<Envelope>),
     /// Refused, with the reason.
@@ -95,6 +99,7 @@ pub fn serve(relay: &mut Relay, request: Request) -> Response {
         Request::Publish(bundle) => relay.publish(bundle, t).map(|_| Response::Ok),
         Request::Bundle(address) => Ok(Response::Bundle(relay.bundle(&address, t))),
         Request::Deposit(envelope) => relay.deposit(envelope, t).map(|_| Response::Ok),
+        Request::Postage => Ok(Response::Postage(relay.stamp_bits())),
         Request::Challenge(address) => relay.challenge(address, t).map(Response::Challenge),
         Request::Fetch {
             address,
@@ -107,19 +112,22 @@ pub fn serve(relay: &mut Relay, request: Request) -> Response {
     answer.unwrap_or_else(|e| Response::Refused(e.to_string()))
 }
 
-/// Runs a relay on `listen` until the process ends, printing its dialable
+/// Runs `relay` on `listen` until the process ends, printing its dialable
 /// address (with `/p2p/<peer id>`) once listening.
 ///
 /// # Errors
 ///
 /// A listen address that cannot be bound.
-pub async fn run_relay(keypair: identity::Keypair, listen: Multiaddr) -> Result<(), ChatError> {
+pub async fn run_relay(
+    keypair: identity::Keypair,
+    listen: Multiaddr,
+    mut relay: Relay,
+) -> Result<(), ChatError> {
     let mut swarm = swarm(keypair)?;
     let peer = *swarm.local_peer_id();
     swarm
         .listen_on(listen)
         .map_err(|e| ChatError::Network(e.to_string()))?;
-    let mut relay = Relay::default();
     loop {
         match swarm.select_next_some().await {
             SwarmEvent::NewListenAddr { address, .. } => {

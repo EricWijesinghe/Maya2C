@@ -80,6 +80,21 @@ fn two_people_chat_through_a_relay() {
     assert!(got.contains("2 message(s)"), "{got}");
     // The mailbox was emptied.
     assert!(run(&bob, &["recv", "--relay", &relay]).contains("0 message(s)"));
+
+    // Sessions outlive the process: Bob replies without Alice's prekey, and
+    // Alice's next run reads it, then a follow-up in the same session.
+    run(
+        &bob,
+        &["send", "--relay", &relay, "--to", &alice_addr, "hi alice"],
+    );
+    let got = run(&alice, &["recv", "--relay", &relay]);
+    assert!(got.contains(&format!("from {bob_addr}: hi alice")), "{got}");
+    run(
+        &alice,
+        &["send", "--relay", &relay, "--to", &bob_addr, "third"],
+    );
+    let got = run(&bob, &["recv", "--relay", &relay]);
+    assert!(got.contains(&format!("from {alice_addr}: third")), "{got}");
 }
 
 #[test]
