@@ -144,15 +144,30 @@ contract state wait on a circuit audit (ADR-016).
 
 ## 6. Not built
 
-From the prompt ledger (`docs/master-prompts/README.md`), what remains after
-this session, each with its reason:
+Built since this report was first written (all on this branch, each in its
+own report). After all of it, `cargo nextest run --workspace`: **2,961
+passed, 0 failed**, 11 skipped (264.9 s).
+- the Bitcoin lock/mint bridge (report 06 §8);
+- dark-pool MPC with MACs against dishonest servers (§9);
+- the EEG/BCI SIM (§10);
+- machine barter and robot swarms (§11);
+- the satellite NDVI oracle (§12);
+- the Python and Go SDKs (report 09);
+- the wallet end-to-end suite, which found and fixed a wallet that could
+  not call its backend (reports 09 and 29);
+- debugger source lines and gas per line (report 24).
 
-- Lock/mint bridge for outside assets; ZK light client (MP06, MP25).
-- EEG/BCI SIM, satellite NDVI oracle, swarm auctions, 10,000-device barter
-  (MP06).
-- Malicious-secure dark-pool MPC (share MACs, per-order proofs) (MP06).
-- Liveness and uniqueness for proof-of-personhood (MP06).
-- Go and Python SDKs are placeholders (MP09).
-- Wallet GUI WebDriver suite: never run, and **cannot pass as written**. 10 of its 12 element ids are not in the UI, and two of its three listed specs do not exist (`apps/wallet-gui/e2e/README.md`) (MP09, MP29).
-- Source-line mapping and lazy fork state for the debugger (MP24).
-- A public testnet and outside developers (MP30).
+What remains, each with its reason:
+
+- **Zero-knowledge light client** (MP25): proving Ethereum's sync-committee
+  BLS signatures inside a STARK is a research project.
+- **Proof-of-personhood liveness and uniqueness** (MP06): both need attested
+  hardware, which does not exist here (invariant 11).
+- **A dealer-free MPC offline phase** (homomorphic encryption or OT) and
+  **per-order proofs** for the dark pool.
+- **Lazy fork state** (MP24): conflicts with invariant 24, recorded in
+  report 24; fork mode stays eager.
+- **Guest traps mapped to source lines** (MP24): host calls map; traps
+  would need the backtrace plumbed out of the consensus execution path.
+- **Landsat** as a second oracle sensor: its bucket is requester-pays.
+- **A public testnet and outside developers** (MP30), and every item in §4.
