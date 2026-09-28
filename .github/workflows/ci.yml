@@ -187,7 +187,12 @@ jobs:
   test:
     name: nextest (core)
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # 150, not 90: on 2026-09-28 this job took 29-87 minutes when it finished,
+    # and 5 of 12 runs were cancelled at 90 with every test still passing
+    # locally. A cancelled job keeps no log, so the limit was hiding results
+    # rather than catching hangs; .config/nextest.toml now kills a hung test
+    # after 20 minutes and names it.
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
       - name: Free runner disk

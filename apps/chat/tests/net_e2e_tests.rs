@@ -6,7 +6,11 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 
 const BIN: &str = env!("CARGO_BIN_EXE_maya-chat");
+/// Longest a step may take before a test fails instead of hanging; minting
+/// postage in a debug build is the slowest step, well under this.
+const LINE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// A child process killed when the test ends, pass or fail.
 struct Relay(Child);
 
 impl Drop for Relay {
@@ -121,17 +125,32 @@ fn an_interactive_chat_sends_lines_and_shows_replies() {
     let bob_addr = run(&bob, &["init"]).trim().to_owned();
     run(&bob, &["publish", "--relay", &relay]);
 
-    let mut chat = Command::new(BIN)
-        .arg("--home")
-        .arg(&alice)
-        .args(["chat", "--relay", &relay, "--poll", "60"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .expect("spawn chat");
-    let mut stdin = chat.stdin.take().expect("stdin");
-    let mut out = BufReader::new(chat.stdout.take().expect("stdout")).lines();
-    let mut next = || out.next().expect("chat output").expect("read chat output");
+    let mut chat = Relay(
+        Command::new(BIN)
+            .arg("--home")
+            .arg(&alice)
+            .args(["chat", "--relay", &relay, "--poll", "60"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("spawn chat"),
+    );
+    let mut stdin = chat.0.stdin.take().expect("stdin");
+    // Read on a thread with a deadline per line: a chat that stops talking
+    // fails this test by name instead of hanging the whole CI job.
+    let (tx, rx) = std::sync::mpsc::channel();
+    let stdout = chat.0.stdout.take().expect("stdout");
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            if tx.send(line.expect("read chat output")).is_err() {
+                break;
+            }
+        }
+    });
+    let next = || {
+        rx.recv_timeout(LINE_DEADLINE)
+            .expect("the chat printed nothing within the deadline")
+    };
     assert!(next().starts_with("chatting as "));
 
     writeln!(stdin, "/to {bob_addr}").expect("write");
@@ -150,5 +169,5 @@ fn an_interactive_chat_sends_lines_and_shows_replies() {
     // End of input: the chat checks the mailbox once more, then leaves.
     drop(stdin);
     assert_eq!(next(), format!("from {bob_addr}: hi back"));
-    assert!(chat.wait().expect("wait").success());
+    assert!(chat.0.wait().expect("wait").success());
 }
