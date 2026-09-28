@@ -44,6 +44,32 @@ The keys are generated on the VM itself:
 
 The installer never prints any of them.
 
+## How many validators, and where
+
+BFT tolerates `f = floor((n - 1) / 3)` faulty validators and needs a quorum
+of `n - f`. That makes the count matter more than it looks:
+
+| Validators | Faults tolerated | What halts the chain |
+|---|---|---|
+| 1 | 0 | the one machine going down |
+| 2 | 0 | **either** machine going down: worse than 1 |
+| 3 | 0 | any one of them going down |
+| 4 | 1 | two of them going down |
+
+Four validators on one VM (`VALIDATORS=4`, the default) have finality but
+still share one machine. The first real fault tolerance comes from four
+validators on **four separate machines**, ideally with separate providers.
+Until then, run a second machine, such as a home PC, in JOIN mode as an
+observer (a full node that follows and verifies the chain). Do not register
+it as a second validator.
+
+A new validator can join after genesis: it submits a staking registration,
+and it enters the committee at the next epoch boundary
+(`crates/node/tests/bft_staking_tests.rs`,
+`a_registration_joins_the_committee_and_evidence_removes_an_equivocator`).
+A joining node prints its public key to `/etc/maya2c/v0.pub` for that
+purpose.
+
 ## What this is not
 
 - **Not decentralised.** Four validators on one machine have BFT finality,
