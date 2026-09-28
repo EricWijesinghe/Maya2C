@@ -4,6 +4,8 @@
 **Date:** 2026-09-27
 **Revisited by:** Master Prompt 21 (§ "Adoption-critical additions" below)
 
+> **Update 2026-09-28:** Launch blocker 1 is done, so a `production` build now starts, in `dag-bft` mode only (`bins/maya2c-node/src/main.rs`). See [ADR-027](ADR-027-dag-bft-in-the-node.md). The text below is the decision as recorded; it is not current status.
+
 ## Context
 
 Master Prompt 11 asks for the mainnet v1 core to be frozen, everything else
