@@ -20,10 +20,12 @@ Each SLO has four companions that `cargo xtask slo-check` requires: a
 
 The liveness row names `maya_blocks_imported_total`, the counter the node
 exports (`crates/node/src/metrics/mod.rs`), in place of a "blocks produced"
-counter that never existed. The finality, RPC, sync and missed-round metrics
-are **not emitted**: there is no BFT finality or validator set to measure,
-and the RPC server has no metrics middleware. `cargo xtask slo-check` lists
-them as gaps (`reports/19-operations.md`).
+counter that never existed. Since ADR-027, the node also exports the finality,
+RPC, sync and missed-round metrics (`crates/node/src/metrics/mod.rs`).
+`cargo xtask slo-check` reported all 7 SLOs with every companion on
+2026-09-28, with 0 gaps. What no one has yet is a *measurement*: the targets
+above stay TARGETs until a staging network has run long enough to measure
+them (LAUNCH.md Gate 3).
 
 ## Error budgets
 

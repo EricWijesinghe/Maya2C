@@ -1,0 +1,10 @@
+# cargo xtask localnet — commit 6d20648, 2026-09-28
+# Machine: Core Ultra 9 275HX, 31.4 GB, Windows 11 build 29671, rustc nightly-2026-07-15 (dev profile)
+# Command: cargo xtask localnet
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 12m 59s
+localnet: 4 validators agree on one chain 3.5460078s after start
+localnet: a transfer sent to node 0 executed on all 4 in 1.5079791s
+localnet: node 3 killed; the other three committed 5 more blocks in 8.0570281s
+localnet: node 3 restarted and caught up to height 10 in 1.0192268s
+localnet: PASS in 14.7177674s
+

@@ -3,6 +3,8 @@
 **Status:** Accepted
 **Date:** 2026-09-27
 
+> **Update 2026-09-28:** DAG-BFT is now wired into the node: blocks are derived from committed anchors, votes are signed and there is a safety log. See [ADR-027](ADR-027-dag-bft-in-the-node.md). The text below is the decision as recorded; it is not current status.
+
 ## Context
 
 Master Prompt 4 §0 asks for the design to be resolved *before* code: earlier

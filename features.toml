@@ -2908,7 +2908,7 @@ tier = "core"
 class = "REAL"
 status = "verified"
 tests = ["crate:maya-dag-bft", "crates/dag-bft/tests/modes_sim.rs", "crates/dag-bft/tests/auth_and_restart.rs", "crates/node/tests/bft_node_tests.rs"]
-note = "ADR-015. All three modes run under maya-sim. Ordering figures only (no signatures, execution or disk) — not TPS. Not wired into custom-l1-node."
+note = "ADR-015. All three modes run under maya-sim. Ordering figures only (no signatures, execution or disk) — not TPS. Wired into the node by ADR-027: blocks derived from committed anchors, signed votes, a safety log (bft_node_tests.rs; cargo xtask localnet)."
 
 [[subsystem]]
 id = "vm-execution-tiers"

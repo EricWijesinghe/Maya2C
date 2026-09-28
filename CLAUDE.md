@@ -68,8 +68,10 @@ From Master Prompt 11, with how each is enforced *today*:
   exact command. **No `cargo xtask bench` exists yet**; `reports/12-baseline.md`
   is the manual record.
 - "TPS" means signature-verified, executed, state-committed, finalized
-  transactions per second with the mix stated. None has been measured: the
-  node has no BFT finality (ADR-015).
+  transactions per second with the mix stated. None has been measured. The
+  node has had DAG-BFT finality since ADR-027 (`bins/maya2c-node/src/bft.rs`,
+  `crates/node/tests/bft_node_tests.rs`), but nobody has run a finalized-TPS
+  benchmark over it yet.
 - Consensus-critical changes need a spec update, conformance vectors
   (`cargo xtask spec-coverage`), an ADR if behaviour changes, and two human
   reviewers (a note; not enforced).
