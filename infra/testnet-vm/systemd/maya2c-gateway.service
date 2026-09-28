@@ -1,0 +1,40 @@
+# The public REST/GraphQL surface (crates/api-gateway), in front of
+# validator 0's loopback RPC. Its listen address is in gateway.env: loopback
+# behind Caddy when DOMAIN is set, otherwise 0.0.0.0:8080.
+[Unit]
+Description=Maya2C API gateway (testnet)
+After=maya2c-validator@0.service
+Wants=maya2c-validator@0.service
+
+[Service]
+Type=simple
+User=maya
+Group=maya
+EnvironmentFile=/etc/maya2c/gateway.env
+ExecStart=/usr/local/bin/maya2c-gateway
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target
