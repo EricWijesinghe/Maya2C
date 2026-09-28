@@ -1,0 +1,9 @@
+# cargo xtask localnet --remote-signer — branch feat/remote-signer (ADR-032), 2026-09-29
+# Machine: Core Ultra 9 275HX, 31.4 GB, Windows 11 build 29671, dev profile
+localnet: validator 3 signs through maya2c-signer at 127.0.0.1:31190
+localnet: 4 validators agree on one chain 3.5462056s after start
+localnet: a transfer sent to node 0 executed on all 4 in 2.0240097s
+localnet: node 3 killed; the other three committed 5 more blocks in 8.5730016s
+localnet: node 3 restarted and caught up to height 10 in 1.0147197s
+localnet: PASS in 15.6862559s
+# signer protection log: 44 records (13 proposals, 31 votes) from validator 3; node log: 'dag-bft: validator 3 of 4', 0 refusals

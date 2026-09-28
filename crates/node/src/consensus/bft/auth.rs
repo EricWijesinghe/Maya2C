@@ -4,8 +4,9 @@ use std::sync::Arc;
 
 use maya_dag_bft::{Authenticator, Digest, SignContext, ValidatorId};
 
+use super::remote::ValidatorKey;
 use crate::crypto::SIGNATURE_LENGTH;
-use crate::crypto::keys::{SigningKey, VerifyingKey};
+use crate::crypto::keys::VerifyingKey;
 
 use maya_dag_bft::VOTE_DOMAIN;
 
@@ -15,16 +16,17 @@ use maya_dag_bft::VOTE_DOMAIN;
 /// observer never asks them to sign.
 #[derive(Clone)]
 pub struct MlDsaAuthenticator {
-    signer: Option<Arc<SigningKey>>,
+    signer: Option<ValidatorKey>,
     committee: Arc<[VerifyingKey]>,
 }
 
 impl MlDsaAuthenticator {
-    /// A voting validator's authenticator.
+    /// A voting validator's authenticator, signing with a local key or
+    /// through the remote signer (ADR-032).
     #[must_use]
-    pub fn validator(signer: Arc<SigningKey>, committee: Arc<[VerifyingKey]>) -> Self {
+    pub fn validator(signer: impl Into<ValidatorKey>, committee: Arc<[VerifyingKey]>) -> Self {
         Self {
-            signer: Some(signer),
+            signer: Some(signer.into()),
             committee,
         }
     }
@@ -62,15 +64,20 @@ impl core::fmt::Debug for MlDsaAuthenticator {
 }
 
 impl Authenticator for MlDsaAuthenticator {
-    fn sign(&self, _ctx: SignContext, digest: &Digest) -> Vec<u8> {
-        // A local key has its own protection: the node's safety log. An empty signature verifies nowhere, so a failure here costs this
+    fn sign(&self, ctx: SignContext, digest: &Digest) -> Vec<u8> {
+        // An empty signature verifies nowhere, so a failure here costs this
         // validator its vote and nothing else. FIPS 204 lets the rejection
-        // loop report failure; it is not a condition to retry.
-        self.signer
-            .as_ref()
-            .and_then(|key| key.sign(&Self::message(digest)).ok())
-            .map(|sig| sig.to_vec())
-            .unwrap_or_default()
+        // loop report failure; it is not a condition to retry. A local key's
+        // protection is the node's safety log; a remote signer adds its own
+        // and needs `ctx` for it.
+        match &self.signer {
+            None => Vec::new(),
+            Some(ValidatorKey::Local(key)) => key
+                .sign(&Self::message(digest))
+                .map(|sig| sig.to_vec())
+                .unwrap_or_default(),
+            Some(ValidatorKey::Remote(remote)) => remote.sign(ctx, digest).unwrap_or_default(),
+        }
     }
 
     fn verify(&self, signer: ValidatorId, digest: &Digest, signature: &[u8]) -> bool {
@@ -88,7 +95,7 @@ impl Authenticator for MlDsaAuthenticator {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
-    use crate::crypto::keys::signing_key_from_seed;
+    use crate::crypto::keys::{SigningKey, signing_key_from_seed};
 
     const CTX: SignContext = SignContext {
         kind: maya_dag_bft::SignKind::Vote,

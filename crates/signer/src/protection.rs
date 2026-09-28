@@ -28,6 +28,18 @@
 //! consensus. A node restored from a backup is still stopped, because the
 //! slot records live here, not on the node.
 //!
+//! # Bounded history
+//!
+//! Records below a floor of [`RETAIN_ROUNDS`] under the highest round are
+//! dropped, and every request below the floor is refused
+//! ([`Refusal::BelowFloor`]). Forgetting them is safe for that reason: the
+//! engine never signs further back than `GC_DEPTH` (50 rounds) behind its
+//! last commit, and the floor is twenty times that. Requests more than
+//! [`MAX_AHEAD`] rounds past the highest round, or for an author id at or
+//! above [`MAX_AUTHORS`], are refused too, so an authenticated but
+//! misbehaving node cannot grow the history without bound. The file is
+//! compacted when it holds more than twice the live records.
+//!
 //! # Durability
 //!
 //! [`SlashingDb::approve`] appends the record and calls `fsync` before it
@@ -52,6 +64,15 @@ pub enum Kind {
     Vote,
 }
 
+/// Rounds kept below the highest round signed.
+pub const RETAIN_ROUNDS: u64 = 1_000;
+/// Furthest a request may reach past the highest round signed.
+pub const MAX_AHEAD: u64 = 1_000;
+/// Author ids at or above this are refused; far beyond any committee.
+pub const MAX_AUTHORS: u16 = 1_024;
+/// Lines the file may hold beyond twice the live records before compaction.
+const COMPACT_SLACK: usize = 1_024;
+
 /// Why a request was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Refusal {
@@ -70,6 +91,22 @@ pub enum Refusal {
         round: u64,
         /// The highest round signed.
         watermark: u64,
+    },
+    /// Below the floor of retained history (see the module docs).
+    #[error("round {round} is below the retained floor {floor}")]
+    BelowFloor {
+        /// The round asked for.
+        round: u64,
+        /// The floor.
+        floor: u64,
+    },
+    /// Too far past the highest round, or an author id out of range.
+    #[error("round {round}, author {author} is out of range")]
+    OutOfRange {
+        /// The round asked for.
+        round: u64,
+        /// The author asked for.
+        author: u16,
     },
 }
 
@@ -104,8 +141,11 @@ pub struct SlashingDb {
     /// Digests approved per `(round, author)` slot. More than one can only
     /// come from an import, and then the slot refuses everything.
     slots: BTreeMap<(u64, u16), Vec<[u8; 32]>>,
-    /// Every record, by kind, for export.
-    records: BTreeSet<(Kind, u64, u16, [u8; 32])>,
+    /// Every live record, round first so the history below the floor can be
+    /// split off.
+    records: BTreeSet<(u64, u16, Kind, [u8; 32])>,
+    /// Lines in the file, for deciding when to compact.
+    lines: usize,
 }
 
 impl SlashingDb {
@@ -121,6 +161,7 @@ impl SlashingDb {
             file: OpenOptions::new().create(true).append(true).open(path)?,
             slots: BTreeMap::new(),
             records: BTreeSet::new(),
+            lines: 0,
         };
         if file_exists {
             for line in BufReader::new(File::open(path)?).lines() {
@@ -131,8 +172,11 @@ impl SlashingDb {
                 let r: Record =
                     serde_json::from_str(&line).map_err(|e| DbError::Format(e.to_string()))?;
                 db.remember(r);
+                db.lines += 1;
             }
         }
+        db.prune();
+        db.compact_if_needed()?;
         Ok(db)
     }
 
@@ -142,7 +186,54 @@ impl SlashingDb {
         if !roots.contains(&r.root) {
             roots.push(r.root);
         }
-        self.records.insert((r.kind, r.round, r.author, r.root))
+        self.records.insert((r.round, r.author, r.kind, r.root))
+    }
+
+    /// The highest round signed, of either kind.
+    fn top(&self) -> Option<u64> {
+        self.records.last().map(|(round, ..)| *round)
+    }
+
+    /// The lowest round still decided here.
+    #[must_use]
+    pub fn floor(&self) -> u64 {
+        self.top()
+            .map_or(0, |top| top.saturating_sub(RETAIN_ROUNDS))
+    }
+
+    /// Drops the history below the floor from memory.
+    fn prune(&mut self) {
+        let floor = self.floor();
+        self.slots = self.slots.split_off(&(floor, 0));
+        self.records = self.records.split_off(&(floor, 0, Kind::Vertex, [0; 32]));
+    }
+
+    /// Rewrites the file with the live records once it holds more than
+    /// twice as many lines: written to a temporary file, synced, then renamed
+    /// over the old one, so a crash leaves one complete file or the other.
+    fn compact_if_needed(&mut self) -> Result<(), DbError> {
+        if self.lines <= 2 * self.records.len() + COMPACT_SLACK {
+            return Ok(());
+        }
+        let tmp = self.path.with_extension("compacting");
+        let mut out = File::create(&tmp)?;
+        for (round, author, kind, root) in &self.records {
+            let r = Record {
+                kind: *kind,
+                round: *round,
+                author: *author,
+                root: *root,
+            };
+            let mut line = serde_json::to_string(&r).map_err(|e| DbError::Format(e.to_string()))?;
+            line.push('\n');
+            out.write_all(line.as_bytes())?;
+        }
+        out.sync_all()?;
+        drop(out);
+        std::fs::rename(&tmp, &self.path)?;
+        self.file = OpenOptions::new().append(true).open(&self.path)?;
+        self.lines = self.records.len();
+        Ok(())
     }
 
     /// The highest round this key has proposed in, for [`Kind::Vertex`].
@@ -155,8 +246,8 @@ impl SlashingDb {
             Kind::Vertex => self
                 .records
                 .iter()
-                .filter(|(k, ..)| *k == Kind::Vertex)
-                .map(|(_, round, ..)| *round)
+                .filter(|(_, _, k, _)| *k == Kind::Vertex)
+                .map(|(round, ..)| *round)
                 .max(),
         }
     }
@@ -175,6 +266,17 @@ impl SlashingDb {
         author: u16,
         root: [u8; 32],
     ) -> Result<(), DbError> {
+        let floor = self.floor();
+        if round < floor {
+            return Err(Refusal::BelowFloor { round, floor }.into());
+        }
+        if author >= MAX_AUTHORS
+            || self
+                .top()
+                .is_some_and(|top| round > top.saturating_add(MAX_AHEAD))
+        {
+            return Err(Refusal::OutOfRange { round, author }.into());
+        }
         if let Some(roots) = self.slots.get(&(round, author)) {
             // A single identical digest: an idempotent retry, or a proposal's
             // own vote. Two digests can only come from an import.
@@ -197,6 +299,12 @@ impl SlashingDb {
         };
         self.persist(record)?;
         self.remember(record);
+        self.prune();
+        // Compaction failing leaves the appended file intact and correct; it
+        // only costs disk, so it must not stop this signature.
+        if let Err(e) = self.compact_if_needed() {
+            eprintln!("slashing protection: compaction failed, will retry: {e}");
+        }
         Ok(())
     }
 
@@ -205,6 +313,7 @@ impl SlashingDb {
         line.push('\n');
         self.file.write_all(line.as_bytes())?;
         self.file.sync_all()?; // before any signature is released
+        self.lines += 1;
         Ok(())
     }
 
@@ -214,8 +323,8 @@ impl SlashingDb {
         let entries = |kind: Kind| {
             self.records
                 .iter()
-                .filter(|(k, ..)| *k == kind)
-                .map(|(_, round, author, root)| Signed {
+                .filter(|(_, _, k, _)| *k == kind)
+                .map(|(round, author, _, root)| Signed {
                     round: round.to_string(),
                     author: author.to_string(),
                     signing_root: to_hex(root),
@@ -268,7 +377,7 @@ impl SlashingDb {
                         author,
                         root: from_hex(&s.signing_root)?,
                     };
-                    if !self.records.contains(&(kind, round, author, record.root)) {
+                    if !self.records.contains(&(round, author, kind, record.root)) {
                         self.persist(record)?;
                         self.remember(record);
                         added += 1;

@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-09-26
 
-> **Update 2026-09-28:** DAG-BFT is now in the node and signs votes with a local validator key file. It does not yet call this remote signer; that integration is still open. See [ADR-027](ADR-027-dag-bft-in-the-node.md). The text below is the decision as recorded; it is not current status.
+> **Update 2026-09-28:** DAG-BFT is now in the node, and since ADR-032 (2026-09-29) it can sign through this remote signer with `--remote-signer`. ADR-032 also replaced the protection rule below, which would have stalled consensus. See [ADR-027](ADR-027-dag-bft-in-the-node.md). The text below is the decision as recorded; it is not current status.
 
 ## Context
 
