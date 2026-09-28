@@ -1,5 +1,14 @@
 # sdks/go — Maya2C for Go
 
+```bash
+go get maya2c.dev/sdk
+```
+
+Needs **Go 1.25 or later** to fetch. `maya2c.dev/sdk` is served by a
+`go-import` tag on the website (`docs/site/public/sdk/index.html`) that names
+this subdirectory of the repository, and only Go 1.25+ reads that field. The
+module itself still builds with the Go version in `go.mod`.
+
 ```go
 import maya2c "maya2c.dev/sdk"
 

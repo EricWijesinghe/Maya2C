@@ -64,3 +64,9 @@ The observation that would make this worth reopening.
 | [024](ADR-024-oracle-choice.md) | Oracles — the native module, optional, named authorities until staking exists | Accepted |
 | [025](ADR-025-mev-position.md) | The mainnet MEV position — batch settlement in core, sealed mempool optional | Accepted |
 | [026](ADR-026-contract-caller-identity.md) | Contracts need to know who called them — a `caller` host function at an activation height | Proposed |
+| [027](ADR-027-dag-bft-in-the-node.md) | DAG-BFT in the node — derived blocks, signed votes, a safety log | Accepted |
+| [028](ADR-028-staking.md) | Staking — bonded committees, slot-counted liveness, evidence-based slashing | Accepted |
+| [029](ADR-029-fee-market-live.md) | The fee market goes live — fees are signed outputs | Accepted |
+| [030](ADR-030-vault-accounts.md) | Vault accounts — delayed withdrawals, guardian cancel | Accepted |
+| [031](ADR-031-maya-chat.md) | Maya Chat — a detached, post-quantum, peer-to-peer messenger | Accepted |
+| [032](ADR-032-testnet-hosting.md) | First public testnet — one seed on Oracle Always Free, one installer | Proposed |
