@@ -246,6 +246,13 @@ members = [
     # against their reference implementations, sealed task auctions,
     # committed flight plans with provable conflicts. RESEARCH.
     "hal/swarm",
+    # Fixture fetcher for the earth-observation oracle: Sentinel-2 L2A
+    # windows by HTTP range from public COGs (Master Prompt 6 §8).
+    "bins/eo-fetch",
+    # Earth-observation oracle for parametric insurance (Master Prompt 6 §8):
+    # integer NDVI over committed pixels, median of independent reporters,
+    # dispute window. RESEARCH; tested on real Sentinel-2 windows.
+    "crates/eo-oracle",
     # Entropy HAL (ADR-010): OS and RDSEED sources, SP 800-90B health tests on
     # every source, one SP 800-90A HMAC-DRBG fed by all of them, tamper-driven
     # zeroization. The thermal, micro-voltage, Brownian and homodyne-QRNG
@@ -425,6 +432,9 @@ libp2p = "0.57"
 prometheus-client = "0.25"
 rand_chacha = "0.3"
 rocksdb = "0.25"
+# HTTP client for `archive` (Arweave/IPFS uploads) and `eo-fetch`
+# (Sentinel-2 range reads). No default features: rustls, not OpenSSL.
+reqwest = { version = "0.12", default-features = false }
 serde = "1"
 serde_json = "1"
 sha2 = "0.10"

@@ -34,7 +34,7 @@ multihash = "0.19"
 # synchronous tests. rustls over `ring` with the platform's roots: `ring`,
 # `rustls` and `hyper-rustls` are already in the node's graph through
 # jsonrpsee, and native roots avoid `webpki-roots`' CDLA licence.
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "multipart", "rustls-tls-native-roots"] }
+reqwest = { workspace = true, features = ["blocking", "multipart", "rustls-tls-native-roots"] }
 serde_json.workspace = true
 thiserror.workspace = true
 unsigned-varint = { version = "0.8", features = ["std"] }

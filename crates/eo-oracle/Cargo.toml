@@ -1,0 +1,19 @@
+[package]
+name = "maya-eo-oracle"
+version.workspace = true
+# Not published. See crates/dex/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Satellite NDVI oracle: integer NDVI, committed pixels, median of independent reporters, dispute window, parametric insurance (RESEARCH)"
+
+[dependencies]
+blake3.workspace = true
+maya-crypto-pq = { path = "../crypto-pq" }
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

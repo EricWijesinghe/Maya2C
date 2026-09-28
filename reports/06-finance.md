@@ -20,7 +20,7 @@ and registered invariant hooks; this report is complete.*
 | Compliance + tax (§5) | sanctions and credential STARK statements in `crates/zk-stark`; **new** `permissioned_finance::tax` | yes (new) | — | US/UK/DE calculators and `compliance_tests.rs` (500 transactions) built; `docs/LEGAL_NOTICE.md` applies |
 | Macro-economic engines (§6) | **new** `econ/` 6 ✓ | yes (new, SIM) | n/a (simulation) | built as an agent-based simulator first, as the brief requires |
 | Identity (§7) | `identity_tests.rs` 15 ✓ | yes | yes | DID + attestations + selective disclosure; **biometric PoP** (`crates/personhood`, §6 below); EEG/BCI SIM not built |
-| DePIN / IoT (§8) | `iot_anchor_tests.rs` 7 ✓ | yes | yes | enrollment → telemetry → tamper; **energy protocol parsers** (`hal/energy`, §5 below), **robot swarms** (`hal/swarm`, §11); satellite NDVI oracle not built |
+| DePIN / IoT (§8) | `iot_anchor_tests.rs` 7 ✓ | yes | yes | enrollment → telemetry → tamper; **energy protocol parsers** (`hal/energy`, §5 below), **robot swarms** (`hal/swarm`, §11); **satellite NDVI oracle** on real Sentinel-2 data (§12) |
 | Oracle (§8) | `oracle_tests.rs` 30 ✓ | yes | yes (invariant 9) | quorum median (one liar cannot move it) and stale-feed refusal present; a dispute window is not |
 | Settlement | `settlement_tests.rs` 20 ✓ | yes | yes | — |
 
@@ -65,7 +65,7 @@ are scenario inputs. Real-time ZK proof-of-reserves is not built.
 Per-order well-formedness proofs and a dealer-free offline phase for the
 dark-pool MPC (§9 catches dishonest servers, not dishonest traders); generic L1/L2 light-client framework; IEC 61850
 MMS and sampled values; satellite NDVI oracle; robot swarm auctions; EEG/BCI
-SIM (built since: §10); robot swarm auctions and 10,000-device barter (built since: §11); liveness and uniqueness for proof-of-personhood; machine-to-machine
+SIM (built since: §10); robot swarm auctions and 10,000-device barter (built since: §11); liveness and uniqueness for proof-of-personhood; Landsat as a second sensor for the oracle; machine-to-machine
 barter with 10,000 devices.
 
 ## 4. Permissioned finance (new, RESEARCH) — run for this report
@@ -389,4 +389,50 @@ test result: ok. 3 passed
 The first version of the scenario put 60 tasks on 10 sites, and the checker
 flagged the resulting landings as conflicts; it was right. No robot has
 flown with any of this.
+
+## 12. Satellite NDVI oracle (new, RESEARCH) — 2026-09-28
+
+`crates/eo-oracle`, with fixtures from `bins/eo-fetch`.
+
+**Real data.** `eo-fetch` searches Element84's Earth Search catalogue. It
+projects a point to UTM, reads only the header and one tile of each band's
+public cloud-optimised GeoTIFF by HTTP range, inflates the tile and undoes
+the TIFF predictor. The fixture is a 32×32-pixel window of one field in
+California's Central Valley (−120.30, 36.95), from three June 2025
+Sentinel-2 L2A scenes by three satellites (2C, 2B, 2A). The projection
+matches PROJ to the millimetre (740,417.490 E, 4,092,732.334 N).
+
+```
+$ cargo test -p maya-eo-oracle -- --nocapture
+field NDVI (bps) from Sentinel-2C, 2B, 2A, June 2025: [8925, 8692, 8346]
+final NDVI 8692 bps from [8925, 8692, 8346]; struck 1
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+```
+
+These are integer NDVI, per-field medians of per-pixel values. A float
+computation of the same pixels gives 0.893, 0.869 and 0.835: dense green
+vegetation, consistent with an irrigated crop in June.
+
+**The oracle:**
+- Reporters with registered ML-DSA-65 keys submit signed reports that
+  commit to their pixels.
+- A report counts only once its pixels are opened in the dispute window,
+  and struck if its NDVI does not reproduce.
+- The value is the median of at least three opened reports.
+- A parametric policy pays when the value falls below its trigger.
+
+In the test a fourth reporter claims drought (3,000 bps) on real pixels. It
+is struck, and the median of the three honest satellites finalises.
+
+An audit found a commitment to pixels nobody could open was undisputable
+(HIGH). The fix is the rule above: an unopened report counts for nothing.
+It also found missing length prefixes in the commitment and the signed
+bytes. Both are fixed and tested.
+
+**Not proven:** that the pixels came from the satellite. Sentinel-2
+imagery is not signed by its operator, so provenance rests on independent
+reporters and the median. **Not built:**
+- Landsat as a second sensor (its AWS bucket is requester-pays);
+- carbon indicators beyond NDVI;
+- wiring into the node's oracle feeds.
 
