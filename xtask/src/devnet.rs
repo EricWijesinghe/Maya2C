@@ -58,6 +58,15 @@ impl Procs {
     }
 }
 
+impl Procs {
+    /// Lets every child outlive this value and returns their process ids:
+    /// for services that should keep running after the command that
+    /// started them exits (`cargo xtask up`).
+    pub fn detach(mut self) -> Vec<u32> {
+        std::mem::take(&mut self.0).iter().map(Child::id).collect()
+    }
+}
+
 impl Drop for Procs {
     fn drop(&mut self) {
         for child in &mut self.0 {
