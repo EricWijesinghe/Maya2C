@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use maya_dag_bft::{Authenticator, Digest, ValidatorId};
+use maya_dag_bft::{Authenticator, Digest, SignContext, ValidatorId};
 
 use crate::crypto::SIGNATURE_LENGTH;
 use crate::crypto::keys::{SigningKey, VerifyingKey};
@@ -66,8 +66,8 @@ impl core::fmt::Debug for MlDsaAuthenticator {
 }
 
 impl Authenticator for MlDsaAuthenticator {
-    fn sign(&self, digest: &Digest) -> Vec<u8> {
-        // An empty signature verifies nowhere, so a failure here costs this
+    fn sign(&self, _ctx: SignContext, digest: &Digest) -> Vec<u8> {
+        // A local key has its own protection: the node's safety log. An empty signature verifies nowhere, so a failure here costs this
         // validator its vote and nothing else. FIPS 204 lets the rejection
         // loop report failure; it is not a condition to retry.
         self.signer
@@ -94,6 +94,12 @@ mod tests {
     use super::*;
     use crate::crypto::keys::signing_key_from_seed;
 
+    const CTX: SignContext = SignContext {
+        kind: maya_dag_bft::SignKind::Vote,
+        round: 1,
+        author: 0,
+    };
+
     fn keys(n: u8) -> (Vec<Arc<SigningKey>>, Arc<[VerifyingKey]>) {
         let signers: Vec<_> = (0..n)
             .map(|i| Arc::new(signing_key_from_seed(&[i; 32]).unwrap()))
@@ -107,7 +113,7 @@ mod tests {
         let (signers, committee) = keys(3);
         let auth = MlDsaAuthenticator::validator(Arc::clone(&signers[1]), Arc::clone(&committee));
         let digest = [7u8; 32];
-        let sig = auth.sign(&digest);
+        let sig = auth.sign(CTX, &digest);
         assert_eq!(sig.len(), SIGNATURE_LENGTH);
         let observer = MlDsaAuthenticator::observer(committee);
         assert!(observer.verify(1, &digest, &sig));
@@ -122,7 +128,7 @@ mod tests {
         let (_, committee) = keys(1);
         assert!(
             MlDsaAuthenticator::observer(committee)
-                .sign(&[0; 32])
+                .sign(CTX, &[0; 32])
                 .is_empty()
         );
     }
