@@ -20,7 +20,7 @@ jsonrpsee.workspace = true
 libp2p.workspace = true
 tokio.workspace = true
 hex.workspace = true
-# The remote signer's channel (ADR-032): the node's channel identity and
+# The remote signer's channel (ADR-033): the node's channel identity and
 # the pinned handshake. The key it signs with never enters this process.
 maya-signer = { path = "../../crates/signer" }
 maya-crypto-pq = { path = "../../crates/crypto-pq" }

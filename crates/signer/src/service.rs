@@ -5,7 +5,7 @@ use crate::protection::{DbError, Kind, SlashingDb};
 use serde::{Deserialize, Serialize};
 
 /// What the node asks for: the slot a signature fills, and the vertex
-/// digest to sign for it (ADR-032).
+/// digest to sign for it (ADR-033).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Request {
     /// Proposal or vote.
@@ -29,7 +29,7 @@ pub enum Response {
 
 /// The exact bytes signed for a request: the same `VOTE_DOMAIN ‖ digest`
 /// a validator with a local key signs and every validator verifies, so a
-/// network can mix local keys and remote signers (ADR-032). Kind, round and
+/// network can mix local keys and remote signers (ADR-033). Kind, round and
 /// author decide *whether* to sign; they are not signed.
 #[must_use]
 pub fn signed_message(req: &Request) -> Vec<u8> {

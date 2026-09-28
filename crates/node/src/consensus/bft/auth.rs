@@ -22,7 +22,7 @@ pub struct MlDsaAuthenticator {
 
 impl MlDsaAuthenticator {
     /// A voting validator's authenticator, signing with a local key or
-    /// through the remote signer (ADR-032).
+    /// through the remote signer (ADR-033).
     #[must_use]
     pub fn validator(signer: impl Into<ValidatorKey>, committee: Arc<[VerifyingKey]>) -> Self {
         Self {

@@ -77,7 +77,7 @@ fn signatures_cover_exactly_the_bytes_validators_verify() {
     let Response::Signed(sig) = s.handle(&r) else {
         panic!("refused")
     };
-    // ADR-032: VOTE_DOMAIN ‖ digest, the node's own message, nothing more.
+    // ADR-033: VOTE_DOMAIN ‖ digest, the node's own message, nothing more.
     let expected = [maya_dag_bft::VOTE_DOMAIN, r.digest.as_slice()].concat();
     assert_eq!(signed_message(&r), expected);
     verify(SuiteId::MlDsa65, s.public_key(), &expected, &sig).unwrap();
@@ -89,7 +89,7 @@ fn signatures_cover_exactly_the_bytes_validators_verify() {
 
 #[test]
 fn every_authors_vote_in_one_round_is_signed() {
-    // The finding behind ADR-032: a validator votes for each author's vertex
+    // The finding behind ADR-033: a validator votes for each author's vertex
     // in a round. A one-message-per-round rule refused the second and would
     // have stalled consensus.
     let dir = TempDir::new().unwrap();

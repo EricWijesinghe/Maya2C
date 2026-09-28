@@ -143,7 +143,7 @@ struct Args {
     /// ML-DSA-65 validator key; absent means an observer on a DAG-BFT network.
     validator_key: Option<PathBuf>,
     /// The validator key lives in `maya2c-signer` at this address instead
-    /// (ADR-032). Needs `signer_pin`, `validator_pubkey` and `signer_identity`.
+    /// (ADR-033). Needs `signer_pin`, `validator_pubkey` and `signer_identity`.
     remote_signer: Option<SocketAddr>,
     /// The signer's channel public key, hex: the only signer this node talks to.
     signer_pin: Option<String>,
@@ -228,7 +228,7 @@ fn print_usage() {
          --bootstrap-from <URL>   bootstrap a pruned node from a peer's JSON-RPC\n  \
          --validator-key <PATH>  DAG-BFT validator key; without it the node observes\n  \
          --generate-validator-key <PATH>  write a new validator key, print its public key\n  \
-         --remote-signer <ADDR>  sign through maya2c-signer, not a key file (ADR-032)\n  \
+         --remote-signer <ADDR>  sign through maya2c-signer, not a key file (ADR-033)\n  \
          --signer-pin <HEX>   the signer's channel public key\n  \
          --validator-pubkey <HEX>  the validator public key the signer holds\n  \
          --signer-identity <PATH>  this node's channel identity\n  \

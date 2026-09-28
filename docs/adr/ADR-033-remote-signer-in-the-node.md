@@ -1,4 +1,4 @@
-# ADR-032: The remote signer in the node — protection keyed to the DAG, signatures unchanged
+# ADR-033: The remote signer in the node — protection keyed to the DAG, signatures unchanged
 
 **Status:** Accepted
 **Date:** 2026-09-29
