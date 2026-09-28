@@ -242,7 +242,10 @@ fn symbol_text(root: &Path) -> Result<(String, String), String> {
     let pdb = dir.join("maya2c_node.pdb");
     let (source, text) = if pdb.exists() {
         let bytes = std::fs::read(&pdb).map_err(|e| format!("{}: {e}", pdb.display()))?;
-        (pdb.display().to_string(), String::from_utf8_lossy(&bytes).into_owned())
+        (
+            pdb.display().to_string(),
+            String::from_utf8_lossy(&bytes).into_owned(),
+        )
     } else {
         let bin = dir.join(format!("maya2c-node{}", std::env::consts::EXE_SUFFIX));
         let nm = crate::pgo::llvm_tool("llvm-nm").unwrap_or_else(|_| "nm".into());
@@ -254,11 +257,16 @@ fn symbol_text(root: &Path) -> Result<(String, String), String> {
         if !out.status.success() {
             return Err(format!("{} failed on {}", nm.display(), bin.display()));
         }
-        (nm.display().to_string(), String::from_utf8_lossy(&out.stdout).into_owned())
+        (
+            nm.display().to_string(),
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+        )
     };
     if text.contains("custom_l1_node::") {
         Ok((source, text))
     } else {
-        Err(format!("{source} names no custom_l1_node symbol, so it cannot vouch for absence"))
+        Err(format!(
+            "{source} names no custom_l1_node symbol, so it cannot vouch for absence"
+        ))
     }
 }

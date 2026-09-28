@@ -26,7 +26,14 @@ fn main() {
             let mut address = [0u8; 32];
             address[..4].copy_from_slice(&i.to_le_bytes());
             address[4..8].copy_from_slice(&i.wrapping_mul(2_654_435_761).to_le_bytes());
-            db.put_account(&address, &Account { balance: u64::from(i) + 1, nonce: 0 }).unwrap();
+            db.put_account(
+                &address,
+                &Account {
+                    balance: u64::from(i) + 1,
+                    nonce: 0,
+                },
+            )
+            .unwrap();
         }
         let (mut scan, mut root) = (0.0, 0.0);
         for _ in 0..REPEATS {
@@ -38,7 +45,10 @@ fn main() {
             let _ = db.state_root().unwrap();
             root += t.elapsed().as_secs_f64();
         }
-        let (scan, root) = (scan / f64::from(REPEATS) * 1e3, root / f64::from(REPEATS) * 1e3);
+        let (scan, root) = (
+            scan / f64::from(REPEATS) * 1e3,
+            root / f64::from(REPEATS) * 1e3,
+        );
         println!(
             "{n:>7} accounts: scan {scan:8.2} ms, full root {root:8.2} ms ({:.0}% of it the scan), {:.2} µs/account",
             100.0 * scan / root,
