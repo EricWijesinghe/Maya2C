@@ -28,7 +28,15 @@
 #   DOMAIN      gateway hostname; with it, Caddy serves https://DOMAIN (80/443)
 #   EMAIL       ACME contact for DOMAIN's certificate (recommended with DOMAIN)
 #   CHAIN_ID    default maya2c-testnet-<UTC date of first install>
+#   VALIDATORS  seed mode: validators on this VM, 1-4 (default 4)
 #   DRY_RUN=1   print every command that changes the system, run none of them
+#
+# Join mode (another machine joining a running seed network, e.g. a home PC):
+#   GENESIS_URL      where the seed operator published genesis.json
+#   EXPECTED_SHA256  the sha256 the seed operator published with it
+#   BOOTNODE         the seed's p2p address, /ip4/<ip>/tcp/31100
+# A joining node starts as an observer; it enters the committee through a
+# staking registration, and the installer prints the public key to register.
 #
 # Tested on: see infra/testnet-vm/README.md (the host it ran on and its log).
 
@@ -40,7 +48,7 @@ PREFIX=/opt/maya2c
 STATE=/var/lib/maya2c
 CONF=/etc/maya2c
 BIN=/usr/local/bin
-VALIDATORS=4
+VALIDATORS="${VALIDATORS:-4}"
 RPC_BASE=32000
 P2P_BASE=31100
 GATEWAY_LOCAL=127.0.0.1:8080
@@ -51,6 +59,9 @@ BOND=100000
 DRY_RUN="${DRY_RUN:-0}"
 DOMAIN="${DOMAIN:-}"
 EMAIL="${EMAIL:-}"
+GENESIS_URL="${GENESIS_URL:-}"
+EXPECTED_SHA256="${EXPECTED_SHA256:-}"
+BOOTNODE="${BOOTNODE:-}"
 
 log() { printf '[testnet] %s\n' "$*"; }
 die() { printf '[testnet] error: %s\n' "$*" >&2; exit 1; }
@@ -68,6 +79,12 @@ preflight() {
     [ "$mem_kb" -ge 3500000 ] || die "needs at least 4 GB RAM to build (has $((mem_kb / 1024)) MB)"
     disk_kb=$(df -Pk "$REPO" | awk 'NR==2 {print $4}')
     [ "$disk_kb" -ge 20000000 ] || die "needs at least 20 GB free for the build"
+    case "$VALIDATORS" in [1-4]) ;; *) die "VALIDATORS must be 1-4 (got '$VALIDATORS')" ;; esac
+    if [ -n "$GENESIS_URL" ]; then
+        [ -n "$EXPECTED_SHA256" ] || die "join mode needs EXPECTED_SHA256, published by the seed operator"
+        [ -n "$BOOTNODE" ] || die "join mode needs BOOTNODE, the seed's /ip4/<ip>/tcp/31100"
+        VALIDATORS=1
+    fi
     if [ -n "$DOMAIN" ] && [ -z "$EMAIL" ]; then
         log "warning: DOMAIN without EMAIL; Let's Encrypt will not be able to reach you about the certificate"
     fi
@@ -77,7 +94,7 @@ install_deps() {
     log "installing build dependencies"
     run apt-get update -qq
     run env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-        build-essential clang libclang-dev mold pkg-config libssl-dev git curl jq ufw ca-certificates
+        build-essential clang libclang-dev mold pkg-config libssl-dev git curl jq ca-certificates
     if [ -n "$DOMAIN" ] && ! command -v caddy >/dev/null; then
         run env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq caddy
     fi
@@ -114,11 +131,41 @@ build() {
     done
 }
 
+# Join mode: fetch the seed network's genesis and refuse it unless its sha256
+# is the one the seed operator published. The hash is what tells an operator
+# they joined the network they meant to; a wrong file is a different chain.
+join_genesis() {
+    log "join mode: fetching genesis from $GENESIS_URL"
+    local tmp actual pub
+    tmp="$(mktemp)"
+    run curl -fsSL --max-time 60 -o "$tmp" "$GENESIS_URL"
+    if [ "$DRY_RUN" != 1 ]; then
+        actual="$(sha256sum "$tmp" | cut -c1-64)"
+        [ "$actual" = "$EXPECTED_SHA256" ] || die "genesis sha256 mismatch.
+  expected  $EXPECTED_SHA256
+  fetched   $actual
+This is not the genesis the seed operator published. Do not proceed."
+        log "genesis sha256 verified: $actual"
+    fi
+    run install -m 0644 "$tmp" "$CONF/genesis.json"
+    rm -f "$tmp"
+    run install -d -m 0700 -o maya -g maya "$STATE/v0"
+    if [ "$DRY_RUN" = 1 ]; then return; fi
+    # A key outside the genesis committee runs as an observer until a
+    # staking registration puts it in the committee (bft_staking_tests).
+    pub="$(runuser -u maya -- "$BIN/maya2c-node" --generate-validator-key "$STATE/v0/validator.key" | tr -d '[:space:]')"
+    printf '%s\n' "$pub" > "$CONF/v0.pub"
+}
+
 # Keys and genesis: only on first install. A second genesis would be a
 # second chain, so an existing one is never touched.
 genesis() {
     if [ -f "$CONF/genesis.json" ]; then
         log "genesis exists; keeping keys, genesis and chain data"
+        return
+    fi
+    if [ -n "$GENESIS_URL" ]; then
+        join_genesis
         return
     fi
     local chain_id="${CHAIN_ID:-maya2c-testnet-$(date -u +%Y%m%d)}"
@@ -171,18 +218,22 @@ units() {
     done
     local i p peers
     for i in $(seq 0 $((VALIDATORS - 1))); do
+        # Seed mode: every local validator peers with the others. Join mode:
+        # the one local node dials the seed network's bootnode.
         peers=""
-        for p in $(seq 0 $((VALIDATORS - 1))); do
-            [ "$p" = "$i" ] || peers="$peers --bootnode /ip4/127.0.0.1/tcp/$((P2P_BASE + p))"
-        done
-        if [ "$DRY_RUN" = 1 ]; then
-            printf '[dry-run] write %s/v%s.env (rpc 127.0.0.1:%s, p2p %s)
-' "$CONF" "$i" "$((RPC_BASE + i))" "$((P2P_BASE + i))"
+        if [ -n "$BOOTNODE" ]; then
+            peers="--bootnode $BOOTNODE"
         else
-            printf 'RPC_ADDR=127.0.0.1:%s
-P2P_PORT=%s
-BOOTNODES=%s
-' "$((RPC_BASE + i))" "$((P2P_BASE + i))" "${peers# }" > "$CONF/v$i.env"
+            for p in $(seq 0 $((VALIDATORS - 1))); do
+                [ "$p" = "$i" ] || peers="$peers --bootnode /ip4/127.0.0.1/tcp/$((P2P_BASE + p))"
+            done
+        fi
+        if [ "$DRY_RUN" = 1 ]; then
+            printf '[dry-run] write %s/v%s.env (rpc 127.0.0.1:%s, p2p %s,%s)\n' \
+                "$CONF" "$i" "$((RPC_BASE + i))" "$((P2P_BASE + i))" "${peers:- no peers}"
+        else
+            printf 'RPC_ADDR=127.0.0.1:%s\nP2P_PORT=%s\nBOOTNODES=%s\n' \
+                "$((RPC_BASE + i))" "$((P2P_BASE + i))" "${peers# }" > "$CONF/v$i.env"
         fi
     done
     run install -d -m 0700 -o maya -g maya "$STATE/relay"
@@ -196,21 +247,55 @@ BOOTNODES=%s
     run systemctl daemon-reload
 }
 
-firewall() {
-    log "firewall: default deny; ssh, validator p2p, chat and the gateway open; node RPC stays on loopback"
-    run ufw --force default deny incoming
-    run ufw --force default allow outgoing
-    # SSH first: a default-deny applied before the SSH rule loses the host.
-    run ufw allow 22/tcp
-    run ufw allow "$P2P_BASE/tcp" comment 'maya2c p2p (validator 0: bootnode for observers)'
-    run ufw allow "$CHAT_PORT/tcp" comment 'maya-chat relay'
-    if [ -n "$DOMAIN" ]; then
-        run ufw allow 80/tcp comment 'acme http-01'
-        run ufw allow 443/tcp comment 'gateway https'
+# The firewall is plain iptables in its own chain, not ufw. ufw appends its
+# rules, and Oracle's Ubuntu images end INPUT with a REJECT loaded at boot
+# by netfilter-persistent, so every `ufw allow` landed below it and did
+# nothing. ufw and iptables-persistent also conflict as packages. Our chain
+# is jumped to from the TOP of INPUT, so it works whether or not the image
+# ships its own REJECT, and netfilter-persistent reloads it at boot.
+fw_ports() {
+    printf '%s
+' "$P2P_BASE" "$CHAT_PORT"
+    if [ -n "$DOMAIN" ]; then printf '80
+443
+'; else printf '8080
+'; fi
+}
+
+fw_chain() { # $1 = iptables or ip6tables
+    local t="$1" port
+    run "$t" -N MAYA2C-IN 2>/dev/null || true
+    run "$t" -F MAYA2C-IN
+    run "$t" -A MAYA2C-IN -i lo -j ACCEPT
+    run "$t" -A MAYA2C-IN -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+    # SSH before anything that could drop: a firewall applied without it
+    # loses a remote host.
+    run "$t" -A MAYA2C-IN -p tcp --dport 22 -j ACCEPT
+    for port in $(fw_ports); do
+        run "$t" -A MAYA2C-IN -p tcp --dport "$port" -m conntrack --ctstate NEW -j ACCEPT
+    done
+    if [ "$t" = iptables ]; then
+        run "$t" -A MAYA2C-IN -p icmp -j ACCEPT
     else
-        run ufw allow 8080/tcp comment 'gateway http (no DOMAIN: plain HTTP)'
+        run "$t" -A MAYA2C-IN -p ipv6-icmp -j ACCEPT
     fi
-    run ufw --force enable
+    run "$t" -A MAYA2C-IN -j DROP
+    "$t" -C INPUT -j MAYA2C-IN 2>/dev/null || run "$t" -I INPUT 1 -j MAYA2C-IN
+}
+
+firewall() {
+    log "firewall: ssh, p2p $P2P_BASE, chat $CHAT_PORT and the gateway open; everything else, node RPC included, dropped"
+    # iptables-persistent asks two questions on install; answer them first.
+    run sh -c "echo 'iptables-persistent iptables-persistent/autosave_v4 boolean false' | debconf-set-selections"
+    run sh -c "echo 'iptables-persistent iptables-persistent/autosave_v6 boolean false' | debconf-set-selections"
+    run env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iptables iptables-persistent
+    if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
+        log "disabling ufw: its rules would sit alongside ours and confuse the next reader"
+        run ufw --force disable
+    fi
+    fw_chain iptables
+    fw_chain ip6tables
+    run netfilter-persistent save
 }
 
 tls() {

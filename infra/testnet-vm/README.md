@@ -28,7 +28,7 @@ installer is the owner's step. Say `APPROVED: public-testnet` first.
 
 | Port | Service | Public |
 |---|---|---|
-| 22 | SSH | yes |
+| 22 | SSH | yes (restrict it to your own IP in the cloud console) |
 | 31100 | validator 0 libp2p (the bootnode other operators join) | yes |
 | 4001 | Maya Chat relay | yes |
 | 443 / 80 or 8080 | API gateway (REST/GraphQL) | yes |
