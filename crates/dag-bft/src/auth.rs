@@ -12,10 +12,35 @@
 
 use crate::vertex::{Digest, ValidatorId, Vertex};
 
+/// What a signature is for (ADR-032). Never signed itself: the signed bytes
+/// are the digest alone, so this changes no consensus rule. It exists so an
+/// authenticator that enforces slashing protection, such as the remote
+/// signer, can know which `(round, author)` slot it is being asked to fill.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SignKind {
+    /// This validator's own vertex.
+    Proposal,
+    /// A vote for `author`'s vertex.
+    Vote,
+}
+
+/// The slot a signature fills: the one fact slashing protection needs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SignContext {
+    /// Proposal or vote.
+    pub kind: SignKind,
+    /// The vertex's round.
+    pub round: u64,
+    /// The vertex's author (this validator itself for a proposal).
+    pub author: ValidatorId,
+}
+
 /// Signing with this validator's key and verifying the committee's.
 pub trait Authenticator {
-    /// This validator's signature over `digest`.
-    fn sign(&self, digest: &Digest) -> Vec<u8>;
+    /// This validator's signature over `digest`, which fills the slot `ctx`
+    /// names. An empty result means "not signed" and costs this validator
+    /// its vote, never safety.
+    fn sign(&self, ctx: SignContext, digest: &Digest) -> Vec<u8>;
 
     /// Whether `signature` is `signer`'s over `digest`. Must be false for a
     /// signer outside the committee.
@@ -32,7 +57,7 @@ pub trait Authenticator {
 pub struct Unauthenticated;
 
 impl Authenticator for Unauthenticated {
-    fn sign(&self, _digest: &Digest) -> Vec<u8> {
+    fn sign(&self, _ctx: SignContext, _digest: &Digest) -> Vec<u8> {
         Vec::new()
     }
 
@@ -83,7 +108,7 @@ mod tests {
     struct ById(ValidatorId);
 
     impl Authenticator for ById {
-        fn sign(&self, _digest: &Digest) -> Vec<u8> {
+        fn sign(&self, _ctx: SignContext, _digest: &Digest) -> Vec<u8> {
             self.0.to_le_bytes().to_vec()
         }
 

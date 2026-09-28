@@ -262,7 +262,14 @@ fn double_proposal(i: usize, committee: &Arc<[VerifyingKey]>) -> StakingAction {
             parents: vec![],
             batch: vec![],
         };
-        let signature = auth.sign(&vertex.digest());
+        let signature = auth.sign(
+            maya_dag_bft::SignContext {
+                kind: maya_dag_bft::SignKind::Proposal,
+                round: vertex.round,
+                author: vertex.author,
+            },
+            &vertex.digest(),
+        );
         Envelope {
             epoch: 0,
             from: u16::try_from(i).unwrap(),
@@ -361,7 +368,14 @@ fn incident_rehearsal_a_stolen_key_is_detected_slashed_and_replaced() {
         parents: vec![],
         batch: vec![],
     };
-    let signature = thief.sign(&forged.digest());
+    let signature = thief.sign(
+        maya_dag_bft::SignContext {
+            kind: maya_dag_bft::SignKind::Proposal,
+            round: forged.round,
+            author: forged.author,
+        },
+        &forged.digest(),
+    );
     let frame = Envelope {
         epoch: 0,
         from: 2,
