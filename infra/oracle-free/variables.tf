@@ -42,6 +42,14 @@ variable "chain_id" {
     condition     = !contains(["mainnet", "maya-mainnet"], var.chain_id)
     error_message = "Mainnet is blocked while the shielded pool's circuit is unaudited."
   }
+
+  # chain_id, domain and acme_email are interpolated into a shell line that
+  # cloud-init runs as root. A quote in any of them would end the string and
+  # run whatever followed, so each is limited to characters that cannot.
+  validation {
+    condition     = can(regex("^[a-z0-9][a-z0-9_-]{0,31}$", var.chain_id))
+    error_message = "chain_id: lowercase letters, digits, '-' and '_', at most 32 characters."
+  }
 }
 
 variable "git_commit" {
@@ -60,12 +68,22 @@ variable "domain" {
   description = "Optional hostname for the API gateway's TLS (e.g. rpc.maya2c.dev). Empty: no gateway, 80/443 stay closed."
   type        = string
   default     = ""
+
+  validation {
+    condition     = var.domain == "" || can(regex("^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$", var.domain))
+    error_message = "domain must be a lowercase hostname such as rpc.maya2c.dev, or empty."
+  }
 }
 
 variable "acme_email" {
   description = "Contact email for the gateway's Let's Encrypt certificate. Required when domain is set."
   type        = string
   default     = ""
+
+  validation {
+    condition     = var.acme_email == "" || can(regex("^[A-Za-z0-9._%+-]{1,64}@([A-Za-z0-9-]{1,63}\\.)+[A-Za-z]{2,63}$", var.acme_email))
+    error_message = "acme_email must be a plain address (letters, digits, . _ % + - before the @), or empty."
+  }
 }
 
 # Always Free allows 4 OCPU and 24 GB of Ampere A1 per tenancy in total, and
