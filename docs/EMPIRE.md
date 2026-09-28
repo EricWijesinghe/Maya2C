@@ -104,7 +104,7 @@ External audits of consensus, crypto-pq, VM host functions, custody,
 privacy circuits; no open critical or high finding.
 
 ### M8 MAINNET — Owner
-`cargo xtask go-no-go` all PASS (today: 6 PASS, 6 FAIL, 4 NEEDS HUMAN);
+`cargo xtask go-no-go` all PASS (2026-09-28: 8 PASS, 5 FAIL, 3 NEEDS HUMAN);
 signed genesis; 90-day plan.
 
 ### M9 ECOSYSTEM — planned in [ECOSYSTEM.md](ECOSYSTEM.md)
