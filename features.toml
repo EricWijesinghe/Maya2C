@@ -2729,6 +2729,17 @@ tests = ["crate:maya-wallet-core", "apps/wallet-gui/core/tests/airgap_tests.rs",
 note = "The logic the Tauri shell and the CLI both use."
 
 [[subsystem]]
+id = "maya-chat"
+name = "Maya Chat (post-quantum P2P messenger)"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/chat`"
+tier = "extended"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-chat", "apps/chat/tests/session_tests.rs", "apps/chat/tests/relay_tests.rs", "apps/chat/tests/net_e2e_tests.rs"]
+note = "ADR-031. ML-DSA-65 identities (chain addresses), signed X-Wing prekeys, per-direction symmetric chains, libp2p store-and-forward relays. Unaudited; no groups, no metadata privacy, PoW postage per deposit; CLI sessions saved encrypted between runs."
+
+[[subsystem]]
 id = "ledger-hardware-wallet-app"
 name = "Ledger hardware wallet app"
 domain = "Supplement (not in architecture-vision.md)"

@@ -203,6 +203,7 @@ is a fork; §7 states the rule.
 | Component | Status | Where | Notes |
 |---|---|---|---|
 | Tauri 2.0 desktop wallet | **SHIPPED** | `apps/wallet-gui/` | Plus the CLI wallet in `wallet` |
+| Maya Chat (detached P2P messenger) | **RESEARCH** | `apps/chat` | ADR-031: an identity is an ML-DSA-65 key whose address is the chain's; X-Wing (ML-KEM-768 + X25519) prekeys; each message key used once; relays over libp2p hold ciphertext for offline recipients under per-mailbox and relay-wide quotas. Links no node code. Unaudited — external review before anyone relies on it. **PLANNED:** MLS groups, a per-message KEM ratchet, mixnet metadata privacy, on-chain prekey anchoring |
 | Leptos block explorer and dashboard | **SHIPPED** | `explorer`, `apps/dashboard/` | `apps/dashboard/` is not a workspace member — CSR Leptos is `wasm32` only |
 | Axum REST/GraphQL gateway | **SHIPPED** | `api-gateway` | Talks JSON-RPC to a node, never opens the state database. `maya2c-gateway` serves it; the TypeScript SDK reaches a live node through it (`cargo xtask sdk-e2e`) |
 | Vault accounts (PQ harbor) | **SHIPPED** | `state::vault`, `TxKind::Vault` (tag 52), `maya2c vault` | ADR-030: over-limit withdrawals wait `delay_blocks` and any guardian cancels; the limit is per window and counts fee outputs above 4x the required fee; nothing else leaves a vault. Invariant 32. Outside-asset bridging not built |

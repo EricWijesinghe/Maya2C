@@ -1,0 +1,38 @@
+[package]
+name = "maya-chat"
+version.workspace = true
+# Not published. See crates/dex/Cargo.toml for why cargo-deny needs this.
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Maya Chat: a detached, post-quantum, peer-to-peer messenger (ADR-031)"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "maya-chat"
+path = "src/main.rs"
+
+# Detached by design (ADR-031): no dependency on the node. The chain's
+# cryptography comes from `maya-crypto-pq`, which the node uses too.
+[dependencies]
+maya-crypto-pq = { path = "../../crates/crypto-pq" }
+blake3.workspace = true
+chacha20poly1305.workspace = true
+ciborium = "0.2"
+futures.workspace = true
+getrandom.workspace = true
+hex.workspace = true
+libp2p = { workspace = true, features = ["tokio", "tcp", "noise", "yamux", "request-response", "cbor", "ed25519", "macros"] }
+serde = { workspace = true, features = ["derive"] }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+# `serde` so saved sessions stay in `Zeroizing` from disk to use.
+zeroize = { workspace = true, features = ["serde"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
