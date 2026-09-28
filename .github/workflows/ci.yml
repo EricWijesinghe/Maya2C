@@ -220,6 +220,19 @@ jobs:
         run: |
           cargo nextest run --cargo-profile ci --no-fail-fast             -p maya-tiers -p custom-l1-node -p maya-light-client -p maya-fee-market
 
+      # The devnet tests (maya2c-cli dev, vault and fork tests, htlc-watcher's
+      # two-devnet swap) launch real nodes through
+      # `maya2c_cli::dev::fresh_node_dir`, which runs a nested
+      # `cargo build -p maya2c-node --target-dir target/test-bins`. Left to the
+      # tests, the first one pays a cold build of the node in the dev
+      # profile while holding cargo's lock, the others queue behind it, and on
+      # a cold cache that exceeded nextest's 20-minute test limit:
+      # htlc-watcher's swap test was TIMEOUT at 1200 s on 2026-09-28, which
+      # is also the likeliest cause of the earlier anonymous 90-minute
+      # cancellations. Built here, the nested builds become no-ops.
+      - name: Build the node the devnet tests launch
+        run: cargo build -p maya2c-node --target-dir target/test-bins
+
       - name: Test (whole workspace)
         run: cargo nextest run --cargo-profile ci --workspace --no-fail-fast
 
