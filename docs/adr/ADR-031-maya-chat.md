@@ -65,8 +65,23 @@ against both a quantum attacker and a bug in young ML-KEM code.
   for a recipient address until the recipient fetches them with a signed
   challenge. A relay sees ciphertext, sizes, timing and the recipient
   address, and nothing else.
-- **Quotas** per sender and per mailbox bound abuse without asking anyone
-  for tokens.
+- **Quotas and postage** bound abuse without asking anyone for tokens.
+  Quotas apply per mailbox and across the relay. They cannot apply per
+  sender, because a relay does not learn the sender (that stays inside the
+  encryption), and addresses cost nothing to make. So every deposit
+  carries a **postage stamp**: a proof of work over the envelope id, 20
+  leading zero bits by default, which a relay may raise and which senders
+  query with `Postage`. One message costs a fraction of a second. Filling
+  one 1,000-envelope mailbox costs minutes of CPU, which raises the cost of
+  a flood but does not remove it. Stronger answers need an identity
+  signal: a proof-of-personhood stamp (`crates/personhood`), or
+  contacts-only mailboxes. Each is its own later decision. *(Revised
+  2026-09-28 after the security review: the first draft promised
+  per-sender quotas, which this design cannot enforce.)*
+- **Forged messages are cheap to refuse.** A forged `Chat` message can make
+  a receiver derive up to `MAX_SKIP` (1,000) chain keys before its tag
+  fails. That costs microseconds, and delivering the forgery through a
+  relay costs the forger a postage stamp.
 - **Transport** is libp2p (TCP, Noise, Yamux) with a request-response
   protocol, `/maya-chat/1`. Any peer can run a relay, and direct
   peer-to-peer delivery uses the same protocol.

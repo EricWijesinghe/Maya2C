@@ -84,7 +84,9 @@ pub struct Message {
     pub ciphertext: Vec<u8>,
 }
 
-/// One side of a session.
+/// One side of a session. Serializable so a client can keep it between
+/// runs ([`crate::client::Client::save`]); the chain keys are wiped on drop.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Session {
     id: [u8; 32],
     peer: Address,
@@ -105,18 +107,25 @@ impl std::fmt::Debug for Session {
     }
 }
 
-/// Opens a session to the owner of `bundle`: returns the session and the
-/// handshake to deliver with the first message.
+/// Opens a session to `to`, using `bundle`: returns the session and the
+/// handshake to deliver with the first message. The bundle must be `to`'s:
+/// a relay can hand out any validly self-signed bundle, so which party the
+/// session is with is checked here, not left to the caller.
 ///
 /// # Errors
 ///
-/// An expired or forged bundle, a malformed prekey, or a signing failure.
+/// A bundle that is not `to`'s, expired or forged, a malformed prekey, or a
+/// signing failure.
 pub fn initiate(
     me: &Identity,
+    to: Address,
     bundle: &PrekeyBundle,
     now: u64,
 ) -> Result<(Session, Handshake), ChatError> {
     let responder = bundle.verify(now)?;
+    if responder != to {
+        return Err(ChatError::NotForMe);
+    }
     let (ciphertext, secret) = XWing::encapsulate(&bundle.prekey).map_err(|_| ChatError::BadKey)?;
     let mut handshake = Handshake {
         initiator_key: me.public_key().to_vec(),

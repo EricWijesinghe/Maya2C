@@ -34,6 +34,12 @@ pub const MAX_BUNDLES: usize = 100_000;
 /// Most outstanding fetch challenges.
 pub const MAX_CHALLENGES: usize = 10_000;
 const FETCH_DOMAIN: &[u8] = b"maya-chat mailbox fetch v1";
+const STAMP_DOMAIN: &str = "maya-chat 2026-09-28 postage stamp v1";
+/// Leading zero bits a deposit's postage stamp needs by default: about a
+/// million hashes, well under a second for one message and ~minutes of CPU
+/// to fill a 1,000-envelope mailbox. Senders are anonymous to the relay, so
+/// work is what a flood costs; a relay may ask for more.
+pub const STAMP_BITS: u32 = 20;
 
 /// What an envelope carries.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,6 +64,8 @@ pub struct Envelope {
     pub expires_at: u64,
     /// The content.
     pub payload: Payload,
+    /// Postage: see [`Envelope::mint`].
+    pub stamp: u64,
 }
 
 impl Envelope {
@@ -72,13 +80,50 @@ impl Envelope {
         Ok(out)
     }
 
-    /// Its id: a hash of the canonical bytes, so a resend is recognised.
+    /// Its id: a hash of everything but the stamp, so a resend is
+    /// recognised even with a fresh stamp.
     ///
     /// # Errors
     ///
     /// [`ChatError::Encoding`].
     pub fn id(&self) -> Result<[u8; 32], ChatError> {
-        Ok(*blake3::hash(&self.encode()?).as_bytes())
+        let unstamped = Self {
+            stamp: 0,
+            ..self.clone()
+        };
+        Ok(*blake3::hash(&unstamped.encode()?).as_bytes())
+    }
+
+    fn stamp_work(id: &[u8; 32], stamp: u64) -> u32 {
+        let mut h = blake3::Hasher::new_derive_key(STAMP_DOMAIN);
+        h.update(id);
+        h.update(&stamp.to_le_bytes());
+        let digest = h.finalize();
+        let mut head = [0u8; 16];
+        head.copy_from_slice(&digest.as_bytes()[..16]);
+        u128::from_be_bytes(head).leading_zeros()
+    }
+
+    /// Finds a stamp with at least `bits` leading zero bits of work.
+    ///
+    /// # Errors
+    ///
+    /// [`ChatError::Encoding`].
+    pub fn mint(self, bits: u32) -> Result<Self, ChatError> {
+        let id = self.id()?;
+        let stamp = (0..=u64::MAX)
+            .find(|s| Self::stamp_work(&id, *s) >= bits)
+            .ok_or(ChatError::Encoding)?;
+        Ok(Self { stamp, ..self })
+    }
+
+    /// Whether the stamp carries at least `bits` of work.
+    ///
+    /// # Errors
+    ///
+    /// [`ChatError::Encoding`].
+    pub fn stamped(&self, bits: u32) -> Result<bool, ChatError> {
+        Ok(Self::stamp_work(&self.id()?, self.stamp) >= bits)
     }
 }
 
@@ -95,8 +140,8 @@ struct Mailbox {
 }
 
 /// A relay's state.
-#[derive(Default)]
 pub struct Relay {
+    stamp_bits: u32,
     bundles: BTreeMap<Address, PrekeyBundle>,
     mailboxes: BTreeMap<Address, Mailbox>,
     /// Ids of stored envelopes, with their expiry. An expired envelope is
@@ -106,7 +151,32 @@ pub struct Relay {
     bytes: usize,
 }
 
+impl Default for Relay {
+    fn default() -> Self {
+        Self::new(STAMP_BITS)
+    }
+}
+
 impl Relay {
+    /// A relay requiring `stamp_bits` of postage per deposit.
+    #[must_use]
+    pub fn new(stamp_bits: u32) -> Self {
+        Self {
+            stamp_bits,
+            bundles: BTreeMap::new(),
+            mailboxes: BTreeMap::new(),
+            seen: BTreeMap::new(),
+            challenges: BTreeMap::new(),
+            bytes: 0,
+        }
+    }
+
+    /// The postage this relay requires.
+    #[must_use]
+    pub fn stamp_bits(&self) -> u32 {
+        self.stamp_bits
+    }
+
     /// Publishes a prekey bundle after checking it; a newer epoch replaces an
     /// older one, an older one is refused.
     ///
@@ -148,9 +218,12 @@ impl Relay {
     /// Too large, expiring too far out or already expired, or a full mailbox.
     pub fn deposit(&mut self, envelope: Envelope, now: u64) -> Result<[u8; 32], ChatError> {
         let bytes = envelope.encode()?;
-        let id = *blake3::hash(&bytes).as_bytes();
+        let id = envelope.id()?;
         if self.seen.contains_key(&id) {
             return Ok(id);
+        }
+        if !envelope.stamped(self.stamp_bits)? {
+            return Err(ChatError::Refused("postage stamp carries too little work"));
         }
         if bytes.len() > MAX_ENVELOPE_BYTES {
             return Err(ChatError::Refused("envelope too large"));

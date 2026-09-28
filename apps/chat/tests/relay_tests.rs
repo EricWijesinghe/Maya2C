@@ -22,6 +22,7 @@ fn envelope(to: [u8; 32], n: u64, len: usize, expires_at: u64) -> Envelope {
             n,
             ciphertext: vec![0; len],
         }),
+        stamp: 0,
     }
 }
 
@@ -34,7 +35,7 @@ fn fetch(relay: &mut Relay, who: &Identity, now: u64) -> Result<Vec<Envelope>, C
 #[test]
 fn a_bundle_is_published_and_served_until_expiry() {
     let bob = Identity::from_seed([2; 32]);
-    let mut relay = Relay::default();
+    let mut relay = Relay::new(0);
     let bundle = bob.prekey_bundle(1, NOW + DAY).unwrap();
     assert_eq!(relay.publish(bundle.clone(), NOW).unwrap(), bob.address());
     assert_eq!(relay.bundle(&bob.address(), NOW), Some(bundle));
@@ -44,7 +45,7 @@ fn a_bundle_is_published_and_served_until_expiry() {
 #[test]
 fn an_older_or_forged_bundle_is_refused() {
     let bob = Identity::from_seed([2; 32]);
-    let mut relay = Relay::default();
+    let mut relay = Relay::new(0);
     relay
         .publish(bob.prekey_bundle(5, NOW + DAY).unwrap(), NOW)
         .unwrap();
@@ -60,7 +61,7 @@ fn an_older_or_forged_bundle_is_refused() {
 #[test]
 fn deposit_is_idempotent_and_fetch_empties_the_mailbox() {
     let bob = Identity::from_seed([2; 32]);
-    let mut relay = Relay::default();
+    let mut relay = Relay::new(0);
     let e = envelope(bob.address(), 0, 10, NOW + DAY);
     let id = relay.deposit(e.clone(), NOW).unwrap();
     assert_eq!(relay.deposit(e.clone(), NOW).unwrap(), id);
@@ -72,7 +73,7 @@ fn deposit_is_idempotent_and_fetch_empties_the_mailbox() {
 #[test]
 fn size_and_expiry_limits_hold() {
     let to = [2; 32];
-    let mut relay = Relay::default();
+    let mut relay = Relay::new(0);
     let refused = |r: Result<[u8; 32], ChatError>| matches!(r, Err(ChatError::Refused(_)));
     assert!(refused(
         relay.deposit(envelope(to, 0, MAX_ENVELOPE_BYTES, NOW + DAY), NOW)
@@ -86,7 +87,7 @@ fn size_and_expiry_limits_hold() {
 #[test]
 fn a_full_mailbox_refuses_until_its_envelopes_expire() {
     let to = [2; 32];
-    let mut relay = Relay::default();
+    let mut relay = Relay::new(0);
     for n in 0..MAX_ENVELOPES as u64 {
         relay.deposit(envelope(to, n, 1, NOW + DAY), NOW).unwrap();
     }
@@ -103,7 +104,7 @@ fn a_full_mailbox_refuses_until_its_envelopes_expire() {
 fn only_the_owner_can_fetch() {
     let bob = Identity::from_seed([2; 32]);
     let mallory = Identity::from_seed([9; 32]);
-    let mut relay = Relay::default();
+    let mut relay = Relay::new(0);
     relay
         .deposit(envelope(bob.address(), 0, 1, NOW + DAY), NOW)
         .unwrap();
@@ -148,7 +149,7 @@ fn a_conversation_passes_through_a_relay() {
     let alice = Identity::from_seed([1; 32]);
     let bob = Identity::from_seed([2; 32]);
     let bob_id = Identity::from_seed([2; 32]);
-    let mut relay = Relay::default();
+    let mut relay = Relay::new(0);
     relay
         .publish(bob.prekey_bundle(1, NOW + DAY).unwrap(), NOW)
         .unwrap();
@@ -168,4 +169,28 @@ fn a_conversation_passes_through_a_relay() {
         .map(|e| String::from_utf8(b.open(e, NOW).unwrap().text).unwrap())
         .collect();
     assert_eq!(texts, ["one", "two", "three"]);
+}
+
+#[test]
+fn a_deposit_without_enough_postage_is_refused() {
+    let to = [2; 32];
+    let bits = 12;
+    let mut relay = Relay::new(bits);
+    let bare = envelope(to, 0, 10, NOW + DAY);
+    assert!(matches!(
+        relay.deposit(bare.clone(), NOW),
+        Err(ChatError::Refused(_))
+    ));
+    let stamped = bare.clone().mint(bits).unwrap();
+    assert!(stamped.stamped(bits).unwrap());
+    let id = relay.deposit(stamped, NOW).unwrap();
+    // The id ignores the stamp, so a resend with new postage is a duplicate.
+    assert_eq!(bare.id().unwrap(), id);
+    let again = bare.mint(bits + 1).unwrap();
+    assert_eq!(relay.deposit(again, NOW).unwrap(), id);
+}
+
+#[test]
+fn the_default_relay_asks_for_the_default_postage() {
+    assert_eq!(Relay::default().stamp_bits(), maya_chat::relay::STAMP_BITS);
 }

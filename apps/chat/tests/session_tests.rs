@@ -16,7 +16,7 @@ fn pair() -> (Identity, Identity) {
 fn sessions() -> (session::Session, session::Session) {
     let (alice, bob) = pair();
     let bundle = bob.prekey_bundle(1, NOW + DAY).expect("bundle");
-    let (a, hs) = session::initiate(&alice, &bundle, NOW).expect("initiate");
+    let (a, hs) = session::initiate(&alice, bob.address(), &bundle, NOW).expect("initiate");
     let (b, from) = session::accept(&bob, &hs, NOW).expect("accept");
     assert_eq!(from, alice.address());
     assert_eq!(a.id(), b.id());
@@ -91,7 +91,7 @@ fn a_handshake_for_someone_else_is_refused() {
     let (alice, bob) = pair();
     let carol = Identity::from_seed([3; 32]);
     let bundle = bob.prekey_bundle(1, NOW + DAY).unwrap();
-    let (_, hs) = session::initiate(&alice, &bundle, NOW).unwrap();
+    let (_, hs) = session::initiate(&alice, bob.address(), &bundle, NOW).unwrap();
     assert_eq!(
         session::accept(&carol, &hs, NOW).err(),
         Some(ChatError::NotForMe)
@@ -102,7 +102,7 @@ fn a_handshake_for_someone_else_is_refused() {
 fn stale_and_future_handshakes_are_refused() {
     let (alice, bob) = pair();
     let bundle = bob.prekey_bundle(1, NOW + DAY).unwrap();
-    let (_, hs) = session::initiate(&alice, &bundle, NOW).unwrap();
+    let (_, hs) = session::initiate(&alice, bob.address(), &bundle, NOW).unwrap();
     let late = NOW + MAX_HANDSHAKE_AGE + 1;
     assert_eq!(
         session::accept(&bob, &hs, late).err(),
@@ -120,7 +120,7 @@ fn a_forged_handshake_is_refused() {
     let (alice, bob) = pair();
     let mallory = Identity::from_seed([9; 32]);
     let bundle = bob.prekey_bundle(1, NOW + DAY).unwrap();
-    let (_, mut hs) = session::initiate(&alice, &bundle, NOW).unwrap();
+    let (_, mut hs) = session::initiate(&alice, bob.address(), &bundle, NOW).unwrap();
     // Claiming to be Mallory with Alice's signature.
     hs.initiator_key = mallory.public_key().to_vec();
     assert_eq!(
@@ -134,7 +134,7 @@ fn a_forged_or_expired_bundle_is_refused() {
     let (alice, bob) = pair();
     let mut bundle = bob.prekey_bundle(1, NOW + DAY).unwrap();
     assert_eq!(
-        session::initiate(&alice, &bundle, NOW + DAY).err(),
+        session::initiate(&alice, bob.address(), &bundle, NOW + DAY).err(),
         Some(ChatError::Expired)
     );
     // Swap in an attacker's prekey: the signature no longer covers it.
@@ -143,7 +143,7 @@ fn a_forged_or_expired_bundle_is_refused() {
         .unwrap()
         .prekey;
     assert_eq!(
-        session::initiate(&alice, &bundle, NOW).err(),
+        session::initiate(&alice, bob.address(), &bundle, NOW).err(),
         Some(ChatError::BadSignature)
     );
 }
@@ -220,4 +220,50 @@ fn a_new_handshake_rekeys_the_session() {
     // The old session's messages no longer find a session.
     let stale = a1.seal(bob_addr, None, b"old two", NOW + 2).unwrap();
     assert_eq!(b.open(&stale, NOW + 2).err(), Some(ChatError::NoSession));
+}
+
+#[test]
+fn a_bundle_for_someone_else_cannot_open_a_session_to_the_intended_peer() {
+    let (alice, bob) = pair();
+    let carol = Identity::from_seed([3; 32]);
+    // A relay answers "Bob's bundle?" with Carol's, validly self-signed.
+    let carols = carol.prekey_bundle(1, NOW + DAY).unwrap();
+    assert_eq!(
+        session::initiate(&alice, bob.address(), &carols, NOW).err(),
+        Some(ChatError::NotForMe)
+    );
+    let mut a = Client::new(alice);
+    assert_eq!(
+        a.seal(bob.address(), Some(&carols), b"hi", NOW).err(),
+        Some(ChatError::NotForMe)
+    );
+}
+
+#[test]
+fn saved_state_restores_sessions_and_the_replay_record() {
+    let (alice, bob) = pair();
+    let bundle = bob.prekey_bundle(1, NOW + DAY).unwrap();
+    let bob_addr = bob.address();
+    let mut a = Client::new(alice);
+    let mut b = Client::new(bob);
+    let first = a.seal(bob_addr, Some(&bundle), b"hi", NOW).unwrap();
+    b.open(&first, NOW).unwrap();
+
+    let saved = b.save().unwrap();
+    let mut b = Client::restore(Identity::from_seed([2; 32]), &saved).unwrap();
+    let second = a.seal(bob_addr, None, b"two", NOW).unwrap();
+    assert_eq!(b.open(&second, NOW).unwrap().text, b"two");
+    assert_eq!(b.open(&first, NOW).err(), Some(ChatError::Replayed));
+}
+
+#[test]
+fn saved_state_is_unreadable_to_another_identity_and_tamper_evident() {
+    let (alice, _) = pair();
+    let saved = Client::new(alice).save().unwrap();
+    assert!(Client::restore(Identity::from_seed([9; 32]), &saved).is_err());
+    let mut bad = saved.clone();
+    let last = bad.len() - 1;
+    bad[last] ^= 1;
+    assert!(Client::restore(Identity::from_seed([1; 32]), &bad).is_err());
+    assert!(Client::restore(Identity::from_seed([1; 32]), &[0; 4]).is_err());
 }

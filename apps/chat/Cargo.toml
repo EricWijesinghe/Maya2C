@@ -28,7 +28,8 @@ libp2p = { workspace = true, features = ["tokio", "tcp", "noise", "yamux", "requ
 serde = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
-zeroize.workspace = true
+# `serde` so saved sessions stay in `Zeroizing` from disk to use.
+zeroize = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
 tempfile.workspace = true
