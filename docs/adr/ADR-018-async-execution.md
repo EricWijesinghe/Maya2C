@@ -3,6 +3,8 @@
 **Status:** Accepted
 **Date:** 2026-09-27
 
+> **Update 2026-09-28:** DAG-BFT is now in the node; mainnet v1 stays synchronous for the audit-surface reason below. See [ADR-027](ADR-027-dag-bft-in-the-node.md). The text below is the decision as recorded; it is not current status.
+
 ## Context
 
 Master Prompt 12 §2 asks whether consensus should order blocks without

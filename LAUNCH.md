@@ -7,25 +7,29 @@ HUMAN — never PASS without an evidence path that exists. Nothing is published,
 deployed or announced without `APPROVED: <gate>` from the project owner
 (Standing Order 6).
 
-Current position: **Gate 1 (localnet) passed with caveats; Gate 2 not
-started.** The mainnet binary cannot start today by design (ADR-016).
+Current position (2026-09-28): **Gate 1 (localnet) passed. Gate 2's
+software criteria pass: DAG-BFT finality, staking and slashing are in the
+node and tested. What remains for Gate 2 is operational:** a persistent
+devnet, a 7-day soak, and the node calling the remote signer. A `production`
+build starts in `dag-bft` mode only (ADR-016, updated by ADR-027).
 
 ## Gate 1 — Localnet
 
 | Criterion | Evidence | State |
 |---|---|---|
 | Workspace builds and every test passes | `reports/raw-test-baseline-2026-09-27.log` (2,626 passed, 0 failed) | PASS |
-| 12-node local cluster comes up from genesis | `scripts/local_cluster.sh`; `deploy-production.sh --target local-docker` ran 12/12 RPC-healthy (not peered); `--target local-k3d` blocked in this sandbox (`reports/10-launch.md`) | partial |
+| Validators peer, agree and survive a failure from genesis | `cargo xtask localnet`: four `maya2c-node` validators over real libp2p agree on one chain, a transfer executes on all four, three keep committing with one killed, the restarted one catches up (`reports/localnet/2026-09-28.log`, PASS in 14.7 s at `6d20648`) | PASS |
+| 12-node cluster from genesis | `scripts/local_cluster.sh`; `deploy-production.sh --target local-docker` ran 12/12 RPC-healthy (not peered); `--target local-k3d` blocked in this sandbox (`reports/10-launch.md`) | partial |
 | Reality ledger claims backed | `cargo xtask coverage` | PASS |
 
 ## Gate 2 — Devnet (persistent, team-operated)
 
 | Criterion | Evidence | State |
 |---|---|---|
-| DAG-BFT wired into the node (ADR-015) | — | FAIL (not built) |
-| Staking and slashing | — | FAIL (not built) |
-| Fee market active (ADR-016) | — | FAIL (activation `u64::MAX`) |
-| Remote signer with slashing protection (Master Prompt 16) | `crates/signer` | see `reports/16-validator-security.md` |
+| DAG-BFT wired into the node (ADR-015) | ADR-027; `crates/node/tests/bft_node_tests.rs` (four validators and an observer build identical chains; a double spend lands once; a validator restarted from its safety log rejoins without equivocating) | PASS |
+| Staking and slashing | `crates/node/tests/bft_staking_tests.rs` (a registration joins the committee; equivocation evidence removes the validator; a stolen key is detected, slashed and replaced) | PASS |
+| Fee market active (ADR-016) | `crates/node/src/state/fees.rs`: active wherever genesis configures it ("presence is activation"), checked against `maya-fee-market` limits in `genesis.rs` | built; the devnet genesis must configure it |
+| Remote signer with slashing protection (Master Prompt 16) | `crates/signer` | built, **not yet called by the node**: validators sign votes with a local key file (ADR-022 update). See `reports/16-validator-security.md` |
 | 7-day soak without an unexplained halt or fork | — | NEEDS HUMAN (a devnet must exist) |
 
 ## Gate 3 — Public testnet
