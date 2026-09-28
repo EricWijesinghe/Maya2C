@@ -77,7 +77,7 @@ install_deps() {
     log "installing build dependencies"
     run apt-get update -qq
     run env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-        build-essential clang libclang-dev pkg-config libssl-dev git curl jq ufw ca-certificates
+        build-essential clang libclang-dev mold pkg-config libssl-dev git curl jq ufw ca-certificates
     if [ -n "$DOMAIN" ] && ! command -v caddy >/dev/null; then
         run env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq caddy
     fi
@@ -96,7 +96,12 @@ build() {
     # install miri, wasm and embedded targets a server never uses.
     export RUSTUP_TOOLCHAIN="$TOOLCHAIN"
     if [ ! -x "$CARGO_HOME/bin/cargo" ]; then
-        run sh -c "curl -fsSL https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile minimal --default-toolchain $TOOLCHAIN"
+        run bash -c "set -o pipefail; curl -fsSL https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile minimal --default-toolchain $TOOLCHAIN"
+    fi
+    # An interrupted rustup install leaves a zero-byte `rustup` behind, and
+    # every later cargo call then fails silently. Found on the first test run.
+    if [ "$DRY_RUN" != 1 ] && ! "$CARGO_HOME/bin/cargo" --version >/dev/null 2>&1; then
+        die "the Rust toolchain in $PREFIX is broken; remove $PREFIX/cargo and $PREFIX/rustup and run again"
     fi
     local cargo=("$CARGO_HOME/bin/cargo" build --release --locked --manifest-path "$REPO/Cargo.toml")
     # The node exactly as mainnet builds it (Production Standing Orders):
