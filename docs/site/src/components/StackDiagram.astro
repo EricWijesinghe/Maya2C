@@ -1,0 +1,61 @@
+---
+// The architecture as layers, bottom up. Every line names something in the
+// tree; nothing here is planned work presented as built.
+const layers = [
+  { name: "Applications", items: "Maya Chat · desktop wallet · SDKs (TypeScript, Python, Go)", hue: 330 },
+  { name: "Gateway", items: "REST and GraphQL, default-deny allowlist, rate limits", hue: 290 },
+  { name: "Execution", items: "WASM contract VM, metered · fee market with a burned base fee", hue: 255 },
+  { name: "Consensus", items: "DAG-BFT (Narwhal + Bullshark) · staking and slashing", hue: 220 },
+  { name: "Network", items: "libp2p · Noise with an ML-KEM-768 layer", hue: 200 },
+  { name: "Cryptography", items: "ML-DSA · ML-KEM · SLH-DSA (FIPS 204/203/205) · X-Wing hybrid", hue: 185 },
+];
+---
+
+<div class="stack" role="list" aria-label="Maya2C architecture, top to bottom">
+  {
+    layers.map((l, i) => (
+      <div class="layer" role="listitem" style={`--h:${l.hue};--i:${i}`}>
+        <span class="name">{l.name}</span>
+        <span class="items">{l.items}</span>
+      </div>
+    ))
+  }
+</div>
+
+<style>
+  .stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin: 1.5rem 0 2rem;
+    perspective: 900px;
+  }
+  .layer {
+    display: grid;
+    grid-template-columns: minmax(8rem, 11rem) 1fr;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.9rem 1.25rem;
+    border-radius: 0.9rem;
+    border: 1px solid hsl(var(--h) 90% 60% / 0.35);
+    background: linear-gradient(90deg, hsl(var(--h) 90% 55% / 0.18), hsl(var(--h) 90% 55% / 0.03));
+    transform-origin: center;
+    animation: rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    animation-delay: calc(var(--i) * 90ms);
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+  }
+  .layer:hover {
+    transform: translateX(6px);
+    box-shadow: 0 0 28px hsl(var(--h) 90% 60% / 0.3);
+  }
+  .name { font-weight: 800; color: hsl(var(--h) 90% 72%); letter-spacing: 0.02em; }
+  :root[data-theme="light"] .name { color: hsl(var(--h) 80% 32%); }
+  .items { color: var(--sl-color-gray-2); font-size: 0.95rem; }
+  @media (max-width: 40rem) {
+    .layer { grid-template-columns: 1fr; gap: 0.25rem; }
+  }
+  @keyframes rise {
+    from { opacity: 0; transform: rotateX(35deg) translateY(16px); }
+    to { opacity: 1; transform: none; }
+  }
+</style>
