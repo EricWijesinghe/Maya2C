@@ -117,6 +117,14 @@ the defaults:
 - **Re-running the installer** (the upgrade path) kept the genesis, keys and
   chain: the same block 3 id afterwards.
 
-Not yet tested: an aarch64 host (Oracle's Arm VM), HTTPS through Caddy
-(this needs a real domain pointing at the host), and join mode against a
-remote seed.
+aarch64 (Oracle's Arm VM): the node (`--features production`), wallet,
+gateway and chat were cross-built for `aarch64-unknown-linux-gnu` from the
+same commit, in 16 min 25 s and 12 min 54 s. Under qemu-user, the node
+generated a validator key, chat created an identity, and the gateway and
+chat printed their help and version. That shows the code builds and starts
+on Arm. It does not show a chain running there: that is the first thing to
+check on the real VM.
+
+Not yet tested: a full install on a real Arm host, HTTPS through Caddy (this
+needs a real domain pointing at the host), and join mode against a remote
+seed.
