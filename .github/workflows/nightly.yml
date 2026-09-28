@@ -235,6 +235,11 @@ jobs:
           key: localnet
       - name: Localnet
         run: cargo xtask localnet
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: Python and Go SDKs against a devnet
+        run: cargo xtask sdk-e2e --lang python && cargo xtask sdk-e2e --lang go
       - name: kill -9 during commit, 1,000 runs
         run: cargo test -p custom-l1-node --test crash_consistency_tests -- --nocapture
         env:
