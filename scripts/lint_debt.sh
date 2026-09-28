@@ -57,6 +57,16 @@ if grep -qE ':[0-9]+:[0-9]+: error|^error: could not compile' <<<"$output"; then
     exit 1
 fi
 
+# A clippy that never ran prints no errors and no warnings either: under a
+# bash without cargo on PATH (WSL's, reached from a Windows program) this
+# once reported "0 diagnostics, ok". Only a pass that reached cargo's
+# `Finished` line has a count worth comparing.
+if ! grep -qE '^[[:space:]]*Finished' <<<"$output"; then
+    echo "lint_debt: clippy did not complete; no count to compare:" >&2
+    printf '%s\n' "$output" | tail -5 >&2
+    exit 1
+fi
+
 echo "lint_debt: $count diagnostics (baseline $baseline)"
 
 case "$MODE" in
