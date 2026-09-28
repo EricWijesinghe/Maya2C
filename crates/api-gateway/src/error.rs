@@ -135,9 +135,8 @@ mod tests {
 
     #[test]
     fn a_refusal_is_the_callers_fault_but_hides_the_nodes_text() {
-        let error = GatewayError::Rejected(
-            "invalid nonce for a4fe…: expected 1, got 0".to_string(),
-        );
+        let error =
+            GatewayError::Rejected("invalid nonce for a4fe…: expected 1, got 0".to_string());
         assert_eq!(error.status(), StatusCode::BAD_REQUEST);
         assert_eq!(error.public_message(), "rejected by the node");
     }

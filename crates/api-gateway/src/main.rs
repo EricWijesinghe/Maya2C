@@ -16,7 +16,11 @@ use maya_api_gateway::node::RpcNodeClient;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]
-#[command(name = "maya2c-gateway", version, about = "REST and GraphQL gateway for a Maya2C node")]
+#[command(
+    name = "maya2c-gateway",
+    version,
+    about = "REST and GraphQL gateway for a Maya2C node"
+)]
 struct Args {
     /// The node's JSON-RPC endpoint.
     #[arg(long, default_value = "http://127.0.0.1:8545", env = "MAYA_NODE_RPC")]
@@ -29,7 +33,9 @@ struct Args {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .init();
     let args = Args::parse();
     let node = RpcNodeClient::connect(&args.node).context("connecting to the node")?;
