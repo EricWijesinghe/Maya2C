@@ -73,8 +73,6 @@ pub fn run(args: &[String]) -> Result<(), String> {
         .filter(|a| !a.starts_with("--"))
         .map(String::as_str)
         .collect();
-    let logs = target_dir(&root).join("sweep");
-    std::fs::create_dir_all(&logs).map_err(|e| e.to_string())?;
     if clean {
         println!("sweep: cargo clean");
         let (ok, text) = execute(&root, "cargo", &["clean"]);
@@ -82,6 +80,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
             return Err(format!("cargo clean failed:\n{text}"));
         }
     }
+    // After the clean, which deletes the target directory and would take
+    // the log directory with it.
+    let logs = target_dir(&root).join("sweep");
+    std::fs::create_dir_all(&logs).map_err(|e| e.to_string())?;
     let mut sweep = Sweep {
         date: today(),
         commit: git_head(&root),
