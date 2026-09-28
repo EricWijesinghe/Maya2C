@@ -36,6 +36,8 @@ const XTASK_COMMANDS: &[&str] = &[
     "mesh-check",
     "sdk-e2e",
     "guides-check",
+    "status",
+    "sweep",
     "help",
 ];
 /// `maya2c` subcommands (`bins/maya2c-cli/src/main.rs`).
