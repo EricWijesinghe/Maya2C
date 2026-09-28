@@ -1,4 +1,4 @@
-# cargo xtask localnet --remote-signer — branch feat/remote-signer (ADR-032), 2026-09-29
+# cargo xtask localnet --remote-signer — branch feat/remote-signer (ADR-033), 2026-09-29
 # Machine: Core Ultra 9 275HX, 31.4 GB, Windows 11 build 29671, dev profile
 localnet: validator 3 signs through maya2c-signer at 127.0.0.1:31190
 localnet: 4 validators agree on one chain 3.5462056s after start

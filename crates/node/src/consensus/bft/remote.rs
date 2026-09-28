@@ -1,4 +1,4 @@
-//! A validator key held by `maya2c-signer` in another process (ADR-032).
+//! A validator key held by `maya2c-signer` in another process (ADR-033).
 //!
 //! The node never sees the key. For each proposal or vote it sends the
 //! signer the slot (`kind`, `round`, `author`) and the vertex digest over the

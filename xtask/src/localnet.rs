@@ -13,7 +13,7 @@
 //!    same block id as the rest.
 //!
 //! With `--remote-signer`, the last validator's key is created inside a
-//! `maya2c-signer` process and never exists anywhere else (ADR-032): the same
+//! `maya2c-signer` process and never exists anywhere else (ADR-033): the same
 //! four checks then prove a remote-signer validator takes part in consensus,
 //! stops cleanly when killed and rejoins.
 //!

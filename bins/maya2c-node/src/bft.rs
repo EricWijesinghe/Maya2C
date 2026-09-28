@@ -58,7 +58,7 @@ pub(super) fn generate_validator_key(path: &Path) -> Result<(), Box<dyn Error>> 
 /// Writes this node's channel identity for the remote signer (a 32-byte
 /// seed, hex, 0600, never overwritten) and prints the public key the signer
 /// must pin with `--allow-node`. This is a transport key, not the validator
-/// key: the validator key stays in the signer (ADR-032).
+/// key: the validator key stays in the signer (ADR-033).
 pub(super) fn generate_signer_identity(path: &Path) -> Result<(), Box<dyn Error>> {
     let seed = maya_crypto_pq::suite::MasterSeed::generate()?;
     let identity = maya_signer::channel::Identity::from_seed(&seed);

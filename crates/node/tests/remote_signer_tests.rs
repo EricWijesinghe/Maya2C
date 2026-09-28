@@ -1,4 +1,4 @@
-//! ADR-032: a validator key held by the remote signer, as the node uses it.
+//! ADR-033: a validator key held by the remote signer, as the node uses it.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

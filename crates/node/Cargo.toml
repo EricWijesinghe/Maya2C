@@ -49,7 +49,7 @@ fips204 = { workspace = true, features = ["default-rng"] }
 maya-crypto-pq = { path = "../crypto-pq" }
 # The DAG-BFT engine (ADR-015, ADR-027). Sans-IO; depends on blake3 alone.
 maya-dag-bft = { path = "../dag-bft" }
-# The remote validator signer's channel and request types (ADR-032).
+# The remote validator signer's channel and request types (ADR-033).
 maya-signer = { path = "../signer" }
 # Staking rules (ADR-028). Dependency-free; the node applies its effects.
 maya-staking = { path = "../staking" }

@@ -6,7 +6,7 @@
 //! the same key, a crash between signing and remembering. So the rule lives
 //! beside the key.
 //!
-//! # The rule (ADR-032)
+//! # The rule (ADR-033)
 //!
 //! The slashable act in DAG-BFT is signing two different digests for one
 //! `(round, author)` slot: equivocating as an author, or voting for two
@@ -397,7 +397,7 @@ impl SlashingDb {
 
 /// Interchange format version, modeled on EIP-3076 (`"5"`) with `Maya2C`'s
 /// vertex/vote kinds in place of Ethereum's blocks/attestations. The `-2`
-/// adds each slot's author (ADR-032).
+/// adds each slot's author (ADR-033).
 pub const FORMAT: &str = "5-maya2c-2";
 
 /// An interchange file.
