@@ -38,6 +38,10 @@ const XTASK_COMMANDS: &[&str] = &[
     "guides-check",
     "status",
     "sweep",
+    "pgo",
+    "localnet",
+    "up",
+    "down",
     "help",
 ];
 /// `maya2c` subcommands (`bins/maya2c-cli/src/main.rs`).

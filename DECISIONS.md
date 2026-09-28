@@ -60,3 +60,18 @@ encryption already shipping in Signal, iMessage and SimpleX. The brief's
 candidate difference does not hold; this is reported to Eric rather than
 worked around (Standing Order 9). Remaining candidates, PQ authentication
 and chain-account identity, need their own searches.
+
+## 2026-09-29 — The first testnet is one seed on Oracle Always Free
+
+Eric chose Oracle Always Free plus a home PC over a paid VPS or the
+$9,000/month AWS fleet. One installer for every host
+(`infra/testnet-vm/install.sh`); `infra/oracle-free` only provisions, at a
+pinned commit. The home PC joins as an observer: a second validator would
+halt the chain if either machine stopped. ADR-032.
+
+## 2026-09-29 — Guides say mining earns nothing, because it does not
+
+The owner asked for "anyone to start mining". ADR-016 makes DAG-BFT the only
+production consensus, and emission is nil (ADR-029). The mining guide states
+this plainly instead of inviting people to mine; the conflict is reported to
+Eric in the session report.

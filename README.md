@@ -77,6 +77,20 @@ rationale for each is in
 Three more directories have their own workspaces and toolchains: `offsec-sandbox/`
 (red-team fuzzing), `hal/ebpf-net/programs/` (the XDP program) and `fuzz/`.
 
+## Run the whole ecosystem locally
+
+```sh
+cargo xtask up      # 4 validators (DAG-BFT), API gateway, chat relay, funded wallet
+cargo xtask down    # stop exactly what `up` started
+```
+
+`up` builds what it needs, waits until the validators agree on a chain and
+every service answers, then prints the endpoints (also in
+`target/up/up.json`). It is a local devnet: keys are generated fresh each
+time and everything listens on 127.0.0.1 only. Run it in a terminal. On
+Windows the services it leaves running inherit a piped stdout, so
+`cargo xtask up | ...` waits until `down`; redirect to a file instead.
+
 ## Build
 
 Requires Rust 1.88 (edition 2024).

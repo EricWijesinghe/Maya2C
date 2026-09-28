@@ -49,6 +49,14 @@ const AUTHORED_SRC = join(here, "..", "authored");
 const AUTHORED_OUT = "guides";
 
 /**
+ * The landing page served at the site root (maya2c.dev/).
+ *
+ * Kept beside `authored/` rather than in it: that directory is copied into
+ * `guides/`, and the home page must land at the collection root instead.
+ */
+const HOME_SRC = join(here, "..", "home.mdx");
+
+/**
  * Subdirectory the generated reference pages land in.
  *
  * Not the collection root, and this is a workaround rather than a preference:
@@ -113,7 +121,7 @@ function rewriteLinks(body) {
     // site route. Send them to the repository rather than to a dead path.
     .replace(
       /\]\(\.\.\/([^)]+)\)/g,
-      "](https://github.com/maya2c/maya2c/blob/master/$1)",
+      "](https://github.com/EricWijesinghe/Maya2C/blob/master/$1)",
     );
 }
 
@@ -122,6 +130,8 @@ const generated = [];
 await rm(OUT, { recursive: true, force: true });
 await mkdir(join(OUT, AUTHORED_OUT), { recursive: true });
 await mkdir(join(OUT, REFERENCE_OUT), { recursive: true });
+
+await writeFile(join(OUT, "index.mdx"), await readFile(HOME_SRC, "utf8"), "utf8");
 
 // Authored pages first, verbatim: they already carry their own frontmatter and
 // are written against the site's routes rather than GitHub's.
