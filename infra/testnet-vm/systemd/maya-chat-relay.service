@@ -1,0 +1,41 @@
+# Maya Chat store-and-forward relay (ADR-031), public on TCP 4001. Holds
+# only ciphertext; its libp2p key persists in /var/lib/maya2c/relay so the
+# relay's address stays the same across restarts.
+[Unit]
+Description=Maya Chat relay (testnet)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=maya
+Group=maya
+ExecStart=/usr/local/bin/maya-chat --home /var/lib/maya2c/relay relay --listen /ip4/0.0.0.0/tcp/4001
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/maya2c/relay
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
