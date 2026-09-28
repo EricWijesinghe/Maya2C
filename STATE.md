@@ -6,7 +6,7 @@
 - **Do first next session:** `cargo xtask status`; `gh run list --branch master` — if anything is red, fix it (P0); else "Do next" item 1.
 
 ## Current milestone and % complete by evidence
-**M1 CORE SOLID** — M0 TRUTH met. M1 exit criteria (docs/EMPIRE.md): 6 of 10 met by evidence (build, tests, gates, CI, fuzzing, formal/invariants, MP12 baseline — criteria 1, 2, 3, 6, 7, 9); criterion 4 (CI green) pending one job; open: 5 (property tests for fees/consensus/VM), 8 (line coverage), 10 (MP06 scope, Eric).
+**M1 CORE SOLID** — M0 TRUTH met. M1 exit criteria (docs/EMPIRE.md): 6 of 10 met by evidence (build, tests, gates, fuzzing, formal/invariants, MP12 baseline — criteria 1, 2, 3, 6, 7, 9); criterion 4 (CI green) pending one job; open: 5 (property tests for fees/consensus/VM), 8 (line coverage), 10 (MP06 scope, Eric).
 
 ## Build health
 Clean sweep 2026-09-28 at `71c926a` — `reports/00-operating-baseline.md`, `reports/sweeps/2026-09-28.md`:
