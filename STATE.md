@@ -2,7 +2,7 @@
 
 ## Handover
 - **Done (2026-09-29):** https://maya2c.dev live (GitHub Pages, certificate issued, HTTPS enforced). PR #10 has the quickstart, signatures and mining guides (each run first), `go get maya2c.dev/sdk`, `infra/oracle-free` (not applied, ADR-032) and `release-binaries.yml`. Report: `reports/sessions/2026-09-29-launch.md`.
-- **Unfinished:** PR #10 CI; after it merges, run `release-binaries` by hand (artifacts only) to get the first aarch64 build. PR #8 (installer) and #9 (site visuals) belong to the deploy session.
+- **Unfinished:** none from this session. #10 merged; `release-binaries` built all four targets, aarch64 included (run 36478279508). PR #8 (installer) and #9 (site visuals) belong to the deploy session.
 - **Blocked on Eric:** a LICENSE (none exists); mining vs ADR-016 (no block reward); an Oracle account plus `APPROVED: testnet seed`; `APPROVED: release`.
 - **Done (2026-09-28):** one branch (`master`); CI fixed; operating system in place (`cargo xtask status`/`sweep`, MISSION, EMPIRE, ECOSYSTEM, RISKS, DECISIONS, BACKLOG, Operating Protocol); first clean sweep: 2,972 passed, 0 failed; two gates that were silently wrong fixed (lint ratchet false pass, doc-coverage red).
 - **Unfinished:** GitHub CI for `2748cb5` (review fixes to xtask/lint script) was queued at handover; `master` runs cancel each other on new pushes, so the last *completed* full CI is PR #3's (21 checks green, contains `69073e3`). Maya Chat merged (PR #3) — Eric's decision on its difference still open.
