@@ -116,20 +116,31 @@ None. The project has no investors, no token and no revenue.
   identity lives on a homeserver.
 - **Briar** is peer-to-peer (Tor, Bluetooth, Wi-Fi), with no post-quantum
   key agreement at the time of writing.
-- **SimpleX** needs no user identifiers and uses queue-based relays; it
-  has added a post-quantum ratchet.
+- **SimpleX** needs no user identifiers and uses queue-based relays; its
+  post-quantum ratchet has been on by default in direct chats since v5.6
+  (2024), though groups beyond roughly 10–20 members are not post-quantum.
+- **iMessage** has shipped post-quantum key agreement (PQ3) since 2024, on
+  Apple servers and Apple devices only.
 
-Maya Chat's difference is a combination of properties, not a claim to be
-the first at any one of them:
-- post-quantum by default for both one-to-one chats and MLS groups;
-- identity keys anchored on an open post-quantum ledger rather than on a
-  provider;
+Post-quantum *encryption* is therefore not what sets Maya Chat apart:
+Signal, iMessage and SimpleX all ship it today. What this project adds is
+a combination of properties. It does not claim to be the first at any one
+of them, and each is still to be checked against a dated search:
+- **post-quantum authentication as well as secrecy.** Identities and
+  handshakes are signed with ML-DSA-65. The systems above protect key
+  agreement against quantum attack, but their identity keys and signatures
+  are classical;
+- **the chat identity is an account on an open post-quantum ledger**, so
+  key rotation and revocation can be anchored publicly instead of trusted
+  to a provider's key directory;
 - store-and-forward designed for delay-tolerant links;
-- all in Rust on a codebase with published conformance vectors.
+- all in Rust, on a codebase with published conformance vectors.
 
-The project will record a dated prior-art search before making any public
-comparison claim (the repository enforces this in CI: `cargo xtask
-claims-check`).
+The dated prior-art search behind this section is
+`docs/prior-art/p2p-chat.md` (2026-09-28). It is recorded as partial:
+Status/Waku were not resolved. No public comparison claim is made until
+it is complete, and the repository enforces that in CI
+(`cargo xtask claims-check`).
 
 ## Technical challenges
 
