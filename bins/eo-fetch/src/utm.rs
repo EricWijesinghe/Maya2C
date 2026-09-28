@@ -18,6 +18,9 @@ pub fn zone(lon: f64) -> u32 {
 }
 
 /// `(easting, northing)` in metres, in the longitude's own zone.
+// The names are Snyder's own symbols (N, T, C, A, M), so the formulas can
+// be checked against the source line by line.
+#[allow(clippy::many_single_char_names)]
 #[must_use]
 pub fn forward(lon: f64, lat: f64) -> (f64, f64) {
     let e2 = F * (2.0 - F);
