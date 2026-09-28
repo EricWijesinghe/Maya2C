@@ -147,7 +147,7 @@ crates rather than duplicating them (D1).
 
 ---
 
-## Master Prompts 1–30 (`Prompts/`) — branch `claude/task-0g86kl`
+## Master Prompts 1–30 (`Prompts/`) — merged to `master` 2026-09-28
 
 A different numbering from the sections above: the thirty briefs in
 `Prompts/`, executed in order. Per-prompt DONE WHEN verdicts are in
@@ -162,10 +162,27 @@ not that every DONE WHEN criterion is met.
 - [x] MP22 clear signing · MP23 contract safety · MP24 MCP server · MP25 interop primitives · MP26 lanes · MP27 viewing keys · MP28 quantum harbor
 - [x] MP29 design system, screenshot diffs, explorer plain language (`reports/29-interface.md`)
 - [x] MP30 reference apps, migration kits, eco-metrics, claims-check, public-proof drafts (`reports/30-adoption.md`)
-- [ ] ADR-026: decide the contract `caller` host function — blocks every ownership contract
+- [x] ADR-026: decide the contract `caller` host function — Accepted 2026-09-27, live from genesis
 - [ ] Human-only DONE WHEN items: usability studies (MP22, MP29), developer study (MP24), beginner course test (MP30), external audits (MP20), a public testnet (MP19, MP30)
 - [ ] Every `APPROVED: <step>` item: grants, hackathon, benchmark report, beat-bar table, announcement — none given, nothing published
 - [ ] `docs/site/.gitignore` names `crates/node/src/content/...` (a pre-move path), so the generated Starlight pages are tracked; fix the path and untrack them in one commit
+
+---
+
+## Operating system (2026-09-28)
+
+Rules in CLAUDE.md, "Operating Protocol"; state in [STATE.md](STATE.md).
+
+- [x] CI on `master` fixed: SAFETY comments visible to `check-unsafe.sh`, rustfmt (`06202e1`)
+- [x] `cargo xtask status` — prints the last sweep, gaps, ledger, milestone, next tasks; MISSING where evidence is absent
+- [x] `cargo xtask sweep [--clean]` — every gate in order, recorded in `reports/sweeps/`
+- [x] STATE.md, DECISIONS.md, BACKLOG.md, RISKS.md, docs/MISSION.md, docs/EMPIRE.md, docs/ECOSYSTEM.md, docs/prior-art/p2p-chat.md
+- [x] Operating Protocol appended to CLAUDE.md
+- [x] First clean sweep recorded in `reports/00-operating-baseline.md`
+- [x] First executive report, `reports/executive/2026-09-28.md`
+- [x] CI observed green on `master` after the fix (rustfmt, unsafe accounting, clippy, ledger, spec, deny at `71c926a`; nextest (core) still running at handover)
+- [x] Lint ratchet's false pass fixed: under WSL bash clippy never ran and it reported 0; `lint_debt.sh` now requires `Finished`, and the sweep resolves Git bash. Real count 1,140 = baseline
+- [x] doc-coverage gate was red (broken `FEE_SINK` link; nightly-only gate); fixed, 99% (9,692 / 9,719)
 
 ---
 

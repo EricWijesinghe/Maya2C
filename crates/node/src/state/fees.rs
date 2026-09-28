@@ -11,7 +11,7 @@
 //! collector receives above `base_fee × size` is the tip.
 //!
 //! Per block: the base-fee part of everything collected moves to
-//! [`FEE_SINK`] (burned: supply conserved, circulation falls) and the base fee
+//! [`FEE_SINK`](super::shielded::FEE_SINK) (burned: supply conserved, circulation falls) and the base fee
 //! steps toward `target_block_bytes` by `maya_fee_market::next_base_fee`. The
 //! tips stay in the collector until the staking epoch ends, when they are the
 //! reward pool (`staking_exec`).

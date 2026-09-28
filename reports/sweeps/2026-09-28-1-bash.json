@@ -1,0 +1,25 @@
+{
+  "date": "2026-09-28",
+  "commit": "71c926a",
+  "clean": false,
+  "steps": [
+    {
+      "name": "unsafe",
+      "command": "bash scripts/check-unsafe.sh",
+      "ok": true,
+      "seconds": 7
+    },
+    {
+      "name": "lint-debt",
+      "command": "bash scripts/lint_debt.sh --check",
+      "ok": true,
+      "seconds": 70
+    },
+    {
+      "name": "doc-coverage",
+      "command": "bash scripts/doc_coverage.sh --check",
+      "ok": false,
+      "seconds": 2094
+    }
+  ]
+}
