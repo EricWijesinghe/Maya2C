@@ -354,12 +354,16 @@ summary() {
     [ "$DRY_RUN" = 1 ] && return
     local ip relay
     ip=$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
-    relay=$(journalctl -u maya-chat-relay --no-pager -o cat | awk '/relay listening on \/ip4\/0\.0\.0\.0/ {print $4}' | tail -1)
+    # The relay listens on 0.0.0.0 and logs one line per interface; its
+    # public address is this host's IP with the relay's peer id.
+    local peer
+    peer=$(journalctl -u maya-chat-relay --no-pager -o cat | grep -o '/p2p/[A-Za-z0-9]*' | tail -1)
+    relay="/ip4/$ip/tcp/$CHAT_PORT$peer"
     cat <<EOF
 
 [testnet] UP — $(jq -r .chain_id "$CONF/genesis.json")
   gateway      ${DOMAIN:+https://$DOMAIN}${DOMAIN:-http://$ip:8080}
-  chat relay   ${relay/0.0.0.0/$ip}
+  chat relay   $relay
   p2p (join)   /ip4/$ip/tcp/$P2P_BASE
   genesis      $CONF/genesis.json   sha256 $(sha256sum "$CONF/genesis.json" | cut -c1-64)
   wallet       $CONF/wallet.key (root only; password in $CONF/wallet.password)
