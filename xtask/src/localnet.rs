@@ -24,7 +24,7 @@ use serde_json::{Value, json};
 
 use crate::devnet::{self, Procs, Result};
 
-const VALIDATORS: u16 = 4;
+pub(crate) const VALIDATORS: u16 = 4;
 const RPC_BASE: u16 = devnet::RPC_PORT;
 const P2P_BASE: u16 = 31_100;
 const GENESIS_BALANCE: u64 = 10_000_000;
@@ -33,7 +33,7 @@ const WAIT: Duration = Duration::from_secs(120);
 const POLL: Duration = Duration::from_millis(500);
 const PAYMENT: u64 = 12_345;
 
-fn rpc_addr(i: u16) -> String {
+pub(crate) fn rpc_addr(i: u16) -> String {
     format!("127.0.0.1:{}", RPC_BASE + i)
 }
 
@@ -48,7 +48,7 @@ fn rpc(i: u16, method: &str, params: &Value) -> Result<Value> {
 
 /// Keys, a funded wallet and a four-validator genesis. Returns the wallet
 /// address.
-fn setup(work: &Path) -> Result<String> {
+pub(crate) fn setup(work: &Path) -> Result<String> {
     if work.exists() {
         std::fs::remove_dir_all(work).map_err(|e| format!("clearing {}: {e}", work.display()))?;
     }
@@ -86,7 +86,7 @@ fn setup(work: &Path) -> Result<String> {
     Ok(address)
 }
 
-fn start(work: &Path, i: u16) -> Result<Child> {
+pub(crate) fn start(work: &Path, i: u16) -> Result<Child> {
     let dir = work.join(format!("v{i}"));
     let log = std::fs::OpenOptions::new()
         .create(true)
@@ -138,7 +138,7 @@ fn balance(i: u16, address: &str) -> Result<u64> {
 }
 
 /// Waits until `check` holds, polling.
-fn wait_until(what: &str, mut check: impl FnMut() -> bool) -> Result<Duration> {
+pub(crate) fn wait_until(what: &str, mut check: impl FnMut() -> bool) -> Result<Duration> {
     let started = Instant::now();
     while started.elapsed() < WAIT {
         if check() {
@@ -151,7 +151,7 @@ fn wait_until(what: &str, mut check: impl FnMut() -> bool) -> Result<Duration> {
 
 /// The nodes in `nodes` agree on the block at the lowest tip among them, and
 /// that tip is at least `min_height`.
-fn agree(nodes: &[u16], address: &str, min_height: u64) -> bool {
+pub(crate) fn agree(nodes: &[u16], address: &str, min_height: u64) -> bool {
     let tips: Vec<(u64, String)> = nodes.iter().filter_map(|i| tip(*i, address).ok()).collect();
     if tips.len() != nodes.len() {
         return false;
