@@ -298,6 +298,23 @@ pub trait SignatureSuite {
     fn verify(public_key: &[u8], message: &[u8], signature: &[u8]) -> Result<(), SuiteError>;
 }
 
+/// Domain of the account address a suite-tagged key controls. Defined here,
+/// beside the suites, so every consumer of an address (the node, the wallet,
+/// the chat app) derives it from one implementation.
+pub const SUITE_ADDRESS_DOMAIN: &str = "maya2c 2026-09-21 suite-tagged account address v1";
+
+/// The account address of a suite-tagged public key:
+/// `BLAKE3-derive-key(SUITE_ADDRESS_DOMAIN, suite byte ‖ key)`. The suite byte
+/// is inside the hash, so the same bytes read as a key of another suite name a
+/// different account. Consensus: the node's `suite_address` is this function.
+#[must_use]
+pub fn suite_address(suite: SuiteId, public_key: &[u8]) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new_derive_key(SUITE_ADDRESS_DOMAIN);
+    hasher.update(&[suite.to_byte()]);
+    hasher.update(public_key);
+    *hasher.finalize().as_bytes()
+}
+
 /// Verifies under whichever suite `id` names.
 ///
 /// # Errors

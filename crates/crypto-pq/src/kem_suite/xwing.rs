@@ -32,6 +32,21 @@ fn random<const N: usize>() -> Result<Zeroizing<[u8; N]>, KemSuiteError> {
 /// The X-Wing suite.
 pub struct XWing;
 
+impl XWing {
+    /// A keypair expanded from a 32-byte seed, as the draft defines key
+    /// generation: `(secret, encoded public)`. Deterministic, so an
+    /// application can re-derive a prekey from a seed it already protects
+    /// instead of storing another secret.
+    #[must_use]
+    pub fn key_from_seed(seed: &[u8; x_wing::DECAPSULATION_KEY_SIZE]) -> (XWingKey, Vec<u8>) {
+        let dk = x_wing::DecapsulationKey::from(*seed);
+        let ek = x_wing::Decapsulator::encapsulation_key(&dk)
+            .to_bytes()
+            .to_vec();
+        (XWingKey(dk), ek)
+    }
+}
+
 impl KemSuite for XWing {
     const ID: KemId = KemId::XWing;
     const ENCAPSULATION_KEY_LEN: usize = x_wing::ENCAPSULATION_KEY_SIZE;
