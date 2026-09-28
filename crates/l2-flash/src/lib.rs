@@ -9,6 +9,8 @@
 //!
 //! ## Modules
 //!
+//! - [`barter`] — machine-to-machine SLAs: per-unit payment, collateral
+//!   slashing, one netted settlement
 //! - [`channel`] — bidirectionally signed state, revocation, settlement
 //! - [`htlc`] — hash time-locked contracts, the primitive behind atomic
 //!   multi-hop payments
@@ -33,6 +35,7 @@
 
 #![warn(missing_docs)]
 
+pub mod barter;
 pub mod channel;
 pub mod error;
 pub mod htlc;

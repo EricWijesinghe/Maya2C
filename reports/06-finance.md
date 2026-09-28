@@ -12,7 +12,7 @@ and registered invariant hooks; this report is complete.*
 | Module (brief §) | Tests | Ledger entry | Invariant-guard hook | State |
 |---|---|---|---|---|
 | DEX / AMM + batch auctions (§1) | `dex_tests.rs` 27 ✓, `crates/dex/tests/*` | yes | yes (AMM reserves, invariants 6–7) | met |
-| Payment channels "Maya Flash" (§2) | `channel_tests.rs` 26 ✓, `scale_tests.rs` 4 ✓ (1 ignored: 20k signatures, ~1 h) | yes | yes (channel layer under the state root) | met; machine barter / 10k IoT devices not built |
+| Payment channels "Maya Flash" (§2) | `channel_tests.rs` 26 ✓, `scale_tests.rs` 4 ✓ (1 ignored: 20k signatures, ~1 h) | yes | yes (channel layer under the state root) | met; **machine barter with SLAs and slashing, 10,000 simulated devices** (§11) |
 | Cross-chain (§3) | **new** `crates/btc-spv` 9 ✓; `interop::beacon` (Ethereum sync-committee light client, verified on a real mainnet fixture — `reports/25-interop.md`) | yes | n/a (not on chain) | Bitcoin SPV, **Bitcoin lock/mint and burn/release** (`crates/btc-bridge`, §8 below) and an Ethereum light client; no Ethereum asset route |
 | ISO 20022 (§4) | `iso20022_tests.rs` 20 ✓ | yes | n/a (bridge) | met for parsing/generation; types hand-written, not generated from XSDs |
 | RWA (§4) | `rwa_tests.rs` 11 ✓ | yes | yes | `ten_thousand_dividends_settle_in_one_block` (the brief's number) and DvP present |
@@ -20,7 +20,7 @@ and registered invariant hooks; this report is complete.*
 | Compliance + tax (§5) | sanctions and credential STARK statements in `crates/zk-stark`; **new** `permissioned_finance::tax` | yes (new) | — | US/UK/DE calculators and `compliance_tests.rs` (500 transactions) built; `docs/LEGAL_NOTICE.md` applies |
 | Macro-economic engines (§6) | **new** `econ/` 6 ✓ | yes (new, SIM) | n/a (simulation) | built as an agent-based simulator first, as the brief requires |
 | Identity (§7) | `identity_tests.rs` 15 ✓ | yes | yes | DID + attestations + selective disclosure; **biometric PoP** (`crates/personhood`, §6 below); EEG/BCI SIM not built |
-| DePIN / IoT (§8) | `iot_anchor_tests.rs` 7 ✓ | yes | yes | enrollment → telemetry → tamper; **energy protocol parsers** (`hal/energy`, §5 below); satellite NDVI oracle, swarms not built |
+| DePIN / IoT (§8) | `iot_anchor_tests.rs` 7 ✓ | yes | yes | enrollment → telemetry → tamper; **energy protocol parsers** (`hal/energy`, §5 below), **robot swarms** (`hal/swarm`, §11); satellite NDVI oracle not built |
 | Oracle (§8) | `oracle_tests.rs` 30 ✓ | yes | yes (invariant 9) | quorum median (one liar cannot move it) and stale-feed refusal present; a dispute window is not |
 | Settlement | `settlement_tests.rs` 20 ✓ | yes | yes | — |
 
@@ -65,7 +65,7 @@ are scenario inputs. Real-time ZK proof-of-reserves is not built.
 Per-order well-formedness proofs and a dealer-free offline phase for the
 dark-pool MPC (§9 catches dishonest servers, not dishonest traders); generic L1/L2 light-client framework; IEC 61850
 MMS and sampled values; satellite NDVI oracle; robot swarm auctions; EEG/BCI
-SIM (built since: §10); liveness and uniqueness for proof-of-personhood; machine-to-machine
+SIM (built since: §10); robot swarm auctions and 10,000-device barter (built since: §11); liveness and uniqueness for proof-of-personhood; machine-to-machine
 barter with 10,000 devices.
 
 ## 4. Permissioned finance (new, RESEARCH) — run for this report
@@ -337,4 +337,56 @@ test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 These separations are the generator's, by construction. Whether human EEG
 features are this stable and this distinctive is an open research question.
+
+## 11. Machine barter, energy at scale, robot swarms — 2026-09-28
+
+**Barter** (`crates/l2-flash/src/barter.rs`): bilateral SLAs for compute,
+bandwidth, storage and power. The consumer pays per unit delivered, and a
+delivery below the SLA's floor slashes the provider's collateral to the
+consumer. Everything nets into one L1 settlement, checked to conserve
+value, escrow included. The devices are simulated meters, and this is the
+accounting layer; per-update hybrid signatures cost what `channel_tests`
+measures.
+
+```
+$ cargo test -p l2-flash --test barter_tests -- --nocapture
+barter (simulated devices): 10000 devices x 100 ticks = 1000000 updates, 9896 breaches slashed, in 1.6026202s (623978 updates/s, accounting only); one settlement of 8861 deltas
+test result: ok. 2 passed
+```
+
+**Energy at scale** (`hal/energy`), the brief's three tests. Release build,
+Windows workstation (24 hardware threads):
+
+```
+$ cargo test --release -p maya-energy --test scale_tests -- --nocapture
+SIM: 500 MW surge allocated to 10732 of 20000 miners in 1.4127ms (the decision only; ramping and grid physics are not modelled)
+50000 battery events settled in one epoch across 20000 accounts in 12.5651ms; operator net -69296
+1000000 micro-power transfers netted on 24 threads in 3.1595ms
+test result: ok. 3 passed
+```
+
+Settlements sum to zero, and the parallel netting equals the serial one. The
+surge figure is the allocation decision; whether miners can ramp that fast
+is not modelled. A debug build under a loaded test run reports the time and
+asserts the 10 ms target only when optimised.
+
+**Robot swarms** (`hal/swarm`):
+- MAVLink 2 framing, HEARTBEAT and GLOBAL_POSITION_INT, and ROS 2's CDR
+  for `Pose` and `PoseStamped`. All match their reference implementations
+  (pymavlink 2.4.50, rosbags) byte for byte, decoding and encoding. Every
+  truncated frame is refused, and signed MAVLink frames are refused rather
+  than accepted unchecked.
+- Sealed-bid task micro-auctions.
+- Flight plans committed on chain and checked pairwise off chain in
+  integer arithmetic, so a conflict is provable from the two openings.
+
+```
+$ cargo test -p maya-swarm -- --nocapture
+swarm (simulated): 100 agents, 60 tasks awarded, 60 plans checked pairwise (1770 pairs) with no conflict, 370.0904ms
+test result: ok. 3 passed
+```
+
+The first version of the scenario put 60 tasks on 10 sites, and the checker
+flagged the resulting landings as conflicts; it was right. No robot has
+flown with any of this.
 

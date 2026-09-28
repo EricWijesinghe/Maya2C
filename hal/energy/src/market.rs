@@ -165,3 +165,87 @@ fn hex_short(bytes: &[u8; 32]) -> String {
         out
     })
 }
+
+/// A battery's charge or discharge in one epoch, as its meter reported it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BatteryEvent {
+    /// The battery's owner.
+    pub account: [u8; 32],
+    /// Watt-hours: positive discharged to the grid, negative charged from it.
+    pub wh: i64,
+}
+
+/// Settles an epoch's battery events at the epoch's price (per kWh): an
+/// owner who discharged is paid, one who charged pays, and the grid operator
+/// takes the other side. Returns each account's net payment and the
+/// operator's, which sum to zero.
+///
+/// # Errors
+///
+/// [`EnergyError::Refused`] if a sum overflows.
+pub fn settle_epoch(
+    events: &[BatteryEvent],
+    price_per_kwh: u64,
+) -> Result<(BTreeMap<[u8; 32], i128>, i128), EnergyError> {
+    let mut net: BTreeMap<[u8; 32], i128> = BTreeMap::new();
+    let mut operator: i128 = 0;
+    for e in events {
+        // Priced per Wh to the nearest unit below: kWh price × Wh / 1000.
+        let paid = i128::from(e.wh)
+            .checked_mul(i128::from(price_per_kwh))
+            .ok_or_else(|| EnergyError::Refused("epoch payment overflow".into()))?
+            / 1_000;
+        *net.entry(e.account).or_default() += paid;
+        operator -= paid;
+    }
+    Ok((net, operator))
+}
+
+/// One micro-power transfer between two parties at an agreed price.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PowerTransfer {
+    /// Seller.
+    pub from: u32,
+    /// Buyer.
+    pub to: u32,
+    /// Watt-hours.
+    pub wh: u32,
+    /// Price per Wh.
+    pub price: u32,
+}
+
+/// Nets `transfers` across `threads` workers, each summing its slice, then
+/// merged. Returns each party's net position (positive: owed money). The
+/// result does not depend on how the work was split.
+#[must_use]
+pub fn net_transfers(transfers: &[PowerTransfer], parties: usize, threads: usize) -> Vec<i64> {
+    let chunk = transfers.len().div_ceil(threads.max(1)).max(1);
+    let partials: Vec<Vec<i64>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = transfers
+            .chunks(chunk)
+            .map(|part| {
+                scope.spawn(move || {
+                    let mut net = vec![0i64; parties];
+                    for t in part {
+                        let value = i64::from(t.wh) * i64::from(t.price);
+                        net[t.from as usize] += value;
+                        net[t.to as usize] -= value;
+                    }
+                    net
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| h.join().unwrap_or_default())
+            .collect()
+    });
+    partials
+        .into_iter()
+        .fold(vec![0i64; parties], |mut acc, part| {
+            for (a, p) in acc.iter_mut().zip(part) {
+                *a += p;
+            }
+            acc
+        })
+}

@@ -242,6 +242,10 @@ members = [
     # EDF parser, spectral template over maya-personhood, SSVEP liveness.
     # Synthetic recordings only; declared in every header it writes.
     "hal/bci-sim",
+    # Robot swarms (Master Prompt 6 §8): MAVLink 2 and ROS 2 CDR checked
+    # against their reference implementations, sealed task auctions,
+    # committed flight plans with provable conflicts. RESEARCH.
+    "hal/swarm",
     # Entropy HAL (ADR-010): OS and RDSEED sources, SP 800-90B health tests on
     # every source, one SP 800-90A HMAC-DRBG fed by all of them, tamper-driven
     # zeroization. The thermal, micro-voltage, Brownian and homodyne-QRNG
