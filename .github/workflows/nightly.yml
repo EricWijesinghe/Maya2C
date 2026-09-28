@@ -235,6 +235,10 @@ jobs:
           key: localnet
       - name: Localnet
         run: cargo xtask localnet
+      - name: kill -9 during commit, 1,000 runs
+        run: cargo test -p custom-l1-node --test crash_consistency_tests -- --nocapture
+        env:
+          CRASH_RUNS: "1000"
       - name: Node logs on failure
         if: failure()
         run: tail -n 60 target/localnet/v*/node.log

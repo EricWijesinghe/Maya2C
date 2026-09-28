@@ -1,6 +1,20 @@
 # WebDriver end-to-end suite
 
-**These tests have never been run.**
+**These tests have never been run, and cannot pass as written** (checked
+2026-09-28):
+
+- 10 of the 12 element ids `airgap.spec.mjs` drives (`create-wallet`,
+  `mnemonic-word`, `compose-transfer`, `sign-offline`, `frame-total`,
+  `frame-index`, `frame-next`, `scan-simulate-skip`, `scan-assemble`,
+  `scan-status`) appear nowhere in `apps/wallet-gui/ui/src`;
+- `wallet_creation.spec.mjs` and `transfer.spec.mjs`, listed below, do not
+  exist;
+- nothing sets the `global.__TAURI_DRIVER__` session the spec reads, and
+  there is no `package.json` for mocha or a WebDriver client.
+
+The prerequisites are obtainable here: Edge WebView2 is 154.0.4258.37, so
+`msedgedriver` 154.0.4258.37 plus `cargo install tauri-driver` would drive a
+release build. What is missing is a suite written against the real UI.
 
 `tauri-driver` and `msedgedriver` are both absent from the development host, and
 Tauri's WebDriver support needs one of them plus a built application binary.

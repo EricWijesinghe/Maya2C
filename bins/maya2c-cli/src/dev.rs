@@ -19,6 +19,48 @@ use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
 use l1_wallet::client::NodeClient;
 use serde_json::json;
 
+/// Builds `maya2c-node` for an end-to-end test and returns a directory
+/// holding a private copy of it. Always builds, because a stale node binary once ran a test against
+/// pre-change consensus code; a no-op build costs a second.
+///
+/// The build goes to its own target directory, `target/test-bins`. Building
+/// `-p maya2c-node` into the workspace `target/` from inside a `--workspace`
+/// test run nests two different feature resolutions over one set of
+/// fingerprints, which is the wedge CLAUDE.md warns about, and it failed
+/// four devnet tests in a full run.
+///
+/// # Errors
+///
+/// `cargo` could not be run, or the build failed.
+pub fn fresh_node_dir(workspace_root: &Path) -> anyhow::Result<PathBuf> {
+    let target = workspace_root.join("target").join("test-bins");
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let status = Command::new(cargo)
+        .current_dir(workspace_root)
+        .args(["build", "-p", "maya2c-node", "--target-dir"])
+        .arg(&target)
+        .status()
+        .context("running cargo build")?;
+    if !status.success() {
+        bail!("building maya2c-node failed: {status}");
+    }
+    // Each test runs its own copy. Windows refuses to replace an executable
+    // that is running, so a second test's build failed while the first test's
+    // node ran from the shared path ("Access is denied").
+    let run = target.join("runs").join(format!(
+        "{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos())
+    ));
+    std::fs::create_dir_all(&run).with_context(|| format!("creating {}", run.display()))?;
+    let name = format!("maya2c-node{EXE}");
+    std::fs::copy(target.join("debug").join(&name), run.join(&name))
+        .with_context(|| format!("copying {name} to {}", run.display()))?;
+    Ok(run)
+}
+
 /// Password of every dev keystore. Dev keys fund nothing real.
 pub const DEV_PASSWORD: &str = "maya2c-dev";
 /// Balance of each pre-funded account, base units.
