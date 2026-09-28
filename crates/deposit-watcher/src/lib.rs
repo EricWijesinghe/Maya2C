@@ -91,10 +91,15 @@ impl Watcher {
     ///
     /// [`WatchError::Corrupt`] for a complete line that does not parse.
     pub fn open(path: &Path, watched: BTreeSet<String>) -> Result<Self, WatchError> {
+        // `write`, not `append`: on Windows an append-only handle may not
+        // truncate, so discarding a torn final line below failed with "Access
+        // is denied". This watcher is the journal's only writer and seeks to
+        // the end itself, which is all append mode was giving it.
         let mut journal = OpenOptions::new()
             .create(true)
+            .truncate(false)
             .read(true)
-            .append(true)
+            .write(true)
             .open(path)?;
         let (mut cursor, mut balances, mut seen) = (0, BTreeMap::new(), BTreeSet::new());
         let mut good_len = 0u64;

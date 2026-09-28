@@ -217,3 +217,21 @@ cost. It is inherent to the scheme. It spreads across processes
 (`reports/13`). In this benchmark every one of four in-process nodes pays it
 for every transaction.
 
+
+## Crash-consistency test timing fixed (2026-09-28)
+
+`kill_nine_during_commit_always_restarts_consistent` failed its "most runs
+committed something" check in every full workspace run on the 4-vCPU
+workstation, though every consistency assertion held. Its kill delay (20 to
+100 ms) was measured from spawn, and under a loaded machine process start
+and opening the database outlasted it: most kills landed before the first
+commit, so they tested startup, not commit. The child now prints a line
+once it is committing, and the delay starts from that.
+
+```
+$ CRASH_RUNS=1000 cargo nextest run -p custom-l1-node --test crash_consistency_tests --no-capture
+1000 kill -9 runs: every restart consistent; final height 304139; 1000 runs committed at least one block
+```
+
+Each run now waits about 0.8 s for the child, so the per-change default is
+250 runs, and the nightly workflow runs the brief's 1,000.

@@ -22,15 +22,8 @@ use maya2c_cli::dev::{LocalChain, Options, launch};
 const SETTLE_TIMEOUT: Duration = Duration::from_secs(120);
 
 fn bin_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug");
-    // Always, not only when missing: a stale node binary once ran this test
-    // against pre-change consensus code. A no-op build costs a second.
-    let status = std::process::Command::new(env!("CARGO"))
-        .args(["build", "-p", "maya2c-node"])
-        .status()
-        .expect("cargo build");
-    assert!(status.success(), "building maya2c-node");
-    dir
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    maya2c_cli::dev::fresh_node_dir(&root).expect("building maya2c-node")
 }
 
 async fn devnet(dir: &std::path::Path, chain_id: &str, rpc_port: u16) -> LocalChain {

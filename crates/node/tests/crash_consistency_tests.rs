@@ -1,8 +1,9 @@
-//! `kill -9` during commit, 1,000 times (Master Prompt 12 §3).
+//! `kill -9` during commit, 1,000 times nightly (Master Prompt 12 §3).
 //!
 //! The test binary re-executes itself as a child (`MAYA_CRASH_CHILD=<dir>`)
-//! that opens the chain on `dir` and commits blocks as fast as it can. The
-//! parent SIGKILLs it after a seeded random delay, reopens the database, and
+//! that opens the chain on `dir` and commits blocks as fast as it can. Once
+//! the child reports it is committing, the parent SIGKILLs it after a seeded
+//! random delay, reopens the database, and
 //! checks that it is consistent: the chain opens, the committed state root
 //! equals the tip header's `state_root`, and the height never goes backwards
 //! (a committed block is never lost to a process crash).
@@ -50,12 +51,34 @@ fn crash_child() {
         return;
     };
     let mut chain = open(Path::new(&dir));
+    // The parent times its kill from this line, not from spawn: under load,
+    // process start and opening the database can outlast the whole random
+    // delay, and a kill before the first commit tests startup, not commit.
+    println!("{READY}");
+    std::io::Write::flush(&mut std::io::stdout()).expect("flush");
     loop {
         let timestamp = 1_000_000 + (chain.height() + 1) * 15;
         let block = chain
             .candidate_block(timestamp, Vec::new())
             .expect("candidate");
         chain.insert_block(block).expect("insert");
+    }
+}
+
+/// What the child prints once it is committing.
+const READY: &str = "maya-crash-child committing";
+
+/// Blocks until the child prints [`READY`], or its stdout closes.
+fn wait_ready(child: &mut std::process::Child) {
+    use std::io::BufRead as _;
+    let stdout = child.stdout.take().expect("piped stdout");
+    let mut lines = std::io::BufReader::new(stdout).lines();
+    while let Some(Ok(line)) = lines.next() {
+        if line.contains(READY) {
+            // Keep draining so the child never blocks on a full pipe.
+            std::thread::spawn(move || lines.for_each(drop));
+            return;
+        }
     }
 }
 
@@ -77,7 +100,10 @@ fn kill_nine_during_commit_always_restarts_consistent() {
     let runs: u32 = std::env::var("CRASH_RUNS")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(1_000);
+        // 250 per pull request; nightly runs the brief's 1,000 through
+        // CRASH_RUNS. Each run waits for the child to be committing, about
+        // 0.8 s here, so 1,000 is 14 minutes on its own.
+        .unwrap_or(250);
     let dir = tempfile::TempDir::new().expect("dir");
     let exe = std::env::current_exe().expect("test binary");
     let mut height = check(dir.path());
@@ -97,10 +123,11 @@ fn kill_nine_during_commit_always_restarts_consistent() {
                 "1",
             ])
             .env("MAYA_CRASH_CHILD", dir.path())
-            .stdout(Stdio::null())
+            .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
             .expect("spawn child");
+        wait_ready(&mut child);
         std::thread::sleep(delay);
         child.kill().expect("SIGKILL"); // SIGKILL on Unix: no destructors, no flush
         child.wait().expect("reap");
