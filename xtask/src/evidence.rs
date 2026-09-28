@@ -76,7 +76,9 @@ pub fn nextest_counts(output: &str) -> Option<TestCounts> {
 
 /// The gap register's summary counts, or `None` if the line is missing.
 pub fn gap_counts(register: &str) -> Option<GapCounts> {
-    let line = register.lines().find(|l| l.contains(" items:"))?;
+    let line = register
+        .lines()
+        .find(|l| l.trim_start().starts_with("**") && l.contains(" items:"))?;
     Some(GapCounts {
         p0: number_before(line, " P0")?,
         p1: number_before(line, " P1")?,
@@ -111,13 +113,23 @@ pub fn status_counts(features_toml: &str) -> Result<Vec<(String, usize)>, String
         status: String,
     }
     let ledger: Ledger = toml::from_str(features_toml).map_err(|e| e.to_string())?;
-    Ok(["verified", "working", "stub", "planned"]
+    let counts: Vec<(String, usize)> = ["verified", "working", "stub", "planned"]
         .iter()
         .map(|s| {
             let n = ledger.subsystem.iter().filter(|e| e.status == *s).count();
             ((*s).to_string(), n)
         })
-        .collect())
+        .collect();
+    // A status outside the four would vanish from every bucket and make the
+    // total quietly smaller than the ledger.
+    let counted: usize = counts.iter().map(|(_, n)| n).sum();
+    if counted != ledger.subsystem.len() {
+        return Err(format!(
+            "{} subsystems have a status other than verified/working/stub/planned",
+            ledger.subsystem.len() - counted
+        ));
+    }
+    Ok(counts)
 }
 
 #[cfg(test)]
@@ -169,6 +181,16 @@ mod tests {
             })
         );
         assert_eq!(gap_counts("# empty"), None);
+        let prose = "the following items: 9 P0, 9 P1, 9 P2 are examples
+                     **2 items: 1 P0, 0 P1, 1 P2.**";
+        assert_eq!(
+            gap_counts(prose),
+            Some(GapCounts {
+                p0: 1,
+                p1: 0,
+                p2: 1
+            })
+        );
     }
 
     #[test]
@@ -186,6 +208,10 @@ mod tests {
         let counts = status_counts(toml).unwrap();
         assert_eq!(counts[0], ("verified".into(), 1));
         assert_eq!(counts[3], ("planned".into(), 1));
+        assert!(
+            status_counts("[[subsystem]]\nstatus = \"done\"\n").is_err(),
+            "an unknown status is an error, not a smaller total"
+        );
     }
 
     #[test]

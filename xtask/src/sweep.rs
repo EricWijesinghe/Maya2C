@@ -25,6 +25,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 /// Lines of each command's output kept in the committed report.
 const TAIL_LINES: usize = 25;
 const SECONDS_PER_DAY: u64 = 86_400;
+/// Numbered re-run records per day before falling back to `-partial`.
+const MAX_RERUNS_PER_DAY: u32 = 999;
 
 /// `(name, program, args)`. `SELF` is replaced by this executable's path.
 const STEPS: &[(&str, &str, &[&str])] = &[
@@ -154,7 +156,15 @@ fn run_step(
 /// A program that cannot be started is a failed step, not an error: `cargo
 /// deny` missing on a machine is a finding for the report.
 fn execute(root: &Path, program: &str, args: &[&str]) -> (bool, String) {
-    match Command::new(program).args(args).current_dir(root).output() {
+    // Plain output: the parsers match text, and an escape code beside
+    // `passed` or `Finished` would silently lose a count.
+    let run = Command::new(program)
+        .args(args)
+        .current_dir(root)
+        .env("CARGO_TERM_COLOR", "never")
+        .env("NO_COLOR", "1")
+        .output();
+    match run {
         Ok(out) => {
             let text = format!(
                 "{}{}",
@@ -167,14 +177,14 @@ fn execute(root: &Path, program: &str, args: &[&str]) -> (bool, String) {
     }
 }
 
-/// A partial run (named steps only) is written as `<date>-partial` and never
+/// A partial run (named steps only) is written as `<date>-<n>` and never
 /// replaces `latest.json`: a two-step rerun is not a sweep, and `status`
 /// must not report it as one.
 fn write_reports(root: &Path, sweep: &Sweep, tails: &str, partial: bool) -> Result<(), String> {
     let dir = root.join("reports/sweeps");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let stem = if partial {
-        format!("{}-partial", sweep.date)
+        free_stem(&dir, &sweep.date)
     } else {
         sweep.date.clone()
     };
@@ -245,6 +255,28 @@ fn bash() -> String {
         .chain(beside_git)
         .find(|p| p.is_file())
         .map_or_else(|| "bash".into(), |p| p.to_string_lossy().into_owned())
+}
+
+/// `<date>-<n>` with the first `n` not yet used, so a second re-run on the
+/// same day does not overwrite the first.
+fn free_stem(dir: &Path, date: &str) -> String {
+    let names: Vec<String> = std::fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    (1..=MAX_RERUNS_PER_DAY)
+        .map(|n| format!("{date}-{n}"))
+        .find(|stem| {
+            let (dash, dot) = (format!("{stem}-"), format!("{stem}."));
+            !names
+                .iter()
+                .any(|n| n.starts_with(&dash) || n.starts_with(&dot))
+        })
+        .unwrap_or_else(|| format!("{date}-partial"))
 }
 
 fn target_dir(root: &Path) -> PathBuf {

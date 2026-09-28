@@ -39,7 +39,9 @@ echo "lint_debt: running clippy across the workspace (this is a full pass)"
 # `|| true` on the pipeline: clippy exits non-zero only on errors, and warnings
 # are the point here. A real error still shows up as a zero count, which the
 # sanity check below catches.
-output=$(cargo clippy --workspace --all-targets --message-format short 2>&1 || true)
+# `--color never`: nightly.yml sets CARGO_TERM_COLOR=always, and an escape
+# code before `Finished` would make the guard below fail every run.
+output=$(cargo clippy --workspace --all-targets --message-format short --color never 2>&1 || true)
 count=$(printf '%s\n' "$output" | grep -cE ':[0-9]+:[0-9]+: warning:' || true)
 
 # Both shapes: a located diagnostic (`file:line:col: error`) and cargo's own

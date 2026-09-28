@@ -59,3 +59,21 @@ DECISIONS.md, 2026-09-28 entries (seven).
 
 GitHub nextest (core) on `master`; Eric's decisions (STATE.md, "Blocked on
 Eric").
+
+## Reviewer pass (rust-reviewer) on the xtask code, and fixes
+
+- **CRITICAL, fixed:** the new `Finished` guard in `lint_debt.sh` would
+  have failed every nightly run: `nightly.yml` sets
+  `CARGO_TERM_COLOR=always`, so an escape code precedes `Finished`. Clippy
+  now runs with `--color never` (the fix `coverage.rs` already uses).
+  Checked: `CARGO_TERM_COLOR=always bash scripts/lint_debt.sh --check` →
+  `lint_debt: 1140 diagnostics (baseline 1140)`, `ok`.
+- **HIGH, fixed:** sweep children now run with `CARGO_TERM_COLOR=never`
+  and `NO_COLOR=1`, so a coloured nextest summary cannot drop its counts.
+- **MEDIUM, fixed:** gap counts read only the bold summary line; an unknown
+  ledger status is an error, not a smaller total (tests added); partial
+  re-runs are numbered `<date>-<n>` so a second one does not overwrite the
+  first.
+- **LOW, left:** `git_head` duplicated in `status.rs` and `sweep.rs`.
+
+`cargo nextest run -p xtask`: `23 tests run: 23 passed, 0 skipped`.
