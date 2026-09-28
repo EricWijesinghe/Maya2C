@@ -3,6 +3,8 @@
 **Status:** Accepted
 **Date:** 2026-09-26
 
+> **Update 2026-09-28:** DAG-BFT is now in the node and signs votes with a local validator key file. It does not yet call this remote signer; that integration is still open. See [ADR-027](ADR-027-dag-bft-in-the-node.md). The text below is the decision as recorded; it is not current status.
+
 ## Context
 
 Master Prompt 16 §1: validator consensus keys must not live on the
