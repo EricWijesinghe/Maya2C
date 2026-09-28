@@ -24,11 +24,14 @@ fn service(dir: &TempDir) -> Service<KeystoreBackend> {
     )
 }
 
-fn req(kind: Kind, round: u64, payload: &[u8]) -> Request {
+/// A request for `author`'s vertex in `round`; `tag` names the vertex, so two
+/// different tags are two conflicting vertices.
+fn req(kind: Kind, round: u64, author: u16, tag: &[u8]) -> Request {
     Request {
         kind,
         round,
-        payload: payload.to_vec(),
+        author,
+        digest: *blake3::hash(tag).as_bytes(),
     }
 }
 
@@ -67,41 +70,63 @@ fn keystore_round_trips_and_refuses_a_wrong_passphrase_or_a_tampered_file() {
 }
 
 #[test]
-fn signatures_verify_and_cover_the_domain_separated_message() {
+fn signatures_cover_exactly_the_bytes_validators_verify() {
     let dir = TempDir::new().unwrap();
     let mut s = service(&dir);
-    let r = req(Kind::Vertex, 1, b"vertex digest");
+    let r = req(Kind::Vertex, 1, 0, b"vertex");
     let Response::Signed(sig) = s.handle(&r) else {
         panic!("refused")
     };
-    verify(SuiteId::MlDsa65, s.public_key(), &signed_message(&r), &sig).unwrap();
+    // ADR-032: VOTE_DOMAIN ‖ digest, the node's own message, nothing more.
+    let expected = [maya_dag_bft::VOTE_DOMAIN, r.digest.as_slice()].concat();
+    assert_eq!(signed_message(&r), expected);
+    verify(SuiteId::MlDsa65, s.public_key(), &expected, &sig).unwrap();
     assert!(
-        verify(SuiteId::MlDsa65, s.public_key(), b"vertex digest", &sig).is_err(),
-        "the raw payload must not verify"
+        verify(SuiteId::MlDsa65, s.public_key(), &r.digest, &sig).is_err(),
+        "the bare digest must not verify"
     );
 }
 
 #[test]
-fn a_node_restored_from_an_old_backup_cannot_resign_a_past_round() {
+fn every_authors_vote_in_one_round_is_signed() {
+    // The finding behind ADR-032: a validator votes for each author's vertex
+    // in a round. A one-message-per-round rule refused the second and would
+    // have stalled consensus.
+    let dir = TempDir::new().unwrap();
+    let mut s = service(&dir);
+    for author in 0..4 {
+        assert!(
+            signed(&s.handle(&req(Kind::Vote, 5, author, &[author as u8]))),
+            "vote for author {author} in round 5"
+        );
+    }
+    // A slow author's vertex from an earlier round is still votable.
+    assert!(signed(&s.handle(&req(Kind::Vote, 3, 2, b"late"))));
+}
+
+#[test]
+fn a_node_restored_from_an_old_backup_cannot_sign_a_conflicting_vote() {
     let dir = TempDir::new().unwrap();
     let mut s = service(&dir);
     for round in [2, 4, 6, 8, 10] {
-        assert!(signed(&s.handle(&req(Kind::Vote, round, b"honest"))));
+        assert!(signed(&s.handle(&req(Kind::Vote, round, 1, b"honest"))));
     }
-    // The restored node has forgotten rounds 6..10 and builds different votes.
+    // The restored node has forgotten rounds 6..10 and sees other vertices.
     assert!(
-        !signed(&s.handle(&req(Kind::Vote, 6, b"from backup"))),
-        "conflicting re-sign of a signed round"
-    );
-    assert!(
-        !signed(&s.handle(&req(Kind::Vote, 7, b"from backup"))),
-        "unsigned round below the watermark"
+        !signed(&s.handle(&req(Kind::Vote, 6, 1, b"from backup"))),
+        "a second digest for a slot already signed"
     );
     // An identical retry is harmless and allowed.
-    assert!(signed(&s.handle(&req(Kind::Vote, 8, b"honest"))));
-    // Rounds are per kind: a vertex at round 3 is still fine.
-    assert!(signed(&s.handle(&req(Kind::Vertex, 3, b"vertex"))));
-    assert!(signed(&s.handle(&req(Kind::Vote, 11, b"next"))));
+    assert!(signed(&s.handle(&req(Kind::Vote, 8, 1, b"honest"))));
+    // Proposals do keep a watermark: an honest validator's own rounds only rise.
+    assert!(signed(&s.handle(&req(Kind::Vertex, 9, 0, b"mine"))));
+    assert!(
+        !signed(&s.handle(&req(Kind::Vertex, 7, 0, b"from backup"))),
+        "a proposal below the highest round proposed"
+    );
+    // A proposal and the author's own vote are one signature, one slot.
+    assert!(signed(&s.handle(&req(Kind::Vote, 9, 0, b"mine"))));
+    assert!(!signed(&s.handle(&req(Kind::Vote, 9, 0, b"other"))));
 }
 
 #[test]
@@ -112,11 +137,13 @@ fn two_nodes_with_the_same_key_the_second_is_refused() {
     assert!(signed(&s.handle(&req(
         Kind::Vertex,
         11,
+        0,
         b"node A's vertex"
     ))));
     assert!(!signed(&s.handle(&req(
         Kind::Vertex,
         11,
+        0,
         b"node B's vertex"
     ))));
 
@@ -135,9 +162,10 @@ fn two_nodes_with_the_same_key_the_second_is_refused() {
     assert!(!signed(&s2.handle(&req(
         Kind::Vertex,
         11,
+        0,
         b"node B's vertex"
     ))));
-    assert!(signed(&s2.handle(&req(Kind::Vertex, 12, b"next"))));
+    assert!(signed(&s2.handle(&req(Kind::Vertex, 12, 0, b"next"))));
 }
 
 #[test]
@@ -147,23 +175,19 @@ fn a_crash_between_persist_and_signature_cannot_lead_to_a_double_sign() {
     {
         // The approval is durable, then the process dies before signing.
         let mut db = SlashingDb::open(&path).unwrap();
-        db.approve(
-            Kind::Vote,
-            20,
-            *blake3::hash(&signed_message(&req(Kind::Vote, 20, b"A"))).as_bytes(),
-        )
-        .unwrap();
+        db.approve(Kind::Vote, 20, 3, req(Kind::Vote, 20, 3, b"A").digest)
+            .unwrap();
     }
     let mut s = Service::new(
         KeystoreBackend::new(&seed(7)),
         SlashingDb::open(&path).unwrap(),
     );
     assert!(
-        !signed(&s.handle(&req(Kind::Vote, 20, b"B"))),
+        !signed(&s.handle(&req(Kind::Vote, 20, 3, b"B"))),
         "a different message for the crashed round"
     );
     assert!(
-        signed(&s.handle(&req(Kind::Vote, 20, b"A"))),
+        signed(&s.handle(&req(Kind::Vote, 20, 3, b"A"))),
         "the approved message may still be signed"
     );
 }
@@ -174,7 +198,7 @@ fn a_torn_record_fails_closed() {
     let path = dir.path().join("protection.jsonl");
     {
         let mut db = SlashingDb::open(&path).unwrap();
-        db.approve(Kind::Vote, 1, [1; 32]).unwrap();
+        db.approve(Kind::Vote, 1, 0, [1; 32]).unwrap();
     }
     std::fs::OpenOptions::new()
         .append(true)
@@ -226,8 +250,8 @@ fn the_channel_authenticates_both_sides_and_carries_signing_requests() {
         ch.send(&serde_json::to_vec(r).unwrap()).unwrap();
         serde_json::from_slice(&ch.recv().unwrap()).unwrap()
     };
-    assert!(signed(&ask(&req(Kind::Vertex, 1, b"v1"))));
-    assert!(!signed(&ask(&req(Kind::Vertex, 1, b"v1-conflict"))));
+    assert!(signed(&ask(&req(Kind::Vertex, 1, 0, b"v1"))));
+    assert!(!signed(&ask(&req(Kind::Vertex, 1, 0, b"v1-conflict"))));
     server.join().unwrap();
 }
 

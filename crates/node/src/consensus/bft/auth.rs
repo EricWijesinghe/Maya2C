@@ -7,11 +7,7 @@ use maya_dag_bft::{Authenticator, Digest, SignContext, ValidatorId};
 use crate::crypto::SIGNATURE_LENGTH;
 use crate::crypto::keys::{SigningKey, VerifyingKey};
 
-/// Prefixed to every digest a validator signs. The vertex digest already has
-/// its own BLAKE3 domain; this one makes the *signature* unusable anywhere
-/// else a validator key might sign — a transaction, a peer handshake — even if
-/// an operator reused the key, which they should not.
-const VOTE_DOMAIN: &[u8] = b"maya2c/dag-bft/vote/v1";
+use maya_dag_bft::VOTE_DOMAIN;
 
 /// A validator's signing key and its committee's verifying keys.
 ///

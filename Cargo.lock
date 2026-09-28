@@ -6443,6 +6443,7 @@ dependencies = [
  "chacha20poly1305 0.10.1",
  "getrandom 0.4.3",
  "maya-crypto-pq",
+ "maya-dag-bft",
  "serde",
  "serde_json",
  "tempfile",

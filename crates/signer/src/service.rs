@@ -4,19 +4,18 @@ use crate::backend::SignerBackend;
 use crate::protection::{DbError, Kind, SlashingDb};
 use serde::{Deserialize, Serialize};
 
-/// Domain separator for every consensus message this signer signs, so a
-/// signature over a vote can never be presented as one over anything else.
-const DOMAIN: &[u8] = b"maya2c consensus signing v1";
-
-/// What the node asks for.
+/// What the node asks for: the slot a signature fills, and the vertex
+/// digest to sign for it (ADR-032).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Request {
-    /// Vertex or vote.
+    /// Proposal or vote.
     pub kind: Kind,
-    /// Consensus round.
+    /// The vertex's round.
     pub round: u64,
-    /// The message body (a vertex digest, a vote's target), opaque here.
-    pub payload: Vec<u8>,
+    /// The vertex's author.
+    pub author: u16,
+    /// The vertex digest.
+    pub digest: [u8; 32],
 }
 
 /// What the signer answers.
@@ -28,17 +27,13 @@ pub enum Response {
     Refused(String),
 }
 
-/// The exact bytes signed for a request: domain, kind, round, payload.
+/// The exact bytes signed for a request: the same `VOTE_DOMAIN ‖ digest`
+/// a validator with a local key signs and every validator verifies, so a
+/// network can mix local keys and remote signers (ADR-032). Kind, round and
+/// author decide *whether* to sign; they are not signed.
 #[must_use]
 pub fn signed_message(req: &Request) -> Vec<u8> {
-    let mut m = DOMAIN.to_vec();
-    m.push(match req.kind {
-        Kind::Vertex => 0,
-        Kind::Vote => 1,
-    });
-    m.extend_from_slice(&req.round.to_le_bytes());
-    m.extend_from_slice(&req.payload);
-    m
+    [maya_dag_bft::VOTE_DOMAIN, req.digest.as_slice()].concat()
 }
 
 /// A signer: one key, one protection database.
@@ -57,8 +52,7 @@ impl<B: SignerBackend> Service<B> {
     /// signature exists.
     pub fn handle(&mut self, req: &Request) -> Response {
         let message = signed_message(req);
-        let root = *blake3::hash(&message).as_bytes();
-        match self.db.approve(req.kind, req.round, root) {
+        match self.db.approve(req.kind, req.round, req.author, req.digest) {
             Ok(()) => match self.backend.sign(&message) {
                 Ok(sig) => Response::Signed(sig),
                 Err(e) => Response::Refused(e.to_string()),

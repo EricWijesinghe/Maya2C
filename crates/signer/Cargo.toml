@@ -9,6 +9,9 @@ description = "Remote validator signer: encrypted keystore, fsync'd slashing pro
 
 [dependencies]
 maya-crypto-pq = { path = "../crypto-pq" }
+# For VOTE_DOMAIN only: the signer must sign exactly the bytes every
+# validator verifies (ADR-032). dag-bft depends on nothing but blake3.
+maya-dag-bft = { path = "../dag-bft" }
 argon2.workspace = true
 chacha20poly1305.workspace = true
 blake3.workspace = true
