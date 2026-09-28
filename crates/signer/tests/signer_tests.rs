@@ -96,7 +96,7 @@ fn every_authors_vote_in_one_round_is_signed() {
     let mut s = service(&dir);
     for author in 0..4 {
         assert!(
-            signed(&s.handle(&req(Kind::Vote, 5, author, &[author as u8]))),
+            signed(&s.handle(&req(Kind::Vote, 5, author, &author.to_le_bytes()))),
             "vote for author {author} in round 5"
         );
     }
@@ -362,4 +362,49 @@ fn a_forged_frame_is_rejected() {
     let (first, second) = t.join().unwrap();
     assert_eq!(first, b"genuine");
     assert!(second.unwrap().contains("frame tag"));
+}
+
+#[test]
+fn history_is_bounded_and_survives_compaction() {
+    use maya_signer::protection::{MAX_AHEAD, MAX_AUTHORS, RETAIN_ROUNDS};
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("protection.jsonl");
+    let top = 3 * RETAIN_ROUNDS + 400;
+    {
+        let mut db = SlashingDb::open(&path).unwrap();
+        for round in 1..=top {
+            db.approve(
+                Kind::Vertex,
+                round,
+                0,
+                *blake3::hash(&round.to_le_bytes()).as_bytes(),
+            )
+            .unwrap();
+        }
+        let floor = db.floor();
+        assert_eq!(floor, top - RETAIN_ROUNDS);
+        // Below the floor: refused, even though its slot record is gone.
+        assert!(db.approve(Kind::Vote, floor - 1, 1, [7; 32]).is_err());
+        // Too far ahead, or an author id no committee has.
+        assert!(
+            db.approve(Kind::Vote, top + MAX_AHEAD + 1, 1, [7; 32])
+                .is_err()
+        );
+        assert!(db.approve(Kind::Vote, top, MAX_AUTHORS, [7; 32]).is_err());
+        // Inside the window: fine.
+        db.approve(Kind::Vote, top - 5, 1, [7; 32]).unwrap();
+    }
+    let lines = std::fs::read_to_string(&path).unwrap().lines().count();
+    let bound = usize::try_from(2 * (RETAIN_ROUNDS + 2)).unwrap() + 1_024;
+    assert!(
+        lines <= bound,
+        "file compacted: {lines} lines, bound {bound}"
+    );
+    // After reopening: the history kept still refuses a conflict, the floor
+    // still refuses the past, and the proposal watermark survived.
+    let mut db = SlashingDb::open(&path).unwrap();
+    assert!(db.approve(Kind::Vote, top - 5, 1, [8; 32]).is_err());
+    assert!(db.approve(Kind::Vertex, top - 10, 0, [9; 32]).is_err());
+    assert!(db.approve(Kind::Vertex, 5, 0, [9; 32]).is_err());
+    db.approve(Kind::Vertex, top + 1, 0, [9; 32]).unwrap();
 }

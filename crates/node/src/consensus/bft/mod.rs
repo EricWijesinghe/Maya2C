@@ -36,6 +36,7 @@
 pub mod auth;
 pub mod builder;
 pub mod driver;
+pub mod remote;
 pub mod store;
 pub mod wire;
 

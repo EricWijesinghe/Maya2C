@@ -135,7 +135,7 @@ fn main() {
         let setup = BftSetup {
             epoch: 0,
             committee: Arc::clone(&committee),
-            signer: Some(Arc::clone(signer)),
+            signer: Some(Arc::clone(signer).into()),
             // One round per 50 ms tick of virtual time: without pacing,
             // rounds race inside a single pump and the loop never yields.
             params: Params {

@@ -12,6 +12,11 @@
 //! 4. restarted from its data directory, that validator catches up to the
 //!    same block id as the rest.
 //!
+//! With `--remote-signer`, the last validator's key is created inside a
+//! `maya2c-signer` process and never exists anywhere else (ADR-032): the same
+//! four checks then prove a remote-signer validator takes part in consensus,
+//! stops cleanly when killed and rejoins.
+//!
 //! It proves the binaries, the genesis format and the p2p wiring work
 //! together as a deployment would use them. It does not prove anything about
 //! a network spread over real latency, hostile peers or other operators.
@@ -46,16 +51,92 @@ fn rpc(i: u16, method: &str, params: &Value) -> Result<Value> {
     }
 }
 
+/// The last validator's key lives in this signer (`--remote-signer`).
+pub(crate) struct Remote {
+    /// The validator public key the signer holds.
+    pub validator_pubkey: String,
+    /// The signer's channel public key, which the node pins.
+    pub pin: String,
+    /// Where it listens.
+    pub addr: String,
+}
+
+const SIGNER_ADDR: &str = "127.0.0.1:31190";
+/// Local rehearsal only: the passphrase protects throwaway keys in target/.
+const SIGNER_PASSPHRASE: &str = "localnet-only-passphrase";
+
+/// Creates the signer's validator key and channel identity, and the node's
+/// channel identity, then starts `maya2c-signer serve`.
+fn start_signer(work: &Path, procs: &mut Procs) -> Result<Remote> {
+    let dir = work.join("signer");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let pass = dir.join("passphrase");
+    std::fs::write(&pass, SIGNER_PASSPHRASE).map_err(|e| format!("passphrase: {e}"))?;
+    let init = |name: &str| {
+        devnet::output(
+            Command::new(devnet::bin("maya2c-signer"))
+                .args(["init", "--keystore"])
+                .arg(dir.join(name))
+                .arg("--passphrase-file")
+                .arg(&pass),
+        )
+        .map(|pk| pk.trim().to_owned())
+    };
+    let validator_pubkey = init("validator.json")?;
+    let pin = init("identity.json")?;
+    let last = work.join(format!("v{}", VALIDATORS - 1));
+    let node_pk = devnet::output(
+        Command::new(devnet::bin("maya2c-node"))
+            .arg("--generate-signer-identity")
+            .arg(last.join("signer-identity")),
+    )?;
+    let path = |p: std::path::PathBuf| p.to_string_lossy().into_owned();
+    procs.push(devnet::start(
+        work,
+        "maya2c-signer",
+        &[
+            "serve",
+            "--keystore",
+            &path(dir.join("validator.json")),
+            "--passphrase-file",
+            &path(pass),
+            "--protection",
+            &path(dir.join("protection.jsonl")),
+            "--identity-keystore",
+            &path(dir.join("identity.json")),
+            "--allow-node",
+            node_pk.trim(),
+            "--listen",
+            SIGNER_ADDR,
+        ],
+    )?);
+    devnet::wait_for_http(SIGNER_ADDR)?;
+    Ok(Remote {
+        validator_pubkey,
+        pin,
+        addr: SIGNER_ADDR.to_owned(),
+    })
+}
+
 /// Keys, a funded wallet and a four-validator genesis. Returns the wallet
 /// address.
 pub(crate) fn setup(work: &Path) -> Result<String> {
     if work.exists() {
         std::fs::remove_dir_all(work).map_err(|e| format!("clearing {}: {e}", work.display()))?;
     }
+    setup_with(work, None)
+}
+
+/// As [`setup`]; with `remote`, the last validator's key is the signer's.
+fn setup_with(work: &Path, remote: Option<&Remote>) -> Result<String> {
     let mut validators = Vec::new();
     for i in 0..VALIDATORS {
         let dir = work.join(format!("v{i}"));
         std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        if let (Some(r), true) = (remote, i == VALIDATORS - 1) {
+            validators.push(r.validator_pubkey.clone());
+            continue;
+        }
         let key = devnet::output(
             Command::new(devnet::bin("maya2c-node"))
                 .arg("--generate-validator-key")
@@ -87,6 +168,10 @@ pub(crate) fn setup(work: &Path) -> Result<String> {
 }
 
 pub(crate) fn start(work: &Path, i: u16) -> Result<Child> {
+    start_with(work, i, None)
+}
+
+fn start_with(work: &Path, i: u16, remote: Option<&Remote>) -> Result<Child> {
     let dir = work.join(format!("v{i}"));
     let log = std::fs::OpenOptions::new()
         .create(true)
@@ -103,9 +188,18 @@ pub(crate) fn start(work: &Path, i: u16) -> Result<Child> {
             &rpc_addr(i),
             "--p2p-port",
             &(P2P_BASE + i).to_string(),
-        ])
-        .arg("--validator-key")
-        .arg(dir.join("validator.key"));
+        ]);
+    match remote {
+        Some(r) if i == VALIDATORS - 1 => {
+            cmd.args(["--remote-signer", &r.addr, "--signer-pin", &r.pin])
+                .args(["--validator-pubkey", &r.validator_pubkey])
+                .arg("--signer-identity")
+                .arg(dir.join("signer-identity"));
+        }
+        _ => {
+            cmd.arg("--validator-key").arg(dir.join("validator.key"));
+        }
+    }
     for peer in (0..VALIDATORS).filter(|p| *p != i) {
         cmd.args([
             "--bootnode",
@@ -167,13 +261,32 @@ pub(crate) fn agree(nodes: &[u16], address: &str, min_height: u64) -> bool {
     ids.len() == nodes.len() && ids.iter().all(|id| *id == ids[0])
 }
 
-fn run(work: &Path) -> Result<()> {
-    devnet::build(&["maya2c-node", "l1-wallet"])?;
-    let address = setup(work)?;
+fn run(work: &Path, with_signer: bool) -> Result<()> {
+    devnet::build(&["maya2c-node", "l1-wallet", "maya2c-signer"])?;
+    if work.exists() {
+        std::fs::remove_dir_all(work).map_err(|e| format!("clearing {}: {e}", work.display()))?;
+    }
+    std::fs::create_dir_all(work.join(format!("v{}", VALIDATORS - 1)))
+        .map_err(|e| format!("{}: {e}", work.display()))?;
+    // The signer is started first and kept apart from the validators, so
+    // killing a validator below never touches it.
+    let mut signer_proc = Procs::default();
+    let remote = if with_signer {
+        let r = start_signer(work, &mut signer_proc)?;
+        println!(
+            "localnet: validator {} signs through maya2c-signer at {}",
+            VALIDATORS - 1,
+            r.addr
+        );
+        Some(r)
+    } else {
+        None
+    };
+    let address = setup_with(work, remote.as_ref())?;
     let mut procs = Procs::default();
     let started = Instant::now();
     for i in 0..VALIDATORS {
-        procs.push(start(work, i)?);
+        procs.push(start_with(work, i, remote.as_ref())?);
     }
     let all: Vec<u16> = (0..VALIDATORS).collect();
     let t = wait_until("four nodes on one chain", || agree(&all, &address, 3))?;
@@ -200,7 +313,10 @@ fn run(work: &Path) -> Result<()> {
         VALIDATORS - 1
     );
 
-    procs.replace(usize::from(VALIDATORS - 1), start(work, VALIDATORS - 1)?);
+    procs.replace(
+        usize::from(VALIDATORS - 1),
+        start_with(work, VALIDATORS - 1, remote.as_ref())?,
+    );
     let target = tip(0, &address)?.0;
     let t = wait_until("the restarted validator catching up", || {
         agree(&all, &address, target)
@@ -218,7 +334,8 @@ fn run(work: &Path) -> Result<()> {
 /// # Errors
 ///
 /// The first check that fails, with the node logs left in place.
-pub fn localnet() -> Result<()> {
+pub fn localnet(args: &[String]) -> Result<()> {
+    let with_signer = args.iter().any(|a| a == "--remote-signer");
     let work = devnet::root().join("target").join("localnet");
-    run(&work).map_err(|e| format!("{e} (logs: {})", work.display()))
+    run(&work, with_signer).map_err(|e| format!("{e} (logs: {})", work.display()))
 }

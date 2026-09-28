@@ -70,6 +70,15 @@ by `(round, author)`, over the digest:
   (never propose at or below a round already proposed), because an honest
   validator's own rounds only ever increase.
 - The record is durable (fsync) before the signature is released, as before.
+- **The history is bounded.** A security review of the first draft of this
+  change found that records grew without limit, so an authenticated but
+  misbehaving node could fill the signer's disk. The signer now keeps the
+  1,000 rounds below the highest round signed and refuses every request
+  below that floor. That is safe: the engine never signs more than
+  `GC_DEPTH` (50) rounds behind its last commit. It also refuses rounds more
+  than 1,000 past the highest, and author ids of 1,024 or more. The file is
+  compacted (temporary file, fsync, rename) once it holds more than twice
+  the live records.
 
 **The signer signs the node's bytes.** Its request becomes
 `{ kind, round, author, digest }`, and it signs `VOTE_DOMAIN ‖ digest`, the

@@ -11,8 +11,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use custom_l1_node::consensus::Chain;
+use custom_l1_node::consensus::bft::remote::{DEFAULT_DEADLINE, RemoteSigner, ValidatorKey};
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
-use custom_l1_node::crypto::keys::{self, SigningKey};
+use custom_l1_node::crypto::keys::{self, SigningKey, VerifyingKey};
 use custom_l1_node::genesis::BftGenesis;
 use custom_l1_node::metrics::Metrics;
 use custom_l1_node::network::{Mempool, NodeEvent, NodeHandle};
@@ -54,6 +55,66 @@ pub(super) fn generate_validator_key(path: &Path) -> Result<(), Box<dyn Error>> 
     Ok(())
 }
 
+/// Writes this node's channel identity for the remote signer (a 32-byte
+/// seed, hex, 0600, never overwritten) and prints the public key the signer
+/// must pin with `--allow-node`. This is a transport key, not the validator
+/// key: the validator key stays in the signer (ADR-032).
+pub(super) fn generate_signer_identity(path: &Path) -> Result<(), Box<dyn Error>> {
+    let seed = maya_crypto_pq::suite::MasterSeed::generate()?;
+    let identity = maya_signer::channel::Identity::from_seed(&seed);
+    let secret = Zeroizing::new(hex::encode(seed.expose()));
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path).map_err(|e| {
+        format!(
+            "{}: {e} (refusing to overwrite an identity)",
+            path.display()
+        )
+    })?;
+    std::io::Write::write_all(&mut file, secret.as_bytes())?;
+    file.sync_all()?;
+    println!("{}", hex::encode(identity.public_key()));
+    Ok(())
+}
+
+/// Connects to the remote signer: the node's identity from `identity_path`,
+/// the signer pinned by `pin_hex`, holding the validator key `pubkey_hex`.
+pub(super) fn remote_signer(
+    addr: std::net::SocketAddr,
+    identity_path: &Path,
+    pin_hex: &str,
+    pubkey_hex: &str,
+) -> Result<ValidatorKey, Box<dyn Error>> {
+    let text = Zeroizing::new(
+        std::fs::read_to_string(identity_path)
+            .map_err(|e| format!("{}: {e}", identity_path.display()))?,
+    );
+    let bytes = Zeroizing::new(hex::decode(text.trim())?);
+    let seed: [u8; 32] = bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| format!("{}: not a 32-byte identity seed", identity_path.display()))?;
+    let identity = maya_signer::channel::Identity::from_seed(
+        &maya_crypto_pq::suite::MasterSeed::from_bytes(seed),
+    );
+    let public: [u8; keys::PUBLIC_KEY_LEN] = hex::decode(pubkey_hex)?
+        .try_into()
+        .map_err(|_| "--validator-pubkey is not an ML-DSA-65 public key")?;
+    let remote = RemoteSigner::connect(
+        addr,
+        identity,
+        hex::decode(pin_hex)?,
+        VerifyingKey::from_bytes(&public)?,
+        DEFAULT_DEADLINE,
+    )?;
+    Ok(ValidatorKey::Remote(Arc::new(remote)))
+}
+
 /// Reads a key written by [`generate_validator_key`].
 pub(super) fn load_validator_key(path: &Path) -> Result<Arc<SigningKey>, Box<dyn Error>> {
     let text = Zeroizing::new(
@@ -72,7 +133,7 @@ pub(super) fn load_validator_key(path: &Path) -> Result<Arc<SigningKey>, Box<dyn
 /// Builds the engine setup from genesis and an optional validator key.
 pub(super) fn setup(
     genesis: &BftGenesis,
-    signer: Option<Arc<SigningKey>>,
+    signer: Option<ValidatorKey>,
 ) -> Result<BftSetup, Box<dyn Error>> {
     Ok(BftSetup {
         epoch: 0,

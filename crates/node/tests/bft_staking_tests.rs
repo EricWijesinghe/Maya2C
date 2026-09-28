@@ -124,7 +124,7 @@ impl Mesh {
             let setup = BftSetup {
                 epoch: 0,
                 committee: Arc::clone(&committee),
-                signer: Some(validator_key(i)),
+                signer: Some(validator_key(i).into()),
                 // Paced, so one pump is about one round and an epoch boundary
                 // cannot be overshot by eight epochs between two assertions.
                 params: Params {
