@@ -3292,13 +3292,13 @@ note = "Master Prompt 17. scripts/mesh_check.py runs mesh-cli check:data against
 
 [[subsystem]]
 id = "maya2c-dev-cli"
-name = "maya2c developer CLI: dev chain, time-travel debugger (CLI and DAP for VS Code), deterministic block replay, fork mode"
+name = "maya2c developer CLI: dev chain, time-travel debugger (CLI and DAP for VS Code, source lines and gas per line), deterministic block replay, fork mode"
 domain = "Developer experience"
 paths = "`bins/maya2c-cli`, `crates/vm/src/trace.rs`, `editors/vscode`"
 tier = "extended"
 class = "REAL"
 status = "working"
-tests = ["crate:maya2c-cli", "bins/maya2c-cli/tests/dev_tests.rs", "bins/maya2c-cli/tests/debugger_tests.rs", "bins/maya2c-cli/tests/dap_tests.rs", "bins/maya2c-cli/tests/fork_replay_tests.rs"]
+tests = ["crate:maya2c-cli", "bins/maya2c-cli/tests/dev_tests.rs", "bins/maya2c-cli/tests/debugger_tests.rs", "bins/maya2c-cli/tests/dap_tests.rs", "bins/maya2c-cli/tests/source_lines_tests.rs", "bins/maya2c-cli/tests/fork_replay_tests.rs", "crates/vm/tests/trace_site_tests.rs"]
 note = "Master Prompt 24. Debugger steps host calls, not source lines; fork/replay copy eagerly and do not verify DAG-BFT certificates per header."
 
 [[subsystem]]

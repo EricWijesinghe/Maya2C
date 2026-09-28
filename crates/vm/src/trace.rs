@@ -6,10 +6,12 @@
 //! event log look like after step *k*?" for any *k*, forward or backward,
 //! by folding the recorded writes up to it: time travel without re-executing.
 //!
-//! Granularity is the **host call**, not the instruction or source line: the
-//! VM exposes no per-instruction hook, and mapping wasm offsets to source
-//! lines needs DWARF the contracts are not built with. Gas is known for the
-//! whole call ([`crate::Outcome::gas_used`]), not per step.
+//! Granularity is the **host call**, not the instruction: the VM exposes no
+//! per-instruction hook. Run through [`crate::runtime::Vm::execute_traced`],
+//! each step also carries its **call site**, the wasm module offset of the
+//! instruction that made the host call, which a debugger maps to a source
+//! line when the contract was built with DWARF. Gas is known for the whole
+//! call ([`crate::Outcome::gas_used`]), not per step.
 //!
 //! Tracing changes nothing a contract can observe: every read returns what
 //! the wrapped state returns. It is a development tool and is never on a
@@ -17,6 +19,7 @@
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 
 use crate::host::{Address, ContractId, Event, HostState, OracleValue, RANDOMNESS_LEN};
 use crate::zkml::{ZKML_MODEL_ID_LEN, ZkmlVerdict};
@@ -70,11 +73,28 @@ pub enum Step {
     Event(Event),
 }
 
+/// Where and when a host call was made, as the VM's call hook sees it just
+/// before the host function runs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CallSite {
+    /// Wasm module offset of the calling instruction.
+    pub offset: Option<usize>,
+    /// Fuel (gas) left at that moment; the difference between two steps is
+    /// the gas the guest spent between them.
+    pub fuel_left: Option<u64>,
+}
+
+/// The cell the call hook writes each [`CallSite`] into. Shared because the
+/// hook must be `Send + Sync`.
+pub type SiteCell = Arc<Mutex<CallSite>>;
+
 /// A [`HostState`] that records every interaction.
 #[derive(Debug)]
 pub struct Traced<S> {
     inner: S,
     steps: RefCell<Vec<Step>>,
+    sites: RefCell<Vec<CallSite>>,
+    site: SiteCell,
 }
 
 impl<S: HostState> Traced<S> {
@@ -83,7 +103,15 @@ impl<S: HostState> Traced<S> {
         Self {
             inner,
             steps: RefCell::new(Vec::new()),
+            sites: RefCell::new(Vec::new()),
+            site: SiteCell::default(),
         }
+    }
+
+    /// The cell the VM's call hook writes each call site into.
+    #[must_use]
+    pub fn site_cell(&self) -> SiteCell {
+        Arc::clone(&self.site)
     }
 
     /// The wrapped state and the recorded timeline.
@@ -93,12 +121,18 @@ impl<S: HostState> Traced<S> {
             self.inner,
             Timeline {
                 steps: self.steps.into_inner(),
+                sites: self.sites.into_inner(),
             },
         )
     }
 
     fn record(&self, step: Step) {
+        let site = *self
+            .site
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         self.steps.borrow_mut().push(step);
+        self.sites.borrow_mut().push(site);
     }
 }
 
@@ -186,6 +220,9 @@ pub type StorageView = BTreeMap<(ContractId, Vec<u8>), Option<Vec<u8>>>;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Timeline {
     steps: Vec<Step>,
+    /// Each step's call site (see [`CallSite`]); empty fields when the call
+    /// did not run through the VM's traced path.
+    sites: Vec<CallSite>,
 }
 
 impl Timeline {
@@ -193,6 +230,14 @@ impl Timeline {
     #[must_use]
     pub fn steps(&self) -> &[Step] {
         &self.steps
+    }
+
+    /// Each step's call site: the wasm module offset of the instruction that
+    /// made the host call, when the call ran through
+    /// [`crate::runtime::Vm::execute_traced`].
+    #[must_use]
+    pub fn sites(&self) -> &[CallSite] {
+        &self.sites
     }
 
     /// Storage of every touched key before any step ran.

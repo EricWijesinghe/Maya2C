@@ -27,6 +27,10 @@ jsonrpsee = { workspace = true, features = ["http-client"] }
 clap = { workspace = true, features = ["derive"] }
 anyhow = "1"
 hex.workspace = true
+# `lines`: DWARF line tables from a contract's custom sections, and the code
+# section's position - the versions wasmtime already brings.
+gimli = { version = "0.33", default-features = false, features = ["read", "std"] }
+wasmparser = { version = "0.258", default-features = false, features = ["std"] }
 # `maya2c custody-report`: a statement's canonical JSON and its digest.
 serde = { workspace = true, features = ["derive"] }
 sha2.workspace = true

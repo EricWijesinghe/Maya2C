@@ -29,7 +29,10 @@
 //! success, a trap partway through leaves nothing behind. The
 //! `gas_exhaustion_reverts_all_writes` test pins that.
 
-use wasmtime::{Caller, Engine, Extern, Instance, Linker, Memory, Module, Store};
+use wasmtime::{
+    CallHook, Caller, Engine, Extern, FrameInfo, Instance, Linker, Memory, Module, Store,
+    WasmBacktrace,
+};
 
 use crate::cache::ModuleCache;
 use crate::config::{
@@ -40,6 +43,7 @@ use crate::host::{
     Address, ContractId, Event, HostState, MAX_EVENT_BYTES, MAX_EVENTS, MAX_KEY_BYTES,
     MAX_VALUE_BYTES, RANDOMNESS_LEN, check_size,
 };
+use crate::trace::{CallSite, Traced};
 
 /// A completed execution: the host state, plus what happened.
 ///
@@ -319,6 +323,52 @@ impl Vm {
         }
     }
 
+    /// [`Vm::execute`] for the debugger: the same call, recording each host
+    /// call's **call site** — the wasm module offset of the calling
+    /// instruction — into the [`Traced`] state's timeline, so a debugger can
+    /// map steps to source lines. The site is captured by a store call hook
+    /// installed only here; it charges no fuel, so gas is identical to
+    /// [`Vm::execute`] (`a_traced_call_burns_identical_gas`). Never on a
+    /// consensus path.
+    #[must_use]
+    pub fn execute_traced<S: HostState + Send + 'static>(
+        &self,
+        wasm: &[u8],
+        contract: ContractId,
+        input: &[u8],
+        gas_limit: u64,
+        state: Traced<S>,
+    ) -> Execution<Traced<S>> {
+        let cell = state.site_cell();
+        let prepare = move |store: &mut Store<CallContext<Traced<S>>>| {
+            store.call_hook(move |ctx, hook| {
+                if matches!(hook, CallHook::CallingHost) {
+                    let site = CallSite {
+                        offset: WasmBacktrace::capture(&ctx)
+                            .frames()
+                            .first()
+                            .and_then(FrameInfo::module_offset),
+                        fuel_left: ctx.get_fuel().ok(),
+                    };
+                    *cell
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner) = site;
+                }
+                Ok(())
+            });
+        };
+        match self.run_prepared(wasm, contract, input, gas_limit, state, |_| Ok(()), prepare) {
+            Ok((state, outcome)) => Execution {
+                state,
+                outcome: Ok(outcome),
+            },
+            Err((state, error)) => Execution {
+                state,
+                outcome: Err(error),
+            },
+        }
+    }
+
     /// Inner execution, returning the state alongside either result.
     ///
     /// `extra` registers imports beyond the consensus surface; [`Vm::execute`]
@@ -332,6 +382,24 @@ impl Vm {
         gas_limit: u64,
         state: S,
         extra: Registrar<S>,
+    ) -> core::result::Result<(S, Outcome), (S, VmError)> {
+        self.run_prepared(wasm, contract, input, gas_limit, state, extra, |_| {})
+    }
+
+    /// [`Vm::run`], with `prepare` applied to the store before instantiation
+    /// (the debugger's call hook; nothing on a consensus path passes one).
+    // `run`'s own arguments plus the one hook; a struct for a private helper
+    // with two callers would only move the same eight names elsewhere.
+    #[allow(clippy::type_complexity, clippy::too_many_arguments)]
+    fn run_prepared<S: HostState + Send + 'static>(
+        &self,
+        wasm: &[u8],
+        contract: ContractId,
+        input: &[u8],
+        gas_limit: u64,
+        state: S,
+        extra: Registrar<S>,
+        prepare: impl FnOnce(&mut Store<CallContext<S>>),
     ) -> core::result::Result<(S, Outcome), (S, VmError)> {
         // Compile before building the store, so a bad module never reaches it.
         //
@@ -354,6 +422,7 @@ impl Vm {
 
         let mut store = Store::new(&self.engine, context);
         store.limiter(|ctx| ctx);
+        prepare(&mut store);
         if let Err(e) = store.set_fuel(gas_limit) {
             return Err((
                 store.into_data().state,

@@ -323,15 +323,18 @@ fn unverified_breakpoints(args: &Value) -> Value {
     json!({"breakpoints": vec![one; count]})
 }
 
+/// The one frame: at the contract's own source line when its DWARF says
+/// where the host call came from, otherwise at the recording's listing line.
 fn stack_trace(session: &Session) -> Value {
+    let (source, line) = match session.source() {
+        Some(at) => (json!({"name": at.file_name(), "path": at.file}), at.line),
+        None => (
+            json!({"name": "recorded call", "sourceReference": LISTING}),
+            u64::try_from(session.cursor() + 1).unwrap_or(u64::MAX),
+        ),
+    };
     json!({
-        "stackFrames": [{
-            "id": FRAME,
-            "name": session.position(),
-            "line": session.cursor() + 1,
-            "column": 1,
-            "source": {"name": "recorded call", "sourceReference": LISTING},
-        }],
+        "stackFrames": [{"id": FRAME, "name": session.position(), "line": line, "column": 1, "source": source}],
         "totalFrames": 1,
     })
 }

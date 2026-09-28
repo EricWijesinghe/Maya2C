@@ -6,6 +6,7 @@ pub mod dap;
 pub mod debug;
 pub mod dev;
 pub mod fork;
+pub mod lines;
 pub mod vault;
 
 use maya_vm::host::{ContractId, MemoryState};
@@ -26,8 +27,30 @@ pub fn record(
     state: MemoryState,
 ) -> anyhow::Result<(debug::Session, MemoryState)> {
     let vm = Vm::new()?;
-    let exec = vm.execute(wasm, contract, input, gas_limit, Traced::new(state));
+    let exec = vm.execute_traced(wasm, contract, input, gas_limit, Traced::new(state));
     let (state, timeline) = exec.state.finish();
+    // A module without DWARF, or with DWARF this reader cannot parse, keeps
+    // host-call granularity; neither is a reason to refuse to debug it.
+    let table = lines::LineTable::read(wasm).unwrap_or_default();
+    let lines = timeline
+        .sites()
+        .iter()
+        .map(|site| site.offset.and_then(|s| table.at(s).cloned()))
+        .collect();
+    // Gas between host calls: the fuel each step's call found left, against
+    // the step before (the limit, for the first).
+    let mut left = gas_limit;
+    let step_gas = timeline
+        .sites()
+        .iter()
+        .map(|site| {
+            site.fuel_left.map(|now| {
+                let spent = left.saturating_sub(now);
+                left = now;
+                spent
+            })
+        })
+        .collect();
     let (gas, outcome) = match &exec.outcome {
         Ok(out) => (
             Some(out.gas_used),
@@ -35,7 +58,12 @@ pub fn record(
         ),
         Err(error) => (None, format!("failed: {error}")),
     };
-    Ok((debug::Session::new(timeline, gas, outcome), state))
+    Ok((
+        debug::Session::new(timeline, gas, outcome)
+            .with_lines(lines)
+            .with_step_gas(step_gas),
+        state,
+    ))
 }
 
 /// What a debug session runs: the call and the chain context it sees.
