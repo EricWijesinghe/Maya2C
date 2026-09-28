@@ -16,6 +16,7 @@ use std::path::Path;
 use std::process::Command;
 
 const MISSING: &str = "MISSING";
+const SWEEP_DIR: &str = "reports/sweeps";
 const SWEEP_PATH: &str = "reports/sweeps/latest.json";
 const GAP_REGISTER: &str = "reports/11-gap-register.md";
 /// How many "do next" items the summary shows.
@@ -41,32 +42,26 @@ pub fn render(root: &Path, head: &str) -> String {
     let read = |p: &str| std::fs::read_to_string(root.join(p)).ok();
     let mut out = String::from("# Maya2C status\n");
     let state = read("STATE.md").unwrap_or_default();
-    build_health(&mut out, read(SWEEP_PATH).as_deref(), head);
+    if let Some(sweep) = build_health(&mut out, read(SWEEP_PATH).as_deref(), head) {
+        reruns(&mut out, &root.join(SWEEP_DIR), &sweep.date);
+    }
     gaps(&mut out, read(GAP_REGISTER).as_deref(), &state);
     ledger(&mut out, read("features.toml").as_deref());
-    let _ = writeln!(
-        out,
-        "
-## Current milestone (STATE.md)"
-    );
+    let _ = writeln!(out, "\n## Current milestone (STATE.md)");
     state_lines(&mut out, "Current milestone", &state, usize::MAX);
-    let _ = writeln!(
-        out,
-        "
-## Do next (STATE.md)"
-    );
+    let _ = writeln!(out, "\n## Do next (STATE.md)");
     state_lines(&mut out, "Do next", &state, NEXT_SHOWN);
     out
 }
 
-fn build_health(out: &mut String, sweep_json: Option<&str>, head: &str) {
+fn build_health(out: &mut String, sweep_json: Option<&str>, head: &str) -> Option<Sweep> {
     let _ = writeln!(out, "\n## Build health (last sweep)");
     let Some(sweep) = sweep_json.and_then(|j| serde_json::from_str::<Sweep>(j).ok()) else {
         let _ = writeln!(
             out,
             "{MISSING}: no readable {SWEEP_PATH}; run `cargo xtask sweep`"
         );
-        return;
+        return None;
     };
     let stale = if head.starts_with(&sweep.commit) || sweep.commit.starts_with(head) {
         String::new()
@@ -75,6 +70,11 @@ fn build_health(out: &mut String, sweep_json: Option<&str>, head: &str) {
     };
     let clean = if sweep.clean { "clean" } else { "incremental" };
     let _ = writeln!(out, "{} at {} ({clean}){stale}", sweep.date, sweep.commit);
+    step_lines(out, &sweep);
+    Some(sweep)
+}
+
+fn step_lines(out: &mut String, sweep: &Sweep) {
     for s in &sweep.steps {
         let verdict = if s.ok { "ok  " } else { "FAIL" };
         let tests = s.tests.map_or(String::new(), |t| {
@@ -84,6 +84,33 @@ fn build_health(out: &mut String, sweep_json: Option<&str>, head: &str) {
             )
         });
         let _ = writeln!(out, "  {verdict} {:<14} {:>5}s{tests}", s.name, s.seconds);
+    }
+}
+
+/// Re-runs of individual steps recorded on the sweep's date
+/// (`<date>-*.json`). A full sweep can be wrong about one step — the first
+/// one's lint ratchet passed without running — and the correction must be
+/// visible beside it, not hidden in a file nobody opens.
+fn reruns(out: &mut String, dir: &Path, date: &str) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut names: Vec<String> = entries
+        .filter_map(|e| e.ok().map(|e| e.file_name().to_string_lossy().into_owned()))
+        .filter(|n| {
+            n.starts_with(&format!("{date}-"))
+                && Path::new(n)
+                    .extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("json"))
+        })
+        .collect();
+    names.sort();
+    for name in names {
+        let text = std::fs::read_to_string(dir.join(&name)).unwrap_or_default();
+        if let Ok(rerun) = serde_json::from_str::<Sweep>(&text) {
+            let _ = writeln!(out, "later re-run {name} at {}:", rerun.commit);
+            step_lines(out, &rerun);
+        }
     }
 }
 
@@ -211,6 +238,30 @@ mod tests {
         assert!(out.contains("HEAD is now new1111"), "{out}");
         assert!(out.contains("FAIL nextest"), "{out}");
         assert!(out.contains("10 passed, 2 failed, 1 skipped"), "{out}");
+    }
+
+    #[test]
+    fn a_later_rerun_on_the_same_date_is_shown_beside_the_sweep() {
+        let full = r#"{"date":"2026-09-28","commit":"abc","clean":true,"steps":[
+            {"name":"lint-debt","command":"x","ok":true,"seconds":4}]}"#;
+        let rerun = r#"{"date":"2026-09-28","commit":"abc","clean":false,"steps":[
+            {"name":"lint-debt","command":"x","ok":false,"seconds":70}]}"#;
+        let dir = tree(&[
+            (SWEEP_PATH, full),
+            ("reports/sweeps/2026-09-28.json", full),
+            ("reports/sweeps/2026-09-28-partial.json", rerun),
+            ("reports/sweeps/2026-09-27-partial.json", rerun),
+        ]);
+        let out = render(dir.path(), "abc");
+        assert!(
+            out.contains("later re-run 2026-09-28-partial.json"),
+            "{out}"
+        );
+        assert!(out.contains("FAIL lint-debt"), "{out}");
+        assert!(
+            !out.contains("2026-09-27-partial"),
+            "other dates stay out: {out}"
+        );
     }
 
     #[test]

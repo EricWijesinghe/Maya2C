@@ -24,6 +24,14 @@ band; move an item to PROGRESS.md when it starts.
   section header still names branch `claude/task-0g86kl`, which was merged
   and deleted. Reconcile against git history.
 
+- **`xtask sweep` should record a dirty tree.** The record names only
+  `git rev-parse HEAD`; the 2026-09-28 re-run ran with uncommitted fixes on
+  top. Add `git status --porcelain` count to `Sweep`, and have `status`
+  print it.
+- **doc-coverage takes about 35 minutes** (2,094 s on 2026-09-28) and runs
+  only nightly; a broken intra-doc link blocked it unseen. Add
+  `-D rustdoc::broken-intra-doc-links` to a fast per-PR `cargo doc` job.
+
 ## P3 — current milestone (M1)
 
 - Decide MP06's scope for M1 (EMPIRE.md, Q1) — Eric.

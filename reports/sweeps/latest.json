@@ -1,0 +1,78 @@
+{
+  "date": "2026-09-28",
+  "commit": "71c926a",
+  "clean": true,
+  "steps": [
+    {
+      "name": "fmt",
+      "command": "cargo fmt --all --check",
+      "ok": true,
+      "seconds": 3
+    },
+    {
+      "name": "unsafe",
+      "command": "bash scripts/check-unsafe.sh",
+      "ok": true,
+      "seconds": 15
+    },
+    {
+      "name": "build",
+      "command": "cargo build --workspace --all-targets",
+      "ok": true,
+      "seconds": 1392
+    },
+    {
+      "name": "clippy",
+      "command": "cargo clippy --workspace --lib --bins -- -D clippy::unwrap_used",
+      "ok": true,
+      "seconds": 134
+    },
+    {
+      "name": "nextest",
+      "command": "cargo nextest run --workspace --no-fail-fast",
+      "ok": true,
+      "seconds": 891,
+      "tests": {
+        "passed": 2972,
+        "failed": 0,
+        "skipped": 11
+      }
+    },
+    {
+      "name": "ledger",
+      "command": "cargo xtask coverage --quiet --verify-targets",
+      "ok": true,
+      "seconds": 12
+    },
+    {
+      "name": "spec",
+      "command": "cargo xtask spec-coverage",
+      "ok": true,
+      "seconds": 0
+    },
+    {
+      "name": "readiness",
+      "command": "cargo xtask readiness --check",
+      "ok": true,
+      "seconds": 0
+    },
+    {
+      "name": "lint-debt",
+      "command": "bash scripts/lint_debt.sh --check",
+      "ok": true,
+      "seconds": 4
+    },
+    {
+      "name": "doc-coverage",
+      "command": "bash scripts/doc_coverage.sh --check",
+      "ok": false,
+      "seconds": 0
+    },
+    {
+      "name": "deny",
+      "command": "cargo deny check",
+      "ok": true,
+      "seconds": 5
+    }
+  ]
+}
