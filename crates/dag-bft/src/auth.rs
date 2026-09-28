@@ -12,6 +12,14 @@
 
 use crate::vertex::{Digest, ValidatorId, Vertex};
 
+/// Prefixed to every digest a validator signs. The vertex digest already has
+/// its own BLAKE3 domain; this one makes the *signature* unusable anywhere
+/// else a validator key might sign (a transaction, a peer handshake) even if
+/// an operator reused the key, which they should not. Here, not in the node,
+/// because a local key and the remote signer (ADR-032) must sign exactly the
+/// same bytes: part of the consensus wire format.
+pub const VOTE_DOMAIN: &[u8] = b"maya2c/dag-bft/vote/v1";
+
 /// What a signature is for (ADR-032). Never signed itself: the signed bytes
 /// are the digest alone, so this changes no consensus rule. It exists so an
 /// authenticator that enforces slashing protection, such as the remote
