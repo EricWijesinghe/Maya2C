@@ -76,7 +76,7 @@ fn behaviour() -> Behaviour {
     )
 }
 
-fn swarm(keypair: identity::Keypair) -> Result<Swarm<Behaviour>, ChatError> {
+async fn swarm(keypair: identity::Keypair) -> Result<Swarm<Behaviour>, ChatError> {
     let net = |e: &dyn std::fmt::Display| ChatError::Network(e.to_string());
     Ok(libp2p::SwarmBuilder::with_existing_identity(keypair)
         .with_tokio()
@@ -89,6 +89,14 @@ fn swarm(keypair: identity::Keypair) -> Result<Swarm<Behaviour>, ChatError> {
         // A public relay is reached by name (`/dns4/seed1.maya2c.dev/...`),
         // so its address survives the VM being moved; resolved by the OS.
         .with_dns()
+        .map_err(|e| net(&e))?
+        // WebSocket too: a relay behind an HTTP proxy or tunnel (Cloudflare
+        // carries WebSockets, not raw TCP) listens on `/ws`, and clients
+        // dial `/dns4/<host>/tcp/443/wss/p2p/<id>`, the TLS verified against
+        // the web's root certificates. Noise still authenticates the relay
+        // inside it, so the proxy never sees plaintext.
+        .with_websocket(noise::Config::new, yamux::Config::default)
+        .await
         .map_err(|e| net(&e))?
         .with_behaviour(|_| behaviour())
         .map_err(|e| net(&e))?
@@ -116,22 +124,25 @@ pub fn serve(relay: &mut Relay, request: Request) -> Response {
     answer.unwrap_or_else(|e| Response::Refused(e.to_string()))
 }
 
-/// Runs `relay` on `listen` until the process ends, printing its dialable
-/// address (with `/p2p/<peer id>`) once listening.
+/// Runs `relay` on every address in `listen` (raw TCP, `/ws`, or both) until
+/// the process ends, printing each dialable address (with `/p2p/<peer id>`)
+/// once listening.
 ///
 /// # Errors
 ///
 /// A listen address that cannot be bound.
 pub async fn run_relay(
     keypair: identity::Keypair,
-    listen: Multiaddr,
+    listen: Vec<Multiaddr>,
     mut relay: Relay,
 ) -> Result<(), ChatError> {
-    let mut swarm = swarm(keypair)?;
+    let mut swarm = swarm(keypair).await?;
     let peer = *swarm.local_peer_id();
-    swarm
-        .listen_on(listen)
-        .map_err(|e| ChatError::Network(e.to_string()))?;
+    for addr in listen {
+        swarm
+            .listen_on(addr)
+            .map_err(|e| ChatError::Network(e.to_string()))?;
+    }
     loop {
         match swarm.select_next_some().await {
             SwarmEvent::NewListenAddr { address, .. } => {
@@ -165,7 +176,7 @@ pub async fn call(address: &Multiaddr, request: Request) -> Result<Response, Cha
             "the relay address must end in /p2p/<peer id>".into(),
         ));
     };
-    let mut swarm = swarm(identity::Keypair::generate_ed25519())?;
+    let mut swarm = swarm(identity::Keypair::generate_ed25519()).await?;
     swarm
         .dial(address.clone())
         .map_err(|e| ChatError::Network(e.to_string()))?;

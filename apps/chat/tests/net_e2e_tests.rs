@@ -182,3 +182,45 @@ fn a_relay_is_reachable_by_name() {
     run(&bob, &["init"]);
     assert!(run(&bob, &["publish", "--relay", &by_name]).contains("published prekey"));
 }
+
+#[test]
+fn a_relay_serves_over_websocket_as_well() {
+    // Behind a tunnel or HTTP proxy the relay listens on `/ws`; the same
+    // identities chat through it exactly as over raw TCP.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("relay");
+    let mut child = Command::new(BIN)
+        .arg("--home")
+        .arg(&home)
+        .args([
+            "relay",
+            "--listen",
+            "/ip4/127.0.0.1/tcp/0",
+            "--listen",
+            "/ip4/127.0.0.1/tcp/0/ws",
+        ])
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("spawn relay");
+    let stdout = child.stdout.take().expect("stdout");
+    let _relay = Relay(child);
+    let ws = BufReader::new(stdout)
+        .lines()
+        .map(|l| l.expect("read relay output"))
+        .filter_map(|l| l.strip_prefix("relay listening on ").map(str::to_owned))
+        .find(|a| a.starts_with("/ip4/127.0.0.1/") && a.contains("/ws/"))
+        .expect("a /ws listen address");
+    let (alice, bob) = (dir.path().join("alice"), dir.path().join("bob"));
+    let alice_addr = run(&alice, &["init"]).trim().to_owned();
+    let bob_addr = run(&bob, &["init"]).trim().to_owned();
+    run(&bob, &["publish", "--relay", &ws]);
+    run(
+        &alice,
+        &["send", "--relay", &ws, "--to", &bob_addr, "over websocket"],
+    );
+    let got = run(&bob, &["recv", "--relay", &ws]);
+    assert!(
+        got.contains(&format!("from {alice_addr}: over websocket")),
+        "{got}"
+    );
+}
