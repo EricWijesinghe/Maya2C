@@ -6,8 +6,10 @@ locals {
   p2p_port = 31100
   # Public on the seed, matching install.sh's MAYA2C-IN chain: the chat relay
   # (a relay nobody can reach is useless), and the gateway -- behind Caddy on
-  # 80/443 with a domain, plain HTTP on 8080 without one.
-  public_ports = concat([4001], var.domain == "" ? [8080] : [80, 443])
+  # 80/443 with a domain, plain HTTP on 8080 without one. Without a domain
+  # the testnet faucet also listens on 8090; with one, Caddy serves it at
+  # https://<domain>/faucet/ on 443 and no extra port is needed.
+  public_ports = concat([4001], var.domain == "" ? [8080, 8090] : [80, 443])
   vcn_cidr     = "10.42.0.0/16"
 }
 

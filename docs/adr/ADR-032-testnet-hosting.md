@@ -51,10 +51,12 @@ Three facts shape what the first step can be:
 - Oracle can reclaim idle Always Free instances or suspend an account. State
   and the validator key live on one boot volume; `/etc/maya2c` must be backed
   up off the VM.
-- A first build of the node on four Ampere cores is slow (not yet timed on
-  aarch64; the x86 release build took 12m14s on two jobs), and nobody has yet
-  compiled the node for aarch64. That is the first thing the first apply
-  tests.
+- The node builds and starts on aarch64. `release-binaries` run 36478279508
+  (2026-09-29, `6e25938`) compiled the production node, `l1-wallet` and
+  `maya2c-peerid` natively on GitHub's `ubuntu-24.04-arm` runner in 14 min,
+  and the smoke test generated a validator key there. A cross-build tested
+  under qemu is recorded in `infra/testnet-vm/README.md` (PR #8). What is
+  still unproven on Arm is a running chain; the first apply tests that.
 - `infra/terraform/` stays as the target for a funded network; this does not
   replace it.
 

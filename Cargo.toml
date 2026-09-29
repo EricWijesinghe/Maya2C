@@ -369,6 +369,9 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
 publish = false
+# Apache-2.0 (LICENSE): the licence the SDKs already declared, and one with an
+# explicit patent grant, which organisations adopting the crypto need.
+license = "Apache-2.0"
 
 # ---------------------------------------------------------------------------
 # [workspace.dependencies] — one version per external crate

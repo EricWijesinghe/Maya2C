@@ -467,6 +467,9 @@ pub mod wallet {
                     prop:value=move || state.node_url.get()
                     on:input=move |ev| state.node_url.set(event_target_value(&ev))
                 />
+                <p class="hint">
+                    "Maya2C public testnet by default. Testnet coins have no value.                      For your own node, use http://127.0.0.1:8545."
+                </p>
                 <button class="ghost wide" on:click=move |_| refresh()>"Refresh"</button>
             </section>
 
@@ -588,17 +591,29 @@ pub mod send {
 
         let recipient = RwSignal::new(request.recipient.clone());
         let amount = RwSignal::new(request.amount.map(|a| a.to_string()).unwrap_or_default());
-        let fee = RwSignal::new("10".to_string());
+        let fee = RwSignal::new(String::new());
         let label = request.label.clone();
         let preview = RwSignal::new(None::<bridge::TransferPreview>);
         let signed = RwSignal::new(None::<bridge::SignedTransfer>);
         let busy = RwSignal::new(false);
-        let fee_options = RwSignal::new(Vec::<bridge::FeeOption>::new());
+        let fee_terms = RwSignal::new(bridge::FeeTerms::default());
 
+        // Priced by the node: on a fee-market chain a flat guess is refused as
+        // underpaid, and the fee must go to the collector the node names.
         Effect::new(move |_| {
+            let node_url = state.node_url.get();
+            let index = state.selected.get();
+            let nonce = state.account_state.get().nonce;
             spawn_local(async move {
-                if let Ok(options) = bridge::fee_options().await {
-                    fee_options.set(options);
+                match bridge::fee_options(&node_url, index, nonce).await {
+                    Ok(terms) => {
+                        // Standard, the second tier, is the default.
+                        if let Some(standard) = terms.options.get(1) {
+                            fee.set(standard.fee.to_string());
+                        }
+                        fee_terms.set(terms);
+                    }
+                    Err(error) => state.fail(format!("Could not read fees from the node: {error}")),
                 }
             });
         });
@@ -631,11 +646,13 @@ pub mod send {
             };
             busy.set(true);
             spawn_local(async move {
+                let collector = fee_terms.get_untracked().collector;
                 match bridge::sign_transfer(
                     state.selected.get_untracked(),
                     &summary.recipient,
                     summary.amount,
                     summary.fee,
+                    collector.as_deref(),
                     summary.nonce,
                 )
                 .await
@@ -681,8 +698,9 @@ pub mod send {
         };
 
         let fee_buttons = move || {
-            fee_options
+            fee_terms
                 .get()
+                .options
                 .into_iter()
                 .map(|option| {
                     let value = option.fee;
@@ -741,7 +759,11 @@ pub mod send {
                     on:input=move |ev| fee.set(event_target_value(&ev))
                 />
                 <p class="hint">
-                    "The fee is burned, not paid to a miner. You can set any value."
+                    {move || if fee_terms.get().collector.is_some() {
+                        "The network burns the base fee; anything above it tips the                          validators. Below Economy, the node refuses the transfer."
+                    } else {
+                        "This network charges no fee. Any fee you set is burned."
+                    }}
                 </p>
 
                 <Show
@@ -753,6 +775,7 @@ pub mod send {
                     {move || {
                         let summary = preview.get().expect("checked");
                         let is_signed = signed.get().is_some();
+                        let fee_is_large = summary.fee > summary.amount;
                         view! {
                             <div class="summary">
                                 <div><span>"From"</span><span class="mono">{short(&summary.sender)}</span></div>
@@ -762,6 +785,14 @@ pub mod send {
                                 <div class="total"><span>"Total"</span><span>{summary.total}</span></div>
                                 <div><span>"Nonce"</span><span>{summary.nonce}</span></div>
                             </div>
+                            // The collector itself is checked in the wallet core against
+                            // the chain's fixed address; the size of the fee is the user's
+                            // to judge, so an unusual one is called out before signing.
+                            <Show when=move || fee_is_large>
+                                <p class="hint warning">
+                                    "The fee is larger than the amount you are sending.                                      Check it before signing."
+                                </p>
+                            </Show>
 
                             <Show
                                 when=move || is_signed

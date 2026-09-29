@@ -39,6 +39,20 @@ pub struct Supply {
     pub total: u64,
 }
 
+/// What the chain charges, and where the fee goes (ADR-029).
+///
+/// A wallet cannot build an acceptable transfer without it: on a fee-market
+/// chain the fee is an output to `collector` of at least `base_fee` per byte.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct FeeInfo {
+    /// Whether this chain charges fees at all.
+    pub active: bool,
+    /// Base fee per serialized byte for the next block.
+    pub base_fee: u64,
+    /// Hex address a transaction pays its fee to.
+    pub collector: String,
+}
+
 /// What the gateway needs from a node.
 ///
 /// Deliberately narrow: one method per allowlisted RPC call and nothing else.
@@ -57,6 +71,9 @@ pub trait NodeClient: Send + Sync + 'static {
 
     /// Submits a hex-encoded signed transaction, returning its hash.
     async fn send_raw_transaction(&self, raw: &str) -> Result<String, GatewayError>;
+
+    /// The chain's current fee terms.
+    async fn get_fee_info(&self) -> Result<FeeInfo, GatewayError>;
 }
 
 /// A [`NodeClient`] backed by a real node's JSON-RPC port.
@@ -142,5 +159,9 @@ impl NodeClient for RpcNodeClient {
         }
         let submitted: Submitted = self.call("send_raw_transaction", rpc_params![raw]).await?;
         Ok(submitted.txid)
+    }
+
+    async fn get_fee_info(&self) -> Result<FeeInfo, GatewayError> {
+        self.call("get_fee_info", rpc_params![]).await
     }
 }

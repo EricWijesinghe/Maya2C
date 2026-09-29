@@ -37,6 +37,7 @@
 pub mod allowlist;
 pub mod error;
 pub mod graphql;
+pub mod jsonrpc;
 pub mod node;
 pub mod rest;
 pub mod sealed;
@@ -60,5 +61,28 @@ pub fn app(node: Arc<dyn NodeClient>) -> Router {
 
     // `post_service`, not `post`: `GraphQL` is a tower `Service` rather than an
     // axum handler, and the two are not interchangeable.
-    rest::router(state).route("/graphql", post_service(GraphQL::new(schema)))
+    rest::router(state)
+        .route("/graphql", post_service(GraphQL::new(schema)))
+        .layer(cors())
+}
+
+/// Lets browser apps (`maya2c.js`, the website's faucet and explorer pages)
+/// call the gateway from any origin.
+///
+/// `Any` is safe here, and only here: the gateway has no cookies, sessions or
+/// credentials, so there is nothing a hostile page could make a visitor's
+/// browser use on its behalf. Everything it serves is public chain data or a
+/// signed transaction the caller built. Credentials stay disallowed.
+fn cors() -> tower_http::cors::CorsLayer {
+    use axum::http::{Method, header};
+    use tower_http::cors::{Any, CorsLayer};
+
+    /// How long a browser may cache a preflight answer.
+    const PREFLIGHT_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(3_600);
+
+    CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods([Method::GET, Method::POST])
+        .allow_headers([header::CONTENT_TYPE])
+        .max_age(PREFLIGHT_MAX_AGE)
 }

@@ -100,6 +100,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .small { font-size: 0.85rem; }
 .hint { color: var(--muted); font-size: 0.82rem; margin: 0.4rem 0 0; }
 .hint.ok { color: var(--accent); }
+.hint.warning { color: var(--warn); }
 .warn {
   color: var(--warn); background: #2e2718; border: 1px solid #4a3f22;
   padding: 0.6rem 0.8rem; border-radius: 8px; font-size: 0.88rem;

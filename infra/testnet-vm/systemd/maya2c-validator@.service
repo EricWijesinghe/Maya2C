@@ -1,0 +1,53 @@
+# One DAG-BFT validator of the single-VM testnet (infra/testnet-vm).
+# Instance %i is 0..3; its ports and peers are in /etc/maya2c/v%i.env,
+# written by install.sh. RPC binds 127.0.0.1: maya2c-gateway is the public
+# surface, never the node.
+[Unit]
+Description=Maya2C validator %i (testnet)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=maya
+Group=maya
+EnvironmentFile=/etc/maya2c/v%i.env
+# $BOOTNODES is unbraced on purpose: systemd splits it into separate
+# `--bootnode <addr>` arguments.
+ExecStart=/usr/local/bin/maya2c-node --genesis /etc/maya2c/genesis.json --data-dir /var/lib/maya2c/v%i --validator-key /var/lib/maya2c/v%i/validator.key --rpc-addr ${RPC_ADDR} --p2p-port ${P2P_PORT} $BOOTNODES
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+# Sandbox: the node needs its own data directory and the network, nothing else.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/maya2c/v%i
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+ProtectProc=invisible
+ProcSubset=pid
+RemoveIPC=yes
+PrivateUsers=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

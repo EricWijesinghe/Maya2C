@@ -105,6 +105,17 @@ pub struct FeeOption {
     pub fee: u64,
 }
 
+/// The fee presets for the next transfer, and where the fee must go.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct FeeTerms {
+    /// The collector to pay on a fee-market chain; `None` where fees are off.
+    pub collector: Option<String>,
+    /// Base fee per byte; 0 where fees are off.
+    pub base_fee: u64,
+    /// Economy, Standard and Priority.
+    pub options: Vec<FeeOption>,
+}
+
 /// A node's view of an account.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct AccountState {
@@ -286,20 +297,35 @@ pub async fn preview_transfer(
 }
 
 /// Signs a transfer. No network access.
+///
+/// `fee_to` is the collector from [`fee_options`]; `None` burns the fee,
+/// which only a chain without a fee market accepts.
 pub async fn sign_transfer(
     index: u32,
     recipient: &str,
     amount: u64,
     fee: u64,
+    fee_to: Option<&str>,
     nonce: u64,
 ) -> Result<SignedTransfer, String> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Args<'a> {
+        index: u32,
+        recipient: &'a str,
+        amount: u64,
+        fee: u64,
+        fee_to: Option<&'a str>,
+        nonce: u64,
+    }
     call(
         "sign_transfer",
-        &TransferArgs {
+        &Args {
             index,
             recipient,
             amount,
             fee,
+            fee_to,
             nonce,
         },
     )
@@ -357,7 +383,22 @@ pub async fn fetch_account(node_url: &str, address: &str) -> Result<AccountState
     call("fetch_account", &Args { node_url, address }).await
 }
 
-/// Fee presets.
-pub async fn fee_options() -> Result<Vec<FeeOption>, String> {
-    call("fee_options", &NoArgs {}).await
+/// Fee presets for account `index`, priced by the node at `node_url`.
+pub async fn fee_options(node_url: &str, index: u32, nonce: u64) -> Result<FeeTerms, String> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Args<'a> {
+        node_url: &'a str,
+        index: u32,
+        nonce: u64,
+    }
+    call(
+        "fee_options",
+        &Args {
+            node_url,
+            index,
+            nonce,
+        },
+    )
+    .await
 }

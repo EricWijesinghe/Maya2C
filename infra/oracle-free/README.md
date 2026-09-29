@@ -18,7 +18,8 @@ created from it. The first `apply` is also its first real test.
 | Build the node, generate genesis, validator key and wallet, firewall, systemd, Caddy | `infra/testnet-vm/install.sh` — the same installer a home PC uses to join |
 
 Ports the internet reaches: **31100** (P2P), **4001** (chat relay), and the
-API gateway — 80/443 behind Caddy when `domain` is set, 8080 otherwise. SSH
+API gateway and faucet — 80/443 behind Caddy when `domain` is set (faucet at
+`/faucet/`), 8080 (gateway) and 8090 (faucet) otherwise. SSH
 (22) only from `operator_cidr`. Node RPC stays on 127.0.0.1.
 
 ## Costs, and how not to incur one
@@ -52,8 +53,9 @@ Each step marked **APPROVED** touches a live account and needs the owner's
    `seed_public_ip`.
 6. **Watch the build.** `ssh ubuntu@<ip> sudo tail -f /var/log/maya2c-provision.log`.
    The first build compiles the whole node on four Ampere cores; expect tens
-   of minutes. The x86 release build took 12m14s on two jobs, and nobody has
-   timed it on aarch64 yet.
+   of minutes. For scale: a native aarch64 release build took 14 min on
+   GitHub's `ubuntu-24.04-arm` runner (run 36478279508), whose core count
+   differs from this VM's.
 7. **DNS — `APPROVED: seed DNS`.** In Cloudflare, add `seed1.maya2c.dev` → A →
    `seed_public_ip`, **DNS only**. Add `rpc.maya2c.dev` too if you set `domain`.
 

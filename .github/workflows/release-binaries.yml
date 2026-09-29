@@ -1,6 +1,7 @@
 # Prebuilt binaries for people who do not want a Rust toolchain:
 # maya2c-node (production features, the same build the testnet seed runs),
-# l1-wallet and maya2c-peerid, for Linux x86_64 and aarch64, Windows and macOS.
+# l1-wallet and maya2c-peerid, for Linux x86_64 and aarch64, Windows and macOS;
+# and the Maya Wallet desktop installers for Windows, macOS and Linux.
 #
 # Two modes, and only one of them publishes anything:
 #
@@ -90,9 +91,62 @@ jobs:
           path: dist/maya2c-${{ matrix.target }}.tar.gz
           if-no-files-found: error
 
+  # Maya Wallet, the desktop app: Tauri installers per OS. Unsigned: without a
+  # code-signing certificate Windows SmartScreen and macOS Gatekeeper warn
+  # "unknown publisher", and the release notes say so.
+  wallet:
+    name: wallet ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-14, ubuntu-24.04]
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tauri 2 on Linux: WebKitGTK 4.1; keyring's secret-service backend
+      # needs D-Bus. RocksDB (linked through the node crate) needs clang.
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang mold libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev libdbus-1-dev patchelf
+
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master, pinned 2026-09-29
+        with:
+          toolchain: nightly-2026-07-15
+          targets: wasm32-unknown-unknown
+
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2, pinned 2026-09-29
+        with:
+          tool: trunk,tauri-cli
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/wallet-gui/src-tauri
+          key: wallet-${{ matrix.os }}
+
+      # tauri.conf.json runs `trunk build` for the UI first.
+      - name: Build installers
+        working-directory: apps/wallet-gui/src-tauri
+        run: cargo tauri build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: maya-wallet-${{ matrix.os }}
+          path: |
+            apps/wallet-gui/src-tauri/target/release/bundle/msi/*.msi
+            apps/wallet-gui/src-tauri/target/release/bundle/nsis/*.exe
+            apps/wallet-gui/src-tauri/target/release/bundle/dmg/*.dmg
+            apps/wallet-gui/src-tauri/target/release/bundle/deb/*.deb
+            apps/wallet-gui/src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+
   release:
     if: startsWith(github.ref, 'refs/tags/node-v')
-    needs: build
+    needs: [build, wallet]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -102,12 +156,16 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Checksums
-        run: cd dist && sha256sum *.tar.gz | tee SHA256SUMS
+        run: |
+          cd dist
+          # Installer names contain spaces ("Maya Wallet_0.1.0_x64-setup.exe").
+          find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\0' \
+            | sort -z | xargs -0 sha256sum | tee SHA256SUMS
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" dist/*.tar.gz dist/SHA256SUMS \
+          gh release create "${GITHUB_REF_NAME}" dist/* \
             --repo "${GITHUB_REPOSITORY}" --prerelease \
             --title "${GITHUB_REF_NAME} (testnet, unaudited)" \
-            --notes "Testnet binaries. Not audited; mainnet is blocked. Verify downloads against SHA256SUMS."
+            --notes "Testnet binaries and the Maya Wallet desktop installers. Not audited; mainnet is blocked. The installers are not code-signed, so Windows and macOS warn about an unknown publisher. Verify every download against SHA256SUMS."

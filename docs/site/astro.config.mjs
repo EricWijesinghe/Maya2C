@@ -18,8 +18,9 @@ export default defineConfig({
       title: "Maya2C",
       favicon: "/favicon.ico",
       description:
-        "Post-quantum layer-1 blockchain. Hybrid ML-DSA + SLH-DSA signatures, " +
-        "proof of work, shielded transfers.",
+        "Post-quantum layer-1 blockchain. DAG-BFT finality, hybrid ML-DSA + " +
+        "SLH-DSA signatures, shielded transfers.",
+      customCss: ["./src/styles/maya.css"],
       social: [
         { icon: "github", label: "GitHub", href: "https://github.com/EricWijesinghe/Maya2C" },
       ],
@@ -27,6 +28,7 @@ export default defineConfig({
         {
           label: "Guides",
           items: [
+            { label: "Join the testnet", link: "/guides/testnet" },
             { label: "Quickstart", link: "/guides/quickstart" },
             { label: "Post-quantum signatures", link: "/guides/signatures" },
             { label: "Mining and validators", link: "/guides/mining" },

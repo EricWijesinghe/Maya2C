@@ -48,6 +48,10 @@
 pub const ALLOWED_METHODS: &[&str] = &[
     "get_balance",
     "get_block_by_height",
+    // Public by necessity: on a fee-market chain (ADR-029) a transfer must
+    // carry a fee output priced from it, so a wallet that cannot read it
+    // cannot build an acceptable transaction.
+    "get_fee_info",
     "get_supply",
     "send_raw_transaction",
 ];

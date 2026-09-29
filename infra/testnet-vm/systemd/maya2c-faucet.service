@@ -1,0 +1,52 @@
+# The testnet faucet (apps/faucet): rate-limited test coins from a key funded
+# in genesis. The key is in faucet.env (root only), which systemd reads before
+# dropping to `maya`, so the key reaches the process through its environment
+# and never through a command line. Seed mode only.
+[Unit]
+Description=Maya2C testnet faucet
+After=maya2c-validator@0.service
+Wants=maya2c-validator@0.service
+
+[Service]
+Type=simple
+User=maya
+Group=maya
+EnvironmentFile=/etc/maya2c/faucet.env
+EnvironmentFile=/etc/maya2c/faucet-config.env
+ExecStart=/usr/local/bin/maya-faucet
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+# The grant journal (MAYA_FAUCET_LEDGER), so limits survive a restart.
+ReadWritePaths=/var/lib/maya2c/faucet
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+ProtectProc=invisible
+ProcSubset=pid
+RemoveIPC=yes
+PrivateUsers=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
