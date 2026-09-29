@@ -254,6 +254,8 @@ units() {
         fi
     done
     run install -d -m 0700 -o maya -g maya "$STATE/relay"
+    # The faucet's grant journal: without it a restart resets every limit.
+    run install -d -m 0700 -o maya -g maya "$STATE/faucet"
     local listen="0.0.0.0:8080"
     [ -n "$DOMAIN" ] && listen="$GATEWAY_LOCAL"
     if [ "$DRY_RUN" = 1 ]; then
@@ -269,8 +271,10 @@ units() {
     if [ "$DRY_RUN" = 1 ]; then
         printf '[dry-run] write %s/faucet-config.env (listen %s, trust proxy %s)\n' "$CONF" "$faucet_listen" "$trust"
     elif [ -f "$CONF/genesis.json" ]; then
-        printf 'MAYA_FAUCET_CHAIN=%s\nMAYA_FAUCET_NODE=http://127.0.0.1:%s\nMAYA_FAUCET_LISTEN=%s\nMAYA_FAUCET_TRUST_PROXY=%s\n' \
-            "$(jq -r .chain_id "$CONF/genesis.json")" "$RPC_BASE" "$faucet_listen" "$trust" > "$CONF/faucet-config.env"
+        # CORS: the "Join the testnet" page on maya2c.dev calls the faucet.
+        printf 'MAYA_FAUCET_CHAIN=%s\nMAYA_FAUCET_NODE=http://127.0.0.1:%s\nMAYA_FAUCET_LISTEN=%s\nMAYA_FAUCET_TRUST_PROXY=%s\nMAYA_FAUCET_LEDGER=%s\nMAYA_FAUCET_CORS_ORIGINS=https://maya2c.dev\n' \
+            "$(jq -r .chain_id "$CONF/genesis.json")" "$RPC_BASE" "$faucet_listen" "$trust" \
+            "$STATE/faucet/ledger.jsonl" > "$CONF/faucet-config.env"
     fi
     run systemctl daemon-reload
 }

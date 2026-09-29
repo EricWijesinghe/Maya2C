@@ -19,6 +19,8 @@ RestartSec=5
 
 NoNewPrivileges=yes
 ProtectSystem=strict
+# The grant journal (MAYA_FAUCET_LEDGER), so limits survive a restart.
+ReadWritePaths=/var/lib/maya2c/faucet
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes

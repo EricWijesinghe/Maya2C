@@ -102,6 +102,32 @@ pub fn router(service: Arc<FaucetService>) -> Router {
         .with_state(service)
 }
 
+/// How long a browser may cache a preflight answer.
+const PREFLIGHT_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// Lets pages served from `origins` call the faucet from a browser, as the
+/// "Join the testnet" page on maya2c.dev does: GET and POST only, only the
+/// `content-type` header, never credentials. A preflight (`OPTIONS`) is
+/// answered by the layer and never reaches a handler, so it spends nothing.
+/// An origin not listed gets no `Access-Control-Allow-Origin`, and the
+/// browser refuses the response.
+///
+/// # Errors
+///
+/// An origin that is not a valid header value.
+pub fn cors(origins: &[String]) -> Result<tower_http::cors::CorsLayer, String> {
+    use axum::http::{HeaderValue, Method, header::CONTENT_TYPE};
+    let allowed = origins
+        .iter()
+        .map(|o| HeaderValue::from_str(o.trim()).map_err(|_| format!("not an origin: {o}")))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(tower_http::cors::CorsLayer::new()
+        .allow_origin(allowed)
+        .allow_methods([Method::GET, Method::POST])
+        .allow_headers([CONTENT_TYPE])
+        .max_age(PREFLIGHT_MAX_AGE))
+}
+
 /// What a caller asks for.
 #[derive(Debug, serde::Deserialize)]
 pub struct GrantRequest {
@@ -228,6 +254,7 @@ fn refusal(error: &FaucetError) -> (StatusCode, Json<ErrorBody>) {
         // rather than left to a catch-all, so adding a per-request check later
         // cannot silently turn it into a 500.
         FaucetError::ValueBearingChain(_) => (StatusCode::FORBIDDEN, "disabled", None),
+        FaucetError::Ledger(_) => (StatusCode::SERVICE_UNAVAILABLE, "unavailable", None),
     };
 
     (
