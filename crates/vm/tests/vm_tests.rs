@@ -81,6 +81,65 @@ fn a_simd_module_is_rejected() {
     assert!(matches!(vm.validate(&simd), Err(VmError::InvalidModule(_))));
 }
 
+// The next three pin *why* RUSTSEC-2026-0315 and -0316 (wasmtime fuel
+// accounting) cannot reach this chain's VM: the instructions and the module
+// kind they need never validate here. deny.toml's ignore entries cite these
+// tests; if one starts failing, the ignore is no longer justified.
+
+#[test]
+fn a_call_ref_module_is_rejected() {
+    // RUSTSEC-2026-0315: `call_ref` could drop fuel accounting. It needs typed
+    // function references, which this build compiles out with reference types.
+    let vm = Vm::new().expect("vm");
+    let module = wasm(
+        r#"(module
+            (type $f (func (result i64)))
+            (func $g (type $f) (i64.const 1))
+            (elem declare func $g)
+            (memory (export "memory") 1)
+            (func (export "invoke") (param i32) (result i64)
+              (call_ref $f (ref.func $g))))"#,
+    );
+    assert!(matches!(
+        vm.validate(&module),
+        Err(VmError::InvalidModule(_))
+    ));
+}
+
+#[test]
+fn an_exception_handling_module_is_rejected() {
+    // RUSTSEC-2026-0315: exception `catch` could drop fuel accounting. The
+    // exception-handling proposal is not enabled in the deterministic engine.
+    let vm = Vm::new().expect("vm");
+    let module = wasm(
+        r#"(module
+            (tag $t)
+            (memory (export "memory") 1)
+            (func (export "invoke") (param i32) (result i64)
+              (block $handled
+                (try_table (catch_all $handled) (throw $t)))
+              (i64.const 0)))"#,
+    );
+    assert!(matches!(
+        vm.validate(&module),
+        Err(VmError::InvalidModule(_))
+    ));
+}
+
+#[test]
+fn a_component_is_rejected() {
+    // RUSTSEC-2026-0316: record lifting in the component model could allocate
+    // past the hostcall fuel limit. The component model is compiled out
+    // (`default-features = false`), and `Module::new` accepts only core
+    // modules, so a component binary fails to load at all.
+    let vm = Vm::new().expect("vm");
+    let component = wasm("(component)");
+    assert!(matches!(
+        vm.validate(&component),
+        Err(VmError::InvalidModule(_))
+    ));
+}
+
 #[test]
 fn identical_calls_consume_identical_gas() {
     let vm = Vm::new().expect("vm");
@@ -540,5 +599,60 @@ fn gas_exhaustion_discards_the_writes_that_preceded_it() {
             .storage_get_for_test(&CONTRACT, b"k")
             .is_some(),
         "the write reached the returned state; the caller is responsible for dropping it"
+    );
+}
+
+/// Asserts that `text` is refused at deployment.
+fn assert_rejected(text: &str) {
+    let vm = Vm::new().expect("vm");
+    assert!(
+        matches!(vm.validate(&wasm(text)), Err(VmError::InvalidModule(_))),
+        "a module the deterministic engine should refuse validated:
+{text}"
+    );
+}
+
+// Default-on WebAssembly 3.0 proposals the deterministic engine turns off
+// (ADR-034). One test each, so the next default change in wasmtime shows up
+// as a named failure instead of a silent widening of what contracts can do.
+
+#[test]
+fn a_tail_call_module_is_rejected() {
+    assert_rejected(
+        r#"(module
+            (memory (export "memory") 1)
+            (func $again (param i64) (result i64)
+              (return_call $again (local.get 0)))
+            (func (export "invoke") (param i32) (result i64)
+              (call $again (i64.const 1))))"#,
+    );
+}
+
+#[test]
+fn an_extended_const_module_is_rejected() {
+    assert_rejected(
+        r#"(module
+            (memory (export "memory") 1)
+            (global i32 (i32.add (i32.const 1) (i32.const 2)))
+            (func (export "invoke") (param i32) (result i64) (i64.const 0)))"#,
+    );
+}
+
+#[test]
+fn a_multi_memory_module_is_rejected() {
+    assert_rejected(
+        r#"(module
+            (memory (export "memory") 1)
+            (memory $second 1)
+            (func (export "invoke") (param i32) (result i64) (i64.const 0)))"#,
+    );
+}
+
+#[test]
+fn a_memory64_module_is_rejected() {
+    assert_rejected(
+        r#"(module
+            (memory (export "memory") i64 1)
+            (func (export "invoke") (param i32) (result i64) (i64.const 0)))"#,
     );
 }
