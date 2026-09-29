@@ -18,6 +18,9 @@ mod screens;
 
 use leptos::prelude::*;
 
+/// Where balances are read and transfers sent unless the user changes it.
+const DEFAULT_NODE_URL: &str = "https://rpc.maya2c.dev/rpc";
+
 /// Which screen is showing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Screen {
@@ -68,7 +71,10 @@ impl AppState {
             selected: RwSignal::new(0),
             account_state: RwSignal::new(bridge::AccountState::default()),
             history: RwSignal::new(Vec::new()),
-            node_url: RwSignal::new("http://127.0.0.1:8545".to_string()),
+            // The public testnet's gateway (ADR-032), which speaks the node's
+            // JSON-RPC at /rpc behind an allowlist. Editable in Settings for
+            // a local node (http://127.0.0.1:8545) or another network.
+            node_url: RwSignal::new(DEFAULT_NODE_URL.to_string()),
             error: RwSignal::new(None),
             notice: RwSignal::new(None),
         }
