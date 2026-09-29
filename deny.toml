@@ -50,6 +50,26 @@ ignore = [
     # Windows only, and only under a custom global allocator; no shipped binary
     # links it. Revisit when dudect-bencher leaves clap 2, or vendor the harness.
     { id = "RUSTSEC-2021-0145", reason = "dev-dependency of the dudect harness only; Windows-only, custom-allocator-only" },
+    # wasmtime 48.0.1, the consensus VM's pinned engine. The fix is 48.0.3, but
+    # `crates/vm/src/config.rs` records why a wasmtime bump is a hard fork: fuel
+    # accounting is not stable across releases, so validators on two versions
+    # can disagree about gas. Neither bug can be reached by a contract here,
+    # and a test pins each reason; if one of those tests fails, the entry is
+    # no longer justified:
+    #
+    # - 2026-0315, `call_ref` and exception `catch` dropping fuel. Until
+    #   2026-09-29 `call_ref` DID validate: typed function references were on
+    #   because their named setter needs the `gc` feature. `deterministic_config`
+    #   now turns them off (`vm_tests::a_call_ref_module_is_rejected`), and
+    #   exception handling was never enabled
+    #   (`vm_tests::an_exception_handling_module_is_rejected`).
+    # - 2026-0316, component-model record lifting. The component model is
+    #   compiled out, and a component is rejected (`vm_tests::a_component_is_rejected`).
+    #
+    # Take 48.0.3 or later as a scheduled fork, with fuel calibration re-run
+    # (`tests/fuel_calibration_tests.rs`) and an activation height.
+    { id = "RUSTSEC-2026-0315", reason = "call_ref and exceptions cannot validate in the consensus VM; pinned by vm_tests" },
+    { id = "RUSTSEC-2026-0316", reason = "component model compiled out of the consensus VM; pinned by vm_tests" },
 ]
 # `unmaintained` is a real signal but not a vulnerability, and it fires on
 # transitive crates nobody here can act on. Surfaced, not fatal.
