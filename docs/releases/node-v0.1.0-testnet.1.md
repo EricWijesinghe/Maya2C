@@ -37,6 +37,10 @@ The full guide is at https://maya2c.dev/guides/testnet/.
   key lives in a separate `maya2c-signer` process with slashing protection per
   `(round, author)` slot (ADR-033). It hasn't been externally reviewed.
 - **Production node build**: `--features production` runs DAG-BFT only.
+- **Contract VM hardening.** Reference types and typed function references are
+  disabled, so contracts cannot reach the wasmtime fuel-accounting bug
+  RUSTSEC-2026-0315. They had been silently enabled; tests now pin each
+  disabled proposal (ADR-034).
 
 ### Cryptography
 - **NIST post-quantum standards**: ML-KEM (FIPS 203), ML-DSA (FIPS 204) and
