@@ -10,6 +10,9 @@
 //! maya-chat --home DIR chat --relay ADDR [--to HEX] [--poll SECS]
 //!                                                 interactive: lines are
 //!                                                 sent, replies printed
+//! maya-chat --home DIR bot --relay ADDR [--poll SECS]
+//!                                                 the welcome contact:
+//!                                                 answers whoever writes
 //! ```
 //!
 //! The identity seed is stored in `DIR/identity.key`, unencrypted in this
@@ -19,6 +22,7 @@
 //! from the seed, so a later run can read follow-up messages and refuses a
 //! replayed handshake.
 
+mod bot;
 mod repl;
 
 use std::path::{Path, PathBuf};
@@ -253,8 +257,9 @@ async fn run(a: Args) -> Result<(), String> {
         "send" => send(&a).await,
         "recv" => recv(&a).await,
         "chat" => repl::chat(&a).await,
+        "bot" => bot::run(&a).await,
         other => Err(format!(
-            "unknown command `{other}`: init, address, relay, publish, send, recv, chat"
+            "unknown command `{other}`: init, address, relay, publish, send, recv, chat, bot"
         )),
     }
 }
