@@ -125,6 +125,21 @@ chat printed their help and version. That shows the code builds and starts
 on Arm. It does not show a chain running there: that is the first thing to
 check on the real VM.
 
+**2026-09-29, with the faucet** (`feat/testnet-faucet`, `79332b2`): on a
+fresh install, the first runs found two more defects, both fixed. The
+`Cargo.lock` was missing the faucet's new dependency; the `--locked` build
+caught it. And `apt-get` failed while unattended-upgrades held the dpkg lock,
+as it does on any fresh cloud VM, so every `apt-get` now waits up to 10
+minutes. Then, from another machine:
+
+- the faucet paid 1,000 to a brand-new address;
+- the gateway's `/v1/accounts/<address>` showed `{"balance":1000,"nonce":0}`;
+- `/v1/supply` reported 15,000,000 in total (the funded wallet plus the
+  faucet);
+- node RPC stayed unreachable.
+
+The faucet has its own sandboxed unit, `maya2c-faucet`.
+
 Not yet tested: a full install on a real Arm host, HTTPS through Caddy (this
 needs a real domain pointing at the host), and join mode against a remote
 seed.
