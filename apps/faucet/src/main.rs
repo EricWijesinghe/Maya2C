@@ -29,6 +29,29 @@ const KEY_VAR: &str = "MAYA_FAUCET_KEY";
 async fn main() -> ExitCode {
     tracing_subscriber::fmt::init();
 
+    // `maya-faucet generate-key <PATH>`: a fresh key, written where only its
+    // owner can read it, in the form systemd's EnvironmentFile loads. Only the
+    // address is printed: it is what the genesis funds.
+    let argv: Vec<String> = std::env::args().collect();
+    if argv.get(1).map(String::as_str) == Some("generate-key") {
+        return match argv.get(2) {
+            Some(path) => match run_on_big_stack(path.clone()) {
+                Ok(address) => {
+                    println!("{address}");
+                    ExitCode::SUCCESS
+                }
+                Err(message) => {
+                    eprintln!("faucet: {message}");
+                    ExitCode::FAILURE
+                }
+            },
+            None => {
+                eprintln!("usage: maya-faucet generate-key <PATH>");
+                ExitCode::FAILURE
+            }
+        };
+    }
+
     match run().await {
         Ok(()) => ExitCode::SUCCESS,
         Err(message) => {
@@ -52,8 +75,21 @@ async fn run() -> Result<(), String> {
 
     // Before anything is bound or connected: a value-bearing chain is a
     // configuration error, and the operator should see it now.
-    let faucet =
+    let mut faucet =
         Faucet::new(chain_id, dispense, daily_cap, SystemTime::now()).map_err(|e| e.to_string())?;
+    // Without a journal the limits reset on every restart; say so rather
+    // than let a deployment run that way unknowingly.
+    match std::env::var("MAYA_FAUCET_LEDGER") {
+        Ok(path) if !path.is_empty() => {
+            faucet = faucet
+                .with_ledger(std::path::Path::new(&path), SystemTime::now())
+                .map_err(|e| e.to_string())?;
+            tracing::info!(%path, "grants journalled; limits survive a restart");
+        }
+        _ => tracing::warn!(
+            "MAYA_FAUCET_LEDGER is not set: rate limits and the daily budget reset whenever              the faucet restarts"
+        ),
+    }
 
     let dispenser = NodeDispenser::connect(&node_url, key)
         .await
@@ -93,6 +129,44 @@ async fn run() -> Result<(), String> {
     )
     .await
     .map_err(|e| format!("serving: {e}"))
+}
+
+/// Hybrid key generation (ML-DSA + SLH-DSA) needs more stack than a debug
+/// build gets on Windows' 1 MiB main thread; it overflowed there.
+const KEYGEN_STACK: usize = 16 << 20;
+
+fn run_on_big_stack(path: String) -> Result<String, String> {
+    std::thread::Builder::new()
+        .stack_size(KEYGEN_STACK)
+        .spawn(move || generate_key(std::path::Path::new(&path)))
+        .map_err(|e| format!("starting key generation: {e}"))?
+        .join()
+        .map_err(|_| "key generation panicked".to_string())?
+}
+
+/// Writes `MAYA_FAUCET_KEY=<hex>` to `path` (mode 0600, never overwriting)
+/// and returns the key's address, hex.
+fn generate_key(path: &std::path::Path) -> Result<String, String> {
+    use std::io::Write as _;
+    let key = custom_l1_node::crypto::hybrid::generate_signing_key().map_err(|e| e.to_string())?;
+    let line = zeroize::Zeroizing::new(format!(
+        "{KEY_VAR}={}
+",
+        hex::encode(key.to_bytes().as_slice())
+    ));
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(path)
+        .map_err(|e| format!("{}: {e} (refusing to overwrite a key)", path.display()))?;
+    file.write_all(line.as_bytes()).map_err(|e| e.to_string())?;
+    file.sync_all().map_err(|e| e.to_string())?;
+    Ok(hex::encode(key.address()))
 }
 
 /// Reads the signing key from the environment.

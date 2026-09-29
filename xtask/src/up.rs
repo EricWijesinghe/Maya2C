@@ -7,7 +7,11 @@
 //!   127.0.0.1 (the same genesis `cargo xtask localnet` rehearses), with a
 //!   funded devnet wallet;
 //! - `maya2c-gateway`, the public REST/GraphQL surface, in front of node 0;
-//! - a `maya-chat` relay (ADR-031).
+//! - a `maya-chat` relay (ADR-031);
+//! - the testnet faucet, funded in genesis.
+//!
+//! Fees are on, with the public testnet installer's parameters, so what works
+//! here is what will work on the testnet.
 //!
 //! It waits until the validators agree on a chain and every service answers,
 //! then prints the endpoints and writes `target/up/up.json`. `down` stops
@@ -28,6 +32,9 @@ use crate::localnet;
 
 const GATEWAY_ADDR: &str = "127.0.0.1:8080";
 const CHAT_RELAY_LISTEN: &str = "/ip4/127.0.0.1/tcp/4001";
+const FAUCET_ADDR: &str = "127.0.0.1:8090";
+const FAUCET_BALANCE: u64 = 5_000_000;
+const CHAIN_ID: &str = "maya2c-localnet";
 /// First chain height the validators must agree on before `up` reports.
 const FIRST_AGREED_HEIGHT: u64 = 3;
 
@@ -59,8 +66,62 @@ fn wait_for_line(log: &Path, prefix: &str) -> Result<String> {
     Err(format!("{} printed no `{prefix}` line", log.display()))
 }
 
+/// Turns fees on in the genesis `localnet::setup` wrote, with the testnet
+/// installer's parameters, and funds a fresh faucet key. Returns the faucet
+/// address; the key stays in `faucet.env`.
+fn fees_and_faucet(work: &Path) -> Result<String> {
+    let faucet = devnet::output(
+        Command::new(devnet::bin("maya-faucet"))
+            .arg("generate-key")
+            .arg(work.join("faucet.env")),
+    )?
+    .trim()
+    .to_owned();
+    let path = work.join("genesis.json");
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("genesis: {e}"))?;
+    let mut genesis: Value = serde_json::from_str(&text).map_err(|e| format!("genesis: {e}"))?;
+    genesis["bft"]["fees"] = json!({
+        "initial_base_fee": 1, "min_base_fee": 1,
+        "target_block_bytes": 2_621_440, "change_denominator": 8
+    });
+    genesis["allocations"]
+        .as_array_mut()
+        .ok_or("genesis has no allocations")?
+        .push(json!({ "address": faucet, "balance": FAUCET_BALANCE }));
+    std::fs::write(&path, genesis.to_string()).map_err(|e| format!("genesis: {e}"))?;
+    Ok(faucet)
+}
+
+/// Starts the faucet with its key from `faucet.env`, passed through the
+/// environment (never a flag, which other processes can read).
+fn start_faucet(work: &Path, procs: &mut Procs) -> Result<()> {
+    let env =
+        std::fs::read_to_string(work.join("faucet.env")).map_err(|e| format!("faucet key: {e}"))?;
+    let key = env
+        .lines()
+        .find_map(|l| l.strip_prefix("MAYA_FAUCET_KEY="))
+        .ok_or("faucet.env holds no key")?;
+    let log = std::fs::File::create(work.join("maya-faucet.log"))
+        .map_err(|e| format!("faucet log: {e}"))?;
+    let child = Command::new(devnet::bin("maya-faucet"))
+        .env("MAYA_FAUCET_KEY", key.trim())
+        .env("MAYA_FAUCET_CHAIN", CHAIN_ID)
+        .env(
+            "MAYA_FAUCET_NODE",
+            format!("http://{}", localnet::rpc_addr(0)),
+        )
+        .env("MAYA_FAUCET_LISTEN", FAUCET_ADDR)
+        .stdout(log.try_clone().map_err(|e| format!("faucet log: {e}"))?)
+        .stderr(log)
+        .spawn()
+        .map_err(|e| format!("starting maya-faucet: {e}"))?;
+    procs.push(child);
+    devnet::wait_for_http(FAUCET_ADDR)
+}
+
 fn start_validators(work: &Path, procs: &mut Procs) -> Result<(String, Duration)> {
     let address = localnet::setup(work)?;
+    fees_and_faucet(work)?;
     for i in 0..localnet::VALIDATORS {
         procs.push(localnet::start(work, i)?);
     }
@@ -83,7 +144,13 @@ fn start_chat_relay(work: &Path, procs: &mut Procs) -> Result<String> {
 }
 
 fn bring_up(work: &Path) -> Result<Value> {
-    devnet::build(&["maya2c-node", "l1-wallet", "maya-api-gateway", "maya-chat"])?;
+    devnet::build(&[
+        "maya2c-node",
+        "l1-wallet",
+        "maya-api-gateway",
+        "maya-chat",
+        "maya-faucet",
+    ])?;
     let mut procs = Procs::default();
     let (wallet, took) = start_validators(work, &mut procs)?;
     let node0 = format!("http://{}", localnet::rpc_addr(0));
@@ -94,14 +161,19 @@ fn bring_up(work: &Path) -> Result<Value> {
     )?);
     devnet::wait_for_http(GATEWAY_ADDR)?;
     let relay = start_chat_relay(work, &mut procs)?;
+    start_faucet(work, &mut procs)?;
 
     let pids = procs.detach();
     let images = ["maya2c-node"; localnet::VALIDATORS as usize]
         .into_iter()
-        .chain(["maya2c-gateway", "maya-chat"]);
+        .chain(["maya2c-gateway", "maya-chat", "maya-faucet"]);
     let labels = (0..localnet::VALIDATORS)
         .map(|i| format!("validator-{i}"))
-        .chain(["gateway".to_owned(), "chat-relay".to_owned()]);
+        .chain([
+            "gateway".to_owned(),
+            "chat-relay".to_owned(),
+            "faucet".to_owned(),
+        ]);
     let services: Vec<Value> = labels
         .zip(images)
         .zip(pids)
@@ -116,6 +188,7 @@ fn bring_up(work: &Path) -> Result<Value> {
                 .collect::<Vec<_>>(),
             "gateway": format!("http://{GATEWAY_ADDR}"),
             "chat_relay": relay,
+            "faucet": format!("http://{FAUCET_ADDR}"),
         },
         "wallet": { "address": wallet, "keystore": work.join("wallet").display().to_string() },
         "logs": work.display().to_string(),
@@ -140,6 +213,10 @@ fn print_summary(state: &Value) {
     println!(
         "  chat relay  {}",
         e["chat_relay"].as_str().unwrap_or_default()
+    );
+    println!(
+        "  faucet      {} (POST /request {{\"address\": \"<hex>\"}})",
+        e["faucet"].as_str().unwrap_or_default()
     );
     println!(
         "  wallet      {} (funded; devnet keystore in {})",

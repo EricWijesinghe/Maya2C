@@ -106,3 +106,7 @@ infra/ansible/inventory/production.ini
 mutants.out/
 mutants.out.old/
 /dist/
+
+# Python bytecode, written by every local SDK test run.
+__pycache__/
+*.pyc

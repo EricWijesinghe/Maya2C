@@ -21,7 +21,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
 use maya_api_gateway::error::GatewayError;
-use maya_api_gateway::node::{Balance, NodeClient, Supply};
+use maya_api_gateway::node::{Balance, FeeInfo, NodeClient, Supply};
 use maya_api_gateway::rest::ApiDoc;
 use tower::ServiceExt;
 use utoipa::OpenApi;
@@ -124,6 +124,9 @@ impl NodeClient for UnreachableNode {
         unreachable!("serving the spec must not touch the node")
     }
     async fn send_raw_transaction(&self, _raw: &str) -> Result<String, GatewayError> {
+        unreachable!("serving the spec must not touch the node")
+    }
+    async fn get_fee_info(&self) -> Result<FeeInfo, GatewayError> {
         unreachable!("serving the spec must not touch the node")
     }
 }
