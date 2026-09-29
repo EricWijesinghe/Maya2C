@@ -46,7 +46,7 @@ use maya_stateless_core::{Blake3, PartialTree, apply_transfer, sparse};
 
 use crate::core::codec::ByteReader;
 use crate::core::payload::TxKind;
-use crate::core::{Block, ChainTag, Transaction};
+use crate::core::{Block, Transaction};
 use crate::error::{NodeError, Result};
 use crate::state::account::{Account, Address};
 use crate::state::context::BlockContext;
@@ -276,10 +276,9 @@ pub fn verify_block(
     height: u64,
     block: &Block,
     witness: StateWitness,
-    chain: &ChainTag,
 ) -> core::result::Result<(), StatelessError> {
     block
-        .check_tx_root(chain)
+        .check_tx_root()
         .map_err(|error| StatelessError::Unverifiable(error.to_string()))?;
     check_eligible(block, &witness.layers)?;
 
