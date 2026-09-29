@@ -71,6 +71,9 @@ log() { printf '[testnet] %s\n' "$*"; }
 die() { printf '[testnet] error: %s\n' "$*" >&2; exit 1; }
 run() { if [ "$DRY_RUN" = 1 ]; then printf '[dry-run] %s\n' "$*"; else "$@"; fi; }
 as_maya() { run runuser -u maya -- "$@"; }
+# A fresh cloud VM runs unattended-upgrades at boot, which holds the dpkg lock
+# for minutes; without waiting, apt-get fails at once (found on the test VM).
+APT=(apt-get -o DPkg::Lock::Timeout=600)
 
 preflight() {
     [ "$(uname -s)" = Linux ] || die "Linux only"
@@ -96,11 +99,11 @@ preflight() {
 
 install_deps() {
     log "installing build dependencies"
-    run apt-get update -qq
-    run env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+    run "${APT[@]}" update -qq
+    run env DEBIAN_FRONTEND=noninteractive "${APT[@]}" install -y -qq \
         build-essential clang libclang-dev mold pkg-config libssl-dev git curl jq ca-certificates
     if [ -n "$DOMAIN" ] && ! command -v caddy >/dev/null; then
-        run env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq caddy
+        run env DEBIAN_FRONTEND=noninteractive "${APT[@]}" install -y -qq caddy
     fi
     if ! id maya >/dev/null 2>&1; then
         run useradd --system --home-dir "$STATE" --shell /usr/sbin/nologin maya
@@ -310,7 +313,7 @@ firewall() {
     # iptables-persistent asks two questions on install; answer them first.
     run sh -c "echo 'iptables-persistent iptables-persistent/autosave_v4 boolean false' | debconf-set-selections"
     run sh -c "echo 'iptables-persistent iptables-persistent/autosave_v6 boolean false' | debconf-set-selections"
-    run env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iptables iptables-persistent
+    run env DEBIAN_FRONTEND=noninteractive "${APT[@]}" install -y -qq iptables iptables-persistent
     if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
         log "disabling ufw: its rules would sit alongside ours and confuse the next reader"
         run ufw --force disable
