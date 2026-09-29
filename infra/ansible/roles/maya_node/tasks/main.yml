@@ -9,7 +9,7 @@
     - name: Fetch the release artefact
       ansible.builtin.get_url:
         url: "{{ maya_node_prebuilt_url }}"
-        dest: "{{ maya_bin_dir }}/node"
+        dest: "{{ maya_bin_dir }}/maya2c-node"
         # Not optional. An artefact fetched over TLS from a host you trust is
         # still an artefact you did not check, and this is the binary that
         # decides what a valid block is.
@@ -24,7 +24,7 @@
       # tells this host whether it joined the right network.
       ansible.builtin.get_url:
         url: "{{ maya_genesis_prebuilt_url }}"
-        dest: "{{ maya_bin_dir }}/genesis"
+        dest: "{{ maya_bin_dir }}/maya2c-genesis"
         checksum: "sha256:{{ maya_genesis_prebuilt_sha256 }}"
         mode: "0755"
         owner: root
@@ -85,8 +85,8 @@
         owner: root
         group: root
       loop:
-        - node
-        - genesis
+        - maya2c-node
+        - maya2c-genesis
       notify: Restart maya2c-node
 
 # --- configuration ----------------------------------------------------------
@@ -132,7 +132,7 @@
   # important step of a bootstrap into a no-op whenever nobody does.
   ansible.builtin.command:
     cmd: >-
-      {{ maya_bin_dir }}/genesis --verify {{ maya_conf_dir }}/genesis.json
+      {{ maya_bin_dir }}/maya2c-genesis --verify {{ maya_conf_dir }}/genesis.json
       --expect-state-root {{ maya_expected_state_root }}
   changed_when: false
 
