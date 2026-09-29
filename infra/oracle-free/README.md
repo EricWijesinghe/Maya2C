@@ -18,7 +18,8 @@ created from it. The first `apply` is also its first real test.
 | Build the node, generate genesis, validator key and wallet, firewall, systemd, Caddy | `infra/testnet-vm/install.sh` — the same installer a home PC uses to join |
 
 Ports the internet reaches: **31100** (P2P), **4001** (chat relay), and the
-API gateway — 80/443 behind Caddy when `domain` is set, 8080 otherwise. SSH
+API gateway and faucet — 80/443 behind Caddy when `domain` is set (faucet at
+`/faucet/`), 8080 (gateway) and 8090 (faucet) otherwise. SSH
 (22) only from `operator_cidr`. Node RPC stays on 127.0.0.1.
 
 ## Costs, and how not to incur one
