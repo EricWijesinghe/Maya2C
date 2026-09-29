@@ -523,3 +523,51 @@ async fn a_json_rpc_refusal_does_not_leak_the_node_message() {
     assert_eq!(message, "rejected by the node");
     assert!(!body.to_string().contains("/var/lib"));
 }
+
+// ---------------------------------------------------------------------------
+// CORS: a browser app (maya2c.js, the site) may call the gateway
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_browser_preflight_is_answered_without_calling_the_node() {
+    let node = Arc::new(MockNode::default());
+    let response = app_with(Arc::clone(&node))
+        .oneshot(
+            Request::builder()
+                .method("OPTIONS")
+                .uri("/rpc")
+                .header("origin", "https://example.org")
+                .header("access-control-request-method", "POST")
+                .header("access-control-request-headers", "content-type")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert!(response.status().is_success());
+    let headers = response.headers();
+    assert_eq!(headers["access-control-allow-origin"], "*");
+    // No credentials: the gateway has no cookies or sessions, and `*` with
+    // credentials is refused by browsers anyway.
+    assert!(headers.get("access-control-allow-credentials").is_none());
+    assert_eq!(node.calls(), 0);
+}
+
+#[tokio::test]
+async fn a_cross_origin_read_carries_the_allow_origin_header() {
+    let node = Arc::new(MockNode::default());
+    let response = app_with(node)
+        .oneshot(
+            Request::builder()
+                .uri("/v1/fees")
+                .header("origin", "https://maya2c.dev")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["access-control-allow-origin"], "*");
+}
