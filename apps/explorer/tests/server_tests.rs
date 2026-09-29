@@ -548,3 +548,27 @@ async fn a_deployment_without_an_assets_directory_still_serves_pages() {
         "no route is mounted when there is nothing to serve"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_public_api_is_readable_from_the_website() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let h = harness(3).await;
+    let authority = h.base.trim_start_matches("http://").to_owned();
+    let mut stream = tokio::net::TcpStream::connect(&authority)
+        .await
+        .expect("connect");
+    let request = format!(
+        "GET /api/stats HTTP/1.1
+Host: {authority}
+Origin: https://maya2c.dev
+Connection: close
+
+"
+    );
+    stream.write_all(request.as_bytes()).await.expect("write");
+    let mut raw = Vec::new();
+    stream.read_to_end(&mut raw).await.expect("read");
+    let text = String::from_utf8_lossy(&raw).to_ascii_lowercase();
+    assert!(text.starts_with("http/1.1 200"), "{text}");
+    assert!(text.contains("access-control-allow-origin: *"), "{text}");
+}
