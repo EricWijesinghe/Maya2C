@@ -203,6 +203,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      # First, for the release notes (docs/releases/<tag>.md): a checkout
+      # cleans the workspace, so it must come before the artifacts.
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -217,7 +220,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # The tag's own notes page when there is one; a tag without one
+          # still gets an honest line rather than failing the release.
+          notes="docs/releases/${GITHUB_REF_NAME}.md"
+          if [ -f "$notes" ]; then
+            set -- --notes-file "$notes"
+          else
+            set -- --notes "Testnet binaries and the Maya Wallet and Maya Chat desktop installers. Not audited; mainnet is blocked. The installers are not code-signed, so Windows and macOS warn about an unknown publisher. Verify every download against SHA256SUMS."
+          fi
           gh release create "${GITHUB_REF_NAME}" dist/* \
             --repo "${GITHUB_REPOSITORY}" --prerelease \
-            --title "${GITHUB_REF_NAME} (testnet, unaudited)" \
-            --notes "Testnet binaries and the Maya Wallet and Maya Chat desktop installers. Not audited; mainnet is blocked. The installers are not code-signed, so Windows and macOS warn about an unknown publisher. Verify every download against SHA256SUMS."
+            --title "${GITHUB_REF_NAME} (testnet, unaudited)" "$@"
