@@ -1,0 +1,169 @@
+:root {
+  --bg: #05070f;
+  --panel: #0a0f1d;
+  --line: rgb(148 163 184 / 0.16);
+  --text: #e2e8f0;
+  --dim: #94a3b8;
+  --cyan: #22d3ee;
+  --violet: #a78bfa;
+  --rose: #f472b6;
+  color-scheme: dark;
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  color: var(--text);
+  background:
+    radial-gradient(50rem 26rem at 10% -10%, rgb(34 211 238 / 0.12), transparent 60%),
+    radial-gradient(44rem 24rem at 100% 0%, rgb(167 139 250 / 0.12), transparent 60%),
+    var(--bg);
+}
+
+.banner {
+  padding: 0.45rem 1rem;
+  font-size: 0.8rem;
+  color: #fde68a;
+  background: rgb(120 53 15 / 0.35);
+  border-bottom: 1px solid rgb(251 191 36 / 0.25);
+  text-align: center;
+}
+
+button, input { font: inherit; }
+
+.primary, .secondary {
+  border-radius: 0.7rem;
+  padding: 0.6rem 1.1rem;
+  cursor: pointer;
+  border: none;
+}
+.primary {
+  color: #04111a;
+  font-weight: 700;
+  background: linear-gradient(100deg, var(--cyan), var(--violet));
+  box-shadow: 0 0 22px rgb(34 211 238 / 0.3);
+}
+.primary:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
+.secondary {
+  color: var(--text);
+  background: rgb(255 255 255 / 0.06);
+  border: 1px solid var(--line);
+}
+
+input {
+  width: 100%;
+  padding: 0.6rem 0.8rem;
+  color: var(--text);
+  background: rgb(255 255 255 / 0.04);
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  outline: none;
+}
+input:focus { border-color: rgb(34 211 238 / 0.6); }
+
+.welcome {
+  margin: auto;
+  max-width: 34rem;
+  padding: 2rem;
+  text-align: center;
+}
+.welcome h1 {
+  font-size: 3rem;
+  margin: 0 0 0.5rem;
+  background: linear-gradient(100deg, var(--cyan), var(--violet) 60%, var(--rose));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.lead { color: var(--dim); line-height: 1.6; }
+.hint { color: var(--dim); font-size: 0.85rem; }
+.error { color: #fca5a5; min-height: 1.2em; }
+.status { color: var(--dim); font-size: 0.8rem; min-height: 1.2em; }
+
+.app { flex: 1; display: grid; grid-template-columns: 19rem 1fr; min-height: 0; }
+
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding: 1rem;
+  border-right: 1px solid var(--line);
+  background: rgb(10 15 29 / 0.7);
+  min-height: 0;
+}
+.label { font-size: 0.7rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--cyan); }
+.address {
+  width: 100%;
+  margin-top: 0.3rem;
+  text-align: left;
+  font-family: ui-monospace, monospace;
+  color: var(--text);
+  background: rgb(34 211 238 / 0.08);
+  border: 1px solid rgb(34 211 238 / 0.3);
+  border-radius: 0.6rem;
+  padding: 0.5rem 0.7rem;
+  cursor: copy;
+}
+.contacts { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.3rem; }
+.contact {
+  text-align: left;
+  padding: 0.6rem 0.8rem;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.6rem;
+  cursor: pointer;
+}
+.contact:hover { background: rgb(255 255 255 / 0.04); }
+.contact.active { border-color: rgb(167 139 250 / 0.5); background: rgb(167 139 250 / 0.1); }
+.add { display: grid; gap: 0.4rem; }
+.settings summary { cursor: pointer; color: var(--dim); }
+.settings { display: grid; gap: 0.4rem; }
+.settings label { font-size: 0.8rem; color: var(--dim); margin-top: 0.4rem; }
+
+.chat { display: flex; flex-direction: column; min-height: 0; }
+.peer {
+  padding: 1rem 1.25rem;
+  font-weight: 700;
+  border-bottom: 1px solid var(--line);
+}
+.lines {
+  flex: 1;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.lines li {
+  max-width: 70%;
+  padding: 0.55rem 0.8rem;
+  border-radius: 1rem;
+  line-height: 1.45;
+  word-wrap: break-word;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.lines time { font-size: 0.68rem; color: var(--dim); align-self: flex-end; }
+.mine {
+  align-self: flex-end;
+  background: linear-gradient(120deg, rgb(34 211 238 / 0.22), rgb(167 139 250 / 0.22));
+  border: 1px solid rgb(34 211 238 / 0.3);
+  border-bottom-right-radius: 0.3rem;
+}
+.theirs {
+  align-self: flex-start;
+  background: rgb(255 255 255 / 0.05);
+  border: 1px solid var(--line);
+  border-bottom-left-radius: 0.3rem;
+}
+.compose { display: flex; gap: 0.6rem; padding: 0.9rem 1.25rem; border-top: 1px solid var(--line); }
+.chat .error { padding: 0 1.25rem; }
