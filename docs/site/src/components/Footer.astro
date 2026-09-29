@@ -1,0 +1,63 @@
+---
+// Starlight's footer (pagination, last-updated), then the project's own:
+// who builds Maya2C, how to reach him, copyright and licence. Overridden in
+// astro.config.mjs (`components.Footer`), so it appears on every page.
+import Default from "@astrojs/starlight/components/Footer.astro";
+
+const year = new Date().getFullYear();
+---
+
+<Default><slot /></Default>
+
+<footer class="maya-footer" aria-label="About Maya2C">
+  <div class="maya-footer__about">
+    <p class="maya-footer__title">About</p>
+    <p>
+      Maya2C is built by <strong>Eric Wijesinghe</strong>: a post-quantum
+      layer-1 blockchain in Rust, with hybrid ML-DSA + SLH-DSA signatures on
+      every transaction.
+    </p>
+  </div>
+  <div class="maya-footer__contact">
+    <p class="maya-footer__title">Contact</p>
+    <p>
+      <a href="mailto:EricWijesinghe@hotmail.com">EricWijesinghe@hotmail.com</a>
+    </p>
+    <p>
+      <a href="https://github.com/EricWijesinghe/Maya2C">GitHub</a>
+    </p>
+  </div>
+  <p class="maya-footer__legal">
+    © {year} Eric Wijesinghe. Code licensed under
+    <a href="https://github.com/EricWijesinghe/Maya2C/blob/master/LICENSE">Apache 2.0</a>.
+    Testnet only; the coins have no value.
+  </p>
+</footer>
+
+<style>
+  .maya-footer {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+    gap: 1rem 2rem;
+    margin-top: 3rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--sl-color-hairline);
+    font-size: var(--sl-text-sm);
+    color: var(--sl-color-gray-3);
+  }
+  .maya-footer p {
+    margin: 0 0 0.35rem;
+  }
+  .maya-footer__title {
+    font-weight: 600;
+    color: var(--sl-color-white);
+  }
+  .maya-footer__legal {
+    grid-column: 1 / -1;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--sl-color-hairline);
+  }
+  .maya-footer a {
+    color: var(--sl-color-text-accent);
+  }
+</style>
