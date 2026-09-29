@@ -29,7 +29,7 @@ use crate::consensus::difficulty::{
     unlimited_pow_limit, work_from_target,
 };
 use crate::consensus::uint::U256;
-use crate::core::{Block, BlockHeader, ChainTag, Transaction};
+use crate::core::{Block, BlockHeader, Transaction};
 use crate::crypto::dag::registry::{CacheRegistry, DagConfig};
 use crate::crypto::pow::meets_target;
 use crate::error::{NodeError, Result};
@@ -330,8 +330,7 @@ impl Chain {
         // someone else's transactions is reported as the error it is rather
         // than waved through as a block already held. Hashing the body is far
         // cheaper than the Argon2 pass below.
-        let tag = ChainTag::from_genesis(self.genesis());
-        block.check_tx_root(&tag)?;
+        block.check_tx_root()?;
 
         let id = block.header.id();
         // A record without a body is a header validated ahead of it, as a

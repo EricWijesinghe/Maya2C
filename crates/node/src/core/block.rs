@@ -1,7 +1,7 @@
 ﻿//! Block headers, blocks, and their proof-of-work binding.
 
 use crate::core::codec::ByteReader;
-use crate::core::transaction::{ChainTag, Transaction};
+use crate::core::transaction::Transaction;
 use crate::crypto::argon_blake::{HASH_LEN, argon_blake_hash};
 use crate::crypto::dag::hashimoto::hashimoto_light;
 use crate::crypto::dag::registry::CacheRegistry;
@@ -247,47 +247,41 @@ impl Block {
     /// The tree is `state::merkle`'s: tagged internal nodes and a promoted,
     /// never duplicated, odd node, so two different transaction lists cannot
     /// share a root (the CVE-2012-2459 shape). Each txid covers the whole
-    /// Computes the transaction root from all transactions using the provided chain tag.
-    ///
-    /// The txid computation includes the chain tag (ADR-036), so all calls must
-    /// use the same tag for consistency. This is the root committed in the block header.
+    /// transaction, signatures included. An empty block roots to all zeros.
     #[must_use]
-    pub fn tx_root(&self, chain: &ChainTag) -> [u8; HASH_LEN] {
-        Self::root_of(&self.transactions, chain)
+    pub fn tx_root(&self) -> [u8; HASH_LEN] {
+        Self::root_of(&self.transactions)
     }
 
-    fn leaves(transactions: &[Transaction], chain: &ChainTag) -> Vec<[u8; HASH_LEN]> {
+    fn leaves(transactions: &[Transaction]) -> Vec<[u8; HASH_LEN]> {
         transactions
             .iter()
-            .map(|transaction| transaction_leaf(&transaction.txid(chain)))
+            .map(|transaction| transaction_leaf(&transaction.txid()))
             .collect()
     }
 
-    fn root_of(transactions: &[Transaction], chain: &ChainTag) -> [u8; HASH_LEN] {
-        merkle_root(&Self::leaves(transactions, chain))
+    fn root_of(transactions: &[Transaction]) -> [u8; HASH_LEN] {
+        merkle_root(&Self::leaves(transactions))
     }
 
     /// Inclusion path for the transaction at `index`, against the header's
-    /// `tx_root`. The path must be verified using the same chain tag used to
-    /// compute `tx_root()` to ensure consistency.
+    /// `tx_root`.
     ///
-    /// Check it with `state::merkle::verify_path(&transaction_leaf(&txid(chain)), &path)`,
-    /// which must reproduce `tx_root(chain)`. Returns `None` if `index` is out of range.
+    /// Check it with `state::merkle::verify_path(&transaction_leaf(&txid), &path)`,
+    /// which must reproduce `tx_root`. Returns `None` if `index` is out of range.
     #[must_use]
-    pub fn tx_inclusion_path(&self, index: usize, chain: &ChainTag) -> Option<Vec<PathStep>> {
-        merkle_path(&Self::leaves(&self.transactions, chain), index)
+    pub fn tx_inclusion_path(&self, index: usize) -> Option<Vec<PathStep>> {
+        merkle_path(&Self::leaves(&self.transactions), index)
     }
 
-    /// Checks that the transactions carried are the ones the header commits to.
-    ///
-    /// The tx_root computation includes the chain tag (ADR-036), so the same tag
-    /// must be used for all lookups and verification to ensure consistency.
+    /// Checks that the transactions carried are the ones the header commits
+    /// to.
     ///
     /// # Errors
     ///
     /// Returns [`NodeError::TxRootMismatch`] if they are not.
-    pub fn check_tx_root(&self, chain: &ChainTag) -> Result<()> {
-        let actual = self.tx_root(chain);
+    pub fn check_tx_root(&self) -> Result<()> {
+        let actual = self.tx_root();
         if actual != self.header.tx_root {
             return Err(NodeError::TxRootMismatch {
                 expected: hex::encode(self.header.tx_root),
