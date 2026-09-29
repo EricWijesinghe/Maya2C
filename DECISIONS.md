@@ -75,3 +75,11 @@ The owner asked for "anyone to start mining". ADR-016 makes DAG-BFT the only
 production consensus, and emission is nil (ADR-029). The mining guide states
 this plainly instead of inviting people to mine; the conflict is reported to
 Eric in the session report.
+
+## 2026-09-30 — Mainnet v1 launches without private transfers
+
+An investor will fund once mainnet is live. Eric chose "mainnet v1 without
+private transfers" over waiting for the full audit or launching as-is. The
+shielded pool stays off at genesis and turns on at a scheduled height after
+an audit. Launch gates, and three lanes for three sessions, are in
+docs/mainnet-v1-plan.md.
