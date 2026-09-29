@@ -28,7 +28,7 @@ use super::remote::ValidatorKey;
 use super::store::SafetyStore;
 use super::wire::{BROADCAST, Envelope};
 use crate::consensus::{BlockId, Chain, InsertOutcome};
-use crate::core::{ChainTag, Transaction};
+use crate::core::Transaction;
 use crate::crypto::keys::VerifyingKey;
 use crate::error::{NodeError, Result};
 
@@ -246,9 +246,8 @@ impl BftDriver {
     }
 
     /// Queues `tx` for a future vertex, once. An observer queues nothing.
-    pub fn submit(&mut self, tx: &Transaction, chain: &Chain) {
-        let tag = ChainTag::from_genesis(chain.genesis());
-        if self.id.is_some() && self.queued.insert(tx.txid(&tag)) {
+    pub fn submit(&mut self, tx: &Transaction) {
+        if self.id.is_some() && self.queued.insert(tx.txid()) {
             self.engine.submit(tx.to_bytes());
         }
     }
@@ -342,9 +341,8 @@ impl BftDriver {
             let anchor_time = anchor.timestamp_ms;
             let started = std::time::Instant::now();
             let block = build_block(chain, &sub_dag)?;
-            let tag = ChainTag::from_genesis(chain.genesis());
             let included: Vec<[u8; 32]> =
-                block.transactions.iter().map(|tx| tx.txid(&tag)).collect();
+                block.transactions.iter().map(|tx| tx.txid()).collect();
             let kept: BTreeSet<[u8; 32]> = included.iter().copied().collect();
             for tx in sub_dag
                 .certificates
@@ -353,7 +351,7 @@ impl BftDriver {
                 .flat_map(|c| c.vertex.batch.iter())
                 .filter_map(|bytes| Transaction::from_bytes(bytes).ok())
             {
-                let id = tx.txid(&tag);
+                let id = tx.txid();
                 if !kept.contains(&id) && self.queued.remove(&id) {
                     step.dropped.push(tx);
                 }

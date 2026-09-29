@@ -26,7 +26,7 @@ use std::collections::BTreeSet;
 use maya_dag_bft::SubDag;
 
 use crate::consensus::Chain;
-use crate::core::{Block, ChainTag, Transaction};
+use crate::core::{Block, Transaction};
 use crate::error::Result;
 use crate::state::context::BlockContext;
 
@@ -48,15 +48,14 @@ pub const fn unseal(nonce: u64) -> (u64, u64) {
 /// Decodes every payload in commit order and drops what is not a transaction
 /// or repeats one already seen. Validators propose from their own mempools,
 /// so the same transaction arriving in two vertices is the normal case.
-fn ordered_transactions(sub_dag: &SubDag, chain: &Chain) -> Vec<Transaction> {
-    let tag = ChainTag::from_genesis(chain.genesis());
+fn ordered_transactions(sub_dag: &SubDag) -> Vec<Transaction> {
     let mut seen = BTreeSet::new();
     sub_dag
         .certificates
         .iter()
         .flat_map(|c| c.vertex.batch.iter())
         .filter_map(|bytes| Transaction::from_bytes(bytes).ok())
-        .filter(|tx| seen.insert(tx.txid(&tag)))
+        .filter(|tx| seen.insert(tx.txid()))
         .collect()
 }
 
@@ -99,7 +98,7 @@ pub fn build_block(chain: &Chain, sub_dag: &SubDag) -> Result<Block> {
     let target = chain.next_target(&chain.tip())?;
     let kept = chain
         .state()
-        .select_applicable(ordered_transactions(sub_dag, chain), context, target);
+        .select_applicable(ordered_transactions(sub_dag), context, target);
     let nonce = seal(anchor.epoch, anchor.round);
     match chain.candidate_block_sealed(timestamp, kept, nonce) {
         Ok(block) => Ok(block),
