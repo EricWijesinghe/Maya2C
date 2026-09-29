@@ -5,7 +5,8 @@ use jsonrpsee::core::client::{ClientT, Error as ClientError};
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
 
-use custom_l1_node::rpc::{AccountInfo, FeeInfo, HtlcLockInfo, SubmitTransactionResult};
+use custom_l1_node::core::ChainTag;
+use custom_l1_node::rpc::{AccountInfo, ChainInfo, FeeInfo, HtlcLockInfo, SubmitTransactionResult};
 use maya_htlc_lattice::Address;
 
 use crate::chain::{Fees, LockView, SwapChain};
@@ -113,5 +114,18 @@ impl SwapChain for RpcChain {
             base_fee: info.base_fee,
             collector,
         }))
+    }
+
+    async fn chain_tag(&self) -> Result<ChainTag> {
+        let info: ChainInfo = self
+            .client
+            .request("get_chain_info", rpc_params![])
+            .await
+            .map_err(|e| self.failure("get_chain_info", e))?;
+        let genesis_bytes = hex::decode(&info.genesis)
+            .map_err(|e| WatcherError::Rpc(format!("{} chain_tag: decode genesis: {e}", self.url)))?;
+        let genesis_array: [u8; 32] = genesis_bytes.try_into()
+            .map_err(|_| WatcherError::Rpc(format!("{} chain_tag: genesis must be 32 bytes", self.url)))?;
+        Ok(ChainTag::from_genesis(genesis_array))
     }
 }

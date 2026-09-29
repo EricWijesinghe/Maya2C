@@ -7,7 +7,7 @@ use std::time::Duration;
 use tokio::sync::watch;
 
 use custom_l1_node::core::htlc_payload::{HtlcClaim, HtlcLock, HtlcRefund};
-use custom_l1_node::core::{TxKind, TxOutput};
+use custom_l1_node::core::{ChainTag, TxKind, TxOutput};
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
 use custom_l1_node::state::htlc::derive_lock_id;
 use maya_htlc_lattice::{Address, CommitmentId, Lock, SwapSecret};
@@ -503,6 +503,8 @@ fn claim_fee(key: &HybridSigningKey, fees: crate::chain::Fees) -> Result<u64> {
         lock_id: [0; 32],
         unlock: maya_htlc_lattice::Unlock::Preimage(maya_htlc_lattice::Preimage::new([0; 32])),
     }));
-    let tx = crate::submit::sign_with_fee(&probe, Vec::new(), 0, key, Some(fees))?;
+    // Use a test chain tag for fee estimation (the actual tag is fetched from the chain)
+    let test_tag = ChainTag::from_genesis([0; 32]);
+    let tx = crate::submit::sign_with_fee(&probe, Vec::new(), 0, key, &test_tag, Some(fees))?;
     Ok(tx.outputs.last().map_or(0, |fee| fee.amount))
 }

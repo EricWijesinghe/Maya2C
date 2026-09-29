@@ -17,7 +17,7 @@
 //!   `custom_l1_node::state::stateless`.
 //! - **Fetch witnesses.** No gossip topic carries them yet.
 
-use custom_l1_node::core::BlockHeader;
+use custom_l1_node::core::{BlockHeader, ChainTag};
 use custom_l1_node::core::block::Block;
 use custom_l1_node::state::{StateWitness, StatelessError, verify_block};
 

@@ -18,8 +18,9 @@ use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
 
+use custom_l1_node::core::ChainTag;
 use custom_l1_node::rpc::{
-    AccountInfo, BlockInfo, MiningCandidate, SubmitBlockResult, SubmitTransactionResult,
+    AccountInfo, BlockInfo, ChainInfo, MiningCandidate, SubmitBlockResult, SubmitTransactionResult,
 };
 
 use crate::error::{PoolError, Result};
@@ -158,6 +159,24 @@ impl NodeClient {
             Err(_) => Ok(None),
         }
     }
+
+    /// Fetches the chain's genesis block id (for signing transactions).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PoolError::NodeRpc`] on a transport or parsing failure.
+    pub async fn get_chain_tag(&self) -> Result<ChainTag> {
+        let info: ChainInfo = self
+            .client
+            .request("get_chain_info", rpc_params![])
+            .await
+            .map_err(|e| PoolError::NodeRpc(format!("get_chain_info: {e}")))?;
+        let genesis_bytes = hex::decode(&info.genesis)
+            .map_err(|e| PoolError::NodeRpc(format!("chain_tag: decode genesis: {e}")))?;
+        let genesis_array: [u8; 32] = genesis_bytes.try_into()
+            .map_err(|_| PoolError::NodeRpc("chain_tag: genesis must be 32 bytes".to_string()))?;
+        Ok(ChainTag::from_genesis(genesis_array))
+    }
 }
 
 /// The chain, as the payout engine needs it.
@@ -188,6 +207,10 @@ impl crate::payout::ChainView for NodeClient {
 
     async fn broadcast(&self, raw: &[u8]) -> Result<String> {
         self.send_raw_transaction(raw).await
+    }
+
+    async fn chain_tag(&self) -> Result<ChainTag> {
+        self.get_chain_tag().await
     }
 }
 
