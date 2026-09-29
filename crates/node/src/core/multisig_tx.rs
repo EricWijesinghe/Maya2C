@@ -22,15 +22,17 @@ use maya_crypto_pq::multisig::{Approval, MAX_SIGNERS, MultisigPolicy};
 
 use crate::core::codec::ByteReader;
 use crate::core::payload::TxKind;
-use crate::core::transaction::Transaction;
+use crate::core::transaction::{ChainTag, Transaction};
 use crate::crypto::suites;
 use crate::error::{NodeError, Result};
 
 /// The wire version byte of a multisig transaction.
 pub const WIRE_VERSION_MULTISIG: u8 = 8;
 
-/// Signing domain; shares nothing with v3 hybrid or v7 suite signing.
-const TX_DOMAIN_MULTISIG: &[u8] = b"custom-l1-node.tx.multisig.v1";
+/// Signing domain; bumped to v2 with chain-bound signatures (ADR-036).
+/// Multisig transactions now commit to the chain's genesis block id to prevent
+/// cross-chain replay attacks.
+const TX_DOMAIN_MULTISIG: &[u8] = b"custom-l1-node.tx.multisig.v2";
 
 /// Domain for a multisig account address, distinct from both other address
 /// derivations so no key and no policy can name the same account.
@@ -99,10 +101,14 @@ pub fn multisig_address(policy: &MultisigPolicy) -> [u8; 32] {
 }
 
 /// The bytes every approver signs.
-pub(crate) fn signing_bytes(tx: &Transaction, auth: &MultisigAuth) -> Vec<u8> {
+///
+/// Includes the chain tag (ADR-036) to bind the signature to a specific chain,
+/// preventing cross-chain replay attacks.
+pub(crate) fn signing_bytes(tx: &Transaction, auth: &MultisigAuth, chain: &ChainTag) -> Vec<u8> {
     let policy = auth.policy.encode();
-    let mut buf = Vec::with_capacity(TX_DOMAIN_MULTISIG.len() + 32 + policy.len());
+    let mut buf = Vec::with_capacity(TX_DOMAIN_MULTISIG.len() + 32 + 32 + policy.len());
     buf.extend_from_slice(TX_DOMAIN_MULTISIG);
+    buf.extend_from_slice(&chain.0);
     tx.encode_io_into(&mut buf);
     buf.extend_from_slice(&policy);
     buf.extend_from_slice(&tx.nonce.to_le_bytes());
@@ -198,11 +204,14 @@ pub(crate) fn decode(reader: &mut ByteReader<'_>) -> Result<Transaction> {
 }
 
 /// v8 verification: activation and every member's suite, then the quorum.
+///
+/// The signatures must commit to the provided chain tag (ADR-036).
 pub(crate) fn verify_at(
     tx: &Transaction,
     auth: &MultisigAuth,
     height: u64,
     policy: &SuitePolicy,
+    chain: &ChainTag,
 ) -> Result<()> {
     // Every listed key, not only the approvers: a policy naming a suite the
     // chain has retired is an account that must migrate, and letting the
@@ -211,6 +220,6 @@ pub(crate) fn verify_at(
         suites::check_admissible(policy, key.suite, height)?;
     }
     auth.policy
-        .verify(&signing_bytes(tx, auth), &auth.approvals)
+        .verify(&signing_bytes(tx, auth, chain), &auth.approvals)
         .map_err(|e| NodeError::SignatureSuite(e.to_string()))
 }

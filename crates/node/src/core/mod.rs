@@ -33,4 +33,4 @@ pub use payload::{
     ChannelClosure, ChannelId, ChannelOpen, ContractCall, ContractDeploy, RevocationProof, TxKind,
 };
 pub use sealed_payload::{RevealShare, SealedEnvelope, derive_envelope_id, envelope_aad};
-pub use transaction::{Transaction, TxInput, TxOutput};
+pub use transaction::{ChainTag, Transaction, TxInput, TxOutput};

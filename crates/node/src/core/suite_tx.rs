@@ -19,16 +19,17 @@ use maya_crypto_pq::suite::{self as pq_suite, SignatureSuite, SuiteId};
 
 use crate::core::codec::ByteReader;
 use crate::core::payload::TxKind;
-use crate::core::transaction::Transaction;
+use crate::core::transaction::{ChainTag, Transaction};
 use crate::crypto::suites;
 use crate::error::{NodeError, Result};
 
 /// The wire version byte of a suite-tagged transaction.
 pub const WIRE_VERSION_SUITE: u8 = 7;
 
-/// Signing domain for suite-tagged transactions; distinct from the hybrid
-/// `custom-l1-node.tx.v3`, so the two eras share no signing surface.
-const TX_DOMAIN_SUITE: &[u8] = b"custom-l1-node.tx.suite.v1";
+/// Signing domain for suite-tagged transactions; bumped to v2 with chain-bound
+/// signatures (ADR-036). Suite-tagged transactions now commit to the chain's
+/// genesis block id to prevent cross-chain replay.
+const TX_DOMAIN_SUITE: &[u8] = b"custom-l1-node.tx.suite.v2";
 
 /// One suite's key and signature, as a v7 transaction carries them.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -61,9 +62,13 @@ fn read_exact_len(reader: &mut ByteReader<'_>, expected: usize, what: &str) -> R
 }
 
 /// The bytes a v7 signature covers.
-pub(crate) fn signing_bytes(tx: &Transaction, auth: &SuiteAuth) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(TX_DOMAIN_SUITE.len() + 32 + auth.public_key.len());
+///
+/// Includes the chain tag (ADR-036) to bind the signature to a specific chain,
+/// preventing cross-chain replay attacks.
+pub(crate) fn signing_bytes(tx: &Transaction, auth: &SuiteAuth, chain: &ChainTag) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(TX_DOMAIN_SUITE.len() + 32 + 32 + auth.public_key.len());
     buf.extend_from_slice(TX_DOMAIN_SUITE);
+    buf.extend_from_slice(&chain.0);
     tx.encode_io_into(&mut buf);
     buf.push(auth.suite.to_byte());
     write_len(&mut buf, auth.public_key.len());
@@ -149,10 +154,17 @@ pub(crate) fn decode(reader: &mut ByteReader<'_>) -> Result<Transaction> {
 impl Transaction {
     /// Signs as a suite-tagged (v7) transaction under suite `S`.
     ///
+    /// The signature commits to the chain tag, binding it to a specific chain
+    /// and preventing cross-chain replay (ADR-036).
+    ///
     /// # Errors
     ///
     /// [`NodeError::SignatureSuite`] if the backend refuses to sign.
-    pub fn sign_with_suite<S: SignatureSuite>(&mut self, key: &S::SigningKey) -> Result<()> {
+    pub fn sign_with_suite<S: SignatureSuite>(
+        &mut self,
+        key: &S::SigningKey,
+        chain: &ChainTag,
+    ) -> Result<()> {
         // Built and signed on the side, then installed: on failure `self` is
         // exactly as it was, never a half-built unsigned v7 frame.
         let draft = SuiteAuth {
@@ -160,7 +172,7 @@ impl Transaction {
             public_key: S::public_key(key),
             signature: None,
         };
-        let signature = S::sign(key, &signing_bytes(self, &draft))
+        let signature = S::sign(key, &signing_bytes(self, &draft, chain))
             .map_err(|e| NodeError::SignatureSuite(e.to_string()))?;
         self.suite_auth = Some(Box::new(SuiteAuth {
             signature: Some(signature),
@@ -173,11 +185,13 @@ impl Transaction {
     /// the activation gate, the policy, then the suite's signature; for v8 the
     /// gate and policy for every listed key, then the quorum.
     ///
+    /// The signature must commit to the provided chain tag (ADR-036).
+    ///
     /// # Errors
     ///
     /// As [`Transaction::verify`] for hybrid transactions;
     /// [`NodeError::SignatureSuite`] or [`NodeError::MissingSignature`] for v7.
-    pub fn verify_at(&self, height: u64, policy: &SuitePolicy) -> Result<()> {
+    pub fn verify_at(&self, height: u64, policy: &SuitePolicy, chain: &ChainTag) -> Result<()> {
         if let Some(multisig) = &self.multisig {
             // One authorization per transaction: a frame carrying two would
             // let the signed bytes and the checked authority disagree.
@@ -186,10 +200,10 @@ impl Transaction {
                     "a multisig transaction carries no other authorization".into(),
                 ));
             }
-            return crate::core::multisig_tx::verify_at(self, multisig, height, policy);
+            return crate::core::multisig_tx::verify_at(self, multisig, height, policy, chain);
         }
         let Some(auth) = &self.suite_auth else {
-            return self.verify();
+            return self.verify(chain);
         };
         suites::check_admissible(policy, auth.suite, height)?;
         let signature = auth
@@ -199,7 +213,7 @@ impl Transaction {
         pq_suite::verify(
             auth.suite,
             &auth.public_key,
-            &self.signing_bytes(),
+            &signing_bytes(self, auth, chain),
             signature,
         )
         .map_err(|e| NodeError::SignatureSuite(e.to_string()))
