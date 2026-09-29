@@ -100,19 +100,28 @@ pub fn multisig_address(policy: &MultisigPolicy) -> [u8; 32] {
     *hasher.finalize().as_bytes()
 }
 
-/// The bytes every approver signs.
-///
-/// Includes the chain tag (ADR-036) to bind the signature to a specific chain,
-/// preventing cross-chain replay attacks.
-pub(crate) fn signing_bytes(tx: &Transaction, auth: &MultisigAuth, chain: &ChainTag) -> Vec<u8> {
+/// The bytes a multisig transaction encodes without domain or chain tag.
+fn body_bytes(tx: &Transaction, auth: &MultisigAuth) -> Vec<u8> {
     let policy = auth.policy.encode();
-    let mut buf = Vec::with_capacity(TX_DOMAIN_MULTISIG.len() + 32 + 32 + policy.len());
-    buf.extend_from_slice(TX_DOMAIN_MULTISIG);
-    buf.extend_from_slice(&chain.0);
+    let mut buf = Vec::with_capacity(32 + policy.len());
     tx.encode_io_into(&mut buf);
     buf.extend_from_slice(&policy);
     buf.extend_from_slice(&tx.nonce.to_le_bytes());
     tx.kind.encode_into(&mut buf);
+    buf
+}
+
+/// The bytes every approver signs.
+///
+/// Structure: TX_DOMAIN || chain_tag || body_bytes()
+/// Includes the chain tag (ADR-036) to bind the signature to a specific chain,
+/// preventing cross-chain replay attacks.
+pub(crate) fn signing_bytes(tx: &Transaction, auth: &MultisigAuth, chain: &ChainTag) -> Vec<u8> {
+    let body = body_bytes(tx, auth);
+    let mut buf = Vec::with_capacity(TX_DOMAIN_MULTISIG.len() + 32 + body.len());
+    buf.extend_from_slice(TX_DOMAIN_MULTISIG);
+    buf.extend_from_slice(&chain.0);
+    buf.extend_from_slice(&body);
     buf
 }
 
