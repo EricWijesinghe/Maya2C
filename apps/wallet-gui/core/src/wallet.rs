@@ -16,7 +16,9 @@ use zeroize::Zeroizing;
 
 use crate::error::{Result, WalletError};
 use crate::hd::{self, DerivationPath, SEED_LEN};
-use crate::payment::{SignedTransfer, sign_transfer};
+use crate::payment::{
+    SignedTransfer, check_fee_collector, sign_transfer, sign_transfer_to, transfer_size,
+};
 
 /// A derived account.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -127,17 +129,27 @@ impl Wallet {
     /// # Errors
     ///
     /// Propagates derivation and signing failures.
+    ///
+    /// `fee_to` is the fee collector from [`fee_quote`] on a fee-market chain;
+    /// `None` burns the fee, which only a chain without fees accepts.
     pub fn sign(
         &mut self,
         index: u32,
         recipient: &str,
         amount: u64,
         fee: u64,
+        fee_to: Option<&str>,
         nonce: u64,
     ) -> Result<SignedTransfer> {
         let path = DerivationPath::account(0, index);
         let signing_key = hd::signing_key_at(self.seed.as_ref(), &path)?;
-        let transfer = sign_transfer(&signing_key, recipient, amount, fee, nonce)?;
+        let transfer = match fee_to {
+            Some(collector) => {
+                check_fee_collector(collector)?;
+                sign_transfer_to(&signing_key, recipient, amount, fee, collector, nonce)?
+            }
+            None => sign_transfer(&signing_key, recipient, amount, fee, nonce)?,
+        };
 
         self.history.push(PendingTransfer {
             transfer: transfer.clone(),
@@ -146,6 +158,17 @@ impl Wallet {
         });
 
         Ok(transfer)
+    }
+
+    /// Bytes a fee-paying transfer from account `index` will occupy.
+    ///
+    /// # Errors
+    ///
+    /// Propagates derivation, address and signing failures.
+    pub fn transfer_size(&self, index: u32, fee_to: &str, nonce: u64) -> Result<u64> {
+        let path = DerivationPath::account(0, index);
+        let signing_key = hd::signing_key_at(self.seed.as_ref(), &path)?;
+        transfer_size(&signing_key, fee_to, nonce)
     }
 
     /// Signed transfers, newest first.
@@ -191,6 +214,42 @@ pub async fn broadcast(node_url: &str, raw_hex: &str) -> Result<String> {
         .and_then(|txid| txid.as_str())
         .map(str::to_string)
         .ok_or_else(|| WalletError::Node(format!("unexpected response: {result}")))
+}
+
+/// What a node charges, and where the fee goes (ADR-029).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FeeQuote {
+    /// Whether this chain charges fees at all.
+    pub active: bool,
+    /// Base fee per serialized byte for the next block.
+    pub base_fee: u64,
+    /// Hex address the fee output must pay.
+    pub collector: String,
+}
+
+/// Reads the node's current fee terms.
+///
+/// # Errors
+///
+/// Returns [`WalletError::Node`] if the node is unreachable.
+pub async fn fee_quote(node_url: &str) -> Result<FeeQuote> {
+    let client = HttpClientBuilder::default()
+        .build(node_url)
+        .map_err(|e| WalletError::Node(format!("connecting to {node_url}: {e}")))?;
+
+    let info: custom_l1_node::rpc::FeeInfo = client
+        .request("get_fee_info", rpc_params![])
+        .await
+        .map_err(|e| WalletError::Node(e.to_string()))?;
+
+    if info.active {
+        check_fee_collector(&info.collector)?;
+    }
+    Ok(FeeQuote {
+        active: info.active,
+        base_fee: info.base_fee,
+        collector: info.collector,
+    })
 }
 
 /// Reads an account's balance and next nonce from a node.
