@@ -15,6 +15,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use std::sync::OnceLock;
 
 use crate::config::StorageConfig;
 use maya_crypto_pq::agility::SuitePolicy;
@@ -24,7 +25,7 @@ use maya_ledger_math as ledger_math;
 use rocksdb::{BlockBasedOptions, Cache, DB, IteratorMode, Options, WriteBatch};
 
 use crate::core::payload::ChannelId;
-use crate::core::{Block, Transaction};
+use crate::core::{Block, ChainTag, Transaction};
 use crate::error::{NodeError, Result};
 use crate::state::account::{Account, Address};
 use crate::state::balance_changes;
@@ -240,6 +241,10 @@ pub struct StateDB {
     /// The last block preview, reused when that block is applied unchanged
     /// (`state::preview`), and the write generation it is checked against.
     preview: crate::state::preview::PreviewCache,
+    /// The genesis block id of the chain this state is bound to.
+    /// Set once on initialization and required for all transaction verification
+    /// (ADR-036: chain-bound signatures).
+    chain_tag: OnceLock<ChainTag>,
 }
 
 impl StateDB {
@@ -294,7 +299,35 @@ impl StateDB {
             db,
             verified: crate::state::verified::VerifiedCache::default(),
             preview: crate::state::preview::PreviewCache::default(),
+            chain_tag: OnceLock::new(),
         })
+    }
+
+    /// Binds this state database to a chain by setting its genesis block id.
+    ///
+    /// Must be called once at startup before any verification occurs.
+    /// Called a second time with a different tag returns an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Storage`] if the tag is already set to a different value.
+    pub fn bind_chain(&self, tag: ChainTag) -> Result<()> {
+        self.chain_tag.set(tag).map_err(|_existing| {
+            NodeError::Storage(
+                "StateDB chain tag already bound; cannot rebind to a different chain".into(),
+            )
+        })
+    }
+
+    /// Returns the chain tag this database is bound to, or an error if not yet bound.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Storage`] if bind_chain() has not been called yet.
+    pub(crate) fn get_chain_tag(&self) -> Result<&ChainTag> {
+        self.chain_tag
+            .get()
+            .ok_or_else(|| NodeError::Storage("StateDB not bound to a chain".into()))
     }
 
     /// Reads an account, returning [`Account::default`] for an unknown address.
