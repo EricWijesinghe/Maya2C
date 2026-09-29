@@ -182,9 +182,8 @@ async fn gather_hashrate(store: &Arc<dyn BlockStore>) -> Result<Vec<HashratePoin
 
 async fn dashboard(State(state): State<AppState>) -> Result<Response> {
     let stats = gather_stats(&state.store).await?;
-    let points = gather_hashrate(&state.store).await?;
     let blocks = state.store.latest_blocks(LIST_LIMIT).await?;
-    Ok(html(ui::dashboard_page(stats, points, blocks)))
+    Ok(html(ui::dashboard_page(stats, blocks)))
 }
 
 async fn blocks(State(state): State<AppState>) -> Result<Response> {

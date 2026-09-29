@@ -140,7 +140,7 @@ async fn the_dashboard_renders_with_live_figures() {
     // a loophole — an image that is the entire content of the home link needs
     // alt text or the link announces itself as unlabelled.
     assert!(body.contains("Maya2C"));
-    assert!(body.contains("Hash rate"));
+    assert!(body.contains("Block time"));
     // Height 9 is the tip of ten blocks.
     assert!(body.contains("stat-height"));
     assert!(body.contains(">9<"), "the tip height is not rendered");
@@ -155,8 +155,11 @@ async fn the_dashboard_renders_with_an_empty_index() {
     let (status, body) = get(&format!("{}/", h.base)).await;
 
     assert_eq!(status, 200);
-    assert!(body.contains("Hash rate"));
-    assert!(body.contains("0 H/s"), "an empty index should read zero");
+    assert!(body.contains("Block time"));
+    assert!(
+        body.contains("Blocks / min"),
+        "an empty index still renders its tiles"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -537,7 +540,7 @@ async fn a_deployment_without_an_assets_directory_still_serves_pages() {
     let base = format!("http://{}", server.address);
     let (status, body) = get(&format!("{base}/")).await;
     assert_eq!(status, 200);
-    assert!(body.contains("Hash rate"));
+    assert!(body.contains("Block time"));
 
     let (status, _) = get(&format!("{base}/favicon.ico")).await;
     assert_eq!(
