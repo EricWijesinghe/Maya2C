@@ -31,13 +31,27 @@ fn start_relay(home: &Path) -> (Relay, String) {
         .expect("spawn relay");
     let stdout = child.stdout.take().expect("stdout");
     let relay = Relay(child);
-    let line = BufReader::new(stdout)
-        .lines()
-        .map(|l| l.expect("read relay output"))
-        .find(|l| l.starts_with("relay listening on /ip4/127.0.0.1/"))
-        .expect("relay printed its address");
-    let address = line.trim_start_matches("relay listening on ").to_owned();
+    let address = listen_address(stdout, |a| a.starts_with("/ip4/127.0.0.1/"));
     (relay, address)
+}
+
+/// The first announced address matching `want`. The rest of the relay's
+/// output keeps being read on a thread: a relay whose stdout was closed
+/// under it once failed CI by dying mid-test.
+fn listen_address(stdout: std::process::ChildStdout, want: impl Fn(&str) -> bool) -> String {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            let Ok(line) = line else { break };
+            if let Some(addr) = line.strip_prefix("relay listening on ") {
+                // The receiver is gone once the test has its address.
+                let _ = tx.send(addr.to_owned());
+            }
+        }
+    });
+    rx.iter()
+        .find(|a| want(a))
+        .expect("relay printed its address")
 }
 
 fn run(home: &Path, args: &[&str]) -> String {
@@ -204,12 +218,9 @@ fn a_relay_serves_over_websocket_as_well() {
         .expect("spawn relay");
     let stdout = child.stdout.take().expect("stdout");
     let _relay = Relay(child);
-    let ws = BufReader::new(stdout)
-        .lines()
-        .map(|l| l.expect("read relay output"))
-        .filter_map(|l| l.strip_prefix("relay listening on ").map(str::to_owned))
-        .find(|a| a.starts_with("/ip4/127.0.0.1/") && a.contains("/ws/"))
-        .expect("a /ws listen address");
+    let ws = listen_address(stdout, |a| {
+        a.starts_with("/ip4/127.0.0.1/") && a.contains("/ws/")
+    });
     let (alice, bob) = (dir.path().join("alice"), dir.path().join("bob"));
     let alice_addr = run(&alice, &["init"]).trim().to_owned();
     let bob_addr = run(&bob, &["init"]).trim().to_owned();
