@@ -10,6 +10,7 @@
 #   maya2c-validator@0..3   four DAG-BFT validators (RPC on 127.0.0.1 only)
 #   maya2c-gateway          REST/GraphQL, the only public HTTP surface
 #   maya-chat-relay         Maya Chat store-and-forward relay (ADR-031)
+#   maya2c-faucet           rate-limited test coins (seed mode only)
 #   caddy                   TLS for the gateway, when DOMAIN is set
 #
 # Four validators on one machine is a single-operator testnet: it has
@@ -54,6 +55,9 @@ P2P_BASE=31100
 GATEWAY_LOCAL=127.0.0.1:8080
 CHAT_PORT=4001
 GENESIS_BALANCE=10000000
+FAUCET_BALANCE=5000000
+FAUCET_LOCAL=127.0.0.1:8090
+FAUCET_PORT=8090
 BOND=100000
 
 DRY_RUN="${DRY_RUN:-0}"
@@ -125,8 +129,8 @@ build() {
     # dag-bft only, no devnet mining flag. A testnet that runs a different
     # binary from mainnet tests the wrong thing.
     run "${cargo[@]}" -p maya2c-node --no-default-features --features production
-    run "${cargo[@]}" -p l1-wallet -p maya-api-gateway -p maya-chat
-    for b in maya2c-node l1-wallet maya2c-gateway maya-chat; do
+    run "${cargo[@]}" -p l1-wallet -p maya-api-gateway -p maya-chat -p maya-faucet
+    for b in maya2c-node l1-wallet maya2c-gateway maya-chat maya-faucet; do
         run install -m 0755 "$REPO/target/release/$b" "$BIN/$b"
     done
 }
@@ -194,14 +198,24 @@ genesis() {
         [ -n "$address" ] || die "l1-wallet generate printed no address"
         chmod 0600 "$CONF/wallet.key" "$CONF/wallet.password"
     fi
+    # The faucet's key: generated here, readable by root only, loaded by
+    # systemd into the faucet's environment. Only its address is printed.
+    local faucet
+    if [ "$DRY_RUN" = 1 ]; then
+        faucet="<faucet-address>"
+    else
+        faucet="$("$BIN/maya-faucet" generate-key "$CONF/faucet.env" | tr -d '[:space:]')"
+        [ -n "$faucet" ] || die "maya-faucet generate-key printed no address"
+    fi
     local validators bonds
     validators=$(printf '%s\n' "${keys[@]}" | jq -R . | jq -sc .)
     bonds=$(printf '%s\n' "${keys[@]}" | jq -R --arg a "$address" --argjson b "$BOND" '{operator: $a, bond: $b}' | jq -sc .)
     local doc
     doc=$(jq -n --arg id "$chain_id" --arg addr "$address" --argjson v "$validators" --argjson bonds "$bonds" \
-        --argjson bal "$GENESIS_BALANCE" --argjson ts "$(date -u +%s)" '{
+        --argjson bal "$GENESIS_BALANCE" --arg faucet "$faucet" --argjson fbal "$FAUCET_BALANCE" \
+        --argjson ts "$(date -u +%s)" '{
         chain_id: $id, timestamp: $ts, difficulty_bits: 0, pow_limit_bits: 0,
-        allocations: [{address: $addr, balance: $bal}],
+        allocations: [{address: $addr, balance: $bal}, {address: $faucet, balance: $fbal}],
         bft: {validators: $v, anchor_timeout_ms: 1000, batch_size: 500,
               fees: {initial_base_fee: 1, min_base_fee: 1, target_block_bytes: 2621440, change_denominator: 8},
               staking: {epoch_blocks: 20, bonds: $bonds}}}')
@@ -213,7 +227,7 @@ genesis() {
 units() {
     log "installing systemd units"
     local unit_dir="$REPO/infra/testnet-vm/systemd" u
-    for u in maya2c-validator@.service maya2c-gateway.service maya-chat-relay.service; do
+    for u in maya2c-validator@.service maya2c-gateway.service maya-chat-relay.service maya2c-faucet.service; do
         run install -m 0644 "$unit_dir/$u" /etc/systemd/system/
     done
     local i p peers
@@ -244,6 +258,17 @@ units() {
     else
         printf 'MAYA_NODE_RPC=http://127.0.0.1:%s\nMAYA_GATEWAY_LISTEN=%s\n' "$RPC_BASE" "$listen" > "$CONF/gateway.env"
     fi
+    # Behind Caddy the faucet sees the proxy's address, so it keys its limits
+    # on the X-Forwarded-For Caddy sets; exposed directly, it must not trust
+    # that header, which any caller can forge.
+    local faucet_listen="0.0.0.0:$FAUCET_PORT" trust=false
+    [ -n "$DOMAIN" ] && { faucet_listen="$FAUCET_LOCAL"; trust=true; }
+    if [ "$DRY_RUN" = 1 ]; then
+        printf '[dry-run] write %s/faucet-config.env (listen %s, trust proxy %s)\n' "$CONF" "$faucet_listen" "$trust"
+    elif [ -f "$CONF/genesis.json" ]; then
+        printf 'MAYA_FAUCET_CHAIN=%s\nMAYA_FAUCET_NODE=http://127.0.0.1:%s\nMAYA_FAUCET_LISTEN=%s\nMAYA_FAUCET_TRUST_PROXY=%s\n' \
+            "$(jq -r .chain_id "$CONF/genesis.json")" "$RPC_BASE" "$faucet_listen" "$trust" > "$CONF/faucet-config.env"
+    fi
     run systemctl daemon-reload
 }
 
@@ -256,10 +281,7 @@ units() {
 fw_ports() {
     printf '%s
 ' "$P2P_BASE" "$CHAT_PORT"
-    if [ -n "$DOMAIN" ]; then printf '80
-443
-'; else printf '8080
-'; fi
+    if [ -n "$DOMAIN" ]; then printf '80\n443\n'; else printf '8080\n%s\n' "$FAUCET_PORT"; fi
 }
 
 fw_chain() { # $1 = iptables or ip6tables
@@ -307,6 +329,9 @@ tls() {
 \}
 }$DOMAIN {
     encode zstd gzip
+    handle_path /faucet/* {
+        reverse_proxy $FAUCET_LOCAL
+    }
     reverse_proxy $GATEWAY_LOCAL
 }"
     if [ "$DRY_RUN" = 1 ]; then printf '[dry-run] write /etc/caddy/Caddyfile:\n%s\n' "$site"; else printf '%s\n' "$site" > /etc/caddy/Caddyfile; fi
@@ -320,6 +345,11 @@ start() {
     for i in $(seq 0 $((VALIDATORS - 1))); do run systemctl enable "maya2c-validator@$i"; run systemctl restart "maya2c-validator@$i"; done
     run systemctl enable maya2c-gateway maya-chat-relay
     run systemctl restart maya2c-gateway maya-chat-relay
+    # Seed mode only: a joining node has no faucet key and funds nobody.
+    if [ -f "$CONF/faucet.env" ] || [ "$DRY_RUN" = 1 ]; then
+        run systemctl enable maya2c-faucet
+        run systemctl restart maya2c-faucet
+    fi
 }
 
 rpc() {
@@ -342,6 +372,14 @@ verify() {
                     || curl -fsS --max-time 5 -o /dev/null "http://127.0.0.1:8080/health" \
                     || die "the gateway does not answer /health (journalctl -u maya2c-gateway)"
                 log "gateway healthy"
+                if [ -f "$CONF/faucet.env" ]; then
+                    local fdeadline=$((SECONDS + 60))
+                    until curl -fsS --max-time 5 -o /dev/null "http://127.0.0.1:$FAUCET_PORT/health"; do
+                        [ $SECONDS -lt $fdeadline ] || die "the faucet does not answer /health (journalctl -u maya2c-faucet)"
+                        sleep 2
+                    done
+                    log "faucet healthy"
+                fi
                 return
             fi
         fi
@@ -364,6 +402,7 @@ summary() {
 [testnet] UP — $(jq -r .chain_id "$CONF/genesis.json")
   gateway      ${DOMAIN:+https://$DOMAIN}${DOMAIN:-http://$ip:8080}
   chat relay   $relay
+  faucet       ${DOMAIN:+https://$DOMAIN/faucet/request}${DOMAIN:-http://$ip:$FAUCET_PORT/request}   (POST {"address":"<hex>"})
   p2p (join)   /ip4/$ip/tcp/$P2P_BASE
   genesis      $CONF/genesis.json   sha256 $(sha256sum "$CONF/genesis.json" | cut -c1-64)
   wallet       $CONF/wallet.key (root only; password in $CONF/wallet.password)
