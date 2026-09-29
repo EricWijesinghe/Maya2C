@@ -123,7 +123,12 @@ pub fn router(state: AppState) -> Router {
         None => router,
     };
 
-    router.with_state(state)
+    // Any origin may read: everything here is public chain data, there are no
+    // credentials, and it is how maya2c.dev shows the network live. GET only.
+    let cors = tower_http::cors::CorsLayer::new()
+        .allow_origin(tower_http::cors::Any)
+        .allow_methods([axum::http::Method::GET]);
+    router.layer(cors).with_state(state)
 }
 
 // ---------------------------------------------------------------------------
