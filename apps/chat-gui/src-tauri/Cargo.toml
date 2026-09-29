@@ -1,0 +1,63 @@
+[package]
+name = "maya-chat-gui"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Maya Chat desktop app"
+
+# Standalone, not a host workspace member, for the wallet GUI's reason:
+# `tauri::generate_context!` checks the frontend at compile time.
+[workspace]
+
+[lib]
+name = "maya_chat_gui_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "maya-chat-gui"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+maya-chat = { path = "../../chat" }
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hex = "0.4"
+zeroize = "1"
+tokio = { version = "1", features = ["sync"] }
+libp2p = { version = "0.57", default-features = false }
+keyring = "4"
+blake3 = "1"
+chacha20poly1305 = "0.10"
+getrandom = "0.4"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
+# ---------------------------------------------------------------------------
+# Profiles
+# ---------------------------------------------------------------------------
+#
+# A crate with its own `[workspace]` table inherits **none** of the root
+# workspace's profiles. That is the whole reason this block exists: without it
+# this directory builds at cargo's defaults — `debug = 2` for every crate in
+# the graph, unoptimized dependencies — while the root tree builds at
+# `line-tables-only` with optimized dependencies.
+#
+# The cost was measured on 2026-09-20. `cargo xtask disk` reported 38.6 GiB
+# against a 30 GiB ceiling, and 19.5 GiB of that was nested workspaces a root
+# `cargo clean` never touches. This volume has been filled to zero bytes twice.
+#
+# Mirrors docs/adr/ADR-003-build-profiles.md. `opt-level = 3` on dependencies
+# is not tuning either: unoptimized post-quantum cryptography makes a test run
+# read as hung rather than slow (docs/invariants.md, invariant 5), and a
+# nested workspace hits that on its own.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 3
+debug = false

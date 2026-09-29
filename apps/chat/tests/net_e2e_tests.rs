@@ -171,3 +171,14 @@ fn an_interactive_chat_sends_lines_and_shows_replies() {
     assert_eq!(next(), format!("from {bob_addr}: hi back"));
     assert!(chat.0.wait().expect("wait").success());
 }
+
+#[test]
+fn a_relay_is_reachable_by_name() {
+    // `/dns4/localhost/...` resolves through the OS, as `seed1.maya2c.dev` will.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (_relay, relay) = start_relay(&dir.path().join("relay"));
+    let by_name = relay.replacen("/ip4/127.0.0.1/", "/dns4/localhost/", 1);
+    let bob = dir.path().join("bob");
+    run(&bob, &["init"]);
+    assert!(run(&bob, &["publish", "--relay", &by_name]).contains("published prekey"));
+}
