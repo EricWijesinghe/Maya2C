@@ -70,6 +70,12 @@ pub struct ChainConfig {
     /// under the old rules. Only this one entry matters to validation, which
     /// is what keeps the config `Copy`.
     pub unsupported_upgrade: Option<ProtocolUpgrade>,
+    /// Keep every block at its parent's difficulty target: no retarget and no
+    /// DAG activation pin. Set for DAG-BFT ([`ChainConfig::dag_bft`]), where
+    /// no work is verified and a retarget only did harm: one-second blocks
+    /// hardened the target every window until `total_work` saturated at
+    /// 2^256 - 1, and every later block became a side branch (ADR-035).
+    pub fixed_target: bool,
 }
 
 impl Default for ChainConfig {
@@ -79,6 +85,7 @@ impl Default for ChainConfig {
             pow_limit: default_pow_limit(),
             dag: DagConfig::MAINNET,
             unsupported_upgrade: None,
+            fixed_target: false,
         }
     }
 }
@@ -98,6 +105,22 @@ impl ChainConfig {
             pow_limit: unlimited_pow_limit(),
             dag: DagConfig::MAINNET,
             unsupported_upgrade: None,
+            fixed_target: false,
+        }
+    }
+
+    /// Configuration for a DAG-BFT chain: no work verified, and the target
+    /// fixed at genesis so total work grows by a constant per block.
+    ///
+    /// A block is derived from certificates by the node itself, never
+    /// imported, so the target certifies nothing. A retarget still ran before
+    /// ADR-035, and on one-second blocks it drove `total_work` to saturation
+    /// within about 12,500 blocks, after which the chain could not extend.
+    #[must_use]
+    pub fn dag_bft() -> Self {
+        Self {
+            fixed_target: true,
+            ..Self::without_pow_verification()
         }
     }
 
@@ -112,6 +135,7 @@ impl ChainConfig {
             pow_limit,
             dag: DagConfig::MAINNET,
             unsupported_upgrade: None,
+            fixed_target: false,
         }
     }
 
@@ -262,6 +286,12 @@ impl Chain {
     pub fn next_target(&self, parent_id: &BlockId) -> Result<[u8; 32]> {
         let parent = self.require(parent_id)?;
         let child_height = parent.height + 1;
+
+        if self.config.fixed_target {
+            return Ok(super::difficulty::dag_bft_target(
+                &parent.header.difficulty_target,
+            ));
+        }
 
         // The fork block does not inherit. The rule changing means the cost of
         // a hash changes by orders of magnitude, and a target calibrated for

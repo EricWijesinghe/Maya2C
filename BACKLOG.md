@@ -5,6 +5,20 @@ names its priority band (CLAUDE.md, Operating Protocol, "Choosing what to
 do next") and where it came from. Take from the top of the highest open
 band; move an item to PROGRESS.md when it starts.
 
+## P1 — security
+
+- **Transaction signatures do not commit to the chain (cross-chain replay).**
+  Found 2026-09-29. `Transaction::signing_bytes`
+  (`crates/node/src/core/transaction.rs:210`) covers `TX_DOMAIN` and the
+  transaction's fields, but no chain id or genesis hash. A transfer signed on
+  one Maya2C network is valid on every other at the same nonce, so a key used
+  on both testnet and mainnet lets anyone replay testnet transfers on mainnet
+  (the class Ethereum closed with EIP-155). The fix changes the signed
+  encoding for every suite (hybrid, suite-tagged, multisig): a consensus rule
+  under invariant 31, so spec, conformance vectors and an ADR come first.
+  **Must land before mainnet.** Until then, testnets restart with fresh
+  funded keys, which is what maya-testnet-1's re-genesis does.
+
 ## P2 — make claimed-working features verified
 
 - **Measure line coverage of the core crates** with `cargo llvm-cov`

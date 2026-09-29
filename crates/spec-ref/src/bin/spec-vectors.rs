@@ -392,6 +392,28 @@ fn target(lead_zero_bytes: usize, fill: u8) -> [u8; 32] {
     t
 }
 
+/// CON-9: a DAG-BFT block keeps its parent's target, whatever the timing.
+/// Cases pin the unlimited genesis target and a hard one, and a header that
+/// declares anything else.
+fn dag_bft_target_cases() -> Vec<Value> {
+    let mut cases: Vec<Value> = [
+        ("dag-bft-target-unlimited", target(0, 0xFF)),
+        ("dag-bft-target-hard", target(5, 0x7F)),
+    ]
+    .iter()
+    .map(|(id, parent)| {
+        let next = consensus::dag_bft_target(parent);
+        json!({"id": id, "rules": ["CON-9"], "fn": "dag_bft_target", "parent": hex(parent), "expect": {"result": "ok", "target": hex(&next)}})
+    })
+    .collect();
+    // What the proof-of-work retarget would have produced on a one-second
+    // window, declared under DAG-BFT: invalid.
+    let parent = target(0, 0xFF);
+    let retargeted = consensus::retarget(&parent, 1, &target(0, 0xFF));
+    cases.push(json!({"id": "dag-bft-target-retargeted-is-invalid", "rules": ["CON-9"], "fn": "dag_bft_target", "parent": hex(&parent), "declared": hex(&retargeted), "expect": {"result": "error", "error": "WrongTarget"}}));
+    cases
+}
+
 fn retarget_cases() -> Vec<Value> {
     let limit = target(4, 0xFF);
     let previous = target(5, 0x7F);
@@ -499,6 +521,7 @@ fn verification_cases() -> Vec<Value> {
 fn consensus_vectors() -> Value {
     let cases: Vec<Value> = [
         retarget_cases(),
+        dag_bft_target_cases(),
         pow_cases(),
         fork_choice_cases(),
         prune_cases(),
