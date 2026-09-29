@@ -24,7 +24,7 @@ ciborium = "0.2"
 futures.workspace = true
 getrandom.workspace = true
 hex.workspace = true
-libp2p = { workspace = true, features = ["tokio", "tcp", "noise", "yamux", "request-response", "cbor", "ed25519", "macros"] }
+libp2p = { workspace = true, features = ["tokio", "tcp", "noise", "yamux", "request-response", "cbor", "ed25519", "macros", "dns"] }
 serde = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync"] }

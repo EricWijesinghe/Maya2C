@@ -2732,12 +2732,12 @@ note = "The logic the Tauri shell and the CLI both use."
 id = "maya-chat"
 name = "Maya Chat (post-quantum P2P messenger)"
 domain = "Supplement (not in architecture-vision.md)"
-paths = "`apps/chat`"
+paths = "`apps/chat`, `apps/chat-gui`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
 tests = ["crate:maya-chat", "apps/chat/tests/session_tests.rs", "apps/chat/tests/relay_tests.rs", "apps/chat/tests/net_e2e_tests.rs"]
-note = "ADR-031. ML-DSA-65 identities (chain addresses), signed X-Wing prekeys, per-direction symmetric chains, libp2p store-and-forward relays. Unaudited; no groups, no metadata privacy, PoW postage per deposit; CLI sessions saved encrypted between runs."
+note = "ADR-031. ML-DSA-65 identities (chain addresses), signed X-Wing prekeys, per-direction symmetric chains, libp2p store-and-forward relays. Unaudited; no groups, no metadata privacy, PoW postage per deposit; CLI sessions saved encrypted between runs; relays dialled by name (/dns4). Desktop app apps/chat-gui (Tauri 2, outside the workspace): seed in the OS keychain, contacts and history encrypted under a seed-derived key."
 
 [[subsystem]]
 id = "ledger-hardware-wallet-app"

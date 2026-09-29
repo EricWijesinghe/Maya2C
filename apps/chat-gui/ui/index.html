@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Maya Chat</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="banner" role="note">
+      Research preview: post-quantum end-to-end encryption, not yet externally audited. Do not use it for anything sensitive.
+    </div>
+
+    <main id="welcome" class="welcome" hidden>
+      <h1>Maya Chat</h1>
+      <p class="lead">Messages sealed with post-quantum keys (ML-DSA identities, X-Wing sessions), carried by relays that only ever see ciphertext.</p>
+      <button id="create" class="primary">Create my identity</button>
+      <p class="hint">Your key is kept in this computer's credential store. Nobody else, including Maya2C, ever sees it.</p>
+      <p id="welcome-error" class="error" role="alert"></p>
+    </main>
+
+    <div id="app" class="app" hidden>
+      <aside class="side">
+        <section class="me">
+          <div class="label">My address</div>
+          <button id="copy" class="address" title="Copy">…</button>
+        </section>
+        <nav id="contacts" class="contacts" aria-label="Contacts"></nav>
+        <form id="add" class="add">
+          <input id="add-name" placeholder="Name" autocomplete="off" required />
+          <input id="add-address" placeholder="Their address (64 hex)" autocomplete="off" required />
+          <button class="secondary">Add contact</button>
+        </form>
+        <details class="settings">
+          <summary>Settings</summary>
+          <label for="relay">Relay address</label>
+          <input id="relay" placeholder="/dns4/seed1.maya2c.dev/tcp/4001/p2p/…" />
+          <button id="save-relay" class="secondary">Save relay</button>
+        </details>
+        <p id="side-status" class="status" role="status"></p>
+      </aside>
+
+      <section class="chat">
+        <header id="peer" class="peer">Choose a contact</header>
+        <ol id="lines" class="lines" aria-live="polite"></ol>
+        <form id="compose" class="compose">
+          <input id="text" placeholder="Write a message" autocomplete="off" disabled />
+          <button id="send" class="primary" disabled>Send</button>
+        </form>
+        <p id="chat-error" class="error" role="alert"></p>
+      </section>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
