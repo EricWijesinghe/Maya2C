@@ -342,3 +342,50 @@ async fn status_reports_the_budget_without_revealing_the_key() {
         );
     }
 }
+
+fn with_cors() -> axum::Router {
+    router(service(Arc::new(RecordingDispenser::default())))
+        .layer(maya_faucet::http::cors(&["https://maya2c.dev".to_owned()]).unwrap())
+}
+
+#[tokio::test]
+async fn a_listed_origin_passes_the_preflight_and_it_spends_nothing() {
+    let preflight = Request::builder()
+        .method("OPTIONS")
+        .uri("/request")
+        .header("origin", "https://maya2c.dev")
+        .header("access-control-request-method", "POST")
+        .header("access-control-request-headers", "content-type")
+        .body(Body::empty())
+        .unwrap();
+    let response = with_cors().oneshot(preflight).await.unwrap();
+    assert!(response.status().is_success());
+    let h = response.headers();
+    assert_eq!(h["access-control-allow-origin"], "https://maya2c.dev");
+    assert!(
+        h.get("access-control-allow-credentials").is_none(),
+        "never credentials"
+    );
+}
+
+#[tokio::test]
+async fn an_unlisted_origin_gets_no_allow_header() {
+    let request = Request::builder()
+        .method("GET")
+        .uri("/health")
+        .header("origin", "https://evil.example")
+        .body(Body::empty())
+        .unwrap();
+    let response = with_cors().oneshot(request).await.unwrap();
+    assert!(
+        response
+            .headers()
+            .get("access-control-allow-origin")
+            .is_none()
+    );
+}
+
+#[test]
+fn a_malformed_origin_is_refused_at_startup() {
+    assert!(maya_faucet::http::cors(&["https://bad\norigin".to_owned()]).is_err());
+}
