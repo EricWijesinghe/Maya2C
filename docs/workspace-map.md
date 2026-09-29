@@ -36,6 +36,7 @@ Since the phase B move ([ADR-001](adr/ADR-001-workspace-layout.md)):
 | `crates/l2-flash` | L2 settlement |
 | `bins/l1-wallet`, `apps/wallet-gui/core` | CLI + GUI wallet |
 | `apps/chat` | Maya Chat: detached post-quantum P2P messenger and relay (ADR-031); links `crypto-pq`, never the node |
+| `apps/chat-gui/src-tauri` | Maya Chat desktop app (Tauri 2). Not a workspace member, like the wallet GUI: `generate_context!` checks the frontend at compile time |
 | `apps/explorer` | Chain explorer |
 | `hal/cuda-miner` | GPU miner. `cuda` feature OFF by default so CI stays green without a CUDA toolkit |
 | `crates/stratum-v2` | Pool protocol, no chain dependency — fuzzable in isolation |
