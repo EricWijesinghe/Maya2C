@@ -33,6 +33,7 @@
 
 pub mod dispense;
 pub mod http;
+pub mod ledger;
 pub mod limit;
 pub mod testing;
 
@@ -70,6 +71,11 @@ pub enum FaucetError {
     /// The faucet is configured for a chain where value is real.
     #[error("faucet disabled: {0}")]
     ValueBearingChain(String),
+
+    /// The grant journal could not be read or written. Refused rather than
+    /// granted unrecorded: a restart must not forget a grant.
+    #[error("the faucet cannot record grants right now: {0}")]
+    Ledger(String),
 }
 
 /// A grant.
@@ -100,6 +106,8 @@ struct State {
     limiter: Limiter,
     spent_today: u64,
     day_started: SystemTime,
+    /// `None` keeps everything in memory, as tests and the load test want.
+    ledger: Option<ledger::Ledger>,
 }
 
 impl Faucet {
@@ -133,7 +141,36 @@ impl Faucet {
                 limiter: Limiter::new(),
                 spent_today: 0,
                 day_started: now,
+                ledger: None,
             }),
+        })
+    }
+
+    /// Keeps every grant in the journal at `path`, and restores the last
+    /// day's grants from it: the rate limits and the budget survive a restart.
+    ///
+    /// # Errors
+    ///
+    /// [`FaucetError::Ledger`] if the journal cannot be read or rewritten.
+    pub fn with_ledger(self, path: &std::path::Path, now: SystemTime) -> Result<Self, FaucetError> {
+        let (journal, replayed) = ledger::Ledger::open(path, now).map_err(FaucetError::Ledger)?;
+        let mut state = self
+            .state
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for r in &replayed {
+            state.limiter.record(r.ip, &r.address, r.at);
+            state.spent_today = state.spent_today.saturating_add(r.amount);
+        }
+        // The budget's day began with the oldest grant still inside it; later
+        // than that would under-count, earlier would reset too soon.
+        if let Some(first) = replayed.iter().map(|r| r.at).min() {
+            state.day_started = first;
+        }
+        state.ledger = Some(journal);
+        Ok(Self {
+            state: Mutex::new(state),
+            ..self
         })
     }
 
@@ -204,6 +241,11 @@ impl Faucet {
         };
         if spent > self.daily_cap {
             return Err(FaucetError::BudgetExhausted);
+        }
+        if let Some(journal) = state.ledger.as_mut() {
+            journal
+                .record(now, ip, &address, self.dispense)
+                .map_err(FaucetError::Ledger)?;
         }
         state.spent_today = spent;
 
@@ -373,5 +415,59 @@ mod tests {
             );
         }
         assert_eq!(faucet.spent_today(), 100, "exactly one grant");
+    }
+}
+
+#[cfg(test)]
+mod ledger_tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    fn at(secs: u64) -> SystemTime {
+        SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000 + secs)
+    }
+
+    fn fresh(path: &std::path::Path, now: SystemTime) -> Faucet {
+        Faucet::new("maya2c-testnet", 1_000, 2_500, now)
+            .unwrap()
+            .with_ledger(path, now)
+            .unwrap()
+    }
+
+    #[test]
+    fn a_restart_keeps_the_limits_and_the_budget() {
+        let dir = std::env::temp_dir().join(format!("faucet-ledger-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("ledger.jsonl");
+        let ip = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7));
+        {
+            let f = fresh(&path, at(0));
+            f.request(ip, &"aa".repeat(32), at(0)).unwrap();
+            f.request(
+                IpAddr::V4(Ipv4Addr::new(203, 0, 113, 8)),
+                &"bb".repeat(32),
+                at(1),
+            )
+            .unwrap();
+        }
+        // "Restarted" an hour later: same IP refused, the budget remembered.
+        let f = fresh(&path, at(3_600));
+        assert!(matches!(
+            f.request(ip, &"cc".repeat(32), at(3_600)),
+            Err(FaucetError::RateLimited(_))
+        ));
+        assert_eq!(f.spent_today(), 2_000);
+        let other = IpAddr::V4(Ipv4Addr::new(198, 51, 100, 1));
+        assert!(matches!(
+            f.request(other, &"dd".repeat(32), at(3_601)),
+            Err(FaucetError::BudgetExhausted)
+        ));
+        // A day later the journal is compacted away and everything is fresh.
+        drop(f);
+        let f = fresh(&path, at(90_000));
+        assert_eq!(f.spent_today(), 0);
+        f.request(ip, &"cc".repeat(32), at(90_000)).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
