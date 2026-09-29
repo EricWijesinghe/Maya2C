@@ -144,3 +144,12 @@ cargo tauri icon logo-assets/print/HighRes-Square-2000_2000x2000.png \
 This is pre-launch software on a chain that refuses to be worth anything. Read
 `CLAUDE.md` for the invariants that are load-bearing before changing consensus,
 crypto, or ledger code.
+
+## License
+
+Apache License 2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE). You may use,
+modify and distribute this code, including commercially, under its terms,
+which include an express patent grant.
+
+The cryptography has **not** been independently audited. Mainnet is blocked
+until it has been (see [docs/mainnet-readiness.md](docs/mainnet-readiness.md)).
