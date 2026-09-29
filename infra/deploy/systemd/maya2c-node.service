@@ -23,7 +23,7 @@ StartLimitBurst=6
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/node \
+ExecStart=/usr/local/bin/maya2c-node \
     --config /etc/maya2c/config.toml \
     --genesis /etc/maya2c/genesis.json \
     --data-dir /var/lib/maya2c
