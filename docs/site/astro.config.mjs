@@ -28,6 +28,7 @@ export default defineConfig({
         {
           label: "Guides",
           items: [
+            { label: "Join the testnet", link: "/guides/testnet" },
             { label: "Quickstart", link: "/guides/quickstart" },
             { label: "Post-quantum signatures", link: "/guides/signatures" },
             { label: "Mining and validators", link: "/guides/mining" },
