@@ -1,0 +1,7 @@
+Maya2C
+Copyright 2026 Eric Wijesinghe
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes third-party open-source components, each under its own
+licence; `cargo deny check licenses` lists and checks them.
