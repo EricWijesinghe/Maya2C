@@ -228,6 +228,7 @@ fn refusal(error: &FaucetError) -> (StatusCode, Json<ErrorBody>) {
         // rather than left to a catch-all, so adding a per-request check later
         // cannot silently turn it into a 500.
         FaucetError::ValueBearingChain(_) => (StatusCode::FORBIDDEN, "disabled", None),
+        FaucetError::Ledger(_) => (StatusCode::SERVICE_UNAVAILABLE, "unavailable", None),
     };
 
     (
