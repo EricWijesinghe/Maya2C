@@ -26,6 +26,19 @@ pub struct FeeInfo {
     pub collector: String,
 }
 
+/// Chain identification for offline signers (ADR-036).
+///
+/// Offline signers need the chain's genesis block id to sign transactions that
+/// commit to the chain and are not replayed on other chains.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ChainInfo {
+    /// Hex-encoded genesis block id (32 bytes), used as the chain tag for signatures.
+    pub genesis: String,
+    /// Optional chain id string, if one is configured. `null` if no string identifier
+    /// is available in the RPC context.
+    pub chain_id: Option<String>,
+}
+
 /// An account's spendable balance and replay counter.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AccountInfo {
