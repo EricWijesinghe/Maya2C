@@ -152,6 +152,17 @@ impl Limiter {
         Ok(())
     }
 
+    /// Restores a grant made at `at`, read back from the journal. Keeps the
+    /// later of two times for one key, so replay order does not matter.
+    pub fn record(&mut self, ip: IpAddr, address: &[u8; 32], at: SystemTime) {
+        let later = |old: &mut SystemTime| *old = (*old).max(at);
+        self.ips.entry(ip).and_modify(later).or_insert(at);
+        self.addresses
+            .entry(*address)
+            .and_modify(later)
+            .or_insert(at);
+    }
+
     /// Drops entries whose window has elapsed.
     pub fn sweep(&mut self, now: SystemTime) {
         self.ips.retain(|_, at| remaining(Some(at), now).is_some());

@@ -75,8 +75,21 @@ async fn run() -> Result<(), String> {
 
     // Before anything is bound or connected: a value-bearing chain is a
     // configuration error, and the operator should see it now.
-    let faucet =
+    let mut faucet =
         Faucet::new(chain_id, dispense, daily_cap, SystemTime::now()).map_err(|e| e.to_string())?;
+    // Without a journal the limits reset on every restart; say so rather
+    // than let a deployment run that way unknowingly.
+    match std::env::var("MAYA_FAUCET_LEDGER") {
+        Ok(path) if !path.is_empty() => {
+            faucet = faucet
+                .with_ledger(std::path::Path::new(&path), SystemTime::now())
+                .map_err(|e| e.to_string())?;
+            tracing::info!(%path, "grants journalled; limits survive a restart");
+        }
+        _ => tracing::warn!(
+            "MAYA_FAUCET_LEDGER is not set: rate limits and the daily budget reset whenever              the faucet restarts"
+        ),
+    }
 
     let dispenser = NodeDispenser::connect(&node_url, key)
         .await
