@@ -69,6 +69,8 @@ fn owner_key(id: u64) -> Vec<u8> {
 }
 
 #[test]
+
+mod common;
 fn only_the_signing_owner_moves_a_token_through_the_node() {
     let (admin, alice, mallory, bob) = (key(0), key(1), key(2), key(3));
     let dir = TempDir::new().unwrap();

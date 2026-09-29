@@ -104,6 +104,8 @@ fn build_export_sign_offline_and_broadcast() {
 }
 
 #[test]
+
+mod common;
 fn a_frame_altered_after_signing_is_refused() {
     let seed = [43u8; 32];
     let sender = signing_key_from_seed(&seed).unwrap().address();

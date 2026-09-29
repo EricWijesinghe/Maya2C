@@ -102,6 +102,8 @@ unsafe impl GlobalAlloc for Counting {
 }
 
 #[global_allocator]
+mod common;
+
 static ALLOCATOR: Counting = Counting;
 
 /// Zeroes the counters and returns a token for [`measure`].
@@ -212,7 +214,7 @@ fn main() {
                 }],
                 0,
             );
-            tx.sign(&key(1)).expect("sign");
+            tx.sign(&key(1, &common::test_chain())).expect("sign");
             tx.to_bytes().len()
         },
         // The same transfer without the hash-based half: subtract the SLH-DSA
@@ -227,7 +229,7 @@ fn main() {
                 }],
                 0,
             );
-            tx.sign(&key(1)).expect("sign");
+            tx.sign(&key(1, &common::test_chain())).expect("sign");
             tx.to_bytes().len()
                 - (HYBRID_PUBLIC_KEY_LEN - PUBLIC_KEY_LEN)
                 - (HYBRID_SIGNATURE_LENGTH - SIGNATURE_LENGTH)

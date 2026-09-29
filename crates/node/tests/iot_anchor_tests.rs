@@ -566,6 +566,8 @@ fn a_clone_that_races_further_ahead_is_caught_by_filed_evidence() {
 // ---------------------------------------------------------------------------
 
 #[test]
+
+mod common;
 fn only_the_owner_revokes_and_a_reverted_block_restores_the_device() {
     // Arrange
     let owner = generate_signing_key().expect("keygen");

@@ -156,6 +156,8 @@ fn a_forged_hash_based_half_is_refused_even_when_the_lattice_half_is_genuine() {
 }
 
 #[test]
+
+mod common;
 fn a_forged_lattice_half_is_refused_even_when_the_hash_half_is_genuine() {
     let key = node_key(13);
     let message = b"both halves".to_vec();

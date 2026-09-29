@@ -857,6 +857,8 @@ fn channel_state_bytes_are_domain_separated_from_transactions() {
 }
 
 #[test]
+
+mod common;
 fn revocation_commitments_are_binding() {
     let secret = [5u8; 32];
     let commitment = revocation_commitment(&secret);

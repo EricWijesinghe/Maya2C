@@ -73,7 +73,7 @@ fn seed(rng: &mut ChaCha20Rng, key: &HybridSigningKey) -> Vec<u8> {
         rng.next_u64(),
     );
     if rng.next_u32() & 1 == 0 {
-        let _ = tx.sign(key);
+        let _ = tx.sign(key, &common::test_chain());
     }
     tx.to_bytes()
 }
@@ -161,6 +161,8 @@ fn block_of(tx: Transaction) -> Block {
 }
 
 #[test]
+
+mod common;
 fn seeded_mutations_never_panic_the_decoder_or_apply_path_and_stay_deterministic() {
     // A quiet hook: the harness reports the offending input itself, and a
     // backtrace per caught panic would drown a soak run.

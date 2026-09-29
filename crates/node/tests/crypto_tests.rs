@@ -545,6 +545,8 @@ fn every_transaction_proves_its_inclusion_against_the_header() {
 /// `cargo test --release -- --ignored --nocapture`
 #[test]
 #[ignore = "memory-hard mining loop; run explicitly with --ignored"]
+
+mod common;
 fn mining_finds_a_header_meeting_a_low_target() {
     const BITS: u32 = 8;
     const MAX_ATTEMPTS: u64 = 20_000;

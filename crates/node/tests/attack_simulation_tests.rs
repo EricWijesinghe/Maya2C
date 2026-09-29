@@ -358,6 +358,8 @@ fn peer_scoring_quarantine_and_connection_limits_are_wired() {
 }
 
 #[test]
+
+mod common;
 fn a_sybil_flood_cannot_forge_a_heavier_chain() {
     // The reassurance that matters despite the gap above.
     //

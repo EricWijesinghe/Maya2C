@@ -816,6 +816,8 @@ fn the_sealed_layer_changes_the_state_root_only_when_it_holds_something() {
 }
 
 #[test]
+
+mod common;
 fn share_and_envelope_keys_order_by_height_then_identity() {
     // The execution order of every revealed transaction. It has to be a
     // property of the key bytes, because that is all the settle pass sees.

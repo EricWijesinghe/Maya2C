@@ -231,7 +231,7 @@ impl Mesh {
 fn staking_tx(action: StakingAction, nonce: u64) -> Transaction {
     let mut tx = Transaction::new(vec![], vec![], nonce);
     tx.kind = TxKind::Staking(Box::new(action));
-    tx.sign(&operator()).unwrap();
+    tx.sign(&operator(, &common::test_chain())).unwrap();
     tx
 }
 
@@ -351,6 +351,8 @@ fn a_registration_joins_the_committee_and_evidence_removes_an_equivocator() {
 /// the key and burns half its bond, and the operator rejoins under a fresh key
 /// at the next epoch — without the chain stopping at any step.
 #[test]
+mod common;
+
 fn incident_rehearsal_a_stolen_key_is_detected_slashed_and_replaced() {
     let mut mesh = Mesh::new();
     mesh.run_until(|m| m.members.iter().all(|x| x.chain.height() >= 3));

@@ -522,6 +522,8 @@ fn only_the_issuer_distributes_and_only_within_the_page_bound() {
 // ---------------------------------------------------------------------------
 
 #[test]
+
+mod common;
 fn a_legal_attestation_records_a_hash_and_a_reference() {
     let issuer = generate_signing_key().expect("keygen");
     let fixture = fixture(&[(issuer.address(), 10_000)]);

@@ -450,6 +450,8 @@ fn apply_journaled(
 }
 
 #[test]
+
+mod common;
 fn reverting_contract_blocks_restores_code_storage_and_the_root() {
     // Contract code and storage were missing from the undo journal: a reorg
     // left the abandoned branch's slots behind. They are now under the state

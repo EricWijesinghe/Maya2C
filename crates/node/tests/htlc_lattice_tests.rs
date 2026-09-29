@@ -998,6 +998,8 @@ fn lattice_locks_stay_dark_while_hash_locks_are_live() {
 }
 
 #[test]
+
+mod common;
 fn a_claim_or_refund_on_an_unknown_lock_is_a_valid_no_op_in_production() {
     // The gate is the lock's family, read from its record. With no record
     // there is no family and nothing to gate: the transaction is invariant

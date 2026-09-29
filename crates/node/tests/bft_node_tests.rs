@@ -60,7 +60,7 @@ fn transfer(amount: u64, nonce: u64) -> Transaction {
         }],
         nonce,
     );
-    tx.sign(&user()).unwrap();
+    tx.sign(&user(, &common::test_chain())).unwrap();
     tx
 }
 
@@ -355,6 +355,8 @@ fn a_nonce_chain_split_across_validators_all_lands() {
 /// clamps them to never run backwards. The size of that distortion is the
 /// rehearsal's number.
 #[test]
+mod common;
+
 fn clock_drift_rehearsal_a_fast_validator_skews_timestamps_but_not_liveness() {
     const SKEW_MS: u64 = 10 * 60 * 1_000;
     let mut mesh = Mesh::new(0);

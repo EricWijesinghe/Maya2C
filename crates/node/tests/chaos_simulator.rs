@@ -1432,6 +1432,8 @@ async fn a_five_second_latency_spike_delays_propagation_without_breaking_it() {
 // ---------------------------------------------------------------------------
 
 #[test]
+
+mod common;
 fn zz_write_the_resilience_report() {
     // Named `zz_` so it sorts last under `cargo test`, which runs tests in
     // name order within a binary. Under `cargo nextest` every test is its own

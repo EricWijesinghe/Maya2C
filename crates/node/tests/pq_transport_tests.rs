@@ -266,6 +266,8 @@ async fn a_session_within_its_epoch_is_left_alone() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+
+mod common;
 async fn a_rotated_session_comes_back() {
     // Rotation is only useful if the mesh heals. Closing the connection is the
     // easy half; the point is that libp2p redials and the ML-KEM upgrade runs

@@ -163,6 +163,8 @@ fn check(case: &Value) {
 }
 
 #[test]
+
+mod common;
 fn consensus_vectors() {
     let doc = load();
     let cases = doc["cases"].as_array().unwrap();

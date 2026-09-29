@@ -342,6 +342,8 @@ fn a_transaction_witness_decides_a_block_of_that_transaction() {
 }
 
 #[test]
+
+mod common;
 fn witness_layers_out_of_fold_order_are_refused() {
     let alice = key(1);
     let node = Node::activated(&[alice.address()]);

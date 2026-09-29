@@ -498,6 +498,8 @@ fn native_supply(db: &StateDB, addresses: &[Address]) -> u64 {
 }
 
 #[test]
+
+mod common;
 fn a_block_of_trades_conserves_every_asset() {
     let maker = generate_signing_key().expect("key");
     let traders = keys(TRADERS);
