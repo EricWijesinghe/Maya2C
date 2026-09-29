@@ -480,6 +480,8 @@ fn checked_apply_rejects_a_header_with_the_wrong_state_root() {
 }
 
 #[test]
+
+mod common;
 fn checked_apply_commits_when_the_header_root_matches() {
     let (db, _dir) = open_db();
     let alice = generate_signing_key().expect("keygen");

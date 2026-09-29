@@ -54,6 +54,8 @@ fn supply(db: &StateDB, addrs: &[Address]) -> u128 {
 }
 
 #[test]
+
+mod common;
 fn random_transfer_sequences_conserve_supply_and_failed_blocks_change_nothing() {
     let dir = TempDir::new().unwrap();
     let db = StateDB::open(dir.path()).unwrap();

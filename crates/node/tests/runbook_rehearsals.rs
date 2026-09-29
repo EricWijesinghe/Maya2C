@@ -179,6 +179,8 @@ fn a_block_declaring_the_wrong_state_root_is_refused_and_the_tip_holds() {
 }
 
 #[test]
+
+mod common;
 fn silent_state_corruption_is_detected_and_rebuilt_from_the_block_store() {
     let dir = TempDir::new().unwrap();
     let blocks: Vec<Block>;

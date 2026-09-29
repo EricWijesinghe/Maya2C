@@ -526,6 +526,8 @@ fn moving_value_between_outputs_changes_the_signed_payload() {
 }
 
 #[test]
+
+mod common;
 fn reordering_outputs_invalidates_an_existing_signature() {
     let key = generate_signing_key().expect("keygen");
 

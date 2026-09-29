@@ -359,6 +359,8 @@ fn the_fee_collector_is_not_a_way_around_the_limit() {
 }
 
 #[test]
+
+mod common;
 fn the_limit_bounds_a_window_not_a_transaction() {
     // Review: a per-transaction limit let a stolen key drain a vault through
     // many in-limit transfers at once. The limit is outflow per window of

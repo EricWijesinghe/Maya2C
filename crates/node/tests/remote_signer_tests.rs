@@ -125,6 +125,8 @@ fn a_signer_that_is_not_the_pinned_one_is_refused_at_startup() {
 }
 
 #[test]
+
+mod common;
 fn a_signer_holding_another_key_costs_votes_not_garbage() {
     let dir = tempfile::tempdir().unwrap();
     let node = Identity::from_seed(&seed(1));

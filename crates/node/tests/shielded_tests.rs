@@ -661,6 +661,8 @@ fn the_state_root_commits_to_the_pool() {
 }
 
 #[test]
+
+mod common;
 fn an_empty_pool_leaves_the_state_root_unchanged() {
     // Backward compatibility: a chain with no shielded activity must produce
     // exactly the roots it produced before the pool existed.

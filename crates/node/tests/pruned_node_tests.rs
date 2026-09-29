@@ -583,6 +583,8 @@ fn a_reorg_below_the_horizon_is_refused_and_one_above_it_lands() {
 }
 
 #[test]
+
+mod common;
 fn restarting_a_pruned_node_keeps_its_horizon_and_receipts() {
     let mut archive = archive_node(70);
     let (pruned, dir) = pruned_follower(&mut archive, 30);

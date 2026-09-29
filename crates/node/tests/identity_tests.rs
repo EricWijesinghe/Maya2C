@@ -565,6 +565,8 @@ fn a_claim_that_fails_the_predicate_cannot_be_proved() {
 }
 
 #[test]
+
+mod common;
 fn a_verifier_checks_the_root_against_what_the_chain_holds() {
     // The link between the two halves: the root a verifier feeds the circuit is
     // the one consensus accepted, because the issuer's hybrid signature was

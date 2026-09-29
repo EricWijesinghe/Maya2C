@@ -541,6 +541,8 @@ async fn balances_at_past_heights_undo_each_later_blocks_changes() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+
+mod common;
 async fn a_caller_over_the_rate_limit_is_refused_with_429() {
     use custom_l1_node::rpc::limit::RateLimiter;
 

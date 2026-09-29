@@ -748,6 +748,8 @@ fn a_batch_naming_one_channel_twice_settles_it_once() {
 // ---------------------------------------------------------------------------
 
 #[test]
+
+mod common;
 fn channels_are_committed_to_the_state_root() {
     let alice = generate_signing_key().expect("keygen");
     let bob = generate_signing_key().expect("keygen");

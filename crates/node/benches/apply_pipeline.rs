@@ -58,6 +58,8 @@ unsafe impl GlobalAlloc for Counting {
 }
 
 #[global_allocator]
+
+mod common;
 static GLOBAL: Counting = Counting;
 
 fn allocs() -> u64 {

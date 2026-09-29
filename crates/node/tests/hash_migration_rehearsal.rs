@@ -206,6 +206,8 @@ fn every_node_recommits_to_the_same_new_root_and_proofs_switch_at_the_boundary()
 }
 
 #[test]
+
+mod common;
 fn recommitment_time_for_a_million_accounts() {
     let accounts: Vec<(Address, Account)> = (0..1_000_000u64)
         .map(|i| {

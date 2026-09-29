@@ -71,6 +71,8 @@ use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 
 use custom_l1_node::crypto::argon_blake::argon_blake_hash;
 use custom_l1_node::crypto::hybrid;
+mod common;
+
 
 /// Assumed package power, in watts, for the joules-per-operation model.
 ///
@@ -136,7 +138,7 @@ fn signatures(c: &mut Criterion) {
     let ed_verifying = ed_signing.verifying_key();
     let ed_signature = {
         use ed25519_dalek::Signer as _;
-        ed_signing.sign(message)
+        ed_signing.sign(message, &common::test_chain())
     };
 
     // --- Maya2C's hybrid pair ---
@@ -150,7 +152,7 @@ fn signatures(c: &mut Criterion) {
     let mut group = c.benchmark_group("signature-generation");
     group.bench_function("ed25519", |b| {
         use ed25519_dalek::Signer as _;
-        b.iter(|| black_box(ed_signing.sign(black_box(message))));
+        b.iter(|| black_box(ed_signing.sign(black_box(message, &common::test_chain()))));
     });
 
     // SLH-DSA-SHA2-128s signing dominates the pair and is measured in hundreds
@@ -159,7 +161,7 @@ fn signatures(c: &mut Criterion) {
     // the one that has to be optimised.
     group.sample_size(10);
     group.bench_function("ml-dsa-65 + slh-dsa (Maya2C)", |b| {
-        b.iter(|| black_box(hybrid_signing.sign(black_box(message)).expect("signs")));
+        b.iter(|| black_box(hybrid_signing.sign(black_box(message, &common::test_chain())).expect("signs")));
     });
     group.finish();
 

@@ -337,6 +337,8 @@ async fn slow_honest_peers_carrying_valid_traffic_are_never_quarantined() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+
+mod common;
 async fn a_node_fetches_a_block_it_lacks_from_a_peer_that_holds_it() {
     let nodes: Vec<SimNode> = (0..2).map(|_| spawn(&[], None)).collect();
     connect_all(&nodes).await;

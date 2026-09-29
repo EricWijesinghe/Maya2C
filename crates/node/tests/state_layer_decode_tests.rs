@@ -104,6 +104,8 @@ fn every_layer_in_the_fold_order_round_trips_its_tag() {
 }
 
 #[test]
+
+mod common;
 fn an_account_proof_verifies_from_a_state_holding_rwa_and_htlc_records() {
     let dir = TempDir::new().expect("dir");
     let db = StateDB::open(dir.path()).expect("open");

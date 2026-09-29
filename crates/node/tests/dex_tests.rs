@@ -1126,6 +1126,8 @@ fn a_chain_that_has_never_traded_has_the_state_root_it_always_had() {
 }
 
 #[test]
+
+mod common;
 fn registering_an_asset_changes_the_state_root() {
     // The other half of the previous test: the layer must actually be committed
     // to, or a light client could not verify a balance in it.

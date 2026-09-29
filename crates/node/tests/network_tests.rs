@@ -373,6 +373,8 @@ async fn kademlia_discovers_the_indirect_peer() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+
+mod common;
 async fn duplicate_gossip_is_absorbed_without_growing_the_pool() {
     let alice = generate_signing_key().expect("keygen");
     let alice_addr = address_of(&alice);

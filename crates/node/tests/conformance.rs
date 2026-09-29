@@ -328,6 +328,8 @@ fn header_of(h: &Value) -> BlockHeader {
 }
 
 #[test]
+
+mod common;
 fn header_vectors() {
     let doc = load("headers.json");
     for case in doc["cases"].as_array().unwrap() {

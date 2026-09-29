@@ -201,6 +201,8 @@ fn side_branches_survive_a_restart_and_can_still_win() {
 }
 
 #[test]
+
+mod common;
 fn a_heavier_branch_stored_before_a_crash_is_adopted_on_open() {
     // A crash between storing a block and applying it leaves a heavier branch
     // on disk that the tip never moved to. Opening finishes the job.

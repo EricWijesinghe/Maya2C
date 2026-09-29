@@ -264,7 +264,7 @@ fn attest(
         signature: [0; 64],
     };
     let signature = keypair
-        .sign(&gossip.signed_bytes(kind.topic()))
+        .sign(&gossip.signed_bytes(kind.topic(, &common::test_chain())))
         .expect("sign");
     gossip.signature = signature
         .try_into()
@@ -704,6 +704,8 @@ fn repeated_evidence_is_a_no_op_and_a_reverted_block_takes_its_indicator_with_it
 }
 
 #[test]
+
+mod common;
 fn an_ed25519_peer_id_is_the_author_key_it_inlines() {
     let keypair = Keypair::generate_ed25519();
     let key = keypair

@@ -173,6 +173,8 @@ fn every_network_runs_the_fee_market_disabled() {
 }
 
 #[test]
+
+mod common;
 fn the_fee_market_is_reached_only_through_its_genesis_gate() {
     // ADR-029 wired the base-fee step in, behind `genesis.bft.fees`: only the
     // genesis parameter check and the fee record may name the crate. The day

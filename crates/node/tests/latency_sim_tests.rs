@@ -276,6 +276,8 @@ async fn latency_actually_reaches_the_transport() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+
+mod common;
 async fn every_node_completes_the_post_quantum_handshake_under_latency() {
     // Requirement 2, asserted end to end rather than at the unit level: the
     // upgrade is mandatory, so a mesh that forms at all is a mesh in which

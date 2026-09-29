@@ -698,6 +698,8 @@ fn a_chain_that_has_never_governed_has_the_state_root_it_always_had() {
 }
 
 #[test]
+
+mod common;
 fn every_parameter_reads_as_its_compiled_default_before_any_vote() {
     let fixture = fixture();
     let table = fixture.db.parameters().expect("parameters");

@@ -79,7 +79,7 @@ fn transfer(amount: u64, fee: Option<u64>, nonce: u64) -> Transaction {
         });
     }
     let mut tx = Transaction::new(vec![], outputs, nonce);
-    tx.sign(&user()).unwrap();
+    tx.sign(&user(, &common::test_chain())).unwrap();
     tx
 }
 
@@ -146,6 +146,8 @@ fn the_base_fee_falls_on_empty_blocks_and_never_below_its_floor() {
 
 /// The sizes the fee parameters are derived from (reports/18-economics.md §3a).
 #[test]
+mod common;
+
 fn measured_transfer_sizes_for_the_fee_derivation() {
     use maya_crypto_pq::suite::SignatureSuite as _;
     let hybrid = transfer(1, Some(1), 0).to_bytes().len();

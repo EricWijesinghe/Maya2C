@@ -219,6 +219,8 @@ fn every_registry_length_fits_the_u32_length_prefix() {
 }
 
 #[test]
+
+mod common;
 fn a_failed_suite_signature_leaves_the_transaction_untouched_and_rpc_reports_the_suite() {
     use custom_l1_node::rpc::TransactionInfo;
     let (tx, _) = v7_transfer();

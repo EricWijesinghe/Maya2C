@@ -67,7 +67,7 @@ fn chain(dir: &TempDir) -> Chain {
 fn signed(kind: TxKind, outputs: Vec<TxOutput>, nonce: u64) -> Transaction {
     let mut tx = Transaction::new(vec![], outputs, nonce);
     tx.kind = kind;
-    tx.sign(&user()).unwrap();
+    tx.sign(&user(, &common::test_chain())).unwrap();
     tx
 }
 
@@ -217,6 +217,8 @@ fn a_council_quorum_pauses_one_module_transfers_continue_and_the_pause_ends() {
 }
 
 #[test]
+mod common;
+
 fn a_pause_expires_without_anyone_acting() {
     let dir = TempDir::new().unwrap();
     let mut c = chain(&dir);

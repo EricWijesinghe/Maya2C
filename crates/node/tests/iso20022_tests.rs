@@ -536,6 +536,8 @@ fn a_listed_party_cannot_produce_a_proof() {
 }
 
 #[test]
+
+mod common;
 fn both_ends_and_both_agents_are_checked() {
     // A bridge that checked only the creditor would let a sanctioned debtor pay
     // anyone, which is the direction sanctions are usually written to stop.

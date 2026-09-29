@@ -456,6 +456,8 @@ fn a_transaction_with_a_tampered_hash_proof_is_rejected() {
 }
 
 #[test]
+
+mod common;
 fn the_encoded_transaction_is_as_large_as_the_schemes_imply() {
     // Not a micro-optimization check — a bound worth knowing, because it is
     // what drove the settlement batch limit down and what a block size limit

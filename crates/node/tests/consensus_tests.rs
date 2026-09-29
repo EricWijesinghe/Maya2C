@@ -673,6 +673,8 @@ fn active_chain_lists_blocks_from_genesis_to_tip() {
 // ---------------------------------------------------------------------------
 
 #[test]
+
+mod common;
 fn difficulty_recalculates_at_the_hundredth_block() {
     let (state, _dir) = open_state();
     let mut chain = test_chain(state);

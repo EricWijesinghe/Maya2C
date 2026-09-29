@@ -1068,6 +1068,8 @@ fn a_contract_reading_a_stale_feed_is_refused_the_price() {
 }
 
 #[test]
+
+mod common;
 fn a_contract_reading_an_unknown_feed_is_told_so() {
     let fixture = fixture();
     let storage = run_contract(&fixture, wasm(PRICE_WAT), 1);
