@@ -86,6 +86,10 @@ fn swarm(keypair: identity::Keypair) -> Result<Swarm<Behaviour>, ChatError> {
             yamux::Config::default,
         )
         .map_err(|e| net(&e))?
+        // A public relay is reached by name (`/dns4/seed1.maya2c.dev/...`),
+        // so its address survives the VM being moved; resolved by the OS.
+        .with_dns()
+        .map_err(|e| net(&e))?
         .with_behaviour(|_| behaviour())
         .map_err(|e| net(&e))?
         .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
