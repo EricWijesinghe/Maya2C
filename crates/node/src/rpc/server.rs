@@ -21,8 +21,8 @@ use crate::core::{Block, Transaction};
 use crate::network::{Mempool, NodeHandle};
 use crate::rpc::bootstrap::SnapshotService;
 use crate::rpc::types::{
-    AccountInfo, BlockInfo, HeaderInfo, IotDeviceInfo, MiningCandidate, PeerAddressInfo,
-    SubmitBlockResult, SubmitTransactionResult, ThreatIndicatorInfo,
+    AccountInfo, BlockInfo, ChainInfo, HeaderInfo, IotDeviceInfo, MiningCandidate,
+    PeerAddressInfo, SubmitBlockResult, SubmitTransactionResult, ThreatIndicatorInfo,
 };
 use crate::state_pruner::cold::ColdBlocks;
 
@@ -238,6 +238,17 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 .map_err(|e| rejected(e.to_string()))?;
 
             Ok::<_, ErrorObjectOwned>(AccountInfo::new(&address, &account))
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
+    module
+        .register_method("get_chain_info", |_params, ctx, _| {
+            let chain = ctx.chain();
+            let genesis = chain.genesis();
+            Ok::<_, ErrorObjectOwned>(ChainInfo {
+                genesis: hex::encode(genesis),
+                chain_id: None, // Chain id string not available in this context
+            })
         })
         .map_err(|e| rejected(e.to_string()))?;
 
