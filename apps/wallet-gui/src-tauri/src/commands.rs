@@ -94,6 +94,17 @@ pub struct FeeOption {
     pub fee: u64,
 }
 
+/// The fee presets for the next transfer, and where the fee must go.
+#[derive(Serialize)]
+pub struct FeeTerms {
+    /// The collector to pay on a fee-market chain; `None` where fees are off.
+    pub collector: Option<String>,
+    /// Base fee per byte; 0 where fees are off.
+    pub base_fee: u64,
+    /// Economy, Standard and Priority.
+    pub options: Vec<FeeOption>,
+}
+
 /// Generates a wallet and stores its sealed seed in the OS keychain.
 ///
 /// Returns the recovery phrase once. It is never retrievable afterwards.
@@ -222,10 +233,7 @@ pub fn wallet_exists(name: String) -> Result<bool, String> {
 
 /// Derives an additional account.
 #[tauri::command]
-pub fn derive_account(
-    index: u32,
-    session: tauri::State<'_, Session>,
-) -> Result<Account, String> {
+pub fn derive_account(index: u32, session: tauri::State<'_, Session>) -> Result<Account, String> {
     session.with(|wallet| wallet.account(index).map_err(|e| e.to_string()))
 }
 
@@ -286,18 +294,22 @@ pub fn preview_transfer(
 }
 
 /// Signs a transfer. No network access.
+///
+/// `fee_to` is the collector from [`fee_options`]; without it the fee is
+/// burned, which only a chain without a fee market accepts.
 #[tauri::command]
 pub fn sign_transfer(
     index: u32,
     recipient: String,
     amount: u64,
     fee: u64,
+    fee_to: Option<String>,
     nonce: u64,
     session: tauri::State<'_, Session>,
 ) -> Result<SignedTransfer, String> {
     session.with(|wallet| {
         wallet
-            .sign(index, &recipient, amount, fee, nonce)
+            .sign(index, &recipient, amount, fee, fee_to.as_deref(), nonce)
             .map_err(|e| e.to_string())
     })
 }
@@ -356,14 +368,52 @@ pub struct AccountState {
     pub nonce: u64,
 }
 
-/// The fee presets offered in the UI.
+/// The fee presets for a transfer from account `index`, priced by the node.
+///
+/// On a fee-market chain (ADR-029) each tier is a multiple of
+/// `base_fee x size`, and the fee must be paid to the collector the node
+/// names; a flat guess would be refused as underpaid. Where fees are off,
+/// the fixed tiers stand and nothing is required.
 #[tauri::command]
-pub fn fee_options() -> Result<Vec<FeeOption>, String> {
-    Ok(FeeTier::all()
-        .iter()
-        .map(|tier| FeeOption {
-            label: tier.label().to_string(),
-            fee: tier.suggested_fee(),
-        })
-        .collect())
+pub async fn fee_options(
+    node_url: String,
+    index: u32,
+    nonce: u64,
+    session: tauri::State<'_, Session>,
+) -> Result<FeeTerms, String> {
+    let quote = wallet::fee_quote(&node_url)
+        .await
+        .map_err(|e| e.to_string())?;
+    let tiers = FeeTier::all();
+    if !quote.active {
+        return Ok(FeeTerms {
+            collector: None,
+            base_fee: 0,
+            options: tiers
+                .iter()
+                .map(|tier| FeeOption {
+                    label: tier.label().to_string(),
+                    fee: tier.suggested_fee(),
+                })
+                .collect(),
+        });
+    }
+    let size = session.with(|wallet| {
+        wallet
+            .transfer_size(index, &quote.collector, nonce)
+            .map_err(|e| e.to_string())
+    })?;
+    let fees = payment::priced_fee_tiers(quote.base_fee, size).map_err(|e| e.to_string())?;
+    Ok(FeeTerms {
+        collector: Some(quote.collector),
+        base_fee: quote.base_fee,
+        options: tiers
+            .iter()
+            .zip(fees)
+            .map(|(tier, fee)| FeeOption {
+                label: tier.label().to_string(),
+                fee,
+            })
+            .collect(),
+    })
 }

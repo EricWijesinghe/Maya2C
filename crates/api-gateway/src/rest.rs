@@ -15,7 +15,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::{OpenApi, ToSchema};
 
 use crate::error::GatewayError;
-use crate::node::{Balance, NodeClient, Supply};
+use crate::jsonrpc::{self, RpcRequest};
+use crate::node::{Balance, FeeInfo, NodeClient, Supply};
 use crate::sealed::{self, SealedAccepted, SealedSubmission};
 
 /// Shared handler state.
@@ -58,12 +59,14 @@ pub struct TransactionAccepted {
 /// as a function nobody can find.
 #[derive(OpenApi)]
 #[openapi(
-    paths(health, account, block, supply, submit, submit_sealed),
+    paths(health, account, block, supply, fees, submit, submit_sealed, jsonrpc::handle),
     components(schemas(
         RawTransaction,
         TransactionAccepted,
         Balance,
+        FeeInfo,
         Supply,
+        RpcRequest,
         SealedSubmission,
         SealedAccepted,
     )),
@@ -86,8 +89,12 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/accounts/{address}", get(account))
         .route("/v1/blocks/{height}", get(block))
         .route("/v1/supply", get(supply))
+        .route("/v1/fees", get(fees))
         .route("/v1/transactions", post(submit))
         .route("/v1/sealed", post(submit_sealed))
+        // JSON-RPC for clients that speak the node's protocol. Same node
+        // client, same allowlist; see `jsonrpc` for why it is not a proxy.
+        .route("/rpc", post(jsonrpc::handle))
         // Served rather than only generated: a spec that lives in the repo and
         // not at the endpoint is a spec that drifts from the deployment
         // somebody is actually pointing a client at.
@@ -121,7 +128,7 @@ async fn health() -> (StatusCode, Json<serde_json::Value>) {
 /// The node would reject a malformed address too. Doing it here means a typo
 /// costs a local string check rather than a round trip, and it keeps
 /// obviously-bad input from reaching the backend at all.
-fn parse_address(address: &str) -> Result<&str, GatewayError> {
+pub(crate) fn parse_address(address: &str) -> Result<&str, GatewayError> {
     let trimmed = address.strip_prefix("0x").unwrap_or(address);
     if trimmed.len() != ADDRESS_HEX_LEN {
         return Err(GatewayError::BadRequest(format!(
@@ -189,6 +196,19 @@ async fn block(
 )]
 async fn supply(State(state): State<Arc<AppState>>) -> Result<Json<Supply>, GatewayError> {
     Ok(Json(state.node.get_supply().await?))
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/fees",
+    tag = "chain",
+    responses(
+        (status = 200, description = "Fee terms (ADR-029): a transfer pays at least base_fee per                                       serialized byte, as an output to the collector", body = FeeInfo),
+        (status = 502, description = "The node could not be reached"),
+    ),
+)]
+async fn fees(State(state): State<Arc<AppState>>) -> Result<Json<FeeInfo>, GatewayError> {
+    Ok(Json(state.node.get_fee_info().await?))
 }
 
 #[utoipa::path(

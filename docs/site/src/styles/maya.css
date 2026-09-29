@@ -53,6 +53,17 @@ body:has(.hero) {
   color: var(--sl-color-gray-2);
 }
 
+.maya-3d {
+  width: min(34rem, 90vw);
+  aspect-ratio: 1;
+  margin-inline: auto;
+}
+
+.maya-3d img {
+  width: 100%;
+  height: 100%;
+}
+
 .hero img {
   filter: drop-shadow(0 0 40px rgb(34 211 238 / 0.25));
 }

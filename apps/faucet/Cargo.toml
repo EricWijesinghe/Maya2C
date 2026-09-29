@@ -19,6 +19,7 @@ jsonrpsee = { workspace = true, features = ["http-client"] }
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 hex.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
 tower = { workspace = true, features = ["util"] }
