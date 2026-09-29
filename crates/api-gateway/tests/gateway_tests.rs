@@ -19,7 +19,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
 use maya_api_gateway::error::GatewayError;
-use maya_api_gateway::node::{Balance, FeeInfo, NodeClient, Supply};
+use maya_api_gateway::node::{Balance, ChainInfo, FeeInfo, NodeClient, Supply};
 use maya_api_gateway::sealed::MAX_SEALED_PAYLOAD_BYTES;
 use tower::ServiceExt;
 
@@ -88,9 +88,9 @@ impl NodeClient for MockNode {
         })
     }
 
-    async fn get_chain_info(&self) -> Result<crate::node::ChainInfo, GatewayError> {
+    async fn get_chain_info(&self) -> Result<ChainInfo, GatewayError> {
         self.calls.fetch_add(1, Ordering::Relaxed);
-        Ok(crate::node::ChainInfo {
+        Ok(ChainInfo {
             genesis: "ab".repeat(32),
             chain_id: None,
         })
