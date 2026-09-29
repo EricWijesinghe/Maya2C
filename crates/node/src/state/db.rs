@@ -782,8 +782,8 @@ impl StateDB {
         // all, and `verify` has neither so it refuses them outright. For a
         // v5/v6 hybrid frame the two are the same function: `verify_at` falls
         // through to `verify`, and the both-schemes rule above is unchanged.
-        // ADR-013.
-        self.verified.verify(tx, context.height, policy)?;
+        // ADR-013. Chain tag is required for signature verification (ADR-036).
+        self.verified.verify(tx, context.height, policy, self.get_chain_tag()?)?;
         self.charge_fee(overlay, tx)?;
 
         // Derived from the keys the signatures were just checked against, never
@@ -998,13 +998,15 @@ impl StateDB {
     }
 
     /// Verifies `tx` at `height`, answering from the verified-signature cache
-    /// when these exact bytes verified before (`state::verified`).
+    /// when these exact bytes verified before (`state::verified`). The cache key
+    /// includes the chain tag (ADR-036), so a transaction cached on one chain
+    /// will not hit for another.
     ///
     /// # Errors
     ///
     /// As `Transaction::verify_at`.
     pub fn verify_cached(&self, tx: &Transaction, height: u64, policy: &SuitePolicy) -> Result<()> {
-        self.verified.verify(tx, height, policy)
+        self.verified.verify(tx, height, policy, self.get_chain_tag()?)
     }
 
     /// The longest prefix-closed subsequence of `transactions` that executes,
@@ -1036,7 +1038,7 @@ impl StateDB {
         }
         overlay.difficulty_target = difficulty_target;
         let policy = crate::crypto::suites::verification_policy();
-        self.prewarm_verification(&transactions, context.height, &policy);
+        let _ = self.prewarm_verification(&transactions, context.height, &policy);
         let mut kept = Vec::with_capacity(transactions.len());
         for tx in transactions {
             if matches!(tx.kind, crate::core::TxKind::Transfer) {
@@ -1075,26 +1077,28 @@ impl StateDB {
         transactions: &[Transaction],
         height: u64,
         policy: &SuitePolicy,
-    ) {
+    ) -> Result<()> {
         const MIN_PER_THREAD: usize = 32;
         let threads = std::thread::available_parallelism()
             .map_or(1, usize::from)
             .min(transactions.len() / MIN_PER_THREAD)
             .max(1);
         if threads == 1 {
-            return;
+            return Ok(());
         }
         let chunk = transactions.len().div_ceil(threads);
+        let chain = self.get_chain_tag()?;
         std::thread::scope(|scope| {
             for part in transactions.chunks(chunk) {
                 scope.spawn(move || {
                     for tx in part {
                         // Failures are the sequential pass's to report.
-                        let _ = self.verified.verify(tx, height, policy);
+                        let _ = self.verified.verify(tx, height, policy, chain);
                     }
                 });
             }
         });
+        Ok(())
     }
 
     /// Stages a plain transfer, restoring exactly what it could have written
