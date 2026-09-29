@@ -10,7 +10,7 @@ description = "Rate-limited testnet faucet"
 custom-l1-node = { path = "../../crates/node" }
 axum = { workspace = true, features = ["macros"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
-tower-http = { workspace = true, features = ["trace", "limit"] }
+tower-http = { workspace = true, features = ["trace", "limit", "cors"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 thiserror.workspace = true
