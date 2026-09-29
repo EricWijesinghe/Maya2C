@@ -24,10 +24,11 @@
 //! | `cranelift_nan_canonicalization` | NaN bit patterns differ between CPUs |
 //! | `wasm_simd` off | SIMD lowering varies by host feature detection |
 //! | `wasm_threads` off | shared memory makes execution order observable |
-//! | `wasm_reference_types` off | reachability, and thus GC timing, is observable |
+//! | reference types + function references off | reachability is observable; `call_ref` could drop fuel accounting (RUSTSEC-2026-0315, ADR-034) |
+//! | tail call, extended const, multi-memory, memory64 off | default-on attack surface no contract needs; memory64 would sidestep the page ceiling (ADR-034) |
 //! | fixed memory ceiling | a host-dependent limit forks on memory-heavy calls |
 
-use wasmtime::{Config, Engine, Strategy};
+use wasmtime::{Config, Engine, Strategy, WasmFeatures};
 
 use crate::error::{Result, VmError};
 
@@ -75,13 +76,39 @@ pub fn deterministic_config() -> Result<Config> {
 
     // Non-deterministic proposals, off.
     //
-    // Threads, GC, and reference types are not merely disabled here — they are
-    // compiled out entirely by the crate's feature selection, which is why
-    // wasmtime exposes no setter for them in this build. That is the stronger
-    // guarantee: a runtime toggle can be flipped, a feature that was never
-    // compiled cannot be.
+    // Threads, GC and exceptions are compiled out: without the `threads` and
+    // `gc` features wasmtime forces them off itself, and a feature that was
+    // never compiled cannot be flipped at runtime. That does NOT hold for
+    // everything whose setter is missing from this build. A missing setter
+    // is not a missing feature (ADR-034), so the rest are turned off below.
     config.wasm_simd(false);
     config.wasm_relaxed_simd(false);
+
+    // Reference types and typed function references, off. The table above
+    // always said so, but wasmtime compiles their named setters only with the
+    // `gc` feature, which this build leaves out, so they were silently on:
+    // `call_ref` validated, and RUSTSEC-2026-0315 (`call_ref` dropping fuel
+    // accounting, an exponential gas amplification) was reachable by any
+    // contract. `wasm_features` sets the flags without `gc`.
+    config.wasm_features(
+        WasmFeatures::REFERENCE_TYPES | WasmFeatures::FUNCTION_REFERENCES,
+        false,
+    );
+
+    // WebAssembly 3.0 proposals that wasmtime 48 turns on by default and no
+    // contract needs: tail calls, extended constant expressions, multiple
+    // memories, 64-bit memories. None has a known gas bug today. Each is
+    // attack surface in a consensus VM, and each would have been one more
+    // setting the determinism table did not list. Off until a contract needs
+    // one and a fuel test covers it. Memory64 also keeps MAX_MEMORY_PAGES the
+    // only memory ceiling.
+    config.wasm_features(
+        WasmFeatures::TAIL_CALL
+            | WasmFeatures::EXTENDED_CONST
+            | WasmFeatures::MULTI_MEMORY
+            | WasmFeatures::MEMORY64,
+        false,
+    );
 
     // Deterministic and useful; memcpy-style ops save a great deal of fuel.
     config.wasm_bulk_memory(true);
@@ -127,6 +154,8 @@ pub fn config_digest() -> [u8; 32] {
         1, // cranelift_nan_canonicalization
         0, // wasm_simd
         0, // wasm_relaxed_simd
+        0, // reference types + function references
+        0, // tail call + extended const + multi-memory + memory64
         1, // wasm_bulk_memory
         1, // wasm_multi_value
         0, // debug_info
@@ -157,9 +186,9 @@ mod digest_tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
-    /// Settings `config_digest` accounts for: the eight flags in its byte
+    /// Settings `config_digest` accounts for: the ten flags in its byte
     /// array, plus the three limits and the two version strings hashed after.
-    const SETTINGS_COVERED: usize = 9;
+    const SETTINGS_COVERED: usize = 11;
 
     #[test]
     fn the_digest_covers_every_setting_the_config_makes() {
