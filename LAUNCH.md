@@ -7,11 +7,12 @@ HUMAN — never PASS without an evidence path that exists. Nothing is published,
 deployed or announced without `APPROVED: <gate>` from the project owner
 (Standing Order 6).
 
-Current position (2026-09-28): **Gate 1 (localnet) passed. Gate 2's
-software criteria pass: DAG-BFT finality, staking and slashing are in the
-node and tested. What remains for Gate 2 is operational:** a persistent
-devnet, a 7-day soak, and the node calling the remote signer. A `production`
-build starts in `dag-bft` mode only (ADR-016, updated by ADR-027).
+Current position (2026-09-29): **Gate 1 (localnet) passed. Gate 2's
+software criteria pass: DAG-BFT finality, staking, slashing, and signing
+through the remote signer (ADR-033) are in the node and tested. What
+remains for Gate 2 is operational:** a persistent devnet and a 7-day soak.
+A `production` build starts in `dag-bft` mode only (ADR-016, updated by
+ADR-027).
 
 ## Gate 1 — Localnet
 
@@ -29,7 +30,7 @@ build starts in `dag-bft` mode only (ADR-016, updated by ADR-027).
 | DAG-BFT wired into the node (ADR-015) | ADR-027; `crates/node/tests/bft_node_tests.rs` (four validators and an observer build identical chains; a double spend lands once; a validator restarted from its safety log rejoins without equivocating) | PASS |
 | Staking and slashing | `crates/node/tests/bft_staking_tests.rs` (a registration joins the committee; equivocation evidence removes the validator; a stolen key is detected, slashed and replaced) | PASS |
 | Fee market active (ADR-016) | `crates/node/src/state/fees.rs`: active wherever genesis configures it ("presence is activation"), checked against `maya-fee-market` limits in `genesis.rs` | built; the devnet genesis must configure it |
-| Remote signer with slashing protection (Master Prompt 16) | `crates/signer` | built, **not yet called by the node**: validators sign votes with a local key file (ADR-022 update). See `reports/16-validator-security.md` |
+| Remote signer with slashing protection (Master Prompt 16) | `crates/signer`; node `--remote-signer` (ADR-033); `crates/node/tests/remote_signer_tests.rs`; `cargo xtask localnet --remote-signer` with validator 3 signing only through `maya2c-signer` (`reports/localnet/2026-09-29-remote-signer.log`) | PASS (not externally reviewed) |
 | 7-day soak without an unexplained halt or fork | — | NEEDS HUMAN (a devnet must exist) |
 
 ## Gate 3 — Public testnet
