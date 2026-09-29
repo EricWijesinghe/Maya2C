@@ -85,7 +85,9 @@ From Master Prompt 11, with how each is enforced *today*:
 ## Token Discipline (read first)
 
 This repo is large: build artifacts reached 336.5 GiB before the last
-`cargo clean`, and `apps/wallet-gui/ui/target` is ~4,978 *tracked* files. Unbounded
+`cargo clean`, and nested workspaces (`apps/*-gui/src-tauri`, `fuzz/`) keep
+their own untracked `target/` directories that a root `cargo clean` never
+touches. Unbounded
 reads and unfiltered command output are the dominant cost here, not model
 reasoning. The rules below are mechanical, not stylistic.
 
