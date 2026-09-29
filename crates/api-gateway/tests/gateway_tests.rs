@@ -19,7 +19,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
 use maya_api_gateway::error::GatewayError;
-use maya_api_gateway::node::{Balance, NodeClient, Supply};
+use maya_api_gateway::node::{Balance, FeeInfo, NodeClient, Supply};
 use maya_api_gateway::sealed::MAX_SEALED_PAYLOAD_BYTES;
 use tower::ServiceExt;
 
@@ -71,7 +71,21 @@ impl NodeClient for MockNode {
 
     async fn send_raw_transaction(&self, raw: &str) -> Result<String, GatewayError> {
         self.calls.fetch_add(1, Ordering::Relaxed);
+        if raw.starts_with("0bad") {
+            return Err(GatewayError::Rejected(
+                "fee 1 below base fee 13000 at /var/lib/maya2c".to_string(),
+            ));
+        }
         Ok(format!("hash-of-{}", &raw[..raw.len().min(8)]))
+    }
+
+    async fn get_fee_info(&self) -> Result<FeeInfo, GatewayError> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        Ok(FeeInfo {
+            active: true,
+            base_fee: 1,
+            collector: "fc".repeat(32),
+        })
     }
 }
 
@@ -369,4 +383,143 @@ async fn graphql_exposes_no_mutation() {
         !body["errors"].is_null(),
         "a mutation must be refused: {body}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// JSON-RPC at /rpc: the same allowlist, for clients that speak the node's
+// protocol (l1-wallet, the desktop wallet, the Go and Python SDKs)
+// ---------------------------------------------------------------------------
+
+fn rpc_request(method: &str, params: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params })
+}
+
+#[tokio::test]
+async fn fee_terms_are_served_over_rest_and_json_rpc() {
+    // A wallet cannot pay a fee it cannot price, and on a fee-market chain
+    // a transfer without the fee output is refused.
+    let node = Arc::new(MockNode::default());
+    let (status, rest) = get(app_with(Arc::clone(&node)), "/v1/fees").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(rest["active"], true);
+    assert_eq!(rest["base_fee"], 1);
+
+    let (status, rpc) = post(
+        app_with(node),
+        "/rpc",
+        rpc_request("get_fee_info", serde_json::json!([])),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(rpc["id"], 1);
+    assert_eq!(rpc["result"]["collector"], "fc".repeat(32));
+}
+
+#[tokio::test]
+async fn json_rpc_get_balance_answers_in_the_node_shape() {
+    // The node's AccountInfo carries the address; a client that deserialises
+    // that type fails on a response without it.
+    let node = Arc::new(MockNode::default());
+    let (status, body) = post(
+        app_with(node),
+        "/rpc",
+        rpc_request("get_balance", serde_json::json!([address()])),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["result"]["address"], address());
+    assert_eq!(body["result"]["nonce"], 7);
+}
+
+#[tokio::test]
+async fn json_rpc_submission_returns_the_txid() {
+    let node = Arc::new(MockNode::default());
+    let (status, body) = post(
+        app_with(node),
+        "/rpc",
+        rpc_request("send_raw_transaction", serde_json::json!(["abcdef0123"])),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["result"]["txid"], "hash-of-abcdef01");
+    assert_eq!(body["result"]["accepted"], true);
+}
+
+#[tokio::test]
+async fn json_rpc_refuses_the_miner_interface_without_calling_the_node() {
+    for method in [
+        "get_mining_candidate",
+        "submit_block",
+        "get_headers",
+        "anything_else",
+    ] {
+        let node = Arc::new(MockNode::default());
+        let (status, body) = post(
+            app_with(Arc::clone(&node)),
+            "/rpc",
+            rpc_request(method, serde_json::json!([])),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{method}");
+        assert_eq!(body["error"]["code"], -32_601, "{method}");
+        assert_eq!(node.calls(), 0, "{method} reached the node");
+    }
+}
+
+#[tokio::test]
+async fn json_rpc_batches_are_refused_without_calling_the_node() {
+    // One request may not fan out into many node calls.
+    let node = Arc::new(MockNode::default());
+    let batch = serde_json::json!([
+        rpc_request("get_supply", serde_json::json!([])),
+        rpc_request("get_supply", serde_json::json!([])),
+    ]);
+    let (_, body) = post(app_with(Arc::clone(&node)), "/rpc", batch).await;
+    assert_eq!(body["error"]["code"], -32_600);
+    assert_eq!(node.calls(), 0);
+}
+
+#[tokio::test]
+async fn json_rpc_bad_params_never_reach_the_node() {
+    let node = Arc::new(MockNode::default());
+    for request in [
+        rpc_request("get_balance", serde_json::json!(["nothex"])),
+        rpc_request("get_balance", serde_json::json!([])),
+        rpc_request("get_block_by_height", serde_json::json!(["ten"])),
+        rpc_request("send_raw_transaction", serde_json::json!([""])),
+        serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": "get_supply", "params": {} }),
+    ] {
+        let (_, body) = post(app_with(Arc::clone(&node)), "/rpc", request.clone()).await;
+        assert_eq!(body["error"]["code"], -32_602, "{request}");
+    }
+    assert_eq!(node.calls(), 0);
+}
+
+#[tokio::test]
+async fn a_json_rpc_request_that_is_not_2_0_is_invalid() {
+    let node = Arc::new(MockNode::default());
+    let (_, body) = post(
+        app_with(Arc::clone(&node)),
+        "/rpc",
+        serde_json::json!({ "id": 1, "method": "get_supply", "params": [] }),
+    )
+    .await;
+    assert_eq!(body["error"]["code"], -32_600);
+    assert_eq!(node.calls(), 0);
+}
+
+#[tokio::test]
+async fn a_json_rpc_refusal_does_not_leak_the_node_message() {
+    // Same policy as REST: the node's text (paths, hosts) stays in the log.
+    let node = Arc::new(MockNode::default());
+    let (_, body) = post(
+        app_with(node),
+        "/rpc",
+        rpc_request("send_raw_transaction", serde_json::json!(["0bad0bad"])),
+    )
+    .await;
+    assert_eq!(body["error"]["code"], -32_000);
+    let message = body["error"]["message"].as_str().expect("message");
+    assert_eq!(message, "rejected by the node");
+    assert!(!body.to_string().contains("/var/lib"));
 }

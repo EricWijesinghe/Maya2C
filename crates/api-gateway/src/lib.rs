@@ -37,6 +37,7 @@
 pub mod allowlist;
 pub mod error;
 pub mod graphql;
+pub mod jsonrpc;
 pub mod node;
 pub mod rest;
 pub mod sealed;
