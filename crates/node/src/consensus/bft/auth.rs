@@ -2,16 +2,13 @@
 
 use std::sync::Arc;
 
-use maya_dag_bft::{Authenticator, Digest, ValidatorId};
+use maya_dag_bft::{Authenticator, Digest, SignContext, ValidatorId};
 
+use super::remote::ValidatorKey;
 use crate::crypto::SIGNATURE_LENGTH;
-use crate::crypto::keys::{SigningKey, VerifyingKey};
+use crate::crypto::keys::VerifyingKey;
 
-/// Prefixed to every digest a validator signs. The vertex digest already has
-/// its own BLAKE3 domain; this one makes the *signature* unusable anywhere
-/// else a validator key might sign — a transaction, a peer handshake — even if
-/// an operator reused the key, which they should not.
-const VOTE_DOMAIN: &[u8] = b"maya2c/dag-bft/vote/v1";
+use maya_dag_bft::VOTE_DOMAIN;
 
 /// A validator's signing key and its committee's verifying keys.
 ///
@@ -19,16 +16,17 @@ const VOTE_DOMAIN: &[u8] = b"maya2c/dag-bft/vote/v1";
 /// observer never asks them to sign.
 #[derive(Clone)]
 pub struct MlDsaAuthenticator {
-    signer: Option<Arc<SigningKey>>,
+    signer: Option<ValidatorKey>,
     committee: Arc<[VerifyingKey]>,
 }
 
 impl MlDsaAuthenticator {
-    /// A voting validator's authenticator.
+    /// A voting validator's authenticator, signing with a local key or
+    /// through the remote signer (ADR-033).
     #[must_use]
-    pub fn validator(signer: Arc<SigningKey>, committee: Arc<[VerifyingKey]>) -> Self {
+    pub fn validator(signer: impl Into<ValidatorKey>, committee: Arc<[VerifyingKey]>) -> Self {
         Self {
-            signer: Some(signer),
+            signer: Some(signer.into()),
             committee,
         }
     }
@@ -66,15 +64,20 @@ impl core::fmt::Debug for MlDsaAuthenticator {
 }
 
 impl Authenticator for MlDsaAuthenticator {
-    fn sign(&self, digest: &Digest) -> Vec<u8> {
+    fn sign(&self, ctx: SignContext, digest: &Digest) -> Vec<u8> {
         // An empty signature verifies nowhere, so a failure here costs this
         // validator its vote and nothing else. FIPS 204 lets the rejection
-        // loop report failure; it is not a condition to retry.
-        self.signer
-            .as_ref()
-            .and_then(|key| key.sign(&Self::message(digest)).ok())
-            .map(|sig| sig.to_vec())
-            .unwrap_or_default()
+        // loop report failure; it is not a condition to retry. A local key's
+        // protection is the node's safety log; a remote signer adds its own
+        // and needs `ctx` for it.
+        match &self.signer {
+            None => Vec::new(),
+            Some(ValidatorKey::Local(key)) => key
+                .sign(&Self::message(digest))
+                .map(|sig| sig.to_vec())
+                .unwrap_or_default(),
+            Some(ValidatorKey::Remote(remote)) => remote.sign(ctx, digest).unwrap_or_default(),
+        }
     }
 
     fn verify(&self, signer: ValidatorId, digest: &Digest, signature: &[u8]) -> bool {
@@ -92,7 +95,13 @@ impl Authenticator for MlDsaAuthenticator {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
-    use crate::crypto::keys::signing_key_from_seed;
+    use crate::crypto::keys::{SigningKey, signing_key_from_seed};
+
+    const CTX: SignContext = SignContext {
+        kind: maya_dag_bft::SignKind::Vote,
+        round: 1,
+        author: 0,
+    };
 
     fn keys(n: u8) -> (Vec<Arc<SigningKey>>, Arc<[VerifyingKey]>) {
         let signers: Vec<_> = (0..n)
@@ -107,7 +116,7 @@ mod tests {
         let (signers, committee) = keys(3);
         let auth = MlDsaAuthenticator::validator(Arc::clone(&signers[1]), Arc::clone(&committee));
         let digest = [7u8; 32];
-        let sig = auth.sign(&digest);
+        let sig = auth.sign(CTX, &digest);
         assert_eq!(sig.len(), SIGNATURE_LENGTH);
         let observer = MlDsaAuthenticator::observer(committee);
         assert!(observer.verify(1, &digest, &sig));
@@ -122,7 +131,7 @@ mod tests {
         let (_, committee) = keys(1);
         assert!(
             MlDsaAuthenticator::observer(committee)
-                .sign(&[0; 32])
+                .sign(CTX, &[0; 32])
                 .is_empty()
         );
     }

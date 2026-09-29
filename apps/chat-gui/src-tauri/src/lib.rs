@@ -22,9 +22,11 @@ use zeroize::Zeroizing;
 
 /// How long a published prekey stays valid, seconds (the CLI's figure).
 const PREKEY_TTL: u64 = 30 * 24 * 3_600;
-/// The public testnet relay, once it has a fixed address; empty until then,
-/// and the user sets one. `MAYA_CHAT_RELAY` overrides it.
-const DEFAULT_RELAY: &str = "";
+/// maya-testnet-1's public relay, over WebSocket through the tunnel, so a
+/// fresh install can chat with no setup. The peer id is the relay's
+/// persistent key; Settings and `MAYA_CHAT_RELAY` override it.
+const DEFAULT_RELAY: &str =
+    "/dns4/chat.maya2c.dev/tcp/443/wss/p2p/12D3KooWE2G9to26wVuq5znjrE4BQkFrH7YjLypjudtsW8Myi86T";
 const HISTORY_LIMIT: usize = 5_000;
 
 struct Session {

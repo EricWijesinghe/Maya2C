@@ -24,11 +24,12 @@ use maya_dag_bft::{
 
 use super::auth::MlDsaAuthenticator;
 use super::builder::{build_block, unseal};
+use super::remote::ValidatorKey;
 use super::store::SafetyStore;
 use super::wire::{BROADCAST, Envelope};
 use crate::consensus::{BlockId, Chain, InsertOutcome};
 use crate::core::Transaction;
-use crate::crypto::keys::{SigningKey, VerifyingKey};
+use crate::crypto::keys::VerifyingKey;
 use crate::error::{NodeError, Result};
 
 /// Everything a node needs to run one epoch of DAG-BFT.
@@ -38,8 +39,8 @@ pub struct BftSetup {
     pub epoch: u64,
     /// The committee's verifying keys, in validator-id order.
     pub committee: Arc<[VerifyingKey]>,
-    /// This node's signing key, if it is a validator.
-    pub signer: Option<Arc<SigningKey>>,
+    /// This node's validator key, local or remote, if it is a validator.
+    pub signer: Option<ValidatorKey>,
     /// Engine parameters (batch bounds, anchor timeout). Consensus: from
     /// genesis, identical on every node.
     pub params: Params,
@@ -84,7 +85,7 @@ pub struct BftDriver {
     /// Transactions handed to the engine and not yet seen in a block.
     queued: BTreeSet<[u8; 32]>,
     /// Kept to build the next epoch's engine.
-    signer: Option<Arc<SigningKey>>,
+    signer: Option<ValidatorKey>,
     params: Params,
     dir: PathBuf,
 }
@@ -146,7 +147,7 @@ impl BftDriver {
     /// was not chosen this epoch, and it still has to follow the chain.
     #[allow(clippy::too_many_arguments)]
     fn boot(
-        signer: Option<Arc<SigningKey>>,
+        signer: Option<ValidatorKey>,
         params: Params,
         dir: PathBuf,
         epoch: u64,
@@ -175,7 +176,7 @@ impl BftDriver {
                 id,
                 Committee::new(size),
                 engine_params,
-                MlDsaAuthenticator::validator(Arc::clone(key), Arc::clone(committee)),
+                MlDsaAuthenticator::validator(key.clone(), Arc::clone(committee)),
             ),
             _ => Validator::observer(
                 Committee::new(size),

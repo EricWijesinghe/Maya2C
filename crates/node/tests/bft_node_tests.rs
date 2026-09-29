@@ -125,7 +125,7 @@ impl Mesh {
             let setup = BftSetup {
                 epoch: 0,
                 committee: Arc::clone(&committee),
-                signer: keys.get(i).cloned(),
+                signer: keys.get(i).cloned().map(Into::into),
                 params,
             };
             let state_dir = root.path().join(format!("state-{i}"));

@@ -59,7 +59,7 @@ fn main() -> ExitCode {
         "sdk-e2e" => sdk_e2e::run(rest),
         "guides-check" => guides_check::run(rest),
         "pgo" => pgo::run(rest),
-        "localnet" => localnet::localnet(),
+        "localnet" => localnet::localnet(rest),
         "up" => up::up(),
         "down" => up::down(),
         "status" => status::run(rest),
@@ -120,7 +120,7 @@ cargo xtask <command>
                         not exist.
   pgo                   Measure profile-guided optimisation on bft_tps:
                         baseline vs PGO build, medians of --runs runs.
-  localnet              Four maya2c-node validators as processes over
+  localnet [--remote-signer]  Four maya2c-node validators as processes over
                         libp2p on 127.0.0.1: one chain, a transfer on all,
                         liveness with one killed, and its catch-up.
   up                    The whole ecosystem on this machine, left running:

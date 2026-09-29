@@ -17,8 +17,8 @@
 use std::collections::VecDeque;
 
 use maya_dag_bft::{
-    Authenticator, Certificate, Committee, Dest, Digest, Message, Output, Params, Validator,
-    ValidatorId, Vertex,
+    Authenticator, Certificate, Committee, Dest, Digest, Message, Output, Params, SignContext,
+    Validator, ValidatorId, Vertex,
 };
 
 #[derive(Clone, Copy)]
@@ -34,7 +34,7 @@ fn mac(who: ValidatorId, digest: &Digest) -> Vec<u8> {
 }
 
 impl Authenticator for Mac {
-    fn sign(&self, digest: &Digest) -> Vec<u8> {
+    fn sign(&self, _ctx: SignContext, digest: &Digest) -> Vec<u8> {
         mac(self.me, digest)
     }
 
