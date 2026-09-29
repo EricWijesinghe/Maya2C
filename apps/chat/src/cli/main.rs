@@ -3,7 +3,7 @@
 //! ```text
 //! maya-chat --home DIR init                       create an identity
 //! maya-chat --home DIR address                    print it
-//! maya-chat --home DIR relay --listen /ip4/0.0.0.0/tcp/4001
+//! maya-chat --home DIR relay --listen /ip4/0.0.0.0/tcp/4001 [--listen /ip4/127.0.0.1/tcp/4002/ws]
 //! maya-chat --home DIR publish --relay ADDR       publish a prekey bundle
 //! maya-chat --home DIR send --relay ADDR --to HEX TEXT...
 //! maya-chat --home DIR recv --relay ADDR          fetch and print messages
@@ -37,7 +37,7 @@ struct Args {
     home: PathBuf,
     command: String,
     relay: Option<String>,
-    listen: Option<String>,
+    listen: Vec<String>,
     to: Option<String>,
     epoch: u32,
     stamp_bits: u32,
@@ -50,7 +50,7 @@ fn args() -> Result<Args, String> {
         home: PathBuf::from(".maya-chat"),
         command: String::new(),
         relay: None,
-        listen: None,
+        listen: Vec::new(),
         to: None,
         epoch: 1,
         stamp_bits: maya_chat::relay::STAMP_BITS,
@@ -67,7 +67,7 @@ fn args() -> Result<Args, String> {
             }
             "--home" => a.home = PathBuf::from(value()?),
             "--relay" => a.relay = Some(value()?),
-            "--listen" => a.listen = Some(value()?),
+            "--listen" => a.listen.push(value()?),
             "--to" => a.to = Some(value()?),
             "--epoch" => a.epoch = value()?.parse().map_err(|_| "--epoch is a number")?,
             "--stamp-bits" => {
@@ -216,12 +216,14 @@ async fn run(a: Args) -> Result<(), String> {
             Ok(())
         }
         "relay" => {
-            let listen = a
-                .listen
-                .as_deref()
-                .unwrap_or("/ip4/0.0.0.0/tcp/4001")
-                .parse()
-                .map_err(|e| format!("--listen: {e}"))?;
+            let listen = if a.listen.is_empty() {
+                vec!["/ip4/0.0.0.0/tcp/4001".to_owned()]
+            } else {
+                a.listen.clone()
+            }
+            .iter()
+            .map(|l| l.parse().map_err(|e| format!("--listen {l}: {e}")))
+            .collect::<Result<Vec<_>, _>>()?;
             if a.stamp_bits < maya_chat::relay::STAMP_BITS {
                 eprintln!(
                     "warning: postage of {} bits is below the default {}; mailboxes are cheaper to flood",

@@ -70,3 +70,5 @@ The observation that would make this worth reopening.
 | [030](ADR-030-vault-accounts.md) | Vault accounts — delayed withdrawals, guardian cancel | Accepted |
 | [031](ADR-031-maya-chat.md) | Maya Chat — a detached, post-quantum, peer-to-peer messenger | Accepted |
 | [032](ADR-032-testnet-hosting.md) | First public testnet — one seed on Oracle Always Free, one installer | Proposed |
+| [033](ADR-033-remote-signer-in-the-node.md) | The remote signer in the node — protection keyed to the DAG, signatures unchanged | Accepted |
+| [034](ADR-034-vm-reference-types-off.md) | The consensus VM rejects reference types and typed function references | Accepted |
