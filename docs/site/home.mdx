@@ -6,7 +6,7 @@ hero:
   title: Post-quantum, from the key to the chain.
   tagline: A layer-1 blockchain in Rust with DAG-BFT finality and NIST post-quantum cryptography in every layer, and a claim ledger that fails CI when a feature has no test.
   image:
-    file: ../../assets/hero-lattice.svg
+    html: '<div id="maya-3d" class="maya-3d"><img src="/hero-lattice.svg" alt="A lattice of points with a DAG of validator rounds across it" width="480" height="480" /></div>'
   actions:
     - text: Quickstart
       link: /guides/quickstart/
@@ -25,8 +25,11 @@ import StatBand from "../../components/StatBand.astro";
 import StackDiagram from "../../components/StackDiagram.astro";
 import EcosystemMap from "../../components/EcosystemMap.astro";
 import LaunchLadder from "../../components/LaunchLadder.astro";
+import Hero3D from "../../components/Hero3D.astro";
 
 {/* Copied to src/content/docs/index.mdx by scripts/ingest.mjs. Edit this file. */}
+
+<Hero3D />
 
 <StatBand />
 
