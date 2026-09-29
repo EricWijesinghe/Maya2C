@@ -142,6 +142,15 @@ struct Args {
     bootstrap_from: Option<String>,
     /// ML-DSA-65 validator key; absent means an observer on a DAG-BFT network.
     validator_key: Option<PathBuf>,
+    /// The validator key lives in `maya2c-signer` at this address instead
+    /// (ADR-033). Needs `signer_pin`, `validator_pubkey` and `signer_identity`.
+    remote_signer: Option<SocketAddr>,
+    /// The signer's channel public key, hex: the only signer this node talks to.
+    signer_pin: Option<String>,
+    /// The validator public key the signer holds, hex.
+    validator_pubkey: Option<String>,
+    /// This node's channel identity, written by `--generate-signer-identity`.
+    signer_identity: Option<PathBuf>,
 }
 
 impl Default for Args {
@@ -184,6 +193,10 @@ impl Default for Args {
             snapshot_interval: None,
             bootstrap_from: None,
             validator_key: None,
+            remote_signer: None,
+            signer_pin: None,
+            validator_pubkey: None,
+            signer_identity: None,
         }
     }
 }
@@ -215,6 +228,11 @@ fn print_usage() {
          --bootstrap-from <URL>   bootstrap a pruned node from a peer's JSON-RPC\n  \
          --validator-key <PATH>  DAG-BFT validator key; without it the node observes\n  \
          --generate-validator-key <PATH>  write a new validator key, print its public key\n  \
+         --remote-signer <ADDR>  sign through maya2c-signer, not a key file (ADR-033)\n  \
+         --signer-pin <HEX>   the signer's channel public key\n  \
+         --validator-pubkey <HEX>  the validator public key the signer holds\n  \
+         --signer-identity <PATH>  this node's channel identity\n  \
+         --generate-signer-identity <PATH>  write one, print the public key to pin\n  \
          --mine               mine blocks on this node (proof-of-work devnets only)\n  \
          --threads <N>        mining threads (default: available parallelism, max 8)\n  \
          -h, --help           show this message"
@@ -266,6 +284,14 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--snapshot-interval" => args.snapshot_interval = Some(value()?.parse()?),
             "--bootstrap-from" => args.bootstrap_from = Some(value()?),
             "--validator-key" => args.validator_key = Some(PathBuf::from(value()?)),
+            "--remote-signer" => args.remote_signer = Some(value()?.parse()?),
+            "--signer-pin" => args.signer_pin = Some(value()?),
+            "--validator-pubkey" => args.validator_pubkey = Some(value()?),
+            "--signer-identity" => args.signer_identity = Some(PathBuf::from(value()?)),
+            "--generate-signer-identity" => {
+                bft::generate_signer_identity(Path::new(&value()?))?;
+                std::process::exit(0);
+            }
             "--generate-validator-key" => {
                 bft::generate_validator_key(Path::new(&value()?))?;
                 std::process::exit(0);
@@ -783,9 +809,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     if let Some(committee) = &config.bft {
-        let signer = match &args.validator_key {
-            Some(path) => Some(bft::load_validator_key(path)?),
-            None => None,
+        let signer = match (&args.validator_key, args.remote_signer) {
+            (Some(_), Some(_)) => {
+                return Err(
+                    "--validator-key and --remote-signer are exclusive: one key, one place".into(),
+                );
+            }
+            (Some(path), None) => Some(bft::load_validator_key(path)?.into()),
+            (None, Some(addr)) => Some(bft::remote_signer(
+                addr,
+                args.signer_identity
+                    .as_deref()
+                    .ok_or("--remote-signer needs --signer-identity")?,
+                args.signer_pin
+                    .as_deref()
+                    .ok_or("--remote-signer needs --signer-pin")?,
+                args.validator_pubkey
+                    .as_deref()
+                    .ok_or("--remote-signer needs --validator-pubkey")?,
+            )?),
+            (None, None) => None,
         };
         let setup = bft::setup(committee, signer)?;
         let (driver, opening) = bft::open(&setup, &args.data_dir, &chain)?;

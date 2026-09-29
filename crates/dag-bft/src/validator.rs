@@ -15,7 +15,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
-use crate::auth::{Authenticator, Equivocation, Unauthenticated};
+use crate::auth::{Authenticator, Equivocation, SignContext, SignKind, Unauthenticated};
 use crate::commit::{Committer, SubDag};
 use crate::dag::Dag;
 use crate::vertex::{Certificate, Committee, Digest, Payload, ValidatorId, Vertex};
@@ -359,7 +359,14 @@ impl<A: Authenticator> Validator<A> {
                     digest,
                     round: v.round,
                     voter: self.id,
-                    signature: self.auth.sign(&digest),
+                    signature: self.auth.sign(
+                        SignContext {
+                            kind: SignKind::Vote,
+                            round: v.round,
+                            author: v.author,
+                        },
+                        &digest,
+                    ),
                 },
             ));
         }
@@ -597,7 +604,14 @@ impl<A: Authenticator> Validator<A> {
             batch: self.next_batch(),
         };
         let digest = vertex.digest();
-        let signature = self.auth.sign(&digest);
+        let signature = self.auth.sign(
+            SignContext {
+                kind: SignKind::Proposal,
+                round,
+                author: self.id,
+            },
+            &digest,
+        );
         self.voted.insert((round, self.id), digest);
         self.seen.insert(
             (round, self.id),

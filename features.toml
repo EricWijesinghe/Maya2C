@@ -3069,12 +3069,12 @@ note = "Master Prompt 12 §5. Gate and history format built and self-tested; the
 id = "remote-validator-signer"
 name = "Remote validator signer with slashing protection"
 domain = "Cryptography and key management"
-paths = "`crates/signer`, `bins/maya2c-signer`"
+paths = "`crates/signer`, `bins/maya2c-signer`, `crates/node/src/consensus/bft/remote.rs`"
 tier = "core"
-class = "RESEARCH"
+class = "REAL"
 status = "working"
-tests = ["crates/signer/tests/signer_tests.rs"]
-note = "Master Prompt 16 §1-2. Keystore backend only (ADR-022); not called by the node until consensus signing is wired."
+tests = ["crates/signer/tests/signer_tests.rs", "crates/node/tests/remote_signer_tests.rs"]
+note = "Master Prompt 16 §1-2. Keystore backend only (ADR-022). Called by the node with --remote-signer (ADR-033): protection per (round, author) slot, signs the node's exact bytes; `cargo xtask localnet --remote-signer` passes with one validator signing only through it. Channel and protection rule not externally reviewed."
 
 [[subsystem]]
 id = "dos-guard"
