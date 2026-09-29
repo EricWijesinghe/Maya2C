@@ -9,7 +9,7 @@
 use std::path::PathBuf;
 
 use custom_l1_node::consensus::chain::below_prune_horizon;
-use custom_l1_node::consensus::{cumulative_work, retarget, work_from_target};
+use custom_l1_node::consensus::{cumulative_work, dag_bft_target, retarget, work_from_target};
 use custom_l1_node::core::multisig_tx::MultisigAuth;
 use custom_l1_node::core::transaction::{Transaction, TxOutput};
 use custom_l1_node::crypto::pow::meets_target;
@@ -101,6 +101,18 @@ fn check(case: &Value) {
                 num(&case["timespan"]),
                 &bytes32(&case["pow_limit"]),
             );
+            if let Some(declared) = case.get("declared") {
+                assert_eq!(outcome(next == bytes32(declared)), want, "{id}");
+            } else {
+                assert_eq!(
+                    hex::encode(next),
+                    expect["target"].as_str().unwrap(),
+                    "{id}"
+                );
+            }
+        }
+        "dag_bft_target" => {
+            let next = dag_bft_target(&bytes32(&case["parent"]));
             if let Some(declared) = case.get("declared") {
                 assert_eq!(outcome(next == bytes32(declared)), want, "{id}");
             } else {
