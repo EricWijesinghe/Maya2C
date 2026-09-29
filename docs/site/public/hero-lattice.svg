@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 480" width="480" height="480" role="img" aria-labelledby="t d">
+  <title id="t">Maya2C</title>
+  <desc id="d">A lattice of points, the structure post-quantum signatures rest on, with a certified DAG of rounds drawn across it.</desc>
+  <defs>
+    <radialGradient id="core" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#a78bfa" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#05070f" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="edge" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+    <style>
+      .grid circle { fill: #22d3ee; opacity: .22; }
+      .ring { fill: none; stroke: url(#edge); stroke-width: 1.2; opacity: .35; transform-origin: 240px 240px; }
+      .r1 { animation: spin 60s linear infinite; }
+      .r2 { animation: spin 90s linear infinite reverse; }
+      .dag path { fill: none; stroke: url(#edge); stroke-width: 2; stroke-linecap: round;
+                  stroke-dasharray: 6 10; animation: flow 3.2s linear infinite; }
+      .dag circle { fill: #05070f; stroke: #22d3ee; stroke-width: 2.5; }
+      .dag .anchor { stroke: #f472b6; fill: #f472b6; animation: pulse 2.4s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @keyframes flow { to { stroke-dashoffset: -32; } }
+      @keyframes pulse { 50% { transform: scale(1.35); opacity: .7; } }
+      @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+    </style>
+  </defs>
+  <circle cx="240" cy="240" r="230" fill="url(#core)"/>
+  <g class="grid">
+    <circle cx="80" cy="80" r="2"/><circle cx="160" cy="80" r="2"/><circle cx="240" cy="80" r="2"/><circle cx="320" cy="80" r="2"/><circle cx="400" cy="80" r="2"/>
+    <circle cx="120" cy="150" r="2"/><circle cx="200" cy="150" r="2"/><circle cx="280" cy="150" r="2"/><circle cx="360" cy="150" r="2"/>
+    <circle cx="80" cy="220" r="2"/><circle cx="160" cy="220" r="2"/><circle cx="240" cy="220" r="2"/><circle cx="320" cy="220" r="2"/><circle cx="400" cy="220" r="2"/>
+    <circle cx="120" cy="290" r="2"/><circle cx="200" cy="290" r="2"/><circle cx="280" cy="290" r="2"/><circle cx="360" cy="290" r="2"/>
+    <circle cx="80" cy="360" r="2"/><circle cx="160" cy="360" r="2"/><circle cx="240" cy="360" r="2"/><circle cx="320" cy="360" r="2"/><circle cx="400" cy="360" r="2"/>
+    <circle cx="120" cy="430" r="2"/><circle cx="200" cy="430" r="2"/><circle cx="280" cy="430" r="2"/><circle cx="360" cy="430" r="2"/>
+  </g>
+  <ellipse class="ring r1" cx="240" cy="240" rx="200" ry="200" stroke-dasharray="2 8"/>
+  <ellipse class="ring r2" cx="240" cy="240" rx="160" ry="160" stroke-dasharray="14 6"/>
+  <!-- Four validators, three rounds: each vertex certifies a quorum of the round before. -->
+  <g class="dag">
+    <path d="M150 150 L240 240 M210 150 L240 240 M270 150 L240 240 M150 150 L180 240 M210 150 L180 240 M330 150 L300 240 M270 150 L300 240 M330 150 L360 240 M270 150 L360 240"/>
+    <path d="M180 240 L210 330 M240 240 L210 330 M300 240 L210 330 M240 240 L270 330 M300 240 L270 330 M360 240 L270 330 M180 240 L150 330 M240 240 L150 330 M300 240 L330 330 M360 240 L330 330 M240 240 L330 330"/>
+    <circle cx="150" cy="150" r="9"/><circle cx="210" cy="150" r="9"/><circle cx="270" cy="150" r="9"/><circle cx="330" cy="150" r="9"/>
+    <circle cx="180" cy="240" r="9"/><circle class="anchor" cx="240" cy="240" r="11"/><circle cx="300" cy="240" r="9"/><circle cx="360" cy="240" r="9"/>
+    <circle cx="150" cy="330" r="9"/><circle cx="210" cy="330" r="9"/><circle cx="270" cy="330" r="9"/><circle cx="330" cy="330" r="9"/>
+  </g>
+</svg>
