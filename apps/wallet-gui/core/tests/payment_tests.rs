@@ -10,8 +10,8 @@ use custom_l1_node::core::Transaction;
 use maya_wallet_core::error::WalletError;
 use maya_wallet_core::hd::{self, DerivationPath, seed_from_mnemonic};
 use maya_wallet_core::payment::{
-    FEE_SINK, FeeTier, PaymentRequest, decode_qr_png, normalize_address, scan_payment_request,
-    sign_transfer,
+    FEE_SINK, FeeTier, PaymentRequest, check_fee_collector, decode_qr_png, normalize_address,
+    priced_fee_tiers, scan_payment_request, sign_transfer, sign_transfer_to, transfer_size,
 };
 
 const TEST_PHRASE: &str = "abandon abandon abandon abandon abandon abandon abandon abandon \
@@ -325,4 +325,91 @@ fn a_manual_fee_overrides_the_tier() {
     let decoded =
         Transaction::from_bytes(&hex::decode(&signed.raw_hex).expect("hex")).expect("decode");
     assert_eq!(decoded.outputs[1].amount, 4_242);
+}
+
+// ---------------------------------------------------------------------------
+// fees on a fee-market chain (ADR-029)
+// ---------------------------------------------------------------------------
+
+/// Where a fee-charging chain wants fees paid. Any address the node names;
+/// this one is only distinct from the burn sink and the recipients above.
+fn collector() -> String {
+    address(0xFC)
+}
+
+#[test]
+fn on_a_fee_market_chain_the_fee_is_paid_to_the_collector_not_burned() {
+    // A fee output to the burn sink is refused by a node whose genesis
+    // configures fees: it expects an ordinary output to the collector that
+    // `get_fee_info` names. Paying the sink made every GUI transfer fail.
+    let signed = sign_transfer_to(&signing_key(), &address(30), 1_000, 26_510, &collector(), 0)
+        .expect("sign");
+    let decoded =
+        Transaction::from_bytes(&hex::decode(&signed.raw_hex).expect("hex")).expect("decode");
+
+    assert_eq!(decoded.outputs.len(), 2);
+    assert_eq!(decoded.outputs[0].amount, 1_000);
+    assert_eq!(decoded.outputs[1].amount, 26_510);
+    assert_eq!(hex::encode(decoded.outputs[1].recipient), collector());
+    assert_ne!(decoded.outputs[1].recipient, FEE_SINK);
+    assert_eq!(decoded.verify(), Ok(()));
+    assert_eq!(signed.fee, 26_510);
+}
+
+#[test]
+fn the_priced_size_is_the_size_of_the_transaction_actually_signed() {
+    // The fee is base_fee x size, so pricing a different shape than the one
+    // sent under- or over-pays. Output encoding does not depend on amounts.
+    let key = signing_key();
+    let size = transfer_size(&key, &collector(), 4).expect("size");
+    let signed =
+        sign_transfer_to(&key, &address(31), 123_456, 987_654, &collector(), 4).expect("sign");
+    let actual = u64::try_from(hex::decode(&signed.raw_hex).expect("hex").len()).expect("fits");
+    assert_eq!(size, actual);
+}
+
+#[test]
+fn fee_tiers_price_the_minimum_then_twice_then_four_times() {
+    let key = signing_key();
+    let size = transfer_size(&key, &collector(), 0).expect("size");
+    let [economy, standard, priority] = priced_fee_tiers(1, size).expect("priced");
+
+    // Economy is exactly the base fee: accepted now, refused if it rises.
+    assert_eq!(economy, size);
+    // Standard matches the command-line wallet's default of twice the base fee.
+    assert_eq!(standard, 2 * size);
+    assert_eq!(priority, 4 * size);
+}
+
+#[test]
+fn pricing_that_would_overflow_is_refused() {
+    assert_eq!(
+        priced_fee_tiers(u64::MAX, 2).err(),
+        Some(WalletError::AmountOverflow)
+    );
+}
+
+#[test]
+fn a_collector_that_is_not_an_address_is_refused() {
+    assert!(matches!(
+        sign_transfer_to(&signing_key(), &address(32), 1, 1, "collector", 0),
+        Err(WalletError::Address(_))
+    ));
+}
+
+#[test]
+fn only_the_chains_own_fee_collector_is_accepted() {
+    // The collector is a derived address nobody holds a key for, fixed in the
+    // node. A gateway that names any other address is trying to take the fee,
+    // so the wallet refuses it rather than trusting what the node says.
+    let real = hex::encode(custom_l1_node::state::fees::FEE_COLLECTOR);
+    assert_eq!(check_fee_collector(&real), Ok(()));
+    assert!(matches!(
+        check_fee_collector(&collector()),
+        Err(WalletError::Address(_))
+    ));
+    assert!(matches!(
+        check_fee_collector("not hex"),
+        Err(WalletError::Address(_))
+    ));
 }

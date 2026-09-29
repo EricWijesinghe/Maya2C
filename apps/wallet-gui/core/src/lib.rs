@@ -49,6 +49,9 @@ pub use airgap::{Assembler, Frame, frame_count, split};
 pub use compose::{CircuitTrust, ShieldedComposer, SwapOutcome, compose_swap};
 pub use error::{Result, WalletError};
 pub use hd::{DerivationPath, generate_mnemonic, seed_from_mnemonic, validate_mnemonic};
-pub use payment::{FeeTier, PaymentRequest, SignedTransfer, scan_payment_request, sign_transfer};
+pub use payment::{
+    FeeTier, PaymentRequest, SignedTransfer, check_fee_collector, priced_fee_tiers,
+    scan_payment_request, sign_transfer, sign_transfer_to, transfer_size,
+};
 pub use vault::{MemoryStore, OsKeychain, SecretStore, Vault};
 pub use wallet::{Account, PendingTransfer, Wallet};

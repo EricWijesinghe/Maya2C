@@ -270,6 +270,101 @@ pub fn sign_transfer(
     fee: u64,
     nonce: u64,
 ) -> Result<SignedTransfer> {
+    sign_with_fee_to(signing_key, recipient, amount, fee, FEE_SINK, nonce)
+}
+
+/// Signs a transfer on a fee-market chain (ADR-029). No network access.
+///
+/// The fee is an ordinary signed output to `fee_recipient`, the collector the
+/// node names in `get_fee_info` — not the burn sink, which such a node
+/// refuses as payment. The chain burns the base-fee part itself; anything
+/// above it is a tip to validators. Fetch the collector while online and sign
+/// here, so an air-gapped device can still sign.
+///
+/// # Errors
+///
+/// [`WalletError::Address`] for a malformed recipient or collector, or
+/// [`WalletError::AmountOverflow`] if amount and fee overflow together.
+pub fn sign_transfer_to(
+    signing_key: &HybridSigningKey,
+    recipient: &str,
+    amount: u64,
+    fee: u64,
+    fee_recipient: &str,
+    nonce: u64,
+) -> Result<SignedTransfer> {
+    let fee_recipient = decode_address(fee_recipient)?;
+    sign_with_fee_to(signing_key, recipient, amount, fee, fee_recipient, nonce)
+}
+
+/// Refuses any fee collector but the chain's own.
+///
+/// The wallet learns the collector from whatever node or gateway it is
+/// pointed at. The real one is a derived address fixed in the node, which
+/// nobody holds a key for, so a node that names another address is asking
+/// for the fee to be paid to itself. Checked here rather than trusted.
+///
+/// # Errors
+///
+/// [`WalletError::Address`] if `collector` is malformed or is not the chain's
+/// fee collector.
+pub fn check_fee_collector(collector: &str) -> Result<()> {
+    if decode_address(collector)? == custom_l1_node::state::fees::FEE_COLLECTOR {
+        Ok(())
+    } else {
+        Err(WalletError::Address(format!(
+            "{collector} is not this chain's fee collector; refusing to pay a fee to it"
+        )))
+    }
+}
+
+/// Serialized size of a transfer that carries a fee output, in bytes.
+///
+/// What a fee-market chain charges `base_fee` per byte for. Output encoding
+/// does not depend on amounts or on which recipient, so a probe signed with
+/// placeholder values has exactly the size of the real transfer.
+///
+/// # Errors
+///
+/// [`WalletError::Address`] for a malformed collector; signing failures.
+pub fn transfer_size(
+    signing_key: &HybridSigningKey,
+    fee_recipient: &str,
+    nonce: u64,
+) -> Result<u64> {
+    let probe = sign_transfer_to(signing_key, fee_recipient, 1, 1, fee_recipient, nonce)?;
+    u64::try_from(probe.raw_hex.len() / 2).map_err(|_| WalletError::AmountOverflow)
+}
+
+/// Economy, Standard and Priority fees for a transfer of `size` bytes.
+///
+/// Economy is exactly `base_fee x size`: accepted now, refused if the base
+/// fee rises before inclusion. Standard is twice that, the command-line
+/// wallet's default; Priority is four times.
+///
+/// # Errors
+///
+/// [`WalletError::AmountOverflow`] if a fee does not fit in a `u64`.
+pub fn priced_fee_tiers(base_fee: u64, size: u64) -> Result<[u64; 3]> {
+    let required = base_fee
+        .checked_mul(size)
+        .ok_or(WalletError::AmountOverflow)?;
+    let tier = |factor: u64| {
+        required
+            .checked_mul(factor)
+            .ok_or(WalletError::AmountOverflow)
+    };
+    Ok([required, tier(2)?, tier(4)?])
+}
+
+fn sign_with_fee_to(
+    signing_key: &HybridSigningKey,
+    recipient: &str,
+    amount: u64,
+    fee: u64,
+    fee_recipient: [u8; 32],
+    nonce: u64,
+) -> Result<SignedTransfer> {
     let recipient_bytes = decode_address(recipient)?;
 
     // Checked, because a wrapped total would sign a transaction the sender
@@ -283,7 +378,7 @@ pub fn sign_transfer(
     if fee > 0 {
         outputs.push(TxOutput {
             amount: fee,
-            recipient: FEE_SINK,
+            recipient: fee_recipient,
         });
     }
 
