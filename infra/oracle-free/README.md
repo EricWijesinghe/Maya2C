@@ -52,8 +52,9 @@ Each step marked **APPROVED** touches a live account and needs the owner's
    `seed_public_ip`.
 6. **Watch the build.** `ssh ubuntu@<ip> sudo tail -f /var/log/maya2c-provision.log`.
    The first build compiles the whole node on four Ampere cores; expect tens
-   of minutes. The x86 release build took 12m14s on two jobs, and nobody has
-   timed it on aarch64 yet.
+   of minutes. For scale: a native aarch64 release build took 14 min on
+   GitHub's `ubuntu-24.04-arm` runner (run 36478279508), whose core count
+   differs from this VM's.
 7. **DNS — `APPROVED: seed DNS`.** In Cloudflare, add `seed1.maya2c.dev` → A →
    `seed_public_ip`, **DNS only**. Add `rpc.maya2c.dev` too if you set `domain`.
 
