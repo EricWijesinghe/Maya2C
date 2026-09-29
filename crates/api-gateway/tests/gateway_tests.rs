@@ -87,6 +87,14 @@ impl NodeClient for MockNode {
             collector: "fc".repeat(32),
         })
     }
+
+    async fn get_chain_info(&self) -> Result<crate::node::ChainInfo, GatewayError> {
+        self.calls.fetch_add(1, Ordering::Relaxed);
+        Ok(crate::node::ChainInfo {
+            genesis: "ab".repeat(32),
+            chain_id: None,
+        })
+    }
 }
 
 fn app_with(node: Arc<MockNode>) -> axum::Router {

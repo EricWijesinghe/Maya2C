@@ -129,6 +129,9 @@ impl NodeClient for UnreachableNode {
     async fn get_fee_info(&self) -> Result<FeeInfo, GatewayError> {
         unreachable!("serving the spec must not touch the node")
     }
+    async fn get_chain_info(&self) -> Result<crate::node::ChainInfo, GatewayError> {
+        unreachable!("serving the spec must not touch the node")
+    }
 }
 
 #[tokio::test]
