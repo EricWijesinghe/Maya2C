@@ -271,7 +271,8 @@ units() {
     if [ "$DRY_RUN" = 1 ]; then
         printf '[dry-run] write %s/faucet-config.env (listen %s, trust proxy %s)\n' "$CONF" "$faucet_listen" "$trust"
     elif [ -f "$CONF/genesis.json" ]; then
-        printf 'MAYA_FAUCET_CHAIN=%s\nMAYA_FAUCET_NODE=http://127.0.0.1:%s\nMAYA_FAUCET_LISTEN=%s\nMAYA_FAUCET_TRUST_PROXY=%s\nMAYA_FAUCET_LEDGER=%s\n' \
+        # CORS: the "Join the testnet" page on maya2c.dev calls the faucet.
+        printf 'MAYA_FAUCET_CHAIN=%s\nMAYA_FAUCET_NODE=http://127.0.0.1:%s\nMAYA_FAUCET_LISTEN=%s\nMAYA_FAUCET_TRUST_PROXY=%s\nMAYA_FAUCET_LEDGER=%s\nMAYA_FAUCET_CORS_ORIGINS=https://maya2c.dev\n' \
             "$(jq -r .chain_id "$CONF/genesis.json")" "$RPC_BASE" "$faucet_listen" "$trust" \
             "$STATE/faucet/ledger.jsonl" > "$CONF/faucet-config.env"
     fi
