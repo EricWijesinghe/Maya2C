@@ -264,7 +264,7 @@ fn attest(
         signature: [0; 64],
     };
     let signature = keypair
-        .sign(&gossip.signed_bytes(kind.topic(, &common::test_chain())))
+        .sign(&gossip.signed_bytes(kind.topic()))
         .expect("sign");
     gossip.signature = signature
         .try_into()
