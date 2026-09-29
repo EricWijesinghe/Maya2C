@@ -52,6 +52,9 @@ pub const ALLOWED_METHODS: &[&str] = &[
     // carry a fee output priced from it, so a wallet that cannot read it
     // cannot build an acceptable transaction.
     "get_fee_info",
+    // Public by necessity: offline signers need the chain id to sign transactions
+    // that commit to this chain and are not replayed on others (ADR-036).
+    "get_chain_info",
     "get_supply",
     "send_raw_transaction",
 ];
