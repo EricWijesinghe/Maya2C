@@ -70,6 +70,9 @@ pub trait ChainView: Send + Sync {
 
     /// Broadcasts signed transaction bytes, returning the transaction id.
     async fn broadcast(&self, raw: &[u8]) -> Result<String>;
+
+    /// The chain's genesis block id, used as the chain tag for signatures (ADR-036).
+    async fn chain_tag(&self) -> Result<custom_l1_node::core::ChainTag>;
 }
 
 /// What one settlement pass did.
@@ -279,10 +282,11 @@ impl PayoutEngine {
 
         let (balance, nonce) = self.chain.account(&self.treasury.address()).await?;
         let id = self.ledger.next_batch_id()?;
+        let chain_tag = self.chain.chain_tag().await?;
 
         let transaction = match self
             .treasury
-            .sign_payout(&entries, nonce, balance, &self.config)
+            .sign_payout(&entries, nonce, balance, &self.config, &chain_tag)
         {
             Ok(transaction) => transaction,
             Err(error) => {
@@ -457,6 +461,11 @@ mod tests {
             }
             state.broadcasts.push(raw.to_vec());
             Ok(format!("tx{}", state.broadcasts.len()))
+        }
+
+        async fn chain_tag(&self) -> Result<custom_l1_node::core::ChainTag> {
+            // Test chain: use a fixed tag
+            Ok(custom_l1_node::core::ChainTag::from_genesis([0; 32]))
         }
     }
 
@@ -770,8 +779,9 @@ mod tests {
             miner: ALICE,
             amount: 1_000,
         }];
+        let test_tag = custom_l1_node::core::ChainTag::from_genesis([0; 32]);
         let signed = treasury
-            .sign_payout(&entries, 0, 1_000_000, &config())
+            .sign_payout(&entries, 0, 1_000_000, &config(), &test_tag)
             .unwrap();
         let orphan_batch = PayoutBatch {
             id: ledger.next_batch_id().unwrap(),

@@ -40,7 +40,7 @@
 
 use std::path::Path;
 
-use custom_l1_node::core::{Transaction, TxOutput};
+use custom_l1_node::core::{ChainTag, Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
 use custom_l1_node::state::Address;
 
@@ -158,6 +158,7 @@ impl Treasury {
         nonce: u64,
         balance: u64,
         config: &PoolConfig,
+        chain_tag: &ChainTag,
     ) -> Result<Transaction> {
         if entries.is_empty() {
             return Err(PoolError::Treasury(
@@ -205,7 +206,7 @@ impl Treasury {
             .collect();
 
         let mut transaction = Transaction::new(Vec::new(), outputs, nonce);
-        transaction.sign(&self.key)?;
+        transaction.sign(&self.key, chain_tag)?;
         Ok(transaction)
     }
 }
@@ -215,6 +216,7 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
+    use custom_l1_node::core::ChainTag;
     use custom_l1_node::crypto::hybrid::generate_signing_key;
 
     fn config() -> PoolConfig {
@@ -226,6 +228,10 @@ mod tests {
 
     fn treasury() -> Treasury {
         Treasury::from_key(generate_signing_key().expect("key generation"))
+    }
+
+    fn test_tag() -> ChainTag {
+        ChainTag::from_genesis([0; 32])
     }
 
     fn entries(amounts: &[u64]) -> Vec<PayoutEntry> {
@@ -242,14 +248,15 @@ mod tests {
     #[test]
     fn a_signed_payout_carries_every_recipient_and_verifies() {
         let treasury = treasury();
+        let tag = test_tag();
         let transaction = treasury
-            .sign_payout(&entries(&[10, 20, 30]), 7, 1_000, &config())
+            .sign_payout(&entries(&[10, 20, 30]), 7, 1_000, &config(), &tag)
             .unwrap();
 
         assert_eq!(transaction.outputs.len(), 3);
         assert_eq!(transaction.nonce, 7);
         assert_eq!(transaction.sender(), treasury.address());
-        assert!(transaction.verify().is_ok());
+        assert!(transaction.verify(&tag).is_ok());
     }
 
     #[test]
@@ -258,7 +265,7 @@ mod tests {
         // still holding the nonce slot on disk.
         let treasury = treasury();
         assert!(matches!(
-            treasury.sign_payout(&entries(&[500, 600]), 0, 1_000, &config()),
+            treasury.sign_payout(&entries(&[500, 600]), 0, 1_000, &config(), &test_tag()),
             Err(PoolError::Treasury(_))
         ));
     }
@@ -272,7 +279,7 @@ mod tests {
         let treasury = treasury();
 
         assert!(matches!(
-            treasury.sign_payout(&entries(&[60, 60]), 0, u64::MAX, &config),
+            treasury.sign_payout(&entries(&[60, 60]), 0, u64::MAX, &config, &test_tag()),
             Err(PoolError::Treasury(_))
         ));
     }
@@ -281,7 +288,7 @@ mod tests {
     fn an_empty_batch_is_refused() {
         let treasury = treasury();
         assert!(matches!(
-            treasury.sign_payout(&[], 0, 1_000, &config()),
+            treasury.sign_payout(&[], 0, 1_000, &config(), &test_tag()),
             Err(PoolError::Treasury(_))
         ));
     }
@@ -292,7 +299,7 @@ mod tests {
         // overflow here would defeat both at once.
         let treasury = treasury();
         assert!(matches!(
-            treasury.sign_payout(&entries(&[u64::MAX, 1]), 0, u64::MAX, &config()),
+            treasury.sign_payout(&entries(&[u64::MAX, 1]), 0, u64::MAX, &config(), &test_tag()),
             Err(PoolError::Treasury(_))
         ));
     }
@@ -306,7 +313,7 @@ mod tests {
         let treasury = treasury();
 
         assert!(matches!(
-            treasury.sign_payout(&entries(&[1, 1, 1]), 0, 1_000, &config),
+            treasury.sign_payout(&entries(&[1, 1, 1]), 0, 1_000, &config, &test_tag()),
             Err(PoolError::Treasury(_))
         ));
     }

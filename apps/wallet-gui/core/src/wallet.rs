@@ -14,6 +14,8 @@ use jsonrpsee::rpc_params;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
+use custom_l1_node::core::ChainTag;
+
 use crate::error::{Result, WalletError};
 use crate::hd::{self, DerivationPath, SEED_LEN};
 use crate::payment::{
@@ -140,15 +142,16 @@ impl Wallet {
         fee: u64,
         fee_to: Option<&str>,
         nonce: u64,
+        chain: &ChainTag,
     ) -> Result<SignedTransfer> {
         let path = DerivationPath::account(0, index);
         let signing_key = hd::signing_key_at(self.seed.as_ref(), &path)?;
         let transfer = match fee_to {
             Some(collector) => {
                 check_fee_collector(collector)?;
-                sign_transfer_to(&signing_key, recipient, amount, fee, collector, nonce)?
+                sign_transfer_to(&signing_key, recipient, amount, fee, collector, nonce, chain)?
             }
-            None => sign_transfer(&signing_key, recipient, amount, fee, nonce)?,
+            None => sign_transfer(&signing_key, recipient, amount, fee, nonce, chain)?,
         };
 
         self.history.push(PendingTransfer {
@@ -165,10 +168,10 @@ impl Wallet {
     /// # Errors
     ///
     /// Propagates derivation, address and signing failures.
-    pub fn transfer_size(&self, index: u32, fee_to: &str, nonce: u64) -> Result<u64> {
+    pub fn transfer_size(&self, index: u32, fee_to: &str, nonce: u64, chain: &ChainTag) -> Result<u64> {
         let path = DerivationPath::account(0, index);
         let signing_key = hd::signing_key_at(self.seed.as_ref(), &path)?;
-        transfer_size(&signing_key, fee_to, nonce)
+        transfer_size(&signing_key, fee_to, nonce, chain)
     }
 
     /// Signed transfers, newest first.
@@ -250,6 +253,28 @@ pub async fn fee_quote(node_url: &str) -> Result<FeeQuote> {
         base_fee: info.base_fee,
         collector: info.collector,
     })
+}
+
+/// Fetches the chain's genesis block id (for transaction signing).
+///
+/// # Errors
+///
+/// Returns [`WalletError::Node`] if the node is unreachable.
+pub async fn chain_info(node_url: &str) -> Result<ChainTag> {
+    let client = HttpClientBuilder::default()
+        .build(node_url)
+        .map_err(|e| WalletError::Node(format!("connecting to {node_url}: {e}")))?;
+
+    let info: custom_l1_node::rpc::ChainInfo = client
+        .request("get_chain_info", rpc_params![])
+        .await
+        .map_err(|e| WalletError::Node(e.to_string()))?;
+
+    let genesis_bytes = hex::decode(&info.genesis)
+        .map_err(|e| WalletError::Node(format!("decoding genesis hex: {e}")))?;
+    let genesis_array: [u8; 32] = genesis_bytes.try_into()
+        .map_err(|_| WalletError::Node("genesis must be 32 bytes".to_string()))?;
+    Ok(ChainTag::from_genesis(genesis_array))
 }
 
 /// Reads an account's balance and next nonce from a node.

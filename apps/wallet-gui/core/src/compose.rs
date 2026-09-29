@@ -42,6 +42,7 @@
 use custom_l1_node::core::dex_payload::SwapRequest;
 use custom_l1_node::core::payload::TxKind;
 use custom_l1_node::core::transaction::Transaction;
+use custom_l1_node::core::ChainTag;
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
 
 use crate::error::{Result, WalletError};
@@ -154,13 +155,14 @@ pub fn compose_swap(
     key: &HybridSigningKey,
     request: SwapRequest,
     nonce: u64,
+    chain: &ChainTag,
 ) -> Result<Transaction> {
     if request.amount_in == 0 {
         return Err(WalletError::AmountOverflow);
     }
 
     let mut tx = Transaction::with_kind(TxKind::Swap(request), nonce);
-    tx.sign(key)
+    tx.sign(key, chain)
         .map_err(|e| WalletError::Signing(e.to_string()))?;
     Ok(tx)
 }
