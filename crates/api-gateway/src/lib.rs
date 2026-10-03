@@ -38,6 +38,7 @@ pub mod allowlist;
 pub mod error;
 pub mod graphql;
 pub mod jsonrpc;
+pub mod limit;
 pub mod node;
 pub mod rest;
 pub mod sealed;
@@ -64,6 +65,25 @@ pub fn app(node: Arc<dyn NodeClient>) -> Router {
     rest::router(state)
         .route("/graphql", post_service(GraphQL::new(schema)))
         .layer(cors())
+}
+
+/// [`app`] behind per-client rate limiting: what the public gateway serves.
+///
+/// # Errors
+///
+/// [`limit::InvalidRateLimit`] if the limits allow nothing.
+pub fn app_limited(
+    node: Arc<dyn NodeClient>,
+    limits: &limit::RateLimit,
+) -> Result<Router, limit::InvalidRateLimit> {
+    Ok(app_with_limiter(node, &limit::config(limits)?))
+}
+
+/// [`app`] behind an existing limiter configuration: the binary passes the
+/// same one to [`limit::spawn_pruning`], so the table it prunes is the one
+/// this layer fills.
+pub fn app_with_limiter(node: Arc<dyn NodeClient>, config: &limit::Config) -> Router {
+    app(node).layer(tower_governor::GovernorLayer::new(Arc::clone(config)))
 }
 
 /// Lets browser apps (`maya2c.js`, the website's faucet and explorer pages)

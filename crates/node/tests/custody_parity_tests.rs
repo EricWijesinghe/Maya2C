@@ -28,6 +28,8 @@ use maya_custody_mpc::dkg::{Custodian, Dealing, Roster, VaultPolicy};
 use maya_custody_mpc::hybrid as custody;
 use maya_custody_mpc::session::{SigningSession, VaultDescriptor};
 
+mod common;
+
 /// Runs a 2-of-3 ceremony and returns the vault plus everything it can sign
 /// with. Small on purpose: this file is about derivation, not about quorums —
 /// `crates/custody-mpc/tests/ceremony_tests.rs` covers those.

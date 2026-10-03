@@ -37,6 +37,14 @@ fn to_be(limbs: &Limbs) -> [u8; 32] {
     out
 }
 
+/// CON-9: under DAG-BFT a block's difficulty target is its parent's, so every
+/// block carries the genesis target. There is no retarget and no activation
+/// pin.
+#[must_use]
+pub const fn dag_bft_target(parent: &[u8; 32]) -> [u8; 32] {
+    *parent
+}
+
 /// CON-5: `previous × clamp(timespan) ÷ EXPECTED_TIMESPAN`, the timespan
 /// clamped to `[EXPECTED/4, EXPECTED×4]`; a result above `pow_limit` (or too
 /// wide for 256 bits) becomes `pow_limit`, and a zero result becomes 1.

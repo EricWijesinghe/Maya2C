@@ -12,13 +12,20 @@ variable "chain_id" {
   description = "Genesis chain id these nodes serve."
   type        = string
 
-  # The node itself refuses to start on a value-bearing chain while the shielded
-  # pool's circuit is unaudited. Catching it here
-  # means the mistake surfaces at plan time rather than as a CrashLoopBackOff.
+  # The node itself refuses to start on a value-bearing chain whose shielded
+  # pool can run on an unaudited circuit. Terraform cannot read the genesis,
+  # so a mainnet deploy needs the operator to state the pool is off (ADR-037);
+  # the node still checks it, and a wrong answer surfaces as a refused start.
   validation {
-    condition     = !contains(["mainnet", "maya-mainnet"], var.chain_id)
-    error_message = "Mainnet is blocked while the shielded pool's circuit is unaudited. Have the joinsplit AIR independently audited and set pool::CIRCUIT_IS_AUDITED before deploying a value-bearing chain."
+    condition     = !contains(["mainnet", "maya-mainnet"], var.chain_id) || var.mainnet_shielded_pool_off
+    error_message = "A value-bearing chain needs a genesis with the shielded pool off (ADR-037); confirm it with mainnet_shielded_pool_off = true. The node refuses any other mainnet genesis while pool::CIRCUIT_IS_AUDITED is false."
   }
+}
+
+variable "mainnet_shielded_pool_off" {
+  description = "Set true only to deploy a value-bearing chain whose genesis keeps the shielded pool off (shielded_activation_height = u64::MAX, ADR-037)."
+  type        = bool
+  default     = false
 }
 
 variable "vpc_cidr" {

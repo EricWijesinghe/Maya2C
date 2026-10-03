@@ -72,3 +72,6 @@ The observation that would make this worth reopening.
 | [032](ADR-032-testnet-hosting.md) | First public testnet — one seed on Oracle Always Free, one installer | Proposed |
 | [033](ADR-033-remote-signer-in-the-node.md) | The remote signer in the node — protection keyed to the DAG, signatures unchanged | Accepted |
 | [034](ADR-034-vm-reference-types-off.md) | The consensus VM rejects reference types and typed function references | Accepted |
+| [035](ADR-035-bft-fixed-target.md) | DAG-BFT blocks keep the genesis difficulty target | Accepted |
+| [036](ADR-036-chain-bound-signatures.md) | Transaction signatures commit to the chain's genesis | Accepted |
+| [037](ADR-037-mainnet-shielded-off.md) | Mainnet v1 launches with the shielded pool off | Accepted |

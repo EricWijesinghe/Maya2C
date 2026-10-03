@@ -11,15 +11,22 @@
 //! - **Wallet** — accounts, balance, send, and pending history
 //! - **Scan** — camera QR capture, decoded in Rust
 //! - **Send** — recipient, amount, and manual fee control
+//! - **Receive** — the account's address and a QR code of its `maya:` URI
+//! - **Sent** — the moment a transfer leaves, with its id
 
 mod bridge;
 mod camera;
+mod receive;
 mod screens;
 
 use leptos::prelude::*;
 
 /// Where balances are read and transfers sent unless the user changes it.
 const DEFAULT_NODE_URL: &str = "https://rpc.maya2c.dev/rpc";
+
+/// How often the header re-reads the network's height. A block lands every
+/// few seconds on the testnet; faster polling would only load the gateway.
+const NETWORK_POLL: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Which screen is showing.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -36,6 +43,10 @@ pub enum Screen {
     Scan,
     /// Compose and sign a transfer.
     Send(bridge::PaymentRequest),
+    /// Show an address and its QR code.
+    Receive,
+    /// A transfer was broadcast.
+    Sent(receive::SentTransfer),
 }
 
 /// Application state shared across screens.
@@ -61,6 +72,9 @@ pub struct AppState {
     pub error: RwSignal<Option<String>>,
     /// Last success message.
     pub notice: RwSignal<Option<String>>,
+    /// The network the node reports; `None` until it answers or when it
+    /// cannot be reached.
+    pub network: RwSignal<Option<bridge::NetworkStatus>>,
 }
 
 impl AppState {
@@ -77,6 +91,7 @@ impl AppState {
             node_url: RwSignal::new(DEFAULT_NODE_URL.to_string()),
             error: RwSignal::new(None),
             notice: RwSignal::new(None),
+            network: RwSignal::new(None),
         }
     }
 
@@ -116,6 +131,17 @@ fn App() -> impl IntoView {
         }
     });
 
+    // The header's live height. Failures clear it rather than raising a
+    // banner: an unreachable node is shown as "offline", not as an error.
+    let poll_network = move || {
+        leptos::task::spawn_local(async move {
+            let status = bridge::network_status(&state.node_url.get_untracked()).await;
+            state.network.set(status.ok());
+        });
+    };
+    poll_network();
+    let _ = set_interval_with_handle(poll_network, NETWORK_POLL);
+
     view! {
         <div class="app">
             <header class="titlebar">
@@ -135,6 +161,7 @@ fn App() -> impl IntoView {
                 />
                 <span class="name">"Maya Wallet"</span>
                 <span class="spacer"></span>
+                <NetworkPill/>
                 <Show when=move || matches!(state.screen.get(), Screen::Wallet)>
                     <button
                         class="ghost"
@@ -167,9 +194,41 @@ fn App() -> impl IntoView {
                     Screen::Send(request) => {
                         view! { <screens::send::Send request=request/> }.into_any()
                     }
+                    Screen::Receive => view! { <receive::Receive/> }.into_any(),
+                    Screen::Sent(sent) => view! { <receive::Sent sent=sent/> }.into_any(),
                 }}
             </main>
         </div>
+    }
+}
+
+/// Which network, and that it is alive: a testnet badge nobody can mistake
+/// for mainnet, and the height ticking up.
+#[component]
+fn NetworkPill() -> impl IntoView {
+    let state = expect_context::<AppState>();
+    view! {
+        {move || match state.network.get() {
+            Some(status) => {
+                let test = status.is_test_network();
+                let name = status.network.clone().unwrap_or_else(|| "unnamed network".into());
+                let title = format!("{name} \u{b7} genesis {}", screens::short(&status.genesis));
+                view! {
+                    <span class=if test { "net-pill test" } else { "net-pill main" } title=title>
+                        <span class="dot"></span>
+                        <span class="net-kind">{if test { "TESTNET" } else { "MAINNET" }}</span>
+                        <span class="net-height">
+                            {format!("#{}", screens::group_digits(status.height))}
+                        </span>
+                    </span>
+                }
+                .into_any()
+            }
+            None => view! {
+                <span class="net-pill offline"><span class="dot"></span>"offline"</span>
+            }
+            .into_any(),
+        }}
     }
 }
 

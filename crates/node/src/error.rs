@@ -392,6 +392,16 @@ pub enum NodeError {
         limit: usize,
     },
 
+    /// A shielded join-split before the chain's shielded activation height
+    /// (ADR-037): mainnet v1 launches with the pool off.
+    #[error("shielded transactions are not active at height {height} (from {activation})")]
+    ShieldedInactive {
+        /// Height of the block that carried it.
+        height: u64,
+        /// First height at which the pool runs; `u64::MAX` means never.
+        activation: u64,
+    },
+
     /// The shielded circuit is unaudited and the network claims to hold value.
     #[error(
         "the shielded pool's circuit has not been independently audited, so it \

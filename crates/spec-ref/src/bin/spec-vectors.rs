@@ -135,6 +135,10 @@ const FRESH: &str = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 fn state_transitions(k: &BTreeMap<String, Address>) -> Value {
     let mut bad_sig = tx("k0", 0, &[("k1", 5)]);
     bad_sig["signature"] = json!("invalid");
+    // TX-5: a well-formed signature, made for another chain's genesis — a
+    // testnet transfer replayed on mainnet. The executing node must refuse it.
+    let mut other_chain = tx("k0", 0, &[("k1", 5)]);
+    other_chain["signature"] = json!("other-chain");
     let cases = vec![
         stf_case(
             k,
@@ -151,6 +155,13 @@ fn state_transitions(k: &BTreeMap<String, Address>) -> Value {
             &["TX-1"],
             &json!([acct("k0", 1000, 0)]),
             &json!([bad_sig]),
+        ),
+        stf_case(
+            k,
+            "signed-for-another-chain",
+            &["TX-1", "TX-5"],
+            &json!([acct("k0", 1000, 0)]),
+            &json!([other_chain]),
         ),
         stf_case(
             k,
@@ -340,9 +351,14 @@ fn encoding_vectors(k: &BTreeMap<String, Address>) -> Value {
         signature: None,
         ..signed.clone()
     };
+    // TX-5: what the frame signs depends on the chain it is meant for; any
+    // fixed genesis id shows the layout.
+    let chain_tag = [0x5A; 32];
     let good = |id: &str, f: &Frame| {
-        json!({"id": id, "rules": ["ENC-1", "ENC-2", "ENC-3", "ENC-4", "ENC-5", "ENC-6", "ENC-7", "ENC-8", "TX-2", "TX-3"], "bytes": hex(&wire::encode(f)),
-               "expect": {"result": "ok", "txid": hex(&wire::txid(f)), "sender": hex(&wire::address_of(&f.public_key)), "nonce": f.nonce.to_string()}})
+        json!({"id": id, "rules": ["ENC-1", "ENC-2", "ENC-3", "ENC-4", "ENC-5", "ENC-6", "ENC-7", "ENC-8", "TX-2", "TX-3", "TX-5"], "bytes": hex(&wire::encode(f)),
+               "chain_tag": hex(&chain_tag),
+               "expect": {"result": "ok", "txid": hex(&wire::txid(f)), "sender": hex(&wire::address_of(&f.public_key)), "nonce": f.nonce.to_string(),
+                          "signing_bytes_blake3": hex(blake3::hash(&wire::signing_bytes(f, &chain_tag)).as_bytes())}})
     };
     let bad = |id: &str, rules: &[&str], bytes: Vec<u8>| json!({"id": id, "rules": rules, "bytes": hex(&bytes), "expect": {"result": "error", "error": "Decode"}});
     let full = wire::encode(&signed);
@@ -390,6 +406,28 @@ fn target(lead_zero_bytes: usize, fill: u8) -> [u8; 32] {
     let mut t = [fill; 32];
     t[..lead_zero_bytes].fill(0);
     t
+}
+
+/// CON-9: a DAG-BFT block keeps its parent's target, whatever the timing.
+/// Cases pin the unlimited genesis target and a hard one, and a header that
+/// declares anything else.
+fn dag_bft_target_cases() -> Vec<Value> {
+    let mut cases: Vec<Value> = [
+        ("dag-bft-target-unlimited", target(0, 0xFF)),
+        ("dag-bft-target-hard", target(5, 0x7F)),
+    ]
+    .iter()
+    .map(|(id, parent)| {
+        let next = consensus::dag_bft_target(parent);
+        json!({"id": id, "rules": ["CON-9"], "fn": "dag_bft_target", "parent": hex(parent), "expect": {"result": "ok", "target": hex(&next)}})
+    })
+    .collect();
+    // What the proof-of-work retarget would have produced on a one-second
+    // window, declared under DAG-BFT: invalid.
+    let parent = target(0, 0xFF);
+    let retargeted = consensus::retarget(&parent, 1, &target(0, 0xFF));
+    cases.push(json!({"id": "dag-bft-target-retargeted-is-invalid", "rules": ["CON-9"], "fn": "dag_bft_target", "parent": hex(&parent), "declared": hex(&retargeted), "expect": {"result": "error", "error": "WrongTarget"}}));
+    cases
 }
 
 fn retarget_cases() -> Vec<Value> {
@@ -499,6 +537,7 @@ fn verification_cases() -> Vec<Value> {
 fn consensus_vectors() -> Value {
     let cases: Vec<Value> = [
         retarget_cases(),
+        dag_bft_target_cases(),
         pow_cases(),
         fork_choice_cases(),
         prune_cases(),

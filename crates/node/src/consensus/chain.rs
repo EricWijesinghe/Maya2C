@@ -33,6 +33,7 @@ use crate::core::{Block, BlockHeader, Transaction};
 use crate::crypto::dag::registry::{CacheRegistry, DagConfig};
 use crate::crypto::pow::meets_target;
 use crate::error::{NodeError, Result};
+use crate::state::context::SHIELDED_ACTIVATION_HEIGHT;
 use crate::state::{BlockContext, StateDB};
 use crate::upgrade::{ProtocolUpgrade, UpgradeSchedule, refuse_unsupported};
 
@@ -70,6 +71,16 @@ pub struct ChainConfig {
     /// under the old rules. Only this one entry matters to validation, which
     /// is what keeps the config `Copy`.
     pub unsupported_upgrade: Option<ProtocolUpgrade>,
+    /// Keep every block at its parent's difficulty target: no retarget and no
+    /// DAG activation pin. Set for DAG-BFT ([`ChainConfig::dag_bft`]), where
+    /// no work is verified and a retarget only did harm: one-second blocks
+    /// hardened the target every window until `total_work` saturated at
+    /// 2^256 - 1, and every later block became a side branch (ADR-035).
+    pub fixed_target: bool,
+    /// First height at which shielded join-splits execute: the genesis's
+    /// `shielded_activation_height` (ADR-037). Every block context the chain
+    /// builds carries it ([`Chain::context_at`]).
+    pub shielded_activation: u64,
 }
 
 impl Default for ChainConfig {
@@ -79,6 +90,8 @@ impl Default for ChainConfig {
             pow_limit: default_pow_limit(),
             dag: DagConfig::MAINNET,
             unsupported_upgrade: None,
+            fixed_target: false,
+            shielded_activation: SHIELDED_ACTIVATION_HEIGHT,
         }
     }
 }
@@ -98,6 +111,23 @@ impl ChainConfig {
             pow_limit: unlimited_pow_limit(),
             dag: DagConfig::MAINNET,
             unsupported_upgrade: None,
+            fixed_target: false,
+            shielded_activation: SHIELDED_ACTIVATION_HEIGHT,
+        }
+    }
+
+    /// Configuration for a DAG-BFT chain: no work verified, and the target
+    /// fixed at genesis so total work grows by a constant per block.
+    ///
+    /// A block is derived from certificates by the node itself, never
+    /// imported, so the target certifies nothing. A retarget still ran before
+    /// ADR-035, and on one-second blocks it drove `total_work` to saturation
+    /// within about 12,500 blocks, after which the chain could not extend.
+    #[must_use]
+    pub fn dag_bft() -> Self {
+        Self {
+            fixed_target: true,
+            ..Self::without_pow_verification()
         }
     }
 
@@ -112,7 +142,17 @@ impl ChainConfig {
             pow_limit,
             dag: DagConfig::MAINNET,
             unsupported_upgrade: None,
+            fixed_target: false,
+            shielded_activation: SHIELDED_ACTIVATION_HEIGHT,
         }
+    }
+
+    /// The same configuration with shielded join-splits active from `height`
+    /// ([`crate::state::context::SHIELDED_NEVER`] keeps the pool off).
+    #[must_use]
+    pub fn with_shielded_activation(mut self, height: u64) -> Self {
+        self.shielded_activation = height;
+        self
     }
 
     /// The same configuration with a protocol upgrade schedule.
@@ -232,6 +272,14 @@ impl Chain {
         self.genesis
     }
 
+    /// The execution context of a block at `height` on this chain: the
+    /// compiled-in activation heights, plus the ones its genesis chose.
+    /// Every block this chain applies, previews or builds runs under it.
+    #[must_use]
+    pub fn context_at(&self, height: u64) -> BlockContext {
+        BlockContext::at_height(height).with_shielded_activation(self.config.shielded_activation)
+    }
+
     /// Looks up an indexed block.
     #[must_use]
     pub fn get(&self, id: &BlockId) -> Option<&BlockRecord> {
@@ -262,6 +310,12 @@ impl Chain {
     pub fn next_target(&self, parent_id: &BlockId) -> Result<[u8; 32]> {
         let parent = self.require(parent_id)?;
         let child_height = parent.height + 1;
+
+        if self.config.fixed_target {
+            return Ok(super::difficulty::dag_bft_target(
+                &parent.header.difficulty_target,
+            ));
+        }
 
         // The fork block does not inherit. The rule changing means the cost of
         // a hash changes by orders of magnitude, and a target calibrated for
@@ -449,7 +503,7 @@ impl Chain {
         // The record's own height, so timelocks evaluate against the block
         // actually being executed rather than the current tip.
         self.state
-            .apply_canonical(block, id, height, BlockContext::at_height(height))?;
+            .apply_canonical(block, id, height, self.context_at(height))?;
         Ok(())
     }
 
@@ -626,7 +680,7 @@ impl Chain {
         let mut block = Block::new(header, transactions);
         block.header.state_root = self
             .state
-            .preview_root(&block, BlockContext::at_height(self.height() + 1))?;
+            .preview_root(&block, self.context_at(self.height() + 1))?;
         Ok(block)
     }
 

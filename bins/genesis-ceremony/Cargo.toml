@@ -12,6 +12,8 @@ description = "The multi-party genesis key ceremony"
 # what made the split possible without widening the API.
 [dependencies]
 custom-l1-node = { path = "../../crates/node" }
+# Only to ask whether the shielded circuit is audited (ADR-037).
+maya-zk-stark = { path = "../../crates/zk-stark" }
 hex.workspace = true
 blake3.workspace = true
 
