@@ -348,14 +348,15 @@ impl BftDriver {
     }
 
     fn collect(&mut self, attestation: Attestation, tag: &ChainTag, step: &mut Step) {
-        match self.attestations.add(attestation, tag, &self.committee) {
-            Ok(Collected::Equivocation(pair)) => step.notices.push(format!(
+        // Counted, ignored, a new checkpoint, or a forged attestation refused
+        // before it counted: only an equivocation is for the node to act on.
+        if let Ok(Collected::Equivocation(pair)) =
+            self.attestations.add(attestation, tag, &self.committee)
+        {
+            step.notices.push(format!(
                 "validator {} attested two blocks at height {} — evidence held",
                 pair.1.validator, pair.1.height
-            )),
-            // Counted, ignored, a new checkpoint, or a forged attestation
-            // refused before it counted: nothing for the node to act on.
-            Ok(_) | Err(_) => {}
+            ));
         }
     }
 
