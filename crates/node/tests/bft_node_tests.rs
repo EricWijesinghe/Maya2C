@@ -420,3 +420,75 @@ fn every_member_holds_a_quorum_attested_checkpoint_on_its_own_chain() {
     }
     assert_eq!(mesh.equivocations, 0);
 }
+
+/// A peer as a catch-up source: its newest checkpoint and its own blocks.
+struct Peer<'a> {
+    chain: &'a Chain,
+    checkpoint: Option<custom_l1_node::consensus::bft::attest::Checkpoint>,
+}
+
+impl custom_l1_node::consensus::bft::catchup::CheckpointSource for Peer<'_> {
+    fn checkpoint(
+        &self,
+    ) -> custom_l1_node::error::Result<Option<custom_l1_node::consensus::bft::attest::Checkpoint>>
+    {
+        Ok(self.checkpoint.clone())
+    }
+
+    fn block(&self, height: u64) -> custom_l1_node::error::Result<Block> {
+        let state = self.chain.state();
+        let id = state.canonical_id(height)?.expect("peer holds the height");
+        Ok(state.load_block(&id)?.expect("peer holds the body"))
+    }
+}
+
+#[test]
+#[ignore = "gate 8 part 5: catch-up imports to the checkpoint, but the engine resumes at its safety-log round (91 vs the network's 1108) and never joins; resume the engine at the checkpoint's seal next"]
+fn a_validator_down_far_past_the_engine_window_rejoins_through_a_checkpoint() {
+    // ADR-038, mainnet gate 8. The 2026-10-04 dry run stranded a validator
+    // for good after 90 s down: the engine keeps 50 rounds, and nodes never
+    // import blocks they did not derive. Here it is held out for far longer,
+    // then catches up to a peer's checkpoint and validates again.
+    let mut mesh = Mesh::new(0);
+    mesh.run_to(3);
+    mesh.members[2].driver = None;
+    let before = mesh.members[2].chain.height();
+    mesh.run_to(before + 80);
+    assert!(
+        mesh.members[0].chain.height() >= before + 80,
+        "3 of 4 stalled"
+    );
+
+    // Reopened from disk, as after an outage.
+    let m = &mut mesh.members[2];
+    m.chain = open_chain(&m.state_dir.with_extension("scratch"), false);
+    m.chain = open_chain(&m.state_dir, false);
+
+    let (_, committee) = signers();
+    let (left, right) = mesh.members.split_at_mut(2);
+    let peer = Peer {
+        chain: &left[0].chain,
+        checkpoint: left[0].driver.as_ref().unwrap().checkpoint().cloned(),
+    };
+    let lagging = &mut right[0];
+    let imported =
+        custom_l1_node::consensus::bft::catchup::catch_up(&mut lagging.chain, &peer, &committee)
+            .expect("catch-up from a peer's checkpoint");
+    assert!(imported >= 70, "imported {imported}");
+
+    let m = &mut mesh.members[2];
+    let (driver, step) =
+        BftDriver::open(&mesh.setups[2], &m.bft_dir, &mut m.chain, mesh.now).unwrap();
+    m.driver = Some(driver);
+    mesh.absorb(2, step);
+    let caught_up = mesh.members[2].chain.height();
+    let target = mesh.members[0].chain.height() + 6;
+    mesh.run_to(target);
+    assert!(
+        mesh.members[2].chain.height() > caught_up,
+        "the validator imported to the checkpoint but did not build after it"
+    );
+    let common = mesh.live().map(|m| m.chain.height()).min().unwrap();
+    mesh.agree_at(common);
+    assert_eq!(mesh.equivocations, 0);
+}
