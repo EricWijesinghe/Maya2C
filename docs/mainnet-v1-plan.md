@@ -13,8 +13,8 @@ Mainnet genesis happens only when every gate below links evidence.
 
 | # | Gate | Status (2026-09-30) |
 |---|---|---|
-| 1 | **Replay protection**: a transaction's signature commits to its chain, so a testnet transfer cannot be replayed on mainnet (BACKLOG P1) | open |
-| 2 | **Shielded pool off at mainnet genesis**, and the mainnet guards relaxed only for that configuration (ADR needed) | open |
+| 1 | **Replay protection**: a transaction's signature commits to its chain, so a testnet transfer cannot be replayed on mainnet (BACKLOG P1) | done in code: ADR-036, PR #43 |
+| 2 | **Shielded pool off at mainnet genesis**, and the mainnet guards relaxed only for that configuration (ADR needed) | done in code: ADR-037 (PR pending); testnet unaffected |
 | 3 | **7 days on the testnet without a halt** (maya-testnet-1 halted once, at 12,530; fixed by ADR-035 and restarted 2026-09-29) | running |
 | 4 | **At least 4 validators** on separate machines, run by separate people, joined through staking registration | open: needs people (Eric) |
 | 5 | **Genesis ceremony** with several participants (`bins/genesis-ceremony`), rehearsed on a testnet first | open |

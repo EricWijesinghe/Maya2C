@@ -189,6 +189,12 @@ impl StateDB {
             TxKind::CallContract(call) => self
                 .call_contract(overlay, &sender, call, context)
                 .map(|_| ()),
+            // Checked before any proof work: with the pool off (ADR-037) a
+            // join-split is refused, not verified.
+            TxKind::Shielded(_) if !context.shielded_active() => Err(NodeError::ShieldedInactive {
+                height: context.height,
+                activation: context.shielded_activation,
+            }),
             TxKind::Shielded(joinsplit) => self.apply_joinsplit(overlay, &sender, joinsplit),
             // Recorded, not executed. It opens in `settle_sealed` at its
             // reveal height — see `crate::state::sealed_exec`.

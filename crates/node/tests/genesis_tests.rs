@@ -41,6 +41,7 @@ fn config() -> GenesisConfig {
         treasury: None,
         protocol_upgrades: Vec::new(),
         security_council: None,
+        shielded_activation_height: None,
         bft: None,
     }
 }
@@ -102,6 +103,39 @@ fn different_chain_ids_produce_different_genesis_blocks() {
         first.genesis_block().expect("block").header.id(),
         second.genesis_block().expect("block").header.id(),
         "chain id must be bound into the genesis hash"
+    );
+}
+
+#[test]
+fn the_shielded_activation_is_bound_into_the_genesis_only_when_named() {
+    // ADR-037. Absent, the id is what it was before the field existed, so
+    // the running testnet keeps its genesis; named, it is committed, so two
+    // operators who disagree about the pool disagree about block zero.
+    let id = |c: &GenesisConfig| c.genesis_block().expect("block").header.id();
+    let unnamed = config();
+    let mut zero = config();
+    zero.shielded_activation_height = Some(0);
+    let mut never = config();
+    never.shielded_activation_height = Some(u64::MAX);
+
+    assert_eq!(unnamed.shielded_activation(), 0);
+    assert_eq!(never.shielded_activation(), u64::MAX);
+    assert_ne!(id(&unnamed), id(&never));
+    assert_ne!(id(&zero), id(&never));
+    assert_ne!(
+        id(&unnamed),
+        id(&zero),
+        "naming it at all is a different genesis"
+    );
+
+    // And it survives the JSON a genesis ceremony writes.
+    let json = serde_json::to_string(&never).expect("json");
+    let parsed: GenesisConfig = serde_json::from_str(&json).expect("parse");
+    assert_eq!(id(&parsed), id(&never));
+    assert!(
+        !serde_json::to_string(&unnamed)
+            .expect("json")
+            .contains("shielded")
     );
 }
 
@@ -296,4 +330,45 @@ fn the_next_target_after_genesis_is_the_genesis_target() {
 
     // Difficulty is inherited until the first retarget height.
     assert_eq!(chain.next_target(&chain.tip()), Ok(expected));
+}
+
+#[test]
+fn a_chain_runs_every_block_under_its_genesis_shielded_activation() {
+    use custom_l1_node::consensus::chain::{Chain, ChainConfig};
+
+    let mut never = config();
+    never.shielded_activation_height = Some(u64::MAX);
+    let (state, _dir) = open_state();
+    never.seed_state(&state).expect("seed");
+    let chain = Chain::open(
+        state,
+        never.genesis_block().expect("block"),
+        ChainConfig::without_pow_verification()
+            .with_shielded_activation(never.shielded_activation()),
+    )
+    .expect("open");
+    for height in [1, 1_000, u64::MAX - 1] {
+        assert!(
+            !chain.context_at(height).shielded_active(),
+            "height {height}"
+        );
+    }
+}
+
+#[test]
+fn a_bft_genesis_keeps_the_fixed_target_and_its_shielded_activation() {
+    // The node and the CLI both take their rules from `chain_config`. A merge
+    // once nearly replaced ADR-035's fixed target with plain
+    // `without_pow_verification` there, which would have brought back the
+    // total-work saturation that halted maya-testnet-1 at 12,530.
+    let mut bft = config();
+    bft.bft = Some(serde_json::from_str(r#"{"validators": []}"#).expect("bft section"));
+    bft.shielded_activation_height = Some(u64::MAX);
+    let rules = bft.chain_config().expect("rules");
+    assert!(rules.fixed_target, "DAG-BFT must keep the genesis target");
+    assert!(!rules.verify_pow);
+    assert_eq!(rules.shielded_activation, u64::MAX);
+
+    let pow = config().chain_config().expect("rules");
+    assert!(!pow.fixed_target && pow.verify_pow);
 }
