@@ -23,7 +23,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
-use custom_l1_node::core::{ChainTag, Transaction, TxOutput};
+use custom_l1_node::core::staking_payload::StakingAction;
+use custom_l1_node::core::{ChainTag, Transaction, TxKind, TxOutput};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
 
 use l1_wallet::client::NodeClient;
@@ -104,6 +105,55 @@ enum Command {
         #[arg(long)]
         no_broadcast: bool,
     },
+
+    /// Register a validator key and bond to it from this wallet (ADR-028).
+    /// The committee is recomputed from stake at each epoch boundary.
+    RegisterValidator {
+        /// Validator key file written by `maya2c-node --generate-validator-key`.
+        #[arg(long)]
+        validator_key: PathBuf,
+
+        /// Self bond, in base units.
+        #[arg(long)]
+        bond: u64,
+
+        /// Commission on delegators' rewards, in basis points (500 = 5 %).
+        #[arg(long, default_value_t = 0)]
+        commission_bps: u16,
+
+        #[command(flatten)]
+        tx: TxOptions,
+    },
+
+    /// Delegate stake from this wallet to a registered validator.
+    Delegate {
+        /// Validator id, 64 hex characters (`register-validator` prints it).
+        #[arg(long)]
+        validator: String,
+
+        /// Amount to delegate, in base units.
+        #[arg(long)]
+        amount: u64,
+
+        #[command(flatten)]
+        tx: TxOptions,
+    },
+}
+
+/// Nonce, fee and broadcast choices shared by every signed transaction.
+#[derive(clap::Args, Debug)]
+struct TxOptions {
+    /// Sender nonce. Fetched from the node when omitted.
+    #[arg(long)]
+    nonce: Option<u64>,
+
+    /// Fee paid to the collector; defaults as for `send`.
+    #[arg(long)]
+    fee: Option<u64>,
+
+    /// Sign and print the raw transaction hex instead of broadcasting it.
+    #[arg(long)]
+    no_broadcast: bool,
 }
 
 /// Reads a password, preferring an interactive prompt.
@@ -240,51 +290,117 @@ async fn command_send(
 ) -> Result<()> {
     let recipient = decode_address(to)?;
     let key = load_key(path)?;
-    let sender_hex = hex::encode(key.address());
+    let opts = TxOptions {
+        nonce,
+        fee,
+        no_broadcast: !broadcast,
+    };
+    let payload = Payload {
+        kind: TxKind::Transfer,
+        outputs: vec![TxOutput { amount, recipient }],
+    };
+    if submit(&key, rpc_url, payload, &opts).await? {
+        println!("to:       {}", hex::encode(recipient));
+        println!("amount:   {amount}");
+    }
+    Ok(())
+}
 
+async fn command_register_validator(
+    path: &Path,
+    rpc_url: &str,
+    validator_key: &Path,
+    bond: u64,
+    commission_bps: u16,
+    opts: &TxOptions,
+) -> Result<()> {
+    let validator = l1_wallet::staking::load_validator_key(validator_key)?;
+    let key = load_key(path)?;
+    let action = l1_wallet::staking::register(&validator, &key.address(), bond, commission_bps)?;
+    let payload = Payload {
+        kind: TxKind::Staking(Box::new(action)),
+        outputs: vec![],
+    };
+    if submit(&key, rpc_url, payload, opts).await? {
+        println!(
+            "validator: {}",
+            hex::encode(l1_wallet::staking::validator_id(&validator))
+        );
+        println!("bond:     {bond}");
+        println!("joins the committee at the next epoch boundary if its stake ranks");
+    }
+    Ok(())
+}
+
+async fn command_delegate(
+    path: &Path,
+    rpc_url: &str,
+    validator: &str,
+    amount: u64,
+    opts: &TxOptions,
+) -> Result<()> {
+    let validator = l1_wallet::staking::parse_validator_id(validator)?;
+    let key = load_key(path)?;
+    let payload = Payload {
+        kind: TxKind::Staking(Box::new(StakingAction::Delegate { validator, amount })),
+        outputs: vec![],
+    };
+    if submit(&key, rpc_url, payload, opts).await? {
+        println!("validator: {}", hex::encode(validator));
+        println!("amount:   {amount}");
+    }
+    Ok(())
+}
+
+/// What a transaction does, before nonce, fee and signature.
+struct Payload {
+    kind: TxKind,
+    outputs: Vec<TxOutput>,
+}
+
+/// Signs `payload` with the wallet key and broadcasts it, or prints it raw.
+/// Returns whether it was broadcast.
+async fn submit(
+    key: &HybridSigningKey,
+    rpc_url: &str,
+    payload: Payload,
+    opts: &TxOptions,
+) -> Result<bool> {
+    let sender_hex = hex::encode(key.address());
     let client = NodeClient::connect(rpc_url)?;
 
     // Fetching the nonce keeps the caller from having to track it, and a stale
-    // value is the most common cause of a rejected transfer.
-    let nonce = match nonce {
+    // value is the most common cause of a rejected transaction.
+    let nonce = match opts.nonce {
         Some(value) => value,
         None => client.get_balance(&sender_hex).await?.nonce,
     };
 
-    // ADR-036: the signature commits to this node's genesis, so the transfer
-    // is worthless on any other Maya2C chain.
+    // ADR-036: the signature commits to this node's genesis, so the
+    // transaction is worthless on any other Maya2C chain.
     let chain = client.get_chain_info().await?;
-    let outputs = with_fee(
-        &client,
-        &key,
-        vec![TxOutput { amount, recipient }],
-        nonce,
-        fee,
-        &chain,
-    )
-    .await?;
+    let outputs = with_fee(&client, key, &payload, nonce, opts.fee, &chain).await?;
     let mut tx = Transaction::new(vec![], outputs, nonce);
-    tx.sign(&key, &chain).context("signing the transaction")?;
+    tx.kind = payload.kind;
+    tx.sign(key, &chain).context("signing the transaction")?;
 
     let raw = hex::encode(tx.to_bytes());
-    if !broadcast {
+    if opts.no_broadcast {
         println!("raw:      {raw}");
         println!("txid:     {}", hex::encode(tx.txid()));
-        return Ok(());
+        return Ok(false);
     }
     let result = client.send_raw_transaction(&raw).await?;
 
     println!("txid:     {}", result.txid);
     println!("from:     {sender_hex}");
-    println!("to:       {}", hex::encode(recipient));
-    println!("amount:   {amount}");
     println!("nonce:    {nonce}");
     if result.accepted {
         println!("status:   accepted into the mempool");
     } else {
         println!("status:   already known to the node");
     }
-    Ok(())
+    Ok(true)
 }
 
 /// Appends the fee output where the chain charges fees (ADR-029).
@@ -295,11 +411,12 @@ async fn command_send(
 async fn with_fee(
     client: &NodeClient,
     key: &HybridSigningKey,
-    mut outputs: Vec<TxOutput>,
+    payload: &Payload,
     nonce: u64,
     fee: Option<u64>,
     chain: &ChainTag,
 ) -> Result<Vec<TxOutput>> {
+    let mut outputs = payload.outputs.clone();
     let info = match client.get_fee_info().await {
         Ok(info) if info.active => info,
         _ => return Ok(outputs),
@@ -313,6 +430,7 @@ async fn with_fee(
         fee
     } else {
         let mut probe = Transaction::new(vec![], outputs.clone(), nonce);
+        probe.kind = payload.kind.clone();
         probe.sign(key, chain).context("signing the fee probe")?;
         let size = u64::try_from(probe.to_bytes().len())?;
         info.base_fee.saturating_mul(size).saturating_mul(2)
@@ -347,6 +465,36 @@ async fn main() -> Result<()> {
                 nonce,
                 fee,
                 !no_broadcast,
+            ))
+            .await
+        }
+        Command::RegisterValidator {
+            validator_key,
+            bond,
+            commission_bps,
+            tx,
+        } => {
+            Box::pin(command_register_validator(
+                &cli.keystore,
+                &cli.rpc_url,
+                &validator_key,
+                bond,
+                commission_bps,
+                &tx,
+            ))
+            .await
+        }
+        Command::Delegate {
+            validator,
+            amount,
+            tx,
+        } => {
+            Box::pin(command_delegate(
+                &cli.keystore,
+                &cli.rpc_url,
+                &validator,
+                amount,
+                &tx,
             ))
             .await
         }
