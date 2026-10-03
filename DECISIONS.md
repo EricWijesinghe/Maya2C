@@ -117,3 +117,43 @@ UI's (with gate 6 economics).
 The public endpoints were dark ~19 h after cloudflared exited on a network
 drop and the logon script died after starting the node. A scheduled task
 (`Maya2C testnet watchdog`) re-runs the idempotent start script.
+
+## 2026-10-04 — Rejoin through quorum-attested checkpoints (ADR-038)
+
+A validator down past the engine's 50-round window never caught up:
+fetching old certificates over gossip lost replies under load, and snapshot
+bootstrap landed outside the window. Every validator now signs each block
+it builds; 2f+1 signatures make a checkpoint, and a node that fell behind
+imports up to it, verifying the quorum against the committee it already
+trusts. The serving peer is trusted for nothing. Rehearsed with real
+binaries (dryrun4).
+
+## 2026-10-04 — Quorum is n − f, not 2f + 1 (ADR-039)
+
+2f + 1 is a safe quorum only at n = 3f + 1. Staking makes every other
+size reachable, and at six validators it lets two disjoint halves
+certify. n − f is identical at every size that has run (1, 4, 100), so it
+needs no re-genesis. Found while checking whether outside validators could
+join safely.
+
+## 2026-10-04 — Testnet validator refuses cheap registrations (ADR-039 option 3)
+
+One seat is one vote and costs `min_self_bond` (1,000). One absent
+registration halts the one-validator testnet, and nothing recovers it. Our
+validator runs with `--min-register-bond`, above what the faucet can fund,
+and the project funds approved operators. This is node policy, not
+consensus, and it holds only while one operator proposes every block.
+
+## 2026-10-04 — Stake-weighted committees: engine yes, node wiring is Eric's call (ADR-040)
+
+The engine counts stake in every threshold. Equal weights reproduce
+today's behaviour, so this merges safely. Feeding real stake needs an
+epoch-boundary snapshot, which is a new state record: a state-root change
+needing an activation height or a new genesis. Recommendation: at mainnet
+genesis.
+
+## 2026-10-04 — Astro 5 → 7 (#21) not merged overnight
+
+It builds, but with new warnings (the 404 entry is missing, the i18n
+collection is empty). A two-major framework bump on the public site wants
+a rebase and a visual check, not an unattended merge.
