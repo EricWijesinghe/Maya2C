@@ -224,6 +224,36 @@ pub fn decode_qr_png(png: &[u8]) -> Result<String> {
     Err(WalletError::Qr("no QR code found in the image".to_string()))
 }
 
+/// Side of the Receive QR code in pixels: large enough for a phone camera at
+/// arm's length, small enough to sit beside the address.
+const RECEIVE_QR_PIXELS: u32 = 240;
+
+/// Draws `request` as a QR code in SVG, dark modules on white.
+///
+/// White, not the app's dark background: camera decoders expect dark-on-
+/// light, and an inverted code fails on many phones.
+///
+/// # Errors
+///
+/// [`WalletError::Qr`] if the URI does not fit in a QR code.
+pub fn payment_qr_svg(request: &PaymentRequest) -> Result<String> {
+    let code = payment_qr(request)?;
+    Ok(code
+        .render::<qrcode::render::svg::Color<'_>>()
+        .min_dimensions(RECEIVE_QR_PIXELS, RECEIVE_QR_PIXELS)
+        .dark_color(qrcode::render::svg::Color("#05070f"))
+        .light_color(qrcode::render::svg::Color("#ffffff"))
+        .quiet_zone(true)
+        .build())
+}
+
+/// The QR code for `request`'s URI, at medium error correction (15%): room
+/// for a scuffed screen or a glare spot without growing the code much.
+fn payment_qr(request: &PaymentRequest) -> Result<qrcode::QrCode> {
+    qrcode::QrCode::with_error_correction_level(request.to_uri(), qrcode::EcLevel::M)
+        .map_err(|e| WalletError::Qr(format!("cannot encode the request: {e}")))
+}
+
 /// Scans a QR image and parses it as a payment request.
 ///
 /// # Errors

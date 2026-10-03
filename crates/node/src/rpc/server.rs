@@ -309,10 +309,10 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
     module
         .register_method("get_chain_info", |_params, ctx, _| {
             let chain = ctx.chain();
-            let genesis = chain.genesis();
             Ok::<_, ErrorObjectOwned>(ChainInfo {
-                genesis: hex::encode(genesis),
+                genesis: hex::encode(chain.genesis()),
                 chain_id: ctx.network.clone(),
+                height: chain.height(),
             })
         })
         .map_err(|e| rejected(e.to_string()))?;

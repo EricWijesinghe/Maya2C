@@ -433,3 +433,20 @@ fn only_the_chains_own_fee_collector_is_accepted() {
         Err(WalletError::Address(_))
     ));
 }
+
+#[test]
+fn the_receive_qr_is_an_svg_of_dark_modules_on_white() {
+    let request = maya_wallet_core::payment::PaymentRequest::parse(&format!(
+        "maya:{}?amount=1500&label=Coffee%20shop",
+        "ab".repeat(32)
+    ))
+    .expect("request");
+    let svg = maya_wallet_core::payment::payment_qr_svg(&request).expect("svg");
+    assert!(svg.contains("<svg"), "{}", &svg[..svg.len().min(80)]);
+    assert!(svg.contains("#05070f") && svg.contains("#ffffff"));
+    // Deterministic: the same request draws the same code.
+    assert_eq!(
+        svg,
+        maya_wallet_core::payment::payment_qr_svg(&request).expect("svg")
+    );
+}
