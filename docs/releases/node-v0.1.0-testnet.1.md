@@ -74,8 +74,8 @@ The full guide is at https://maya2c.dev/guides/testnet/.
 | | |
 |---|---|
 | Chain | `maya-testnet-1` |
-| Genesis state root | `bf084e888a1c4fc4e396e846ff4cdeab5919155b41e463177886d3c36aa21143` |
-| Genesis block | `07f141151158440c1e491eb93e503e6981f2f439be50353ea05384f67a54ccf7` |
+| Genesis state root | `419ea2e9eea80f3c31d542e8dbf7e409a82a3cc249a872a4e5ae0c6bbc5f88b0` |
+| Genesis block | `c80cc217d0079367f35dc92a508ed4bee44bf9b72594dcdaa15471df5bbf57d1` |
 | API | https://rpc.maya2c.dev (`/v1` REST, `/rpc` JSON-RPC) |
 | Faucet | https://faucet.maya2c.dev |
 | Guide | https://maya2c.dev/guides/testnet/ |

@@ -53,3 +53,28 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  # Tells Bing and the other IndexNow engines that the site changed, so a new
+  # page is crawled within minutes rather than whenever a crawler next
+  # visits. The key file is docs/site/public/3d5c270e3fe84f42aff2c1a4ca22542a.txt.
+  # A failed ping costs freshness, never the deploy.
+  indexnow:
+    needs: deploy
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Submit the sitemap's URLs
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          site=https://maya2c.dev
+          key=3d5c270e3fe84f42aff2c1a4ca22542a
+          urls=$(curl -fsS "$site/sitemap-index.xml" | grep -oE "$site/[^<]+\.xml" \
+            | xargs -n1 curl -fsS | grep -oE '<loc>[^<]+</loc>' | sed -E 's#</?loc>##g')
+          jq -n --arg host maya2c.dev --arg key "$key" --arg loc "$site/$key.txt" \
+            --argjson list "$(printf '%s\n' $urls | jq -R . | jq -s .)" \
+            '{host: $host, key: $key, keyLocation: $loc, urlList: $list}' > body.json
+          echo "submitting $(jq '.urlList | length' body.json) URLs"
+          curl -fsS -o /dev/null -w "IndexNow: HTTP %{http_code}\n" -X POST \
+            https://api.indexnow.org/indexnow \
+            -H 'Content-Type: application/json; charset=utf-8' --data-binary @body.json

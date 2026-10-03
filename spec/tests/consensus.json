@@ -101,6 +101,43 @@
     },
     {
       "expect": {
+        "result": "ok",
+        "target": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "fn": "dag_bft_target",
+      "id": "dag-bft-target-unlimited",
+      "parent": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "rules": [
+        "CON-9"
+      ]
+    },
+    {
+      "expect": {
+        "result": "ok",
+        "target": "00000000007f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f"
+      },
+      "fn": "dag_bft_target",
+      "id": "dag-bft-target-hard",
+      "parent": "00000000007f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f",
+      "rules": [
+        "CON-9"
+      ]
+    },
+    {
+      "declared": "3fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "expect": {
+        "error": "WrongTarget",
+        "result": "error"
+      },
+      "fn": "dag_bft_target",
+      "id": "dag-bft-target-retargeted-is-invalid",
+      "parent": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "rules": [
+        "CON-9"
+      ]
+    },
+    {
+      "expect": {
         "result": "ok"
       },
       "fn": "meets_target",
