@@ -113,7 +113,14 @@ API never sees a private key.
 
 ## Rate limits
 
-Per-IP token bucket. Behind a load balancer the gateway must be told to read the
-forwarded header, and it takes the **last** hop rather than the first — a client
-can append entries to `X-Forwarded-For`, but cannot remove the one the proxy in
-front appends.
+A token bucket per client address: by default **40 requests at once, then 20
+per second**. Over the limit the gateway answers `429 Too Many Requests`
+with a `retry-after` header; back off and retry.
+
+Operators choose how a client is identified (`--client-ip`). Directly exposed,
+it is the TCP peer (`socket`). Behind Cloudflare, it is `CF-Connecting-IP`,
+which Cloudflare's edge overwrites (`cf-connecting-ip`; this is how the public
+testnet runs). Behind another reverse proxy, it is the **last**
+`X-Forwarded-For` entry (`x-forwarded-for-last`): a client can prepend entries
+to that header but cannot remove the one the proxy in front appends. Set
+`--rate-per-second` and `--rate-burst` to change the limits.
