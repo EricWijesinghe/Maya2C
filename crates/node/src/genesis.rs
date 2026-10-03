@@ -529,6 +529,18 @@ impl GenesisConfig {
             ));
         }
 
+        // DAG-BFT verifies no work and fixes the target at genesis (CON-9), so
+        // each block adds `2^difficulty_bits` of work. Anything above zero
+        // only brings saturation of total work closer: at 250 bits it comes
+        // within a handful of blocks and halts the chain (ADR-035). Nothing is
+        // gained, so nothing but the unlimited target is accepted.
+        if self.bft.is_some() && (self.difficulty_bits != 0 || self.pow_limit_bits != 0) {
+            return Err(NodeError::Decode(format!(
+                "a DAG-BFT genesis must set difficulty_bits and pow_limit_bits to 0                  (got {} and {}): no work is verified, and a harder target only                  brings total work closer to saturating (ADR-035)",
+                self.difficulty_bits, self.pow_limit_bits
+            )));
+        }
+
         let mut seen = std::collections::BTreeSet::new();
         let mut total: u64 = 0;
         for allocation in &self.allocations {

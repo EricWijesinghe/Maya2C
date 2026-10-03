@@ -135,6 +135,28 @@ fn a_difficulty_floor_harder_than_genesis_is_rejected() {
 }
 
 #[test]
+fn a_dag_bft_genesis_with_any_difficulty_is_rejected() {
+    // Each DAG-BFT block adds 2^difficulty_bits of work and nothing verifies
+    // it, so a hard target only brings total work closer to saturation, the
+    // failure that halted maya-testnet-1 (ADR-035).
+    let bft = serde_json::from_value(serde_json::json!({ "validators": [] })).unwrap();
+    let mut invalid = config();
+    invalid.bft = Some(bft);
+    let error = invalid
+        .validate()
+        .expect_err("12-bit DAG-BFT genesis accepted");
+    assert!(error.to_string().contains("difficulty_bits"), "{error}");
+
+    // At zero the difficulty rule has nothing to say; any other complaint
+    // (here, the empty committee) is not about difficulty.
+    invalid.difficulty_bits = 0;
+    invalid.pow_limit_bits = 0;
+    if let Err(other) = invalid.validate() {
+        assert!(!other.to_string().contains("difficulty_bits"), "{other}");
+    }
+}
+
+#[test]
 fn duplicate_allocations_are_rejected() {
     let mut invalid = config();
     invalid.allocations.push(allocation(1, 42));

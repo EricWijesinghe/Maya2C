@@ -678,9 +678,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let genesis_block = config.genesis_block()?;
     // DAG-BFT verifies no work: a block is derived from certificates by this
     // node, and nothing else may insert one (no gossip import, no
-    // `submit_block`, below). Proof of work verifies against the genesis floor.
+    // `submit_block`, below). Its target is fixed at genesis, so total work
+    // cannot saturate (ADR-035). Proof of work verifies against the genesis
+    // floor.
     let chain_config = if mode == "dag-bft" {
-        ChainConfig::without_pow_verification()
+        ChainConfig::dag_bft()
     } else {
         ChainConfig::with_pow_limit(config.pow_limit())
     }
