@@ -59,7 +59,7 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
-    /// Generate a new Ed25519 keypair and save it encrypted.
+    /// Generate a new hybrid ML-DSA-65 + SLH-DSA keypair and save it encrypted.
     Generate,
 
     /// Print the address held in the keystore.
