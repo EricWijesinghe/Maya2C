@@ -58,15 +58,15 @@ use std::fmt;
 /// Chain identifier: the genesis block id of the chain a transaction is valid on.
 ///
 /// Every transaction signature commits to this tag so that a transaction signed
-/// for one Maya2C chain cannot verify on another. This prevents cross-chain replay
-/// attacks (EIP-155 equivalent for Maya2C).
+/// for one `Maya2C` chain cannot verify on another. This prevents cross-chain replay
+/// attacks (the `EIP-155` equivalent for `Maya2C`).
 ///
 /// See ADR-036.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ChainTag(pub [u8; 32]);
 
 impl ChainTag {
-    /// Creates a ChainTag from a genesis block id.
+    /// Creates a `ChainTag` from a genesis block id.
     #[must_use]
     pub const fn from_genesis(id: [u8; 32]) -> Self {
         Self(id)
@@ -81,7 +81,7 @@ impl ChainTag {
 
 impl fmt::Display for ChainTag {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", hex::encode(&self.0))
+        write!(f, "{}", hex::encode(self.0))
     }
 }
 
@@ -99,6 +99,11 @@ const TX_DOMAIN: &[u8] = b"custom-l1-node.tx.v4";
 /// fails verification on another. Multisig ids can collide across chains harmlessly
 /// since verification, not the id, is what refuses the replay.
 const TXID_DOMAIN: &[u8] = b"custom-l1-node.txid.v1";
+/// Which authorization a txid's body belongs to, so bodies of different kinds
+/// can never be read as one another.
+const TXID_KIND_HYBRID: u8 = 0;
+const TXID_KIND_SUITE: u8 = 7;
+const TXID_KIND_MULTISIG: u8 = 8;
 
 /// Wire format version for a plain transfer.
 ///
@@ -237,14 +242,13 @@ impl Transaction {
 
     /// Canonical byte encoding of transaction fields (IO, key, nonce, kind).
     ///
-    /// Excludes `signature` and domains. This is hashed in both txid and signing_bytes
+    /// Excludes `signature` and domains. This is hashed in both `txid` and `signing_bytes`
     /// computations, so the two use the same payload but with different domain
     /// prefixes and signatures.
     #[must_use]
     pub(crate) fn body_bytes(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(
-            16
-                + self.inputs.len() * INPUT_SIZE
+            16 + self.inputs.len() * INPUT_SIZE
                 + self.outputs.len() * OUTPUT_SIZE
                 + HYBRID_PUBLIC_KEY_LEN
                 + 8,
@@ -277,7 +281,7 @@ impl Transaction {
     /// The chain tag is written immediately after the domain, binding the
     /// signature to a specific chain and preventing cross-chain replay (ADR-036).
     ///
-    /// Structure: TX_DOMAIN || chain_tag || body_bytes()
+    /// Structure: `TX_DOMAIN || chain_tag || body_bytes()`
     #[must_use]
     pub fn signing_bytes(&self, chain: &ChainTag) -> Vec<u8> {
         if let Some(auth) = &self.multisig {
@@ -528,8 +532,13 @@ impl Transaction {
     /// can collide across chains harmlessly since verification, not the id, is what
     /// refuses the replay.
     ///
-    /// Structure: TXID_DOMAIN || body_bytes() || signatures (as per the existing
-    /// rules: suite and hybrid sigs included, multisig approvals excluded).
+    /// Structure: `TXID_DOMAIN || kind || body || signatures`, where `kind`
+    /// names the authorization, `body` is that kind's own fields, and the
+    /// signatures are the suite or hybrid ones (multisig approvals are
+    /// excluded). The body is the authorization's own — the multisig policy,
+    /// the suite and its key — not the hybrid body: a multisig id hashes no
+    /// signature, so without its policy two wallets paying the same outputs at
+    /// the same nonce would share one id.
     ///
     /// Including the signatures makes the id commit to a specific authorization
     /// rather than merely to an intent. It is sound only because signing is
@@ -539,7 +548,16 @@ impl Transaction {
     pub fn txid(&self) -> [u8; 32] {
         let mut hasher = blake3::Hasher::new();
         hasher.update(TXID_DOMAIN);
-        hasher.update(&self.body_bytes());
+        if let Some(auth) = &self.multisig {
+            hasher.update(&[TXID_KIND_MULTISIG]);
+            hasher.update(&multisig_tx::body_bytes(self, auth));
+        } else if let Some(auth) = &self.suite_auth {
+            hasher.update(&[TXID_KIND_SUITE]);
+            hasher.update(&suite_tx::body_bytes(self, auth));
+        } else {
+            hasher.update(&[TXID_KIND_HYBRID]);
+            hasher.update(&self.body_bytes());
+        }
         if let Some(signature) = self.suite_auth.as_ref().and_then(|a| a.signature.as_ref()) {
             hasher.update(signature);
         }

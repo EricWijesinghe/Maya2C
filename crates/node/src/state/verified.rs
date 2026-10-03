@@ -8,8 +8,8 @@
 //!
 //! # What the key covers, and why not `txid`
 //!
-//! The key is BLAKE3 over the transaction's complete wire encoding —
-//! signing bytes, keys and every signature. For a v5/v6 frame `txid` would do
+//! The key is BLAKE3 over the chain tag (ADR-036) and the transaction's
+//! complete wire encoding — signing bytes, keys and every signature. For a v5/v6 frame `txid` would do
 //! (it hashes both signatures), but a v8 multisig id deliberately excludes
 //! approvals, and a cache keyed on it would let a frame with forged approvals
 //! ride on a genuine one's result. The wire hash has no such exception.
@@ -59,7 +59,13 @@ impl VerifiedCache {
     ///
     /// Exactly what `Transaction::verify_at` returns; the cache never turns a
     /// failure into a success.
-    pub fn verify(&self, tx: &Transaction, height: u64, policy: &SuitePolicy, chain: &ChainTag) -> Result<()> {
+    pub fn verify(
+        &self,
+        tx: &Transaction,
+        height: u64,
+        policy: &SuitePolicy,
+        chain: &ChainTag,
+    ) -> Result<()> {
         if tx.multisig.is_some() {
             return tx.verify_at(height, policy, chain);
         }
@@ -133,7 +139,11 @@ mod tests {
             }],
             0,
         );
-        tx.sign(&signing_key_from_seed(&[4; 32]).unwrap()).unwrap();
+        tx.sign(
+            &signing_key_from_seed(&[4; 32]).unwrap(),
+            &crate::core::ChainTag::from_genesis([42; 32]),
+        )
+        .unwrap();
         tx
     }
 
@@ -141,7 +151,7 @@ mod tests {
     fn a_verified_transaction_is_remembered_and_a_tampered_one_is_not_let_through() {
         let cache = VerifiedCache::default();
         let policy = crate::crypto::suites::verification_policy();
-        let chain = ChainTag::from_genesis([1; 32]);
+        let chain = ChainTag::from_genesis([42; 32]);
         let tx = signed(5);
         cache.verify(&tx, 1, &policy, &chain).unwrap();
         assert_eq!(cache.len(), 1);

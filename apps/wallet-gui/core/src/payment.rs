@@ -296,7 +296,15 @@ pub fn sign_transfer_to(
     chain: &ChainTag,
 ) -> Result<SignedTransfer> {
     let fee_recipient = decode_address(fee_recipient)?;
-    sign_with_fee_to(signing_key, recipient, amount, fee, fee_recipient, nonce, chain)
+    sign_with_fee_to(
+        signing_key,
+        recipient,
+        amount,
+        fee,
+        fee_recipient,
+        nonce,
+        chain,
+    )
 }
 
 /// Refuses any fee collector but the chain's own.
@@ -335,7 +343,15 @@ pub fn transfer_size(
     nonce: u64,
     chain: &ChainTag,
 ) -> Result<u64> {
-    let probe = sign_transfer_to(signing_key, fee_recipient, 1, 1, fee_recipient, nonce, chain)?;
+    let probe = sign_transfer_to(
+        signing_key,
+        fee_recipient,
+        1,
+        1,
+        fee_recipient,
+        nonce,
+        chain,
+    )?;
     u64::try_from(probe.raw_hex.len() / 2).map_err(|_| WalletError::AmountOverflow)
 }
 

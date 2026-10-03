@@ -22,6 +22,8 @@ use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
 use tempfile::TempDir;
 
+mod common;
+
 const HOLDERS: usize = 4;
 const BLOCKS: usize = 30;
 
@@ -54,11 +56,10 @@ fn supply(db: &StateDB, addrs: &[Address]) -> u128 {
 }
 
 #[test]
-
-mod common;
 fn random_transfer_sequences_conserve_supply_and_failed_blocks_change_nothing() {
     let dir = TempDir::new().unwrap();
     let db = StateDB::open(dir.path()).unwrap();
+    common::bind(&db);
     let keys: Vec<HybridSigningKey> = (0..HOLDERS)
         .map(|_| generate_signing_key().unwrap())
         .collect();
@@ -105,7 +106,7 @@ fn random_transfer_sequences_conserve_supply_and_failed_blocks_change_nothing() 
                 }],
                 nonce,
             );
-            tx.sign(&keys[from]).unwrap();
+            tx.sign(&keys[from], &common::test_chain()).unwrap();
             txs.push(tx);
             local[from] = local[from].max(nonce.wrapping_add(1));
         }

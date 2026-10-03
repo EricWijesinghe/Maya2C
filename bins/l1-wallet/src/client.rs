@@ -95,11 +95,6 @@ impl NodeClient {
             .request("get_chain_info", rpc_params![])
             .await
             .context("get_chain_info")?;
-        let genesis_bytes = hex::decode(&info.genesis)
-            .context("decoding genesis hex")?;
-        let genesis_array: [u8; 32] = genesis_bytes
-            .try_into()
-            .map_err(|_| anyhow::anyhow!("genesis must be 32 bytes"))?;
-        Ok(ChainTag::from_genesis(genesis_array))
+        info.chain_tag().context("get_chain_info")
     }
 }

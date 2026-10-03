@@ -35,6 +35,8 @@ use maya_vrf::ecvrf::prove;
 use maya_vrf::keys::VrfSecretKey;
 use tempfile::TempDir;
 
+mod common;
+
 // ---------------------------------------------------------------------------
 // harness
 // ---------------------------------------------------------------------------
@@ -73,7 +75,7 @@ fn block_of(transactions: Vec<Transaction>) -> Block {
 
 fn signed(kind: TxKind, nonce: u64, key: &HybridSigningKey) -> Transaction {
     let mut tx = Transaction::with_kind(kind, nonce);
-    tx.sign(key).expect("sign");
+    tx.sign(key, &common::test_chain()).expect("sign");
     tx
 }
 
@@ -87,6 +89,7 @@ fn feed_name(text: &str) -> [u8; FEED_NAME_LEN] {
 fn fixture() -> Fixture {
     let dir = TempDir::new().expect("temp dir");
     let db = StateDB::open(dir.path()).expect("open");
+    common::bind(&db);
 
     let authorities: Vec<Authority> = (0..AUTHORITIES)
         .map(|index| {
@@ -870,6 +873,7 @@ fn a_chain_with_no_oracle_has_the_state_root_it_always_had() {
     // network that declines a trusted party does not get one by upgrading.
     let dir = TempDir::new().expect("temp dir");
     let db = StateDB::open(dir.path()).expect("open");
+    common::bind(&db);
     let key = generate_signing_key().expect("key");
     db.put_account(
         &key.address(),
@@ -1068,8 +1072,6 @@ fn a_contract_reading_a_stale_feed_is_refused_the_price() {
 }
 
 #[test]
-
-mod common;
 fn a_contract_reading_an_unknown_feed_is_told_so() {
     let fixture = fixture();
     let storage = run_contract(&fixture, wasm(PRICE_WAT), 1);

@@ -23,6 +23,8 @@
 
 use custom_l1_node::crypto::hybrid;
 
+mod common;
+
 /// A deterministic key, so a failure is reproducible.
 fn node_key(seed: u8) -> hybrid::HybridSigningKey {
     hybrid::signing_key_from_seed(&[seed; 32]).expect("valid seed")
@@ -156,8 +158,6 @@ fn a_forged_hash_based_half_is_refused_even_when_the_lattice_half_is_genuine() {
 }
 
 #[test]
-
-mod common;
 fn a_forged_lattice_half_is_refused_even_when_the_hash_half_is_genuine() {
     let key = node_key(13);
     let message = b"both halves".to_vec();

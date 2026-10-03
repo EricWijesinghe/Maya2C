@@ -299,7 +299,13 @@ mod tests {
         // overflow here would defeat both at once.
         let treasury = treasury();
         assert!(matches!(
-            treasury.sign_payout(&entries(&[u64::MAX, 1]), 0, u64::MAX, &config(), &test_tag()),
+            treasury.sign_payout(
+                &entries(&[u64::MAX, 1]),
+                0,
+                u64::MAX,
+                &config(),
+                &test_tag()
+            ),
             Err(PoolError::Treasury(_))
         ));
     }

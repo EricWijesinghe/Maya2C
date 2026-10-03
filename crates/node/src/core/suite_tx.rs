@@ -62,7 +62,7 @@ fn read_exact_len(reader: &mut ByteReader<'_>, expected: usize, what: &str) -> R
 }
 
 /// The bytes a v7 transaction encodes without domain or chain tag.
-fn body_bytes(tx: &Transaction, auth: &SuiteAuth) -> Vec<u8> {
+pub(crate) fn body_bytes(tx: &Transaction, auth: &SuiteAuth) -> Vec<u8> {
     let mut buf = Vec::with_capacity(32 + auth.public_key.len());
     tx.encode_io_into(&mut buf);
     buf.push(auth.suite.to_byte());
@@ -75,7 +75,7 @@ fn body_bytes(tx: &Transaction, auth: &SuiteAuth) -> Vec<u8> {
 
 /// The bytes a v7 signature covers.
 ///
-/// Structure: TX_DOMAIN || chain_tag || body_bytes()
+/// Structure: `TX_DOMAIN_SUITE || chain_tag || body_bytes()`
 /// Includes the chain tag (ADR-036) to bind the signature to a specific chain,
 /// preventing cross-chain replay attacks.
 pub(crate) fn signing_bytes(tx: &Transaction, auth: &SuiteAuth, chain: &ChainTag) -> Vec<u8> {

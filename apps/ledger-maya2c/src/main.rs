@@ -289,7 +289,8 @@ mod device {
         }
     }
 
-    /// The review screens: every output, the nonce, and the paying account.
+    /// The review screens: every output, the nonce, the paying account, and
+    /// the genesis of the chain the signature is valid on.
     ///
     /// That is the whole debit. This chain is account-based: a transfer debits
     /// the sender exactly the sum of its outputs and there is no fee field
@@ -314,6 +315,7 @@ mod device {
         let mut nonce = Text::<20>::new();
         let _ = write!(nonce, "{}", shown.nonce);
         let from = hex::<64>(&suite::address(public));
+        let network = hex::<64>(&shown.genesis);
 
         const NAMES: [(&str, &str); MAX_OUTPUTS] = [
             ("Amount 1", "To 1"),
@@ -326,7 +328,7 @@ mod device {
                 name: "",
                 value: "",
             }
-        }; 2 * MAX_OUTPUTS + 2];
+        }; 2 * MAX_OUTPUTS + 3];
         let mut n = 0;
         for i in 0..shown.output_count {
             fields[n] = Field {
@@ -347,7 +349,12 @@ mod device {
             name: "Nonce",
             value: nonce.as_str(),
         };
-        n += 2;
+        // ADR-036: the signature is valid on this genesis and no other.
+        fields[n + 2] = Field {
+            name: "Network genesis",
+            value: network.as_str(),
+        };
+        n += 3;
 
         let approved = NbglReview::new()
             .titles(

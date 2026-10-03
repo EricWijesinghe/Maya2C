@@ -39,6 +39,8 @@ use custom_l1_node::crypto::keys::{
 };
 use custom_l1_node::error::NodeError;
 
+mod common;
+
 /// A deterministic key, so a failing test names the same account every run.
 fn key(seed: u8) -> HybridSigningKey {
     signing_key_from_seed(&[seed; 32]).expect("derive")
@@ -388,9 +390,9 @@ fn a_transaction_signs_verifies_and_names_its_sender() {
         }],
         0,
     );
-    tx.sign(&k).expect("sign");
+    tx.sign(&k, &common::test_chain()).expect("sign");
 
-    assert_eq!(tx.verify(), Ok(()));
+    assert_eq!(tx.verify(&common::test_chain()), Ok(()));
     assert_eq!(tx.sender(), k.address());
     assert_eq!(*tx.public_key, k.public_key());
 }
@@ -407,13 +409,13 @@ fn a_signed_transaction_survives_the_wire() {
         }],
         11,
     );
-    tx.sign(&k).expect("sign");
+    tx.sign(&k, &common::test_chain()).expect("sign");
 
     let encoded = tx.to_bytes();
     let decoded = Transaction::from_bytes(&encoded).expect("decode");
 
     assert_eq!(decoded, tx);
-    assert_eq!(decoded.verify(), Ok(()));
+    assert_eq!(decoded.verify(&common::test_chain()), Ok(()));
     assert_eq!(decoded.sender(), k.address());
 }
 
@@ -428,7 +430,10 @@ fn an_unsigned_transaction_reports_a_missing_signature() {
         0,
     );
 
-    assert_eq!(tx.verify(), Err(NodeError::MissingSignature));
+    assert_eq!(
+        tx.verify(&common::test_chain()),
+        Err(NodeError::MissingSignature)
+    );
 }
 
 #[test]
@@ -446,18 +451,19 @@ fn a_transaction_with_a_tampered_hash_proof_is_rejected() {
         }],
         0,
     );
-    tx.sign(&k).expect("sign");
+    tx.sign(&k, &common::test_chain()).expect("sign");
 
     if let Some(signature) = tx.signature.as_deref_mut() {
         signature.hash_based[0] ^= 0x01;
     }
 
-    assert_eq!(tx.verify(), Err(NodeError::HashSignatureVerification));
+    assert_eq!(
+        tx.verify(&common::test_chain()),
+        Err(NodeError::HashSignatureVerification)
+    );
 }
 
 #[test]
-
-mod common;
 fn the_encoded_transaction_is_as_large_as_the_schemes_imply() {
     // Not a micro-optimization check — a bound worth knowing, because it is
     // what drove the settlement batch limit down and what a block size limit
@@ -473,7 +479,7 @@ fn the_encoded_transaction_is_as_large_as_the_schemes_imply() {
         }],
         0,
     );
-    tx.sign(&k).expect("sign");
+    tx.sign(&k, &common::test_chain()).expect("sign");
 
     let size = tx.to_bytes().len();
     let floor = HYBRID_PUBLIC_KEY_LEN + HYBRID_SIGNATURE_LENGTH;

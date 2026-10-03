@@ -39,7 +39,6 @@ use maya_crypto_pq::sig as slh;
 use tempfile::TempDir;
 mod common;
 
-
 /// Transactions per block in the throughput group.
 ///
 /// Not a round number for its own sake: at ~13.2 KB per signed transaction this
@@ -63,7 +62,7 @@ fn signing_message() -> Vec<u8> {
         }],
         0,
     )
-    .signing_bytes()
+    .signing_bytes(&common::test_chain())
 }
 
 // ---------------------------------------------------------------------------
@@ -82,16 +81,16 @@ fn bench_signing(c: &mut Criterion) {
     group.sample_size(10);
 
     group.bench_function("ml_dsa_65", |b| {
-        b.iter(|| lattice.sign(black_box(&message, &common::test_chain())).expect("sign"));
+        b.iter(|| lattice.sign(black_box(&message)).expect("sign"));
     });
 
     group.bench_function("slh_dsa_sha2_128s", |b| {
-        b.iter(|| hash_based.sign(black_box(&message, &common::test_chain())));
+        b.iter(|| hash_based.sign(black_box(&message)));
     });
 
     // The sum, and the number a wallet user actually waits for.
     group.bench_function("hybrid", |b| {
-        b.iter(|| hybrid.sign(black_box(&message, &common::test_chain())).expect("sign"));
+        b.iter(|| hybrid.sign(black_box(&message)).expect("sign"));
     });
 
     group.finish();
@@ -108,7 +107,7 @@ fn bench_verification(c: &mut Criterion) {
     let lattice_verifying = lattice.verifying_key();
 
     let hash_based = slh::signing_key_from_seed(&[6u8; 32]);
-    let hash_signature = hash_based.sign(&message, &common::test_chain());
+    let hash_signature = hash_based.sign(&message);
     let hash_verifying = hash_based.verifying_key();
 
     // This is the group that matters for consensus. Verification is what every
@@ -212,7 +211,7 @@ fn signed_block(sender: &HybridSigningKey, recipient: &Address, count: usize) ->
                 }],
                 nonce as u64,
             );
-            tx.sign(sender).expect("sign");
+            tx.sign(sender, &common::test_chain()).expect("sign");
             tx
         })
         .collect();

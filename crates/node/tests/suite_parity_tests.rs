@@ -19,6 +19,8 @@ use maya_crypto_pq::suite::{
 };
 use maya_governance::params::ParameterKey;
 
+mod common;
+
 fn chain_key(byte: u8) -> [u8; 32] {
     let mut key = [byte; 32];
     key[31] = byte.wrapping_mul(7);
@@ -64,7 +66,7 @@ fn suite_0x30_and_the_node_produce_identical_signatures() {
 fn every_signed_hybrid_transaction_lifts_into_a_valid_0x30_envelope() {
     let key = hybrid::signing_key_from_seed(&chain_key(3)).expect("key");
     let mut tx = Transaction::new(Vec::new(), Vec::new(), 7);
-    tx.sign(&key).expect("sign");
+    tx.sign(&key, &common::test_chain()).expect("sign");
 
     let mut pk = Vec::new();
     tx.public_key.encode_into(&mut pk);
@@ -74,13 +76,17 @@ fn every_signed_hybrid_transaction_lifts_into_a_valid_0x30_envelope() {
         .expect("signed")
         .encode_into(&mut sig);
     let envelope = SignedEnvelope::from_legacy_hybrid(&pk, &sig).expect("lift");
-    assert_eq!(envelope.verify(&tx.signing_bytes()), Ok(()));
+    assert_eq!(
+        envelope.verify(&tx.signing_bytes(&common::test_chain())),
+        Ok(())
+    );
 }
 
 fn v7_transfer() -> (Transaction, <MlDsa87 as SignatureSuite>::SigningKey) {
     let key = MlDsa87::signing_key_from_seed(&MasterSeed::from_bytes([4; 32]));
     let mut tx = Transaction::new(Vec::new(), Vec::new(), 1);
-    tx.sign_with_suite::<MlDsa87>(&key).expect("sign");
+    tx.sign_with_suite::<MlDsa87>(&key, &common::test_chain())
+        .expect("sign");
     (tx, key)
 }
 
@@ -121,11 +127,15 @@ fn v7_is_live_from_genesis_and_still_refused_by_verify() {
     let (tx, _) = v7_transfer();
     let policy = suites::verification_policy();
     assert!(
-        tx.verify().is_err(),
+        tx.verify(&common::test_chain()).is_err(),
         "verify() has no height, so it never accepts a suite-tagged transaction"
     );
     for height in [0, 1_000_000, u64::MAX - 1] {
-        assert_eq!(tx.verify_at(height, &policy), Ok(()), "height {height}");
+        assert_eq!(
+            tx.verify_at(height, &policy, &common::test_chain()),
+            Ok(()),
+            "height {height}"
+        );
     }
 }
 
@@ -152,11 +162,15 @@ fn past_activation_v7_verifies_and_the_policy_applies() {
     let at = SUITE_ENVELOPE_ACTIVATION_HEIGHT;
     let (tx, _) = v7_transfer();
     let policy = SuitePolicy::genesis(Network::Mainnet);
-    assert_eq!(tx.verify_at(at, &policy), Ok(()));
+    assert_eq!(tx.verify_at(at, &policy, &common::test_chain()), Ok(()));
 
     let mut tampered = tx.clone();
     tampered.nonce += 1;
-    assert!(tampered.verify_at(at, &policy).is_err());
+    assert!(
+        tampered
+            .verify_at(at, &policy, &common::test_chain())
+            .is_err()
+    );
 
     let deprecated = policy
         .with_default(SuiteId::MlDsa65)
@@ -165,21 +179,25 @@ fn past_activation_v7_verifies_and_the_policy_applies() {
     // Deprecated at 0 with the emergency window: it still signs inside the
     // window (that is what a migration window is for) and not after it.
     assert_eq!(
-        tx.verify_at(at, &deprecated),
+        tx.verify_at(at, &deprecated, &common::test_chain()),
         Ok(()),
         "inside the migration window the suite still signs"
     );
     assert!(
-        tx.verify_at(at + MIN_EMERGENCY_WINDOW, &deprecated)
-            .is_err(),
+        tx.verify_at(
+            at + MIN_EMERGENCY_WINDOW,
+            &deprecated,
+            &common::test_chain()
+        )
+        .is_err(),
         "a sunset suite cannot sign"
     );
 
     // A hybrid transaction still takes the hybrid rule through verify_at.
     let key = hybrid::signing_key_from_seed(&chain_key(5)).expect("key");
     let mut legacy = Transaction::new(Vec::new(), Vec::new(), 2);
-    legacy.sign(&key).expect("sign");
-    assert_eq!(legacy.verify_at(0, &policy), Ok(()));
+    legacy.sign(&key, &common::test_chain()).expect("sign");
+    assert_eq!(legacy.verify_at(0, &policy, &common::test_chain()), Ok(()));
 }
 
 #[test]
@@ -219,8 +237,6 @@ fn every_registry_length_fits_the_u32_length_prefix() {
 }
 
 #[test]
-
-mod common;
 fn a_failed_suite_signature_leaves_the_transaction_untouched_and_rpc_reports_the_suite() {
     use custom_l1_node::rpc::TransactionInfo;
     let (tx, _) = v7_transfer();
@@ -231,7 +247,7 @@ fn a_failed_suite_signature_leaves_the_transaction_untouched_and_rpc_reports_the
 
     let key = hybrid::signing_key_from_seed(&chain_key(6)).expect("key");
     let mut legacy = Transaction::new(Vec::new(), Vec::new(), 3);
-    legacy.sign(&key).expect("sign");
+    legacy.sign(&key, &common::test_chain()).expect("sign");
     let legacy_info = TransactionInfo::from(&legacy);
     assert!(legacy_info.suite.is_none() && !legacy_info.lattice_public_key.is_empty());
 }

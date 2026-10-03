@@ -28,6 +28,8 @@ use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::state::{Account, BlockContext, StateDB};
 
+mod common;
+
 const SENDERS: usize = 16;
 const PER_SENDER: usize = 25;
 const BLOCK_TXS: usize = 100;
@@ -58,8 +60,6 @@ unsafe impl GlobalAlloc for Counting {
 }
 
 #[global_allocator]
-
-mod common;
 static GLOBAL: Counting = Counting;
 
 fn allocs() -> u64 {
@@ -109,7 +109,7 @@ fn signed(keys: &[HybridSigningKey]) -> Vec<Transaction> {
                                 }],
                                 nonce,
                             );
-                            tx.sign(key).unwrap();
+                            tx.sign(key, &common::test_chain()).unwrap();
                             tx
                         })
                         .collect()
@@ -138,7 +138,11 @@ fn verify_all(txs: &[Transaction], threads: usize) -> f64 {
     let t = Instant::now();
     std::thread::scope(|s| {
         for part in txs.chunks(txs.len().div_ceil(threads)) {
-            s.spawn(move || part.iter().for_each(|tx| tx.verify().unwrap()));
+            s.spawn(move || {
+                for tx in part {
+                    tx.verify(&common::test_chain()).unwrap();
+                }
+            });
         }
     });
     t.elapsed().as_secs_f64()

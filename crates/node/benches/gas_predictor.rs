@@ -35,7 +35,6 @@ use custom_l1_node::neural_gas::extract;
 use custom_l1_node::state::{Account, BlockContext, StateDB};
 use maya_fee_market::{Features, FeeRule, MODEL_V1, next_base_fee_by_rule};
 
-
 mod common;
 const TARGET: u64 = 1024 * 1024;
 const DENOMINATOR: u64 = 8;
@@ -156,7 +155,7 @@ fn signed_setup(keys: &[HybridSigningKey]) -> (Arc<StateDB>, TempDir, Vec<Transa
                 }],
                 0,
             );
-            tx.sign(key).expect("sign");
+            tx.sign(key, &common::test_chain()).expect("sign");
             tx
         })
         .collect();

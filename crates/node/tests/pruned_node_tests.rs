@@ -34,6 +34,8 @@ use custom_l1_node::state_pruner::{ArchivePolicy, PruneConfig};
 use maya_archive::{ArchiveError, ArchiveStore, LocalDirStore, Locator};
 use tempfile::TempDir;
 
+mod common;
+
 /// The test depth, standing in for one DAG epoch.
 const K: u64 = 20;
 
@@ -78,7 +80,7 @@ fn config() -> ChainConfig {
 
 fn signed(kind: TxKind, nonce: u64, key: &HybridSigningKey) -> Transaction {
     let mut tx = Transaction::with_kind(kind, nonce);
-    tx.sign(key).expect("sign");
+    tx.sign(key, &common::test_chain()).expect("sign");
     tx
 }
 
@@ -91,7 +93,7 @@ fn transfer(key: &HybridSigningKey, amount: u64, nonce: u64) -> Transaction {
         }],
         nonce,
     );
-    tx.sign(key).expect("sign");
+    tx.sign(key, &common::test_chain()).expect("sign");
     tx
 }
 
@@ -119,7 +121,7 @@ impl ArchiveNode {
             )
             .expect("fund");
         Self {
-            chain: Chain::open(state, genesis(), config()).expect("chain"),
+            chain: common::open_chain(state, genesis(), config()).expect("chain"),
             key,
             nonce: 0,
             snapshots: Snapshots::new(snapshot_dir.path()).expect("snapshots"),
@@ -583,8 +585,6 @@ fn a_reorg_below_the_horizon_is_refused_and_one_above_it_lands() {
 }
 
 #[test]
-
-mod common;
 fn restarting_a_pruned_node_keeps_its_horizon_and_receipts() {
     let mut archive = archive_node(70);
     let (pruned, dir) = pruned_follower(&mut archive, 30);
@@ -603,7 +603,7 @@ fn restarting_a_pruned_node_keeps_its_horizon_and_receipts() {
     drop(pruned);
 
     let state = Arc::new(StateDB::open(dir.path()).expect("reopen"));
-    let chain = Chain::open(Arc::clone(&state), genesis(), config()).expect("reopen chain");
+    let chain = common::open_chain(Arc::clone(&state), genesis(), config()).expect("reopen chain");
     assert_eq!(chain.tip(), tip);
     assert_eq!(chain.prune_horizon(), horizon);
     assert!(state.receipt_for(55).expect("read").is_some());

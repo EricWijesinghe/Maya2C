@@ -26,9 +26,11 @@ use custom_l1_node::state::{Account, AccountProof, BlockContext, StateDB};
 use maya_htlc_lattice::LatticeSecret;
 use tempfile::TempDir;
 
+mod common;
+
 fn signed(kind: TxKind, nonce: u64, key: &HybridSigningKey) -> Transaction {
     let mut tx = Transaction::with_kind(kind, nonce);
-    tx.sign(key).expect("sign");
+    tx.sign(key, &common::test_chain()).expect("sign");
     tx
 }
 
@@ -104,11 +106,10 @@ fn every_layer_in_the_fold_order_round_trips_its_tag() {
 }
 
 #[test]
-
-mod common;
 fn an_account_proof_verifies_from_a_state_holding_rwa_and_htlc_records() {
     let dir = TempDir::new().expect("dir");
     let db = StateDB::open(dir.path()).expect("open");
+    common::bind(&db);
     let key = generate_signing_key().expect("keygen");
     let address = key.address();
     db.put_account(

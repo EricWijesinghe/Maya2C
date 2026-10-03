@@ -20,12 +20,16 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use custom_l1_node::core::ChainTag;
 use custom_l1_node::core::block::{Block, BlockHeader};
 use custom_l1_node::core::{Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB, StateWitness};
 use maya_light_client::StatelessValidator;
+
+/// The chain every test signature commits to (ADR-036).
+const CHAIN: ChainTag = ChainTag::from_genesis([0x5A; 32]);
 
 const SENDERS: u64 = 100;
 const BLOCKS: u64 = 100;
@@ -107,7 +111,7 @@ fn signed_block(keys: &[HybridSigningKey], block: u64) -> Vec<Transaction> {
                                 recipient,
                             };
                             let mut tx = Transaction::new(vec![], vec![output], block);
-                            tx.sign(key).expect("sign");
+                            tx.sign(key, &CHAIN).expect("sign");
                             tx
                         })
                         .collect::<Vec<_>>()
@@ -142,6 +146,7 @@ fn write_frame(file: &mut impl Write, bytes: &[u8]) {
 /// Returns the activation header the light node anchors to.
 fn write_chain(directory: &std::path::Path, out: &mut impl Write) -> BlockHeader {
     let db = StateDB::open(directory.join("state")).expect("open");
+    db.bind_chain(CHAIN).expect("bind the test chain");
     let keys: Vec<HybridSigningKey> = (0..SENDERS).map(sender_key).collect();
     for key in &keys {
         db.put_account(
@@ -209,7 +214,7 @@ fn read_frame(reader: &mut impl Read, buffer: &mut Vec<u8>) -> bool {
 }
 
 fn validate(reader: &mut impl Read, anchor: &BlockHeader) -> usize {
-    let mut validator = StatelessValidator::new(anchor, 1);
+    let mut validator = StatelessValidator::new(anchor, 1, CHAIN);
     let (mut block_bytes, mut witness_bytes) = (Vec::new(), Vec::new());
     let mut applied = 0;
     while read_frame(reader, &mut block_bytes) {

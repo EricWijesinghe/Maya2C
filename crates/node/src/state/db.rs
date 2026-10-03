@@ -305,17 +305,22 @@ impl StateDB {
 
     /// Binds this state database to a chain by setting its genesis block id.
     ///
-    /// Must be called once at startup before any verification occurs.
-    /// Called a second time with a different tag returns an error.
+    /// Must happen before any verification: until then every signature check
+    /// fails (ADR-036). Binding again to the same genesis is a no-op, so a
+    /// caller may bind before `Chain::open` binds again; a different genesis
+    /// is refused, so a database never verifies for two chains.
     ///
     /// # Errors
     ///
-    /// Returns [`NodeError::Storage`] if the tag is already set to a different value.
+    /// [`NodeError::GenesisMismatch`] if it is already bound to another genesis.
     pub fn bind_chain(&self, tag: ChainTag) -> Result<()> {
-        self.chain_tag.set(tag).map_err(|_existing| {
-            NodeError::Storage(
-                "StateDB chain tag already bound; cannot rebind to a different chain".into(),
-            )
+        let bound = *self.chain_tag.get_or_init(|| tag);
+        if bound == tag {
+            return Ok(());
+        }
+        Err(NodeError::GenesisMismatch {
+            stored: hex::encode(bound.as_bytes()),
+            configured: hex::encode(tag.as_bytes()),
         })
     }
 
@@ -323,7 +328,7 @@ impl StateDB {
     ///
     /// # Errors
     ///
-    /// Returns [`NodeError::Storage`] if bind_chain() has not been called yet.
+    /// Returns [`NodeError::Storage`] if `bind_chain` has not been called yet.
     pub(crate) fn get_chain_tag(&self) -> Result<&ChainTag> {
         self.chain_tag
             .get()
@@ -783,7 +788,8 @@ impl StateDB {
         // v5/v6 hybrid frame the two are the same function: `verify_at` falls
         // through to `verify`, and the both-schemes rule above is unchanged.
         // ADR-013. Chain tag is required for signature verification (ADR-036).
-        self.verified.verify(tx, context.height, policy, self.get_chain_tag()?)?;
+        self.verified
+            .verify(tx, context.height, policy, self.get_chain_tag()?)?;
         self.charge_fee(overlay, tx)?;
 
         // Derived from the keys the signatures were just checked against, never
@@ -1006,7 +1012,8 @@ impl StateDB {
     ///
     /// As `Transaction::verify_at`.
     pub fn verify_cached(&self, tx: &Transaction, height: u64, policy: &SuitePolicy) -> Result<()> {
-        self.verified.verify(tx, height, policy, self.get_chain_tag()?)
+        self.verified
+            .verify(tx, height, policy, self.get_chain_tag()?)
     }
 
     /// The longest prefix-closed subsequence of `transactions` that executes,
@@ -1025,20 +1032,27 @@ impl StateDB {
     /// That is a copy per transaction: linear in the overlay, so quadratic in
     /// a block's touched state. Measured in `reports/12-performance.md` before
     /// anyone calls it free.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// [`NodeError::Storage`] if this database is not bound to a chain
+    /// (ADR-036). Every signature would then fail, and quietly returning an
+    /// empty selection would let a misconfigured node build empty blocks
+    /// instead of saying what is wrong.
     pub fn select_applicable(
         &self,
         transactions: Vec<Transaction>,
         context: BlockContext,
         difficulty_target: [u8; HASH_LEN],
-    ) -> Vec<Transaction> {
+    ) -> Result<Vec<Transaction>> {
+        self.get_chain_tag()?;
         let mut overlay = Overlay::new();
         if self.mark_sparse_accounts(&mut overlay, context).is_err() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
         overlay.difficulty_target = difficulty_target;
         let policy = crate::crypto::suites::verification_policy();
-        let _ = self.prewarm_verification(&transactions, context.height, &policy);
+        self.prewarm_verification(&transactions, context.height, &policy)?;
         let mut kept = Vec::with_capacity(transactions.len());
         for tx in transactions {
             if matches!(tx.kind, crate::core::TxKind::Transfer) {
@@ -1060,7 +1074,7 @@ impl StateDB {
                 kept.push(tx);
             }
         }
-        kept
+        Ok(kept)
     }
 
     /// Verifies `transactions` on every core, filling the verified-signature

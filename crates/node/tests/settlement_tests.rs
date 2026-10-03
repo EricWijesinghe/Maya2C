@@ -20,6 +20,8 @@ use custom_l1_node::state::{Account, Address, BlockContext, ChannelStatus, State
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
 use tempfile::TempDir;
 
+mod common;
+
 // ---------------------------------------------------------------------------
 // harness
 // ---------------------------------------------------------------------------
@@ -32,6 +34,7 @@ struct Fixture {
 fn fixture(funded: &[(Address, u64)]) -> Fixture {
     let dir = TempDir::new().expect("temp dir");
     let db = StateDB::open(dir.path()).expect("open");
+    common::bind(&db);
     for (address, balance) in funded {
         db.put_account(
             address,
@@ -65,7 +68,7 @@ fn block_of(transactions: Vec<Transaction>) -> Block {
 
 fn signed_tx(kind: TxKind, nonce: u64, key: &HybridSigningKey) -> Transaction {
     let mut tx = Transaction::with_kind(kind, nonce);
-    tx.sign(key).expect("sign");
+    tx.sign(key, &common::test_chain()).expect("sign");
     tx
 }
 
@@ -190,7 +193,7 @@ fn a_channel_operation_may_not_also_carry_transfer_outputs() {
         amount: 500,
         recipient: [9u8; 32],
     });
-    tx.sign(&alice).expect("sign");
+    tx.sign(&alice, &common::test_chain()).expect("sign");
     assert!(matches!(
         f.db.apply_block(&block_of(vec![tx]), BlockContext::at_height(1)),
         Err(NodeError::MixedTransactionKind(_))
@@ -748,8 +751,6 @@ fn a_batch_naming_one_channel_twice_settles_it_once() {
 // ---------------------------------------------------------------------------
 
 #[test]
-
-mod common;
 fn channels_are_committed_to_the_state_root() {
     let alice = generate_signing_key().expect("keygen");
     let bob = generate_signing_key().expect("keygen");

@@ -122,10 +122,7 @@ impl SwapChain for RpcChain {
             .request("get_chain_info", rpc_params![])
             .await
             .map_err(|e| self.failure("get_chain_info", e))?;
-        let genesis_bytes = hex::decode(&info.genesis)
-            .map_err(|e| WatcherError::Rpc(format!("{} chain_tag: decode genesis: {e}", self.url)))?;
-        let genesis_array: [u8; 32] = genesis_bytes.try_into()
-            .map_err(|_| WatcherError::Rpc(format!("{} chain_tag: genesis must be 32 bytes", self.url)))?;
-        Ok(ChainTag::from_genesis(genesis_array))
+        info.chain_tag()
+            .map_err(|e| WatcherError::Rpc(format!("{} chain_tag: {e}", self.url)))
     }
 }

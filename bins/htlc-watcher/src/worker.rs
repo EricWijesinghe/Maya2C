@@ -503,8 +503,10 @@ fn claim_fee(key: &HybridSigningKey, fees: crate::chain::Fees) -> Result<u64> {
         lock_id: [0; 32],
         unlock: maya_htlc_lattice::Unlock::Preimage(maya_htlc_lattice::Preimage::new([0; 32])),
     }));
-    // Use a test chain tag for fee estimation (the actual tag is fetched from the chain)
-    let test_tag = ChainTag::from_genesis([0; 32]);
-    let tx = crate::submit::sign_with_fee(&probe, Vec::new(), 0, key, &test_tag, Some(fees))?;
+    // Any tag will do: the tag is signed, never sent, so it does not change
+    // the size the fee is priced on. This probe is measured and dropped, and
+    // must never be broadcast — it is valid on no chain.
+    let size_probe_tag = ChainTag::from_genesis([0; 32]);
+    let tx = crate::submit::sign_with_fee(&probe, Vec::new(), 0, key, &size_probe_tag, Some(fees))?;
     Ok(tx.outputs.last().map_or(0, |fee| fee.amount))
 }

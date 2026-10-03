@@ -28,6 +28,8 @@ use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
 use sha3::{Digest, Sha3_256};
 
+mod common;
+
 const NODES: usize = 20;
 
 #[derive(Clone, Copy)]
@@ -129,7 +131,7 @@ fn every_node_recommits_to_the_same_new_root_and_proofs_switch_at_the_boundary()
                 }],
                 n,
             );
-            tx.sign(&key).unwrap();
+            tx.sign(&key, &common::test_chain()).unwrap();
             block_of(vec![tx])
         })
         .collect();
@@ -139,6 +141,7 @@ fn every_node_recommits_to_the_same_new_root_and_proofs_switch_at_the_boundary()
     for _ in 0..NODES {
         let dir = tempfile::TempDir::new().unwrap();
         let db = StateDB::open(dir.path()).unwrap();
+        common::bind(&db);
         db.put_account(
             &key.address(),
             &Account {
@@ -206,8 +209,6 @@ fn every_node_recommits_to_the_same_new_root_and_proofs_switch_at_the_boundary()
 }
 
 #[test]
-
-mod common;
 fn recommitment_time_for_a_million_accounts() {
     let accounts: Vec<(Address, Account)> = (0..1_000_000u64)
         .map(|i| {

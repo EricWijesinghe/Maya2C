@@ -284,33 +284,34 @@ impl PayoutEngine {
         let id = self.ledger.next_batch_id()?;
         let chain_tag = self.chain.chain_tag().await?;
 
-        let transaction = match self
-            .treasury
-            .sign_payout(&entries, nonce, balance, &self.config, &chain_tag)
-        {
-            Ok(transaction) => transaction,
-            Err(error) => {
-                // The treasury refused: unfunded, over a cap, or over the output
-                // limit. Write the refusal down so an operator can see it, and
-                // leave the credits with the miners.
-                let refused = PayoutBatch {
-                    id,
-                    nonce,
-                    entries,
-                    signed_tx: Vec::new(),
-                    txid: None,
-                    state: PayoutState::Failed,
-                    created_at_millis: now_millis(),
-                    included_height: None,
-                };
-                // The refusal is written down and then raised. It is not folded
-                // into the report: every case here is a policy or custody
-                // condition that no retry clears, so the daemon has to see an
-                // error rather than a counter that ticked.
-                self.ledger.put_batch(&refused)?;
-                return Err(error);
-            }
-        };
+        let transaction =
+            match self
+                .treasury
+                .sign_payout(&entries, nonce, balance, &self.config, &chain_tag)
+            {
+                Ok(transaction) => transaction,
+                Err(error) => {
+                    // The treasury refused: unfunded, over a cap, or over the output
+                    // limit. Write the refusal down so an operator can see it, and
+                    // leave the credits with the miners.
+                    let refused = PayoutBatch {
+                        id,
+                        nonce,
+                        entries,
+                        signed_tx: Vec::new(),
+                        txid: None,
+                        state: PayoutState::Failed,
+                        created_at_millis: now_millis(),
+                        included_height: None,
+                    };
+                    // The refusal is written down and then raised. It is not folded
+                    // into the report: every case here is a policy or custody
+                    // condition that no retry clears, so the daemon has to see an
+                    // error rather than a counter that ticked.
+                    self.ledger.put_batch(&refused)?;
+                    return Err(error);
+                }
+            };
 
         let batch = PayoutBatch {
             id,

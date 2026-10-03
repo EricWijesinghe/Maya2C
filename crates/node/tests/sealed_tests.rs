@@ -43,6 +43,8 @@ use maya_mev::committee::{Committee, MemberSecret};
 use maya_mev::seal;
 use tempfile::TempDir;
 
+mod common;
+
 // ---------------------------------------------------------------------------
 // harness
 // ---------------------------------------------------------------------------
@@ -75,7 +77,7 @@ fn block_of(transactions: Vec<Transaction>) -> Block {
 
 fn signed(kind: TxKind, nonce: u64, key: &HybridSigningKey) -> Transaction {
     let mut tx = Transaction::with_kind(kind, nonce);
-    tx.sign(key).expect("sign");
+    tx.sign(key, &common::test_chain()).expect("sign");
     tx
 }
 
@@ -83,6 +85,7 @@ fn signed(kind: TxKind, nonce: u64, key: &HybridSigningKey) -> Transaction {
 fn fixture(funded: &[(Address, u64)]) -> Fixture {
     let dir = TempDir::new().expect("temp dir");
     let db = StateDB::open(dir.path()).expect("open");
+    common::bind(&db);
 
     for (address, balance) in funded {
         db.put_account(
@@ -546,7 +549,7 @@ fn a_revealed_action_that_fails_does_not_fail_its_block() {
             recipient: address,
             amount: 7_000,
         });
-        tx.sign(&bystander).expect("sign");
+        tx.sign(&bystander, &common::test_chain()).expect("sign");
         tx
     };
     reveal.push(payment);
@@ -692,6 +695,7 @@ fn symbol(text: &str) -> [u8; 8] {
 fn a_chain_without_a_committee_refuses_sealed_transactions() {
     let dir = TempDir::new().expect("temp dir");
     let db = StateDB::open(dir.path()).expect("open");
+    common::bind(&db);
     let sender = generate_signing_key().expect("key");
     db.put_account(
         &sender.address(),
@@ -816,8 +820,6 @@ fn the_sealed_layer_changes_the_state_root_only_when_it_holds_something() {
 }
 
 #[test]
-
-mod common;
 fn share_and_envelope_keys_order_by_height_then_identity() {
     // The execution order of every revealed transaction. It has to be a
     // property of the key bytes, because that is all the settle pass sees.

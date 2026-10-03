@@ -16,6 +16,8 @@ use custom_l1_node::crypto::hybrid::{HybridPublicKey, generate_signing_key};
 use custom_l1_node::crypto::pow::{leading_zero_bits, meets_target, target_from_leading_zero_bits};
 use custom_l1_node::error::NodeError;
 
+mod common;
+
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
@@ -53,7 +55,7 @@ fn sample_header(difficulty_target: [u8; HASH_LEN]) -> BlockHeader {
 fn signed_transaction_verifies() {
     let key = generate_signing_key().expect("keygen");
     let mut tx = sample_transaction();
-    tx.sign(&key).expect("sign");
+    tx.sign(&key, &common::test_chain()).expect("sign");
     assert!(tx.signature.is_some(), "sign must populate the signature");
     assert_eq!(
         *tx.public_key,
@@ -65,46 +67,58 @@ fn signed_transaction_verifies() {
         key.address(),
         "the sender address must be the hash of that key"
     );
-    assert_eq!(tx.verify(), Ok(()));
+    assert_eq!(tx.verify(&common::test_chain()), Ok(()));
 }
 
 #[test]
 fn unsigned_transaction_reports_missing_signature() {
     let tx = sample_transaction();
-    assert_eq!(tx.verify(), Err(NodeError::MissingSignature));
+    assert_eq!(
+        tx.verify(&common::test_chain()),
+        Err(NodeError::MissingSignature)
+    );
 }
 
 #[test]
 fn tampered_output_amount_fails_verification() {
     let key = generate_signing_key().expect("keygen");
     let mut tx = sample_transaction();
-    tx.sign(&key).expect("sign");
+    tx.sign(&key, &common::test_chain()).expect("sign");
     tx.outputs[0].amount += 1;
 
-    assert_eq!(tx.verify(), Err(NodeError::SignatureVerification));
+    assert_eq!(
+        tx.verify(&common::test_chain()),
+        Err(NodeError::SignatureVerification)
+    );
 }
 
 #[test]
 fn tampered_nonce_fails_verification() {
     let key = generate_signing_key().expect("keygen");
     let mut tx = sample_transaction();
-    tx.sign(&key).expect("sign");
+    tx.sign(&key, &common::test_chain()).expect("sign");
     tx.nonce = tx.nonce.wrapping_add(1);
 
-    assert_eq!(tx.verify(), Err(NodeError::SignatureVerification));
+    assert_eq!(
+        tx.verify(&common::test_chain()),
+        Err(NodeError::SignatureVerification)
+    );
 }
 
 #[test]
 fn added_input_fails_verification() {
     let key = generate_signing_key().expect("keygen");
     let mut tx = sample_transaction();
-    tx.sign(&key).expect("sign");
+    tx.sign(&key, &common::test_chain()).expect("sign");
     tx.inputs.push(TxInput {
         prev_tx: [9u8; 32],
         index: 3,
     });
 
-    assert_eq!(tx.verify(), Err(NodeError::SignatureVerification));
+    assert_eq!(
+        tx.verify(&common::test_chain()),
+        Err(NodeError::SignatureVerification)
+    );
 }
 
 #[test]
@@ -112,12 +126,15 @@ fn substituted_public_key_fails_verification() {
     let signer = generate_signing_key().expect("keygen");
     let impostor = generate_signing_key().expect("keygen");
     let mut tx = sample_transaction();
-    tx.sign(&signer).expect("sign");
+    tx.sign(&signer, &common::test_chain()).expect("sign");
     // The signature commits to the public key, so swapping it must fail rather
     // than letting another identity claim an existing signature.
     *tx.public_key = impostor.public_key();
 
-    assert_eq!(tx.verify(), Err(NodeError::SignatureVerification));
+    assert_eq!(
+        tx.verify(&common::test_chain()),
+        Err(NodeError::SignatureVerification)
+    );
 }
 
 #[test]
@@ -125,7 +142,7 @@ fn signature_from_another_transaction_fails_verification() {
     let key = generate_signing_key().expect("keygen");
 
     let mut signed = sample_transaction();
-    signed.sign(&key).expect("sign");
+    signed.sign(&key, &common::test_chain()).expect("sign");
     let mut other = Transaction::new(
         vec![],
         vec![TxOutput {
@@ -137,14 +154,17 @@ fn signature_from_another_transaction_fails_verification() {
     other.public_key = signed.public_key;
     other.signature = signed.signature;
 
-    assert_eq!(other.verify(), Err(NodeError::SignatureVerification));
+    assert_eq!(
+        other.verify(&common::test_chain()),
+        Err(NodeError::SignatureVerification)
+    );
 }
 
 #[test]
 fn malformed_public_key_is_rejected() {
     let key = generate_signing_key().expect("keygen");
     let mut tx = sample_transaction();
-    tx.sign(&key).expect("sign");
+    tx.sign(&key, &common::test_chain()).expect("sign");
     // An ML-DSA-65 public key is rho followed by packed t1 coefficients, and
     // every 1952-byte string unpacks to *some* coefficient vector — there is no
     // point decompression to fail, the way there was for a compressed Edwards
@@ -158,7 +178,7 @@ fn malformed_public_key_is_rejected() {
 
     assert!(
         matches!(
-            tx.verify(),
+            tx.verify(&common::test_chain()),
             Err(NodeError::SignatureVerification | NodeError::MalformedPublicKey)
         ),
         "a substituted key must never verify"
@@ -170,10 +190,10 @@ fn distinct_transactions_have_distinct_ids() {
     let key = generate_signing_key().expect("keygen");
 
     let mut first = sample_transaction();
-    first.sign(&key).expect("sign");
+    first.sign(&key, &common::test_chain()).expect("sign");
     let mut second = sample_transaction();
     second.nonce = 8;
-    second.sign(&key).expect("sign");
+    second.sign(&key, &common::test_chain()).expect("sign");
     assert_ne!(first.txid(), second.txid());
 }
 
@@ -182,23 +202,30 @@ fn block_verifies_all_transaction_signatures() {
     let key = generate_signing_key().expect("keygen");
 
     let mut good = sample_transaction();
-    good.sign(&key).expect("sign");
+    good.sign(&key, &common::test_chain()).expect("sign");
     let mut tampered = sample_transaction();
-    tampered.sign(&key).expect("sign");
+    tampered.sign(&key, &common::test_chain()).expect("sign");
     tampered.outputs[0].amount = 0;
 
     let target = target_from_leading_zero_bits(0);
 
     let valid_block = Block::new(sample_header(target), vec![good.clone()]);
     assert_eq!(
-        valid_block.verify_transactions(1, &custom_l1_node::crypto::suites::verification_policy()),
+        valid_block.verify_transactions(
+            1,
+            &custom_l1_node::crypto::suites::verification_policy(),
+            &common::test_chain()
+        ),
         Ok(())
     );
 
     let invalid_block = Block::new(sample_header(target), vec![good, tampered]);
     assert_eq!(
-        invalid_block
-            .verify_transactions(1, &custom_l1_node::crypto::suites::verification_policy()),
+        invalid_block.verify_transactions(
+            1,
+            &custom_l1_node::crypto::suites::verification_policy(),
+            &common::test_chain()
+        ),
         Err(NodeError::SignatureVerification)
     );
 }
@@ -435,7 +462,7 @@ fn signed_transfers(count: u64) -> Vec<Transaction> {
                 }],
                 nonce,
             );
-            tx.sign(&key).expect("sign");
+            tx.sign(&key, &common::test_chain()).expect("sign");
             tx
         })
         .collect()
@@ -545,8 +572,6 @@ fn every_transaction_proves_its_inclusion_against_the_header() {
 /// `cargo test --release -- --ignored --nocapture`
 #[test]
 #[ignore = "memory-hard mining loop; run explicitly with --ignored"]
-
-mod common;
 fn mining_finds_a_header_meeting_a_low_target() {
     const BITS: u32 = 8;
     const MAX_ATTEMPTS: u64 = 20_000;

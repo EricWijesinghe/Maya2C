@@ -342,7 +342,7 @@ impl BftDriver {
             let started = std::time::Instant::now();
             let block = build_block(chain, &sub_dag)?;
             let included: Vec<[u8; 32]> =
-                block.transactions.iter().map(|tx| tx.txid()).collect();
+                block.transactions.iter().map(Transaction::txid).collect();
             let kept: BTreeSet<[u8; 32]> = included.iter().copied().collect();
             for tx in sub_dag
                 .certificates
