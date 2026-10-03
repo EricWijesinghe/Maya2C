@@ -15,6 +15,10 @@ use maya_crypto_pq::agility::{Network, SuitePolicy};
 use maya_crypto_pq::multisig::{Approval, MultisigPolicy, PolicyKey};
 use maya_crypto_pq::suite::{MasterSeed, MlDsa87, SignatureSuite};
 
+/// The chain test signatures commit to (ADR-036).
+const CHAIN: custom_l1_node::core::ChainTag =
+    custom_l1_node::core::ChainTag::from_genesis([42; 32]);
+
 const AT: u64 = SUITE_ENVELOPE_ACTIVATION_HEIGHT;
 
 type Key = <MlDsa87 as SignatureSuite>::SigningKey;
@@ -55,7 +59,7 @@ fn draft(policy: MultisigPolicy) -> Transaction {
 
 /// Collects approvals from `signers` over the draft's signing bytes.
 fn approve(mut tx: Transaction, keys: &[Key], signers: &[u8]) -> Transaction {
-    let message = tx.signing_bytes();
+    let message = tx.signing_bytes(&CHAIN);
     let approvals = signers
         .iter()
         .map(|&i| Approval {
@@ -75,13 +79,30 @@ fn three_of_five_spends_with_two_members_offline() {
     let keys = members();
     let tx = approve(draft(policy(&keys)), &keys, &[0, 2, 4]);
     let genesis = SuitePolicy::genesis(Network::Mainnet);
-    assert_eq!(tx.verify_at(AT, &genesis), Ok(()));
+    assert_eq!(tx.verify_at(AT, &genesis, &CHAIN), Ok(()));
 
     // The wire round-trips exactly, and the decoded frame verifies too.
     let decoded = Transaction::from_bytes(&tx.to_bytes()).expect("decode");
     assert_eq!(decoded, tx);
     assert_eq!(decoded.txid(), tx.txid());
-    assert_eq!(decoded.verify_at(AT, &genesis), Ok(()));
+    assert_eq!(decoded.verify_at(AT, &genesis, &CHAIN), Ok(()));
+}
+
+#[test]
+fn two_wallets_paying_the_same_outputs_at_the_same_nonce_have_different_ids() {
+    // A multisig id hashes no approval, so only the policy tells two wallets'
+    // identical spends apart; were it left out, the mempool would drop one as
+    // a duplicate of the other.
+    let keys = members();
+    let a = approve(draft(policy(&keys)), &keys, &[0, 1, 2]);
+    let looser = MultisigPolicy::new(2, policy(&keys).keys().to_vec()).expect("2-of-5");
+    let b = approve(draft(looser), &keys, &[0, 1]);
+    assert_ne!(a.sender(), b.sender());
+    assert_ne!(a.txid(), b.txid());
+
+    // And one spend keeps one id whichever quorum approved it.
+    let other_quorum = approve(draft(policy(&keys)), &keys, &[2, 3, 4]);
+    assert_eq!(a.txid(), other_quorum.txid());
 }
 
 #[test]
@@ -109,11 +130,15 @@ fn it_is_live_from_genesis_and_still_refused_by_verify() {
     let genesis = SuitePolicy::genesis(Network::Mainnet);
     assert_eq!(AT, 0, "ADR-013: the envelope is live from genesis");
     assert!(
-        tx.verify().is_err(),
+        tx.verify(&CHAIN).is_err(),
         "verify() has no height and refuses v8"
     );
     for height in [0, 1, 1_000_000] {
-        assert_eq!(tx.verify_at(height, &genesis), Ok(()), "height {height}");
+        assert_eq!(
+            tx.verify_at(height, &genesis, &CHAIN),
+            Ok(()),
+            "height {height}"
+        );
     }
 }
 
@@ -122,7 +147,7 @@ fn two_approvals_do_not_spend_a_three_of_five() {
     let keys = members();
     let tx = approve(draft(policy(&keys)), &keys, &[1, 3]);
     assert!(
-        tx.verify_at(AT, &SuitePolicy::genesis(Network::Mainnet))
+        tx.verify_at(AT, &SuitePolicy::genesis(Network::Mainnet), &CHAIN)
             .is_err()
     );
 }
@@ -133,7 +158,7 @@ fn a_changed_output_invalidates_every_approval() {
     let mut tx = approve(draft(policy(&keys)), &keys, &[0, 1, 2]);
     tx.outputs[0].amount = 4_000;
     assert!(
-        tx.verify_at(AT, &SuitePolicy::genesis(Network::Mainnet))
+        tx.verify_at(AT, &SuitePolicy::genesis(Network::Mainnet), &CHAIN)
             .is_err()
     );
 }
@@ -154,7 +179,7 @@ fn swapping_in_a_different_policy_is_a_different_sender_and_fails() {
     assert_ne!(forged.sender(), tx.sender());
     assert!(
         forged
-            .verify_at(AT, &SuitePolicy::genesis(Network::Mainnet))
+            .verify_at(AT, &SuitePolicy::genesis(Network::Mainnet), &CHAIN)
             .is_err()
     );
 }
@@ -221,7 +246,7 @@ fn every_quorum_of_one_spend_has_one_txid() {
     let b = approve(draft(policy(&keys)), &keys, &[2, 3, 4]);
     let all = approve(draft(policy(&keys)), &keys, &[0, 1, 2, 3, 4]);
     for tx in [&a, &b, &all] {
-        assert_eq!(tx.verify_at(AT, &genesis), Ok(()));
+        assert_eq!(tx.verify_at(AT, &genesis, &CHAIN), Ok(()));
     }
     assert_ne!(
         a.to_bytes(),

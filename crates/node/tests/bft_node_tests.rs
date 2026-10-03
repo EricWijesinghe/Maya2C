@@ -29,6 +29,8 @@ use custom_l1_node::state::db::StateDB;
 use maya_dag_bft::Params;
 use tempfile::TempDir;
 
+mod common;
+
 const VALIDATORS: usize = 4;
 const RECIPIENT: [u8; 32] = [0x77; 32];
 const START_BALANCE: u64 = 1_000_000;
@@ -60,7 +62,7 @@ fn transfer(amount: u64, nonce: u64) -> Transaction {
         }],
         nonce,
     );
-    tx.sign(&user()).unwrap();
+    tx.sign(&user(), &common::test_chain()).unwrap();
     tx
 }
 
@@ -105,7 +107,7 @@ fn open_chain(state_dir: &PathBuf, fund: bool) -> Chain {
             )
             .unwrap();
     }
-    Chain::open(state, genesis(), ChainConfig::without_pow_verification()).unwrap()
+    common::open_chain(state, genesis(), ChainConfig::without_pow_verification()).unwrap()
 }
 
 impl Mesh {

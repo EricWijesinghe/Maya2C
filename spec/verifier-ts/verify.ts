@@ -128,6 +128,11 @@ function decode(b: Uint8Array): { io: Uint8Array; pk: Uint8Array; nonce: bigint;
   return { io, pk, nonce, sig };
 }
 
+/** ENC-8: `blake3(txid_domain ‖ 0x00 ‖ body ‖ signature)`. The id names no chain. */
+function txid(body: Uint8Array, sig: Uint8Array): Uint8Array {
+  return blake3(concat(text("custom-l1-node.txid.v1"), new Uint8Array([0]), body, sig));
+}
+
 function encoding(): number {
   const doc = load("encoding.json");
   for (const c of doc.cases) {
@@ -138,8 +143,10 @@ function encoding(): number {
     }
     check(f !== null, `${c.id}: rejected a valid frame`);
     if (!f) continue;
-    const signing = concat(text("custom-l1-node.tx.v3"), f.io, f.pk, le64(f.nonce));
-    check(toHex(blake3(concat(signing, f.sig))) === c.expect.txid, `${c.id}: txid`); // ENC-8
+    const body = concat(f.io, f.pk, le64(f.nonce));
+    const signing = concat(text("custom-l1-node.tx.v4"), fromHex(c.chain_tag), body); // TX-3, TX-5
+    check(toHex(blake3(signing)) === c.expect.signing_bytes_blake3, `${c.id}: signing bytes`);
+    check(toHex(txid(body, f.sig)) === c.expect.txid, `${c.id}: txid`); // ENC-8
     check(toHex(blake3(concat(text("custom-l1-node.address.v3"), f.pk))) === c.expect.sender, `${c.id}: sender`);
     check(f.nonce === BigInt(c.expect.nonce), `${c.id}: nonce`);
   }
@@ -188,8 +195,7 @@ function headers(): number {
     let level = c.transactions.map((t: string) => {
       const f = decode(fromHex(t));
       if (!f) throw new Error(`${c.id}: undecodable transaction`);
-      const txid = blake3(concat(text("custom-l1-node.tx.v3"), f.io, f.pk, le64(f.nonce), f.sig));
-      return deriveKey("custom-l1-node tx leaf v1", txid); // CON-3
+      return deriveKey("custom-l1-node tx leaf v1", txid(concat(f.io, f.pk, le64(f.nonce)), f.sig)); // CON-3
     });
     while (level.length > 1) {
       const next: Uint8Array[] = [];

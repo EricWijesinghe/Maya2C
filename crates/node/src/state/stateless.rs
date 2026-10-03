@@ -264,6 +264,9 @@ fn fold_layers(accounts_root: &[u8; HASH_LEN], layers: &[LayerDigest]) -> [u8; H
 /// is what decides whether a suite-tagged frame's suite may still sign, so
 /// passing the wrong one would judge a signature under the wrong schedule.
 ///
+/// `chain` is the genesis block id of the chain being verified, required for
+/// signature verification (ADR-036).
+///
 /// # Errors
 ///
 /// [`StatelessError::Invalid`] for a bad signature, a broken transfer rule, or
@@ -276,6 +279,7 @@ pub fn verify_block(
     height: u64,
     block: &Block,
     witness: StateWitness,
+    chain: &crate::core::ChainTag,
 ) -> core::result::Result<(), StatelessError> {
     block
         .check_tx_root()
@@ -295,7 +299,7 @@ pub fn verify_block(
     // one this path could not evaluate at all. ADR-013.
     let policy = crate::crypto::suites::verification_policy();
     for tx in &block.transactions {
-        tx.verify_at(height, &policy)
+        tx.verify_at(height, &policy, chain)
             .map_err(|error| StatelessError::Invalid(error.to_string()))?;
         let outputs = tx
             .outputs

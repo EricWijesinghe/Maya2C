@@ -5,19 +5,20 @@ names its priority band (CLAUDE.md, Operating Protocol, "Choosing what to
 do next") and where it came from. Take from the top of the highest open
 band; move an item to PROGRESS.md when it starts.
 
-## P1 — security
+## P1 — mainnet launch gates (docs/mainnet-v1-plan.md)
 
-- **Transaction signatures do not commit to the chain (cross-chain replay).**
-  Found 2026-09-29. `Transaction::signing_bytes`
-  (`crates/node/src/core/transaction.rs:210`) covers `TX_DOMAIN` and the
-  transaction's fields, but no chain id or genesis hash. A transfer signed on
-  one Maya2C network is valid on every other at the same nonce, so a key used
-  on both testnet and mainnet lets anyone replay testnet transfers on mainnet
-  (the class Ethereum closed with EIP-155). The fix changes the signed
-  encoding for every suite (hybrid, suite-tagged, multisig): a consensus rule
-  under invariant 31, so spec, conformance vectors and an ADR come first.
-  **Must land before mainnet.** Until then, testnets restart with fresh
-  funded keys, which is what maya-testnet-1's re-genesis does.
+- **Wallets pin the genesis of each known network** and show the network
+  name and a short fingerprint before signing; the Ledger app names known
+  geneses. Today a malicious node can make a wallet sign for another chain
+  (ADR-036, "Open before mainnet"). Source: security review, 2026-10-03.
+- **Key the kept block preview on wire hashes, not txids**
+  (`crates/node/src/state/preview.rs`), so a multisig body re-encoded with
+  other approvals cannot reuse a preview. Predates ADR-036. Source: same.
+- **Ceremony runbook checks the mainnet genesis id differs from every
+  published testnet id** (gate 5). Source: same.
+- **htlc-watcher and pool-service fetch the genesis per transaction**;
+  cache it once per connection, as the faucet does. Source: rust review,
+  2026-10-03.
 
 ## P2 — make claimed-working features verified
 

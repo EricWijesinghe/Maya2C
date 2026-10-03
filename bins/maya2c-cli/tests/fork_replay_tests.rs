@@ -5,6 +5,7 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use custom_l1_node::core::ChainTag;
 use custom_l1_node::core::{Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
 use l1_wallet::client::NodeClient;
@@ -20,7 +21,14 @@ fn bin_dir() -> PathBuf {
     maya2c_cli::dev::fresh_node_dir(&root).expect("building maya2c-node")
 }
 
-fn transfer(from: &HybridSigningKey, to: [u8; 32], amount: u64, nonce: u64) -> Transaction {
+/// `chain` is the devnet's own genesis, read from its node (ADR-036).
+fn transfer(
+    from: &HybridSigningKey,
+    to: [u8; 32],
+    amount: u64,
+    nonce: u64,
+    chain: &ChainTag,
+) -> Transaction {
     let mut tx = Transaction::new(
         vec![],
         vec![TxOutput {
@@ -29,7 +37,7 @@ fn transfer(from: &HybridSigningKey, to: [u8; 32], amount: u64, nonce: u64) -> T
         }],
         nonce,
     );
-    tx.sign(from).unwrap();
+    tx.sign(from, chain).unwrap();
     tx
 }
 
@@ -85,12 +93,13 @@ async fn a_block_replays_exactly_and_a_fork_diverges_locally() {
     let chain = source(work.path()).await;
     let alice = &chain.accounts[0].0;
     let (bob, carol) = ([0x55; 32], [0x66; 32]);
+    let tag = chain.client.get_chain_info().await.unwrap();
 
     // History first: four transfers, each waited for, so the replayed block
     // sits on blocks the local copy must execute itself.
     let dave = [0x44; 32];
     for nonce in 0..4u64 {
-        let filler = transfer(alice, dave, 10, nonce);
+        let filler = transfer(alice, dave, 10, nonce, &tag);
         chain
             .client
             .send_raw_transaction(&hex::encode(filler.to_bytes()))
@@ -98,7 +107,7 @@ async fn a_block_replays_exactly_and_a_fork_diverges_locally() {
             .unwrap();
         wait_for_balance(&chain.client, dave, 10 * (nonce + 1)).await;
     }
-    let tx = transfer(alice, bob, 777, 4);
+    let tx = transfer(alice, bob, 777, 4, &tag);
     let txid = hex::encode(tx.txid());
     chain
         .client
@@ -162,7 +171,7 @@ async fn a_block_replays_exactly_and_a_fork_diverges_locally() {
     assert!(fork.forked_at >= height);
     let local = NodeClient::connect(&format!("http://127.0.0.1:{FORK_RPC}")).unwrap();
     wait_for_balance(&local, bob, 777).await; // the source's history is there
-    let tx = transfer(alice, carol, 888, 5);
+    let tx = transfer(alice, carol, 888, 5, &tag);
     local
         .send_raw_transaction(&hex::encode(tx.to_bytes()))
         .await

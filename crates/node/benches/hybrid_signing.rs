@@ -37,6 +37,7 @@ use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
 use maya_crypto_pq::sig as slh;
 use tempfile::TempDir;
+mod common;
 
 /// Transactions per block in the throughput group.
 ///
@@ -61,7 +62,7 @@ fn signing_message() -> Vec<u8> {
         }],
         0,
     )
-    .signing_bytes()
+    .signing_bytes(&common::test_chain())
 }
 
 // ---------------------------------------------------------------------------
@@ -210,7 +211,7 @@ fn signed_block(sender: &HybridSigningKey, recipient: &Address, count: usize) ->
                 }],
                 nonce as u64,
             );
-            tx.sign(sender).expect("sign");
+            tx.sign(sender, &common::test_chain()).expect("sign");
             tx
         })
         .collect();

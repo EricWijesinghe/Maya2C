@@ -206,9 +206,14 @@ impl Mempool {
         self.state.verify_cached(tx, height, &policy)?;
 
         // Evidence is stateless to check, so garbage never reaches a block
-        // template — the executor checks it again regardless.
+        // template — the executor checks it again regardless. Chain tag is required
+        // for signature verification (ADR-036).
         if let crate::core::TxKind::AttestAttack(attestation) = &tx.kind {
-            crate::state::threat_exec::verify_evidence(attestation, height)?;
+            crate::state::threat_exec::verify_evidence(
+                attestation,
+                height,
+                self.state.get_chain_tag()?,
+            )?;
         }
         crate::state::iot_exec::admit(&self.state, &sender_address, &tx.kind)?;
 
