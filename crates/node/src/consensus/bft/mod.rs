@@ -33,6 +33,7 @@
 //!   therefore make the mesh carry garbage that decodes; peer scoring, not
 //!   this module, bounds that today.
 
+pub mod attest;
 pub mod auth;
 pub mod builder;
 pub mod driver;
