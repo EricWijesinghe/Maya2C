@@ -271,7 +271,14 @@ fn now_ms() -> u64 {
 /// Transactions not yet handed to the engine, with when this node first saw
 /// each, so a share nobody proposed is picked up after [`SHARE_GRACE`].
 #[derive(Default)]
-struct Feed {
+pub(super) struct Feed {
+    /// Committee size, which decides each validator's share.
+    committee: usize,
+    /// Validator registrations bonding less than this are never proposed
+    /// (`--min-register-bond`). Node policy, not consensus: ADR-039 option 3,
+    /// a stopgap against cheap committee capture while one operator
+    /// proposes every block. Zero proposes everything.
+    min_register_bond: u64,
     first_seen: BTreeMap<[u8; 32], Instant>,
     /// RPC-submitted transactions already gossiped, so the validator whose
     /// share one is hears of it without waiting out the grace period.
@@ -279,6 +286,25 @@ struct Feed {
 }
 
 impl Feed {
+    pub(super) fn new(committee: usize, min_register_bond: u64) -> Self {
+        Self {
+            committee,
+            min_register_bond,
+            ..Self::default()
+        }
+    }
+
+    /// A validator registration bonding less than the floor.
+    fn below_floor(&self, tx: &custom_l1_node::core::Transaction) -> bool {
+        use custom_l1_node::core::TxKind;
+        use custom_l1_node::core::staking_payload::StakingAction;
+        matches!(
+            &tx.kind,
+            TxKind::Staking(action)
+                if matches!(**action, StakingAction::Register { bond, .. } if bond < self.min_register_bond)
+        )
+    }
+
     /// Hands pooled transactions to the engine.
     ///
     /// Every validator receives every gossiped transaction, and if every one
@@ -288,23 +314,36 @@ impl Feed {
     /// straight away, and anything else only once it has waited
     /// [`SHARE_GRACE`] without appearing in a block: the owner may be down.
     /// Local policy, not consensus; any split gives the same blocks.
-    fn feed(&mut self, driver: &mut BftDriver, pools: &[&Mempool], committee: usize) {
+    fn feed(&mut self, driver: &mut BftDriver, pools: &[&Mempool]) {
         let Some(me) = driver.validator_id() else {
             return;
         };
         let now = Instant::now();
         for pool in pools {
+            let mut refused = Vec::new();
             for tx in pool.snapshot() {
                 let id = tx.txid();
+                if self.below_floor(&tx) {
+                    refused.push(id);
+                    continue;
+                }
                 if driver.is_queued(&id) {
                     continue;
                 }
                 let seen = *self.first_seen.entry(id).or_insert(now);
-                let mine = usize::from(id[0]) % committee.max(1) == usize::from(me);
+                let mine = usize::from(id[0]) % self.committee.max(1) == usize::from(me);
                 if mine || now.duration_since(seen) >= SHARE_GRACE {
                     driver.submit(&tx);
                 }
             }
+            for id in &refused {
+                eprintln!(
+                    "bft: not proposing registration {}: bond below --min-register-bond {}",
+                    hex::encode(&id[..8]),
+                    self.min_register_bond
+                );
+            }
+            pool.remove_all(&refused);
         }
     }
 
@@ -406,7 +445,7 @@ pub(super) async fn bft_loop(
     rpc_pool: Mempool,
     mut driver: BftDriver,
     opening: Step,
-    committee: usize,
+    mut feed: Feed,
     reporting: Reporting,
 ) {
     let Reporting {
@@ -418,7 +457,6 @@ pub(super) async fn bft_loop(
     let mut ticker = tokio::time::interval(TICK);
     let gossip_pool = network.mempool().clone();
     let pools = [&gossip_pool, &rpc_pool];
-    let mut feed = Feed::default();
     let mut dropped = Dropped::default();
     act(opening, &network, &pools, &mut feed).await;
     loop {
@@ -440,7 +478,7 @@ pub(super) async fn bft_loop(
                     // Best effort: a lone node has nobody to tell.
                     let _ = network.publish_transaction(&tx).await;
                 }
-                feed.feed(&mut driver, &pools, committee);
+                feed.feed(&mut driver, &pools);
                 let mut guard = lock_chain(&chain);
                 driver.on_tick(&mut guard, now_ms())
             }
@@ -469,5 +507,49 @@ pub(super) async fn bft_loop(
             // without a record.
             Err(error) => eprintln!("bft: {error}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use super::Feed;
+    use custom_l1_node::core::staking_payload::StakingAction;
+    use custom_l1_node::core::{Transaction, TxKind};
+    use custom_l1_node::crypto::{PUBLIC_KEY_LEN, SIGNATURE_LENGTH};
+
+    fn tx(kind: TxKind) -> Transaction {
+        let mut tx = Transaction::new(vec![], vec![], 0);
+        tx.kind = kind;
+        tx
+    }
+
+    fn register(bond: u64) -> Transaction {
+        tx(TxKind::Staking(Box::new(StakingAction::Register {
+            key: Box::new([0; PUBLIC_KEY_LEN]),
+            bond,
+            commission_bps: 0,
+            possession: Box::new([0; SIGNATURE_LENGTH]),
+        })))
+    }
+
+    #[test]
+    fn only_a_registration_below_the_floor_is_held_back() {
+        let feed = Feed::new(1, 1_000_000);
+        assert!(feed.below_floor(&register(999_999)));
+        assert!(!feed.below_floor(&register(1_000_000)));
+        // Other staking actions and transfers pass: the floor is about seats.
+        let delegate = tx(TxKind::Staking(Box::new(StakingAction::Delegate {
+            validator: [1; 32],
+            amount: 1,
+        })));
+        assert!(!feed.below_floor(&delegate));
+        assert!(!feed.below_floor(&tx(TxKind::Transfer)));
+    }
+
+    #[test]
+    fn a_zero_floor_holds_nothing_back() {
+        assert!(!Feed::new(4, 0).below_floor(&register(0)));
     }
 }
