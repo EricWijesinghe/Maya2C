@@ -68,7 +68,12 @@ impl NodeDriver {
     /// whoever runs consensus. Signatures are the engine's to check; the gossip
     /// layer only refuses what cannot be a frame (`consensus::bft` module note).
     fn gossiped_bft(&mut self, data: &[u8]) -> Verdict {
-        if data.first() != Some(&crate::consensus::bft::wire::WIRE_VERSION) {
+        // Engine frames, or block attestations (ADR-038), which carry their
+        // own first byte so neither can parse as the other.
+        let first = data.first().copied();
+        if first != Some(crate::consensus::bft::wire::WIRE_VERSION)
+            && first != Some(crate::consensus::bft::attest::ATTEST_FRAME)
+        {
             return Verdict::Ignore;
         }
         self.emit(NodeEvent::BftFrame(std::sync::Arc::new(data.to_vec())));
