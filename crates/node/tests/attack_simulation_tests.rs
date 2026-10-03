@@ -43,6 +43,8 @@ use custom_l1_node::state::account::{Account, Address};
 use custom_l1_node::state::db::StateDB;
 use tempfile::TempDir;
 
+mod common;
+
 fn open_state() -> (Arc<StateDB>, TempDir) {
     let dir = TempDir::new().expect("temp dir");
     let db = StateDB::open(dir.path()).expect("open state");
@@ -58,7 +60,7 @@ fn transfer(from: &HybridSigningKey, to: Address, amount: u64, nonce: u64) -> Tr
         }],
         nonce,
     );
-    tx.sign(from).expect("sign");
+    tx.sign(from, &common::test_chain()).expect("sign");
     tx
 }
 
@@ -110,7 +112,8 @@ fn child_of(
 }
 
 fn test_chain(state: Arc<StateDB>) -> Chain {
-    Chain::open(state, genesis(), ChainConfig::without_pow_verification()).expect("open chain")
+    common::open_chain(state, genesis(), ChainConfig::without_pow_verification())
+        .expect("open chain")
 }
 
 // ---------------------------------------------------------------------------

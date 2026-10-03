@@ -15,7 +15,7 @@
 //! displayed on an air-gapped device. Broadcasting is a separate, explicit step
 //! so the signing machine never has to touch a network.
 
-use custom_l1_node::core::{Transaction, TxOutput};
+use custom_l1_node::core::{ChainTag, Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
 use serde::{Deserialize, Serialize};
 
@@ -269,8 +269,9 @@ pub fn sign_transfer(
     amount: u64,
     fee: u64,
     nonce: u64,
+    chain: &ChainTag,
 ) -> Result<SignedTransfer> {
-    sign_with_fee_to(signing_key, recipient, amount, fee, FEE_SINK, nonce)
+    sign_with_fee_to(signing_key, recipient, amount, fee, FEE_SINK, nonce, chain)
 }
 
 /// Signs a transfer on a fee-market chain (ADR-029). No network access.
@@ -292,9 +293,18 @@ pub fn sign_transfer_to(
     fee: u64,
     fee_recipient: &str,
     nonce: u64,
+    chain: &ChainTag,
 ) -> Result<SignedTransfer> {
     let fee_recipient = decode_address(fee_recipient)?;
-    sign_with_fee_to(signing_key, recipient, amount, fee, fee_recipient, nonce)
+    sign_with_fee_to(
+        signing_key,
+        recipient,
+        amount,
+        fee,
+        fee_recipient,
+        nonce,
+        chain,
+    )
 }
 
 /// Refuses any fee collector but the chain's own.
@@ -331,8 +341,17 @@ pub fn transfer_size(
     signing_key: &HybridSigningKey,
     fee_recipient: &str,
     nonce: u64,
+    chain: &ChainTag,
 ) -> Result<u64> {
-    let probe = sign_transfer_to(signing_key, fee_recipient, 1, 1, fee_recipient, nonce)?;
+    let probe = sign_transfer_to(
+        signing_key,
+        fee_recipient,
+        1,
+        1,
+        fee_recipient,
+        nonce,
+        chain,
+    )?;
     u64::try_from(probe.raw_hex.len() / 2).map_err(|_| WalletError::AmountOverflow)
 }
 
@@ -364,6 +383,7 @@ fn sign_with_fee_to(
     fee: u64,
     fee_recipient: [u8; 32],
     nonce: u64,
+    chain: &ChainTag,
 ) -> Result<SignedTransfer> {
     let recipient_bytes = decode_address(recipient)?;
 
@@ -383,7 +403,7 @@ fn sign_with_fee_to(
     }
 
     let mut tx = Transaction::new(vec![], outputs, nonce);
-    tx.sign(signing_key)
+    tx.sign(signing_key, chain)
         .map_err(|e| WalletError::Signing(e.to_string()))?;
 
     Ok(SignedTransfer {

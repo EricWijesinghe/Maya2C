@@ -140,6 +140,9 @@ pub trait SwapChain: Send + Sync {
     async fn account(&self, _address: &Address) -> Result<Option<(u64, u64)>> {
         Ok(None)
     }
+
+    /// The chain's genesis block id, used as the chain tag for signatures (ADR-036).
+    async fn chain_tag(&self) -> Result<custom_l1_node::core::ChainTag>;
 }
 
 /// A chain's fee terms.

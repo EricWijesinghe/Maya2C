@@ -646,14 +646,14 @@ pub mod send {
             };
             busy.set(true);
             spawn_local(async move {
-                let collector = fee_terms.get_untracked().collector;
+                let terms = fee_terms.get_untracked();
                 match bridge::sign_transfer(
                     state.selected.get_untracked(),
                     &summary.recipient,
                     summary.amount,
                     summary.fee,
-                    collector.as_deref(),
                     summary.nonce,
+                    &terms,
                 )
                 .await
                 {

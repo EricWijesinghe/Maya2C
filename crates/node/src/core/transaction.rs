@@ -53,15 +53,57 @@ use crate::crypto::hybrid::{
 };
 use crate::crypto::keys::ADDRESS_LEN;
 use crate::error::{NodeError, Result};
+use std::fmt;
 
-/// Domain separator. Prevents a signed transaction payload from ever being
+/// Chain identifier: the genesis block id of the chain a transaction is valid on.
+///
+/// Every transaction signature commits to this tag so that a transaction signed
+/// for one `Maya2C` chain cannot verify on another. This prevents cross-chain replay
+/// attacks (the `EIP-155` equivalent for `Maya2C`).
+///
+/// See ADR-036.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ChainTag(pub [u8; 32]);
+
+impl ChainTag {
+    /// Creates a `ChainTag` from a genesis block id.
+    #[must_use]
+    pub const fn from_genesis(id: [u8; 32]) -> Self {
+        Self(id)
+    }
+
+    /// Returns the tag as a byte slice.
+    #[must_use]
+    pub const fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+impl fmt::Display for ChainTag {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", hex::encode(self.0))
+    }
+}
+
+/// Domain separator for signatures. Prevents a signed transaction payload from ever being
 /// reinterpreted as a signed message of some other kind.
 ///
-/// Bumped to v3 with the move to hybrid signing. The payloads the previous
-/// domains separated are unverifiable now anyway, but a domain that outlived
-/// the scheme it was minted for is a subtle way to make two eras of the chain
-/// share a signing surface.
-const TX_DOMAIN: &[u8] = b"custom-l1-node.tx.v3";
+/// Bumped to v4 with chain-bound signatures (ADR-036). Transactions now commit to
+/// the genesis block id, preventing cross-chain replay attacks. The domain bump means
+/// all signatures under v3 are invalid (intentional: testnet requires a new genesis).
+const TX_DOMAIN: &[u8] = b"custom-l1-node.tx.v4";
+
+/// Domain separator for txid computation. Txids are chain-independent (used only
+/// for deduplication within a chain). Signature verification is what prevents
+/// replay: signatures commit to the chain tag, so a signature valid on one chain
+/// fails verification on another. Multisig ids can collide across chains harmlessly
+/// since verification, not the id, is what refuses the replay.
+const TXID_DOMAIN: &[u8] = b"custom-l1-node.txid.v1";
+/// Which authorization a txid's body belongs to, so bodies of different kinds
+/// can never be read as one another.
+const TXID_KIND_HYBRID: u8 = 0;
+const TXID_KIND_SUITE: u8 = 7;
+const TXID_KIND_MULTISIG: u8 = 8;
 
 /// Wire format version for a plain transfer.
 ///
@@ -198,32 +240,20 @@ impl Transaction {
         }
     }
 
-    /// Canonical byte encoding covered by the signature.
+    /// Canonical byte encoding of transaction fields (IO, key, nonce, kind).
     ///
-    /// Excludes `signature` itself — a signature cannot commit to its own
-    /// value. Every variable-length section carries an explicit count prefix
-    /// and every field is fixed-width, so no two distinct transactions can
-    /// encode to the same byte string. Without those prefixes, moving a value
-    /// between adjacent fields would leave the encoding unchanged and let one
-    /// signature authorize a different transaction.
+    /// Excludes `signature` and domains. This is hashed in both `txid` and `signing_bytes`
+    /// computations, so the two use the same payload but with different domain
+    /// prefixes and signatures.
     #[must_use]
-    pub fn signing_bytes(&self) -> Vec<u8> {
-        if let Some(auth) = &self.multisig {
-            return multisig_tx::signing_bytes(self, auth);
-        }
-        if let Some(auth) = &self.suite_auth {
-            return suite_tx::signing_bytes(self, auth);
-        }
+    pub(crate) fn body_bytes(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(
-            TX_DOMAIN.len()
-                + 16
-                + self.inputs.len() * INPUT_SIZE
+            16 + self.inputs.len() * INPUT_SIZE
                 + self.outputs.len() * OUTPUT_SIZE
                 + HYBRID_PUBLIC_KEY_LEN
                 + 8,
         );
 
-        buf.extend_from_slice(TX_DOMAIN);
         self.encode_io_into(&mut buf);
 
         // Both whole keys, not the address they hash to. Committing to the
@@ -245,11 +275,37 @@ impl Transaction {
         buf
     }
 
+    /// Canonical byte encoding covered by the signature.
+    ///
+    /// Excludes `signature` itself — a signature cannot commit to its own value.
+    /// The chain tag is written immediately after the domain, binding the
+    /// signature to a specific chain and preventing cross-chain replay (ADR-036).
+    ///
+    /// Structure: `TX_DOMAIN || chain_tag || body_bytes()`
+    #[must_use]
+    pub fn signing_bytes(&self, chain: &ChainTag) -> Vec<u8> {
+        if let Some(auth) = &self.multisig {
+            return multisig_tx::signing_bytes(self, auth, chain);
+        }
+        if let Some(auth) = &self.suite_auth {
+            return suite_tx::signing_bytes(self, auth, chain);
+        }
+        let body = self.body_bytes();
+        let mut buf = Vec::with_capacity(TX_DOMAIN.len() + 32 + body.len());
+
+        buf.extend_from_slice(TX_DOMAIN);
+        buf.extend_from_slice(&chain.0);
+        buf.extend_from_slice(&body);
+
+        buf
+    }
+
     /// Signs the transaction under both schemes, adopting `signing_key`'s
     /// public keys as the authorizing party.
     ///
     /// The public keys are written before the payload is serialized, so both
-    /// signatures commit to both keys that produced them.
+    /// signatures commit to both keys that produced them. The signature commits
+    /// to the chain tag, binding it to a specific chain and preventing replay.
     ///
     /// Costs roughly 105 ms, nearly all of it in the hash-based half. That is
     /// the wallet-side price of the guarantee; see [`crate::crypto::hybrid`].
@@ -259,11 +315,11 @@ impl Transaction {
     /// Returns [`NodeError::SignatureVerification`] if the ML-DSA signer's
     /// rejection loop fails to terminate, which FIPS 204 permits an
     /// implementation to report and which no caller can recover from.
-    pub fn sign(&mut self, signing_key: &HybridSigningKey) -> Result<()> {
+    pub fn sign(&mut self, signing_key: &HybridSigningKey, chain: &ChainTag) -> Result<()> {
         // Written through the existing box rather than replacing it: assigning
         // a fresh `Box::new` would allocate 1984 bytes on every signature.
         *self.public_key = signing_key.public_key();
-        let signature = signing_key.sign(&self.signing_bytes())?;
+        let signature = signing_key.sign(&self.signing_bytes(chain))?;
         self.signature = Some(Box::new(signature));
         Ok(())
     }
@@ -273,6 +329,10 @@ impl Transaction {
     /// Both must pass. This is the chokepoint every authorization path in the
     /// node runs through today — block execution, mempool admission, RPC
     /// submission — so the both-or-nothing rule is stated once, here.
+    ///
+    /// The signature must commit to the provided chain tag, preventing replay
+    /// across chains (ADR-036). A transaction signed for one chain will fail
+    /// verification on another.
     ///
     /// It refuses every suite-tagged (v7) transaction, because it has no
     /// height to check activation against. [`Transaction::verify_at`] is the
@@ -288,7 +348,7 @@ impl Transaction {
     /// lattice proof does not match, and
     /// [`NodeError::HashSignatureVerification`] when the hash-based proof does
     /// not.
-    pub fn verify(&self) -> Result<()> {
+    pub fn verify(&self, chain: &ChainTag) -> Result<()> {
         if self.suite_auth.is_some() || self.multisig.is_some() {
             // No height here, and suite-tagged and multisig transactions
             // verify only at or past their activation height: see `verify_at`.
@@ -302,7 +362,7 @@ impl Transaction {
             .ok_or(NodeError::MissingSignature)?;
         let verifying_key = HybridVerifyingKey::from_public_key(&self.public_key)?;
 
-        verifying_key.verify(&self.signing_bytes(), signature)
+        verifying_key.verify(&self.signing_bytes(chain), signature)
     }
 
     /// Encodes the transaction for the wire, signature included.
@@ -463,20 +523,41 @@ impl Transaction {
         Ok((inputs, outputs))
     }
 
-    /// Transaction identifier: BLAKE3 over the signed payload and both
-    /// signatures — or, for a multisig transaction, the signed payload alone
-    /// (see the comment in the body).
+    /// Transaction identifier: BLAKE3 over the transaction body and signatures.
     ///
-    /// Including the signatures is what makes the id commit to a specific
-    /// authorization rather than merely to an intent. It is sound only because
-    /// signing is deterministic in *both* schemes — see
-    /// [`crate::crypto::hybrid`] — so one payload signed by one key pair always
-    /// yields one id. A hedged signer in either half would be enough to break
-    /// it.
+    /// The txid is chain-independent: it is used only for deduplication within a
+    /// chain, where uniqueness is all that matters. Replay prevention comes from
+    /// signature verification: signatures commit to the chain tag (ADR-036), so a
+    /// signature valid on one chain fails verification on another. Multisig txids
+    /// can collide across chains harmlessly since verification, not the id, is what
+    /// refuses the replay.
+    ///
+    /// Structure: `TXID_DOMAIN || kind || body || signatures`, where `kind`
+    /// names the authorization, `body` is that kind's own fields, and the
+    /// signatures are the suite or hybrid ones (multisig approvals are
+    /// excluded). The body is the authorization's own — the multisig policy,
+    /// the suite and its key — not the hybrid body: a multisig id hashes no
+    /// signature, so without its policy two wallets paying the same outputs at
+    /// the same nonce would share one id.
+    ///
+    /// Including the signatures makes the id commit to a specific authorization
+    /// rather than merely to an intent. It is sound only because signing is
+    /// deterministic in *both* schemes (see [`crate::crypto::hybrid`]), so one
+    /// payload signed by one key pair always yields one id.
     #[must_use]
     pub fn txid(&self) -> [u8; 32] {
         let mut hasher = blake3::Hasher::new();
-        hasher.update(&self.signing_bytes());
+        hasher.update(TXID_DOMAIN);
+        if let Some(auth) = &self.multisig {
+            hasher.update(&[TXID_KIND_MULTISIG]);
+            hasher.update(&multisig_tx::body_bytes(self, auth));
+        } else if let Some(auth) = &self.suite_auth {
+            hasher.update(&[TXID_KIND_SUITE]);
+            hasher.update(&suite_tx::body_bytes(self, auth));
+        } else {
+            hasher.update(&[TXID_KIND_HYBRID]);
+            hasher.update(&self.body_bytes());
+        }
         if let Some(signature) = self.suite_auth.as_ref().and_then(|a| a.signature.as_ref()) {
             hasher.update(signature);
         }

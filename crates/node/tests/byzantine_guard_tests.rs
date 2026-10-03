@@ -36,6 +36,8 @@ use custom_l1_node::state::db::StateDB;
 use libp2p::{Multiaddr, PeerId};
 use tempfile::TempDir;
 
+mod common;
+
 const NETWORK_SIZE: usize = 10;
 const MALICIOUS: usize = 4;
 const TIMEOUT: Duration = Duration::from_secs(60);
@@ -66,6 +68,7 @@ fn next_memory_address() -> Multiaddr {
 fn spawn(funded: &[(Address, u64)], latency: Option<Duration>) -> SimNode {
     let dir = TempDir::new().expect("temp dir");
     let state = StateDB::open(dir.path()).expect("open state");
+    common::bind(&state);
     for (address, balance) in funded {
         let account = Account {
             balance: *balance,
@@ -134,7 +137,7 @@ async fn connect_all(nodes: &[SimNode]) {
 fn transfer(key: &HybridSigningKey, recipient: Address, amount: u64, nonce: u64) -> Transaction {
     let outputs = vec![TxOutput { amount, recipient }];
     let mut tx = Transaction::new(vec![], outputs, nonce);
-    tx.sign(key).expect("sign");
+    tx.sign(key, &common::test_chain()).expect("sign");
     tx
 }
 

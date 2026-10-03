@@ -16,13 +16,16 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use custom_l1_node::core::{Block, BlockHeader, Transaction, TxOutput};
+use custom_l1_node::core::{Block, BlockHeader, ChainTag, Transaction, TxOutput};
 use custom_l1_node::crypto::dag::registry::{CacheRegistry, DagConfig};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
 use maya_light_client::{HeaderChain, LightClient, LightClientError};
 use tempfile::TempDir;
+
+/// The chain every test signature commits to (ADR-036).
+const CHAIN: ChainTag = ChainTag::from_genesis([0x5A; 32]);
 
 const HOLDERS: usize = 6;
 const BALANCE: u64 = 1_000_000;
@@ -60,6 +63,7 @@ fn header(prev: [u8; 32], state_root: [u8; 32], zero_bits: u32) -> BlockHeader {
 fn funded() -> (StateDB, Vec<HybridSigningKey>, TempDir) {
     let dir = TempDir::new().expect("temp dir");
     let db = StateDB::open(dir.path()).expect("open");
+    db.bind_chain(CHAIN).expect("bind the test chain");
 
     let holders: Vec<HybridSigningKey> = (0..HOLDERS)
         .map(|_| generate_signing_key().expect("key"))
@@ -142,7 +146,7 @@ fn a_proof_stops_verifying_once_the_account_it_names_moves() {
         }],
         0,
     );
-    tx.sign(&holders[0]).expect("sign");
+    tx.sign(&holders[0], &CHAIN).expect("sign");
     let block = Block::new(header([0u8; 32], [0u8; 32], 0), vec![tx]);
     let new_root = db
         .apply_block(&block, BlockContext::at_height(1))
@@ -265,7 +269,7 @@ fn a_proof_from_a_chain_with_every_layer_populated_still_verifies() {
         }),
         0,
     );
-    register.sign(&holders[0]).expect("sign");
+    register.sign(&holders[0], &CHAIN).expect("sign");
 
     let mut lock = Transaction::with_kind(
         TxKind::LockStake(StakeLock {
@@ -274,7 +278,7 @@ fn a_proof_from_a_chain_with_every_layer_populated_still_verifies() {
         }),
         0,
     );
-    lock.sign(&holders[1]).expect("sign");
+    lock.sign(&holders[1], &CHAIN).expect("sign");
 
     let root = db
         .apply_block(
@@ -506,6 +510,7 @@ fn the_light_client_catches_a_lying_rpc_server() {
     // against the forged root, not the one the header chain committed to.
     let dir = TempDir::new().expect("dir");
     let forged = StateDB::open(dir.path()).expect("open");
+    forged.bind_chain(CHAIN).expect("bind the test chain");
     for (i, h) in holders.iter().enumerate() {
         let balance = if i == 0 { BALANCE * 10 } else { BALANCE };
         forged

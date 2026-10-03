@@ -50,7 +50,7 @@ pub struct RpcRequest {
     #[schema(value_type = Object)]
     id: Value,
     /// One of `get_balance`, `get_block_by_height`, `get_fee_info`,
-    /// `get_supply`, `send_raw_transaction`.
+    /// `get_chain_info`, `get_supply`, `send_raw_transaction`.
     method: String,
     /// Positional parameters.
     #[schema(value_type = Vec<Object>)]
@@ -188,6 +188,10 @@ async fn dispatch(
         "get_fee_info" => {
             no_params(params)?;
             Ok(to_value(node.get_fee_info().await?))
+        }
+        "get_chain_info" => {
+            no_params(params)?;
+            Ok(to_value(node.get_chain_info().await?))
         }
         "send_raw_transaction" => send_raw_transaction(node, params).await,
         _ => Err(RpcError::new(
