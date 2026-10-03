@@ -85,6 +85,8 @@ pub fn parse_validator_id(text: &str) -> Result<[u8; 32]> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
     use super::*;
     use custom_l1_node::crypto::keys::generate_signing_key;
 
