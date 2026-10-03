@@ -123,7 +123,12 @@ pub fn router(state: AppState) -> Router {
         None => router,
     };
 
-    router.with_state(state)
+    // Any origin may read: everything here is public chain data, there are no
+    // credentials, and it is how maya2c.dev shows the network live. GET only.
+    let cors = tower_http::cors::CorsLayer::new()
+        .allow_origin(tower_http::cors::Any)
+        .allow_methods([axum::http::Method::GET]);
+    router.layer(cors).with_state(state)
 }
 
 // ---------------------------------------------------------------------------
@@ -182,9 +187,8 @@ async fn gather_hashrate(store: &Arc<dyn BlockStore>) -> Result<Vec<HashratePoin
 
 async fn dashboard(State(state): State<AppState>) -> Result<Response> {
     let stats = gather_stats(&state.store).await?;
-    let points = gather_hashrate(&state.store).await?;
     let blocks = state.store.latest_blocks(LIST_LIMIT).await?;
-    Ok(html(ui::dashboard_page(stats, points, blocks)))
+    Ok(html(ui::dashboard_page(stats, blocks)))
 }
 
 async fn blocks(State(state): State<AppState>) -> Result<Response> {

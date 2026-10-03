@@ -169,6 +169,28 @@ fn a_difficulty_floor_harder_than_genesis_is_rejected() {
 }
 
 #[test]
+fn a_dag_bft_genesis_with_any_difficulty_is_rejected() {
+    // Each DAG-BFT block adds 2^difficulty_bits of work and nothing verifies
+    // it, so a hard target only brings total work closer to saturation, the
+    // failure that halted maya-testnet-1 (ADR-035).
+    let bft = serde_json::from_value(serde_json::json!({ "validators": [] })).unwrap();
+    let mut invalid = config();
+    invalid.bft = Some(bft);
+    let error = invalid
+        .validate()
+        .expect_err("12-bit DAG-BFT genesis accepted");
+    assert!(error.to_string().contains("difficulty_bits"), "{error}");
+
+    // At zero the difficulty rule has nothing to say; any other complaint
+    // (here, the empty committee) is not about difficulty.
+    invalid.difficulty_bits = 0;
+    invalid.pow_limit_bits = 0;
+    if let Err(other) = invalid.validate() {
+        assert!(!other.to_string().contains("difficulty_bits"), "{other}");
+    }
+}
+
+#[test]
 fn duplicate_allocations_are_rejected() {
     let mut invalid = config();
     invalid.allocations.push(allocation(1, 42));
@@ -331,4 +353,22 @@ fn a_chain_runs_every_block_under_its_genesis_shielded_activation() {
             "height {height}"
         );
     }
+}
+
+#[test]
+fn a_bft_genesis_keeps_the_fixed_target_and_its_shielded_activation() {
+    // The node and the CLI both take their rules from `chain_config`. A merge
+    // once nearly replaced ADR-035's fixed target with plain
+    // `without_pow_verification` there, which would have brought back the
+    // total-work saturation that halted maya-testnet-1 at 12,530.
+    let mut bft = config();
+    bft.bft = Some(serde_json::from_str(r#"{"validators": []}"#).expect("bft section"));
+    bft.shielded_activation_height = Some(u64::MAX);
+    let rules = bft.chain_config().expect("rules");
+    assert!(rules.fixed_target, "DAG-BFT must keep the genesis target");
+    assert!(!rules.verify_pow);
+    assert_eq!(rules.shielded_activation, u64::MAX);
+
+    let pow = config().chain_config().expect("rules");
+    assert!(!pow.fixed_target && pow.verify_pow);
 }
