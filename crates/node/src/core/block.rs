@@ -354,9 +354,10 @@ impl Block {
         &self,
         height: u64,
         policy: &maya_crypto_pq::agility::SuitePolicy,
+        chain: &crate::core::ChainTag,
     ) -> Result<()> {
         for transaction in &self.transactions {
-            transaction.verify_at(height, policy)?;
+            transaction.verify_at(height, policy, chain)?;
         }
         Ok(())
     }

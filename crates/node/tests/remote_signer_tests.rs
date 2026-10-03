@@ -17,6 +17,8 @@ use maya_signer::channel::{self, Identity};
 use maya_signer::protection::SlashingDb;
 use maya_signer::service::{Request, Service};
 
+mod common;
+
 const DEADLINE: Duration = Duration::from_secs(5);
 
 fn seed(b: u8) -> MasterSeed {

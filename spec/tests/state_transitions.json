@@ -92,6 +92,39 @@
       "block": [
         {
           "from": "k0",
+          "nonce": "0",
+          "outputs": [
+            {
+              "amount": "5",
+              "to": "k1"
+            }
+          ],
+          "signature": "other-chain"
+        }
+      ],
+      "expect": {
+        "error": "BadSignature",
+        "result": "error",
+        "tx_index": 0
+      },
+      "id": "signed-for-another-chain",
+      "pre": [
+        {
+          "account": "k0",
+          "balance": "1000",
+          "nonce": "0"
+        }
+      ],
+      "pre_root": "58eb5f529cef3c008f55c27aa289ac64bc220f2af31ac808c1ecd5ce0f79bbe0",
+      "rules": [
+        "TX-1",
+        "TX-5"
+      ]
+    },
+    {
+      "block": [
+        {
+          "from": "k0",
           "nonce": "2",
           "outputs": [
             {

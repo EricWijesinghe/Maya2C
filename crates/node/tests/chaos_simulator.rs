@@ -102,6 +102,8 @@ pub fn seed() -> u64 {
 /// See `docs/adr/ADR-006-simulation-harness.md`.
 use maya_sim::SimRng;
 
+mod common;
+
 /// A value in `0..bound`, as a `usize`, which is what this file wants
 /// everywhere.
 fn below(rng: &mut SimRng, bound: usize) -> usize {
@@ -143,7 +145,8 @@ fn genesis() -> Block {
 /// test the hasher, which `dag_tests.rs` already does. What is under test here
 /// is the state transition engine's behaviour on adversarial input.
 fn test_chain(state: Arc<StateDB>) -> Chain {
-    Chain::open(state, genesis(), ChainConfig::without_pow_verification()).expect("open chain")
+    common::open_chain(state, genesis(), ChainConfig::without_pow_verification())
+        .expect("open chain")
 }
 
 fn child_of(
@@ -191,7 +194,7 @@ fn transfer(from: &HybridSigningKey, to: Address, amount: u64, nonce: u64) -> Tr
         }],
         nonce,
     );
-    tx.sign(from).expect("sign");
+    tx.sign(from, &common::test_chain()).expect("sign");
     tx
 }
 
@@ -978,6 +981,8 @@ fn next_memory_address() -> Multiaddr {
 async fn spawn_sim_node(accounts: &[(Address, u64)], dial: Option<LatencyDial>) -> SimNode {
     let dir = TempDir::new().expect("temp dir");
     let state = StateDB::open(dir.path()).expect("open state");
+    // A sim node has no `Chain`, so nothing else binds its state (ADR-036).
+    common::bind(&state);
     for (address, balance) in accounts {
         state
             .put_account(

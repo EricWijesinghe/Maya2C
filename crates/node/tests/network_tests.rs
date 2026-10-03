@@ -23,6 +23,8 @@ use custom_l1_node::crypto::hybrid::HybridSigningKey;
 use libp2p::Multiaddr;
 use tempfile::TempDir;
 
+mod common;
+
 /// Ceiling for any propagation wait. Reached only on failure.
 const PROPAGATION_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -57,6 +59,7 @@ fn next_memory_address() -> Multiaddr {
 async fn spawn_node(funded: &[(Address, u64)]) -> TestNode {
     let dir = TempDir::new().expect("temp dir");
     let state = StateDB::open(dir.path()).expect("open state");
+    common::bind(&state);
 
     for (address, balance) in funded {
         state
@@ -158,7 +161,7 @@ fn signed_transfer(from: &HybridSigningKey, to: Address, amount: u64, nonce: u64
         }],
         nonce,
     );
-    tx.sign(from).expect("sign");
+    tx.sign(from, &common::test_chain()).expect("sign");
     tx
 }
 

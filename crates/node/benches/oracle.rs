@@ -30,6 +30,7 @@ use maya_vrf::ecvrf::{prove, verify};
 use maya_vrf::keys::VrfSecretKey;
 use std::hint::black_box;
 
+mod common;
 /// Bytes one authority adds to a feed submission.
 const OBSERVATION_SIZE: usize = 8 + HYBRID_PUBLIC_KEY_LEN + HYBRID_SIGNATURE_LENGTH;
 

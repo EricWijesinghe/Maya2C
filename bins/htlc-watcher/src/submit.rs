@@ -17,7 +17,7 @@
 
 use std::collections::BTreeMap;
 
-use custom_l1_node::core::{Transaction, TxKind, TxOutput};
+use custom_l1_node::core::{ChainTag, Transaction, TxKind, TxOutput};
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
 use maya_htlc_lattice::CommitmentId;
 
@@ -52,12 +52,13 @@ pub fn sign_with_fee(
     mut outputs: Vec<TxOutput>,
     nonce: u64,
     key: &HybridSigningKey,
+    chain_tag: &ChainTag,
     fees: Option<Fees>,
 ) -> Result<Transaction> {
     let sign = |outputs: Vec<TxOutput>| {
         let mut tx = Transaction::with_kind(kind.clone(), nonce);
         tx.outputs = outputs;
-        tx.sign(key)
+        tx.sign(key, chain_tag)
             .map_err(|e| WatcherError::Signing(e.to_string()))?;
         Ok::<_, WatcherError>(tx)
     };
@@ -182,7 +183,8 @@ impl Pending {
         outputs: Vec<TxOutput>,
     ) -> Result<()> {
         let nonce = self.next_nonce(side)?;
-        let tx = sign_with_fee(&kind, outputs, nonce, key, chain.fees().await?)?;
+        let chain_tag = chain.chain_tag().await?;
+        let tx = sign_with_fee(&kind, outputs, nonce, key, &chain_tag, chain.fees().await?)?;
         let raw = tx.to_bytes();
 
         let side_key = Side::from(side);

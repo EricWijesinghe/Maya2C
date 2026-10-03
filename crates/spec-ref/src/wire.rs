@@ -20,7 +20,10 @@ pub const WIRE_VERSION_TRANSFER: u8 = 5;
 /// ENC-6: the largest count a collection prefix may carry.
 pub const MAX_COLLECTION_LEN: u64 = 65_536;
 
-const TX_DOMAIN: &[u8] = b"custom-l1-node.tx.v3";
+const TX_DOMAIN: &[u8] = b"custom-l1-node.tx.v4";
+const TXID_DOMAIN: &[u8] = b"custom-l1-node.txid.v1";
+/// ENC-8: the authorization kind a plain hybrid transfer's id is hashed under.
+const TXID_KIND_HYBRID: u8 = 0;
 const ADDRESS_DOMAIN: &[u8] = b"custom-l1-node.address.v3";
 
 /// A transfer's fields, keys and signature as opaque bytes.
@@ -66,23 +69,35 @@ pub fn encode(frame: &Frame) -> Vec<u8> {
     out
 }
 
-/// TX-3: what both signatures sign — `domain ‖ io ‖ public_key ‖ nonce_le64`.
-#[must_use]
-pub fn signing_bytes(frame: &Frame) -> Vec<u8> {
-    let mut out = TX_DOMAIN.to_vec();
-    out.extend(io_section(&frame.outputs));
+/// The fields a transfer's signature and id both cover: `io ‖ public_key ‖ nonce_le64`.
+fn body(frame: &Frame) -> Vec<u8> {
+    let mut out = io_section(&frame.outputs);
     out.extend_from_slice(&frame.public_key);
     out.extend_from_slice(&frame.nonce.to_le_bytes());
     out
 }
 
-/// ENC-8: a transfer's id is `blake3(signing_bytes ‖ signature)`, the
-/// signature omitted when absent. Hashing it commits the id to one
-/// authorization; that is sound only because both schemes sign
-/// deterministically, so one payload under one key pair has one id.
+/// TX-3: what both signatures sign — `domain ‖ chain_tag ‖ io ‖ public_key ‖
+/// nonce_le64`, where `chain_tag` is the genesis block id of the one chain the
+/// signature is valid on (TX-5, ADR-036).
+#[must_use]
+pub fn signing_bytes(frame: &Frame, chain_tag: &[u8; 32]) -> Vec<u8> {
+    let mut out = TX_DOMAIN.to_vec();
+    out.extend_from_slice(chain_tag);
+    out.extend(body(frame));
+    out
+}
+
+/// ENC-8: a transfer's id is `blake3(txid_domain ‖ 0x00 ‖ io ‖ public_key ‖
+/// nonce_le64 ‖ signature)`, the signature omitted when absent. The id names
+/// no chain: it only has to be unique within one. Hashing the signature
+/// commits the id to one authorization; that is sound only because both
+/// schemes sign deterministically, so one payload under one key pair has one id.
 #[must_use]
 pub fn txid(frame: &Frame) -> [u8; 32] {
-    let mut bytes = signing_bytes(frame);
+    let mut bytes = TXID_DOMAIN.to_vec();
+    bytes.push(TXID_KIND_HYBRID);
+    bytes.extend(body(frame));
     if let Some(sig) = &frame.signature {
         bytes.extend_from_slice(sig);
     }
