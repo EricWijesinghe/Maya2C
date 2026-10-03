@@ -36,7 +36,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "ti
 # HTML from a Rust string, so unlike the trunk-built frontends it has no
 # build-time asset validation — `tests/server_tests.rs` checks the routes
 # instead.
-tower-http = { workspace = true, features = ["trace", "fs"] }
+tower-http = { workspace = true, features = ["trace", "fs", "cors"] }
 
 # Runtime queries, not the `query!` macros: those need a live DATABASE_URL at
 # build time (or committed offline metadata), which would make the crate
