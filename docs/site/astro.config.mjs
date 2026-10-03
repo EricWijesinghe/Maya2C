@@ -17,10 +17,16 @@ export default defineConfig({
     starlight({
       title: "Maya2C",
       favicon: "/favicon.ico",
+      // Bing Webmaster Tools ownership check for maya2c.dev.
+      head: [
+        { tag: "meta", attrs: { name: "msvalidate.01", content: "76B55D3E70EB56CB2D46FE438641E2A4" } },
+      ],
       description:
         "Post-quantum layer-1 blockchain. DAG-BFT finality, hybrid ML-DSA + " +
         "SLH-DSA signatures, shielded transfers.",
       customCss: ["./src/styles/maya.css"],
+      // Our footer (about, contact, copyright) after Starlight's own.
+      components: { Footer: "./src/components/Footer.astro" },
       social: [
         { icon: "github", label: "GitHub", href: "https://github.com/EricWijesinghe/Maya2C" },
       ],

@@ -12,7 +12,7 @@
 
 use leptos::prelude::*;
 
-use crate::model::{HashratePoint, IndexedBlock, IndexedTx, NetworkStats};
+use crate::model::{IndexedBlock, IndexedTx, NetworkStats};
 
 /// Renders a component tree to an HTML string.
 fn render(view: impl IntoView + 'static) -> String {
@@ -34,6 +34,29 @@ pub fn format_hashrate(rate: f64) -> String {
         unit += 1;
     }
     format!("{value:.2} {}", UNITS[unit])
+}
+
+/// A Unix timestamp as a UTC time of day, `HH:MM:SS UTC`: at one block a
+/// second, the time of day is what tells blocks apart, and raw seconds since
+/// 1970 told a reader nothing.
+#[must_use]
+pub fn utc_time(unix_seconds: i64) -> String {
+    let day = unix_seconds.rem_euclid(86_400);
+    format!(
+        "{:02}:{:02}:{:02} UTC",
+        day / 3_600,
+        day % 3_600 / 60,
+        day % 60
+    )
+}
+
+/// Blocks per minute from an average block time in seconds.
+#[must_use]
+pub fn blocks_per_minute(average_block_time: f64) -> String {
+    if !average_block_time.is_finite() || average_block_time <= 0.0 {
+        return "0".to_string();
+    }
+    format!("{:.1}", 60.0 / average_block_time)
 }
 
 /// Shortens a hex identifier for display.
@@ -130,12 +153,16 @@ pub fn StatsPanel(
                 <span class="value" id="stat-height">{stats.height.to_string()}</span>
             </div>
             <div class="tile">
-                <span class="label">"Hash rate"</span>
-                <span class="value" id="stat-hashrate">{format_hashrate(stats.hashrate)}</span>
+                <span class="label">"Blocks / min"</span>
+                <span class="value">{blocks_per_minute(stats.average_block_time)}</span>
             </div>
             <div class="tile">
                 <span class="label">"Avg block time"</span>
                 <span class="value">{format!("{:.1}s", stats.average_block_time)}</span>
+            </div>
+            <div class="tile">
+                <span class="label">"Consensus"</span>
+                <span class="value">"DAG-BFT"</span>
             </div>
             <div class="tile">
                 <span class="label">"Blocks indexed"</span>
@@ -149,40 +176,42 @@ pub fn StatsPanel(
     }
 }
 
-/// A sparkline-style table of recent hashrate samples.
+/// Seconds between consecutive recent blocks, oldest first: on a DAG-BFT
+/// chain this is the pulse worth watching (a mining hash rate means nothing
+/// there, since no block is mined).
 #[component]
-pub fn HashrateChart(
-    /// Samples, oldest first.
-    points: Vec<HashratePoint>,
+pub fn BlockTimeChart(
+    /// Recent blocks, newest first.
+    blocks: Vec<IndexedBlock>,
 ) -> impl IntoView {
-    // Scaled against the window maximum so the shape is visible regardless of
-    // absolute magnitude — a chain at 200 H/s and one at 200 TH/s both read.
-    let peak = points
+    let mut times: Vec<(i64, u64)> = blocks
+        .windows(2)
+        .map(|w| {
+            let gap = w[0].timestamp.saturating_sub(w[1].timestamp).max(0);
+            (w[0].height, u64::try_from(gap).unwrap_or(0))
+        })
+        .collect();
+    times.reverse();
+    // Scaled against the window maximum, with a floor so a steady chain still
+    // shows bars rather than a flat line.
+    let peak = times.iter().map(|t| t.1).max().unwrap_or(1).max(2);
+    let bars: Vec<_> = times
         .iter()
-        .map(|p| p.hashrate)
-        .fold(0.0_f64, f64::max)
-        .max(1.0);
-
-    let bars: Vec<_> = points
-        .iter()
-        .map(|point| {
-            let height = ((point.hashrate / peak) * 100.0).clamp(1.0, 100.0);
-            let label = format!(
-                "height {} · {}",
-                point.height,
-                format_hashrate(point.hashrate)
-            );
+        .map(|(height, secs)| {
+            #[allow(clippy::cast_precision_loss)]
+            let pct = ((*secs as f64 / peak as f64) * 100.0).clamp(6.0, 100.0);
+            let label = format!("block {height} · {secs}s after its parent");
             view! {
-                <div class="bar" style=format!("height:{height:.1}%") title=label></div>
+                <div class="bar" style=format!("height:{pct:.1}%") title=label></div>
             }
         })
         .collect();
 
     view! {
         <section class="panel">
-            <h2>"Hash rate"</h2>
+            <h2>"Block time"</h2>
             <div class="chart">{bars}</div>
-            <p class="muted">"Estimated from block targets and timestamps."</p>
+            <p class="muted">"Seconds between each recent block and its parent. Every block shown is final: DAG-BFT does not reorganise."</p>
         </section>
     }
 }
@@ -202,8 +231,8 @@ pub fn BlockTable(
                     <td><a href=href>{block.height.to_string()}</a></td>
                     <td class="mono">{short_hash(&block.id)}</td>
                     <td>{block.tx_count.to_string()}</td>
-                    <td>{block.timestamp.to_string()}</td>
-                    <td class="mono">{short_hash(&block.difficulty_target)}</td>
+                    <td>{utc_time(block.timestamp)}</td>
+                    <td class="mono">{short_hash(&block.state_root)}</td>
                 </tr>
             }
         })
@@ -216,7 +245,7 @@ pub fn BlockTable(
                 <thead>
                     <tr>
                         <th>"Height"</th><th>"Id"</th><th>"Txs"</th>
-                        <th>"Timestamp"</th><th>"Target"</th>
+                        <th>"Time"</th><th>"State root"</th>
                     </tr>
                 </thead>
                 <tbody id="block-rows">{rows}</tbody>
@@ -266,16 +295,13 @@ pub fn TxTable(
 
 /// The dashboard.
 #[must_use]
-pub fn dashboard_page(
-    stats: NetworkStats,
-    points: Vec<HashratePoint>,
-    blocks: Vec<IndexedBlock>,
-) -> String {
+pub fn dashboard_page(stats: NetworkStats, blocks: Vec<IndexedBlock>) -> String {
     render(view! {
         <Shell title="Dashboard".to_string()>
-            <h1>"Network"</h1>
+            <h1>"maya-testnet-1"</h1>
+            <p class="lead">"Post-quantum layer 1 · DAG-BFT finality · every block below is final"</p>
             <StatsPanel stats=stats/>
-            <HashrateChart points=points/>
+            <BlockTimeChart blocks=blocks.clone()/>
             <BlockTable blocks=blocks/>
         </Shell>
     })
@@ -303,10 +329,8 @@ pub fn block_page(block: IndexedBlock, transactions: Vec<IndexedTx>) -> String {
                     <dt>"Id"</dt><dd class="mono">{block.id.clone()}</dd>
                     <dt>"Parent"</dt><dd class="mono">{block.prev_hash.clone()}</dd>
                     <dt>"State root"</dt><dd class="mono">{block.state_root.clone()}</dd>
-                    <dt>"Timestamp"</dt><dd>{block.timestamp.to_string()}</dd>
-                    <dt>"Nonce"</dt><dd>{block.nonce.to_string()}</dd>
-                    <dt>"Target"</dt><dd class="mono">{block.difficulty_target.clone()}</dd>
-                    <dt>"Work"</dt><dd class="mono">{block.work.clone()}</dd>
+                    <dt>"Time"</dt><dd>{format!("{} ({})", utc_time(block.timestamp), block.timestamp)}</dd>
+                    <dt>"Finality"</dt><dd>"Final: derived from committed DAG-BFT certificates"</dd>
                 </dl>
             </section>
             <section class="panel">
@@ -438,9 +462,20 @@ fn styles() -> String {
 }
 
 const STYLES: &str = r#"
+/* maya2c.dev's palette over the design-system tokens, so the explorer reads
+   as the same product as the site it is linked from. */
+:root, [data-theme="command"] { --accent:#22d3ee; --focus:#a78bfa; --on-accent:#04111a; }
 * { box-sizing: border-box; }
-body { margin:0; font:14px/1.5 ui-sans-serif,system-ui,sans-serif;
-       background:var(--bg); color:var(--fg); }
+body { margin:0; font:14px/1.5 "Inter",ui-sans-serif,system-ui,sans-serif; color:var(--fg);
+       background:
+         radial-gradient(50rem 24rem at 10% -10%, rgb(34 211 238 / 0.12), transparent 60%),
+         radial-gradient(44rem 22rem at 100% 0%, rgb(167 139 250 / 0.12), transparent 60%),
+         var(--bg); min-height:100vh; }
+h1 { background:linear-gradient(100deg,#22d3ee,#a78bfa 60%,#f472b6);
+     -webkit-background-clip:text; background-clip:text; color:transparent; }
+.lead { color:var(--muted); margin:-0.5rem 0 1.25rem; }
+.tile, .panel { background:linear-gradient(160deg, rgb(255 255 255 / 0.05), rgb(255 255 255 / 0.01)); }
+.tile .value { color:#e0f2fe; }
 .nav { display:flex; gap:1.25rem; align-items:center; padding:0.85rem 1.5rem;
        border-bottom:1px solid var(--border); background:var(--panel); }
 .nav a { color:var(--muted); text-decoration:none; }
@@ -478,7 +513,7 @@ details.panel summary { cursor:pointer; color:var(--muted); margin-bottom:0.75re
 :focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
 .chart { display:flex; align-items:flex-end; gap:3px; height:120px;
          padding-top:0.5rem; }
-.bar { flex:1; min-width:2px; background:var(--accent); opacity:0.75;
+.bar { flex:1; min-width:2px; background:linear-gradient(180deg,#22d3ee,#a78bfa); opacity:0.8;
        border-radius:2px 2px 0 0; }
 .bar:hover { opacity:1; }
 .detail { display:grid; grid-template-columns:150px 1fr; gap:0.4rem 1rem;
@@ -515,17 +550,32 @@ const LIVE_SCRIPT: &str = r#"
     socket.onclose = function () { setTimeout(function () { connect(path, onMessage); }, 3000); };
   }
 
+  function utc(t) {
+    var d = t % 86400, p = function (n) { return (n < 10 ? '0' : '') + n; };
+    return p(Math.floor(d / 3600)) + ':' + p(Math.floor(d % 3600 / 60)) + ':' + p(d % 60) + ' UTC';
+  }
   function shorten(h) {
     return (typeof h === 'string' && h.length > 16)
       ? h.slice(0, 8) + '…' + h.slice(-6) : h;
   }
+  // Each cell is text, or {text, href, mono}, so a live row carries the same
+  // links and fonts as the server-rendered rows beside it.
   function prepend(tbodyId, cells, limit) {
     var body = document.getElementById(tbodyId);
     if (!body) return;
     var row = document.createElement('tr');
-    cells.forEach(function (text) {
+    cells.forEach(function (spec) {
       var cell = document.createElement('td');
-      cell.textContent = text;
+      var s = (spec !== null && typeof spec === 'object') ? spec : { text: spec };
+      if (s.mono) cell.className = 'mono';
+      if (s.href) {
+        var a = document.createElement('a');
+        a.href = s.href;
+        a.textContent = s.text;
+        cell.appendChild(a);
+      } else {
+        cell.textContent = s.text;
+      }
       row.appendChild(cell);
     });
     body.insertBefore(row, body.firstChild);
@@ -536,14 +586,16 @@ const LIVE_SCRIPT: &str = r#"
     var height = document.getElementById('stat-height');
     if (height) height.textContent = block.height;
     prepend('block-rows', [
-      block.height, shorten(block.id), block.tx_count,
-      block.timestamp, shorten(block.difficulty_target)
+      { text: block.height, href: '/blocks/' + block.height },
+      { text: shorten(block.id), mono: true }, block.tx_count,
+      utc(block.timestamp), { text: shorten(block.state_root), mono: true }
     ], 20);
   });
 
   connect('/ws/txs', function (tx) {
     prepend('tx-rows', [
-      shorten(tx.txid), tx.height, shorten(tx.sender), tx.nonce, tx.total_out
+      { text: shorten(tx.txid), href: '/tx/' + tx.txid, mono: true }, tx.height,
+      { text: shorten(tx.sender), mono: true }, tx.nonce, tx.total_out
     ], 20);
   });
 })();
