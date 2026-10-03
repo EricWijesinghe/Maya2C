@@ -10,10 +10,11 @@ band; move an item to PROGRESS.md when it starts.
 - **Gate 8: historical catch-up for a restarted validator.** The engine
   answers `Fetch` only from memory (`GC_DEPTH` = 50 rounds), so a validator
   down longer than about 30 s is stranded for good. Serve fetches below the
-  horizon from `certs.log` (index digest -> offset per retained epoch);
-  certificates carry quorum signatures, so the catch-up stays trustless.
-  Test: the dry-run shape in `bft_node_tests` with one node held back 200
-  rounds. Source: four-validator dry run, 2026-10-04.
+  horizon from `certs.log` was built and measured: peers sent the right
+  certificates but gossip lost the replies, and healthy validators dropped
+  frames under the load. Snapshot bootstrap lands outside the window too.
+  Plan: ADR-038 (quorum-attested checkpoints, import blocks up to one with
+  re-execution). Source: four-validator dry run, 2026-10-04.
 - **Gate 9: compact consensus logs within an epoch** for a chain without
   staking (epoch 0 for ever). `safety.log` keeps only rounds the engine could
   still sign; `certs.log` only rounds at or above the horizon. Rewrite then
