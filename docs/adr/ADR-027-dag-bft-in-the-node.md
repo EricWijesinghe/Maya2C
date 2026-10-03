@@ -33,7 +33,7 @@ its proof-of-work layout and three fields change meaning:
 |---|---|
 | `nonce` | seal: epoch (24 bits) ‖ anchor round (40 bits) |
 | `timestamp` | anchor's certified `timestamp_ms / 1000`, never behind the parent |
-| `difficulty_target` | the retarget rule at the unlimited floor; no work is verified |
+| `difficulty_target` | the genesis target, unchanged block to block; no work is verified. *Superseded 2026-09-29 by ADR-035: this row used to say "the retarget rule at the unlimited floor", which saturated total work and halted maya-testnet-1 at height 12,530.* |
 
 **Why not a new header version:** every tool that parses headers (light client,
 explorer, spec vectors, the TS verifier) would need a second format for no

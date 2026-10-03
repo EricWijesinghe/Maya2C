@@ -518,9 +518,11 @@ impl GenesisConfig {
     ///
     /// One place, so the node and every tool that replays its chain (the
     /// CLI's fork and replay) cannot drift: a tool that forgot the shielded
-    /// activation (ADR-037) would accept blocks the network refuses.
-    /// DAG-BFT verifies no work — a block is derived from certificates — and
-    /// proof of work verifies against the genesis floor.
+    /// activation (ADR-037) would accept blocks the network refuses, and one
+    /// that forgot the fixed target (ADR-035) would recompute a different
+    /// difficulty and refuse the node's own blocks. DAG-BFT verifies no work
+    /// and keeps the genesis target; proof of work verifies against the
+    /// genesis floor.
     ///
     /// # Errors
     ///
@@ -528,7 +530,7 @@ impl GenesisConfig {
     pub fn chain_config(&self) -> Result<crate::consensus::chain::ChainConfig> {
         use crate::consensus::chain::ChainConfig;
         let base = if self.bft.is_some() {
-            ChainConfig::without_pow_verification()
+            ChainConfig::dag_bft()
         } else {
             ChainConfig::with_pow_limit(self.pow_limit())
         };
@@ -562,6 +564,18 @@ impl GenesisConfig {
             return Err(NodeError::Decode(
                 "difficulty_bits must be below 256".to_string(),
             ));
+        }
+
+        // DAG-BFT verifies no work and fixes the target at genesis (CON-9), so
+        // each block adds `2^difficulty_bits` of work. Anything above zero
+        // only brings saturation of total work closer: at 250 bits it comes
+        // within a handful of blocks and halts the chain (ADR-035). Nothing is
+        // gained, so nothing but the unlimited target is accepted.
+        if self.bft.is_some() && (self.difficulty_bits != 0 || self.pow_limit_bits != 0) {
+            return Err(NodeError::Decode(format!(
+                "a DAG-BFT genesis must set difficulty_bits and pow_limit_bits to 0                  (got {} and {}): no work is verified, and a harder target only                  brings total work closer to saturating (ADR-035)",
+                self.difficulty_bits, self.pow_limit_bits
+            )));
         }
 
         let mut seen = std::collections::BTreeSet::new();

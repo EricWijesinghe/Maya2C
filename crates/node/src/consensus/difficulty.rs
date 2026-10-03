@@ -114,6 +114,17 @@ pub fn retarget(
     }
 }
 
+/// The difficulty target a DAG-BFT block must declare: its parent's (CON-9).
+///
+/// Every block therefore carries the genesis target, and each adds the same
+/// work, so cumulative work grows linearly. A retarget on one-second DAG-BFT
+/// blocks hardened the target every window until work saturated at
+/// 2^256 - 1 and the chain could no longer extend (ADR-035).
+#[must_use]
+pub const fn dag_bft_target(parent: &[u8; 32]) -> [u8; 32] {
+    *parent
+}
+
 /// Whether a retarget occurs at `height`.
 ///
 /// Height 0 is genesis and never retargets.
