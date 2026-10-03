@@ -33,6 +33,8 @@ use maya_governance::proposal::ProposalState;
 use maya_governance::tally::Choice;
 use tempfile::TempDir;
 
+mod common;
+
 // ---------------------------------------------------------------------------
 // harness
 // ---------------------------------------------------------------------------
@@ -64,13 +66,14 @@ fn block_of(transactions: Vec<Transaction>) -> Block {
 
 fn signed(kind: TxKind, nonce: u64, key: &HybridSigningKey) -> Transaction {
     let mut tx = Transaction::with_kind(kind, nonce);
-    tx.sign(key).expect("sign");
+    tx.sign(key, &common::test_chain()).expect("sign");
     tx
 }
 
 fn fixture() -> Fixture {
     let dir = TempDir::new().expect("temp dir");
     let db = StateDB::open(dir.path()).expect("open");
+    common::bind(&db);
 
     let holders: Vec<HybridSigningKey> = (0..HOLDERS)
         .map(|_| generate_signing_key().expect("key"))
@@ -677,6 +680,7 @@ fn a_chain_that_has_never_governed_has_the_state_root_it_always_had() {
     // adding governance does not change a chain that has not used it.
     let dir = TempDir::new().expect("temp dir");
     let db = StateDB::open(dir.path()).expect("open");
+    common::bind(&db);
     let key = generate_signing_key().expect("key");
     let account = Account {
         balance: 1_000,

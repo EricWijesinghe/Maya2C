@@ -21,7 +21,9 @@
 use crate::suite::{PUBLIC_KEY_LEN, SUITE_ID};
 
 /// The node's v7 signing domain (`crates/node/src/core/suite_tx.rs`).
-pub const TX_DOMAIN_SUITE: &[u8] = b"custom-l1-node.tx.suite.v1";
+pub const TX_DOMAIN_SUITE: &[u8] = b"custom-l1-node.tx.suite.v2";
+/// Bytes of the genesis id every signature commits to (ADR-036).
+pub const GENESIS_LEN: usize = 32;
 /// Most outputs a reviewed transfer may have.
 pub const MAX_OUTPUTS: usize = 4;
 /// Most inputs a reviewed transfer may spend.
@@ -42,6 +44,10 @@ pub struct Output {
 /// A transfer the user can approve.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Review {
+    /// The genesis id of the one chain this signature is valid on (ADR-036).
+    /// Shown on screen: approving a testnet-looking transfer must never
+    /// silently sign a mainnet one.
+    pub genesis: [u8; GENESIS_LEN],
     /// The outputs; only the first `output_count` are meaningful.
     pub outputs: [Output; MAX_OUTPUTS],
     /// How many outputs there are.
@@ -133,6 +139,8 @@ pub fn review(
     if r.take(TX_DOMAIN_SUITE.len()).ok() != Some(TX_DOMAIN_SUITE) {
         return Err(ReviewError::NotATransaction);
     }
+    let mut genesis = [0u8; GENESIS_LEN];
+    genesis.copy_from_slice(r.take(GENESIS_LEN)?);
 
     let input_count = r.count(MAX_INPUTS)?;
     r.take(input_count * INPUT_BYTES)?;
@@ -165,6 +173,7 @@ pub fn review(
         return Err(ReviewError::NotATransfer);
     }
     Ok(Review {
+        genesis,
         outputs,
         output_count,
         input_count,

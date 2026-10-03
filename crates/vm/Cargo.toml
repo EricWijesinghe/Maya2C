@@ -28,6 +28,8 @@ maya-contract-safety = { path = "../contract-safety" }
 # across releases, so the version is consensus-critical: two validators on
 # different wasmtime versions can compute different gas for the same call and
 # disagree about whether it succeeded. Bumping this is a hard fork.
+# 48.0.1 -> 48.0.4 (2026-10-03, RUSTSEC-2026-0325/0326/0327) rode the
+# ADR-036 testnet re-genesis, which was a hard fork anyway.
 #
 # default-features = false drops gc, component-model, threads, and
 # stack-switching, each of which is a determinism or attack-surface liability
@@ -35,7 +37,7 @@ maya-contract-safety = { path = "../contract-safety" }
 # The module cache key. Already in the tree through `archive`, `identity`
 # and `rwa`; the cache needs a digest, not anything algebraic.
 blake3 = "1"
-wasmtime = { version = "=48.0.1", default-features = false, features = [
+wasmtime = { version = "=48.0.4", default-features = false, features = [
     "cranelift",
     # The Pulley interpreter tier (`src/tier.rs`). Without it wasmtime can
     # compile *to* Pulley but refuses to run the bytecode on a native host.

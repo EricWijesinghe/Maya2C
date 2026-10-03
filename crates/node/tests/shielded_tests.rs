@@ -29,6 +29,8 @@ use maya_zk_stark::pool::wallet::{self, Payment, Spend};
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
 use tempfile::TempDir;
 
+mod common;
+
 // ---------------------------------------------------------------------------
 // harness
 // ---------------------------------------------------------------------------
@@ -36,6 +38,7 @@ use tempfile::TempDir;
 fn open_state(funded: &[(Address, u64)]) -> (StateDB, TempDir) {
     let dir = TempDir::new().expect("temp dir");
     let db = StateDB::open(dir.path()).expect("open");
+    common::bind(&db);
     for (address, balance) in funded {
         db.put_account(
             address,
@@ -69,7 +72,7 @@ fn block_of(transactions: Vec<Transaction>) -> Block {
 
 fn signed(kind: TxKind, nonce: u64, key: &HybridSigningKey) -> Transaction {
     let mut tx = Transaction::with_kind(kind, nonce);
-    tx.sign(key).expect("sign");
+    tx.sign(key, &common::test_chain()).expect("sign");
     tx
 }
 
@@ -537,7 +540,7 @@ fn a_shielded_transaction_may_not_also_carry_transparent_outputs() {
             amount: 1,
             recipient: [9u8; 32],
         });
-    tx.sign(&owner).expect("sign");
+    tx.sign(&owner, &common::test_chain()).expect("sign");
     let error = db
         .apply_block(&block_of(vec![tx]), BlockContext::at_height(2))
         .expect_err("must reject");
@@ -613,7 +616,7 @@ fn a_block_without_joinsplits_leaves_the_pool_untouched() {
         }],
         1,
     );
-    tx.sign(&owner).expect("sign");
+    tx.sign(&owner, &common::test_chain()).expect("sign");
     db.apply_block(&block_of(vec![tx]), BlockContext::at_height(2))
         .expect("transfer");
 

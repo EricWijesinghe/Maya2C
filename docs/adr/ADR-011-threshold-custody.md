@@ -61,7 +61,10 @@ as it has quorums, and anyone holding a spare approval could re-encode a
 broadcast transaction under a new id, orphaning every child that spends it
 by the old one. So a v8 txid is BLAKE3 over the signing bytes alone, the way
 a segregated-witness txid omits the witness. Pinned by
-`every_quorum_of_one_spend_has_one_txid`.
+`every_quorum_of_one_spend_has_one_txid`. *(Since ADR-036 the signing bytes
+carry the chain tag and the txid does not: a v8 id is
+`blake3("custom-l1-node.txid.v1" ‖ 0x08 ‖ io ‖ policy ‖ nonce ‖ kind)`,
+still without approvals.)*
 
 **Before the gate moves** (review findings, for the activation ADR):
 

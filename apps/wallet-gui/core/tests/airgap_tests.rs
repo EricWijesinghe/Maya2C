@@ -18,9 +18,13 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use custom_l1_node::core::ChainTag;
 use maya_wallet_core::airgap::{self, Assembler, Frame};
 use maya_wallet_core::hd::{DerivationPath, seed_from_mnemonic, signing_key_at};
 use maya_wallet_core::payment::sign_transfer;
+
+/// The chain every test signature commits to (ADR-036).
+const CHAIN: ChainTag = ChainTag::from_genesis([0x5A; 32]);
 
 /// A fixed phrase, so a failure is reproducible.
 const PHRASE: &str = "abandon abandon abandon abandon abandon abandon abandon abandon \
@@ -31,7 +35,7 @@ fn signed_blob() -> Vec<u8> {
     let seed = seed_from_mnemonic(PHRASE, "").expect("a valid phrase yields a seed");
     let key = signing_key_at(seed.as_slice(), &DerivationPath::account(0, 0)).expect("derive");
 
-    let signed = sign_transfer(&key, &hex::encode([9u8; 32]), 1_000, 0, 10)
+    let signed = sign_transfer(&key, &hex::encode([9u8; 32]), 1_000, 0, 10, &CHAIN)
         .expect("signing needs no network");
 
     hex::decode(&signed.raw_hex).expect("the wallet emits valid hex")
@@ -154,13 +158,13 @@ fn frames_from_two_different_transfers_cannot_be_mixed() {
     let key = signing_key_at(seed.as_slice(), &DerivationPath::account(0, 0)).expect("derive");
 
     let first = hex::decode(
-        &sign_transfer(&key, &hex::encode([9u8; 32]), 1_000, 0, 10)
+        &sign_transfer(&key, &hex::encode([9u8; 32]), 1_000, 0, 10, &CHAIN)
             .expect("sign")
             .raw_hex,
     )
     .expect("hex");
     let second = hex::decode(
-        &sign_transfer(&key, &hex::encode([9u8; 32]), 1_000, 0, 11)
+        &sign_transfer(&key, &hex::encode([9u8; 32]), 1_000, 0, 11, &CHAIN)
             .expect("sign")
             .raw_hex,
     )

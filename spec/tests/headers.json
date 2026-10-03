@@ -23,7 +23,7 @@
     {
       "expect": {
         "result": "ok",
-        "tx_root": "e57638dc636a0bce9951f121498863c859ca9eda42831a13e445411f085c4d4b"
+        "tx_root": "f3ab1af77cec218c6fd8ecfa45bebb7da05137813d2de66f4d9bcb08ea8b21cd"
       },
       "header": {
         "difficulty_target": "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f",
@@ -31,7 +31,7 @@
         "prev_hash": "1111111111111111111111111111111111111111111111111111111111111111",
         "state_root": "2222222222222222222222222222222222222222222222222222222222222222",
         "timestamp": "1756252800",
-        "tx_root": "e57638dc636a0bce9951f121498863c859ca9eda42831a13e445411f085c4d4b"
+        "tx_root": "f3ab1af77cec218c6fd8ecfa45bebb7da05137813d2de66f4d9bcb08ea8b21cd"
       },
       "id": "tx-root-matches",
       "rules": [

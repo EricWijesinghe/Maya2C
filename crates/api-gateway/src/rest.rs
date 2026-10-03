@@ -16,7 +16,7 @@ use utoipa::{OpenApi, ToSchema};
 
 use crate::error::GatewayError;
 use crate::jsonrpc::{self, RpcRequest};
-use crate::node::{Balance, FeeInfo, NodeClient, Supply};
+use crate::node::{Balance, ChainInfo, FeeInfo, NodeClient, Supply};
 use crate::sealed::{self, SealedAccepted, SealedSubmission};
 
 /// Shared handler state.
@@ -59,12 +59,13 @@ pub struct TransactionAccepted {
 /// as a function nobody can find.
 #[derive(OpenApi)]
 #[openapi(
-    paths(health, account, block, supply, fees, submit, submit_sealed, jsonrpc::handle),
+    paths(health, account, block, supply, fees, chain_info, submit, submit_sealed, jsonrpc::handle),
     components(schemas(
         RawTransaction,
         TransactionAccepted,
         Balance,
         FeeInfo,
+        ChainInfo,
         Supply,
         RpcRequest,
         SealedSubmission,
@@ -90,6 +91,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/blocks/{height}", get(block))
         .route("/v1/supply", get(supply))
         .route("/v1/fees", get(fees))
+        .route("/v1/chain", get(chain_info))
         .route("/v1/transactions", post(submit))
         .route("/v1/sealed", post(submit_sealed))
         // JSON-RPC for clients that speak the node's protocol. Same node
@@ -209,6 +211,19 @@ async fn supply(State(state): State<Arc<AppState>>) -> Result<Json<Supply>, Gate
 )]
 async fn fees(State(state): State<Arc<AppState>>) -> Result<Json<FeeInfo>, GatewayError> {
     Ok(Json(state.node.get_fee_info().await?))
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/chain",
+    tag = "chain",
+    responses(
+        (status = 200, description = "Chain identification: genesis block id and optional chain id string. Needed for offline signing (ADR-036)", body = ChainInfo),
+        (status = 502, description = "The node could not be reached"),
+    ),
+)]
+async fn chain_info(State(state): State<Arc<AppState>>) -> Result<Json<ChainInfo>, GatewayError> {
+    Ok(Json(state.node.get_chain_info().await?))
 }
 
 #[utoipa::path(
