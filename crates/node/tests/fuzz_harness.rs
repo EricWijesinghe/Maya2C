@@ -44,6 +44,8 @@ use rand_chacha::ChaCha20Rng;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
 use tempfile::TempDir;
 
+mod common;
+
 /// The value of a `u64` env var, or `default`.
 fn env_u64(name: &str, default: u64) -> u64 {
     std::env::var(name)
@@ -73,7 +75,7 @@ fn seed(rng: &mut ChaCha20Rng, key: &HybridSigningKey) -> Vec<u8> {
         rng.next_u64(),
     );
     if rng.next_u32() & 1 == 0 {
-        let _ = tx.sign(key);
+        let _ = tx.sign(key, &common::test_chain());
     }
     tx.to_bytes()
 }
@@ -134,6 +136,7 @@ fn guard<T>(f: impl FnOnce() -> T) -> Result<T, String> {
 fn fresh_state(owner: &Address) -> (StateDB, TempDir) {
     let dir = TempDir::new().expect("temp dir");
     let state = StateDB::open(dir.path()).expect("open state");
+    common::bind(&state);
     state
         .put_account(
             owner,

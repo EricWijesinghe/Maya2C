@@ -71,6 +71,7 @@ use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 
 use custom_l1_node::crypto::argon_blake::argon_blake_hash;
 use custom_l1_node::crypto::hybrid;
+mod common;
 
 /// Assumed package power, in watts, for the joules-per-operation model.
 ///

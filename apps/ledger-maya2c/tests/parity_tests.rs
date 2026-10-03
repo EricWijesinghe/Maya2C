@@ -14,6 +14,7 @@ use app_maya2c::suite;
 
 struct Fixture {
     chain_key: [u8; 32],
+    genesis: [u8; 32],
     public_key: Vec<u8>,
     address: Vec<u8>,
     signing_bytes: Vec<u8>,
@@ -31,6 +32,7 @@ fn fixture() -> Fixture {
     };
     Fixture {
         chain_key: field("chain_key").try_into().expect("32"),
+        genesis: field("genesis").try_into().expect("32"),
         public_key: field("public_key"),
         address: field("address"),
         signing_bytes: field("signing_bytes"),
@@ -63,6 +65,7 @@ fn the_review_shows_what_the_node_encoded() {
     assert_eq!(shown.input_count, 1);
     assert_eq!(shown.output_count, 2);
     assert_eq!(shown.nonce, 7);
+    assert_eq!(shown.genesis, f.genesis, "the network the user approves");
     assert_eq!(shown.outputs[0].amount, 1_250_000);
     assert_eq!(shown.outputs[0].recipient, [0x33; 32]);
     assert_eq!(shown.outputs[1].amount, 40_000);
@@ -73,7 +76,8 @@ fn the_review_shows_what_the_node_encoded() {
 fn the_review_refuses_what_it_cannot_honestly_show() {
     let f = fixture();
     let (public, _) = suite::keypair_from_chain_key(&f.chain_key);
-    let domain = review::TX_DOMAIN_SUITE.len();
+    // The domain, then the genesis the signature commits to (ADR-036).
+    let domain = review::TX_DOMAIN_SUITE.len() + review::GENESIS_LEN;
 
     // Another key's transaction: the device will not sign for it.
     let (other, _) = suite::keypair_from_chain_key(&[0x99; 32]);
@@ -97,6 +101,18 @@ fn the_review_refuses_what_it_cannot_honestly_show() {
         review::review(&payload, &public),
         Err(ReviewError::NotATransfer)
     );
+
+    // The old, chain-free domain: bytes a pre-ADR-036 wallet would send.
+    let mut unbound = b"custom-l1-node.tx.suite.v1".to_vec();
+    unbound.extend_from_slice(&f.signing_bytes[domain..]);
+    assert_eq!(
+        review::review(&unbound, &public),
+        Err(ReviewError::NotATransaction)
+    );
+
+    // Cut inside the genesis.
+    let short = &f.signing_bytes[..review::TX_DOMAIN_SUITE.len() + 10];
+    assert_eq!(review::review(short, &public), Err(ReviewError::Truncated));
 
     // Truncated inside the key.
     let cut = &f.signing_bytes[..f.signing_bytes.len() - 20];

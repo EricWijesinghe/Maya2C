@@ -37,7 +37,9 @@ async fn land(client: &NodeClient, key: &HybridSigningKey, kind: TxKind, outputs
     let n = nonce(client, key).await;
     let mut tx = Transaction::with_kind(kind, n);
     tx.outputs = outputs;
-    tx.sign(key).unwrap();
+    // ADR-036: sign for the devnet's own genesis.
+    let chain = client.get_chain_info().await.unwrap();
+    tx.sign(key, &chain).unwrap();
     client
         .send_raw_transaction(&hex::encode(tx.to_bytes()))
         .await
@@ -117,7 +119,8 @@ async fn a_vault_on_a_devnet_delays_cancels_and_pays() {
         }],
         n,
     );
-    big.sign(owner).unwrap();
+    big.sign(owner, &client.get_chain_info().await.unwrap())
+        .unwrap();
     let refused = format!(
         "{:#}",
         client
