@@ -394,3 +394,29 @@ fn clock_drift_rehearsal_a_fast_validator_skews_timestamps_but_not_liveness() {
         mesh.now / 1_000 - start_s
     );
 }
+
+#[test]
+fn every_member_holds_a_quorum_attested_checkpoint_on_its_own_chain() {
+    // ADR-038: validators attest each block they build; 3 of 4 make a
+    // checkpoint every member (the observer too) can verify on its own.
+    let mut mesh = Mesh::new(1);
+    mesh.run_to(8);
+    let (_, committee) = signers();
+    for m in mesh.live() {
+        let driver = m.driver.as_ref().unwrap();
+        let checkpoint = driver
+            .checkpoint()
+            .expect("a checkpoint after eight blocks");
+        let tag = custom_l1_node::core::ChainTag::from_genesis(m.chain.genesis());
+        checkpoint
+            .verify(&tag, &committee)
+            .expect("a quorum of the committee");
+        assert!(checkpoint.height >= 1);
+        let ours = m.chain.active_chain().unwrap()[usize::try_from(checkpoint.height).unwrap()];
+        assert_eq!(
+            ours, checkpoint.block,
+            "the checkpoint is this member's own block"
+        );
+    }
+    assert_eq!(mesh.equivocations, 0);
+}

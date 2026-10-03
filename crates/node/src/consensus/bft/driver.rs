@@ -22,13 +22,14 @@ use maya_dag_bft::{
     Certificate, Committee, Dest, Equivocation, Message, Output, Params, Validator, ValidatorId,
 };
 
+use super::attest::{ATTEST_FRAME, Attestation, Checkpoint, Collected, Collector};
 use super::auth::MlDsaAuthenticator;
 use super::builder::{build_block, unseal};
 use super::remote::ValidatorKey;
 use super::store::SafetyStore;
 use super::wire::{BROADCAST, Envelope};
 use crate::consensus::{BlockId, Chain, InsertOutcome};
-use crate::core::Transaction;
+use crate::core::{ChainTag, Transaction};
 use crate::crypto::keys::VerifyingKey;
 use crate::error::{NodeError, Result};
 
@@ -92,6 +93,10 @@ pub struct BftDriver {
     signer: Option<ValidatorKey>,
     params: Params,
     dir: PathBuf,
+    /// This epoch's committee, which attestations are checked against.
+    committee: Arc<[VerifyingKey]>,
+    /// Attestations gathered into the newest checkpoint (ADR-038).
+    attestations: Collector,
 }
 
 impl core::fmt::Debug for BftDriver {
@@ -206,6 +211,8 @@ impl BftDriver {
             signer,
             params,
             dir,
+            committee: Arc::clone(committee),
+            attestations: Collector::default(),
         };
         // Own proposals and votes first: they set the round, so replaying
         // certificates cannot make the engine sign a slot it already signed.
@@ -277,6 +284,10 @@ impl BftDriver {
     /// epoch, or is addressed to someone else is not an error; it is ignored.
     pub fn on_frame(&mut self, chain: &mut Chain, now_ms: u64, bytes: &[u8]) -> Result<Step> {
         let mut step = Step::default();
+        if bytes.first() == Some(&ATTEST_FRAME) {
+            self.on_attestation(chain, bytes, &mut step);
+            return Ok(step);
+        }
         let Ok(envelope) = Envelope::decode(bytes) else {
             return Ok(step);
         };
@@ -290,6 +301,62 @@ impl BftDriver {
         let out = self.engine.handle(now_ms, envelope.from, envelope.message);
         self.absorb(chain, now_ms, out, &mut step)?;
         Ok(step)
+    }
+
+    /// The newest block a quorum of this epoch's committee attested: what a
+    /// node that fell behind imports up to (ADR-038).
+    #[must_use]
+    pub fn checkpoint(&self) -> Option<&Checkpoint> {
+        self.attestations.newest()
+    }
+
+    /// Signs and gossips this validator's attestation of the block it just
+    /// built at the tip, and counts it. An observer attests nothing; a
+    /// signature that failed costs a checkpoint, never safety.
+    fn attest(&mut self, chain: &Chain, block: BlockId, step: &mut Step) {
+        let (Some(id), Some(signer)) = (self.id, &self.signer) else {
+            return;
+        };
+        let tag = ChainTag::from_genesis(chain.genesis());
+        let height = chain.height();
+        let Some(signature) = signer.sign_attestation(id, &tag, self.epoch, height, &block) else {
+            return;
+        };
+        let attestation = Attestation {
+            epoch: self.epoch,
+            height,
+            block,
+            validator: id,
+            signature,
+        };
+        step.frames.push(attestation.encode());
+        self.collect(attestation, &tag, step);
+    }
+
+    /// An attestation frame from a peer: counted if it verifies against this
+    /// epoch's committee, ignored otherwise, like any frame that does not
+    /// decode or names another epoch.
+    fn on_attestation(&mut self, chain: &Chain, bytes: &[u8], step: &mut Step) {
+        let Ok(attestation) = Attestation::decode(bytes) else {
+            return;
+        };
+        if attestation.epoch != self.epoch {
+            return;
+        }
+        let tag = ChainTag::from_genesis(chain.genesis());
+        self.collect(attestation, &tag, step);
+    }
+
+    fn collect(&mut self, attestation: Attestation, tag: &ChainTag, step: &mut Step) {
+        match self.attestations.add(attestation, tag, &self.committee) {
+            Ok(Collected::Equivocation(pair)) => step.notices.push(format!(
+                "validator {} attested two blocks at height {} — evidence held",
+                pair.1.validator, pair.1.height
+            )),
+            // Counted, ignored, a new checkpoint, or a forged attestation
+            // refused before it counted: nothing for the node to act on.
+            Ok(_) | Err(_) => {}
+        }
     }
 
     /// Periodic work: re-broadcasts and anchor timeouts.
@@ -372,6 +439,7 @@ impl BftDriver {
             match inserted {
                 InsertOutcome::Extended { tip } => {
                     step.blocks.push(tip);
+                    self.attest(chain, tip, step);
                     step.anchor_times_ms.push(anchor_time);
                     for txid in &included {
                         self.queued.remove(txid);
