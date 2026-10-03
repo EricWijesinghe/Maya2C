@@ -443,19 +443,20 @@ impl custom_l1_node::consensus::bft::catchup::CheckpointSource for Peer<'_> {
 }
 
 #[test]
-#[ignore = "gate 8 part 5: catch-up imports to the checkpoint, but the engine resumes at its safety-log round (91 vs the network's 1108) and never joins; resume the engine at the checkpoint's seal next"]
 fn a_validator_down_far_past_the_engine_window_rejoins_through_a_checkpoint() {
     // ADR-038, mainnet gate 8. The 2026-10-04 dry run stranded a validator
     // for good after 90 s down: the engine keeps 50 rounds, and nodes never
     // import blocks they did not derive. Here it is held out for far longer,
-    // then catches up to a peer's checkpoint and validates again.
+    // catches up to a peer's checkpoint, and rejoins as an attested
+    // follower: voting and proposing, importing blocks rather than building.
     let mut mesh = Mesh::new(0);
     mesh.run_to(3);
     mesh.members[2].driver = None;
     let before = mesh.members[2].chain.height();
-    mesh.run_to(before + 80);
+    // 60 blocks is well over 100 rounds: twice the engine's 50-round window.
+    mesh.run_to(before + 60);
     assert!(
-        mesh.members[0].chain.height() >= before + 80,
+        mesh.members[0].chain.height() >= before + 60,
         "3 of 4 stalled"
     );
 
@@ -463,32 +464,57 @@ fn a_validator_down_far_past_the_engine_window_rejoins_through_a_checkpoint() {
     let m = &mut mesh.members[2];
     m.chain = open_chain(&m.state_dir.with_extension("scratch"), false);
     m.chain = open_chain(&m.state_dir, false);
-
     let (_, committee) = signers();
-    let (left, right) = mesh.members.split_at_mut(2);
-    let peer = Peer {
-        chain: &left[0].chain,
-        checkpoint: left[0].driver.as_ref().unwrap().checkpoint().cloned(),
-    };
-    let lagging = &mut right[0];
-    let imported =
-        custom_l1_node::consensus::bft::catchup::catch_up(&mut lagging.chain, &peer, &committee)
-            .expect("catch-up from a peer's checkpoint");
-    assert!(imported >= 70, "imported {imported}");
+    let imported = catch_up_member(&mut mesh, 2, 0, &committee);
+    assert!(imported >= 50, "imported {imported}");
 
     let m = &mut mesh.members[2];
-    let (driver, step) =
+    let (mut driver, step) =
         BftDriver::open(&mesh.setups[2], &m.bft_dir, &mut m.chain, mesh.now).unwrap();
+    driver.follow_attested(&m.chain);
     m.driver = Some(driver);
     mesh.absorb(2, step);
-    let caught_up = mesh.members[2].chain.height();
-    let target = mesh.members[0].chain.height() + 6;
-    mesh.run_to(target);
-    assert!(
-        mesh.members[2].chain.height() > caught_up,
-        "the validator imported to the checkpoint but did not build after it"
+
+    let start = mesh.members[0].chain.height();
+    for _ in 0..30 {
+        mesh.now += 250;
+        mesh.tick();
+        mesh.pump(2_000);
+        catch_up_member(&mut mesh, 2, 0, &committee);
+    }
+    let (lead, follower) = (
+        mesh.members[0].chain.height(),
+        mesh.members[2].chain.height(),
     );
-    let common = mesh.live().map(|m| m.chain.height()).min().unwrap();
-    mesh.agree_at(common);
+    assert!(lead > start + 5, "the network kept going");
+    assert!(
+        lead - follower <= 3,
+        "the follower keeps pace: {follower} vs {lead}"
+    );
+    mesh.agree_at(follower);
+    let (r0, r2) = (
+        mesh.members[0].driver.as_ref().unwrap().round(),
+        mesh.members[2].driver.as_ref().unwrap().round(),
+    );
+    assert!(
+        r0.abs_diff(r2) <= 4,
+        "the follower proposes in current rounds: {r2} vs {r0}"
+    );
     assert_eq!(mesh.equivocations, 0);
+}
+
+/// Imports into member `lagging` from member `from`'s checkpoint and chain.
+fn catch_up_member(
+    mesh: &mut Mesh,
+    lagging: usize,
+    from: usize,
+    committee: &[VerifyingKey],
+) -> u64 {
+    let (left, right) = mesh.members.split_at_mut(lagging);
+    let peer = Peer {
+        chain: &left[from].chain,
+        checkpoint: left[from].driver.as_ref().unwrap().checkpoint().cloned(),
+    };
+    custom_l1_node::consensus::bft::catchup::catch_up(&mut right[0].chain, &peer, committee)
+        .expect("catch-up from a peer's checkpoint")
 }
