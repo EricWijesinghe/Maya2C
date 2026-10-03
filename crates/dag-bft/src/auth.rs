@@ -7,7 +7,7 @@
 //! signs nothing and believes everything, and says so.
 //!
 //! A proposal's signature and its author's vote are the same object — a
-//! signature over the vertex digest — so a certificate proves both that 2f + 1
+//! signature over the vertex digest — so a certificate proves both that a quorum (n − f) of
 //! validators saw the vertex and that its author made it.
 
 use crate::vertex::{Digest, ValidatorId, Vertex};
