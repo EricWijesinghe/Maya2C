@@ -886,9 +886,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             driver,
             opening,
             size,
-            Arc::clone(&metrics),
-            checkpoint_slot,
-            status_slot,
+            bft::Reporting {
+                metrics: Arc::clone(&metrics),
+                checkpoint: checkpoint_slot,
+                status: status_slot,
+            },
         ));
     } else {
         // Apply blocks arriving over gossip. Without this task the node decodes

@@ -1,6 +1,6 @@
 # ADR-038: Attested checkpoints, so a validator can rejoin
 
-**Status:** Proposed (2026-10-04). Mainnet launch gate 8
+**Status:** Accepted (2026-10-04), implemented; evidence below. Mainnet launch gate 8
 (`docs/mainnet-v1-plan.md`).
 **Date:** 2026-10-04
 
@@ -84,3 +84,35 @@ node may import up to.**
 - `bft_node_tests`: four validators, hold one back 300 rounds, release it;
   it reaches the others' tip and builds the same next block.
 - The dry-run rehearsal with real binaries, repeated: 90 s outage rejoins.
+
+## Evidence (2026-10-04)
+
+Implemented as: `consensus::bft::attest` (attestations, checkpoints,
+collector), the remote signer's `Attestation` kind with its own protection
+database, attestations gossiped under frame byte `0xA7`,
+`consensus::bft::catchup` (fetch, verify, re-execute), the driver's
+attested-follower mode and its rule for building again, `get_checkpoint`
+and `get_bft_status` RPCs, and `maya2c-node --catch-up-from <URL>`.
+
+One refinement over the decision above: a node resuming after a catch-up
+puts its DAG horizon at the resume round itself, not `GC_DEPTH` below it,
+because fetching ~50 rounds of parents over gossip lost replies under load.
+And a follower builds again once its anchor is more than `GC_DEPTH` past the
+resume round and its tip holds the previous anchor's block: with only three
+of four validators up, two attesters cannot form a checkpoint to import.
+
+- `bft_node_tests::a_validator_down_far_past_the_engine_window_rejoins_through_a_checkpoint`
+  (held out 60 blocks, rejoins, keeps pace, agrees, proposes in current rounds).
+- `bft_node_tests::every_member_holds_a_quorum_attested_checkpoint_on_its_own_chain`,
+  `remote_signer_tests::a_remote_attestation_verifies_and_a_second_block_at_its_height_is_refused`,
+  signer and `attest` unit tests.
+- Real binaries, four local validators (`maya-rehearsal-1`): Dave stopped for
+  more than 90 s, restarted with `--catch-up-from`, imported its gap, engine at
+  round 432 against the network's 433, then built again from the anchor at
+  round 408. Carol was then stopped: Alice, Bob and Dave went from height 186
+  to 215 in 40 s, and all three hold block `4de4e92045f4593e` at height 213.
+- Workspace: 3,082 tests passed, 0 failed.
+
+Open: crossing a committee change during an outage (a checkpoint signed by a
+different committee is refused, clearly), and an RPC source chosen
+automatically instead of given by the operator.
