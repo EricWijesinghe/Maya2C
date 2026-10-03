@@ -6,7 +6,8 @@ const gates = [
   { name: "Localnet", detail: "4 validators over real libp2p: agree, survive a kill, catch up", state: "done" },
   { name: "Devnet software", detail: "DAG-BFT finality, staking, slashing, fee market, SLO metrics", state: "done" },
   { name: "Operations rehearsed", detail: "state sync, crash restore, coordinated restart", state: "done" },
-  { name: "Public testnet", detail: "one-command VM installer tested; awaiting the owner's go", state: "next" },
+  { name: "Public testnet", detail: "maya-testnet-1 is live: rpc, faucet and chat relay public; one validator for now", state: "done" },
+  { name: "Independent validators", detail: "four operators on separate machines, so one failure cannot halt the chain", state: "next" },
   { name: "Attacknet + incentivised testnet", detail: "4 weeks each, from the day the testnet is live", state: "later" },
   { name: "External audit", detail: "no audit has reported yet", state: "later" },
   { name: "Mainnet", detail: "blocked until every gate above passes", state: "later" },
@@ -32,7 +33,7 @@ const gates = [
   .ladder { list-style: none; padding: 0; margin: 1.5rem 0 2rem; position: relative; }
   .ladder::before {
     content: ""; position: absolute; left: 0.7rem; top: 0.5rem; bottom: 0.5rem; width: 2px;
-    background: linear-gradient(#22d3ee 0 45%, #a78bfa 45% 58%, var(--sl-color-hairline) 58%);
+    background: linear-gradient(#22d3ee 0 50%, #a78bfa 50% 62%, var(--sl-color-hairline) 62%);
   }
   li { display: grid; grid-template-columns: 1.4rem 1fr; gap: 1rem; margin: 0 0 1rem !important; }
   .dot { width: 1.4rem; height: 1.4rem; border-radius: 50%; margin-top: 0.1rem; border: 2px solid var(--sl-color-gray-4); background: var(--sl-color-bg); z-index: 1; }
