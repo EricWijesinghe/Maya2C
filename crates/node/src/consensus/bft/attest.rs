@@ -38,17 +38,29 @@ const FRAME_LEN: usize = 1 + 8 + 8 + 32 + 2 + SIGNATURE_LENGTH;
 /// partial sets will not complete and only cost memory.
 const PENDING_HEIGHTS: u64 = 64;
 
+/// What an attestation commits to: `blake3(chain ‖ epoch ‖ height ‖ block)`,
+/// keyed under [`ATTEST_DOMAIN`]. A digest, so the remote signer handles 32
+/// bytes per request as it does for vertices and votes (ADR-033).
+#[must_use]
+pub fn attestation_digest(chain: &ChainTag, epoch: u64, height: u64, block: &[u8; 32]) -> [u8; 32] {
+    let mut h = blake3::Hasher::new_derive_key("maya2c block attestation digest v1");
+    h.update(chain.as_bytes());
+    h.update(&epoch.to_le_bytes());
+    h.update(&height.to_le_bytes());
+    h.update(block);
+    *h.finalize().as_bytes()
+}
+
 /// The bytes a validator signs to attest that block `block` is height
-/// `height` of the chain `chain`, in staking epoch `epoch`.
+/// `height` of the chain `chain`, in staking epoch `epoch`:
+/// [`ATTEST_DOMAIN`] then [`attestation_digest`].
 #[must_use]
 pub fn attestation_bytes(chain: &ChainTag, epoch: u64, height: u64, block: &[u8; 32]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(ATTEST_DOMAIN.len() + 32 + 8 + 8 + 32);
-    out.extend_from_slice(ATTEST_DOMAIN);
-    out.extend_from_slice(chain.as_bytes());
-    out.extend_from_slice(&epoch.to_le_bytes());
-    out.extend_from_slice(&height.to_le_bytes());
-    out.extend_from_slice(block);
-    out
+    [
+        ATTEST_DOMAIN,
+        attestation_digest(chain, epoch, height, block).as_slice(),
+    ]
+    .concat()
 }
 
 /// One validator's signature on one block.
