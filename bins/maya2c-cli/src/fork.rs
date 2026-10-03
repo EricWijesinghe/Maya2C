@@ -75,16 +75,8 @@ pub struct Source {
 }
 
 fn chain_config(config: &GenesisConfig) -> anyhow::Result<ChainConfig> {
-    // As the node does (bins/maya2c-node/src/main.rs): DAG-BFT verifies no
-    // work and keeps the genesis target (ADR-035); proof of work verifies
-    // against the genesis floor. A different config here would recompute a
-    // different target and refuse the node's own blocks on replay.
-    let base = if config.bft.is_some() {
-        ChainConfig::dag_bft()
-    } else {
-        ChainConfig::with_pow_limit(config.pow_limit())
-    };
-    Ok(base.with_upgrades(&config.upgrade_schedule()?))
+    // Exactly the node's rules, shielded activation included (ADR-037).
+    Ok(config.chain_config()?)
 }
 
 /// A verified local copy of `source`'s chain, up to `cap` if given.
