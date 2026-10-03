@@ -17,3 +17,4 @@
 
 pub mod client;
 pub mod keystore;
+pub mod staking;
