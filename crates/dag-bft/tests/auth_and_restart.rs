@@ -48,7 +48,7 @@ type Node = Validator<Mac>;
 fn nodes(n: u16) -> Vec<Node> {
     let committee = Committee::new(n);
     (0..n)
-        .map(|i| Validator::with_auth(i, committee, Params::default(), Mac { me: i }))
+        .map(|i| Validator::with_auth(i, committee.clone(), Params::default(), Mac { me: i }))
         .collect()
 }
 
@@ -155,7 +155,7 @@ fn a_forged_vote_does_not_count_toward_a_certificate() {
 fn a_certificate_with_a_forged_signature_is_refused() {
     let mut ns = nodes(4);
     let genesis: Vec<Digest> = {
-        let mut g: Vec<_> = Certificate::genesis(Committee::new(4))
+        let mut g: Vec<_> = Certificate::genesis(&Committee::new(4))
             .iter()
             .map(Certificate::digest)
             .collect();
@@ -191,7 +191,7 @@ fn a_certificate_with_a_forged_signature_is_refused() {
 fn a_second_signed_proposal_for_one_slot_is_reported_and_not_voted_for() {
     let mut ns = nodes(4);
     let mut propose = |stamp: u64| {
-        let mut parents: Vec<Digest> = Certificate::genesis(Committee::new(4))
+        let mut parents: Vec<Digest> = Certificate::genesis(&Committee::new(4))
             .iter()
             .map(Certificate::digest)
             .collect();
@@ -230,13 +230,13 @@ fn a_second_signed_proposal_for_one_slot_is_reported_and_not_voted_for() {
 #[test]
 fn a_restored_validator_re_sends_its_proposal_instead_of_signing_a_new_one() {
     let committee = Committee::new(4);
-    let mut before = Validator::with_auth(1, committee, Params::default(), Mac { me: 1 });
+    let mut before = Validator::with_auth(1, committee.clone(), Params::default(), Mac { me: 1 });
     let out = before.start(5);
     let Some((_, Message::Propose { vertex, signature })) = out.sends.first().cloned() else {
         panic!("proposes at start");
     };
     // Restart: a fresh engine, restored from the safety record.
-    let mut after = Validator::with_auth(1, committee, Params::default(), Mac { me: 1 });
+    let mut after = Validator::with_auth(1, committee.clone(), Params::default(), Mac { me: 1 });
     after.restore_proposal(vertex.clone(), signature.clone());
     assert!(
         after.start(9_000).sends.is_empty(),
@@ -249,7 +249,7 @@ fn a_restored_validator_re_sends_its_proposal_instead_of_signing_a_new_one() {
     )));
     // Without the record the same restart signs a conflicting vertex, which is
     // exactly the equivocation the record exists to prevent.
-    let mut amnesiac = Validator::with_auth(1, committee, Params::default(), Mac { me: 1 });
+    let mut amnesiac = Validator::with_auth(1, committee.clone(), Params::default(), Mac { me: 1 });
     let fresh = amnesiac.start(9_000);
     let Some((_, Message::Propose { vertex: v2, .. })) = fresh.sends.first() else {
         panic!("proposes at start");

@@ -233,7 +233,7 @@ fn earth_and_mars(
     };
     let clusters = if with_mars { 2 } else { 1 };
     let mut nodes: Vec<Validator> = (0..5 * clusters)
-        .map(|i| Validator::new(i % 5, committee, params))
+        .map(|i| Validator::new(i % 5, committee.clone(), params))
         .collect();
     for (i, v) in nodes.iter_mut().enumerate() {
         for k in 0..2_000u64 {

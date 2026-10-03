@@ -1,62 +1,114 @@
 //! Vertices, certificates and the committee that certifies them.
 
+use std::sync::Arc;
+
 /// A 32-byte BLAKE3 digest.
 pub type Digest = [u8; 32];
 
 /// A validator's index in the committee.
 pub type ValidatorId = u16;
 
-/// A fixed validator set for one epoch. Equal stake: stake weighting is the
-/// staking module's job, and the commit rule only needs the thresholds.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// A fixed validator set for one epoch, with each member's voting weight.
+///
+/// Every threshold counts weight, not heads (ADR-040). With equal weights —
+/// [`Committee::new`] — weight is a head count and the thresholds are the
+/// classic ones. With stake as weight, a seat bought at the minimum bond
+/// carries next to no say: holding a third of the *seats* no longer stops
+/// a quorum; it takes a third of the *stake*.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Committee {
-    size: u16,
+    weights: Arc<[u64]>,
+    total: u128,
 }
 
 impl Committee {
-    /// A committee of `size` validators. BFT needs at least four (f ≥ 1);
-    /// fewer is allowed for tests and tolerates no fault.
-    pub const fn new(size: u16) -> Self {
-        Self { size }
+    /// A committee of `size` validators of equal weight. BFT needs at least
+    /// four (f ≥ 1); fewer is allowed for tests and tolerates no fault.
+    #[must_use]
+    pub fn new(size: u16) -> Self {
+        Self::weighted(vec![1; usize::from(size)])
+    }
+
+    /// A committee whose member `i` votes with `weights[i]`. A zero weight is
+    /// counted as one, so every member can still be heard; the staking
+    /// module never elects a member without stake.
+    ///
+    /// # Panics
+    ///
+    /// More than `u16::MAX` members: a validator id is a `u16`.
+    #[must_use]
+    pub fn weighted(weights: Vec<u64>) -> Self {
+        assert!(u16::try_from(weights.len()).is_ok(), "committee too large");
+        let weights: Arc<[u64]> = weights.into_iter().map(|w| w.max(1)).collect();
+        let total = weights.iter().map(|w| u128::from(*w)).sum();
+        Self { weights, total }
     }
 
     /// Number of validators.
-    pub const fn size(self) -> u16 {
-        self.size
+    #[must_use]
+    pub fn size(&self) -> u16 {
+        // `weighted` refuses more than u16::MAX members.
+        u16::try_from(self.weights.len()).unwrap_or(u16::MAX)
     }
 
-    /// Faults tolerated: the largest f with n ≥ 3f + 1.
-    pub const fn faults(self) -> u16 {
-        self.size.saturating_sub(1) / 3
+    /// Member `id`'s weight; zero for a non-member.
+    #[must_use]
+    pub fn weight(&self, id: ValidatorId) -> u64 {
+        self.weights.get(usize::from(id)).copied().unwrap_or(0)
     }
 
-    /// n − f: certificates needed to advance, votes needed to certify.
+    /// Total weight of `members`, each counted once however often it appears.
+    pub fn weight_of(&self, members: impl IntoIterator<Item = ValidatorId>) -> u128 {
+        let mut seen = std::collections::BTreeSet::new();
+        members
+            .into_iter()
+            .filter(|m| seen.insert(*m))
+            .map(|m| u128::from(self.weight(m)))
+            .sum()
+    }
+
+    /// Weight the committee tolerates being faulty: the largest f with
+    /// W ≥ 3f + 1.
+    #[must_use]
+    pub fn faults(&self) -> u128 {
+        self.total.saturating_sub(1) / 3
+    }
+
+    /// W − f: weight needed to certify a vertex or advance a round.
     ///
-    /// Any two quorums must share an honest validator, or one equivocating
-    /// author gets two certificates for one round from disjoint voters. Two
-    /// sets of q overlap in 2q − n members, so safety needs 2q − n ≥ f + 1;
-    /// liveness needs q ≤ n − f, since f may never answer. n − f meets both
-    /// for every n ≥ 3f + 1. It equals the textbook 2f + 1 only when
-    /// n = 3f + 1: at n = 6 (f = 1) 2f + 1 is 3, two disjoint halves (ADR-039).
-    pub const fn quorum(self) -> u16 {
-        self.size - self.faults()
+    /// Any two quorums must share honest weight, or one equivocating author
+    /// gets two certificates for one round from disjoint voters. Two sets of
+    /// weight q overlap in at least 2q − W, so safety needs 2q − W ≥ f + 1;
+    /// liveness needs q ≤ W − f, since f may never answer. W − f meets both
+    /// for every W ≥ 3f + 1. The textbook 2f + 1 equals it only when
+    /// W = 3f + 1: at six equal members it is 3, two disjoint halves (ADR-039).
+    #[must_use]
+    pub fn quorum(&self) -> u128 {
+        self.total - self.faults()
     }
 
-    /// f + 1: votes that commit an anchor (at least one honest).
-    pub const fn validity(self) -> u16 {
+    /// f + 1: weight that commits an anchor (some of it honest).
+    #[must_use]
+    pub fn validity(&self) -> u128 {
         self.faults() + 1
     }
 
-    /// Anchor author for an even `round`: round-robin, so every node computes
-    /// the same leader with no communication. Odd rounds have no anchor.
-    pub const fn leader(self, round: u64) -> Option<ValidatorId> {
-        if !round.is_multiple_of(2) || self.size == 0 {
+    /// Whether `members` carry a quorum.
+    pub fn is_quorum(&self, members: impl IntoIterator<Item = ValidatorId>) -> bool {
+        self.weight_of(members) >= self.quorum()
+    }
+
+    /// Anchor author for an even `round`: round-robin over members, so every
+    /// node computes the same leader with no communication. Odd rounds have
+    /// no anchor. Not stake-weighted: an absent member costs one anchor
+    /// timeout per turn until the epoch boundary jails it (ADR-040).
+    #[must_use]
+    pub fn leader(&self, round: u64) -> Option<ValidatorId> {
+        let size = u64::from(self.size());
+        if !round.is_multiple_of(2) || size == 0 {
             return None;
         }
-        // `size` fits u16, so the remainder does too.
-        #[allow(clippy::cast_possible_truncation)]
-        let leader = ((round / 2) % self.size as u64) as u16;
-        Some(leader)
+        u16::try_from((round / 2) % size).ok()
     }
 }
 
@@ -151,12 +203,12 @@ pub struct Certificate {
 
 impl Certificate {
     /// Genesis certificates need no votes; every node makes the same ones.
-    pub fn genesis(committee: Committee) -> Vec<Self> {
+    pub fn genesis(committee: &Committee) -> Vec<Self> {
         Self::genesis_in(0, committee)
     }
 
     /// `epoch`'s genesis certificates.
-    pub fn genesis_in(epoch: u64, committee: Committee) -> Vec<Self> {
+    pub fn genesis_in(epoch: u64, committee: &Committee) -> Vec<Self> {
         (0..committee.size())
             .map(|a| Self {
                 vertex: Vertex::genesis_in(epoch, a),
@@ -173,15 +225,18 @@ impl Certificate {
 
     /// Whether the votes are a quorum of distinct committee members and the
     /// vertex has the shape a round requires.
-    pub fn is_well_formed(&self, committee: Committee) -> bool {
+    ///
+    /// Parents are digests here, so their weight is checked where the DAG can
+    /// name their authors (`Validator::has_parent_quorum`); this checks only
+    /// that a round past genesis has some, sorted and distinct.
+    pub fn is_well_formed(&self, committee: &Committee) -> bool {
         let sorted_distinct = self.votes.windows(2).all(|w| w[0] < w[1]);
         let members = self.votes.iter().all(|v| *v < committee.size());
-        let enough = self.votes.len() >= usize::from(committee.quorum());
+        let enough = committee.is_quorum(self.votes.iter().copied());
         let parents_ok = if self.vertex.round == 0 {
             self.vertex.parents.is_empty()
         } else {
-            self.vertex.parents.len() >= usize::from(committee.quorum())
-                && self.vertex.parents.windows(2).all(|w| w[0] < w[1])
+            !self.vertex.parents.is_empty() && self.vertex.parents.windows(2).all(|w| w[0] < w[1])
         };
         let paired = self.signatures.len() == self.votes.len();
         sorted_distinct
@@ -214,8 +269,8 @@ mod tests {
     fn any_two_quorums_share_an_honest_validator_at_every_size() {
         for n in 1..=1_000u16 {
             let c = Committee::new(n);
-            let (f, q) = (u32::from(c.faults()), u32::from(c.quorum()));
-            let n = u32::from(n);
+            let (f, q) = (c.faults(), c.quorum());
+            let n = u128::from(n);
             assert!(n > 3 * f, "n = {n}");
             // Two quorums overlap in at least 2q - n members: more than f.
             assert!(
@@ -223,6 +278,45 @@ mod tests {
                 "n = {n}: quorums of {q} may share only faulty members"
             );
         }
+    }
+
+    #[test]
+    fn a_seat_bought_at_the_minimum_bond_cannot_block_a_quorum() {
+        // ADR-040: one operator with 10^9 staked, three seats at 10^3 each.
+        // By heads the three are > f of four; by stake they are nothing.
+        let c = Committee::weighted(vec![1_000_000_000, 1_000, 1_000, 1_000]);
+        assert!(c.is_quorum([0]), "the bonded operator alone is a quorum");
+        assert!(!c.is_quorum([1, 2, 3]), "the cheap seats are not");
+    }
+
+    #[test]
+    fn weighted_quorums_always_overlap_in_more_than_the_faulty_weight() {
+        // Deterministic spread of stakes, including skewed and equal ones.
+        let mut seed: u64 = 0x5EED;
+        for n in 1..=64usize {
+            let weights: Vec<u64> = (0..n)
+                .map(|_| {
+                    seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                    (seed >> 40) + 1
+                })
+                .collect();
+            let c = Committee::weighted(weights);
+            let (w, f, q) = (c.weight_of(0..c.size()), c.faults(), c.quorum());
+            assert!(w > 3 * f, "n = {n}");
+            assert!(
+                2 * q > w + f,
+                "n = {n}: quorums may share only faulty weight"
+            );
+            assert!(c.validity() > f, "n = {n}");
+        }
+    }
+
+    #[test]
+    fn a_member_counts_once_and_a_stranger_not_at_all() {
+        let c = Committee::weighted(vec![5, 5, 5, 5]);
+        assert_eq!(c.weight_of([0, 0, 0]), 5);
+        assert_eq!(c.weight_of([9]), 0);
+        assert_eq!(c.quorum(), 14);
     }
 
     #[test]
@@ -236,7 +330,7 @@ mod tests {
     #[test]
     fn a_certificate_short_of_quorum_or_with_duplicates_is_malformed() {
         let c = Committee::new(4);
-        let g = Certificate::genesis(c);
+        let g = Certificate::genesis(&c);
         let parents: Vec<Digest> = {
             let mut p: Vec<_> = g.iter().map(Certificate::digest).collect();
             p.sort_unstable();
@@ -255,13 +349,13 @@ mod tests {
             signatures: vec![Vec::new(); votes.len()],
             votes,
         };
-        assert!(cert(vec![0, 1, 2]).is_well_formed(c));
-        assert!(!cert(vec![0, 1]).is_well_formed(c));
-        assert!(!cert(vec![0, 1, 1]).is_well_formed(c));
-        assert!(!cert(vec![0, 1, 9]).is_well_formed(c));
+        assert!(cert(vec![0, 1, 2]).is_well_formed(&c));
+        assert!(!cert(vec![0, 1]).is_well_formed(&c));
+        assert!(!cert(vec![0, 1, 1]).is_well_formed(&c));
+        assert!(!cert(vec![0, 1, 9]).is_well_formed(&c));
         let mut unpaired = cert(vec![0, 1, 2]);
         unpaired.signatures.pop();
-        assert!(!unpaired.is_well_formed(c), "a vote without its signature");
+        assert!(!unpaired.is_well_formed(&c), "a vote without its signature");
     }
 
     #[test]

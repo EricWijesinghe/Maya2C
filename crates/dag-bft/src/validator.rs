@@ -158,13 +158,14 @@ impl Validator<Unauthenticated> {
 impl<A: Authenticator> Validator<A> {
     /// Validator `id`, signing and verifying through `auth`.
     pub fn with_auth(id: ValidatorId, committee: Committee, params: Params, auth: A) -> Self {
+        let genesis = Certificate::genesis_in(params.epoch, &committee);
         Self {
             id,
             committee,
             params,
             auth,
             voting: true,
-            dag: Dag::new(Certificate::genesis_in(params.epoch, committee)),
+            dag: Dag::new(genesis),
             committer: Committer::new(),
             round: 0,
             pending: None,
@@ -341,7 +342,7 @@ impl<A: Authenticator> Validator<A> {
             return; // the author re-proposes on its next tick
         }
         let v = probe.vertex;
-        let quorum_parents = v.parents.len() >= usize::from(self.committee.quorum())
+        let quorum_parents = self.has_parent_quorum(&v)
             && v.parents.windows(2).all(|w| w[0] < w[1])
             && v.parents.iter().all(|p| {
                 self.dag
@@ -421,7 +422,7 @@ impl<A: Authenticator> Validator<A> {
             return;
         }
         votes.insert(voter, signature);
-        if votes.len() >= usize::from(self.committee.quorum()) {
+        if self.committee.is_quorum(votes.keys().copied()) {
             let (voters, signatures) = votes.iter().map(|(v, s)| (*v, s.clone())).unzip();
             let cert = Certificate {
                 vertex: vertex.clone(),
@@ -435,7 +436,7 @@ impl<A: Authenticator> Validator<A> {
     }
 
     fn on_cert(&mut self, from: ValidatorId, c: Certificate, out: &mut Output) {
-        if c.vertex.epoch != self.params.epoch || !c.is_well_formed(self.committee) {
+        if c.vertex.epoch != self.params.epoch || !c.is_well_formed(&self.committee) {
             return;
         }
         // A held slot answers before the digest does: certification leaves one
@@ -473,6 +474,9 @@ impl<A: Authenticator> Validator<A> {
             self.buffer.insert(digest, c);
             return;
         }
+        if !self.has_parent_quorum(&c.vertex) {
+            return;
+        }
         // Our own vertex certified by someone else's broadcast (or replayed
         // from disk after a restart): nothing is pending any more.
         if self.pending.is_some() && self.pending_digest == Some(digest) {
@@ -480,6 +484,17 @@ impl<A: Authenticator> Validator<A> {
         }
         self.dag.insert_digested(c, digest);
         self.drain_buffer();
+    }
+
+    /// Whether `v`'s parents, all held, were authored by a quorum of weight.
+    /// Genesis has none and needs none. A parent not held counts for nothing.
+    fn has_parent_quorum(&self, v: &Vertex) -> bool {
+        v.round == 0
+            || self.committee.is_quorum(
+                v.parents
+                    .iter()
+                    .filter_map(|p| self.dag.by_digest(p).map(|c| c.vertex.author)),
+            )
     }
 
     /// Inserts buffered certificates whose parents have arrived.
@@ -495,7 +510,9 @@ impl<A: Authenticator> Validator<A> {
                 return;
             }
             for d in ready {
-                if let Some(c) = self.buffer.remove(&d) {
+                if let Some(c) = self.buffer.remove(&d)
+                    && self.has_parent_quorum(&c.vertex)
+                {
                     self.dag.insert_digested(c, d);
                 }
             }
@@ -505,7 +522,7 @@ impl<A: Authenticator> Validator<A> {
     fn progress(&mut self, now_ms: u64, out: &mut Output) {
         let sub_dags = self
             .committer
-            .try_commit_sub_dags(&self.dag, self.committee);
+            .try_commit_sub_dags(&self.dag, &self.committee);
         if !sub_dags.is_empty() {
             let horizon = self
                 .committer
@@ -532,7 +549,10 @@ impl<A: Authenticator> Validator<A> {
             let round = self.round;
             // Our own vertex need not be among the quorum: a slow certificate
             // must not stall the node, which is what lets it tolerate loss.
-            if self.dag.round_len(round) < usize::from(self.committee.quorum()) {
+            if !self
+                .committee
+                .is_quorum(self.dag.round(round).map(|c| c.vertex.author))
+            {
                 return;
             }
             if let Some(leader) = self.committee.leader(round)
@@ -627,7 +647,7 @@ impl<A: Authenticator> Validator<A> {
         self.pending_digest = Some(digest);
         out.sends
             .push((Dest::All, Message::Propose { vertex, signature }));
-        if self.committee.quorum() <= 1 {
+        if self.committee.is_quorum([self.id]) {
             self.certify_alone(out);
         }
     }

@@ -76,3 +76,4 @@ The observation that would make this worth reopening.
 | [036](ADR-036-chain-bound-signatures.md) | Transaction signatures commit to the chain's genesis | Accepted |
 | [037](ADR-037-mainnet-shielded-off.md) | Mainnet v1 launches with the shielded pool off | Accepted |
 | [039](ADR-039-quorum-n-minus-f.md) | DAG-BFT quorum is n − f, not 2f + 1; committee capture open | Accepted |
+| [040](ADR-040-stake-weighted-committee.md) | Stake-weighted DAG-BFT committees — engine built, node wiring for decision | Proposed |

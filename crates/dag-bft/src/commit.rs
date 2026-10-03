@@ -54,7 +54,7 @@ impl Committer {
     }
 
     /// Runs the rule over `dag` and returns newly ordered certificates.
-    pub fn try_commit(&mut self, dag: &Dag, committee: Committee) -> Vec<Certificate> {
+    pub fn try_commit(&mut self, dag: &Dag, committee: &Committee) -> Vec<Certificate> {
         self.try_commit_sub_dags(dag, committee)
             .into_iter()
             .flat_map(|s| s.certificates)
@@ -63,7 +63,7 @@ impl Committer {
 
     /// Runs the rule over `dag` and returns one [`SubDag`] per newly
     /// committed anchor, oldest first.
-    pub fn try_commit_sub_dags(&mut self, dag: &Dag, committee: Committee) -> Vec<SubDag> {
+    pub fn try_commit_sub_dags(&mut self, dag: &Dag, committee: &Committee) -> Vec<SubDag> {
         let mut out = Vec::new();
         let mut round = self.last_committed_round + 2;
         while round < dag.highest_round() {
@@ -71,11 +71,12 @@ impl Committer {
                 Self::anchor(dag, committee, round),
                 Self::anchor_digest(dag, committee, round),
             ) {
-                let votes = dag
-                    .round(round + 1)
-                    .filter(|c| c.vertex.parents.contains(&digest))
-                    .count();
-                if votes >= usize::from(committee.validity()) {
+                let votes = committee.weight_of(
+                    dag.round(round + 1)
+                        .filter(|c| c.vertex.parents.contains(&digest))
+                        .map(|c| c.vertex.author),
+                );
+                if votes >= committee.validity() {
                     self.commit_chain(dag, committee, anchor, &mut out);
                 }
             }
@@ -84,12 +85,12 @@ impl Committer {
         out
     }
 
-    fn anchor(dag: &Dag, committee: Committee, round: u64) -> Option<&Certificate> {
+    fn anchor<'d>(dag: &'d Dag, committee: &Committee, round: u64) -> Option<&'d Certificate> {
         dag.get(round, committee.leader(round)?)
     }
 
     /// The anchor's digest from the DAG's index: no rehash of its payload.
-    fn anchor_digest(dag: &Dag, committee: Committee, round: u64) -> Option<Digest> {
+    fn anchor_digest(dag: &Dag, committee: &Committee, round: u64) -> Option<Digest> {
         dag.digest_at(round, committee.leader(round)?)
     }
 
@@ -97,7 +98,7 @@ impl Committer {
     fn commit_chain(
         &mut self,
         dag: &Dag,
-        committee: Committee,
+        committee: &Committee,
         anchor: &Certificate,
         out: &mut Vec<SubDag>,
     ) {

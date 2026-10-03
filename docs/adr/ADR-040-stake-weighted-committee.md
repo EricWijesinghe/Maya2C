@@ -1,0 +1,110 @@
+# ADR-040: Stake-weighted DAG-BFT committees
+
+**Status:** Proposed (2026-10-04).
+- **Part 1, the engine:** built in this change. It changes no running
+  behaviour.
+- **Part 2, the node wiring:** needs Eric's decision. It changes state and
+  therefore consensus.
+
+**Date:** 2026-10-04
+
+## Context
+
+ADR-039 left mainnet gate 10 open: **committee capture**.
+
+- Staking (ADR-028) chooses the committee by stake.
+- The engine then gives every member one vote.
+- A seat costs `min_self_bond`.
+
+So registrations that never come online can take more than a third of the
+*seats*, and stop every quorum. Against four honest validators two such
+seats are enough. A halted chain never reaches the epoch boundary that would
+jail them.
+
+The textbook answer, and what stake-weighted BFT systems do, is to count
+votes by stake. An attacker then needs a third of the *stake*, which means
+buying it.
+
+## Decision
+
+### Part 1: the engine counts weight (built)
+
+`maya_dag_bft::Committee` carries one weight per member:
+- `Committee::weighted(weights)`.
+- `Committee::new(n)` is `n` equal weights.
+
+Every threshold is measured in weight. With W the total weight:
+- f = ⌊(W − 1)/3⌋.
+- Quorum is W − f. This is ADR-039's rule, measured in weight.
+- Validity is f + 1.
+
+| Check | Was | Now |
+|---|---|---|
+| Votes certify a vertex | count ≥ q | weight of voters ≥ q |
+| A vertex's parents | count ≥ q, in `is_well_formed` | weight of the parents' authors ≥ q, checked where the DAG can name them (`Validator::has_parent_quorum`): on a proposal, and on every certificate before it enters the DAG |
+| A round is complete | certificates ≥ q | weight of the round's authors ≥ q |
+| An anchor commits | linking vertices ≥ f + 1 | their authors' weight ≥ f + 1 |
+| A committee of one certifies alone | q ≤ 1 | the node's own weight is a quorum |
+
+Weights are integers and sums are `u128`. Nothing here is a float or depends
+on iteration order, so every node computes the same thresholds (Standing
+Order 4). A zero weight counts as one, so every member can be heard.
+
+**Leaders stay round-robin over members.** An absent member still costs one
+anchor timeout (1 s) per turn until the epoch boundary jails it. That costs
+throughput, not safety or liveness. Leader election by stake would remove
+the cost, but it also changes which validator orders which transactions, and
+it does not belong in the same change.
+
+With equal weights every threshold is exactly what it was, so the node is
+unchanged by Part 1. The node still builds `Committee::new(size)`.
+
+### Part 2: the node supplies stake as weight (Eric's decision)
+
+Weights must be identical on every node for a whole epoch. Live stake is
+not: `bond_more`, `delegate`, `unbond` and equivocation slashing all change
+a validator's total in the middle of an epoch. Two nodes, one restarted
+before a delegation and one after, would read different weights and accept
+different certificates.
+
+The weights must therefore be a **snapshot taken at the epoch boundary**,
+stored in state beside the committee (`k:cmt:<epoch>`). That snapshot is a
+new state record (invariant 25). It changes the state root from the first
+boundary that writes it. So a chain adopts it in one of two ways:
+
+1. **At an activation height** written into each chain's configuration.
+   Before it, equal weights and no record; from it, the snapshot. Nodes
+   replaying history reproduce old roots. This is more code, and keeps
+   maya-testnet-1 and its soak running.
+2. **At genesis** of a new chain, mainnet included. This is less code. For
+   maya-testnet-1 it means a re-genesis, which restarts the gate-3 soak.
+
+Recommendation: (2) for mainnet, whose genesis has not happened, and leave
+maya-testnet-1 on equal weights with `--min-register-bond` (ADR-039
+option 3) until it is next re-genesised for another reason. Part 2 also
+needs the ADR-038 checkpoint quorum (`attest.rs`, `quorum_of`) to count
+weight. It currently builds `Committee::new(size)` too.
+
+## What this does not fix
+
+- **Recovery from a halt** (ADR-039). If more than a third of the *stake* is
+  offline, the chain still stops, as BFT must. It still has no way back
+  short of operators restarting it. That is a separate design.
+- **A sybil with real stake.** Weighting prices a seat at its stake. Whoever
+  holds a third of the stake can still stop the chain. That is the
+  intended security assumption, not a gap.
+
+## Evidence
+
+- `cargo test -p maya-dag-bft`:
+  - lib 14 passed, including
+    `a_seat_bought_at_the_minimum_bond_cannot_block_a_quorum` and
+    `weighted_quorums_always_overlap_in_more_than_the_faulty_weight`
+    (64 committees of pseudo-random stakes).
+  - `--test modes_sim` 10 passed, including
+    `three_cheap_absent_seats_cannot_stop_the_bonded_validator` (three of
+    four seats crashed, and the bonded validator commits alone) and
+    `honest_stake_split_in_half_still_halts_rather_than_forks`.
+- `cargo check --workspace --all-targets`: clean.
+- `cargo nextest run -p custom-l1-node -p maya-dag-bft -p maya-link-sim -p maya2c-node`:
+  1064 tests run: 1064 passed (1 slow), 2 skipped, 86.585 s.
