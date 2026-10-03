@@ -75,4 +75,5 @@ The observation that would make this worth reopening.
 | [035](ADR-035-bft-fixed-target.md) | DAG-BFT blocks keep the genesis difficulty target | Accepted |
 | [036](ADR-036-chain-bound-signatures.md) | Transaction signatures commit to the chain's genesis | Accepted |
 | [037](ADR-037-mainnet-shielded-off.md) | Mainnet v1 launches with the shielded pool off | Accepted |
+| [038](ADR-038-attested-checkpoints.md) | Attested checkpoints, so a validator can rejoin | Accepted |
 | [039](ADR-039-quorum-n-minus-f.md) | DAG-BFT quorum is n − f, not 2f + 1; committee capture open | Accepted |
