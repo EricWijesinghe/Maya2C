@@ -30,6 +30,33 @@ pub struct DriverError {
     detail: String,
 }
 
+/// Standard base64, as `WebDriver` returns screenshots. Local rather than a
+/// dependency: twenty lines against a crate for one test-only call.
+fn decode_base64(text: &str) -> Option<Vec<u8>> {
+    let value = |c: u8| match c {
+        b'A'..=b'Z' => Some(c - b'A'),
+        b'a'..=b'z' => Some(c - b'a' + 26),
+        b'0'..=b'9' => Some(c - b'0' + 52),
+        b'+' => Some(62),
+        b'/' => Some(63),
+        _ => None,
+    };
+    let clean: Vec<u8> = text
+        .bytes()
+        .filter(|b| !b.is_ascii_whitespace() && *b != b'=')
+        .collect();
+    let mut out = Vec::with_capacity(clean.len() * 3 / 4);
+    for chunk in clean.chunks(4) {
+        let mut acc = 0u32;
+        for (i, &c) in chunk.iter().enumerate() {
+            acc |= u32::from(value(c)?) << (18 - 6 * i);
+        }
+        let bytes = acc.to_be_bytes();
+        out.extend_from_slice(&bytes[1..chunk.len()]);
+    }
+    Some(out)
+}
+
 fn failed(command: &str, detail: &impl ToString) -> DriverError {
     DriverError {
         command: command.to_owned(),
@@ -251,6 +278,20 @@ impl Session {
             "/execute/sync",
             Some(json!({"script": script, "args": []})),
         )
+    }
+
+    /// Saves a PNG of the window to `path`: evidence of what a person sees,
+    /// which no assertion on the DOM can give.
+    ///
+    /// # Errors
+    ///
+    /// The driver failed, its image was not base64, or the file could not
+    /// be written.
+    pub fn screenshot(&self, path: &std::path::Path) -> Result<(), DriverError> {
+        let encoded = self.call(reqwest::Method::GET, "/screenshot", None)?;
+        let png = decode_base64(encoded.as_str().unwrap_or_default())
+            .ok_or_else(|| failed("screenshot", &"the driver's image is not base64"))?;
+        std::fs::write(path, png).map_err(|e| failed("screenshot", &e))
     }
 
     /// The page's current HTML, for a failure message.

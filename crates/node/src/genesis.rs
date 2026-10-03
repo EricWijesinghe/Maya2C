@@ -268,6 +268,18 @@ pub struct GenesisBond {
 }
 
 impl StakingGenesis {
+    /// Staking over `bonds` (one per genesis validator, in committee order)
+    /// with the default minimum self bond and committee size.
+    #[must_use]
+    pub fn with_bonds(epoch_blocks: u64, bonds: Vec<GenesisBond>) -> Self {
+        Self {
+            epoch_blocks,
+            bonds,
+            min_self_bond: Self::default_min_self_bond(),
+            max_validators: Self::default_max_validators(),
+        }
+    }
+
     const fn default_min_self_bond() -> u64 {
         maya_staking::Params::DEVNET.min_self_bond
     }
@@ -300,6 +312,21 @@ impl StakingGenesis {
 }
 
 impl BftGenesis {
+    /// A committee of `validators` (hex ML-DSA-65 keys, in committee order)
+    /// with the default round timing, no staking and no fee market: what a
+    /// tool that mints a genesis starts from before choosing those.
+    #[must_use]
+    pub fn with_validators(validators: Vec<String>) -> Self {
+        Self {
+            validators,
+            anchor_timeout_ms: Self::default_anchor_timeout_ms(),
+            batch_size: Self::default_batch_size(),
+            round_interval_ms: Self::default_round_interval_ms(),
+            staking: None,
+            fees: None,
+        }
+    }
+
     const fn default_anchor_timeout_ms() -> u64 {
         1_000
     }
