@@ -28,7 +28,6 @@ use maya_dag_bft::SubDag;
 use crate::consensus::Chain;
 use crate::core::{Block, Transaction};
 use crate::error::Result;
-use crate::state::context::BlockContext;
 
 /// Bits of the nonce that hold the anchor round.
 const ROUND_BITS: u32 = 40;
@@ -94,7 +93,7 @@ pub fn build_block(chain: &Chain, sub_dag: &SubDag) -> Result<Block> {
     let anchor = &sub_dag.anchor.vertex;
     let parent = chain.get(&chain.tip()).map(|r| r.header.timestamp);
     let timestamp = (median_time_ms(sub_dag) / 1_000).max(parent.unwrap_or(0));
-    let context = BlockContext::at_height(chain.height() + 1);
+    let context = chain.context_at(chain.height() + 1);
     let target = chain.next_target(&chain.tip())?;
     let kept = chain
         .state()

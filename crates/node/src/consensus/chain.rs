@@ -33,6 +33,7 @@ use crate::core::{Block, BlockHeader, Transaction};
 use crate::crypto::dag::registry::{CacheRegistry, DagConfig};
 use crate::crypto::pow::meets_target;
 use crate::error::{NodeError, Result};
+use crate::state::context::SHIELDED_ACTIVATION_HEIGHT;
 use crate::state::{BlockContext, StateDB};
 use crate::upgrade::{ProtocolUpgrade, UpgradeSchedule, refuse_unsupported};
 
@@ -70,6 +71,10 @@ pub struct ChainConfig {
     /// under the old rules. Only this one entry matters to validation, which
     /// is what keeps the config `Copy`.
     pub unsupported_upgrade: Option<ProtocolUpgrade>,
+    /// First height at which shielded join-splits execute: the genesis's
+    /// `shielded_activation_height` (ADR-037). Every block context the chain
+    /// builds carries it ([`Chain::context_at`]).
+    pub shielded_activation: u64,
 }
 
 impl Default for ChainConfig {
@@ -79,6 +84,7 @@ impl Default for ChainConfig {
             pow_limit: default_pow_limit(),
             dag: DagConfig::MAINNET,
             unsupported_upgrade: None,
+            shielded_activation: SHIELDED_ACTIVATION_HEIGHT,
         }
     }
 }
@@ -98,6 +104,7 @@ impl ChainConfig {
             pow_limit: unlimited_pow_limit(),
             dag: DagConfig::MAINNET,
             unsupported_upgrade: None,
+            shielded_activation: SHIELDED_ACTIVATION_HEIGHT,
         }
     }
 
@@ -112,7 +119,16 @@ impl ChainConfig {
             pow_limit,
             dag: DagConfig::MAINNET,
             unsupported_upgrade: None,
+            shielded_activation: SHIELDED_ACTIVATION_HEIGHT,
         }
+    }
+
+    /// The same configuration with shielded join-splits active from `height`
+    /// ([`crate::state::context::SHIELDED_NEVER`] keeps the pool off).
+    #[must_use]
+    pub fn with_shielded_activation(mut self, height: u64) -> Self {
+        self.shielded_activation = height;
+        self
     }
 
     /// The same configuration with a protocol upgrade schedule.
@@ -230,6 +246,14 @@ impl Chain {
     #[must_use]
     pub fn genesis(&self) -> BlockId {
         self.genesis
+    }
+
+    /// The execution context of a block at `height` on this chain: the
+    /// compiled-in activation heights, plus the ones its genesis chose.
+    /// Every block this chain applies, previews or builds runs under it.
+    #[must_use]
+    pub fn context_at(&self, height: u64) -> BlockContext {
+        BlockContext::at_height(height).with_shielded_activation(self.config.shielded_activation)
     }
 
     /// Looks up an indexed block.
@@ -449,7 +473,7 @@ impl Chain {
         // The record's own height, so timelocks evaluate against the block
         // actually being executed rather than the current tip.
         self.state
-            .apply_canonical(block, id, height, BlockContext::at_height(height))?;
+            .apply_canonical(block, id, height, self.context_at(height))?;
         Ok(())
     }
 
@@ -626,7 +650,7 @@ impl Chain {
         let mut block = Block::new(header, transactions);
         block.header.state_root = self
             .state
-            .preview_root(&block, BlockContext::at_height(self.height() + 1))?;
+            .preview_root(&block, self.context_at(self.height() + 1))?;
         Ok(block)
     }
 

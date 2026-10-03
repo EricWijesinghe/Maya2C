@@ -3697,6 +3697,7 @@ dependencies = [
  "blake3",
  "custom-l1-node",
  "hex",
+ "maya-zk-stark",
 ]
 
 [[package]]

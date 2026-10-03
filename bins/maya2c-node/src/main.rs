@@ -28,7 +28,7 @@ use std::time::Duration;
 
 use custom_l1_node::config::NodeConfig;
 use custom_l1_node::consensus::{
-    Chain, ChainConfig, InsertOutcome, PowMode, mine_header_with, suggested_threads,
+    Chain, InsertOutcome, PowMode, mine_header_with, suggested_threads,
 };
 use custom_l1_node::core::Block;
 use custom_l1_node::genesis::GenesisConfig;
@@ -87,6 +87,38 @@ const DAG_PREPARE_LOOKAHEAD: u64 = 100;
 /// circuit is unaudited, because a missing constraint lets anyone mint hidden
 /// coins that no supply audit would reveal.
 const VALUE_BEARING_CHAINS: &[&str] = &["maya-mainnet", "mainnet"];
+
+/// Whether `chain_id` names a value-bearing network. Case and surrounding
+/// space are ignored: `Maya-Mainnet` is not a way around the guard.
+fn is_value_bearing(chain_id: &str) -> bool {
+    let id = chain_id.trim();
+    VALUE_BEARING_CHAINS
+        .iter()
+        .any(|v| v.eq_ignore_ascii_case(id))
+}
+
+/// Refuses to serve a value-bearing chain whose shielded pool can run on an
+/// unaudited circuit.
+///
+/// Failing at startup is the point: the alternative is a live mainnet whose
+/// supply cannot be audited, and an inflation bug there leaves no trace to
+/// notice later. A genesis that keeps the pool off for good
+/// (`shielded_activation_height` = `u64::MAX`, ADR-037) cannot mint through
+/// it, so that one configuration is allowed; turning the pool on later is a
+/// scheduled upgrade, after an audit.
+fn check_shielded_guard(
+    chain_id: &str,
+    shielded_activation: u64,
+    circuit_audited: bool,
+) -> Result<(), custom_l1_node::NodeError> {
+    let pool_can_run = shielded_activation != custom_l1_node::state::context::SHIELDED_NEVER;
+    if is_value_bearing(chain_id) && pool_can_run && !circuit_audited {
+        return Err(custom_l1_node::NodeError::UnauditedShieldedCircuit {
+            network: chain_id.to_owned(),
+        });
+    }
+    Ok(())
+}
 
 /// The consensus mode a genesis file selects (ADR-015 §5: the mode is a
 /// genesis parameter, never a per-host setting). A `bft` committee means
@@ -647,18 +679,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         return Err("--mine is a proof-of-work flag; this genesis runs dag-bft".into());
     }
 
-    // Refuse to serve a value-bearing chain while shielded transactions rest on
-    // an unaudited circuit. Failing at startup is the point: the alternative is
-    // a live mainnet whose supply cannot be audited, and an inflation bug there
-    // leaves no trace to notice later.
-    if VALUE_BEARING_CHAINS.contains(&config.chain_id.as_str())
-        && !maya_zk_stark::pool::circuit_is_audited()
-    {
-        return Err(custom_l1_node::NodeError::UnauditedShieldedCircuit {
-            network: config.chain_id.clone(),
-        }
-        .into());
-    }
+    check_shielded_guard(
+        &config.chain_id,
+        config.shielded_activation(),
+        maya_zk_stark::pool::circuit_is_audited(),
+    )?;
 
     // The same refusal for zkML, which rests on an SRS derived from a public
     // seed. Inert while the activation height is u64::MAX; it is here so that
@@ -679,12 +704,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // DAG-BFT verifies no work: a block is derived from certificates by this
     // node, and nothing else may insert one (no gossip import, no
     // `submit_block`, below). Proof of work verifies against the genesis floor.
-    let chain_config = if mode == "dag-bft" {
-        ChainConfig::without_pow_verification()
-    } else {
-        ChainConfig::with_pow_limit(config.pow_limit())
-    }
-    .with_upgrades(&config.upgrade_schedule()?);
+    // `mode` is derived from the same `bft` field `chain_config` reads.
+    let chain_config = config.chain_config()?;
     let metrics = Arc::new(Metrics::new());
     let opened = std::time::Instant::now();
     let chain = Arc::new(Mutex::new(
@@ -885,4 +906,40 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tokio::signal::ctrl_c().await?;
     println!("shutting down");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::check_shielded_guard;
+    use custom_l1_node::state::context::{SHIELDED_ACTIVATION_HEIGHT, SHIELDED_NEVER};
+
+    #[test]
+    fn mainnet_with_the_pool_off_starts_on_an_unaudited_circuit() {
+        assert!(check_shielded_guard("maya-mainnet", SHIELDED_NEVER, false).is_ok());
+    }
+
+    #[test]
+    fn mainnet_with_the_pool_able_to_run_is_refused_until_the_audit() {
+        for activation in [SHIELDED_ACTIVATION_HEIGHT, 1, 1_000_000, SHIELDED_NEVER - 1] {
+            assert!(
+                check_shielded_guard("maya-mainnet", activation, false).is_err(),
+                "activation {activation}"
+            );
+            assert!(check_shielded_guard("mainnet", activation, false).is_err());
+        }
+        assert!(check_shielded_guard("maya-mainnet", SHIELDED_ACTIVATION_HEIGHT, true).is_ok());
+    }
+
+    #[test]
+    fn the_guard_is_not_fooled_by_case_or_spaces() {
+        for name in ["Maya-Mainnet", "MAINNET", " maya-mainnet ", "Mainnet"] {
+            assert!(check_shielded_guard(name, 0, false).is_err(), "{name:?}");
+            assert!(check_shielded_guard(name, SHIELDED_NEVER, false).is_ok());
+        }
+    }
+
+    #[test]
+    fn a_testnet_runs_the_pool_without_an_audit() {
+        assert!(check_shielded_guard("maya-testnet-1", SHIELDED_ACTIVATION_HEIGHT, false).is_ok());
+    }
 }

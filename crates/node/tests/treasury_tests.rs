@@ -29,6 +29,7 @@ fn config(treasury: Option<TreasuryGenesis>) -> GenesisConfig {
         treasury,
         protocol_upgrades: Vec::new(),
         security_council: None,
+        shielded_activation_height: None,
         bft: None,
     }
 }

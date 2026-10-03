@@ -45,6 +45,7 @@ fn chain(dir: &TempDir) -> Chain {
         treasury: None,
         protocol_upgrades: Vec::new(),
         security_council: None,
+        shielded_activation_height: None,
         bft: Some(BftGenesis {
             validators: vec![hex::encode(validator.verifying_key().to_bytes())],
             anchor_timeout_ms: 1_000,
