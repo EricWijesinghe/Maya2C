@@ -7,6 +7,19 @@ band; move an item to PROGRESS.md when it starts.
 
 ## P1 — mainnet launch gates (docs/mainnet-v1-plan.md)
 
+- **Gate 8: historical catch-up for a restarted validator.** The engine
+  answers `Fetch` only from memory (`GC_DEPTH` = 50 rounds), so a validator
+  down longer than about 30 s is stranded for good. Serve fetches below the
+  horizon from `certs.log` was built and measured: peers sent the right
+  certificates but gossip lost the replies, and healthy validators dropped
+  frames under the load. Snapshot bootstrap lands outside the window too.
+  Plan: ADR-038 (quorum-attested checkpoints, import blocks up to one with
+  re-execution). Source: four-validator dry run, 2026-10-04.
+- **Gate 9: compact consensus logs within an epoch** for a chain without
+  staking (epoch 0 for ever). `safety.log` keeps only rounds the engine could
+  still sign; `certs.log` only rounds at or above the horizon. Rewrite then
+  atomic rename. Source: same.
+
 - **Wallets pin the genesis of each known network** and show the network
   name and a short fingerprint before signing; the Ledger app names known
   geneses. Today a malicious node can make a wallet sign for another chain

@@ -73,8 +73,13 @@ fn serve(f: &BTreeMap<String, String>) -> Result<(), String> {
     let backend = KeystoreBackend::new(&open_seed(f, "keystore")?);
     let identity = Identity::from_seed(&open_seed(f, "identity-keystore")?);
     let allowed = vec![unhex(flag(f, "allow-node")?)?];
-    let db = SlashingDb::open(&PathBuf::from(flag(f, "protection")?)).map_err(|e| e.to_string())?;
-    let mut service = Service::new(backend, db);
+    let protection = PathBuf::from(flag(f, "protection")?);
+    let db = SlashingDb::open(&protection).map_err(|e| e.to_string())?;
+    // Block attestations (ADR-038) get a database beside the DAG one: heights
+    // and rounds are different counters, and must not share a floor.
+    let attestations = SlashingDb::open(&protection.with_extension("attestations.jsonl"))
+        .map_err(|e| e.to_string())?;
+    let mut service = Service::new(backend, db).with_attestations(attestations);
     let listener = TcpListener::bind(flag(f, "listen")?).map_err(|e| e.to_string())?;
     eprintln!(
         "maya2c-signer: serving on {}",

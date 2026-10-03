@@ -62,6 +62,12 @@ pub enum Kind {
     Vertex,
     /// A vote (certificate share) on another validator's vertex.
     Vote,
+    /// A block attestation (ADR-038): `round` is the block's height and
+    /// `author` the attesting validator. The vote rule applies — one digest
+    /// per slot, no watermark — which is exactly "never two blocks at one
+    /// height". Kept in a database of its own: heights run well below rounds,
+    /// so in the round-indexed database they would fall under the floor.
+    Attestation,
 }
 
 /// Rounds kept below the highest round signed.
@@ -242,7 +248,7 @@ impl SlashingDb {
     #[must_use]
     pub fn watermark(&self, kind: Kind) -> Option<u64> {
         match kind {
-            Kind::Vote => None,
+            Kind::Vote | Kind::Attestation => None,
             Kind::Vertex => self
                 .records
                 .iter()
