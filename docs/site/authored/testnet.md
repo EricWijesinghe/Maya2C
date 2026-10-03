@@ -83,7 +83,7 @@ the fee is charged per byte. At today's base fee the Standard fee is about
 | Chain id | `maya-testnet-1` |
 | Consensus | DAG-BFT: blocks are final in about a second |
 | Genesis state root | `419ea2e9eea80f3c31d542e8dbf7e409a82a3cc249a872a4e5ae0c6bbc5f88b0` |
-| Genesis block | `aca34c4b650d605b8556e6f5ef8308a73cd04d7b5d1a2a1d613ad4a7c2898c69` |
+| Genesis block | `c80cc217d0079367f35dc92a508ed4bee44bf9b72594dcdaa15471df5bbf57d1` |
 | Public API | `https://rpc.maya2c.dev`: JSON-RPC at `/rpc`, REST at `/v1/…` ([API reference](/guides/api/)) |
 | Faucet | `https://faucet.maya2c.dev` |
 
@@ -97,8 +97,12 @@ the fee is charged per byte. At today's base fee the Standard fee is about
   network, or becoming a validator, opens once the seed is on a server with a
   public P2P port. Registration for validators is built and tested; it waits
   on that.
-- **Reset once already.** The first genesis halted at block 12,530 on
-  2026-09-29 because of a consensus bug in how DAG-BFT counted work. It is
-  fixed (ADR-035), and the network restarted from the genesis above.
-  Balances from before the restart do not exist on this chain.
+- **Reset twice so far.** The first genesis halted at block 12,530 on
+  2026-09-29 because of a consensus bug in how DAG-BFT counted work (fixed,
+  ADR-035). On 2026-10-04 the network restarted again so that every
+  transaction signature commits to this chain's genesis (ADR-036): a transfer
+  signed for this testnet can never be replayed on mainnet, or on any other
+  Maya2C network. Signatures made before that restart are invalid here, so
+  use a wallet built after it. Balances from earlier chains do not exist on
+  this one.
 - **Mining pays nothing.** See [mining and validators](/guides/mining/).
