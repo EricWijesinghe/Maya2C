@@ -219,7 +219,7 @@ mod tests {
             assert!(n > 3 * f, "n = {n}");
             // Two quorums overlap in at least 2q - n members: more than f.
             assert!(
-                2 * q >= n + f + 1,
+                2 * q > n + f,
                 "n = {n}: quorums of {q} may share only faulty members"
             );
         }
