@@ -306,6 +306,38 @@ pub async fn chain_info(node_url: &str) -> Result<ChainTag> {
         .map_err(|e| WalletError::Node(e.to_string()))
 }
 
+/// What the home screen shows about the network: which one, and that it is
+/// moving.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NetworkStatus {
+    /// The network's name (`maya-testnet-1`), if the node gave one.
+    pub network: Option<String>,
+    /// The genesis id, hex: the one chain this wallet's signatures are for.
+    pub genesis: String,
+    /// The node's tip height.
+    pub height: u64,
+}
+
+/// Reads the network's name, genesis and tip height in one call.
+///
+/// # Errors
+///
+/// Returns [`WalletError::Node`] if the node is unreachable.
+pub async fn network_status(node_url: &str) -> Result<NetworkStatus> {
+    let client = HttpClientBuilder::default()
+        .build(node_url)
+        .map_err(|e| WalletError::Node(format!("connecting to {node_url}: {e}")))?;
+    let info: custom_l1_node::rpc::ChainInfo = client
+        .request("get_chain_info", rpc_params![])
+        .await
+        .map_err(|e| WalletError::Node(e.to_string()))?;
+    Ok(NetworkStatus {
+        network: info.chain_id,
+        genesis: info.genesis,
+        height: info.height,
+    })
+}
+
 /// Reads an account's balance and next nonce from a node.
 ///
 /// # Errors
