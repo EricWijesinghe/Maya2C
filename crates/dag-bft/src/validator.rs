@@ -1,7 +1,7 @@
 //! One validator as a sans-IO state machine: messages in, messages out.
 //!
-//! The protocol is Narwhal's certified DAG: propose a vertex, collect 2f + 1
-//! votes, broadcast the certificate, advance once 2f + 1 certificates of the
+//! The protocol is Narwhal's certified DAG: propose a vertex, collect a quorum of
+//! votes, broadcast the certificate, advance once a quorum of certificates of the
 //! round are held. Lost messages are recovered by re-broadcast on
 //! [`Validator::tick`] and by fetching missing parents from whoever sent the
 //! child, so the engine is live over a lossy, reordering network.
