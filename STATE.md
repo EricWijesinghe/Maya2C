@@ -1,6 +1,9 @@
 # State
 
 ## Handover
+- **Done (2026-10-03):** gate 1 (ADR-036, PR #43) and gate 2 (ADR-037, PR #44) finished in code with full workspace runs green; Wasmtime 48.0.4 (#42); wallet redesign with Receive, live network pill and Sent screen (#45, e2e green); testnet watchdog task. Report: `reports/sessions/2026-10-03-gates-1-2-wallet.md`.
+- **Unfinished:** merge order #42 → #43 → #44 → #45 (each retargeted to master as its base merges), plus #32, #30, #35, #39 after updating against master; then rebuild testnet binaries from master and re-genesis maya-testnet-1 (third time) — the 7-day soak (gate 3) restarts there.
+- **Do first next session:** `gh pr checks 42 43`; merge what is green in that order; then the re-genesis runbook (ADR-036 consequences) and update docs/site join-page genesis values.
 - **Done (2026-09-29):** https://maya2c.dev live (GitHub Pages, certificate issued, HTTPS enforced). PR #10 has the quickstart, signatures and mining guides (each run first), `go get maya2c.dev/sdk`, `infra/oracle-free` (not applied, ADR-032) and `release-binaries.yml`. Report: `reports/sessions/2026-09-29-launch.md`.
 - **Unfinished:** none from this session. #10 merged; `release-binaries` built all four targets, aarch64 included (run 36478279508). PR #8 (installer) and #9 (site visuals) belong to the deploy session.
 - **Done (2026-09-29, later):** Eric approved the launch steps ("Everything is approved"). Apache-2.0 LICENSE (#18). Wallets pay fees correctly and reach the gateway's JSON-RPC at `/rpc` (#17). The gateway has CORS (#22) and per-client rate limiting (#30). "Join the testnet" page with faucet form (#24). maya-testnet-1 runs on Eric's PC from `D:\Maya2C-testnet` (node, gateway, faucet with journal, chat relay over WSS; `start-testnet.ps1` runs at logon).

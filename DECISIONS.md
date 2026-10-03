@@ -83,3 +83,37 @@ private transfers" over waiting for the full audit or launching as-is. The
 shielded pool stays off at genesis and turns on at a scheduled height after
 an audit. Launch gates, and three lanes for three sessions, are in
 docs/mainnet-v1-plan.md.
+
+## 2026-10-03 — Chain-bound signatures finished; txid hashes each kind's own body
+
+ADR-036 completed. Review found the partial implementation hashed the
+hybrid body into every txid, so two multisig wallets paying the same outputs
+at the same nonce shared an id; the txid now hashes the authorization's own
+body under a kind byte. The txid stays chain-free (dedup within one chain
+needs no chain). Deferred to BACKLOG P1: wallet genesis pinning, preview
+keyed on wire hashes.
+
+## 2026-10-03 — Mainnet with the pool off is a genesis parameter (ADR-037)
+
+`shielded_activation_height`, hashed into the genesis id only when present,
+rather than a compiled constant or a cargo feature: the testnet keeps the
+pool and its id, mainnet sets "never", and no operator can quietly differ.
+`GenesisConfig::chain_config` became the single source of validation rules
+after the audit found the CLI fork tool missing the setting.
+
+## 2026-10-03 — Wasmtime 48.0.4 rides the ADR-036 re-genesis
+
+Three advisories in features the VM compiles out; bumped anyway because the
+pin is consensus-critical and one hard fork is cheaper than two.
+
+## 2026-10-03 — The wallet takes the site's identity; amounts stay base units
+
+One brand across site and wallet. Amounts are grouped base units because no
+symbol or decimals are ratified — inventing them is Eric's decision, not the
+UI's (with gate 6 economics).
+
+## 2026-10-03 — A watchdog restarts the testnet stack every five minutes
+
+The public endpoints were dark ~19 h after cloudflared exited on a network
+drop and the logon script died after starting the node. A scheduled task
+(`Maya2C testnet watchdog`) re-runs the idempotent start script.

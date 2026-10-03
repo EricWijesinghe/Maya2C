@@ -77,6 +77,43 @@ fn button(s: &Session, label: &str) -> maya_wallet_e2e::Element {
         .unwrap()
 }
 
+/// A home action button: its text is an icon glyph and then `label`.
+fn action(s: &Session, label: &str) -> maya_wallet_e2e::Element {
+    s.xpath(
+        &format!("//button[contains(@class,'action') and contains(normalize-space(),'{label}')]"),
+        WAIT,
+    )
+    .unwrap()
+}
+
+/// The visible text of the `index`th match of `css`, once `ready` accepts
+/// it (or [`WAIT`] passes). Screens fade in, and `WebDriver` reports an element
+/// at opacity 0 as having no text, so a read waits for the text rather than
+/// only for the element.
+fn text_when(s: &Session, css: &str, index: usize, ready: impl Fn(&str) -> bool) -> String {
+    let deadline = std::time::Instant::now() + WAIT;
+    loop {
+        let rows = s.wait_for(css, index + 1, WAIT).unwrap();
+        let text = s.text(&rows[index]).unwrap();
+        if ready(&text) || std::time::Instant::now() > deadline {
+            return text;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// Saves a screenshot when `MAYA_E2E_SHOTS` names a directory.
+fn shot(s: &Session, name: &str) {
+    if let Some(dir) = std::env::var_os("MAYA_E2E_SHOTS") {
+        // Past the screens' 420 ms entrance, so the picture is what a person
+        // sees once it settles, not a frame of the fade.
+        std::thread::sleep(Duration::from_millis(700));
+        let path = std::path::Path::new(&dir).join(format!("{name}.png"));
+        s.screenshot(&path).unwrap();
+        println!("screenshot: {}", path.display());
+    }
+}
+
 #[test]
 #[ignore = "needs the built wallet, tauri-driver and msedgedriver; see the file header"]
 fn create_back_up_add_an_account_lock_and_unlock() {
@@ -127,12 +164,22 @@ fn create_back_up_add_an_account_lock_and_unlock() {
     s.click(&proceed).unwrap();
 
     // Wallet: one account, then a second.
-    let rows = s.wait_for(".accounts button", 1, WAIT).unwrap();
-    let first = s.text(&rows[0]).unwrap();
+    let first = text_when(&s, ".accounts button", 0, |t| t.contains("Account 0"));
     assert!(first.contains("Account 0"), "{first}");
     s.click(&button(&s, "Add account")).unwrap();
-    let rows = s.wait_for(".accounts button", 2, WAIT).unwrap();
-    assert!(s.text(&rows[1]).unwrap().contains("Account 1"));
+    let second = text_when(&s, ".accounts button", 1, |t| t.contains("Account 1"));
+    assert!(second.contains("Account 1"), "{second}");
+    shot(&s, "home");
+
+    // Receive: the address and a QR code the wallet core drew.
+    s.click(&action(&s, "Receive")).unwrap();
+    let qr = s.wait_for(".qr svg", 1, WAIT).unwrap();
+    assert!(!qr.is_empty(), "the Receive screen draws a QR code");
+    let shown = text_when(&s, ".copy-row code.address", 0, |t| t.trim().len() == 64);
+    assert_eq!(shown.trim().len(), 64, "a full hex address: {shown}");
+    shot(&s, "receive");
+    s.click(&button(&s, "Back")).unwrap();
+    s.wait_for(".accounts button", 2, WAIT).unwrap();
 
     // Lock; a wrong passphrase is refused with a message; the right one opens.
     s.click(&button(&s, "Lock")).unwrap();

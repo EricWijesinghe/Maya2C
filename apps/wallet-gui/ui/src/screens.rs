@@ -14,6 +14,23 @@ pub fn short(hash: &str) -> String {
     format!("{}…{}", &hash[..10], &hash[hash.len() - 6..])
 }
 
+/// Groups digits in threes: `1234567` → `1,234,567`.
+///
+/// Amounts stay in base units, the way the explorer shows them: the chain has
+/// no ratified display symbol or decimals yet, and a decimal point invented
+/// here would put a number on screen nobody has agreed to.
+pub fn group_digits(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
 // ---------------------------------------------------------------------------
 // setup
 // ---------------------------------------------------------------------------
@@ -384,7 +401,13 @@ pub mod wallet {
             let entries = state.history.get();
             if entries.is_empty() {
                 return view! {
-                    <p class="muted small">"Nothing signed yet this session."</p>
+                    <div class="empty">
+                        <p>"No activity yet."</p>
+                        <p class="muted small">
+                            "Use Receive to get your address, or ask the faucet on \
+                             maya2c.dev for testnet coins."
+                        </p>
+                    </div>
                 }
                 .into_any();
             }
@@ -406,8 +429,9 @@ pub mod wallet {
                                 <span>{format!("→ {}", short(&entry.transfer.recipient))}</span>
                                 <span class="amount">
                                     {format!(
-                                        "{} (+{} fee)",
-                                        entry.transfer.amount, entry.transfer.fee,
+                                        "\u{2212}{} (+{} fee)",
+                                        group_digits(entry.transfer.amount),
+                                        group_digits(entry.transfer.fee),
                                     )}
                                 </span>
                             </div>
@@ -421,16 +445,57 @@ pub mod wallet {
                 .into_any()
         };
 
-        view! {
-            <section class="card">
-                <div class="balance">
-                    <span class="label">"Balance"</span>
-                    <span class="value">{move || state.account_state.get().balance}</span>
-                    <span class="sub">
-                        {move || format!("next nonce {}", state.account_state.get().nonce)}
-                    </span>
-                </div>
+        let selected_address = move || {
+            let index = state.selected.get();
+            state
+                .accounts
+                .get()
+                .into_iter()
+                .find(|a| a.index == index)
+                .map(|a| a.address)
+                .unwrap_or_default()
+        };
+        let go = move |screen: Screen| {
+            state.clear();
+            state.screen.set(screen);
+        };
 
+        view! {
+            <section class="hero-card enter">
+                <div class="hero-top">
+                    <span class="label">{move || format!("Account {}", state.selected.get())}</span>
+                    <span class="mono faint">{move || short(&selected_address())}</span>
+                </div>
+                <div class="hero-balance">
+                    <span class="value">
+                        {move || group_digits(state.account_state.get().balance)}
+                    </span>
+                    <span class="unit">"units"</span>
+                </div>
+                <Show when=move || state.network.get().is_none_or(|n| n.is_test_network())>
+                    <span class="testnet-tag">"Testnet coins \u{b7} no value"</span>
+                </Show>
+                <div class="actions">
+                    <button
+                        class="action"
+                        on:click=move |_| go(Screen::Send(bridge::PaymentRequest::default()))
+                    >
+                        <span class="icon" aria-hidden="true">"\u{2197}"</span>
+                        "Send"
+                    </button>
+                    <button class="action" on:click=move |_| go(Screen::Receive)>
+                        <span class="icon" aria-hidden="true">"\u{2199}"</span>
+                        "Receive"
+                    </button>
+                    <button class="action" on:click=move |_| go(Screen::Scan)>
+                        <span class="icon" aria-hidden="true">"\u{2b1a}"</span>
+                        "Scan"
+                    </button>
+                </div>
+            </section>
+
+            <section class="card enter">
+                <h2>"Accounts"</h2>
                 <div class="accounts">{account_rows}</div>
                 <button
                     class="ghost wide"
@@ -439,28 +504,15 @@ pub mod wallet {
                 >
                     {move || if adding.get() { "Deriving…" } else { "Add account" }}
                 </button>
+            </section>
 
-                <div class="row">
-                    <button
-                        class="primary"
-                        on:click=move |_| {
-                            state.clear();
-                            state.screen.set(Screen::Scan);
-                        }
-                    >
-                        "Scan to pay"
-                    </button>
-                    <button
-                        class="secondary"
-                        on:click=move |_| {
-                            state.clear();
-                            state.screen.set(Screen::Send(bridge::PaymentRequest::default()));
-                        }
-                    >
-                        "Send"
-                    </button>
-                </div>
+            <section class="card enter">
+                <h2>"Recent activity"</h2>
+                {history_rows}
+            </section>
 
+            <details class="card settings">
+                <summary>"Network settings"</summary>
                 <label>"Node endpoint"</label>
                 <input
                     class="mono"
@@ -468,15 +520,11 @@ pub mod wallet {
                     on:input=move |ev| state.node_url.set(event_target_value(&ev))
                 />
                 <p class="hint">
-                    "Maya2C public testnet by default. Testnet coins have no value.                      For your own node, use http://127.0.0.1:8545."
+                    "The Maya2C public testnet by default. For your own node, use \
+                     http://127.0.0.1:8545."
                 </p>
                 <button class="ghost wide" on:click=move |_| refresh()>"Refresh"</button>
-            </section>
-
-            <section class="card">
-                <h2>"Pending transactions"</h2>
-                {history_rows}
-            </section>
+            </details>
         }
     }
 }
@@ -681,11 +729,15 @@ pub mod send {
                 match outcome {
                     Ok(txid) => {
                         let _ = bridge::record_outcome(&transfer.txid, true, None).await;
-                        state.inform(format!("Broadcast. Transaction {}", short(&txid)));
                         if let Ok(history) = bridge::history().await {
                             state.history.set(history);
                         }
-                        state.screen.set(Screen::Wallet);
+                        state.clear();
+                        state.screen.set(Screen::Sent(crate::receive::SentTransfer {
+                            txid,
+                            amount: transfer.amount,
+                            recipient: transfer.recipient.clone(),
+                        }));
                     }
                     Err(error) => {
                         let _ = bridge::record_outcome(&transfer.txid, false, Some(error.clone()))

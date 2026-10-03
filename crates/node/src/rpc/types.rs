@@ -38,6 +38,10 @@ pub struct ChainInfo {
     /// The network's name (`maya-testnet-1`) where the node was given one;
     /// `null` otherwise. A label for people: only `genesis` is signed.
     pub chain_id: Option<String>,
+    /// The node's tip height when it answered: how a wallet shows the chain
+    /// is alive without a second call. Absent from older nodes (`0`).
+    #[serde(default)]
+    pub height: u64,
 }
 
 impl ChainInfo {
