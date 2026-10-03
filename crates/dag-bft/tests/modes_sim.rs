@@ -56,7 +56,14 @@ fn run_dag(
     partition: Option<&(u64, u64, Vec<BTreeSet<NodeId>>)>,
     secs: u64,
 ) -> DagRun {
-    run_committee(w, &Committee::new(n), txs_per_node, crashed, partition, secs)
+    run_committee(
+        w,
+        &Committee::new(n),
+        txs_per_node,
+        crashed,
+        partition,
+        secs,
+    )
 }
 
 /// [`run_dag`] over any committee, weighted or not.
@@ -281,7 +288,7 @@ fn three_cheap_absent_seats_cannot_stop_the_bonded_validator() {
     // four seats are absent and nothing could commit; by stake the bonded
     // validator is a quorum on its own and the chain goes on.
     replay(0x0D46_BF76, |w: &mut World<Ev>| {
-        let committee = Committee::weighted(vec![1_000_000_000, 1_000, 1_000, 1_000]);
+        let committee = Committee::weighted(vec![1_000_000_000, 1_000, 1_000, 1_000]).expect("4");
         let crashed = [1u16, 2, 3];
         let run = run_committee(w, &committee, 500, &crashed, None, 30);
         assert!(
@@ -301,7 +308,7 @@ fn honest_stake_split_in_half_still_halts_rather_than_forks() {
             [2, 3].map(NodeId).into_iter().collect(),
         ];
         w.net_mut().partition(groups);
-        let committee = Committee::weighted(vec![700, 300, 600, 400]);
+        let committee = Committee::weighted(vec![700, 300, 600, 400]).expect("4");
         let run = run_committee(w, &committee, 1_000, &[], None, 20);
         assert!(run.orders.iter().all(Vec::is_empty), "no quorum, no commit");
     });

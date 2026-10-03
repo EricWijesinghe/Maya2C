@@ -486,15 +486,21 @@ impl<A: Authenticator> Validator<A> {
         self.drain_buffer();
     }
 
-    /// Whether `v`'s parents, all held, were authored by a quorum of weight.
-    /// Genesis has none and needs none. A parent not held counts for nothing.
+    /// Whether `v`'s parents, all held, were authored by a quorum of weight
+    /// in the round just before `v`'s. Genesis has none and needs none. At
+    /// or below the collection horizon the parents are gone and cannot be
+    /// weighed — the exemption `Dag::missing_parents` makes — so only
+    /// `is_well_formed`'s head-count floor applies there. Elsewhere a parent
+    /// not held, or from another round, counts for nothing.
     fn has_parent_quorum(&self, v: &Vertex) -> bool {
         v.round == 0
-            || self.committee.is_quorum(
-                v.parents
-                    .iter()
-                    .filter_map(|p| self.dag.by_digest(p).map(|c| c.vertex.author)),
-            )
+            || v.round <= self.dag.gc_round()
+            || self.committee.is_quorum(v.parents.iter().filter_map(|p| {
+                self.dag
+                    .by_digest(p)
+                    .filter(|c| c.vertex.round + 1 == v.round)
+                    .map(|c| c.vertex.author)
+            }))
     }
 
     /// Inserts buffered certificates whose parents have arrived.

@@ -19,6 +19,8 @@ pub type ValidatorId = u16;
 pub struct Committee {
     weights: Arc<[u64]>,
     total: u128,
+    /// Fewest members whose weight reaches a quorum.
+    min_quorum_size: u16,
 }
 
 impl Committee {
@@ -26,22 +28,49 @@ impl Committee {
     /// four (f ≥ 1); fewer is allowed for tests and tolerates no fault.
     #[must_use]
     pub fn new(size: u16) -> Self {
-        Self::weighted(vec![1; usize::from(size)])
+        Self::from_weights(vec![1; usize::from(size)].into())
     }
 
-    /// A committee whose member `i` votes with `weights[i]`. A zero weight is
+    /// A committee whose member `i` votes with `weights[i]`, or `None` for
+    /// more members than a `u16` validator id can name. A zero weight is
     /// counted as one, so every member can still be heard; the staking
-    /// module never elects a member without stake.
-    ///
-    /// # Panics
-    ///
-    /// More than `u16::MAX` members: a validator id is a `u16`.
+    /// module never elects a member without stake, and the node must hand
+    /// every peer the same weights (ADR-040 part 2).
     #[must_use]
-    pub fn weighted(weights: Vec<u64>) -> Self {
-        assert!(u16::try_from(weights.len()).is_ok(), "committee too large");
-        let weights: Arc<[u64]> = weights.into_iter().map(|w| w.max(1)).collect();
-        let total = weights.iter().map(|w| u128::from(*w)).sum();
-        Self { weights, total }
+    pub fn weighted(weights: Vec<u64>) -> Option<Self> {
+        u16::try_from(weights.len()).ok()?;
+        Some(Self::from_weights(
+            weights.into_iter().map(|w| w.max(1)).collect(),
+        ))
+    }
+
+    fn from_weights(weights: Arc<[u64]>) -> Self {
+        let total: u128 = weights.iter().map(|w| u128::from(*w)).sum();
+        let quorum = total - total.saturating_sub(1) / 3;
+        let mut heaviest: Vec<u64> = weights.to_vec();
+        heaviest.sort_unstable_by(|a, b| b.cmp(a));
+        let mut reached = 0u128;
+        let needed = heaviest
+            .iter()
+            .take_while(|w| {
+                let short = reached < quorum;
+                reached += u128::from(**w);
+                short
+            })
+            .count();
+        Self {
+            weights,
+            total,
+            min_quorum_size: u16::try_from(needed).unwrap_or(u16::MAX),
+        }
+    }
+
+    /// Fewest members whose weight can reach a quorum, the heaviest first:
+    /// a head-count floor any quorum's member list must clear, checkable
+    /// before anyone knows who the members are. Equal weights: n − f.
+    #[must_use]
+    pub fn min_quorum_size(&self) -> u16 {
+        self.min_quorum_size
     }
 
     /// Number of validators.
@@ -59,10 +88,13 @@ impl Committee {
 
     /// Total weight of `members`, each counted once however often it appears.
     pub fn weight_of(&self, members: impl IntoIterator<Item = ValidatorId>) -> u128 {
-        let mut seen = std::collections::BTreeSet::new();
+        let mut seen = vec![false; self.weights.len()];
         members
             .into_iter()
-            .filter(|m| seen.insert(*m))
+            .filter(|m| {
+                seen.get_mut(usize::from(*m))
+                    .is_some_and(|s| !std::mem::replace(s, true))
+            })
             .map(|m| u128::from(self.weight(m)))
             .sum()
     }
@@ -226,9 +258,11 @@ impl Certificate {
     /// Whether the votes are a quorum of distinct committee members and the
     /// vertex has the shape a round requires.
     ///
-    /// Parents are digests here, so their weight is checked where the DAG can
-    /// name their authors (`Validator::has_parent_quorum`); this checks only
-    /// that a round past genesis has some, sorted and distinct.
+    /// Parents are digests here, so their *weight* is checked where the DAG
+    /// can name their authors (`Validator::has_parent_quorum`). This checks
+    /// the head-count floor any quorum must clear, sorted and distinct,
+    /// before a single signature is verified. With equal weights the floor
+    /// is the quorum itself, exactly the check before ADR-040.
     pub fn is_well_formed(&self, committee: &Committee) -> bool {
         let sorted_distinct = self.votes.windows(2).all(|w| w[0] < w[1]);
         let members = self.votes.iter().all(|v| *v < committee.size());
@@ -236,7 +270,8 @@ impl Certificate {
         let parents_ok = if self.vertex.round == 0 {
             self.vertex.parents.is_empty()
         } else {
-            !self.vertex.parents.is_empty() && self.vertex.parents.windows(2).all(|w| w[0] < w[1])
+            self.vertex.parents.len() >= usize::from(committee.min_quorum_size())
+                && self.vertex.parents.windows(2).all(|w| w[0] < w[1])
         };
         let paired = self.signatures.len() == self.votes.len();
         sorted_distinct
@@ -284,7 +319,7 @@ mod tests {
     fn a_seat_bought_at_the_minimum_bond_cannot_block_a_quorum() {
         // ADR-040: one operator with 10^9 staked, three seats at 10^3 each.
         // By heads the three are > f of four; by stake they are nothing.
-        let c = Committee::weighted(vec![1_000_000_000, 1_000, 1_000, 1_000]);
+        let c = Committee::weighted(vec![1_000_000_000, 1_000, 1_000, 1_000]).expect("4");
         assert!(c.is_quorum([0]), "the bonded operator alone is a quorum");
         assert!(!c.is_quorum([1, 2, 3]), "the cheap seats are not");
     }
@@ -300,7 +335,7 @@ mod tests {
                     (seed >> 40) + 1
                 })
                 .collect();
-            let c = Committee::weighted(weights);
+            let c = Committee::weighted(weights).expect("64 members at most");
             let (w, f, q) = (c.weight_of(0..c.size()), c.faults(), c.quorum());
             assert!(w > 3 * f, "n = {n}");
             assert!(
@@ -313,10 +348,26 @@ mod tests {
 
     #[test]
     fn a_member_counts_once_and_a_stranger_not_at_all() {
-        let c = Committee::weighted(vec![5, 5, 5, 5]);
+        let c = Committee::weighted(vec![5, 5, 5, 5]).expect("4");
         assert_eq!(c.weight_of([0, 0, 0]), 5);
         assert_eq!(c.weight_of([9]), 0);
         assert_eq!(c.quorum(), 14);
+    }
+
+    #[test]
+    fn the_head_count_floor_is_n_minus_f_for_equal_weights() {
+        for n in 1..=200u16 {
+            let c = Committee::new(n);
+            assert_eq!(u128::from(c.min_quorum_size()), c.quorum(), "n = {n}");
+        }
+        // One heavy member is a quorum by itself.
+        let c = Committee::weighted(vec![1_000_000_000, 1_000, 1_000, 1_000]).expect("4");
+        assert_eq!(c.min_quorum_size(), 1);
+    }
+
+    #[test]
+    fn a_committee_larger_than_a_validator_id_can_name_is_refused() {
+        assert!(Committee::weighted(vec![1; usize::from(u16::MAX) + 1]).is_none());
     }
 
     #[test]
