@@ -16,6 +16,8 @@ use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::network::mempool::Mempool;
 use custom_l1_node::state::{Account, BlockContext, StateDB};
 
+mod common;
+
 /// Online side: knows the sender's public address and nonce, not the key.
 fn build_unsigned(nonce: u64, to: [u8; 32], amount: u64) -> Vec<u8> {
     Transaction::new(
@@ -43,7 +45,8 @@ fn sign_offline(unsigned: &[u8], seed: &[u8; 32]) -> (Vec<u8>, String) {
         tx.outputs[0].amount,
         hex::encode(tx.outputs[0].recipient)
     );
-    tx.sign(&signing_key_from_seed(seed).unwrap()).unwrap();
+    tx.sign(&signing_key_from_seed(seed).unwrap(), &common::test_chain())
+        .unwrap();
     (tx.to_bytes(), summary)
 }
 
@@ -53,6 +56,7 @@ fn build_export_sign_offline_and_broadcast() {
     let sender = signing_key_from_seed(&seed).unwrap().address(); // the online side is told this once
     let dir = tempfile::TempDir::new().unwrap();
     let state = Arc::new(StateDB::open(dir.path()).unwrap());
+    common::bind(&state);
     state
         .put_account(
             &sender,
@@ -109,6 +113,7 @@ fn a_frame_altered_after_signing_is_refused() {
     let sender = signing_key_from_seed(&seed).unwrap().address();
     let dir = tempfile::TempDir::new().unwrap();
     let state = Arc::new(StateDB::open(dir.path()).unwrap());
+    common::bind(&state);
     state
         .put_account(
             &sender,

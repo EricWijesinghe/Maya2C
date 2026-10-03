@@ -21,6 +21,8 @@ use custom_l1_node::state::db::StateDB;
 use custom_l1_node::state::invariant_guard::Module;
 use tempfile::TempDir;
 
+mod common;
+
 const MAX_PAUSE: u64 = 20;
 
 fn user() -> HybridSigningKey {
@@ -56,7 +58,7 @@ fn chain(dir: &TempDir) -> Chain {
     };
     let state = Arc::new(StateDB::open(dir.path()).unwrap());
     config.seed_state(&state).unwrap();
-    Chain::open(
+    common::open_chain(
         state,
         config.genesis_block().unwrap(),
         ChainConfig::without_pow_verification(),
@@ -67,7 +69,7 @@ fn chain(dir: &TempDir) -> Chain {
 fn signed(kind: TxKind, outputs: Vec<TxOutput>, nonce: u64) -> Transaction {
     let mut tx = Transaction::new(vec![], outputs, nonce);
     tx.kind = kind;
-    tx.sign(&user()).unwrap();
+    tx.sign(&user(), &common::test_chain()).unwrap();
     tx
 }
 

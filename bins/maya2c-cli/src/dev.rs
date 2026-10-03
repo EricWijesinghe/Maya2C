@@ -215,7 +215,8 @@ async fn deploy(
     let nonce = client.get_balance(&hex::encode(address)).await?.nonce;
     let id = derive_contract_id(&address, nonce, &code);
     let mut tx = Transaction::with_kind(TxKind::DeployContract(ContractDeploy { code }), nonce);
-    tx.sign(key)
+    let chain_tag = client.get_chain_info().await?;
+    tx.sign(key, &chain_tag)
         .map_err(|e| anyhow!("signing the deploy: {e}"))?;
     client
         .send_raw_transaction(&hex::encode(tx.to_bytes()))

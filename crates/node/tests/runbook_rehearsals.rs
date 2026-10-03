@@ -26,6 +26,8 @@ use custom_l1_node::state::account::Account;
 use custom_l1_node::state::db::StateDB;
 use tempfile::TempDir;
 
+mod common;
+
 fn genesis() -> Block {
     Block::new(
         BlockHeader {
@@ -53,7 +55,7 @@ fn transfer(from: &HybridSigningKey, amount: u64, nonce: u64) -> Transaction {
         }],
         nonce,
     );
-    tx.sign(from).unwrap();
+    tx.sign(from, &common::test_chain()).unwrap();
     tx
 }
 
@@ -72,7 +74,8 @@ fn funded(n: u8) -> (Chain, TempDir) {
             )
             .unwrap();
     }
-    let chain = Chain::open(state, genesis(), ChainConfig::without_pow_verification()).unwrap();
+    let chain =
+        common::open_chain(state, genesis(), ChainConfig::without_pow_verification()).unwrap();
     (chain, dir)
 }
 
@@ -193,7 +196,8 @@ fn silent_state_corruption_is_detected_and_rebuilt_from_the_block_store() {
                 },
             )
             .unwrap();
-        let mut c = Chain::open(state, genesis(), ChainConfig::without_pow_verification()).unwrap();
+        let mut c =
+            common::open_chain(state, genesis(), ChainConfig::without_pow_verification()).unwrap();
         blocks = (0..10u64)
             .map(|n| extend(&mut c, 1_000_010 + n, vec![transfer(&key(0), 3, n)]))
             .collect();
@@ -212,7 +216,7 @@ fn silent_state_corruption_is_detected_and_rebuilt_from_the_block_store() {
     // the one its tip header committed to. Nothing to notice by hand.
     let started = Instant::now();
     let state = Arc::new(StateDB::open(dir.path()).unwrap());
-    let refused = Chain::open(
+    let refused = common::open_chain(
         Arc::clone(&state),
         genesis(),
         ChainConfig::without_pow_verification(),
@@ -237,7 +241,7 @@ fn silent_state_corruption_is_detected_and_rebuilt_from_the_block_store() {
             },
         )
         .unwrap();
-    let mut rebuilt = Chain::open(
+    let mut rebuilt = common::open_chain(
         Arc::clone(&fresh),
         genesis(),
         ChainConfig::without_pow_verification(),

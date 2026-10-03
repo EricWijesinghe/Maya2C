@@ -53,6 +53,8 @@ use custom_l1_node::state::StateDB;
 use libp2p::Multiaddr;
 use tempfile::TempDir;
 
+mod common;
+
 /// Nodes in the line.
 const NODES: usize = 5;
 
@@ -86,6 +88,7 @@ struct SimNode {
 async fn spawn_node(latency: Duration) -> SimNode {
     let dir = TempDir::new().expect("temp dir");
     let state = StateDB::open(dir.path()).expect("open state");
+    common::bind(&state);
 
     let mut node = Node::new_memory_with_latency(Arc::new(state), latency).expect("build node");
 
@@ -109,7 +112,7 @@ fn signed_block(key: &HybridSigningKey) -> Block {
         }],
         0,
     );
-    tx.sign(key).expect("sign");
+    tx.sign(key, &common::test_chain()).expect("sign");
 
     Block::new(
         BlockHeader {

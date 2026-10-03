@@ -63,6 +63,9 @@ impl Chain {
             });
         }
 
+        // Bind the chain to its genesis block id for signature verification (ADR-036).
+        state.bind_chain(crate::core::ChainTag::from_genesis(genesis_id))?;
+
         let records = Self::load_records(&state)?;
         if !records.contains_key(&meta.tip) {
             return Err(NodeError::Storage(format!(

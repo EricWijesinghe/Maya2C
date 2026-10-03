@@ -23,6 +23,8 @@
 
 use custom_l1_node::crypto::hybrid;
 
+mod common;
+
 /// A deterministic key, so a failure is reproducible.
 fn node_key(seed: u8) -> hybrid::HybridSigningKey {
     hybrid::signing_key_from_seed(&[seed; 32]).expect("valid seed")
