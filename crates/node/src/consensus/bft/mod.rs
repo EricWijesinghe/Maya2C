@@ -36,6 +36,7 @@
 pub mod attest;
 pub mod auth;
 pub mod builder;
+pub mod catchup;
 pub mod driver;
 pub mod remote;
 pub mod store;
