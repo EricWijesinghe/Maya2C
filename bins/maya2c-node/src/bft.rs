@@ -36,6 +36,14 @@ const SHARE_GRACE: Duration = Duration::from_secs(3);
 
 /// Puts the driver's newest checkpoint where `get_checkpoint` reads it, when
 /// it is newer than what is there.
+/// Where the loop reports what it did: metrics, and the slots the RPC's
+/// `get_checkpoint` and `get_bft_status` read.
+pub(super) struct Reporting {
+    pub(super) metrics: Arc<Metrics>,
+    pub(super) checkpoint: Arc<Mutex<Option<Checkpoint>>>,
+    pub(super) status: Arc<Mutex<custom_l1_node::rpc::types::BftStatus>>,
+}
+
 fn publish_checkpoint(driver: &BftDriver, slot: &Mutex<Option<Checkpoint>>) {
     let Some(newest) = driver.checkpoint() else {
         return;
@@ -399,10 +407,13 @@ pub(super) async fn bft_loop(
     mut driver: BftDriver,
     opening: Step,
     committee: usize,
-    metrics: Arc<Metrics>,
-    checkpoint: Arc<Mutex<Option<Checkpoint>>>,
-    status: Arc<Mutex<custom_l1_node::rpc::types::BftStatus>>,
+    reporting: Reporting,
 ) {
+    let Reporting {
+        metrics,
+        checkpoint,
+        status,
+    } = reporting;
     let mut events = network.subscribe();
     let mut ticker = tokio::time::interval(TICK);
     let gossip_pool = network.mempool().clone();
