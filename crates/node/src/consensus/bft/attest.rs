@@ -211,11 +211,13 @@ impl Checkpoint {
     }
 }
 
-/// `2f + 1` for a committee of `size`.
+/// Signatures a checkpoint needs from a committee of `size`: n − f (ADR-039).
+/// Counted in heads, matching the equal-weight committee the node builds
+/// today; ADR-040 part 2 counts stake here too.
 fn quorum_of(size: usize) -> Result<usize> {
     let size = u16::try_from(size)
         .map_err(|_| NodeError::Decode("committee larger than u16".to_string()))?;
-    Ok(usize::from(Committee::new(size).quorum()))
+    Ok(usize::from(Committee::new(size).min_quorum_size()))
 }
 
 /// What a collector made of one attestation.
