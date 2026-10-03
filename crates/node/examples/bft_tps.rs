@@ -132,8 +132,7 @@ fn main() {
                 )
                 .unwrap();
         }
-        let mut chain =
-            Chain::open(state, genesis(), ChainConfig::without_pow_verification()).unwrap();
+        let mut chain = Chain::open(state, genesis(), ChainConfig::dag_bft()).unwrap();
         let setup = BftSetup {
             epoch: 0,
             committee: Arc::clone(&committee),
