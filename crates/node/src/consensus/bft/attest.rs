@@ -21,9 +21,10 @@ use crate::core::ChainTag;
 use crate::crypto::keys::{SIGNATURE_LENGTH, SigningKey, VerifyingKey};
 use crate::error::{NodeError, Result};
 
-/// Domain of the bytes an attestation signs. Distinct from every vertex,
-/// vote and transaction domain, so no signature can be replayed as another.
-pub const ATTEST_DOMAIN: &[u8] = b"maya2c block attestation v1";
+/// Domain of the bytes an attestation signs, distinct from every vertex,
+/// vote and transaction domain so no signature can be replayed as another.
+/// Defined by the remote signer, which must sign exactly these bytes.
+pub use maya_signer::service::ATTEST_DOMAIN;
 
 /// First byte of an attestation frame on the BFT topic. Engine frames start
 /// with `wire::WIRE_VERSION`; this byte differs, so the two never parse as

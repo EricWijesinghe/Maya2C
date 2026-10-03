@@ -408,3 +408,53 @@ fn history_is_bounded_and_survives_compaction() {
     assert!(db.approve(Kind::Vertex, 5, 0, [9; 32]).is_err());
     db.approve(Kind::Vertex, top + 1, 0, [9; 32]).unwrap();
 }
+
+#[test]
+fn an_attestation_is_signed_once_per_height_under_its_own_domain() {
+    // ADR-038: one block per height, kept in its own database.
+    let dir = TempDir::new().unwrap();
+    let mut s = service(&dir)
+        .with_attestations(SlashingDb::open(&dir.path().join("attestations.jsonl")).unwrap());
+    let block_a = req(Kind::Attestation, 120, 0, b"block a");
+    assert!(signed(&s.handle(&block_a)), "first attestation at a height");
+    assert!(
+        signed(&s.handle(&block_a)),
+        "an identical retry is harmless"
+    );
+    let block_b = req(Kind::Attestation, 120, 0, b"block b");
+    assert!(
+        !signed(&s.handle(&block_b)),
+        "a second block at height 120 is refused"
+    );
+    assert!(signed(&s.handle(&req(
+        Kind::Attestation,
+        121,
+        0,
+        b"block c"
+    ))));
+
+    // Heights live apart from rounds: a vote at round 5,000 does not push
+    // height 122 below the vote database's floor.
+    assert!(signed(&s.handle(&req(Kind::Vote, 5_000, 1, b"vertex"))));
+    assert!(signed(&s.handle(&req(
+        Kind::Attestation,
+        122,
+        0,
+        b"block d"
+    ))));
+
+    // The signed bytes differ from a vote's on the same digest.
+    let vote = req(Kind::Vote, 120, 0, b"block a");
+    assert_ne!(signed_message(&block_a), signed_message(&vote));
+}
+
+#[test]
+fn a_signer_without_an_attestation_database_refuses_attestations() {
+    let dir = TempDir::new().unwrap();
+    let mut s = service(&dir);
+    assert!(!signed(&s.handle(&req(Kind::Attestation, 1, 0, b"block"))));
+    assert!(
+        signed(&s.handle(&req(Kind::Vote, 1, 0, b"vertex"))),
+        "votes still sign"
+    );
+}
