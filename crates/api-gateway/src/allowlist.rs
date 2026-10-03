@@ -55,6 +55,7 @@ pub const ALLOWED_METHODS: &[&str] = &[
     // Public by necessity: offline signers need the chain id to sign transactions
     // that commit to this chain and are not replayed on others (ADR-036).
     "get_chain_info",
+    "get_checkpoint",
     "get_supply",
     "send_raw_transaction",
 ];

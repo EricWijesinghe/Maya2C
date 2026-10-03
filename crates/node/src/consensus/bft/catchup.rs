@@ -35,6 +35,30 @@ pub trait CheckpointSource {
     fn block(&self, height: u64) -> Result<Block>;
 }
 
+/// Where this node's chain stands, read under the chain lock so the slow
+/// part — fetching from a peer — can run without it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Position {
+    /// The chain the checkpoint must name.
+    pub tag: ChainTag,
+    /// Current height.
+    pub height: u64,
+    /// Current tip.
+    pub tip: [u8; 32],
+}
+
+impl Position {
+    /// `chain`'s position now.
+    #[must_use]
+    pub fn of(chain: &Chain) -> Self {
+        Self {
+            tag: ChainTag::from_genesis(chain.genesis()),
+            height: chain.height(),
+            tip: chain.tip(),
+        }
+    }
+}
+
 /// Imports blocks from `source` up to its newest checkpoint, returning how
 /// many were imported (zero when already there).
 ///
@@ -45,50 +69,39 @@ pub trait CheckpointSource {
 ///
 /// # Errors
 ///
-/// [`NodeError::Decode`] for a checkpoint without a quorum of `committee`,
-/// a block that does not chain to it, or one the chain does not extend with;
-/// errors from `source` or from executing a block are returned as they come.
-/// Blocks imported before an error stay: each one was re-executed and
-/// chains to an attested block, so it is valid where it is.
+/// As [`fetch`] and [`import`].
 pub fn catch_up(
     chain: &mut Chain,
     source: &impl CheckpointSource,
     committee: &[VerifyingKey],
 ) -> Result<u64> {
-    let Some(checkpoint) = source.checkpoint()? else {
-        return Ok(0);
-    };
-    let tag = ChainTag::from_genesis(chain.genesis());
-    checkpoint.verify(&tag, committee)?;
-    let from = chain.height();
-    if checkpoint.height <= from {
-        return Ok(0);
-    }
-    let blocks = fetch_chained(chain, source, &checkpoint)?;
-    for (offset, block) in blocks.into_iter().enumerate() {
-        let height = from + 1 + offset as u64;
-        match chain.insert_block(block)? {
-            InsertOutcome::Extended { .. } => {}
-            other => {
-                return Err(NodeError::Decode(format!(
-                    "catch-up: block {height} did not extend the tip: {other:?}"
-                )));
-            }
-        }
-    }
-    Ok(checkpoint.height - from)
+    let blocks = fetch(Position::of(chain), source, committee)?;
+    import(chain, blocks)
 }
 
-/// The blocks after this node's tip up to the checkpoint, checked to form
-/// one hash chain from the tip to the attested block before any executes.
-fn fetch_chained(
-    chain: &Chain,
+/// Fetches the blocks after `from` up to `source`'s newest checkpoint, checked
+/// to carry a quorum of `committee` for `from.tag` and to form one hash chain
+/// from `from.tip` to the attested block. Empty when there is nothing newer.
+///
+/// # Errors
+///
+/// [`NodeError::Decode`] for a checkpoint without a quorum or blocks that do
+/// not chain to it; errors from `source` as they come.
+pub fn fetch(
+    from: Position,
     source: &impl CheckpointSource,
-    checkpoint: &Checkpoint,
+    committee: &[VerifyingKey],
 ) -> Result<Vec<Block>> {
-    let mut parent = chain.tip();
+    let Some(checkpoint) = source.checkpoint()? else {
+        return Ok(Vec::new());
+    };
+    checkpoint.verify(&from.tag, committee)?;
+    if checkpoint.height <= from.height {
+        return Ok(Vec::new());
+    }
+    let mut parent = from.tip;
     let mut blocks = Vec::new();
-    for height in chain.height() + 1..=checkpoint.height {
+    for height in from.height + 1..=checkpoint.height {
         let block = source.block(height)?;
         if block.header.prev_hash != parent {
             return Err(NodeError::Decode(format!(
@@ -104,4 +117,27 @@ fn fetch_chained(
         ));
     }
     Ok(blocks)
+}
+
+/// Re-executes `blocks` onto `chain` through [`Chain::insert_block`], which
+/// refuses a state root its own execution does not reproduce (invariant 24).
+/// Returns how many were imported.
+///
+/// # Errors
+///
+/// A block that does not extend the tip — the chain moved since
+/// [`fetch`] — or fails to execute. Blocks imported before it stay.
+pub fn import(chain: &mut Chain, blocks: Vec<Block>) -> Result<u64> {
+    let mut imported = 0;
+    for block in blocks {
+        match chain.insert_block(block)? {
+            InsertOutcome::Extended { .. } => imported += 1,
+            other => {
+                return Err(NodeError::Decode(format!(
+                    "catch-up: a block did not extend the tip: {other:?}"
+                )));
+            }
+        }
+    }
+    Ok(imported)
 }

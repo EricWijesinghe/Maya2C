@@ -140,6 +140,9 @@ struct Args {
     snapshot_interval: Option<u64>,
     /// Bootstrap a pruned node from this peer's JSON-RPC endpoint.
     bootstrap_from: Option<String>,
+    /// DAG-BFT: catch up through this peer's attested checkpoint and follow
+    /// attested blocks (ADR-038), for a node that was down too long to rejoin.
+    catch_up_from: Option<String>,
     /// ML-DSA-65 validator key; absent means an observer on a DAG-BFT network.
     validator_key: Option<PathBuf>,
     /// The validator key lives in `maya2c-signer` at this address instead
@@ -192,6 +195,7 @@ impl Default for Args {
             arweave_gateway: None,
             snapshot_interval: None,
             bootstrap_from: None,
+            catch_up_from: None,
             validator_key: None,
             remote_signer: None,
             signer_pin: None,
@@ -226,6 +230,8 @@ fn print_usage() {
          --arweave-gateway <URL>  also fetch archived batches from an Arweave gateway\n  \
          --snapshot-interval <N>  snapshot state every N blocks for pruned peers\n  \
          --bootstrap-from <URL>   bootstrap a pruned node from a peer's JSON-RPC\n  \
+         --catch-up-from <URL>    DAG-BFT: rejoin after a long outage through a peer's\n                           \
+         attested checkpoint, then follow attested blocks (ADR-038)\n  \
          --validator-key <PATH>  DAG-BFT validator key; without it the node observes\n  \
          --generate-validator-key <PATH>  write a new validator key, print its public key\n  \
          --remote-signer <ADDR>  sign through maya2c-signer, not a key file (ADR-033)\n  \
@@ -283,6 +289,7 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--arweave-gateway" => args.arweave_gateway = Some(value()?),
             "--snapshot-interval" => args.snapshot_interval = Some(value()?.parse()?),
             "--bootstrap-from" => args.bootstrap_from = Some(value()?),
+            "--catch-up-from" => args.catch_up_from = Some(value()?),
             "--validator-key" => args.validator_key = Some(PathBuf::from(value()?)),
             "--remote-signer" => args.remote_signer = Some(value()?.parse()?),
             "--signer-pin" => args.signer_pin = Some(value()?),
@@ -720,8 +727,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let rpc_pool = Mempool::new(Arc::clone(&state));
     let rpc_context =
         RpcContext::new(Arc::clone(&chain), rpc_pool.clone()).with_network(config.chain_id.clone());
+    let checkpoint_slot = Arc::new(Mutex::new(None));
     let rpc_context = if mode == "dag-bft" {
-        rpc_context.refusing_blocks()
+        rpc_context
+            .refusing_blocks()
+            .with_checkpoints(Arc::clone(&checkpoint_slot))
     } else {
         rpc_context
     };
@@ -832,7 +842,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
             (None, None) => None,
         };
         let setup = bft::setup(committee, signer)?;
-        let (driver, opening) = bft::open(&setup, &args.data_dir, &chain)?;
+        let (mut driver, opening) = bft::open(&setup, &args.data_dir, &chain)?;
+        if let Some(url) = &args.catch_up_from {
+            bft::catch_up(url, &chain, &mut driver).await?;
+            tokio::spawn(bft::follow_loop(
+                url.clone(),
+                Arc::clone(&chain),
+                driver.committee(),
+            ));
+        }
         let size = setup.committee.len();
         match driver.validator_id() {
             Some(id) => println!("dag-bft:     validator {id} of {size}"),
@@ -846,6 +864,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             opening,
             size,
             Arc::clone(&metrics),
+            checkpoint_slot,
         ));
     } else {
         // Apply blocks arriving over gossip. Without this task the node decodes

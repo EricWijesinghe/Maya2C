@@ -56,6 +56,64 @@ impl ChainInfo {
     }
 }
 
+/// The newest quorum-attested block (ADR-038), as `get_checkpoint` serves
+/// it. A node that fell behind imports up to it; it checks every signature
+/// against the committee it already trusts, so the serving node is trusted
+/// for nothing.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CheckpointInfo {
+    /// Staking epoch of the attesting committee.
+    pub epoch: u64,
+    /// Height of the block.
+    pub height: u64,
+    /// Hex block id.
+    pub block: String,
+    /// `(committee index, hex ML-DSA-65 signature)`, ordered by index.
+    pub signatures: Vec<(u16, String)>,
+}
+
+impl From<&crate::consensus::bft::attest::Checkpoint> for CheckpointInfo {
+    fn from(c: &crate::consensus::bft::attest::Checkpoint) -> Self {
+        Self {
+            epoch: c.epoch,
+            height: c.height,
+            block: hex::encode(c.block),
+            signatures: c
+                .signatures
+                .iter()
+                .map(|(v, s)| (*v, hex::encode(s)))
+                .collect(),
+        }
+    }
+}
+
+impl CheckpointInfo {
+    /// The checkpoint, decoded but not yet verified.
+    ///
+    /// # Errors
+    ///
+    /// [`NodeError::Decode`] for a block id or signature that is not hex of
+    /// the right length.
+    pub fn checkpoint(&self) -> crate::error::Result<crate::consensus::bft::attest::Checkpoint> {
+        let block = hex::decode(&self.block)
+            .ok()
+            .and_then(|b| <[u8; 32]>::try_from(b).ok())
+            .ok_or_else(|| NodeError::Decode("checkpoint block is not 32 bytes of hex".into()))?;
+        let mut signatures = std::collections::BTreeMap::new();
+        for (validator, sig) in &self.signatures {
+            let sig = hex::decode(sig)
+                .map_err(|e| NodeError::Decode(format!("checkpoint signature: {e}")))?;
+            signatures.insert(*validator, sig);
+        }
+        Ok(crate::consensus::bft::attest::Checkpoint {
+            epoch: self.epoch,
+            height: self.height,
+            block,
+            signatures,
+        })
+    }
+}
+
 /// An account's spendable balance and replay counter.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AccountInfo {

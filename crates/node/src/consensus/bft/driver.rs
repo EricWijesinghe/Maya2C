@@ -76,6 +76,14 @@ pub struct Step {
     pub notices: Vec<String>,
 }
 
+/// The `(epoch, round)` sealed in the chain's tip, or `None` at genesis.
+fn tip_seal(chain: &Chain) -> Option<(u64, u64)> {
+    if chain.height() == 0 {
+        return None;
+    }
+    chain.get(&chain.tip()).map(|tip| unseal(tip.header.nonce))
+}
+
 /// One epoch's engine, its safety log, and the bookkeeping between them.
 pub struct BftDriver {
     engine: Validator<MlDsaAuthenticator>,
@@ -103,6 +111,10 @@ pub struct BftDriver {
     /// is what restores fault tolerance, and imports attested blocks instead
     /// of building (ADR-038).
     follower: bool,
+    /// The anchor round the engine resumed after when it became a follower.
+    resumed_at: u64,
+    /// The round of the last anchor this engine committed, built or not.
+    last_anchor: Option<u64>,
 }
 
 impl core::fmt::Debug for BftDriver {
@@ -220,6 +232,8 @@ impl BftDriver {
             committee: Arc::clone(committee),
             attestations: Collector::default(),
             follower: false,
+            resumed_at: 0,
+            last_anchor: None,
         };
         // Own proposals and votes first: they set the round, so replaying
         // certificates cannot make the engine sign a slot it already signed.
@@ -316,15 +330,35 @@ impl BftDriver {
     /// than deriving them. A restart without catching up again leaves it.
     pub fn follow_attested(&mut self, chain: &Chain) {
         self.follower = true;
-        if chain.height() == 0 {
-            return;
+        if let Some((epoch, round)) = tip_seal(chain)
+            && epoch == self.epoch
+        {
+            self.engine.resume_after(round);
+            self.resumed_at = round;
         }
-        if let Some(tip) = chain.get(&chain.tip()) {
-            let (epoch, round) = unseal(tip.header.nonce);
-            if epoch == self.epoch {
-                self.engine.resume_after(round);
-            }
-        }
+    }
+
+    /// Whether a follower may build the block for the anchor at `round`
+    /// itself again. Two things must hold. The anchor is more than
+    /// `GC_DEPTH` rounds past where the engine resumed, so every vertex it
+    /// could order is one this node received while running — the history
+    /// it never saw lies below the horizon for it and for every peer alike,
+    /// so its sub-DAG is the network's. And the chain's tip is the block of
+    /// the anchor just before this one, so the new block has the parent the
+    /// network's does. Until then, blocks keep coming from attested imports.
+    fn may_build_again(&self, chain: &Chain, round: u64) -> bool {
+        let past_window = round > self.resumed_at + maya_dag_bft::GC_DEPTH + 2;
+        let at_previous = self
+            .last_anchor
+            .is_some_and(|prev| tip_seal(chain) == Some((self.epoch, prev)));
+        past_window && at_previous
+    }
+
+    /// This epoch's committee: what attestations and checkpoints are
+    /// checked against.
+    #[must_use]
+    pub fn committee(&self) -> Arc<[VerifyingKey]> {
+        Arc::clone(&self.committee)
     }
 
     /// Whether this node follows attested blocks instead of building.
@@ -442,12 +476,21 @@ impl BftDriver {
             step.frames.push(envelope.encode());
         }
         step.equivocations.extend(out.equivocations);
-        if self.follower {
-            // Blocks come from attested imports; see `follower`.
-            return Ok(());
-        }
         for sub_dag in out.sub_dags {
             let anchor = &sub_dag.anchor.vertex;
+            let round = anchor.round;
+            if self.follower {
+                if !self.may_build_again(chain, round) {
+                    // Blocks come from attested imports; see `follower`.
+                    self.last_anchor = Some(round);
+                    continue;
+                }
+                self.follower = false;
+                step.notices.push(format!(
+                    "caught up: building again from the anchor at round {round}"
+                ));
+            }
+            self.last_anchor = Some(round);
             if anchor.epoch != self.epoch || self.already_built(chain, anchor.epoch, anchor.round) {
                 continue;
             }
