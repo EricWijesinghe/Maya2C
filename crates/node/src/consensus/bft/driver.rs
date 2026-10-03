@@ -22,13 +22,14 @@ use maya_dag_bft::{
     Certificate, Committee, Dest, Equivocation, Message, Output, Params, Validator, ValidatorId,
 };
 
+use super::attest::{ATTEST_FRAME, Attestation, Checkpoint, Collected, Collector};
 use super::auth::MlDsaAuthenticator;
 use super::builder::{build_block, unseal};
 use super::remote::ValidatorKey;
 use super::store::SafetyStore;
 use super::wire::{BROADCAST, Envelope};
 use crate::consensus::{BlockId, Chain, InsertOutcome};
-use crate::core::Transaction;
+use crate::core::{ChainTag, Transaction};
 use crate::crypto::keys::VerifyingKey;
 use crate::error::{NodeError, Result};
 
@@ -69,6 +70,18 @@ pub struct Step {
     pub build_time: std::time::Duration,
     /// Equivocations this node witnessed, for the staking module.
     pub equivocations: Vec<Equivocation>,
+    /// Housekeeping that failed without touching safety — an old epoch's
+    /// logs that could not be removed. The node reports them; they cost
+    /// disk, never a vote.
+    pub notices: Vec<String>,
+}
+
+/// The `(epoch, round)` sealed in the chain's tip, or `None` at genesis.
+fn tip_seal(chain: &Chain) -> Option<(u64, u64)> {
+    if chain.height() == 0 {
+        return None;
+    }
+    chain.get(&chain.tip()).map(|tip| unseal(tip.header.nonce))
 }
 
 /// One epoch's engine, its safety log, and the bookkeeping between them.
@@ -88,6 +101,20 @@ pub struct BftDriver {
     signer: Option<ValidatorKey>,
     params: Params,
     dir: PathBuf,
+    /// This epoch's committee, which attestations are checked against.
+    committee: Arc<[VerifyingKey]>,
+    /// Attestations gathered into the newest checkpoint (ADR-038).
+    attestations: Collector,
+    /// Set after catching up through a checkpoint: this node lacks the DAG
+    /// history that says which vertices were already ordered, so a block it
+    /// derived could differ from the network's. It votes and proposes, which
+    /// is what restores fault tolerance, and imports attested blocks instead
+    /// of building (ADR-038).
+    follower: bool,
+    /// The anchor round the engine resumed after when it became a follower.
+    resumed_at: u64,
+    /// The round of the last anchor this engine committed, built or not.
+    last_anchor: Option<u64>,
 }
 
 impl core::fmt::Debug for BftDriver {
@@ -185,6 +212,13 @@ impl BftDriver {
             ),
         };
         let (store, recovered) = SafetyStore::open(&dir, epoch)?;
+        // Here, at every boot and every epoch switch, so the logs on disk
+        // never exceed this epoch's and the previous one's.
+        let first_kept = epoch.saturating_sub(super::store::RETAINED_PAST_EPOCHS);
+        if let Err(e) = super::store::prune_epochs_before(&dir, first_kept) {
+            step.notices
+                .push(format!("could not prune old epoch logs: {e}"));
+        }
         let mut driver = Self {
             engine,
             id,
@@ -195,6 +229,11 @@ impl BftDriver {
             signer,
             params,
             dir,
+            committee: Arc::clone(committee),
+            attestations: Collector::default(),
+            follower: false,
+            resumed_at: 0,
+            last_anchor: None,
         };
         // Own proposals and votes first: they set the round, so replaying
         // certificates cannot make the engine sign a slot it already signed.
@@ -266,6 +305,10 @@ impl BftDriver {
     /// epoch, or is addressed to someone else is not an error; it is ignored.
     pub fn on_frame(&mut self, chain: &mut Chain, now_ms: u64, bytes: &[u8]) -> Result<Step> {
         let mut step = Step::default();
+        if bytes.first() == Some(&ATTEST_FRAME) {
+            self.on_attestation(chain, bytes, &mut step);
+            return Ok(step);
+        }
         let Ok(envelope) = Envelope::decode(bytes) else {
             return Ok(step);
         };
@@ -279,6 +322,119 @@ impl BftDriver {
         let out = self.engine.handle(now_ms, envelope.from, envelope.message);
         self.absorb(chain, now_ms, out, &mut step)?;
         Ok(step)
+    }
+
+    /// Switches to following attested blocks after a catch-up (ADR-038):
+    /// the engine resumes at the anchor round sealed in the chain's tip, and
+    /// from here on this node votes and proposes but imports blocks rather
+    /// than deriving them. A restart without catching up again leaves it.
+    pub fn follow_attested(&mut self, chain: &Chain) {
+        self.follower = true;
+        if let Some((epoch, round)) = tip_seal(chain)
+            && epoch == self.epoch
+        {
+            self.engine.resume_after(round);
+            self.resumed_at = round;
+        }
+    }
+
+    /// Whether a follower may build the block for the anchor at `round`
+    /// itself again. Two things must hold. The anchor is more than
+    /// `GC_DEPTH` rounds past where the engine resumed, so every vertex it
+    /// could order is one this node received while running — the history
+    /// it never saw lies below the horizon for it and for every peer alike,
+    /// so its sub-DAG is the network's. And the chain's tip is the block of
+    /// the anchor just before this one, so the new block has the parent the
+    /// network's does. Until then, blocks keep coming from attested imports.
+    fn may_build_again(&self, chain: &Chain, round: u64) -> bool {
+        let past_window = round > self.resumed_at + maya_dag_bft::GC_DEPTH + 2;
+        let at_previous = self
+            .last_anchor
+            .is_some_and(|prev| tip_seal(chain) == Some((self.epoch, prev)));
+        past_window && at_previous
+    }
+
+    /// This epoch's committee: what attestations and checkpoints are
+    /// checked against.
+    #[must_use]
+    pub fn committee(&self) -> Arc<[VerifyingKey]> {
+        Arc::clone(&self.committee)
+    }
+
+    /// What `get_bft_status` reports for this driver.
+    #[must_use]
+    pub fn status(&self) -> crate::rpc::types::BftStatus {
+        crate::rpc::types::BftStatus {
+            epoch: self.epoch,
+            round: self.engine.round(),
+            committed_round: self.engine.last_committed_round(),
+            validator: self.id,
+            committee: u16::try_from(self.committee.len()).unwrap_or(u16::MAX),
+            follower: self.follower,
+        }
+    }
+
+    /// Whether this node follows attested blocks instead of building.
+    #[must_use]
+    pub fn is_follower(&self) -> bool {
+        self.follower
+    }
+
+    /// The newest block a quorum of this epoch's committee attested: what a
+    /// node that fell behind imports up to (ADR-038).
+    #[must_use]
+    pub fn checkpoint(&self) -> Option<&Checkpoint> {
+        self.attestations.newest()
+    }
+
+    /// Signs and gossips this validator's attestation of the block it just
+    /// built at the tip, and counts it. An observer attests nothing; a
+    /// signature that failed costs a checkpoint, never safety.
+    fn attest(&mut self, chain: &Chain, block: BlockId, step: &mut Step) {
+        let (Some(id), Some(signer)) = (self.id, &self.signer) else {
+            return;
+        };
+        let tag = ChainTag::from_genesis(chain.genesis());
+        let height = chain.height();
+        let Some(signature) = signer.sign_attestation(id, &tag, self.epoch, height, &block) else {
+            return;
+        };
+        let attestation = Attestation {
+            epoch: self.epoch,
+            height,
+            block,
+            validator: id,
+            signature,
+        };
+        step.frames.push(attestation.encode());
+        self.collect(attestation, &tag, step);
+    }
+
+    /// An attestation frame from a peer: counted if it verifies against this
+    /// epoch's committee, ignored otherwise, like any frame that does not
+    /// decode or names another epoch.
+    fn on_attestation(&mut self, chain: &Chain, bytes: &[u8], step: &mut Step) {
+        let Ok(attestation) = Attestation::decode(bytes) else {
+            return;
+        };
+        if attestation.epoch != self.epoch {
+            return;
+        }
+        let tag = ChainTag::from_genesis(chain.genesis());
+        self.collect(attestation, &tag, step);
+    }
+
+    fn collect(&mut self, attestation: Attestation, tag: &ChainTag, step: &mut Step) {
+        // Counted, ignored, a new checkpoint, or a forged attestation refused
+        // before it counted: only an equivocation is for the node to act on.
+        if let Ok(Collected::Equivocation(pair)) =
+            self.attestations.add(attestation, tag, &self.committee)
+        {
+            step.notices.push(format!(
+                "validator {} attested two blocks at height {} — evidence held",
+                pair.1.validator, pair.1.height
+            ));
+        }
     }
 
     /// Periodic work: re-broadcasts and anchor timeouts.
@@ -335,6 +491,19 @@ impl BftDriver {
         step.equivocations.extend(out.equivocations);
         for sub_dag in out.sub_dags {
             let anchor = &sub_dag.anchor.vertex;
+            let round = anchor.round;
+            if self.follower {
+                if !self.may_build_again(chain, round) {
+                    // Blocks come from attested imports; see `follower`.
+                    self.last_anchor = Some(round);
+                    continue;
+                }
+                self.follower = false;
+                step.notices.push(format!(
+                    "caught up: building again from the anchor at round {round}"
+                ));
+            }
+            self.last_anchor = Some(round);
             if anchor.epoch != self.epoch || self.already_built(chain, anchor.epoch, anchor.round) {
                 continue;
             }
@@ -361,6 +530,7 @@ impl BftDriver {
             match inserted {
                 InsertOutcome::Extended { tip } => {
                     step.blocks.push(tip);
+                    self.attest(chain, tip, step);
                     step.anchor_times_ms.push(anchor_time);
                     for txid in &included {
                         self.queued.remove(txid);

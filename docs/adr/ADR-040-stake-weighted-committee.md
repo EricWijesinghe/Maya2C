@@ -129,8 +129,8 @@ weight. It currently builds `Committee::new(size)` too.
     bitmap), a panic on an oversized committee (`weighted` now returns
     `Option`), and the dropped cheap pre-verification parent check (now the
     head-count floor).
-  - Not yet done: a test that delivers a certificate exactly at the horizon.
-    It needs `Validator::resume_after` from ADR-038 (PR #52) and lands once
-    that merges.
+  - `a_certificate_at_the_collection_horizon_is_accepted_without_its_parents`
+    (`tests/auth_and_restart.rs`) pins the horizon fix. With the exemption
+    removed, it fails ("a horizon certificate was refused").
 - `cargo nextest run -p custom-l1-node -p maya-dag-bft -p maya-link-sim -p maya2c-node`:
   1064 tests run: 1064 passed (1 slow), 2 skipped, 86.585 s.

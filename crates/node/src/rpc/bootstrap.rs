@@ -213,6 +213,18 @@ fn unhex(text: &str) -> Result<Vec<u8>> {
     hex::decode(text).map_err(|e| NodeError::Decode(format!("bad hex from peer: {e}")))
 }
 
+impl crate::consensus::bft::catchup::CheckpointSource for RpcBootstrapSource {
+    fn checkpoint(&self) -> Result<Option<crate::consensus::bft::attest::Checkpoint>> {
+        let info: Option<crate::rpc::types::CheckpointInfo> =
+            self.call("get_checkpoint", rpc_params![])?;
+        info.map(|i| i.checkpoint()).transpose()
+    }
+
+    fn block(&self, height: u64) -> Result<Block> {
+        BootstrapSource::block(self, height)
+    }
+}
+
 impl BootstrapSource for RpcBootstrapSource {
     fn tip_height(&self) -> Result<u64> {
         self.call("get_tip_height", rpc_params![])
