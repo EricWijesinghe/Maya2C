@@ -2,6 +2,7 @@
 //! CBOR bodies and size caps, the pattern the node's own block sync uses.
 //! A relay is any peer that serves these requests from a [`Relay`].
 
+use std::io::Write as _;
 use std::time::Duration;
 
 use futures::StreamExt as _;
@@ -146,7 +147,16 @@ pub async fn run_relay(
     loop {
         match swarm.select_next_some().await {
             SwarmEvent::NewListenAddr { address, .. } => {
-                println!("relay listening on {}", address.with(Protocol::P2p(peer)));
+                // Informational only. `println!` panics when stdout is
+                // closed (a supervisor or test that stopped reading), and a
+                // relay must not die over who is listening to its log.
+                let mut out = std::io::stdout();
+                let _ = writeln!(
+                    out,
+                    "relay listening on {}",
+                    address.with(Protocol::P2p(peer))
+                );
+                let _ = out.flush();
             }
             SwarmEvent::Behaviour(request_response::Event::Message {
                 message:
