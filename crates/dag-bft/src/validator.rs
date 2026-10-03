@@ -447,7 +447,7 @@ impl<A: Authenticator> Validator<A> {
         }
         let digest = c.digest();
         // Before the signatures: a re-broadcast of a held certificate costs a
-        // lookup, not 2f + 1 verifications.
+        // lookup, not a quorum of verifications.
         if self.dag.contains(&digest) || self.buffer.contains_key(&digest) {
             return;
         }
