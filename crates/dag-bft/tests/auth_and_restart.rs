@@ -307,3 +307,54 @@ fn an_observer_commits_what_validators_commit_without_signing() {
     assert!(common >= 3, "observer committed {} anchors", seen.len());
     assert_eq!(&validator[..common], &seen[..common]);
 }
+
+#[test]
+fn a_certificate_at_the_collection_horizon_is_accepted_without_its_parents() {
+    // ADR-038 catch-up resumes the engine with its horizon at the resume
+    // round, and joins by accepting certificates there whose parents it
+    // will never hold. ADR-040's parent check weighs parents through the
+    // DAG, and must not refuse these: both reviews of it caught that it did.
+    let mut ns = nodes(4);
+    let horizon = 40;
+    ns[1].resume_after(horizon);
+    let parents: Vec<Digest> = {
+        // Digests of certificates this node has never seen and never will.
+        let mut p: Vec<Digest> = (0..3u8).map(|i| [i + 1; 32]).collect();
+        p.sort_unstable();
+        p
+    };
+    let vertex = Vertex {
+        epoch: 0,
+        round: horizon,
+        author: 3,
+        timestamp_ms: 0,
+        parents,
+        batch: vec![],
+    };
+    let d = vertex.digest();
+    let cert = Certificate {
+        vertex: vertex.clone(),
+        votes: vec![0, 2, 3],
+        signatures: vec![mac(0, &d), mac(2, &d), mac(3, &d)],
+    };
+    ns[1].handle(0, 3, Message::Cert(cert));
+    assert!(
+        ns[1].dag().contains(&d),
+        "a horizon certificate was refused"
+    );
+
+    // One round above the horizon, the same unknown parents are missing,
+    // not exempt: the certificate waits for them instead of entering.
+    let above = Vertex {
+        round: horizon + 1,
+        ..vertex
+    };
+    let d = above.digest();
+    let cert = Certificate {
+        vertex: above,
+        votes: vec![0, 2, 3],
+        signatures: vec![mac(0, &d), mac(2, &d), mac(3, &d)],
+    };
+    ns[1].handle(0, 3, Message::Cert(cert));
+    assert!(!ns[1].dag().contains(&d), "entered without its parents");
+}

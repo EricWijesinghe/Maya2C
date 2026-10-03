@@ -94,7 +94,7 @@ struct Member {
 }
 
 struct Mesh {
-    _root: TempDir,
+    root: TempDir,
     members: Vec<Member>,
     queue: VecDeque<(usize, Vec<u8>)>,
     now: u64,
@@ -143,7 +143,7 @@ impl Mesh {
             members.push(Member { driver, chain });
         }
         let mut mesh = Self {
-            _root: root,
+            root,
             members,
             queue: VecDeque::new(),
             now: 0,
@@ -324,6 +324,13 @@ fn a_registration_joins_the_committee_and_evidence_removes_an_equivocator() {
     mesh.run_until(|m| m.all_in_epoch(2));
     assert!(mesh.all_in_epoch(2));
     mesh.agree();
+    // Entering epoch 2 removed epoch 0's logs and kept epoch 1's: on disk, a
+    // validator holds this epoch and the previous one, never the whole past.
+    for i in 0..NODES {
+        let logs = mesh.root.path().join(format!("bft-{i}"));
+        assert!(!logs.join("epoch-0").exists(), "node {i} kept epoch 0");
+        assert!(logs.join("epoch-1").exists() && logs.join("epoch-2").exists());
+    }
     let offender = validator_id(&validator_key(3).verifying_key().to_bytes());
     let record = mesh.members[0]
         .chain

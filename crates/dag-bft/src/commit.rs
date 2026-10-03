@@ -160,6 +160,13 @@ impl Committer {
         }
     }
 
+    /// Treats every anchor up to `round` as committed elsewhere: the node
+    /// imported those blocks under a quorum of attestations (ADR-038) rather
+    /// than deriving them. Only ever moves forward.
+    pub fn resume_at(&mut self, round: u64) {
+        self.last_committed_round = self.last_committed_round.max(round);
+    }
+
     /// Forgets ordered digests below `round`, matching the DAG's GC.
     pub fn collect_below(&mut self, round: u64) {
         self.ordered = self.ordered.split_off(&(round, [0u8; 32]));

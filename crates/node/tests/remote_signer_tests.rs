@@ -38,10 +38,11 @@ fn spawn_signer(
     let pin = identity.public_key().to_vec();
     let allowed = vec![node.public_key().to_vec()];
     let db = SlashingDb::open(&dir.path().join("protection.jsonl")).unwrap();
+    let attestations = SlashingDb::open(&dir.path().join("attestations.jsonl")).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     let handle = std::thread::spawn(move || {
-        let mut service = Service::new(backend, db);
+        let mut service = Service::new(backend, db).with_attestations(attestations);
         let (stream, _) = listener.accept().unwrap();
         let mut ch = channel::server(stream, &identity, &allowed).unwrap();
         while let Ok(frame) = ch.recv() {
@@ -143,4 +144,37 @@ fn a_signer_holding_another_key_costs_votes_not_garbage() {
     let auth =
         MlDsaAuthenticator::validator(ValidatorKey::Remote(Arc::new(remote)), vec![claimed].into());
     assert!(auth.sign(vote(1, 0), &[9; 32]).is_empty());
+}
+
+#[test]
+fn a_remote_attestation_verifies_and_a_second_block_at_its_height_is_refused() {
+    use custom_l1_node::consensus::bft::attest::Attestation;
+    use custom_l1_node::core::ChainTag;
+
+    // ADR-038: the node asks the signer, not a key file, and the signer's own
+    // record stops a second block at one height.
+    let dir = tempfile::tempdir().unwrap();
+    let node = Identity::from_seed(&seed(1));
+    let (addr, public, pin, _signer) = spawn_signer(&dir, &node);
+    let committee = vec![public.clone()];
+    let key = ValidatorKey::Remote(Arc::new(
+        RemoteSigner::connect(addr, node, pin, public, DEADLINE).unwrap(),
+    ));
+    let chain = ChainTag::from_genesis([3; 32]);
+
+    let signature = key
+        .sign_attestation(0, &chain, 0, 42, &[9; 32])
+        .expect("first attestation at height 42");
+    Attestation {
+        epoch: 0,
+        height: 42,
+        block: [9; 32],
+        validator: 0,
+        signature,
+    }
+    .verify(&chain, &committee)
+    .expect("the signer signed exactly the attestation bytes");
+
+    assert!(key.sign_attestation(0, &chain, 0, 42, &[8; 32]).is_none());
+    assert!(key.sign_attestation(0, &chain, 0, 43, &[8; 32]).is_some());
 }
