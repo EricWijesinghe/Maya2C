@@ -28,6 +28,8 @@ use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
 use tempfile::TempDir;
 
+mod common;
+
 /// Leading zero bits required by the test chain. Low enough that a single block
 /// solves in roughly a second.
 const TEST_DIFFICULTY_BITS: u32 = 6;
@@ -87,7 +89,7 @@ async fn start_node(funded: &[(Address, u64)], verify_pow: bool) -> TestNode {
     };
 
     let chain = Arc::new(Mutex::new(
-        Chain::open(Arc::clone(&state), genesis_block, config).expect("open chain"),
+        common::open_chain(Arc::clone(&state), genesis_block, config).expect("open chain"),
     ));
     let mempool = Mempool::new(Arc::clone(&state));
     let context = RpcContext::new(Arc::clone(&chain), mempool);
@@ -123,7 +125,7 @@ fn signed_transfer(from: &HybridSigningKey, to: Address, amount: u64, nonce: u64
         }],
         nonce,
     );
-    tx.sign(from).expect("sign");
+    tx.sign(from, &common::test_chain()).expect("sign");
     tx
 }
 
@@ -201,7 +203,10 @@ async fn a_generated_key_can_sign_a_transaction_the_node_accepts() {
     let raw = hex::encode(tx.to_bytes());
     let decoded = Transaction::from_bytes(&hex::decode(&raw).expect("hex")).expect("decode");
     assert_eq!(decoded, tx, "wire encoding must round-trip exactly");
-    assert!(decoded.verify().is_ok(), "signature must survive encoding");
+    assert!(
+        decoded.verify(&common::test_chain()).is_ok(),
+        "signature must survive encoding"
+    );
 
     let result: SubmitTransactionResult = node
         .client
@@ -541,8 +546,6 @@ async fn balances_at_past_heights_undo_each_later_blocks_changes() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-
-mod common;
 async fn a_caller_over_the_rate_limit_is_refused_with_429() {
     use custom_l1_node::rpc::limit::RateLimiter;
 
@@ -550,7 +553,7 @@ async fn a_caller_over_the_rate_limit_is_refused_with_429() {
         let dir = TempDir::new().expect("temp dir");
         let state = Arc::new(StateDB::open(dir.path()).expect("open state"));
         let chain = Arc::new(Mutex::new(
-            Chain::open(
+            common::open_chain(
                 Arc::clone(&state),
                 genesis(TEST_DIFFICULTY_BITS),
                 ChainConfig::without_pow_verification(),

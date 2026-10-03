@@ -24,6 +24,8 @@ use libp2p::Multiaddr;
 use libp2p::core::UpgradeInfo;
 use tempfile::TempDir;
 
+mod common;
+
 const TIMEOUT: Duration = Duration::from_secs(30);
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
@@ -45,6 +47,7 @@ struct TestNode {
 async fn spawn_node(rotation_check: Duration) -> TestNode {
     let dir = TempDir::new().expect("temp dir");
     let state = StateDB::open(dir.path()).expect("open state");
+    common::bind(&state);
 
     let mut node =
         Node::new_memory_with_rotation(Arc::new(state), rotation_check).expect("build node");
@@ -82,7 +85,7 @@ fn signed_block() -> Block {
         }],
         0,
     );
-    tx.sign(&key).expect("sign");
+    tx.sign(&key, &common::test_chain()).expect("sign");
 
     Block::new(
         BlockHeader {
@@ -266,8 +269,6 @@ async fn a_session_within_its_epoch_is_left_alone() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-
-mod common;
 async fn a_rotated_session_comes_back() {
     // Rotation is only useful if the mesh heals. Closing the connection is the
     // easy half; the point is that libp2p redials and the ML-KEM upgrade runs

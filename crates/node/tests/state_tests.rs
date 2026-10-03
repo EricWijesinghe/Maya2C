@@ -12,6 +12,8 @@ use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
 use tempfile::TempDir;
 
+mod common;
+
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
@@ -21,6 +23,7 @@ use tempfile::TempDir;
 fn open_db() -> (StateDB, TempDir) {
     let dir = TempDir::new().expect("temp dir");
     let db = StateDB::open(dir.path()).expect("open state db");
+    common::bind(&db);
     (db, dir)
 }
 
@@ -43,7 +46,7 @@ fn transfer(from: &HybridSigningKey, to: &Address, amount: u64, nonce: u64) -> T
         }],
         nonce,
     );
-    tx.sign(from).expect("sign");
+    tx.sign(from, &common::test_chain()).expect("sign");
     tx
 }
 
@@ -78,10 +81,12 @@ fn accounts_survive_reopen() {
 
     {
         let db = StateDB::open(dir.path()).expect("open");
+        common::bind(&db);
         fund(&db, &address, 500);
     } // dropped: db closed, files remain
 
     let reopened = StateDB::open(dir.path()).expect("reopen");
+    common::bind(&reopened);
     assert_eq!(
         reopened.get_account(&address),
         Ok(Account {
@@ -480,8 +485,6 @@ fn checked_apply_rejects_a_header_with_the_wrong_state_root() {
 }
 
 #[test]
-
-mod common;
 fn checked_apply_commits_when_the_header_root_matches() {
     let (db, _dir) = open_db();
     let alice = generate_signing_key().expect("keygen");

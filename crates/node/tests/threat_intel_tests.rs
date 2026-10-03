@@ -51,6 +51,8 @@ use maya_threat_intel::{
     AttackAttestation, Author, OffenceKind, SignedGossip, author_of_peer_id, peer_id_bytes,
 };
 
+mod common;
+
 const NETWORK_SIZE: usize = 10;
 const ATTACKERS: usize = 4;
 const TIMEOUT: Duration = Duration::from_secs(60);
@@ -95,6 +97,7 @@ fn next_memory_address() -> Multiaddr {
 fn open_db(funded: &[(Address, u64)]) -> (Arc<StateDB>, TempDir) {
     let dir = TempDir::new().expect("temp dir");
     let state = StateDB::open(dir.path()).expect("open state");
+    common::bind(&state);
     for (address, balance) in funded {
         let account = Account {
             balance: *balance,
@@ -199,14 +202,14 @@ fn block_of(transactions: Vec<Transaction>) -> Block {
 
 fn signed(kind: TxKind, nonce: u64, key: &HybridSigningKey) -> Transaction {
     let mut tx = Transaction::with_kind(kind, nonce);
-    tx.sign(key).expect("sign");
+    tx.sign(key, &common::test_chain()).expect("sign");
     tx
 }
 
 fn transfer(key: &HybridSigningKey, recipient: Address, amount: u64, nonce: u64) -> Transaction {
     let outputs = vec![TxOutput { amount, recipient }];
     let mut tx = Transaction::new(vec![], outputs, nonce);
-    tx.sign(key).expect("sign");
+    tx.sign(key, &common::test_chain()).expect("sign");
     tx
 }
 
@@ -704,8 +707,6 @@ fn repeated_evidence_is_a_no_op_and_a_reverted_block_takes_its_indicator_with_it
 }
 
 #[test]
-
-mod common;
 fn an_ed25519_peer_id_is_the_author_key_it_inlines() {
     let keypair = Keypair::generate_ed25519();
     let key = keypair

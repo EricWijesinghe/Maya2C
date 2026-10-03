@@ -17,8 +17,8 @@
 //!   `custom_l1_node::state::stateless`.
 //! - **Fetch witnesses.** No gossip topic carries them yet.
 
-use custom_l1_node::core::{BlockHeader, ChainTag};
 use custom_l1_node::core::block::Block;
+use custom_l1_node::core::{BlockHeader, ChainTag};
 use custom_l1_node::state::{StateWitness, StatelessError, verify_block};
 
 use crate::chain::LightClient;
@@ -30,16 +30,18 @@ pub struct StatelessValidator {
     tip_id: [u8; 32],
     state_root: [u8; 32],
     height: u64,
+    chain: ChainTag,
 }
 
 impl StatelessValidator {
     /// Starts from a header the caller already trusts, at `height`.
     #[must_use]
-    pub fn new(anchor: &BlockHeader, height: u64) -> Self {
+    pub fn new(anchor: &BlockHeader, height: u64, chain: ChainTag) -> Self {
         Self {
             tip_id: anchor.id(),
             state_root: anchor.state_root,
             height,
+            chain,
         }
     }
 
@@ -75,7 +77,7 @@ impl StatelessValidator {
                 parent: hex::encode(block.header.prev_hash),
             });
         }
-        verify_block(&self.state_root, height, block, witness)
+        verify_block(&self.state_root, height, block, witness, &self.chain)
             .map_err(|error| verdict(height, error))?;
         self.tip_id = block.header.id();
         self.state_root = block.header.state_root;
@@ -95,7 +97,13 @@ impl LightClient {
     /// - [`LightClientError::BlockInvalid`] or
     ///   [`LightClientError::BlockUnverifiable`], as
     ///   [`StatelessValidator::validate`].
-    pub fn verify_block(&self, height: u64, block: &Block, witness: StateWitness) -> Result<()> {
+    pub fn verify_block(
+        &self,
+        height: u64,
+        block: &Block,
+        witness: StateWitness,
+        chain: &ChainTag,
+    ) -> Result<()> {
         let record = self
             .chain()
             .header_at(height)
@@ -110,7 +118,7 @@ impl LightClient {
             .chain()
             .header_at(parent_height)
             .ok_or(LightClientError::UnknownHeight(parent_height))?;
-        verify_block(&parent.header.state_root, height, block, witness)
+        verify_block(&parent.header.state_root, height, block, witness, chain)
             .map_err(|error| verdict(height, error))
     }
 }

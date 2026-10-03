@@ -44,6 +44,8 @@ use rand_chacha::ChaCha20Rng;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
 use tempfile::TempDir;
 
+mod common;
+
 /// The value of a `u64` env var, or `default`.
 fn env_u64(name: &str, default: u64) -> u64 {
     std::env::var(name)
@@ -134,6 +136,7 @@ fn guard<T>(f: impl FnOnce() -> T) -> Result<T, String> {
 fn fresh_state(owner: &Address) -> (StateDB, TempDir) {
     let dir = TempDir::new().expect("temp dir");
     let state = StateDB::open(dir.path()).expect("open state");
+    common::bind(&state);
     state
         .put_account(
             owner,
@@ -161,8 +164,6 @@ fn block_of(tx: Transaction) -> Block {
 }
 
 #[test]
-
-mod common;
 fn seeded_mutations_never_panic_the_decoder_or_apply_path_and_stay_deterministic() {
     // A quiet hook: the harness reports the offending input itself, and a
     // backtrace per caught panic would drown a soak run.

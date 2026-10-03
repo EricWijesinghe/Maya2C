@@ -28,6 +28,8 @@ use maya_custody_mpc::dkg::{Custodian, Dealing, Roster, VaultPolicy};
 use maya_custody_mpc::hybrid as custody;
 use maya_custody_mpc::session::{SigningSession, VaultDescriptor};
 
+mod common;
+
 /// Runs a 2-of-3 ceremony and returns the vault plus everything it can sign
 /// with. Small on purpose: this file is about derivation, not about quorums —
 /// `crates/custody-mpc/tests/ceremony_tests.rs` covers those.
@@ -193,8 +195,6 @@ fn a_signature_over_a_different_message_is_refused_by_the_node() {
 }
 
 #[test]
-
-mod common;
 fn a_forged_hash_based_half_is_refused_even_though_the_lattice_half_is_genuine() {
     // The property that makes threshold custody of the *chain key* the right
     // shape for this chain, rather than threshold signing of the lattice half:

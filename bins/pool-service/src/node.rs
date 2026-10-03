@@ -171,11 +171,8 @@ impl NodeClient {
             .request("get_chain_info", rpc_params![])
             .await
             .map_err(|e| PoolError::NodeRpc(format!("get_chain_info: {e}")))?;
-        let genesis_bytes = hex::decode(&info.genesis)
-            .map_err(|e| PoolError::NodeRpc(format!("chain_tag: decode genesis: {e}")))?;
-        let genesis_array: [u8; 32] = genesis_bytes.try_into()
-            .map_err(|_| PoolError::NodeRpc("chain_tag: genesis must be 32 bytes".to_string()))?;
-        Ok(ChainTag::from_genesis(genesis_array))
+        info.chain_tag()
+            .map_err(|e| PoolError::NodeRpc(format!("chain_tag: {e}")))
     }
 }
 

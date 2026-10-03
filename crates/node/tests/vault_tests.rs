@@ -12,6 +12,8 @@ use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
 use maya_htlc_lattice::{HashFunction, Lock, Preimage};
 use tempfile::TempDir;
 
+mod common;
+
 const FUNDS: u64 = 10_000;
 const DELAY: u64 = 10;
 const LIMIT: u64 = 100;
@@ -32,6 +34,7 @@ impl Chain {
     fn new(funded: &[Address]) -> Self {
         let dir = TempDir::new().unwrap();
         let db = StateDB::open(dir.path()).unwrap();
+        common::bind(&db);
         for a in funded {
             db.put_account(
                 a,
@@ -94,7 +97,7 @@ impl Chain {
 fn vault(chain: &Chain, key: &HybridSigningKey, action: VaultAction) -> Transaction {
     let mut tx =
         Transaction::with_kind(TxKind::Vault(Box::new(action)), chain.nonce(&key.address()));
-    tx.sign(key).unwrap();
+    tx.sign(key, &common::test_chain()).unwrap();
     tx
 }
 
@@ -107,7 +110,7 @@ fn transfer(chain: &Chain, key: &HybridSigningKey, to: Address, amount: u64) -> 
         }],
         chain.nonce(&key.address()),
     );
-    tx.sign(key).unwrap();
+    tx.sign(key, &common::test_chain()).unwrap();
     tx
 }
 
@@ -148,7 +151,7 @@ fn a_stolen_key_waits_and_a_guardian_cancels() {
         })),
         chain.nonce(&owner),
     );
-    lock.sign(&owner_key).unwrap();
+    lock.sign(&owner_key, &common::test_chain()).unwrap();
     assert!(chain.send(lock).unwrap_err().contains("may not send"));
 
     // The thief, holding the owner's key, requests everything. It leaves the
@@ -359,8 +362,6 @@ fn the_fee_collector_is_not_a_way_around_the_limit() {
 }
 
 #[test]
-
-mod common;
 fn the_limit_bounds_a_window_not_a_transaction() {
     // Review: a per-transaction limit let a stolen key drain a vault through
     // many in-limit transfers at once. The limit is outflow per window of

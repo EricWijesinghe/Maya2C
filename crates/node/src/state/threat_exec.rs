@@ -69,7 +69,11 @@ impl StateDB {
 /// # Errors
 ///
 /// [`NodeError::ThreatIntel`] naming the first check that failed.
-pub fn verify_evidence(attestation: &AttackAttestation, height: u64, chain: &crate::core::ChainTag) -> Result<[u8; 32]> {
+pub fn verify_evidence(
+    attestation: &AttackAttestation,
+    height: u64,
+    chain: &crate::core::ChainTag,
+) -> Result<[u8; 32]> {
     let gossip = &attestation.gossip;
     let key = VerifyingKey::from_bytes(&gossip.author)
         .map_err(|_| refused("the author is not an ed25519 key"))?;

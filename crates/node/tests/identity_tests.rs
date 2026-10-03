@@ -34,6 +34,8 @@ use maya_zk_stark::hash::{Digest, F};
 use maya_zk_stark::pool::tree::{digest_from_bytes, digest_to_bytes};
 use tempfile::TempDir;
 
+mod common;
+
 // ---------------------------------------------------------------------------
 // harness
 // ---------------------------------------------------------------------------
@@ -46,6 +48,7 @@ struct Fixture {
 fn fixture(funded: &[(Address, u64)]) -> Fixture {
     let dir = TempDir::new().expect("temp dir");
     let db = StateDB::open(dir.path()).expect("open");
+    common::bind(&db);
     for (address, balance) in funded {
         db.put_account(
             address,
@@ -75,7 +78,7 @@ fn block_of(transactions: Vec<Transaction>) -> Block {
 
 fn signed(kind: TxKind, nonce: u64, key: &HybridSigningKey) -> Transaction {
     let mut tx = Transaction::with_kind(kind, nonce);
-    tx.sign(key).expect("sign");
+    tx.sign(key, &common::test_chain()).expect("sign");
     tx
 }
 
@@ -565,8 +568,6 @@ fn a_claim_that_fails_the_predicate_cannot_be_proved() {
 }
 
 #[test]
-
-mod common;
 fn a_verifier_checks_the_root_against_what_the_chain_holds() {
     // The link between the two halves: the root a verifier feeds the circuit is
     // the one consensus accepted, because the issuer's hybrid signature was

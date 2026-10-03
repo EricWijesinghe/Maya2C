@@ -101,7 +101,7 @@ pub fn multisig_address(policy: &MultisigPolicy) -> [u8; 32] {
 }
 
 /// The bytes a multisig transaction encodes without domain or chain tag.
-fn body_bytes(tx: &Transaction, auth: &MultisigAuth) -> Vec<u8> {
+pub(crate) fn body_bytes(tx: &Transaction, auth: &MultisigAuth) -> Vec<u8> {
     let policy = auth.policy.encode();
     let mut buf = Vec::with_capacity(32 + policy.len());
     tx.encode_io_into(&mut buf);
@@ -113,7 +113,7 @@ fn body_bytes(tx: &Transaction, auth: &MultisigAuth) -> Vec<u8> {
 
 /// The bytes every approver signs.
 ///
-/// Structure: TX_DOMAIN || chain_tag || body_bytes()
+/// Structure: `TX_DOMAIN_MULTISIG || chain_tag || body_bytes()`
 /// Includes the chain tag (ADR-036) to bind the signature to a specific chain,
 /// preventing cross-chain replay attacks.
 pub(crate) fn signing_bytes(tx: &Transaction, auth: &MultisigAuth, chain: &ChainTag) -> Vec<u8> {

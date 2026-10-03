@@ -114,6 +114,9 @@ pub struct FeeTerms {
     pub base_fee: u64,
     /// Economy, Standard and Priority.
     pub options: Vec<FeeOption>,
+    /// The node's genesis id, hex: the one chain a signature is valid on
+    /// (ADR-036). Empty until the node has answered.
+    pub genesis: String,
 }
 
 /// A node's view of an account.
@@ -298,15 +301,16 @@ pub async fn preview_transfer(
 
 /// Signs a transfer. No network access.
 ///
-/// `fee_to` is the collector from [`fee_options`]; `None` burns the fee,
-/// which only a chain without a fee market accepts.
+/// `terms.collector` is the fee collector (`None` burns the fee, which only a
+/// chain without a fee market accepts) and `terms.genesis` the chain the
+/// signature is valid on; both come from [`fee_options`].
 pub async fn sign_transfer(
     index: u32,
     recipient: &str,
     amount: u64,
     fee: u64,
-    fee_to: Option<&str>,
     nonce: u64,
+    terms: &FeeTerms,
 ) -> Result<SignedTransfer, String> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -317,6 +321,7 @@ pub async fn sign_transfer(
         fee: u64,
         fee_to: Option<&'a str>,
         nonce: u64,
+        genesis: &'a str,
     }
     call(
         "sign_transfer",
@@ -325,8 +330,9 @@ pub async fn sign_transfer(
             recipient,
             amount,
             fee,
-            fee_to,
+            fee_to: terms.collector.as_deref(),
             nonce,
+            genesis: &terms.genesis,
         },
     )
     .await

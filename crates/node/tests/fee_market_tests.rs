@@ -19,6 +19,8 @@ use maya_fee_market::{
     BlockFeeOutcome, FeeClaim, FeeConfig, MAX_SUPPLY, ParentFees, Supply, TxFee, apply_block_fees,
 };
 
+mod common;
+
 /// The serialized size of one signed single-input, single-output transfer.
 fn signed_transfer_size() -> u64 {
     let key = generate_signing_key().expect("keygen");
@@ -33,7 +35,7 @@ fn signed_transfer_size() -> u64 {
         }],
         0,
     );
-    tx.sign(&key).expect("sign");
+    tx.sign(&key, &common::test_chain()).expect("sign");
     tx.to_bytes().len() as u64
 }
 
@@ -173,8 +175,6 @@ fn every_network_runs_the_fee_market_disabled() {
 }
 
 #[test]
-
-mod common;
 fn the_fee_market_is_reached_only_through_its_genesis_gate() {
     // ADR-029 wired the base-fee step in, behind `genesis.bft.fees`: only the
     // genesis parameter check and the fee record may name the crate. The day

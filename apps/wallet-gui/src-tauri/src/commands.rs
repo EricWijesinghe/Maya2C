@@ -30,7 +30,9 @@ use std::sync::Mutex;
 use maya_wallet_core::hd::seed_from_mnemonic;
 use maya_wallet_core::payment::{FeeTier, PaymentRequest, SignedTransfer};
 use maya_wallet_core::vault::{OsKeychain, Vault};
-use maya_wallet_core::wallet::{Account, PendingTransfer, TransferStatus, Wallet};
+use maya_wallet_core::wallet::{
+    Account, ChainTag, PendingTransfer, SignTerms, TransferStatus, Wallet,
+};
 use maya_wallet_core::{generate_mnemonic, payment, validate_mnemonic, wallet};
 use serde::{Deserialize, Serialize};
 
@@ -103,6 +105,8 @@ pub struct FeeTerms {
     pub base_fee: u64,
     /// Economy, Standard and Priority.
     pub options: Vec<FeeOption>,
+    /// The node's genesis id, hex: what `sign_transfer` signs for (ADR-036).
+    pub genesis: String,
 }
 
 /// Generates a wallet and stores its sealed seed in the OS keychain.
@@ -296,8 +300,10 @@ pub fn preview_transfer(
 /// Signs a transfer. No network access.
 ///
 /// `fee_to` is the collector from [`fee_options`]; without it the fee is
-/// burned, which only a chain without a fee market accepts.
+/// burned, which only a chain without a fee market accepts. `genesis` is the
+/// hex genesis id from [`fee_options`]: the one chain the signature is valid on.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri maps each JS argument to one parameter.
 pub fn sign_transfer(
     index: u32,
     recipient: String,
@@ -305,13 +311,30 @@ pub fn sign_transfer(
     fee: u64,
     fee_to: Option<String>,
     nonce: u64,
+    genesis: String,
     session: tauri::State<'_, Session>,
 ) -> Result<SignedTransfer, String> {
+    let chain = parse_genesis(&genesis)?;
+    let terms = SignTerms {
+        fee,
+        fee_to: fee_to.as_deref(),
+        nonce,
+        chain: &chain,
+    };
     session.with(|wallet| {
         wallet
-            .sign(index, &recipient, amount, fee, fee_to.as_deref(), nonce)
+            .sign(index, &recipient, amount, &terms)
             .map_err(|e| e.to_string())
     })
+}
+
+/// A genesis id as `fee_options` returned it: 64 hex characters.
+fn parse_genesis(genesis: &str) -> Result<ChainTag, String> {
+    hex::decode(genesis)
+        .ok()
+        .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok())
+        .map(ChainTag::from_genesis)
+        .ok_or_else(|| "the node's genesis id is missing or malformed; reload fees".to_string())
 }
 
 /// Broadcasts raw transaction hex to a node.
@@ -384,11 +407,16 @@ pub async fn fee_options(
     let quote = wallet::fee_quote(&node_url)
         .await
         .map_err(|e| e.to_string())?;
+    let chain = wallet::chain_info(&node_url)
+        .await
+        .map_err(|e| e.to_string())?;
+    let genesis = chain.to_string();
     let tiers = FeeTier::all();
     if !quote.active {
         return Ok(FeeTerms {
             collector: None,
             base_fee: 0,
+            genesis,
             options: tiers
                 .iter()
                 .map(|tier| FeeOption {
@@ -400,13 +428,14 @@ pub async fn fee_options(
     }
     let size = session.with(|wallet| {
         wallet
-            .transfer_size(index, &quote.collector, nonce)
+            .transfer_size(index, &quote.collector, nonce, &chain)
             .map_err(|e| e.to_string())
     })?;
     let fees = payment::priced_fee_tiers(quote.base_fee, size).map_err(|e| e.to_string())?;
     Ok(FeeTerms {
         collector: Some(quote.collector),
         base_fee: quote.base_fee,
+        genesis,
         options: tiers
             .iter()
             .zip(fees)

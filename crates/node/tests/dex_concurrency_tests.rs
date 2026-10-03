@@ -38,6 +38,8 @@ use custom_l1_node::state::{
 };
 use tempfile::TempDir;
 
+mod common;
+
 const LP_FEE_BPS: u32 = 30;
 const POOL_NATIVE: u64 = 1_000_000;
 const POOL_ASSET: u64 = 4_000_000;
@@ -59,7 +61,7 @@ fn block_of(transactions: Vec<Transaction>) -> Block {
 
 fn signed(kind: TxKind, nonce: u64, key: &HybridSigningKey) -> Transaction {
     let mut tx = Transaction::with_kind(kind, nonce);
-    tx.sign(key).expect("sign");
+    tx.sign(key, &common::test_chain()).expect("sign");
     tx
 }
 
@@ -86,6 +88,7 @@ struct Arena {
 fn arena(maker: &HybridSigningKey, traders: &[HybridSigningKey]) -> Arena {
     let dir = TempDir::new().expect("temp dir");
     let db = StateDB::open(dir.path()).expect("open");
+    common::bind(&db);
     let maker_address = maker.address();
 
     db.put_account(
@@ -498,8 +501,6 @@ fn native_supply(db: &StateDB, addresses: &[Address]) -> u64 {
 }
 
 #[test]
-
-mod common;
 fn a_block_of_trades_conserves_every_asset() {
     let maker = generate_signing_key().expect("key");
     let traders = keys(TRADERS);

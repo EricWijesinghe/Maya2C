@@ -15,6 +15,8 @@ use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::state::{Account, BlockContext, StateDB};
 use tempfile::TempDir;
 
+mod common;
+
 fn wasm() -> Vec<u8> {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../target-contracts/wasm32-unknown-unknown/release/nft_game.wasm");
@@ -46,7 +48,7 @@ fn block(txs: Vec<Transaction>) -> Block {
 
 fn signed(kind: TxKind, nonce: u64, who: &HybridSigningKey) -> Transaction {
     let mut tx = Transaction::with_kind(kind, nonce);
-    tx.sign(who).unwrap();
+    tx.sign(who, &common::test_chain()).unwrap();
     tx
 }
 
@@ -69,12 +71,11 @@ fn owner_key(id: u64) -> Vec<u8> {
 }
 
 #[test]
-
-mod common;
 fn only_the_signing_owner_moves_a_token_through_the_node() {
     let (admin, alice, mallory, bob) = (key(0), key(1), key(2), key(3));
     let dir = TempDir::new().unwrap();
     let db = StateDB::open(dir.path()).unwrap();
+    common::bind(&db);
     for k in [&admin, &alice, &mallory] {
         db.put_account(
             &k.address(),

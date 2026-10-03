@@ -12,7 +12,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::{Block, BlockHeader, Transaction};
+use crate::core::{Block, BlockHeader, ChainTag, Transaction};
+use crate::error::NodeError;
 use crate::state::Account;
 
 /// The fee market as a wallet needs it (ADR-029).
@@ -34,9 +35,25 @@ pub struct FeeInfo {
 pub struct ChainInfo {
     /// Hex-encoded genesis block id (32 bytes), used as the chain tag for signatures.
     pub genesis: String,
-    /// Optional chain id string, if one is configured. `null` if no string identifier
-    /// is available in the RPC context.
+    /// The network's name (`maya-testnet-1`) where the node was given one;
+    /// `null` otherwise. A label for people: only `genesis` is signed.
     pub chain_id: Option<String>,
+}
+
+impl ChainInfo {
+    /// The tag signatures for this chain commit to (ADR-036), parsed from
+    /// [`Self::genesis`].
+    ///
+    /// # Errors
+    ///
+    /// [`NodeError::Decode`] if `genesis` is not 64 hex characters.
+    pub fn chain_tag(&self) -> crate::error::Result<ChainTag> {
+        let bytes = hex::decode(&self.genesis)
+            .map_err(|e| NodeError::Decode(format!("genesis is not hex: {e}")))?;
+        let id = <[u8; 32]>::try_from(bytes.as_slice())
+            .map_err(|_| NodeError::Decode(format!("genesis is {} bytes, not 32", bytes.len())))?;
+        Ok(ChainTag::from_genesis(id))
+    }
 }
 
 /// An account's spendable balance and replay counter.

@@ -25,6 +25,10 @@ use std::time::Instant;
 use custom_l1_node::core::transaction::{Transaction, TxOutput};
 use maya_crypto_pq::suite::{MasterSeed, MlDsa65, SignatureSuite};
 
+/// The chain test signatures commit to (ADR-036).
+const CHAIN: custom_l1_node::core::ChainTag =
+    custom_l1_node::core::ChainTag::from_genesis([42; 32]);
+
 fn worker() {
     let policy = custom_l1_node::crypto::suites::verification_policy();
     let mut input = BufReader::new(std::io::stdin().lock());
@@ -33,7 +37,8 @@ fn worker() {
     while input.read_exact(&mut len).is_ok() {
         let mut buf = vec![0u8; u32::from_le_bytes(len) as usize];
         input.read_exact(&mut buf).unwrap();
-        let ok = Transaction::from_bytes(&buf).is_ok_and(|tx| tx.verify_at(1, &policy).is_ok());
+        let ok =
+            Transaction::from_bytes(&buf).is_ok_and(|tx| tx.verify_at(1, &policy, &CHAIN).is_ok());
         output.write_all(&[u8::from(ok)]).unwrap();
     }
     output.flush().unwrap();
@@ -53,7 +58,7 @@ fn transactions(n: usize) -> Vec<Vec<u8>> {
                 }],
                 i as u64 / 64,
             );
-            tx.sign_with_suite::<MlDsa65>(&key).unwrap();
+            tx.sign_with_suite::<MlDsa65>(&key, &CHAIN).unwrap();
             tx.to_bytes()
         })
         .collect()

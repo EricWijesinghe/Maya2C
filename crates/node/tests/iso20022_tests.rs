@@ -41,6 +41,8 @@ use maya_zk_stark::sanctions::{SanctionsList, prove, verify};
 
 use tempfile::TempDir;
 
+mod common;
+
 // ---------------------------------------------------------------------------
 // fixtures
 // ---------------------------------------------------------------------------
@@ -121,6 +123,7 @@ struct Fixture {
 fn fixture(funded: &[(Address, u64)]) -> Fixture {
     let dir = TempDir::new().expect("temp dir");
     let db = StateDB::open(dir.path()).expect("open");
+    common::bind(&db);
     for (address, balance) in funded {
         db.put_account(
             address,
@@ -149,7 +152,7 @@ fn block_of(transactions: Vec<Transaction>) -> Block {
 }
 
 fn signed(mut transaction: Transaction, key: &HybridSigningKey) -> Transaction {
-    transaction.sign(key).expect("sign");
+    transaction.sign(key, &common::test_chain()).expect("sign");
     transaction
 }
 
@@ -536,8 +539,6 @@ fn a_listed_party_cannot_produce_a_proof() {
 }
 
 #[test]
-
-mod common;
 fn both_ends_and_both_agents_are_checked() {
     // A bridge that checked only the creditor would let a sanctioned debtor pay
     // anyone, which is the direction sanctions are usually written to stop.

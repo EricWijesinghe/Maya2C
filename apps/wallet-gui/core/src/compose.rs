@@ -39,10 +39,10 @@
 //! return value, not a doc comment, because a doc comment cannot be rendered
 //! in a confirmation dialog.
 
+use custom_l1_node::core::ChainTag;
 use custom_l1_node::core::dex_payload::SwapRequest;
 use custom_l1_node::core::payload::TxKind;
 use custom_l1_node::core::transaction::Transaction;
-use custom_l1_node::core::ChainTag;
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
 
 use crate::error::{Result, WalletError};
