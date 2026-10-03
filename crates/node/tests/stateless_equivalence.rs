@@ -18,6 +18,8 @@ use custom_l1_node::state::{
 use maya_stateless_core::AccountState;
 use tempfile::TempDir;
 
+mod common;
+
 const ACTIVATION: u64 = 1;
 const FILLER_ACCOUNTS: u8 = 64;
 
@@ -42,7 +44,7 @@ fn transfer(sender: &HybridSigningKey, nonce: u64, outputs: &[(Address, u64)]) -
         })
         .collect();
     let mut tx = Transaction::new(vec![], outputs, nonce);
-    tx.sign(sender).expect("sign");
+    tx.sign(sender, &common::test_chain()).expect("sign");
     tx
 }
 
@@ -59,6 +61,7 @@ impl Node {
     fn new(accounts: &[Address]) -> Self {
         let dir = TempDir::new().expect("tempdir");
         let db = StateDB::open(dir.path()).expect("open");
+        common::bind(&db);
         let fillers = (0..FILLER_ACCOUNTS).map(filler);
         for address in accounts.iter().copied().chain(fillers) {
             let account = Account {
@@ -225,7 +228,13 @@ fn stateless_verification_agrees_with_the_full_node_on_transfer_blocks() {
         let block = node.build(transactions);
         let witness = node.witness(&block);
         assert_eq!(
-            verify_block(&parent, node.height + 1, &block, witness),
+            verify_block(
+                &parent,
+                node.height + 1,
+                &block,
+                witness,
+                &common::test_chain()
+            ),
             Ok(())
         );
         node.commit(&block);
@@ -249,6 +258,7 @@ fn a_broken_transfer_is_invalid_statelessly_as_it_is_refused_statefully() {
             node.height + 1,
             &block,
             node.witness(&block),
+            &common::test_chain(),
         ));
     }
 }
@@ -263,7 +273,13 @@ fn a_declared_root_the_transfers_do_not_produce_is_invalid() {
 
     let mut lying = honest.clone();
     lying.header.state_root = parent;
-    let reason = invalid(verify_block(&parent, node.height + 1, &lying, witness));
+    let reason = invalid(verify_block(
+        &parent,
+        node.height + 1,
+        &lying,
+        witness,
+        &common::test_chain(),
+    ));
     assert!(reason.contains("declares"), "{reason}");
 }
 
@@ -276,7 +292,13 @@ fn a_substituted_body_is_unverifiable_not_invalid() {
     let witness = node.witness(&block);
 
     block.transactions = vec![transfer(&alice, 0, &[(bob.address(), 2)])];
-    unverifiable(verify_block(&parent, node.height + 1, &block, witness));
+    unverifiable(verify_block(
+        &parent,
+        node.height + 1,
+        &block,
+        witness,
+        &common::test_chain(),
+    ));
 }
 
 #[test]
@@ -290,12 +312,24 @@ fn a_stale_or_foreign_witness_is_unverifiable_not_invalid() {
 
     let parent = node.db.state_root().expect("root");
     let next = node.build(vec![transfer(&alice, 0, &[(bob.address(), 1)])]);
-    let reason = unverifiable(verify_block(&parent, node.height + 1, &next, stale));
+    let reason = unverifiable(verify_block(
+        &parent,
+        node.height + 1,
+        &next,
+        stale,
+        &common::test_chain(),
+    ));
     assert!(reason.contains("pre-state root"), "{reason}");
 
     let elsewhere = node.build(vec![transfer(&alice, 0, &[(filler(250), 1)])]);
     let foreign = node.witness(&next);
-    let reason = unverifiable(verify_block(&parent, node.height + 1, &elsewhere, foreign));
+    let reason = unverifiable(verify_block(
+        &parent,
+        node.height + 1,
+        &elsewhere,
+        foreign,
+        &common::test_chain(),
+    ));
     assert!(reason.contains("does not open"), "{reason}");
 }
 
@@ -311,14 +345,26 @@ fn a_pass_layer_or_a_dense_parent_makes_a_block_unverifiable() {
         layer: StateLayer::Governance,
         root: [7; 32],
     });
-    let reason = unverifiable(verify_block(&parent, node.height + 1, &block, governed));
+    let reason = unverifiable(verify_block(
+        &parent,
+        node.height + 1,
+        &block,
+        governed,
+        &common::test_chain(),
+    ));
     assert!(reason.contains("governance"), "{reason}");
 
     let mut dense = node.witness(&block);
     dense
         .layers
         .retain(|digest| digest.layer != StateLayer::Stateless);
-    unverifiable(verify_block(&parent, node.height + 1, &block, dense));
+    unverifiable(verify_block(
+        &parent,
+        node.height + 1,
+        &block,
+        dense,
+        &common::test_chain(),
+    ));
 }
 
 #[test]
@@ -336,7 +382,13 @@ fn a_transaction_witness_decides_a_block_of_that_transaction() {
 
     let block = node.build(vec![tx]);
     assert_eq!(
-        verify_block(&parent, node.height + 1, &block, witness),
+        verify_block(
+            &parent,
+            node.height + 1,
+            &block,
+            witness,
+            &common::test_chain()
+        ),
         Ok(())
     );
 }

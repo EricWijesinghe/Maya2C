@@ -31,6 +31,8 @@ use custom_l1_node::state::{
 };
 use tempfile::TempDir;
 
+mod common;
+
 // ---------------------------------------------------------------------------
 // harness
 // ---------------------------------------------------------------------------
@@ -43,6 +45,7 @@ struct Fixture {
 fn fixture(funded: &[(Address, u64)]) -> Fixture {
     let dir = TempDir::new().expect("temp dir");
     let db = StateDB::open(dir.path()).expect("open");
+    common::bind(&db);
     for (address, balance) in funded {
         db.put_account(
             address,
@@ -72,7 +75,7 @@ fn block_of(transactions: Vec<Transaction>) -> Block {
 
 fn signed(kind: TxKind, nonce: u64, key: &HybridSigningKey) -> Transaction {
     let mut tx = Transaction::with_kind(kind, nonce);
-    tx.sign(key).expect("sign");
+    tx.sign(key, &common::test_chain()).expect("sign");
     tx
 }
 

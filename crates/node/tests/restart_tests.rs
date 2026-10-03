@@ -23,6 +23,8 @@ use custom_l1_node::state::account::{Account, Address};
 use custom_l1_node::state::db::StateDB;
 use tempfile::TempDir;
 
+mod common;
+
 fn genesis(timestamp: u64) -> Block {
     Block::new(
         BlockHeader {
@@ -42,7 +44,7 @@ fn open_state(dir: &Path) -> Arc<StateDB> {
 }
 
 fn open_chain(state: Arc<StateDB>) -> Result<Chain, NodeError> {
-    Chain::open(
+    common::open_chain(
         state,
         genesis(1_000_000),
         ChainConfig::without_pow_verification(),
@@ -73,7 +75,7 @@ fn transfer(from: &HybridSigningKey, to: Address, amount: u64, nonce: u64) -> Tr
         }],
         nonce,
     );
-    tx.sign(from).expect("sign");
+    tx.sign(from, &common::test_chain()).expect("sign");
     tx
 }
 
@@ -139,6 +141,8 @@ fn a_database_started_with_another_genesis_is_refused() {
     let key = generate_signing_key().expect("key");
     drop(funded(dir.path(), &key));
 
+    // `Chain::open` directly: this test opens a second genesis on purpose,
+    // and signs nothing for it.
     let reopened = Chain::open(
         open_state(dir.path()),
         genesis(2_000_000),

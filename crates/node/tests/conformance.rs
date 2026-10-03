@@ -15,12 +15,14 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use custom_l1_node::core::{Block, BlockHeader, Transaction, TxOutput};
+use custom_l1_node::core::{Block, BlockHeader, ChainTag, Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::error::NodeError;
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
 use serde_json::{Value, json};
+
+mod common;
 
 const KEYS: u8 = 4;
 
@@ -99,7 +101,13 @@ fn signed(keys: &BTreeMap<String, HybridSigningKey>, t: &Value) -> Transaction {
         })
         .collect();
     let mut tx = Transaction::new(vec![], outputs, num(&t["nonce"]));
-    tx.sign(&keys[t["from"].as_str().unwrap()]).unwrap();
+    // "other-chain" (TX-5) is a valid signature for some other genesis.
+    let chain = if t["signature"] == "other-chain" {
+        ChainTag::from_genesis([0x99; 32])
+    } else {
+        common::test_chain()
+    };
+    tx.sign(&keys[t["from"].as_str().unwrap()], &chain).unwrap();
     if t["signature"] == "invalid" {
         // One bit inside the SLH-DSA half, which ends a v5 frame.
         let mut bytes = tx.to_bytes();
@@ -140,6 +148,7 @@ fn run_stf_case(keys: &BTreeMap<String, HybridSigningKey>, case: &Value) {
     let id = case["id"].as_str().unwrap();
     let dir = tempfile::TempDir::new().unwrap();
     let db = StateDB::open(dir.path()).unwrap();
+    common::bind(&db);
     for a in case["pre"].as_array().unwrap() {
         let acc = Account {
             balance: num(&a["balance"]),
@@ -248,6 +257,16 @@ fn encoding_vectors() {
                     "{id}: sender"
                 );
                 assert_eq!(tx.nonce, num(&case["expect"]["nonce"]), "{id}: nonce");
+                let tag: [u8; 32] = unhex(case["chain_tag"].as_str().unwrap())
+                    .try_into()
+                    .expect("a 32-byte chain tag");
+                assert_eq!(
+                    blake3::hash(&tx.signing_bytes(&ChainTag::from_genesis(tag)))
+                        .to_hex()
+                        .as_str(),
+                    case["expect"]["signing_bytes_blake3"].as_str().unwrap(),
+                    "{id}: signing bytes (TX-3, TX-5)"
+                );
             }
             (Err(NodeError::Decode(_)), "error") => {}
             (other, want) => panic!("{id}: expected {want}, node gave {other:?}"),

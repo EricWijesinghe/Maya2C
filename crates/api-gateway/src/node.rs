@@ -53,6 +53,19 @@ pub struct FeeInfo {
     pub collector: String,
 }
 
+/// Chain identification for offline signers (ADR-036).
+///
+/// Offline signers need the chain's genesis block id to sign transactions that
+/// commit to the chain and are not replayed on other chains.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct ChainInfo {
+    /// Hex-encoded genesis block id (32 bytes), used as the chain tag for signatures.
+    pub genesis: String,
+    /// Optional chain id string, if one is configured. `null` if no string identifier
+    /// is available.
+    pub chain_id: Option<String>,
+}
+
 /// What the gateway needs from a node.
 ///
 /// Deliberately narrow: one method per allowlisted RPC call and nothing else.
@@ -74,6 +87,10 @@ pub trait NodeClient: Send + Sync + 'static {
 
     /// The chain's current fee terms.
     async fn get_fee_info(&self) -> Result<FeeInfo, GatewayError>;
+
+    /// The chain's genesis block id and optional chain id string, needed for
+    /// offline signing (ADR-036).
+    async fn get_chain_info(&self) -> Result<ChainInfo, GatewayError>;
 }
 
 /// A [`NodeClient`] backed by a real node's JSON-RPC port.
@@ -163,5 +180,9 @@ impl NodeClient for RpcNodeClient {
 
     async fn get_fee_info(&self) -> Result<FeeInfo, GatewayError> {
         self.call("get_fee_info", rpc_params![]).await
+    }
+
+    async fn get_chain_info(&self) -> Result<ChainInfo, GatewayError> {
+        self.call("get_chain_info", rpc_params![]).await
     }
 }
