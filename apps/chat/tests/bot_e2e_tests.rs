@@ -86,7 +86,10 @@ fn a_new_identity_that_writes_to_the_bot_is_welcomed() {
     assert!(line.contains(&bot_addr), "{line}");
 
     run(&alice, &["init"]);
-    run(&alice, &["send", "--relay", &relay, "--to", &bot_addr, "hello"]);
+    run(
+        &alice,
+        &["send", "--relay", &relay, "--to", &bot_addr, "hello"],
+    );
 
     let started = Instant::now();
     loop {
@@ -99,7 +102,10 @@ fn a_new_identity_that_writes_to_the_bot_is_welcomed() {
     }
 
     // The session carries on: a command gets its own answer.
-    run(&alice, &["send", "--relay", &relay, "--to", &bot_addr, "ping"]);
+    run(
+        &alice,
+        &["send", "--relay", &relay, "--to", &bot_addr, "ping"],
+    );
     let started = Instant::now();
     loop {
         let got = run(&alice, &["recv", "--relay", &relay]);
