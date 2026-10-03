@@ -75,14 +75,8 @@ pub struct Source {
 }
 
 fn chain_config(config: &GenesisConfig) -> anyhow::Result<ChainConfig> {
-    // As the node does: DAG-BFT verifies no work, proof of work verifies
-    // against the genesis floor.
-    let base = if config.bft.is_some() {
-        ChainConfig::without_pow_verification()
-    } else {
-        ChainConfig::with_pow_limit(config.pow_limit())
-    };
-    Ok(base.with_upgrades(&config.upgrade_schedule()?))
+    // Exactly the node's rules, shielded activation included (ADR-037).
+    Ok(config.chain_config()?)
 }
 
 /// A verified local copy of `source`'s chain, up to `cap` if given.

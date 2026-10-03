@@ -55,6 +55,7 @@ fn chain(dir: &TempDir) -> Chain {
             max_pause_blocks: MAX_PAUSE,
         }),
         bft: None,
+        shielded_activation_height: None,
     };
     let state = Arc::new(StateDB::open(dir.path()).unwrap());
     config.seed_state(&state).unwrap();

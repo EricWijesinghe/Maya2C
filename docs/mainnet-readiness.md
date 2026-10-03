@@ -5,7 +5,19 @@ what still stands between that fleet and a value-bearing mainnet.
 
 ---
 
-## 1. Mainnet is blocked, and the block is deliberate
+## 1. Mainnet runs with the shielded pool off (ADR-037)
+
+*Changed 2026-10-03.* Mainnet v1 launches without shielded transfers. Its
+genesis sets `shielded_activation_height = u64::MAX`, hashed into the genesis
+id; every block refuses a join-split before any proof work
+(`NodeError::ShieldedInactive`); and the guards below now refuse only a
+value-bearing chain whose pool **can** run on the unaudited circuit. The
+genesis ceremony writes that setting itself for `mainnet` / `maya-mainnet`,
+and Terraform needs `mainnet_shielded_pool_off = true` to plan one. Turning
+the pool on later is a scheduled protocol upgrade, after the audit described
+below. The rest of this section is why the pool stays off.
+
+### Why the pool is off
 
 The shielded pool is a Plonky3 STARK (ADR-008): no trusted setup, soundness
 from hash collision resistance alone. What it has not had is an independent
@@ -15,18 +27,15 @@ endpoints this repo serves to CoinGecko and CoinMarketCap. (Until 2026-09-21
 the reason was a Groth16 setup nobody had run a ceremony for; that pool is
 gone.)
 
-Three independent places refuse a value-bearing chain:
+Independent places refuse a value-bearing chain whose pool can run:
 
 | Where | What happens |
 |---|---|
 | `crates/zk-stark/src/pool/mod.rs` | `CIRCUIT_IS_AUDITED = false` |
-| `bins/maya2c-node/src/main.rs` (`VALUE_BEARING_CHAINS`) | The node exits at startup on `mainnet` / `maya-mainnet` |
-| `infra/terraform/modules/*/variables.tf` | `terraform plan` fails for those chain ids, in both clouds |
+| `bins/maya2c-node/src/main.rs` (`check_shielded_guard`) | The node exits at startup on `mainnet` / `maya-mainnet` unless the genesis keeps the pool off |
+| `bins/genesis-ceremony` | Mints a mainnet genesis only with the pool off |
+| `infra/terraform/modules/*/variables.tf`, `infra/oracle-free` | `terraform plan` fails for those ids unless `mainnet_shielded_pool_off = true` |
 | `crates/zk-stark/src/pool/tests.rs` | A test asserts the flag stays false |
-
-**Everything in this runbook deploys a non-value-bearing chain id.** That is a
-real, fully multi-region network — it is simply not one anybody should put money
-on yet.
 
 To lift the block you need an independent audit of the joinsplit AIR
 (`crates/zk-stark/src/pool/joinsplit.rs` and the gadgets it uses), its findings
