@@ -1,0 +1,66 @@
+name: Validator application (testnet)
+description: Apply to run a maya-testnet-1 validator.
+title: "Validator application: <your name or handle>"
+labels: ["validator-application"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for offering to run a validator. Read
+        https://maya2c.dev/guides/validators/ first.
+
+        **Testnet coins have no value.** Running a testnet validator earns
+        public recognition only: a place in the validator list and credit in
+        the release notes. Nothing here promises tokens, money or a mainnet
+        allocation.
+
+        Never paste a private key, seed phrase or password into an issue.
+  - type: input
+    id: contact
+    attributes:
+      label: How we reach you
+      description: A GitHub handle is enough. Matrix, email or other channels are optional.
+    validations:
+      required: true
+  - type: input
+    id: pubkey_id
+    attributes:
+      label: Validator id or public key
+      description: The public key printed by `maya2c-node --generate-validator-key`. This is public, not the key file.
+    validations:
+      required: true
+  - type: input
+    id: address
+    attributes:
+      label: Wallet address that will submit the registration
+      description: The 64-hex-character address from `l1-wallet address`. The bond is sent here.
+    validations:
+      required: true
+  - type: dropdown
+    id: hosting
+    attributes:
+      label: Where the node will run
+      options:
+        - Home server or desktop
+        - Oracle Cloud Always Free
+        - Other free tier
+        - Paid VPS
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: region
+    attributes:
+      label: Rough region
+      description: Country or continent is enough. We want validators spread out.
+  - type: checkboxes
+    id: commitments
+    attributes:
+      label: Commitments
+      options:
+        - label: I will keep the node online, and post in this issue before planned downtime.
+          required: true
+        - label: I will update the node within 48 hours of a release marked required.
+          required: true
+        - label: I understand testnet coins and testnet participation carry no monetary value or promise.
+          required: true

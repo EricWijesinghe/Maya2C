@@ -90,6 +90,47 @@ fn frame(record: &[u8]) -> Vec<u8> {
     out
 }
 
+/// Past epochs whose logs are kept beside the current one. One: a peer
+/// still finishing the previous epoch may fetch its certificates. Older
+/// logs serve nothing — an engine never signs for an epoch it has left, so
+/// their votes cannot be repeated — and left alone they grow without bound
+/// (maya-testnet-1: 3.1 GB of logs against 162 MB of state in 4.5 days).
+pub const RETAINED_PAST_EPOCHS: u64 = 1;
+
+/// Removes `root/epoch-<n>` for every `n < first_kept`, returning the epochs
+/// removed. Anything in `root` that is not an epoch directory is left alone.
+///
+/// # Errors
+///
+/// [`NodeError::Storage`] naming the first directory that could not be read
+/// or removed; directories removed before it stay removed.
+pub fn prune_epochs_before(root: &Path, first_kept: u64) -> Result<Vec<u64>> {
+    let entries = match std::fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(io_err("read", root, &e)),
+    };
+    let mut removed = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|e| io_err("read", root, &e))?;
+        let name = entry.file_name();
+        let Some(epoch) = name
+            .to_str()
+            .and_then(|n| n.strip_prefix("epoch-"))
+            .and_then(|n| n.parse::<u64>().ok())
+        else {
+            continue;
+        };
+        if epoch < first_kept && entry.path().is_dir() {
+            std::fs::remove_dir_all(entry.path())
+                .map_err(|e| io_err("remove", &entry.path(), &e))?;
+            removed.push(epoch);
+        }
+    }
+    removed.sort_unstable();
+    Ok(removed)
+}
+
 impl SafetyStore {
     /// Opens (creating if needed) `root/epoch-<epoch>` and reads back what an
     /// earlier run left there.
@@ -182,6 +223,33 @@ mod tests {
                 signature: vec![1, 2, 3],
             },
         }
+    }
+
+    #[test]
+    fn only_epochs_before_the_kept_one_are_pruned() {
+        let root = dir("prune");
+        for epoch in 0..5 {
+            let (mut store, _) = SafetyStore::open(&root, epoch).unwrap();
+            store.record_own(&vote(1)).unwrap();
+        }
+        std::fs::write(root.join("notes.txt"), b"not an epoch").unwrap();
+        std::fs::create_dir_all(root.join("epoch-x")).unwrap();
+
+        assert_eq!(prune_epochs_before(&root, 3).unwrap(), vec![0, 1, 2]);
+        for epoch in 0..3 {
+            assert!(!root.join(format!("epoch-{epoch}")).exists());
+        }
+        // The kept epochs still hold their votes; other entries are untouched.
+        let (_, recovered) = SafetyStore::open(&root, 3).unwrap();
+        assert_eq!(recovered.safety.len(), 1);
+        assert!(root.join("epoch-4").exists());
+        assert!(root.join("notes.txt").exists() && root.join("epoch-x").exists());
+        assert!(prune_epochs_before(&root, 3).unwrap().is_empty());
+        assert!(
+            prune_epochs_before(&root.join("absent"), 9)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
