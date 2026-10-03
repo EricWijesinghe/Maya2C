@@ -25,6 +25,8 @@ export default defineConfig({
         "Post-quantum layer-1 blockchain. DAG-BFT finality, hybrid ML-DSA + " +
         "SLH-DSA signatures, shielded transfers.",
       customCss: ["./src/styles/maya.css"],
+      // Our footer (about, contact, copyright) after Starlight's own.
+      components: { Footer: "./src/components/Footer.astro" },
       social: [
         { icon: "github", label: "GitHub", href: "https://github.com/EricWijesinghe/Maya2C" },
       ],
