@@ -266,6 +266,9 @@ async fn act(step: Step, network: &NodeHandle, pools: &[&Mempool], feed: &mut Fe
     for id in &step.blocks {
         println!("bft: built block {}", hex::encode(&id[..8]));
     }
+    for notice in &step.notices {
+        eprintln!("bft: {notice}");
+    }
     for evidence in &step.equivocations {
         eprintln!(
             "bft: validator {} equivocated in round {} — evidence held for slashing",

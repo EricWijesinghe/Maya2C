@@ -69,6 +69,10 @@ pub struct Step {
     pub build_time: std::time::Duration,
     /// Equivocations this node witnessed, for the staking module.
     pub equivocations: Vec<Equivocation>,
+    /// Housekeeping that failed without touching safety — an old epoch's
+    /// logs that could not be removed. The node reports them; they cost
+    /// disk, never a vote.
+    pub notices: Vec<String>,
 }
 
 /// One epoch's engine, its safety log, and the bookkeeping between them.
@@ -185,6 +189,13 @@ impl BftDriver {
             ),
         };
         let (store, recovered) = SafetyStore::open(&dir, epoch)?;
+        // Here, at every boot and every epoch switch, so the logs on disk
+        // never exceed this epoch's and the previous one's.
+        let first_kept = epoch.saturating_sub(super::store::RETAINED_PAST_EPOCHS);
+        if let Err(e) = super::store::prune_epochs_before(&dir, first_kept) {
+            step.notices
+                .push(format!("could not prune old epoch logs: {e}"));
+        }
         let mut driver = Self {
             engine,
             id,
