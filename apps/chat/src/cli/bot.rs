@@ -106,12 +106,17 @@ impl Bot {
                     Some(slot) => slot.1 = r.text,
                     None => latest.push((r.from, r.text)),
                 },
-                Err(ChatError::NoSession) => eprintln!("bot: skipped a message for an unknown session"),
+                Err(ChatError::NoSession) => {
+                    eprintln!("bot: skipped a message for an unknown session")
+                }
                 Err(e) => eprintln!("bot: could not open a message: {e}"),
             }
         }
         if latest.len() > MAX_REPLIES_PER_ROUND {
-            eprintln!("bot: {} senders this round; answering {MAX_REPLIES_PER_ROUND}", latest.len());
+            eprintln!(
+                "bot: {} senders this round; answering {MAX_REPLIES_PER_ROUND}",
+                latest.len()
+            );
         }
         for (from, text) in latest.into_iter().take(MAX_REPLIES_PER_ROUND) {
             match self.answer(from, &text).await {
