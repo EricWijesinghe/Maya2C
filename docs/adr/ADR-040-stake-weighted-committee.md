@@ -46,7 +46,9 @@ Every threshold is measured in weight. With W the total weight:
 | An anchor commits | linking vertices ≥ f + 1 | their authors' weight ≥ f + 1 |
 | A committee of one certifies alone | q ≤ 1 | the node's own weight is a quorum |
 
-Weights are integers and sums are `u128`. Nothing here is a float or depends
+Weights are integers and sums are `u128`. A zero weight is mapped to one
+inside the engine. Part 2 must hand every node the same snapshot, and the
+mapping then gives every node the same committee. Nothing here is a float or depends
 on iteration order, so every node computes the same thresholds (Standing
 Order 4). A zero weight counts as one, so every member can be heard.
 
@@ -56,8 +58,23 @@ throughput, not safety or liveness. Leader election by stake would remove
 the cost, but it also changes which validator orders which transactions, and
 it does not belong in the same change.
 
-With equal weights every threshold is exactly what it was, so the node is
-unchanged by Part 1. The node still builds `Committee::new(size)`.
+With equal weights every threshold is exactly what it was, and honest
+operation is unchanged by Part 1. The node still builds
+`Committee::new(size)`. Two checks did become stricter, and only a faulty
+sender notices either one:
+- A vertex's parents count by *distinct author in the previous round*,
+  resolved through the DAG. Two parents by one author, or a parent from
+  another round, no longer add up to a quorum. Before, the count was of
+  digests.
+- The cheap check before any signature is verified is now a head-count
+  floor: the fewest members whose weight can reach a quorum. With equal
+  weights that floor is the old n − f.
+
+At or below the garbage-collection horizon a certificate's parents are
+gone, so they cannot be weighed. There only the floor applies, which is the
+exemption `Dag::missing_parents` already makes. Without that exemption, a
+late certificate at the horizon would be refused for ever and a rejoining
+node would stall. Both reviews found this, and it is fixed.
 
 ### Part 2: the node supplies stake as weight (Eric's decision)
 
@@ -97,7 +114,7 @@ weight. It currently builds `Committee::new(size)` too.
 ## Evidence
 
 - `cargo test -p maya-dag-bft`:
-  - lib 14 passed, including
+  - lib 16 passed, including
     `a_seat_bought_at_the_minimum_bond_cannot_block_a_quorum` and
     `weighted_quorums_always_overlap_in_more_than_the_faulty_weight`
     (64 committees of pseudo-random stakes).
@@ -106,5 +123,14 @@ weight. It currently builds `Committee::new(size)` too.
     four seats crashed, and the bonded validator commits alone) and
     `honest_stake_split_in_half_still_halts_rather_than_forks`.
 - `cargo check --workspace --all-targets`: clean.
+- Reviewed by the rust-reviewer and security-reviewer agents (2026-10-04).
+  - Both found the GC-horizon refusal (HIGH and MEDIUM), which is fixed.
+  - Also fixed: the `BTreeSet` allocation in `weight_of` (now a flat
+    bitmap), a panic on an oversized committee (`weighted` now returns
+    `Option`), and the dropped cheap pre-verification parent check (now the
+    head-count floor).
+  - Not yet done: a test that delivers a certificate exactly at the horizon.
+    It needs `Validator::resume_after` from ADR-038 (PR #52) and lands once
+    that merges.
 - `cargo nextest run -p custom-l1-node -p maya-dag-bft -p maya-link-sim -p maya2c-node`:
   1064 tests run: 1064 passed (1 slow), 2 skipped, 86.585 s.
