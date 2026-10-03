@@ -17,6 +17,10 @@ export default defineConfig({
     starlight({
       title: "Maya2C",
       favicon: "/favicon.ico",
+      // Bing Webmaster Tools ownership check for maya2c.dev.
+      head: [
+        { tag: "meta", attrs: { name: "msvalidate.01", content: "76B55D3E70EB56CB2D46FE438641E2A4" } },
+      ],
       description:
         "Post-quantum layer-1 blockchain. DAG-BFT finality, hybrid ML-DSA + " +
         "SLH-DSA signatures, shielded transfers.",
