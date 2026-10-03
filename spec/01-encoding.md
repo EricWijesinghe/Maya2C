@@ -28,7 +28,7 @@ u8   signature_flag          0 = unsigned, 1 = signed
 - **ENC-5** A frame with bytes missing or bytes left over is rejected.
 - **ENC-6** A collection count above 65,536 is rejected before any allocation.
 - **ENC-7** A collection count whose elements cannot fit in the remaining input is rejected before any allocation.
-- **ENC-8** A version-5 transaction's id is `blake3(signing_bytes ‖ ml_dsa_sig ‖ slh_dsa_sig)` (TX-3), the signature omitted when the frame is unsigned. Hashing the signature commits the id to one authorization; that is sound only because both schemes sign deterministically, so one payload under one key pair has one id. (Multisig v8 ids deliberately exclude approvals.) *(positive only: defines a value)*
+- **ENC-8** A version-5 transaction's id is `blake3("custom-l1-node.txid.v1" ‖ 0x00 ‖ io_section ‖ public_key ‖ nonce_u64 ‖ ml_dsa_sig ‖ slh_dsa_sig)`, the signature omitted when the frame is unsigned (v7 hashes `0x07` and its own fields, v8 `0x08` and its policy). The id names no chain (TX-5): it only has to be unique within one, and a replay is refused by its signature, not its id. Hashing the signature commits the id to one authorization; that is sound only because both schemes sign deterministically, so one payload under one key pair has one id. (Multisig v8 ids deliberately exclude approvals.) *(positive only: defines a value)*
 
 ## Gaps
 

@@ -20,6 +20,8 @@ use custom_l1_node::state::fees::FEE_COLLECTOR;
 use custom_l1_node::state::shielded::FEE_SINK;
 use tempfile::TempDir;
 
+mod common;
+
 const BASE_FEE: u64 = 1_000;
 const START: u64 = 100_000_000;
 
@@ -59,7 +61,7 @@ fn chain(dir: &TempDir) -> Chain {
     };
     let state = Arc::new(StateDB::open(dir.path()).unwrap());
     config.seed_state(&state).unwrap();
-    Chain::open(
+    common::open_chain(
         state,
         config.genesis_block().unwrap(),
         ChainConfig::without_pow_verification(),
@@ -79,7 +81,7 @@ fn transfer(amount: u64, fee: Option<u64>, nonce: u64) -> Transaction {
         });
     }
     let mut tx = Transaction::new(vec![], outputs, nonce);
-    tx.sign(&user()).unwrap();
+    tx.sign(&user(), &common::test_chain()).unwrap();
     tx
 }
 
@@ -166,7 +168,7 @@ fn measured_transfer_sizes_for_the_fee_derivation() {
         ],
         0,
     );
-    v7.sign_with_suite::<maya_crypto_pq::suite::MlDsa65>(&key)
+    v7.sign_with_suite::<maya_crypto_pq::suite::MlDsa65>(&key, &common::test_chain())
         .unwrap();
     let suite = v7.to_bytes().len();
     println!(

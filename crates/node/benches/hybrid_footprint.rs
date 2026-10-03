@@ -49,6 +49,8 @@ use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
 use tempfile::TempDir;
 
+mod common;
+
 /// Transactions per block, matching `benches/hybrid_signing.rs`.
 const BLOCK_TRANSACTIONS: usize = 64;
 
@@ -153,7 +155,7 @@ fn signed_block(sender: &HybridSigningKey, recipient: &Address, count: usize) ->
                 }],
                 nonce as u64,
             );
-            tx.sign(sender).expect("sign");
+            tx.sign(sender, &common::test_chain()).expect("sign");
             tx
         })
         .collect();
@@ -212,7 +214,7 @@ fn main() {
                 }],
                 0,
             );
-            tx.sign(&key(1)).expect("sign");
+            tx.sign(&key(1), &common::test_chain()).expect("sign");
             tx.to_bytes().len()
         },
         // The same transfer without the hash-based half: subtract the SLH-DSA
@@ -227,7 +229,7 @@ fn main() {
                 }],
                 0,
             );
-            tx.sign(&key(1)).expect("sign");
+            tx.sign(&key(1), &common::test_chain()).expect("sign");
             tx.to_bytes().len()
                 - (HYBRID_PUBLIC_KEY_LEN - PUBLIC_KEY_LEN)
                 - (HYBRID_SIGNATURE_LENGTH - SIGNATURE_LENGTH)

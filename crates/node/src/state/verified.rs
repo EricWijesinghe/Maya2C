@@ -8,8 +8,8 @@
 //!
 //! # What the key covers, and why not `txid`
 //!
-//! The key is BLAKE3 over the transaction's complete wire encoding —
-//! signing bytes, keys and every signature. For a v5/v6 frame `txid` would do
+//! The key is BLAKE3 over the chain tag (ADR-036) and the transaction's
+//! complete wire encoding — signing bytes, keys and every signature. For a v5/v6 frame `txid` would do
 //! (it hashes both signatures), but a v8 multisig id deliberately excludes
 //! approvals, and a cache keyed on it would let a frame with forged approvals
 //! ride on a genuine one's result. The wire hash has no such exception.
@@ -31,7 +31,7 @@ use std::sync::Mutex;
 
 use maya_crypto_pq::agility::SuitePolicy;
 
-use crate::core::Transaction;
+use crate::core::{ChainTag, Transaction};
 use crate::error::Result;
 
 /// Entries kept. Two full blocks' worth of a large mempool with room over.
@@ -52,22 +52,35 @@ struct Inner {
 impl VerifiedCache {
     /// Verifies `tx` at `height`, or answers from the cache.
     ///
+    /// The cache key includes the chain tag, so a transaction verified on one
+    /// chain will not hit for another chain (ADR-036).
+    ///
     /// # Errors
     ///
     /// Exactly what `Transaction::verify_at` returns; the cache never turns a
     /// failure into a success.
-    pub fn verify(&self, tx: &Transaction, height: u64, policy: &SuitePolicy) -> Result<()> {
+    pub fn verify(
+        &self,
+        tx: &Transaction,
+        height: u64,
+        policy: &SuitePolicy,
+        chain: &ChainTag,
+    ) -> Result<()> {
         if tx.multisig.is_some() {
-            return tx.verify_at(height, policy);
+            return tx.verify_at(height, policy, chain);
         }
         if let Some(auth) = &tx.suite_auth {
             crate::crypto::suites::check_admissible(policy, auth.suite, height)?;
         }
-        let key = *blake3::hash(&tx.to_bytes()).as_bytes();
+        // Cache key includes chain tag to prevent cross-chain cache hits (ADR-036).
+        let mut hasher = blake3::Hasher::new_derive_key("maya.verified_cache.v1");
+        hasher.update(&chain.0);
+        hasher.update(&tx.to_bytes());
+        let key = *hasher.finalize().as_bytes();
         if self.contains(&key) {
             return Ok(());
         }
-        tx.verify_at(height, policy)?;
+        tx.verify_at(height, policy, chain)?;
         self.insert(key);
         Ok(())
     }
@@ -126,7 +139,11 @@ mod tests {
             }],
             0,
         );
-        tx.sign(&signing_key_from_seed(&[4; 32]).unwrap()).unwrap();
+        tx.sign(
+            &signing_key_from_seed(&[4; 32]).unwrap(),
+            &crate::core::ChainTag::from_genesis([42; 32]),
+        )
+        .unwrap();
         tx
     }
 
@@ -134,15 +151,16 @@ mod tests {
     fn a_verified_transaction_is_remembered_and_a_tampered_one_is_not_let_through() {
         let cache = VerifiedCache::default();
         let policy = crate::crypto::suites::verification_policy();
+        let chain = ChainTag::from_genesis([42; 32]);
         let tx = signed(5);
-        cache.verify(&tx, 1, &policy).unwrap();
+        cache.verify(&tx, 1, &policy, &chain).unwrap();
         assert_eq!(cache.len(), 1);
-        cache.verify(&tx, 1, &policy).unwrap();
+        cache.verify(&tx, 1, &policy, &chain).unwrap();
         assert_eq!(cache.len(), 1, "a hit adds nothing");
         // Same signature, different amount: a different key, and it fails.
         let mut forged = tx.clone();
         forged.outputs[0].amount = 6;
-        assert!(cache.verify(&forged, 1, &policy).is_err());
+        assert!(cache.verify(&forged, 1, &policy, &chain).is_err());
         assert_eq!(cache.len(), 1, "failures are never stored");
     }
 }

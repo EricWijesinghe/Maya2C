@@ -17,6 +17,8 @@ use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
 use tempfile::TempDir;
 
+mod common;
+
 // ---------------------------------------------------------------------------
 // harness
 // ---------------------------------------------------------------------------
@@ -53,6 +55,7 @@ fn wasm(text: &str) -> Vec<u8> {
 fn open_state(funded: &[(Address, u64)]) -> (StateDB, TempDir) {
     let dir = TempDir::new().expect("temp dir");
     let db = StateDB::open(dir.path()).expect("open");
+    common::bind(&db);
     for (address, balance) in funded {
         db.put_account(
             address,
@@ -86,7 +89,7 @@ fn block_of(transactions: Vec<Transaction>) -> Block {
 
 fn signed(kind: TxKind, nonce: u64, key: &HybridSigningKey) -> Transaction {
     let mut tx = Transaction::with_kind(kind, nonce);
-    tx.sign(key).expect("sign");
+    tx.sign(key, &common::test_chain()).expect("sign");
     tx
 }
 
@@ -292,7 +295,7 @@ fn a_failed_call_aborts_the_whole_block() {
         }],
         0,
     );
-    transfer.sign(&other).expect("sign");
+    transfer.sign(&other, &common::test_chain()).expect("sign");
     let call = signed(
         TxKind::CallContract(ContractCall {
             contract,
@@ -423,7 +426,7 @@ fn a_contract_call_may_not_also_carry_transfer_outputs() {
         amount: 10,
         recipient: [4u8; 32],
     });
-    tx.sign(&caller).expect("sign");
+    tx.sign(&caller, &common::test_chain()).expect("sign");
     assert!(matches!(
         db.apply_block(&block_of(vec![tx]), BlockContext::at_height(2)),
         Err(NodeError::MixedTransactionKind(_))

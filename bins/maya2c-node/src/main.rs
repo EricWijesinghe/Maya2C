@@ -720,7 +720,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let rpc_pool = Mempool::new(Arc::clone(&state));
-    let rpc_context = RpcContext::new(Arc::clone(&chain), rpc_pool.clone());
+    let rpc_context =
+        RpcContext::new(Arc::clone(&chain), rpc_pool.clone()).with_network(config.chain_id.clone());
     let rpc_context = if mode == "dag-bft" {
         rpc_context.refusing_blocks()
     } else {

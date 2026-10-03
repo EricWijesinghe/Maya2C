@@ -135,6 +135,10 @@ const FRESH: &str = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 fn state_transitions(k: &BTreeMap<String, Address>) -> Value {
     let mut bad_sig = tx("k0", 0, &[("k1", 5)]);
     bad_sig["signature"] = json!("invalid");
+    // TX-5: a well-formed signature, made for another chain's genesis — a
+    // testnet transfer replayed on mainnet. The executing node must refuse it.
+    let mut other_chain = tx("k0", 0, &[("k1", 5)]);
+    other_chain["signature"] = json!("other-chain");
     let cases = vec![
         stf_case(
             k,
@@ -151,6 +155,13 @@ fn state_transitions(k: &BTreeMap<String, Address>) -> Value {
             &["TX-1"],
             &json!([acct("k0", 1000, 0)]),
             &json!([bad_sig]),
+        ),
+        stf_case(
+            k,
+            "signed-for-another-chain",
+            &["TX-1", "TX-5"],
+            &json!([acct("k0", 1000, 0)]),
+            &json!([other_chain]),
         ),
         stf_case(
             k,
@@ -340,9 +351,14 @@ fn encoding_vectors(k: &BTreeMap<String, Address>) -> Value {
         signature: None,
         ..signed.clone()
     };
+    // TX-5: what the frame signs depends on the chain it is meant for; any
+    // fixed genesis id shows the layout.
+    let chain_tag = [0x5A; 32];
     let good = |id: &str, f: &Frame| {
-        json!({"id": id, "rules": ["ENC-1", "ENC-2", "ENC-3", "ENC-4", "ENC-5", "ENC-6", "ENC-7", "ENC-8", "TX-2", "TX-3"], "bytes": hex(&wire::encode(f)),
-               "expect": {"result": "ok", "txid": hex(&wire::txid(f)), "sender": hex(&wire::address_of(&f.public_key)), "nonce": f.nonce.to_string()}})
+        json!({"id": id, "rules": ["ENC-1", "ENC-2", "ENC-3", "ENC-4", "ENC-5", "ENC-6", "ENC-7", "ENC-8", "TX-2", "TX-3", "TX-5"], "bytes": hex(&wire::encode(f)),
+               "chain_tag": hex(&chain_tag),
+               "expect": {"result": "ok", "txid": hex(&wire::txid(f)), "sender": hex(&wire::address_of(&f.public_key)), "nonce": f.nonce.to_string(),
+                          "signing_bytes_blake3": hex(blake3::hash(&wire::signing_bytes(f, &chain_tag)).as_bytes())}})
     };
     let bad = |id: &str, rules: &[&str], bytes: Vec<u8>| json!({"id": id, "rules": rules, "bytes": hex(&bytes), "expect": {"result": "error", "error": "Decode"}});
     let full = wire::encode(&signed);

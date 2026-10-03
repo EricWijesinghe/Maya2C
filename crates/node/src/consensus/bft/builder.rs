@@ -88,8 +88,8 @@ fn median_time_ms(sub_dag: &SubDag) -> u64 {
 /// # Errors
 ///
 /// Only if even the empty block cannot be built — the tip is missing from the
-/// index or the state cannot be read — which is a local fault, not a
-/// consensus outcome.
+/// index, the state cannot be read, or it is bound to no chain — which is a
+/// local fault, not a consensus outcome.
 pub fn build_block(chain: &Chain, sub_dag: &SubDag) -> Result<Block> {
     let anchor = &sub_dag.anchor.vertex;
     let parent = chain.get(&chain.tip()).map(|r| r.header.timestamp);
@@ -98,7 +98,7 @@ pub fn build_block(chain: &Chain, sub_dag: &SubDag) -> Result<Block> {
     let target = chain.next_target(&chain.tip())?;
     let kept = chain
         .state()
-        .select_applicable(ordered_transactions(sub_dag), context, target);
+        .select_applicable(ordered_transactions(sub_dag), context, target)?;
     let nonce = seal(anchor.epoch, anchor.round);
     match chain.candidate_block_sealed(timestamp, kept, nonce) {
         Ok(block) => Ok(block),

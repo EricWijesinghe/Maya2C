@@ -125,4 +125,9 @@ impl ChainView for FakeChain {
         state.nonce += 1;
         Ok(format!("tx{}", state.broadcasts.len()))
     }
+
+    async fn chain_tag(&self) -> Result<custom_l1_node::core::ChainTag> {
+        // Test chain: use a fixed tag
+        Ok(custom_l1_node::core::ChainTag::from_genesis([0; 32]))
+    }
 }

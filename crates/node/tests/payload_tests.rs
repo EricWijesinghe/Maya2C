@@ -36,7 +36,7 @@ use custom_l1_node::core::payload::{
     CLOSURE_SIZE, ChannelClosure, ChannelOpen, MAX_BATCH_CLOSURES, RevocationProof,
     channel_state_signing_bytes, derive_channel_id, revocation_commitment,
 };
-use custom_l1_node::core::{Transaction, TxKind, TxOutput};
+use custom_l1_node::core::{ChainTag, Transaction, TxKind, TxOutput};
 use custom_l1_node::crypto::hybrid::{
     HybridPublicKey, HybridSignature, SLH_DSA_PUBLIC_KEY_LEN, SLH_DSA_SIGNATURE_LENGTH,
     generate_signing_key,
@@ -44,6 +44,8 @@ use custom_l1_node::crypto::hybrid::{
 use custom_l1_node::crypto::keys::{
     PUBLIC_KEY_LEN as ML_DSA_PUBLIC_KEY_LEN, SIGNATURE_LENGTH as ML_DSA_SIGNATURE_LENGTH,
 };
+
+mod common;
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -98,14 +100,15 @@ fn transfer_tx() -> Transaction {
 // backward compatibility
 // ---------------------------------------------------------------------------
 
-/// The prefix of a transfer's signing bytes: domain, input count, output count,
-/// and the single output's amount and recipient.
+/// The prefix of a transfer's signing bytes: domain, the chain tag (ADR-036),
+/// input count, output count, and the single output's amount and recipient.
 ///
 /// Only the prefix is a literal. The 1984-byte public key pair that follows
 /// would make a full literal 3968 hex characters, so the complete encoding is
 /// pinned by [`TRANSFER_SIGNING_DIGEST`] instead.
 const TRANSFER_SIGNING_PREFIX: &str = "\
-637573746f6d2d6c312d6e6f64652e74782e7633\
+637573746f6d2d6c312d6e6f64652e74782e7634\
+2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a\
 0000000000000000\
 0100000000000000\
 f401000000000000\
@@ -117,17 +120,21 @@ f401000000000000\
 /// of silently agreeing with itself. Any change to this value is a consensus
 /// change: it invalidates every signature in existence.
 const TRANSFER_SIGNING_DIGEST: &str =
-    "4f25938f60b9aa43e66b2b9e8dc01d88867f2ca62e0f0fc841dc431d4d1092bd";
+    "f617a3a3df21d4f32e26593e770dc81d389f121ff2c34897d11e677c3a7608ce";
 
-/// Length of those signing bytes: domain, two counts, one output, both public
-/// keys, and the nonce.
+/// Length of those signing bytes: domain, chain tag, two counts, one output,
+/// both public keys, and the nonce.
 const TRANSFER_SIGNING_LEN: usize =
-    20 + 8 + 8 + 8 + 32 + ML_DSA_PUBLIC_KEY_LEN + SLH_DSA_PUBLIC_KEY_LEN + 8;
+    20 + 32 + 8 + 8 + 8 + 32 + ML_DSA_PUBLIC_KEY_LEN + SLH_DSA_PUBLIC_KEY_LEN + 8;
+
+/// The genesis id the documented bytes are signed for: fixed here rather than
+/// taken from a test helper, so the literal above cannot drift with one.
+const DOCUMENTED_CHAIN: ChainTag = ChainTag::from_genesis([0x2a; 32]);
 
 #[test]
 fn a_transfer_signs_exactly_the_documented_bytes() {
     let tx = transfer_tx();
-    let bytes = tx.signing_bytes();
+    let bytes = tx.signing_bytes(&DOCUMENTED_CHAIN);
 
     assert_eq!(bytes.len(), TRANSFER_SIGNING_LEN);
     assert!(
@@ -195,9 +202,9 @@ fn the_single_signature_wire_versions_are_refused_by_name() {
 fn a_signed_transfer_still_verifies_across_a_round_trip() {
     let key = generate_signing_key().expect("keygen");
     let mut tx = transfer_tx();
-    tx.sign(&key).expect("sign");
+    tx.sign(&key, &common::test_chain()).expect("sign");
     let decoded = Transaction::from_bytes(&tx.to_bytes()).expect("decode");
-    assert_eq!(decoded.verify(), Ok(()));
+    assert_eq!(decoded.verify(&common::test_chain()), Ok(()));
     assert_eq!(decoded.txid(), tx.txid());
 }
 
@@ -350,7 +357,7 @@ fn every_payload_kind_has_distinct_signing_bytes() {
     for kind in kinds {
         let tx = Transaction::with_kind(kind.clone(), 0);
         assert!(
-            seen.insert(tx.signing_bytes()),
+            seen.insert(tx.signing_bytes(&common::test_chain())),
             "{} shares signing bytes with another kind",
             kind.label()
         );
@@ -362,8 +369,8 @@ fn a_payload_can_never_collide_with_a_transfer() {
     let transfer = Transaction::new(vec![], vec![], 0);
     let with_payload = Transaction::with_kind(TxKind::CooperativeClose(closure(0, 0, 0)), 0);
 
-    let plain = transfer.signing_bytes();
-    let payload = with_payload.signing_bytes();
+    let plain = transfer.signing_bytes(&common::test_chain());
+    let payload = with_payload.signing_bytes(&common::test_chain());
 
     // The payload section is appended after fixed-width fields, so a payload'd
     // transaction is strictly longer and shares the transfer as a prefix.
@@ -383,7 +390,10 @@ fn changing_any_closure_field_changes_the_signing_bytes() {
 
     for variant in variants {
         let other = Transaction::with_kind(TxKind::CooperativeClose(variant), 0);
-        assert_ne!(base.signing_bytes(), other.signing_bytes());
+        assert_ne!(
+            base.signing_bytes(&common::test_chain()),
+            other.signing_bytes(&common::test_chain())
+        );
     }
 }
 
@@ -591,7 +601,7 @@ fn a_trading_payload_cannot_collide_with_a_transfer() {
     // since. A payload section is appended after fixed-width fields, so a
     // payload'd transaction is strictly longer and shares the transfer as a
     // prefix — which is what makes one signature unable to mean two things.
-    let transfer = Transaction::new(vec![], vec![], 0).signing_bytes();
+    let transfer = Transaction::new(vec![], vec![], 0).signing_bytes(&common::test_chain());
 
     for kind in [
         TxKind::Swap(SwapRequest {
@@ -603,7 +613,7 @@ fn a_trading_payload_cannot_collide_with_a_transfer() {
         }),
         TxKind::CancelOrder([0u8; 32]),
     ] {
-        let payload = Transaction::with_kind(kind, 0).signing_bytes();
+        let payload = Transaction::with_kind(kind, 0).signing_bytes(&common::test_chain());
         assert!(payload.len() > transfer.len());
         assert_eq!(&payload[..transfer.len()], &transfer[..]);
     }

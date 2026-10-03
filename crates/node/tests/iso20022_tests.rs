@@ -41,6 +41,8 @@ use maya_zk_stark::sanctions::{SanctionsList, prove, verify};
 
 use tempfile::TempDir;
 
+mod common;
+
 // ---------------------------------------------------------------------------
 // fixtures
 // ---------------------------------------------------------------------------
@@ -121,6 +123,7 @@ struct Fixture {
 fn fixture(funded: &[(Address, u64)]) -> Fixture {
     let dir = TempDir::new().expect("temp dir");
     let db = StateDB::open(dir.path()).expect("open");
+    common::bind(&db);
     for (address, balance) in funded {
         db.put_account(
             address,
@@ -149,7 +152,7 @@ fn block_of(transactions: Vec<Transaction>) -> Block {
 }
 
 fn signed(mut transaction: Transaction, key: &HybridSigningKey) -> Transaction {
-    transaction.sign(key).expect("sign");
+    transaction.sign(key, &common::test_chain()).expect("sign");
     transaction
 }
 

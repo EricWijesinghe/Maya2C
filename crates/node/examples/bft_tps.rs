@@ -51,7 +51,9 @@ fn genesis() -> Block {
 }
 
 /// Signs `per_account` transfers for each of `accounts` keys, on every core.
+/// Signs for the chain `genesis()` opens (ADR-036), so every node accepts them.
 fn sign_all(accounts: usize, per_account: u64) -> Vec<Transaction> {
+    let chain = custom_l1_node::core::ChainTag::from_genesis(genesis().header.id());
     let threads = std::thread::available_parallelism().map_or(4, usize::from);
     let chunks: Vec<Vec<usize>> = (0..threads)
         .map(|t| (t..accounts).step_by(threads).collect())
@@ -74,7 +76,7 @@ fn sign_all(accounts: usize, per_account: u64) -> Vec<Transaction> {
                             }],
                             nonce,
                         );
-                        tx.sign_with_suite::<MlDsa65>(&key).unwrap();
+                        tx.sign_with_suite::<MlDsa65>(&key, &chain).unwrap();
                         out.push(tx);
                     }
                 }

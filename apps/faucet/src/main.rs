@@ -52,7 +52,8 @@ async fn main() -> ExitCode {
         };
     }
 
-    match run().await {
+    // Boxed for the same reason as `connect` below (clippy::large_futures).
+    match Box::pin(run()).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(message) => {
             eprintln!("faucet: {message}");
@@ -91,7 +92,9 @@ async fn run() -> Result<(), String> {
         ),
     }
 
-    let dispenser = NodeDispenser::connect(&node_url, key)
+    // Boxed: `connect` makes two RPC calls, and its future is large enough
+    // that holding it inline bloats `run`'s own future (clippy::large_futures).
+    let dispenser = Box::pin(NodeDispenser::connect(&node_url, key))
         .await
         .map_err(|e| format!("{e}"))?;
 

@@ -18,6 +18,8 @@ use maya_crypto_pq::multisig::{Approval, MultisigPolicy, PolicyKey};
 use maya_crypto_pq::suite::{MasterSeed, MlDsa87, SignatureSuite, SuiteId};
 use serde_json::Value;
 
+mod common;
+
 fn load() -> Value {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../spec/tests/consensus.json");
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
@@ -53,7 +55,9 @@ fn key(i: u8) -> <MlDsa87 as SignatureSuite>::SigningKey {
 fn transaction(version: u64, valid: bool) -> Transaction {
     let mut tx = pay();
     match version {
-        7 => tx.sign_with_suite::<MlDsa87>(&key(0)).unwrap(),
+        7 => tx
+            .sign_with_suite::<MlDsa87>(&key(0), &common::test_chain())
+            .unwrap(),
         8 => {
             let keys: Vec<_> = (1..=3).map(key).collect();
             let listed = keys
@@ -65,7 +69,7 @@ fn transaction(version: u64, valid: bool) -> Transaction {
                 .collect();
             let policy = MultisigPolicy::new(2, listed).unwrap();
             tx.multisig = Some(Box::new(MultisigAuth::unsigned(policy.clone())));
-            let message = tx.signing_bytes();
+            let message = tx.signing_bytes(&common::test_chain());
             let approvals = (0..2u8)
                 .map(|i| Approval {
                     index: i,
@@ -76,7 +80,7 @@ fn transaction(version: u64, valid: bool) -> Transaction {
         }
         _ => {
             let signer = custom_l1_node::crypto::hybrid::signing_key_from_seed(&[7; 32]).unwrap();
-            tx.sign(&signer).unwrap();
+            tx.sign(&signer, &common::test_chain()).unwrap();
         }
     }
     if !valid {
@@ -162,10 +166,11 @@ fn check(case: &Value) {
                 case["signature"] == "valid",
             );
             let result = match case["call"].as_str().unwrap() {
-                "verify" => tx.verify(),
+                "verify" => tx.verify(&common::test_chain()),
                 _ => tx.verify_at(
                     num(&case["height"]),
                     &SuitePolicy::genesis(Network::Mainnet),
+                    &common::test_chain(),
                 ),
             };
             assert_eq!(outcome(result.is_ok()), want, "{id}: {result:?}");

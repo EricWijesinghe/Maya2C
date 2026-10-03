@@ -26,6 +26,8 @@ use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
 use tempfile::TempDir;
 
+mod common;
+
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
@@ -49,7 +51,7 @@ fn transfer(from: &HybridSigningKey, to: Address, amount: u64, nonce: u64) -> Tr
         }],
         nonce,
     );
-    tx.sign(from).expect("sign");
+    tx.sign(from, &common::test_chain()).expect("sign");
     tx
 }
 
@@ -106,7 +108,8 @@ fn child_of(
 }
 
 fn test_chain(state: Arc<StateDB>) -> Chain {
-    Chain::open(state, genesis(), ChainConfig::without_pow_verification()).expect("open chain")
+    common::open_chain(state, genesis(), ChainConfig::without_pow_verification())
+        .expect("open chain")
 }
 
 /// A second node with the same genesis state as a test's main chain, funding
@@ -308,6 +311,7 @@ fn work_doubles_when_the_target_halves() {
 #[test]
 fn reverting_a_block_restores_state_exactly() {
     let (state, _dir) = open_state();
+    common::bind(&state);
     let alice = generate_signing_key().expect("keygen");
     let alice_addr = address_of(&alice);
     let bob_addr = [7u8; 32];
