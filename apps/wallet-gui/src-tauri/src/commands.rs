@@ -382,6 +382,52 @@ pub async fn fetch_account(node_url: String, address: String) -> Result<AccountS
     Ok(AccountState { balance, nonce })
 }
 
+/// The network the wallet is talking to: its name, genesis and tip height.
+#[tauri::command]
+pub async fn network_status(node_url: String) -> Result<wallet::NetworkStatus, String> {
+    wallet::network_status(&node_url)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// What the Receive screen shows for account `index`: the address, the
+/// `maya:` URI and that URI as a QR code. No network access.
+#[derive(Serialize, Deserialize)]
+pub struct ReceiveRequest {
+    /// The account's address, hex.
+    pub address: String,
+    /// The payment URI the QR code encodes.
+    pub uri: String,
+    /// The QR code, as an SVG document.
+    pub qr_svg: String,
+}
+
+/// Builds the Receive screen's request for account `index`, optionally
+/// asking for `amount`.
+#[tauri::command]
+pub fn receive_request(
+    index: u32,
+    amount: Option<u64>,
+    session: tauri::State<'_, Session>,
+) -> Result<ReceiveRequest, String> {
+    let address = session.with(|wallet| {
+        wallet
+            .account(index)
+            .map(|account| account.address)
+            .map_err(|e| e.to_string())
+    })?;
+    let request = PaymentRequest {
+        recipient: address.clone(),
+        amount,
+        label: None,
+    };
+    Ok(ReceiveRequest {
+        uri: request.to_uri(),
+        qr_svg: payment::payment_qr_svg(&request).map_err(|e| e.to_string())?,
+        address,
+    })
+}
+
 /// A node's view of an account.
 #[derive(Serialize, Deserialize)]
 pub struct AccountState {

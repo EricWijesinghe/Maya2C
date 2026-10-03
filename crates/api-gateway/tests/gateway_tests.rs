@@ -93,6 +93,7 @@ impl NodeClient for MockNode {
         Ok(ChainInfo {
             genesis: "ab".repeat(32),
             chain_id: None,
+            height: 0,
         })
     }
 }

@@ -61,9 +61,11 @@ pub struct FeeInfo {
 pub struct ChainInfo {
     /// Hex-encoded genesis block id (32 bytes), used as the chain tag for signatures.
     pub genesis: String,
-    /// Optional chain id string, if one is configured. `null` if no string identifier
-    /// is available.
+    /// The network's name (`maya-testnet-1`), if the node was given one.
     pub chain_id: Option<String>,
+    /// The node's tip height when it answered (`0` from a node that predates it).
+    #[serde(default)]
+    pub height: u64,
 }
 
 /// What the gateway needs from a node.
