@@ -65,6 +65,7 @@ fn genesis() -> GenesisConfig {
         treasury: None,
         protocol_upgrades: Vec::new(),
         security_council: None,
+        shielded_activation_height: None,
         bft: Some(BftGenesis {
             validators,
             anchor_timeout_ms: 1_000,

@@ -15,21 +15,20 @@
 //!                  --out-dir ./ceremony
 //! ```
 //!
-//! # This will not produce a mainnet genesis, and that is deliberate
+//! # A mainnet genesis has the shielded pool off
 //!
 //! `docs/mainnet-readiness.md §1`: the shielded pool's circuit has had no
 //! independent audit. One missing constraint in the joinsplit AIR lets anyone
 //! mint shielded value that no supply audit would reveal.
 //!
-//! Three other places already refuse a value-bearing chain id — the node at
-//! startup, both terraform module sets, and a test pinning
-//! `CIRCUIT_IS_AUDITED = false`. This is the fourth, and it refuses for the same
-//! reason: a genesis file is the one artefact that cannot be revised after the
-//! fact, so the tool that mints it is the wrong place to be permissive.
-//!
-//! Lifting the block needs an independent audit of the joinsplit AIR, its
-//! findings fixed, and only then the flag flipped. That is calendar time and
-//! external reviewers. It is not a flag on this binary.
+//! Until ADR-037 this binary refused value-bearing chain ids outright. Now it
+//! mints them with `shielded_activation_height = u64::MAX`: the pool never
+//! runs, so it cannot mint, and the setting is hashed into the genesis id, so
+//! no operator can quietly differ. The node's startup guard accepts exactly
+//! that configuration and still refuses any other on an unaudited circuit.
+//! Turning the pool on is a scheduled protocol upgrade, after an audit. A
+//! genesis file is the one artefact that cannot be revised after the fact,
+//! so this binary chooses the setting itself rather than taking a flag.
 //!
 //! # Secret material never reaches stdout
 //!
@@ -50,12 +49,12 @@ use custom_l1_node::genesis::{
     Allocation, BPS_DENOMINATOR, GenesisConfig, MAX_TREASURY_SHARE_BPS, TreasuryGenesis,
 };
 
-/// Chain ids this binary refuses to mint a genesis for.
+/// Chain ids that carry real value, so their genesis keeps the pool off.
 ///
-/// The same list `bins/maya2c-node/src/main.rs` refuses to start on. Duplicated rather than
+/// The same list `bins/maya2c-node/src/main.rs` guards at startup. Duplicated rather than
 /// shared because the two crates answer different questions — "may I run?" and
-/// "may I create?" — and a single list would invite someone relaxing one to
-/// relax both.
+/// "what may I create?" — and a single list would invite someone relaxing one
+/// to relax both.
 const VALUE_BEARING_CHAINS: &[&str] = &["maya-mainnet", "mainnet"];
 
 /// Default number of root keys.
@@ -219,30 +218,27 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
 
 /// Refuses a value-bearing chain id.
 ///
-/// # Errors
+/// The `shielded_activation_height` a genesis for `chain_id` gets (ADR-037).
 ///
-/// Returns the reason, naming the document that explains the block, so an
-/// operator who hits this is pointed at the ceremony they actually need rather
-/// than at this binary's source.
-fn refuse_value_bearing(chain_id: &str) -> Result<(), Box<dyn Error>> {
-    if VALUE_BEARING_CHAINS.contains(&chain_id) {
-        return Err(format!(
-            "refusing to mint a genesis for value-bearing chain id '{chain_id}'.\n\
-             \n\
-             The shielded pool's circuit has had no independent audit: one missing\n\
-             constraint lets anyone mint shielded value that no supply audit reveals.\n\
-             See docs/mainnet-readiness.md section 1.\n\
-             \n\
-             Three other guards refuse the same ids — the node at startup, both\n\
-             terraform module sets, and a test pinning CIRCUIT_IS_AUDITED = false.\n\
-             A genesis file cannot be revised after the fact, so this one refuses\n\
-             too.\n\
-             \n\
-             Use a non-value-bearing id such as 'maya-genesis-rc1'."
-        )
-        .into());
+/// A value-bearing chain on an unaudited circuit gets "never"; every other
+/// genesis names none, which runs the pool from block zero and keeps the id
+/// a genesis written before ADR-037 would have had.
+fn shielded_activation_for(chain_id: &str, circuit_audited: bool) -> Option<u64> {
+    // Case and surrounding space ignored, as the node's guard does.
+    let id = chain_id.trim();
+    let value_bearing = VALUE_BEARING_CHAINS
+        .iter()
+        .any(|v| v.eq_ignore_ascii_case(id));
+    (value_bearing && !circuit_audited).then_some(u64::MAX)
+}
+
+/// How the commitment sheet states the pool's setting.
+fn shielded_line(config: &GenesisConfig) -> &'static str {
+    match config.shielded_activation_height {
+        Some(u64::MAX) => "off (ADR-037: unaudited circuit; a later upgrade may turn it on)",
+        Some(_) => "on from a scheduled height",
+        None => "on from block zero",
     }
-    Ok(())
 }
 
 /// Splits `supply` into a treasury balance and the remainder.
@@ -341,14 +337,11 @@ fn main() {
 fn run() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
 
-    // `contribute` mints no genesis, so it has no chain id to refuse and needs
-    // none: a root key is chain-agnostic until an assemble step allocates to
-    // it. The refusal belongs on the two paths that write a genesis file.
+    // `contribute` mints no genesis, so it has no chain id and needs none: a
+    // root key is chain-agnostic until an assemble step allocates to it.
     if args.mode == Mode::Contribute {
         return contribute(&args.label, &args.out_dir, args.force);
     }
-
-    refuse_value_bearing(&args.chain_id)?;
 
     if args.mode == Mode::Assemble {
         return assemble(&args);
@@ -449,6 +442,10 @@ fn run() -> Result<(), Box<dyn Error>> {
         treasury,
         protocol_upgrades: Vec::new(),
         security_council: None,
+        shielded_activation_height: shielded_activation_for(
+            &args.chain_id,
+            maya_zk_stark::pool::circuit_is_audited(),
+        ),
         bft: None,
     };
 
@@ -475,6 +472,7 @@ fn run() -> Result<(), Box<dyn Error>> {
          roots          {}\n\
          total supply   {total}\n\
          treasury       {} units ({} bps)\n\
+         shielded pool  {}\n\
          \n\
          state root     {}\n\
          genesis block  {}\n\
@@ -493,6 +491,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         args.roots,
         treasury_balance,
         args.treasury_share_bps,
+        shielded_line(&config),
         hex::encode(state_root),
         hex::encode(block.header.id()),
         public_lines.join("\n"),
@@ -824,6 +823,10 @@ fn assemble(args: &Args) -> Result<(), Box<dyn Error>> {
         treasury,
         protocol_upgrades: Vec::new(),
         security_council: None,
+        shielded_activation_height: shielded_activation_for(
+            &args.chain_id,
+            maya_zk_stark::pool::circuit_is_audited(),
+        ),
         bft: None,
     };
 
@@ -846,6 +849,7 @@ fn assemble(args: &Args) -> Result<(), Box<dyn Error>> {
          contributions  {}\n\
          total supply   {total}\n\
          treasury       {} units ({} bps)\n\
+         shielded pool  {}\n\
          \n\
          state root     {}\n\
          genesis block  {}\n\
@@ -867,6 +871,7 @@ fn assemble(args: &Args) -> Result<(), Box<dyn Error>> {
         contributions.len(),
         treasury_balance,
         args.treasury_share_bps,
+        shielded_line(&config),
         hex::encode(state_root),
         hex::encode(block.header.id()),
         public_lines.join("\n"),
@@ -877,4 +882,36 @@ fn assemble(args: &Args) -> Result<(), Box<dyn Error>> {
     println!("Wrote {}", genesis_path.display());
 
     Ok(())
+}
+
+#[cfg(test)]
+mod shielded_tests {
+    use super::shielded_activation_for;
+
+    #[test]
+    fn a_mainnet_genesis_keeps_the_pool_off_while_the_circuit_is_unaudited() {
+        for chain in ["maya-mainnet", "mainnet"] {
+            assert_eq!(shielded_activation_for(chain, false), Some(u64::MAX));
+            // After an audit the ceremony stops forcing it; turning the pool
+            // on for a running mainnet is still a scheduled upgrade.
+            assert_eq!(shielded_activation_for(chain, true), None);
+        }
+    }
+
+    #[test]
+    fn case_and_spaces_do_not_turn_mainnet_into_a_testnet() {
+        for name in ["Maya-Mainnet", "MAINNET", " mainnet "] {
+            assert_eq!(
+                shielded_activation_for(name, false),
+                Some(u64::MAX),
+                "{name:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn any_other_genesis_keeps_the_id_it_always_had() {
+        assert_eq!(shielded_activation_for("maya-testnet-1", false), None);
+        assert_eq!(shielded_activation_for("maya-genesis-rc1", false), None);
+    }
 }

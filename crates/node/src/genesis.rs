@@ -26,6 +26,7 @@ use maya_vrf::keys::VrfPublicKey;
 
 use crate::oracle::registry::{OracleAuthority, OracleRegistry};
 use crate::sealed::CommitteeRecord;
+use crate::state::context::SHIELDED_ACTIVATION_HEIGHT;
 use crate::state::{Account, Address, StateDB};
 use crate::upgrade::{ProtocolUpgrade, UpgradeSchedule};
 
@@ -102,6 +103,17 @@ pub struct GenesisConfig {
     /// for a bounded time. Absent: no council, and no one can.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub security_council: Option<CouncilGenesis>,
+    /// First height at which shielded join-splits execute (ADR-037).
+    ///
+    /// Absent means [`SHIELDED_ACTIVATION_HEIGHT`] (from block zero), which is
+    /// what every genesis written before this field meant, and leaves the
+    /// genesis id unchanged. Present, it is committed into the genesis id
+    /// (`chain_id_commitment`), so two operators who disagree about whether
+    /// the pool runs disagree about block zero. Mainnet v1 sets
+    /// [`crate::state::context::SHIELDED_NEVER`]: its circuit is unaudited, and a pool that never
+    /// runs cannot mint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shielded_activation_height: Option<u64>,
 }
 
 /// The genesis security council.
@@ -502,6 +514,31 @@ impl GenesisConfig {
         UpgradeSchedule::new(self.protocol_upgrades.clone())
     }
 
+    /// The validation rules every block of this network runs under.
+    ///
+    /// One place, so the node and every tool that replays its chain (the
+    /// CLI's fork and replay) cannot drift: a tool that forgot the shielded
+    /// activation (ADR-037) would accept blocks the network refuses, and one
+    /// that forgot the fixed target (ADR-035) would recompute a different
+    /// difficulty and refuse the node's own blocks. DAG-BFT verifies no work
+    /// and keeps the genesis target; proof of work verifies against the
+    /// genesis floor.
+    ///
+    /// # Errors
+    ///
+    /// A malformed upgrade schedule.
+    pub fn chain_config(&self) -> Result<crate::consensus::chain::ChainConfig> {
+        use crate::consensus::chain::ChainConfig;
+        let base = if self.bft.is_some() {
+            ChainConfig::dag_bft()
+        } else {
+            ChainConfig::with_pow_limit(self.pow_limit())
+        };
+        Ok(base
+            .with_upgrades(&self.upgrade_schedule()?)
+            .with_shielded_activation(self.shielded_activation()))
+    }
+
     /// Validates the configuration.
     ///
     /// # Errors
@@ -527,6 +564,18 @@ impl GenesisConfig {
             return Err(NodeError::Decode(
                 "difficulty_bits must be below 256".to_string(),
             ));
+        }
+
+        // DAG-BFT verifies no work and fixes the target at genesis (CON-9), so
+        // each block adds `2^difficulty_bits` of work. Anything above zero
+        // only brings saturation of total work closer: at 250 bits it comes
+        // within a handful of blocks and halts the chain (ADR-035). Nothing is
+        // gained, so nothing but the unlimited target is accepted.
+        if self.bft.is_some() && (self.difficulty_bits != 0 || self.pow_limit_bits != 0) {
+            return Err(NodeError::Decode(format!(
+                "a DAG-BFT genesis must set difficulty_bits and pow_limit_bits to 0                  (got {} and {}): no work is verified, and a harder target only                  brings total work closer to saturating (ADR-035)",
+                self.difficulty_bits, self.pow_limit_bits
+            )));
         }
 
         let mut seen = std::collections::BTreeSet::new();
@@ -804,6 +853,27 @@ impl GenesisConfig {
     /// the two chains visibly distinct from block zero instead.
     #[must_use]
     pub fn chain_id_commitment(&self) -> [u8; 32] {
+        let base = self.committee_commitment();
+        // Only when the field is present, so every genesis written before
+        // ADR-037 keeps the id it always had.
+        let Some(activation) = self.shielded_activation_height else {
+            return base;
+        };
+        let mut h = blake3::Hasher::new_derive_key("maya2c genesis shielded activation v1");
+        h.update(&base);
+        h.update(&activation.to_le_bytes());
+        *h.finalize().as_bytes()
+    }
+
+    /// First height at which shielded join-splits execute on this network.
+    #[must_use]
+    pub fn shielded_activation(&self) -> u64 {
+        self.shielded_activation_height
+            .unwrap_or(SHIELDED_ACTIVATION_HEIGHT)
+    }
+
+    /// The chain id, and the DAG-BFT committee where there is one.
+    fn committee_commitment(&self) -> [u8; 32] {
         let chain = blake3::derive_key(
             "custom-l1-node genesis chain id v2",
             self.chain_id.as_bytes(),

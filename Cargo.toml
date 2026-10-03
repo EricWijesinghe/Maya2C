@@ -462,6 +462,9 @@ tokio = "1"
 # library would otherwise hide.
 toml = "0.9"
 tower = "0.5"
+# Per-client rate limiting for the public gateway (api-gateway/src/limit.rs).
+governor = { version = "0.10", default-features = false, features = ["std", "dashmap", "quanta", "jitter"] }
+tower_governor = { version = "0.8", default-features = false, features = ["axum"] }
 tower-http = "0.6"
 tracing = "0.1"
 tracing-subscriber = "0.3"

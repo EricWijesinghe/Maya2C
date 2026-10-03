@@ -53,6 +53,8 @@ fn publish_checkpoint(driver: &BftDriver, slot: &Mutex<Option<Checkpoint>>) {
 
 /// How often an attested follower looks for newer checkpoints (ADR-038).
 const FOLLOW_INTERVAL: Duration = Duration::from_secs(1);
+/// Least time between two reports of frames lost to a full event channel.
+const DROP_REPORT_INTERVAL: Duration = Duration::from_secs(10);
 
 /// Where the per-epoch safety logs live.
 const BFT_DIR: &str = "bft";
@@ -363,6 +365,33 @@ async fn act(step: Step, network: &NodeHandle, pools: &[&Mempool], feed: &mut Fe
 }
 
 /// Runs DAG-BFT until the process stops.
+/// Consensus frames lost because this loop fell behind the network's event
+/// channel. They used to vanish without a word; a validator losing votes is
+/// one an operator needs to see, even though peers re-send what matters.
+#[derive(Default)]
+struct Dropped {
+    since_report: u64,
+    last_report: Option<std::time::Instant>,
+}
+
+impl Dropped {
+    fn add(&mut self, lost: u64) {
+        self.since_report = self.since_report.saturating_add(lost);
+        let now = std::time::Instant::now();
+        if self
+            .last_report
+            .is_none_or(|t| now.duration_since(t) >= DROP_REPORT_INTERVAL)
+        {
+            eprintln!(
+                "bft: fell behind and lost {} consensus frame(s); peers re-send what is still needed",
+                self.since_report
+            );
+            self.since_report = 0;
+            self.last_report = Some(now);
+        }
+    }
+}
+
 pub(super) async fn bft_loop(
     chain: Arc<Mutex<Chain>>,
     network: NodeHandle,
@@ -379,6 +408,7 @@ pub(super) async fn bft_loop(
     let gossip_pool = network.mempool().clone();
     let pools = [&gossip_pool, &rpc_pool];
     let mut feed = Feed::default();
+    let mut dropped = Dropped::default();
     act(opening, &network, &pools, &mut feed).await;
     loop {
         let step = tokio::select! {
@@ -387,7 +417,11 @@ pub(super) async fn bft_loop(
                     let mut guard = lock_chain(&chain);
                     driver.on_frame(&mut guard, now_ms(), &frame)
                 }
-                Ok(_) | Err(RecvError::Lagged(_)) => continue,
+                Err(RecvError::Lagged(lost)) => {
+                    dropped.add(lost);
+                    continue;
+                }
+                Ok(_) => continue,
                 Err(RecvError::Closed) => return,
             },
             _ = ticker.tick() => {
