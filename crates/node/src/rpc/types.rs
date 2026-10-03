@@ -56,6 +56,25 @@ impl ChainInfo {
     }
 }
 
+/// What this node's DAG-BFT engine is doing, as `get_bft_status` serves it:
+/// whether consensus is moving, and whether this node takes part.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BftStatus {
+    /// Staking epoch the engine runs.
+    pub epoch: u64,
+    /// Round this node last proposed in (0 for an observer).
+    pub round: u64,
+    /// Round of the last anchor committed.
+    pub committed_round: u64,
+    /// This node's committee index; `None` for an observer.
+    pub validator: Option<u16>,
+    /// Committee size.
+    pub committee: u16,
+    /// Following attested blocks after a catch-up (ADR-038), rather than
+    /// building its own.
+    pub follower: bool,
+}
+
 /// The newest quorum-attested block (ADR-038), as `get_checkpoint` serves
 /// it. A node that fell behind imports up to it; it checks every signature
 /// against the committee it already trusts, so the serving node is trusted

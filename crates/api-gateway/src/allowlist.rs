@@ -56,6 +56,7 @@ pub const ALLOWED_METHODS: &[&str] = &[
     // that commit to this chain and are not replayed on others (ADR-036).
     "get_chain_info",
     "get_checkpoint",
+    "get_bft_status",
     "get_supply",
     "send_raw_transaction",
 ];
