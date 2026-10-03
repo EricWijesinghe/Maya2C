@@ -1,0 +1,162 @@
+---
+// The public testnet, live. Read in the visitor's browser from the explorer
+// (height, block time, transactions; a WebSocket pushes each new block) and
+// the API gateway (supply, base fee). Nothing here is baked in at build time:
+// if the network is down, the band says so instead of showing stale numbers.
+const EXPLORER = "https://explorer.maya2c.dev";
+const API = "https://rpc.maya2c.dev";
+---
+
+<section class="net" aria-label="maya-testnet-1, live" data-explorer={EXPLORER} data-api={API}>
+  <div class="head">
+    <span class="dot" aria-hidden="true"></span>
+    <strong>maya-testnet-1</strong>
+    <span class="state" id="net-state">connecting…</span>
+  </div>
+  <dl class="metrics">
+    <div><dt>Height</dt><dd id="net-height">—</dd></div>
+    <div><dt>Last block</dt><dd id="net-ago">—</dd></div>
+    <div><dt>Block time</dt><dd id="net-bt">—</dd></div>
+    <div><dt>Transactions</dt><dd id="net-tx">—</dd></div>
+    <div><dt>Supply</dt><dd id="net-supply">—</dd></div>
+    <div><dt>Base fee</dt><dd id="net-fee">—</dd></div>
+  </dl>
+  <p class="links">
+    <a href="https://explorer.maya2c.dev">Open the explorer →</a>
+    <a href="/guides/testnet/">Get free test coins →</a>
+  </p>
+</section>
+
+<script>
+  const root = document.querySelector<HTMLElement>(".net");
+  const explorer = root?.dataset.explorer ?? "";
+  const api = root?.dataset.api ?? "";
+  const $ = (id: string) => document.getElementById(id);
+  const fmt = (n: number) => n.toLocaleString("en-US");
+  let lastBlockAt = 0;
+  let online = false;
+
+  function state(text: string, live: boolean) {
+    const el = $("net-state");
+    if (el) el.textContent = text;
+    root?.classList.toggle("live", live);
+    online = live;
+  }
+
+  function setHeight(h: number) {
+    const el = $("net-height");
+    if (!el) return;
+    el.textContent = fmt(h);
+    el.classList.remove("tick");
+    void el.offsetWidth; // restart the flash
+    el.classList.add("tick");
+  }
+
+  async function json(url: string) {
+    const r = await fetch(url, { cache: "no-store" });
+    if (!r.ok) throw new Error(String(r.status));
+    return r.json();
+  }
+
+  async function refresh() {
+    try {
+      const s = await json(`${explorer}/api/stats`);
+      setHeight(s.height);
+      $("net-bt")!.textContent = `${Number(s.average_block_time).toFixed(1)} s`;
+      $("net-tx")!.textContent = fmt(s.transactions_indexed);
+      state("live", true);
+    } catch {
+      state("unreachable right now", false);
+    }
+    try {
+      const [supply, fees] = await Promise.all([json(`${api}/v1/supply`), json(`${api}/v1/fees`)]);
+      // Compact ("1.011T") so it fits its column; the exact figure on hover.
+      const el = $("net-supply")!;
+      el.textContent = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 3 }).format(supply.total);
+      el.title = `${fmt(supply.total)} base units`;
+      $("net-fee")!.textContent = fees.active ? `${fees.base_fee} / byte` : "off";
+    } catch {
+      /* the explorer figures still stand; these stay as dashes */
+    }
+  }
+
+  function stream() {
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(`${explorer.replace(/^http/, "ws")}/ws/blocks`);
+    } catch {
+      return;
+    }
+    ws.onmessage = (ev) => {
+      try {
+        const block = JSON.parse(ev.data);
+        setHeight(block.height);
+        lastBlockAt = Date.now();
+        if (!online) state("live", true);
+      } catch {
+        /* a malformed frame is skipped, never shown */
+      }
+    };
+    // Reconnect quietly: a dropped socket must not freeze the band.
+    ws.onclose = () => setTimeout(stream, 5000);
+  }
+
+  setInterval(() => {
+    const el = $("net-ago");
+    if (el && lastBlockAt) el.textContent = `${Math.max(0, Math.round((Date.now() - lastBlockAt) / 1000))} s ago`;
+  }, 1000);
+
+  if (root) {
+    refresh();
+    setInterval(refresh, 30000);
+    stream();
+  }
+</script>
+
+<style>
+  .net {
+    margin: 2rem 0 1rem;
+    padding: 1.25rem 1.5rem;
+    border-radius: 1.1rem;
+    border: 1px solid var(--sl-color-hairline);
+    background:
+      radial-gradient(30rem 10rem at 0% 0%, rgb(34 211 238 / 0.12), transparent 70%),
+      linear-gradient(160deg, rgb(255 255 255 / 0.05), rgb(255 255 255 / 0.01));
+  }
+  .head { display: flex; align-items: center; gap: 0.6rem; font-size: 1.05rem; }
+  .dot { width: 0.7rem; height: 0.7rem; border-radius: 50%; background: #64748b; }
+  .net.live .dot { background: #22c55e; box-shadow: 0 0 0 0 rgb(34 197 94 / 0.6); animation: pulse 2s infinite; }
+  .state { color: var(--sl-color-gray-3); font-size: 0.85rem; }
+  .net.live .state { color: #86efac; }
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: 0.75rem 1.25rem;
+    margin: 1rem 0 0.75rem;
+  }
+  .metrics div { margin: 0; }
+  dt { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--sl-color-gray-3); }
+  dd {
+    overflow-wrap: anywhere;
+    margin: 0.15rem 0 0;
+    margin-inline-start: 0; /* Starlight's prose styles indent <dd> */
+    font-size: 1.35rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--sl-color-white);
+  }
+  dd.tick { animation: flash 0.9s ease-out; }
+  .links { display: flex; gap: 1.5rem; flex-wrap: wrap; margin: 0 !important; font-size: 0.9rem; }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgb(34 197 94 / 0.55); }
+    70% { box-shadow: 0 0 0 10px rgb(34 197 94 / 0); }
+    100% { box-shadow: 0 0 0 0 rgb(34 197 94 / 0); }
+  }
+  @keyframes flash {
+    from { color: #22d3ee; text-shadow: 0 0 18px rgb(34 211 238 / 0.8); }
+    to { color: var(--sl-color-white); text-shadow: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .net.live .dot, dd.tick { animation: none; }
+  }
+</style>
