@@ -372,6 +372,7 @@ pub(super) async fn bft_loop(
     committee: usize,
     metrics: Arc<Metrics>,
     checkpoint: Arc<Mutex<Option<Checkpoint>>>,
+    status: Arc<Mutex<custom_l1_node::rpc::types::BftStatus>>,
 ) {
     let mut events = network.subscribe();
     let mut ticker = tokio::time::interval(TICK);
@@ -400,6 +401,9 @@ pub(super) async fn bft_loop(
             }
         };
         publish_checkpoint(&driver, &checkpoint);
+        *status
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = driver.status();
         match step {
             Ok(step) => {
                 if !step.blocks.is_empty() {

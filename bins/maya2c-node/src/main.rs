@@ -728,10 +728,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let rpc_context =
         RpcContext::new(Arc::clone(&chain), rpc_pool.clone()).with_network(config.chain_id.clone());
     let checkpoint_slot = Arc::new(Mutex::new(None));
+    let status_slot = Arc::new(Mutex::new(custom_l1_node::rpc::types::BftStatus::default()));
     let rpc_context = if mode == "dag-bft" {
         rpc_context
             .refusing_blocks()
             .with_checkpoints(Arc::clone(&checkpoint_slot))
+            .with_bft_status(Arc::clone(&status_slot))
     } else {
         rpc_context
     };
@@ -865,6 +867,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             size,
             Arc::clone(&metrics),
             checkpoint_slot,
+            status_slot,
         ));
     } else {
         // Apply blocks arriving over gossip. Without this task the node decodes

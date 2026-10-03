@@ -265,7 +265,15 @@ impl<A: Authenticator> Validator<A> {
             return;
         }
         self.committer.resume_at(round);
-        let horizon = round.saturating_sub(GC_DEPTH);
+        // The horizon goes to `round` itself, not `GC_DEPTH` below it: a
+        // certificate at or below the horizon is inserted without its
+        // parents, so the engine joins the current rounds after fetching at
+        // most one round, instead of ~50 rounds of history over a gossip
+        // fetch path that loses replies under load (measured in the
+        // 2026-10-04 rehearsals). Nothing at or below it is ever proposed
+        // or voted on again, so dropping those records cannot let this
+        // validator sign a slot twice.
+        let horizon = round;
         self.dag.collect_below(horizon);
         self.committer.collect_below(horizon);
         self.voted = self.voted.split_off(&(horizon, 0));

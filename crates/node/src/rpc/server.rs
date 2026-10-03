@@ -158,6 +158,9 @@ pub struct RpcContext {
     /// The newest attested checkpoint, kept current by the DAG-BFT loop, for
     /// `get_checkpoint` (ADR-038). Absent on a node that runs no DAG-BFT.
     pub checkpoint: Option<Arc<Mutex<Option<crate::consensus::bft::attest::Checkpoint>>>>,
+    /// The engine's status, kept current by the DAG-BFT loop, for
+    /// `get_bft_status`.
+    pub bft_status: Option<Arc<Mutex<crate::rpc::types::BftStatus>>>,
 }
 
 impl RpcContext {
@@ -174,6 +177,16 @@ impl RpcContext {
             accepts_blocks: true,
             network: None,
             checkpoint: None,
+            bft_status: None,
+        }
+    }
+
+    /// The same context, serving `slot` from `get_bft_status`.
+    #[must_use]
+    pub fn with_bft_status(self, slot: Arc<Mutex<crate::rpc::types::BftStatus>>) -> Self {
+        Self {
+            bft_status: Some(slot),
+            ..self
         }
     }
 
@@ -267,6 +280,17 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 .map_err(|e| rejected(e.to_string()))?;
 
             Ok::<_, ErrorObjectOwned>(AccountInfo::new(&address, &account))
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
+    module
+        .register_method("get_bft_status", |_params, ctx, _| {
+            let status = ctx.bft_status.as_ref().map(|slot| {
+                *slot
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+            });
+            Ok::<_, ErrorObjectOwned>(status)
         })
         .map_err(|e| rejected(e.to_string()))?;
 

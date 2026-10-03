@@ -361,6 +361,19 @@ impl BftDriver {
         Arc::clone(&self.committee)
     }
 
+    /// What `get_bft_status` reports for this driver.
+    #[must_use]
+    pub fn status(&self) -> crate::rpc::types::BftStatus {
+        crate::rpc::types::BftStatus {
+            epoch: self.epoch,
+            round: self.engine.round(),
+            committed_round: self.engine.last_committed_round(),
+            validator: self.id,
+            committee: u16::try_from(self.committee.len()).unwrap_or(u16::MAX),
+            follower: self.follower,
+        }
+    }
+
     /// Whether this node follows attested blocks instead of building.
     #[must_use]
     pub fn is_follower(&self) -> bool {
