@@ -17,6 +17,9 @@ jsonrpsee = { workspace = true, features = ["http-client"] }
 axum = { workspace = true, features = ["macros"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
 tower-http = { workspace = true, features = ["trace", "limit", "cors"] }
+# Per-client token buckets; see src/limit.rs for how clients are identified.
+governor.workspace = true
+tower_governor.workspace = true
 # GraphQL. Depth and complexity limits are configured at schema build time —
 # see `graphql::schema` for why that is not optional.
 async-graphql = { version = "7", default-features = false }
