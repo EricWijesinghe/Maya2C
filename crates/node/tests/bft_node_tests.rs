@@ -394,3 +394,127 @@ fn clock_drift_rehearsal_a_fast_validator_skews_timestamps_but_not_liveness() {
         mesh.now / 1_000 - start_s
     );
 }
+
+#[test]
+fn every_member_holds_a_quorum_attested_checkpoint_on_its_own_chain() {
+    // ADR-038: validators attest each block they build; 3 of 4 make a
+    // checkpoint every member (the observer too) can verify on its own.
+    let mut mesh = Mesh::new(1);
+    mesh.run_to(8);
+    let (_, committee) = signers();
+    for m in mesh.live() {
+        let driver = m.driver.as_ref().unwrap();
+        let checkpoint = driver
+            .checkpoint()
+            .expect("a checkpoint after eight blocks");
+        let tag = custom_l1_node::core::ChainTag::from_genesis(m.chain.genesis());
+        checkpoint
+            .verify(&tag, &committee)
+            .expect("a quorum of the committee");
+        assert!(checkpoint.height >= 1);
+        let ours = m.chain.active_chain().unwrap()[usize::try_from(checkpoint.height).unwrap()];
+        assert_eq!(
+            ours, checkpoint.block,
+            "the checkpoint is this member's own block"
+        );
+    }
+    assert_eq!(mesh.equivocations, 0);
+}
+
+/// A peer as a catch-up source: its newest checkpoint and its own blocks.
+struct Peer<'a> {
+    chain: &'a Chain,
+    checkpoint: Option<custom_l1_node::consensus::bft::attest::Checkpoint>,
+}
+
+impl custom_l1_node::consensus::bft::catchup::CheckpointSource for Peer<'_> {
+    fn checkpoint(
+        &self,
+    ) -> custom_l1_node::error::Result<Option<custom_l1_node::consensus::bft::attest::Checkpoint>>
+    {
+        Ok(self.checkpoint.clone())
+    }
+
+    fn block(&self, height: u64) -> custom_l1_node::error::Result<Block> {
+        let state = self.chain.state();
+        let id = state.canonical_id(height)?.expect("peer holds the height");
+        Ok(state.load_block(&id)?.expect("peer holds the body"))
+    }
+}
+
+#[test]
+fn a_validator_down_far_past_the_engine_window_rejoins_through_a_checkpoint() {
+    // ADR-038, mainnet gate 8. The 2026-10-04 dry run stranded a validator
+    // for good after 90 s down: the engine keeps 50 rounds, and nodes never
+    // import blocks they did not derive. Here it is held out for far longer,
+    // catches up to a peer's checkpoint, and rejoins as an attested
+    // follower: voting and proposing, importing blocks rather than building.
+    let mut mesh = Mesh::new(0);
+    mesh.run_to(3);
+    mesh.members[2].driver = None;
+    let before = mesh.members[2].chain.height();
+    // 60 blocks is well over 100 rounds: twice the engine's 50-round window.
+    mesh.run_to(before + 60);
+    assert!(
+        mesh.members[0].chain.height() >= before + 60,
+        "3 of 4 stalled"
+    );
+
+    // Reopened from disk, as after an outage.
+    let m = &mut mesh.members[2];
+    m.chain = open_chain(&m.state_dir.with_extension("scratch"), false);
+    m.chain = open_chain(&m.state_dir, false);
+    let (_, committee) = signers();
+    let imported = catch_up_member(&mut mesh, 2, 0, &committee);
+    assert!(imported >= 50, "imported {imported}");
+
+    let m = &mut mesh.members[2];
+    let (mut driver, step) =
+        BftDriver::open(&mesh.setups[2], &m.bft_dir, &mut m.chain, mesh.now).unwrap();
+    driver.follow_attested(&m.chain);
+    m.driver = Some(driver);
+    mesh.absorb(2, step);
+
+    let start = mesh.members[0].chain.height();
+    for _ in 0..30 {
+        mesh.now += 250;
+        mesh.tick();
+        mesh.pump(2_000);
+        catch_up_member(&mut mesh, 2, 0, &committee);
+    }
+    let (lead, follower) = (
+        mesh.members[0].chain.height(),
+        mesh.members[2].chain.height(),
+    );
+    assert!(lead > start + 5, "the network kept going");
+    assert!(
+        lead - follower <= 3,
+        "the follower keeps pace: {follower} vs {lead}"
+    );
+    mesh.agree_at(follower);
+    let (r0, r2) = (
+        mesh.members[0].driver.as_ref().unwrap().round(),
+        mesh.members[2].driver.as_ref().unwrap().round(),
+    );
+    assert!(
+        r0.abs_diff(r2) <= 4,
+        "the follower proposes in current rounds: {r2} vs {r0}"
+    );
+    assert_eq!(mesh.equivocations, 0);
+}
+
+/// Imports into member `lagging` from member `from`'s checkpoint and chain.
+fn catch_up_member(
+    mesh: &mut Mesh,
+    lagging: usize,
+    from: usize,
+    committee: &[VerifyingKey],
+) -> u64 {
+    let (left, right) = mesh.members.split_at_mut(lagging);
+    let peer = Peer {
+        chain: &left[from].chain,
+        checkpoint: left[from].driver.as_ref().unwrap().checkpoint().cloned(),
+    };
+    custom_l1_node::consensus::bft::catchup::catch_up(&mut right[0].chain, &peer, committee)
+        .expect("catch-up from a peer's checkpoint")
+}
