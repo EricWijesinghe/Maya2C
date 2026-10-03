@@ -19,6 +19,8 @@ Mainnet genesis happens only when every gate below links evidence.
 | 4 | **At least 4 validators** on separate machines, run by separate people, joined through staking registration | open: needs people (Eric) |
 | 5 | **Genesis ceremony** with several participants (`bins/genesis-ceremony`), rehearsed on a testnet first | open |
 | 6 | **Economics**: emission stays nil, or a reward schedule, decided | open: Eric's decision |
+| 8 | **A validator rejoins after a restart.** Found in the 2026-10-04 four-validator dry run: a validator down longer than `GC_DEPTH` (50 rounds, about half a minute) never catches up, so one reboot costs the network its fault tolerance and a second halts it (ADR-027 "no trustless historical sync"). Fix: answer `Fetch` for certificates below the engine's horizon from the on-disk certificate log, which is self-verifying (quorum signatures) | open |
+| 9 | **Consensus logs stay bounded.** Logs were never pruned (maya-testnet-1: 3.1 GB of logs against 162 MB of state in 4.5 days). Old epochs are now removed at each epoch switch; a chain without staking stays in epoch 0, so mainnet runs staking, or logs are compacted within an epoch | in progress |
 | 7 | CI green, the security reviews of gates 1 and 2 clean, and the release built from a tag | open |
 
 ## Three lanes, three sessions

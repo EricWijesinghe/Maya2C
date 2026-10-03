@@ -7,6 +7,18 @@ band; move an item to PROGRESS.md when it starts.
 
 ## P1 — mainnet launch gates (docs/mainnet-v1-plan.md)
 
+- **Gate 8: historical catch-up for a restarted validator.** The engine
+  answers `Fetch` only from memory (`GC_DEPTH` = 50 rounds), so a validator
+  down longer than about 30 s is stranded for good. Serve fetches below the
+  horizon from `certs.log` (index digest -> offset per retained epoch);
+  certificates carry quorum signatures, so the catch-up stays trustless.
+  Test: the dry-run shape in `bft_node_tests` with one node held back 200
+  rounds. Source: four-validator dry run, 2026-10-04.
+- **Gate 9: compact consensus logs within an epoch** for a chain without
+  staking (epoch 0 for ever). `safety.log` keeps only rounds the engine could
+  still sign; `certs.log` only rounds at or above the horizon. Rewrite then
+  atomic rename. Source: same.
+
 - **Wallets pin the genesis of each known network** and show the network
   name and a short fingerprint before signing; the Ledger app names known
   geneses. Today a malicious node can make a wallet sign for another chain
