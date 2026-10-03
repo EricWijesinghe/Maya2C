@@ -68,6 +68,8 @@ use custom_l1_node::crypto::keys::{
 };
 use custom_l1_node::error::NodeError;
 
+mod common;
+
 // ---------------------------------------------------------------------------
 // ML-DSA-65 signature layout
 // ---------------------------------------------------------------------------
@@ -108,7 +110,7 @@ fn signed_transaction(key: &HybridSigningKey) -> Transaction {
         }],
         0,
     );
-    tx.sign(key).expect("sign");
+    tx.sign(key, &common::test_chain()).expect("sign");
     tx
 }
 
@@ -202,12 +204,12 @@ fn an_out_of_range_response_vector_is_rejected() {
 
     assert_ne!(saturated, original);
     assert_eq!(
-        with_lattice(&tx, saturated).verify(),
+        with_lattice(&tx, saturated).verify(&common::test_chain()),
         Err(NodeError::SignatureVerification)
     );
 
     // The original still verifies — the mutation is what broke, not the key.
-    assert_eq!(tx.verify(), Ok(()));
+    assert_eq!(tx.verify(&common::test_chain()), Ok(()));
 }
 
 #[test]
@@ -228,7 +230,7 @@ fn a_malformed_hint_is_rejected() {
 
     assert_ne!(malformed, original);
     assert_eq!(
-        with_lattice(&tx, malformed).verify(),
+        with_lattice(&tx, malformed).verify(&common::test_chain()),
         Err(NodeError::SignatureVerification)
     );
 }
@@ -241,7 +243,7 @@ fn an_all_zero_signature_is_rejected() {
     let tx = signed_transaction(&key);
 
     assert_eq!(
-        with_lattice(&tx, [0u8; ML_DSA_SIGNATURE_LENGTH]).verify(),
+        with_lattice(&tx, [0u8; ML_DSA_SIGNATURE_LENGTH]).verify(&common::test_chain()),
         Err(NodeError::SignatureVerification)
     );
 }
@@ -276,7 +278,9 @@ fn flipping_any_bit_of_the_signature_invalidates_it() {
             mutated[index] ^= 1 << bit;
 
             assert!(
-                with_lattice(&tx, mutated).verify().is_err(),
+                with_lattice(&tx, mutated)
+                    .verify(&common::test_chain())
+                    .is_err(),
                 "signature byte {index} bit {bit} flipped but still verified"
             );
         }
@@ -296,7 +300,7 @@ fn an_all_zero_hash_proof_is_rejected() {
     let tx = signed_transaction(&key);
 
     assert_eq!(
-        with_hash(&tx, [0u8; SLH_DSA_SIGNATURE_LENGTH]).verify(),
+        with_hash(&tx, [0u8; SLH_DSA_SIGNATURE_LENGTH]).verify(&common::test_chain()),
         Err(NodeError::HashSignatureVerification)
     );
 }
@@ -322,7 +326,7 @@ fn flipping_any_bit_of_the_hash_proof_invalidates_it() {
             mutated[index] ^= 1 << bit;
 
             assert_eq!(
-                with_hash(&tx, mutated).verify(),
+                with_hash(&tx, mutated).verify(&common::test_chain()),
                 Err(NodeError::HashSignatureVerification),
                 "hash proof byte {index} bit {bit} flipped but still verified"
             );
@@ -341,7 +345,10 @@ fn a_hash_proof_from_another_key_does_not_verify() {
     let elsewhere = signed_transaction(&impostor);
 
     let borrowed = with_hash(&tx, elsewhere.signature.expect("signed").hash_based);
-    assert_eq!(borrowed.verify(), Err(NodeError::HashSignatureVerification));
+    assert_eq!(
+        borrowed.verify(&common::test_chain()),
+        Err(NodeError::HashSignatureVerification)
+    );
 }
 
 #[test]
@@ -354,10 +361,13 @@ fn the_two_halves_cannot_be_swapped_between_transactions() {
     let first = signed_transaction(&key);
     let mut second = first.clone();
     second.nonce += 1;
-    second.sign(&key).expect("sign");
+    second.sign(&key, &common::test_chain()).expect("sign");
 
     let spliced = with_hash(&first, second.signature.expect("signed").hash_based);
-    assert_eq!(spliced.verify(), Err(NodeError::HashSignatureVerification));
+    assert_eq!(
+        spliced.verify(&common::test_chain()),
+        Err(NodeError::HashSignatureVerification)
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -373,7 +383,10 @@ fn a_signature_from_another_key_does_not_verify() {
     let elsewhere = signed_transaction(&impostor);
 
     let borrowed = with_signature(&tx, *elsewhere.signature.expect("signed"));
-    assert_eq!(borrowed.verify(), Err(NodeError::SignatureVerification));
+    assert_eq!(
+        borrowed.verify(&common::test_chain()),
+        Err(NodeError::SignatureVerification)
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -396,7 +409,7 @@ fn a_substituted_public_key_never_verifies() {
         };
 
         assert!(
-            tampered.verify().is_err(),
+            tampered.verify(&common::test_chain()).is_err(),
             "a key of all {filler:#04x} must never authorize a transaction"
         );
     }
@@ -414,7 +427,10 @@ fn a_signature_cannot_be_moved_to_a_different_sender() {
 
     // The payload commits to the whole public key, so swapping it changes the
     // message the signature was made over.
-    assert_eq!(stolen.verify(), Err(NodeError::SignatureVerification));
+    assert_eq!(
+        stolen.verify(&common::test_chain()),
+        Err(NodeError::SignatureVerification)
+    );
 }
 
 #[test]
@@ -435,7 +451,10 @@ fn the_sender_address_follows_the_key_that_signed() {
     // The sender moves with the key — and the signature stops verifying, so the
     // move buys nothing.
     assert_eq!(stolen.sender(), impostor.address());
-    assert_eq!(stolen.verify(), Err(NodeError::SignatureVerification));
+    assert_eq!(
+        stolen.verify(&common::test_chain()),
+        Err(NodeError::SignatureVerification)
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -453,8 +472,11 @@ fn the_wire_encoding_round_trips_without_changing_the_txid() {
     // transaction be referenced under two identifiers.
     assert_eq!(decoded, tx);
     assert_eq!(decoded.txid(), tx.txid());
-    assert_eq!(decoded.signing_bytes(), tx.signing_bytes());
-    assert_eq!(decoded.verify(), Ok(()));
+    assert_eq!(
+        decoded.signing_bytes(&common::test_chain()),
+        tx.signing_bytes(&common::test_chain())
+    );
+    assert_eq!(decoded.verify(&common::test_chain()), Ok(()));
 }
 
 #[test]
@@ -516,12 +538,15 @@ fn moving_value_between_outputs_changes_the_signed_payload() {
         ],
         0,
     );
-    first.sign(&key).expect("sign");
-    second.sign(&key).expect("sign");
+    first.sign(&key, &common::test_chain()).expect("sign");
+    second.sign(&key, &common::test_chain()).expect("sign");
 
     // Same total, same recipients, different assignment. Fixed-width fields
     // plus count prefixes are what keep these two payloads distinct.
-    assert_ne!(first.signing_bytes(), second.signing_bytes());
+    assert_ne!(
+        first.signing_bytes(&common::test_chain()),
+        second.signing_bytes(&common::test_chain())
+    );
     assert_ne!(first.txid(), second.txid());
 }
 
@@ -543,13 +568,13 @@ fn reordering_outputs_invalidates_an_existing_signature() {
         ],
         0,
     );
-    tx.sign(&key).expect("sign");
-    assert_eq!(tx.verify(), Ok(()));
+    tx.sign(&key, &common::test_chain()).expect("sign");
+    assert_eq!(tx.verify(&common::test_chain()), Ok(()));
 
     tx.outputs.swap(0, 1);
 
     assert_eq!(
-        tx.verify(),
+        tx.verify(&common::test_chain()),
         Err(NodeError::SignatureVerification),
         "output order is part of the signed payload"
     );

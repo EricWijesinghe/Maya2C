@@ -32,6 +32,8 @@ use custom_l1_node::state::staking::validator_id;
 use maya_dag_bft::{Authenticator, Message, Params, Vertex};
 use tempfile::TempDir;
 
+mod common;
+
 const GENESIS_VALIDATORS: usize = 4;
 const NODES: usize = 5;
 const EPOCH_BLOCKS: u64 = 6;
@@ -63,6 +65,7 @@ fn genesis() -> GenesisConfig {
         treasury: None,
         protocol_upgrades: Vec::new(),
         security_council: None,
+        shielded_activation_height: None,
         bft: Some(BftGenesis {
             validators,
             anchor_timeout_ms: 1_000,
@@ -115,7 +118,7 @@ impl Mesh {
             let state_dir: PathBuf = root.path().join(format!("state-{i}"));
             let state = Arc::new(StateDB::open(&state_dir).unwrap());
             config.seed_state(&state).unwrap();
-            let mut chain = Chain::open(
+            let mut chain = common::open_chain(
                 state,
                 config.genesis_block().unwrap(),
                 ChainConfig::without_pow_verification(),
@@ -231,7 +234,7 @@ impl Mesh {
 fn staking_tx(action: StakingAction, nonce: u64) -> Transaction {
     let mut tx = Transaction::new(vec![], vec![], nonce);
     tx.kind = TxKind::Staking(Box::new(action));
-    tx.sign(&operator()).unwrap();
+    tx.sign(&operator(), &common::test_chain()).unwrap();
     tx
 }
 

@@ -28,7 +28,6 @@ use maya_dag_bft::SubDag;
 use crate::consensus::Chain;
 use crate::core::{Block, Transaction};
 use crate::error::Result;
-use crate::state::context::BlockContext;
 
 /// Bits of the nonce that hold the anchor round.
 const ROUND_BITS: u32 = 40;
@@ -88,17 +87,17 @@ fn median_time_ms(sub_dag: &SubDag) -> u64 {
 /// # Errors
 ///
 /// Only if even the empty block cannot be built — the tip is missing from the
-/// index or the state cannot be read — which is a local fault, not a
-/// consensus outcome.
+/// index, the state cannot be read, or it is bound to no chain — which is a
+/// local fault, not a consensus outcome.
 pub fn build_block(chain: &Chain, sub_dag: &SubDag) -> Result<Block> {
     let anchor = &sub_dag.anchor.vertex;
     let parent = chain.get(&chain.tip()).map(|r| r.header.timestamp);
     let timestamp = (median_time_ms(sub_dag) / 1_000).max(parent.unwrap_or(0));
-    let context = BlockContext::at_height(chain.height() + 1);
+    let context = chain.context_at(chain.height() + 1);
     let target = chain.next_target(&chain.tip())?;
     let kept = chain
         .state()
-        .select_applicable(ordered_transactions(sub_dag), context, target);
+        .select_applicable(ordered_transactions(sub_dag), context, target)?;
     let nonce = seal(anchor.epoch, anchor.round);
     match chain.candidate_block_sealed(timestamp, kept, nonce) {
         Ok(block) => Ok(block),

@@ -12,7 +12,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::{Block, BlockHeader, Transaction};
+use crate::core::{Block, BlockHeader, ChainTag, Transaction};
+use crate::error::NodeError;
 use crate::state::Account;
 
 /// The fee market as a wallet needs it (ADR-029).
@@ -24,6 +25,39 @@ pub struct FeeInfo {
     pub base_fee: u64,
     /// Hex address a transaction pays its fee to, as an ordinary output.
     pub collector: String,
+}
+
+/// Chain identification for offline signers (ADR-036).
+///
+/// Offline signers need the chain's genesis block id to sign transactions that
+/// commit to the chain and are not replayed on other chains.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ChainInfo {
+    /// Hex-encoded genesis block id (32 bytes), used as the chain tag for signatures.
+    pub genesis: String,
+    /// The network's name (`maya-testnet-1`) where the node was given one;
+    /// `null` otherwise. A label for people: only `genesis` is signed.
+    pub chain_id: Option<String>,
+    /// The node's tip height when it answered: how a wallet shows the chain
+    /// is alive without a second call. Absent from older nodes (`0`).
+    #[serde(default)]
+    pub height: u64,
+}
+
+impl ChainInfo {
+    /// The tag signatures for this chain commit to (ADR-036), parsed from
+    /// [`Self::genesis`].
+    ///
+    /// # Errors
+    ///
+    /// [`NodeError::Decode`] if `genesis` is not 64 hex characters.
+    pub fn chain_tag(&self) -> crate::error::Result<ChainTag> {
+        let bytes = hex::decode(&self.genesis)
+            .map_err(|e| NodeError::Decode(format!("genesis is not hex: {e}")))?;
+        let id = <[u8; 32]>::try_from(bytes.as_slice())
+            .map_err(|_| NodeError::Decode(format!("genesis is {} bytes, not 32", bytes.len())))?;
+        Ok(ChainTag::from_genesis(id))
+    }
 }
 
 /// An account's spendable balance and replay counter.

@@ -17,6 +17,7 @@ use custom_l1_node::core::{Block, BlockHeader, Transaction, TxKind};
 use custom_l1_node::crypto::hybrid::generate_signing_key;
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::error::NodeError;
+use custom_l1_node::state::context::SHIELDED_NEVER;
 use custom_l1_node::state::shielded::{FEE_SINK, encode_joinsplit};
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
 use maya_zk_stark::gadgets::merkle::MerklePath;
@@ -29,6 +30,8 @@ use maya_zk_stark::pool::wallet::{self, Payment, Spend};
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
 use tempfile::TempDir;
 
+mod common;
+
 // ---------------------------------------------------------------------------
 // harness
 // ---------------------------------------------------------------------------
@@ -36,6 +39,7 @@ use tempfile::TempDir;
 fn open_state(funded: &[(Address, u64)]) -> (StateDB, TempDir) {
     let dir = TempDir::new().expect("temp dir");
     let db = StateDB::open(dir.path()).expect("open");
+    common::bind(&db);
     for (address, balance) in funded {
         db.put_account(
             address,
@@ -69,7 +73,7 @@ fn block_of(transactions: Vec<Transaction>) -> Block {
 
 fn signed(kind: TxKind, nonce: u64, key: &HybridSigningKey) -> Transaction {
     let mut tx = Transaction::with_kind(kind, nonce);
-    tx.sign(key).expect("sign");
+    tx.sign(key, &common::test_chain()).expect("sign");
     tx
 }
 
@@ -126,6 +130,43 @@ fn shielding_moves_transparent_value_into_the_pool() {
     assert_eq!(balance(&db, &sender), 9_000);
     assert_eq!(balance(&db, &FEE_SINK), 10);
     assert_eq!(db.stored_pool().expect("pool").note_count(), 2);
+}
+
+#[test]
+fn a_pool_that_is_off_refuses_a_joinsplit_and_changes_nothing() {
+    // ADR-037: mainnet v1 launches with the pool off. A valid join-split must
+    // fail the whole block before any proof work, with every balance and the
+    // pool exactly as they were.
+    let owner = generate_signing_key().expect("keygen");
+    let sender = address_of(&owner);
+    let (db, _dir) = open_state(&[(sender, 10_000)]);
+    let root = db.state_root().expect("root");
+
+    let recipient = SpendingKey::from_words([7; 8]);
+    let built = wallet::shield(1_000, 10, recipient.address(), current_anchor(&db)).expect("build");
+    let (proof, public) = zkpool::prove(&built.witness).expect("prove");
+    let block = block_of(vec![shielded_tx(
+        encode_joinsplit(&public, &proof),
+        0,
+        &owner,
+    )]);
+
+    for (height, activation) in [(1, SHIELDED_NEVER), (9, 10)] {
+        let off = BlockContext::at_height(height).with_shielded_activation(activation);
+        let refused = db.apply_block(&block, off);
+        assert!(
+            matches!(refused, Err(NodeError::ShieldedInactive { .. })),
+            "height {height}, activation {activation}: {refused:?}"
+        );
+        assert_eq!(db.state_root().expect("root"), root, "nothing moved");
+        assert_eq!(balance(&db, &sender), 10_000);
+    }
+
+    // The same block applies once the pool is on.
+    let on = BlockContext::at_height(10).with_shielded_activation(10);
+    db.apply_block(&block, on)
+        .expect("active at its activation height");
+    assert_eq!(balance(&db, &sender), 9_000);
 }
 
 #[test]
@@ -537,7 +578,7 @@ fn a_shielded_transaction_may_not_also_carry_transparent_outputs() {
             amount: 1,
             recipient: [9u8; 32],
         });
-    tx.sign(&owner).expect("sign");
+    tx.sign(&owner, &common::test_chain()).expect("sign");
     let error = db
         .apply_block(&block_of(vec![tx]), BlockContext::at_height(2))
         .expect_err("must reject");
@@ -613,7 +654,7 @@ fn a_block_without_joinsplits_leaves_the_pool_untouched() {
         }],
         1,
     );
-    tx.sign(&owner).expect("sign");
+    tx.sign(&owner, &common::test_chain()).expect("sign");
     db.apply_block(&block_of(vec![tx]), BlockContext::at_height(2))
         .expect("transfer");
 

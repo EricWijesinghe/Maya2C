@@ -114,6 +114,9 @@ pub struct FeeTerms {
     pub base_fee: u64,
     /// Economy, Standard and Priority.
     pub options: Vec<FeeOption>,
+    /// The node's genesis id, hex: the one chain a signature is valid on
+    /// (ADR-036). Empty until the node has answered.
+    pub genesis: String,
 }
 
 /// A node's view of an account.
@@ -298,15 +301,16 @@ pub async fn preview_transfer(
 
 /// Signs a transfer. No network access.
 ///
-/// `fee_to` is the collector from [`fee_options`]; `None` burns the fee,
-/// which only a chain without a fee market accepts.
+/// `terms.collector` is the fee collector (`None` burns the fee, which only a
+/// chain without a fee market accepts) and `terms.genesis` the chain the
+/// signature is valid on; both come from [`fee_options`].
 pub async fn sign_transfer(
     index: u32,
     recipient: &str,
     amount: u64,
     fee: u64,
-    fee_to: Option<&str>,
     nonce: u64,
+    terms: &FeeTerms,
 ) -> Result<SignedTransfer, String> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -317,6 +321,7 @@ pub async fn sign_transfer(
         fee: u64,
         fee_to: Option<&'a str>,
         nonce: u64,
+        genesis: &'a str,
     }
     call(
         "sign_transfer",
@@ -325,8 +330,9 @@ pub async fn sign_transfer(
             recipient,
             amount,
             fee,
-            fee_to,
+            fee_to: terms.collector.as_deref(),
             nonce,
+            genesis: &terms.genesis,
         },
     )
     .await
@@ -401,4 +407,79 @@ pub async fn fee_options(node_url: &str, index: u32, nonce: u64) -> Result<FeeTe
         },
     )
     .await
+}
+
+/// The network the wallet is talking to.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct NetworkStatus {
+    /// The network's name (`maya-testnet-1`), if the node gave one.
+    pub network: Option<String>,
+    /// Genesis id, hex: the chain this wallet's signatures are for.
+    pub genesis: String,
+    /// The node's tip height.
+    pub height: u64,
+}
+
+impl NetworkStatus {
+    /// Whether this is a test network, whose coins have no value. Anything
+    /// not named as mainnet is treated as one: a wallet that mistook a
+    /// testnet for mainnet is the dangerous direction to be wrong in.
+    #[must_use]
+    pub fn is_test_network(&self) -> bool {
+        !matches!(
+            self.network
+                .as_deref()
+                .map(str::trim)
+                .map(str::to_ascii_lowercase)
+                .as_deref(),
+            Some("maya-mainnet" | "mainnet")
+        )
+    }
+}
+
+/// Reads the network's name, genesis and tip height.
+pub async fn network_status(node_url: &str) -> Result<NetworkStatus, String> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Args<'a> {
+        node_url: &'a str,
+    }
+    call("network_status", &Args { node_url }).await
+}
+
+/// What the Receive screen shows.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ReceiveRequest {
+    /// The account's address, hex.
+    pub address: String,
+    /// The `maya:` URI the code encodes.
+    pub uri: String,
+    /// The QR code as an SVG document, drawn by the wallet core.
+    pub qr_svg: String,
+}
+
+/// Builds the Receive screen's request for account `index`.
+pub async fn receive_request(index: u32, amount: Option<u64>) -> Result<ReceiveRequest, String> {
+    #[derive(Serialize)]
+    struct Args {
+        index: u32,
+        amount: Option<u64>,
+    }
+    call("receive_request", &Args { index, amount }).await
+}
+
+#[wasm_bindgen]
+unsafe extern "C" {
+    /// The webview's clipboard. Writing needs no permission prompt inside a
+    /// user gesture, which is the only place this is called from.
+    #[wasm_bindgen(js_namespace = ["navigator", "clipboard"], js_name = writeText, catch)]
+    async fn clipboard_write_text(text: &str) -> Result<JsValue, JsValue>;
+}
+
+/// Copies `text` to the clipboard.
+pub async fn copy_to_clipboard(text: &str) -> Result<(), String> {
+    clipboard_write_text(text).await.map(|_| ()).map_err(|e| {
+        e.as_string()
+            .unwrap_or_else(|| "the clipboard refused".to_string())
+    })
 }

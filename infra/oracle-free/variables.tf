@@ -36,11 +36,11 @@ variable "chain_id" {
   type        = string
   default     = "maya-testnet-1"
 
-  # Same rule as infra/terraform/modules/node-pool: no value-bearing chain
-  # while the shielded pool's circuit is unaudited.
+  # Same rule as infra/terraform/modules/node-pool: a value-bearing chain only
+  # with a genesis that keeps the shielded pool off (ADR-037).
   validation {
-    condition     = !contains(["mainnet", "maya-mainnet"], var.chain_id)
-    error_message = "Mainnet is blocked while the shielded pool's circuit is unaudited."
+    condition     = !contains(["mainnet", "maya-mainnet"], var.chain_id) || var.mainnet_shielded_pool_off
+    error_message = "A value-bearing chain needs a genesis with the shielded pool off (ADR-037); confirm it with mainnet_shielded_pool_off = true."
   }
 
   # chain_id, domain and acme_email are interpolated into a shell line that
@@ -124,4 +124,10 @@ check "gateway_needs_email" {
     condition     = var.domain == "" || var.acme_email != ""
     error_message = "acme_email is required when domain is set."
   }
+}
+
+variable "mainnet_shielded_pool_off" {
+  description = "Set true only to deploy a value-bearing chain whose genesis keeps the shielded pool off (shielded_activation_height = u64::MAX, ADR-037)."
+  type        = bool
+  default     = false
 }

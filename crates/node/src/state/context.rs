@@ -44,7 +44,24 @@ pub struct BlockContext {
     /// [`IOT_ACTIVATION_HEIGHT`] everywhere the node builds a context. Tests set
     /// it with [`Self::with_iot_activation`].
     pub iot_activation: u64,
+    /// First height at which shielded join-splits execute.
+    ///
+    /// Unlike the constants above this one is a genesis parameter
+    /// (`GenesisConfig::shielded_activation_height`, ADR-037): a testnet runs
+    /// the pool from block zero, mainnet v1 launches with it off. The chain
+    /// sets it from its configuration ([`crate::consensus::chain::Chain::context_at`]);
+    /// [`SHIELDED_ACTIVATION_HEIGHT`] is the default for every genesis that
+    /// does not name one.
+    pub shielded_activation: u64,
 }
+
+/// First height at which shielded join-splits execute, for a genesis that
+/// names none: zero, which is what every network meant before ADR-037.
+pub const SHIELDED_ACTIVATION_HEIGHT: u64 = 0;
+
+/// The shielded activation height meaning "never": the pool stays off until a
+/// later protocol upgrade schedules it (ADR-037).
+pub const SHIELDED_NEVER: u64 = u64::MAX;
 
 /// First height at which IoT anchor transactions execute: none.
 ///
@@ -141,7 +158,23 @@ impl BlockContext {
             stateless_activation: STATELESS_ACTIVATION_HEIGHT,
             threat_intel_activation: THREAT_INTEL_ACTIVATION_HEIGHT,
             iot_activation: IOT_ACTIVATION_HEIGHT,
+            shielded_activation: SHIELDED_ACTIVATION_HEIGHT,
         }
+    }
+
+    /// The same context with shielded join-splits active from `height` on.
+    #[must_use]
+    pub const fn with_shielded_activation(self, height: u64) -> Self {
+        Self {
+            shielded_activation: height,
+            ..self
+        }
+    }
+
+    /// Whether shielded join-splits execute in this block.
+    #[must_use]
+    pub const fn shielded_active(self) -> bool {
+        self.height >= self.shielded_activation
     }
 
     /// The same context with attack attestations active from `height` on.

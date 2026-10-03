@@ -55,6 +55,8 @@ pub fn run() {
             commands::history,
             commands::fetch_account,
             commands::fee_options,
+            commands::network_status,
+            commands::receive_request,
         ])
         .run(with_automation_args(tauri::generate_context!()))
         .expect("error while running the wallet");

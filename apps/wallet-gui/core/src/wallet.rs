@@ -14,6 +14,9 @@ use jsonrpsee::rpc_params;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
+// Re-exported: the desktop app names the chain it signs for without linking the node.
+pub use custom_l1_node::core::ChainTag;
+
 use crate::error::{Result, WalletError};
 use crate::hd::{self, DerivationPath, SEED_LEN};
 use crate::payment::{
@@ -130,25 +133,36 @@ impl Wallet {
     ///
     /// Propagates derivation and signing failures.
     ///
-    /// `fee_to` is the fee collector from [`fee_quote`] on a fee-market chain;
-    /// `None` burns the fee, which only a chain without fees accepts.
+    /// `terms` are what the node said while online: see [`SignTerms`].
     pub fn sign(
         &mut self,
         index: u32,
         recipient: &str,
         amount: u64,
-        fee: u64,
-        fee_to: Option<&str>,
-        nonce: u64,
+        terms: &SignTerms<'_>,
     ) -> Result<SignedTransfer> {
         let path = DerivationPath::account(0, index);
         let signing_key = hd::signing_key_at(self.seed.as_ref(), &path)?;
+        let SignTerms {
+            fee,
+            fee_to,
+            nonce,
+            chain,
+        } = *terms;
         let transfer = match fee_to {
             Some(collector) => {
                 check_fee_collector(collector)?;
-                sign_transfer_to(&signing_key, recipient, amount, fee, collector, nonce)?
+                sign_transfer_to(
+                    &signing_key,
+                    recipient,
+                    amount,
+                    fee,
+                    collector,
+                    nonce,
+                    chain,
+                )?
             }
-            None => sign_transfer(&signing_key, recipient, amount, fee, nonce)?,
+            None => sign_transfer(&signing_key, recipient, amount, fee, nonce, chain)?,
         };
 
         self.history.push(PendingTransfer {
@@ -165,10 +179,16 @@ impl Wallet {
     /// # Errors
     ///
     /// Propagates derivation, address and signing failures.
-    pub fn transfer_size(&self, index: u32, fee_to: &str, nonce: u64) -> Result<u64> {
+    pub fn transfer_size(
+        &self,
+        index: u32,
+        fee_to: &str,
+        nonce: u64,
+        chain: &ChainTag,
+    ) -> Result<u64> {
         let path = DerivationPath::account(0, index);
         let signing_key = hd::signing_key_at(self.seed.as_ref(), &path)?;
-        transfer_size(&signing_key, fee_to, nonce)
+        transfer_size(&signing_key, fee_to, nonce, chain)
     }
 
     /// Signed transfers, newest first.
@@ -249,6 +269,72 @@ pub async fn fee_quote(node_url: &str) -> Result<FeeQuote> {
         active: info.active,
         base_fee: info.base_fee,
         collector: info.collector,
+    })
+}
+
+/// Everything a signature needs from the node, fetched while online and then
+/// used offline: the fee and where it goes, the nonce, and the chain.
+#[derive(Clone, Copy, Debug)]
+pub struct SignTerms<'a> {
+    /// The fee, in base units.
+    pub fee: u64,
+    /// The fee collector from [`fee_quote`] on a fee-market chain; `None`
+    /// burns the fee, which only a chain without fees accepts.
+    pub fee_to: Option<&'a str>,
+    /// The account's next nonce.
+    pub nonce: u64,
+    /// The genesis the signature commits to (ADR-036), from [`chain_info`].
+    pub chain: &'a ChainTag,
+}
+
+/// Fetches the chain's genesis block id (for transaction signing).
+///
+/// # Errors
+///
+/// Returns [`WalletError::Node`] if the node is unreachable.
+pub async fn chain_info(node_url: &str) -> Result<ChainTag> {
+    let client = HttpClientBuilder::default()
+        .build(node_url)
+        .map_err(|e| WalletError::Node(format!("connecting to {node_url}: {e}")))?;
+
+    let info: custom_l1_node::rpc::ChainInfo = client
+        .request("get_chain_info", rpc_params![])
+        .await
+        .map_err(|e| WalletError::Node(e.to_string()))?;
+
+    info.chain_tag()
+        .map_err(|e| WalletError::Node(e.to_string()))
+}
+
+/// What the home screen shows about the network: which one, and that it is
+/// moving.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NetworkStatus {
+    /// The network's name (`maya-testnet-1`), if the node gave one.
+    pub network: Option<String>,
+    /// The genesis id, hex: the one chain this wallet's signatures are for.
+    pub genesis: String,
+    /// The node's tip height.
+    pub height: u64,
+}
+
+/// Reads the network's name, genesis and tip height in one call.
+///
+/// # Errors
+///
+/// Returns [`WalletError::Node`] if the node is unreachable.
+pub async fn network_status(node_url: &str) -> Result<NetworkStatus> {
+    let client = HttpClientBuilder::default()
+        .build(node_url)
+        .map_err(|e| WalletError::Node(format!("connecting to {node_url}: {e}")))?;
+    let info: custom_l1_node::rpc::ChainInfo = client
+        .request("get_chain_info", rpc_params![])
+        .await
+        .map_err(|e| WalletError::Node(e.to_string()))?;
+    Ok(NetworkStatus {
+        network: info.chain_id,
+        genesis: info.genesis,
+        height: info.height,
     })
 }
 

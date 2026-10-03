@@ -6,6 +6,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use custom_l1_node::core::ChainTag;
 use custom_l1_node::core::Transaction;
 use maya_wallet_core::error::WalletError;
 use maya_wallet_core::hd::{self, DerivationPath, seed_from_mnemonic};
@@ -13,6 +14,9 @@ use maya_wallet_core::payment::{
     FEE_SINK, FeeTier, PaymentRequest, check_fee_collector, decode_qr_png, normalize_address,
     priced_fee_tiers, scan_payment_request, sign_transfer, sign_transfer_to, transfer_size,
 };
+
+/// The chain every test signature commits to (ADR-036).
+const CHAIN: ChainTag = ChainTag::from_genesis([0x5A; 32]);
 
 const TEST_PHRASE: &str = "abandon abandon abandon abandon abandon abandon abandon abandon \
                            abandon abandon abandon about";
@@ -211,7 +215,7 @@ fn a_qr_code_carrying_junk_fails_to_parse() {
 #[test]
 fn a_signed_transfer_verifies_and_carries_the_right_fields() {
     let key = signing_key();
-    let signed = sign_transfer(&key, &address(20), 5_000, 25, 3).expect("sign");
+    let signed = sign_transfer(&key, &address(20), 5_000, 25, 3, &CHAIN).expect("sign");
 
     assert_eq!(signed.recipient, address(20));
     assert_eq!(signed.amount, 5_000);
@@ -222,14 +226,14 @@ fn a_signed_transfer_verifies_and_carries_the_right_fields() {
     // The raw hex must decode to a transaction a node accepts.
     let decoded =
         Transaction::from_bytes(&hex::decode(&signed.raw_hex).expect("hex")).expect("decode");
-    assert_eq!(decoded.verify(), Ok(()));
+    assert_eq!(decoded.verify(&CHAIN), Ok(()));
     assert_eq!(hex::encode(decoded.txid()), signed.txid);
     assert_eq!(decoded.nonce, 3);
 }
 
 #[test]
 fn the_fee_becomes_a_second_output_to_the_burn_address() {
-    let signed = sign_transfer(&signing_key(), &address(21), 1_000, 7, 0).expect("sign");
+    let signed = sign_transfer(&signing_key(), &address(21), 1_000, 7, 0, &CHAIN).expect("sign");
     let decoded =
         Transaction::from_bytes(&hex::decode(&signed.raw_hex).expect("hex")).expect("decode");
 
@@ -243,7 +247,7 @@ fn the_fee_becomes_a_second_output_to_the_burn_address() {
 
 #[test]
 fn a_zero_fee_adds_no_output() {
-    let signed = sign_transfer(&signing_key(), &address(22), 1_000, 0, 0).expect("sign");
+    let signed = sign_transfer(&signing_key(), &address(22), 1_000, 0, 0, &CHAIN).expect("sign");
     let decoded =
         Transaction::from_bytes(&hex::decode(&signed.raw_hex).expect("hex")).expect("decode");
 
@@ -254,32 +258,32 @@ fn a_zero_fee_adds_no_output() {
 fn signing_needs_no_network() {
     // The whole point of offline signing: this test has no node, no socket, and
     // no async runtime, and still produces broadcastable hex.
-    let signed = sign_transfer(&signing_key(), &address(23), 1, 0, 0).expect("sign");
+    let signed = sign_transfer(&signing_key(), &address(23), 1, 0, 0, &CHAIN).expect("sign");
     assert!(!signed.raw_hex.is_empty());
     assert!(hex::decode(&signed.raw_hex).is_ok());
 }
 
 #[test]
 fn a_tampered_raw_transaction_stops_verifying() {
-    let signed = sign_transfer(&signing_key(), &address(24), 1_000, 0, 0).expect("sign");
+    let signed = sign_transfer(&signing_key(), &address(24), 1_000, 0, 0, &CHAIN).expect("sign");
     let mut raw = hex::decode(&signed.raw_hex).expect("hex");
 
     // Change the amount after signing.
     let decoded = Transaction::from_bytes(&raw).expect("decode");
-    assert_eq!(decoded.verify(), Ok(()));
+    assert_eq!(decoded.verify(&CHAIN), Ok(()));
 
     let position = raw.len() / 2;
     raw[position] ^= 0x01;
     // Either it no longer decodes, or it decodes and fails verification.
     if let Ok(tampered) = Transaction::from_bytes(&raw) {
-        assert!(tampered.verify().is_err());
+        assert!(tampered.verify(&CHAIN).is_err());
     }
 }
 
 #[test]
 fn an_overflowing_amount_and_fee_are_refused() {
     assert_eq!(
-        sign_transfer(&signing_key(), &address(25), u64::MAX, 1, 0).err(),
+        sign_transfer(&signing_key(), &address(25), u64::MAX, 1, 0, &CHAIN).err(),
         Some(WalletError::AmountOverflow)
     );
 }
@@ -287,7 +291,7 @@ fn an_overflowing_amount_and_fee_are_refused() {
 #[test]
 fn signing_to_a_malformed_address_is_refused() {
     assert!(matches!(
-        sign_transfer(&signing_key(), "not-an-address", 1, 0, 0),
+        sign_transfer(&signing_key(), "not-an-address", 1, 0, 0, &CHAIN),
         Err(WalletError::Address(_))
     ));
 }
@@ -297,8 +301,8 @@ fn two_signings_of_the_same_transfer_are_identical() {
     // Ed25519 is deterministic, so a resend produces the same txid rather than
     // a second transaction competing for the same nonce.
     let key = signing_key();
-    let first = sign_transfer(&key, &address(26), 100, 5, 1).expect("sign");
-    let second = sign_transfer(&key, &address(26), 100, 5, 1).expect("sign");
+    let first = sign_transfer(&key, &address(26), 100, 5, 1, &CHAIN).expect("sign");
+    let second = sign_transfer(&key, &address(26), 100, 5, 1, &CHAIN).expect("sign");
     assert_eq!(first, second);
 }
 
@@ -319,7 +323,7 @@ fn fee_tiers_are_ordered() {
 fn a_manual_fee_overrides_the_tier() {
     // Manual control means the user's number is used verbatim, including one
     // no preset offers.
-    let signed = sign_transfer(&signing_key(), &address(27), 500, 4_242, 0).expect("sign");
+    let signed = sign_transfer(&signing_key(), &address(27), 500, 4_242, 0, &CHAIN).expect("sign");
     assert_eq!(signed.fee, 4_242);
 
     let decoded =
@@ -342,8 +346,16 @@ fn on_a_fee_market_chain_the_fee_is_paid_to_the_collector_not_burned() {
     // A fee output to the burn sink is refused by a node whose genesis
     // configures fees: it expects an ordinary output to the collector that
     // `get_fee_info` names. Paying the sink made every GUI transfer fail.
-    let signed = sign_transfer_to(&signing_key(), &address(30), 1_000, 26_510, &collector(), 0)
-        .expect("sign");
+    let signed = sign_transfer_to(
+        &signing_key(),
+        &address(30),
+        1_000,
+        26_510,
+        &collector(),
+        0,
+        &CHAIN,
+    )
+    .expect("sign");
     let decoded =
         Transaction::from_bytes(&hex::decode(&signed.raw_hex).expect("hex")).expect("decode");
 
@@ -352,7 +364,7 @@ fn on_a_fee_market_chain_the_fee_is_paid_to_the_collector_not_burned() {
     assert_eq!(decoded.outputs[1].amount, 26_510);
     assert_eq!(hex::encode(decoded.outputs[1].recipient), collector());
     assert_ne!(decoded.outputs[1].recipient, FEE_SINK);
-    assert_eq!(decoded.verify(), Ok(()));
+    assert_eq!(decoded.verify(&CHAIN), Ok(()));
     assert_eq!(signed.fee, 26_510);
 }
 
@@ -361,9 +373,17 @@ fn the_priced_size_is_the_size_of_the_transaction_actually_signed() {
     // The fee is base_fee x size, so pricing a different shape than the one
     // sent under- or over-pays. Output encoding does not depend on amounts.
     let key = signing_key();
-    let size = transfer_size(&key, &collector(), 4).expect("size");
-    let signed =
-        sign_transfer_to(&key, &address(31), 123_456, 987_654, &collector(), 4).expect("sign");
+    let size = transfer_size(&key, &collector(), 4, &CHAIN).expect("size");
+    let signed = sign_transfer_to(
+        &key,
+        &address(31),
+        123_456,
+        987_654,
+        &collector(),
+        4,
+        &CHAIN,
+    )
+    .expect("sign");
     let actual = u64::try_from(hex::decode(&signed.raw_hex).expect("hex").len()).expect("fits");
     assert_eq!(size, actual);
 }
@@ -371,7 +391,7 @@ fn the_priced_size_is_the_size_of_the_transaction_actually_signed() {
 #[test]
 fn fee_tiers_price_the_minimum_then_twice_then_four_times() {
     let key = signing_key();
-    let size = transfer_size(&key, &collector(), 0).expect("size");
+    let size = transfer_size(&key, &collector(), 0, &CHAIN).expect("size");
     let [economy, standard, priority] = priced_fee_tiers(1, size).expect("priced");
 
     // Economy is exactly the base fee: accepted now, refused if it rises.
@@ -392,7 +412,7 @@ fn pricing_that_would_overflow_is_refused() {
 #[test]
 fn a_collector_that_is_not_an_address_is_refused() {
     assert!(matches!(
-        sign_transfer_to(&signing_key(), &address(32), 1, 1, "collector", 0),
+        sign_transfer_to(&signing_key(), &address(32), 1, 1, "collector", 0, &CHAIN),
         Err(WalletError::Address(_))
     ));
 }
@@ -412,4 +432,21 @@ fn only_the_chains_own_fee_collector_is_accepted() {
         check_fee_collector("not hex"),
         Err(WalletError::Address(_))
     ));
+}
+
+#[test]
+fn the_receive_qr_is_an_svg_of_dark_modules_on_white() {
+    let request = maya_wallet_core::payment::PaymentRequest::parse(&format!(
+        "maya:{}?amount=1500&label=Coffee%20shop",
+        "ab".repeat(32)
+    ))
+    .expect("request");
+    let svg = maya_wallet_core::payment::payment_qr_svg(&request).expect("svg");
+    assert!(svg.contains("<svg"), "{}", &svg[..svg.len().min(80)]);
+    assert!(svg.contains("#05070f") && svg.contains("#ffffff"));
+    // Deterministic: the same request draws the same code.
+    assert_eq!(
+        svg,
+        maya_wallet_core::payment::payment_qr_svg(&request).expect("svg")
+    );
 }

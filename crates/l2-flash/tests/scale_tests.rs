@@ -19,7 +19,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use custom_l1_node::core::payload::ChannelClosure;
-use custom_l1_node::core::{Block, BlockHeader, Transaction, TxKind};
+use custom_l1_node::core::{Block, BlockHeader, ChainTag, Transaction, TxKind};
 use custom_l1_node::crypto::hybrid::{HybridPublicKey, generate_signing_key};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::state::{Account, Address, BlockContext, ChannelStatus, StateDB};
@@ -28,6 +28,9 @@ use custom_l1_node::crypto::hybrid::HybridSigningKey;
 use l2_flash::channel::{Channel, Party, SignedState};
 
 use tempfile::TempDir;
+
+/// The chain every test signature commits to (ADR-036).
+const CHAIN: ChainTag = ChainTag::from_genesis([0x5A; 32]);
 
 /// Total off-chain transfers each shape performs by default.
 ///
@@ -76,6 +79,7 @@ fn public_key_of(key: &HybridSigningKey) -> Box<HybridPublicKey> {
 fn open_state(funded: &[(Address, u64)]) -> (StateDB, TempDir) {
     let dir = TempDir::new().expect("temp dir");
     let db = StateDB::open(dir.path()).expect("open");
+    db.bind_chain(CHAIN).expect("bind the test chain");
     for (address, balance) in funded {
         db.put_account(
             address,
@@ -191,7 +195,7 @@ fn settle_as_one_closure(transfers: usize) {
         }),
         0,
     );
-    open_tx.sign(&alice).expect("sign");
+    open_tx.sign(&alice, &CHAIN).expect("sign");
     db.apply_block(&block_of(vec![open_tx]), BlockContext::at_height(1))
         .expect("open");
 
@@ -223,7 +227,7 @@ fn settle_as_one_closure(transfers: usize) {
         .expect("no HTLCs pending");
 
     let mut settle_tx = Transaction::with_kind(TxKind::CooperativeClose(closure), 1);
-    settle_tx.sign(&alice).expect("sign");
+    settle_tx.sign(&alice, &CHAIN).expect("sign");
     let encoded_size = settle_tx.to_bytes().len();
     db.apply_block(&block_of(vec![settle_tx]), BlockContext::at_height(2))
         .expect("settle");
@@ -294,7 +298,7 @@ fn a_revoked_state_from_a_long_channel_is_still_punishable() {
         }),
         0,
     );
-    open_tx.sign(&alice).expect("sign");
+    open_tx.sign(&alice, &CHAIN).expect("sign");
     db.apply_block(&block_of(vec![open_tx]), BlockContext::at_height(1))
         .expect("open");
 
@@ -334,7 +338,7 @@ fn a_revoked_state_from_a_long_channel_is_still_punishable() {
     };
 
     let mut dispute = Transaction::with_kind(TxKind::DisputeClose(closure), 1);
-    dispute.sign(&alice).expect("sign");
+    dispute.sign(&alice, &CHAIN).expect("sign");
     db.apply_block(&block_of(vec![dispute]), BlockContext::at_height(5))
         .expect("dispute");
 
@@ -347,7 +351,7 @@ fn a_revoked_state_from_a_long_channel_is_still_punishable() {
         }),
         0,
     );
-    penalty.sign(&bob).expect("sign");
+    penalty.sign(&bob, &CHAIN).expect("sign");
     db.apply_block(&block_of(vec![penalty]), BlockContext::at_height(6))
         .expect("penalty");
 
@@ -395,7 +399,7 @@ fn a_hundred_channels_settle_in_one_transaction() {
             }),
             index as u64,
         );
-        tx.sign(&hub).expect("sign");
+        tx.sign(&hub, &CHAIN).expect("sign");
         open_txs.push(tx);
 
         let id = custom_l1_node::core::payload::derive_channel_id(
@@ -443,7 +447,7 @@ fn a_hundred_channels_settle_in_one_transaction() {
     let mut batch = Transaction::with_kind(TxKind::SettleBatch(closures), 0);
     // Signed by a party with no stake in any channel: the outer signature buys
     // inclusion, the inner signatures authorize the value.
-    batch.sign(&submitter).expect("sign");
+    batch.sign(&submitter, &CHAIN).expect("sign");
     let encoded_size = batch.to_bytes().len();
     db.apply_block(&block_of(vec![batch]), BlockContext::at_height(2))
         .expect("batch settle");

@@ -59,6 +59,9 @@ blake3.workspace = true
 # it rather than duplicating the flag. A wallet is where a user would meet an
 # unaudited shielded circuit, so the state must not be able to drift from it.
 maya-zk-stark = { path = "../../../crates/zk-stark" }
+# The Receive screen's QR code, drawn as SVG so it stays sharp at any size
+# and needs no image codec in the build.
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 
 [dev-dependencies]
 tempfile.workspace = true

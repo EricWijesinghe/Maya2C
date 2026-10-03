@@ -25,8 +25,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use custom_l1_node::core::{Transaction, TxOutput};
+use custom_l1_node::core::{ChainTag, Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
+use custom_l1_node::rpc::ChainInfo;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
@@ -89,6 +90,9 @@ pub struct NodeDispenser {
     client: HttpClient,
     /// Seeded from the node at startup, advanced locally thereafter.
     next_nonce: AtomicU64,
+    /// The genesis id every signature commits to (ADR-036), read once at
+    /// startup: a re-genesis restarts the faucet along with the node.
+    chain: ChainTag,
 }
 
 impl NodeDispenser {
@@ -117,10 +121,13 @@ impl NodeDispenser {
             .and_then(serde_json::Value::as_u64)
             .ok_or_else(|| DispenseError::Node("account response has no nonce".to_string()))?;
 
+        let chain = read_chain_tag(&client).await?;
+
         Ok(Self {
             key,
             client,
             next_nonce: AtomicU64::new(nonce),
+            chain,
         })
     }
 
@@ -169,6 +176,16 @@ impl NodeDispenser {
     }
 }
 
+/// The chain's genesis id, from `get_chain_info`.
+async fn read_chain_tag(client: &HttpClient) -> Result<ChainTag, DispenseError> {
+    let info: ChainInfo = client
+        .request("get_chain_info", rpc_params![])
+        .await
+        .map_err(|e| DispenseError::Node(format!("reading chain info: {e}")))?;
+    info.chain_tag()
+        .map_err(|e| DispenseError::Node(format!("chain info: {e}")))
+}
+
 #[async_trait]
 impl Dispenser for NodeDispenser {
     async fn send(&self, recipient: &[u8; 32], amount: u64) -> Result<String, DispenseError> {
@@ -179,6 +196,7 @@ impl Dispenser for NodeDispenser {
             amount,
             fees,
             self.next_nonce.fetch_add(1, Ordering::SeqCst),
+            &self.chain,
         )?;
 
         let result: serde_json::Value = self
@@ -212,6 +230,7 @@ fn sign_transfer(
     amount: u64,
     fees: Option<Fees>,
     nonce: u64,
+    chain: &ChainTag,
 ) -> Result<String, DispenseError> {
     let mut outputs = vec![TxOutput {
         amount,
@@ -224,7 +243,7 @@ fn sign_transfer(
         });
         let mut probe = Transaction::new(vec![], outputs.clone(), nonce);
         probe
-            .sign(key)
+            .sign(key, chain)
             .map_err(|e| DispenseError::Signing(e.to_string()))?;
         let size = u64::try_from(probe.to_bytes().len()).unwrap_or(u64::MAX);
         let fee = fees
@@ -240,7 +259,7 @@ fn sign_transfer(
     }
 
     let mut tx = Transaction::new(vec![], outputs, nonce);
-    tx.sign(key)
+    tx.sign(key, chain)
         .map_err(|e| DispenseError::Signing(e.to_string()))?;
 
     Ok(hex::encode(tx.to_bytes()))
@@ -252,6 +271,8 @@ mod tests {
     use super::*;
     use custom_l1_node::crypto::hybrid::generate_signing_key;
 
+    const CHAIN: ChainTag = ChainTag::from_genesis([0xA1; 32]);
+
     const FEES: Fees = Fees {
         collector: [0xC0; 32],
         base_fee: 3,
@@ -260,7 +281,7 @@ mod tests {
     #[test]
     fn a_signed_transfer_pays_the_collector_for_its_own_size() {
         let key = generate_signing_key().expect("keygen");
-        let raw = sign_transfer(&key, &[7u8; 32], 100, Some(FEES), 0).expect("signed");
+        let raw = sign_transfer(&key, &[7u8; 32], 100, Some(FEES), 0, &CHAIN).expect("signed");
 
         let bytes = hex::decode(&raw).expect("the faucet emits valid hex");
         let tx = Transaction::from_bytes(&bytes).expect("a node must be able to parse it");
@@ -276,7 +297,7 @@ mod tests {
     #[test]
     fn a_chain_without_fees_gets_no_fee_output() {
         let key = generate_signing_key().expect("keygen");
-        let raw = sign_transfer(&key, &[7u8; 32], 100, None, 0).expect("signed");
+        let raw = sign_transfer(&key, &[7u8; 32], 100, None, 0, &CHAIN).expect("signed");
         let tx = Transaction::from_bytes(&hex::decode(&raw).unwrap()).unwrap();
         assert_eq!(tx.outputs.len(), 1);
     }
@@ -285,14 +306,16 @@ mod tests {
     fn a_signed_transfer_verifies() {
         // The faucet's signature must satisfy the same check a block applies.
         let key = generate_signing_key().expect("keygen");
-        let raw = sign_transfer(&key, &[3u8; 32], 500, Some(FEES), 9).expect("signed");
+        let raw = sign_transfer(&key, &[3u8; 32], 500, Some(FEES), 9, &CHAIN).expect("signed");
         let bytes = hex::decode(&raw).expect("hex");
         let tx = Transaction::from_bytes(&bytes).expect("parse");
 
-        tx.verify()
+        tx.verify(&CHAIN)
             .expect("a node would reject a transfer that does not verify");
         assert_eq!(tx.nonce, 9);
         assert_eq!(tx.sender(), key.address());
+        // ADR-036: the same bytes are worthless on any other chain.
+        assert!(tx.verify(&ChainTag::from_genesis([0xB2; 32])).is_err());
     }
 
     #[test]
@@ -302,7 +325,7 @@ mod tests {
         // happen to be.
         let key = generate_signing_key().expect("keygen");
         assert!(matches!(
-            sign_transfer(&key, &[1u8; 32], u64::MAX, Some(FEES), 0),
+            sign_transfer(&key, &[1u8; 32], u64::MAX, Some(FEES), 0, &CHAIN),
             Err(DispenseError::Underfunded)
         ));
     }

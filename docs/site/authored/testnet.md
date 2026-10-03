@@ -49,7 +49,8 @@ l1-wallet --keystore my.key generate          # prints your address
   .faucet-form [data-state="error"] { color: var(--sl-color-red); }
 </style>
 
-Each address and each network connection can take 1,000 test coins a day.
+Each address and each network connection can take 200,000 test coins a day,
+enough for about seven transfers at the Standard fee.
 The same faucet from a terminal:
 
 ```bash
@@ -81,8 +82,8 @@ the fee is charged per byte. At today's base fee the Standard fee is about
 |---|---|
 | Chain id | `maya-testnet-1` |
 | Consensus | DAG-BFT: blocks are final in about a second |
-| Genesis state root | `bf084e888a1c4fc4e396e846ff4cdeab5919155b41e463177886d3c36aa21143` |
-| Genesis block | `07f141151158440c1e491eb93e503e6981f2f439be50353ea05384f67a54ccf7` |
+| Genesis state root | `419ea2e9eea80f3c31d542e8dbf7e409a82a3cc249a872a4e5ae0c6bbc5f88b0` |
+| Genesis block | `c80cc217d0079367f35dc92a508ed4bee44bf9b72594dcdaa15471df5bbf57d1` |
 | Public API | `https://rpc.maya2c.dev`: JSON-RPC at `/rpc`, REST at `/v1/…` ([API reference](/guides/api/)) |
 | Faucet | `https://faucet.maya2c.dev` |
 
@@ -96,4 +97,12 @@ the fee is charged per byte. At today's base fee the Standard fee is about
   network, or becoming a validator, opens once the seed is on a server with a
   public P2P port. Registration for validators is built and tested; it waits
   on that.
+- **Reset twice so far.** The first genesis halted at block 12,530 on
+  2026-09-29 because of a consensus bug in how DAG-BFT counted work (fixed,
+  ADR-035). On 2026-10-04 the network restarted again so that every
+  transaction signature commits to this chain's genesis (ADR-036): a transfer
+  signed for this testnet can never be replayed on mainnet, or on any other
+  Maya2C network. Signatures made before that restart are invalid here, so
+  use a wallet built after it. Balances from earlier chains do not exist on
+  this one.
 - **Mining pays nothing.** See [mining and validators](/guides/mining/).
