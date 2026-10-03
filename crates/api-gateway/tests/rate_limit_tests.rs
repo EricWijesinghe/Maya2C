@@ -16,7 +16,7 @@ use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
 use maya_api_gateway::error::GatewayError;
 use maya_api_gateway::limit::{ClientIp, RateLimit};
-use maya_api_gateway::node::{Balance, FeeInfo, NodeClient, Supply};
+use maya_api_gateway::node::{Balance, ChainInfo, FeeInfo, NodeClient, Supply};
 use tower::ServiceExt;
 
 struct QuietNode;
@@ -46,6 +46,12 @@ impl NodeClient for QuietNode {
             active: false,
             base_fee: 0,
             collector: String::new(),
+        })
+    }
+    async fn get_chain_info(&self) -> Result<ChainInfo, GatewayError> {
+        Ok(ChainInfo {
+            genesis: "00".repeat(32),
+            chain_id: None,
         })
     }
 }
