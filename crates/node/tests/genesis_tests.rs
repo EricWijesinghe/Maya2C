@@ -362,7 +362,7 @@ fn a_bft_genesis_keeps_the_fixed_target_and_its_shielded_activation() {
     // `without_pow_verification` there, which would have brought back the
     // total-work saturation that halted maya-testnet-1 at 12,530.
     let mut bft = config();
-    bft.bft = Some(custom_l1_node::genesis::BftGenesis::with_validators(Vec::new()));
+    bft.bft = Some(serde_json::from_str(r#"{"validators": []}"#).expect("bft section"));
     bft.shielded_activation_height = Some(u64::MAX);
     let rules = bft.chain_config().expect("rules");
     assert!(rules.fixed_target, "DAG-BFT must keep the genesis target");
