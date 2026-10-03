@@ -22,6 +22,10 @@ use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
 use maya_crypto_pq::multisig::{Approval, MultisigPolicy, PolicyKey};
 use maya_crypto_pq::suite::{Ed25519, MasterSeed, MlDsa65, MlDsa87, SignatureSuite, SuiteId};
 
+/// The chain test signatures commit to (ADR-036).
+const CHAIN: custom_l1_node::core::ChainTag =
+    custom_l1_node::core::ChainTag::from_genesis([42; 32]);
+
 const FUNDS: u64 = 1_000;
 const RECIPIENT: Address = [0x5a; 32];
 
@@ -44,6 +48,7 @@ fn block_of(transactions: Vec<Transaction>) -> Block {
 fn open_db(funded: &[Address]) -> (StateDB, TempDir) {
     let dir = TempDir::new().expect("temp dir");
     let db = StateDB::open(dir.path()).expect("open");
+    db.bind_chain(CHAIN).expect("bind the test chain");
     for address in funded {
         db.put_account(
             address,
@@ -70,7 +75,7 @@ fn pay(amount: u64, nonce: u64) -> Transaction {
 
 fn v7<S: SignatureSuite>(key: &S::SigningKey, amount: u64, nonce: u64) -> Transaction {
     let mut tx = pay(amount, nonce);
-    tx.sign_with_suite::<S>(key).expect("sign");
+    tx.sign_with_suite::<S>(key, &CHAIN).expect("sign");
     tx
 }
 
@@ -95,7 +100,7 @@ fn v8(keys: &[Key87], signers: &[u8], amount: u64) -> Transaction {
     let policy = three_of_five(keys);
     let mut tx = pay(amount, 0);
     tx.multisig = Some(Box::new(MultisigAuth::unsigned(policy.clone())));
-    let message = tx.signing_bytes();
+    let message = tx.signing_bytes(&CHAIN);
     let approvals = signers
         .iter()
         .map(|&i| Approval {
@@ -195,8 +200,8 @@ fn the_mempool_admits_a_v7_transfer_and_refuses_ed25519() {
 #[test]
 fn the_height_less_verify_still_refuses_both_frames() {
     let key = MlDsa87::signing_key_from_seed(&MasterSeed::from_bytes([0x15; 32]));
-    assert!(v7::<MlDsa87>(&key, 1, 0).verify().is_err());
-    assert!(v8(&members(), &[0, 1, 2], 1).verify().is_err());
+    assert!(v7::<MlDsa87>(&key, 1, 0).verify(&CHAIN).is_err());
+    assert!(v8(&members(), &[0, 1, 2], 1).verify(&CHAIN).is_err());
 }
 
 #[test]
@@ -255,7 +260,7 @@ fn a_multisig_policy_naming_ed25519_cannot_spend_even_with_a_pq_quorum() {
 
     let mut tx = pay(400, 0);
     tx.multisig = Some(Box::new(MultisigAuth::unsigned(policy.clone())));
-    let message = tx.signing_bytes();
+    let message = tx.signing_bytes(&CHAIN);
     let approvals = (0..3u8)
         .map(|i| Approval {
             index: i,

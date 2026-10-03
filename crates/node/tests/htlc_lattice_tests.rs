@@ -40,6 +40,8 @@ use maya_htlc_watcher::{
     SwapChain, WatcherError, Worker,
 };
 
+mod common;
+
 // ---------------------------------------------------------------------------
 // harness
 // ---------------------------------------------------------------------------
@@ -65,7 +67,7 @@ fn block_of(transactions: Vec<Transaction>) -> Block {
 
 fn signed(kind: TxKind, nonce: u64, key: &HybridSigningKey) -> Transaction {
     let mut tx = Transaction::with_kind(kind, nonce);
-    tx.sign(key).expect("sign");
+    tx.sign(key, &common::test_chain()).expect("sign");
     tx
 }
 
@@ -78,6 +80,7 @@ fn keypair() -> (HybridSigningKey, Address) {
 fn open_db(funded: &[(Address, u64)]) -> (StateDB, TempDir) {
     let dir = TempDir::new().expect("temp dir");
     let db = StateDB::open(dir.path()).expect("open");
+    common::bind(&db);
     for (address, balance) in funded {
         db.put_account(
             address,
@@ -207,9 +210,13 @@ impl SwapChain for LocalChain {
         Ok(self.nonce(address))
     }
 
+    async fn chain_tag(&self) -> Result<custom_l1_node::core::ChainTag, WatcherError> {
+        Ok(common::test_chain())
+    }
+
     async fn broadcast(&self, raw: &[u8]) -> Result<(), WatcherError> {
         let tx = Transaction::from_bytes(raw).map_err(|e| WatcherError::Refused(e.to_string()))?;
-        tx.verify()
+        tx.verify(&common::test_chain())
             .map_err(|e| WatcherError::Refused(e.to_string()))?;
         self.submit(tx);
         Ok(())
@@ -784,7 +791,9 @@ fn every_htlc_kind_round_trips_through_a_transaction() {
         let decoded = Transaction::from_bytes(&tx.to_bytes()).expect("decode");
         assert_eq!(decoded.txid(), tx.txid());
         assert_eq!(decoded.kind, tx.kind);
-        decoded.verify().expect("signature survives");
+        decoded
+            .verify(&common::test_chain())
+            .expect("signature survives");
     }
 }
 

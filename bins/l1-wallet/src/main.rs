@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
-use custom_l1_node::core::{Transaction, TxOutput};
+use custom_l1_node::core::{ChainTag, Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
 
 use l1_wallet::client::NodeClient;
@@ -251,16 +251,20 @@ async fn command_send(
         None => client.get_balance(&sender_hex).await?.nonce,
     };
 
+    // ADR-036: the signature commits to this node's genesis, so the transfer
+    // is worthless on any other Maya2C chain.
+    let chain = client.get_chain_info().await?;
     let outputs = with_fee(
         &client,
         &key,
         vec![TxOutput { amount, recipient }],
         nonce,
         fee,
+        &chain,
     )
     .await?;
     let mut tx = Transaction::new(vec![], outputs, nonce);
-    tx.sign(&key).context("signing the transaction")?;
+    tx.sign(&key, &chain).context("signing the transaction")?;
 
     let raw = hex::encode(tx.to_bytes());
     if !broadcast {
@@ -294,6 +298,7 @@ async fn with_fee(
     mut outputs: Vec<TxOutput>,
     nonce: u64,
     fee: Option<u64>,
+    chain: &ChainTag,
 ) -> Result<Vec<TxOutput>> {
     let info = match client.get_fee_info().await {
         Ok(info) if info.active => info,
@@ -308,7 +313,7 @@ async fn with_fee(
         fee
     } else {
         let mut probe = Transaction::new(vec![], outputs.clone(), nonce);
-        probe.sign(key).context("signing the fee probe")?;
+        probe.sign(key, chain).context("signing the fee probe")?;
         let size = u64::try_from(probe.to_bytes().len())?;
         info.base_fee.saturating_mul(size).saturating_mul(2)
     };

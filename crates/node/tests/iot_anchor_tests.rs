@@ -31,6 +31,8 @@ use maya_iot_anchor::{
     SensorClass, TamperCause, TelemetryBatch,
 };
 
+mod common;
+
 // ---------------------------------------------------------------------------
 // harness
 // ---------------------------------------------------------------------------
@@ -64,6 +66,7 @@ impl Chain {
     fn new(funded: &[&HybridSigningKey]) -> Self {
         let dir = TempDir::new().expect("temp dir");
         let db = StateDB::open(dir.path()).expect("open");
+        common::bind(&db);
         for key in funded {
             let account = Account {
                 balance: 1_000_000,
@@ -81,7 +84,7 @@ impl Chain {
     fn signed(&self, kind: TxKind, key: &HybridSigningKey) -> Transaction {
         let nonce = self.db.get_account(&key.address()).expect("account").nonce;
         let mut tx = Transaction::with_kind(kind, nonce);
-        tx.sign(key).expect("sign");
+        tx.sign(key, &common::test_chain()).expect("sign");
         tx
     }
 

@@ -22,6 +22,11 @@ use custom_l1_node::core::transaction::{Transaction, TxInput, TxOutput};
 use custom_l1_node::crypto::suites;
 use maya_crypto_pq::suite::{MasterSeed, MlDsa65, SignatureSuite, SuiteId};
 
+/// The genesis the fixture's transfer is signed for (ADR-036). Not a test
+/// helper's tag: the device must show exactly this value as the network.
+const CHAIN: custom_l1_node::core::ChainTag =
+    custom_l1_node::core::ChainTag::from_genesis([0x5a; 32]);
+
 fn fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../apps/ledger-maya2c/tests/fixtures/suite-0x10-transfer.txt")
@@ -50,7 +55,7 @@ fn fixture() -> String {
         ],
         7,
     );
-    tx.sign_with_suite::<MlDsa65>(&key).expect("sign");
+    tx.sign_with_suite::<MlDsa65>(&key, &CHAIN).expect("sign");
     let auth = tx.suite_auth.as_ref().expect("v7");
     let signature = auth.signature.as_ref().expect("signed");
     assert_eq!(
@@ -61,9 +66,10 @@ fn fixture() -> String {
     let mut out = String::new();
     for (key, value) in [
         ("chain_key", hex::encode(chain_key)),
+        ("genesis", hex::encode(CHAIN.as_bytes())),
         ("public_key", hex::encode(&public_key)),
         ("address", hex::encode(tx.sender())),
-        ("signing_bytes", hex::encode(tx.signing_bytes())),
+        ("signing_bytes", hex::encode(tx.signing_bytes(&CHAIN))),
         ("signature", hex::encode(signature)),
     ] {
         let _ = writeln!(out, "{key}={value}");
