@@ -49,6 +49,8 @@ use custom_l1_node::genesis::{
     Allocation, BPS_DENOMINATOR, GenesisConfig, MAX_TREASURY_SHARE_BPS, TreasuryGenesis,
 };
 
+mod committee;
+
 /// Chain ids that carry real value, so their genesis keeps the pool off.
 ///
 /// The same list `bins/maya2c-node/src/main.rs` guards at startup. Duplicated rather than
@@ -96,6 +98,9 @@ struct Args {
     treasury_share_bps: u16,
     out_dir: PathBuf,
     force: bool,
+    /// The DAG-BFT committee file; absent, a proof-of-work genesis.
+    validators: Option<PathBuf>,
+    epoch_blocks: u64,
 }
 
 impl Default for Args {
@@ -114,6 +119,8 @@ impl Default for Args {
             treasury_share_bps: 0,
             out_dir: PathBuf::from("./ceremony"),
             force: false,
+            validators: None,
+            epoch_blocks: committee::DEFAULT_EPOCH_BLOCKS,
         }
     }
 }
@@ -139,7 +146,11 @@ fn print_usage() {
          --treasury-public <PATH>     assemble: contributed public key for the treasury,\n                               \
          required when --treasury-share-bps is non-zero\n
          OPTIONS:\n  \
-         --chain-id <ID>              network identifier; value-bearing ids are refused\n  \
+         --chain-id <ID>              network identifier; a value-bearing id keeps the\n                               \
+         shielded pool off (ADR-037) and needs 4+ validators\n  \
+         --validators <FILE>          DAG-BFT committee, `label key [operator bond]` per\n                               \
+         line; keys from `maya2c-node --generate-validator-key`\n  \
+         --epoch-blocks <N>           staking epoch when bonds are given (default 3600)\n  \
          --supply <UNITS>             total genesis supply, treasury included\n  \
          --timestamp <UNIX>           genesis timestamp; pin it for a real launch\n  \
          --difficulty-bits <N>        starting difficulty (default 22)\n  \
@@ -188,6 +199,8 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--treasury-share-bps" => args.treasury_share_bps = value()?.parse()?,
             "--out-dir" => args.out_dir = PathBuf::from(value()?),
             "--force" => args.force = true,
+            "--validators" => args.validators = Some(PathBuf::from(value()?)),
+            "--epoch-blocks" => args.epoch_blocks = value()?.parse()?,
             "-h" | "--help" => {
                 print_usage();
                 std::process::exit(0);
@@ -216,20 +229,85 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
     Ok(args)
 }
 
-/// Refuses a value-bearing chain id.
-///
 /// The `shielded_activation_height` a genesis for `chain_id` gets (ADR-037).
 ///
 /// A value-bearing chain on an unaudited circuit gets "never"; every other
 /// genesis names none, which runs the pool from block zero and keeps the id
 /// a genesis written before ADR-037 would have had.
 fn shielded_activation_for(chain_id: &str, circuit_audited: bool) -> Option<u64> {
-    // Case and surrounding space ignored, as the node's guard does.
+    (is_value_bearing(chain_id) && !circuit_audited).then_some(u64::MAX)
+}
+
+/// Whether `chain_id` names a value-bearing network (case and spaces ignored).
+fn is_value_bearing(chain_id: &str) -> bool {
     let id = chain_id.trim();
-    let value_bearing = VALUE_BEARING_CHAINS
+    VALUE_BEARING_CHAINS
         .iter()
-        .any(|v| v.eq_ignore_ascii_case(id));
-    (value_bearing && !circuit_audited).then_some(u64::MAX)
+        .any(|v| v.eq_ignore_ascii_case(id))
+}
+
+/// The committee named by `--validators`, checked for a launch's size.
+fn read_committee(args: &Args) -> Result<Option<Vec<committee::Member>>, Box<dyn Error>> {
+    let Some(path) = &args.validators else {
+        return Ok(None);
+    };
+    let members = committee::read(path)?;
+    committee::check_launch_size(is_value_bearing(&args.chain_id), &members)?;
+    Ok(Some(members))
+}
+
+/// The genesis both ceremony paths mint. With a committee it is DAG-BFT,
+/// which verifies no work, so difficulty is zero as on the testnet.
+fn launch_config(
+    args: &Args,
+    allocations: Vec<Allocation>,
+    treasury: Option<TreasuryGenesis>,
+    committee: Option<&[committee::Member]>,
+) -> GenesisConfig {
+    let bft = committee.map(|members| committee::genesis(members, args.epoch_blocks));
+    let difficulty_bits = if bft.is_some() {
+        0
+    } else {
+        args.difficulty_bits
+    };
+    GenesisConfig {
+        chain_id: args.chain_id.clone(),
+        timestamp: args.timestamp.unwrap_or_else(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock is before 1970")
+                .as_secs()
+        }),
+        difficulty_bits,
+        pow_limit_bits: if bft.is_some() {
+            0
+        } else {
+            args.pow_limit_bits.unwrap_or(args.difficulty_bits)
+        },
+        allocations,
+        oracle: None,
+        sealed: None,
+        treasury,
+        protocol_upgrades: Vec::new(),
+        security_council: None,
+        shielded_activation_height: shielded_activation_for(
+            &args.chain_id,
+            maya_zk_stark::pool::circuit_is_audited(),
+        ),
+        bft,
+    }
+}
+
+/// The commitment sheet's consensus section.
+fn consensus_section(committee: Option<&[committee::Member]>) -> String {
+    match committee {
+        Some(members) => format!(
+            "\nConsensus: DAG-BFT, {} validators (fee market on; ADR-027, ADR-029)\n{}\n",
+            members.len(),
+            committee::sheet_lines(members)
+        ),
+        None => "\nConsensus: proof of work\n".to_owned(),
+    }
 }
 
 /// How the commitment sheet states the pool's setting.
@@ -426,28 +504,8 @@ fn run() -> Result<(), Box<dyn Error>> {
     };
 
     // --- genesis -----------------------------------------------------------
-    let config = GenesisConfig {
-        chain_id: args.chain_id.clone(),
-        timestamp: args.timestamp.unwrap_or_else(|| {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system clock is before 1970")
-                .as_secs()
-        }),
-        difficulty_bits: args.difficulty_bits,
-        pow_limit_bits: args.pow_limit_bits.unwrap_or(args.difficulty_bits),
-        allocations,
-        oracle: None,
-        sealed: None,
-        treasury,
-        protocol_upgrades: Vec::new(),
-        security_council: None,
-        shielded_activation_height: shielded_activation_for(
-            &args.chain_id,
-            maya_zk_stark::pool::circuit_is_audited(),
-        ),
-        bft: None,
-    };
+    let committee = read_committee(&args)?;
+    let config = launch_config(&args, allocations, treasury, committee.as_deref());
 
     config.validate()?;
 
@@ -497,6 +555,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         public_lines.join("\n"),
     );
 
+    let sheet = sheet + &consensus_section(committee.as_deref());
     fs::write(args.out_dir.join("COMMITMENT.txt"), &sheet)?;
     print!("{sheet}");
     println!("Wrote {}", genesis_path.display());
@@ -807,28 +866,8 @@ fn assemble(args: &Args) -> Result<(), Box<dyn Error>> {
         None
     };
 
-    let config = GenesisConfig {
-        chain_id: args.chain_id.clone(),
-        timestamp: args.timestamp.unwrap_or_else(|| {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system clock is before 1970")
-                .as_secs()
-        }),
-        difficulty_bits: args.difficulty_bits,
-        pow_limit_bits: args.pow_limit_bits.unwrap_or(args.difficulty_bits),
-        allocations,
-        oracle: None,
-        sealed: None,
-        treasury,
-        protocol_upgrades: Vec::new(),
-        security_council: None,
-        shielded_activation_height: shielded_activation_for(
-            &args.chain_id,
-            maya_zk_stark::pool::circuit_is_audited(),
-        ),
-        bft: None,
-    };
+    let committee = read_committee(args)?;
+    let config = launch_config(args, allocations, treasury, committee.as_deref());
 
     config.validate()?;
 
@@ -877,6 +916,7 @@ fn assemble(args: &Args) -> Result<(), Box<dyn Error>> {
         public_lines.join("\n"),
     );
 
+    let sheet = sheet + &consensus_section(committee.as_deref());
     fs::write(args.out_dir.join("COMMITMENT.txt"), &sheet)?;
     print!("{sheet}");
     println!("Wrote {}", genesis_path.display());
