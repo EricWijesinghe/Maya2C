@@ -20,6 +20,7 @@ honest validator, so `2q − n ≥ f + 1`:
 | 5 | 1 | 3 | 1 | no: the one shared member may be the faulty one |
 | 6 | 1 | 3 | 0 | no: two disjoint halves |
 | 2 | 0 | 1 | 0 | no: each node certifies alone (`certify_alone`) |
+| 3 | 0 | 1 | −1 | no: each node certifies alone |
 | 100 | 33 | 67 | 34 | yes |
 
 At `n = 6`, one equivocating author can propose two vertices for a round.
@@ -40,12 +41,15 @@ first registration on either would have moved it off that size.
 - **Liveness:** the `n − f` honest validators can form a quorum on their own.
 - **Compatibility:** at `n = 3f + 1` it equals `2f + 1`. Every committee
   that has run so far (1, 4, 100) gets the same threshold. No chain
-  re-genesis, and no wire or signature change.
+  re-genesis, and no wire or signature change. A chain whose committee sat
+  at another size (5, 6, 8, …) would change threshold mid-history, and
+  certificates it stored with the old count would no longer be well formed.
+  No such chain exists: every network that ever ran is listed above.
 - **Validity** (`f + 1` votes commit an anchor) is unchanged. It needs only
   one honest voter, and `f + 1` already guarantees one.
 
 `any_two_quorums_share_an_honest_validator_at_every_size`
-(`crates/dag-bft/src/vertex.rs`) checks safety and liveness for every `n`
+(`crates/dag-bft/src/vertex.rs`) checks the overlap for every `n`
 from 1 to 1,000. The old formula fails it at `n = 2`.
 
 ## Consequence: a cheap committee capture (open)
@@ -59,12 +63,27 @@ maya-testnet-1 uses. One faucet grant is 200,000. Whoever registers enough
 keys that never come online holds more than `f` seats and stops every
 quorum:
 
+- The chain halts whenever the absent seats `k` exceed
+  `f = ⌊(n + k − 1)/3⌋` of the enlarged committee.
 - maya-testnet-1 (`n = 1`): **one** absent registration makes `n = 2`,
   `q = 2`, and the chain halts at the next epoch boundary. Under the old
   formula it took three (`n = 4`, `q = 3`).
+- The four-validator mainnet plan: **two** absent registrations (`n = 6`,
+  `f = 1`), 2,000 base units at devnet parameters. At `n = 100` about 34.
 - Once halted, the chain cannot recover on its own. Downtime is only judged
   at an epoch boundary (`Staking::end_epoch`), and a halted chain never
   reaches one, so nothing jails the absent keys.
+
+- Below the halt threshold, up to `f` absent seats still slow the chain
+  (their anchor slots are missed). Each is jailed for two epochs and loses
+  1 % of its bond, then re-registers under a fresh key: `register` checks
+  only the minimum and that the id is new. Cheap, repeatable griefing.
+
+Weighted voting closes the capture; it does not close the **recovery**
+gap. A chain halted for any reason — capture, or simply too many honest
+validators offline at once — has no path back short of an operator
+restart. That needs its own design (a timeout-based committee fallback, or
+a council reset), and it is a separate mainnet gate.
 
 No shipped tool built the registration before `l1-wallet register-validator`.
 The transaction itself has been valid since ADR-028.
@@ -84,13 +103,21 @@ Options, each a security or economics choice for Eric:
    fund. Independent validators are funded by the operator after a
    conversation. This is node policy, not consensus: inclusion is the
    proposer's choice. It needs no re-genesis and does not restart the soak.
+   It holds only while one operator proposes every block — any other
+   proposer can include a registration — and it does nothing against a
+   bond above the floor. A stopgap for one testnet, not a design.
 
-Recommended: (3) now on maya-testnet-1, (1) before mainnet as a launch gate,
-and (2) set alongside (1) in the mainnet genesis.
+Recommended: (3) now on maya-testnet-1; (1) and a recovery path before
+mainnet, as launch gates; (2) set alongside (1) in the mainnet genesis.
 
 ## Evidence
 
 - `cargo test -p maya-dag-bft`: lib 11 passed, including the new
-  intersection test (output in the PR).
+  intersection test. `--test modes_sim`: 8 passed, including
+  `six_validators_split_in_half_halt_rather_than_fork` (each half of 3
+  would have certified alone under 2f + 1) and
+  `one_crashed_validator_of_six_does_not_stop_commits`.
+- Reviewed by rust-reviewer and security-reviewer agents (2026-10-04): no
+  CRITICAL or HIGH; their MEDIUM points are folded in above.
 - `cargo nextest run -p custom-l1-node -p maya-dag-bft -p maya2c-node`:
   1046 tests run: 1046 passed (1 slow), 2 skipped, 83.069 s.
