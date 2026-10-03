@@ -97,6 +97,12 @@ pub struct BftDriver {
     committee: Arc<[VerifyingKey]>,
     /// Attestations gathered into the newest checkpoint (ADR-038).
     attestations: Collector,
+    /// Set after catching up through a checkpoint: this node lacks the DAG
+    /// history that says which vertices were already ordered, so a block it
+    /// derived could differ from the network's. It votes and proposes, which
+    /// is what restores fault tolerance, and imports attested blocks instead
+    /// of building (ADR-038).
+    follower: bool,
 }
 
 impl core::fmt::Debug for BftDriver {
@@ -213,6 +219,7 @@ impl BftDriver {
             dir,
             committee: Arc::clone(committee),
             attestations: Collector::default(),
+            follower: false,
         };
         // Own proposals and votes first: they set the round, so replaying
         // certificates cannot make the engine sign a slot it already signed.
@@ -301,6 +308,29 @@ impl BftDriver {
         let out = self.engine.handle(now_ms, envelope.from, envelope.message);
         self.absorb(chain, now_ms, out, &mut step)?;
         Ok(step)
+    }
+
+    /// Switches to following attested blocks after a catch-up (ADR-038):
+    /// the engine resumes at the anchor round sealed in the chain's tip, and
+    /// from here on this node votes and proposes but imports blocks rather
+    /// than deriving them. A restart without catching up again leaves it.
+    pub fn follow_attested(&mut self, chain: &Chain) {
+        self.follower = true;
+        if chain.height() == 0 {
+            return;
+        }
+        if let Some(tip) = chain.get(&chain.tip()) {
+            let (epoch, round) = unseal(tip.header.nonce);
+            if epoch == self.epoch {
+                self.engine.resume_after(round);
+            }
+        }
+    }
+
+    /// Whether this node follows attested blocks instead of building.
+    #[must_use]
+    pub fn is_follower(&self) -> bool {
+        self.follower
     }
 
     /// The newest block a quorum of this epoch's committee attested: what a
@@ -412,6 +442,10 @@ impl BftDriver {
             step.frames.push(envelope.encode());
         }
         step.equivocations.extend(out.equivocations);
+        if self.follower {
+            // Blocks come from attested imports; see `follower`.
+            return Ok(());
+        }
         for sub_dag in out.sub_dags {
             let anchor = &sub_dag.anchor.vertex;
             if anchor.epoch != self.epoch || self.already_built(chain, anchor.epoch, anchor.round) {

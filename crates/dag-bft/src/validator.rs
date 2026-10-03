@@ -254,6 +254,31 @@ impl<A: Authenticator> Validator<A> {
         }
     }
 
+    /// Resumes after a gap the DAG cannot fill (ADR-038): the node imported
+    /// blocks up to the anchor at `round` instead of deriving them, so it
+    /// treats that anchor as committed, forgets everything below the new
+    /// garbage-collection horizon, and stops waiting on a proposal for a
+    /// round the network left long ago. It never moves anything backwards,
+    /// so it can only sign rounds above every round it signed before.
+    pub fn resume_after(&mut self, round: u64) {
+        if round <= self.committer.last_committed_round() {
+            return;
+        }
+        self.committer.resume_at(round);
+        let horizon = round.saturating_sub(GC_DEPTH);
+        self.dag.collect_below(horizon);
+        self.committer.collect_below(horizon);
+        self.voted = self.voted.split_off(&(horizon, 0));
+        self.seen = self.seen.split_off(&(horizon, 0));
+        self.buffer.retain(|_, c| c.vertex.round >= horizon);
+        if self.round < round {
+            self.round = round;
+            self.pending = None;
+            self.pending_digest = None;
+            self.waiting_since = None;
+        }
+    }
+
     /// Proposes round 1.
     pub fn start(&mut self, now_ms: u64) -> Output {
         let mut out = Output::default();
