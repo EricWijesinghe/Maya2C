@@ -52,6 +52,7 @@ impl NodeClient for QuietNode {
         Ok(ChainInfo {
             genesis: "00".repeat(32),
             chain_id: None,
+            height: 0,
         })
     }
 }
