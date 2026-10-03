@@ -11,12 +11,15 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use custom_l1_node::consensus::Chain;
+use custom_l1_node::consensus::bft::attest::Checkpoint;
+use custom_l1_node::consensus::bft::catchup::{self, Position};
 use custom_l1_node::consensus::bft::remote::{DEFAULT_DEADLINE, RemoteSigner, ValidatorKey};
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
 use custom_l1_node::crypto::keys::{self, SigningKey, VerifyingKey};
 use custom_l1_node::genesis::BftGenesis;
 use custom_l1_node::metrics::Metrics;
 use custom_l1_node::network::{Mempool, NodeEvent, NodeHandle};
+use custom_l1_node::rpc::bootstrap::RpcBootstrapSource;
 use maya_dag_bft::Params;
 use tokio::sync::broadcast::error::RecvError;
 use zeroize::Zeroizing;
@@ -30,6 +33,26 @@ const TICK: Duration = Duration::from_millis(100);
 /// How long a pooled transaction waits for the validator whose share it is
 /// before any validator proposes it. See `feed_mempool`.
 const SHARE_GRACE: Duration = Duration::from_secs(3);
+
+/// Puts the driver's newest checkpoint where `get_checkpoint` reads it, when
+/// it is newer than what is there.
+fn publish_checkpoint(driver: &BftDriver, slot: &Mutex<Option<Checkpoint>>) {
+    let Some(newest) = driver.checkpoint() else {
+        return;
+    };
+    let mut held = slot
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if held
+        .as_ref()
+        .is_none_or(|c| (c.epoch, c.height) < (newest.epoch, newest.height))
+    {
+        *held = Some(newest.clone());
+    }
+}
+
+/// How often an attested follower looks for newer checkpoints (ADR-038).
+const FOLLOW_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Where the per-epoch safety logs live.
 const BFT_DIR: &str = "bft";
@@ -167,6 +190,68 @@ pub(super) fn open(
     )?)
 }
 
+/// Fetches from `url` up to its newest checkpoint, without holding the chain
+/// lock while the peer answers, then imports under the lock (ADR-038).
+async fn catch_up_once(
+    url: &str,
+    chain: &Arc<Mutex<Chain>>,
+    committee: &Arc<[VerifyingKey]>,
+) -> Result<u64, Box<dyn Error>> {
+    let from = Position::of(&lock_chain(chain));
+    let source = RpcBootstrapSource::new(url, tokio::runtime::Handle::current())?;
+    let committee = Arc::clone(committee);
+    let blocks =
+        tokio::task::spawn_blocking(move || catchup::fetch(from, &source, &committee)).await??;
+    if blocks.is_empty() {
+        return Ok(0);
+    }
+    Ok(catchup::import(&mut lock_chain(chain), blocks)?)
+}
+
+/// Startup catch-up for a node that was down longer than the engine's
+/// window (`--catch-up-from`): imports to the peer's checkpoint, then turns
+/// the driver into an attested follower so it votes and proposes again.
+pub(super) async fn catch_up(
+    url: &str,
+    chain: &Arc<Mutex<Chain>>,
+    driver: &mut BftDriver,
+) -> Result<u64, Box<dyn Error>> {
+    let imported = catch_up_once(url, chain, &driver.committee()).await?;
+    driver.follow_attested(&lock_chain(chain));
+    println!(
+        "catch-up:    imported {imported} blocks from {url}; following attested blocks (ADR-038)"
+    );
+    Ok(imported)
+}
+
+/// Keeps an attested follower at the network's tip: every second, imports
+/// the blocks up to the newest checkpoint `url` serves. A failed round is
+/// reported and retried; the chain is never left half-extended, because
+/// each block is inserted whole or not at all.
+pub(super) async fn follow_loop(
+    url: String,
+    chain: Arc<Mutex<Chain>>,
+    committee: Arc<[VerifyingKey]>,
+) {
+    let mut ticker = tokio::time::interval(FOLLOW_INTERVAL);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut last_error: Option<String> = None;
+    loop {
+        ticker.tick().await;
+        match catch_up_once(&url, &chain, &committee).await {
+            Ok(_) => last_error = None,
+            Err(e) => {
+                let message = e.to_string();
+                // Once per distinct failure, not once a second.
+                if last_error.as_deref() != Some(message.as_str()) {
+                    eprintln!("catch-up: {message}; retrying");
+                    last_error = Some(message);
+                }
+            }
+        }
+    }
+}
+
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -286,6 +371,7 @@ pub(super) async fn bft_loop(
     opening: Step,
     committee: usize,
     metrics: Arc<Metrics>,
+    checkpoint: Arc<Mutex<Option<Checkpoint>>>,
 ) {
     let mut events = network.subscribe();
     let mut ticker = tokio::time::interval(TICK);
@@ -313,6 +399,7 @@ pub(super) async fn bft_loop(
                 driver.on_tick(&mut guard, now_ms())
             }
         };
+        publish_checkpoint(&driver, &checkpoint);
         match step {
             Ok(step) => {
                 if !step.blocks.is_empty() {

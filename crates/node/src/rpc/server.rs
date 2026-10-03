@@ -155,6 +155,9 @@ pub struct RpcContext {
     /// The network's name (`maya-testnet-1`), for `get_chain_info`. A label
     /// for people: what a signature binds to is the genesis id (ADR-036).
     pub network: Option<String>,
+    /// The newest attested checkpoint, kept current by the DAG-BFT loop, for
+    /// `get_checkpoint` (ADR-038). Absent on a node that runs no DAG-BFT.
+    pub checkpoint: Option<Arc<Mutex<Option<crate::consensus::bft::attest::Checkpoint>>>>,
 }
 
 impl RpcContext {
@@ -170,6 +173,19 @@ impl RpcContext {
             peers: None,
             accepts_blocks: true,
             network: None,
+            checkpoint: None,
+        }
+    }
+
+    /// The same context, serving `slot` from `get_checkpoint`.
+    #[must_use]
+    pub fn with_checkpoints(
+        self,
+        slot: Arc<Mutex<Option<crate::consensus::bft::attest::Checkpoint>>>,
+    ) -> Self {
+        Self {
+            checkpoint: Some(slot),
+            ..self
         }
     }
 
@@ -251,6 +267,18 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 .map_err(|e| rejected(e.to_string()))?;
 
             Ok::<_, ErrorObjectOwned>(AccountInfo::new(&address, &account))
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
+    module
+        .register_method("get_checkpoint", |_params, ctx, _| {
+            let held = ctx.checkpoint.as_ref().and_then(|slot| {
+                slot.lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .as_ref()
+                    .map(crate::rpc::types::CheckpointInfo::from)
+            });
+            Ok::<_, ErrorObjectOwned>(held)
         })
         .map_err(|e| rejected(e.to_string()))?;
 
