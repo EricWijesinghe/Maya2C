@@ -1,7 +1,8 @@
 //! Thin JSON-RPC client for the node.
 
 use anyhow::{Context, Result};
-use custom_l1_node::rpc::{AccountInfo, BlockInfo, FeeInfo, SubmitTransactionResult};
+use custom_l1_node::core::ChainTag;
+use custom_l1_node::rpc::{AccountInfo, BlockInfo, ChainInfo, FeeInfo, SubmitTransactionResult};
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
@@ -81,5 +82,19 @@ impl NodeClient {
             .request("get_block_by_height", rpc_params![height])
             .await
             .with_context(|| format!("get_block_by_height({height})"))
+    }
+
+    /// Fetches the chain's genesis block id (for signing transactions).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails.
+    pub async fn get_chain_info(&self) -> Result<ChainTag> {
+        let info: ChainInfo = self
+            .inner
+            .request("get_chain_info", rpc_params![])
+            .await
+            .context("get_chain_info")?;
+        info.chain_tag().context("get_chain_info")
     }
 }

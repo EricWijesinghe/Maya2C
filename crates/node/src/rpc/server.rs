@@ -21,7 +21,7 @@ use crate::core::{Block, Transaction};
 use crate::network::{Mempool, NodeHandle};
 use crate::rpc::bootstrap::SnapshotService;
 use crate::rpc::types::{
-    AccountInfo, BlockInfo, HeaderInfo, IotDeviceInfo, MiningCandidate, PeerAddressInfo,
+    AccountInfo, BlockInfo, ChainInfo, HeaderInfo, IotDeviceInfo, MiningCandidate, PeerAddressInfo,
     SubmitBlockResult, SubmitTransactionResult, ThreatIndicatorInfo,
 };
 use crate::state_pruner::cold::ColdBlocks;
@@ -152,6 +152,9 @@ pub struct RpcContext {
     /// somebody's claim (`consensus::bft`); the chain there verifies no work,
     /// so accepting one would let anyone write the tip.
     pub accepts_blocks: bool,
+    /// The network's name (`maya-testnet-1`), for `get_chain_info`. A label
+    /// for people: what a signature binds to is the genesis id (ADR-036).
+    pub network: Option<String>,
 }
 
 impl RpcContext {
@@ -166,6 +169,16 @@ impl RpcContext {
             cold: None,
             peers: None,
             accepts_blocks: true,
+            network: None,
+        }
+    }
+
+    /// The same context, naming its network in `get_chain_info`.
+    #[must_use]
+    pub fn with_network(self, name: impl Into<String>) -> Self {
+        Self {
+            network: Some(name.into()),
+            ..self
         }
     }
 
@@ -238,6 +251,17 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 .map_err(|e| rejected(e.to_string()))?;
 
             Ok::<_, ErrorObjectOwned>(AccountInfo::new(&address, &account))
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
+    module
+        .register_method("get_chain_info", |_params, ctx, _| {
+            let chain = ctx.chain();
+            let genesis = chain.genesis();
+            Ok::<_, ErrorObjectOwned>(ChainInfo {
+                genesis: hex::encode(genesis),
+                chain_id: ctx.network.clone(),
+            })
         })
         .map_err(|e| rejected(e.to_string()))?;
 
