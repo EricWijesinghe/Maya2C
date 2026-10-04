@@ -32,7 +32,14 @@ pub mod triage;
 #[cfg(any(feature = "libafl", feature = "z3"))]
 pub mod engine;
 
+use custom_l1_node::core::ChainTag;
 use rand_chacha::ChaCha20Rng;
+
+/// The chain every sandbox transaction is signed for and every sandbox state
+/// is bound to (ADR-036). Fixed, so findings replay. Without it a fresh
+/// `StateDB` refuses every block as "not bound to a chain", and the
+/// differential oracle would compare two refusals and call them agreement.
+pub const SANDBOX_CHAIN: ChainTag = ChainTag::from_genesis([0x5b; 32]);
 
 /// The fuzzer's RNG. Seeded, so a run and a finding both replay exactly.
 pub type Rng = ChaCha20Rng;
