@@ -435,6 +435,14 @@ impl custom_l1_node::consensus::bft::catchup::CheckpointSource for Peer<'_> {
         Ok(self.checkpoint.clone())
     }
 
+    fn checkpoint_of(
+        &self,
+        epoch: u64,
+    ) -> custom_l1_node::error::Result<Option<custom_l1_node::consensus::bft::attest::Checkpoint>>
+    {
+        Ok(self.checkpoint.clone().filter(|c| c.epoch == epoch))
+    }
+
     fn block(&self, height: u64) -> custom_l1_node::error::Result<Block> {
         let state = self.chain.state();
         let id = state.canonical_id(height)?.expect("peer holds the height");

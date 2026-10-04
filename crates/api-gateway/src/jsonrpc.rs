@@ -201,8 +201,17 @@ async fn dispatch(
             Ok(node.get_bft_status().await?)
         }
         "get_checkpoint" => {
-            no_params(params)?;
-            Ok(node.get_checkpoint().await?)
+            let epoch = match params {
+                [] => None,
+                [e] if e.is_u64() => e.as_u64(),
+                _ => {
+                    return Err(RpcError::new(
+                        INVALID_PARAMS,
+                        "expected no params, or one epoch number",
+                    ));
+                }
+            };
+            Ok(node.get_checkpoint(epoch).await?)
         }
         // Pruned-node bootstrap (a new validator restores a recent snapshot
         // instead of replaying every block over a rate-limited endpoint).

@@ -768,7 +768,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let rpc_pool = Mempool::new(Arc::clone(&state));
     let rpc_context =
         RpcContext::new(Arc::clone(&chain), rpc_pool.clone()).with_network(config.chain_id.clone());
-    let checkpoint_slot = Arc::new(Mutex::new(None));
+    let checkpoint_slot = Arc::new(Mutex::new(Default::default()));
     let status_slot = Arc::new(Mutex::new(custom_l1_node::rpc::types::BftStatus::default()));
     let rpc_context = if mode == "dag-bft" {
         rpc_context

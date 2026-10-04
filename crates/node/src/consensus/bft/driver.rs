@@ -79,6 +79,14 @@ pub struct Step {
 /// An epoch's committee keys and, on a stake-weighted chain, their weights.
 pub type StakedCommittee = (Arc<[VerifyingKey]>, Option<Arc<[u64]>>);
 
+/// The previous epoch's committee and its collector, kept after a switch.
+struct Closing {
+    epoch: u64,
+    keys: Arc<[VerifyingKey]>,
+    weights: Option<Arc<[u64]>>,
+    attestations: Collector,
+}
+
 /// One epoch's committee: its keys, and its voting weights where the chain
 /// is stake-weighted (ADR-040 part 2).
 struct EpochCommittee {
@@ -158,6 +166,11 @@ pub struct BftDriver {
     follower: bool,
     /// The anchor round the engine resumed after when it became a follower.
     resumed_at: u64,
+    /// The epoch just ended, still collecting: attestations of its last
+    /// blocks, the boundary block among them, arrive after every node has
+    /// switched, and its final checkpoint is what carries a node that slept
+    /// through the boundary into the new committee.
+    closing: Option<Closing>,
     /// The round of the last anchor this engine committed, built or not.
     last_anchor: Option<u64>,
 }
@@ -303,6 +316,7 @@ impl BftDriver {
             follower: false,
             resumed_at: 0,
             last_anchor: None,
+            closing: None,
         };
         // Own proposals and votes first: they set the round, so replaying
         // certificates cannot make the engine sign a slot it already signed.
@@ -463,6 +477,13 @@ impl BftDriver {
         self.attestations.newest()
     }
 
+    /// The newest checkpoint of the epoch that just ended, completed by
+    /// attestations that arrived after the switch.
+    #[must_use]
+    pub fn closing_checkpoint(&self) -> Option<&Checkpoint> {
+        self.closing.as_ref().and_then(|c| c.attestations.newest())
+    }
+
     /// Signs and gossips this validator's attestation of the block it just
     /// built at the tip, and counts it. An observer attests nothing; a
     /// signature that failed costs a checkpoint, never safety.
@@ -493,11 +514,23 @@ impl BftDriver {
         let Ok(attestation) = Attestation::decode(bytes) else {
             return;
         };
-        if attestation.epoch != self.epoch {
-            return;
-        }
         let tag = ChainTag::from_genesis(chain.genesis());
-        self.collect(attestation, &tag, step);
+        if attestation.epoch == self.epoch {
+            self.collect(attestation, &tag, step);
+        } else if let Some(closing) = self
+            .closing
+            .as_mut()
+            .filter(|c| c.epoch == attestation.epoch)
+        {
+            // Late attestations of the last epoch's final blocks. Checked
+            // against that epoch's committee; a bad one is dropped.
+            let _ = closing.attestations.add(
+                attestation,
+                &tag,
+                &closing.keys,
+                closing.weights.as_deref(),
+            );
+        }
     }
 
     fn collect(&mut self, attestation: Attestation, tag: &ChainTag, step: &mut Step) {
@@ -521,6 +554,18 @@ impl BftDriver {
     /// As [`BftDriver::on_frame`].
     pub fn on_tick(&mut self, chain: &mut Chain, now_ms: u64) -> Result<Step> {
         let mut step = Step::default();
+        // A builder switches epochs on the boundary block it builds; a
+        // follower imports that block instead, and must notice it here or it
+        // would stay in an epoch whose committee no longer orders the chain.
+        if self.follower && self.next_epoch(chain)?.is_some() {
+            self.switch_epoch(chain, now_ms, &mut step)?;
+            self.follow_attested(chain);
+            step.notices.push(format!(
+                "followed attested blocks into epoch {}",
+                self.epoch
+            ));
+            return Ok(step);
+        }
         let out = self.engine.tick(now_ms);
         self.absorb(chain, now_ms, out, &mut step)?;
         Ok(step)
@@ -663,7 +708,14 @@ impl BftDriver {
             now_ms,
             step,
         )?;
+        let closing = Closing {
+            epoch: self.epoch,
+            keys: Arc::clone(&self.committee),
+            weights: self.weights.clone(),
+            attestations: std::mem::take(&mut self.attestations),
+        };
         *self = next;
+        self.closing = Some(closing);
         Ok(())
     }
 

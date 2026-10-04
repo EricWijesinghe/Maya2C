@@ -116,3 +116,46 @@ of four validators up, two attesters cannot form a checkpoint to import.
 Open: crossing a committee change during an outage (a checkpoint signed by a
 different committee is refused, clearly), and an RPC source chosen
 automatically instead of given by the operator.
+
+## Crossing an epoch boundary (2026-10-05)
+
+Found by `cargo xtask attacknet` (the long-outage attack). A validator that
+was down across an epoch boundary could never rejoin. The network's newest
+checkpoint was signed by the new committee, but the returning node trusts
+only its own epoch's committee, so every checkpoint failed its quorum check.
+Two more gaps sat behind that one:
+
+- **Late attestations were discarded.** On a switch the driver dropped its
+  collector and ignored attestations for the old epoch. So the epoch's last
+  blocks, the boundary block among them, never got a checkpoint from the
+  committee that ordered them.
+- **A follower stayed in the old epoch.** A follower imports the boundary
+  block rather than building it, so the epoch switch, which happened only
+  on a built block, never fired.
+
+As built:
+
+1. The driver keeps the ended epoch's committee and collector (`Closing`)
+   after the switch. Late attestations of that epoch complete its final
+   checkpoint.
+2. Each node publishes a `CheckpointBook`: the newest checkpoint of each of
+   the last `KEPT_EPOCHS` (8) epochs. `get_checkpoint` takes an optional
+   epoch, and the public gateways forward it. A validator down for longer
+   than 8 epochs restores from a snapshot instead.
+3. `catchup::fetch` asks for its own epoch's final checkpoint when the
+   network is past that epoch. Importing up to it applies the boundary
+   block, which writes the next committee into state. Startup catch-up
+   repeats this until nothing is imported, one epoch at a time. Every
+   checkpoint is still checked only against a committee that the node's own
+   re-executed state names.
+4. A follower switches epochs on the tick when its state has moved past the
+   driver's epoch, then keeps following.
+
+In the same run: startup catch-up no longer makes a node a follower when it
+missed nothing. After an f+1 crash, three restarted followers had waited for
+checkpoints that only they could complete.
+
+Evidence: `cargo xtask attacknet`, all six attacks pass. Validator 6 was down
+45 s across the boundary at height 60. It imported 33 blocks, logged
+"followed attested blocks into epoch 1", and rejoined at height 66. There
+was no fork through height 67. The run is in `reports/attacknet/`.
