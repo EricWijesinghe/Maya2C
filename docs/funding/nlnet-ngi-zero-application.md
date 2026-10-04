@@ -3,15 +3,11 @@
 A draft for the owner to review, edit and submit at <https://nlnet.nl/propose/>.
 Check the current call and deadline there first. Every figure below is
 measured in this repository and cited so a reviewer can re-run it. Written
-2026-09-28.
+2026-09-28; refreshed 2026-10-04 now that one-to-one chat ships.
 
-## Before submitting — two owner decisions
+## Before submitting — owner decisions
 
-1. **Licence.** The repository is public but has no licence file, which
-   legally means "all rights reserved". NLnet funds only open-source work
-   under an OSI-approved licence. The common choice for Rust is
-   **`Apache-2.0 OR MIT`**: permissive, patent grant, compatible with the
-   crates this project uses. Adding it is the owner's call, not Claude's.
+1. ~~**Licence.**~~ Done: Apache-2.0 (`LICENSE`, commit `713c9711`).
 2. **Hourly rate and amount.** The budget below uses €50/hour and asks for
    €38,000, inside NLnet's usual €5,000–€50,000 for a first proposal.
    Adjust both to what the owner can honestly deliver.
@@ -55,25 +51,39 @@ Maya Chat is a peer-to-peer messenger written in Rust:
   only an identity-and-transport library with other apps (a wallet, later
   others). It holds no funds and needs no token to send a message.
 
-**The foundation exists and is tested.** Maya2C is 87 Rust crates:
-- post-quantum signatures (ML-DSA, SLH-DSA, and a hybrid of both);
-- DAG-BFT consensus, and a libp2p network layer with a post-quantum
-  handshake;
-- 2,961 automated tests passing across the workspace;
-- 71 language-neutral conformance vectors checked by an independent
-  implementation.
+**What already exists and is tested:**
+- **Maya2C**, 87 Rust crates:
+  - post-quantum signatures (ML-DSA, SLH-DSA, and a hybrid of both);
+  - DAG-BFT consensus;
+  - a libp2p network layer with a post-quantum handshake;
+  - 71 language-neutral conformance vectors checked by an independent
+    implementation.
+- **A public test network**, maya-testnet-1, running since 2026-09-29.
+- **Maya Chat, one-to-one** (ADR-031):
+  - ML-DSA-65 identities that are chain addresses;
+  - signed X-Wing (ML-KEM-768 + X25519) prekeys;
+  - libp2p store-and-forward relays, one of them public at
+    `chat.maya2c.dev`;
+  - a command-line client and a Tauri desktop app.
+  - It is unaudited, with no groups and no metadata privacy yet.
 
-This grant funds the chat layer on top of it, plus publication of the
-post-quantum migration tooling already in the tree, which measures how
-much of Bitcoin's and Ethereum's value sits behind exposed public keys.
+This grant funds what is missing before people can rely on it:
+- group chat;
+- metadata protection;
+- an external security review;
+- publication of the post-quantum migration tooling already in the tree,
+  which measures how much of Bitcoin's and Ethereum's value sits behind
+  exposed public keys.
 
 **Expected outcomes:**
-- a specified, documented chat protocol (ADR plus specification);
-- a Rust library and a command-line client for one-to-one and group chat;
-- store-and-forward relays;
-- a minimal desktop client;
+- group chat on MLS (RFC 9420) with a hybrid post-quantum ciphersuite;
+- relays that learn less about who talks to whom, to a written threat model;
+- the shipped protocol specified with test vectors, so a second
+  implementation can interoperate;
+- a security review through NGI Zero's audit partners, with findings fixed
+  and published;
 - published migration tooling;
-- all of it under an open licence, with reproducible builds and tests.
+- all of it under Apache-2.0, with reproducible builds and tests.
 
 ## Relevant previous involvement
 
@@ -94,13 +104,12 @@ At €50/hour:
 
 | Milestone | Deliverable | Hours | € |
 |---|---|---|---|
-| 1 | Chat ADR and protocol specification: identities, hybrid KEM, MLS profile, relay protocol, threat model | 80 | 4,000 |
-| 2 | `maya-chat` core: identity keys anchored on chain, hybrid ML-KEM-768 + X25519 key agreement, one-to-one sessions; property tests and test vectors | 140 | 7,000 |
-| 3 | Group chat on MLS (RFC 9420) with a hybrid post-quantum ciphersuite; membership changes; interop tests | 160 | 8,000 |
-| 4 | Store-and-forward relays and offline delivery over libp2p; delay-tolerant retry; abuse limits | 120 | 6,000 |
-| 5 | Command-line client and a minimal desktop client (Tauri, Rust backend) | 120 | 6,000 |
-| 6 | Reproducible builds, SBOM, documentation, security-review preparation | 80 | 4,000 |
-| 7 | Publish the post-quantum exposure tool (BTC/ETH) as a standalone crate with docs | 60 | 3,000 |
+| 1 | Specification of the shipped protocol (identities, X-Wing prekeys, sessions, relay protocol) with test vectors, and a threat model that covers metadata | 80 | 4,000 |
+| 2 | Group chat on MLS (RFC 9420) with a hybrid post-quantum ciphersuite, following the IETF post-quantum MLS drafts; membership changes; interop tests | 200 | 10,000 |
+| 3 | Metadata protection at relays: sealed-sender style deposits, unlinkable mailbox addressing, padding; measured against the threat model | 160 | 8,000 |
+| 4 | Groups in the CLI and desktop clients; key backup and multi-device | 120 | 6,000 |
+| 5 | Security-review preparation and remediation: fuzzing every decoder, reproducible builds, SBOM; fixing and publishing the review's findings | 140 | 7,000 |
+| 6 | Publish the post-quantum exposure tool (BTC/ETH) as a standalone crate with docs | 60 | 3,000 |
 | **Total** | | **760** | **38,000** |
 
 ## Other funding

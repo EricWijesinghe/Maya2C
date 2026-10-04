@@ -11,12 +11,15 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use custom_l1_node::consensus::Chain;
+use custom_l1_node::consensus::bft::attest::Checkpoint;
+use custom_l1_node::consensus::bft::catchup::{self, Position};
 use custom_l1_node::consensus::bft::remote::{DEFAULT_DEADLINE, RemoteSigner, ValidatorKey};
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
 use custom_l1_node::crypto::keys::{self, SigningKey, VerifyingKey};
 use custom_l1_node::genesis::BftGenesis;
 use custom_l1_node::metrics::Metrics;
 use custom_l1_node::network::{Mempool, NodeEvent, NodeHandle};
+use custom_l1_node::rpc::bootstrap::RpcBootstrapSource;
 use maya_dag_bft::Params;
 use tokio::sync::broadcast::error::RecvError;
 use zeroize::Zeroizing;
@@ -31,6 +34,33 @@ const TICK: Duration = Duration::from_millis(100);
 /// before any validator proposes it. See `feed_mempool`.
 const SHARE_GRACE: Duration = Duration::from_secs(3);
 
+/// Puts the driver's newest checkpoint where `get_checkpoint` reads it, when
+/// it is newer than what is there.
+/// Where the loop reports what it did: metrics, and the slots the RPC's
+/// `get_checkpoint` and `get_bft_status` read.
+pub(super) struct Reporting {
+    pub(super) metrics: Arc<Metrics>,
+    pub(super) checkpoint: Arc<Mutex<Option<Checkpoint>>>,
+    pub(super) status: Arc<Mutex<custom_l1_node::rpc::types::BftStatus>>,
+}
+
+fn publish_checkpoint(driver: &BftDriver, slot: &Mutex<Option<Checkpoint>>) {
+    let Some(newest) = driver.checkpoint() else {
+        return;
+    };
+    let mut held = slot
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if held
+        .as_ref()
+        .is_none_or(|c| (c.epoch, c.height) < (newest.epoch, newest.height))
+    {
+        *held = Some(newest.clone());
+    }
+}
+
+/// How often an attested follower looks for newer checkpoints (ADR-038).
+const FOLLOW_INTERVAL: Duration = Duration::from_secs(1);
 /// Least time between two reports of frames lost to a full event channel.
 const DROP_REPORT_INTERVAL: Duration = Duration::from_secs(10);
 
@@ -170,6 +200,68 @@ pub(super) fn open(
     )?)
 }
 
+/// Fetches from `url` up to its newest checkpoint, without holding the chain
+/// lock while the peer answers, then imports under the lock (ADR-038).
+async fn catch_up_once(
+    url: &str,
+    chain: &Arc<Mutex<Chain>>,
+    committee: &Arc<[VerifyingKey]>,
+) -> Result<u64, Box<dyn Error>> {
+    let from = Position::of(&lock_chain(chain));
+    let source = RpcBootstrapSource::new(url, tokio::runtime::Handle::current())?;
+    let committee = Arc::clone(committee);
+    let blocks =
+        tokio::task::spawn_blocking(move || catchup::fetch(from, &source, &committee)).await??;
+    if blocks.is_empty() {
+        return Ok(0);
+    }
+    Ok(catchup::import(&mut lock_chain(chain), blocks)?)
+}
+
+/// Startup catch-up for a node that was down longer than the engine's
+/// window (`--catch-up-from`): imports to the peer's checkpoint, then turns
+/// the driver into an attested follower so it votes and proposes again.
+pub(super) async fn catch_up(
+    url: &str,
+    chain: &Arc<Mutex<Chain>>,
+    driver: &mut BftDriver,
+) -> Result<u64, Box<dyn Error>> {
+    let imported = catch_up_once(url, chain, &driver.committee()).await?;
+    driver.follow_attested(&lock_chain(chain));
+    println!(
+        "catch-up:    imported {imported} blocks from {url}; following attested blocks (ADR-038)"
+    );
+    Ok(imported)
+}
+
+/// Keeps an attested follower at the network's tip: every second, imports
+/// the blocks up to the newest checkpoint `url` serves. A failed round is
+/// reported and retried; the chain is never left half-extended, because
+/// each block is inserted whole or not at all.
+pub(super) async fn follow_loop(
+    url: String,
+    chain: Arc<Mutex<Chain>>,
+    committee: Arc<[VerifyingKey]>,
+) {
+    let mut ticker = tokio::time::interval(FOLLOW_INTERVAL);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut last_error: Option<String> = None;
+    loop {
+        ticker.tick().await;
+        match catch_up_once(&url, &chain, &committee).await {
+            Ok(_) => last_error = None,
+            Err(e) => {
+                let message = e.to_string();
+                // Once per distinct failure, not once a second.
+                if last_error.as_deref() != Some(message.as_str()) {
+                    eprintln!("catch-up: {message}; retrying");
+                    last_error = Some(message);
+                }
+            }
+        }
+    }
+}
+
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -179,7 +271,14 @@ fn now_ms() -> u64 {
 /// Transactions not yet handed to the engine, with when this node first saw
 /// each, so a share nobody proposed is picked up after [`SHARE_GRACE`].
 #[derive(Default)]
-struct Feed {
+pub(super) struct Feed {
+    /// Committee size, which decides each validator's share.
+    committee: usize,
+    /// Validator registrations bonding less than this are never proposed
+    /// (`--min-register-bond`). Node policy, not consensus: ADR-039 option 3,
+    /// a stopgap against cheap committee capture while one operator
+    /// proposes every block. Zero proposes everything.
+    min_register_bond: u64,
     first_seen: BTreeMap<[u8; 32], Instant>,
     /// RPC-submitted transactions already gossiped, so the validator whose
     /// share one is hears of it without waiting out the grace period.
@@ -187,6 +286,25 @@ struct Feed {
 }
 
 impl Feed {
+    pub(super) fn new(committee: usize, min_register_bond: u64) -> Self {
+        Self {
+            committee,
+            min_register_bond,
+            ..Self::default()
+        }
+    }
+
+    /// A validator registration bonding less than the floor.
+    fn below_floor(&self, tx: &custom_l1_node::core::Transaction) -> bool {
+        use custom_l1_node::core::TxKind;
+        use custom_l1_node::core::staking_payload::StakingAction;
+        matches!(
+            &tx.kind,
+            TxKind::Staking(action)
+                if matches!(**action, StakingAction::Register { bond, .. } if bond < self.min_register_bond)
+        )
+    }
+
     /// Hands pooled transactions to the engine.
     ///
     /// Every validator receives every gossiped transaction, and if every one
@@ -196,23 +314,36 @@ impl Feed {
     /// straight away, and anything else only once it has waited
     /// [`SHARE_GRACE`] without appearing in a block: the owner may be down.
     /// Local policy, not consensus; any split gives the same blocks.
-    fn feed(&mut self, driver: &mut BftDriver, pools: &[&Mempool], committee: usize) {
+    fn feed(&mut self, driver: &mut BftDriver, pools: &[&Mempool]) {
         let Some(me) = driver.validator_id() else {
             return;
         };
         let now = Instant::now();
         for pool in pools {
+            let mut refused = Vec::new();
             for tx in pool.snapshot() {
                 let id = tx.txid();
+                if self.below_floor(&tx) {
+                    refused.push(id);
+                    continue;
+                }
                 if driver.is_queued(&id) {
                     continue;
                 }
                 let seen = *self.first_seen.entry(id).or_insert(now);
-                let mine = usize::from(id[0]) % committee.max(1) == usize::from(me);
+                let mine = usize::from(id[0]) % self.committee.max(1) == usize::from(me);
                 if mine || now.duration_since(seen) >= SHARE_GRACE {
                     driver.submit(&tx);
                 }
             }
+            for id in &refused {
+                eprintln!(
+                    "bft: not proposing registration {}: bond below --min-register-bond {}",
+                    hex::encode(&id[..8]),
+                    self.min_register_bond
+                );
+            }
+            pool.remove_all(&refused);
         }
     }
 
@@ -269,6 +400,9 @@ async fn act(step: Step, network: &NodeHandle, pools: &[&Mempool], feed: &mut Fe
     for id in &step.blocks {
         println!("bft: built block {}", hex::encode(&id[..8]));
     }
+    for notice in &step.notices {
+        eprintln!("bft: {notice}");
+    }
     for evidence in &step.equivocations {
         eprintln!(
             "bft: validator {} equivocated in round {} — evidence held for slashing",
@@ -311,14 +445,18 @@ pub(super) async fn bft_loop(
     rpc_pool: Mempool,
     mut driver: BftDriver,
     opening: Step,
-    committee: usize,
-    metrics: Arc<Metrics>,
+    mut feed: Feed,
+    reporting: Reporting,
 ) {
+    let Reporting {
+        metrics,
+        checkpoint,
+        status,
+    } = reporting;
     let mut events = network.subscribe();
     let mut ticker = tokio::time::interval(TICK);
     let gossip_pool = network.mempool().clone();
     let pools = [&gossip_pool, &rpc_pool];
-    let mut feed = Feed::default();
     let mut dropped = Dropped::default();
     act(opening, &network, &pools, &mut feed).await;
     loop {
@@ -340,11 +478,15 @@ pub(super) async fn bft_loop(
                     // Best effort: a lone node has nobody to tell.
                     let _ = network.publish_transaction(&tx).await;
                 }
-                feed.feed(&mut driver, &pools, committee);
+                feed.feed(&mut driver, &pools);
                 let mut guard = lock_chain(&chain);
                 driver.on_tick(&mut guard, now_ms())
             }
         };
+        publish_checkpoint(&driver, &checkpoint);
+        *status
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = driver.status();
         match step {
             Ok(step) => {
                 if !step.blocks.is_empty() {
@@ -365,5 +507,49 @@ pub(super) async fn bft_loop(
             // without a record.
             Err(error) => eprintln!("bft: {error}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use super::Feed;
+    use custom_l1_node::core::staking_payload::StakingAction;
+    use custom_l1_node::core::{Transaction, TxKind};
+    use custom_l1_node::crypto::{PUBLIC_KEY_LEN, SIGNATURE_LENGTH};
+
+    fn tx(kind: TxKind) -> Transaction {
+        let mut tx = Transaction::new(vec![], vec![], 0);
+        tx.kind = kind;
+        tx
+    }
+
+    fn register(bond: u64) -> Transaction {
+        tx(TxKind::Staking(Box::new(StakingAction::Register {
+            key: Box::new([0; PUBLIC_KEY_LEN]),
+            bond,
+            commission_bps: 0,
+            possession: Box::new([0; SIGNATURE_LENGTH]),
+        })))
+    }
+
+    #[test]
+    fn only_a_registration_below_the_floor_is_held_back() {
+        let feed = Feed::new(1, 1_000_000);
+        assert!(feed.below_floor(&register(999_999)));
+        assert!(!feed.below_floor(&register(1_000_000)));
+        // Other staking actions and transfers pass: the floor is about seats.
+        let delegate = tx(TxKind::Staking(Box::new(StakingAction::Delegate {
+            validator: [1; 32],
+            amount: 1,
+        })));
+        assert!(!feed.below_floor(&delegate));
+        assert!(!feed.below_floor(&tx(TxKind::Transfer)));
+    }
+
+    #[test]
+    fn a_zero_floor_holds_nothing_back() {
+        assert!(!Feed::new(4, 0).below_floor(&register(0)));
     }
 }

@@ -33,7 +33,7 @@ Every packet includes the common base:
 
 | Receives | Why |
 |---|---|
-| `crates/node/src/consensus`, `crates/dag-bft`, ADR-015 | PoW today; DAG-BFT engine not yet wired |
+| `crates/node/src/consensus`, `crates/dag-bft`, ADR-015, ADR-027, ADR-038, ADR-039 | DAG-BFT in the node, attested checkpoints, the n − f quorum |
 | `crates/node/src/network` (Noise + ML-KEM handshake, gossip, peer health) | p2p surface |
 | `crates/dos-guard`, `reports/16-validator-security.md` | pre-KEM defences and their simulations |
 | `fuzz/`, `crates/node/tests/fuzz_harness.rs` (10⁶ inputs, 0 panics) | fuzzing corpus and hours |

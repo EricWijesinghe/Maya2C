@@ -219,7 +219,7 @@ fn a_minority_partition_stalls_nobody_forever_and_heals_consistently() {
 
 #[test]
 fn a_one_third_partition_without_quorum_halts_rather_than_forks() {
-    // 4 validators split 2/2: neither side has 2f + 1 = 3. Safety demands
+    // 4 validators split 2/2: neither side has a quorum, n − f = 3. Safety demands
     // that nothing new commits on either side while split.
     replay(0x0D46_BF73, |w: &mut World<Ev>| {
         let groups = vec![
@@ -229,6 +229,37 @@ fn a_one_third_partition_without_quorum_halts_rather_than_forks() {
         w.net_mut().partition(groups);
         let run = run_dag(w, 4, 1_000, &[], None, 20);
         assert!(run.orders.iter().all(Vec::is_empty), "no quorum, no commit");
+    });
+}
+
+#[test]
+fn six_validators_split_in_half_halt_rather_than_fork() {
+    // ADR-039: at n = 6, f = 1, the old 2f + 1 = 3 let each half certify and
+    // commit on its own. n − f = 5 leaves neither half a quorum.
+    replay(0x0D46_BF74, |w: &mut World<Ev>| {
+        let groups = vec![
+            [0, 1, 2].map(NodeId).into_iter().collect(),
+            [3, 4, 5].map(NodeId).into_iter().collect(),
+        ];
+        w.net_mut().partition(groups);
+        let run = run_dag(w, 6, 1_000, &[], None, 20);
+        assert!(run.orders.iter().all(Vec::is_empty), "no quorum, no commit");
+    });
+}
+
+#[test]
+fn one_crashed_validator_of_six_does_not_stop_commits() {
+    // The other half of ADR-039: n − f is still reachable with f silent.
+    replay(0x0D46_BF75, |w: &mut World<Ev>| {
+        w.net_mut().set_link(LinkModel::wide_area());
+        let crashed = [4u16];
+        let run = run_dag(w, 6, 2_000, &crashed, None, 30);
+        let orders = honest(&run.orders, &crashed);
+        assert_prefix_consistent(&orders);
+        assert!(
+            orders.iter().all(|o| o.len() > 2_000),
+            "progress with f = 1 crashed"
+        );
     });
 }
 

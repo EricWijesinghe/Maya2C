@@ -5,9 +5,9 @@ Each item links its evidence.
 
 | # | Issue | Where | Status |
 |---|---|---|---|
-| 1 | DAG-BFT engine not wired; the node runs PoW | ADR-015, `bins/maya2c-node` refuses a production start | blocks launch |
-| 2 | Staking and slashing not built | `spec/06-staking.md` | blocks launch |
-| 3 | Fee market inactive (`FeeConfig::DISABLED`) | ADR-016 | blocks launch |
+| 1 | ~~DAG-BFT engine not wired; the node runs PoW~~ **Resolved**: DAG-BFT in the node, live on maya-testnet-1 | ADR-027, `crates/node/tests/bft_node_tests.rs` | closed |
+| 2 | ~~Staking and slashing not built~~ **Built**; voting is still one seat one vote — see 18 | ADR-028, `crates/node/tests/bft_staking_tests.rs` | closed |
+| 3 | ~~Fee market inactive (`FeeConfig::DISABLED`)~~ **Resolved**: active from genesis on DAG-BFT chains | ADR-029 | closed |
 | 4 | `apply_block` re-verifies every signature (93 % of apply time) | `reports/12-performance.md` §1 | designed, not built |
 | 5 | Shielded-pool circuit unaudited | `CIRCUIT_IS_AUDITED = false` | deferred |
 | 6 | HQC decapsulation leaks timing | ADR-009 | RESEARCH feature only |
@@ -21,3 +21,5 @@ Each item links its evidence.
 | 14 | SHA3 re-commitment timing looks unoptimized under the `ci` profile | `reports/15-spec.md` §5 | not investigated |
 | 15 | ~~Contracts cannot learn their caller~~ **Resolved 2026-09-27**: `caller` host function, live from genesis | ADR-026 (Accepted), `crates/reference-apps/tests/nft_game.rs`, `crates/node/tests/nft_game_on_node_tests.rs` | closed |
 | 16 | Faucet grants once per IP per day; a venue behind one NAT gets one grant | `docs/ecosystem/HACKATHON_KIT.md` | open |
+| 17 | ~~DAG-BFT quorum was 2f + 1 at every committee size: unsafe at n = 2, 3, 5, 6, …~~ **Fixed**: n − f | ADR-039, `crates/dag-bft/src/vertex.rs` | closed |
+| 18 | Committee capture: seats cost `min_self_bond` and each has one vote, so absent registrations can halt a small committee, and a halted chain never reaches the epoch boundary that would jail them | ADR-039 § Consequence | **open, blocks mainnet** |

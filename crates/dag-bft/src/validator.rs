@@ -1,7 +1,7 @@
 //! One validator as a sans-IO state machine: messages in, messages out.
 //!
-//! The protocol is Narwhal's certified DAG: propose a vertex, collect 2f + 1
-//! votes, broadcast the certificate, advance once 2f + 1 certificates of the
+//! The protocol is Narwhal's certified DAG: propose a vertex, collect a quorum of
+//! votes, broadcast the certificate, advance once a quorum of certificates of the
 //! round are held. Lost messages are recovered by re-broadcast on
 //! [`Validator::tick`] and by fetching missing parents from whoever sent the
 //! child, so the engine is live over a lossy, reordering network.
@@ -254,6 +254,39 @@ impl<A: Authenticator> Validator<A> {
         }
     }
 
+    /// Resumes after a gap the DAG cannot fill (ADR-038): the node imported
+    /// blocks up to the anchor at `round` instead of deriving them, so it
+    /// treats that anchor as committed, forgets everything below the new
+    /// garbage-collection horizon, and stops waiting on a proposal for a
+    /// round the network left long ago. It never moves anything backwards,
+    /// so it can only sign rounds above every round it signed before.
+    pub fn resume_after(&mut self, round: u64) {
+        if round <= self.committer.last_committed_round() {
+            return;
+        }
+        self.committer.resume_at(round);
+        // The horizon goes to `round` itself, not `GC_DEPTH` below it: a
+        // certificate at or below the horizon is inserted without its
+        // parents, so the engine joins the current rounds after fetching at
+        // most one round, instead of ~50 rounds of history over a gossip
+        // fetch path that loses replies under load (measured in the
+        // 2026-10-04 rehearsals). Nothing at or below it is ever proposed
+        // or voted on again, so dropping those records cannot let this
+        // validator sign a slot twice.
+        let horizon = round;
+        self.dag.collect_below(horizon);
+        self.committer.collect_below(horizon);
+        self.voted = self.voted.split_off(&(horizon, 0));
+        self.seen = self.seen.split_off(&(horizon, 0));
+        self.buffer.retain(|_, c| c.vertex.round >= horizon);
+        if self.round < round {
+            self.round = round;
+            self.pending = None;
+            self.pending_digest = None;
+            self.waiting_since = None;
+        }
+    }
+
     /// Proposes round 1.
     pub fn start(&mut self, now_ms: u64) -> Output {
         let mut out = Output::default();
@@ -447,7 +480,7 @@ impl<A: Authenticator> Validator<A> {
         }
         let digest = c.digest();
         // Before the signatures: a re-broadcast of a held certificate costs a
-        // lookup, not 2f + 1 verifications.
+        // lookup, not a quorum of verifications.
         if self.dag.contains(&digest) || self.buffer.contains_key(&digest) {
             return;
         }

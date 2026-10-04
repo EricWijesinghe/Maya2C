@@ -136,7 +136,7 @@ fn a_forged_vote_does_not_count_toward_a_certificate() {
             "a forged vote produced a certificate"
         );
     }
-    // Two genuine votes do certify (with the author's own, that is 3 = 2f+1).
+    // Two genuine votes do certify (with the author's own, that is 3 = n − f).
     let mut certified = false;
     for voter in [1u16, 2] {
         let genuine = Message::Vote {
