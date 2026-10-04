@@ -2686,6 +2686,17 @@ status = "verified"
 tests = ["crate:maya-faucet", "apps/faucet/tests/http_tests.rs", "apps/faucet/tests/load_tests.rs"]
 
 [[subsystem]]
+id = "chain-status"
+name = "Chain status and uptime"
+domain = "Tooling and formal verification"
+paths = "`apps/status`"
+tier = "extended"
+class = "REAL"
+status = "working"
+tests = ["crate:maya-status"]
+note = "Uptime and every halt derived from the chain's own block timestamps (get_headers, 2,000 per call), so anyone can recompute it. Serves status.maya2c.dev and /api/status; optional push alert on a halt (--ntfy). Live on maya-testnet-1 since 2026-10-04."
+
+[[subsystem]]
 id = "lean-4-mathematical-proof-engine"
 name = "Lean 4 mathematical proof engine"
 domain = "Tooling and formal verification"
