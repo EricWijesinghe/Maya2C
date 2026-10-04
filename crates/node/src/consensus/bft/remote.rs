@@ -16,7 +16,7 @@ use std::net::{SocketAddr, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use maya_dag_bft::{Digest, SignContext, SignKind, VOTE_DOMAIN};
+use maya_dag_bft::{Digest, SignContext, SignKind};
 use maya_signer::channel::{self, Channel, Identity};
 use maya_signer::protection::Kind;
 use maya_signer::service::{Request, Response};
@@ -45,6 +45,34 @@ impl ValidatorKey {
         match self {
             Self::Local(key) => key.verifying_key(),
             Self::Remote(remote) => remote.public.clone(),
+        }
+    }
+
+    /// This validator's attestation signature on block `block` at `height`
+    /// of `chain` in `epoch`, as committee member `validator` (ADR-038).
+    /// `None` when signing failed or the remote signer refused, which the
+    /// signer reports; a missing attestation costs a checkpoint, never safety.
+    #[must_use]
+    pub fn sign_attestation(
+        &self,
+        validator: u16,
+        chain: &crate::core::ChainTag,
+        epoch: u64,
+        height: u64,
+        block: &[u8; 32],
+    ) -> Option<Vec<u8>> {
+        use super::attest::{attestation_bytes, attestation_digest};
+        match self {
+            Self::Local(key) => key
+                .sign(&attestation_bytes(chain, epoch, height, block))
+                .map(|s| s.to_vec())
+                .map_err(|e| eprintln!("attestation at height {height} not signed: {e}"))
+                .ok(),
+            Self::Remote(remote) => remote.sign_attestation(
+                height,
+                validator,
+                &attestation_digest(chain, epoch, height, block),
+            ),
         }
     }
 }
@@ -141,6 +169,23 @@ impl RemoteSigner {
             author: ctx.author,
             digest: *digest,
         };
+        self.sign_request(&request)
+    }
+
+    /// The signer's attestation of the block whose attestation digest is
+    /// `digest`, at `height`, by committee member `author` (ADR-038). The
+    /// signer refuses a second block at one height.
+    #[must_use]
+    pub fn sign_attestation(&self, height: u64, author: u16, digest: &Digest) -> Option<Vec<u8>> {
+        self.sign_request(&Request {
+            kind: Kind::Attestation,
+            round: height,
+            author,
+            digest: *digest,
+        })
+    }
+
+    fn sign_request(&self, request: &Request) -> Option<Vec<u8>> {
         // A panic while another call held the lock must not disable signing
         // for good: take the lock back and drop whatever channel it guarded,
         // whose counters may be mid-exchange.
@@ -153,18 +198,18 @@ impl RemoteSigner {
             match self.open() {
                 Ok(channel) => *conn = Some(channel),
                 Err(e) => {
-                    eprintln!("{e}; round {} not signed", ctx.round);
+                    eprintln!("{e}; {:?} {} not signed", request.kind, request.round);
                     return None;
                 }
             }
         }
         let channel = conn.as_mut()?;
-        match Self::exchange(channel, &request) {
-            Ok(Response::Signed(sig)) => self.checked(sig, digest, ctx),
+        match Self::exchange(channel, request) {
+            Ok(Response::Signed(sig)) => self.checked(sig, request),
             Ok(Response::Refused(why)) => {
                 eprintln!(
-                    "remote signer refused round {} author {}: {why}",
-                    ctx.round, ctx.author
+                    "remote signer refused {:?} {} author {}: {why}",
+                    request.kind, request.round, request.author
                 );
                 None
             }
@@ -172,26 +217,27 @@ impl RemoteSigner {
                 // The channel's counters are now out of step; start again.
                 *conn = None;
                 eprintln!(
-                    "remote signer {}: {e}; round {} not signed",
-                    self.addr, ctx.round
+                    "remote signer {}: {e}; {:?} {} not signed",
+                    self.addr, request.kind, request.round
                 );
                 None
             }
         }
     }
 
-    /// A signature is used only if it verifies under the validator key: a
-    /// signer holding the wrong key must cost votes, not publish garbage.
-    fn checked(&self, sig: Vec<u8>, digest: &Digest, ctx: SignContext) -> Option<Vec<u8>> {
-        let message = [VOTE_DOMAIN, digest.as_slice()].concat();
+    /// A signature is used only if it verifies under the validator key over
+    /// the bytes this kind signs: a signer holding the wrong key must cost
+    /// votes, not publish garbage.
+    fn checked(&self, sig: Vec<u8>, request: &Request) -> Option<Vec<u8>> {
+        let message = maya_signer::service::signed_message(request);
         let valid = <&[u8; SIGNATURE_LENGTH]>::try_from(sig.as_slice())
             .is_ok_and(|s| self.public.verify(&message, s).is_ok());
         if valid {
             Some(sig)
         } else {
             eprintln!(
-                "remote signer returned a signature that does not verify under the validator key; round {} not signed",
-                ctx.round
+                "remote signer returned a signature that does not verify under the validator key; {:?} {} not signed",
+                request.kind, request.round
             );
             None
         }

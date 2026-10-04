@@ -31,6 +31,16 @@ The full guide is at https://maya2c.dev/guides/testnet/.
 - **Staking and slashing.** Registration joins the committee at the next
   epoch, and equivocation evidence removes and slashes the validator. The
   stolen-key incident is rehearsed in the test suite.
+- **Rejoin after any outage** (ADR-038). Every validator attests the
+  blocks it builds. A node that was down past the engine's window catches
+  up through a quorum-attested checkpoint (`--catch-up-from`), verifying
+  every signature itself. The new RPCs are `get_checkpoint` and
+  `get_bft_status`.
+- **Quorum n − f** (ADR-039). Any two quorums share an honest validator at
+  every committee size. Before this the threshold was 2f + 1, which is
+  unsafe at sizes such as 5 and 6.
+- **Validator registration from the wallet:**
+  `l1-wallet register-validator` and `delegate`.
 - **Fee market.** The base fee is burned and validators earn tips.
   **Emission is nil**: there is no block reward, and no one earns by mining.
 - **Remote validator signer**, opt in with `--remote-signer`. The validator
@@ -97,6 +107,12 @@ unknown publisher.
 - **One validator.** Finality works, but the network is not decentralised:
   if the seed stops, the chain stops. Tolerating a fault takes four
   independent validators (LAUNCH.md).
+- **Registrations are reviewed.** One seat is one vote, so cheap seats
+  that never come online could halt a small committee (ADR-039). The seed
+  validator only proposes registrations above a bond the faucet cannot fund
+  (`--min-register-bond`), and the project funds approved operators
+  ([Run a validator](https://maya2c.dev/guides/validators/)). Stake-weighted
+  voting (ADR-040) is the fix planned before mainnet.
 - **No public P2P yet.** While the seed runs behind a tunnel, reach the
   chain through the API. Outside operators join once it moves to a VM.
 - **Unaudited.** That covers the cryptography integration, Maya Chat's

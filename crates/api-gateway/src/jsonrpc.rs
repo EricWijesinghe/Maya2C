@@ -50,7 +50,8 @@ pub struct RpcRequest {
     #[schema(value_type = Object)]
     id: Value,
     /// One of `get_balance`, `get_block_by_height`, `get_fee_info`,
-    /// `get_chain_info`, `get_supply`, `send_raw_transaction`.
+    /// `get_chain_info`, `get_supply`, `get_bft_status`, `get_checkpoint`,
+    /// `send_raw_transaction`.
     method: String,
     /// Positional parameters.
     #[schema(value_type = Vec<Object>)]
@@ -192,6 +193,16 @@ async fn dispatch(
         "get_chain_info" => {
             no_params(params)?;
             Ok(to_value(node.get_chain_info().await?))
+        }
+        // Allowlisted with ADR-038 but, until 2026-10-04, never dispatched:
+        // the allowlist and this match must both name a method.
+        "get_bft_status" => {
+            no_params(params)?;
+            Ok(node.get_bft_status().await?)
+        }
+        "get_checkpoint" => {
+            no_params(params)?;
+            Ok(node.get_checkpoint().await?)
         }
         "send_raw_transaction" => send_raw_transaction(node, params).await,
         _ => Err(RpcError::new(

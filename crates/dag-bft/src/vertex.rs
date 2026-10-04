@@ -30,9 +30,16 @@ impl Committee {
         self.size.saturating_sub(1) / 3
     }
 
-    /// 2f + 1: certificates needed to advance, votes needed to certify.
+    /// n − f: certificates needed to advance, votes needed to certify.
+    ///
+    /// Any two quorums must share an honest validator, or one equivocating
+    /// author gets two certificates for one round from disjoint voters. Two
+    /// sets of q overlap in 2q − n members, so safety needs 2q − n ≥ f + 1;
+    /// liveness needs q ≤ n − f, since f may never answer. n − f meets both
+    /// for every n ≥ 3f + 1. It equals the textbook 2f + 1 only when
+    /// n = 3f + 1: at n = 6 (f = 1) 2f + 1 is 3, two disjoint halves (ADR-039).
     pub const fn quorum(self) -> u16 {
-        2 * self.faults() + 1
+        self.size - self.faults()
     }
 
     /// f + 1: votes that commit an anchor (at least one honest).
@@ -72,7 +79,7 @@ pub struct Vertex {
     /// the vertex, so every node reads the same value: the node derives a
     /// block's timestamp from its anchor's, never from its own clock.
     pub timestamp_ms: u64,
-    /// Digests of at least 2f + 1 certificates from `round - 1`, sorted.
+    /// Digests of at least a quorum (n − f) of certificates from `round - 1`, sorted.
     pub parents: Vec<Digest>,
     /// Transactions carried inline. Narwhal separates payload into worker
     /// batches referenced by digest; inline payload is the v1 simplification
@@ -129,7 +136,7 @@ impl Vertex {
 ///
 /// Each vote is a signature by the voter over the vertex digest, made and
 /// checked through [`crate::Authenticator`]. The node signs with ML-DSA-65
-/// and carries the 2f + 1 signatures side by side (ADR-021 measured why they
+/// and carries the quorum's signatures side by side (ADR-021 measured why they
 /// are not aggregated); the simulator's [`crate::Unauthenticated`] leaves them
 /// empty, and that is the one thing a simulation takes on trust.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -196,6 +203,26 @@ mod tests {
         assert_eq!((c.faults(), c.quorum(), c.validity()), (1, 3, 2));
         let c = Committee::new(100);
         assert_eq!((c.faults(), c.quorum(), c.validity()), (33, 67, 34));
+        // Between the 3f + 1 sizes the quorum still grows with n.
+        let c = Committee::new(6);
+        assert_eq!((c.faults(), c.quorum(), c.validity()), (1, 5, 2));
+        let c = Committee::new(2);
+        assert_eq!((c.faults(), c.quorum(), c.validity()), (0, 2, 1));
+    }
+
+    #[test]
+    fn any_two_quorums_share_an_honest_validator_at_every_size() {
+        for n in 1..=1_000u16 {
+            let c = Committee::new(n);
+            let (f, q) = (u32::from(c.faults()), u32::from(c.quorum()));
+            let n = u32::from(n);
+            assert!(n > 3 * f, "n = {n}");
+            // Two quorums overlap in at least 2q - n members: more than f.
+            assert!(
+                2 * q > n + f,
+                "n = {n}: quorums of {q} may share only faulty members"
+            );
+        }
     }
 
     #[test]

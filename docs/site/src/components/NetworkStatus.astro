@@ -1,7 +1,8 @@
 ---
 // The public testnet, live. Read in the visitor's browser from the explorer
 // (height, block time, transactions; a WebSocket pushes each new block) and
-// the API gateway (supply, base fee). Nothing here is baked in at build time:
+// the API gateway (supply, base fee, and the DAG-BFT engine's own status:
+// committee size and the last committed round). Nothing here is baked in at build time:
 // if the network is down, the band says so instead of showing stale numbers.
 const EXPLORER = "https://explorer.maya2c.dev";
 const API = "https://rpc.maya2c.dev";
@@ -20,6 +21,8 @@ const API = "https://rpc.maya2c.dev";
     <div><dt>Transactions</dt><dd id="net-tx">—</dd></div>
     <div><dt>Supply</dt><dd id="net-supply">—</dd></div>
     <div><dt>Base fee</dt><dd id="net-fee">—</dd></div>
+    <div><dt>Validators</dt><dd id="net-validators">—</dd></div>
+    <div><dt>Committed round</dt><dd id="net-round">—</dd></div>
   </dl>
   <p class="links">
     <a href="https://explorer.maya2c.dev">Open the explorer →</a>
@@ -77,6 +80,22 @@ const API = "https://rpc.maya2c.dev";
       $("net-fee")!.textContent = fees.active ? `${fees.base_fee} / byte` : "off";
     } catch {
       /* the explorer figures still stand; these stay as dashes */
+    }
+    try {
+      const r = await fetch(`${api}/rpc`, {
+        method: "POST",
+        cache: "no-store",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "get_bft_status", params: [] }),
+      });
+      const { result } = await r.json();
+      // null on a node that runs no DAG-BFT; absent before the node serves it.
+      if (result) {
+        $("net-validators")!.textContent = fmt(result.committee);
+        $("net-round")!.textContent = fmt(result.committed_round);
+      }
+    } catch {
+      /* older node or gateway: these stay as dashes rather than guess */
     }
   }
 
