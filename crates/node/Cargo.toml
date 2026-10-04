@@ -166,6 +166,11 @@ libp2p = { workspace = true, features = [
     # serde, with libp2p's own request and response size caps.
     "request-response",
     "cbor",
+    # WebSocket and DNS: outside validators reach a seed behind an HTTP
+    # tunnel at /dns4/<host>/tcp/443/wss (approved 2026-10-04). Already in
+    # the lockfile through maya-chat; no new crate enters the tree.
+    "websocket",
+    "dns",
 ] }
 
 [features]
