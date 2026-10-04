@@ -85,6 +85,14 @@ pub type StakedCommittee = (Arc<[VerifyingKey]>, Option<Arc<[u64]>>);
 /// Byzantine member would otherwise wipe every honest partial set.
 const ATTEST_AHEAD: u64 = 64;
 
+/// How long a builder must stay overtaken *and stuck* before it turns
+/// follower. Behind is not enough: a validator restarted beside others
+/// commits its way back over some seconds while the follow loop imports
+/// ahead of it, and flipping it then cost a voter and stalled the chain
+/// (attacknet soak, 2026-10-05). Only an engine that commits nothing for
+/// this long while blocks arrive is rescued.
+const OVERTAKEN_GRACE_MS: u64 = 20_000;
+
 /// The previous epoch's committee and its collector, kept after a switch.
 struct Closing {
     epoch: u64,
@@ -181,6 +189,10 @@ pub struct BftDriver {
     closing: Option<Closing>,
     /// The round of the last anchor this engine committed, built or not.
     last_anchor: Option<u64>,
+    /// When the tip was first seen built for an anchor this engine had not
+    /// committed, and the engine's committed round then; reset whenever the
+    /// engine commits again (see `overtaken`).
+    overtaken_since: Option<(u64, u64)>,
 }
 
 impl core::fmt::Debug for BftDriver {
@@ -330,6 +342,7 @@ impl BftDriver {
                 .filter(|(e, _)| *e == epoch)
                 .map(|(_, round)| round),
             closing: None,
+            overtaken_since: None,
         };
         // Own proposals and votes first: they set the round, so replaying
         // certificates cannot make the engine sign a slot it already signed.
@@ -443,7 +456,8 @@ impl BftDriver {
         let Some((epoch, round)) = tip_seal(chain) else {
             return false;
         };
-        epoch == self.epoch && self.last_anchor.is_none_or(|last| round > last)
+        // More than one anchor (anchors are even rounds) ahead of the engine.
+        epoch == self.epoch && self.last_anchor.is_none_or(|last| round > last + 2)
     }
 
     /// Whether a follower may build the block for the anchor at `round`
@@ -604,7 +618,17 @@ impl BftDriver {
             ));
             return Ok(step);
         }
-        if !self.follower && self.overtaken(chain) {
+        let committed = self.engine.last_committed_round();
+        if self.follower || !self.overtaken(chain) {
+            self.overtaken_since = None;
+        } else if self.overtaken_since.is_none_or(|(_, at)| committed > at) {
+            // Newly overtaken, or the engine is still committing: wait.
+            self.overtaken_since = Some((now_ms, committed));
+        } else if self
+            .overtaken_since
+            .is_some_and(|(since, _)| now_ms.saturating_sub(since) >= OVERTAKEN_GRACE_MS)
+        {
+            self.overtaken_since = None;
             self.follow_attested(chain);
             step.notices.push(
                 "blocks arrived that this node did not build: following attested blocks"

@@ -220,18 +220,39 @@ async fn catch_up_once(
     Ok(catchup::import(&mut lock_chain(chain), blocks)?)
 }
 
-/// Whether the peer's tip is exactly this node's tip: same height and same
-/// block. Height alone would let a stale or lying peer talk a node that is
-/// behind, or on a fork, out of following attested blocks. Any failure
-/// answers "no", which is the safe direction: following.
-async fn peer_level(url: &str, height: u64, tip: [u8; 32]) -> bool {
+/// Whether this node's own engine can derive every block between its tip
+/// and the peer's, as on any ordinary restart: the same epoch, the peer's
+/// tip anchor within half the engine's window of ours (so every certificate
+/// in between can still be fetched), and our tip an ancestor of theirs.
+///
+/// Then the node resumes building. Otherwise it follows attested blocks,
+/// which needs checkpoints that only builders can sign. Following when one
+/// block behind is what stranded restarted validators: with more than f of
+/// them following, the builders alone never reached a checkpoint quorum
+/// (attacknet soak, 2026-10-05). Any failure answers "no", the safe
+/// direction.
+async fn within_engine_window(url: &str, height: u64, tip: [u8; 32], nonce: u64) -> bool {
+    use custom_l1_node::consensus::bft::builder::unseal;
     use custom_l1_node::state_pruner::snapshot::BootstrapSource as _;
     let Ok(source) = RpcBootstrapSource::new(url, tokio::runtime::Handle::current()) else {
         return false;
     };
     tokio::task::spawn_blocking(move || {
-        source.tip_height().ok() == Some(height)
-            && source.block(height).is_ok_and(|b| b.header.id() == tip)
+        let Ok(theirs) = source.tip_height() else {
+            return false;
+        };
+        if height == 0 || theirs < height {
+            return height == 0 && theirs == 0;
+        }
+        let ancestor = source.block(height).is_ok_and(|b| b.header.id() == tip);
+        let Ok(peer_tip) = source.block(theirs) else {
+            return false;
+        };
+        let (our_epoch, our_round) = unseal(nonce);
+        let (their_epoch, their_round) = unseal(peer_tip.header.nonce);
+        ancestor
+            && their_epoch == our_epoch
+            && their_round.saturating_sub(our_round) < maya_dag_bft::GC_DEPTH / 2
     })
     .await
     .unwrap_or(false)
@@ -245,6 +266,13 @@ pub(super) async fn catch_up(
     chain: &Arc<Mutex<Chain>>,
     driver: &mut BftDriver,
 ) -> Result<u64, Box<dyn Error>> {
+    // Where this node's own engine and DAG log stand, before any import:
+    // what `within_engine_window` must measure the network against.
+    let (height, tip, nonce) = {
+        let c = lock_chain(chain);
+        let nonce = c.get(&c.tip()).map_or(0, |b| b.header.nonce);
+        (c.height(), c.tip(), nonce)
+    };
     // One epoch per round: each import can carry the chain over a boundary,
     // after which the next committee is the one in state.
     let mut imported = 0;
@@ -258,19 +286,15 @@ pub(super) async fn catch_up(
             break;
         }
     }
-    // Follow attested blocks only when this node is behind the network. A
-    // node that missed nothing (say the chain halted while it was down)
-    // holds its own DAG history and must build blocks again at once: when
-    // more than f validators restart together, followers would wait for
-    // checkpoints only they could complete, and never rejoin (attacknet,
-    // crash f+1).
-    let (height, tip) = {
-        let c = lock_chain(chain);
-        (c.height(), c.tip())
-    };
-    if imported == 0 && peer_level(url, height, tip).await {
-        println!("catch-up:    level with {url} at height {height}; resuming as a full validator");
-        return Ok(0);
+    // Follow attested blocks only when this node's engine cannot derive the
+    // gap itself; see `within_engine_window`. Blocks just imported change
+    // nothing here: the engine would have derived the same ones, and skips
+    // anchors already built.
+    if within_engine_window(url, height, tip, nonce).await {
+        println!(
+            "catch-up:    imported {imported}; within the engine's window of {url}; resuming as a full validator"
+        );
+        return Ok(imported);
     }
     driver.follow_attested(&lock_chain(chain));
     println!(
