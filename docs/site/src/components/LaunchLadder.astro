@@ -3,14 +3,14 @@
 // (8 PASS, 5 FAIL, 3 NEEDS HUMAN). A gate only turns green when the command
 // does; copy its output here, never an intention.
 const gates = [
-  { name: "Localnet", detail: "4 validators over real libp2p: agree, survive a kill, catch up", state: "done" },
-  { name: "Devnet software", detail: "DAG-BFT finality, staking, slashing, fee market, SLO metrics", state: "done" },
-  { name: "Operations rehearsed", detail: "state sync, crash restore, coordinated restart", state: "done" },
-  { name: "Public testnet", detail: "maya-testnet-1 is live: rpc, faucet and chat relay public; one validator for now", state: "done" },
-  { name: "Independent validators", detail: "four operators on separate machines, so one failure cannot halt the chain", state: "next" },
-  { name: "Attacknet + incentivised testnet", detail: "4 weeks each, from the day the testnet is live", state: "later" },
-  { name: "External audit", detail: "no audit has reported yet", state: "later" },
-  { name: "Mainnet", detail: "blocked until every gate above passes", state: "later" },
+  { name: "Localnet", detail: "4 validators over real libp2p: agree, survive a kill, catch up", state: "done", href: "/guides/quickstart" },
+  { name: "Devnet software", detail: "DAG-BFT finality, staking, slashing, fee market, SLO metrics", state: "done", href: "/reference/consensus" },
+  { name: "Operations rehearsed", detail: "state sync, crash restore, coordinated restart", state: "done", href: "/guides/validators" },
+  { name: "Public testnet", detail: "maya-testnet-1 is live: rpc, faucet and chat relay public; one validator for now", state: "done", href: "/guides/testnet" },
+  { name: "Independent validators", detail: "four operators on separate machines, so one failure cannot halt the chain", state: "next", href: "/guides/validators" },
+  { name: "Attacknet + incentivised testnet", detail: "4 weeks each, from the day the testnet is live", state: "later", href: "/reference/roadmap" },
+  { name: "External audit", detail: "no audit has reported yet", state: "later", href: "/reference/security-audit" },
+  { name: "Mainnet", detail: "blocked until every gate above passes", state: "later", href: "/reference/roadmap" },
 ];
 ---
 
@@ -18,12 +18,14 @@ const gates = [
   {
     gates.map((g) => (
       <li class={g.state}>
-        <span class="dot" aria-hidden="true" />
-        <div>
-          <strong>{g.name}</strong>
-          <span class="state">{g.state === "done" ? "passed" : g.state === "next" ? "next" : "not yet"}</span>
-          <p>{g.detail}</p>
-        </div>
+        <a href={g.href} class="gate-link">
+          <span class="dot" aria-hidden="true" />
+          <div>
+            <strong>{g.name}</strong>
+            <span class="state">{g.state === "done" ? "passed" : g.state === "next" ? "next" : "not yet"}</span>
+            <p>{g.detail}</p>
+          </div>
+        </a>
       </li>
     ))
   }
@@ -36,9 +38,13 @@ const gates = [
     background: linear-gradient(var(--cherenkov) 0 50%, var(--iris-a) 50% 62%, var(--glass-edge) 62%);
   }
   li { display: grid; grid-template-columns: 1.4rem 1fr; gap: 1rem; margin: 0 0 1rem !important; }
+  .gate-link { display: contents; text-decoration: none; color: inherit; }
+  .gate-link:hover, .gate-link:focus { outline: none; }
+  .gate-link:hover div, .gate-link:focus div { transform: translateX(6px); transition: transform 0.35s cubic-bezier(.34,1.56,.64,1); }
   .dot { width: 1.4rem; height: 1.4rem; border-radius: 50%; margin-top: 0.1rem; border: 2px solid var(--muted); background: var(--void); z-index: 1; }
   .done .dot { border-color: var(--cherenkov); background: var(--cherenkov); box-shadow: 0 0 14px rgba(91, 140, 255, 0.6); }
   .next .dot { border-color: var(--iris-a); animation: ping 1.8s ease-in-out infinite; }
+  .gate-link:hover .dot, .gate-link:focus .dot { filter: drop-shadow(0 0 6px currentColor); }
   strong { margin-right: 0.6rem; }
   .state { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em; padding: 0.1rem 0.5rem; border-radius: 999px; border: 1px solid var(--glass-edge); color: var(--muted); }
   .done .state { color: var(--cherenkov); border-color: rgba(91, 140, 255, 0.4); }
