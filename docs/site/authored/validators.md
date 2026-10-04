@@ -19,7 +19,7 @@ allocation, and anyone who says otherwise is not speaking for this project.
 
 | | Status |
 |---|---|
-| Validator software | Shipped: `maya2c-node` in the [latest release](https://github.com/EricWijesinghe/Maya2C/releases/latest) |
+| Validator software | Shipped: `maya2c-node` in the [releases page](https://github.com/EricWijesinghe/Maya2C/releases) |
 | Registering a key | Shipped: `l1-wallet register-validator` |
 | Rejoining after an outage | Shipped: attested checkpoints, `--catch-up-from` ([ADR-038](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-038-attested-checkpoints.md)) |
 | Connecting to the network | **Not yet.** The seed node has no public peer-to-peer port; only its HTTP API is published |
@@ -52,7 +52,7 @@ and it is written down as one. It is not how mainnet will work.
 ## Steps
 
 1. **Install** `maya2c-node` and `l1-wallet` from the
-   [latest release](https://github.com/EricWijesinghe/Maya2C/releases/latest)
+   [releases page](https://github.com/EricWijesinghe/Maya2C/releases)
    and check them against `SHA256SUMS`.
 2. **Make a validator key.** This prints its public key:
 
