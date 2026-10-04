@@ -264,7 +264,14 @@ fn launch_config(
     treasury: Option<TreasuryGenesis>,
     committee: Option<&[committee::Member]>,
 ) -> GenesisConfig {
-    let bft = committee.map(|members| committee::genesis(members, args.epoch_blocks));
+    let mut bft = committee.map(|members| committee::genesis(members, args.epoch_blocks));
+    // A value-bearing chain counts votes by stake (ADR-040 part 2): one seat
+    // one vote would let a few cheap registrations halt it for good.
+    if is_value_bearing(&args.chain_id)
+        && let Some(staking) = bft.as_mut().and_then(|b| b.staking.as_mut())
+    {
+        staking.stake_weighted = true;
+    }
     let difficulty_bits = if bft.is_some() {
         0
     } else {
@@ -935,6 +942,28 @@ mod shielded_tests {
             // After an audit the ceremony stops forcing it; turning the pool
             // on for a running mainnet is still a scheduled upgrade.
             assert_eq!(shielded_activation_for(chain, true), None);
+        }
+    }
+
+    #[test]
+    fn only_a_value_bearing_chain_is_stake_weighted() {
+        use super::{Args, committee, launch_config};
+        let members: Vec<_> = (1..=4u8)
+            .map(|i| committee::Member {
+                label: format!("op{i}"),
+                key: hex::encode([i; 32]),
+                bond: Some((hex::encode([i; 32]), 1_000_000)),
+            })
+            .collect();
+        for (chain, weighted) in [("maya-mainnet", true), ("maya-testnet-2", false)] {
+            let args = Args {
+                chain_id: chain.to_string(),
+                epoch_blocks: 3_600,
+                ..Args::default()
+            };
+            let config = launch_config(&args, Vec::new(), None, Some(&members));
+            let staking = config.bft.and_then(|b| b.staking);
+            assert_eq!(staking.map(|s| s.stake_weighted), Some(weighted), "{chain}");
         }
     }
 

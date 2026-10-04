@@ -182,17 +182,28 @@ pub struct Checkpoint {
 }
 
 impl Checkpoint {
-    /// Checks that a quorum of distinct `committee` members signed it.
+    /// Checks that a quorum of distinct `committee` members signed it, the
+    /// quorum counted in `weights` (one per member, committee order) on a
+    /// stake-weighted chain (ADR-040 part 2), or in heads where `weights` is
+    /// `None`. There is no default: a caller that forgets the weights would
+    /// count cheap seats as equals. A catching-up node imports blocks on this
+    /// quorum alone, so on a weighted chain it must be stake, or cheap
+    /// seats could attest a chain of their own making.
     ///
     /// # Errors
     ///
-    /// [`NodeError::Decode`] if fewer than a quorum signed, or as
-    /// [`Attestation::verify`] for any one signature.
-    pub fn verify(&self, chain: &ChainTag, committee: &[VerifyingKey]) -> Result<()> {
-        let quorum = quorum_of(committee.len())?;
-        if self.signatures.len() < quorum {
+    /// [`NodeError::Decode`] if fewer than a quorum signed or the weights do
+    /// not match the committee, or as [`Attestation::verify`] for any one
+    /// signature.
+    pub fn verify(
+        &self,
+        chain: &ChainTag,
+        committee: &[VerifyingKey],
+        weights: Option<&[u64]>,
+    ) -> Result<()> {
+        if !has_quorum(self.signatures.keys().copied(), committee.len(), weights)? {
             return Err(NodeError::Decode(format!(
-                "checkpoint at height {} has {} of the {quorum} signatures it needs",
+                "checkpoint at height {} is signed by {} member(s), short of a quorum",
                 self.height,
                 self.signatures.len()
             )));
@@ -211,13 +222,69 @@ impl Checkpoint {
     }
 }
 
-/// Signatures a checkpoint needs from a committee of `size`: n − f (ADR-039).
-/// Counted in heads, matching the equal-weight committee the node builds
-/// today; ADR-040 part 2 counts stake here too.
-fn quorum_of(size: usize) -> Result<usize> {
-    let size = u16::try_from(size)
-        .map_err(|_| NodeError::Decode("committee larger than u16".to_string()))?;
-    Ok(usize::from(Committee::new(size).min_quorum_size()))
+/// Whether `signers` form a quorum of a committee of `size`: n − f heads
+/// (ADR-039), or W − f stake when `weights` is given (ADR-040 part 2).
+fn has_quorum(
+    signers: impl IntoIterator<Item = u16>,
+    size: usize,
+    weights: Option<&[u64]>,
+) -> Result<bool> {
+    let committee = match weights {
+        Some(w) if w.len() == size => Committee::weighted(w.to_vec()),
+        Some(_) => {
+            return Err(NodeError::Decode(
+                "committee weights do not match the committee".to_string(),
+            ));
+        }
+        None => u16::try_from(size).ok().map(Committee::new),
+    }
+    .ok_or_else(|| NodeError::Decode("committee larger than u16".to_string()))?;
+    Ok(committee.is_quorum(signers))
+}
+
+/// How many epochs' final checkpoints a node keeps serving. A validator
+/// down for longer catches up from a snapshot instead.
+pub const KEPT_EPOCHS: usize = 8;
+
+/// The newest checkpoint of each recent epoch: what `get_checkpoint` serves.
+///
+/// A node that was down across an epoch boundary trusts only its own
+/// epoch's committee, so it cannot check a checkpoint the next committee
+/// signed. It imports up to its own epoch's final checkpoint first; the
+/// boundary block in that span writes the next committee into its state,
+/// and the next epoch's checkpoint then checks out. One epoch at a time.
+#[derive(Clone, Debug, Default)]
+pub struct CheckpointBook {
+    by_epoch: BTreeMap<u64, Checkpoint>,
+}
+
+impl CheckpointBook {
+    /// Keeps `checkpoint` if it is newer than what its epoch holds, and
+    /// forgets epochs beyond [`KEPT_EPOCHS`].
+    pub fn offer(&mut self, checkpoint: &Checkpoint) {
+        let newer = self
+            .by_epoch
+            .get(&checkpoint.epoch)
+            .is_none_or(|held| held.height < checkpoint.height);
+        if newer {
+            self.by_epoch.insert(checkpoint.epoch, checkpoint.clone());
+        }
+        while self.by_epoch.len() > KEPT_EPOCHS {
+            self.by_epoch.pop_first();
+        }
+    }
+
+    /// The newest checkpoint of the newest epoch.
+    #[must_use]
+    pub fn newest(&self) -> Option<&Checkpoint> {
+        self.by_epoch.last_key_value().map(|(_, c)| c)
+    }
+
+    /// The newest checkpoint held for `epoch`.
+    #[must_use]
+    pub fn of_epoch(&self, epoch: u64) -> Option<&Checkpoint> {
+        self.by_epoch.get(&epoch)
+    }
 }
 
 /// What a collector made of one attestation.
@@ -254,7 +321,8 @@ impl Collector {
         self.newest.as_ref()
     }
 
-    /// Adds a verified-on-entry attestation from `committee` (the epoch's).
+    /// Adds a verified-on-entry attestation from `committee` (the epoch's),
+    /// the quorum counted in `weights` on a stake-weighted chain, else heads.
     ///
     /// # Errors
     ///
@@ -265,6 +333,7 @@ impl Collector {
         attestation: Attestation,
         chain: &ChainTag,
         committee: &[VerifyingKey],
+        weights: Option<&[u64]>,
     ) -> Result<Collected> {
         if self
             .newest
@@ -291,7 +360,7 @@ impl Collector {
         let key = (attestation.epoch, attestation.height, attestation.block);
         let set = self.pending.entry(key).or_default();
         set.insert(attestation.validator, attestation.signature);
-        if set.len() < quorum_of(committee.len())? {
+        if !has_quorum(set.keys().copied(), committee.len(), weights)? {
             return Ok(Collected::Counted);
         }
         let checkpoint = Checkpoint {
@@ -384,24 +453,24 @@ mod tests {
         for v in 0..2 {
             assert_eq!(
                 collector
-                    .add(attest(&signing, v, 5, 1), &CHAIN, &committee)
+                    .add(attest(&signing, v, 5, 1), &CHAIN, &committee, None)
                     .unwrap(),
                 Collected::Counted
             );
         }
         let Collected::Checkpoint(c) = collector
-            .add(attest(&signing, 3, 5, 1), &CHAIN, &committee)
+            .add(attest(&signing, 3, 5, 1), &CHAIN, &committee, None)
             .unwrap()
         else {
             panic!("the third attestation completes a quorum of four");
         };
         assert_eq!((c.height, c.block, c.signatures.len()), (5, [1; 32], 3));
-        c.verify(&CHAIN, &committee).unwrap();
+        c.verify(&CHAIN, &committee, None).unwrap();
         assert_eq!(collector.newest(), Some(&c));
         // Late and repeated attestations change nothing.
         assert_eq!(
             collector
-                .add(attest(&signing, 2, 5, 1), &CHAIN, &committee)
+                .add(attest(&signing, 2, 5, 1), &CHAIN, &committee, None)
                 .unwrap(),
             Collected::Ignored
         );
@@ -420,16 +489,16 @@ mod tests {
             c.signatures.insert(v, attest(&signing, v, 3, 2).signature);
         }
         assert!(
-            c.verify(&CHAIN, &committee).is_err(),
+            c.verify(&CHAIN, &committee, None).is_err(),
             "two of four is not a quorum"
         );
         c.signatures.insert(2, attest(&signing, 2, 3, 99).signature);
         assert!(
-            c.verify(&CHAIN, &committee).is_err(),
+            c.verify(&CHAIN, &committee, None).is_err(),
             "a signature on another block"
         );
         c.signatures.insert(2, attest(&signing, 2, 3, 2).signature);
-        c.verify(&CHAIN, &committee).unwrap();
+        c.verify(&CHAIN, &committee, None).unwrap();
     }
 
     #[test]
@@ -437,10 +506,10 @@ mod tests {
         let (signing, committee) = keys(4);
         let mut collector = Collector::default();
         collector
-            .add(attest(&signing, 1, 8, 1), &CHAIN, &committee)
+            .add(attest(&signing, 1, 8, 1), &CHAIN, &committee, None)
             .unwrap();
         let Collected::Equivocation(pair) = collector
-            .add(attest(&signing, 1, 8, 2), &CHAIN, &committee)
+            .add(attest(&signing, 1, 8, 2), &CHAIN, &committee, None)
             .unwrap()
         else {
             panic!("a second block at the same height must be evidence");
@@ -455,13 +524,14 @@ mod tests {
         let (signing, committee) = keys(4);
         let mut collector = Collector::default();
         collector
-            .add(attest(&signing, 0, 1, 1), &CHAIN, &committee)
+            .add(attest(&signing, 0, 1, 1), &CHAIN, &committee, None)
             .unwrap();
         collector
             .add(
                 attest(&signing, 0, 1 + PENDING_HEIGHTS + 1, 1),
                 &CHAIN,
                 &committee,
+                None,
             )
             .unwrap();
         assert_eq!(
@@ -477,15 +547,82 @@ mod tests {
         let mut collector = Collector::default();
         let mut forged = attest(&signing, 0, 4, 1);
         forged.signature[0] ^= 1;
-        assert!(collector.add(forged, &CHAIN, &committee).is_err());
+        assert!(collector.add(forged, &CHAIN, &committee, None).is_err());
         for v in 1..3 {
             collector
-                .add(attest(&signing, v, 4, 1), &CHAIN, &committee)
+                .add(attest(&signing, v, 4, 1), &CHAIN, &committee, None)
                 .unwrap();
         }
         assert!(
             collector.newest().is_none(),
             "the forged one must not have counted"
         );
+    }
+
+    #[test]
+    fn cheap_seats_make_a_head_quorum_but_never_a_stake_quorum() {
+        // ADR-040 part 2: three seats bought at 1,000 each against one
+        // validator of 10,000. Three of four heads are a quorum; 3,000 of
+        // 13,000 stake is not, so a catching-up node on a weighted chain
+        // refuses the checkpoint the cheap seats sign.
+        let (signing, committee) = keys(4);
+        let weights = [1_000, 1_000, 1_000, 10_000];
+        let mut heads = Collector::default();
+        let mut stake = Collector::default();
+        let mut made = None;
+        for v in 0..3 {
+            let a = attest(&signing, v, 5, 1);
+            if let Collected::Checkpoint(c) =
+                heads.add(a.clone(), &CHAIN, &committee, None).unwrap()
+            {
+                made = Some(c);
+            }
+            assert!(matches!(
+                stake.add(a, &CHAIN, &committee, Some(&weights)).unwrap(),
+                Collected::Counted
+            ));
+        }
+        let c = made.expect("three of four heads are a quorum");
+        c.verify(&CHAIN, &committee, None).unwrap();
+        assert!(c.verify(&CHAIN, &committee, Some(&weights)).is_err());
+        assert!(stake.newest().is_none());
+        // The heavy validator completes the stake quorum.
+        let Collected::Checkpoint(w) = stake
+            .add(
+                attest(&signing, 3, 5, 1),
+                &CHAIN,
+                &committee,
+                Some(&weights),
+            )
+            .unwrap()
+        else {
+            panic!("the stake majority completes a quorum");
+        };
+        w.verify(&CHAIN, &committee, Some(&weights)).unwrap();
+        // Weights of the wrong length are an error, never a silent head count.
+        assert!(w.verify(&CHAIN, &committee, Some(&weights[..3])).is_err());
+    }
+
+    #[test]
+    fn the_book_keeps_each_epochs_newest_checkpoint_and_forgets_old_epochs() {
+        let (signing, _) = keys(1);
+        let at = |epoch: u64, height: u64| Checkpoint {
+            epoch,
+            height,
+            block: [1; 32],
+            signatures: BTreeMap::from([(0, attest(&signing, 0, height, 1).signature)]),
+        };
+        let mut book = CheckpointBook::default();
+        book.offer(&at(0, 10));
+        book.offer(&at(0, 8)); // older: ignored
+        book.offer(&at(1, 12));
+        assert_eq!(book.of_epoch(0).map(|c| c.height), Some(10));
+        assert_eq!(book.newest().map(|c| (c.epoch, c.height)), Some((1, 12)));
+        for e in 2..2 + KEPT_EPOCHS as u64 {
+            book.offer(&at(e, 20 + e));
+        }
+        assert!(book.of_epoch(0).is_none(), "the oldest epoch is forgotten");
+        assert!(book.of_epoch(1).is_none());
+        assert!(book.of_epoch(2).is_some());
     }
 }

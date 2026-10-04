@@ -1,0 +1,28 @@
+# Keeps dependencies current between audits. cargo-deny (security-audit.yml)
+# already fails the build on a known advisory; this opens the update before
+# an advisory exists, so a fix is one merge rather than a scramble.
+#
+# Weekly and grouped, so a sole maintainer sees a handful of PRs, not dozens.
+# Security updates are not grouped or delayed: GitHub opens those at once.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    groups:
+      rust-minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: npm
+    directory: "/docs/site"
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 3
+    groups:
+      site:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule: { interval: weekly, day: monday }
+    groups:
+      actions:
+        patterns: ["*"]

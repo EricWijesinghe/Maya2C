@@ -409,7 +409,7 @@ fn every_member_holds_a_quorum_attested_checkpoint_on_its_own_chain() {
             .expect("a checkpoint after eight blocks");
         let tag = custom_l1_node::core::ChainTag::from_genesis(m.chain.genesis());
         checkpoint
-            .verify(&tag, &committee)
+            .verify(&tag, &committee, None)
             .expect("a quorum of the committee");
         assert!(checkpoint.height >= 1);
         let ours = m.chain.active_chain().unwrap()[usize::try_from(checkpoint.height).unwrap()];
@@ -433,6 +433,14 @@ impl custom_l1_node::consensus::bft::catchup::CheckpointSource for Peer<'_> {
     ) -> custom_l1_node::error::Result<Option<custom_l1_node::consensus::bft::attest::Checkpoint>>
     {
         Ok(self.checkpoint.clone())
+    }
+
+    fn checkpoint_of(
+        &self,
+        epoch: u64,
+    ) -> custom_l1_node::error::Result<Option<custom_l1_node::consensus::bft::attest::Checkpoint>>
+    {
+        Ok(self.checkpoint.clone().filter(|c| c.epoch == epoch))
     }
 
     fn block(&self, height: u64) -> custom_l1_node::error::Result<Block> {
@@ -515,6 +523,6 @@ fn catch_up_member(
         chain: &left[from].chain,
         checkpoint: left[from].driver.as_ref().unwrap().checkpoint().cloned(),
     };
-    custom_l1_node::consensus::bft::catchup::catch_up(&mut right[0].chain, &peer, committee)
+    custom_l1_node::consensus::bft::catchup::catch_up(&mut right[0].chain, &peer, committee, None)
         .expect("catch-up from a peer's checkpoint")
 }

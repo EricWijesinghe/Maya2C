@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use custom_l1_node::consensus::Chain;
-use custom_l1_node::consensus::bft::attest::Checkpoint;
+use custom_l1_node::consensus::bft::attest::CheckpointBook;
 use custom_l1_node::consensus::bft::catchup::{self, Position};
 use custom_l1_node::consensus::bft::remote::{DEFAULT_DEADLINE, RemoteSigner, ValidatorKey};
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
@@ -34,28 +34,26 @@ const TICK: Duration = Duration::from_millis(100);
 /// before any validator proposes it. See `feed_mempool`.
 const SHARE_GRACE: Duration = Duration::from_secs(3);
 
-/// Puts the driver's newest checkpoint where `get_checkpoint` reads it, when
-/// it is newer than what is there.
 /// Where the loop reports what it did: metrics, and the slots the RPC's
 /// `get_checkpoint` and `get_bft_status` read.
 pub(super) struct Reporting {
     pub(super) metrics: Arc<Metrics>,
-    pub(super) checkpoint: Arc<Mutex<Option<Checkpoint>>>,
+    pub(super) checkpoint: Arc<Mutex<CheckpointBook>>,
     pub(super) status: Arc<Mutex<custom_l1_node::rpc::types::BftStatus>>,
 }
 
-fn publish_checkpoint(driver: &BftDriver, slot: &Mutex<Option<Checkpoint>>) {
-    let Some(newest) = driver.checkpoint() else {
-        return;
-    };
-    let mut held = slot
+/// Puts the driver's checkpoints where `get_checkpoint` reads them: this
+/// epoch's newest, and the just-ended epoch's final one, which late
+/// attestations can still complete after the switch.
+fn publish_checkpoint(driver: &BftDriver, slot: &Mutex<CheckpointBook>) {
+    let mut book = slot
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if held
-        .as_ref()
-        .is_none_or(|c| (c.epoch, c.height) < (newest.epoch, newest.height))
+    for checkpoint in [driver.closing_checkpoint(), driver.checkpoint()]
+        .into_iter()
+        .flatten()
     {
-        *held = Some(newest.clone());
+        book.offer(checkpoint);
     }
 }
 
@@ -206,16 +204,58 @@ async fn catch_up_once(
     url: &str,
     chain: &Arc<Mutex<Chain>>,
     committee: &Arc<[VerifyingKey]>,
+    weights: Option<&Arc<[u64]>>,
 ) -> Result<u64, Box<dyn Error>> {
     let from = Position::of(&lock_chain(chain));
     let source = RpcBootstrapSource::new(url, tokio::runtime::Handle::current())?;
     let committee = Arc::clone(committee);
-    let blocks =
-        tokio::task::spawn_blocking(move || catchup::fetch(from, &source, &committee)).await??;
+    let weights = weights.cloned();
+    let blocks = tokio::task::spawn_blocking(move || {
+        catchup::fetch(from, &source, &committee, weights.as_deref())
+    })
+    .await??;
     if blocks.is_empty() {
         return Ok(0);
     }
     Ok(catchup::import(&mut lock_chain(chain), blocks)?)
+}
+
+/// Whether this node's own engine can derive every block between its tip
+/// and the peer's, as on any ordinary restart: the same epoch, the peer's
+/// tip anchor within half the engine's window of ours (so every certificate
+/// in between can still be fetched), and our tip an ancestor of theirs.
+///
+/// Then the node resumes building. Otherwise it follows attested blocks,
+/// which needs checkpoints that only builders can sign. Following when one
+/// block behind is what stranded restarted validators: with more than f of
+/// them following, the builders alone never reached a checkpoint quorum
+/// (attacknet soak, 2026-10-05). Any failure answers "no", the safe
+/// direction.
+async fn within_engine_window(url: &str, height: u64, tip: [u8; 32], nonce: u64) -> bool {
+    use custom_l1_node::consensus::bft::builder::unseal;
+    use custom_l1_node::state_pruner::snapshot::BootstrapSource as _;
+    let Ok(source) = RpcBootstrapSource::new(url, tokio::runtime::Handle::current()) else {
+        return false;
+    };
+    tokio::task::spawn_blocking(move || {
+        let Ok(theirs) = source.tip_height() else {
+            return false;
+        };
+        if height == 0 || theirs < height {
+            return height == 0 && theirs == 0;
+        }
+        let ancestor = source.block(height).is_ok_and(|b| b.header.id() == tip);
+        let Ok(peer_tip) = source.block(theirs) else {
+            return false;
+        };
+        let (our_epoch, our_round) = unseal(nonce);
+        let (their_epoch, their_round) = unseal(peer_tip.header.nonce);
+        ancestor
+            && their_epoch == our_epoch
+            && their_round.saturating_sub(our_round) < maya_dag_bft::GC_DEPTH / 2
+    })
+    .await
+    .unwrap_or(false)
 }
 
 /// Startup catch-up for a node that was down longer than the engine's
@@ -226,7 +266,36 @@ pub(super) async fn catch_up(
     chain: &Arc<Mutex<Chain>>,
     driver: &mut BftDriver,
 ) -> Result<u64, Box<dyn Error>> {
-    let imported = catch_up_once(url, chain, &driver.committee()).await?;
+    // Where this node's own engine and DAG log stand, before any import:
+    // what `within_engine_window` must measure the network against.
+    let (height, tip, nonce) = {
+        let c = lock_chain(chain);
+        let nonce = c.get(&c.tip()).map_or(0, |b| b.header.nonce);
+        (c.height(), c.tip(), nonce)
+    };
+    // One epoch per round: each import can carry the chain over a boundary,
+    // after which the next committee is the one in state.
+    let mut imported = 0;
+    loop {
+        let trusted = BftDriver::staked_committee(&lock_chain(chain))?;
+        let (committee, weights) =
+            trusted.unwrap_or_else(|| (driver.committee(), driver.weights()));
+        let n = catch_up_once(url, chain, &committee, weights.as_ref()).await?;
+        imported += n;
+        if n == 0 {
+            break;
+        }
+    }
+    // Follow attested blocks only when this node's engine cannot derive the
+    // gap itself; see `within_engine_window`. Blocks just imported change
+    // nothing here: the engine would have derived the same ones, and skips
+    // anchors already built.
+    if within_engine_window(url, height, tip, nonce).await {
+        println!(
+            "catch-up:    imported {imported}; within the engine's window of {url}; resuming as a full validator"
+        );
+        return Ok(imported);
+    }
     driver.follow_attested(&lock_chain(chain));
     println!(
         "catch-up:    imported {imported} blocks from {url}; following attested blocks (ADR-038)"
@@ -241,14 +310,25 @@ pub(super) async fn catch_up(
 pub(super) async fn follow_loop(
     url: String,
     chain: Arc<Mutex<Chain>>,
-    committee: Arc<[VerifyingKey]>,
+    genesis_committee: Arc<[VerifyingKey]>,
 ) {
     let mut ticker = tokio::time::interval(FOLLOW_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut last_error: Option<String> = None;
     loop {
         ticker.tick().await;
-        match catch_up_once(&url, &chain, &committee).await {
+        // Re-read each round: the loop outlives the epoch it started in, and a
+        // checkpoint is only valid against its own epoch's committee.
+        let current = BftDriver::staked_committee(&lock_chain(&chain));
+        let (committee, weights) = match current {
+            Ok(Some(now)) => now,
+            Ok(None) => (Arc::clone(&genesis_committee), None),
+            Err(e) => {
+                eprintln!("catch-up: reading the committee: {e}");
+                continue;
+            }
+        };
+        match catch_up_once(&url, &chain, &committee, weights.as_ref()).await {
             Ok(_) => last_error = None,
             Err(e) => {
                 let message = e.to_string();

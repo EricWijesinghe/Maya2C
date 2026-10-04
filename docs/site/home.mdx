@@ -7,6 +7,7 @@ template: splash
 import StackDiagram from "../../components/StackDiagram.astro";
 import EcosystemMap from "../../components/EcosystemMap.astro";
 import LaunchLadder from "../../components/LaunchLadder.astro";
+import LaunchStatus from "../../components/LaunchStatus.astro";
 import Hero3D from "../../components/Hero3D.astro";
 import OrbRow from "../../components/OrbRow.astro";
 
@@ -40,6 +41,7 @@ import OrbRow from "../../components/OrbRow.astro";
 <OrbRow items={[
   { title: "Experience", line: "Touch every part, live", href: "/experience/", live: true },
   { title: "Test coins", line: "Free, in one click", href: "/guides/testnet/#2-take-free-test-coins", live: true },
+  { title: "Uptime", line: "Measured from the chain", href: "https://status.maya2c.dev/", live: true },
   { title: "Wallet and chat", line: "Windows, macOS, Linux", href: "https://github.com/EricWijesinghe/Maya2C/releases" },
   { title: "Build on it", line: "SDKs and a public API", href: "/guides/api/" },
 ]} />
@@ -48,5 +50,7 @@ import OrbRow from "../../components/OrbRow.astro";
 <h2 class="maya-section-title">Where it stands, gate by gate</h2>
 
 <LaunchLadder />
+
+<LaunchStatus />
 
 <p class="maya-footnote">No token is for sale, and nothing here is an offer of one.</p>

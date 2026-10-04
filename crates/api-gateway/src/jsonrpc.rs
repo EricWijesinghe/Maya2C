@@ -201,8 +201,45 @@ async fn dispatch(
             Ok(node.get_bft_status().await?)
         }
         "get_checkpoint" => {
-            no_params(params)?;
-            Ok(node.get_checkpoint().await?)
+            let epoch = match params {
+                [] => None,
+                [e] if e.is_u64() => e.as_u64(),
+                _ => {
+                    return Err(RpcError::new(
+                        INVALID_PARAMS,
+                        "expected no params, or one epoch number",
+                    ));
+                }
+            };
+            Ok(node.get_checkpoint(epoch).await?)
+        }
+        // Pruned-node bootstrap (a new validator restores a recent snapshot
+        // instead of replaying every block over a rate-limited endpoint).
+        // Read-only; each node method caps its own reply size.
+        // Pruned-node bootstrap, only on a gateway started with `--bootstrap`.
+        // Elsewhere these stay "not found", exactly as before: the public
+        // gateway does not reveal that the routes exist.
+        bootstrap if crate::allowlist::BOOTSTRAP_METHODS.contains(&bootstrap) => {
+            if !node.serves_bootstrap() {
+                return Err(RpcError::new(
+                    METHOD_NOT_FOUND,
+                    "method not available through the gateway",
+                ));
+            }
+            match bootstrap {
+                "get_tip_height" => {
+                    no_params(params)?;
+                    Ok(node.forward("get_tip_height", Vec::new()).await?)
+                }
+                "get_snapshot_manifest" => {
+                    no_params(params)?;
+                    Ok(node.forward("get_snapshot_manifest", Vec::new()).await?)
+                }
+                "get_headers" => Ok(node.forward("get_headers", two_integers(params)?).await?),
+                _ => Ok(node
+                    .forward("get_snapshot_chunk", two_integers(params)?)
+                    .await?),
+            }
         }
         "send_raw_transaction" => send_raw_transaction(node, params).await,
         _ => Err(RpcError::new(
@@ -235,6 +272,18 @@ async fn send_raw_transaction(node: &dyn NodeClient, params: &[Value]) -> Result
     }
     let txid = node.send_raw_transaction(raw).await?;
     Ok(json!({ "txid": txid, "accepted": true }))
+}
+
+/// Exactly two non-negative integers, as `get_headers` and
+/// `get_snapshot_chunk` take; anything else is refused before the node sees it.
+fn two_integers(params: &[Value]) -> Result<Vec<Value>, RpcError> {
+    match params {
+        [a, b] if a.is_u64() && b.is_u64() => Ok(params.to_vec()),
+        _ => Err(RpcError::new(
+            INVALID_PARAMS,
+            "expected two non-negative integers",
+        )),
+    }
 }
 
 fn no_params(params: &[Value]) -> Result<(), RpcError> {
