@@ -44,6 +44,28 @@ not money).
   - CPU 59 s;
   - data 150 MB.
 
+- **Registration floor live at 10:03 KST.** The node runs master
+  `864aa6d2`, and the process command line carries
+  `min-register-bond 1000000000`. Afterwards `get_bft_status` returned
+  `committed_round 4998`, committee 1, epoch 6. The previous binary is
+  `bin/prev-20261004/maya2c-node.0705.exe`.
+- **Release tagged.** `node-v0.1.0-testnet.1` on master `0269702e`.
+  `release-binaries` run 37166896701 was queued at handover. The release
+  notes were refreshed first (#63).
+
+## Merged this session
+
+#52, #53, #54, #55, #56, #57, #58, #60, #61, #62, #63, and #40 (rustfmt
+fixed). #54 merged with its docs conflict resolved by hand. A local check
+of the merged tree gave dag-bft 25 tests passed. #62 merged on 56 local
+gateway tests passing, with CI's `nextest (core)` still pending. Master CI
+re-runs both.
+
+## Still open
+
+- #59, ADR-040 part 1, waiting on CI.
+- #21, Astro 5→7, needs a visual check.
+
 ## Findings
 
 1. **Quorum 2f + 1 is unsafe off n = 3f + 1** (ADR-039, PR #54, fixed).
