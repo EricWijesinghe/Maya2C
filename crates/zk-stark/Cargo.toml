@@ -25,7 +25,7 @@ p3-poseidon2 = "=0.7.0"
 p3-poseidon2-air = "=0.7.0"
 p3-security = "=0.7.0"
 p3-symmetric = "=0.7.0"
-p3-uni-stark = "=0.7.0"
+p3-uni-stark = "=0.8.0"
 # The hiding PCS takes an RNG for its blinding values. Seeded from the OS per
 # proof — a fixed seed would make the "zero-knowledge" proofs deterministic
 # functions of the witness, which is to say not zero-knowledge.
