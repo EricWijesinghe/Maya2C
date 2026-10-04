@@ -3,14 +3,14 @@
 // design: it talks to the chain through the gateway or its own protocol and
 // never links the node. `status` says what is true today.
 const apps = [
-  { name: "Maya Chat", note: "PQ messenger", status: "built", href: "/guides/chat" },
+  { name: "Maya Chat", note: "PQ messenger", status: "built", href: "https://github.com/EricWijesinghe/Maya2C/releases" },
   { name: "Wallet", note: "CLI + desktop", status: "built", href: "/guides/wallet" },
   { name: "SDKs", note: "TS · Python · Go", status: "built", href: "https://github.com/EricWijesinghe/Maya2C" },
   { name: "Gateway", note: "REST · GraphQL", status: "built", href: "/guides/api" },
   { name: "Explorer", note: "blocks · accounts", status: "built", href: "https://explorer.maya2c.dev" },
-  { name: "Identity", note: "proof of personhood", status: "research", href: "/reference/identity" },
+  { name: "Identity", note: "proof of personhood", status: "research", href: "/reference/ecosystem" },
   { name: "Governance", note: "representative", status: "planned", href: "/reference/governance" },
-  { name: "AI chat", note: "on-device", status: "planned", href: "/reference/ai-services" },
+  { name: "AI chat", note: "on-device", status: "planned", href: "/reference/confidential-ai" },
 ];
 const r = 186;
 const placed = apps.map((a, i) => {
