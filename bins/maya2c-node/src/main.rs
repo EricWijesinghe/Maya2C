@@ -893,15 +893,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let (mut driver, opening) = bft::open(&setup, &args.data_dir, &chain)?;
         if let Some(url) = &args.catch_up_from {
             bft::catch_up(url, &chain, &mut driver).await?;
-            // A node level with the network builds its own blocks; only a
-            // follower imports them.
-            if driver.is_follower() {
-                tokio::spawn(bft::follow_loop(
-                    url.clone(),
-                    Arc::clone(&chain),
-                    Arc::clone(&setup.committee),
-                ));
-            }
+            // Always, even for a node level with the network: if its engine
+            // then fails to rejoin, imported blocks are what rescue it (the
+            // driver turns follower when it is overtaken).
+            tokio::spawn(bft::follow_loop(
+                url.clone(),
+                Arc::clone(&chain),
+                Arc::clone(&setup.committee),
+            ));
         }
         let size = setup.committee.len();
         match driver.validator_id() {

@@ -63,12 +63,26 @@ fn rpc_addr(i: u16) -> String {
 
 fn rpc(i: u16, method: &str, params: &Value) -> Result<Value> {
     let request = json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params });
-    let (_, reply) = devnet::post(&rpc_addr(i), "/", &request)?;
-    match reply.get("error") {
-        Some(error) => Err(format!("node {i} {method}: {error}")),
-        None => Ok(reply.get("result").cloned().unwrap_or(Value::Null)),
+    // The node limits RPC to 50 a second per client, and the checks here
+    // (the fork walk above all) exceed that. A refusal is the limiter, not
+    // the node: wait for its bucket rather than read it as silence.
+    for _ in 0..RPC_PATIENCE {
+        let (status, reply) = devnet::post(&rpc_addr(i), "/", &request)?;
+        if status == RATE_LIMITED {
+            std::thread::sleep(Duration::from_millis(200));
+            continue;
+        }
+        return match reply.get("error") {
+            Some(error) => Err(format!("node {i} {method}: {error}")),
+            None => Ok(reply.get("result").cloned().unwrap_or(Value::Null)),
+        };
     }
+    Err(format!("node {i} {method}: rate-limited throughout"))
 }
+
+const RATE_LIMITED: u16 = 429;
+/// Tries per request while the node's limiter refuses: about 10 s.
+const RPC_PATIENCE: usize = 50;
 
 fn height(i: u16) -> Option<u64> {
     rpc(i, "get_tip_height", &json!([])).ok()?.as_u64()
@@ -430,9 +444,11 @@ fn rpc_flood(net: &mut Net) -> Result<()> {
                         2 => json!({"jsonrpc": "2.0", "id": n, "method": "get_block_by_height", "params": [u64::MAX]}),
                         _ => json!({"jsonrpc": "2.0", "id": n, "method": "send_raw_transaction", "params": ["ab".repeat(600_000 + w)]}),
                     };
-                    if let Ok((_, reply)) = devnet::post(&addr, "/", &body)
+                    // Accepted means a 200 carrying a result; a refusal by
+                    // the rate limiter (429, an error page) is not.
+                    if let Ok((200, reply)) = devnet::post(&addr, "/", &body)
                         && body["method"] == "send_raw_transaction"
-                        && reply.get("error").is_none()
+                        && reply.get("result").is_some()
                     {
                         accepted_bad_tx += 1;
                     }

@@ -240,7 +240,13 @@ pub fn post(addr: &str, path: &str, body: &Value) -> Result<(u16, Value)> {
     let value = if body.trim().is_empty() {
         Value::Null
     } else {
-        serde_json::from_str(body).map_err(|e| format!("{addr}{path}: {e}"))?
+        match serde_json::from_str(body) {
+            Ok(value) => value,
+            // An error page (a 429 from the rate limiter, say) is the
+            // status's to explain, not a malformed reply.
+            Err(_) if status >= 400 => Value::String(body.trim().to_owned()),
+            Err(e) => return Err(format!("{addr}{path}: {e}")),
+        }
     };
     Ok((status, value))
 }
