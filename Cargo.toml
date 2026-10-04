@@ -442,7 +442,7 @@ leptos = "0.8"
 # stays in `crates/node`, which is the crate that actually opens a socket.
 libp2p = "0.57"
 prometheus-client = "0.25"
-rand_chacha = "0.3"
+rand_chacha = "0.10"
 rocksdb = "0.25"
 # HTTP client for `archive` (Arweave/IPFS uploads) and `eo-fetch`
 # (Sentinel-2 range reads). No default features: rustls, not OpenSSL.

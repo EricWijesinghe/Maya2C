@@ -2688,7 +2688,7 @@ dependencies = [
  "maya-wallet-core",
  "maya-zk-stark",
  "prometheus-client",
- "rand_chacha 0.3.1",
+ "rand_chacha 0.10.0",
  "rocksdb",
  "serde",
  "serde_json",
@@ -5922,7 +5922,7 @@ name = "maya-bci-sim"
 version = "0.1.0"
 dependencies = [
  "maya-personhood",
- "rand_chacha 0.3.1",
+ "rand_chacha 0.10.0",
  "rand_core 0.6.4",
  "thiserror 2.0.20",
 ]
@@ -6276,7 +6276,7 @@ name = "maya-iot-anchor"
 version = "0.1.0"
 dependencies = [
  "fips204",
- "rand_chacha 0.3.1",
+ "rand_chacha 0.10.0",
  "rand_core 0.6.4",
  "sha3 0.11.0",
  "zeroize",
@@ -6392,7 +6392,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "maya-zk-stark",
- "rand_chacha 0.3.1",
+ "rand_chacha 0.10.0",
  "rand_core 0.6.4",
  "thiserror 2.0.20",
 ]
@@ -6402,7 +6402,7 @@ name = "maya-personhood"
 version = "0.1.0"
 dependencies = [
  "fips204",
- "rand_chacha 0.3.1",
+ "rand_chacha 0.10.0",
  "rand_core 0.6.4",
  "sha3 0.11.0",
  "thiserror 2.0.20",
