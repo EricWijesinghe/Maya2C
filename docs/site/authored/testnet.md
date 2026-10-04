@@ -17,7 +17,7 @@ audit. Don't use it to protect anything that matters yet.
 ## 1. Get a wallet
 
 **Desktop:** download **Maya Wallet** for Windows, macOS or Linux from the
-[latest release](https://github.com/EricWijesinghe/Maya2C/releases/latest).
+[releases page](https://github.com/EricWijesinghe/Maya2C/releases).
 Check the file against `SHA256SUMS` on the same page. The installers are not
 code-signed yet, so Windows and macOS will warn about an unknown publisher.
 
