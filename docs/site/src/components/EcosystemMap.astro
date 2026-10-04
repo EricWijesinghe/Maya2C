@@ -3,14 +3,14 @@
 // design: it talks to the chain through the gateway or its own protocol and
 // never links the node. `status` says what is true today.
 const apps = [
-  { name: "Maya Chat", note: "PQ messenger", status: "built" },
-  { name: "Wallet", note: "CLI + desktop", status: "built" },
-  { name: "SDKs", note: "TS · Python · Go", status: "built" },
-  { name: "Gateway", note: "REST · GraphQL", status: "built" },
-  { name: "Explorer", note: "blocks · accounts", status: "built" },
-  { name: "Identity", note: "proof of personhood", status: "research" },
-  { name: "Governance", note: "representative", status: "planned" },
-  { name: "AI chat", note: "on-device", status: "planned" },
+  { name: "Maya Chat", note: "PQ messenger", status: "built", href: "/guides/chat" },
+  { name: "Wallet", note: "CLI + desktop", status: "built", href: "/guides/wallet" },
+  { name: "SDKs", note: "TS · Python · Go", status: "built", href: "https://github.com/EricWijesinghe/Maya2C" },
+  { name: "Gateway", note: "REST · GraphQL", status: "built", href: "/guides/api" },
+  { name: "Explorer", note: "blocks · accounts", status: "built", href: "https://explorer.maya2c.dev" },
+  { name: "Identity", note: "proof of personhood", status: "research", href: "/reference/identity" },
+  { name: "Governance", note: "representative", status: "planned", href: "/reference/governance" },
+  { name: "AI chat", note: "on-device", status: "planned", href: "/reference/ai-services" },
 ];
 const r = 186;
 const placed = apps.map((a, i) => {
@@ -35,11 +35,13 @@ const placed = apps.map((a, i) => {
     <text x="250" y="266" class="core-s">post-quantum L1</text>
     {
       placed.map((a) => (
-        <g class={`app ${a.status}`}>
-          <circle cx={a.x} cy={a.y} r="48" />
-          <text x={a.x} y={a.y - 3} class="app-t">{a.name}</text>
-          <text x={a.x} y={a.y + 13} class="app-s">{a.note}</text>
-        </g>
+        <a href={a.href} class={`app ${a.status}`}>
+          <g>
+            <circle cx={a.x} cy={a.y} r="48" />
+            <text x={a.x} y={a.y - 3} class="app-t">{a.name}</text>
+            <text x={a.x} y={a.y + 13} class="app-s">{a.note}</text>
+          </g>
+        </a>
       ))
     }
   </svg>
@@ -61,8 +63,10 @@ const placed = apps.map((a, i) => {
   .core { animation: breathe 5s ease-in-out infinite; transform-origin: 250px 250px; }
   .core-t { fill: var(--text); font-weight: 800; font-size: 20px; text-anchor: middle; }
   .core-s { fill: var(--cherenkov-hi); font-size: 11px; text-anchor: middle; }
-  .app circle { fill: var(--sl-color-bg); stroke-width: 2; transition: transform 0.25s ease; transform-box: fill-box; transform-origin: center; }
-  .app:hover circle { transform: scale(1.1); }
+  .app { text-decoration: none; cursor: pointer; }
+  .app circle { fill: var(--sl-color-bg); stroke-width: 2; transition: transform 0.35s cubic-bezier(.34,1.56,.64,1), filter 0.3s ease; transform-box: fill-box; transform-origin: center; filter: drop-shadow(0 0 0px rgba(91, 140, 255, 0)); }
+  .app:hover circle, .app:focus circle { transform: scale(1.15); filter: drop-shadow(0 0 12px rgba(91, 140, 255, 0.6)); }
+  .app.research:hover circle, .app.research:focus circle { filter: drop-shadow(0 0 12px rgba(124, 108, 255, 0.5)); }
   .app.built circle { stroke: var(--cherenkov); }
   .app.research circle { stroke: var(--iris-a); stroke-dasharray: 4 3; }
   .app.planned circle { stroke: var(--muted); stroke-dasharray: 2 4; }

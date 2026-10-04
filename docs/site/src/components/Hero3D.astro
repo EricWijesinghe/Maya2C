@@ -54,7 +54,7 @@
           <dd>1<span class="note">seeking 4</span></dd>
         </div>
       </dl>
-      <p class="sim-note">Prototype: bubbles are simulated. In production, one bubble per finalized block from wss://explorer.maya2c.dev/ws/blocks.</p>
+      <p class="sim-note" id="sim-note" style="display:none">Fallback: WebSocket down. Showing simulated blocks at 1.1s cadence.</p>
     </div>
   </div>
 </div>
@@ -72,16 +72,20 @@
     const tH = document.getElementById("tHeight");
     const hAgo = document.getElementById("hAgo");
 
-    let height = 36254;
+    let height = 0;
     let lastBlockAt = performance.now();
+    let lastCommittedRound = 0;
     let W = 1, H = 1;
+    let wsConnected = false;
+    let simulationActive = false;
 
     const balls = [];
     function home() { return { x: W * (W < 700 ? 0.62 : 0.7), y: H * 0.46 }; }
 
     function spawn(h, opts) {
       const c = home();
-      const anchor = h % 2 === 0;
+      // Check if this block is a committed anchor from BFT status
+      const anchor = h && lastCommittedRound > 0 && h >= lastCommittedRound - 1;
       const base = Math.min(W, H) * (W < 700 ? 0.055 : 0.05);
       const b = {
         x: (opts && opts.x != null) ? opts.x : c.x + (Math.random() - 0.5) * 120,
@@ -102,13 +106,89 @@
       while (balls.length > MAX) balls.shift();
     }
 
-    function onBlock(now) {
-      height += 1; lastBlockAt = now;
+    function onBlock(now, h) {
+      if (!h) return;
+      height = h; lastBlockAt = now;
       hH.textContent = fmt(height); tH.textContent = fmt(height);
       spawn(height);
     }
 
-    setInterval(function () { hAgo.textContent = ((performance.now() - lastBlockAt) / 1000).toFixed(1); }, 100);
+    function updateAgo() {
+      hAgo.textContent = wsConnected ? ((performance.now() - lastBlockAt) / 1000).toFixed(1) : '—';
+    }
+    setInterval(updateAgo, 100);
+
+    // Fetch BFT status to get committed_round (anchors)
+    async function refreshBFT() {
+      try {
+        const r = await fetch('https://rpc.maya2c.dev/rpc', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'get_bft_status', params: [] }),
+        });
+        const data = await r.json();
+        if (data.result && data.result.committed_round) {
+          lastCommittedRound = data.result.committed_round;
+        }
+      } catch (e) {
+        // RPC down, continue with simulation
+      }
+    }
+
+    // Real WebSocket: one bubble per finalized block
+    function streamBlocks() {
+      let ws;
+      try {
+        ws = new WebSocket('wss://explorer.maya2c.dev/ws/blocks');
+      } catch (e) {
+        console.log('WebSocket not available, using simulation');
+        simulationActive = true;
+        document.getElementById('sim-note').style.display = 'block';
+        return;
+      }
+      ws.onopen = () => {
+        wsConnected = true;
+        simulationActive = false;
+        document.getElementById('sim-note').style.display = 'none';
+      };
+      ws.onmessage = (ev) => {
+        try {
+          const block = JSON.parse(ev.data);
+          if (block.height) onBlock(performance.now(), block.height);
+        } catch (e) { /* skip malformed frames */ }
+      };
+      ws.onclose = () => {
+        wsConnected = false;
+        // Fall back to simulation
+        if (!simulationActive) {
+          simulationActive = true;
+          document.getElementById('sim-note').style.display = 'block';
+          startSimulation();
+        } else {
+          setTimeout(streamBlocks, 5000);
+        }
+      };
+      ws.onerror = () => {
+        ws.close();
+      };
+    }
+
+    // Fallback simulation (when WebSocket is down)
+    let simInterval;
+    function startSimulation() {
+      if (!height) height = 36254;
+      simInterval = setInterval(() => {
+        if (simulationActive) {
+          onBlock(performance.now(), height + 1);
+          height += 1;
+        }
+      }, 1100);
+    }
+
+    // Start: try WebSocket first, refresh BFT status periodically
+    refreshBFT();
+    setInterval(refreshBFT, 30000);
+    streamBlocks();
 
     let ptr = { x: -9999, y: -9999, down: false, grab: null, moved: 0, sx: 0, sy: 0 };
     function local(e) { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
@@ -214,8 +294,7 @@
 
     if (!reduce) {
       requestAnimationFrame(frame);
-      setInterval(() => onBlock(performance.now()), 1100);
-      for (let i = 0; i < 8; i++) spawn(height - 8 + i);
+      // WebSocket + simulation started above
     }
   })();
 </script>
