@@ -18,6 +18,17 @@
   --signal: #ffb547;
   --verified: #45e0a0;
 
+  /* Semantic surfaces: components use these, never a raw colour, so light
+     mode never leaves a dark box behind. */
+  --accent-text: var(--cherenkov-hi);
+  --lede: #c8cde0;
+  --pop-bg: rgba(16, 20, 40, 0.9);
+  --orb-hi: rgba(255, 255, 255, 0.14);
+  --orb-lo: rgba(22, 28, 52, 0.62);
+  --halo: rgba(91, 140, 255, 0.6);
+  --well: rgba(5, 6, 13, 0.7);
+  --title-grad: linear-gradient(95deg, var(--cherenkov-hi), var(--iris-a) 45%, var(--iris-b));
+
   /* Radii: soft everywhere, min 12px */
   --r-s: 12px;
   --r-m: 22px;
@@ -64,6 +75,15 @@
   --muted: #5a6070;
   --signal: #e8760d;
   --verified: #0d8659;
+  --accent-text: #2f5bd8;
+  --lede: #3a4152;
+  --pop-bg: rgba(255, 255, 255, 0.94);
+  --orb-hi: rgba(255, 255, 255, 0.95);
+  --orb-lo: rgba(214, 224, 255, 0.75);
+  --halo: rgba(91, 140, 255, 0.35);
+  --well: rgba(222, 229, 248, 0.85);
+  --title-grad: linear-gradient(95deg, #3b63e0, #6a4cf0 45%, #0e9fb0);
+  --shadow: 0 30px 70px -34px rgba(40, 60, 140, 0.35), 0 1px 0 rgba(255, 255, 255, 0.6) inset;
 
   --sl-color-bg: var(--void);
   --sl-color-bg-nav: rgba(250, 251, 252, 0.95);
@@ -77,6 +97,8 @@
 
 html {
   background: var(--void);
+  /* Full-bleed sections are 100vw wide, which includes the scrollbar. */
+  overflow-x: clip;
   scroll-behavior: smooth;
 }
 
@@ -87,7 +109,7 @@ body {
 }
 
 a {
-  color: var(--cherenkov-hi);
+  color: var(--accent-text);
   text-underline-offset: 3px;
 }
 
@@ -298,7 +320,7 @@ a {
 
 .hero-lede {
   max-width: 48ch;
-  color: #c8cde0;
+  color: var(--lede);
   font-size: clamp(16px, 1.55vw, 19px);
 }
 
@@ -394,7 +416,7 @@ a {
   min-width: 220px;
   padding: 16px 18px;
   border-radius: var(--r-m);
-  background: rgba(16, 20, 40, 0.82);
+  background: var(--pop-bg);
   border: 1px solid var(--glass-edge);
   backdrop-filter: blur(18px);
   box-shadow: var(--shadow);
@@ -449,6 +471,37 @@ a {
 }
 
 /* Homepage section heads: one small pill label, one short light title. */
-.maya-eyebrow { display: inline-block; margin: 88px 0 0 !important; padding: 8px 14px; border-radius: var(--r-pill); background: rgba(91, 140, 255, 0.12); color: var(--cherenkov-hi); font: 500 12.5px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; }
+.maya-eyebrow { display: inline-block; margin: 88px 0 0 !important; padding: 8px 14px; border-radius: var(--r-pill); background: rgba(91, 140, 255, 0.12); color: var(--accent-text); font: 500 12.5px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; }
 .maya-section-title { margin: 14px 0 0 !important; font: 200 clamp(30px, 4vw, 52px)/1.08 var(--display) !important; letter-spacing: -0.03em; color: var(--text); text-wrap: balance; }
 .maya-footnote { margin: 64px 0 24px !important; text-align: center; color: var(--muted); font-size: 14px; }
+
+/* Homepage: the hero starts right under the nav. Starlight's title panel is
+   kept for screen readers (it holds the page's h1) but takes no space, and the
+   hero's panel loses its top padding and hairline. */
+.content-panel:has(+ .content-panel .stage) {
+  position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+.content-panel:has(.stage) { padding-top: 0; border-top: 0; }
+
+/* Motion: sections rise into view as they scroll in, driven by the scroll
+   position itself (no script), and the orbs breathe. Browsers without scroll
+   timelines simply show everything; reduced motion turns all of it off. */
+@keyframes maya-rise { from { opacity: 0; transform: translateY(36px) scale(.97); } to { opacity: 1; transform: none; } }
+@keyframes maya-bob { from { translate: 0 -5px; } to { translate: 0 5px; } }
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .maya-eyebrow, .maya-section-title, .stack .layer, .eco, .ladder > li, .orb-row > * {
+      animation: maya-rise linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 28%;
+    }
+    .orb-row > .orb {
+      animation: maya-rise linear both, maya-bob 5.5s ease-in-out infinite alternate;
+      animation-timeline: view(), auto;
+      animation-range: entry 0% cover 28%, normal;
+    }
+    .orb-row > .orb:nth-child(2n) { animation-delay: 0s, -1.8s; }
+    .orb-row > .orb:nth-child(3n) { animation-delay: 0s, -3.1s; }
+  }
+}
