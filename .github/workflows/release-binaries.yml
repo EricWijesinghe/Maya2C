@@ -210,6 +210,25 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      # upload-artifact keeps each installer's bundle/<kind>/ folder, so
+      # dist/ arrives holding deb/, msi/, nsis/... directories, and
+      # `gh release create dist/*` refuses a directory (the first
+      # node-v0.1.0-testnet.1 run failed on "dist/deb: is a directory").
+      # Flatten it; a name that would collide stops the release instead of
+      # silently replacing a file.
+      - name: Flatten artifacts
+        run: |
+          cd dist
+          find . -mindepth 2 -type f -print0 | while IFS= read -r -d '' f; do
+            name=$(basename "$f")
+            if [ -e "$name" ]; then
+              echo "duplicate artifact name: $name" >&2
+              exit 1
+            fi
+            mv "$f" "$name"
+          done
+          find . -mindepth 1 -type d -empty -delete
+          ls -la
       - name: Checksums
         run: |
           cd dist
