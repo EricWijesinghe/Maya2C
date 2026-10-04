@@ -20,11 +20,25 @@ fn every_sim_source_declares_itself() {
 
 #[test]
 fn every_sim_source_passes_its_own_health_tests() {
+    // The better of two independent draws. A source declared near 8 bits a
+    // byte (sim-thermal) gets a repetition cutoff of a few bytes, so a fresh
+    // 200,000-byte OS-random draw trips it now and then by design: that is
+    // SP 800-90B's accepted false-alarm rate, not a defect (CI run
+    // 37157396293 hit it once in 3,090 tests). Two failures in a row from a
+    // healthy source are that rate squared; a broken source fails both.
     for mut source in sources() {
-        let mut buf = vec![0u8; 200_000];
-        source.fill(&mut buf).expect("fill");
-        let mut monitor = HealthMonitor::new(source.min_entropy_millibits());
-        assert_eq!(monitor.check(&buf), Ok(()), "{}", source.name());
+        let outcomes: Vec<_> = (0..2)
+            .map(|_| {
+                let mut buf = vec![0u8; 200_000];
+                source.fill(&mut buf).expect("fill");
+                HealthMonitor::new(source.min_entropy_millibits()).check(&buf)
+            })
+            .collect();
+        assert!(
+            outcomes.iter().any(Result::is_ok),
+            "{}: {outcomes:?}",
+            source.name()
+        );
     }
 }
 
