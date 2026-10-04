@@ -13,6 +13,7 @@
 //!
 //! Run as `cargo xtask <command>` (the alias is in `.cargo/config.toml`).
 
+mod attacknet;
 mod claims_check;
 mod coverage;
 mod devnet;
@@ -60,6 +61,7 @@ fn main() -> ExitCode {
         "guides-check" => guides_check::run(rest),
         "pgo" => pgo::run(rest),
         "localnet" => localnet::localnet(rest),
+        "attacknet" => attacknet::attacknet(rest),
         "up" => up::up(),
         "down" => up::down(),
         "status" => status::run(rest),
@@ -120,6 +122,9 @@ cargo xtask <command>
                         not exist.
   pgo                   Measure profile-guided optimisation on bft_tps:
                         baseline vs PGO build, medians of --runs runs.
+  attacknet [--rounds N] [--weighted]  Seven validators as processes, attacked:
+                            crashes, a stolen key, wire garbage, RPC floods,
+                            a long outage; checks no fork and recovery
   localnet [--remote-signer]  Four maya2c-node validators as processes over
                         libp2p on 127.0.0.1: one chain, a transfer on all,
                         liveness with one killed, and its catch-up.

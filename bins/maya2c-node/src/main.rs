@@ -768,7 +768,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let rpc_pool = Mempool::new(Arc::clone(&state));
     let rpc_context =
         RpcContext::new(Arc::clone(&chain), rpc_pool.clone()).with_network(config.chain_id.clone());
-    let checkpoint_slot = Arc::new(Mutex::new(None));
+    let checkpoint_slot = Arc::new(Mutex::new(Default::default()));
     let status_slot = Arc::new(Mutex::new(custom_l1_node::rpc::types::BftStatus::default()));
     let rpc_context = if mode == "dag-bft" {
         rpc_context
@@ -818,6 +818,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             Err(error) => eprintln!("could not dial {bootnode}: {error}"),
         }
     }
+    tokio::spawn(redial_bootnodes(network.clone(), args.bootnodes.clone()));
 
     // --- RPC ---
     let limiter = Arc::new(custom_l1_node::rpc::limit::RateLimiter::new(
@@ -892,6 +893,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let (mut driver, opening) = bft::open(&setup, &args.data_dir, &chain)?;
         if let Some(url) = &args.catch_up_from {
             bft::catch_up(url, &chain, &mut driver).await?;
+            // Always, even for a node level with the network: if its engine
+            // then fails to rejoin, imported blocks are what rescue it (the
+            // driver turns follower when it is overtaken).
             tokio::spawn(bft::follow_loop(
                 url.clone(),
                 Arc::clone(&chain),
@@ -954,6 +958,42 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tokio::signal::ctrl_c().await?;
     println!("shutting down");
     Ok(())
+}
+
+/// How often a node short of peers dials its bootnodes again.
+const REDIAL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Dials the configured bootnodes again while this node has fewer peers than
+/// it has bootnodes. A dial made before the other node was listening fails
+/// once and is never retried by libp2p; discovery only reaches peers through
+/// peers already connected. The attacknet found seven validators started
+/// together left in fragments, no quorum anywhere, for good. A bootnode
+/// whose address names its peer id is skipped once connected.
+async fn redial_bootnodes(network: custom_l1_node::network::NodeHandle, bootnodes: Vec<Multiaddr>) {
+    use libp2p::multiaddr::Protocol;
+    if bootnodes.is_empty() {
+        return;
+    }
+    let mut ticker = tokio::time::interval(REDIAL_INTERVAL);
+    ticker.tick().await; // the first tick is immediate; startup just dialed
+    loop {
+        ticker.tick().await;
+        let Ok(connected) = network.connected_peers().await else {
+            return; // the network task is gone: nothing to dial with
+        };
+        if connected.len() >= bootnodes.len() {
+            continue;
+        }
+        for bootnode in &bootnodes {
+            let known = bootnode
+                .iter()
+                .any(|p| matches!(p, Protocol::P2p(id) if connected.contains(&id)));
+            if !known {
+                // Failure is the normal case while that node is down.
+                let _ = network.dial(bootnode.clone()).await;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
