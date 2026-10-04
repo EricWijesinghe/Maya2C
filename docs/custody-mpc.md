@@ -45,7 +45,7 @@ that makes FROST work for Ed25519.
 That changed in 2025–2026. There are now at least three constructions producing
 signatures verifiable by an unmodified FIPS 204 verifier:
 
-- [Quorus: Efficient, Scalable Threshold ML-DSA Signatures from MPC](https://eprint.iacr.org/2025/1163.pdf)
+- [Quorus: Efficient, Scalable Threshold ML-DSA Signatures from MPC](https://eprint.iacr.org/2025/1163)
 - [Efficient Threshold ML-DSA](https://eprint.iacr.org/2026/013) — up to 6 parties,
   ~1 MB communication per party
   ([NIST PQC 2025 talk](https://csrc.nist.gov/csrc/media/events/2025/sixth-pqc-standardization-conference/efficient%20threshold%20ml-dsa%20up%20to%206%20parties.pdf))

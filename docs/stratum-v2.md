@@ -5,8 +5,8 @@ sub-protocol shaped around Maya2C's header. It is not wire-compatible with stock
 SV2 clients, and this document is mostly about why that is a decision rather
 than a shortfall.
 
-Implemented: [`crates/stratum-v2/`](../stratum-v2) — framing, messages, codec — and
-[`bins/pool-service/`](../pool-service), the daemon that joins them to chain types:
+Implemented: [`crates/stratum-v2/`](../crates/stratum-v2) — framing, messages, codec — and
+[`bins/pool-service/`](../bins/pool-service), the daemon that joins them to chain types:
 share validation, the PPLNS ledger, and treasury payouts.
 [`pool-service.md`](pool-service.md) documents that half; this document is the
 protocol underneath it.
@@ -28,7 +28,7 @@ Stratum V2's mining messages assume a Bitcoin header. They carry a
 transaction to hide an extranonce in.
 
 Maya2C's header is 144 bytes and keeps only the root, as `tx_root`
-([`crates/node/src/core/block.rs:9-41`](../src/core/block.rs)):
+([`crates/node/src/core/block.rs:9-41`](../crates/node/src/core/block.rs)):
 
 ```text
 prev_hash[32] ‖ state_root[32] ‖ timestamp[8] ‖ nonce[8] ‖ difficulty_target[32] ‖ tx_root[32]
@@ -70,7 +70,7 @@ which is the actual point of SV2.
 | SV2 | Here | Why |
 |---|---|---|
 | `merkle_root` in `NewMiningJob` | `tx_root` **and** `state_root` | The header commits to the transaction tree, as in SV2, and also to the post-execution state, which the chain checks |
-| `nbits` (U32 compact) | `target` (32 bytes) | Targets are full 256-bit values compared bytewise ([`crates/node/src/crypto/pow.rs:16-18`](../src/crypto/pow.rs)); there is no compact form to pack into |
+| `nbits` (U32 compact) | `target` (32 bytes) | Targets are full 256-bit values compared bytewise ([`crates/node/src/crypto/pow.rs:16-18`](../crates/node/src/crypto/pow.rs)); there is no compact form to pack into |
 | `version` in jobs and shares | *absent* | The header has no version field to roll |
 | `SetExtranoncePrefix` | `SetNonceRange` | No coinbase means no extranonce; see below |
 | `ntime` (U32) | `timestamp` (U64) | The header's timestamp is a `u64` |
@@ -85,7 +85,7 @@ extranonce. Maya2C has no coinbase, so the only field a miner may vary is the
 of them would otherwise start at zero and walk the same path.
 
 Each channel is assigned a disjoint half-open nonce range at open time, the way
-[`crates/node/src/consensus/miner.rs:6-10`](../src/consensus/miner.rs) already partitions
+[`crates/node/src/consensus/miner.rs:6-10`](../crates/node/src/consensus/miner.rs) already partitions
 across threads. Three things follow: two channels cannot collide by construction
 rather than by luck; duplicate detection becomes exact rather than probabilistic;
 and a nonce outside a channel's range is rejected without hashing anything —
@@ -104,7 +104,7 @@ carried exactly as the header holds them.
 
 Not the connection count. 50,000 Tokio connections is unremarkable; **each share
 costs a 25.4 ms Argon2id pass over 32 MiB**
-([`crates/node/src/crypto/argon_blake.rs:16-22`](../src/crypto/argon_blake.rs)) — six orders
+([`crates/node/src/crypto/argon_blake.rs:16-22`](../crates/node/src/crypto/argon_blake.rs)) — six orders
 of magnitude more than Bitcoin's two SHA256d.
 
 | Shares per connection | Shares/sec at 50k | CPU cores of pure Argon2 |
@@ -122,11 +122,11 @@ Three design consequences:
 - **Validation never runs on a connection task.** Shares go over a bounded
   channel to a validator pool sized to cores, and backpressure sheds load by
   *raising* targets rather than dropping shares.
-- **The GPU miner is the validator.** [`cuda-miner`](../cuda-miner)'s batch fill
+- **The GPU miner is the validator.** [`cuda-miner`](../hal/cuda-miner)'s batch fill
   is exactly a batch share validator — same lane layout, same batching.
 
 A fourth consequence from `TARGET_BLOCK_TIME = 15`s
-([`crates/node/src/consensus/difficulty.rs:32`](../src/consensus/difficulty.rs)): jobs go
+([`crates/node/src/consensus/difficulty.rs:32`](../crates/node/src/consensus/difficulty.rs)): jobs go
 stale fast. Job push has to be sub-second and the stale-grace window measured in
 hundreds of milliseconds, not the seconds a ten-minute chain can afford.
 
@@ -136,8 +136,8 @@ hundreds of milliseconds, not the seconds a ten-minute chain can afford.
 `{header, transactions}` with no coinbase field, and `apply_block_checked`
 stages only the block's own transactions — no subsidy is credited to anyone.
 Transaction fees go to `FEE_SINK = [0u8; 32]`
-([`crates/node/src/state/shielded.rs:342`](../src/state/shielded.rs)), an address with no
-private key that [`crates/node/src/rpc/market.rs:47`](../src/rpc/market.rs) excludes from
+([`crates/node/src/state/shielded.rs:342`](../crates/node/src/state/shielded.rs)), an address with no
+private key that [`crates/node/src/rpc/market.rs:47`](../crates/node/src/rpc/market.rs) excludes from
 circulating supply. Fees are **burned**, not paid to miners.
 
 A pool splits a block reward, and there is not one. The payout ledger is built
@@ -159,7 +159,7 @@ the chain could supply.
 
 ## 6. Transport
 
-The pool reuses [`crates/node/src/network/pq/`](../src/network/pq): Noise XX over X25519
+The pool reuses [`crates/node/src/network/pq/`](../crates/node/src/network/pq): Noise XX over X25519
 with an ML-KEM-768 exchange layered inside, ChaCha20Poly1305, 4-byte length
 prefixes, 64 KiB maximum plaintext.
 
@@ -168,7 +168,7 @@ certificates. Adopting it would introduce secp256k1 — the one classical
 primitive this codebase deliberately avoids, having gone ML-DSA-65 + SLH-DSA for
 signatures and layered ML-KEM into transport specifically against
 harvest-now-decrypt-later
-([`crates/node/src/network/pq/handshake.rs:26-29`](../src/network/pq/handshake.rs)) — to buy
+([`crates/node/src/network/pq/handshake.rs:26-29`](../crates/node/src/network/pq/handshake.rs)) — to buy
 interop that §1 shows is unreachable. Peer authentication uses ML-DSA, like the
 rest of the chain.
 
@@ -180,7 +180,7 @@ attack.
 
 ## 7. Decoding discipline
 
-Copied from [`crates/node/src/core/codec.rs`](../src/core/codec.rs) rather than reinvented,
+Copied from [`crates/node/src/core/codec.rs`](../crates/node/src/core/codec.rs) rather than reinvented,
 because these bytes arrive from whatever dialled the mining port:
 
 - Every read is range-checked. A truncated frame is an error, never a panic: a
