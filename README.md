@@ -1,9 +1,26 @@
 <p align="center">
-  <img src="logo-assets/website/Header-Logo_250x100.png" width="250" height="100" alt="Maya2C"/>
+  <a href="https://maya2c.dev">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset=".github/assets/banner-dark.webp">
+      <img src=".github/assets/banner-light.webp" width="100%" alt="Maya2C — the post-quantum layer-1, built in Rust">
+    </picture>
+  </a>
 </p>
 
 <p align="center">
-  A post-quantum layer-1 blockchain node, in Rust.
+  <a href="https://status.maya2c.dev"><img alt="testnet height" src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fstatus.maya2c.dev%2Fapi%2Fstatus&query=%24.height&label=testnet%20block&color=1fb5c2&style=for-the-badge&labelColor=0a161b"></a>
+  <a href="https://status.maya2c.dev"><img alt="seconds since last block" src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fstatus.maya2c.dev%2Fapi%2Fstatus&query=%24.since_last_block&suffix=%20s%20ago&label=last%20block&color=45e0a0&style=for-the-badge&labelColor=0a161b"></a>
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-Apache%202.0-c9a86a?style=for-the-badge&labelColor=0a161b"></a>
+  <img alt="Rust 1.88, edition 2024" src="https://img.shields.io/badge/rust-1.88%20%C2%B7%202024-e6b260?style=for-the-badge&logo=rust&labelColor=0a161b">
+</p>
+
+<p align="center">
+  <a href="https://maya2c.dev/experience/"><b>✦ Experience it live</b></a> &nbsp;·&nbsp;
+  <a href="https://maya2c.dev/guides/testnet/">Join the testnet</a> &nbsp;·&nbsp;
+  <a href="https://explorer.maya2c.dev/">Explorer</a> &nbsp;·&nbsp;
+  <a href="https://faucet.maya2c.dev/">Faucet</a> &nbsp;·&nbsp;
+  <a href="https://status.maya2c.dev/">Uptime</a> &nbsp;·&nbsp;
+  <a href="https://maya2c.dev/guides/validators/">Run a validator</a>
 </p>
 
 ---
@@ -23,7 +40,24 @@ id. See
 [docs/mainnet-readiness.md](docs/mainnet-readiness.md) — that block is the first
 thing to read before anything else here matters.
 
+## How it fits together
+
+```mermaid
+flowchart TB
+  classDef app fill:#0a161b,stroke:#1fb5c2,color:#edf3f2,stroke-width:2px
+  classDef core fill:#06343a,stroke:#7eeaf0,color:#edf3f2,stroke-width:2px
+  classDef pq fill:#2a210f,stroke:#c9a86a,color:#f4ead6,stroke-width:2px
+  W["🔐 Wallet · Maya Chat · SDKs"]:::app --> G["🛡️ API gateway<br/>default-deny allowlist"]:::app
+  G --> N["⚙️ Node: WASM VM · fee market · state"]:::core
+  N <--> C["🧭 DAG-BFT consensus<br/>Narwhal + Bullshark · stake-weighted"]:::core
+  C <--> P["🌐 libp2p · TCP + WebSocket<br/>ML-KEM-768 over Noise"]:::pq
+  N --> S["✍️ Every transaction signed twice<br/>ML-DSA-65 + SLH-DSA"]:::pq
+```
+
 ## Workspace
+
+<details>
+<summary><b>The core crates</b> (click to open)</summary>
 
 | Member | Role |
 |---|---|
@@ -51,12 +85,17 @@ thing to read before anything else here matters.
 | `docgen` | Generates the LaTeX technical reference from module documentation |
 | `apps/dashboard/` | Leptos browser page. Not a workspace member: CSR Leptos only runs on `wasm32` |
 
+</details>
+
 ### Research branches
 
 These crates are in the tree and tested, but **no consensus path calls them**. Each is
 dark behind an activation height of `u64::MAX`, or is off-chain entirely. The
 rationale for each is in
 [docs/architecture-vision.md](docs/architecture-vision.md).
+
+<details>
+<summary><b>The research crates</b> (click to open)</summary>
 
 | Member | Role |
 |---|---|
@@ -73,6 +112,8 @@ rationale for each is in
 | `ebpf-net`, `hal/ebpf-net/common` | UDP block relay judged by an XDP program at the driver (Linux, `xdp` feature) |
 | `threat-intel`, `threat-firewall` | Threat indicators built from verifiable gossip evidence, and the per-host nftables worker |
 | `iot-anchor` | Hardware-anchored sensor identity: ML-DSA-65 device keys, PUF, TPM sealing, hash-chained telemetry batches. `no_std`; `hal/iot-firmware/` runs it on Cortex-M33 under QEMU |
+
+</details>
 
 Three more directories have their own workspaces and toolchains: `offsec-sandbox/`
 (red-team fuzzing), `hal/ebpf-net/programs/` (the XDP program) and `fuzz/`.

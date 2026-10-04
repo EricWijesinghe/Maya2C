@@ -19,13 +19,13 @@ const placed = apps.map((a, i) => {
 });
 ---
 
-<figure class="eco">
+<figure class="not-content eco">
   <svg viewBox="0 0 500 500" role="img" aria-labelledby="eco-t">
     <title id="eco-t">The Maya2C chain with the applications built on it, and which of them exist today</title>
     <defs>
       <radialGradient id="eco-core">
-        <stop offset="0" stop-color="#b3c8ff" stop-opacity="0.9" />
-        <stop offset="1" stop-color="#7c6cff" stop-opacity="0.15" />
+        <stop offset="0" stop-color="#7eeaf0" stop-opacity="0.9" />
+        <stop offset="1" stop-color="#c9a86a" stop-opacity="0.15" />
       </radialGradient>
     </defs>
     <circle cx="250" cy="250" r={r} class="orbit" />
@@ -64,9 +64,9 @@ const placed = apps.map((a, i) => {
   .core-t { fill: var(--text); font-weight: 800; font-size: 20px; text-anchor: middle; }
   .core-s { fill: var(--cherenkov-hi); font-size: 11px; text-anchor: middle; }
   .app { text-decoration: none; cursor: pointer; }
-  .app circle { fill: var(--sl-color-bg); stroke-width: 2; transition: transform 0.35s cubic-bezier(.34,1.56,.64,1), filter 0.3s ease; transform-box: fill-box; transform-origin: center; filter: drop-shadow(0 0 0px rgba(91, 140, 255, 0)); }
-  .app:hover circle, .app:focus circle { transform: scale(1.15); filter: drop-shadow(0 0 12px rgba(91, 140, 255, 0.6)); }
-  .app.research:hover circle, .app.research:focus circle { filter: drop-shadow(0 0 12px rgba(124, 108, 255, 0.5)); }
+  .app circle { fill: var(--sl-color-bg); stroke-width: 2; transition: transform 0.35s cubic-bezier(.34,1.56,.64,1), filter 0.3s ease; transform-box: fill-box; transform-origin: center; filter: drop-shadow(0 0 0px rgba(31, 181, 194, 0)); }
+  .app:hover circle, .app:focus circle { transform: scale(1.15); filter: drop-shadow(0 0 12px rgba(31, 181, 194, 0.6)); }
+  .app.research:hover circle, .app.research:focus circle { filter: drop-shadow(0 0 12px rgba(201, 168, 106, 0.5)); }
   .app.built circle { stroke: var(--cherenkov); }
   .app.research circle { stroke: var(--iris-a); stroke-dasharray: 4 3; }
   .app.planned circle { stroke: var(--muted); stroke-dasharray: 2 4; }

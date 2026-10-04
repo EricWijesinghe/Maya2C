@@ -17,8 +17,6 @@ export default defineConfig({
     starlight({
       title: "Maya2C",
       favicon: "/favicon.ico",
-      // The Orb (art direction 2026-10-04); the title stays "Maya2C", one word.
-      logo: { src: "./src/assets/orb.svg", alt: "" },
       // Bing Webmaster Tools ownership check for maya2c.dev.
       head: [
         { tag: "meta", attrs: { name: "msvalidate.01", content: "76B55D3E70EB56CB2D46FE438641E2A4" } },
@@ -29,7 +27,7 @@ export default defineConfig({
         { tag: "meta", attrs: { property: "og:image:height", content: "630" } },
         { tag: "meta", attrs: { property: "og:image:alt", content: "Maya2C — post-quantum layer-1 blockchain" } },
         { tag: "meta", attrs: { name: "twitter:image", content: "https://maya2c.dev/og-card.png" } },
-        { tag: "meta", attrs: { name: "theme-color", content: "#050a14" } },
+        { tag: "meta", attrs: { name: "theme-color", content: "#050b0f" } },
         // Structured data, so search engines know what the site is about:
         // the project, its source, and that the software is free.
         {
@@ -61,9 +59,22 @@ export default defineConfig({
       description:
         "Post-quantum layer-1 blockchain. DAG-BFT finality, hybrid ML-DSA + " +
         "SLH-DSA signatures, shielded transfers.",
-      customCss: ["./src/styles/maya.css"],
-      // Our footer (about, contact, copyright) after Starlight's own.
-      components: { Footer: "./src/components/Footer.astro" },
+      // Self-hosted variable fonts: no third-party request, no layout shift
+      // from a late swap, and the same letterforms on every OS.
+      customCss: [
+        "@fontsource-variable/manrope",
+        "@fontsource-variable/inter",
+        "@fontsource-variable/jetbrains-mono",
+        "./src/styles/maya.css",
+      ],
+      components: {
+        // Our footer (about, contact, copyright) after Starlight's own.
+        Footer: "./src/components/Footer.astro",
+        // The real emblem and wordmark, and a header with main navigation,
+        // reading progress and back-to-top.
+        SiteTitle: "./src/components/SiteTitle.astro",
+        Header: "./src/components/Header.astro",
+      },
       social: [
         { icon: "github", label: "GitHub", href: "https://github.com/EricWijesinghe/Maya2C" },
       ],
