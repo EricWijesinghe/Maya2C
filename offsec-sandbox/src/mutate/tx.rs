@@ -68,7 +68,7 @@ fn mutate_typed(mut tx: Transaction, rng: &mut Rng) -> Vec<u8> {
             let mut chain_key = [0u8; 32];
             rng.fill_bytes(&mut chain_key);
             if let Ok(key) = signing_key_from_seed(&chain_key) {
-                let _ = tx.sign(&key);
+                let _ = tx.sign(&key, &crate::SANDBOX_CHAIN);
             }
         }
     }
@@ -120,7 +120,7 @@ pub fn seeds() -> Vec<Vec<u8>> {
             }],
             1,
         );
-        if signed.sign(&key).is_ok() {
+        if signed.sign(&key, &crate::SANDBOX_CHAIN).is_ok() {
             seeds.push(signed.to_bytes());
         }
     }
