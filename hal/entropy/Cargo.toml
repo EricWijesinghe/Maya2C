@@ -19,7 +19,7 @@ sim-sources = ["maya-build-guard/sim"]
 maya-build-guard = { path = "../../crates/build-guard" }
 # HMAC-SHA-256 for the DRBG, SP 800-90A §10.1.2. The same `hmac 0.12` /
 # `sha2 0.10` generation the Ledger app and the rest of the tree use.
-hmac = "0.12"
+hmac = "0.13"
 sha2.workspace = true
 # The OS source, and the entropy the SIM models shape.
 getrandom.workspace = true
