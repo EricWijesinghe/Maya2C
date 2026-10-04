@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use libp2p::gossipsub::{self, IdentTopic, MessageId};
+use libp2p::multiaddr::Protocol;
 use libp2p::request_response::OutboundRequestId;
 use libp2p::swarm::{ConnectionId, SwarmEvent};
 use libp2p::{Multiaddr, PeerId, Swarm, kad};
@@ -30,6 +31,9 @@ use crate::state::StateDB;
 
 /// Capacity of the outbound event broadcast channel.
 const EVENT_CHANNEL_CAPACITY: usize = 256;
+
+/// Addresses taken from one peer's identify announcement.
+const MAX_LEARNED_ADDRESSES: usize = 8;
 
 /// Capacity of the inbound command channel.
 const COMMAND_CHANNEL_CAPACITY: usize = 64;
@@ -682,7 +686,26 @@ impl NodeDriver {
             }) => {
                 // Feed observed addresses into Kademlia. This is what turns a
                 // known peer id into a dialable routing entry.
-                for address in info.listen_addrs {
+                // A peer's own claims, so filtered: no DNS names (an
+                // attacker's name can resolve to an internal address at
+                // dial time; only operator-configured bootnodes may be
+                // names) and a handful of addresses at most.
+                for address in info
+                    .listen_addrs
+                    .into_iter()
+                    .filter(|a| {
+                        !a.iter().any(|p| {
+                            matches!(
+                                p,
+                                Protocol::Dns(_)
+                                    | Protocol::Dns4(_)
+                                    | Protocol::Dns6(_)
+                                    | Protocol::Dnsaddr(_)
+                            )
+                        })
+                    })
+                    .take(MAX_LEARNED_ADDRESSES)
+                {
                     self.swarm
                         .behaviour_mut()
                         .kademlia
