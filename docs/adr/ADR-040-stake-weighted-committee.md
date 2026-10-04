@@ -1,10 +1,11 @@
 # ADR-040: Stake-weighted DAG-BFT committees
 
-**Status:** Proposed (2026-10-04).
-- **Part 1, the engine:** built in this change. It changes no running
-  behaviour.
-- **Part 2, the node wiring:** needs Eric's decision. It changes state and
-  therefore consensus.
+**Status:** Accepted (2026-10-04).
+- **Part 1, the engine:** merged in #59. It changes no running behaviour.
+- **Part 2, the node wiring:** approved by Eric on 2026-10-04, active from
+  a new genesis (option 2 below). The genesis ceremony turns it on for
+  every value-bearing chain. maya-testnet-1 stays on equal weights with
+  `--min-register-bond`.
 
 **Date:** 2026-10-04
 
@@ -76,7 +77,7 @@ exemption `Dag::missing_parents` already makes. Without that exemption, a
 late certificate at the horizon would be refused for ever and a rejoining
 node would stall. Both reviews found this, and it is fixed.
 
-### Part 2: the node supplies stake as weight (Eric's decision)
+### Part 2: the node supplies stake as weight (built 2026-10-04)
 
 Weights must be identical on every node for a whole epoch. Live stake is
 not: `bond_more`, `delegate`, `unbond` and equivocation slashing all change
@@ -134,3 +135,35 @@ weight. It currently builds `Committee::new(size)` too.
     removed, it fails ("a horizon certificate was refused").
 - `cargo nextest run -p custom-l1-node -p maya-dag-bft -p maya-link-sim -p maya2c-node`:
   1064 tests run: 1064 passed (1 slow), 2 skipped, 86.585 s.
+
+## Part 2 as built
+
+- **Genesis.** `bft.staking.stake_weighted`, which defaults to off and is
+  hashed into the genesis id when on. The ceremony sets it for
+  `maya-mainnet`.
+- **Weights.** Epoch 0's weights are written at genesis under
+  `k:cmw:<epoch>`, inside the staking layer, so under the state root. Each
+  epoch boundary freezes the new committee's stakes (self bond plus
+  delegations) only if the previous epoch had weights, so a chain never
+  gains the record unless its genesis asked for it. Weights are pruned
+  with the committee records.
+- **Engine.** The driver builds `Committee::weighted` from the epoch's
+  record, at boot and at every epoch switch.
+- **Checkpoints (ADR-038).** These count stake too
+  (`Checkpoint::verify_weighted`, `Collector::add_weighted`, and
+  `catchup::fetch` with weights). A catching-up node imports blocks on the
+  checkpoint quorum alone. Counted in heads, that quorum would let cheap
+  seats attest a chain of their own making.
+
+Evidence (`crates/node/tests/bft_staking_tests.rs`, 5 passed):
+- `absent_cheap_seats_halt_a_one_seat_one_vote_chain`: the control. Three
+  absent 1,000-bond seats beside four 10,000-bond validators stop the chain.
+- `absent_cheap_seats_cannot_halt_a_stake_weighted_chain`: the same attack
+  against a weighted genesis. The chain keeps producing, and epoch 1's
+  recorded weights are exactly the seven stakes.
+- `stake_weighting_is_part_of_the_genesis_id`.
+- The ceremony's `only_a_value_bearing_chain_is_stake_weighted` covers the
+  launch configuration.
+
+Still open (gate 10): recovery from a halt caused by more than a third of
+the stake going offline.

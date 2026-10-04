@@ -47,6 +47,10 @@ fn validator_key(i: usize) -> Arc<SigningKey> {
 }
 
 fn genesis() -> GenesisConfig {
+    genesis_with(false)
+}
+
+fn genesis_with(stake_weighted: bool) -> GenesisConfig {
     let validators = (0..GENESIS_VALIDATORS)
         .map(|i| hex::encode(validator_key(i).verifying_key().to_bytes()))
         .collect();
@@ -83,6 +87,7 @@ fn genesis() -> GenesisConfig {
                     .collect(),
                 min_self_bond: 1_000,
                 max_validators: 100,
+                stake_weighted,
             }),
         }),
     }
@@ -103,8 +108,12 @@ struct Mesh {
 
 impl Mesh {
     fn new() -> Self {
+        Self::with(false)
+    }
+
+    fn with(stake_weighted: bool) -> Self {
         let root = TempDir::new().unwrap();
-        let config = genesis();
+        let config = genesis_with(stake_weighted);
         let committee: Arc<[VerifyingKey]> = config
             .bft
             .as_ref()
@@ -463,5 +472,72 @@ fn incident_rehearsal_a_stolen_key_is_detected_slashed_and_replaced() {
         t_slashed - t_detect,
         t_rejoined - t_slashed,
         mesh.members[0].chain.height()
+    );
+}
+
+/// Registers seats that never come online: the committee-capture attack of
+/// ADR-039. Keys 5, 6 and 7 belong to no running node.
+fn register_absent_seats(mesh: &mut Mesh) {
+    for (nonce, i) in (5..8).enumerate() {
+        mesh.submit(&register(i, 1_000, u64::try_from(nonce).unwrap()));
+    }
+}
+
+#[test]
+fn absent_cheap_seats_halt_a_one_seat_one_vote_chain() {
+    // The control for the test below. Four validators at 10,000 each; three
+    // seats bought at the 1,000 minimum never answer. Seven seats need five
+    // votes, four answer, and nothing more is ever committed.
+    let mut mesh = Mesh::with(false);
+    register_absent_seats(&mut mesh);
+    mesh.run_until(|m| m.all_in_epoch(1));
+    assert!(mesh.all_in_epoch(1), "no epoch boundary reached");
+    assert_eq!(mesh.committee(0).len(), 7);
+    let h = mesh.members[0].chain.height();
+    mesh.run_until(|m| m.members[0].chain.height() >= h + 3);
+    assert!(
+        mesh.members[0].chain.height() < h + 3,
+        "an equal-weight chain kept going without a quorum"
+    );
+}
+
+#[test]
+fn absent_cheap_seats_cannot_halt_a_stake_weighted_chain() {
+    // ADR-040 part 2: the same attack against a genesis with stake_weighted.
+    // The four online validators hold 40,000 of 43,000 stake, a quorum by
+    // weight, so the chain goes on; the cheap seats only cost anchor
+    // timeouts until the epoch boundary jails them.
+    let mut mesh = Mesh::with(true);
+    register_absent_seats(&mut mesh);
+    mesh.run_until(|m| m.all_in_epoch(1));
+    assert!(mesh.all_in_epoch(1), "no epoch boundary reached");
+    assert_eq!(mesh.committee(0).len(), 7);
+    let weights = mesh.members[0]
+        .chain
+        .state()
+        .committee_weights(1)
+        .unwrap()
+        .expect("a stake-weighted chain records each epoch's weights");
+    let mut sorted = weights.clone();
+    sorted.sort_unstable();
+    assert_eq!(
+        sorted,
+        [1_000, 1_000, 1_000, 10_000, 10_000, 10_000, 10_000]
+    );
+    let h = mesh.members[0].chain.height();
+    mesh.run_until(|m| m.members.iter().all(|x| x.chain.height() >= h + 3));
+    assert!(
+        mesh.members.iter().all(|x| x.chain.height() >= h + 3),
+        "the weighted chain stopped"
+    );
+    mesh.agree();
+}
+
+#[test]
+fn stake_weighting_is_part_of_the_genesis_id() {
+    // Two operators who disagree about weighting disagree about block zero.
+    assert_ne!(
+        genesis_with(false).chain_id_commitment(),
+        genesis_with(true).chain_id_commitment()
     );
 }

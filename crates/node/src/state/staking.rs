@@ -31,6 +31,10 @@ pub const STATE_KEY: &[u8] = b"k:state";
 
 const KEY_PREFIX: &[u8] = b"k:key:";
 const COMMITTEE_PREFIX: &[u8] = b"k:cmt:";
+/// Stake-weighted committees (ADR-040 part 2): each member's stake, frozen
+/// at the epoch boundary. Present only on a chain whose genesis asked for
+/// it, so a chain without it keeps the state root it always had.
+const WEIGHTS_PREFIX: &[u8] = b"k:cmw:";
 
 /// The staking state plus what the node counts between epoch boundaries.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -63,6 +67,50 @@ pub fn key_record(id: &[u8; 32]) -> Vec<u8> {
 #[must_use]
 pub fn committee_record(epoch: u64) -> Vec<u8> {
     [COMMITTEE_PREFIX, &epoch.to_be_bytes()].concat()
+}
+
+/// `k:cmw:<epoch>`: the committee's voting weights, in committee order.
+#[must_use]
+pub fn committee_weights_record(epoch: u64) -> Vec<u8> {
+    [WEIGHTS_PREFIX, &epoch.to_be_bytes()].concat()
+}
+
+/// Encodes voting weights (one `u64` per member, committee order).
+#[must_use]
+pub fn encode_weights(weights: &[u64]) -> Vec<u8> {
+    let mut out = (weights.len() as u64).to_le_bytes().to_vec();
+    for w in weights {
+        out.extend_from_slice(&w.to_le_bytes());
+    }
+    out
+}
+
+/// Decodes voting weights.
+///
+/// # Errors
+///
+/// [`NodeError::Decode`] on malformed bytes.
+pub fn decode_weights(bytes: &[u8]) -> Result<Vec<u64>> {
+    let mut r = ByteReader::new(bytes);
+    let n = r.read_collection_len(8)?;
+    let weights = (0..n).map(|_| r.read_u64()).collect::<Result<Vec<_>>>()?;
+    r.finish()?;
+    Ok(weights)
+}
+
+/// Each member's total stake (self bond plus delegations), committee order:
+/// the weights an epoch votes with.
+#[must_use]
+pub fn stake_weights(staking: &maya_staking::Staking, active: &[[u8; 32]]) -> Vec<u64> {
+    active
+        .iter()
+        .map(|id| {
+            staking
+                .validators
+                .get(id)
+                .map_or(0, maya_staking::ValidatorRecord::total)
+        })
+        .collect()
 }
 
 /// Encodes a committee (ids in order).
