@@ -15,7 +15,7 @@ Mainnet genesis happens only when every gate below links evidence.
 |---|---|---|
 | 1 | **Replay protection**: a transaction's signature commits to its chain, so a testnet transfer cannot be replayed on mainnet (BACKLOG P1) | done in code: ADR-036, PR #43 |
 | 2 | **Shielded pool off at mainnet genesis**, and the mainnet guards relaxed only for that configuration (ADR needed) | done in code: ADR-037 (PR pending); testnet unaffected |
-| 3 | **7 days on the testnet without a halt** (maya-testnet-1 halted once, at 12,530; fixed by ADR-035 and restarted 2026-09-29) | running |
+| 3 | **7 days on the testnet without a halt** (maya-testnet-1 halted once, at 12,530; fixed by ADR-035 and restarted 2026-09-29). Re-genesised 2026-10-04 02:37 for ADR-036, then halted 2 h 45 min (12:59:29 → 15:44:28 KST, blocks 33,506 → 33,507) when Windows Update restarted the validator's PC for an Insider build — not a consensus fault, but a halt. The clock restarted at 15:44 | running: ends 2026-10-11 15:44 KST if nothing halts. Needs the seed off an auto-updating desktop (Windows Update paused, or an always-on server) |
 | 4 | **At least 4 validators** on separate machines, run by separate people, joined through staking registration | open: needs people (Eric) |
 | 5 | **Genesis ceremony** with several participants (`bins/genesis-ceremony`), rehearsed on a testnet first | open |
 | 6 | **Economics**: emission stays nil, or a reward schedule, decided | open: Eric's decision |
