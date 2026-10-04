@@ -155,9 +155,10 @@ pub struct RpcContext {
     /// The network's name (`maya-testnet-1`), for `get_chain_info`. A label
     /// for people: what a signature binds to is the genesis id (ADR-036).
     pub network: Option<String>,
-    /// The newest attested checkpoint, kept current by the DAG-BFT loop, for
-    /// `get_checkpoint` (ADR-038). Absent on a node that runs no DAG-BFT.
-    pub checkpoint: Option<Arc<Mutex<Option<crate::consensus::bft::attest::Checkpoint>>>>,
+    /// Each recent epoch's newest attested checkpoint, kept current by the
+    /// DAG-BFT loop, for `get_checkpoint` (ADR-038). Absent on a node that
+    /// runs no DAG-BFT.
+    pub checkpoint: Option<Arc<Mutex<crate::consensus::bft::attest::CheckpointBook>>>,
     /// The engine's status, kept current by the DAG-BFT loop, for
     /// `get_bft_status`.
     pub bft_status: Option<Arc<Mutex<crate::rpc::types::BftStatus>>>,
@@ -194,7 +195,7 @@ impl RpcContext {
     #[must_use]
     pub fn with_checkpoints(
         self,
-        slot: Arc<Mutex<Option<crate::consensus::bft::attest::Checkpoint>>>,
+        slot: Arc<Mutex<crate::consensus::bft::attest::CheckpointBook>>,
     ) -> Self {
         Self {
             checkpoint: Some(slot),
@@ -295,12 +296,22 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     module
-        .register_method("get_checkpoint", |_params, ctx, _| {
+        .register_method("get_checkpoint", |params, ctx, _| {
+            // No parameter: the newest checkpoint. `[epoch]`: that epoch's
+            // final one, for a node catching up across a boundary.
+            let epoch: Option<u64> = params
+                .sequence()
+                .optional_next()
+                .map_err(|e| invalid_params(e.to_string()))?;
             let held = ctx.checkpoint.as_ref().and_then(|slot| {
-                slot.lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .as_ref()
-                    .map(crate::rpc::types::CheckpointInfo::from)
+                let book = slot
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                match epoch {
+                    Some(e) => book.of_epoch(e),
+                    None => book.newest(),
+                }
+                .map(crate::rpc::types::CheckpointInfo::from)
             });
             Ok::<_, ErrorObjectOwned>(held)
         })

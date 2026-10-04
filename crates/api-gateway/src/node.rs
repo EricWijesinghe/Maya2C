@@ -104,8 +104,9 @@ pub trait NodeClient: Send + Sync + 'static {
     /// The newest quorum-attested checkpoint (`get_checkpoint`, ADR-038),
     /// passed through as the node's JSON. A caller verifies its signatures
     /// against a committee it already trusts, so the gateway vouches for
-    /// nothing in it. `null` when none exists.
-    async fn get_checkpoint(&self) -> Result<serde_json::Value, GatewayError> {
+    /// nothing in it. `null` when none exists. With `epoch`, that epoch's
+    /// final checkpoint, which a node behind an epoch boundary crosses on.
+    async fn get_checkpoint(&self, _epoch: Option<u64>) -> Result<serde_json::Value, GatewayError> {
         Ok(serde_json::Value::Null)
     }
 
@@ -239,8 +240,11 @@ impl NodeClient for RpcNodeClient {
         self.call("get_bft_status", rpc_params![]).await
     }
 
-    async fn get_checkpoint(&self) -> Result<serde_json::Value, GatewayError> {
-        self.call("get_checkpoint", rpc_params![]).await
+    async fn get_checkpoint(&self, epoch: Option<u64>) -> Result<serde_json::Value, GatewayError> {
+        match epoch {
+            Some(e) => self.call("get_checkpoint", rpc_params![e]).await,
+            None => self.call("get_checkpoint", rpc_params![]).await,
+        }
     }
 
     fn serves_bootstrap(&self) -> bool {

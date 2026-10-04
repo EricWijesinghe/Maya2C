@@ -206,7 +206,7 @@ impl RpcBootstrapSource {
     fn call<T: serde::de::DeserializeOwned>(
         &self,
         method: &str,
-        params: jsonrpsee::core::params::ArrayParams,
+        params: &jsonrpsee::core::params::ArrayParams,
     ) -> Result<T> {
         let mut wait = RETRY_FIRST_WAIT;
         let mut attempt = 1;
@@ -250,7 +250,16 @@ fn unhex(text: &str) -> Result<Vec<u8>> {
 impl crate::consensus::bft::catchup::CheckpointSource for RpcBootstrapSource {
     fn checkpoint(&self) -> Result<Option<crate::consensus::bft::attest::Checkpoint>> {
         let info: Option<crate::rpc::types::CheckpointInfo> =
-            self.call("get_checkpoint", rpc_params![])?;
+            self.call("get_checkpoint", &rpc_params![])?;
+        info.map(|i| i.checkpoint()).transpose()
+    }
+
+    fn checkpoint_of(
+        &self,
+        epoch: u64,
+    ) -> Result<Option<crate::consensus::bft::attest::Checkpoint>> {
+        let info: Option<crate::rpc::types::CheckpointInfo> =
+            self.call("get_checkpoint", &rpc_params![epoch])?;
         info.map(|i| i.checkpoint()).transpose()
     }
 
@@ -261,11 +270,11 @@ impl crate::consensus::bft::catchup::CheckpointSource for RpcBootstrapSource {
 
 impl BootstrapSource for RpcBootstrapSource {
     fn tip_height(&self) -> Result<u64> {
-        self.call("get_tip_height", rpc_params![])
+        self.call("get_tip_height", &rpc_params![])
     }
 
     fn headers(&self, from: u64, to: u64) -> Result<Vec<BlockHeader>> {
-        let headers: Vec<String> = self.call("get_headers", rpc_params![from, to])?;
+        let headers: Vec<String> = self.call("get_headers", &rpc_params![from, to])?;
         headers
             .iter()
             .map(|text| BlockHeader::from_bytes(&unhex(text)?))
@@ -273,7 +282,7 @@ impl BootstrapSource for RpcBootstrapSource {
     }
 
     fn snapshot_manifest(&self) -> Result<SnapshotManifest> {
-        let text: String = self.call("get_snapshot_manifest", rpc_params![])?;
+        let text: String = self.call("get_snapshot_manifest", &rpc_params![])?;
         let manifest = SnapshotManifest::decode(&unhex(&text)?)?;
         *self
             .snapshot_height
@@ -288,12 +297,12 @@ impl BootstrapSource for RpcBootstrapSource {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .ok_or_else(|| NodeError::Network("chunk asked for before the manifest".into()))?;
-        let text: String = self.call("get_snapshot_chunk", rpc_params![height, index])?;
+        let text: String = self.call("get_snapshot_chunk", &rpc_params![height, index])?;
         unhex(&text)
     }
 
     fn block(&self, height: u64) -> Result<Block> {
-        let info: BlockInfo = self.call("get_block_by_height", rpc_params![height])?;
+        let info: BlockInfo = self.call("get_block_by_height", &rpc_params![height])?;
         Block::from_bytes(&unhex(&info.raw)?)
     }
 }

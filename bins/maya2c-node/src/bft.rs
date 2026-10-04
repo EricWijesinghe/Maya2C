@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use custom_l1_node::consensus::Chain;
-use custom_l1_node::consensus::bft::attest::Checkpoint;
+use custom_l1_node::consensus::bft::attest::CheckpointBook;
 use custom_l1_node::consensus::bft::catchup::{self, Position};
 use custom_l1_node::consensus::bft::remote::{DEFAULT_DEADLINE, RemoteSigner, ValidatorKey};
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
@@ -34,28 +34,26 @@ const TICK: Duration = Duration::from_millis(100);
 /// before any validator proposes it. See `feed_mempool`.
 const SHARE_GRACE: Duration = Duration::from_secs(3);
 
-/// Puts the driver's newest checkpoint where `get_checkpoint` reads it, when
-/// it is newer than what is there.
 /// Where the loop reports what it did: metrics, and the slots the RPC's
 /// `get_checkpoint` and `get_bft_status` read.
 pub(super) struct Reporting {
     pub(super) metrics: Arc<Metrics>,
-    pub(super) checkpoint: Arc<Mutex<Option<Checkpoint>>>,
+    pub(super) checkpoint: Arc<Mutex<CheckpointBook>>,
     pub(super) status: Arc<Mutex<custom_l1_node::rpc::types::BftStatus>>,
 }
 
-fn publish_checkpoint(driver: &BftDriver, slot: &Mutex<Option<Checkpoint>>) {
-    let Some(newest) = driver.checkpoint() else {
-        return;
-    };
-    let mut held = slot
+/// Puts the driver's checkpoints where `get_checkpoint` reads them: this
+/// epoch's newest, and the just-ended epoch's final one, which late
+/// attestations can still complete after the switch.
+fn publish_checkpoint(driver: &BftDriver, slot: &Mutex<CheckpointBook>) {
+    let mut book = slot
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if held
-        .as_ref()
-        .is_none_or(|c| (c.epoch, c.height) < (newest.epoch, newest.height))
+    for checkpoint in [driver.closing_checkpoint(), driver.checkpoint()]
+        .into_iter()
+        .flatten()
     {
-        *held = Some(newest.clone());
+        book.offer(checkpoint);
     }
 }
 
@@ -224,8 +222,8 @@ async fn catch_up_once(
 
 /// The peer's tip height.
 async fn peer_tip(url: &str) -> Result<u64, Box<dyn Error>> {
-    let source = RpcBootstrapSource::new(url, tokio::runtime::Handle::current())?;
     use custom_l1_node::state_pruner::snapshot::BootstrapSource as _;
+    let source = RpcBootstrapSource::new(url, tokio::runtime::Handle::current())?;
     Ok(tokio::task::spawn_blocking(move || source.tip_height()).await??)
 }
 
@@ -237,8 +235,19 @@ pub(super) async fn catch_up(
     chain: &Arc<Mutex<Chain>>,
     driver: &mut BftDriver,
 ) -> Result<u64, Box<dyn Error>> {
-    let imported =
-        catch_up_once(url, chain, &driver.committee(), driver.weights().as_ref()).await?;
+    // One epoch per round: each import can carry the chain over a boundary,
+    // after which the next committee is the one in state.
+    let mut imported = 0;
+    loop {
+        let trusted = BftDriver::staked_committee(&lock_chain(chain))?;
+        let (committee, weights) =
+            trusted.unwrap_or_else(|| (driver.committee(), driver.weights()));
+        let n = catch_up_once(url, chain, &committee, weights.as_ref()).await?;
+        imported += n;
+        if n == 0 {
+            break;
+        }
+    }
     // Follow attested blocks only when this node is behind the network. A
     // node that missed nothing (say the chain halted while it was down)
     // holds its own DAG history and must build blocks again at once: when

@@ -27,6 +27,14 @@ pub trait CheckpointSource {
     /// Any failure reaching the source.
     fn checkpoint(&self) -> Result<Option<Checkpoint>>;
 
+    /// The source's newest checkpoint of `epoch`, if it still holds one:
+    /// how a node behind an epoch boundary crosses it (see [`fetch`]).
+    ///
+    /// # Errors
+    ///
+    /// Any failure reaching the source.
+    fn checkpoint_of(&self, epoch: u64) -> Result<Option<Checkpoint>>;
+
     /// The active-chain block at `height`.
     ///
     /// # Errors
@@ -45,6 +53,9 @@ pub struct Position {
     pub height: u64,
     /// Current tip.
     pub tip: [u8; 32],
+    /// The staking epoch the chain's state is in: whose committee this node
+    /// trusts. Zero on a chain without staking.
+    pub epoch: u64,
 }
 
 impl Position {
@@ -55,6 +66,14 @@ impl Position {
             tag: ChainTag::from_genesis(chain.genesis()),
             height: chain.height(),
             tip: chain.tip(),
+            // A state that cannot be read here only names a wrong epoch, and
+            // a checkpoint fetched for it fails verification: safe.
+            epoch: chain
+                .state()
+                .committed_staking()
+                .ok()
+                .flatten()
+                .map_or(0, |r| r.staking.epoch),
         }
     }
 }
@@ -64,8 +83,10 @@ impl Position {
 ///
 /// `committee` is the committee this node already trusts — the genesis or
 /// staking committee in its own state. A checkpoint signed by another
-/// committee is refused: crossing a membership change needs that change's
-/// own evidence, which this does not yet fetch. `weights` are that
+/// committee is refused. To cross a membership change, [`fetch`] stops at the
+/// final checkpoint of this node's own epoch: the boundary block below it
+/// writes the next committee into state, and the next call trusts that
+/// one. Call again until nothing is imported. `weights` are that
 /// committee's voting weights on a stake-weighted chain (ADR-040 part 2),
 /// `None` where every member counts one.
 ///
@@ -96,8 +117,15 @@ pub fn fetch(
     committee: &[VerifyingKey],
     weights: Option<&[u64]>,
 ) -> Result<Vec<Block>> {
-    let Some(checkpoint) = source.checkpoint()? else {
+    let Some(newest) = source.checkpoint()? else {
         return Ok(Vec::new());
+    };
+    // The network is past this node's epoch: its committee cannot check the
+    // newer checkpoint, so go as far as this epoch's own final one first.
+    let checkpoint = if newest.epoch > from.epoch {
+        source.checkpoint_of(from.epoch)?.unwrap_or(newest)
+    } else {
+        newest
     };
     checkpoint.verify(&from.tag, committee, weights)?;
     if checkpoint.height <= from.height {

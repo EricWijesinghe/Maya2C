@@ -495,7 +495,7 @@ pub fn attacknet(args: &[String]) -> Result<()> {
         .map(|t| {
             net.say(format!(
                 "{VALIDATORS} validators on one chain {t:.1?} after start"
-            ))
+            ));
         })
         .and_then(|()| (1..=rounds).try_for_each(|n| round(&mut net, n)));
     let report = write_report(&net, weighted, &outcome)?;
