@@ -125,6 +125,10 @@ pub(super) fn pruning_services(
 ) -> Result<(RpcContext, Option<Pruning>), Box<dyn Error>> {
     let mut context = context;
     let depth = args.prune_depth.unwrap_or(PRUNE_DEPTH);
+    // How deep a snapshot must be before it is served. Separate from
+    // pruning: an archive seed (which must not prune) can still serve
+    // shallow snapshots on a DAG-BFT chain, where a block is final at once.
+    let snapshot_depth = args.snapshot_depth.unwrap_or(depth);
     let archive_dir = args
         .archive_dir
         .clone()
@@ -134,10 +138,10 @@ pub(super) fn pruning_services(
         Some(interval) => {
             let service = Arc::new(SnapshotService::new(
                 Snapshots::new(args.data_dir.join("snapshots"))?,
-                depth,
+                snapshot_depth,
             ));
             context = context.with_snapshots(Arc::clone(&service));
-            println!("snapshots:   every {interval} blocks, served once {depth} deep");
+            println!("snapshots:   every {interval} blocks, served once {snapshot_depth} deep");
             Some((service, interval.max(1)))
         }
         None => None,

@@ -163,6 +163,8 @@ struct Args {
     config: Option<PathBuf>,
     /// Pruning depth; `None` is an archive node, which prunes nothing.
     prune_depth: Option<u64>,
+    /// Serve snapshots once this many blocks deep, without pruning.
+    snapshot_depth: Option<u64>,
     /// Prune without keeping any archive, like a Bitcoin pruned node.
     prune_without_archive: bool,
     /// Local archive directory; defaults to `<data-dir>/archive`.
@@ -228,6 +230,7 @@ impl Default for Args {
             // commits the node to refusing reorgs below its horizon, which is
             // an operator's decision.
             prune_depth: None,
+            snapshot_depth: None,
             prune_without_archive: false,
             archive_dir: None,
             ipfs_api: None,
@@ -267,6 +270,7 @@ fn print_usage() {
          \x20                    or required. See docs/pq-transport.md\n  \
          --prune              prune bodies older than one DAG epoch (30,000 blocks)\n  \
          --prune-depth <N>    prune bodies older than N blocks (implies --prune)\n  \
+         --snapshot-depth <N> serve snapshots once N blocks deep, without pruning\n  \
          --prune-without-archive  prune without writing any archive first\n  \
          --archive-dir <PATH> local archive directory (default <data-dir>/archive)\n  \
          --ipfs-api <URL>     also archive to a kubo node, e.g. http://127.0.0.1:5001\n  \
@@ -329,6 +333,7 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--mine" => args.mine = true,
             "--prune" => args.prune_depth = args.prune_depth.or(Some(PRUNE_DEPTH)),
             "--prune-depth" => args.prune_depth = Some(value()?.parse()?),
+            "--snapshot-depth" => args.snapshot_depth = Some(value()?.parse()?),
             "--prune-without-archive" => args.prune_without_archive = true,
             "--archive-dir" => args.archive_dir = Some(PathBuf::from(value()?)),
             "--ipfs-api" => args.ipfs_api = Some(value()?),
