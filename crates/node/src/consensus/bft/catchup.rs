@@ -99,7 +99,7 @@ pub fn fetch(
     let Some(checkpoint) = source.checkpoint()? else {
         return Ok(Vec::new());
     };
-    checkpoint.verify_weighted(&from.tag, committee, weights)?;
+    checkpoint.verify(&from.tag, committee, weights)?;
     if checkpoint.height <= from.height {
         return Ok(Vec::new());
     }

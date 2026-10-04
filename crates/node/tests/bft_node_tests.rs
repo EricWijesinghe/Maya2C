@@ -409,7 +409,7 @@ fn every_member_holds_a_quorum_attested_checkpoint_on_its_own_chain() {
             .expect("a checkpoint after eight blocks");
         let tag = custom_l1_node::core::ChainTag::from_genesis(m.chain.genesis());
         checkpoint
-            .verify(&tag, &committee)
+            .verify(&tag, &committee, None)
             .expect("a quorum of the committee");
         assert!(checkpoint.height >= 1);
         let ours = m.chain.active_chain().unwrap()[usize::try_from(checkpoint.height).unwrap()];

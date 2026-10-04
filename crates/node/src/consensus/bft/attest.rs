@@ -182,26 +182,20 @@ pub struct Checkpoint {
 }
 
 impl Checkpoint {
-    /// Checks that a quorum of distinct `committee` members signed it.
-    ///
-    /// # Errors
-    ///
-    /// [`NodeError::Decode`] if fewer than a quorum signed, or as
-    /// [`Attestation::verify`] for any one signature.
-    pub fn verify(&self, chain: &ChainTag, committee: &[VerifyingKey]) -> Result<()> {
-        self.verify_weighted(chain, committee, None)
-    }
-
-    /// As [`Checkpoint::verify`], with the quorum counted in `weights` (one
-    /// per member, committee order) on a stake-weighted chain (ADR-040 part
-    /// 2). `None` counts heads. A catching-up node imports blocks on this
+    /// Checks that a quorum of distinct `committee` members signed it, the
+    /// quorum counted in `weights` (one per member, committee order) on a
+    /// stake-weighted chain (ADR-040 part 2), or in heads where `weights` is
+    /// `None`. There is no default: a caller that forgets the weights would
+    /// count cheap seats as equals. A catching-up node imports blocks on this
     /// quorum alone, so on a weighted chain it must be stake, or cheap
     /// seats could attest a chain of their own making.
     ///
     /// # Errors
     ///
-    /// As [`Checkpoint::verify`].
-    pub fn verify_weighted(
+    /// [`NodeError::Decode`] if fewer than a quorum signed or the weights do
+    /// not match the committee, or as [`Attestation::verify`] for any one
+    /// signature.
+    pub fn verify(
         &self,
         chain: &ChainTag,
         committee: &[VerifyingKey],
@@ -282,28 +276,14 @@ impl Collector {
         self.newest.as_ref()
     }
 
-    /// Adds a verified-on-entry attestation from `committee` (the epoch's).
+    /// Adds a verified-on-entry attestation from `committee` (the epoch's),
+    /// the quorum counted in `weights` on a stake-weighted chain, else heads.
     ///
     /// # Errors
     ///
     /// As [`Attestation::verify`]: a bad attestation is refused, never
     /// counted.
     pub fn add(
-        &mut self,
-        attestation: Attestation,
-        chain: &ChainTag,
-        committee: &[VerifyingKey],
-    ) -> Result<Collected> {
-        self.add_weighted(attestation, chain, committee, None)
-    }
-
-    /// As [`Collector::add`], with the quorum counted in `weights` on a
-    /// stake-weighted chain.
-    ///
-    /// # Errors
-    ///
-    /// As [`Collector::add`].
-    pub fn add_weighted(
         &mut self,
         attestation: Attestation,
         chain: &ChainTag,
@@ -428,24 +408,24 @@ mod tests {
         for v in 0..2 {
             assert_eq!(
                 collector
-                    .add(attest(&signing, v, 5, 1), &CHAIN, &committee)
+                    .add(attest(&signing, v, 5, 1), &CHAIN, &committee, None)
                     .unwrap(),
                 Collected::Counted
             );
         }
         let Collected::Checkpoint(c) = collector
-            .add(attest(&signing, 3, 5, 1), &CHAIN, &committee)
+            .add(attest(&signing, 3, 5, 1), &CHAIN, &committee, None)
             .unwrap()
         else {
             panic!("the third attestation completes a quorum of four");
         };
         assert_eq!((c.height, c.block, c.signatures.len()), (5, [1; 32], 3));
-        c.verify(&CHAIN, &committee).unwrap();
+        c.verify(&CHAIN, &committee, None).unwrap();
         assert_eq!(collector.newest(), Some(&c));
         // Late and repeated attestations change nothing.
         assert_eq!(
             collector
-                .add(attest(&signing, 2, 5, 1), &CHAIN, &committee)
+                .add(attest(&signing, 2, 5, 1), &CHAIN, &committee, None)
                 .unwrap(),
             Collected::Ignored
         );
@@ -464,16 +444,16 @@ mod tests {
             c.signatures.insert(v, attest(&signing, v, 3, 2).signature);
         }
         assert!(
-            c.verify(&CHAIN, &committee).is_err(),
+            c.verify(&CHAIN, &committee, None).is_err(),
             "two of four is not a quorum"
         );
         c.signatures.insert(2, attest(&signing, 2, 3, 99).signature);
         assert!(
-            c.verify(&CHAIN, &committee).is_err(),
+            c.verify(&CHAIN, &committee, None).is_err(),
             "a signature on another block"
         );
         c.signatures.insert(2, attest(&signing, 2, 3, 2).signature);
-        c.verify(&CHAIN, &committee).unwrap();
+        c.verify(&CHAIN, &committee, None).unwrap();
     }
 
     #[test]
@@ -481,10 +461,10 @@ mod tests {
         let (signing, committee) = keys(4);
         let mut collector = Collector::default();
         collector
-            .add(attest(&signing, 1, 8, 1), &CHAIN, &committee)
+            .add(attest(&signing, 1, 8, 1), &CHAIN, &committee, None)
             .unwrap();
         let Collected::Equivocation(pair) = collector
-            .add(attest(&signing, 1, 8, 2), &CHAIN, &committee)
+            .add(attest(&signing, 1, 8, 2), &CHAIN, &committee, None)
             .unwrap()
         else {
             panic!("a second block at the same height must be evidence");
@@ -499,13 +479,14 @@ mod tests {
         let (signing, committee) = keys(4);
         let mut collector = Collector::default();
         collector
-            .add(attest(&signing, 0, 1, 1), &CHAIN, &committee)
+            .add(attest(&signing, 0, 1, 1), &CHAIN, &committee, None)
             .unwrap();
         collector
             .add(
                 attest(&signing, 0, 1 + PENDING_HEIGHTS + 1, 1),
                 &CHAIN,
                 &committee,
+                None,
             )
             .unwrap();
         assert_eq!(
@@ -521,15 +502,59 @@ mod tests {
         let mut collector = Collector::default();
         let mut forged = attest(&signing, 0, 4, 1);
         forged.signature[0] ^= 1;
-        assert!(collector.add(forged, &CHAIN, &committee).is_err());
+        assert!(collector.add(forged, &CHAIN, &committee, None).is_err());
         for v in 1..3 {
             collector
-                .add(attest(&signing, v, 4, 1), &CHAIN, &committee)
+                .add(attest(&signing, v, 4, 1), &CHAIN, &committee, None)
                 .unwrap();
         }
         assert!(
             collector.newest().is_none(),
             "the forged one must not have counted"
         );
+    }
+
+    #[test]
+    fn cheap_seats_make_a_head_quorum_but_never_a_stake_quorum() {
+        // ADR-040 part 2: three seats bought at 1,000 each against one
+        // validator of 10,000. Three of four heads are a quorum; 3,000 of
+        // 13,000 stake is not, so a catching-up node on a weighted chain
+        // refuses the checkpoint the cheap seats sign.
+        let (signing, committee) = keys(4);
+        let weights = [1_000, 1_000, 1_000, 10_000];
+        let mut heads = Collector::default();
+        let mut stake = Collector::default();
+        let mut made = None;
+        for v in 0..3 {
+            let a = attest(&signing, v, 5, 1);
+            if let Collected::Checkpoint(c) =
+                heads.add(a.clone(), &CHAIN, &committee, None).unwrap()
+            {
+                made = Some(c);
+            }
+            assert!(matches!(
+                stake.add(a, &CHAIN, &committee, Some(&weights)).unwrap(),
+                Collected::Counted
+            ));
+        }
+        let c = made.expect("three of four heads are a quorum");
+        c.verify(&CHAIN, &committee, None).unwrap();
+        assert!(c.verify(&CHAIN, &committee, Some(&weights)).is_err());
+        assert!(stake.newest().is_none());
+        // The heavy validator completes the stake quorum.
+        let Collected::Checkpoint(w) = stake
+            .add(
+                attest(&signing, 3, 5, 1),
+                &CHAIN,
+                &committee,
+                Some(&weights),
+            )
+            .unwrap()
+        else {
+            panic!("the stake majority completes a quorum");
+        };
+        w.verify(&CHAIN, &committee, Some(&weights)).unwrap();
+        // Weights of the wrong length are an error, never a silent head count.
+        assert!(w.verify(&CHAIN, &committee, Some(&weights[..3])).is_err());
     }
 }

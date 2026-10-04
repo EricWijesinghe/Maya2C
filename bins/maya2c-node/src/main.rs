@@ -890,8 +890,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             tokio::spawn(bft::follow_loop(
                 url.clone(),
                 Arc::clone(&chain),
-                driver.committee(),
-                driver.weights(),
+                Arc::clone(&setup.committee),
             ));
         }
         let size = setup.committee.len();
