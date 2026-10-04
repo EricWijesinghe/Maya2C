@@ -960,42 +960,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::check_shielded_guard;
-    use custom_l1_node::state::context::{SHIELDED_ACTIVATION_HEIGHT, SHIELDED_NEVER};
-
-    #[test]
-    fn mainnet_with_the_pool_off_starts_on_an_unaudited_circuit() {
-        assert!(check_shielded_guard("maya-mainnet", SHIELDED_NEVER, false).is_ok());
-    }
-
-    #[test]
-    fn mainnet_with_the_pool_able_to_run_is_refused_until_the_audit() {
-        for activation in [SHIELDED_ACTIVATION_HEIGHT, 1, 1_000_000, SHIELDED_NEVER - 1] {
-            assert!(
-                check_shielded_guard("maya-mainnet", activation, false).is_err(),
-                "activation {activation}"
-            );
-            assert!(check_shielded_guard("mainnet", activation, false).is_err());
-        }
-        assert!(check_shielded_guard("maya-mainnet", SHIELDED_ACTIVATION_HEIGHT, true).is_ok());
-    }
-
-    #[test]
-    fn the_guard_is_not_fooled_by_case_or_spaces() {
-        for name in ["Maya-Mainnet", "MAINNET", " maya-mainnet ", "Mainnet"] {
-            assert!(check_shielded_guard(name, 0, false).is_err(), "{name:?}");
-            assert!(check_shielded_guard(name, SHIELDED_NEVER, false).is_ok());
-        }
-    }
-
-    #[test]
-    fn a_testnet_runs_the_pool_without_an_audit() {
-        assert!(check_shielded_guard("maya-testnet-1", SHIELDED_ACTIVATION_HEIGHT, false).is_ok());
-    }
-}
-
 /// How often a node short of peers dials its bootnodes again.
 const REDIAL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -1029,5 +993,41 @@ async fn redial_bootnodes(network: custom_l1_node::network::NodeHandle, bootnode
                 let _ = network.dial(bootnode.clone()).await;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::check_shielded_guard;
+    use custom_l1_node::state::context::{SHIELDED_ACTIVATION_HEIGHT, SHIELDED_NEVER};
+
+    #[test]
+    fn mainnet_with_the_pool_off_starts_on_an_unaudited_circuit() {
+        assert!(check_shielded_guard("maya-mainnet", SHIELDED_NEVER, false).is_ok());
+    }
+
+    #[test]
+    fn mainnet_with_the_pool_able_to_run_is_refused_until_the_audit() {
+        for activation in [SHIELDED_ACTIVATION_HEIGHT, 1, 1_000_000, SHIELDED_NEVER - 1] {
+            assert!(
+                check_shielded_guard("maya-mainnet", activation, false).is_err(),
+                "activation {activation}"
+            );
+            assert!(check_shielded_guard("mainnet", activation, false).is_err());
+        }
+        assert!(check_shielded_guard("maya-mainnet", SHIELDED_ACTIVATION_HEIGHT, true).is_ok());
+    }
+
+    #[test]
+    fn the_guard_is_not_fooled_by_case_or_spaces() {
+        for name in ["Maya-Mainnet", "MAINNET", " maya-mainnet ", "Mainnet"] {
+            assert!(check_shielded_guard(name, 0, false).is_err(), "{name:?}");
+            assert!(check_shielded_guard(name, SHIELDED_NEVER, false).is_ok());
+        }
+    }
+
+    #[test]
+    fn a_testnet_runs_the_pool_without_an_audit() {
+        assert!(check_shielded_guard("maya-testnet-1", SHIELDED_ACTIVATION_HEIGHT, false).is_ok());
     }
 }
