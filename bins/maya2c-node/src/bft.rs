@@ -206,12 +206,16 @@ async fn catch_up_once(
     url: &str,
     chain: &Arc<Mutex<Chain>>,
     committee: &Arc<[VerifyingKey]>,
+    weights: Option<&Arc<[u64]>>,
 ) -> Result<u64, Box<dyn Error>> {
     let from = Position::of(&lock_chain(chain));
     let source = RpcBootstrapSource::new(url, tokio::runtime::Handle::current())?;
     let committee = Arc::clone(committee);
-    let blocks =
-        tokio::task::spawn_blocking(move || catchup::fetch(from, &source, &committee)).await??;
+    let weights = weights.cloned();
+    let blocks = tokio::task::spawn_blocking(move || {
+        catchup::fetch(from, &source, &committee, weights.as_deref())
+    })
+    .await??;
     if blocks.is_empty() {
         return Ok(0);
     }
@@ -226,7 +230,8 @@ pub(super) async fn catch_up(
     chain: &Arc<Mutex<Chain>>,
     driver: &mut BftDriver,
 ) -> Result<u64, Box<dyn Error>> {
-    let imported = catch_up_once(url, chain, &driver.committee()).await?;
+    let imported =
+        catch_up_once(url, chain, &driver.committee(), driver.weights().as_ref()).await?;
     driver.follow_attested(&lock_chain(chain));
     println!(
         "catch-up:    imported {imported} blocks from {url}; following attested blocks (ADR-038)"
@@ -241,14 +246,25 @@ pub(super) async fn catch_up(
 pub(super) async fn follow_loop(
     url: String,
     chain: Arc<Mutex<Chain>>,
-    committee: Arc<[VerifyingKey]>,
+    genesis_committee: Arc<[VerifyingKey]>,
 ) {
     let mut ticker = tokio::time::interval(FOLLOW_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut last_error: Option<String> = None;
     loop {
         ticker.tick().await;
-        match catch_up_once(&url, &chain, &committee).await {
+        // Re-read each round: the loop outlives the epoch it started in, and a
+        // checkpoint is only valid against its own epoch's committee.
+        let current = BftDriver::staked_committee(&lock_chain(&chain));
+        let (committee, weights) = match current {
+            Ok(Some(now)) => now,
+            Ok(None) => (Arc::clone(&genesis_committee), None),
+            Err(e) => {
+                eprintln!("catch-up: reading the committee: {e}");
+                continue;
+            }
+        };
+        match catch_up_once(&url, &chain, &committee, weights.as_ref()).await {
             Ok(_) => last_error = None,
             Err(e) => {
                 let message = e.to_string();

@@ -65,7 +65,9 @@ impl Position {
 /// `committee` is the committee this node already trusts — the genesis or
 /// staking committee in its own state. A checkpoint signed by another
 /// committee is refused: crossing a membership change needs that change's
-/// own evidence, which this does not yet fetch.
+/// own evidence, which this does not yet fetch. `weights` are that
+/// committee's voting weights on a stake-weighted chain (ADR-040 part 2),
+/// `None` where every member counts one.
 ///
 /// # Errors
 ///
@@ -74,8 +76,9 @@ pub fn catch_up(
     chain: &mut Chain,
     source: &impl CheckpointSource,
     committee: &[VerifyingKey],
+    weights: Option<&[u64]>,
 ) -> Result<u64> {
-    let blocks = fetch(Position::of(chain), source, committee)?;
+    let blocks = fetch(Position::of(chain), source, committee, weights)?;
     import(chain, blocks)
 }
 
@@ -91,11 +94,12 @@ pub fn fetch(
     from: Position,
     source: &impl CheckpointSource,
     committee: &[VerifyingKey],
+    weights: Option<&[u64]>,
 ) -> Result<Vec<Block>> {
     let Some(checkpoint) = source.checkpoint()? else {
         return Ok(Vec::new());
     };
-    checkpoint.verify(&from.tag, committee)?;
+    checkpoint.verify(&from.tag, committee, weights)?;
     if checkpoint.height <= from.height {
         return Ok(Vec::new());
     }
