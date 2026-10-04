@@ -17,6 +17,8 @@ export default defineConfig({
     starlight({
       title: "Maya2C",
       favicon: "/favicon.ico",
+      // The Orb (art direction 2026-10-04); the title stays "Maya2C", one word.
+      logo: { src: "./src/assets/orb.svg", alt: "" },
       // Bing Webmaster Tools ownership check for maya2c.dev.
       head: [
         { tag: "meta", attrs: { name: "msvalidate.01", content: "76B55D3E70EB56CB2D46FE438641E2A4" } },
@@ -69,6 +71,7 @@ export default defineConfig({
         {
           label: "Guides",
           items: [
+            { label: "Experience Maya2C", link: "/experience/" },
             { label: "Join the testnet", link: "/guides/testnet" },
             { label: "Quickstart", link: "/guides/quickstart" },
             { label: "Post-quantum signatures", link: "/guides/signatures" },
