@@ -189,6 +189,9 @@ fn differential(make_tx: impl Fn(&HybridSigningKey) -> Transaction) -> Outcome {
 fn fresh_state(accounts: &[(Address, u64)]) -> (StateDB, TempDir) {
     let dir = TempDir::new().expect("temp dir");
     let state = StateDB::open(dir.path()).expect("open state");
+    state
+        .bind_chain(crate::SANDBOX_CHAIN)
+        .expect("a fresh state binds to any chain");
     for (address, balance) in accounts {
         state
             .put_account(
@@ -225,7 +228,7 @@ fn signed(kind: TxKind, nonce: u64, key: &HybridSigningKey) -> Transaction {
         amount: 0,
         recipient: [0u8; 32],
     });
-    let _ = tx.sign(key);
+    let _ = tx.sign(key, &crate::SANDBOX_CHAIN);
     tx
 }
 
@@ -256,6 +259,26 @@ mod tests {
         for bytes in [vec![], vec![0xff; 10], vec![0u8; 200]] {
             assert!(!check_transaction(&bytes).is_finding());
         }
+    }
+
+    #[test]
+    fn a_funded_transfer_applies_so_the_oracle_compares_real_roots() {
+        // ADR-036 left fresh states unbound: every block was refused on both
+        // sides and the differential "agreed" on nothing. A plain transfer
+        // from the funded key must actually apply.
+        let (key, funding) = funded();
+        let mut tx = Transaction::new(
+            vec![],
+            vec![TxOutput {
+                amount: 1,
+                recipient: [7u8; 32],
+            }],
+            0,
+        );
+        tx.sign(&key, &crate::SANDBOX_CHAIN).unwrap();
+        let (state, _dir) = fresh_state(&funding);
+        let applied = state.apply_block(&block_of(vec![tx]), BlockContext::at_height(1));
+        assert!(applied.is_ok(), "{applied:?}");
     }
 
     #[test]
