@@ -93,6 +93,21 @@ pub trait NodeClient: Send + Sync + 'static {
     /// The chain's genesis block id and optional chain id string, needed for
     /// offline signing (ADR-036).
     async fn get_chain_info(&self) -> Result<ChainInfo, GatewayError>;
+
+    /// The DAG-BFT engine's status (`get_bft_status`), passed through as the
+    /// node's JSON: the gateway reads nothing in it. `null` from a node that
+    /// runs no DAG-BFT, which is also the default here.
+    async fn get_bft_status(&self) -> Result<serde_json::Value, GatewayError> {
+        Ok(serde_json::Value::Null)
+    }
+
+    /// The newest quorum-attested checkpoint (`get_checkpoint`, ADR-038),
+    /// passed through as the node's JSON. A caller verifies its signatures
+    /// against a committee it already trusts, so the gateway vouches for
+    /// nothing in it. `null` when none exists.
+    async fn get_checkpoint(&self) -> Result<serde_json::Value, GatewayError> {
+        Ok(serde_json::Value::Null)
+    }
 }
 
 /// A [`NodeClient`] backed by a real node's JSON-RPC port.
@@ -186,5 +201,13 @@ impl NodeClient for RpcNodeClient {
 
     async fn get_chain_info(&self) -> Result<ChainInfo, GatewayError> {
         self.call("get_chain_info", rpc_params![]).await
+    }
+
+    async fn get_bft_status(&self) -> Result<serde_json::Value, GatewayError> {
+        self.call("get_bft_status", rpc_params![]).await
+    }
+
+    async fn get_checkpoint(&self) -> Result<serde_json::Value, GatewayError> {
+        self.call("get_checkpoint", rpc_params![]).await
     }
 }
