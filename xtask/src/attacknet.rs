@@ -102,12 +102,28 @@ fn no_fork(nodes: &[u16]) -> Result<u64> {
         .min()
         .ok_or("no node answers")?;
     for h in 1..=low {
-        let ids: Vec<Option<String>> = nodes.iter().map(|i| block_id(*i, h)).collect();
-        if ids.iter().any(Option::is_none) || ids.iter().any(|id| *id != ids[0]) {
+        let ids = nodes
+            .iter()
+            .map(|i| block_id_patiently(*i, h).ok_or(format!("node {i} does not serve height {h}")))
+            .collect::<Result<Vec<String>>>()?;
+        if ids.iter().any(|id| *id != ids[0]) {
             return Err(format!("FORK at height {h}: {ids:?}"));
         }
     }
     Ok(low)
+}
+
+/// `block_id`, retried: a node's RPC rate limit (50 a second) refuses a
+/// walk over every height, the more so right after the RPC flood. A refusal
+/// is not a fork; only two different answers are.
+fn block_id_patiently(i: u16, h: u64) -> Option<String> {
+    for _ in 0..20 {
+        if let Some(id) = block_id(i, h) {
+            return Some(id);
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    None
 }
 
 fn wait_until(what: &str, mut check: impl FnMut() -> bool) -> Result<Duration> {
@@ -230,9 +246,48 @@ fn start_node(work: &Path, i: u16, catch_up: Option<u16>) -> Result<Child> {
         .map_err(|e| format!("starting node {i}: {e}"))
 }
 
+/// The current committee: its size, and which running nodes hold a seat.
+/// Staking reshapes it every epoch (downtime jails, equivocation retires),
+/// so an attack aimed at "the last f processes" can miss the committee
+/// entirely after the first round.
+fn seated() -> Result<(u16, Vec<u16>)> {
+    let mut size = 0;
+    let mut members = Vec::new();
+    for i in 0..VALIDATORS {
+        let Ok(status) = rpc(i, "get_bft_status", &json!([])) else {
+            continue;
+        };
+        size = size.max(u16::try_from(status["committee"].as_u64().unwrap_or(0)).unwrap_or(0));
+        if status["validator"].is_u64() {
+            members.push(i);
+        }
+    }
+    Ok((size, members))
+}
+
+/// `count` seated validators to crash, taken from the end so node 0, which
+/// the checks read, stays up when it can.
+fn victims(count: u16) -> Result<(u16, Vec<u16>)> {
+    let (size, members) = seated()?;
+    if members.len() < usize::from(count) {
+        return Err(format!(
+            "only {} seated validators running, need {count}",
+            members.len()
+        ));
+    }
+    let down = members[members.len() - usize::from(count)..].to_vec();
+    Ok((size, down))
+}
+
+/// Faults a committee of `n` equal seats tolerates.
+fn faults(n: u16) -> u16 {
+    n.saturating_sub(1) / 3
+}
+
 /// Attack 1: f validators crash; n − f carry on.
 fn crash_f(net: &mut Net) -> Result<()> {
-    let down: Vec<u16> = (VALIDATORS - FAULTS..VALIDATORS).collect();
+    let (n, _) = seated()?;
+    let (_, down) = victims(faults(n))?;
     for i in &down {
         net.procs.kill(usize::from(*i));
     }
@@ -240,7 +295,8 @@ fn crash_f(net: &mut Net) -> Result<()> {
     let from = height(0).ok_or("node 0 silent")?;
     let t = wait_until("n - f validators committing", || agree(&live, from + 5))?;
     net.say(format!(
-        "crash f={FAULTS}: {} validators committed 5 blocks in {t:.1?}",
+        "crash f={} of a {n}-seat committee: {} nodes committed 5 blocks in {t:.1?}",
+        down.len(),
         live.len()
     ));
     for i in down {
@@ -249,13 +305,14 @@ fn crash_f(net: &mut Net) -> Result<()> {
     let all = Net::honest(&[]);
     let target = height(0).ok_or("node 0 silent")?;
     let t = wait_until("crashed validators rejoining", || agree(&all, target))?;
-    net.say(format!("crash f: both rejoined in {t:.1?}"));
+    net.say(format!("crash f: all rejoined in {t:.1?}"));
     Ok(())
 }
 
 /// Attack 2: f + 1 crash; the chain must stop rather than fork, then resume.
 fn crash_f_plus_one(net: &mut Net) -> Result<()> {
-    let down: Vec<u16> = (VALIDATORS - FAULTS - 1..VALIDATORS).collect();
+    let (n, _) = seated()?;
+    let (_, down) = victims(faults(n) + 1)?;
     for i in &down {
         net.procs.kill(usize::from(*i));
     }
@@ -280,8 +337,8 @@ fn crash_f_plus_one(net: &mut Net) -> Result<()> {
         ));
     }
     net.say(format!(
-        "crash f+1={}: halted at {after} for {HALT_WATCH:?} (no quorum), as BFT must",
-        FAULTS + 1
+        "crash f+1={} of a {n}-seat committee: halted at {after} for {HALT_WATCH:?} (no quorum), as BFT must",
+        down.len()
     ));
     for i in down {
         net.restart(i, Some(0))?;
@@ -478,6 +535,9 @@ pub fn attacknet(args: &[String]) -> Result<()> {
         .map_or(Ok(1), |v| {
             v.parse::<usize>().map_err(|e| format!("--rounds: {e}"))
         })?;
+    if rounds == 0 {
+        return Err("--rounds must be at least 1".into());
+    }
     devnet::build(&["maya2c-node", "l1-wallet"])?;
     let work = devnet::root().join("target").join("attacknet");
     setup(&work, weighted)?;
@@ -498,7 +558,10 @@ pub fn attacknet(args: &[String]) -> Result<()> {
             ));
         })
         .and_then(|()| (1..=rounds).try_for_each(|n| round(&mut net, n)));
-    let report = write_report(&net, weighted, &outcome)?;
-    println!("attacknet: report {}", report.display());
+    // A report that cannot be written must not hide the attacks' result.
+    match write_report(&net, weighted, &outcome) {
+        Ok(report) => println!("attacknet: report {}", report.display()),
+        Err(e) => eprintln!("attacknet: report not written: {e}"),
+    }
     outcome.map_err(|e| format!("{e} (logs: {})", work.display()))
 }
