@@ -35,3 +35,20 @@ reaches one.
 
 **Prevent.** On a testnet run by one operator, start the validator with
 `--min-register-bond` above what the faucet can fund (ADR-039 option 3).
+
+## The only validator's host restarted
+
+**Seen 2026-10-04.** Windows Update restarted the testnet PC at 12:59:20 to
+install an Insider build (`MoUsoCoreWorker.exe`, User32 event 1074 in
+`C:\Windows.old\…\System.evtx`). The upgrade took until 15:38. The
+watchdog and logon script brought the stack back by 15:44:28. There were
+no blocks for 2 h 45 min.
+
+**Check.** Run the block-gap scan against the local node: look for the
+largest timestamp gap between consecutive heights. Read the System event
+log, or the previous OS's log after an upgrade, for event 1074 at the gap's
+start.
+
+**Prevent.** One validator on a desktop halts with every OS update. Until
+the seed moves to an always-on server, the owner pauses Windows Update or
+sets active hours on that PC. Claude does not change OS update settings.
