@@ -7,7 +7,7 @@
 // the still poster behind the canvas stays.
 ---
 
-<section class="stage" aria-label="Maya2C, live">
+<section class="stage not-content" aria-label="Maya2C, live">
   <div class="poster" aria-hidden="true"></div>
   <canvas id="field" aria-label="Live bubbles, one per finalized block. Drag them, or tap one to open its block."></canvas>
   <div class="card-pop" id="pop" hidden role="status"></div>
@@ -183,7 +183,7 @@
   const FS = `precision highp float;
 uniform vec2 uRes; uniform float uT; uniform float uDpr; uniform float uLight; uniform vec4 uB[${MAX}];
 float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
-vec3 film(float t){ return vec3(0.52,0.52,0.62) + vec3(0.42,0.42,0.38) * cos(6.28318 * (t + vec3(0.0,0.12,0.26))); }
+vec3 film(float t){ return vec3(0.50,0.62,0.63) + vec3(0.36,0.30,0.26) * cos(6.28318 * (t + vec3(0.10,0.0,-0.08))); }
 void main(){
   vec2 p = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y) / uDpr;
   float f = 0.0; vec2 g = vec2(0.0); float hue = 0.0; float ws = 0.0;
@@ -203,21 +203,21 @@ void main(){
   float rim = exp(-(f - 1.0) * 4.0) * inside;
   vec3 L = normalize(vec3(-0.5, -0.6, 0.7));
   float spec = pow(max(dot(reflect(-L, n), vec3(0.0, 0.0, 1.0)), 0.0), 40.0);
-  vec3 tint = mix(film(0.35 + 0.55 * n.x + 0.4 * n.y + uT * 0.04), vec3(1.0, 0.78, 0.45), smoothstep(0.2, 0.8, hue));
+  vec3 tint = mix(film(0.35 + 0.55 * n.x + 0.4 * n.y + uT * 0.04), vec3(0.92, 0.74, 0.44), smoothstep(0.2, 0.8, hue));
   vec2 uv = gl_FragCoord.xy / uRes;
   // Aurora: slow light fields behind the bubbles. Decoration, not data.
   vec2 a1 = vec2(0.70 + 0.10 * sin(uT * 0.11), 0.55 + 0.08 * cos(uT * 0.13));
   vec2 a2 = vec2(0.25 + 0.12 * cos(uT * 0.07), 0.80 + 0.06 * sin(uT * 0.09));
   vec2 a3 = vec2(0.90 + 0.06 * sin(uT * 0.05), 0.15 + 0.10 * cos(uT * 0.08));
   float asp = uRes.x / uRes.y; vec2 k = vec2(asp, 1.0);
-  vec3 c1 = vec3(0.36, 0.42, 1.00), c2 = vec3(0.25, 0.82, 0.88), c3 = vec3(0.62, 0.42, 1.00);
+  vec3 c1 = vec3(0.12, 0.71, 0.76), c2 = vec3(0.45, 0.86, 0.90), c3 = vec3(0.85, 0.69, 0.42);
   float w1 = exp(-length((uv - a1) * k) * 2.4), w2 = exp(-length((uv - a2) * k) * 2.8), w3 = exp(-length((uv - a3) * k) * 3.2);
   vec3 bgD = vec3(0.020, 0.024, 0.051) + c1 * 0.16 * w1 + c2 * 0.09 * w2 + c3 * 0.10 * w3;
   vec3 bgL = mix(mix(mix(vec3(0.980, 0.984, 0.992), c1, 0.20 * w1), c2, 0.14 * w2), c3, 0.14 * w3);
   vec3 bg = mix(bgD, bgL, uLight);
   vec3 bodyD = bg * 1.3 + tint * (0.10 + fres * 0.95) + tint * rim * 0.55 + vec3(1.0) * spec * 0.9;
   // On paper, light cannot be added: the film darkens toward its tint instead.
-  vec3 ink = tint * vec3(0.62, 0.66, 0.92);
+  vec3 ink = tint * vec3(0.50, 0.72, 0.76);
   vec3 bodyL = mix(bg, ink, clamp(0.08 + fres * 0.85 + rim * 0.45, 0.0, 0.92)) + vec3(1.0) * spec * 0.6;
   vec3 col = mix(bg, mix(bodyD, bodyL, uLight), inside);
   float halo = exp(-abs(f - 1.0) * 3.0) * (1.0 - inside) * smoothstep(0.0, 0.6, f);
@@ -280,7 +280,7 @@ void main(){
   /* Full-bleed: the hero spans the window, whatever column Starlight puts it in. */
   .stage { position: relative; width: 100vw; margin: 0 0 0 calc(50% - 50vw); min-height: calc(100svh - var(--sl-nav-height, 64px)); overflow: hidden; border-radius: 0 0 var(--r-l) var(--r-l); background: var(--void); }
   .poster { position: absolute; inset: 0; background:
-    radial-gradient(22rem 22rem at 72% 45%, rgba(124,108,255,.30), transparent 70%),
+    radial-gradient(22rem 22rem at 72% 45%, rgba(201, 168, 106,.30), transparent 70%),
     radial-gradient(14rem 14rem at 64% 60%, rgba(63,210,224,.22), transparent 70%), var(--void); }
   .stage.gl .poster { display: none; }
   #field { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: pan-y; cursor: grab; }
@@ -292,13 +292,13 @@ void main(){
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
   .stage.live .dot { background: var(--signal); animation: beat 1.1s var(--glide) infinite; }
   @keyframes beat { 0% { box-shadow: 0 0 0 0 rgba(255,181,71,.55); } 100% { box-shadow: 0 0 0 12px rgba(255,181,71,0); } }
-  h1 { font: 200 clamp(42px, 6vw, 84px)/1.02 var(--display); letter-spacing: -0.035em; margin: 24px 0 20px; color: var(--text); text-wrap: balance; }
+  h1 { font: 760 clamp(42px, 6vw, 84px)/1.02 var(--display); letter-spacing: -0.04em; margin: 24px 0 20px; color: var(--text); text-wrap: balance; }
   h1 span { white-space: nowrap; font-weight: 300; background: var(--title-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
   .lede { max-width: 46ch; color: var(--lede); font-size: clamp(16px, 1.5vw, 19px); margin: 0; }
   .cta { display: flex; gap: 12px; margin-top: 28px; flex-wrap: wrap; }
   .btn { font: 600 15px/1 var(--sans); padding: 16px 24px; border-radius: var(--r-pill); color: var(--text); text-decoration: none; background: var(--glass); border: 1px solid var(--glass-edge); backdrop-filter: blur(14px); transition: transform .45s var(--spring), box-shadow .45s var(--glide); }
   .btn:hover { transform: translateY(-2px) scale(1.03); color: var(--text); }
-  .btn.primary { background: linear-gradient(120deg, var(--cherenkov), var(--iris-a)); border-color: transparent; color: #fff; box-shadow: 0 14px 40px -12px rgba(91,140,255,.75); }
+  .btn.primary { background: linear-gradient(120deg, var(--cherenkov), var(--iris-a)); border-color: transparent; color: #fff; box-shadow: 0 14px 40px -12px rgba(31, 181, 194,.75); }
   .hint { margin: 16px 0 0; font: 400 12.5px/1.4 var(--mono); color: var(--muted); }
   .tiles { display: flex; gap: 12px; flex-wrap: wrap; margin: 0; }
   .tile { flex: 1 1 150px; min-width: 0; padding: 16px 20px; border-radius: var(--r-m); background: var(--glass); border: 1px solid var(--glass-edge); backdrop-filter: blur(16px); }
