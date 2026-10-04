@@ -1,6 +1,27 @@
 # State
 
 ## Handover
+- **Done (2026-10-04 overnight):**
+  - explorer.maya2c.dev live.
+  - Testnet on master with ADR-038 checkpoints, `get_bft_status`, and the
+    `--min-register-bond 1000000000` floor.
+  - Quorum is n − f (ADR-039, #54).
+  - Validator tooling and guide (#55, #58).
+  - Live consensus cells, SEO card, NLnet refresh.
+  - First release tagged: `node-v0.1.0-testnet.1`.
+  - Report: `reports/sessions/2026-10-04-overnight.md`.
+- **Unfinished:**
+  - Release run 37166896701: confirm the assets, and that `releases/latest`
+    resolves.
+  - #59 (ADR-040 part 1) awaiting CI.
+  - #21 Astro bump needs a visual check.
+- **Do first next session:**
+  - Check the release run, then merge #59 when green.
+  - Then Eric's decisions:
+    - ADR-040 part 2 (weights at mainnet genesis?);
+    - P2P reachability (router port 31100, Oracle VM, or WebSocket
+      transport);
+    - submit NLnet.
 - **Done (2026-10-03):** gate 1 (ADR-036, PR #43) and gate 2 (ADR-037, PR #44) finished in code with full workspace runs green; Wasmtime 48.0.4 (#42); wallet redesign with Receive, live network pill and Sent screen (#45, e2e green); testnet watchdog task. Report: `reports/sessions/2026-10-03-gates-1-2-wallet.md`.
 - **Unfinished:** merge order #42 → #43 → #44 → #45 (each retargeted to master as its base merges), plus #32, #30, #35, #39 after updating against master; then rebuild testnet binaries from master and re-genesis maya-testnet-1 (third time) — the 7-day soak (gate 3) restarts there.
 - **Do first next session:** `gh pr checks 42 43`; merge what is green in that order; then the re-genesis runbook (ADR-036 consequences) and update docs/site join-page genesis values.
