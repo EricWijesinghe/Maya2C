@@ -163,6 +163,8 @@ struct Args {
     config: Option<PathBuf>,
     /// Pruning depth; `None` is an archive node, which prunes nothing.
     prune_depth: Option<u64>,
+    /// Serve snapshots once this many blocks deep, without pruning.
+    snapshot_depth: Option<u64>,
     /// Prune without keeping any archive, like a Bitcoin pruned node.
     prune_without_archive: bool,
     /// Local archive directory; defaults to `<data-dir>/archive`.
@@ -228,6 +230,7 @@ impl Default for Args {
             // commits the node to refusing reorgs below its horizon, which is
             // an operator's decision.
             prune_depth: None,
+            snapshot_depth: None,
             prune_without_archive: false,
             archive_dir: None,
             ipfs_api: None,
@@ -267,6 +270,7 @@ fn print_usage() {
          \x20                    or required. See docs/pq-transport.md\n  \
          --prune              prune bodies older than one DAG epoch (30,000 blocks)\n  \
          --prune-depth <N>    prune bodies older than N blocks (implies --prune)\n  \
+         --snapshot-depth <N> serve snapshots once N blocks deep, without pruning\n  \
          --prune-without-archive  prune without writing any archive first\n  \
          --archive-dir <PATH> local archive directory (default <data-dir>/archive)\n  \
          --ipfs-api <URL>     also archive to a kubo node, e.g. http://127.0.0.1:5001\n  \
@@ -329,6 +333,7 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--mine" => args.mine = true,
             "--prune" => args.prune_depth = args.prune_depth.or(Some(PRUNE_DEPTH)),
             "--prune-depth" => args.prune_depth = Some(value()?.parse()?),
+            "--snapshot-depth" => args.snapshot_depth = Some(value()?.parse()?),
             "--prune-without-archive" => args.prune_without_archive = true,
             "--archive-dir" => args.archive_dir = Some(PathBuf::from(value()?)),
             "--ipfs-api" => args.ipfs_api = Some(value()?),
@@ -763,7 +768,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let rpc_pool = Mempool::new(Arc::clone(&state));
     let rpc_context =
         RpcContext::new(Arc::clone(&chain), rpc_pool.clone()).with_network(config.chain_id.clone());
-    let checkpoint_slot = Arc::new(Mutex::new(None));
+    let checkpoint_slot = Arc::new(Mutex::new(Default::default()));
     let status_slot = Arc::new(Mutex::new(custom_l1_node::rpc::types::BftStatus::default()));
     let rpc_context = if mode == "dag-bft" {
         rpc_context
@@ -813,6 +818,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             Err(error) => eprintln!("could not dial {bootnode}: {error}"),
         }
     }
+    tokio::spawn(redial_bootnodes(network.clone(), args.bootnodes.clone()));
 
     // --- RPC ---
     let limiter = Arc::new(custom_l1_node::rpc::limit::RateLimiter::new(
@@ -887,10 +893,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let (mut driver, opening) = bft::open(&setup, &args.data_dir, &chain)?;
         if let Some(url) = &args.catch_up_from {
             bft::catch_up(url, &chain, &mut driver).await?;
+            // Always, even for a node level with the network: if its engine
+            // then fails to rejoin, imported blocks are what rescue it (the
+            // driver turns follower when it is overtaken).
             tokio::spawn(bft::follow_loop(
                 url.clone(),
                 Arc::clone(&chain),
-                driver.committee(),
+                Arc::clone(&setup.committee),
             ));
         }
         let size = setup.committee.len();
@@ -949,6 +958,42 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tokio::signal::ctrl_c().await?;
     println!("shutting down");
     Ok(())
+}
+
+/// How often a node short of peers dials its bootnodes again.
+const REDIAL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Dials the configured bootnodes again while this node has fewer peers than
+/// it has bootnodes. A dial made before the other node was listening fails
+/// once and is never retried by libp2p; discovery only reaches peers through
+/// peers already connected. The attacknet found seven validators started
+/// together left in fragments, no quorum anywhere, for good. A bootnode
+/// whose address names its peer id is skipped once connected.
+async fn redial_bootnodes(network: custom_l1_node::network::NodeHandle, bootnodes: Vec<Multiaddr>) {
+    use libp2p::multiaddr::Protocol;
+    if bootnodes.is_empty() {
+        return;
+    }
+    let mut ticker = tokio::time::interval(REDIAL_INTERVAL);
+    ticker.tick().await; // the first tick is immediate; startup just dialed
+    loop {
+        ticker.tick().await;
+        let Ok(connected) = network.connected_peers().await else {
+            return; // the network task is gone: nothing to dial with
+        };
+        if connected.len() >= bootnodes.len() {
+            continue;
+        }
+        for bootnode in &bootnodes {
+            let known = bootnode
+                .iter()
+                .any(|p| matches!(p, Protocol::P2p(id) if connected.contains(&id)));
+            if !known {
+                // Failure is the normal case while that node is down.
+                let _ = network.dial(bootnode.clone()).await;
+            }
+        }
+    }
 }
 
 #[cfg(test)]

@@ -22,7 +22,7 @@ allocation, and anyone who says otherwise is not speaking for this project.
 | Validator software | Shipped: `maya2c-node` in the [releases page](https://github.com/EricWijesinghe/Maya2C/releases) |
 | Registering a key | Shipped: `l1-wallet register-validator` |
 | Rejoining after an outage | Shipped: attested checkpoints, `--catch-up-from` ([ADR-038](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-038-attested-checkpoints.md)) |
-| Connecting to the network | **Not yet.** The seed node has no public peer-to-peer port; only its HTTP API is published |
+| Connecting to the network | Shipped: a public WebSocket bootnode at `p2p.maya2c.dev`, and a bootstrap endpoint for snapshots and headers at `bootstrap.maya2c.dev` |
 | Open registration | **Not yet.** Registrations are reviewed, because of the capture risk below |
 
 ### Why registration is reviewed for now
@@ -77,9 +77,18 @@ and it is written down as one. It is not how mainnet will work.
    It prints your validator id. The committee is recomputed at each epoch
    boundary (every 3,600 blocks, about an hour), and you join it at the
    first boundary after the registration is final.
-6. **Run the node** with `--validator-key validator.key`, the testnet
-   `genesis.json`, and the bootnode address you will be given. Once the
-   seed has a public peer-to-peer port, it will be published here.
+6. **Get the testnet genesis** from
+   [maya2c.dev/testnet/genesis.json](/testnet/genesis.json) and check that
+   it hashes to
+   `dd9bb356c94b7699e6e8d2595681faee48be435b02dc927677cbf833e55edd5d`
+   (SHA-256).
+7. **Run the node.** It dials the bootnode over WebSocket, so it works
+   from behind NAT. It also catches up to the network's newest attested
+   checkpoint before it votes:
+
+   ```bash
+   maya2c-node --genesis genesis.json --data-dir data      --validator-key validator.key      --bootnode /dns4/p2p.maya2c.dev/tcp/443/wss/p2p/12D3KooWK2bykmqyzdK4TMSTBQ5visSjkFoK8wj88aMn3ms4ByiG      --catch-up-from https://bootstrap.maya2c.dev/rpc
+   ```
 
 ## What being a validator means
 

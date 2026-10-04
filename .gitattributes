@@ -34,3 +34,6 @@
 *.woff2 binary
 *.ttf binary
 *.otf binary
+
+# Served byte-for-byte; joiners check its SHA-256, so no line-ending conversion.
+docs/site/public/testnet/genesis.json -text

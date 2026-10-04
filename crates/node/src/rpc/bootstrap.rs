@@ -198,15 +198,57 @@ impl RpcBootstrapSource {
         })
     }
 
+    /// One request, retried with backoff when the transport fails: a public
+    /// bootstrap endpoint rate-limits per client (HTTP 429), and a joining
+    /// node that gave up on the first refusal would have to start over. A
+    /// JSON-RPC error from the peer is an answer, not a failure, and is
+    /// returned at once. Blocks this thread while it waits; every caller runs
+    /// on `spawn_blocking` (see the type's docs).
     fn call<T: serde::de::DeserializeOwned>(
         &self,
         method: &str,
-        params: jsonrpsee::core::params::ArrayParams,
+        params: &jsonrpsee::core::params::ArrayParams,
     ) -> Result<T> {
-        self.runtime
-            .block_on(self.client.request(method, params))
-            .map_err(|e| NodeError::Network(format!("{method}: {e}")))
+        let mut wait = RETRY_FIRST_WAIT;
+        let mut attempt = 1;
+        let started = std::time::Instant::now();
+        loop {
+            match self
+                .runtime
+                .block_on(self.client.request(method, params.clone()))
+            {
+                Ok(value) => return Ok(value),
+                Err(e)
+                    if is_transient(&e)
+                        && attempt < RETRY_ATTEMPTS
+                        && started.elapsed() + wait < RETRY_DEADLINE =>
+                {
+                    std::thread::sleep(wait);
+                    wait = (wait * 2).min(RETRY_MAX_WAIT);
+                    attempt += 1;
+                }
+                Err(e) => return Err(NodeError::Network(format!("{method}: {e}"))),
+            }
+        }
     }
+}
+
+/// Attempts per request before a transport failure is final. The waits
+/// between them add up to about 92 s (0.5, 1, 2, 4, 8, 16, then 20 s each).
+const RETRY_ATTEMPTS: u32 = 10;
+/// However many attempts remain, a request is given up after this long, so a
+/// peer that answers each request slowly cannot hold one for ten timeouts.
+const RETRY_DEADLINE: std::time::Duration = std::time::Duration::from_secs(180);
+const RETRY_FIRST_WAIT: std::time::Duration = std::time::Duration::from_millis(500);
+const RETRY_MAX_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// A failure worth retrying: the request never got an answer (refused,
+/// rate-limited, timed out, connection lost), as opposed to an answer. A
+/// client that needs a restart is not transient: the same client can never
+/// succeed again.
+fn is_transient(e: &jsonrpsee::core::ClientError) -> bool {
+    use jsonrpsee::core::ClientError;
+    matches!(e, ClientError::Transport(_) | ClientError::RequestTimeout)
 }
 
 fn unhex(text: &str) -> Result<Vec<u8>> {
@@ -216,7 +258,16 @@ fn unhex(text: &str) -> Result<Vec<u8>> {
 impl crate::consensus::bft::catchup::CheckpointSource for RpcBootstrapSource {
     fn checkpoint(&self) -> Result<Option<crate::consensus::bft::attest::Checkpoint>> {
         let info: Option<crate::rpc::types::CheckpointInfo> =
-            self.call("get_checkpoint", rpc_params![])?;
+            self.call("get_checkpoint", &rpc_params![])?;
+        info.map(|i| i.checkpoint()).transpose()
+    }
+
+    fn checkpoint_of(
+        &self,
+        epoch: u64,
+    ) -> Result<Option<crate::consensus::bft::attest::Checkpoint>> {
+        let info: Option<crate::rpc::types::CheckpointInfo> =
+            self.call("get_checkpoint", &rpc_params![epoch])?;
         info.map(|i| i.checkpoint()).transpose()
     }
 
@@ -227,11 +278,11 @@ impl crate::consensus::bft::catchup::CheckpointSource for RpcBootstrapSource {
 
 impl BootstrapSource for RpcBootstrapSource {
     fn tip_height(&self) -> Result<u64> {
-        self.call("get_tip_height", rpc_params![])
+        self.call("get_tip_height", &rpc_params![])
     }
 
     fn headers(&self, from: u64, to: u64) -> Result<Vec<BlockHeader>> {
-        let headers: Vec<String> = self.call("get_headers", rpc_params![from, to])?;
+        let headers: Vec<String> = self.call("get_headers", &rpc_params![from, to])?;
         headers
             .iter()
             .map(|text| BlockHeader::from_bytes(&unhex(text)?))
@@ -239,7 +290,7 @@ impl BootstrapSource for RpcBootstrapSource {
     }
 
     fn snapshot_manifest(&self) -> Result<SnapshotManifest> {
-        let text: String = self.call("get_snapshot_manifest", rpc_params![])?;
+        let text: String = self.call("get_snapshot_manifest", &rpc_params![])?;
         let manifest = SnapshotManifest::decode(&unhex(&text)?)?;
         *self
             .snapshot_height
@@ -254,12 +305,36 @@ impl BootstrapSource for RpcBootstrapSource {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .ok_or_else(|| NodeError::Network("chunk asked for before the manifest".into()))?;
-        let text: String = self.call("get_snapshot_chunk", rpc_params![height, index])?;
+        let text: String = self.call("get_snapshot_chunk", &rpc_params![height, index])?;
         unhex(&text)
     }
 
     fn block(&self, height: u64) -> Result<Block> {
-        let info: BlockInfo = self.call("get_block_by_height", rpc_params![height])?;
+        let info: BlockInfo = self.call("get_block_by_height", &rpc_params![height])?;
         Block::from_bytes(&unhex(&info.raw)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_transient;
+    use jsonrpsee::core::ClientError;
+    use jsonrpsee::types::ErrorObjectOwned;
+
+    #[test]
+    fn a_refused_or_timed_out_request_is_retried_and_an_answer_is_not() {
+        // HTTP 429 from a rate-limited gateway surfaces as a transport error.
+        let rate_limited = ClientError::Transport("Request rejected `429`".into());
+        assert!(is_transient(&rate_limited));
+        assert!(is_transient(&ClientError::RequestTimeout));
+        // The peer answered "no": asking again gets the same answer.
+        let answered = ClientError::Call(ErrorObjectOwned::owned(
+            -32601,
+            "no such method",
+            None::<()>,
+        ));
+        assert!(!is_transient(&answered));
+        let dead = ClientError::RestartNeeded(std::sync::Arc::new(ClientError::RequestTimeout));
+        assert!(!is_transient(&dead), "a dead client is not retried");
     }
 }

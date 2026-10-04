@@ -41,6 +41,11 @@ struct Args {
     /// header a proxy in front sets. See `limit` for why this matters.
     #[arg(long, value_enum, default_value_t = ClientIpArg::Socket, env = "MAYA_GATEWAY_CLIENT_IP")]
     client_ip: ClientIpArg,
+    /// Also forward the pruned-node bootstrap methods (snapshots, headers),
+    /// for a separate instance new validators restore from. Off on the
+    /// public gateway.
+    #[arg(long, env = "MAYA_GATEWAY_BOOTSTRAP")]
+    bootstrap: bool,
 }
 
 #[derive(Clone, Copy, Debug, clap::ValueEnum)]
@@ -71,7 +76,9 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
     let args = Args::parse();
-    let node = RpcNodeClient::connect(&args.node).context("connecting to the node")?;
+    let node = RpcNodeClient::connect(&args.node)
+        .context("connecting to the node")?
+        .with_bootstrap(args.bootstrap);
     let listener = tokio::net::TcpListener::bind(args.listen)
         .await
         .with_context(|| format!("binding {}", args.listen))?;

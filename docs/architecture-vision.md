@@ -212,6 +212,7 @@ is a fork; §7 states the rule.
 | Multi-language SDKs | **SHIPPED** | `sdk-ffi`, `sdk-wasm`, `sdk-js` | Which bindings are generated but never compiled: [sdk.md](sdk.md) |
 | LaTeX technical reference generator | **SHIPPED** | `docgen` | Generated from module documentation |
 | Testnet faucet | **SHIPPED** | `faucet` | Two independent rate-limit buckets — invariant 16 |
+| Chain status and uptime | **SHIPPED** | `apps/status` | Uptime and halts recomputed from block timestamps, never self-reported; status.maya2c.dev; push alert on a halt when configured |
 | Workspace automation (`xtask`) | **SHIPPED** | `xtask` | `cargo xtask disk` measures build output against the 30 GiB ceiling — this volume has been filled to zero bytes twice, and a full disk reports as `os error 112`. `cargo xtask coverage` fails when `features.toml` claims a subsystem works and names no test that exists |
 | Lean 4 mathematical proof engine | **PLANNED** | — | Machine-checked proofs of the ledger and consensus rules. Kani covers the arithmetic crates today; Lean would reach what bounded model checking cannot |
 

@@ -1,0 +1,103 @@
+---
+// Starlight's header, rearranged: emblem and wordmark, the five places most
+// visitors want (with the current one lit), search, then GitHub and theme.
+// Two page-wide controls ride along because every page renders the header:
+// a reading-progress hairline and a back-to-top button.
+import config from "virtual:starlight/user-config";
+import Search from "virtual:starlight/components/Search";
+import SiteTitle from "virtual:starlight/components/SiteTitle";
+import SocialIcons from "virtual:starlight/components/SocialIcons";
+import ThemeSelect from "virtual:starlight/components/ThemeSelect";
+
+const path = Astro.url.pathname;
+const nav = [
+  { label: "Experience", href: "/experience/", match: "/experience" },
+  { label: "Docs", href: "/guides/quickstart/", match: "/guides/quickstart" },
+  { label: "Testnet", href: "/guides/testnet/", match: "/guides/testnet" },
+  { label: "Validators", href: "/guides/validators/", match: "/guides/validators" },
+  { label: "Explorer", href: "https://explorer.maya2c.dev/", external: true },
+  { label: "Status", href: "https://status.maya2c.dev/", external: true },
+];
+const showSearch =
+  config.pagefind || config.components.Search !== "@astrojs/starlight/components/Search.astro";
+---
+
+<div class="bar">
+  <div class="title"><SiteTitle /></div>
+  <nav class="primary" aria-label="Main">
+    {nav.map((n) => (
+      <a
+        href={n.href}
+        aria-current={n.match && path.startsWith(n.match) ? "page" : undefined}
+        {...(n.external ? { rel: "noopener", target: "_blank" } : {})}
+      >
+        {n.label}{n.external && <span class="ext" aria-hidden="true">↗</span>}
+      </a>
+    ))}
+  </nav>
+  <div class="search print:hidden">{showSearch && <Search />}</div>
+  <div class="right sl-hidden md:sl-flex print:hidden">
+    <SocialIcons />
+    <ThemeSelect />
+  </div>
+</div>
+
+<div class="progress" aria-hidden="true"><span id="maya-progress"></span></div>
+<button class="to-top" id="maya-top" type="button" aria-label="Back to top" title="Back to top (Home key)">
+  <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+</button>
+
+<script>
+  const bar = document.getElementById("maya-progress");
+  const top = document.getElementById("maya-top");
+  let queued = false;
+  const update = () => {
+    queued = false;
+    const max = document.documentElement.scrollHeight - innerHeight;
+    const y = scrollY;
+    if (bar) bar.style.transform = `scaleX(${max > 0 ? Math.min(1, y / max) : 0})`;
+    top?.classList.toggle("on", y > innerHeight * 0.8);
+  };
+  addEventListener("scroll", () => { if (!queued) { queued = true; requestAnimationFrame(update); } }, { passive: true });
+  addEventListener("resize", update);
+  update();
+  top?.addEventListener("click", () => {
+    const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    scrollTo({ top: 0, behavior: reduce ? "auto" : "smooth" });
+    (document.querySelector("main") as HTMLElement | null)?.focus({ preventScroll: true });
+  });
+  // "/" opens search, as on most documentation sites (Ctrl/Cmd+K still works).
+  addEventListener("keydown", (e) => {
+    const t = e.target as HTMLElement;
+    if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (t.closest("input, textarea, select, [contenteditable=true]")) return;
+    const open = document.querySelector<HTMLButtonElement>("site-search button[data-open-modal]");
+    if (open) { e.preventDefault(); open.click(); }
+  });
+</script>
+
+<style>
+  .bar { display: flex; align-items: center; gap: clamp(12px, 2vw, 28px); height: 100%; }
+  .title { flex: none; min-width: 0; }
+  .primary { display: none; align-items: center; gap: 2px; padding: 4px; border-radius: 999px; background: var(--nav-pill); border: 1px solid var(--glass-edge); }
+  .primary a { position: relative; padding: 8px 14px; border-radius: 999px; font: 600 14px/1 var(--sans); color: var(--muted); text-decoration: none; white-space: nowrap; transition: color .25s, background-color .25s; }
+  .primary a:hover { color: var(--text); background: var(--nav-hover); }
+  .primary a[aria-current="page"] { color: var(--on-accent); background: var(--accent-fill); box-shadow: 0 6px 18px -8px var(--brand-glow); }
+  .ext { margin-left: 3px; font-size: 11px; opacity: .7; }
+  .search { flex: 1 1 auto; display: flex; justify-content: flex-end; min-width: 0; }
+  .right { flex: none; align-items: center; gap: 1rem; }
+  @media (min-width: 72rem) { .primary { display: flex; } .search { flex: 0 1 240px; margin-left: auto; } }
+
+  .progress { position: fixed; inset: 0 0 auto 0; height: 2px; z-index: 100; pointer-events: none; }
+  .progress span { display: block; height: 100%; transform-origin: 0 50%; transform: scaleX(0); background: var(--brand-line); }
+
+  .to-top { position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: max(20px, env(safe-area-inset-bottom)); z-index: 90;
+    width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; cursor: pointer;
+    color: var(--text); background: var(--glass); border: 1px solid var(--glass-edge); backdrop-filter: blur(16px) saturate(1.4);
+    box-shadow: var(--shadow); opacity: 0; transform: translateY(16px) scale(.9); pointer-events: none;
+    transition: opacity .35s var(--glide), transform .5s var(--spring), border-color .25s; }
+  .to-top.on { opacity: 1; transform: none; pointer-events: auto; }
+  .to-top:hover { border-color: var(--accent); transform: translateY(-3px); }
+  .to-top:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  @media (prefers-reduced-motion: reduce) { .to-top, .primary a { transition: none; } }
+</style>

@@ -1,0 +1,161 @@
+---
+// The launch ladder as one instrument: eight cells, one per gate, filled as
+// gates pass. Every number is computed from src/data/launch-gates.ts, the same
+// list the ladder above renders — this panel cannot claim more than it does.
+// The "decrypt" readout and the scan beam are decoration: they animate the
+// real figures in, they never invent one.
+import { gates } from "../data/launch-gates";
+
+const total = gates.length;
+const passed = gates.filter((g) => g.state === "done").length;
+const next = gates.find((g) => g.state === "next");
+const pct = Math.round((passed / total) * 100);
+// A short, stable tag per gate for the cell label: its index in hex.
+const tag = (i: number) => `0x${(i + 1).toString(16).padStart(2, "0").toUpperCase()}`;
+---
+
+<section class="not-content status" aria-label={`Launch progress: ${passed} of ${total} gates passed`}>
+  <header class="head">
+    <div>
+      <p class="kicker"><span class="led" aria-hidden="true"></span>Launch vector · maya-mainnet</p>
+      <p class="readout">
+        <span class="scramble" data-text={`${passed} / ${total} GATES PASSED`}>{passed} / {total} GATES PASSED</span>
+      </p>
+    </div>
+    <div class="pct" aria-hidden="true">
+      <span class="scramble" data-text={`${pct}%`}>{pct}%</span>
+      <small>complete</small>
+    </div>
+  </header>
+
+  <ol class="cells" style={`--pct:${pct}%`}>
+    {gates.map((g, i) => (
+      <li class={`cell ${g.state}`}>
+        <a href={g.href} title={`${g.name}: ${g.detail}`}>
+          <span class="hex" aria-hidden="true">{tag(i)}</span>
+          <span class="name">{g.name}</span>
+          <span class="st">{g.state === "done" ? "verified" : g.state === "next" ? "in progress" : "locked"}</span>
+          <svg class="glyph" viewBox="0 0 24 24" aria-hidden="true">
+            {g.state === "done" && <path d="M5 12.5l4.2 4.2L19 7" />}
+            {g.state === "next" && <circle cx="12" cy="12" r="5" />}
+            {g.state === "later" && <><rect x="6" y="11" width="12" height="9" rx="2.5" /><path d="M8.5 11V8.5a3.5 3.5 0 0 1 7 0V11" /></>}
+          </svg>
+        </a>
+      </li>
+    ))}
+    <span class="beam" aria-hidden="true"></span>
+  </ol>
+
+  <div class="rail" aria-hidden="true"><span style={`width:${pct}%`}></span></div>
+
+  <footer class="foot">
+    {next && <p><b>Now: {next.name}</b> <span>— {next.detail}.</span></p>}
+    <p class="src">Mainnet unlocks only when all {total} cells are verified · source: <code>cargo xtask go-no-go</code></p>
+  </footer>
+</section>
+
+<script>
+  // Decode effect: glyphs resolve left to right into the real text, once,
+  // when the panel scrolls into view. Reduced motion shows the text at once.
+  const GLYPHS = "0123456789ABCDEF#$%&*+=<>/\\|";
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function decode(el: HTMLElement) {
+    const text = el.dataset.text ?? "";
+    if (reduce) { el.textContent = text; return; }
+    const start = performance.now();
+    const dur = 900 + text.length * 22;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / dur);
+      const settled = Math.floor(t * text.length);
+      el.textContent = [...text].map((ch, i) =>
+        i < settled || ch === " " || ch === "/" ? ch : GLYPHS[(Math.random() * GLYPHS.length) | 0]).join("");
+      if (t < 1) requestAnimationFrame(tick); else el.textContent = text;
+    };
+    requestAnimationFrame(tick);
+  }
+  document.querySelectorAll<HTMLElement>(".status").forEach((panel) => {
+    new IntersectionObserver((entries, io) => {
+      if (!entries[0].isIntersecting) return;
+      panel.classList.add("live");
+      panel.querySelectorAll<HTMLElement>(".scramble").forEach(decode);
+      io.disconnect();
+    }, { threshold: 0.35 }).observe(panel);
+  });
+</script>
+
+<style>
+  .status {
+    --cyan: var(--cherenkov); --amber: var(--signal);
+    position: relative; margin: 40px 0 8px; padding: clamp(30px, 3.4vw, 38px) clamp(22px, 3vw, 36px); border-radius: var(--r-l);
+    background:
+      linear-gradient(var(--glass), var(--glass)),
+      repeating-linear-gradient(0deg, transparent 0 3px, rgba(126, 234, 240, 0.035) 3px 4px);
+    border: 1px solid var(--glass-edge); box-shadow: var(--shadow); overflow: hidden; isolation: isolate;
+  }
+  /* Corner brackets: a HUD frame, not a box. */
+  .status::before, .status::after { content: ""; position: absolute; width: 22px; height: 22px; border: 2px solid var(--cyan); opacity: .7; }
+  .status::before { top: 12px; left: 12px; border-right: 0; border-bottom: 0; border-radius: 8px 0 0 0; }
+  .status::after { bottom: 12px; right: 12px; border-left: 0; border-top: 0; border-radius: 0 0 8px 0; }
+
+  .head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+  .kicker { margin: 0; display: flex; align-items: center; gap: 10px; font: 600 12px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+  .led { width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); animation: blink 2.4s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: .25; } }
+  .readout { margin: 12px 0 0; font: 700 clamp(22px, 3vw, 32px)/1.1 var(--mono); letter-spacing: .02em; color: var(--text); font-variant-numeric: tabular-nums; }
+  .pct { text-align: right; font: 800 clamp(44px, 6vw, 72px)/.9 var(--display); letter-spacing: -.04em;
+    background: var(--title-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .pct small { display: block; margin-top: 6px; font: 600 11px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); -webkit-text-fill-color: var(--muted); }
+
+  .cells { position: relative; list-style: none; margin: 26px 0 0; padding: 0; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 8px; }
+  .cell a {
+    position: relative; display: grid; gap: 6px; align-content: start; height: 100%; min-height: 128px; padding: 14px 12px 12px;
+    text-decoration: none; color: var(--muted); border-radius: 14px; border: 1px solid var(--glass-edge);
+    background: rgba(126, 234, 240, 0.03);
+    clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+    transition: transform .45s var(--spring), border-color .25s, background-color .25s;
+  }
+  .cell a:hover, .cell a:focus-visible { transform: translateY(-4px); border-color: var(--cyan); }
+  .hex { font: 600 11px/1 var(--mono); letter-spacing: .08em; opacity: .7; }
+  .name { font: 650 13.5px/1.25 var(--display); color: var(--text); }
+  .st { margin-top: auto; font: 600 10.5px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+  .glyph { position: absolute; top: 10px; right: 12px; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+
+  .done a { color: var(--cyan); background: linear-gradient(160deg, rgba(31, 181, 194, 0.22), rgba(31, 181, 194, 0.05)); border-color: rgba(31, 181, 194, 0.45); box-shadow: inset 0 0 24px -8px rgba(31, 181, 194, 0.5); }
+  .done .st { color: var(--verified); }
+  .next a { color: var(--amber); border-color: rgba(230, 178, 96, 0.55);
+    background: repeating-linear-gradient(-45deg, rgba(230, 178, 96, 0.10) 0 8px, rgba(230, 178, 96, 0.03) 8px 16px); background-size: 200% 100%; }
+  .status.live .next a { animation: stripes 2.2s linear infinite, pulse 2.2s var(--glide) infinite; }
+  @keyframes stripes { to { background-position: -45px 0; } }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 4px rgba(230, 178, 96, 0.12), inset 0 0 22px -10px rgba(230, 178, 96, 0.6); } }
+  .later a { opacity: .62; }
+
+  /* A scan beam sweeps the cells once a few seconds. */
+  .beam { position: absolute; inset: -6px auto -6px 0; width: 18%; pointer-events: none; opacity: 0;
+    background: linear-gradient(90deg, transparent, rgba(126, 234, 240, 0.16), transparent); }
+  .status.live .beam { animation: scan 4.5s var(--glide) .4s infinite; }
+  @keyframes scan { 0% { transform: translateX(-30%); opacity: 0; } 15% { opacity: 1; } 70% { opacity: 1; } 100% { transform: translateX(560%); opacity: 0; } }
+
+  .rail { position: relative; height: 6px; margin-top: 18px; border-radius: 6px; background: rgba(126, 234, 240, 0.08); overflow: hidden; }
+  .rail span { position: absolute; inset: 0 auto 0 0; border-radius: 6px; background: var(--brand-line); box-shadow: 0 0 14px var(--brand-glow); transform-origin: 0 50%; transform: scaleX(0); transition: transform 1.6s var(--glide) .2s; }
+  .status.live .rail span { transform: scaleX(1); }
+
+  .foot { margin-top: 16px; display: grid; gap: 6px; }
+  .foot p { margin: 0; font-size: 14.5px; color: var(--lede); }
+  .foot b { color: var(--amber); font-weight: 650; }
+  .foot span { color: var(--muted); }
+  .foot .src { font: 500 12px/1.4 var(--mono); color: var(--muted); }
+  .foot code { font: inherit; color: var(--accent-text); }
+
+  @media (max-width: 760px) {
+    .pct { text-align: left; }
+    .cells { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .cell a { min-height: 112px; }
+  }
+  @media (max-width: 420px) {
+    .cells { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .led, .status.live .next a, .status.live .beam { animation: none; }
+    .rail span { transition: none; }
+  }
+</style>

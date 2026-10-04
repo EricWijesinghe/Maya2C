@@ -518,6 +518,12 @@ async fn json_rpc_bad_params_never_reach_the_node() {
         rpc_request("get_balance", serde_json::json!([])),
         rpc_request("get_block_by_height", serde_json::json!(["ten"])),
         rpc_request("send_raw_transaction", serde_json::json!([""])),
+        // get_checkpoint takes nothing or one epoch number, nothing else.
+        rpc_request("get_checkpoint", serde_json::json!([-1])),
+        rpc_request("get_checkpoint", serde_json::json!([1.5])),
+        rpc_request("get_checkpoint", serde_json::json!(["1"])),
+        rpc_request("get_checkpoint", serde_json::json!([null])),
+        rpc_request("get_checkpoint", serde_json::json!([1, 2])),
         serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": "get_supply", "params": {} }),
     ] {
         let (_, body) = post(app_with(Arc::clone(&node)), "/rpc", request.clone()).await;

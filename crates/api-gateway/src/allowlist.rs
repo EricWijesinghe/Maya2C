@@ -74,6 +74,25 @@ pub const DENIED_METHODS: &[&str] = &[
     "get_tip_height",
 ];
 
+/// Pruned-node bootstrap: what a new validator needs to restore a recent
+/// snapshot instead of replaying every block. All are in [`DENIED_METHODS`]
+/// for the public gateway (serving whole-state snapshots to anyone is a
+/// load nobody budgeted for); a gateway started with `--bootstrap`, run as
+/// its own instance with its own rate limit, forwards these and only these
+/// beyond the allowlist.
+pub const BOOTSTRAP_METHODS: &[&str] = &[
+    "get_tip_height",
+    "get_headers",
+    "get_snapshot_manifest",
+    "get_snapshot_chunk",
+];
+
+/// Whether a gateway in bootstrap mode may forward `method`.
+#[must_use]
+pub fn is_allowed_for_bootstrap(method: &str) -> bool {
+    is_allowed(method) || BOOTSTRAP_METHODS.contains(&method)
+}
+
 /// Whether the gateway may forward `method` to the node.
 #[must_use]
 pub fn is_allowed(method: &str) -> bool {
@@ -93,6 +112,17 @@ mod tests {
         for method in DENIED_METHODS {
             assert!(!is_allowed(method), "{method} must not be proxied");
         }
+    }
+
+    #[test]
+    fn bootstrap_mode_adds_only_the_snapshot_methods() {
+        for method in BOOTSTRAP_METHODS {
+            assert!(!is_allowed(method), "{method} leaked into the public list");
+            assert!(is_allowed_for_bootstrap(method));
+        }
+        // The miner interface stays closed even in bootstrap mode.
+        assert!(!is_allowed_for_bootstrap("get_mining_candidate"));
+        assert!(!is_allowed_for_bootstrap("submit_block"));
     }
 
     #[test]
