@@ -56,14 +56,33 @@ fn run_dag(
     partition: Option<&(u64, u64, Vec<BTreeSet<NodeId>>)>,
     secs: u64,
 ) -> DagRun {
-    let committee = Committee::new(n);
+    run_committee(
+        w,
+        &Committee::new(n),
+        txs_per_node,
+        crashed,
+        partition,
+        secs,
+    )
+}
+
+/// [`run_dag`] over any committee, weighted or not.
+fn run_committee(
+    w: &mut World<Ev>,
+    committee: &Committee,
+    txs_per_node: u64,
+    crashed: &[u16],
+    partition: Option<&(u64, u64, Vec<BTreeSet<NodeId>>)>,
+    secs: u64,
+) -> DagRun {
+    let n = committee.size();
     let params = Params {
         batch_size: 500,
         anchor_timeout_ms: 1_000,
         ..Params::default()
     };
     let mut nodes: Vec<Validator> = (0..n)
-        .map(|i| Validator::new(i, committee, params))
+        .map(|i| Validator::new(i, committee.clone(), params))
         .collect();
     for (i, v) in nodes.iter_mut().enumerate() {
         for k in 0..txs_per_node {
@@ -260,6 +279,38 @@ fn one_crashed_validator_of_six_does_not_stop_commits() {
             orders.iter().all(|o| o.len() > 2_000),
             "progress with f = 1 crashed"
         );
+    });
+}
+
+#[test]
+fn three_cheap_absent_seats_cannot_stop_the_bonded_validator() {
+    // ADR-040: the committee-capture attack of ADR-039. By heads three of
+    // four seats are absent and nothing could commit; by stake the bonded
+    // validator is a quorum on its own and the chain goes on.
+    replay(0x0D46_BF76, |w: &mut World<Ev>| {
+        let committee = Committee::weighted(vec![1_000_000_000, 1_000, 1_000, 1_000]).expect("4");
+        let crashed = [1u16, 2, 3];
+        let run = run_committee(w, &committee, 500, &crashed, None, 30);
+        assert!(
+            run.orders[0].len() >= 500,
+            "the bonded validator committed its own"
+        );
+    });
+}
+
+#[test]
+fn honest_stake_split_in_half_still_halts_rather_than_forks() {
+    // Weighting must not make a split side a quorum: two equal halves of
+    // stake, neither above W − f.
+    replay(0x0D46_BF77, |w: &mut World<Ev>| {
+        let groups = vec![
+            [0, 1].map(NodeId).into_iter().collect(),
+            [2, 3].map(NodeId).into_iter().collect(),
+        ];
+        w.net_mut().partition(groups);
+        let committee = Committee::weighted(vec![700, 300, 600, 400]).expect("4");
+        let run = run_committee(w, &committee, 1_000, &[], None, 20);
+        assert!(run.orders.iter().all(Vec::is_empty), "no quorum, no commit");
     });
 }
 

@@ -23,7 +23,7 @@ fn run(n: u16, batch: usize, txs_per_node: u64) -> (u64, f64, u64) {
         ..Params::default()
     };
     let mut nodes: Vec<Validator> = (0..n)
-        .map(|i| Validator::new(i, committee, params))
+        .map(|i| Validator::new(i, committee.clone(), params))
         .collect();
     for (i, v) in nodes.iter_mut().enumerate() {
         for k in 0..txs_per_node {
