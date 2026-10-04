@@ -14,7 +14,7 @@ const gates = [
 ];
 ---
 
-<ol class="ladder">
+<ol class="not-content ladder">
   {
     gates.map((g) => (
       <li class={g.state}>
@@ -42,13 +42,13 @@ const gates = [
   .gate-link:hover, .gate-link:focus { outline: none; }
   .gate-link:hover div, .gate-link:focus div { transform: translateX(6px); transition: transform 0.35s cubic-bezier(.34,1.56,.64,1); }
   .dot { width: 1.4rem; height: 1.4rem; border-radius: 50%; margin-top: 0.1rem; border: 2px solid var(--muted); background: var(--void); z-index: 1; }
-  .done .dot { border-color: var(--cherenkov); background: var(--cherenkov); box-shadow: 0 0 14px rgba(91, 140, 255, 0.6); }
+  .done .dot { border-color: var(--cherenkov); background: var(--cherenkov); box-shadow: 0 0 14px rgba(31, 181, 194, 0.6); }
   .next .dot { border-color: var(--iris-a); animation: ping 1.8s ease-in-out infinite; }
   .gate-link:hover .dot, .gate-link:focus .dot { filter: drop-shadow(0 0 6px currentColor); }
   strong { margin-right: 0.6rem; }
   .state { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em; padding: 0.1rem 0.5rem; border-radius: 999px; border: 1px solid var(--glass-edge); color: var(--muted); }
-  .done .state { color: var(--cherenkov); border-color: rgba(91, 140, 255, 0.4); }
-  .next .state { color: var(--iris-a); border-color: rgba(124, 108, 255, 0.5); }
+  .done .state { color: var(--cherenkov); border-color: rgba(31, 181, 194, 0.4); }
+  .next .state { color: var(--iris-a); border-color: rgba(201, 168, 106, 0.5); }
   p { margin: 0.2rem 0 0 !important; color: var(--muted); font-size: 0.92rem; }
-  @keyframes ping { 50% { box-shadow: 0 0 0 7px rgba(124, 108, 255, 0.15); } }
+  @keyframes ping { 50% { box-shadow: 0 0 0 7px rgba(201, 168, 106, 0.15); } }
 </style>
