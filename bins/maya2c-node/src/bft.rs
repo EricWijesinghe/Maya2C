@@ -220,11 +220,21 @@ async fn catch_up_once(
     Ok(catchup::import(&mut lock_chain(chain), blocks)?)
 }
 
-/// The peer's tip height.
-async fn peer_tip(url: &str) -> Result<u64, Box<dyn Error>> {
+/// Whether the peer's tip is exactly this node's tip: same height and same
+/// block. Height alone would let a stale or lying peer talk a node that is
+/// behind, or on a fork, out of following attested blocks. Any failure
+/// answers "no", which is the safe direction: following.
+async fn peer_level(url: &str, height: u64, tip: [u8; 32]) -> bool {
     use custom_l1_node::state_pruner::snapshot::BootstrapSource as _;
-    let source = RpcBootstrapSource::new(url, tokio::runtime::Handle::current())?;
-    Ok(tokio::task::spawn_blocking(move || source.tip_height()).await??)
+    let Ok(source) = RpcBootstrapSource::new(url, tokio::runtime::Handle::current()) else {
+        return false;
+    };
+    tokio::task::spawn_blocking(move || {
+        source.tip_height().ok() == Some(height)
+            && source.block(height).is_ok_and(|b| b.header.id() == tip)
+    })
+    .await
+    .unwrap_or(false)
 }
 
 /// Startup catch-up for a node that was down longer than the engine's
@@ -254,10 +264,12 @@ pub(super) async fn catch_up(
     // more than f validators restart together, followers would wait for
     // checkpoints only they could complete, and never rejoin (attacknet,
     // crash f+1).
-    let ours = lock_chain(chain).height();
-    let theirs = peer_tip(url).await?;
-    if imported == 0 && theirs <= ours {
-        println!("catch-up:    level with {url} at height {ours}; resuming as a full validator");
+    let (height, tip) = {
+        let c = lock_chain(chain);
+        (c.height(), c.tip())
+    };
+    if imported == 0 && peer_level(url, height, tip).await {
+        println!("catch-up:    level with {url} at height {height}; resuming as a full validator");
         return Ok(0);
     }
     driver.follow_attested(&lock_chain(chain));

@@ -79,9 +79,17 @@ pub struct Step {
 /// An epoch's committee keys and, on a stake-weighted chain, their weights.
 pub type StakedCommittee = (Arc<[VerifyingKey]>, Option<Arc<[u64]>>);
 
+/// How far above this node's tip an attestation may be and still count. A
+/// collector forgets partial sets far below the newest height it has seen,
+/// so one validly signed attestation at an absurd height from a single
+/// Byzantine member would otherwise wipe every honest partial set.
+const ATTEST_AHEAD: u64 = 64;
+
 /// The previous epoch's committee and its collector, kept after a switch.
 struct Closing {
     epoch: u64,
+    /// The epoch's last block: nothing above it was ever that committee's.
+    last_height: u64,
     keys: Arc<[VerifyingKey]>,
     weights: Option<Arc<[u64]>>,
     attestations: Collector,
@@ -516,20 +524,29 @@ impl BftDriver {
         };
         let tag = ChainTag::from_genesis(chain.genesis());
         if attestation.epoch == self.epoch {
-            self.collect(attestation, &tag, step);
+            if attestation.height <= chain.height().saturating_add(ATTEST_AHEAD) {
+                self.collect(attestation, &tag, step);
+            }
         } else if let Some(closing) = self
             .closing
             .as_mut()
-            .filter(|c| c.epoch == attestation.epoch)
+            .filter(|c| c.epoch == attestation.epoch && attestation.height <= c.last_height)
         {
-            // Late attestations of the last epoch's final blocks. Checked
-            // against that epoch's committee; a bad one is dropped.
-            let _ = closing.attestations.add(
+            // Late attestations of the last epoch's final blocks, checked
+            // against that epoch's committee. A forged one is refused before
+            // it counts, which is all an error here means; an equivocation is
+            // reported like one in the live epoch.
+            if let Ok(Collected::Equivocation(pair)) = closing.attestations.add(
                 attestation,
                 &tag,
                 &closing.keys,
                 closing.weights.as_deref(),
-            );
+            ) {
+                step.notices.push(format!(
+                    "validator {} attested two blocks at height {} of epoch {} — evidence held",
+                    pair.1.validator, pair.1.height, pair.1.epoch
+                ));
+            }
         }
     }
 
@@ -554,12 +571,16 @@ impl BftDriver {
     /// As [`BftDriver::on_frame`].
     pub fn on_tick(&mut self, chain: &mut Chain, now_ms: u64) -> Result<Step> {
         let mut step = Step::default();
-        // A builder switches epochs on the boundary block it builds; a
-        // follower imports that block instead, and must notice it here or it
-        // would stay in an epoch whose committee no longer orders the chain.
-        if self.follower && self.next_epoch(chain)?.is_some() {
+        // A builder switches epochs on the boundary block it builds. A block
+        // imported instead (a follower's, or one a former follower's
+        // follow_loop brought in) is noticed here, or the node would stay in
+        // an epoch whose committee no longer orders the chain.
+        if self.next_epoch(chain)?.is_some() {
+            let was_following = self.follower;
             self.switch_epoch(chain, now_ms, &mut step)?;
-            self.follow_attested(chain);
+            if was_following {
+                self.follow_attested(chain);
+            }
             step.notices.push(format!(
                 "followed attested blocks into epoch {}",
                 self.epoch
@@ -710,6 +731,7 @@ impl BftDriver {
         )?;
         let closing = Closing {
             epoch: self.epoch,
+            last_height: chain.height(),
             keys: Arc::clone(&self.committee),
             weights: self.weights.clone(),
             attestations: std::mem::take(&mut self.attestations),

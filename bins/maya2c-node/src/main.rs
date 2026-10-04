@@ -818,6 +818,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             Err(error) => eprintln!("could not dial {bootnode}: {error}"),
         }
     }
+    tokio::spawn(redial_bootnodes(network.clone(), args.bootnodes.clone()));
 
     // --- RPC ---
     let limiter = Arc::new(custom_l1_node::rpc::limit::RateLimiter::new(
@@ -892,11 +893,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let (mut driver, opening) = bft::open(&setup, &args.data_dir, &chain)?;
         if let Some(url) = &args.catch_up_from {
             bft::catch_up(url, &chain, &mut driver).await?;
-            tokio::spawn(bft::follow_loop(
-                url.clone(),
-                Arc::clone(&chain),
-                Arc::clone(&setup.committee),
-            ));
+            // A node level with the network builds its own blocks; only a
+            // follower imports them.
+            if driver.is_follower() {
+                tokio::spawn(bft::follow_loop(
+                    url.clone(),
+                    Arc::clone(&chain),
+                    Arc::clone(&setup.committee),
+                ));
+            }
         }
         let size = setup.committee.len();
         match driver.validator_id() {
@@ -989,5 +994,41 @@ mod tests {
     #[test]
     fn a_testnet_runs_the_pool_without_an_audit() {
         assert!(check_shielded_guard("maya-testnet-1", SHIELDED_ACTIVATION_HEIGHT, false).is_ok());
+    }
+}
+
+/// How often a node short of peers dials its bootnodes again.
+const REDIAL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Dials the configured bootnodes again while this node has fewer peers than
+/// it has bootnodes. A dial made before the other node was listening fails
+/// once and is never retried by libp2p; discovery only reaches peers through
+/// peers already connected. The attacknet found seven validators started
+/// together left in fragments, no quorum anywhere, for good. A bootnode
+/// whose address names its peer id is skipped once connected.
+async fn redial_bootnodes(network: custom_l1_node::network::NodeHandle, bootnodes: Vec<Multiaddr>) {
+    use libp2p::multiaddr::Protocol;
+    if bootnodes.is_empty() {
+        return;
+    }
+    let mut ticker = tokio::time::interval(REDIAL_INTERVAL);
+    ticker.tick().await; // the first tick is immediate; startup just dialed
+    loop {
+        ticker.tick().await;
+        let Ok(connected) = network.connected_peers().await else {
+            return; // the network task is gone: nothing to dial with
+        };
+        if connected.len() >= bootnodes.len() {
+            continue;
+        }
+        for bootnode in &bootnodes {
+            let known = bootnode
+                .iter()
+                .any(|p| matches!(p, Protocol::P2p(id) if connected.contains(&id)));
+            if !known {
+                // Failure is the normal case while that node is down.
+                let _ = network.dial(bootnode.clone()).await;
+            }
+        }
     }
 }
