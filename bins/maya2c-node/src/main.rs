@@ -891,6 +891,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 url.clone(),
                 Arc::clone(&chain),
                 driver.committee(),
+                driver.weights(),
             ));
         }
         let size = setup.committee.len();

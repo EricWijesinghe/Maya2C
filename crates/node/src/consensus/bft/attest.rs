@@ -189,10 +189,27 @@ impl Checkpoint {
     /// [`NodeError::Decode`] if fewer than a quorum signed, or as
     /// [`Attestation::verify`] for any one signature.
     pub fn verify(&self, chain: &ChainTag, committee: &[VerifyingKey]) -> Result<()> {
-        let quorum = quorum_of(committee.len())?;
-        if self.signatures.len() < quorum {
+        self.verify_weighted(chain, committee, None)
+    }
+
+    /// As [`Checkpoint::verify`], with the quorum counted in `weights` (one
+    /// per member, committee order) on a stake-weighted chain (ADR-040 part
+    /// 2). `None` counts heads. A catching-up node imports blocks on this
+    /// quorum alone, so on a weighted chain it must be stake, or cheap
+    /// seats could attest a chain of their own making.
+    ///
+    /// # Errors
+    ///
+    /// As [`Checkpoint::verify`].
+    pub fn verify_weighted(
+        &self,
+        chain: &ChainTag,
+        committee: &[VerifyingKey],
+        weights: Option<&[u64]>,
+    ) -> Result<()> {
+        if !has_quorum(self.signatures.keys().copied(), committee.len(), weights)? {
             return Err(NodeError::Decode(format!(
-                "checkpoint at height {} has {} of the {quorum} signatures it needs",
+                "checkpoint at height {} is signed by {} member(s), short of a quorum",
                 self.height,
                 self.signatures.len()
             )));
@@ -211,13 +228,24 @@ impl Checkpoint {
     }
 }
 
-/// Signatures a checkpoint needs from a committee of `size`: n − f (ADR-039).
-/// Counted in heads, matching the equal-weight committee the node builds
-/// today; ADR-040 part 2 counts stake here too.
-fn quorum_of(size: usize) -> Result<usize> {
-    let size = u16::try_from(size)
-        .map_err(|_| NodeError::Decode("committee larger than u16".to_string()))?;
-    Ok(usize::from(Committee::new(size).min_quorum_size()))
+/// Whether `signers` form a quorum of a committee of `size`: n − f heads
+/// (ADR-039), or W − f stake when `weights` is given (ADR-040 part 2).
+fn has_quorum(
+    signers: impl IntoIterator<Item = u16>,
+    size: usize,
+    weights: Option<&[u64]>,
+) -> Result<bool> {
+    let committee = match weights {
+        Some(w) if w.len() == size => Committee::weighted(w.to_vec()),
+        Some(_) => {
+            return Err(NodeError::Decode(
+                "committee weights do not match the committee".to_string(),
+            ));
+        }
+        None => u16::try_from(size).ok().map(Committee::new),
+    }
+    .ok_or_else(|| NodeError::Decode("committee larger than u16".to_string()))?;
+    Ok(committee.is_quorum(signers))
 }
 
 /// What a collector made of one attestation.
@@ -266,6 +294,22 @@ impl Collector {
         chain: &ChainTag,
         committee: &[VerifyingKey],
     ) -> Result<Collected> {
+        self.add_weighted(attestation, chain, committee, None)
+    }
+
+    /// As [`Collector::add`], with the quorum counted in `weights` on a
+    /// stake-weighted chain.
+    ///
+    /// # Errors
+    ///
+    /// As [`Collector::add`].
+    pub fn add_weighted(
+        &mut self,
+        attestation: Attestation,
+        chain: &ChainTag,
+        committee: &[VerifyingKey],
+        weights: Option<&[u64]>,
+    ) -> Result<Collected> {
         if self
             .newest
             .as_ref()
@@ -291,7 +335,7 @@ impl Collector {
         let key = (attestation.epoch, attestation.height, attestation.block);
         let set = self.pending.entry(key).or_default();
         set.insert(attestation.validator, attestation.signature);
-        if set.len() < quorum_of(committee.len())? {
+        if !has_quorum(set.keys().copied(), committee.len(), weights)? {
             return Ok(Collected::Counted);
         }
         let checkpoint = Checkpoint {

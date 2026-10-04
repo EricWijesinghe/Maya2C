@@ -252,6 +252,12 @@ pub struct StakingGenesis {
     /// Largest committee. Defaults to the devnet value.
     #[serde(default = "StakingGenesis::default_max_validators")]
     pub max_validators: u16,
+    /// Votes count by stake, not by seat (ADR-040 part 2): each epoch's
+    /// weights are frozen in state at its boundary. Off unless set, and
+    /// hashed into the genesis id when on, so two operators who disagree
+    /// about it disagree about block zero. Mainnet sets it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stake_weighted: bool,
 }
 
 /// One genesis validator's bond.
@@ -277,6 +283,7 @@ impl StakingGenesis {
             bonds,
             min_self_bond: Self::default_min_self_bond(),
             max_validators: Self::default_max_validators(),
+            stake_weighted: false,
         }
     }
 
@@ -843,6 +850,7 @@ impl GenesisConfig {
             active.push(id);
         }
         state.active.clone_from(&active);
+        let weights = crate::state::staking::stake_weights(&state, &active);
         let record = StakingRecord {
             staking: state,
             epoch_blocks: staking.epoch_blocks,
@@ -852,6 +860,12 @@ impl GenesisConfig {
         };
         records.insert(STATE_KEY.to_vec(), record.encode());
         records.insert(committee_record(0), encode_committee(&active));
+        if staking.stake_weighted {
+            records.insert(
+                crate::state::staking::committee_weights_record(0),
+                crate::state::staking::encode_weights(&weights),
+            );
+        }
         Ok(records)
     }
 
@@ -880,7 +894,7 @@ impl GenesisConfig {
     /// the two chains visibly distinct from block zero instead.
     #[must_use]
     pub fn chain_id_commitment(&self) -> [u8; 32] {
-        let base = self.committee_commitment();
+        let base = self.weighting_commitment(self.committee_commitment());
         // Only when the field is present, so every genesis written before
         // ADR-037 keeps the id it always had.
         let Some(activation) = self.shielded_activation_height else {
@@ -890,6 +904,20 @@ impl GenesisConfig {
         h.update(&base);
         h.update(&activation.to_le_bytes());
         *h.finalize().as_bytes()
+    }
+
+    /// Folds ADR-040's stake weighting into the id, only when it is on: every
+    /// genesis written before keeps the id it always had.
+    fn weighting_commitment(&self, base: [u8; 32]) -> [u8; 32] {
+        let weighted = self
+            .bft
+            .as_ref()
+            .and_then(|b| b.staking.as_ref())
+            .is_some_and(|s| s.stake_weighted);
+        if !weighted {
+            return base;
+        }
+        blake3::derive_key("maya2c genesis stake-weighted committee v1", &base)
     }
 
     /// First height at which shielded join-splits execute on this network.

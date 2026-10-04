@@ -515,6 +515,6 @@ fn catch_up_member(
         chain: &left[from].chain,
         checkpoint: left[from].driver.as_ref().unwrap().checkpoint().cloned(),
     };
-    custom_l1_node::consensus::bft::catchup::catch_up(&mut right[0].chain, &peer, committee)
+    custom_l1_node::consensus::bft::catchup::catch_up(&mut right[0].chain, &peer, committee, None)
         .expect("catch-up from a peer's checkpoint")
 }

@@ -24,8 +24,8 @@ use crate::state::context::BlockContext;
 use crate::state::db::{Overlay, StateDB};
 use crate::state::shielded::FEE_SINK;
 use crate::state::staking::{
-    STATE_KEY, StakingRecord, committee_record, decode_committee, encode_committee, key_record,
-    validator_id,
+    STATE_KEY, StakingRecord, committee_record, committee_weights_record, decode_committee,
+    decode_weights, encode_committee, encode_weights, key_record, stake_weights, validator_id,
 };
 
 /// Most anchor slots one block may account for. A gap this long means the
@@ -57,6 +57,18 @@ impl StateDB {
     pub fn committed_staking(&self) -> Result<Option<StakingRecord>> {
         self.raw_get(STATE_KEY)?
             .map(|bytes| StakingRecord::decode(&bytes))
+            .transpose()
+    }
+
+    /// The voting weights of `epoch`'s committee, committee order, or `None`
+    /// on a chain without stake weighting (ADR-040 part 2).
+    ///
+    /// # Errors
+    ///
+    /// A storage failure, or a weights record that does not decode.
+    pub fn committee_weights(&self, epoch: u64) -> Result<Option<Vec<u64>>> {
+        self.raw_get(&committee_weights_record(epoch))?
+            .map(|bytes| decode_weights(&bytes))
             .transpose()
     }
 
@@ -267,11 +279,36 @@ impl StateDB {
             committee_record(epoch),
             Some(encode_committee(&record.staking.active)),
         );
+        // Stake-weighted chains (ADR-040 part 2) freeze the new committee's
+        // stakes here, once, so every node votes with the same weights for
+        // the whole epoch whatever bonds change inside it. A chain whose
+        // genesis did not ask for weights never has the record and never
+        // gains it.
+        let weighted = match epoch.checked_sub(1) {
+            Some(prev) => self
+                .record(overlay, &committee_weights_record(prev))?
+                .is_some(),
+            None => false,
+        };
+        if weighted {
+            overlay.records.insert(
+                committee_weights_record(epoch),
+                Some(encode_weights(&stake_weights(
+                    &record.staking,
+                    &record.staking.active,
+                ))),
+            );
+        }
         // Evidence is admissible while the offender's funds can still be
         // reached: keep committees for the unbonding window, drop older ones.
         let keep = record.staking.params.unbonding_epochs.saturating_add(1);
         if let Some(stale) = epoch.checked_sub(keep) {
             overlay.records.insert(committee_record(stale), None);
+            if weighted {
+                overlay
+                    .records
+                    .insert(committee_weights_record(stale), None);
+            }
         }
         Ok(())
     }
