@@ -198,15 +198,49 @@ impl RpcBootstrapSource {
         })
     }
 
+    /// One request, retried with backoff when the transport fails: a public
+    /// bootstrap endpoint rate-limits per client (HTTP 429), and a joining
+    /// node that gave up on the first refusal would have to start over. A
+    /// JSON-RPC error from the peer is an answer, not a failure, and is
+    /// returned at once.
     fn call<T: serde::de::DeserializeOwned>(
         &self,
         method: &str,
         params: jsonrpsee::core::params::ArrayParams,
     ) -> Result<T> {
-        self.runtime
-            .block_on(self.client.request(method, params))
-            .map_err(|e| NodeError::Network(format!("{method}: {e}")))
+        let mut wait = RETRY_FIRST_WAIT;
+        let mut attempt = 1;
+        loop {
+            match self
+                .runtime
+                .block_on(self.client.request(method, params.clone()))
+            {
+                Ok(value) => return Ok(value),
+                Err(e) if is_transient(&e) && attempt < RETRY_ATTEMPTS => {
+                    std::thread::sleep(wait);
+                    wait = (wait * 2).min(RETRY_MAX_WAIT);
+                    attempt += 1;
+                }
+                Err(e) => return Err(NodeError::Network(format!("{method}: {e}"))),
+            }
+        }
     }
+}
+
+/// Attempts per request before a transport failure is final. With the
+/// waits below that is a little over two minutes of retrying.
+const RETRY_ATTEMPTS: u32 = 10;
+const RETRY_FIRST_WAIT: std::time::Duration = std::time::Duration::from_millis(500);
+const RETRY_MAX_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// A failure worth retrying: the request never got an answer (refused,
+/// rate-limited, timed out, connection lost), as opposed to an answer.
+fn is_transient(e: &jsonrpsee::core::ClientError) -> bool {
+    use jsonrpsee::core::ClientError;
+    matches!(
+        e,
+        ClientError::Transport(_) | ClientError::RequestTimeout | ClientError::RestartNeeded(_)
+    )
 }
 
 fn unhex(text: &str) -> Result<Vec<u8>> {
@@ -261,5 +295,27 @@ impl BootstrapSource for RpcBootstrapSource {
     fn block(&self, height: u64) -> Result<Block> {
         let info: BlockInfo = self.call("get_block_by_height", rpc_params![height])?;
         Block::from_bytes(&unhex(&info.raw)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_transient;
+    use jsonrpsee::core::ClientError;
+    use jsonrpsee::types::ErrorObjectOwned;
+
+    #[test]
+    fn a_refused_or_timed_out_request_is_retried_and_an_answer_is_not() {
+        // HTTP 429 from a rate-limited gateway surfaces as a transport error.
+        let rate_limited = ClientError::Transport("Request rejected `429`".into());
+        assert!(is_transient(&rate_limited));
+        assert!(is_transient(&ClientError::RequestTimeout));
+        // The peer answered "no": asking again gets the same answer.
+        let answered = ClientError::Call(ErrorObjectOwned::owned(
+            -32601,
+            "no such method",
+            None::<()>,
+        ));
+        assert!(!is_transient(&answered));
     }
 }
