@@ -476,6 +476,28 @@ async fn json_rpc_refuses_the_miner_interface_without_calling_the_node() {
 }
 
 #[tokio::test]
+async fn every_allowlisted_method_is_dispatched() {
+    // The allowlist and the dispatch match are two lists. get_bft_status and
+    // get_checkpoint sat on the first and not the second, so the public
+    // gateway refused them with "method not available" for a day. Whatever
+    // the parameters, an allowed method must never be "not found".
+    for method in maya_api_gateway::allowlist::ALLOWED_METHODS {
+        let node = Arc::new(MockNode::default());
+        let (status, body) = post(
+            app_with(node),
+            "/rpc",
+            rpc_request(method, serde_json::json!([])),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{method}");
+        assert_ne!(
+            body["error"]["code"], -32_601,
+            "{method} is allowed but not dispatched"
+        );
+    }
+}
+
+#[tokio::test]
 async fn json_rpc_batches_are_refused_without_calling_the_node() {
     // One request may not fan out into many node calls.
     let node = Arc::new(MockNode::default());
