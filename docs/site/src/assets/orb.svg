@@ -1,0 +1,21 @@
+<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="filmStroke" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#b3c8ff"/>
+      <stop offset=".45" stop-color="#7c6cff"/>
+      <stop offset="1" stop-color="#3fd2e0"/>
+    </linearGradient>
+    <radialGradient id="orbFill" cx=".34" cy=".3" r=".8">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".9"/>
+      <stop offset=".14" stop-color="#b3c8ff" stop-opacity=".55"/>
+      <stop offset=".55" stop-color="#5b8cff" stop-opacity=".25"/>
+      <stop offset="1" stop-color="#7c6cff" stop-opacity=".1"/>
+    </radialGradient>
+  </defs>
+  <circle cx="32" cy="32" r="27" fill="url(#orbFill)"/>
+  <circle cx="32" cy="32" r="27" fill="none" stroke="url(#filmStroke)" stroke-width="3"/>
+  <circle cx="23" cy="38" r="3.6" fill="#eef0f8" fill-opacity=".55"/>
+  <circle cx="37" cy="38" r="3.6" fill="#eef0f8" fill-opacity=".55"/>
+  <circle cx="28" cy="25" r="3.6" fill="#eef0f8" fill-opacity=".55"/>
+  <circle cx="42" cy="25" r="4.6" fill="#ffffff"/>
+</svg>

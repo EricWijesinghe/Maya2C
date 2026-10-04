@@ -447,3 +447,8 @@ a {
   .nav-pill { display: none; }
   .hero-nav { flex-direction: column; align-items: flex-start; }
 }
+
+/* Homepage section heads: one small pill label, one short light title. */
+.maya-eyebrow { display: inline-block; margin: 88px 0 0 !important; padding: 8px 14px; border-radius: var(--r-pill); background: rgba(91, 140, 255, 0.12); color: var(--cherenkov-hi); font: 500 12.5px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; }
+.maya-section-title { margin: 14px 0 0 !important; font: 200 clamp(30px, 4vw, 52px)/1.08 var(--display) !important; letter-spacing: -0.03em; color: var(--text); text-wrap: balance; }
+.maya-footnote { margin: 64px 0 24px !important; text-align: center; color: var(--muted); font-size: 14px; }
