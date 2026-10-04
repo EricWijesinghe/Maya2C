@@ -139,6 +139,16 @@ pub fn relay_address(remote: &Multiaddr, port: u16) -> Option<SocketAddr> {
 /// IPv4. `None` for a transport with no IP.
 #[must_use]
 pub fn connection_ip(remote: &Multiaddr) -> Option<IpAddr> {
+    // A WebSocket connection reaches a tunnelled seed through its proxy, so
+    // the address is the proxy's (127.0.0.1 behind Cloudflare), not the
+    // peer's. Relay keys aimed there, or an IP ban on it, would hit every
+    // tunnelled peer at once; such a peer has no usable IP.
+    if remote
+        .iter()
+        .any(|p| matches!(p, Protocol::Ws(_) | Protocol::Wss(_)))
+    {
+        return None;
+    }
     remote.iter().find_map(|protocol| match protocol {
         Protocol::Ip4(ip) => Some(IpAddr::V4(ip)),
         Protocol::Ip6(ip) => Some(IpAddr::V6(ip).to_canonical()),
@@ -152,6 +162,17 @@ mod tests {
     use libp2p::identity::Keypair;
 
     use super::*;
+
+    #[test]
+    fn a_websocket_peer_has_no_usable_ip_but_a_tcp_peer_does() {
+        // Behind a tunnel every /ws peer arrives from the proxy's address;
+        // treating that as the peer's IP would aim relay keys and bans at
+        // everyone at once.
+        let ws: Multiaddr = "/ip4/127.0.0.1/tcp/31101/ws".parse().unwrap();
+        let tcp: Multiaddr = "/ip4/203.0.113.7/tcp/31100".parse().unwrap();
+        assert_eq!(connection_ip(&ws), None);
+        assert_eq!(connection_ip(&tcp), Some("203.0.113.7".parse().unwrap()));
+    }
 
     fn peer() -> PeerId {
         PeerId::from(Keypair::generate_ed25519().public())
