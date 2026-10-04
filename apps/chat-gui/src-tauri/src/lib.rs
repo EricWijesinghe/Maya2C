@@ -28,6 +28,11 @@ const PREKEY_TTL: u64 = 30 * 24 * 3_600;
 const DEFAULT_RELAY: &str =
     "/dns4/chat.maya2c.dev/tcp/443/wss/p2p/12D3KooWE2G9to26wVuq5znjrE4BQkFrH7YjLypjudtsW8Myi86T";
 const HISTORY_LIMIT: usize = 5_000;
+/// The welcome contact on that relay (`maya-chat bot`), written to during
+/// first run so a new user sees a sealed reply before they know anyone.
+/// Empty while no bot runs, which skips that step; `MAYA_CHAT_WELCOME`
+/// overrides it.
+const WELCOME_BOT: &str = "";
 
 struct Session {
     seed: Zeroizing<[u8; 32]>,
@@ -47,6 +52,13 @@ struct Status {
     address: Option<String>,
     relay: String,
     contacts: Vec<Contact>,
+    welcome_bot: Option<String>,
+}
+
+/// The welcome bot's address, if one is configured and well formed.
+fn welcome_bot() -> Option<String> {
+    let configured = std::env::var("MAYA_CHAT_WELCOME").unwrap_or_else(|_| WELCOME_BOT.into());
+    address(configured.trim()).ok().map(hex::encode)
 }
 
 fn relay_addr(profile: &Profile) -> Result<Multiaddr, String> {
@@ -120,12 +132,14 @@ async fn status(app: State<'_, Arc<App>>) -> Result<Status, String> {
             address: None,
             relay: String::new(),
             contacts: Vec::new(),
+            welcome_bot: welcome_bot(),
         },
         Some(s) => Status {
             ready: true,
             address: Some(hex::encode(s.client.identity().address())),
             relay: s.profile.relay.clone(),
             contacts: s.profile.contacts.clone(),
+            welcome_bot: welcome_bot(),
         },
     })
 }
