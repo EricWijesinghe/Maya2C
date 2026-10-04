@@ -541,3 +541,57 @@ fn stake_weighting_is_part_of_the_genesis_id() {
         genesis_with(true).chain_id_commitment()
     );
 }
+
+#[test]
+fn a_weighted_node_restarts_after_a_mid_epoch_tombstone_and_keeps_weights() {
+    // Review of #77: a tombstone shrinks `active` mid-epoch while the epoch's
+    // weights stay frozen at its boundary. A node rebuilding its committee
+    // then must take keys and weights from the same snapshot, or it refuses
+    // to start and its checkpoints stop.
+    let mut mesh = Mesh::with(true);
+    mesh.run_until(|m| m.all_in_epoch(1));
+    assert!(mesh.all_in_epoch(1), "no epoch boundary reached");
+    let keys0: Arc<[VerifyingKey]> = genesis().bft.unwrap().verifying_keys().unwrap().into();
+    mesh.submit(&staking_tx(double_proposal(3, &keys0), 0));
+    let offender = validator_id(&validator_key(3).verifying_key().to_bytes());
+    mesh.run_until(|m| !m.committee(0).contains(&offender));
+    assert!(!mesh.committee(0).contains(&offender), "no tombstone");
+    let epoch = mesh.members[0].driver.epoch();
+    let weights = mesh.members[0]
+        .chain
+        .state()
+        .committee_weights(epoch)
+        .unwrap()
+        .expect("weights for the running epoch");
+    assert_eq!(
+        weights.len(),
+        GENESIS_VALIDATORS,
+        "weights frozen at the boundary"
+    );
+
+    // A restart in the middle of that epoch.
+    let setup = BftSetup {
+        epoch: 0,
+        committee: Arc::clone(&keys0),
+        signer: None,
+        params: Params::default(),
+    };
+    let restart = mesh.root.path().join("bft-restart");
+    let member = &mut mesh.members[0];
+    let (driver, _) = BftDriver::open(&setup, &restart, &mut member.chain, mesh.now)
+        .expect("a mid-epoch restart after a tombstone");
+    assert_eq!(driver.epoch(), epoch);
+    assert_eq!(driver.committee().len(), weights.len());
+    assert_eq!(driver.weights().as_deref(), Some(weights.as_slice()));
+
+    // The weighting survives several boundaries, the tombstone's included.
+    mesh.run_until(|m| m.all_in_epoch(epoch + 3));
+    assert!(mesh.all_in_epoch(epoch + 3), "the weighted chain stopped");
+    mesh.agree();
+    let state = mesh.members[0].chain.state();
+    let now = mesh.members[0].driver.epoch();
+    let ids = state.committee_ids(now).unwrap().unwrap();
+    let weights = state.committee_weights(now).unwrap().unwrap();
+    assert_eq!(ids.len(), weights.len());
+    assert!(!ids.contains(&offender));
+}

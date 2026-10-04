@@ -72,6 +72,20 @@ impl StateDB {
             .transpose()
     }
 
+    /// The ids of `epoch`'s committee as frozen at its boundary, committee
+    /// order, or `None` where no record was written. This, not `active`, is
+    /// what the engine runs: a mid-epoch tombstone shrinks `active` but not
+    /// the epoch's committee or its weights.
+    ///
+    /// # Errors
+    ///
+    /// A storage failure, or a committee record that does not decode.
+    pub fn committee_ids(&self, epoch: u64) -> Result<Option<Vec<[u8; 32]>>> {
+        self.raw_get(&committee_record(epoch))?
+            .map(|bytes| decode_committee(&bytes))
+            .transpose()
+    }
+
     /// The committed verifying keys of `ids`, in order.
     ///
     /// # Errors

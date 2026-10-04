@@ -246,14 +246,24 @@ pub(super) async fn catch_up(
 pub(super) async fn follow_loop(
     url: String,
     chain: Arc<Mutex<Chain>>,
-    committee: Arc<[VerifyingKey]>,
-    weights: Option<Arc<[u64]>>,
+    genesis_committee: Arc<[VerifyingKey]>,
 ) {
     let mut ticker = tokio::time::interval(FOLLOW_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut last_error: Option<String> = None;
     loop {
         ticker.tick().await;
+        // Re-read each round: the loop outlives the epoch it started in, and a
+        // checkpoint is only valid against its own epoch's committee.
+        let current = BftDriver::staked_committee(&lock_chain(&chain));
+        let (committee, weights) = match current {
+            Ok(Some(now)) => now,
+            Ok(None) => (Arc::clone(&genesis_committee), None),
+            Err(e) => {
+                eprintln!("catch-up: reading the committee: {e}");
+                continue;
+            }
+        };
         match catch_up_once(&url, &chain, &committee, weights.as_ref()).await {
             Ok(_) => last_error = None,
             Err(e) => {

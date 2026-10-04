@@ -150,20 +150,48 @@ weight. It currently builds `Committee::new(size)` too.
 - **Engine.** The driver builds `Committee::weighted` from the epoch's
   record, at boot and at every epoch switch.
 - **Checkpoints (ADR-038).** These count stake too
-  (`Checkpoint::verify_weighted`, `Collector::add_weighted`, and
+  (`Checkpoint::verify`, `Collector::add`, and
   `catchup::fetch` with weights). A catching-up node imports blocks on the
   checkpoint quorum alone. Counted in heads, that quorum would let cheap
-  seats attest a chain of their own making.
+  seats attest a chain of their own making. Both take `weights` as an
+  argument with no default, so a caller cannot forget it.
+- **One snapshot.** The committee's keys come from the epoch's frozen
+  committee record (`committee_ids`), the same snapshot as its weights. A
+  mid-epoch tombstone shrinks `active`, but it changes neither the keys nor
+  the weights the engine runs until the next boundary.
+- **Followers.** `follow_loop` re-reads the committee and weights on every
+  round (`BftDriver::staked_committee`), so it checks each checkpoint
+  against the current epoch, not the one it started in.
 
-Evidence (`crates/node/tests/bft_staking_tests.rs`, 5 passed):
+Evidence (`crates/node/tests/bft_staking_tests.rs`, 6 passed):
 - `absent_cheap_seats_halt_a_one_seat_one_vote_chain`: the control. Three
   absent 1,000-bond seats beside four 10,000-bond validators stop the chain.
 - `absent_cheap_seats_cannot_halt_a_stake_weighted_chain`: the same attack
   against a weighted genesis. The chain keeps producing, and epoch 1's
   recorded weights are exactly the seven stakes.
 - `stake_weighting_is_part_of_the_genesis_id`.
+- `a_weighted_node_restarts_after_a_mid_epoch_tombstone_and_keeps_weights`:
+  the review's HIGH (keys from `active`, weights frozen at the boundary).
+  - Without the fix, it fails with "committee weights do not match the
+    committee".
+  - It also crosses three more boundaries and checks that the weights are
+    still recorded.
+- `attest::tests::cheap_seats_make_a_head_quorum_but_never_a_stake_quorum`
+  covers the checkpoint quorum. Three cheap signers make a quorum by heads
+  but not by stake, and weights of the wrong length are an error.
 - The ceremony's `only_a_value_bearing_chain_is_stake_weighted` covers the
   launch configuration.
+
+Accepted for v1, from the security review:
+- **Tombstones.** A validator tombstoned mid-epoch keeps its frozen weight
+  until the boundary. Its key can still sign for the rest of that epoch.
+  Zeroing its weight mid-epoch would change the quorum under an epoch in
+  flight, which is the bug fixed above.
+- **Boundary timing.** Stake moved in the block before a boundary is
+  weighted for the next epoch. Unbonding delays already stop stake from
+  leaving and returning within one epoch. Weighting by the minimum of two
+  epochs' stake is a candidate hardening, not built.
+- **Zero stake.** A zero stake counts as weight 1, the engine's floor.
 
 Still open (gate 10): recovery from a halt caused by more than a third of
 the stake going offline.
