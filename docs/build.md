@@ -38,7 +38,7 @@ of that, down from 316.0 GiB. `fuzz/target` (10.2 GiB) and
 separate workspaces with their own profiles, and they are why the *sum* is
 still over the 30 GiB ceiling while the root is under it.
 
-**Profiles are load-bearing, not tuning** — [ADR-003](docs/adr/ADR-003-build-profiles.md).
+**Profiles are load-bearing, not tuning** — [ADR-003](adr/ADR-003-build-profiles.md).
 `[profile.dev] debug = "line-tables-only"` and
 `[profile.dev.package."*"] opt-level = 3, debug = false` are what keep the tree
 inside the ceiling and the node binary under MSVC `link.exe`'s PDB module cap

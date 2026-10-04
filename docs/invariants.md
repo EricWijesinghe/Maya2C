@@ -196,7 +196,7 @@ phase that did it.
     `g:guard:` sits under the governance prefix (asserted at compile time) so it
     is already under the state root per 25.
     `crates/node/tests/exploit_replays.rs` pins it; see
-    [docs/invariant-guard.md](docs/invariant-guard.md).
+    [docs/invariant-guard.md](invariant-guard.md).
 29. **Only parameter sets named in the signature-suite registry are compiled
     into a signature path, and every FIPS one has NIST known answers.**
     `SuiteId` is a closed `#[repr(u8)]` enum; an unknown byte is a decode error,
