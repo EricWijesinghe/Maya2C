@@ -22,4 +22,4 @@ Each item links its evidence.
 | 15 | ~~Contracts cannot learn their caller~~ **Resolved 2026-09-27**: `caller` host function, live from genesis | ADR-026 (Accepted), `crates/reference-apps/tests/nft_game.rs`, `crates/node/tests/nft_game_on_node_tests.rs` | closed |
 | 16 | Faucet grants once per IP per day; a venue behind one NAT gets one grant | `docs/ecosystem/HACKATHON_KIT.md` | open |
 | 17 | ~~DAG-BFT quorum was 2f + 1 at every committee size: unsafe at n = 2, 3, 5, 6, …~~ **Fixed**: n − f | ADR-039, `crates/dag-bft/src/vertex.rs` | closed |
-| 18 | Committee capture: seats cost `min_self_bond` and each has one vote, so absent registrations can halt a small committee, and a halted chain never reaches the epoch boundary that would jail them | ADR-039 § Consequence | **open, blocks mainnet** |
+| 18 | ~~Committee capture by cheap absent seats~~ **Fixed for mainnet**: stake-weighted committees and checkpoints from a weighted genesis (ADR-040); maya-testnet-1 relies on `--min-register-bond`. Recovery from a genuine >1/3-stake outage still has no in-protocol path | ADR-039, ADR-040 | capture closed; recovery open |

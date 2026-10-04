@@ -76,6 +76,49 @@ pub struct Step {
     pub notices: Vec<String>,
 }
 
+/// An epoch's committee keys and, on a stake-weighted chain, their weights.
+pub type StakedCommittee = (Arc<[VerifyingKey]>, Option<Arc<[u64]>>);
+
+/// One epoch's committee: its keys, and its voting weights where the chain
+/// is stake-weighted (ADR-040 part 2).
+struct EpochCommittee {
+    keys: Arc<[VerifyingKey]>,
+    weights: Option<Arc<[u64]>>,
+}
+
+impl EpochCommittee {
+    /// The committee the staking record names for its current epoch, with
+    /// the weights frozen at that epoch's boundary, if the chain has them.
+    fn of_epoch(chain: &Chain, record: &crate::state::staking::StakingRecord) -> Result<Self> {
+        // Keys and weights from the same boundary snapshot, so a mid-epoch
+        // tombstone cannot leave them different lengths or orders.
+        let ids = chain
+            .state()
+            .committee_ids(record.staking.epoch)?
+            .unwrap_or_else(|| record.staking.active.clone());
+        let keys: Arc<[VerifyingKey]> = chain.state().validator_keys(&ids)?.into();
+        let weights = chain.state().committee_weights(record.staking.epoch)?;
+        if weights.as_ref().is_some_and(|w| w.len() != keys.len()) {
+            return Err(NodeError::Storage(
+                "committee weights do not match the committee".to_string(),
+            ));
+        }
+        Ok(Self {
+            keys,
+            weights: weights.map(Into::into),
+        })
+    }
+
+    /// The engine's committee: weighted where the chain is, else equal.
+    fn engine(&self) -> Result<Committee> {
+        match &self.weights {
+            Some(w) => Committee::weighted(w.to_vec()),
+            None => u16::try_from(self.keys.len()).ok().map(Committee::new),
+        }
+        .ok_or_else(|| NodeError::Decode("committee exceeds u16".to_string()))
+    }
+}
+
 /// The `(epoch, round)` sealed in the chain's tip, or `None` at genesis.
 fn tip_seal(chain: &Chain) -> Option<(u64, u64)> {
     if chain.height() == 0 {
@@ -103,6 +146,8 @@ pub struct BftDriver {
     dir: PathBuf,
     /// This epoch's committee, which attestations are checked against.
     committee: Arc<[VerifyingKey]>,
+    /// Its voting weights on a stake-weighted chain (ADR-040 part 2).
+    weights: Option<Arc<[u64]>>,
     /// Attestations gathered into the newest checkpoint (ADR-038).
     attestations: Collector,
     /// Set after catching up through a checkpoint: this node lacks the DAG
@@ -157,15 +202,37 @@ impl BftDriver {
         Ok((driver, step))
     }
 
+    /// The committee and weights of the chain's current staking epoch, or
+    /// `None` on a chain without staking (its genesis committee never
+    /// changes). For a follower outside the engine, which must check each new
+    /// checkpoint against the epoch it was signed in, not the one it started in.
+    ///
+    /// # Errors
+    ///
+    /// A storage failure, or keys and weights that do not match.
+    pub fn staked_committee(chain: &Chain) -> Result<Option<StakedCommittee>> {
+        chain
+            .state()
+            .committed_staking()?
+            .map(|record| EpochCommittee::of_epoch(chain, &record).map(|c| (c.keys, c.weights)))
+            .transpose()
+    }
+
     /// The epoch and committee to run: staking's, where the chain has it,
     /// else the genesis committee in `setup`.
-    fn committee_of(setup: &BftSetup, chain: &Chain) -> Result<(u64, Arc<[VerifyingKey]>)> {
+    fn committee_of(setup: &BftSetup, chain: &Chain) -> Result<(u64, EpochCommittee)> {
         match chain.state().committed_staking()? {
             Some(record) => {
-                let keys = chain.state().validator_keys(&record.staking.active)?;
-                Ok((record.staking.epoch, keys.into()))
+                let committee = EpochCommittee::of_epoch(chain, &record)?;
+                Ok((record.staking.epoch, committee))
             }
-            None => Ok((setup.epoch, Arc::clone(&setup.committee))),
+            None => Ok((
+                setup.epoch,
+                EpochCommittee {
+                    keys: Arc::clone(&setup.committee),
+                    weights: None,
+                },
+            )),
         }
     }
 
@@ -178,11 +245,14 @@ impl BftDriver {
         params: Params,
         dir: PathBuf,
         epoch: u64,
-        committee: &Arc<[VerifyingKey]>,
+        committee: &EpochCommittee,
         chain: &mut Chain,
         now_ms: u64,
         step: &mut Step,
     ) -> Result<Self> {
+        let engine_committee = committee.engine()?;
+        let weights = committee.weights.clone();
+        let committee = &committee.keys;
         let id = match &signer {
             None => None,
             Some(key) => {
@@ -195,18 +265,16 @@ impl BftDriver {
                     .map_err(|_| NodeError::Decode("committee index exceeds u16".to_string()))?
             }
         };
-        let size = u16::try_from(committee.len())
-            .map_err(|_| NodeError::Decode("committee exceeds u16".to_string()))?;
         let engine_params = Params { epoch, ..params };
         let engine = match (id, &signer) {
             (Some(id), Some(key)) => Validator::with_auth(
                 id,
-                Committee::new(size),
+                engine_committee,
                 engine_params,
                 MlDsaAuthenticator::validator(key.clone(), Arc::clone(committee)),
             ),
             _ => Validator::observer(
-                Committee::new(size),
+                engine_committee,
                 engine_params,
                 MlDsaAuthenticator::observer(Arc::clone(committee)),
             ),
@@ -230,6 +298,7 @@ impl BftDriver {
             params,
             dir,
             committee: Arc::clone(committee),
+            weights,
             attestations: Collector::default(),
             follower: false,
             resumed_at: 0,
@@ -361,6 +430,13 @@ impl BftDriver {
         Arc::clone(&self.committee)
     }
 
+    /// This epoch's voting weights on a stake-weighted chain; `None` where
+    /// every member counts one. Catch-up checks checkpoints with these.
+    #[must_use]
+    pub fn weights(&self) -> Option<Arc<[u64]>> {
+        self.weights.clone()
+    }
+
     /// What `get_bft_status` reports for this driver.
     #[must_use]
     pub fn status(&self) -> crate::rpc::types::BftStatus {
@@ -428,7 +504,8 @@ impl BftDriver {
         // Counted, ignored, a new checkpoint, or a forged attestation refused
         // before it counted: only an equivocation is for the node to act on.
         if let Ok(Collected::Equivocation(pair)) =
-            self.attestations.add(attestation, tag, &self.committee)
+            self.attestations
+                .add(attestation, tag, &self.committee, self.weights.as_deref())
         {
             step.notices.push(format!(
                 "validator {} attested two blocks at height {} — evidence held",
@@ -575,8 +652,7 @@ impl BftDriver {
             .state()
             .committed_staking()?
             .ok_or_else(|| NodeError::Storage("staking record vanished".to_string()))?;
-        let committee: Arc<[VerifyingKey]> =
-            chain.state().validator_keys(&record.staking.active)?.into();
+        let committee = EpochCommittee::of_epoch(chain, &record)?;
         let next = Self::boot(
             self.signer.clone(),
             self.params,
