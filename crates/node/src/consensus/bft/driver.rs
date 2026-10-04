@@ -323,7 +323,12 @@ impl BftDriver {
             attestations: Collector::default(),
             follower: false,
             resumed_at: 0,
-            last_anchor: None,
+            // The anchor the tip was built for, so a block that later
+            // arrives from elsewhere is recognised as one this engine never
+            // committed (see `overtaken`).
+            last_anchor: tip_seal(chain)
+                .filter(|(e, _)| *e == epoch)
+                .map(|(_, round)| round),
             closing: None,
         };
         // Own proposals and votes first: they set the round, so replaying
@@ -427,6 +432,18 @@ impl BftDriver {
             self.engine.resume_after(round);
             self.resumed_at = round;
         }
+    }
+
+    /// Whether the chain's tip was built for an anchor this engine has not
+    /// committed: a block imported from a peer's checkpoint, so this node is
+    /// behind, whatever made it so. A builder that missed rounds would
+    /// otherwise wait for a sub-DAG it can no longer complete; following
+    /// attested blocks brings it back (attacknet soak, 2026-10-05).
+    fn overtaken(&self, chain: &Chain) -> bool {
+        let Some((epoch, round)) = tip_seal(chain) else {
+            return false;
+        };
+        epoch == self.epoch && self.last_anchor.is_none_or(|last| round > last)
     }
 
     /// Whether a follower may build the block for the anchor at `round`
@@ -586,6 +603,13 @@ impl BftDriver {
                 self.epoch
             ));
             return Ok(step);
+        }
+        if !self.follower && self.overtaken(chain) {
+            self.follow_attested(chain);
+            step.notices.push(
+                "blocks arrived that this node did not build: following attested blocks"
+                    .to_string(),
+            );
         }
         let out = self.engine.tick(now_ms);
         self.absorb(chain, now_ms, out, &mut step)?;

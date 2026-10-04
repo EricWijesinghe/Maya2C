@@ -159,3 +159,40 @@ Evidence: `cargo xtask attacknet`, all six attacks pass. Validator 6 was down
 45 s across the boundary at height 60. It imported 33 blocks, logged
 "followed attested blocks into epoch 1", and rejoined at height 66. There
 was no fork through height 67. The run is in `reports/attacknet/`.
+
+## Checkpoint threshold: f + 1, not n − f (2026-10-05)
+
+A soak of `cargo xtask attacknet` (3 runs × 3 rounds) reproduced a permanent
+stall. Two validators restarted one block behind, so they correctly became
+followers. Followers vote, so the chain resumed. But a follower cannot
+attest a block it has not imported. With 2 followers in a 5-seat committee
+(f = 1), only 3 builders attested, short of the n − f = 4 a checkpoint then
+needed. No checkpoint ever formed, so the followers never imported anything.
+The network ran on to height 194 while they sat at 78. More than f followers
+at once is enough to cause this, and a restart of several validators
+together produces exactly that.
+
+**Decision.** A checkpoint needs f + 1 signers: by stake, more than the
+faulty weight. This is the engine's existing `Committee::validity()`, the
+same f + 1 weight that commits an anchor.
+
+**Why it is enough.**
+- An honest validator attests only the block it built from the committed
+  DAG.
+- Of f + 1 signers, at least one is honest, so the attested block is the
+  canonical block at that height.
+- An importer still checks that the fetched blocks hash-chain to it, and
+  re-executes each one against its state root (invariant 24).
+- n − f would add margin only against more than f Byzantine signers. A
+  committee in that state has already lost BFT safety, and no checkpoint
+  threshold restores it.
+
+**Weighted.** By stake, f + 1 is more than a third of the stake. Three
+1,000-bond seats beside one 10,000-bond validator still cannot attest
+anything (`cheap_seats_make_a_head_quorum_but_never_a_stake_quorum`).
+
+**Open, recorded in KNOWN_ISSUES.** An observer node (no validator key)
+follows by polling a peer's RPC for checkpoints and blocks, never over
+p2p. Every follower therefore costs its source about two requests a second.
+Twelve project peers on one IP exhausted the public bootstrap endpoint's
+10-per-second limit.

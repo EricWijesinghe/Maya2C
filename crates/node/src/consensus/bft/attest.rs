@@ -203,7 +203,7 @@ impl Checkpoint {
     ) -> Result<()> {
         if !has_quorum(self.signatures.keys().copied(), committee.len(), weights)? {
             return Err(NodeError::Decode(format!(
-                "checkpoint at height {} is signed by {} member(s), short of a quorum",
+                "checkpoint at height {} is signed by {} member(s), short of f + 1",
                 self.height,
                 self.signatures.len()
             )));
@@ -222,8 +222,19 @@ impl Checkpoint {
     }
 }
 
-/// Whether `signers` form a quorum of a committee of `size`: n − f heads
-/// (ADR-039), or W − f stake when `weights` is given (ADR-040 part 2).
+/// Whether `signers` attest a block: f + 1 of a committee of `size` in
+/// heads, or more than the faulty stake when `weights` is given (ADR-040
+/// part 2).
+///
+/// f + 1, not the n − f a vertex certificate needs. An honest validator
+/// attests only the block it derived from the committed DAG, so f + 1
+/// signers, at least one of them honest, name the canonical block: what a
+/// catching-up node must know, and all it must know, since it re-executes
+/// every block it imports (invariant 24). Requiring n − f deadlocked: a
+/// follower votes but cannot attest blocks it has not imported, so with
+/// more than f followers at once the builders alone could never reach n − f,
+/// no checkpoint ever formed, and the followers never caught up (attacknet,
+/// 2026-10-05; ADR-038).
 fn has_quorum(
     signers: impl IntoIterator<Item = u16>,
     size: usize,
@@ -239,7 +250,7 @@ fn has_quorum(
         None => u16::try_from(size).ok().map(Committee::new),
     }
     .ok_or_else(|| NodeError::Decode("committee larger than u16".to_string()))?;
-    Ok(committee.is_quorum(signers))
+    Ok(committee.weight_of(signers) >= committee.validity())
 }
 
 /// How many epochs' final checkpoints a node keeps serving. A validator
@@ -447,8 +458,9 @@ mod tests {
     }
 
     #[test]
-    fn three_of_four_make_a_checkpoint_that_verifies() {
-        let (signing, committee) = keys(4);
+    fn three_of_seven_make_a_checkpoint_that_verifies() {
+        // n = 7 tolerates f = 2, so f + 1 = 3 signers include an honest one.
+        let (signing, committee) = keys(7);
         let mut collector = Collector::default();
         for v in 0..2 {
             assert_eq!(
@@ -462,7 +474,7 @@ mod tests {
             .add(attest(&signing, 3, 5, 1), &CHAIN, &committee, None)
             .unwrap()
         else {
-            panic!("the third attestation completes a quorum of four");
+            panic!("the third attestation reaches f + 1 of seven");
         };
         assert_eq!((c.height, c.block, c.signatures.len()), (5, [1; 32], 3));
         c.verify(&CHAIN, &committee, None).unwrap();
@@ -477,8 +489,8 @@ mod tests {
     }
 
     #[test]
-    fn a_checkpoint_short_of_quorum_or_with_a_forged_signature_is_refused() {
-        let (signing, committee) = keys(4);
+    fn a_checkpoint_short_of_f_plus_one_or_with_a_forged_signature_is_refused() {
+        let (signing, committee) = keys(7);
         let mut c = Checkpoint {
             epoch: 0,
             height: 3,
@@ -490,7 +502,7 @@ mod tests {
         }
         assert!(
             c.verify(&CHAIN, &committee, None).is_err(),
-            "two of four is not a quorum"
+            "two of seven could both be faulty"
         );
         c.signatures.insert(2, attest(&signing, 2, 3, 99).signature);
         assert!(
@@ -543,7 +555,8 @@ mod tests {
 
     #[test]
     fn a_forged_attestation_is_never_counted() {
-        let (signing, committee) = keys(4);
+        // Seven seats: f + 1 = 3. Counted, the forgery would complete it.
+        let (signing, committee) = keys(7);
         let mut collector = Collector::default();
         let mut forged = attest(&signing, 0, 4, 1);
         forged.signature[0] ^= 1;
