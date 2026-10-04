@@ -222,6 +222,13 @@ async fn catch_up_once(
     Ok(catchup::import(&mut lock_chain(chain), blocks)?)
 }
 
+/// The peer's tip height.
+async fn peer_tip(url: &str) -> Result<u64, Box<dyn Error>> {
+    let source = RpcBootstrapSource::new(url, tokio::runtime::Handle::current())?;
+    use custom_l1_node::state_pruner::snapshot::BootstrapSource as _;
+    Ok(tokio::task::spawn_blocking(move || source.tip_height()).await??)
+}
+
 /// Startup catch-up for a node that was down longer than the engine's
 /// window (`--catch-up-from`): imports to the peer's checkpoint, then turns
 /// the driver into an attested follower so it votes and proposes again.
@@ -232,6 +239,18 @@ pub(super) async fn catch_up(
 ) -> Result<u64, Box<dyn Error>> {
     let imported =
         catch_up_once(url, chain, &driver.committee(), driver.weights().as_ref()).await?;
+    // Follow attested blocks only when this node is behind the network. A
+    // node that missed nothing (say the chain halted while it was down)
+    // holds its own DAG history and must build blocks again at once: when
+    // more than f validators restart together, followers would wait for
+    // checkpoints only they could complete, and never rejoin (attacknet,
+    // crash f+1).
+    let ours = lock_chain(chain).height();
+    let theirs = peer_tip(url).await?;
+    if imported == 0 && theirs <= ours {
+        println!("catch-up:    level with {url} at height {ours}; resuming as a full validator");
+        return Ok(0);
+    }
     driver.follow_attested(&lock_chain(chain));
     println!(
         "catch-up:    imported {imported} blocks from {url}; following attested blocks (ADR-038)"
