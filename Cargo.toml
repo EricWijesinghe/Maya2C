@@ -142,6 +142,7 @@ members = [
     # public endpoint — the code that decides who gets funds should be reviewed
     # alongside the code that decides what a block is.
     "apps/faucet",
+    "apps/status",
     # Threshold custody of a chain key. A member so its sharing arithmetic and
     # its quorum rules cannot rot, and because the one thing it must never do —
     # let a sub-threshold set of shares reconstruct anything — is a property a

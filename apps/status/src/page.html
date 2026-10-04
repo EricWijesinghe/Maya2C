@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maya2C Status</title>
+<meta name="description" content="Live uptime of maya-testnet-1, measured from the chain's own block timestamps.">
+<link rel="icon" href="https://maya2c.dev/favicon.ico">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@200;300;400&family=Figtree:wght@400;600&family=JetBrains+Mono:wght@400&display=swap">
+<style>
+  :root { color-scheme: dark; --void:#05060d; --glass:rgba(22,28,52,.55); --edge:rgba(190,205,255,.12); --text:#eef0f8; --muted:#9aa1b8;
+    --blue:#5b8cff; --hi:#b3c8ff; --violet:#7c6cff; --teal:#3fd2e0; --signal:#ffb547; --ok:#45e0a0;
+    --display:"Sora","Segoe UI",sans-serif; --sans:"Figtree","Segoe UI",sans-serif; --mono:"JetBrains Mono",Consolas,monospace; --spring:cubic-bezier(.34,1.56,.64,1); }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--void); color: var(--text); font: 400 16px/1.6 var(--sans); }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 32px max(16px,4vw) 64px; }
+  header { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+  header a { color: var(--text); text-decoration: none; font: 300 22px var(--display); display: flex; gap: 10px; align-items: center; }
+  .pill { padding: 8px 16px; border-radius: 999px; background: var(--glass); border: 1px solid var(--edge); font: 400 13px var(--mono); color: var(--muted); }
+  .pill b { color: var(--ok); font-weight: 400; }
+  .pill.down b { color: var(--signal); }
+  .hero { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 28px; align-items: center; margin-top: 48px; }
+  .ring { width: min(340px, 80vw); aspect-ratio: 1; justify-self: center; position: relative; }
+  .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .ring .val { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
+  .ring .val b { font: 200 clamp(40px,7vw,64px)/1 var(--display); letter-spacing: -.03em; }
+  .ring .val span { color: var(--muted); font-size: 14px; }
+  .facts { display: grid; gap: 14px; }
+  .fact { padding: 18px 22px; border-radius: 22px; background: var(--glass); border: 1px solid var(--edge); }
+  .fact dt { font: 600 12px var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .fact dd { margin: 6px 0 0; font: 300 30px/1.1 var(--display); font-variant-numeric: tabular-nums; }
+  h2 { font: 200 clamp(26px,3.6vw,40px)/1.1 var(--display); letter-spacing: -.02em; margin: 64px 0 18px; }
+  .track { position: relative; height: 130px; border-radius: 34px; background: var(--glass); border: 1px solid var(--edge); overflow: hidden; }
+  .track .line { position: absolute; left: 24px; right: 24px; top: 50%; height: 2px; background: linear-gradient(90deg, var(--blue), var(--violet), var(--teal)); opacity: .5; }
+  .halt { position: absolute; top: 50%; transform: translate(-50%,-50%); border-radius: 50%; border: none; cursor: pointer; padding: 0;
+    background: radial-gradient(circle at 34% 30%, #fff 0 6%, #ffd59a 20%, var(--signal) 55%, rgba(255,181,71,.2)); box-shadow: 0 0 30px -6px rgba(255,181,71,.8); transition: transform .45s var(--spring); }
+  .halt:hover, .halt:focus-visible { transform: translate(-50%,-50%) scale(1.2); outline: none; }
+  .ends { display: flex; justify-content: space-between; color: var(--muted); font: 400 12.5px var(--mono); margin-top: 8px; }
+  .detail { margin-top: 16px; min-height: 52px; padding: 14px 20px; border-radius: 22px; background: var(--glass); border: 1px solid var(--edge); color: var(--muted); font: 400 14px var(--mono); }
+  .detail a { color: var(--hi); }
+  .none { position: absolute; inset: 0; display: grid; place-content: center; color: var(--ok); font: 300 18px var(--display); }
+  footer { margin-top: 48px; color: var(--muted); font-size: 14px; display: flex; gap: 22px; flex-wrap: wrap; }
+  footer a { color: var(--hi); text-decoration: none; }
+  @media (max-width: 760px) { .hero { grid-template-columns: 1fr; } }
+  @media (prefers-reduced-motion: reduce) { .halt, circle { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a href="https://maya2c.dev/"><img src="https://maya2c.dev/brand/orb.svg" width="32" height="32" alt="">Maya2C status</a>
+    <span class="pill" id="state">maya-testnet-1 · <b>checking…</b></span>
+  </header>
+
+  <section class="hero">
+    <div class="ring" aria-label="Uptime since genesis">
+      <svg viewBox="0 0 120 120" aria-hidden="true">
+        <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#b3c8ff"/><stop offset=".5" stop-color="#7c6cff"/><stop offset="1" stop-color="#3fd2e0"/></linearGradient></defs>
+        <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(190,205,255,.1)" stroke-width="9"/>
+        <circle id="arc" cx="60" cy="60" r="52" fill="none" stroke="url(#g)" stroke-width="9" stroke-linecap="round" stroke-dasharray="0 400" style="transition: stroke-dasharray 1.1s cubic-bezier(.22,1,.36,1)"/>
+      </svg>
+      <div class="val"><b id="pct">—</b><span>uptime since genesis</span></div>
+    </div>
+    <dl class="facts">
+      <div class="fact"><dt>Running without a halt</dt><dd id="streak">—</dd></div>
+      <div class="fact"><dt>Height</dt><dd id="height">—</dd></div>
+      <div class="fact"><dt>Halts since genesis</dt><dd id="count">—</dd></div>
+    </dl>
+  </section>
+
+  <h2>Every halt, since genesis</h2>
+  <div class="track" id="track"><div class="line"></div></div>
+  <div class="ends"><span id="t0">genesis</span><span>now</span></div>
+  <div class="detail" id="detail">Tap a bubble to see a halt. Measured from block timestamps: a gap over <span id="thr">60</span> s counts.</div>
+
+  <footer>
+    <a href="https://explorer.maya2c.dev/">Explorer →</a>
+    <a href="https://maya2c.dev/experience/">Experience Maya2C →</a>
+    <a href="/api/status">Raw data →</a>
+  </footer>
+</div>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const fmt = (n) => n.toLocaleString("en-US");
+  function dur(s) {
+    const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+    return d ? `${d} d ${h} h` : h ? `${h} h ${m} min` : m ? `${m} min` : `${s} s`;
+  }
+  const when = (t) => new Date(t * 1000).toLocaleString();
+  async function refresh() {
+    let r;
+    try { r = await (await fetch("/api/status", { cache: "no-store" })).json(); } catch { r = null; }
+    if (!r) { $("state").innerHTML = 'maya-testnet-1 · <b>status service unreachable</b>'; return; }
+    if (r.syncing) { $("state").innerHTML = `maya-testnet-1 · <b>reading history ${fmt(r.height)} / ${fmt(r.tip)}</b>`; return; }
+    $("state").className = r.halted_now ? "pill down" : "pill";
+    $("state").innerHTML = `maya-testnet-1 · <b>${r.halted_now ? `halted ${dur(r.since_last_block)}` : "producing"}</b>`;
+    const pct = r.uptime * 100;
+    $("pct").textContent = pct >= 99.995 ? "100%" : pct.toFixed(2) + "%";
+    $("arc").setAttribute("stroke-dasharray", `${(r.uptime * 326.7).toFixed(1)} 400`);
+    $("streak").textContent = dur(r.streak_seconds);
+    $("height").textContent = fmt(r.height);
+    $("count").textContent = fmt(r.halts.length);
+    $("thr").textContent = r.threshold_seconds;
+    $("t0").textContent = "genesis · " + when(r.genesis);
+    const track = $("track"), span = Math.max(1, r.last_block - r.genesis);
+    track.querySelectorAll(".halt,.none").forEach((e) => e.remove());
+    if (!r.halts.length) track.insertAdjacentHTML("beforeend", '<div class="none">No halts since genesis</div>');
+    r.halts.forEach((h) => {
+      const b = document.createElement("button");
+      const size = Math.min(84, 18 + Math.sqrt(h.ended - h.started) * 0.9);
+      b.className = "halt";
+      b.style.left = `calc(24px + (100% - 48px) * ${((h.started - r.genesis) / span).toFixed(4)})`;
+      b.style.width = b.style.height = size + "px";
+      b.setAttribute("aria-label", `Halt of ${dur(h.ended - h.started)} after block ${h.height}`);
+      b.onclick = () => {
+        $("detail").innerHTML = `${dur(h.ended - h.started)} without a block, ${when(h.started)} → ${when(h.ended)}, after block <a href="https://explorer.maya2c.dev/blocks/${h.height}">${fmt(h.height)}</a>`;
+      };
+      track.appendChild(b);
+    });
+  }
+  refresh();
+  setInterval(refresh, 5000);
+</script>
+</body>
+</html>

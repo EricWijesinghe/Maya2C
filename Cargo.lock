@@ -6575,6 +6575,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "maya-status"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "jsonrpsee",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower-http",
+]
+
+[[package]]
 name = "maya-stratum-v2"
 version = "0.1.0"
 dependencies = [
