@@ -6,7 +6,7 @@ interface Props { items: Item[] }
 const { items } = Astro.props;
 ---
 
-<div class="orb-row">
+<div class="not-content orb-row">
   {items.map((i) => (
     <a class={i.live ? "orb live" : "orb"} href={i.href}>
       <b>{i.title}</b>
@@ -25,7 +25,7 @@ const { items } = Astro.props;
   .orb b { font: 400 18px/1.2 var(--display); }
   .orb span { font-size: 13.5px; color: var(--muted); line-height: 1.35; }
   .orb em { font: 600 12.5px var(--sans); font-style: normal; color: var(--accent-text); opacity: 0; transform: translateY(4px); transition: opacity .3s, transform .4s var(--spring); }
-  .orb:hover, .orb:focus-visible { transform: scale(1.06); border-color: var(--cherenkov); box-shadow: 0 0 50px -10px rgba(91,140,255,.8); }
+  .orb:hover, .orb:focus-visible { transform: scale(1.06); border-color: var(--cherenkov); box-shadow: 0 0 50px -10px rgba(31, 181, 194,.8); }
   .orb:hover em, .orb:focus-visible em { opacity: 1; transform: none; }
   .orb.live { border-color: rgba(69,224,160,.55); }
   @media (hover: none) { .orb em { opacity: 1; transform: none; } }

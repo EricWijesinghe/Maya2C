@@ -1,0 +1,36 @@
+---
+// The real Maya2C emblem (logo-assets/print, cropped to its edges) and the
+// wordmark, one word. Astro emits AVIF and WebP at the two sizes a header
+// needs; the 384 px source never reaches a browser.
+import { Picture } from "astro:assets";
+import emblem from "../assets/emblem.png";
+const { siteTitleHref } = Astro.locals.starlightRoute;
+---
+
+<a href={siteTitleHref} class="brand" aria-label="Maya2C home">
+  <Picture
+    src={emblem}
+    formats={["avif", "webp"]}
+    widths={[48, 96, 144]}
+    sizes="48px"
+    width={48}
+    height={48}
+    alt=""
+    class="emblem"
+    loading="eager"
+    fetchpriority="high"
+  />
+  <span class="word" translate="no">Maya2C</span>
+</a>
+
+<style>
+  .brand { display: inline-flex; align-items: center; gap: 12px; text-decoration: none; min-width: 0; border-radius: 14px; padding: 2px 8px 2px 2px; }
+  .brand :global(.emblem) { width: 44px; height: 44px; flex: none; filter: drop-shadow(0 0 10px var(--brand-glow)); transition: transform .6s var(--spring), filter .4s var(--glide); }
+  .brand:hover :global(.emblem) { transform: rotate(-6deg) scale(1.08); filter: drop-shadow(0 0 16px var(--brand-glow)); }
+  .word {
+    font: 800 22px/1 var(--display); letter-spacing: -0.01em; white-space: nowrap;
+    background: var(--brand-word); -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  @media (max-width: 30rem) { .word { font-size: 19px; } .brand :global(.emblem) { width: 38px; height: 38px; } }
+  @media (prefers-reduced-motion: reduce) { .brand :global(.emblem) { transition: none; } }
+</style>

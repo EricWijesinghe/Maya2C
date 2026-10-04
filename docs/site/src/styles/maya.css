@@ -1,33 +1,46 @@
-/* Maya2C Living Light Design System
-   Post-quantum blockchain presented as a living, interactive system.
-   No square corners. Glass surfaces. Thin-film gradients. Spring physics. */
+/* Maya2C design system — "Forged Light" (2026-10-05)
+   Every colour is taken from the emblem (logo-assets/): signal teal from its
+   glow, bronze-gold from its ring, brushed steel from its wings, abyss from
+   its ground. Soft geometry, glass with real depth, spring motion.
+   Token names predate the rebrand (--cherenkov was blue); components use the
+   names, so changing a value here re-skins the whole site. */
 
 :root {
-  /* Palette: depth and iridescence */
-  --void: #05060d;
-  --deep: #0b0e1c;
-  --glass: rgba(22, 28, 52, 0.55);
-  --glass-edge: rgba(190, 205, 255, 0.12);
-  --text: #eef0f8;
-  --muted: #9aa1b8;
-  --cherenkov: #5b8cff;
-  --cherenkov-hi: #b3c8ff;
-  --iris-a: #7c6cff;
-  --iris-b: #3fd2e0;
-  --iris-c: #ffc97a;
-  --signal: #ffb547;
+  /* Palette: dark is the brand's home theme */
+  --void: #050b0f;            /* abyss */
+  --deep: #0a161b;
+  --glass: rgba(14, 30, 36, 0.62);
+  --glass-edge: rgba(150, 226, 232, 0.13);
+  --text: #edf3f2;            /* brushed steel, lightest */
+  --muted: #93a4aa;           /* steel shadow */
+  --cherenkov: #1fb5c2;       /* signal teal */
+  --cherenkov-hi: #7eeaf0;    /* teal glow */
+  --iris-a: #2fb9c3;
+  --iris-b: #d9b97a;          /* bronze-gold, lit */
+  --iris-c: #c9a86a;
+  --gold: #c9a86a;
+  --steel: #bdc6c8;
+  --signal: #e6b260;
   --verified: #45e0a0;
 
   /* Semantic surfaces: components use these, never a raw colour, so light
      mode never leaves a dark box behind. */
+  --accent: var(--cherenkov);
+  --accent-fill: linear-gradient(135deg, #22c3cf, #0e8f9c);
+  --on-accent: #02161a;
   --accent-text: var(--cherenkov-hi);
-  --lede: #c8cde0;
-  --pop-bg: rgba(16, 20, 40, 0.9);
-  --orb-hi: rgba(255, 255, 255, 0.14);
-  --orb-lo: rgba(22, 28, 52, 0.62);
-  --halo: rgba(91, 140, 255, 0.6);
-  --well: rgba(5, 6, 13, 0.7);
-  --title-grad: linear-gradient(95deg, var(--cherenkov-hi), var(--iris-a) 45%, var(--iris-b));
+  --lede: #c3d0d2;
+  --pop-bg: rgba(8, 20, 25, 0.92);
+  --orb-hi: rgba(255, 255, 255, 0.13);
+  --orb-lo: rgba(12, 34, 40, 0.66);
+  --halo: rgba(31, 181, 194, 0.55);
+  --well: rgba(2, 8, 10, 0.72);
+  --title-grad: linear-gradient(100deg, #e9f1f0 0%, #7eeaf0 42%, #d9b97a 100%);
+  --brand-word: linear-gradient(100deg, #f4f8f7 0%, #b9dfe2 45%, #5fd8e2 100%);
+  --brand-glow: rgba(31, 181, 194, 0.55);
+  --brand-line: linear-gradient(90deg, #1fb5c2, #7eeaf0 60%, #d9b97a);
+  --nav-pill: rgba(14, 30, 36, 0.55);
+  --nav-hover: rgba(126, 234, 240, 0.08);
 
   /* Radii: soft everywhere, min 12px */
   --r-s: 12px;
@@ -35,60 +48,76 @@
   --r-l: 34px;
   --r-pill: 999px;
 
-  /* Shadows */
-  --shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(255, 255, 255, 0.05) inset;
+  /* Shadows: two layers, a tight contact and a long soft fall */
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 28px 70px -28px rgba(0, 0, 0, 0.85), 0 1px 0 rgba(255, 255, 255, 0.05) inset;
 
-  /* Typography */
-  --display: "Sora", "Avenir Next", "Segoe UI", sans-serif;
-  --sans: "Figtree", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  /* Typography: Manrope for display, Inter for reading, JetBrains Mono for
+     code — all self-hosted variable fonts (astro.config.mjs). */
+  --display: "Manrope Variable", "Manrope", system-ui, sans-serif;
+  --sans: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, Consolas, monospace;
 
   /* Motion */
   --spring: cubic-bezier(.34, 1.56, .64, 1);
   --glide: cubic-bezier(.22, 1, .36, 1);
 
-  /* Starlight overrides */
+  /* Starlight */
   --sl-color-bg: var(--void);
-  --sl-color-bg-nav: rgba(5, 7, 15, 0.82);
-  --sl-color-bg-sidebar: #070a16;
-  --sl-color-hairline: rgba(148, 163, 184, 0.14);
-  --sl-color-accent-low: rgba(91, 140, 255, 0.12);
+  --sl-color-bg-nav: rgba(5, 11, 15, 0.97);
+  --sl-color-bg-sidebar: #061015;
+  --sl-color-hairline: rgba(150, 226, 232, 0.10);
+  --sl-color-hairline-light: rgba(150, 226, 232, 0.16);
+  --sl-color-accent-low: rgba(31, 181, 194, 0.14);
   --sl-color-accent: var(--cherenkov);
   --sl-color-accent-high: var(--cherenkov-hi);
+  --sl-color-text-accent: var(--cherenkov-hi);
   --sl-font: var(--sans);
+  --sl-font-mono: var(--mono);
+  --sl-nav-height: 4.25rem;
 }
 
 :root[data-theme="dark"] {
-  --sl-color-bg: #05060d;
-  --sl-color-bg-nav: rgba(5, 7, 15, 0.82);
-  --sl-color-bg-sidebar: #070a16;
-  --sl-color-hairline: rgba(148, 163, 184, 0.14);
+  --sl-color-bg: #050b0f;
+  --sl-color-bg-nav: rgba(5, 11, 15, 0.97);
+  --sl-color-bg-sidebar: #061015;
   --sl-color-accent: var(--cherenkov);
 }
 
 :root[data-theme="light"] {
-  --void: #fafbfc;
-  --deep: #f3f5f7;
-  --glass: rgba(240, 242, 248, 0.85);
-  --glass-edge: rgba(91, 140, 255, 0.15);
-  --text: #05060d;
-  --muted: #5a6070;
-  --signal: #e8760d;
+  --void: #f6f9f9;
+  --deep: #ecf2f2;
+  --glass: rgba(255, 255, 255, 0.78);
+  --glass-edge: rgba(14, 116, 128, 0.14);
+  --text: #08171c;
+  --muted: #53656b;
+  --cherenkov: #0b7d89;
+  --cherenkov-hi: #0b7d89;
+  --signal: #b06d0f;
   --verified: #0d8659;
-  --accent-text: #2f5bd8;
-  --lede: #3a4152;
-  --pop-bg: rgba(255, 255, 255, 0.94);
-  --orb-hi: rgba(255, 255, 255, 0.95);
-  --orb-lo: rgba(214, 224, 255, 0.75);
-  --halo: rgba(91, 140, 255, 0.35);
-  --well: rgba(222, 229, 248, 0.85);
-  --title-grad: linear-gradient(95deg, #3b63e0, #6a4cf0 45%, #0e9fb0);
-  --shadow: 0 30px 70px -34px rgba(40, 60, 140, 0.35), 0 1px 0 rgba(255, 255, 255, 0.6) inset;
+  --gold: #9a7330;
+  --accent-text: #0a6f7a;
+  --on-accent: #ffffff;
+  --accent-fill: linear-gradient(135deg, #12a3b0, #0b7280);
+  --lede: #34474d;
+  --pop-bg: rgba(255, 255, 255, 0.95);
+  --orb-hi: rgba(255, 255, 255, 0.98);
+  --orb-lo: rgba(208, 236, 238, 0.8);
+  --halo: rgba(14, 140, 152, 0.3);
+  --well: rgba(224, 238, 239, 0.9);
+  --title-grad: linear-gradient(100deg, #0b2228 0%, #0b7d89 50%, #9a7330 100%);
+  --brand-word: linear-gradient(100deg, #0b2228 0%, #0c5f69 55%, #0b8d9a 100%);
+  --brand-glow: rgba(11, 125, 137, 0.35);
+  --nav-pill: rgba(255, 255, 255, 0.7);
+  --nav-hover: rgba(11, 125, 137, 0.08);
+  --shadow: 0 1px 2px rgba(10, 40, 46, 0.08), 0 26px 60px -30px rgba(10, 60, 70, 0.3), 0 1px 0 rgba(255, 255, 255, 0.8) inset;
 
   --sl-color-bg: var(--void);
-  --sl-color-bg-nav: rgba(250, 251, 252, 0.95);
-  --sl-color-bg-sidebar: #f3f5f7;
-  --sl-color-hairline: rgba(91, 140, 255, 0.15);
+  --sl-color-bg-nav: rgba(246, 249, 249, 0.97);
+  --sl-color-bg-sidebar: #eef4f4;
+  --sl-color-hairline: rgba(14, 116, 128, 0.12);
+  --sl-color-accent: #0b7d89;
+  --sl-color-accent-high: #064e56;
+  --sl-color-text-accent: #0a6f7a;
 }
 
 * {
@@ -105,7 +134,10 @@ html {
 body {
   background: var(--void);
   color: var(--text);
-  font: 400 17px/1.65 var(--sans);
+  font: 400 17px/1.7 var(--sans);
+  font-feature-settings: "cv11", "ss01", "ss03";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 a {
@@ -119,327 +151,6 @@ a {
   border-radius: var(--r-s);
 }
 
-/* Aurora: ambient moving orbs, no hard gradients */
-.aurora {
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  overflow: hidden;
-}
-
-.aurora i {
-  position: absolute;
-  width: 60vmax;
-  height: 60vmax;
-  border-radius: 50%;
-  filter: blur(90px);
-  opacity: 0.22;
-}
-
-.aurora i:nth-child(1) {
-  background: radial-gradient(circle, var(--iris-a), transparent 65%);
-  left: -20vmax;
-  top: 30vh;
-  animation: float1 38s var(--glide) infinite alternate;
-}
-
-.aurora i:nth-child(2) {
-  background: radial-gradient(circle, var(--iris-b), transparent 65%);
-  right: -25vmax;
-  top: 120vh;
-  animation: float2 46s var(--glide) infinite alternate;
-  opacity: 0.14;
-}
-
-@keyframes float1 {
-  to { transform: translate(18vmax, -12vmax) scale(1.15); }
-}
-
-@keyframes float2 {
-  to { transform: translate(-14vmax, 16vmax) scale(0.9); }
-}
-
-/* Hero with bubble field canvas */
-.hero {
-  position: relative;
-  z-index: 1;
-  min-height: min(90vh, 900px);
-  overflow: hidden;
-  border-radius: 0 0 var(--r-l) var(--r-l);
-  background: var(--void);
-}
-
-.hero canvas {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  display: block;
-  touch-action: pan-y;
-  cursor: grab;
-}
-
-.hero canvas.dragging {
-  cursor: grabbing;
-}
-
-.hero-fallback {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(22rem 22rem at 72% 45%, rgba(124, 108, 255, 0.35), transparent 70%),
-    radial-gradient(14rem 14rem at 62% 62%, rgba(63, 210, 224, 0.28), transparent 70%),
-    var(--void);
-}
-
-.hero-ui {
-  position: relative;
-  z-index: 2;
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  min-height: inherit;
-  pointer-events: none;
-}
-
-.hero-ui a, .hero-ui button, .nav-pill {
-  pointer-events: auto;
-}
-
-.hero-nav {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  padding: 20px max(16px, 4vw);
-}
-
-.nav-pill {
-  display: flex;
-  gap: 6px;
-  padding: 6px;
-  border-radius: var(--r-pill);
-  background: var(--glass);
-  border: 1px solid var(--glass-edge);
-  backdrop-filter: blur(16px);
-}
-
-.nav-pill a {
-  font: 500 13.5px/1 var(--sans);
-  color: var(--muted);
-  padding: 10px 16px;
-  border-radius: var(--r-pill);
-  text-decoration: none;
-  transition: background 0.3s var(--glide), color 0.3s var(--glide);
-}
-
-.nav-pill a:hover, .nav-pill a:focus-visible {
-  background: rgba(91, 140, 255, 0.18);
-  color: var(--text);
-}
-
-.hero-lockup {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font: 300 22px/1 var(--display);
-  letter-spacing: 0.01em;
-  color: var(--text);
-  text-decoration: none;
-  pointer-events: auto;
-  border-radius: var(--r-pill);
-}
-
-.hero-lockup b {
-  font-weight: 300;
-  background: linear-gradient(100deg, var(--cherenkov-hi), var(--iris-b));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-.hero-copy {
-  align-self: center;
-  max-width: 640px;
-  padding-block: 40px;
-  padding-inline: max(16px, 4vw);
-}
-
-.chip-live {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 14px 8px 10px;
-  border-radius: var(--r-pill);
-  background: var(--glass);
-  border: 1px solid var(--glass-edge);
-  backdrop-filter: blur(14px);
-  font: 500 12.5px/1 var(--mono);
-  color: var(--muted);
-}
-
-.chip-live b {
-  color: var(--text);
-  font-weight: 500;
-}
-
-.dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--signal);
-  animation: beat 1.1s var(--glide) infinite;
-}
-
-@keyframes beat {
-  0% { box-shadow: 0 0 0 0 rgba(255, 181, 71, 0.55); }
-  100% { box-shadow: 0 0 0 12px rgba(255, 181, 71, 0); }
-}
-
-.hero h1 {
-  font: 200 clamp(44px, 7.4vw, 100px)/1.0 var(--display);
-  letter-spacing: -0.035em;
-  margin: 24px 0 22px;
-  text-wrap: balance;
-}
-
-.hero h1 span {
-  font-weight: 300;
-  background: linear-gradient(95deg, var(--cherenkov-hi) 0%, var(--iris-a) 45%, var(--iris-b) 100%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: film 10s ease-in-out infinite alternate;
-}
-
-@keyframes film {
-  to { background-position: 100% 0; }
-}
-
-.hero-lede {
-  max-width: 48ch;
-  color: var(--lede);
-  font-size: clamp(16px, 1.55vw, 19px);
-}
-
-.hero-cta {
-  display: flex;
-  gap: 12px;
-  margin-top: 30px;
-  flex-wrap: wrap;
-}
-
-.btn {
-  font: 600 15px/1 var(--sans);
-  padding: 16px 24px;
-  border-radius: var(--r-pill);
-  color: var(--text);
-  text-decoration: none;
-  background: var(--glass);
-  border: 1px solid var(--glass-edge);
-  backdrop-filter: blur(14px);
-  transition: transform 0.45s var(--spring), box-shadow 0.45s var(--glide), background 0.3s;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  cursor: pointer;
-}
-
-.btn:hover {
-  transform: translateY(-2px) scale(1.03);
-}
-
-.btn.primary {
-  background: linear-gradient(120deg, var(--cherenkov), var(--iris-a));
-  border-color: transparent;
-  box-shadow: 0 14px 40px -12px rgba(91, 140, 255, 0.75);
-}
-
-.btn.primary:hover {
-  box-shadow: 0 20px 50px -10px rgba(124, 108, 255, 0.85);
-}
-
-.hero-hint {
-  font: 400 12.5px/1.4 var(--mono);
-  color: var(--muted);
-  margin-top: 18px;
-}
-
-.telemetry {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 28px max(16px, 4vw);
-}
-
-.tile {
-  flex: 1 1 150px;
-  min-width: 0;
-  padding: 16px 20px;
-  border-radius: var(--r-m);
-  background: var(--glass);
-  border: 1px solid var(--glass-edge);
-  backdrop-filter: blur(16px);
-}
-
-.tile dt {
-  font: 500 11.5px/1 var(--sans);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.tile dd {
-  margin: 10px 0 0;
-  font: 300 26px/1 var(--display);
-  font-variant-numeric: tabular-nums;
-}
-
-.tile .note {
-  font: 500 12px var(--sans);
-  color: var(--signal);
-  margin-left: 6px;
-}
-
-.sim-note {
-  margin-top: 12px;
-  font: 400 11.5px/1.5 var(--mono);
-  color: var(--muted);
-}
-
-/* Card that pops on bubble tap */
-.card-pop {
-  position: absolute;
-  z-index: 3;
-  min-width: 220px;
-  padding: 16px 18px;
-  border-radius: var(--r-m);
-  background: var(--pop-bg);
-  border: 1px solid var(--glass-edge);
-  backdrop-filter: blur(18px);
-  box-shadow: var(--shadow);
-  font: 400 13px/1.5 var(--mono);
-  color: var(--muted);
-  transform-origin: 0 0;
-  transition: opacity 0.35s var(--glide), transform 0.5s var(--spring);
-}
-
-.card-pop[hidden] {
-  display: block !important;
-  opacity: 0;
-  transform: scale(0.6);
-  pointer-events: none;
-}
-
-.card-pop b {
-  display: block;
-  font: 300 22px/1.2 var(--display);
-  color: var(--text);
-  margin-bottom: 6px;
-}
-
 /* Starlight overrides for soft system */
 .sl-markdown-content .card {
   background: var(--glass) !important;
@@ -451,7 +162,7 @@ a {
 .sl-markdown-content code {
   font-family: var(--mono);
   border-radius: var(--r-s);
-  background: rgba(91, 140, 255, 0.1);
+  background: rgba(31, 181, 194, 0.1);
   border: 1px solid var(--glass-edge);
 }
 
@@ -464,15 +175,9 @@ a {
   html { scroll-behavior: auto; }
 }
 
-/* Mobile */
-@media (max-width: 768px) {
-  .nav-pill { display: none; }
-  .hero-nav { flex-direction: column; align-items: flex-start; }
-}
-
 /* Homepage section heads: one small pill label, one short light title. */
-.maya-eyebrow { display: inline-block; margin: 88px 0 0 !important; padding: 8px 14px; border-radius: var(--r-pill); background: rgba(91, 140, 255, 0.12); color: var(--accent-text); font: 500 12.5px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; }
-.maya-section-title { margin: 14px 0 0 !important; font: 200 clamp(30px, 4vw, 52px)/1.08 var(--display) !important; letter-spacing: -0.03em; color: var(--text); text-wrap: balance; }
+.maya-eyebrow { display: inline-block; margin: 88px 0 0 !important; padding: 8px 14px; border-radius: var(--r-pill); background: rgba(31, 181, 194, 0.12); color: var(--accent-text); font: 500 12.5px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; }
+.maya-section-title { margin: 14px 0 0 !important; font: 300 clamp(30px, 4vw, 54px)/1.06 var(--display) !important; letter-spacing: -0.035em; color: var(--text); text-wrap: balance; }
 .maya-footnote { margin: 64px 0 24px !important; text-align: center; color: var(--muted); font-size: 14px; }
 
 /* Homepage: the hero starts right under the nav. Starlight's title panel is
@@ -505,3 +210,80 @@ a {
     .orb-row > .orb:nth-child(3n) { animation-delay: 0s, -3.1s; }
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Reading: every documentation page. Large, quiet type; generous rhythm;
+   soft surfaces with a clear edge. Display headings in Manrope, body in Inter.
+   ------------------------------------------------------------------------ */
+::selection { background: rgba(31, 181, 194, 0.32); color: var(--text); }
+html { scrollbar-color: rgba(126, 234, 240, 0.22) transparent; scrollbar-width: thin; }
+
+h1#_top {
+  font: 750 clamp(34px, 4.6vw, 56px)/1.05 var(--display);
+  letter-spacing: -0.035em; color: var(--text); text-wrap: balance;
+}
+.content-panel:has(h1#_top)::after {
+  content: ""; display: block; width: 72px; height: 3px; margin-top: 18px;
+  border-radius: 3px; background: var(--brand-line);
+}
+
+.sl-markdown-content { font-size: 17px; line-height: 1.75; }
+.sl-markdown-content :is(h2, h3, h4) { font-family: var(--display); color: var(--text); text-wrap: balance; scroll-margin-top: calc(var(--sl-nav-height) + 24px); }
+.sl-markdown-content h2 { font-size: clamp(26px, 2.6vw, 34px); font-weight: 720; letter-spacing: -0.025em; line-height: 1.15; margin-top: 2.4em; }
+.sl-markdown-content h3 { font-size: 21px; font-weight: 680; letter-spacing: -0.015em; margin-top: 1.9em; }
+.sl-markdown-content h4 { font-size: 17px; font-weight: 700; }
+.sl-markdown-content :is(p, li) { color: var(--lede); }
+.sl-markdown-content strong { color: var(--text); font-weight: 650; }
+
+.sl-markdown-content a:not(:where(.card, .sl-link-button, .sl-link-card, .anchor-link)) {
+  color: var(--accent-text); text-decoration: none; font-weight: 550;
+  background: linear-gradient(currentColor, currentColor) 0 100% / 0 1.5px no-repeat;
+  transition: background-size .35s var(--glide);
+}
+.sl-markdown-content a:not(:where(.card, .sl-link-button, .sl-link-card, .anchor-link)):hover { background-size: 100% 1.5px; }
+
+.sl-markdown-content code {
+  font-family: var(--mono); font-size: .88em; padding: .14em .42em;
+  border-radius: 8px; background: rgba(31, 181, 194, 0.10); border: 1px solid var(--glass-edge);
+}
+.sl-markdown-content .expressive-code { margin-block: 1.6em; }
+.sl-markdown-content .expressive-code .frame { border-radius: 18px; overflow: hidden; box-shadow: var(--shadow); border: 1px solid var(--glass-edge); }
+.sl-markdown-content .expressive-code pre { border: 0 !important; }
+
+/* Tables: a soft card, a tinted head, quiet rows. */
+.sl-markdown-content table {
+  display: block; max-width: 100%; overflow-x: auto; border-collapse: separate; border-spacing: 0;
+  border: 1px solid var(--glass-edge); border-radius: 18px; background: var(--glass); box-shadow: var(--shadow);
+}
+.sl-markdown-content :is(th, td) { padding: 12px 16px; border: 0; border-bottom: 1px solid var(--sl-color-hairline); }
+.sl-markdown-content th { font: 650 13px/1.3 var(--sans); letter-spacing: .02em; color: var(--text); background: rgba(31, 181, 194, 0.08); text-align: left; }
+.sl-markdown-content tr:last-child td { border-bottom: 0; }
+.sl-markdown-content tbody tr { transition: background-color .2s; }
+.sl-markdown-content tbody tr:hover { background: rgba(126, 234, 240, 0.04); }
+
+/* Callouts, quotes, images, rules. */
+.starlight-aside { border-radius: 18px; border-inline-start-width: 4px; background: var(--glass); box-shadow: var(--shadow); backdrop-filter: blur(12px); }
+.starlight-aside__title { font-family: var(--display); font-weight: 700; }
+.sl-markdown-content blockquote { border-inline-start: 3px solid var(--gold); padding: .3em 0 .3em 1.2em; color: var(--lede); font-style: normal; }
+.sl-markdown-content img { border-radius: 18px; }
+.sl-markdown-content hr { border: 0; height: 1px; background: linear-gradient(90deg, transparent, var(--glass-edge), transparent); margin-block: 3em; }
+
+/* Sidebar and on-this-page: the current page is a lit pill. */
+.sidebar-content a { border-radius: 10px; transition: background-color .2s, color .2s; }
+.sidebar-content a:hover { background: var(--nav-hover); }
+.sidebar-content a[aria-current="page"] { color: var(--on-accent) !important; background: var(--accent-fill) !important; font-weight: 650; box-shadow: 0 6px 18px -10px var(--brand-glow); }
+.sidebar-content .group-label .large { font: 700 13px/1 var(--display); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+starlight-toc a[aria-current="true"] { color: var(--accent-text) !important; font-weight: 650; }
+
+/* Previous / next: two soft cards that lift. */
+.pagination-links a {
+  border-radius: 20px; border: 1px solid var(--glass-edge); background: var(--glass); box-shadow: var(--shadow);
+  transition: transform .45s var(--spring), border-color .25s;
+}
+.pagination-links a:hover { transform: translateY(-3px); border-color: var(--accent); }
+.pagination-links .link-title { font-family: var(--display); font-weight: 700; color: var(--text); }
+
+/* Header: glass that keeps the emblem's colours behind it. */
+/* Solid-enough glass: no backdrop-filter on the header, because it would make
+   the header the containing block of the fixed back-to-top button. */
+header.header { border-bottom: 1px solid var(--sl-color-hairline); }
