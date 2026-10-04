@@ -83,12 +83,18 @@ and it is written down as one. It is not how mainnet will work.
    `dd9bb356c94b7699e6e8d2595681faee48be435b02dc927677cbf833e55edd5d`
    (SHA-256).
 7. **Run the node.** It dials the bootnode over WebSocket, so it works
-   from behind NAT. It also catches up to the network's newest attested
-   checkpoint before it votes:
+   from behind NAT. It loads a state snapshot instead of replaying every
+   block, then catches up to the newest attested checkpoint before it votes.
+   Snapshots are taken every 3,600 blocks, and `--prune-depth 3600` lets the
+   node accept one that deep:
 
    ```bash
-   maya2c-node --genesis genesis.json --data-dir data      --validator-key validator.key      --bootnode /dns4/p2p.maya2c.dev/tcp/443/wss/p2p/12D3KooWK2bykmqyzdK4TMSTBQ5visSjkFoK8wj88aMn3ms4ByiG      --catch-up-from https://bootstrap.maya2c.dev/rpc
+   maya2c-node --genesis genesis.json --data-dir data      --validator-key validator.key      --bootnode /dns4/p2p.maya2c.dev/tcp/443/wss/p2p/12D3KooWK2bykmqyzdK4TMSTBQ5visSjkFoK8wj88aMn3ms4ByiG      --prune-depth 3600      --bootstrap-from https://bootstrap.maya2c.dev/rpc      --catch-up-from https://bootstrap.maya2c.dev/rpc
    ```
+
+   A fresh node run this way on 2026-10-04 loaded the snapshot at height
+   52,414, caught up 458 attested blocks and was following the tip (57,139
+   against 57,140).
 
 ## What being a validator means
 
