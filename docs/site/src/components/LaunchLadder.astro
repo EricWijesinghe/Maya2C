@@ -33,16 +33,16 @@ const gates = [
   .ladder { list-style: none; padding: 0; margin: 1.5rem 0 2rem; position: relative; }
   .ladder::before {
     content: ""; position: absolute; left: 0.7rem; top: 0.5rem; bottom: 0.5rem; width: 2px;
-    background: linear-gradient(#22d3ee 0 50%, #a78bfa 50% 62%, var(--sl-color-hairline) 62%);
+    background: linear-gradient(var(--cherenkov) 0 50%, var(--iris-a) 50% 62%, var(--glass-edge) 62%);
   }
   li { display: grid; grid-template-columns: 1.4rem 1fr; gap: 1rem; margin: 0 0 1rem !important; }
-  .dot { width: 1.4rem; height: 1.4rem; border-radius: 50%; margin-top: 0.1rem; border: 2px solid var(--sl-color-gray-4); background: var(--sl-color-bg); z-index: 1; }
-  .done .dot { border-color: #22d3ee; background: #22d3ee; box-shadow: 0 0 14px rgb(34 211 238 / 0.6); }
-  .next .dot { border-color: #a78bfa; animation: ping 1.8s ease-in-out infinite; }
+  .dot { width: 1.4rem; height: 1.4rem; border-radius: 50%; margin-top: 0.1rem; border: 2px solid var(--muted); background: var(--void); z-index: 1; }
+  .done .dot { border-color: var(--cherenkov); background: var(--cherenkov); box-shadow: 0 0 14px rgba(91, 140, 255, 0.6); }
+  .next .dot { border-color: var(--iris-a); animation: ping 1.8s ease-in-out infinite; }
   strong { margin-right: 0.6rem; }
-  .state { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em; padding: 0.1rem 0.5rem; border-radius: 999px; border: 1px solid var(--sl-color-hairline); color: var(--sl-color-gray-3); }
-  .done .state { color: #22d3ee; border-color: rgb(34 211 238 / 0.4); }
-  .next .state { color: #a78bfa; border-color: rgb(167 139 250 / 0.5); }
-  p { margin: 0.2rem 0 0 !important; color: var(--sl-color-gray-3); font-size: 0.92rem; }
-  @keyframes ping { 50% { box-shadow: 0 0 0 7px rgb(167 139 250 / 0.15); } }
+  .state { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em; padding: 0.1rem 0.5rem; border-radius: 999px; border: 1px solid var(--glass-edge); color: var(--muted); }
+  .done .state { color: var(--cherenkov); border-color: rgba(91, 140, 255, 0.4); }
+  .next .state { color: var(--iris-a); border-color: rgba(124, 108, 255, 0.5); }
+  p { margin: 0.2rem 0 0 !important; color: var(--muted); font-size: 0.92rem; }
+  @keyframes ping { 50% { box-shadow: 0 0 0 7px rgba(124, 108, 255, 0.15); } }
 </style>

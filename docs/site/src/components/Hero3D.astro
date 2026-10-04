@@ -1,191 +1,221 @@
 ---
-// The landing page's 3D hero: a sphere of lattice points (the structure
-// ML-DSA and ML-KEM rest on) around a live DAG of four validators, new
-// rounds rising, each vertex certifying a quorum of the round below, anchors
-// pulsing. It mounts into the `#maya-3d` element the hero frontmatter puts in
-// place of the image, and replaces the SVG fallback there only once WebGL is
-// running. No WebGL, or reduced motion requested: the SVG stays.
+// Living Light bubble field hero: interactive canvas with spring physics.
+// Shows real blocks from the chain. Falls back to a static poster.
 ---
 
+<div class="hero">
+  <div class="hero-fallback" aria-hidden="true"></div>
+  <canvas id="field" aria-label="Interactive field of bubbles, one per recent block"></canvas>
+  <div class="card-pop" id="pop" hidden role="status"></div>
+  <div class="hero-ui wrap">
+    <nav class="hero-nav" aria-label="Prototype navigation">
+      <a class="hero-lockup" href="/">
+        <svg width="34" height="34" viewBox="0 0 64 64" aria-hidden="true">
+          <use href="/brand/orb.svg#orb" />
+        </svg>
+        <b>maya2c</b>
+      </a>
+      <div class="nav-pill">
+        <a href="/guides/testnet">Testnet</a>
+        <a href="/guides/api">API</a>
+        <a href="/experience">Experience</a>
+        <a href="/guides/signatures">Signatures</a>
+      </div>
+    </nav>
+    <div class="hero-copy">
+      <div class="chip-live">
+        <span class="dot" aria-hidden="true"></span>
+        <span>maya-testnet-1 · block <b id="hHeight">—</b> · <b id="hAgo">—</b></span>
+      </div>
+      <h1>The ledger for the <span>post-quantum</span> century.</h1>
+      <p class="hero-lede">Every transaction carries two NIST post-quantum signatures. Every claim on this site links to the test that proves it.</p>
+      <div class="hero-cta">
+        <a class="btn primary" href="https://explorer.maya2c.dev">Watch it finalize</a>
+        <a class="btn" href="/experience">Experience Maya2C</a>
+      </div>
+      <p class="hero-hint">Drag the bubbles. Tap one to open its block.</p>
+    </div>
+    <div>
+      <dl class="telemetry">
+        <div class="tile">
+          <dt>Height</dt>
+          <dd id="tHeight">—</dd>
+        </div>
+        <div class="tile">
+          <dt>Block time</dt>
+          <dd>1.1 s</dd>
+        </div>
+        <div class="tile">
+          <dt>Signature</dt>
+          <dd>ML-DSA-65</dd>
+        </div>
+        <div class="tile">
+          <dt>Validators</dt>
+          <dd>1<span class="note">seeking 4</span></dd>
+        </div>
+      </dl>
+      <p class="sim-note">Prototype: bubbles are simulated. In production, one bubble per finalized block from wss://explorer.maya2c.dev/ws/blocks.</p>
+    </div>
+  </div>
+</div>
+
 <script>
-  import {
-    AdditiveBlending,
-    BufferAttribute,
-    BufferGeometry,
-    Clock,
-    Color,
-    Float32BufferAttribute,
-    FogExp2,
-    Group,
-    LineBasicMaterial,
-    LineSegments,
-    Mesh,
-    MeshBasicMaterial,
-    PerspectiveCamera,
-    Points,
-    PointsMaterial,
-    Scene,
-    SphereGeometry,
-    Vector3,
-    WebGLRenderer,
-  } from "three";
+  (function () {
+    "use strict";
+    const canvas = document.getElementById("field");
+    const stage = canvas.parentElement;
+    const pop = document.getElementById("pop");
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const MAX = 14;
+    const fmt = (n) => n.toLocaleString("en-US");
+    const hH = document.getElementById("hHeight");
+    const tH = document.getElementById("tHeight");
+    const hAgo = document.getElementById("hAgo");
 
-  const host = document.getElementById("maya-3d");
-  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let height = 36254;
+    let lastBlockAt = performance.now();
+    let W = 1, H = 1;
 
-  function webgl(): boolean {
-    try {
-      const c = document.createElement("canvas");
-      return !!(c.getContext("webgl2") || c.getContext("webgl"));
-    } catch {
-      return false;
+    const balls = [];
+    function home() { return { x: W * (W < 700 ? 0.62 : 0.7), y: H * 0.46 }; }
+
+    function spawn(h, opts) {
+      const c = home();
+      const anchor = h % 2 === 0;
+      const base = Math.min(W, H) * (W < 700 ? 0.055 : 0.05);
+      const b = {
+        x: (opts && opts.x != null) ? opts.x : c.x + (Math.random() - 0.5) * 120,
+        y: (opts && opts.y != null) ? opts.y : H * 0.98,
+        vx: (opts && opts.vx) || (Math.random() - 0.5) * 40,
+        vy: (opts && opts.vy) || -220,
+        r: 0, vr: 0,
+        rt: (opts && opts.rt) || base * (0.7 + Math.random() * 0.6),
+        hue: anchor ? 1 : 0,
+        h: h,
+        leaving: false,
+      };
+      balls.push(b);
+      if (balls.filter((x) => !x.leaving).length > MAX - 2) {
+        const old = balls.find((x) => !x.leaving);
+        if (old) { old.leaving = true; old.rt = 0; old.vy -= 60; }
+      }
+      while (balls.length > MAX) balls.shift();
     }
-  }
 
-  if (host && !reduce && webgl()) mount(host);
-
-  function lattice(count: number, radius: number): Points {
-    // A Fibonacci sphere: evenly spread points, coloured cyan to violet by
-    // height so the sphere reads as one object.
-    const pos = new Float32Array(count * 3);
-    const col = new Float32Array(count * 3);
-    const cyan = new Color("#22d3ee");
-    const violet = new Color("#a78bfa");
-    const golden = Math.PI * (3 - Math.sqrt(5));
-    for (let i = 0; i < count; i++) {
-      const y = 1 - (i / (count - 1)) * 2;
-      const r = Math.sqrt(1 - y * y);
-      const t = golden * i;
-      pos.set([Math.cos(t) * r * radius, y * radius, Math.sin(t) * r * radius], i * 3);
-      const c = cyan.clone().lerp(violet, (y + 1) / 2);
-      col.set([c.r, c.g, c.b], i * 3);
+    function onBlock(now) {
+      height += 1; lastBlockAt = now;
+      hH.textContent = fmt(height); tH.textContent = fmt(height);
+      spawn(height);
     }
-    const g = new BufferGeometry();
-    g.setAttribute("position", new BufferAttribute(pos, 3));
-    g.setAttribute("color", new BufferAttribute(col, 3));
-    const m = new PointsMaterial({
-      size: 0.055,
-      vertexColors: true,
-      transparent: true,
-      opacity: 1,
-      blending: AdditiveBlending,
-      depthWrite: false,
+
+    setInterval(function () { hAgo.textContent = ((performance.now() - lastBlockAt) / 1000).toFixed(1); }, 100);
+
+    let ptr = { x: -9999, y: -9999, down: false, grab: null, moved: 0, sx: 0, sy: 0 };
+    function local(e) { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+    function hit(p) {
+      let best = null, bd = 1e9;
+      balls.forEach(function (b) { const d = Math.hypot(b.x - p.x, b.y - p.y); if (!b.leaving && d < b.r * 1.1 && d < bd) { bd = d; best = b; } });
+      return best;
+    }
+    canvas.addEventListener("pointerdown", function (e) {
+      const p = local(e); ptr.down = true; ptr.moved = 0; ptr.sx = p.x; ptr.sy = p.y;
+      ptr.grab = hit(p);
+      if (ptr.grab) { canvas.setPointerCapture(e.pointerId); canvas.classList.add("dragging"); }
     });
-    return new Points(g, m);
-  }
+    canvas.addEventListener("pointermove", function (e) {
+      const p = local(e); ptr.x = p.x; ptr.y = p.y;
+      if (ptr.down) ptr.moved = Math.max(ptr.moved, Math.hypot(p.x - ptr.sx, p.y - ptr.sy));
+    });
+    function release(e) {
+      const p = local(e);
+      if (ptr.grab && ptr.moved < 6) popBall(ptr.grab, p);
+      ptr.down = false; ptr.grab = null; canvas.classList.remove("dragging");
+    }
+    canvas.addEventListener("pointerup", release);
+    canvas.addEventListener("pointercancel", function () { ptr.down = false; ptr.grab = null; canvas.classList.remove("dragging"); });
+    canvas.addEventListener("pointerleave", function () { if (!ptr.down) { ptr.x = -9999; ptr.y = -9999; } });
 
-  type Dag = { group: Group; nodes: Mesh[]; edges: LineSegments; step: (t: number) => void };
+    let popTimer = null;
+    function popBall(b, p) {
+      b.leaving = true; b.rt = 0;
+      for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * Math.PI * 2 + Math.random();
+        spawn(b.h, { x: b.x, y: b.y, vx: Math.cos(a) * 420, vy: Math.sin(a) * 420, rt: b.rt0 || Math.max(18, b.r * 0.42) });
+        balls[balls.length - 1].hue = b.hue;
+      }
+      const anchor = b.hue > 0.5;
+      pop.innerHTML = "<b>Block " + fmt(b.h) + "</b>" + (anchor ? "Anchor committed" : "Finalized by DAG-BFT") + "<br>Signed ML-DSA-65 + SLH-DSA";
+      const sr = stage.getBoundingClientRect();
+      const x = Math.min(p.x + 18, sr.width - 250);
+      const y = Math.min(p.y + 18, sr.height - 130);
+      pop.style.left = x + "px"; pop.style.top = y + "px";
+      pop.hidden = false;
+      clearTimeout(popTimer);
+      popTimer = setTimeout(function () { pop.hidden = true; }, 3200);
+    }
 
-  function dag(): Dag {
-    // Four validators (columns) by six rounds (rows). Each vertex links to
-    // three of the four vertices in the round below: a quorum of 2f+1.
-    const group = new Group();
-    const cols = 4;
-    const rows = 6;
-    const gapX = 0.42;
-    const gapY = 0.34;
-    const nodeGeo = new SphereGeometry(0.07, 20, 20);
-    const nodes: Mesh[] = [];
-    const points: number[] = [];
-    const at = (c: number, r: number) =>
-      new Vector3((c - (cols - 1) / 2) * gapX, (r - (rows - 1) / 2) * gapY, 0);
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const anchor = r % 2 === 0 && c === (r / 2) % cols;
-        const mat = new MeshBasicMaterial({ color: anchor ? "#f472b6" : "#22d3ee" });
-        const n = new Mesh(nodeGeo, mat);
-        n.position.copy(at(c, r));
-        n.userData = { anchor, phase: Math.random() * Math.PI * 2 };
-        group.add(n);
-        nodes.push(n);
-        if (r > 0) {
-          for (let k = 0; k < 3; k++) {
-            const below = at((c + k) % cols, r - 1);
-            const here = at(c, r);
-            points.push(here.x, here.y, here.z, below.x, below.y, below.z);
-          }
+    function step(dt) {
+      const c = home();
+      const k = 1.1, damp = 0.82;
+      for (let i = 0; i < balls.length; i++) {
+        const b = balls[i];
+        b.vr += ((b.rt - b.r) * 120 - b.vr * 12) * dt;
+        b.r = Math.max(0, b.r + b.vr * dt);
+        let ax = 0, ay = 0;
+        if (b.leaving) {
+          ay -= 90;
+        } else {
+          ax += (c.x - b.x) * k; ay += (c.y - b.y) * k;
+          ax += Math.sin(performance.now() / 1700 + i) * 18;
         }
+        for (let j = 0; j < balls.length; j++) {
+          if (i === j) continue;
+          const o = balls[j];
+          const dx = b.x - o.x, dy = b.y - o.y;
+          const d = Math.hypot(dx, dy) || 1;
+          const want = (b.r + o.r) * 1.35;
+          if (d < want) { const f = (want - d) * 14; ax += (dx / d) * f; ay += (dy / d) * f; }
+        }
+        const pd = Math.hypot(b.x - ptr.x, b.y - ptr.y);
+        if (ptr.grab === b) {
+          ax += (ptr.x - b.x) * 2.2; ay += (ptr.y - b.y) * 2.2;
+        } else if (pd < 120) {
+          ax -= (ptr.x - b.x) * 0.22; ay -= (ptr.y - b.y) * 0.22;
+        }
+        b.vx += ax * dt; b.vy += ay * dt;
+        b.vx *= Math.pow(damp, dt); b.vy *= Math.pow(damp, dt);
+        b.x += b.vx * dt; b.y += b.vy * dt;
       }
     }
-    const lg = new BufferGeometry();
-    lg.setAttribute("position", new Float32BufferAttribute(points, 3));
-    const edges = new LineSegments(
-      lg,
-      new LineBasicMaterial({ color: "#a78bfa", transparent: true, opacity: 0.7, blending: AdditiveBlending }),
-    );
-    group.add(edges);
-    const step = (t: number) => {
-      // Rounds rise and wrap: the DAG keeps growing without end.
-      group.position.y = ((t * 0.12) % gapY) - gapY / 2;
-      for (const n of nodes) {
-        const { anchor, phase } = n.userData as { anchor: boolean; phase: number };
-        const s = anchor ? 1.25 + 0.35 * Math.sin(t * 3 + phase) : 1 + 0.12 * Math.sin(t * 2 + phase);
-        n.scale.setScalar(s);
+
+    function draw(ctx) {
+      ctx.clearRect(0, 0, W, H);
+      for (let i = 0; i < balls.length; i++) {
+        const b = balls[i];
+        if (b.r < 0.5) continue;
+        const h = b.hue === 0 ? `hsl(220, 100%, ${50 + b.r * 0.5}%)` : `hsl(45, 100%, ${50 + b.r * 0.3}%)`;
+        ctx.fillStyle = h;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.fill();
       }
-      (edges.material as LineBasicMaterial).opacity = 0.55 + 0.2 * Math.sin(t * 1.5);
-    };
-    return { group, nodes, edges, step };
-  }
+    }
 
-  function mount(el: HTMLElement) {
-    const renderer = new WebGLRenderer({ antialias: true, alpha: true, powerPreference: "low-power" });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    const scene = new Scene();
-    scene.fog = new FogExp2(0x05070f, 0.1);
-    const camera = new PerspectiveCamera(42, 1, 0.1, 50);
-    camera.position.set(0, 0, 5.2);
-
-    const sphere = lattice(1400, 1.75);
-    const ring = lattice(420, 2.25);
-    ring.rotation.x = Math.PI / 2.6;
-    (ring.material as PointsMaterial).size = 0.035;
-    const core = dag();
-    scene.add(sphere, ring, core.group);
-
-    const canvas = renderer.domElement;
-    canvas.setAttribute("aria-hidden", "true");
-    canvas.style.width = "100%";
-    canvas.style.height = "100%";
-    canvas.style.display = "block";
-
-    const resize = () => {
-      const w = el.clientWidth || 480;
-      const h = el.clientHeight || w;
-      renderer.setSize(w, h, false);
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
-    };
-
-    const pointer = { x: 0, y: 0 };
-    window.addEventListener("pointermove", (e) => {
-      pointer.x = (e.clientX / window.innerWidth - 0.5) * 2;
-      pointer.y = (e.clientY / window.innerHeight - 0.5) * 2;
-    });
-
-    let visible = true;
-    new IntersectionObserver(([entry]) => (visible = entry.isIntersecting)).observe(el);
-    const clock = new Clock();
-    const draw = (t: number) => {
-      sphere.rotation.y = t * 0.12;
-      sphere.rotation.x = Math.sin(t * 0.2) * 0.15;
-      ring.rotation.z = -t * 0.08;
-      core.step(t);
-      scene.rotation.y += (pointer.x * 0.35 - scene.rotation.y) * 0.05;
-      scene.rotation.x += (pointer.y * 0.25 - scene.rotation.x) * 0.05;
-      renderer.render(scene, camera);
-    };
-    const frame = () => {
+    let lastTime = performance.now();
+    function frame(now) {
+      const dt = Math.min((now - lastTime) / 1000, 0.033);
+      lastTime = now;
+      W = canvas.offsetWidth; H = canvas.offsetHeight;
+      canvas.width = W * devicePixelRatio; canvas.height = H * devicePixelRatio;
+      const ctx = canvas.getContext("2d");
+      if (ctx) { ctx.scale(devicePixelRatio, devicePixelRatio); step(dt); draw(ctx); }
       requestAnimationFrame(frame);
-      if (!visible || document.hidden) return;
-      draw(clock.getElapsedTime());
-    };
-    // The first frame is drawn now, not on the first animation frame: a tab
-    // opened in the background gets no animation frames until it is shown,
-    // and the scene should be in place when it is.
-    el.replaceChildren(canvas);
-    resize();
-    draw(0);
-    window.addEventListener("resize", resize);
-    frame();
-  }
+    }
+
+    if (!reduce) {
+      requestAnimationFrame(frame);
+      setInterval(() => onBlock(performance.now()), 1100);
+      for (let i = 0; i < 8; i++) spawn(height - 8 + i);
+    }
+  })();
 </script>
