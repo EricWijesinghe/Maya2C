@@ -210,9 +210,7 @@ impl BftDriver {
     /// # Errors
     ///
     /// A storage failure, or keys and weights that do not match.
-    pub fn staked_committee(
-        chain: &Chain,
-    ) -> Result<Option<StakedCommittee>> {
+    pub fn staked_committee(chain: &Chain) -> Result<Option<StakedCommittee>> {
         chain
             .state()
             .committed_staking()?
