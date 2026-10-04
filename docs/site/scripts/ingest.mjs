@@ -22,13 +22,23 @@
 // Starlight expects: it renders the title itself from frontmatter, and leaving
 // the H1 in place produces the heading twice.
 
+import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DOCS = join(here, "..", "..");
 const OUT = join(here, "..", "src", "content", "docs");
+const REPO = join(DOCS, "..");
+const REPO_URL = "https://github.com/EricWijesinghe/Maya2C/blob/master";
+const RAW_URL = "https://raw.githubusercontent.com/EricWijesinghe/Maya2C/master";
+
+/**
+ * Relative links whose target does not exist. A dead link fails the build:
+ * the site once shipped 66 of them, because nothing looked.
+ */
+const dead = [];
 
 /** Files that are not reference pages and get no generated copy. */
 const SKIP = new Set([
@@ -110,19 +120,49 @@ function yamlString(value) {
  * extension has to go -- otherwise every cross-reference 404s on the site while
  * looking perfectly fine in the repository.
  */
-function rewriteLinks(body) {
-  return body
-    // Sibling docs: (foo.md) -> (/foo)
-    .replace(
-      /\]\((?!https?:)([A-Za-z0-9_-]+)\.md(#[^)]*)?\)/g,
-      "](/reference/$1$2)",
-    )
-    // Up-and-out links (../logo-assets/...) point at repository files with no
-    // site route. Send them to the repository rather than to a dead path.
-    .replace(
-      /\]\(\.\.\/([^)]+)\)/g,
-      "](https://github.com/EricWijesinghe/Maya2C/blob/master/$1)",
-    );
+function rewriteLinks(body, name) {
+  return body.replace(
+    /\]\((?![a-z][a-z0-9+.-]*:|#|\/)([^)\s#]+)(#[^)\s]*)?\)/gi,
+    (match, target, anchor = "") => {
+      const onDisk = resolve(DOCS, target);
+      if (!existsSync(onDisk)) {
+        dead.push(`docs/${name}: (${target})`);
+        return match;
+      }
+      // Another ingested doc: its site route. Starlight lowercases slugs,
+      // so /reference/TESTNET_PROGRAM 404s while /reference/testnet_program
+      // is the page -- every sidebar link to an upper-case doc broke that way.
+      if (dirname(onDisk) === resolve(DOCS) && target.endsWith(".md") && !SKIP.has(target)) {
+        return `](/${REFERENCE_OUT}/${slugOf(target)}${anchor})`;
+      }
+      // Anything else (an ADR, a benchmark, source code) has no site route:
+      // link the file in the repository, where it does exist.
+      const repoPath = relative(REPO, onDisk).split(sep).join("/");
+      return `](${REPO_URL}/${repoPath}${anchor})`;
+    },
+  );
+}
+
+/**
+ * Raw HTML images (`<img src="../logo-assets/...">`) bypass the markdown
+ * rewrite above, and on the site the relative path points nowhere. Serve
+ * them from the repository's raw files instead, and check they exist.
+ */
+function rewriteImages(body, name) {
+  return body.replace(/src="(?![a-z][a-z0-9+.-]*:|\/)([^"]+)"/gi, (match, target) => {
+    const onDisk = resolve(DOCS, target);
+    if (!existsSync(onDisk)) {
+      dead.push(`docs/${name}: src="${target}"`);
+      return match;
+    }
+    const repoPath = relative(REPO, onDisk).split(sep).join("/");
+    return `src="${RAW_URL}/${repoPath}"`;
+  });
+}
+
+/** The route Starlight serves a doc at: its file name, lowercased. */
+function slugOf(file) {
+  return file.replace(/\.md$/, "").toLowerCase();
 }
 
 const generated = [];
@@ -161,7 +201,7 @@ for (const name of (await readdir(DOCS)).sort()) {
     );
   }
 
-  const slug = name.replace(/\.md$/, "");
+  const slug = slugOf(name);
   const frontmatter = [
     "---",
     `title: ${yamlString(title)}`,
@@ -173,10 +213,17 @@ for (const name of (await readdir(DOCS)).sort()) {
 
   await writeFile(
     join(OUT, REFERENCE_OUT, name),
-    frontmatter + rewriteLinks(body),
+    frontmatter + rewriteImages(rewriteLinks(body, name), name),
     "utf8",
   );
   generated.push({ slug, title });
+}
+
+if (dead.length > 0) {
+  throw new Error(
+    `${dead.length} link(s) in docs/ point at files that do not exist:\n  ` +
+      dead.join("\n  "),
+  );
 }
 
 // The sidebar is emitted rather than hand-listed in astro.config, so a new

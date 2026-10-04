@@ -95,7 +95,7 @@ targets under WSL or leave them to CI; corpus generation works everywhere. See
 
 ## 2. Proving the ledger arithmetic
 
-[`crates/ledger-math/`](../ledger-math) holds every `u64` credit, debit and nonce bump
+[`crates/ledger-math/`](../crates/ledger-math) holds every `u64` credit, debit and nonce bump
 the chain performs, and [`crates/ledger-math/src/proofs.rs`](../crates/ledger-math/src/proofs.rs)
 model-checks them with [Kani](https://model-checking.github.io/kani/).
 

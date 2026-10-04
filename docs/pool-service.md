@@ -5,7 +5,7 @@ own proof-of-work rule, an append-only ledger recording what each share was
 worth, a PPLNS engine turning those records into credits, and a payout engine
 settling them as ordinary signed transfers.
 
-Implemented in [`bins/pool-service/`](../pool-service). The protocol it speaks is
+Implemented in [`bins/pool-service/`](../bins/pool-service). The protocol it speaks is
 described in [`stratum-v2.md`](stratum-v2.md), which this document assumes.
 
 ---
@@ -15,7 +15,7 @@ described in [`stratum-v2.md`](stratum-v2.md), which this document assumes.
 `grep -i 'coinbase|subsidy|reward'` across `crates/node/src/` returns nothing. `Block` is
 `{header, transactions}`, `apply_block_checked` stages only the block's own
 transactions, and fees burn to `FEE_SINK = [0u8; 32]`
-([`crates/node/src/state/shielded.rs:342`](../src/state/shielded.rs)). Nothing is minted for
+([`crates/node/src/state/shielded.rs:342`](../crates/node/src/state/shielded.rs)). Nothing is minted for
 finding a block.
 
 A pool splits a block reward. There is not one. So:
@@ -129,7 +129,7 @@ task.
 ```
 
 The chain requires `tx.nonce == sender.nonce` exactly
-([`crates/node/src/state/db.rs:418`](../src/state/db.rs)), so transactions from one account
+([`crates/node/src/state/db.rs:418`](../crates/node/src/state/db.rs)), so transactions from one account
 are strictly sequential and a nonce is a slot that exists once. Three things
 follow:
 
@@ -252,7 +252,7 @@ GPU worker would submit is what these submit.
 ## 11. Deployment
 
 [`infra/k8s/pool/`](../infra/k8s/pool) carries a Deployment, Services, a `ServiceMonitor`,
-and a `PrometheusRule`. [`infra/grafana/pool.json`](grafana/pool.json) is the
+and a `PrometheusRule`. [`infra/grafana/pool.json`](../infra/grafana/pool.json) is the
 dashboard.
 
 The alerts worth knowing about:
