@@ -300,8 +300,24 @@ impl Node {
             TransportKind::Tcp => builder
                 .with_other_transport(|keypair| {
                     let noise_config = noise::Config::new(keypair)?;
+                    // TCP, or WebSocket over TCP, both resolving `/dns4/`
+                    // names: a node behind an HTTP tunnel (Cloudflare carries
+                    // WebSockets, not raw TCP) listens on `/ws`, and peers
+                    // dial `/dns4/<host>/tcp/443/wss/p2p/<id>` with TLS
+                    // checked against the web's roots. Either way the stream
+                    // then takes the same Noise, post-quantum and yamux
+                    // upgrades below: the tunnel only ever sees ciphertext,
+                    // and a WebSocket peer gets no weaker handshake.
+                    let tcp = || libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default());
+                    let ws = libp2p::websocket::Config::new(libp2p::dns::tokio::Transport::system(
+                        tcp(),
+                    )?);
+                    // WebSocket first: it refuses a non-`/ws` address at
+                    // once, so the dial falls through to TCP. The DNS
+                    // transport answers every dial with a future and fails
+                    // only later, so put first it would swallow `/ws` too.
                     Ok::<_, Box<dyn std::error::Error + Send + Sync>>(
-                        libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default())
+                        ws.or_transport(libp2p::dns::tokio::Transport::system(tcp())?)
                             .upgrade(upgrade::Version::V1)
                             .authenticate(noise_config)
                             .apply(PqUpgrade::with_policy(dual_kem))

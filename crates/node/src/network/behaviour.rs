@@ -48,6 +48,10 @@ const MAX_CONNECTIONS_PER_PEER: u32 = 2;
 /// so this — not peer scoring — is what bounds a flood of fresh identities.
 const MAX_ESTABLISHED: u32 = 256;
 
+/// Handshakes in flight, each direction. Generous for honest churn, small
+/// enough that a slow-handshake flood cannot hold the node's resources.
+const MAX_PENDING: u32 = 64;
+
 /// How long a block-sync request waits for its answer.
 const SYNC_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -138,7 +142,12 @@ impl NodeBehaviour {
         let limits = connection_limits::Behaviour::new(
             connection_limits::ConnectionLimits::default()
                 .with_max_established_per_peer(Some(MAX_CONNECTIONS_PER_PEER))
-                .with_max_established(Some(MAX_ESTABLISHED)),
+                .with_max_established(Some(MAX_ESTABLISHED))
+                // Half-open handshakes (TCP, or a WebSocket upgrade, then
+                // Noise and the post-quantum layer) hold resources too; a
+                // slow-handshake flood must not exhaust them.
+                .with_max_pending_incoming(Some(MAX_PENDING))
+                .with_max_pending_outgoing(Some(MAX_PENDING)),
         );
 
         let sync = request_response::Behaviour::with_codec(

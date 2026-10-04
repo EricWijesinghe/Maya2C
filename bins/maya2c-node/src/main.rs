@@ -152,6 +152,9 @@ struct Args {
     market_addr: Option<SocketAddr>,
     market_feed: Option<PathBuf>,
     p2p_port: u16,
+    /// Extra WebSocket listen addresses (`/ip4/127.0.0.1/tcp/31101/ws`), for
+    /// a seed published through an HTTP tunnel that carries WebSockets only.
+    ws_listen: Vec<Multiaddr>,
     bootnodes: Vec<Multiaddr>,
     sync_from: Option<String>,
     mine: bool,
@@ -207,6 +210,7 @@ impl Default for Args {
             market_addr: None,
             market_feed: None,
             p2p_port: 30333,
+            ws_listen: Vec::new(),
             bootnodes: Vec::new(),
             sync_from: None,
             mine: false,
@@ -254,7 +258,10 @@ fn print_usage() {
   --market-addr <ADDR>  aggregator supply/ticker HTTP address; off unless set\n  \
   --market-feed <PATH>  JSON array of exchange quotes for the ticker endpoints\n  \
          --p2p-port <PORT>    libp2p TCP port (default 30333)\n  \
-         --bootnode <ADDR>    peer multiaddr to dial; repeatable\n  \
+         --ws-listen <ADDR>   also listen for WebSocket peers, e.g.\n                           \
+         /ip4/127.0.0.1/tcp/31101/ws behind a tunnel; repeatable\n  \
+         --bootnode <ADDR>    peer multiaddr to dial (TCP, or\n                           \
+         /dns4/<host>/tcp/443/wss/p2p/<id>); repeatable\n  \
          --sync-from <URL>    peer JSON-RPC endpoint to backfill history from\n  \
          --dual-kem <MODE>    HQC alongside ML-KEM: off (default), preferred,\n  \
          \x20                    or required. See docs/pq-transport.md\n  \
@@ -300,6 +307,7 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--market-addr" => args.market_addr = Some(value()?.parse()?),
             "--market-feed" => args.market_feed = Some(PathBuf::from(value()?)),
             "--p2p-port" => args.p2p_port = value()?.parse()?,
+            "--ws-listen" => args.ws_listen.push(value()?.parse()?),
             "--bootnode" => args.bootnodes.push(value()?.parse()?),
             "--sync-from" => args.sync_from = Some(value()?),
             "--config" => args.config = Some(PathBuf::from(value()?)),
@@ -780,6 +788,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     );
     let listen: Multiaddr = format!("/ip4/0.0.0.0/tcp/{}", args.p2p_port).parse()?;
     p2p.listen_on(listen)?;
+    for ws in &args.ws_listen {
+        p2p.listen_on(ws.clone())?;
+        println!("p2p ws:      {ws}");
+    }
     // Taken before `spawn` consumes the node. The epoch clock is also how the
     // block import loop tells the transport how far the chain has come, which
     // is what drives session rotation off chain height rather than the clock.
