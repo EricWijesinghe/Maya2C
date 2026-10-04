@@ -219,8 +219,12 @@ jobs:
       - name: Flatten artifacts
         run: |
           cd dist
-          find . -mindepth 2 -type f -print0 | while IFS= read -r -d '' f; do
-            name=$(basename "$f")
+          # GitHub stores "Maya Wallet_0.1.0.msi" as "Maya.Wallet_0.1.0.msi";
+          # name files that way here, or SHA256SUMS lists names nobody can
+          # download and `sha256sum -c` fails (node-v0.1.0-testnet.1 did).
+          find . -type f -print0 | while IFS= read -r -d '' f; do
+            name=$(basename "$f" | tr ' ' '.')
+            [ "./$name" = "$f" ] && continue
             if [ -e "$name" ]; then
               echo "duplicate artifact name: $name" >&2
               exit 1
