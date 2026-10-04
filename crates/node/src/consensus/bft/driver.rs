@@ -79,6 +79,30 @@ pub struct Step {
 /// An epoch's committee keys and, on a stake-weighted chain, their weights.
 pub type StakedCommittee = (Arc<[VerifyingKey]>, Option<Arc<[u64]>>);
 
+/// How far above this node's tip an attestation may be and still count. A
+/// collector forgets partial sets far below the newest height it has seen,
+/// so one validly signed attestation at an absurd height from a single
+/// Byzantine member would otherwise wipe every honest partial set.
+const ATTEST_AHEAD: u64 = 64;
+
+/// How long a builder must stay overtaken *and stuck* before it turns
+/// follower. Behind is not enough: a validator restarted beside others
+/// commits its way back over some seconds while the follow loop imports
+/// ahead of it, and flipping it then cost a voter and stalled the chain
+/// (attacknet soak, 2026-10-05). Only an engine that commits nothing for
+/// this long while blocks arrive is rescued.
+const OVERTAKEN_GRACE_MS: u64 = 20_000;
+
+/// The previous epoch's committee and its collector, kept after a switch.
+struct Closing {
+    epoch: u64,
+    /// The epoch's last block: nothing above it was ever that committee's.
+    last_height: u64,
+    keys: Arc<[VerifyingKey]>,
+    weights: Option<Arc<[u64]>>,
+    attestations: Collector,
+}
+
 /// One epoch's committee: its keys, and its voting weights where the chain
 /// is stake-weighted (ADR-040 part 2).
 struct EpochCommittee {
@@ -158,8 +182,17 @@ pub struct BftDriver {
     follower: bool,
     /// The anchor round the engine resumed after when it became a follower.
     resumed_at: u64,
+    /// The epoch just ended, still collecting: attestations of its last
+    /// blocks, the boundary block among them, arrive after every node has
+    /// switched, and its final checkpoint is what carries a node that slept
+    /// through the boundary into the new committee.
+    closing: Option<Closing>,
     /// The round of the last anchor this engine committed, built or not.
     last_anchor: Option<u64>,
+    /// When the tip was first seen built for an anchor this engine had not
+    /// committed, and the engine's committed round then; reset whenever the
+    /// engine commits again (see `overtaken`).
+    overtaken_since: Option<(u64, u64)>,
 }
 
 impl core::fmt::Debug for BftDriver {
@@ -302,7 +335,14 @@ impl BftDriver {
             attestations: Collector::default(),
             follower: false,
             resumed_at: 0,
-            last_anchor: None,
+            // The anchor the tip was built for, so a block that later
+            // arrives from elsewhere is recognised as one this engine never
+            // committed (see `overtaken`).
+            last_anchor: tip_seal(chain)
+                .filter(|(e, _)| *e == epoch)
+                .map(|(_, round)| round),
+            closing: None,
+            overtaken_since: None,
         };
         // Own proposals and votes first: they set the round, so replaying
         // certificates cannot make the engine sign a slot it already signed.
@@ -407,6 +447,19 @@ impl BftDriver {
         }
     }
 
+    /// Whether the chain's tip was built for an anchor this engine has not
+    /// committed: a block imported from a peer's checkpoint, so this node is
+    /// behind, whatever made it so. A builder that missed rounds would
+    /// otherwise wait for a sub-DAG it can no longer complete; following
+    /// attested blocks brings it back (attacknet soak, 2026-10-05).
+    fn overtaken(&self, chain: &Chain) -> bool {
+        let Some((epoch, round)) = tip_seal(chain) else {
+            return false;
+        };
+        // More than one anchor (anchors are even rounds) ahead of the engine.
+        epoch == self.epoch && self.last_anchor.is_none_or(|last| round > last + 2)
+    }
+
     /// Whether a follower may build the block for the anchor at `round`
     /// itself again. Two things must hold. The anchor is more than
     /// `GC_DEPTH` rounds past where the engine resumed, so every vertex it
@@ -463,6 +516,13 @@ impl BftDriver {
         self.attestations.newest()
     }
 
+    /// The newest checkpoint of the epoch that just ended, completed by
+    /// attestations that arrived after the switch.
+    #[must_use]
+    pub fn closing_checkpoint(&self) -> Option<&Checkpoint> {
+        self.closing.as_ref().and_then(|c| c.attestations.newest())
+    }
+
     /// Signs and gossips this validator's attestation of the block it just
     /// built at the tip, and counts it. An observer attests nothing; a
     /// signature that failed costs a checkpoint, never safety.
@@ -493,11 +553,32 @@ impl BftDriver {
         let Ok(attestation) = Attestation::decode(bytes) else {
             return;
         };
-        if attestation.epoch != self.epoch {
-            return;
-        }
         let tag = ChainTag::from_genesis(chain.genesis());
-        self.collect(attestation, &tag, step);
+        if attestation.epoch == self.epoch {
+            if attestation.height <= chain.height().saturating_add(ATTEST_AHEAD) {
+                self.collect(attestation, &tag, step);
+            }
+        } else if let Some(closing) = self
+            .closing
+            .as_mut()
+            .filter(|c| c.epoch == attestation.epoch && attestation.height <= c.last_height)
+        {
+            // Late attestations of the last epoch's final blocks, checked
+            // against that epoch's committee. A forged one is refused before
+            // it counts, which is all an error here means; an equivocation is
+            // reported like one in the live epoch.
+            if let Ok(Collected::Equivocation(pair)) = closing.attestations.add(
+                attestation,
+                &tag,
+                &closing.keys,
+                closing.weights.as_deref(),
+            ) {
+                step.notices.push(format!(
+                    "validator {} attested two blocks at height {} of epoch {} — evidence held",
+                    pair.1.validator, pair.1.height, pair.1.epoch
+                ));
+            }
+        }
     }
 
     fn collect(&mut self, attestation: Attestation, tag: &ChainTag, step: &mut Step) {
@@ -521,6 +602,39 @@ impl BftDriver {
     /// As [`BftDriver::on_frame`].
     pub fn on_tick(&mut self, chain: &mut Chain, now_ms: u64) -> Result<Step> {
         let mut step = Step::default();
+        // A builder switches epochs on the boundary block it builds. A block
+        // imported instead (a follower's, or one a former follower's
+        // follow_loop brought in) is noticed here, or the node would stay in
+        // an epoch whose committee no longer orders the chain.
+        if self.next_epoch(chain)?.is_some() {
+            let was_following = self.follower;
+            self.switch_epoch(chain, now_ms, &mut step)?;
+            if was_following {
+                self.follow_attested(chain);
+            }
+            step.notices.push(format!(
+                "followed attested blocks into epoch {}",
+                self.epoch
+            ));
+            return Ok(step);
+        }
+        let committed = self.engine.last_committed_round();
+        if self.follower || !self.overtaken(chain) {
+            self.overtaken_since = None;
+        } else if self.overtaken_since.is_none_or(|(_, at)| committed > at) {
+            // Newly overtaken, or the engine is still committing: wait.
+            self.overtaken_since = Some((now_ms, committed));
+        } else if self
+            .overtaken_since
+            .is_some_and(|(since, _)| now_ms.saturating_sub(since) >= OVERTAKEN_GRACE_MS)
+        {
+            self.overtaken_since = None;
+            self.follow_attested(chain);
+            step.notices.push(
+                "blocks arrived that this node did not build: following attested blocks"
+                    .to_string(),
+            );
+        }
         let out = self.engine.tick(now_ms);
         self.absorb(chain, now_ms, out, &mut step)?;
         Ok(step)
@@ -663,7 +777,15 @@ impl BftDriver {
             now_ms,
             step,
         )?;
+        let closing = Closing {
+            epoch: self.epoch,
+            last_height: chain.height(),
+            keys: Arc::clone(&self.committee),
+            weights: self.weights.clone(),
+            attestations: std::mem::take(&mut self.attestations),
+        };
         *self = next;
+        self.closing = Some(closing);
         Ok(())
     }
 

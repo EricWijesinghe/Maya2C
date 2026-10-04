@@ -242,6 +242,51 @@ fn has_quorum(
     Ok(committee.is_quorum(signers))
 }
 
+/// How many epochs' final checkpoints a node keeps serving. A validator
+/// down for longer catches up from a snapshot instead.
+pub const KEPT_EPOCHS: usize = 8;
+
+/// The newest checkpoint of each recent epoch: what `get_checkpoint` serves.
+///
+/// A node that was down across an epoch boundary trusts only its own
+/// epoch's committee, so it cannot check a checkpoint the next committee
+/// signed. It imports up to its own epoch's final checkpoint first; the
+/// boundary block in that span writes the next committee into its state,
+/// and the next epoch's checkpoint then checks out. One epoch at a time.
+#[derive(Clone, Debug, Default)]
+pub struct CheckpointBook {
+    by_epoch: BTreeMap<u64, Checkpoint>,
+}
+
+impl CheckpointBook {
+    /// Keeps `checkpoint` if it is newer than what its epoch holds, and
+    /// forgets epochs beyond [`KEPT_EPOCHS`].
+    pub fn offer(&mut self, checkpoint: &Checkpoint) {
+        let newer = self
+            .by_epoch
+            .get(&checkpoint.epoch)
+            .is_none_or(|held| held.height < checkpoint.height);
+        if newer {
+            self.by_epoch.insert(checkpoint.epoch, checkpoint.clone());
+        }
+        while self.by_epoch.len() > KEPT_EPOCHS {
+            self.by_epoch.pop_first();
+        }
+    }
+
+    /// The newest checkpoint of the newest epoch.
+    #[must_use]
+    pub fn newest(&self) -> Option<&Checkpoint> {
+        self.by_epoch.last_key_value().map(|(_, c)| c)
+    }
+
+    /// The newest checkpoint held for `epoch`.
+    #[must_use]
+    pub fn of_epoch(&self, epoch: u64) -> Option<&Checkpoint> {
+        self.by_epoch.get(&epoch)
+    }
+}
+
 /// What a collector made of one attestation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Collected {
@@ -556,5 +601,28 @@ mod tests {
         w.verify(&CHAIN, &committee, Some(&weights)).unwrap();
         // Weights of the wrong length are an error, never a silent head count.
         assert!(w.verify(&CHAIN, &committee, Some(&weights[..3])).is_err());
+    }
+
+    #[test]
+    fn the_book_keeps_each_epochs_newest_checkpoint_and_forgets_old_epochs() {
+        let (signing, _) = keys(1);
+        let at = |epoch: u64, height: u64| Checkpoint {
+            epoch,
+            height,
+            block: [1; 32],
+            signatures: BTreeMap::from([(0, attest(&signing, 0, height, 1).signature)]),
+        };
+        let mut book = CheckpointBook::default();
+        book.offer(&at(0, 10));
+        book.offer(&at(0, 8)); // older: ignored
+        book.offer(&at(1, 12));
+        assert_eq!(book.of_epoch(0).map(|c| c.height), Some(10));
+        assert_eq!(book.newest().map(|c| (c.epoch, c.height)), Some((1, 12)));
+        for e in 2..2 + KEPT_EPOCHS as u64 {
+            book.offer(&at(e, 20 + e));
+        }
+        assert!(book.of_epoch(0).is_none(), "the oldest epoch is forgotten");
+        assert!(book.of_epoch(1).is_none());
+        assert!(book.of_epoch(2).is_some());
     }
 }
