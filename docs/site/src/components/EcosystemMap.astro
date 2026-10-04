@@ -3,14 +3,14 @@
 // design: it talks to the chain through the gateway or its own protocol and
 // never links the node. `status` says what is true today.
 const apps = [
-  { name: "Maya Chat", note: "PQ messenger", status: "built" },
-  { name: "Wallet", note: "CLI + desktop", status: "built" },
-  { name: "SDKs", note: "TS · Python · Go", status: "built" },
-  { name: "Gateway", note: "REST · GraphQL", status: "built" },
-  { name: "Explorer", note: "blocks · accounts", status: "built" },
-  { name: "Identity", note: "proof of personhood", status: "research" },
-  { name: "Governance", note: "representative", status: "planned" },
-  { name: "AI chat", note: "on-device", status: "planned" },
+  { name: "Maya Chat", note: "PQ messenger", status: "built", href: "https://github.com/EricWijesinghe/Maya2C/releases" },
+  { name: "Wallet", note: "CLI + desktop", status: "built", href: "/guides/wallet" },
+  { name: "SDKs", note: "TS · Python · Go", status: "built", href: "https://github.com/EricWijesinghe/Maya2C" },
+  { name: "Gateway", note: "REST · GraphQL", status: "built", href: "/guides/api" },
+  { name: "Explorer", note: "blocks · accounts", status: "built", href: "https://explorer.maya2c.dev" },
+  { name: "Identity", note: "proof of personhood", status: "research", href: "/reference/ecosystem" },
+  { name: "Governance", note: "representative", status: "planned", href: "/reference/governance" },
+  { name: "AI chat", note: "on-device", status: "planned", href: "/reference/confidential-ai" },
 ];
 const r = 186;
 const placed = apps.map((a, i) => {
@@ -24,8 +24,8 @@ const placed = apps.map((a, i) => {
     <title id="eco-t">The Maya2C chain with the applications built on it, and which of them exist today</title>
     <defs>
       <radialGradient id="eco-core">
-        <stop offset="0" stop-color="#22d3ee" stop-opacity="0.9" />
-        <stop offset="1" stop-color="#a78bfa" stop-opacity="0.15" />
+        <stop offset="0" stop-color="#b3c8ff" stop-opacity="0.9" />
+        <stop offset="1" stop-color="#7c6cff" stop-opacity="0.15" />
       </radialGradient>
     </defs>
     <circle cx="250" cy="250" r={r} class="orbit" />
@@ -35,11 +35,13 @@ const placed = apps.map((a, i) => {
     <text x="250" y="266" class="core-s">post-quantum L1</text>
     {
       placed.map((a) => (
-        <g class={`app ${a.status}`}>
-          <circle cx={a.x} cy={a.y} r="48" />
-          <text x={a.x} y={a.y - 3} class="app-t">{a.name}</text>
-          <text x={a.x} y={a.y + 13} class="app-s">{a.note}</text>
-        </g>
+        <a href={a.href} class={`app ${a.status}`}>
+          <g>
+            <circle cx={a.x} cy={a.y} r="48" />
+            <text x={a.x} y={a.y - 3} class="app-t">{a.name}</text>
+            <text x={a.x} y={a.y + 13} class="app-s">{a.note}</text>
+          </g>
+        </a>
       ))
     }
   </svg>
@@ -55,24 +57,26 @@ const placed = apps.map((a, i) => {
   svg { width: 100%; height: auto; overflow: visible; }
   .orbit { fill: none; stroke: var(--sl-color-hairline); stroke-dasharray: 3 7; }
   .spoke { stroke-width: 1.5; stroke-dasharray: 5 9; animation: flow 4s linear infinite; }
-  .spoke.built { stroke: #22d3ee; }
-  .spoke.research { stroke: #a78bfa; opacity: 0.6; }
-  .spoke.planned { stroke: #64748b; opacity: 0.4; animation: none; }
+  .spoke.built { stroke: var(--cherenkov); }
+  .spoke.research { stroke: var(--iris-a); opacity: 0.6; }
+  .spoke.planned { stroke: var(--muted); opacity: 0.4; animation: none; }
   .core { animation: breathe 5s ease-in-out infinite; transform-origin: 250px 250px; }
-  .core-t { fill: #fff; font-weight: 800; font-size: 20px; text-anchor: middle; }
-  .core-s { fill: #e0f2fe; font-size: 11px; text-anchor: middle; }
-  .app circle { fill: var(--sl-color-bg); stroke-width: 2; transition: transform 0.25s ease; transform-box: fill-box; transform-origin: center; }
-  .app:hover circle { transform: scale(1.1); }
-  .app.built circle { stroke: #22d3ee; }
-  .app.research circle { stroke: #a78bfa; stroke-dasharray: 4 3; }
-  .app.planned circle { stroke: #64748b; stroke-dasharray: 2 4; }
-  .app-t { fill: var(--sl-color-white); font-size: 11.5px; font-weight: 700; text-anchor: middle; }
-  .app-s { fill: var(--sl-color-gray-3); font-size: 8px; text-anchor: middle; }
-  figcaption { display: flex; gap: 1.25rem; justify-content: center; flex-wrap: wrap; font-size: 0.85rem; color: var(--sl-color-gray-3); }
+  .core-t { fill: var(--text); font-weight: 800; font-size: 20px; text-anchor: middle; }
+  .core-s { fill: var(--cherenkov-hi); font-size: 11px; text-anchor: middle; }
+  .app { text-decoration: none; cursor: pointer; }
+  .app circle { fill: var(--sl-color-bg); stroke-width: 2; transition: transform 0.35s cubic-bezier(.34,1.56,.64,1), filter 0.3s ease; transform-box: fill-box; transform-origin: center; filter: drop-shadow(0 0 0px rgba(91, 140, 255, 0)); }
+  .app:hover circle, .app:focus circle { transform: scale(1.15); filter: drop-shadow(0 0 12px rgba(91, 140, 255, 0.6)); }
+  .app.research:hover circle, .app.research:focus circle { filter: drop-shadow(0 0 12px rgba(124, 108, 255, 0.5)); }
+  .app.built circle { stroke: var(--cherenkov); }
+  .app.research circle { stroke: var(--iris-a); stroke-dasharray: 4 3; }
+  .app.planned circle { stroke: var(--muted); stroke-dasharray: 2 4; }
+  .app-t { fill: var(--text); font-size: 11.5px; font-weight: 700; text-anchor: middle; }
+  .app-s { fill: var(--muted); font-size: 8px; text-anchor: middle; }
+  figcaption { display: flex; gap: 1.25rem; justify-content: center; flex-wrap: wrap; font-size: 0.85rem; color: var(--muted); }
   .key::before { content: ""; display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 50%; margin-right: 0.4rem; vertical-align: -0.05rem; border: 2px solid; }
-  .key.built::before { border-color: #22d3ee; }
-  .key.research::before { border-color: #a78bfa; border-style: dashed; }
-  .key.planned::before { border-color: #64748b; border-style: dotted; }
+  .key.built::before { border-color: var(--cherenkov); }
+  .key.research::before { border-color: var(--iris-a); border-style: dashed; }
+  .key.planned::before { border-color: var(--muted); border-style: dotted; }
   @keyframes flow { to { stroke-dashoffset: -28; } }
   @keyframes breathe { 50% { transform: scale(1.06); } }
 </style>
