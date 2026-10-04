@@ -160,39 +160,54 @@ Evidence: `cargo xtask attacknet`, all six attacks pass. Validator 6 was down
 "followed attested blocks into epoch 1", and rejoined at height 66. There
 was no fork through height 67. The run is in `reports/attacknet/`.
 
-## Checkpoint threshold: f + 1, not n − f (2026-10-05)
+## Followers and the checkpoint quorum (2026-10-05)
 
-A soak of `cargo xtask attacknet` (3 runs × 3 rounds) reproduced a permanent
-stall. Two validators restarted one block behind, so they correctly became
-followers. Followers vote, so the chain resumed. But a follower cannot
-attest a block it has not imported. With 2 followers in a 5-seat committee
-(f = 1), only 3 builders attested, short of the n − f = 4 a checkpoint then
-needed. No checkpoint ever formed, so the followers never imported anything.
-The network ran on to height 194 while they sat at 78. More than f followers
-at once is enough to cause this, and a restart of several validators
-together produces exactly that.
+**The stall.** A soak of `cargo xtask attacknet` (3 runs × 3 rounds)
+reproduced a permanent one.
+- Two validators restarted one block behind and became followers.
+- Followers vote, so the chain resumed. But a follower cannot attest a
+  block it has not imported.
+- With 2 followers in a 5-seat committee (f = 1), only 3 builders
+  attested, short of the n − f = 4 a checkpoint needs.
+- No checkpoint formed, so the followers never imported anything. The
+  network ran on to height 194 while they sat at 78.
 
-**Decision.** A checkpoint needs f + 1 signers: by stake, more than the
-faulty weight. This is the engine's existing `Committee::validity()`, the
-same f + 1 weight that commits an anchor.
+**Considered, and rejected by the owner.** Lowering the checkpoint
+threshold to f + 1 fixed the stall, and the soak passed 9/9 rounds. But the
+security review showed what it costs:
+- A catching-up node would trust any f + 1 signers: more than 1/3 of the
+  stake instead of more than 2/3.
+- One divergent honest builder plus the Byzantine members could certify a
+  wrong block.
 
-**Why it is enough.**
-- An honest validator attests only the block it built from the committed
-  DAG.
-- Of f + 1 signers, at least one is honest, so the attested block is the
-  canonical block at that height.
-- An importer still checks that the fetched blocks hash-chain to it, and
-  re-executes each one against its state root (invariant 24).
-- n − f would add margin only against more than f Byzantine signers. A
-  committee in that state has already lost BFT safety, and no checkpoint
-  threshold restores it.
+Decision (Eric, 2026-10-05): keep n − f, and fix the cause instead.
 
-**Weighted.** By stake, f + 1 is more than a third of the stake. Three
-1,000-bond seats beside one 10,000-bond validator still cannot attest
-anything (`cheap_seats_make_a_head_quorum_but_never_a_stake_quorum`).
+**The cause.** Those validators did not need to follow at all.
+- Their engines could re-derive the one missing block from DAG
+  certificates still inside the engine's window, as any ordinary restart
+  does.
+- Startup catch-up now makes a node follow only when its engine cannot
+  derive the gap. That means one of these holds:
+  - the peer's tip anchor is more than half the GC window (25 rounds) past
+    ours;
+  - the peer is in another epoch;
+  - our tip is not an ancestor of the peer's.
+- Otherwise the node resumes building, and so attests, which keeps the
+  quorum of attesters intact.
 
-**Open, recorded in KNOWN_ISSUES.** An observer node (no validator key)
-follows by polling a peer's RPC for checkpoints and blocks, never over
-p2p. Every follower therefore costs its source about two requests a second.
-Twelve project peers on one IP exhausted the public bootstrap endpoint's
-10-per-second limit.
+**Rescue, with a grace period.** If a resumed builder's engine still fails
+to rejoin, it is rescued.
+- The follow loop always runs with `--catch-up-from`.
+- A builder whose tip is more than one anchor past what its engine
+  committed, continuously for 5 s, turns follower.
+- The grace period keeps a merely slower builder from flipping on a race
+  with the follow loop.
+
+**Still open (gate 10).** More than f validators that each genuinely need to
+follow, because each was down for longer than the window, still cannot
+rejoin from checkpoints alone. The recovery for that today is a snapshot
+restore (`--bootstrap-from` on an empty data directory).
+
+**Also open, in KNOWN_ISSUES.** Observers follow by polling a peer's RPC,
+never over p2p. Twelve followers on one IP exhaust the public bootstrap
+endpoint's 10-per-second limit.
