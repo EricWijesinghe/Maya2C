@@ -1,0 +1,77 @@
+# Nightly check that every link on maya2c.dev still leads somewhere.
+#
+# ingest.mjs already fails the build on a dead link *between* site pages. This
+# catches what a build cannot: the live demonstrations (explorer, faucet,
+# status, chat, RPC) going dark, and outside links that rot. The site's
+# promise is that every bubble opens something that works; a nightly red run
+# is how we find out it no longer does before a visitor does.
+#
+# Runs against the built pages rather than crawling the live site, so the
+# check covers exactly what master would publish.
+name: site-links
+
+on:
+  schedule:
+    # 04:17 UTC: after the nightly suite, off the top of the hour.
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+  # A change to this check runs it, so it is proven before it guards anything.
+  pull_request:
+    paths: [".github/workflows/site-links.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  links:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docs/site
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: docs/site/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - name: Check every link in the built site
+        uses: lycheeverse/lychee-action@v2
+        with:
+          workingDirectory: docs/site
+          # --root-dir resolves the site's absolute links (/experience/) to
+          # dist/. Retries ride out a tunnel blip on the PC-hosted services;
+          # a link that is down on every retry is down.
+          args: >-
+            --root-dir ${{ github.workspace }}/docs/site/dist
+            --max-retries 3
+            --retry-wait-time 10
+            --timeout 30
+            --accept 200..=299,403,429
+            --exclude-path dist/pagefind
+            --no-progress
+            "dist/**/*.html"
+          fail: true
+      - name: Check the live demonstrations answer
+        run: |
+          set -euo pipefail
+          expect() {  # url, wanted status, extra curl args...
+            local url=$1 want=$2; shift 2
+            local code
+            code=$(curl -s -o /dev/null -w '%{http_code}' -L --max-time 30 "$@" "$url" || true)
+            echo "$url -> $code"
+            [ "$code" = "$want" ] || { echo "::error::$url answered $code, wanted $want"; return 1; }
+          }
+          expect https://explorer.maya2c.dev/ 200
+          expect https://faucet.maya2c.dev/ 200
+          expect https://status.maya2c.dev/api/status 200
+          # The chat relay and the P2P bootnode speak only WebSocket: a plain
+          # GET is refused, an upgrade is switched.
+          ws=(--http1.1 -H 'Connection: Upgrade' -H 'Upgrade: websocket'
+              -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==')
+          expect https://chat.maya2c.dev/ 101 "${ws[@]}"
+          expect https://p2p.maya2c.dev/ 101 "${ws[@]}"
+          rpc='{"jsonrpc":"2.0","id":1,"method":"get_chain_info","params":[]}'
+          curl -sf --max-time 30 -H 'content-type: application/json' -d "$rpc" https://rpc.maya2c.dev/rpc | grep -q '"result"'
