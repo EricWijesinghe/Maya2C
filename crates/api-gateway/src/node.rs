@@ -108,11 +108,29 @@ pub trait NodeClient: Send + Sync + 'static {
     async fn get_checkpoint(&self) -> Result<serde_json::Value, GatewayError> {
         Ok(serde_json::Value::Null)
     }
+
+    /// Whether this gateway forwards the pruned-node bootstrap methods.
+    fn serves_bootstrap(&self) -> bool {
+        false
+    }
+
+    /// Forwards one of the read-only bootstrap methods the dispatch has
+    /// already validated, returning the node's JSON untouched. `null` by
+    /// default, as from a node that serves no snapshots.
+    async fn forward(
+        &self,
+        _method: &'static str,
+        _params: Vec<serde_json::Value>,
+    ) -> Result<serde_json::Value, GatewayError> {
+        Ok(serde_json::Value::Null)
+    }
 }
 
 /// A [`NodeClient`] backed by a real node's JSON-RPC port.
 pub struct RpcNodeClient {
     client: HttpClient,
+    /// Also forward [`allowlist::BOOTSTRAP_METHODS`] (`--bootstrap`).
+    bootstrap: bool,
 }
 
 impl RpcNodeClient {
@@ -126,7 +144,16 @@ impl RpcNodeClient {
             .request_timeout(NODE_TIMEOUT)
             .build(url)
             .map_err(|e| GatewayError::Upstream(format!("connecting to node at {url}: {e}")))?;
-        Ok(Self { client })
+        Ok(Self {
+            client,
+            bootstrap: false,
+        })
+    }
+
+    /// The same client, also forwarding the pruned-node bootstrap methods.
+    #[must_use]
+    pub fn with_bootstrap(self, bootstrap: bool) -> Self {
+        Self { bootstrap, ..self }
     }
 
     /// Forwards a call, refusing anything outside the allowlist.
@@ -143,7 +170,12 @@ impl RpcNodeClient {
     where
         R: serde::de::DeserializeOwned,
     {
-        if !allowlist::is_allowed(method) {
+        let allowed = if self.bootstrap {
+            allowlist::is_allowed_for_bootstrap(method)
+        } else {
+            allowlist::is_allowed(method)
+        };
+        if !allowed {
             return Err(GatewayError::MethodNotAllowed(method.to_string()));
         }
         self.client
@@ -209,5 +241,23 @@ impl NodeClient for RpcNodeClient {
 
     async fn get_checkpoint(&self) -> Result<serde_json::Value, GatewayError> {
         self.call("get_checkpoint", rpc_params![]).await
+    }
+
+    fn serves_bootstrap(&self) -> bool {
+        self.bootstrap
+    }
+
+    async fn forward(
+        &self,
+        method: &'static str,
+        params: Vec<serde_json::Value>,
+    ) -> Result<serde_json::Value, GatewayError> {
+        let mut array = jsonrpsee::core::params::ArrayParams::new();
+        for value in params {
+            array
+                .insert(value)
+                .map_err(|e| GatewayError::Upstream(e.to_string()))?;
+        }
+        self.call(method, array).await
     }
 }
