@@ -90,9 +90,19 @@ impl FaucetService {
     }
 }
 
+/// Where a person who opens the faucet's address in a browser is sent: the
+/// "Join the testnet" page, whose form calls `/request`. The faucet itself
+/// is an API; its bare address used to answer 404 to everyone the docs sent
+/// there.
+pub const HUMAN_PAGE: &str = "https://maya2c.dev/guides/testnet/#2-take-free-test-coins";
+
 /// The routes, ready to serve.
 pub fn router(service: Arc<FaucetService>) -> Router {
     Router::new()
+        .route(
+            "/",
+            get(|| async { axum::response::Redirect::temporary(HUMAN_PAGE) }),
+        )
         .route("/health", get(health))
         .route("/status", get(status))
         .route("/request", post(request))

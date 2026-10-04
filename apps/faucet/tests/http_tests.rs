@@ -344,7 +344,7 @@ async fn status_reports_the_budget_without_revealing_the_key() {
 }
 
 fn with_cors() -> axum::Router {
-    router(service(Arc::new(RecordingDispenser::default())))
+    router(service(Arc::new(RecordingDispenser::new())))
         .layer(maya_faucet::http::cors(&["https://maya2c.dev".to_owned()]).unwrap())
 }
 
@@ -388,4 +388,18 @@ async fn an_unlisted_origin_gets_no_allow_header() {
 #[test]
 fn a_malformed_origin_is_refused_at_startup() {
     assert!(maya_faucet::http::cors(&["https://bad\norigin".to_owned()]).is_err());
+}
+
+#[tokio::test]
+async fn the_bare_address_sends_a_person_to_the_testnet_page() {
+    // The docs print https://faucet.maya2c.dev; opening it must not 404.
+    let response = router(service(Arc::new(RecordingDispenser::new())))
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(
+        response.headers()["location"],
+        maya_faucet::http::HUMAN_PAGE
+    );
 }
