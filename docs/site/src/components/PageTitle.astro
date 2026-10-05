@@ -1,0 +1,10 @@
+---
+// Starlight's page title, except on the homepage. There the hero's headline
+// is the page's one h1. Starlight's own "Maya2C" h1 would make a second one:
+// visually hidden, but still a duplicate, keyword-less heading to every
+// crawler. Only the homepage: other splash pages (Experience) need it.
+import Default from "@astrojs/starlight/components/PageTitle.astro";
+const isHome = Astro.url.pathname === "/" || Astro.url.pathname === "";
+---
+
+{!isHome && <Default />}

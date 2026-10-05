@@ -186,6 +186,77 @@ for (const name of (await readdir(AUTHORED_SRC)).sort()) {
   authored += 1;
 }
 
+/**
+ * Search-result titles for docs whose H1 is right on the page but wrong in a
+ * result: too short to say what the page is ("Mission"), or long enough to
+ * be cut off. Only the <title> tag changes; the page keeps its own H1, which
+ * stays the source of truth. Each title restates the doc's first line in
+ * fewer words, and claims nothing that line does not.
+ */
+const SEARCH_TITLES = {
+  "CRYPTO_WATCH.md": "Post-Quantum Crypto Watch: Standards Tracked | Maya2C",
+  "dex.md": "The Native DEX: Batch Auctions, No Mempool Race | Maya2C",
+  "fee-market.md": "Fee Market: Base Fee, Fee Split and Supply Bound | Maya2C",
+  "GENESIS.md": "Genesis: Rehearsal, Launch and First 90 Days | Maya2C",
+  "governance.md": "On-Chain Governance and Its Limits | Maya2C",
+  "hybrid-signatures.md": "Hybrid ML-DSA + SLH-DSA Transaction Signatures | Maya2C",
+  "LEGAL_NOTICE.md": "Legal Notice: Not Legal or Financial Advice | Maya2C",
+  "MISSION.md": "Mission: A Post-Quantum Layer-1 Ecosystem | Maya2C",
+  "oracle.md": "The Oracle: Randomness Beacon and Price Feed | Maya2C",
+  "peer-health.md": "Peer Guard: Byzantine Peers and Quarantine | Maya2C",
+  "SECOND_CLIENT.md": "A Second Client: Why One Codebase Is Not Enough | Maya2C",
+  "workspace-map.md": "Workspace Map: What Each Crate Is For | Maya2C",
+};
+
+/** Search-snippet bounds, in characters. */
+const DESCRIPTION_MIN = 70;
+const DESCRIPTION_MAX = 155;
+
+/**
+ * A page's meta description, from its own opening prose.
+ *
+ * Every ingested doc used to fall back to the site-wide description, so
+ * search engines saw sixty pages with one snippet and wrote their own. The
+ * first paragraphs that are prose, not a heading, list, table, code, quote
+ * or HTML, say what the page is about in the author's words. Markdown is
+ * flattened to text, and the result is cut at a sentence end within the
+ * snippet length.
+ */
+function describe(body, title) {
+  const prose = [];
+  const withoutCode = body.replace(/```[\s\S]*?```/g, "");
+  for (const block of withoutCode.split(/\r?\n\s*\r?\n/)) {
+    const text = block.trim();
+    // Not prose: headings, lists, tables, quotes, HTML, images, admonitions,
+    // rules, and the "**Status: …**" line that opens many docs (metadata,
+    // not what the page is about).
+    if (text === "" || /^(#|[-*+] |\d+\. |\||>|<|!\[|:::|-{3,}$|\*\*Status)/.test(text)) continue;
+    prose.push(flatten(text));
+    if (prose.join(" ").length >= DESCRIPTION_MAX) break;
+  }
+  const all = prose.join(" ").replace(/\s+/g, " ").trim();
+  if (all.length < DESCRIPTION_MIN) return `${title}: ${all}`.slice(0, DESCRIPTION_MAX).trim();
+  if (all.length <= DESCRIPTION_MAX) return all;
+  const cut = all.slice(0, DESCRIPTION_MAX);
+  const end = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("; "));
+  if (end >= DESCRIPTION_MIN) return cut.slice(0, end + 1);
+  return `${cut.slice(0, cut.lastIndexOf(" "))}…`;
+}
+
+/** Markdown inline syntax to plain text. */
+function flatten(text) {
+  return text
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/(\*\*|__|\*|_)(\S[^*_]*?\S|\S)\1/g, "$2")
+    .replace(/<[^>]+>/g, "")
+    // Nested emphasis the pair above cannot unwind: drop what is left.
+    .replace(/\*\*|__/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 for (const name of (await readdir(DOCS)).sort()) {
   if (!name.endsWith(".md") || SKIP.has(name)) continue;
 
@@ -205,6 +276,10 @@ for (const name of (await readdir(DOCS)).sort()) {
   const frontmatter = [
     "---",
     `title: ${yamlString(title)}`,
+    `description: ${yamlString(describe(body, title))}`,
+    ...(SEARCH_TITLES[name]
+      ? ["head:", "  - tag: title", `    content: ${yamlString(SEARCH_TITLES[name])}`]
+      : []),
     "editUrl: false",
     `# GENERATED from docs/${name} by scripts/ingest.mjs. Edit the source, not this.`,
     "---",
