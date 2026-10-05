@@ -238,7 +238,7 @@ its operator was told about.
 
 ---
 
-# The second KEM: `/maya/dualkem/1.0.0` (draft FIPS 207 / HQC-192)
+## The second KEM: `/maya/dualkem/1.0.0` (draft FIPS 207 / HQC-192)
 
 **Status: shipped disabled.** `DualKemPolicy::default()` is `Disabled`, so a
 stock node offers only `/maya/mlkem/1.0.0` and nothing above changes.

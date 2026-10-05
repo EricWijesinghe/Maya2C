@@ -1,0 +1,33 @@
+# Maya2C
+
+> Maya2C is a post-quantum layer-1 blockchain written in Rust. Every transaction carries two NIST post-quantum signatures, ML-DSA-65 (FIPS 204) and SLH-DSA (FIPS 205), and both must verify. Blocks finalize by DAG-BFT (Narwhal and Bullshark): a finalized block is never reorganised. Peer links use ML-KEM-768 (FIPS 203). The public testnet, maya-testnet-1, is live. Its coins have no value. No external security audit has reported yet.
+
+Every claim on the site links to the test that proves it. A claim without a test fails CI.
+
+## Start here
+
+- [Experience Maya2C](https://maya2c.dev/experience/): live blocks, network calls and post-quantum signatures, in the browser
+- [Join the testnet](https://maya2c.dev/guides/testnet/): wallet, free test coins, a first post-quantum-signed transaction
+- [Run a validator](https://maya2c.dev/guides/validators/): one-command Linux join, the public bootnode, the testnet genesis
+- [API reference](https://maya2c.dev/guides/api/): JSON-RPC and REST endpoints of the public gateway
+- [Break it](https://maya2c.dev/guides/break-it/): attack the testnet for credit; daily self-run attacknet reports
+
+## How it works
+
+- [Post-quantum signatures](https://maya2c.dev/guides/signatures/): why two signature schemes, and what each protects against
+- [Hybrid signatures](https://maya2c.dev/reference/hybrid-signatures/): the exact construction of transaction authorization
+- [Post-quantum transport](https://maya2c.dev/reference/pq-transport/): ML-KEM-768 on every peer connection
+- [Invariants](https://maya2c.dev/reference/invariants/): the numbered properties the code must keep, each pinned by a test
+- [Architecture vision](https://maya2c.dev/reference/architecture-vision/): what is shipped, what is research, what is planned
+
+## Live services
+
+- Block explorer: https://explorer.maya2c.dev/
+- Uptime, measured from block timestamps: https://status.maya2c.dev/
+- Faucet: https://faucet.maya2c.dev/
+- Public JSON-RPC: https://rpc.maya2c.dev/rpc
+
+## Source
+
+- Code (Apache-2.0): https://github.com/EricWijesinghe/Maya2C
+- Releases: https://github.com/EricWijesinghe/Maya2C/releases

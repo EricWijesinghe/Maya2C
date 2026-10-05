@@ -1,5 +1,8 @@
 ---
 title: API reference
+head:
+  - tag: title
+    content: "Maya2C API Reference: JSON-RPC and REST Endpoints"
 description: The gateway's REST surface, and why it is the only one you should call.
 ---
 

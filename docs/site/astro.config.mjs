@@ -37,28 +37,52 @@ export default defineConfig({
             "@context": "https://schema.org",
             "@graph": [
               {
-                "@type": "WebSite",
+                "@type": "Organization",
+                "@id": "https://maya2c.dev/#org",
                 name: "Maya2C",
                 url: "https://maya2c.dev/",
+                logo: "https://maya2c.dev/apple-touch-icon.png",
+                sameAs: ["https://github.com/EricWijesinghe/Maya2C"],
+              },
+              {
+                "@type": "WebSite",
+                "@id": "https://maya2c.dev/#website",
+                name: "Maya2C",
+                url: "https://maya2c.dev/",
+                inLanguage: "en",
+                publisher: { "@id": "https://maya2c.dev/#org" },
               },
               {
                 "@type": "SoftwareApplication",
+                "@id": "https://maya2c.dev/#node",
                 name: "Maya2C node",
                 applicationCategory: "DeveloperApplication",
                 operatingSystem: "Linux, Windows, macOS",
+                softwareVersion: "0.1.0-testnet.2",
+                downloadUrl: "https://github.com/EricWijesinghe/Maya2C/releases",
                 license: "https://www.apache.org/licenses/LICENSE-2.0",
-                codeRepository: "https://github.com/EricWijesinghe/Maya2C",
+                publisher: { "@id": "https://maya2c.dev/#org" },
                 offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
                 description:
                   "Post-quantum layer-1 blockchain node: DAG-BFT finality and hybrid ML-DSA + SLH-DSA signatures.",
+              },
+              {
+                "@type": "SoftwareSourceCode",
+                name: "Maya2C",
+                codeRepository: "https://github.com/EricWijesinghe/Maya2C",
+                programmingLanguage: "Rust",
+                license: "https://www.apache.org/licenses/LICENSE-2.0",
+                publisher: { "@id": "https://maya2c.dev/#org" },
               },
             ],
           }),
         },
       ],
       description:
-        "Post-quantum layer-1 blockchain. DAG-BFT finality, hybrid ML-DSA + " +
-        "SLH-DSA signatures, shielded transfers.",
+        // No "shielded transfers": mainnet v1 launches without them
+        // (decided 2026-09-30), and a description must not promise them.
+        "Post-quantum layer-1 blockchain in Rust: DAG-BFT finality and " +
+        "hybrid ML-DSA + SLH-DSA signatures on every transaction.",
       // Self-hosted variable fonts: no third-party request, no layout shift
       // from a late swap, and the same letterforms on every OS.
       customCss: [
@@ -74,6 +98,10 @@ export default defineConfig({
         // reading progress and back-to-top.
         SiteTitle: "./src/components/SiteTitle.astro",
         Header: "./src/components/Header.astro",
+        // No second h1 on the homepage, whose hero headline is the h1.
+        PageTitle: "./src/components/PageTitle.astro",
+        // Per-page structured data: breadcrumbs and a TechArticle.
+        Head: "./src/components/Head.astro",
       },
       social: [
         { icon: "github", label: "GitHub", href: "https://github.com/EricWijesinghe/Maya2C" },

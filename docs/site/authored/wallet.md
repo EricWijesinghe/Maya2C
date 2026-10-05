@@ -1,6 +1,6 @@
 ---
 title: Wallet integration
-description: Building and signing Maya2C transactions from an application.
+description: Build, sign and submit post-quantum Maya2C transactions from your application, with the fee, nonce and hybrid-signature rules a wallet must follow.
 ---
 
 Three facts decide the shape of any wallet integration here. Read them before
