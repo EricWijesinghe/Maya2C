@@ -88,6 +88,7 @@ export default defineConfig({
             { label: "Post-quantum signatures", link: "/guides/signatures" },
             { label: "Mining and validators", link: "/guides/mining" },
             { label: "Run a validator", link: "/guides/validators" },
+            { label: "Break it", link: "/guides/break-it" },
             { label: "API reference", link: "/guides/api" },
             { label: "Wallet integration", link: "/guides/wallet" },
             { label: "Compiling a contract", link: "/guides/contracts" },

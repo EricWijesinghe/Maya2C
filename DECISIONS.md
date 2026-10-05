@@ -157,3 +157,17 @@ genesis.
 It builds, but with new warnings (the 404 entry is missing, the i18n
 collection is empty). A two-major framework bump on the public site wants
 a rebase and a visual check, not an unattended merge.
+
+## 2026-10-05 — Launch without outside people (ADR-042, Eric)
+
+Eric chose all three recommended options:
+- **Gate 5:** a foundation validator set, four project-run validators on four
+  machines (PC + Oracle Always Free), stated publicly as foundation-operated.
+- **Gate 6:** a self-run daily attacknet for four weeks plus a credit-only
+  break-it programme.
+- **Gate 7:** a pre-audit package, free audit programmes applied for, and
+  mainnet labelled "external audit pending".
+
+Why: investor money arrives only after three months of mainnet, so every
+gate waiting on people or money would have blocked the thing that pays for
+them. Each gap is written on the site, never relabelled away.
