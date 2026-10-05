@@ -900,6 +900,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 url.clone(),
                 Arc::clone(&chain),
                 Arc::clone(&setup.committee),
+                Arc::clone(&status_slot),
             ));
         }
         let size = setup.committee.len();
