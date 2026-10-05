@@ -1,5 +1,8 @@
 ---
 title: Run a validator
+head:
+  - tag: title
+    content: "Run a Post-Quantum Validator on the Maya2C Testnet"
 description: How independent operators join maya-testnet-1 as validators, what it takes, and what is still in the way.
 ---
 
