@@ -511,11 +511,10 @@ fn write_report(net: &Net, weighted: bool, outcome: &Result<()>) -> Result<PathB
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let stamp = devnet::output(Command::new("git").args(["rev-parse", "--short", "HEAD"]))
         .unwrap_or_default();
+    // Dated, never overwritten: ADR-042 gate 6 keeps one report per daily run.
     let path = dir.join(format!(
         "{}.md",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs())
+        crate::sweep::free_stem(&dir, &crate::sweep::today())
     ));
     let verdict = match outcome {
         Ok(()) => "PASS".to_owned(),

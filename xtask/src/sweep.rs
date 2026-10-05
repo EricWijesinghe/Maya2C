@@ -259,7 +259,7 @@ fn bash() -> String {
 
 /// `<date>-<n>` with the first `n` not yet used, so a second re-run on the
 /// same day does not overwrite the first.
-fn free_stem(dir: &Path, date: &str) -> String {
+pub(crate) fn free_stem(dir: &Path, date: &str) -> String {
     let names: Vec<String> = std::fs::read_dir(dir)
         .map(|entries| {
             entries
@@ -297,7 +297,7 @@ fn git_head(root: &Path) -> String {
 }
 
 /// Today's UTC date as `YYYY-MM-DD`, without a date crate.
-fn today() -> String {
+pub(crate) fn today() -> String {
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
