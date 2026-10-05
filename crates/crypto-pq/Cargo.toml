@@ -83,7 +83,7 @@ ed25519-dalek = { version = "=3.0.0", default-features = false, features = ["zer
 # X-Wing (ML-KEM-768 + X25519), ADR-009. The draft's construction, exactly.
 # `hazmat` exposes the draft's seeded `Encaps` so entropy comes through
 # `getrandom` and a failure is an error, not a panic.
-x-wing = { version = "=0.1.0", features = ["zeroize", "hazmat"] }
+x-wing = { version = "=0.1.1", features = ["zeroize", "hazmat"] }
 # The DualKem combiner's KDF, ADR-009 — the hash FIPS 203 itself uses.
 sha3 = { version = "0.11", default-features = false }
 # Constant-time equality for every secret comparison in the suite and KEM code.
