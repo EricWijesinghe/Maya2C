@@ -51,13 +51,13 @@ $commit = (git -C $run rev-parse --short HEAD).Trim()
 
 function FreeGB { [math]::Round((Get-CimInstance Win32_OperatingSystem).FreeVirtualMemory / 1MB, 1) }
 $date = Get-Date -Format 'yyyy-MM-dd'
-# Short of headroom: pause the project peers 11-12 for the run. They are
+# Short of headroom: pause the project peers 7-8 for the run. They are
 # test load, the attacknet is gate evidence. They are restarted afterwards,
 # whatever the run did.
 $paused = @()
 if ((FreeGB) -lt $minFreeCommitGB) {
     $paused = Get-CimInstance Win32_Process -Filter "Name = 'maya2c-peer.exe'" |
-        Where-Object { $_.CommandLine -match 'peer1[1-2]\\data' }
+        Where-Object { $_.CommandLine -match 'peer[78]\\data' }
     $paused | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
     if ($paused) { Start-Sleep -Seconds 5; Say "paused $($paused.Count) peers for the run" }
 }
@@ -106,7 +106,7 @@ if ($freeGB -lt $minFreeCommitGB) {
 }
 
 if ($paused) {
-    & 'D:\Maya2C-peers\start-peers.ps1' -Count 12 | Out-Null
+    & 'D:\Maya2C-peers\start-peers.ps1' -Count 8 | Out-Null
     Say "restarted the paused peers"
 }
 
