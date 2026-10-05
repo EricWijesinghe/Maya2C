@@ -13,6 +13,48 @@ const reference = JSON.parse(
 
 export default defineConfig({
   site: "https://maya2c.dev",
+  // Content-Security-Policy (incident 2026-10-06): a hijacked edge appended
+  // a ClickFix loader to every page. Astro hashes every script and style it
+  // emits, so a script added after the build has no hash and browsers refuse
+  // to run it. A meta CSP cannot stop someone who controls the edge and
+  // strips it; it stops everything else that injects into the page.
+  security: {
+    csp: {
+      // Styles cannot run code. Inline style attributes (code highlighting,
+      // the launch-status rail) need 'unsafe-inline'; scripts stay hash-only.
+      styleDirective: {
+        resources: ["'self'", "'unsafe-inline'"],
+      },
+      scriptDirective: {
+        // Pagefind (search) runs WebAssembly from /pagefind/.
+        resources: ["'self'", "'wasm-unsafe-eval'"],
+        // Starlight's own is:inline scripts (theme provider and pickers,
+        // search shortcut, sidebar restore and scroll), which Astro does not
+        // hash. Reviewed 2026-10-06 for @astrojs/starlight 0.42.5;
+        // scripts/check-csp.mjs fails the build if one changes.
+        hashes: [
+          "sha256-7eCV4jtsr4t4knb3c4FCRPeu7GGZeOUGE3XvWix0XOQ=",
+          "sha256-GkZBRnvSuhtx/cvzvukVkX2JJZW+DdPlVr7BX8Tefqo=",
+          "sha256-VWo5Wp4aqSj6nSgMpeAp9cKieaoIfwFUAunAVugI5gA=",
+          "sha256-f/zAUE74ucc3JYp4r4QQvkJofoQdkOIhHYK+jeZ6eko=",
+          "sha256-wX2yOADeV+NMngflD5uYi3vl50SHC4sfM1EmylVjlX4=",
+        ],
+      },
+      directives: [
+        "default-src 'self'",
+        // Only our own live services: RPC, explorer (and its block stream),
+        // status, faucet.
+        "connect-src 'self' https://rpc.maya2c.dev https://explorer.maya2c.dev wss://explorer.maya2c.dev https://status.maya2c.dev https://faucet.maya2c.dev",
+        "img-src 'self' data: https://img.shields.io",
+        "font-src 'self' data:",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self' https://faucet.maya2c.dev",
+        "frame-src 'none'",
+        "upgrade-insecure-requests",
+      ],
+    },
+  },
   integrations: [
     starlight({
       title: "Maya2C",
