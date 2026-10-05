@@ -39,10 +39,21 @@ git -C $run fetch -q origin
 git -C $run checkout -q --detach --force origin/master
 $commit = (git -C $run rev-parse --short HEAD).Trim()
 
-$freeGB = [math]::Round((Get-CimInstance Win32_OperatingSystem).FreeVirtualMemory / 1MB, 1)
+function FreeGB { [math]::Round((Get-CimInstance Win32_OperatingSystem).FreeVirtualMemory / 1MB, 1) }
 $date = Get-Date -Format 'yyyy-MM-dd'
+# Short of headroom: pause the project peers 11-16 for the run. They are
+# test load, the attacknet is gate evidence. They are restarted afterwards,
+# whatever the run did.
+$paused = @()
+if ((FreeGB) -lt $minFreeCommitGB) {
+    $paused = Get-CimInstance Win32_Process -Filter "Name = 'maya2c-peer.exe'" |
+        Where-Object { $_.CommandLine -match 'peer1[1-6]\\data' }
+    $paused | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+    if ($paused) { Start-Sleep -Seconds 5; Say "paused $($paused.Count) peers for the run" }
+}
+$freeGB = FreeGB
 if ($freeGB -lt $minFreeCommitGB) {
-    $body = "# Attacknet $date: SKIPPED`n`nCommit free $freeGB GB, below the $minFreeCommitGB GB needed for seven validators. Master $commit.`n"
+    $body = "# Attacknet ${date}: SKIPPED`n`nCommit free $freeGB GB, below the $minFreeCommitGB GB needed for seven validators. Master $commit.`n"
     $file = Join-Path $publish "$date-skipped.md"
     Set-Content -Path $file -Value $body
     Say "skipped: $freeGB GB commit free"
@@ -54,10 +65,22 @@ if ($freeGB -lt $minFreeCommitGB) {
     } finally { Pop-Location }
     $report = Get-ChildItem (Join-Path $run 'reports\attacknet') -Filter '*.md' |
         Sort-Object LastWriteTime | Select-Object -Last 1
-    if (-not $report) { Say "no report written (exit $code)"; exit 1 }
-    Copy-Item $report.FullName $publish -Force
-    $file = Join-Path $publish $report.Name
-    Say "ran: exit $code, report $($report.Name), master $commit"
+    if ($report) {
+        Copy-Item $report.FullName $publish -Force
+        $file = Join-Path $publish $report.Name
+        Say "ran: exit $code, report $($report.Name), master $commit"
+    } else {
+        # The harness died before writing one (a build failure, say): publish
+        # that, rather than nothing.
+        $file = Join-Path $publish "$date-noreport.md"
+        Set-Content -Path $file -Value "# Attacknet ${date}: NO REPORT`n`nExit $code on master $commit; see attacknet-daily.out on the runner.`n"
+        Say "no report written (exit $code)"
+    }
+}
+
+if ($paused) {
+    & 'D:\Maya2C-peers\start-peers.ps1' -Count 16 | Out-Null
+    Say "restarted the paused peers"
 }
 
 git -C $publish add -A
