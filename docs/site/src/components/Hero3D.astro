@@ -26,7 +26,7 @@
       <div class="tile"><dt>Height</dt><dd id="tHeight">—</dd></div>
       <div class="tile"><dt>Block time</dt><dd>1.1 s</dd></div>
       <div class="tile"><dt>Signature</dt><dd>ML-DSA-65</dd></div>
-      <div class="tile"><dt>Validators</dt><dd><span id="tValidators">—</span><span class="note">seeking 4</span></dd></div>
+      <div class="tile"><dt>Validators</dt><dd><span id="tValidators">—</span><a class="note" id="tValNote" href="/guides/validators/">project-run</a></dd></div>
     </dl>
   </div>
 </section>
@@ -85,6 +85,9 @@
       const { result } = await r.json();
       if (!result) return;
       $("tValidators")!.textContent = fmt(result.committee);
+      // Every validator today is run by the project (ADR-042): say so, and
+      // never let a bigger number read as independent operators.
+      $("tValNote")!.textContent = result.committee > 1 ? "project-run · one machine" : "project-run";
     } catch { /* gateway unreachable: tiles keep their last real values */ }
   }
   status(); setInterval(status, 3000);
@@ -304,7 +307,7 @@ void main(){
   .tile { flex: 1 1 150px; min-width: 0; padding: 16px 20px; border-radius: var(--r-m); background: var(--glass); border: 1px solid var(--glass-edge); backdrop-filter: blur(16px); }
   .tile dt { font: 500 11.5px/1 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
   .tile dd { margin: 10px 0 0; font: 300 26px/1 var(--display); font-variant-numeric: tabular-nums; color: var(--text); }
-  .tile .note { font: 500 12px var(--sans); color: var(--signal); margin-left: 8px; }
+  .tile .note { font: 500 12px var(--sans); color: var(--signal); margin-left: 8px; text-decoration: none; }
   .card-pop { position: absolute; z-index: 3; min-width: 230px; padding: 16px 18px; border-radius: var(--r-m); background: var(--pop-bg); border: 1px solid var(--glass-edge); backdrop-filter: blur(18px); box-shadow: var(--shadow); font: 400 13px/1.55 var(--mono); color: var(--muted); transition: opacity .35s var(--glide), transform .5s var(--spring); }
   .card-pop[hidden] { display: block !important; opacity: 0; transform: scale(.6); pointer-events: none; }
   .card-pop :global(b) { display: block; font: 300 22px/1.2 var(--display); color: var(--text); margin-bottom: 4px; }
