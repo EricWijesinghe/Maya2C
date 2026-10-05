@@ -10,6 +10,12 @@ updates:
     directory: "/"
     schedule: { interval: weekly, day: monday }
     open-pull-requests-limit: 5
+    # A major bump of a Rust crate changes its API and, for the crypto
+    # crates, can change behaviour: it is a reviewed migration (BACKLOG),
+    # not an automatic PR that fails to build. Security fixes still arrive.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       rust-minor-and-patch:
         update-types: [minor, patch]

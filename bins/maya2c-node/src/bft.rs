@@ -59,6 +59,8 @@ fn publish_checkpoint(driver: &BftDriver, slot: &Mutex<CheckpointBook>) {
 
 /// How often an attested follower looks for newer checkpoints (ADR-038).
 const FOLLOW_INTERVAL: Duration = Duration::from_secs(1);
+/// A builder's follow loop looks once per this many intervals: 30 s.
+const BUILDER_FOLLOW_EVERY: u32 = 30;
 /// Least time between two reports of frames lost to a full event channel.
 const DROP_REPORT_INTERVAL: Duration = Duration::from_secs(10);
 
@@ -311,12 +313,30 @@ pub(super) async fn follow_loop(
     url: String,
     chain: Arc<Mutex<Chain>>,
     genesis_committee: Arc<[VerifyingKey]>,
+    status: Arc<Mutex<custom_l1_node::rpc::types::BftStatus>>,
 ) {
     let mut ticker = tokio::time::interval(FOLLOW_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut last_error: Option<String> = None;
+    let mut idle: u32 = 0;
     loop {
         ticker.tick().await;
+        // Every second only while following. A builder derives its own
+        // blocks, and polling a peer's RPC every second regardless made each
+        // node a permanent load on its source (KNOWN_ISSUES 20); it still
+        // looks now and then, so a builder that fell behind is overtaken and
+        // rescued.
+        let following = status
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .follower;
+        if !following {
+            idle += 1;
+            if idle < BUILDER_FOLLOW_EVERY {
+                continue;
+            }
+        }
+        idle = 0;
         // Re-read each round: the loop outlives the epoch it started in, and a
         // checkpoint is only valid against its own epoch's committee.
         let current = BftDriver::staked_committee(&lock_chain(&chain));

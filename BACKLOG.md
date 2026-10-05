@@ -15,6 +15,17 @@ band; move an item to PROGRESS.md when it starts.
   frames under the load. Snapshot bootstrap lands outside the window too.
   Plan: ADR-038 (quorum-attested checkpoints, import blocks up to one with
   re-execution). Source: four-validator dry run, 2026-10-04.
+- **Gate 10: more than f validators that each need to follow.** Each was
+  down past the engine window. Followers vote but cannot attest, so the
+  builders alone never reach the n − f checkpoint quorum, and the followers
+  never import. Eric kept n − f (2026-10-05), so the fix cannot lower it.
+  Candidate: blocks commit to the ordered frontier, letting a follower
+  derive from its own tip. Design in ADR-041 (proposed); needs Eric's
+  approval, since it changes the block format. Today's recovery is a
+  snapshot restore.
+- **Major dependency bumps, migrated by hand**: hmac 0.13, rand_chacha 0.10
+  (crypto, so reviewed), and Plonky3 p3-* 0.8 (zk-stark). Dependabot skips
+  majors (dependabot.yml). Closed PRs #91–#94 show the build breaks.
 - **Gate 9: compact consensus logs within an epoch** for a chain without
   staking (epoch 0 for ever). `safety.log` keeps only rounds the engine could
   still sign; `certs.log` only rounds at or above the horizon. Rewrite then
