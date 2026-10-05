@@ -40,7 +40,7 @@ jobs:
           - { os: windows-latest, target: x86_64-pc-windows-msvc, exe: ".exe" }
           - { os: macos-14, target: aarch64-apple-darwin, exe: "" }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # RocksDB is C++ and bindgen needs libclang. .cargo/config.toml links
       # x86_64 Linux through clang + mold; the other targets use their default.
@@ -48,7 +48,7 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq clang mold
 
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master, pinned 2026-09-29
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master, pinned 2026-09-29
         with:
           toolchain: nightly-2026-07-15
           targets: ${{ matrix.target }}
@@ -85,7 +85,7 @@ jobs:
           cp LICENSE* README.md "dist/$name/" 2>/dev/null || true
           (cd dist && tar -czf "$name.tar.gz" "$name")
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: maya2c-${{ matrix.target }}
           path: dist/maya2c-${{ matrix.target }}.tar.gz
@@ -103,7 +103,7 @@ jobs:
       matrix:
         os: [windows-latest, macos-14, ubuntu-24.04]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Tauri 2 on Linux: WebKitGTK 4.1; keyring's secret-service backend
       # needs D-Bus. RocksDB (linked through the node crate) needs clang.
@@ -114,7 +114,7 @@ jobs:
           sudo apt-get install -y -qq clang mold libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev libdbus-1-dev patchelf
 
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master, pinned 2026-09-29
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master, pinned 2026-09-29
         with:
           toolchain: nightly-2026-07-15
           targets: wasm32-unknown-unknown
@@ -133,7 +133,7 @@ jobs:
         working-directory: apps/wallet-gui/src-tauri
         run: cargo tauri build
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: maya-wallet-${{ matrix.os }}
           path: |
@@ -156,7 +156,7 @@ jobs:
       matrix:
         os: [windows-latest, macos-14, ubuntu-24.04]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # WebKitGTK 4.1 for Tauri; D-Bus for keyring's secret-service backend,
       # where the chat identity seed lives; clang and mold for the repo's
@@ -168,7 +168,7 @@ jobs:
           sudo apt-get install -y -qq clang mold libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev libdbus-1-dev patchelf
 
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master, pinned 2026-09-29
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master, pinned 2026-09-29
         with:
           toolchain: nightly-2026-07-15
 
@@ -185,7 +185,7 @@ jobs:
         working-directory: apps/chat-gui/src-tauri
         run: cargo tauri build
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: maya-chat-${{ matrix.os }}
           path: |
@@ -205,8 +205,8 @@ jobs:
     steps:
       # First, for the release notes (docs/releases/<tag>.md): a checkout
       # cleans the workspace, so it must come before the artifacts.
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
