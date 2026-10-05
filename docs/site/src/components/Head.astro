@@ -1,0 +1,44 @@
+---
+// Starlight's head, plus structured data for the page itself: a breadcrumb
+// trail (Home > Guides > page) and, for every docs page, a TechArticle with
+// its own headline and description. The site-wide graph in astro.config.mjs
+// says what Maya2C is; this says what each page is, so a result can show the
+// path and the page's own summary instead of the site's.
+import Default from "@astrojs/starlight/components/Head.astro";
+
+const route = Astro.locals.starlightRoute;
+const { title, description, template } = route.entry.data;
+const site = "https://maya2c.dev";
+const url = new URL(Astro.url.pathname, site).href;
+const parts = Astro.url.pathname.split("/").filter(Boolean);
+const SECTIONS: Record<string, string> = { guides: "Guides", reference: "Reference" };
+
+const crumbs = [{ name: "Maya2C", item: `${site}/` }];
+if (parts[0] && SECTIONS[parts[0]] && parts.length > 1) {
+  crumbs.push({ name: SECTIONS[parts[0]], item: `${site}/${parts[0]}/` });
+}
+if (parts.length) crumbs.push({ name: title, item: url });
+
+const graph: object[] = [];
+if (crumbs.length > 1) {
+  graph.push({
+    "@type": "BreadcrumbList",
+    itemListElement: crumbs.map((c, i) => ({ "@type": "ListItem", position: i + 1, name: c.name, item: c.item })),
+  });
+}
+if (template !== "splash") {
+  graph.push({
+    "@type": "TechArticle",
+    headline: title,
+    ...(description ? { description } : {}),
+    url,
+    inLanguage: "en",
+    isPartOf: { "@id": `${site}/#website` },
+    publisher: { "@id": `${site}/#org` },
+  });
+}
+const ld = graph.length ? JSON.stringify({ "@context": "https://schema.org", "@graph": graph }) : null;
+---
+
+<Default />
+{ld && <script type="application/ld+json" set:html={ld} />}

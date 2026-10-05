@@ -1,5 +1,8 @@
 ---
 title: Break it
+head:
+  - tag: title
+    content: "Break It: Attack the Maya2C Testnet for Credit"
 description: Attack maya-testnet-1 and the Maya2C code. Credit for every real finding, no money promised. Rules, targets and how to report.
 ---
 

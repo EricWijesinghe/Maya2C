@@ -1,7 +1,12 @@
 ---
 title: Maya2C
-description: A post-quantum layer-1 blockchain in Rust. DAG-BFT finality, NIST post-quantum signatures, and detached apps built on one identity.
+description: Maya2C is a post-quantum layer-1 blockchain in Rust. Every transaction carries two NIST post-quantum signatures, ML-DSA and SLH-DSA. DAG-BFT finality.
 template: splash
+head:
+  # The tab and search-result title. "Maya2C | Maya2C" said nothing about
+  # what the site is to someone searching for it.
+  - tag: title
+    content: "Maya2C: Post-Quantum Layer-1 Blockchain with DAG-BFT Finality"
 ---
 
 import StackDiagram from "../../components/StackDiagram.astro";
