@@ -1,6 +1,32 @@
 # State
 
 ## Handover
+- **Done (2026-10-04/05):**
+  - Site: responsive and light-mode fix, live (#81).
+  - Status page (#75), bootstrap gateway (#76), published genesis
+    (#80, #83).
+  - ADR-040 part 2: stake-weighted genesis (#77).
+  - `cargo xtask attacknet`, with 8 rejoin and robustness bugs fixed (#85).
+  - Eric decided that checkpoints keep n − f, a >2/3 trust floor.
+  - `scripts/join-testnet.sh`; Dependabot.
+  - Release `node-v0.1.0-testnet.2` tagged.
+  - Seed redeployed from master 9917db56, with `node-config.toml` raising
+    the node RPC limit to 1000/s.
+  - 12 project peers in `D:\Maya2C-peers` (`start-peers.ps1`, process
+    name `maya2c-peer`).
+  - Report: `reports/sessions/2026-10-05-attacknet.md`.
+- **Unfinished:**
+  - Release run for testnet.2: confirm the assets, then smoke-test
+    `join-testnet.sh` in WSL against it.
+  - #79 (nightly link check): merge when green.
+  - Peer 1's public re-bootstrap: confirm it reaches the tip.
+- **Do first next session:**
+  - Check the release, then the `join-testnet.sh` smoke test.
+  - Gate 10: more than f validators that each genuinely need to follow.
+    Design followers that fetch missing blocks over p2p, cross-checked
+    against an n − f checkpoint. Write the ADR first.
+  - KNOWN_ISSUES 20: observers follow over p2p, not RPC polling.
+
 - **Done (2026-10-04 overnight):**
   - explorer.maya2c.dev live.
   - Testnet on master with ADR-038 checkpoints, `get_bft_status`, and the
