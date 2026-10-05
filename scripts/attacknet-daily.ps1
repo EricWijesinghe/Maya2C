@@ -12,7 +12,10 @@
 #
 # Pass or fail, the report is published: a failing day is the point of an
 # attacknet, not something to hide.
-$ErrorActionPreference = 'Stop'
+# 'Continue', not 'Stop': Windows PowerShell 5 turns anything a native
+# command (git, cargo) prints on stderr into a terminating error, and git
+# reports ordinary progress there. Native steps are checked by exit code.
+$ErrorActionPreference = 'Continue'
 $repo    = 'D:\Maya2C'
 $run     = 'D:\Maya2C-wt\attacknet-daily'
 $publish = 'D:\Maya2C-wt\attacknet-reports'
@@ -27,8 +30,9 @@ if (-not (Test-Path $run)) {
     git -C $repo worktree add --detach $run origin/master | Out-Null
 }
 if (-not (Test-Path $publish)) {
-    git -C $repo fetch origin attacknet-reports 2>$null
+    git -C $repo ls-remote --exit-code --heads origin attacknet-reports *> $null
     if ($LASTEXITCODE -eq 0) {
+        git -C $repo fetch -q origin attacknet-reports:attacknet-reports *> $null
         git -C $repo worktree add $publish attacknet-reports | Out-Null
     } else {
         git -C $repo worktree add --orphan -b attacknet-reports $publish | Out-Null
@@ -84,6 +88,7 @@ if ($paused) {
 }
 
 git -C $publish add -A
-git -C $publish commit -q -m "attacknet: $date (master $commit)"
-git -C $publish push -q origin attacknet-reports
+git -C $publish commit -q -m "attacknet: $date (master $commit)" *> $null
+git -C $publish push -q origin attacknet-reports *> $null
+if ($LASTEXITCODE -ne 0) { Say "push failed (exit $LASTEXITCODE)"; exit 1 }
 Say "published $(Split-Path $file -Leaf)"
