@@ -46,7 +46,7 @@ jobs:
     # the cold build finish once; warm runs take a fraction of that.
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # .cargo/config.toml links through clang + mold on Linux; a runner
       # without mold fails at the first build script.
       - name: Install mold
@@ -93,7 +93,7 @@ jobs:
       CARGO_PROFILE_DEV_DEBUG: line-tables-only
       CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # .cargo/config.toml links through clang + mold on Linux; a runner
       # without mold fails at the first build script.
@@ -154,7 +154,7 @@ jobs:
 
       - name: Upload any findings
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: offsec-findings
           path: offsec-sandbox/findings/

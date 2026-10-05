@@ -71,7 +71,7 @@ jobs:
           # Device enrollments, batches, tamper events and clone evidence.
           - iot_anchor_decode
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # .cargo/config.toml links through clang + mold on Linux; a runner
       # without mold fails at the first build script.
@@ -132,7 +132,7 @@ jobs:
       # build failure also lands here with nothing to upload.
       - name: Upload crash artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fuzz-artifacts-${{ matrix.target }}
           path: fuzz/artifacts/
@@ -145,7 +145,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # .cargo/config.toml links through clang + mold on Linux; a runner
       # without mold fails at the first build script.
@@ -188,7 +188,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # .cargo/config.toml links through clang + mold on Linux; a runner
       # without mold fails at the first build script.
@@ -266,7 +266,7 @@ jobs:
     # cancelled; a cancelled job saves no cache, so it would stay cold.
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # .cargo/config.toml links through clang + mold on Linux; a runner
       # without mold fails at the first build script.
@@ -311,7 +311,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check advisories bans licenses sources
