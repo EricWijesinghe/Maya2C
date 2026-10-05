@@ -28,9 +28,17 @@ written down rather than hidden.
 ### Gate 5 becomes "Foundation validator set"
 
 Mainnet launches with **four validators run by the project on four
-separate machines in different regions**: Eric's PC plus Oracle Cloud
-Always Free VMs. One machine, power cut or ISP outage cannot halt the
-chain (n = 4, f = 1), so the gate's *availability* aim is met.
+separate machines**: Eric's PC plus free-tier cloud VMs. Any one machine,
+power cut or ISP outage can fail without halting the chain (n = 4,
+f = 1), so the gate's *availability* aim is met.
+
+Free tiers limit how independent the machines can be. Oracle Always Free
+runs only in the account's home region; spreading its VMs over fault
+domains survives a host failure, not a region outage. Two validators in one
+region means that region going down halts the chain. The target layout is
+therefore one validator per provider where a free tier allows it (the PC,
+Oracle, and a Google Cloud e2-micro), and the runbook says which failures
+each layout survives.
 
 What it does not give is **operator independence**: one person holds all
 four keys. That is stated publicly on the site and in the genesis
