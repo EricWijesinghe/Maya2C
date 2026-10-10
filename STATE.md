@@ -1,6 +1,31 @@
 # State
 
 ## Handover
+- **Done (2026-10-11, full-PC staging + Kali):**
+  - PR #108 clippy fixed (`attacknet-controller` had 12 `unwrap()`s that the
+    CI `clippy::unwrap_used` gate denies); `f5069d97`. #108 now 0 failing,
+    3 pending.
+  - Dependabot: vitest 3→4, postcss-selector-parser override, rustls 0.23.45
+    in fuzz + wallet-gui; `f56dcb63`. SDK tests pass; site CSS byte-identical.
+  - Site: interactive mainnet-gates dial on the home page (`56f04564`),
+    sourced from `docs/mainnet-v1-plan.md`; checked at 1440/1100-light/390.
+  - Container staging net: `infra/stagenet/` runs 7 validators in 7 containers,
+    each its own IP + `tc netem` WAN link, on one PC. Verified epochs 0→5,
+    committee reshuffles and re-elects, chain survives the worst-link node
+    (120ms/1% loss) being jailed and re-elected. NOT gate 4.
+  - Kali RPC stress test (staging only): a ~4,000 req/s single-IP flood is
+    absorbed by the per-IP rate limiter (50/s, burst 100 → HTTP 429,
+    `rpc/limit.rs`), consensus unbroken. Verified in code.
+  - Report: `reports/sessions/2026-10-11-stagenet-kali.md`.
+  - Still running: the 7-container staging net in Ubuntu WSL, held by a
+    `sleep 86400` keepalive (WSL kills dockerd when its last session ends).
+    Tear down: `docker compose -f /root/stagenet/compose.yml down -v`.
+- **Do first next session:**
+  - `gh pr checks 108`; merge when green (merges approved 2026-10-04).
+  - Then rolling-deploy the #108 node build to the live testnet, v4 → v3 →
+    v2 → seed, only while the committee is 4.
+  - Gate 4 needs the Oracle VMs (Eric).
+
 - **Done (2026-10-10, recovery after the Nemotron week):**
   - The maya2c.dev alert was a false positive (Cloudflare email obfuscation). The
     watcher is fixed. Eric confirmed Cloudflare is clear.
