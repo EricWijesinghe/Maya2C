@@ -560,10 +560,9 @@ impl FaultInjector {
     async fn make_readonly(&self, target: &str) -> Result<()> {
         info!("Making data directory read-only for {}", target);
 
-        let data_dir = format!("D:\\Maya2C-attacknet-{}", target);
-
         #[cfg(windows)]
         {
+            let data_dir = format!("D:\\Maya2C-attacknet-{}", target);
             let output = Command::new("icacls")
                 .args([&data_dir, "/deny", "Everyone:(W)"])
                 .output()
@@ -571,9 +570,11 @@ impl FaultInjector {
             if !output.status.success() {
                 warn!("icacls failed: {}", String::from_utf8_lossy(&output.stderr));
             }
+            Ok(())
         }
-
-        Ok(())
+        // The lab runs on Windows (icacls); elsewhere this fault is unavailable.
+        #[cfg(not(windows))]
+        anyhow::bail!("make_readonly is only implemented on Windows (icacls)");
     }
 
     async fn corrupt_file(

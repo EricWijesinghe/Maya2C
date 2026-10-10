@@ -959,10 +959,9 @@ impl<'a> ScenarioRunner<'a> {
     async fn restore_write_access(&self, target: &str) -> Result<()> {
         info!("Restoring write access for {}", target);
 
-        let data_dir = format!("D:\\Maya2C-attacknet-{}", target);
-
         #[cfg(windows)]
         {
+            let data_dir = format!("D:\\Maya2C-attacknet-{}", target);
             let output = tokio::process::Command::new("icacls")
                 .args([&data_dir, "/grant", "Everyone:(W)"])
                 .output()
@@ -973,9 +972,11 @@ impl<'a> ScenarioRunner<'a> {
                     String::from_utf8_lossy(&output.stderr)
                 );
             }
+            Ok(())
         }
-
-        Ok(())
+        // Pairs with make_readonly, which is Windows-only (icacls).
+        #[cfg(not(windows))]
+        anyhow::bail!("restore_write_access is only implemented on Windows (icacls)");
     }
 
     async fn cleanup_disk_pressure(&self, target: &str) -> Result<()> {
