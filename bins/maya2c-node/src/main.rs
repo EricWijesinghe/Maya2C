@@ -894,22 +894,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let setup = bft::setup(committee, signer)?;
         let (mut driver, opening) = bft::open(&setup, &args.data_dir, &chain)?;
         if let Some(first) = args.catch_up_from.first() {
-            let url = match bft::pick_catch_up_source(&args.catch_up_from).await {
-                Some(url) => {
-                    bft::catch_up(&url, &chain, &mut driver).await?;
-                    url
-                }
-                None => {
+            let url = bft::catch_up_from_any(&args.catch_up_from, &chain, &mut driver)
+                .await?
+                .unwrap_or_else(|| {
                     println!("catch-up:    no source reachable; starting as an ordinary restart");
                     first.clone()
-                }
-            };
-            let url = &url;
+                });
             // Always, even for a node level with the network: if its engine
             // then fails to rejoin, imported blocks are what rescue it (the
             // driver turns follower when it is overtaken).
             tokio::spawn(bft::follow_loop(
-                url.clone(),
+                url,
                 Arc::clone(&chain),
                 Arc::clone(&setup.committee),
                 Arc::clone(&status_slot),

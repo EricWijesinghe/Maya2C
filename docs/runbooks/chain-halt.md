@@ -59,12 +59,19 @@ sets active hours on that PC. Claude does not change OS update settings.
 keeps for 8 epochs`. Or the data directory is lost.
 
 **Fix.**
-1. Check that the network's epoch (`get_bft_status` on a live peer) is
-   greater than the last epoch this validator signed in. If it is not, stop:
-   starting with an empty safety log could double-sign.
-2. Move `state`, `bft`, `snapshots` and `archive` aside. Never delete them,
+1. **Before moving anything**, write down the last epoch this validator
+   signed in: the highest `epoch-N` directory under its `bft/`. Step 2 moves
+   that directory away, and with it the only local record.
+2. Make sure the old process is dead and the key runs nowhere else. A
+   restored backup or a second instance with the same key is exactly how a
+   validator double-signs.
+3. Ask at least **two** live peers you do not control through the same
+   machine for `get_bft_status`. Both must report an epoch at least **2 above**
+   the one from step 1. One peer can lie; an equal or adjacent epoch could
+   reuse rounds this key already signed. If either check fails, stop.
+4. Move `state`, `bft`, `snapshots` and `archive` aside. Never delete them,
    and keep the validator key.
-3. Start the node with `--bootstrap-from <peer> --catch-up-from <peer>
+5. Start the node with `--bootstrap-from <peer> --catch-up-from <peer>
    --prune-depth 3600`. Pass `--catch-up-from` once per live peer; the node
    picks the one with the highest tip.
 

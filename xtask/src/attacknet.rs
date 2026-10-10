@@ -567,6 +567,10 @@ fn epoch(i: u16) -> Option<u64> {
 fn beyond_retention(net: &mut Net) -> Result<()> {
     let (_, down) = victims(1)?;
     let victim = down[0];
+    if victim == 0 {
+        // Node 0 is the one whose epoch is watched and whose snapshot is used.
+        return Err("only node 0 is seated; no other validator to take down".into());
+    }
     let from = epoch(victim).ok_or("victim silent")?;
     net.procs.kill(usize::from(victim));
     let gone = from + CHECKPOINT_EPOCHS + 1;

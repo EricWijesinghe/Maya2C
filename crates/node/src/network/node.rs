@@ -9,6 +9,7 @@
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use futures::StreamExt;
@@ -37,6 +38,17 @@ const MAX_LEARNED_ADDRESSES: usize = 8;
 
 /// Capacity of the inbound command channel.
 const COMMAND_CHANNEL_CAPACITY: usize = 64;
+
+/// Connection failures seen, by direction, for sampled logging.
+static OUTGOING_FAILURES: AtomicU64 = AtomicU64::new(0);
+static INCOMING_FAILURES: AtomicU64 = AtomicU64::new(0);
+
+/// Counts one more failure; `Some(n)` when `n` is a power of two, the counts
+/// worth a log line (1, 2, 4, 8, ...), so a flood logs O(log n) lines.
+fn sampled(counter: &AtomicU64) -> Option<u64> {
+    let n = counter.fetch_add(1, Ordering::Relaxed).saturating_add(1);
+    n.is_power_of_two().then_some(n)
+}
 
 /// How long an idle connection is kept open. Generous, because a quiet mesh
 /// should not tear down links it will immediately need again.
@@ -672,17 +684,20 @@ impl NodeDriver {
             SwarmEvent::Behaviour(event) => self.handle_behaviour_event(event),
             // Logged, not swallowed: validators started together sat with no
             // peers for good and nothing said why (genesis rehearsal,
-            // 2026-10-10). One line per failed connection; the redial task
-            // bounds how often that can be.
-            SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
-                eprintln!("p2p: dial to {peer_id:?} failed: {error}");
+            // 2026-10-10). Sampled at counts 1, 2, 4, 8, ...: anyone can open
+            // junk connections to the p2p port, so a line per failure would
+            // be a remote-triggered log flood.
+            SwarmEvent::OutgoingConnectionError { error, .. } => {
+                if let Some(n) = sampled(&OUTGOING_FAILURES) {
+                    eprintln!("p2p: outgoing connection failure #{n}: {error}");
+                }
             }
-            SwarmEvent::IncomingConnectionError {
-                send_back_addr,
-                error,
-                ..
-            } => {
-                eprintln!("p2p: incoming from {send_back_addr} failed: {error}");
+            SwarmEvent::IncomingConnectionError { send_back_addr, .. } => {
+                if let Some(n) = sampled(&INCOMING_FAILURES) {
+                    eprintln!(
+                        "p2p: incoming connection failure #{n} (latest from {send_back_addr})"
+                    );
+                }
             }
             _ => {}
         }

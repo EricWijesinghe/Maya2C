@@ -100,3 +100,14 @@ band; move an item to PROGRESS.md when it starts.
   invariant 11); Landsat second oracle sensor (requester-pays bucket).
 - MP24: lazy fork state — conflicts with invariant 24; not to be built as
   specified.
+
+- **`--min-epoch` signing floor (ADR-043 follow-up, security review 2026-10-10).**
+  A validator restarted with an empty safety log is protected only by the
+  operator runbook check (`docs/runbooks/chain-halt.md`). A node-level floor
+  that refuses to sign below a given epoch would make it mechanical.
+- **Catch-up source agreement (security review 2026-10-10).**
+  `within_engine_window` trusts one peer's tip. Require two sources to agree
+  before skipping follower mode, and rotate sources in `follow_loop`.
+- **Snapshot RPC bandwidth (security review 2026-10-10).** Batches pass the
+  per-IP limiter unmetered (`rpc/server.rs`). Meter them, and cap the
+  snapshot bytes served per client.
