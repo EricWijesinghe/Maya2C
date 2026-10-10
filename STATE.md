@@ -2,9 +2,27 @@
 
 ## Handover
 - **Done (2026-10-11, full-PC staging + Kali):**
-  - PR #108 clippy fixed (`attacknet-controller` had 12 `unwrap()`s that the
-    CI `clippy::unwrap_used` gate denies); `f5069d97`. #108 now 0 failing,
-    3 pending.
+  - **PR #108 MERGED to master** (`fd4cfac4`, all 31 checks green, branch
+    deleted). It carried the whole Nemotron recovery, ADR-043, the site dial,
+    the dep patches, and three rounds of CI fixes below. Local is on master.
+  - Getting CI green took four fixes, all from the recovery session's own code:
+    `f5069d97` attacknet-controller 12 `unwrap()`s; `54e2392a` vm/fee-market/
+    dag-bft property tests tripped the `-D warnings` clippy step (needless
+    borrow, RangeInclusive, `>= x+1`); `8ecc15f2` `data_dir` unused on
+    non-Windows (icacls behind `#[cfg(windows)]`) — caught by building for
+    `x86_64-unknown-linux-gnu` in WSL, not visible on the Windows host.
+  - **Live testnet healthy, untouched:** local seed reports epoch 116,
+    committee 4, round ~1855 advancing; 4 RPC listeners (8545 + 13030/31/32).
+  - **ACTION FOR ERIC — public RPC 404.** `rpc.maya2c.dev` and
+    `bootstrap.maya2c.dev` both return HTTP 404 (GET and POST); the chain and
+    the local seed are fine, so this is a Cloudflare tunnel / ingress routing
+    issue, not a node fault. `status.maya2c.dev` serves 200. Not touched by me;
+    needs the cloudflared tunnel config checked (Eric's domain).
+  - Site deploy running from the master merge; the mainnet-gates dial goes live
+    on maya2c.dev when it finishes.
+  - **Do NOT** blindly rolling-deploy the #108 build to the live testnet
+    unattended: the gate-3 soak is running and committee is 4. Do it with Eric
+    watching, v4 → v3 → v2 → seed, only while committee stays 4.
   - Dependabot: vitest 3→4, postcss-selector-parser override, rustls 0.23.45
     in fuzz + wallet-gui; `f56dcb63`. SDK tests pass; site CSS byte-identical.
   - Site: interactive mainnet-gates dial on the home page (`56f04564`),
