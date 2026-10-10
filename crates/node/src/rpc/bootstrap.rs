@@ -198,6 +198,19 @@ impl RpcBootstrapSource {
         })
     }
 
+    /// The peer's tip height in one attempt, without the retries of
+    /// [`Self::call`]: for choosing among catch-up sources (ADR-043), where a
+    /// peer that is down must cost one refused connection, not 92 s.
+    ///
+    /// # Errors
+    ///
+    /// [`NodeError::Network`] if the peer does not answer.
+    pub fn probe_tip_height(&self) -> Result<u64> {
+        self.runtime
+            .block_on(self.client.request("get_tip_height", rpc_params![]))
+            .map_err(|e| NodeError::Network(format!("get_tip_height: {e}")))
+    }
+
     /// One request, retried with backoff when the transport fails: a public
     /// bootstrap endpoint rate-limits per client (HTTP 429), and a joining
     /// node that gave up on the first refusal would have to start over. A

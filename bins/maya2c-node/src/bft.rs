@@ -260,6 +260,29 @@ async fn within_engine_window(url: &str, height: u64, tip: [u8; 32], nonce: u64)
     .unwrap_or(false)
 }
 
+/// Of the `--catch-up-from` sources, the reachable one with the highest tip
+/// (ADR-043). A single fixed source failed whenever it was the node that was
+/// down; none reachable means the whole set stopped together, which is an
+/// ordinary in-window restart. Ties keep the earlier source.
+pub(super) async fn pick_catch_up_source(urls: &[String]) -> Option<String> {
+    let mut best: Option<(u64, &String)> = None;
+    for url in urls {
+        let Ok(source) = RpcBootstrapSource::new(url, tokio::runtime::Handle::current()) else {
+            continue;
+        };
+        let tip = tokio::task::spawn_blocking(move || source.probe_tip_height().ok())
+            .await
+            .ok()
+            .flatten();
+        if let Some(tip) = tip
+            && best.is_none_or(|(b, _)| tip > b)
+        {
+            best = Some((tip, url));
+        }
+    }
+    best.map(|(_, url)| url.clone())
+}
+
 /// Startup catch-up for a node that was down longer than the engine's
 /// window (`--catch-up-from`): imports to the peer's checkpoint, then turns
 /// the driver into an attested follower so it votes and proposes again.
@@ -614,8 +637,47 @@ pub(super) async fn bft_loop(
 mod tests {
     #![allow(clippy::unwrap_used)]
 
-    use super::Feed;
+    use super::{Feed, pick_catch_up_source};
     use custom_l1_node::core::staking_payload::StakingAction;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// A JSON-RPC peer that answers every request with `tip` as its height.
+    async fn peer(tip: u64) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = vec![0u8; 4096];
+                let _ = socket.read(&mut buf).await;
+                let body = format!(r#"{{"jsonrpc":"2.0","id":0,"result":{tip}}}"#);
+                let reply = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = socket.write_all(reply.as_bytes()).await;
+            }
+        });
+        url
+    }
+
+    /// A URL nothing listens on.
+    async fn dead() -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        format!("http://{}", listener.local_addr().unwrap())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn catch_up_source_is_none_when_no_peer_answers() {
+        let urls = vec![dead().await, dead().await];
+        assert_eq!(pick_catch_up_source(&urls).await, None);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn catch_up_source_is_the_reachable_peer_with_the_highest_tip() {
+        let (low, high) = (peer(5).await, peer(9).await);
+        let urls = vec![dead().await, low, high.clone()];
+        assert_eq!(pick_catch_up_source(&urls).await, Some(high));
+    }
     use custom_l1_node::core::{Transaction, TxKind};
     use custom_l1_node::crypto::{PUBLIC_KEY_LEN, SIGNATURE_LENGTH};
 
