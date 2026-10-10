@@ -801,11 +801,9 @@ impl<'a> ScenarioRunner<'a> {
             }
         }
 
-        if heights.is_empty() {
+        let Some(&min_height) = heights.iter().min() else {
             return Ok(false);
-        }
-
-        let min_height = *heights.iter().min().unwrap();
+        };
 
         // Check block IDs at min_height
         for name in &validators {
@@ -947,12 +945,9 @@ impl<'a> ScenarioRunner<'a> {
                 }
             }
 
-            if all_healthy && !heights.is_empty() {
-                let min_height = *heights.iter().min().unwrap();
-                if min_height >= 3 {
-                    info!("Consensus reached at height {}", min_height);
-                    return Ok(());
-                }
+            if let Some(&min_height) = heights.iter().min().filter(|&&h| all_healthy && h >= 3) {
+                info!("Consensus reached at height {}", min_height);
+                return Ok(());
             }
 
             tokio::time::sleep(Duration::from_secs(2)).await;

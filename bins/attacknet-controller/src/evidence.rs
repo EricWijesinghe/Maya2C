@@ -176,8 +176,7 @@ impl EvidenceCollector {
         let run_id = Uuid::new_v4().to_string();
         let start_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+            .map_or(0, |d| d.as_secs());
 
         let evidence = ScenarioEvidence {
             scenario_id: scenario_id.to_string(),
@@ -246,8 +245,7 @@ impl EvidenceCollector {
 
         let end_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+            .map_or(0, |d| d.as_secs());
 
         run.end_time = Some(end_time);
         run.duration_ms = Some((end_time - run.start_time) * 1000);

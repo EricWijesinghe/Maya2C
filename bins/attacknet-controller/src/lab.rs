@@ -175,8 +175,7 @@ impl Lab {
             "chain_id": self.config.chain_id,
             "timestamp": std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+                .map_or(0, |d| d.as_secs()),
             "difficulty_bits": 0,
             "pow_limit_bits": 0,
             "allocations": [{
@@ -552,17 +551,23 @@ sinks:
         let binary = Self::find_binary(&bootnode.binary)?;
 
         let genesis_path = Path::new(&self.config.paths.genesis_dir).join("genesis.json");
+        let port = |p: Option<u16>, what: &str| {
+            p.ok_or_else(|| anyhow::anyhow!("bootnode {what} port is not configured"))
+        };
+        let rpc_port = port(bootnode.rpc_port, "rpc")?;
+        let p2p_port = port(bootnode.p2p_port, "p2p")?;
+        let metrics_port = port(bootnode.metrics_port, "metrics")?;
         let mut cmd = tokio::process::Command::new(binary);
         cmd.arg("--genesis")
             .arg(&genesis_path)
             .arg("--data-dir")
             .arg(&bootnode.data_dir)
             .arg("--rpc-addr")
-            .arg(format!("127.0.0.1:{}", bootnode.rpc_port.unwrap()))
+            .arg(format!("127.0.0.1:{rpc_port}"))
             .arg("--p2p-port")
-            .arg(bootnode.p2p_port.unwrap().to_string())
+            .arg(p2p_port.to_string())
             .arg("--metrics-addr")
-            .arg(format!("127.0.0.1:{}", bootnode.metrics_port.unwrap()));
+            .arg(format!("127.0.0.1:{metrics_port}"));
 
         let log_file = File::options()
             .create(true)
@@ -650,7 +655,7 @@ sinks:
             .output()
             .await;
 
-        if output.is_err() || !output.unwrap().status.success() {
+        if !output.is_ok_and(|o| o.status.success()) {
             warn!("Docker not available in WSL2, skipping monitoring stack");
             return Ok(());
         }
@@ -711,12 +716,9 @@ sinks:
                 }
             }
 
-            if all_healthy && !heights.is_empty() {
-                let min_height = *heights.iter().min().unwrap();
-                if min_height >= 3 {
-                    info!("Consensus reached at height {}", min_height);
-                    return Ok(());
-                }
+            if let Some(&min_height) = heights.iter().min().filter(|&&h| all_healthy && h >= 3) {
+                info!("Consensus reached at height {}", min_height);
+                return Ok(());
             }
 
             tokio::time::sleep(Duration::from_secs(2)).await;
@@ -801,7 +803,7 @@ sinks:
         println!("\nInfrastructure:");
         let mut processes = self.infrastructure_processes.lock().await;
         for (name, child) in processes.iter_mut() {
-            let running = child.try_wait().unwrap().is_none();
+            let running = matches!(child.try_wait(), Ok(None));
             println!(
                 "  {}: {}",
                 name,
