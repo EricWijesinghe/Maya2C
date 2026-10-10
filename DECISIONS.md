@@ -200,3 +200,15 @@ and the tests now pin that.
 
 Why: tightening `validate` changes which deploys are valid. That is a
 consensus change, and it would need an activation height.
+
+## 2026-10-04 (recorded 2026-10-10): gate 6 economics is fees-only at launch
+
+Eric delegated the economics to Claude on 2026-10-04. The choice: no
+emission. Validators earn tips, and the base fee is burned (ADR-029). A reward
+schedule can be added only through a reviewed upgrade.
+
+Why: with nothing minted, nothing is created that an unaudited bug could
+inflate. It is also the simplest model to explain to a first investor.
+
+This was decided in conversation and never written down here, so the gate
+table showed it as open until today.
