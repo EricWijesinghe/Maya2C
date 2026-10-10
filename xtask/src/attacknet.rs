@@ -17,6 +17,11 @@
 //! 6. **long outage** — one validator down for longer than the engine keeps
 //!    rounds, then restarted with `--catch-up-from`; it must rejoin.
 //!
+//! 7. **beyond retention** (`--beyond-retention`, once after the rounds) —
+//!    one validator down until the network is past the epochs whose
+//!    checkpoints peers keep, then brought back the ADR-043 way: its chain
+//!    data moved aside, bootstrapped from a peer's snapshot, caught up.
+//!
 //! `--rounds N` repeats the whole sequence; `--weighted` runs a
 //! stake-weighted genesis (ADR-040). Results go to stdout and to
 //! `reports/attacknet/<date>.md`.
@@ -55,6 +60,14 @@ const HALT_WATCH: Duration = Duration::from_secs(20);
 /// attested catch-up rather than gossip (ADR-038).
 const LONG_OUTAGE: Duration = Duration::from_secs(45);
 const FLOOD_FOR: Duration = Duration::from_secs(15);
+/// Epochs of checkpoints a node keeps (the node's own retention, ADR-038);
+/// attack 7 waits until the network is one past it.
+const CHECKPOINT_EPOCHS: u64 = 8;
+/// Snapshot interval and serving depth for every node, so attack 7 has a
+/// snapshot to bootstrap from. Short: an epoch here is 60 blocks.
+const SNAPSHOT_BLOCKS: u64 = 20;
+/// How long attack 7 may wait for the network to outrun the retention.
+const RETENTION_WAIT: Duration = Duration::from_secs(45 * 60);
 const GARBAGE_CONNECTIONS: usize = 200;
 
 fn rpc_addr(i: u16) -> String {
@@ -115,16 +128,48 @@ fn no_fork(nodes: &[u16]) -> Result<u64> {
         .filter_map(|i| height(*i))
         .min()
         .ok_or("no node answers")?;
+    // A node bootstrapped from a snapshot (attack 7) holds no blocks below it;
+    // it is held to every height it does serve.
+    let first: Vec<u64> = nodes
+        .iter()
+        .map(|i| first_served(*i, low))
+        .collect::<Result<_>>()?;
     for h in 1..=low {
         let ids = nodes
             .iter()
-            .map(|i| block_id_patiently(*i, h).ok_or(format!("node {i} does not serve height {h}")))
+            .zip(&first)
+            .filter(|(_, from)| **from <= h)
+            .map(|(i, _)| {
+                block_id_patiently(*i, h).ok_or(format!("node {i} does not serve height {h}"))
+            })
             .collect::<Result<Vec<String>>>()?;
         if ids.iter().any(|id| *id != ids[0]) {
             return Err(format!("FORK at height {h}: {ids:?}"));
         }
     }
     Ok(low)
+}
+
+/// The lowest height in `1..=low` node `i` serves: 1 for a full-history node,
+/// the snapshot base for one bootstrapped from a snapshot. An error if it
+/// does not serve even `low`.
+fn first_served(i: u16, low: u64) -> Result<u64> {
+    if block_id_patiently(i, 1).is_some() {
+        return Ok(1);
+    }
+    if block_id_patiently(i, low).is_none() {
+        return Err(format!("node {i} does not serve height {low}"));
+    }
+    let (mut missing, mut served) = (1, low);
+    while served - missing > 1 {
+        let mid = missing + (served - missing) / 2;
+        if block_id_patiently(i, mid).is_some() {
+            served = mid;
+        } else {
+            missing = mid;
+        }
+    }
+    Ok(served)
 }
 
 /// `block_id`, retried: a node's RPC rate limit (50 a second) refuses a
@@ -170,11 +215,18 @@ impl Net {
     }
 
     fn start(&self, i: u16, catch_up: Option<u16>) -> Result<Child> {
-        start_node(&self.work, i, catch_up)
+        start_node(&self.work, i, catch_up, false)
     }
 
     fn restart(&mut self, i: u16, catch_up: Option<u16>) -> Result<()> {
         let child = self.start(i, catch_up)?;
+        self.procs.replace(usize::from(i), child);
+        Ok(())
+    }
+
+    /// Restarts `i` from a peer's snapshot (ADR-043 decision 3).
+    fn rebootstrap(&mut self, i: u16, from: u16) -> Result<()> {
+        let child = start_node(&self.work, i, Some(from), true)?;
         self.procs.replace(usize::from(i), child);
         Ok(())
     }
@@ -225,7 +277,7 @@ fn setup(work: &Path, weighted: bool) -> Result<()> {
         .map_err(|e| format!("writing genesis: {e}"))
 }
 
-fn start_node(work: &Path, i: u16, catch_up: Option<u16>) -> Result<Child> {
+fn start_node(work: &Path, i: u16, catch_up: Option<u16>, bootstrap: bool) -> Result<Child> {
     let dir = work.join(format!("v{i}"));
     let log = std::fs::OpenOptions::new()
         .create(true)
@@ -244,7 +296,13 @@ fn start_node(work: &Path, i: u16, catch_up: Option<u16>) -> Result<Child> {
             &(P2P_BASE + i).to_string(),
         ])
         .arg("--validator-key")
-        .arg(dir.join("validator.key"));
+        .arg(dir.join("validator.key"))
+        .args([
+            "--snapshot-interval",
+            &SNAPSHOT_BLOCKS.to_string(),
+            "--snapshot-depth",
+            &SNAPSHOT_BLOCKS.to_string(),
+        ]);
     for peer in (0..VALIDATORS).filter(|p| *p != i) {
         cmd.args([
             "--bootnode",
@@ -252,7 +310,12 @@ fn start_node(work: &Path, i: u16, catch_up: Option<u16>) -> Result<Child> {
         ]);
     }
     if let Some(from) = catch_up {
-        cmd.args(["--catch-up-from", &format!("http://{}", rpc_addr(from))]);
+        let url = format!("http://{}", rpc_addr(from));
+        if bootstrap {
+            let depth = SNAPSHOT_BLOCKS.to_string();
+            cmd.args(["--bootstrap-from", &url, "--prune-depth", &depth]);
+        }
+        cmd.args(["--catch-up-from", &url]);
     }
     cmd.stdout(log.try_clone().map_err(|e| e.to_string())?)
         .stderr(log)
@@ -493,6 +556,50 @@ fn long_outage(net: &mut Net) -> Result<()> {
     Ok(())
 }
 
+fn epoch(i: u16) -> Option<u64> {
+    rpc(i, "get_bft_status", &json!([])).ok()?["epoch"].as_u64()
+}
+
+/// Attack 7 (ADR-043): an outage past checkpoint retention. A plain
+/// `--catch-up-from` cannot bring the node back (its epoch's checkpoint is
+/// gone); the way back is its chain data moved aside, a bootstrap from a
+/// peer's snapshot, then attested catch-up. The validator key stays.
+fn beyond_retention(net: &mut Net) -> Result<()> {
+    let (_, down) = victims(1)?;
+    let victim = down[0];
+    let from = epoch(victim).ok_or("victim silent")?;
+    net.procs.kill(usize::from(victim));
+    let gone = from + CHECKPOINT_EPOCHS + 1;
+    let started = Instant::now();
+    while epoch(0).is_none_or(|e| e < gone) {
+        if started.elapsed() > RETENTION_WAIT {
+            return Err(format!(
+                "network did not reach epoch {gone} within {RETENTION_WAIT:?}"
+            ));
+        }
+        std::thread::sleep(Duration::from_secs(5));
+    }
+    let dir = net.work.join(format!("v{victim}"));
+    let aside = dir.join("aside");
+    std::fs::create_dir_all(&aside).map_err(|e| format!("{}: {e}", aside.display()))?;
+    for sub in ["state", "bft", "snapshots", "archive"] {
+        let path = dir.join(sub);
+        if path.exists() {
+            std::fs::rename(&path, aside.join(sub))
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+        }
+    }
+    net.rebootstrap(victim, 0)?;
+    let all = Net::honest(&[]);
+    let target = height(0).ok_or("node 0 silent")?;
+    let t = wait_until("rejoin from a snapshot", || agree(&all, target))?;
+    net.say(format!(
+        "beyond retention: validator {victim} down from epoch {from} to {gone} ({:.0?}), back from a snapshot at {target} in {t:.1?}",
+        started.elapsed()
+    ));
+    Ok(())
+}
+
 fn round(net: &mut Net, n: usize) -> Result<()> {
     net.say(format!("--- round {n} ---"));
     crash_f(net)?;
@@ -543,6 +650,7 @@ fn write_report(net: &Net, weighted: bool, outcome: &Result<()>) -> Result<PathB
 /// The first attack whose guarantee did not hold, with logs left in place.
 pub fn attacknet(args: &[String]) -> Result<()> {
     let weighted = args.iter().any(|a| a == "--weighted");
+    let retention = args.iter().any(|a| a == "--beyond-retention");
     let rounds = args
         .iter()
         .position(|a| a == "--rounds")
@@ -572,7 +680,17 @@ pub fn attacknet(args: &[String]) -> Result<()> {
                 "{VALIDATORS} validators on one chain {t:.1?} after start"
             ));
         })
-        .and_then(|()| (1..=rounds).try_for_each(|n| round(&mut net, n)));
+        .and_then(|()| (1..=rounds).try_for_each(|n| round(&mut net, n)))
+        .and_then(|()| {
+            if retention {
+                beyond_retention(&mut net)?;
+                let h = no_fork(&Net::honest(&[]))?;
+                net.say(format!(
+                    "beyond retention: no fork anywhere through height {h}"
+                ));
+            }
+            Ok(())
+        });
     // A report that cannot be written must not hide the attacks' result.
     match write_report(&net, weighted, &outcome) {
         Ok(report) => println!("attacknet: report {}", report.display()),

@@ -1,7 +1,7 @@
 # ADR-043: A way back after any outage, not only a short one
 
-**Status:** Proposed (2026-10-10). Operational half applied on maya-testnet-1;
-code half open. Mainnet launch gates 8 and 10 (`docs/mainnet-v1-plan.md`).
+**Status:** Accepted (2026-10-10). Applied on maya-testnet-1 and in code;
+attacknet attack 7 passes. Mainnet launch gates 8 and 10 (`docs/mainnet-v1-plan.md`).
 **Date:** 2026-10-10
 
 ## Context
@@ -52,8 +52,13 @@ for a long holiday, a dead disk, or a new operator joining late meets it.
      dead peer costs ~2 s, not the 92 s retry budget), takes the reachable one
      with the highest tip, and starts as an ordinary restart when none answers
      (`bft::pick_catch_up_source`, two tests);
-   - an attacknet round "validator down > 8 epochs" that exercises decision 3
-     end to end with real binaries.
+   - **done (2026-10-10):** `cargo xtask attacknet --beyond-retention`
+     (attack 7) exercises decision 3 end to end with real binaries:
+     `validator 5 down from epoch 1 to 10 (591s), back from a snapshot at 604
+     in 527.6ms`; no fork through 604 (`reports/attacknet/2026-10-10-6.md`).
+     The earlier run (`-5.md`) rejoined too, but failed the harness's no-fork
+     walk, which expected every node to hold height 1; it now checks a
+     bootstrapped node from the first height it serves.
 
 ## Not chosen
 
