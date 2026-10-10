@@ -43,9 +43,10 @@ for a long holiday, a dead disk, or a new operator joining late meets it.
    signed round is epochs older than any round it can sign again; the runbook
    must check that the network's epoch is greater than the node's last one.
 4. **Code, still open:**
-   - snapshot serving on by default for any node started with
-     `--validator-key`, so a validator cannot be configured into decision 1's
-     failure;
+   - **done (2026-10-10):** a node that signs (`--validator-key` or
+     `--remote-signer`) snapshots every 3600 blocks unless
+     `--snapshot-interval` says otherwise; `0` turns it off
+     (`pruning::snapshot_interval`, two tests);
    - **done (2026-10-10):** `--catch-up-from` is repeatable; the node probes
      each source once (`RpcBootstrapSource::probe_tip_height`, no retry: a
      dead peer costs ~2 s, not the 92 s retry budget), takes the reachable one
