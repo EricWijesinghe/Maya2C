@@ -91,8 +91,8 @@ proptest! {
         let result = config.validate();
 
         let valid_treasury = treasury_bps <= MAX_TREASURY_BPS;
-        let valid_target = target_block_bytes >= MIN_TARGET_BLOCK_BYTES && target_block_bytes <= MAX_TARGET_BLOCK_BYTES;
-        let valid_denom = change_denominator >= MIN_CHANGE_DENOMINATOR && change_denominator <= MAX_CHANGE_DENOMINATOR;
+        let valid_target = (MIN_TARGET_BLOCK_BYTES..=MAX_TARGET_BLOCK_BYTES).contains(&target_block_bytes);
+        let valid_denom = (MIN_CHANGE_DENOMINATOR..=MAX_CHANGE_DENOMINATOR).contains(&change_denominator);
         let valid_initial = initial_base_fee >= min_base_fee;
 
         if valid_treasury && valid_target && valid_denom && valid_initial {
