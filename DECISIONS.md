@@ -171,3 +171,32 @@ Eric chose all three recommended options:
 Why: investor money arrives only after three months of mainnet, so every
 gate waiting on people or money would have blocked the thing that pays for
 them. Each gap is written on the site, never relabelled away.
+
+## 2026-10-10: Nemotron-week work kept only where evidence backs it
+
+Eric used another model for a week while Claude was out of quota. Kept: the
+lint fixes and the property tests, once corrected. Not kept:
+- the lab PowerShell scripts, none of which parsed (quarantined outside the
+  repo);
+- `compact_epoch_logs`, an unwired rewrite of the anti-equivocation log that
+  drops undecodable records.
+The controller's unimplemented faults now fail instead of reporting PASS.
+
+Why: a PASS with no fault behind it is worse than no test (Standing Order 1).
+
+## 2026-10-10: validators serve snapshots; catch-up picks a live source (ADR-043)
+
+The live seed, 13 epochs behind, had no way back. Validators now snapshot by
+default, and `--catch-up-from` is repeatable.
+
+Why: checkpoints alone cannot bring back a node beyond the 8-epoch retention.
+Validators prune blocks, so a snapshot is the only thing that can.
+
+## 2026-10-10: `Vm::validate` stays compile + imports
+
+The new tests expected `validate` to reject a missing `invoke` or `memory`
+export and more than 256 pages. It does not; `execute` refuses all of these,
+and the tests now pin that.
+
+Why: tightening `validate` changes which deploys are valid. That is a
+consensus change, and it would need an activation height.
