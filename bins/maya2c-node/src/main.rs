@@ -179,7 +179,7 @@ struct Args {
     bootstrap_from: Option<String>,
     /// DAG-BFT: catch up through this peer's attested checkpoint and follow
     /// attested blocks (ADR-038), for a node that was down too long to rejoin.
-    catch_up_from: Option<String>,
+    catch_up_from: Vec<String>,
     /// DAG-BFT: never propose a validator registration bonding less than
     /// this (ADR-039 option 3). Node policy, not consensus; 0 is off.
     min_register_bond: u64,
@@ -237,7 +237,7 @@ impl Default for Args {
             arweave_gateway: None,
             snapshot_interval: None,
             bootstrap_from: None,
-            catch_up_from: None,
+            catch_up_from: Vec::new(),
             min_register_bond: 0,
             validator_key: None,
             remote_signer: None,
@@ -280,7 +280,8 @@ fn print_usage() {
          --min-register-bond <N>  DAG-BFT: never propose a validator registration\n                           \
          bonding less than N (ADR-039); default 0, off\n  \
          --catch-up-from <URL>    DAG-BFT: rejoin after a long outage through a peer's\n                           \
-         attested checkpoint, then follow attested blocks (ADR-038)\n  \
+         attested checkpoint, then follow attested blocks (ADR-038);\n                           \
+         repeatable: the reachable peer with the highest tip is used (ADR-043)\n  \
          --validator-key <PATH>  DAG-BFT validator key; without it the node observes\n  \
          --generate-validator-key <PATH>  write a new validator key, print its public key\n  \
          --remote-signer <ADDR>  sign through maya2c-signer, not a key file (ADR-033)\n  \
@@ -340,7 +341,7 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--arweave-gateway" => args.arweave_gateway = Some(value()?),
             "--snapshot-interval" => args.snapshot_interval = Some(value()?.parse()?),
             "--bootstrap-from" => args.bootstrap_from = Some(value()?),
-            "--catch-up-from" => args.catch_up_from = Some(value()?),
+            "--catch-up-from" => args.catch_up_from.push(value()?),
             "--min-register-bond" => args.min_register_bond = value()?.parse()?,
             "--validator-key" => args.validator_key = Some(PathBuf::from(value()?)),
             "--remote-signer" => args.remote_signer = Some(value()?.parse()?),
@@ -891,8 +892,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
         };
         let setup = bft::setup(committee, signer)?;
         let (mut driver, opening) = bft::open(&setup, &args.data_dir, &chain)?;
-        if let Some(url) = &args.catch_up_from {
-            bft::catch_up(url, &chain, &mut driver).await?;
+        if let Some(first) = args.catch_up_from.first() {
+            let url = match bft::pick_catch_up_source(&args.catch_up_from).await {
+                Some(url) => {
+                    bft::catch_up(&url, &chain, &mut driver).await?;
+                    url
+                }
+                None => {
+                    println!("catch-up:    no source reachable; starting as an ordinary restart");
+                    first.clone()
+                }
+            };
+            let url = &url;
             // Always, even for a node level with the network: if its engine
             // then fails to rejoin, imported blocks are what rescue it (the
             // driver turns follower when it is overtaken).

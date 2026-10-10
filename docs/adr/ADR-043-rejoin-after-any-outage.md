@@ -46,9 +46,11 @@ for a long holiday, a dead disk, or a new operator joining late meets it.
    - snapshot serving on by default for any node started with
      `--validator-key`, so a validator cannot be configured into decision 1's
      failure;
-   - `maya2c-node` and the release node config accept several
-     `--catch-up-from` sources and try them in order, so the choice in
-     decision 2 is not a PowerShell-only feature;
+   - **done (2026-10-10):** `--catch-up-from` is repeatable; the node probes
+     each source once (`RpcBootstrapSource::probe_tip_height`, no retry: a
+     dead peer costs ~2 s, not the 92 s retry budget), takes the reachable one
+     with the highest tip, and starts as an ordinary restart when none answers
+     (`bft::pick_catch_up_source`, two tests);
    - an attacknet round "validator down > 8 epochs" that exercises decision 3
      end to end with real binaries.
 
