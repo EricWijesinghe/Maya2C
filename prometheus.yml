@@ -1,0 +1,33 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'validators'
+    static_configs:
+      - targets:
+        - 'host.docker.internal:35300'
+        - 'host.docker.internal:35301'
+        - 'host.docker.internal:35302'
+        - 'host.docker.internal:35303'
+        labels:
+          group: 'validators'
+
+  - job_name: 'infrastructure'
+    static_configs:
+      - targets:
+        - 'host.docker.internal:35310'
+        - 'host.docker.internal:35311'
+        - 'host.docker.internal:34310'
+        - 'host.docker.internal:33310'
+        - 'host.docker.internal:33320'
+        labels:
+          group: 'infrastructure'
+
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['host.docker.internal:35313']
