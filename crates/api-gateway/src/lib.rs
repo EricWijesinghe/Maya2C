@@ -1,4 +1,4 @@
-//! REST and GraphQL gateway in front of a Maya2C node.
+//! REST and GraphQL gateway in front of a `Maya2C` node.
 //!
 //! # What this is for
 //!
@@ -15,7 +15,7 @@
 //! # It talks to a node over the network
 //!
 //! Not through `StateDB`. The gateway is a JSON-RPC client, so it can run on a
-//! different host from the node it serves, and RocksDB's C++ stays out of the
+//! different host from the node it serves, and `RocksDB`'s C++ stays out of the
 //! process that terminates untrusted HTTP. That is the same shape `explorer`
 //! uses.
 //!

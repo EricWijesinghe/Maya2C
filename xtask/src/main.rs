@@ -122,7 +122,7 @@ cargo xtask <command>
                         not exist.
   pgo                   Measure profile-guided optimisation on bft_tps:
                         baseline vs PGO build, medians of --runs runs.
-  attacknet [--rounds N] [--weighted]  Seven validators as processes, attacked:
+  attacknet [--rounds N] [--weighted] [--beyond-retention]  Seven validators as processes, attacked:
                             crashes, a stolen key, wire garbage, RPC floods,
                             a long outage; checks no fork and recovery
   localnet [--remote-signer]  Four maya2c-node validators as processes over

@@ -27,7 +27,7 @@ use crate::error::GatewayError;
 ///
 /// # Where the number comes from
 ///
-/// A Maya2C transaction carries a hybrid signature pair of 11,165 bytes before
+/// A `Maya2C` transaction carries a hybrid signature pair of 11,165 bytes before
 /// any payload, and the threshold encryption adds its own header. 64 KiB leaves
 /// room for a transaction several times larger than any the chain currently
 /// produces, while keeping a single request's allocation bounded by something
@@ -68,8 +68,7 @@ pub fn validate(submission: &SealedSubmission) -> Result<Vec<u8>, GatewayError> 
     // the ceiling on the string is twice the ceiling on the payload.
     if hex_len > MAX_SEALED_PAYLOAD_BYTES * 2 {
         return Err(GatewayError::PayloadTooLarge(format!(
-            "sealed payload of {} hex characters exceeds the {} byte ceiling",
-            hex_len, MAX_SEALED_PAYLOAD_BYTES
+            "sealed payload of {hex_len} hex characters exceeds the {MAX_SEALED_PAYLOAD_BYTES} byte ceiling"
         )));
     }
 

@@ -15,7 +15,7 @@
 //! ASICs shipped in April 2018 at roughly 2–2.5× the efficiency of contemporary
 //! GPUs. The mechanism is structural. When an algorithm is bound by commodity
 //! DRAM bandwidth, an ASIC buys the *same* commodity DRAM and then deletes the
-//! display engine, the shader array, the PCIe complex and the driver stack.
+//! display engine, the shader array, the `PCIe` complex and the driver stack.
 //!
 //! What a DAG does buy is a **ceiling on that advantage**. A SHA-256 ASIC beats
 //! a CPU by roughly four orders of magnitude because the work is pure
@@ -80,7 +80,7 @@ pub const MIX_WORDS: usize = MIX_BYTES / 4;
 /// At `TARGET_BLOCK_TIME` of 15 seconds this is 450,000 seconds, or 5.21 days.
 pub const EPOCH_LENGTH: u64 = 30_000;
 
-/// First height whose proof of work is the DAG rather than ArgonBlake.
+/// First height whose proof of work is the DAG rather than `ArgonBlake`.
 ///
 /// The switch is a hard fork: a block at or above this height is checked with
 /// [`hashimoto`] against the epoch's cache, and one below it with
@@ -89,7 +89,7 @@ pub const EPOCH_LENGTH: u64 = 30_000;
 ///
 /// Placed on an epoch boundary — the start of epoch 1 — so that the first DAG
 /// block is also the first block of a fresh dataset, and no epoch is ever half
-/// ArgonBlake and half DAG. Miners get the whole of epoch 0, five days, to
+/// `ArgonBlake` and half DAG. Miners get the whole of epoch 0, five days, to
 /// build the dataset before it is worth anything.
 pub const DAG_ACTIVATION_HEIGHT: u64 = EPOCH_LENGTH;
 

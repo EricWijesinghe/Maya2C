@@ -15,7 +15,7 @@
 //! m:batch               u64                  next batch id
 //! ```
 //!
-//! Sequences and batch ids are stored **big-endian** so RocksDB's byte order is
+//! Sequences and batch ids are stored **big-endian** so `RocksDB`'s byte order is
 //! numeric order. With little-endian keys, share 256 would sort before share 2
 //! and every window walk would read the wrong shares — silently, and in a way
 //! that only shows up as miners being paid the wrong amounts.
@@ -64,14 +64,14 @@ const NEXT_SEQUENCE: &[u8] = b"m:sequence";
 /// Counter holding the next batch id.
 const NEXT_BATCH: &[u8] = b"m:batch";
 
-/// A ledger backed by RocksDB.
+/// A ledger backed by `RocksDB`.
 #[derive(Debug)]
 pub struct RocksLedger {
     /// The open database.
     db: DB,
     /// Serialises the read-modify-write on the two counters.
     ///
-    /// RocksDB gives atomic *writes*, not atomic read-modify-write, and
+    /// `RocksDB` gives atomic *writes*, not atomic read-modify-write, and
     /// [`RocksLedger::bump`] is both. Without this lock two validator threads
     /// accepting shares at the same moment can read the same sequence, and the
     /// second `put` overwrites the first miner's share record with the second

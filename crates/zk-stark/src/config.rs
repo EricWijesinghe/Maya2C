@@ -1,6 +1,6 @@
 //! The one STARK configuration — ADR-008.
 //!
-//! - **PCS:** FRI over BabyBear with the *hiding* variant, so proofs reveal
+//! - **PCS:** FRI over `BabyBear` with the *hiding* variant, so proofs reveal
 //!   nothing about the witness beyond the public values.
 //! - **Commitments and transcript:** `Keccak-f[1600]`. The outer layer of the
 //!   proof rests on the hash with the longest cryptanalysis record; Poseidon2

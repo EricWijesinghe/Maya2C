@@ -1,7 +1,7 @@
 //! Range proof: a committed value is below `2^bits`.
 //!
 //! The value is split into two 30-bit limbs so every limb, and every sum the
-//! constraints form, stays below the BabyBear modulus (`p ≈ 2^31`) — there is
+//! constraints form, stays below the `BabyBear` modulus (`p ≈ 2^31`) — there is
 //! no wraparound for a prover to hide an out-of-range value in. The
 //! commitment is `C = P(lo, hi, 0, 0, 0, 0, 0, 0 ‖ r)[..8]` with an 8-element
 //! blinding `r`, so the proof reveals `C` and nothing else about the value.

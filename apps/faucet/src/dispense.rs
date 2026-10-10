@@ -3,7 +3,7 @@
 //! # Why this is a trait
 //!
 //! So the HTTP layer and the load test can run without a chain. A test that
-//! needed RocksDB, a genesis file, and a funded account in order to check that
+//! needed `RocksDB`, a genesis file, and a funded account in order to check that
 //! the second request from an IP gets a 429 is a test nobody runs — the same
 //! reasoning behind `api-gateway`'s `NodeClient`.
 //!

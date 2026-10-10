@@ -150,7 +150,7 @@ pub fn split(window: &WindowSlice, reward: u64) -> Result<Vec<PayoutEntry>> {
     let mut spare = reward.saturating_sub(distributed);
     if spare > 0 {
         floors.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.0.cmp(&b.0)));
-        for slot in floors.iter_mut() {
+        for slot in &mut floors {
             if spare == 0 {
                 break;
             }

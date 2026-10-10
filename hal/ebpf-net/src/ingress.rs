@@ -1,7 +1,7 @@
 //! Starting the kernel receive path.
 //!
 //! [`XdpIngress::start`] loads the XDP program, attaches it to an interface,
-//! binds one AF_XDP socket per receive queue, and runs one worker thread per
+//! binds one `AF_XDP` socket per receive queue, and runs one worker thread per
 //! socket feeding a [`crate::RelayReceiver`]. The same signatures exist on every
 //! platform; off Linux, or without the `xdp` feature, `start` validates the
 //! configuration and returns [`RelayError::Unsupported`]. A node therefore
@@ -28,7 +28,7 @@ pub enum AttachMode {
     DriverOrGeneric,
 }
 
-/// Whether AF_XDP sockets share frames with the driver.
+/// Whether `AF_XDP` sockets share frames with the driver.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ZeroCopy {
     /// Fail to start unless every queue binds zero-copy.

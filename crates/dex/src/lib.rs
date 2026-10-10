@@ -7,7 +7,7 @@
 //! decides how much value moves, and a rounding error in one of them is a mint
 //! or a burn rather than a cosmetic defect. That is the class of code worth
 //! proving, and the [Kani Rust Verifier] compiles a crate *together with its
-//! whole dependency graph* — which rules out anything that reaches RocksDB's
+//! whole dependency graph* — which rules out anything that reaches `RocksDB`'s
 //! C++ or the `ark-*` stack.
 //!
 //! So this crate has no dependencies, and the node calls into it rather than

@@ -1,8 +1,8 @@
-//! Turning a reconstructed vault secret into a Maya2C signing key.
+//! Turning a reconstructed vault secret into a `Maya2C` signing key.
 //!
 //! # The fact that makes threshold custody of this chain tractable at all
 //!
-//! A whole Maya2C identity is **32 bytes**. `crypto::hybrid::signing_key_from_seed`
+//! A whole `Maya2C` identity is **32 bytes**. `crypto::hybrid::signing_key_from_seed`
 //! (`src/crypto/hybrid.rs:469`) takes one 32-byte chain key and derives *both*
 //! halves of the hybrid pair from it, through two domain-separated BLAKE3
 //! seeds. So a scheme that protects 32 bytes protects the ML-DSA-65 half and
@@ -16,7 +16,7 @@
 //!
 //! `ADDRESS_DOMAIN`, `LATTICE_SEED_DOMAIN`, `HASH_SEED_DOMAIN` and the
 //! deterministic signing seed all come from `src/crypto/`. Importing them would
-//! mean depending on `custom-l1-node`, which pulls RocksDB into a library that
+//! mean depending on `custom-l1-node`, which pulls `RocksDB` into a library that
 //! is meant to run inside an HSM boundary and link nothing it does not need.
 //!
 //! This is the same arrangement `sdk-wasm` has, for the same reason, and it
@@ -40,7 +40,7 @@ pub const HYBRID_PUBLIC_KEY_LEN: usize = 1952 + 32;
 /// Encoded length of a hybrid signature: ML-DSA-65 then SLH-DSA.
 pub const HYBRID_SIGNATURE_LEN: usize = 3309 + 7856;
 
-/// Length of a Maya2C address.
+/// Length of a `Maya2C` address.
 pub const ADDRESS_LEN: usize = 32;
 
 /// Domain separator for address derivation, from `src/crypto/hybrid.rs:111`.
@@ -69,7 +69,7 @@ const CHAIN_KEY_DOMAIN: &[u8] = b"maya2c.custody-mpc.vault-chain-key.v1";
 /// The all-zero `rnd` input selecting FIPS 204's deterministic signing variant,
 /// from `src/crypto/keys.rs:90`.
 ///
-/// Load-bearing, not a default: a Maya2C transaction id hashes its own
+/// Load-bearing, not a default: a `Maya2C` transaction id hashes its own
 /// signature, so a hedged signature would give one transaction two identities.
 const DETERMINISTIC_SEED: [u8; 32] = [0u8; 32];
 

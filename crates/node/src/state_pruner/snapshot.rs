@@ -16,7 +16,7 @@
 //! the server was consistent. The snapshot is then imported, the state root
 //! recomputed, and the result required to equal `header(H).state_root`. That
 //! header's proof of work was checked in step 1, and its state root is checked
-//! by every full node since the tx_root fix. A server that lies about one
+//! by every full node since the `tx_root` fix. A server that lies about one
 //! balance, drops one nullifier or changes one contract slot produces a
 //! different root, and the import is refused and wiped. The root covers every
 //! committed prefix (see `state::commitments`), and a key under any other
@@ -28,7 +28,7 @@
 //!
 //! # Snapshots at rest
 //!
-//! [`Snapshots::take`] makes a RocksDB checkpoint (hard links, cheap) at the
+//! [`Snapshots::take`] makes a `RocksDB` checkpoint (hard links, cheap) at the
 //! current tip. [`Snapshots::serveable`] serves the newest one at least K deep,
 //! so what a new node adopts is below the depth a pruned node treats as final.
 
@@ -361,7 +361,7 @@ fn bootstrap_into(
     Ok(chain)
 }
 
-/// Snapshots at rest, one RocksDB checkpoint per height.
+/// Snapshots at rest, one `RocksDB` checkpoint per height.
 pub struct Snapshots {
     dir: PathBuf,
 }

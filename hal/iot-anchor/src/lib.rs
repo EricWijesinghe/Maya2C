@@ -1,4 +1,4 @@
-//! Hardware-anchored sensor identity for Maya2C: enrollment, signed telemetry
+//! Hardware-anchored sensor identity for `Maya2C`: enrollment, signed telemetry
 //! batches, tamper events and clone evidence.
 //!
 //! # What a record proves, and what it cannot

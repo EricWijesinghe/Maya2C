@@ -116,6 +116,20 @@ fn write_stores(
     Ok(stores)
 }
 
+/// Snapshot interval for a validator that names none (ADR-043): with only
+/// the seed serving snapshots, the seed itself could not come back after 13
+/// epochs down, so every validator serves them unless told not to.
+const VALIDATOR_SNAPSHOT_INTERVAL: u64 = 3600;
+
+/// `--snapshot-interval`, else [`VALIDATOR_SNAPSHOT_INTERVAL`] for a node that
+/// signs; `0` turns snapshots off.
+fn snapshot_interval(args: &Args) -> Option<u64> {
+    let signs = args.validator_key.is_some() || args.remote_signer.is_some();
+    args.snapshot_interval
+        .or_else(|| signs.then_some(VALIDATOR_SNAPSHOT_INTERVAL))
+        .filter(|&interval| interval > 0)
+}
+
 /// Builds the snapshot service, the cold-block fetcher and the pruning policy
 /// the flags ask for, and hangs the first two on the RPC context.
 pub(super) fn pruning_services(
@@ -134,7 +148,7 @@ pub(super) fn pruning_services(
         .clone()
         .unwrap_or_else(|| args.data_dir.join("archive"));
 
-    let snapshots = match args.snapshot_interval {
+    let snapshots = match snapshot_interval(args) {
         Some(interval) => {
             let service = Arc::new(SnapshotService::new(
                 Snapshots::new(args.data_dir.join("snapshots"))?,
@@ -142,7 +156,7 @@ pub(super) fn pruning_services(
             ));
             context = context.with_snapshots(Arc::clone(&service));
             println!("snapshots:   every {interval} blocks, served once {snapshot_depth} deep");
-            Some((service, interval.max(1)))
+            Some((service, interval))
         }
         None => None,
     };
@@ -202,5 +216,39 @@ pub(super) async fn pruning_loop(chain: Arc<Mutex<Chain>>, pruning: Pruning) {
             Ok(Err(error)) => eprintln!("pruning: {error}"),
             Err(error) => eprintln!("pruning task failed: {error}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{VALIDATOR_SNAPSHOT_INTERVAL, snapshot_interval};
+    use crate::Args;
+
+    #[test]
+    fn a_validator_serves_snapshots_unless_told_not_to() {
+        let validator = Args {
+            validator_key: Some("validator.key".into()),
+            ..Args::default()
+        };
+        assert_eq!(
+            snapshot_interval(&validator),
+            Some(VALIDATOR_SNAPSHOT_INTERVAL)
+        );
+
+        let off = Args {
+            snapshot_interval: Some(0),
+            ..validator
+        };
+        assert_eq!(snapshot_interval(&off), None);
+    }
+
+    #[test]
+    fn an_observer_takes_snapshots_only_when_asked() {
+        assert_eq!(snapshot_interval(&Args::default()), None);
+        let asked = Args {
+            snapshot_interval: Some(100),
+            ..Args::default()
+        };
+        assert_eq!(snapshot_interval(&asked), Some(100));
     }
 }

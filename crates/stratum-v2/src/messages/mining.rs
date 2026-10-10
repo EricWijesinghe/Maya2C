@@ -1,8 +1,8 @@
-//! The mining sub-protocol, adapted to Maya2C's header.
+//! The mining sub-protocol, adapted to `Maya2C`'s header.
 //!
 //! ## What changed from the specification, and why
 //!
-//! Stratum V2's mining messages are shaped around a Bitcoin header. Maya2C's is
+//! Stratum V2's mining messages are shaped around a Bitcoin header. `Maya2C`'s is
 //! 144 bytes of `prev_hash ‖ state_root ‖ timestamp ‖ nonce ‖ difficulty_target
 //! ‖ tx_root` (`src/core/block.rs`) — no version field, no compact `nbits`, and
 //! no coinbase to hide an extranonce in. Four adaptations follow.
@@ -12,7 +12,7 @@
 //! | SV2 field | Here | Why |
 //! |---|---|---|
 //! | `merkle_root` in `NewMiningJob` | `tx_root` **and** `state_root` | The header commits to the transaction tree, as in SV2, and also to the post-execution state, which the chain checks |
-//! | `nbits` (U32 compact) in `SetNewPrevHash` | `target` (32 bytes) | Maya2C targets are full 256-bit values compared bytewise (`src/crypto/pow.rs:16-18`); there is no compact form to pack into |
+//! | `nbits` (U32 compact) in `SetNewPrevHash` | `target` (32 bytes) | `Maya2C` targets are full 256-bit values compared bytewise (`src/crypto/pow.rs:16-18`); there is no compact form to pack into |
 //! | `version` in jobs and shares | *absent* | The header has no version field to roll |
 //! | `SetExtranoncePrefix` | [`SetNonceRange`] | No coinbase means no extranonce; see below |
 //! | `ntime` (U32) | `timestamp` (U64) | The header's timestamp is a `u64` |
@@ -20,7 +20,7 @@
 //! ## Nonce ranges instead of extranonces
 //!
 //! In Bitcoin, each miner gets a distinct search space by varying the coinbase
-//! extranonce. Maya2C has no coinbase, so the only field a miner may vary is
+//! extranonce. `Maya2C` has no coinbase, so the only field a miner may vary is
 //! the 8-byte `nonce` — and with tens of thousands of connections on one job,
 //! every one of them would otherwise start at zero and walk the same path.
 //!
@@ -28,7 +28,7 @@
 //! time, the way `src/consensus/miner.rs:6-10` already partitions across
 //! threads. Two channels cannot collide by construction rather than by luck,
 //! duplicate detection becomes exact, and a submitted nonce outside a channel's
-//! range is rejected without hashing anything — which, at 25 ms per ArgonBlake
+//! range is rejected without hashing anything — which, at 25 ms per `ArgonBlake`
 //! verification, is the cheapest rejection the pool has.
 
 use crate::codec::{Reader, Writer};
@@ -372,7 +372,7 @@ impl SetNewPrevHash {
 /// Vardiff: the pool moves a channel's share target.
 ///
 /// This is the pool's load governor, not a courtesy. Every accepted share costs
-/// a 25 ms ArgonBlake verification, so the aggregate share rate — not the
+/// a 25 ms `ArgonBlake` verification, so the aggregate share rate — not the
 /// connection count — is what decides whether the pool keeps up.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SetTarget {
@@ -537,7 +537,7 @@ impl SubmitSharesError {
 /// cost a second way in.
 ///
 /// It takes SV2's `SubmitSolution` slot (`0x22`), which this build does not use
-/// — Maya2C has no job-declaration protocol, so no solution is ever submitted
+/// — `Maya2C` has no job-declaration protocol, so no solution is ever submitted
 /// separately from a share.
 ///
 /// ## This data is self-reported and unverifiable

@@ -25,7 +25,7 @@
 //! ## Cost, measured against what it replaces
 //!
 //! A light hash is roughly 33,000 BLAKE3 compressions, on the order of 1–3 ms.
-//! ArgonBlake, the pre-fork rule, is ~25.4 ms. Validation gets an order of
+//! `ArgonBlake`, the pre-fork rule, is ~25.4 ms. Validation gets an order of
 //! magnitude cheaper at the same time as mining gets bound to bandwidth.
 
 use crate::crypto::argon_blake::HASH_LEN;

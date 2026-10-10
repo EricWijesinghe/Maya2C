@@ -47,7 +47,7 @@
 //!
 //! That is the *structural* ceiling, not a measured rate, and it is roughly a
 //! sixth of the 50,000/s the work was originally scoped against. The binding
-//! constraint is not this crate: a Maya2C transaction carries an ML-DSA-65
+//! constraint is not this crate: a `Maya2C` transaction carries an ML-DSA-65
 //! signature (3,309 B) and an SLH-DSA-SHA2-128s signature (7,856 B), so 50,000
 //! of them per second is 558 MB/s of signature bytes before any payload. See
 //! `docs/blockgraph.md`.

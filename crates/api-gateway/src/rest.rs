@@ -42,14 +42,14 @@ pub struct TransactionAccepted {
     pub hash: String,
 }
 
-/// The OpenAPI document for the REST surface.
+/// The `OpenAPI` document for the REST surface.
 ///
 /// # Only the gateway is described here
 ///
 /// The node's own interface is JSON-RPC: one endpoint, the method named in the
-/// request body. OpenAPI has no way to express that beyond "POST / with a
+/// request body. `OpenAPI` has no way to express that beyond "POST / with a
 /// tagged union", which generates a client with one untyped function. The
-/// gateway is both the surface OpenAPI fits and the surface external
+/// gateway is both the surface `OpenAPI` fits and the surface external
 /// developers are meant to call -- its allowlist is what excludes
 /// `get_mining_candidate` and `submit_block` from being reachable at all.
 ///
@@ -104,7 +104,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .with_state(state)
 }
 
-/// The OpenAPI document, as JSON.
+/// The `OpenAPI` document, as JSON.
 async fn openapi() -> Json<utoipa::openapi::OpenApi> {
     Json(ApiDoc::openapi())
 }

@@ -1,4 +1,4 @@
-//! Self-sovereign identity for Maya2C: who a subject is, which key speaks for
+//! Self-sovereign identity for `Maya2C`: who a subject is, which key speaks for
 //! them, and what an issuer has attested — without the chain ever learning a
 //! fact about a person.
 //!
@@ -15,7 +15,7 @@
 //!
 //! ## `did:maya2c:<address>`
 //!
-//! The brief said `did:maya2c:<pubkey>`. A Maya2C public key is a hybrid pair
+//! The brief said `did:maya2c:<pubkey>`. A `Maya2C` public key is a hybrid pair
 //! at 1,984 bytes — about 2,712 base58 characters, which is not an identifier.
 //! The chain's address is BLAKE3 over *both* keys and is 44 characters, and it
 //! inherits the binding argument `Transaction::sender` already makes. Keys live
@@ -47,7 +47,7 @@
 //!
 //! Nothing here knows what a block is. A DID Document arrives from a stranger —
 //! resolved from another node, handed over by a wallet, read out of a QR code —
-//! so the decoder is fuzzable without RocksDB in the graph, the same boundary
+//! so the decoder is fuzzable without `RocksDB` in the graph, the same boundary
 //! `iso20022` and `radio-transport` hold.
 
 pub mod attestation;

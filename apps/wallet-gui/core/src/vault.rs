@@ -266,7 +266,7 @@ impl SecretStore for MemoryStore {
     fn put(&self, name: &str, secret: &[u8]) -> Result<()> {
         self.entries
             .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert(name.to_string(), secret.to_vec());
         Ok(())
     }
@@ -275,7 +275,7 @@ impl SecretStore for MemoryStore {
         Ok(self
             .entries
             .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .get(name)
             .cloned())
     }
@@ -283,7 +283,7 @@ impl SecretStore for MemoryStore {
     fn delete(&self, name: &str) -> Result<()> {
         self.entries
             .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(name);
         Ok(())
     }

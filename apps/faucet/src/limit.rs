@@ -193,7 +193,7 @@ fn remaining(granted_at: Option<&SystemTime>, now: SystemTime) -> Option<u64> {
     let granted_at = granted_at?;
     match now.duration_since(*granted_at) {
         Ok(elapsed) if elapsed >= WINDOW => None,
-        Ok(elapsed) => Some((WINDOW - elapsed).as_secs()),
+        Ok(elapsed) => Some(WINDOW.saturating_sub(elapsed).as_secs()),
         Err(_) => Some(WINDOW.as_secs()),
     }
 }

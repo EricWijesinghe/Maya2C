@@ -2,7 +2,7 @@
 //!
 //! ## What aggregators actually take from a chain
 //!
-//! CoinGecko's and CoinMarketCap's `/ticker` formats are their **exchange**
+//! `CoinGecko`'s and `CoinMarketCap`'s `/ticker` formats are their **exchange**
 //! integration specs: trading pairs, last price, 24-hour volume, order-book
 //! depth. A node has none of that. There is no price until the asset trades
 //! somewhere, and a node that reported one would be inventing it.
@@ -80,7 +80,7 @@ pub struct SupplyReport {
 pub fn supply(chain: &Arc<Mutex<Chain>>) -> Result<SupplyReport> {
     let chain = chain
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let state = chain.state();
 
     let mut transparent: u64 = 0;
@@ -164,7 +164,7 @@ fn split_pair(pair: &str) -> Option<(&str, &str)> {
     Some((base, quote))
 }
 
-/// Translates exchange quotes into CoinGecko's ticker shape.
+/// Translates exchange quotes into `CoinGecko`'s ticker shape.
 #[must_use]
 pub fn to_coingecko(quotes: &[MarketQuote]) -> Vec<CoinGeckoTicker> {
     quotes
@@ -182,7 +182,7 @@ pub fn to_coingecko(quotes: &[MarketQuote]) -> Vec<CoinGeckoTicker> {
         .collect()
 }
 
-/// Translates exchange quotes into CoinMarketCap's ticker shape.
+/// Translates exchange quotes into `CoinMarketCap`'s ticker shape.
 #[must_use]
 pub fn to_coinmarketcap(quotes: &[MarketQuote]) -> Vec<CoinMarketCapTicker> {
     quotes

@@ -54,10 +54,10 @@ impl ShardId {
 ///
 /// # Why the high bits of the first byte
 ///
-/// A Maya2C address is already a BLAKE3 digest of a public key, so every bit of
+/// A `Maya2C` address is already a BLAKE3 digest of a public key, so every bit of
 /// it is uniform and any six would do. Taking the *high* six of byte zero means
 /// the partition is a prefix of the address, which makes a shard a contiguous
-/// key range in RocksDB rather than a scattered one — an iteration over a shard
+/// key range in `RocksDB` rather than a scattered one — an iteration over a shard
 /// is then a range scan instead of a full sweep with a filter.
 ///
 /// This is consensus. Two nodes partitioning differently would schedule

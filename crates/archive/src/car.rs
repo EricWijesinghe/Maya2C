@@ -6,7 +6,7 @@
 //! section = varint(len(cid) + len(data)) ‖ cid ‖ data
 //! ```
 //!
-//! Every CID this crate writes is CIDv1 with a BLAKE3-256 multihash (`0x1e`):
+//! Every CID this crate writes is `CIDv1` with a BLAKE3-256 multihash (`0x1e`):
 //! codec `raw` (`0x55`) for a block, `dag-cbor` (`0x71`) for the manifest. So
 //! every section's CID *is* its content hash, and [`read_car`] verifies each
 //! one as it reads it. A section under any other hash function is refused
@@ -38,7 +38,7 @@ pub(crate) const CID_TAG: u64 = 42;
 /// Largest CAR header this reader accepts. The real one is a few dozen bytes.
 const MAX_HEADER_LEN: usize = 4 * 1024;
 
-/// The CIDv1 of `data` under `codec`, hashed with BLAKE3-256.
+/// The `CIDv1` of `data` under `codec`, hashed with BLAKE3-256.
 #[must_use]
 pub fn cid_of(codec: u64, data: &[u8]) -> Cid {
     let digest = blake3::hash(data);

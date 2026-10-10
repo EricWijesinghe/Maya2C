@@ -10,7 +10,7 @@ use prometheus_client::metrics::family::Family;
 use prometheus_client::metrics::gauge::Gauge;
 use prometheus_client::metrics::histogram::Histogram;
 use prometheus_client::registry::Registry;
-use tracing::info;
+use tracing::{info, warn};
 
 /// Lab-wide metrics
 #[allow(dead_code)]
@@ -109,28 +109,33 @@ impl LabMetrics {
         // Histogram requires explicit construction with buckets
         fn histogram_constructor() -> Histogram {
             Histogram::new(vec![
-                1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0,
-                2000.0, 5000.0, 10000.0, 30000.0, 60000.0, 120000.0, 300000.0, 600000.0
+                1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
+                30000.0, 60000.0, 120000.0, 300000.0, 600000.0,
             ])
         }
 
-        let finality_time_ms = Family::<ConsensusLabels, Histogram>::new_with_constructor(histogram_constructor);
+        let finality_time_ms =
+            Family::<ConsensusLabels, Histogram>::new_with_constructor(histogram_constructor);
 
         let p2p_messages_sent = Family::<NetworkLabels, Counter>::default();
         let p2p_messages_received = Family::<NetworkLabels, Counter>::default();
         let p2p_errors = Family::<NetworkLabels, Counter>::default();
-        let p2p_latency_ms = Family::<NetworkLabels, Histogram>::new_with_constructor(histogram_constructor);
+        let p2p_latency_ms =
+            Family::<NetworkLabels, Histogram>::new_with_constructor(histogram_constructor);
 
         let rpc_requests = Family::<RpcLabels, Counter>::default();
         let rpc_errors = Family::<RpcLabels, Counter>::default();
-        let rpc_latency_ms = Family::<RpcLabels, Histogram>::new_with_constructor(histogram_constructor);
+        let rpc_latency_ms =
+            Family::<RpcLabels, Histogram>::new_with_constructor(histogram_constructor);
 
         let scenario_runs = Family::<ScenarioLabels, Counter>::default();
-        let scenario_duration_ms = Family::<ScenarioLabels, Histogram>::new_with_constructor(histogram_constructor);
+        let scenario_duration_ms =
+            Family::<ScenarioLabels, Histogram>::new_with_constructor(histogram_constructor);
         let scenario_verdict = Family::<ScenarioLabels, Counter>::default();
 
         let faults_injected = Family::<FaultLabels, Counter>::default();
-        let fault_duration_ms = Family::<FaultLabels, Histogram>::new_with_constructor(histogram_constructor);
+        let fault_duration_ms =
+            Family::<FaultLabels, Histogram>::new_with_constructor(histogram_constructor);
 
         let host_memory_usage_mb = Gauge::default();
         let host_cpu_percent = Gauge::default();
@@ -195,11 +200,7 @@ impl LabMetrics {
             "Total P2P messages received",
             p2p_messages_received.clone(),
         );
-        registry.register(
-            "p2p_errors_total",
-            "Total P2P errors",
-            p2p_errors.clone(),
-        );
+        registry.register("p2p_errors_total", "Total P2P errors", p2p_errors.clone());
         registry.register(
             "p2p_latency_ms",
             "P2P message latency in milliseconds",
@@ -211,11 +212,7 @@ impl LabMetrics {
             "Total RPC requests",
             rpc_requests.clone(),
         );
-        registry.register(
-            "rpc_errors_total",
-            "Total RPC errors",
-            rpc_errors.clone(),
-        );
+        registry.register("rpc_errors_total", "Total RPC errors", rpc_errors.clone());
         registry.register(
             "rpc_latency_ms",
             "RPC latency in milliseconds",
@@ -302,144 +299,201 @@ impl LabMetrics {
 
     /// Record validator status
     pub fn set_validator_up(&self, name: &str, up: bool) {
-        self.validator_up.get_or_create(&ValidatorLabels { name: name.to_string() })
+        self.validator_up
+            .get_or_create(&ValidatorLabels {
+                name: name.to_string(),
+            })
             .set(if up { 1 } else { 0 });
     }
 
     /// Record validator height
     pub fn set_validator_height(&self, name: &str, height: u64) {
-        self.validator_height.get_or_create(&ValidatorLabels { name: name.to_string() })
+        self.validator_height
+            .get_or_create(&ValidatorLabels {
+                name: name.to_string(),
+            })
             .set(height as i64);
     }
 
     /// Record validator peer count
     pub fn set_validator_peers(&self, name: &str, peers: u64) {
-        self.validator_peers.get_or_create(&ValidatorLabels { name: name.to_string() })
+        self.validator_peers
+            .get_or_create(&ValidatorLabels {
+                name: name.to_string(),
+            })
             .set(peers as i64);
     }
 
     /// Record validator memory
     pub fn set_validator_memory_mb(&self, name: &str, mb: u64) {
-        self.validator_memory_mb.get_or_create(&ValidatorLabels { name: name.to_string() })
+        self.validator_memory_mb
+            .get_or_create(&ValidatorLabels {
+                name: name.to_string(),
+            })
             .set(mb as i64);
     }
 
     /// Record validator CPU
     pub fn set_validator_cpu_percent(&self, name: &str, percent: f64) {
-        self.validator_cpu_percent.get_or_create(&ValidatorLabels { name: name.to_string() })
+        self.validator_cpu_percent
+            .get_or_create(&ValidatorLabels {
+                name: name.to_string(),
+            })
             .set(percent as i64);
     }
 
     /// Increment finalized blocks
     pub fn inc_blocks_finalized(&self, chain_id: &str, count: u64) {
         for _ in 0..count {
-            self.blocks_finalized.get_or_create(&ConsensusLabels { chain_id: chain_id.to_string() })
+            self.blocks_finalized
+                .get_or_create(&ConsensusLabels {
+                    chain_id: chain_id.to_string(),
+                })
                 .inc();
         }
     }
 
     /// Increment consensus rounds
     pub fn inc_consensus_rounds(&self, chain_id: &str) {
-        self.consensus_rounds.get_or_create(&ConsensusLabels { chain_id: chain_id.to_string() })
+        self.consensus_rounds
+            .get_or_create(&ConsensusLabels {
+                chain_id: chain_id.to_string(),
+            })
             .inc();
     }
 
     /// Increment forks detected
     pub fn inc_forks_detected(&self, chain_id: &str) {
-        self.forks_detected.get_or_create(&ConsensusLabels { chain_id: chain_id.to_string() })
+        self.forks_detected
+            .get_or_create(&ConsensusLabels {
+                chain_id: chain_id.to_string(),
+            })
             .inc();
     }
 
     /// Observe finality time
     pub fn observe_finality_time(&self, chain_id: &str, ms: f64) {
-        self.finality_time_ms.get_or_create(&ConsensusLabels { chain_id: chain_id.to_string() })
+        self.finality_time_ms
+            .get_or_create(&ConsensusLabels {
+                chain_id: chain_id.to_string(),
+            })
             .observe(ms);
     }
 
     /// Increment P2P messages
     pub fn inc_p2p_messages(&self, direction: &str, peer: &str) {
         if direction == "sent" {
-            self.p2p_messages_sent.get_or_create(&NetworkLabels {
-                direction: direction.to_string(),
-                peer: peer.to_string()
-            }).inc();
+            self.p2p_messages_sent
+                .get_or_create(&NetworkLabels {
+                    direction: direction.to_string(),
+                    peer: peer.to_string(),
+                })
+                .inc();
         } else {
-            self.p2p_messages_received.get_or_create(&NetworkLabels {
-                direction: direction.to_string(),
-                peer: peer.to_string()
-            }).inc();
+            self.p2p_messages_received
+                .get_or_create(&NetworkLabels {
+                    direction: direction.to_string(),
+                    peer: peer.to_string(),
+                })
+                .inc();
         }
     }
 
     /// Increment P2P errors
     pub fn inc_p2p_errors(&self, peer: &str) {
-        self.p2p_errors.get_or_create(&NetworkLabels {
-            direction: "error".to_string(),
-            peer: peer.to_string()
-        }).inc();
+        self.p2p_errors
+            .get_or_create(&NetworkLabels {
+                direction: "error".to_string(),
+                peer: peer.to_string(),
+            })
+            .inc();
     }
 
     /// Observe P2P latency
     pub fn observe_p2p_latency(&self, peer: &str, ms: f64) {
-        self.p2p_latency_ms.get_or_create(&NetworkLabels {
-            direction: "latency".to_string(),
-            peer: peer.to_string()
-        }).observe(ms);
+        self.p2p_latency_ms
+            .get_or_create(&NetworkLabels {
+                direction: "latency".to_string(),
+                peer: peer.to_string(),
+            })
+            .observe(ms);
     }
 
     /// Increment RPC requests
     pub fn inc_rpc_requests(&self, method: &str, success: bool) {
         let status = if success { "success" } else { "error" };
-        self.rpc_requests.get_or_create(&RpcLabels {
-            method: method.to_string(),
-            status: status.to_string()
-        }).inc();
+        self.rpc_requests
+            .get_or_create(&RpcLabels {
+                method: method.to_string(),
+                status: status.to_string(),
+            })
+            .inc();
 
         if !success {
-            self.rpc_errors.get_or_create(&RpcLabels {
-                method: method.to_string(),
-                status: "error".to_string()
-            }).inc();
+            self.rpc_errors
+                .get_or_create(&RpcLabels {
+                    method: method.to_string(),
+                    status: "error".to_string(),
+                })
+                .inc();
         }
     }
 
     /// Observe RPC latency
     pub fn observe_rpc_latency(&self, method: &str, ms: f64) {
-        self.rpc_latency_ms.get_or_create(&RpcLabels {
-            method: method.to_string(),
-            status: "latency".to_string()
-        }).observe(ms);
+        self.rpc_latency_ms
+            .get_or_create(&RpcLabels {
+                method: method.to_string(),
+                status: "latency".to_string(),
+            })
+            .observe(ms);
     }
 
     /// Record scenario run
-    pub fn record_scenario(&self, scenario_id: &str, category: u8, duration_ms: u64, _verdict: &str) {
-        self.scenario_runs.get_or_create(&ScenarioLabels {
-            scenario_id: scenario_id.to_string(),
-            category: category.to_string()
-        }).inc();
+    pub fn record_scenario(
+        &self,
+        scenario_id: &str,
+        category: u8,
+        duration_ms: u64,
+        _verdict: &str,
+    ) {
+        self.scenario_runs
+            .get_or_create(&ScenarioLabels {
+                scenario_id: scenario_id.to_string(),
+                category: category.to_string(),
+            })
+            .inc();
 
-        self.scenario_duration_ms.get_or_create(&ScenarioLabels {
-            scenario_id: scenario_id.to_string(),
-            category: category.to_string()
-        }).observe(duration_ms as f64);
+        self.scenario_duration_ms
+            .get_or_create(&ScenarioLabels {
+                scenario_id: scenario_id.to_string(),
+                category: category.to_string(),
+            })
+            .observe(duration_ms as f64);
 
-        self.scenario_verdict.get_or_create(&ScenarioLabels {
-            scenario_id: scenario_id.to_string(),
-            category: category.to_string()
-        }).inc();
+        self.scenario_verdict
+            .get_or_create(&ScenarioLabels {
+                scenario_id: scenario_id.to_string(),
+                category: category.to_string(),
+            })
+            .inc();
     }
 
     /// Record fault injection
     pub fn record_fault(&self, fault_type: &str, target: &str, duration_ms: u64) {
-        self.faults_injected.get_or_create(&FaultLabels {
-            fault_type: fault_type.to_string(),
-            target: target.to_string()
-        }).inc();
+        self.faults_injected
+            .get_or_create(&FaultLabels {
+                fault_type: fault_type.to_string(),
+                target: target.to_string(),
+            })
+            .inc();
 
-        self.fault_duration_ms.get_or_create(&FaultLabels {
-            fault_type: fault_type.to_string(),
-            target: target.to_string()
-        }).observe(duration_ms as f64);
+        self.fault_duration_ms
+            .get_or_create(&FaultLabels {
+                fault_type: fault_type.to_string(),
+                target: target.to_string(),
+            })
+            .observe(duration_ms as f64);
     }
 
     /// Update host metrics
@@ -464,11 +518,17 @@ impl LabMetrics {
         info!("=== Lab Metrics Summary ===");
 
         let mut buffer = String::new();
-        prometheus_client::encoding::text::encode(&mut buffer, &self.registry).unwrap();
+        if let Err(error) = prometheus_client::encoding::text::encode(&mut buffer, &self.registry) {
+            warn!("metrics summary unavailable: {error}");
+            return;
+        }
 
         for line in buffer.lines() {
-            if line.contains("validator_up") || line.contains("blocks_finalized") ||
-               line.contains("forks_detected") || line.contains("scenario_verdict") {
+            if line.contains("validator_up")
+                || line.contains("blocks_finalized")
+                || line.contains("forks_detected")
+                || line.contains("scenario_verdict")
+            {
                 println!("{}", line);
             }
         }
@@ -496,8 +556,16 @@ pub struct MetricsCollector {
 
 #[allow(dead_code)]
 impl MetricsCollector {
-    pub fn new(metrics: Arc<LabMetrics>, config: Arc<crate::config::LabConfig>, interval: Duration) -> Self {
-        Self { metrics, config, interval }
+    pub fn new(
+        metrics: Arc<LabMetrics>,
+        config: Arc<crate::config::LabConfig>,
+        interval: Duration,
+    ) -> Self {
+        Self {
+            metrics,
+            config,
+            interval,
+        }
     }
 
     pub async fn run(&self) -> Result<()> {
@@ -525,7 +593,8 @@ impl MetricsCollector {
                     self.metrics.set_validator_up(&validator.name, true);
 
                     // Get tip height
-                    if let Ok(tip_resp) = reqwest::get(&format!("{}/get_tip_height", validator.rpc_url())).await
+                    if let Ok(tip_resp) =
+                        reqwest::get(&format!("{}/get_tip_height", validator.rpc_url())).await
                         && let Ok(json) = tip_resp.json::<serde_json::Value>().await
                         && let Some(height) = json.get("result").and_then(|r| r.as_u64())
                     {
@@ -556,7 +625,8 @@ impl MetricsCollector {
                 match name.as_str() {
                     "process_resident_memory_bytes" => {
                         if let Ok(bytes) = value.parse::<u64>() {
-                            self.metrics.set_validator_memory_mb(validator, bytes / 1_000_000);
+                            self.metrics
+                                .set_validator_memory_mb(validator, bytes / 1_000_000);
                         }
                     }
                     "process_cpu_seconds_total" => {
@@ -594,13 +664,17 @@ impl MetricsCollector {
 
             // Disk space
             let output = tokio::process::Command::new("powershell")
-                .args(["-Command", "Get-PSDrive D | Select-Object Free | ConvertTo-Json"])
+                .args([
+                    "-Command",
+                    "Get-PSDrive D | Select-Object Free | ConvertTo-Json",
+                ])
                 .output()
                 .await?;
 
             if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
                 let free_bytes = json["Free"].as_u64().unwrap_or(0);
-                self.metrics.set_host_disk_free_gb(free_bytes / 1_000_000_000);
+                self.metrics
+                    .set_host_disk_free_gb(free_bytes / 1_000_000_000);
             }
 
             // CPU

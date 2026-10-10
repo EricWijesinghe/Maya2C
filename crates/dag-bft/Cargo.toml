@@ -17,6 +17,7 @@ blake3.workspace = true
 
 [dev-dependencies]
 maya-sim = { path = "../../sim" }
+proptest = { workspace = true }
 
 [lints]
 workspace = true

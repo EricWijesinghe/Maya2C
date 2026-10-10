@@ -8,7 +8,7 @@
 //! is worth writing down rather than discovering later.
 //!
 //! A libp2p connection opens with multistream-select, a Noise handshake and a
-//! yamux negotiation. Maya2C's Noise is ML-KEM-768: a 1,184-byte encapsulation
+//! yamux negotiation. `Maya2C`'s Noise is ML-KEM-768: a 1,184-byte encapsulation
 //! key and a 1,088-byte ciphertext, before any protocol negotiation and before
 //! one byte of payload. At SF12 the link carries 26 bytes of fountain payload
 //! per frame and each frame costs 2.47 seconds of airtime against a 1% duty
@@ -22,7 +22,7 @@
 //! on the air as fountain symbols, takes symbols off the air, and hands
 //! recovered headers back. No session, no negotiation, no per-peer state that
 //! has to survive a week of intermittent contact. This is the shape every
-//! working LoRa mesh converges on, and it is what the architecture vision meant
+//! working `LoRa` mesh converges on, and it is what the architecture vision meant
 //! by "low-bandwidth header relay".
 //!
 //! ## A gateway decides nothing
@@ -114,7 +114,7 @@ impl RadioGateway {
     /// # Errors
     ///
     /// Returns [`NodeError::Decode`] if the spreading factor leaves no room for
-    /// a fountain symbol — which no LoRa setting does, but a caller that
+    /// a fountain symbol — which no `LoRa` setting does, but a caller that
     /// invented one deserves an answer rather than a panic.
     pub fn new(tag: NodeTag, band: Band, settings: Settings) -> Result<Self> {
         let block_size = maya_radio_transport::block_size_for(settings.spreading_factor)
@@ -173,12 +173,12 @@ impl RadioGateway {
         let encoder = Encoder::new(object, &bytes, self.block_size)
             .map_err(|error| NodeError::Decode(format!("radio: {error}")))?;
 
-        let cursor = match self.emitting.iter().position(|(id, _)| *id == object) {
-            Some(position) => position,
-            None => {
-                self.emitting.push((object, 0));
-                self.emitting.len() - 1
-            }
+        let cursor = if let Some(position) = self.emitting.iter().position(|(id, _)| *id == object)
+        {
+            position
+        } else {
+            self.emitting.push((object, 0));
+            self.emitting.len() - 1
         };
 
         let mut sent = 0;

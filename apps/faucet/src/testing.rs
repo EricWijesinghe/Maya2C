@@ -5,7 +5,7 @@
 //! They are the reason the [`Dispenser`] trait exists: the properties worth
 //! testing here — that a second request from one IP is refused, that a
 //! thousand concurrent requests hand out no more than the cap — are properties
-//! of the policy, and running them against a real node would test RocksDB.
+//! of the policy, and running them against a real node would test `RocksDB`.
 
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};

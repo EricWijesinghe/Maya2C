@@ -3,7 +3,7 @@
 //! ## Why these are not JSON-RPC methods
 //!
 //! `get_supply` already exists on the JSON-RPC server, and it is the wrong shape
-//! for the consumers that need it. CoinGecko and CoinMarketCap fetch a supply
+//! for the consumers that need it. `CoinGecko` and `CoinMarketCap` fetch a supply
 //! figure with an unauthenticated `GET` and parse the response body as a number.
 //! They do not POST a JSON-RPC envelope, and they will not be taught to. An
 //! endpoint they cannot call is an endpoint that does not exist as far as a
@@ -16,7 +16,7 @@
 //!
 //! These are the only endpoints the node serves that are *meant* to be public
 //! and unauthenticated. The exporter on 9600 is the opposite — it publishes peer
-//! topology and mempool contents, and the NetworkPolicy confines it to the
+//! topology and mempool contents, and the `NetworkPolicy` confines it to the
 //! monitoring namespace. Putting public supply data behind that policy would
 //! mean either exposing the exporter or not answering aggregators, so the two
 //! get separate listeners and the firewall rules can differ.
@@ -101,7 +101,7 @@ impl MarketState {
     fn height(&self) -> u64 {
         self.chain
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .height()
     }
 
@@ -117,7 +117,7 @@ impl MarketState {
             let cache = self
                 .cache
                 .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some((cached_height, report)) = *cache
                 && cached_height == height
             {
@@ -133,7 +133,7 @@ impl MarketState {
         let mut cache = self
             .cache
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         // A concurrent request may have stored a newer height meanwhile. Keep
         // whichever is further along rather than moving the cache backwards.
         let newer = cache.is_some_and(|(cached_height, _)| cached_height > height);

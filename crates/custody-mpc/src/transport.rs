@@ -31,7 +31,7 @@ pub const MAX_FRAME_LEN: usize = 512 * 1024;
 
 /// The largest message a vault will be asked to sign.
 ///
-/// A Maya2C transaction is kilobytes, not megabytes. The bound exists so that a
+/// A `Maya2C` transaction is kilobytes, not megabytes. The bound exists so that a
 /// signing request cannot be used to make every custodian in a vault allocate
 /// at once.
 pub const MAX_SIGNED_MESSAGE_LEN: usize = 64 * 1024;

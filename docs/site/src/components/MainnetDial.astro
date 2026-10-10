@@ -1,0 +1,152 @@
+---
+// The ten mainnet gates as one dial: a segment per gate, lit when the gate is
+// met. Every figure comes from src/data/mainnet-gates.ts, which mirrors
+// docs/mainnet-v1-plan.md — the dial cannot show more than that file says.
+// Without JavaScript the full list below the dial is the content; the script
+// only turns it into "pick a segment, read one card".
+import { mainnetGates as gates, asOf } from "../data/mainnet-gates";
+
+const met = gates.filter((g) => g.state === "met").length;
+const total = gates.length;
+
+// Geometry, computed at build time so the page ships no layout maths.
+const C = 200, R = 182, r = 122, GAP = 2.4;
+const step = 360 / total;
+const pt = (rad: number, deg: number) => {
+  const a = ((deg - 90) * Math.PI) / 180;
+  return `${(C + rad * Math.cos(a)).toFixed(2)} ${(C + rad * Math.sin(a)).toFixed(2)}`;
+};
+const arc = (i: number) => {
+  const a0 = i * step + GAP / 2, a1 = (i + 1) * step - GAP / 2;
+  return `M${pt(R, a0)} A${R} ${R} 0 0 1 ${pt(R, a1)} L${pt(r, a1)} A${r} ${r} 0 0 0 ${pt(r, a0)}Z`;
+};
+const label = (i: number) => pt((R + r) / 2, (i + 0.5) * step).split(" ");
+const word = { met: "met", running: "in progress", waiting: "waiting" } as const;
+---
+
+<section class="not-content dial-wrap" aria-label={`Mainnet gates: ${met} of ${total} met`}>
+  <div class="dial">
+    <svg viewBox="0 0 400 400" role="group" aria-label="Mainnet gates dial">
+      <defs>
+        <radialGradient id="core" cx="50%" cy="45%" r="60%">
+          <stop offset="0%" stop-color="var(--cherenkov)" stop-opacity=".28" />
+          <stop offset="100%" stop-color="var(--cherenkov)" stop-opacity="0" />
+        </radialGradient>
+      </defs>
+      <circle cx={C} cy={C} r={r - 10} fill="url(#core)" class="core" />
+      <circle cx={C} cy={C} r={R + 9} class="ring" />
+      {gates.map((g, i) => {
+        const [x, y] = label(i);
+        return (
+          <g class={`seg ${g.state}`} data-i={i} tabindex="0" role="button"
+             aria-label={`Gate ${g.n}, ${g.name}: ${word[g.state]}`}>
+            <path d={arc(i)} />
+            <text x={x} y={y} dy="0.35em">{g.n}</text>
+          </g>
+        );
+      })}
+      <text x={C} y={C - 8} class="big">{met}<tspan class="of">/{total}</tspan></text>
+      <text x={C} y={C + 26} class="cap">gates met</text>
+    </svg>
+  </div>
+
+  <ol class="cards">
+    {gates.map((g, i) => (
+      <li class={`card ${g.state}`} data-i={i}>
+        <p class="tag"><span class="pip" aria-hidden="true"></span>Gate {g.n} · {word[g.state]}</p>
+        <h3>{g.name}</h3>
+        <p class="line">{g.line}</p>
+        <a href={g.href}>Evidence: {g.evidence} →</a>
+      </li>
+    ))}
+  </ol>
+
+  <p class="legend">
+    <span class="k met">met</span><span class="k running">in progress</span><span class="k waiting">waiting</span>
+    <span class="asof">as of {asOf} · source: <code>docs/mainnet-v1-plan.md</code></span>
+  </p>
+</section>
+
+<script>
+  document.querySelectorAll<HTMLElement>(".dial-wrap").forEach((wrap) => {
+    const segs = [...wrap.querySelectorAll<SVGGElement>(".seg")];
+    const cards = [...wrap.querySelectorAll<HTMLElement>(".card")];
+    const pick = (i: number) => {
+      segs.forEach((s, k) => s.classList.toggle("on", k === i));
+      cards.forEach((c, k) => (c.hidden = k !== i));
+    };
+    // Open on the first gate that is not met: the one worth reading about.
+    const first = Math.max(0, segs.findIndex((s) => !s.classList.contains("met")));
+    wrap.classList.add("js");
+    pick(first);
+    segs.forEach((s, i) => {
+      s.addEventListener("click", () => pick(i));
+      s.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(i); }
+        if (e.key === "ArrowRight") { e.preventDefault(); segs[(i + 1) % segs.length].focus(); }
+        if (e.key === "ArrowLeft") { e.preventDefault(); segs[(i + segs.length - 1) % segs.length].focus(); }
+      });
+      s.addEventListener("focus", () => pick(i));
+    });
+  });
+</script>
+
+<style>
+  .dial-wrap {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 2rem; align-items: center;
+    margin: 1.5rem 0 2.5rem; padding: 1.75rem; border-radius: var(--r-l);
+    background: var(--glass); border: 1px solid var(--glass-edge); box-shadow: var(--shadow);
+  }
+  .dial svg { width: 100%; max-width: 420px; display: block; margin: 0 auto; overflow: visible; }
+  .ring { fill: none; stroke: var(--glass-edge); stroke-width: 1.5; stroke-dasharray: 2 6; }
+  .core { animation: breathe 5s var(--glide) infinite; transform-origin: 200px 200px; }
+
+  .seg { cursor: pointer; outline: none; }
+  .seg path { stroke-width: 1.5; transition: transform .35s var(--spring), filter .35s var(--glide); transform-origin: 200px 200px; }
+  .seg text { font: 700 15px var(--display); text-anchor: middle; pointer-events: none; }
+  .seg.met path { fill: color-mix(in srgb, var(--verified) 30%, transparent); stroke: var(--verified); }
+  .seg.met text { fill: var(--verified); }
+  .seg.running path { fill: color-mix(in srgb, var(--cherenkov) 22%, transparent); stroke: var(--cherenkov); stroke-dasharray: 5 4; animation: march 1.6s linear infinite; }
+  .seg.running text { fill: var(--cherenkov-hi); }
+  .seg.waiting path { fill: color-mix(in srgb, var(--gold) 10%, transparent); stroke: color-mix(in srgb, var(--gold) 70%, transparent); }
+  .seg.waiting text { fill: var(--gold); }
+  .seg:hover path, .seg.on path { transform: scale(1.045); filter: drop-shadow(0 0 10px var(--halo)); }
+  .seg:focus-visible path { stroke-width: 3; }
+
+  .big { font: 800 64px var(--display); fill: var(--text); text-anchor: middle; }
+  .of { font-size: 30px; fill: var(--muted); font-weight: 600; }
+  .cap { font: 600 13px var(--sans); fill: var(--muted); text-anchor: middle; letter-spacing: .14em; text-transform: uppercase; }
+
+  .cards { list-style: none; margin: 0; padding: 0; display: grid; gap: .9rem; }
+  .card { padding: 1.25rem 1.4rem; border-radius: var(--r-m); background: var(--well); border: 1px solid var(--glass-edge); }
+  .js .card { animation: rise .45s var(--glide); }
+  .card h3 { margin: .2rem 0 .4rem; font: 800 1.45rem/1.2 var(--display); color: var(--text); }
+  .card .line { margin: 0 0 .8rem; color: var(--lede); }
+  .card a { color: var(--accent-text); font-weight: 600; text-decoration: none; }
+  .card a:hover { text-decoration: underline; }
+  .tag { margin: 0; font: 600 .78rem var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: .5rem; }
+  .pip { width: .6rem; height: .6rem; border-radius: 50%; background: currentColor; }
+  .card.met .tag { color: var(--verified); }
+  .card.running .tag { color: var(--cherenkov-hi); }
+  .card.waiting .tag { color: var(--gold); }
+
+  .legend { grid-column: 1 / -1; margin: 0; display: flex; flex-wrap: wrap; gap: .5rem 1.1rem; align-items: center; font-size: .85rem; color: var(--muted); }
+  .k::before { content: ""; display: inline-block; width: .7rem; height: .7rem; border-radius: 3px; margin-right: .4rem; vertical-align: -1px; border: 1.5px solid; }
+  .k.met::before { border-color: var(--verified); background: color-mix(in srgb, var(--verified) 30%, transparent); }
+  .k.running::before { border-color: var(--cherenkov); border-style: dashed; }
+  .k.waiting::before { border-color: var(--gold); }
+  .asof { margin-left: auto; }
+
+  @keyframes march { to { stroke-dashoffset: -18; } }
+  @keyframes breathe { 50% { opacity: .55; transform: scale(.96); } }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+
+  @media (max-width: 760px) {
+    .dial-wrap { grid-template-columns: minmax(0, 1fr); padding: 1.1rem; gap: 1.2rem; }
+    .asof { margin-left: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .core, .seg.running path, .js .card { animation: none; }
+    .seg path { transition: none; }
+  }
+</style>

@@ -99,7 +99,7 @@ impl Direction {
 /// One line of a statement.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
-    /// `NtryRef`, the reference this entry reconciles by. On the Maya2C side
+    /// `NtryRef`, the reference this entry reconciles by. On the `Maya2C` side
     /// this carries the transaction id the entry was drawn from.
     pub reference: Option<String>,
     /// `Amt`, in base units.

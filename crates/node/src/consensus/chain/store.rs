@@ -46,15 +46,14 @@ impl Chain {
     /// - [`NodeError::Storage`] or [`NodeError::Decode`] for a damaged store.
     pub fn open(state: Arc<StateDB>, genesis: Block, config: ChainConfig) -> Result<Self> {
         let genesis_id = genesis.header.id();
-        let meta = match state.chain_meta()? {
-            Some(meta) => meta,
-            None => {
-                state.init_chain(
-                    &genesis,
-                    work_from_target(&genesis.header.difficulty_target),
-                )?;
-                state.require_meta()?
-            }
+        let meta = if let Some(meta) = state.chain_meta()? {
+            meta
+        } else {
+            state.init_chain(
+                &genesis,
+                work_from_target(&genesis.header.difficulty_target),
+            )?;
+            state.require_meta()?
         };
         if meta.genesis != genesis_id {
             return Err(NodeError::GenesisMismatch {

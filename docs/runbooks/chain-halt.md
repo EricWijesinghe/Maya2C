@@ -52,3 +52,39 @@ start.
 **Prevent.** One validator on a desktop halts with every OS update. Until
 the seed moves to an always-on server, the owner pauses Windows Update or
 sets active hours on that PC. Claude does not change OS update settings.
+
+## A validator far behind, or with its data gone (ADR-043)
+
+**Symptom.** At restart: `the peer holds no checkpoint of epoch N, which it
+keeps for 8 epochs`. Or the data directory is lost.
+
+**Fix.**
+1. **Before moving anything**, write down the last epoch this validator
+   signed in: the highest `epoch-N` directory under its `bft/`. Step 2 moves
+   that directory away, and with it the only local record.
+2. Make sure the old process is dead and the key runs nowhere else. A
+   restored backup or a second instance with the same key is exactly how a
+   validator double-signs.
+3. Ask at least **two** live peers you do not control through the same
+   machine for `get_bft_status`. Both must report an epoch at least **2 above**
+   the one from step 1. One peer can lie; an equal or adjacent epoch could
+   reuse rounds this key already signed. If either check fails, stop.
+4. Move `state`, `bft`, `snapshots` and `archive` aside. Never delete them,
+   and keep the validator key.
+5. Start the node with `--bootstrap-from <peer> --catch-up-from <peer>
+   --prune-depth 3600`. Pass `--catch-up-from` once per live peer; the node
+   picks the one with the highest tip.
+
+The validator was jailed for its downtime. It rejoins the committee by
+itself after `jail_epochs` (2). Until then the committee is one seat
+smaller, so do not restart another validator in that window.
+
+## More than a third of the stake gone for good
+
+No BFT protocol can finalise without a quorum. If validators holding more
+than a third of the weight have lost their keys or will not return, the
+chain stays halted. The way out is a social decision, published before it
+is acted on: a new genesis that carries over the last finalised state root
+and a committee without the missing seats, signed off by the remaining
+validators and announced. The owner decides it; Claude prepares the state
+export and the announcement, and nothing more.

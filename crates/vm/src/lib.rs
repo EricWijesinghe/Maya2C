@@ -1,6 +1,6 @@
 //! # Maya VM
 //!
-//! A sandboxed, deterministic WebAssembly execution engine for the Maya2C chain,
+//! A sandboxed, deterministic WebAssembly execution engine for the `Maya2C` chain,
 //! built on wasmtime.
 //!
 //! ## Determinism is the whole job
