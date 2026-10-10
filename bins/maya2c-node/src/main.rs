@@ -275,7 +275,8 @@ fn print_usage() {
          --archive-dir <PATH> local archive directory (default <data-dir>/archive)\n  \
          --ipfs-api <URL>     also archive to a kubo node, e.g. http://127.0.0.1:5001\n  \
          --arweave-gateway <URL>  also fetch archived batches from an Arweave gateway\n  \
-         --snapshot-interval <N>  snapshot state every N blocks for pruned peers\n  \
+         --snapshot-interval <N>  snapshot state every N blocks for pruned peers;\n                           \
+         validators default to 3600 (ADR-043), 0 turns it off\n  \
          --bootstrap-from <URL>   bootstrap a pruned node from a peer's JSON-RPC\n  \
          --min-register-bond <N>  DAG-BFT: never propose a validator registration\n                           \
          bonding less than N (ADR-039); default 0, off\n  \
