@@ -576,9 +576,21 @@ impl NodeDriver {
                 let _ = reply.send(result);
             }
             Command::Dial { address, reply } => {
+                // A fresh source port, not the listen port (libp2p's default):
+                // two validators started together dial each other from their
+                // listen ports, TCP simultaneous open leaves both as noise
+                // initiators ("Handshake failed: input error"), and every
+                // redial of that same 4-tuple then hits TIME_WAIT (os error
+                // 10048) for minutes. Port reuse only serves NAT hole
+                // punching, which this node does not do (genesis rehearsal,
+                // 2026-10-10).
+                let opts = libp2p::swarm::dial_opts::DialOpts::unknown_peer_id()
+                    .address(address)
+                    .allocate_new_port()
+                    .build();
                 let result = self
                     .swarm
-                    .dial(address)
+                    .dial(opts)
                     .map_err(|e| NodeError::Network(format!("dial: {e}")));
                 let _ = reply.send(result);
             }
@@ -658,6 +670,20 @@ impl NodeDriver {
                 self.emit(NodeEvent::PeerDisconnected(peer_id));
             }
             SwarmEvent::Behaviour(event) => self.handle_behaviour_event(event),
+            // Logged, not swallowed: validators started together sat with no
+            // peers for good and nothing said why (genesis rehearsal,
+            // 2026-10-10). One line per failed connection; the redial task
+            // bounds how often that can be.
+            SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
+                eprintln!("p2p: dial to {peer_id:?} failed: {error}");
+            }
+            SwarmEvent::IncomingConnectionError {
+                send_back_addr,
+                error,
+                ..
+            } => {
+                eprintln!("p2p: incoming from {send_back_addr} failed: {error}");
+            }
             _ => {}
         }
     }
