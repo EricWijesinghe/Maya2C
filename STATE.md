@@ -1,6 +1,37 @@
 # State
 
 ## Handover
+- **Done (2026-10-10, recovery after the Nemotron week):**
+  - The maya2c.dev alert was a false positive (Cloudflare email obfuscation). The
+    watcher is fixed. Eric confirmed Cloudflare is clear.
+  - Harness settings restored, and the non-existent MCP entries removed.
+  - Nemotron's tree audited (PR #108, branch `fix/post-nemotron-recovery`):
+    - attacknet faults are now honest;
+    - the broken lab scripts are quarantined;
+    - the property tests are fixed;
+    - lint debt is 794.
+    - Workspace: 3159 passed.
+  - ADR-043: the seed, killed by the lab and 13 epochs behind, could not
+    rejoin. Code fixed:
+    - `--catch-up-from` is repeatable and picks the live peer with the
+      highest tip;
+    - validators snapshot by default.
+    - Testnet scripts updated to match.
+  - Report: `reports/sessions/2026-10-10-recovery.md`.
+- **Unfinished:**
+  - Seed re-bootstrapped (19:23) and at the tip, but jailed for downtime.
+    The epoch-108 committee is 3, so f = 0 until the seed is re-elected
+    (automatic, ~epoch 110). Verify with `get_bft_status` on 8545:
+    `validator` should be non-null and `committee` 4.
+  - Do not restart any validator while the committee is 3.
+  - Gate-3 soak clock restarted 2026-10-10 19:25 KST.
+  - PR #108 awaiting CI.
+  - Attacknet round "validator down > 8 epochs" (ADR-043, item 4).
+- **Do first next session:**
+  - `curl get_tip_height` on 8545 vs 18602. If the seed is still behind,
+    run the ADR-043 decision-3 runbook.
+  - Merge #108 when green.
+
 - **Done (2026-10-04/05):**
   - Site: responsive and light-mode fix, live (#81).
   - Status page (#75), bootstrap gateway (#76), published genesis
