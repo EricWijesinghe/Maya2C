@@ -1,0 +1,172 @@
+---
+// Maintenance screen. maya2c.dev is static (GitHub Pages), so it cannot be
+// switched off from the server; instead every page asks the status service
+// whether the chain is producing blocks. If the chain is halted, or the status
+// service itself cannot be reached (the PC hosting the testnet is down), this
+// overlay covers the page. It lifts itself as soon as blocks flow again, so
+// nobody has to redeploy the site to bring it back.
+---
+
+<template id="maint-tpl"><div id="maint" hidden role="alertdialog" aria-modal="true" aria-labelledby="maint-title">
+  <canvas id="maint-sky" aria-hidden="true"></canvas>
+  <div class="maint-card">
+    <div class="maint-orb" aria-hidden="true"><span></span><span></span><span></span></div>
+    <p class="maint-kicker">Maya2C testnet</p>
+    <h1 id="maint-title">Down for maintenance</h1>
+    <p class="maint-line">We're restarting the network. This page refreshes itself when blocks start again.</p>
+    <dl class="maint-stats">
+      <div><dt>Last block</dt><dd id="maint-height">—</dd></div>
+      <div><dt>Quiet for</dt><dd id="maint-quiet">—</dd></div>
+      <div><dt>Next check</dt><dd id="maint-next">—</dd></div>
+    </dl>
+    <div class="maint-actions">
+      <button type="button" id="maint-retry">Check now</button>
+      <a href="https://status.maya2c.dev/" rel="noopener">Uptime history</a>
+    </div>
+  </div>
+</div></template>
+
+<style is:global>
+  #maint {
+    position: fixed; inset: 0; z-index: 2147483000;
+    display: grid; place-items: center; padding: 16px;
+    background: radial-gradient(ellipse at 50% 40%, #0a161b 0%, #050b0f 70%);
+    color: #edf3f2; font-family: Manrope, Inter, system-ui, sans-serif;
+  }
+  #maint[hidden] { display: none; }
+  html.maint-on { overflow: hidden; }
+  #maint-sky { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .maint-card {
+    position: relative; max-width: 30rem; width: 100%; text-align: center;
+    padding: 2.25rem 1.5rem; border-radius: 1.25rem;
+    background: rgba(10, 22, 27, 0.72); border: 1px solid rgba(31, 181, 194, 0.25);
+    box-shadow: 0 0 60px rgba(31, 181, 194, 0.12);
+  }
+  .maint-orb { position: relative; width: 84px; height: 84px; margin: 0 auto 1.25rem; }
+  .maint-orb span {
+    position: absolute; inset: 0; border-radius: 50%;
+    border: 2px solid transparent; border-top-color: #1fb5c2;
+    animation: maint-spin 2.4s linear infinite;
+  }
+  .maint-orb span:nth-child(2) { inset: 12px; border-top-color: #d9b97a; animation-duration: 3.6s; animation-direction: reverse; }
+  .maint-orb span:nth-child(3) {
+    inset: 30px; border: 0; background: #7eeaf0;
+    box-shadow: 0 0 24px #1fb5c2; animation: maint-pulse 2s ease-in-out infinite;
+  }
+  .maint-kicker { margin: 0; letter-spacing: 0.18em; text-transform: uppercase; font-size: 0.75rem; color: #d9b97a; }
+  #maint-title { margin: 0.4rem 0 0.6rem; font-size: clamp(1.6rem, 6vw, 2.2rem); line-height: 1.15; color: #edf3f2; }
+  .maint-line { margin: 0 0 1.4rem; color: #93a4aa; }
+  .maint-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin: 0 0 1.5rem; }
+  .maint-stats div { padding: 0.6rem 0.25rem; border-radius: 0.75rem; background: rgba(31, 181, 194, 0.07); }
+  .maint-stats dt { font-size: 0.7rem; color: #93a4aa; text-transform: uppercase; letter-spacing: 0.08em; }
+  .maint-stats dd { margin: 0.2rem 0 0; font-variant-numeric: tabular-nums; font-weight: 600; color: #7eeaf0; }
+  .maint-actions { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; }
+  .maint-actions button, .maint-actions a {
+    font: inherit; font-weight: 600; padding: 0.6rem 1.2rem; border-radius: 999px;
+    cursor: pointer; text-decoration: none; transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .maint-actions button { border: 0; background: #1fb5c2; color: #050b0f; }
+  .maint-actions a { border: 1px solid #d9b97a; color: #d9b97a; }
+  .maint-actions button:hover, .maint-actions a:hover { transform: translateY(-1px); box-shadow: 0 0 18px rgba(31, 181, 194, 0.4); }
+  @keyframes maint-spin { to { transform: rotate(360deg); } }
+  @keyframes maint-pulse { 50% { transform: scale(0.75); opacity: 0.6; } }
+  @media (prefers-reduced-motion: reduce) {
+    .maint-orb span { animation: none; }
+  }
+</style>
+
+<script>
+  const STATUS_URL = "https://status.maya2c.dev/api/status";
+  const POLL_SECONDS = 20;
+  const TIMEOUT_MS = 8000;
+  const LINK_DISTANCE = 120;
+  const NODE_COUNT = 46;
+
+  const $ = (id: string) => document.getElementById(id)!;
+  const tpl = $("maint-tpl") as HTMLTemplateElement;
+  document.body.append(tpl.content.cloneNode(true));
+  const root = $("maint");
+  let countdown = POLL_SECONDS;
+  let shown = false;
+  let skyRunning = false;
+
+  type Status = { halted_now: boolean; height: number; since_last_block: number };
+
+  async function isDown(): Promise<{ down: boolean; s?: Status }> {
+    try {
+      const r = await fetch(STATUS_URL, { cache: "no-store", signal: AbortSignal.timeout(TIMEOUT_MS) });
+      if (!r.ok) return { down: true };
+      const s = (await r.json()) as Status;
+      return { down: Boolean(s.halted_now), s };
+    } catch {
+      return { down: true }; // status host unreachable: the testnet PC is off
+    }
+  }
+
+  function quiet(secs: number): string {
+    if (secs < 60) return `${secs}s`;
+    if (secs < 3600) return `${Math.floor(secs / 60)}m`;
+    return `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`;
+  }
+
+  function show(on: boolean) {
+    if (on === shown) return;
+    shown = on;
+    root.hidden = !on;
+    document.documentElement.classList.toggle("maint-on", on);
+    if (on) startSky();
+  }
+
+  async function check() {
+    countdown = POLL_SECONDS;
+    const { down, s } = await isDown();
+    if (s) {
+      $("maint-height").textContent = s.height.toLocaleString("en-US");
+      $("maint-quiet").textContent = quiet(s.since_last_block);
+    }
+    show(down);
+  }
+
+  function startSky() {
+    if (skyRunning || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    skyRunning = true;
+    const c = $("maint-sky") as HTMLCanvasElement;
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+    const mouse = { x: -1e4, y: -1e4 };
+    const nodes = Array.from({ length: NODE_COUNT }, () => ({
+      x: Math.random(), y: Math.random(), vx: (Math.random() - 0.5) * 0.0006, vy: (Math.random() - 0.5) * 0.0006,
+    }));
+    root.addEventListener("pointermove", (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
+    const frame = () => {
+      if (!shown) { skyRunning = false; return; }
+      const w = (c.width = innerWidth), h = (c.height = innerHeight);
+      ctx.clearRect(0, 0, w, h);
+      for (const n of nodes) {
+        n.x = (n.x + n.vx + 1) % 1; n.y = (n.y + n.vy + 1) % 1;
+      }
+      const pts = nodes.map((n) => ({ x: n.x * w, y: n.y * h })).concat(mouse);
+      for (let i = 0; i < pts.length; i++) {
+        for (let j = i + 1; j < pts.length; j++) {
+          const d = Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y);
+          if (d > LINK_DISTANCE) continue;
+          const toMouse = j === pts.length - 1;
+          ctx.strokeStyle = toMouse ? `rgba(217,185,122,${1 - d / LINK_DISTANCE})` : `rgba(31,181,194,${0.5 * (1 - d / LINK_DISTANCE)})`;
+          ctx.beginPath(); ctx.moveTo(pts[i].x, pts[i].y); ctx.lineTo(pts[j].x, pts[j].y); ctx.stroke();
+        }
+      }
+      ctx.fillStyle = "#7eeaf0";
+      for (const p of pts.slice(0, -1)) { ctx.beginPath(); ctx.arc(p.x, p.y, 1.6, 0, 7); ctx.fill(); }
+      requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  }
+
+  $("maint-retry").addEventListener("click", check);
+  setInterval(() => {
+    countdown -= 1;
+    $("maint-next").textContent = `${Math.max(countdown, 0)}s`;
+    if (countdown <= 0) check();
+  }, 1000);
+  check();
+</script>
