@@ -212,3 +212,27 @@ inflate. It is also the simplest model to explain to a first investor.
 
 This was decided in conversation and never written down here, so the gate
 table showed it as open until today.
+
+## 2026-10-11 — Local multi-container staging net, explicitly not gate 4
+
+With Oracle Cloud deferred, `infra/stagenet/` models a multi-host network on
+one PC: one validator per Docker container, a private bridge giving each its
+own IP, and a `tc netem` link per node (15–120 ms, up to 1% loss). This
+exercises peer discovery over distinct addresses, latency and loss, and
+staking re-election across epochs — none of which a single-process localnet
+shows. It is **not** gate 4 and may never be described as independent: gate 4
+requires separate machines and separate operators, and a shared host shares a
+kernel, clock and scheduler. The README states this; results are recorded as
+"staging net (N containers, one host)". Chosen because it is zero-cost, uses
+the real release binary, and surfaces WAN-shaped behaviour before the Oracle
+machines exist.
+
+## 2026-10-11 — RPC rate limiter confirmed as the DoS defense, not a bug
+
+A Kali `wrk` flood (~4,000 req/s, single IP) against a staging node's RPC
+returned ~98% non-2xx. This is the per-IP token-bucket limiter
+(`crates/node/src/rpc/limit.rs`, 50 req/s + burst 100, HTTP 429 at
+`server.rs:768`) working as designed: ~50 req/s served, the rest rejected,
+consensus unaffected. No code change — the finding is that the defense holds
+under a real flood. Distributed floods get one bucket per IP, bounded by
+`MAX_TRACKED` (65,536); left as-is, matching the limiter's documented design.
