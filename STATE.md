@@ -19,18 +19,22 @@
     - Testnet scripts updated to match.
   - Report: `reports/sessions/2026-10-10-recovery.md`.
 - **Unfinished:**
-  - Seed re-bootstrapped (19:23) and at the tip, but jailed for downtime.
-    The epoch-108 committee is 3, so f = 0 until the seed is re-elected
-    (automatic, ~epoch 110). Verify with `get_bft_status` on 8545:
-    `validator` should be non-null and `committee` 4.
-  - Do not restart any validator while the committee is 3.
-  - Gate-3 soak clock restarted 2026-10-10 19:25 KST.
-  - PR #108 awaiting CI.
-  - Attacknet round "validator down > 8 epochs" (ADR-043, item 4).
+  - PR #108 awaiting CI. 9 commits:
+    - recovery;
+    - ADR-043 code;
+    - attacknet attack 7;
+    - p2p simultaneous-start fix;
+    - review fixes.
+  - Gate 3 soak running since 2026-10-10 19:25 KST.
+  - Seed fully back: epoch 110, committee 4, voting.
+  - The testnet binaries are still the old build. Deploy the #108 build
+    after merge, one validator at a time, only while the committee is 4.
+  - BACKLOG: `--min-epoch` floor, two-source agreement, snapshot metering.
 - **Do first next session:**
-  - `curl get_tip_height` on 8545 vs 18602. If the seed is still behind,
-    run the ADR-043 decision-3 runbook.
-  - Merge #108 when green.
+  - `gh pr checks 108`; merge when green.
+  - Then rolling-deploy the new node build to the testnet, v4 → v3 → v2 →
+    seed, checking committee 4 between each step.
+  - Gate 4 needs the Oracle VMs (Eric).
 
 - **Done (2026-10-04/05):**
   - Site: responsive and light-mode fix, live (#81).
