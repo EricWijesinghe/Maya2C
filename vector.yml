@@ -1,0 +1,54 @@
+# Vector log aggregation for attacknet lab
+
+sources:
+  validator_logs:
+    type: "file"
+    include:
+      - "/mnt/d/Maya2C-attacknet-v1/node.log"
+      - "/mnt/d/Maya2C-attacknet-v2/node.log"
+      - "/mnt/d/Maya2C-attacknet-v3/node.log"
+      - "/mnt/d/Maya2C-attacknet-v4/node.log"
+    read_from: "beginning"
+    fingerprint:
+      lines: 10
+    ignore_older_secs: 86400
+
+  infrastructure_logs:
+    type: "file"
+    include:
+      - "/mnt/d/Maya2C-attacknet-bootnode/node.log"
+      - "/mnt/d/Maya2C-attacknet-gateway/gateway.log"
+      - "/mnt/d/Maya2C-attacknet-adversary/adversary.log"
+    read_from: "beginning"
+    fingerprint:
+      lines: 10
+
+transforms:
+  parse_json:
+    type: "remap"
+    inputs: ["validator_logs", "infrastructure_logs"]
+    source: |
+      . = parse_json!(.message)
+
+  add_labels:
+    type: "remap"
+    inputs: ["parse_json"]
+    source: |
+      if .validator != null {
+        .labels.validator = .validator
+      }
+      if .height != null {
+        .labels.height = .height
+      }
+
+sinks:
+  prometheus:
+    type: "prometheus_exporter"
+    address: "0.0.0.0:8686"
+    inputs: ["add_labels"]
+
+  console:
+    type: "console"
+    inputs: ["add_labels"]
+    encoding:
+      codec: "json"
