@@ -34,7 +34,7 @@ use crate::store::BlockStore;
 ///
 /// Inline rather than in a migrations directory so a fresh deployment needs no
 /// external tooling to reach a working schema.
-pub const SCHEMA: &str = r#"
+pub const SCHEMA: &str = r"
 CREATE TABLE IF NOT EXISTS blocks (
     height            BIGINT PRIMARY KEY,
     id                TEXT NOT NULL,
@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS transactions (
 -- the delete order significant.
 CREATE INDEX IF NOT EXISTS transactions_height_idx ON transactions (height);
 CREATE INDEX IF NOT EXISTS transactions_sender_idx ON transactions (sender, height DESC);
-"#;
+";
 
 /// A PostgreSQL-backed index.
 pub struct PostgresStore {

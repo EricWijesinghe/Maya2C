@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 3d6677239e43a4416d7f33e9dc843578c978db101fc3fc42e8d78cca281a3216 # shrinks to base_fee = 1, tip = 0, bps = 1
+cc e3e2627463d4559e68a969dd8b09575c192c377168afd49ff029eed5dee61f7c # shrinks to base_fee = 427, target = 5060848, parent_size = 1, change_denom = 1
+cc 2e318021f228fde36cc271a5179b1c75e31d62752b6d921d5c1859796bffaa11 # shrinks to base_fee = 8, target = 1, parent_size = 54, change_denom = 1
+cc 16ab99cab59cfa83a8bfc4186e4a119da3bfbb3bc1cfd06b35143fca6dcf38ed # shrinks to treasury_bps = 0, target_block_bytes = 65536, initial_base_fee = 677401608, min_base_fee = 1, change_denominator = 1

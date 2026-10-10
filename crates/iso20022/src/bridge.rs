@@ -1,4 +1,4 @@
-//! From a bank message to a Maya2C payment intent, and the reason this must not
+//! From a bank message to a `Maya2C` payment intent, and the reason this must not
 //! run on a chain that holds value.
 //!
 //! ## The one idea to read first
@@ -7,8 +7,8 @@
 //! adversary and nobody else, and the envelope is on chain forever.**
 //!
 //! The sealed mempool (`mev`, `src/sealed/`) is a KEM/DEM construction whose
-//! KEM half is Ristretto ElGamal. That is a deliberate choice — there is no
-//! ML-KEM analogue of threshold ElGamal, and a threshold scheme is the whole
+//! KEM half is Ristretto `ElGamal`. That is a deliberate choice — there is no
+//! ML-KEM analogue of threshold `ElGamal`, and a threshold scheme is the whole
 //! point of the sealed mempool — but it means the confidentiality of anything
 //! sealed rests on the discrete log problem, on a chain whose every signature
 //! and every transport handshake is post-quantum precisely because that
@@ -29,7 +29,7 @@
 //!
 //! ## The gateway is a trusted party
 //!
-//! A pacs.008 arrives over a bank rail carrying no Maya2C keypair, so something
+//! A pacs.008 arrives over a bank rail carrying no `Maya2C` keypair, so something
 //! has to sign on its behalf. That something is the gateway, and it can
 //! therefore mint a payment instruction the bank never sent. The chain has one
 //! trusted party today — the oracle, which invariant 11 keeps absent by default
@@ -42,7 +42,7 @@
 //! [`PaymentIntent`]: who, to whom, how much, under what reference. Turning one
 //! into a `TxKind` and sealing it to the committee is the gateway's job, in the
 //! crate that already depends on chain types. That boundary is what keeps this
-//! crate fuzzable without RocksDB in the graph.
+//! crate fuzzable without `RocksDB` in the graph.
 
 use crate::amount::Amount;
 use crate::error::{Error, Result};

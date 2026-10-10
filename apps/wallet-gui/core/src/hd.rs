@@ -45,7 +45,7 @@ pub const SEED_LEN: usize = 64;
 /// The hardened-index bit.
 pub const HARDENED: u32 = 0x8000_0000;
 
-/// SLIP-44 coin type used for Maya2C accounts.
+/// SLIP-44 coin type used for `Maya2C` accounts.
 ///
 /// 931 is the registered Terra/other space; this chain has no assignment, so
 /// the value is arbitrary but must stay fixed — changing it silently moves
@@ -297,7 +297,7 @@ pub fn derive_path(seed: &[u8], path: &DerivationPath) -> Result<ExtendedKey> {
 /// still yields one reproducible set of accounts, and the two halves of each
 /// account remain independent of one another.
 ///
-/// **This construction is specific to Maya2C.** SLIP-0010 defines curves for
+/// **This construction is specific to `Maya2C`.** SLIP-0010 defines curves for
 /// ed25519 and secp256k1 and says nothing about post-quantum schemes; no
 /// standard covers hierarchical derivation for either ML-DSA or SLH-DSA, and no
 /// other wallet implements this mapping. A user who takes these words to a

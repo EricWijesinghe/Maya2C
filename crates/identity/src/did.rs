@@ -2,7 +2,7 @@
 //!
 //! ## Why the address and not the public key
 //!
-//! The request was `did:maya2c:<pubkey>`. A Maya2C public key is a hybrid pair
+//! The request was `did:maya2c:<pubkey>`. A `Maya2C` public key is a hybrid pair
 //! — ML-DSA-65 plus SLH-DSA, `HYBRID_PUBLIC_KEY_LEN` = 1,984 bytes — which is
 //! about 2,712 base58 characters. A DID goes in a URL, a QR code and every log
 //! line that mentions the subject; 2,712 characters is not an identifier, it is
@@ -55,7 +55,7 @@ const ALPHABET: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqr
 /// decoding is quadratic in the length.
 const MAX_DID_CHARS: usize = PREFIX.len() + 64;
 
-/// A decentralised identifier for a Maya2C subject.
+/// A decentralised identifier for a `Maya2C` subject.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Did(Address);
 

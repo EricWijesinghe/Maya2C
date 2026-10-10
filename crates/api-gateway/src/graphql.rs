@@ -2,7 +2,7 @@
 //!
 //! # Why the limits are not optional
 //!
-//! GraphQL lets a client compose its own query. Over a chain backed by RocksDB
+//! GraphQL lets a client compose its own query. Over a chain backed by `RocksDB`
 //! that is an unbounded-work surface by construction: a nested query is a
 //! request that the server, not the client, pays for, and a public endpoint
 //! with no ceiling is a denial-of-service primitive that ships enabled.

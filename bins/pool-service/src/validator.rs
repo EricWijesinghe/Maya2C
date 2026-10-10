@@ -143,7 +143,9 @@ impl Validator {
         let dispatcher_depth = Arc::clone(&depth);
 
         tokio::spawn(async move {
-            let mut last_pressure = Instant::now() - PRESSURE_INTERVAL;
+            let mut last_pressure = Instant::now()
+                .checked_sub(PRESSURE_INTERVAL)
+                .unwrap_or_else(Instant::now);
 
             while let Some(job) = receiver.recv().await {
                 if dispatcher_depth.load(Ordering::Relaxed) > PRESSURE_WATERMARK

@@ -1,6 +1,6 @@
 //! Ethernet, IPv4/IPv6 and UDP, as far as the relay needs them.
 //!
-//! User space reads AF_XDP frames with [`parse`]; tests and benchmarks build
+//! User space reads `AF_XDP` frames with [`parse`]; tests and benchmarks build
 //! frames with [`encode_ipv4_udp`]. The XDP program applies the same rules with
 //! pointer arithmetic, because the verifier tracks packet bounds through
 //! pointers and not through slice lengths; `hal/ebpf-net/tests/xdp_veth.rs` is what
@@ -13,9 +13,9 @@
 
 /// Ethernet header length, without VLAN tags.
 pub const ETH_HEADER_LEN: usize = 14;
-/// EtherType for IPv4.
+/// `EtherType` for IPv4.
 pub const ETHERTYPE_IPV4: u16 = 0x0800;
-/// EtherType for IPv6.
+/// `EtherType` for IPv6.
 pub const ETHERTYPE_IPV6: u16 = 0x86DD;
 /// IP protocol number for UDP.
 pub const IPPROTO_UDP: u8 = 17;

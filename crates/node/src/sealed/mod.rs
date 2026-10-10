@@ -16,7 +16,7 @@
 //! ## Why keys are big-endian here and nowhere else
 //!
 //! Payload encodings on this chain are little-endian. Storage keys under this
-//! prefix are not, and the reason is that RocksDB orders keys lexicographically
+//! prefix are not, and the reason is that `RocksDB` orders keys lexicographically
 //! by byte. A big-endian height sorts numerically; a little-endian one sorts
 //! into nonsense, and the end-of-block pass would visit envelopes in an order
 //! that depends on the bit pattern of the height rather than on the height.

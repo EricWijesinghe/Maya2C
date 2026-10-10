@@ -56,6 +56,7 @@ wasmtime = { version = "=48.0.4", default-features = false, features = [
 criterion = { workspace = true, features = ["html_reports"] }
 wat.workspace = true
 tempfile.workspace = true
+proptest = { workspace = true }
 # private_state_tests: the STARK prover and verifier behind `maya_priv`. A
 # dev-dependency only: the VM itself stays free of the proof system.
 maya-zk-stark = { path = "../zk-stark" }

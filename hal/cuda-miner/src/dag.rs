@@ -3,7 +3,7 @@
 //! ## Why the miner has its own copy
 //!
 //! This crate does not depend on the node — deliberately, so that shipping a
-//! miner does not drag RocksDB and libp2p along with it — so the definition it
+//! miner does not drag `RocksDB` and libp2p along with it — so the definition it
 //! mines against is written out here. That is a duplication, and duplication of
 //! a consensus rule is exactly the thing that produces silently rejected
 //! blocks, so it is checked from two directions:
@@ -407,7 +407,7 @@ fn hashimoto(
 /// GPU.
 ///
 /// The real miner generates this on the device from the uploaded cache — a
-/// 4 GiB PCIe transfer would take longer than the generation does. This exists
+/// 4 GiB `PCIe` transfer would take longer than the generation does. This exists
 /// so the kernel has something to be compared against.
 #[must_use]
 pub fn generate_dataset(cache: &[u32], params: Params, keys: &Keys) -> Vec<u32> {

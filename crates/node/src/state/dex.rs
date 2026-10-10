@@ -18,7 +18,7 @@
 //! ## Order keys are the priority queue
 //!
 //! A resting order files under `d:ord:<pair><side><price><sequence>`, with the
-//! price and sequence big-endian. RocksDB iterates lexicographically, so a
+//! price and sequence big-endian. `RocksDB` iterates lexicographically, so a
 //! prefix scan yields one side of one book already in price-time order. The
 //! matcher never sorts, and two nodes cannot disagree about the queue because
 //! neither of them chose it.

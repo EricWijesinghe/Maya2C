@@ -1,6 +1,6 @@
 //! Air-gapped transport: a signed transaction as a sequence of QR frames.
 //!
-//! # A signed Maya2C transaction does not fit in a QR code
+//! # A signed `Maya2C` transaction does not fit in a QR code
 //!
 //! This module exists because of one measurement:
 //!

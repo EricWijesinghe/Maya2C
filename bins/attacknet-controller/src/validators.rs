@@ -40,7 +40,9 @@ impl ValidatorManager {
 
     /// Start a validator by name
     pub async fn start(&self, name: &str, catch_up_from: Option<String>) -> Result<()> {
-        let validator = self.config.get_validator(name)
+        let validator = self
+            .config
+            .get_validator(name)
             .ok_or_else(|| anyhow::anyhow!("Validator not found: {}", name))?;
 
         info!("Starting validator: {}", name);
@@ -51,12 +53,18 @@ impl ValidatorManager {
 
         // Build command
         let mut cmd = Command::new(&self.binary_path);
-        cmd.arg("--genesis").arg(&validator.genesis_path)
-            .arg("--data-dir").arg(&validator.data_dir)
-            .arg("--rpc-addr").arg(format!("127.0.0.1:{}", validator.rpc_port))
-            .arg("--p2p-port").arg(validator.p2p_port.to_string())
-            .arg("--validator-key").arg(&validator.validator_key_path)
-            .arg("--metrics-addr").arg(format!("127.0.0.1:{}", validator.metrics_port));
+        cmd.arg("--genesis")
+            .arg(&validator.genesis_path)
+            .arg("--data-dir")
+            .arg(&validator.data_dir)
+            .arg("--rpc-addr")
+            .arg(format!("127.0.0.1:{}", validator.rpc_port))
+            .arg("--p2p-port")
+            .arg(validator.p2p_port.to_string())
+            .arg("--validator-key")
+            .arg(&validator.validator_key_path)
+            .arg("--metrics-addr")
+            .arg(format!("127.0.0.1:{}", validator.metrics_port));
 
         // Add bootnodes (all other validators + bootnode)
         for v in &self.config.validators {
@@ -66,7 +74,8 @@ impl ValidatorManager {
         }
         // Add bootnode
         if let Some(bootnode) = self.config.infrastructure.bootnode.p2p_port {
-            cmd.arg("--bootnode").arg(format!("/ip4/127.0.0.1/tcp/{}", bootnode));
+            cmd.arg("--bootnode")
+                .arg(format!("/ip4/127.0.0.1/tcp/{}", bootnode));
         }
 
         // Add catch-up if specified
@@ -86,7 +95,8 @@ impl ValidatorManager {
             .stdin(Stdio::null());
 
         // Spawn process
-        let child = cmd.spawn()
+        let child = cmd
+            .spawn()
             .with_context(|| format!("Spawning validator {}", name))?;
 
         let pid = child.id();
@@ -94,13 +104,16 @@ impl ValidatorManager {
 
         // Store process
         let mut processes = self.processes.lock().await;
-        processes.insert(name.to_string(), ValidatorProcess {
-            name: name.to_string(),
-            child: Some(child),
-            start_time: Some(Instant::now()),
-            restart_count: 0,
-            last_restart: None,
-        });
+        processes.insert(
+            name.to_string(),
+            ValidatorProcess {
+                name: name.to_string(),
+                child: Some(child),
+                start_time: Some(Instant::now()),
+                restart_count: 0,
+                last_restart: None,
+            },
+        );
 
         Ok(())
     }
@@ -155,7 +168,11 @@ impl ValidatorManager {
                     }
                     RestartPolicy::OnFailure { max_retries } => {
                         if proc.restart_count > *max_retries {
-                            anyhow::bail!("Validator {} exceeded max restarts ({})", name, max_retries);
+                            anyhow::bail!(
+                                "Validator {} exceeded max restarts ({})",
+                                name,
+                                max_retries
+                            );
                         }
                     }
                     RestartPolicy::Always => {}
@@ -196,7 +213,10 @@ impl ValidatorManager {
         let mut processes = self.processes.lock().await;
         processes.get_mut(name).map(|proc| ValidatorStatus {
             name: proc.name.clone(),
-            running: proc.child.as_mut().is_some_and(|c| c.try_wait().ok().flatten().is_none()),
+            running: proc
+                .child
+                .as_mut()
+                .is_some_and(|c| c.try_wait().ok().flatten().is_none()),
             pid: proc.child.as_ref().map(|c| c.id()),
             uptime: proc.start_time.map(|t| t.elapsed()),
             restart_count: proc.restart_count,
@@ -207,14 +227,20 @@ impl ValidatorManager {
     /// Get all validator statuses
     pub async fn all_status(&self) -> Vec<ValidatorStatus> {
         let mut processes = self.processes.lock().await;
-        processes.values_mut().map(|proc| ValidatorStatus {
-            name: proc.name.clone(),
-            running: proc.child.as_mut().is_some_and(|c| c.try_wait().ok().flatten().is_none()),
-            pid: proc.child.as_ref().map(|c| c.id()),
-            uptime: proc.start_time.map(|t| t.elapsed()),
-            restart_count: proc.restart_count,
-            last_restart: proc.last_restart.map(|t| t.elapsed()),
-        }).collect()
+        processes
+            .values_mut()
+            .map(|proc| ValidatorStatus {
+                name: proc.name.clone(),
+                running: proc
+                    .child
+                    .as_mut()
+                    .is_some_and(|c| c.try_wait().ok().flatten().is_none()),
+                pid: proc.child.as_ref().map(|c| c.id()),
+                uptime: proc.start_time.map(|t| t.elapsed()),
+                restart_count: proc.restart_count,
+                last_restart: proc.last_restart.map(|t| t.elapsed()),
+            })
+            .collect()
     }
 
     /// Start all validators in order
@@ -273,12 +299,18 @@ pub fn build_validator_cmd(
     catch_up_from: Option<String>,
 ) -> Command {
     let mut cmd = Command::new(binary);
-    cmd.arg("--genesis").arg(&validator.genesis_path)
-        .arg("--data-dir").arg(&validator.data_dir)
-        .arg("--rpc-addr").arg(format!("127.0.0.1:{}", validator.rpc_port))
-        .arg("--p2p-port").arg(validator.p2p_port.to_string())
-        .arg("--validator-key").arg(&validator.validator_key_path)
-        .arg("--metrics-addr").arg(format!("127.0.0.1:{}", validator.metrics_port));
+    cmd.arg("--genesis")
+        .arg(&validator.genesis_path)
+        .arg("--data-dir")
+        .arg(&validator.data_dir)
+        .arg("--rpc-addr")
+        .arg(format!("127.0.0.1:{}", validator.rpc_port))
+        .arg("--p2p-port")
+        .arg(validator.p2p_port.to_string())
+        .arg("--validator-key")
+        .arg(&validator.validator_key_path)
+        .arg("--metrics-addr")
+        .arg(format!("127.0.0.1:{}", validator.metrics_port));
 
     for bootnode in bootnodes {
         cmd.arg("--bootnode").arg(bootnode);

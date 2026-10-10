@@ -1,10 +1,10 @@
-//! Off-grid radio transport: moving Maya2C headers where there is no IP.
+//! Off-grid radio transport: moving `Maya2C` headers where there is no IP.
 //!
 //! ## What this carries, and what it does not
 //!
 //! **Headers and SPV proofs. Not transactions.**
 //!
-//! That is arithmetic rather than preference. Every Maya2C signature is a
+//! That is arithmetic rather than preference. Every `Maya2C` signature is a
 //! hybrid pair — ML-DSA-65 plus SLH-DSA, `HYBRID_SIGNATURE_LENGTH` = 11,165
 //! bytes — and both halves must verify, so there is no smaller signature to
 //! send. Those bytes are also incompressible by construction: FIPS 204 already
@@ -46,7 +46,7 @@
 //!
 //! The framing is AX.25-shaped because every packet-radio tool can decode it.
 //! The *spectrum* is ISM, because amateur allocations forbid encrypted
-//! transmission in most jurisdictions and Maya2C's transport is ML-KEM-768
+//! transmission in most jurisdictions and `Maya2C`'s transport is ML-KEM-768
 //! over Noise. Running on amateur bands would mean dropping the encryption and
 //! stamping an operator's callsign on every relayed frame. See [`frame`].
 //!
@@ -74,7 +74,7 @@ pub use relay::{Bundle, RelayStore};
 ///
 /// Frame capacity, minus the frame's own framing, minus the symbol's. Returns
 /// `None` where the spreading factor leaves no room for data at all — which is
-/// not reachable for LoRa's real settings, but is the honest answer to a
+/// not reachable for `LoRa`'s real settings, but is the honest answer to a
 /// caller that asked about a link that cannot carry this protocol.
 #[must_use]
 pub fn block_size_for(spreading_factor: u8) -> Option<usize> {

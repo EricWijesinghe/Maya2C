@@ -1,4 +1,4 @@
-//! # Maya2C Explorer
+//! # `Maya2C` Explorer
 //!
 //! A web explorer: an Axum server rendering Leptos views over an index of chain
 //! data, kept current by a background indexer.

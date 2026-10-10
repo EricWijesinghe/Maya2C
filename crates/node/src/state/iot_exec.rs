@@ -1,4 +1,4 @@
-//! Executing the IoT anchor transactions.
+//! Executing the `IoT` anchor transactions.
 //!
 //! ## Who bears a failure
 //!
@@ -187,7 +187,7 @@ fn terminate(overlay: &mut Overlay, record: &mut DeviceRecord, status: DeviceSta
     StateDB::put_iot_device(overlay, record);
 }
 
-/// Mempool admission for IoT transactions: every signature checked before the
+/// Mempool admission for `IoT` transactions: every signature checked before the
 /// pool holds a byte of it, against the committed key where one is needed.
 ///
 /// # Errors

@@ -1,4 +1,4 @@
-//! Python, Kotlin, and Swift bindings over Maya2C's post-quantum signing.
+//! Python, Kotlin, and Swift bindings over `Maya2C`'s post-quantum signing.
 //!
 //! # The security rule this crate is built around
 //!

@@ -1,4 +1,4 @@
-//! Cryptographic primitives: the ArgonBlake hash, proof-of-work evaluation,
+//! Cryptographic primitives: the `ArgonBlake` hash, proof-of-work evaluation,
 //! and hybrid ML-DSA-65 + SLH-DSA-SHA2-128s key handling.
 //!
 //! [`hybrid`] is the module callers want. [`keys`] is its lattice half and

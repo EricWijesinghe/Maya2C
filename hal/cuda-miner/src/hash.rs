@@ -1,10 +1,10 @@
-//! The host half of ArgonBlake: everything that is *not* the memory-hard fill.
+//! The host half of `ArgonBlake`: everything that is *not* the memory-hard fill.
 //!
 //! ## Why the split is here and not somewhere else
 //!
 //! `src/crypto/argon_blake.rs` measures the full hash at ~25.4 ms and the
 //! BLAKE3 stages at ~120 ns. Everything in this module — three BLAKE3 calls,
-//! one BLAKE2b parameter hash, two 1 KiB `H'` expansions, one 32-byte `H'` —
+//! one `BLAKE2b` parameter hash, two 1 KiB `H'` expansions, one 32-byte `H'` —
 //! costs a few microseconds. The 32768-block Argon2 fill costs the other 99.99%.
 //!
 //! So the GPU kernel implements exactly one function: the fill. Every stage
@@ -19,7 +19,7 @@
 //! ## The interface to the kernel
 //!
 //! Per nonce, the host produces two 1 KiB seed blocks and consumes one 1 KiB
-//! final block. 3 KiB of PCIe traffic against ~25 ms of compute is free.
+//! final block. 3 KiB of `PCIe` traffic against ~25 ms of compute is free.
 //!
 //! ```text
 //!   header (144 B)
@@ -47,7 +47,7 @@ use blake2::digest::{Update, VariableOutput};
 
 use crate::error::{MinerError, Result};
 
-/// Length of an ArgonBlake digest, in bytes.
+/// Length of an `ArgonBlake` digest, in bytes.
 pub const HASH_LEN: usize = 32;
 
 /// Serialized length of a block header. Matches `custom_l1_node::core::HEADER_LEN`.
@@ -140,11 +140,11 @@ pub fn set_nonce(header: &mut [u8], nonce: u64) -> Result<()> {
     Ok(())
 }
 
-/// Runs every ArgonBlake stage that precedes the Argon2 fill.
+/// Runs every `ArgonBlake` stage that precedes the Argon2 fill.
 ///
 /// # Errors
 ///
-/// Propagates BLAKE2b failures, which are unreachable for the fixed sizes used
+/// Propagates `BLAKE2b` failures, which are unreachable for the fixed sizes used
 /// here but are not worth a panic in a long-running miner.
 pub fn prologue(header_bytes: &[u8]) -> Result<Prologue> {
     // Stage 1, from `src/crypto/argon_blake.rs:84`.
@@ -175,14 +175,14 @@ pub fn prologue(header_bytes: &[u8]) -> Result<Prologue> {
     Ok(Prologue { prehash, seed })
 }
 
-/// Runs every ArgonBlake stage that follows the Argon2 fill.
+/// Runs every `ArgonBlake` stage that follows the Argon2 fill.
 ///
 /// `last` is `B[0][m'-1]`. With one lane there is nothing to XOR it against, so
 /// RFC 9106's final block *is* the last block.
 ///
 /// # Errors
 ///
-/// Propagates BLAKE2b failures.
+/// Propagates `BLAKE2b` failures.
 pub fn epilogue(prehash: &[u8; HASH_LEN], last: &Block) -> Result<[u8; HASH_LEN]> {
     let bytes = block_to_le_bytes(last);
     let mut tag = [0u8; HASH_LEN];
@@ -249,9 +249,9 @@ fn argon_h0(prehash: &[u8; HASH_LEN], salt: &[u8; SALT_LEN]) -> Result<[u8; 64]>
 
 /// Argon2's variable-length hash `H'` (RFC 9106 §3.3).
 ///
-/// For outputs of 64 bytes or fewer this is one length-prefixed BLAKE2b. Beyond
+/// For outputs of 64 bytes or fewer this is one length-prefixed `BLAKE2b`. Beyond
 /// that it is a chain: each 64-byte link contributes its first 32 bytes, and the
-/// tail is a final BLAKE2b sized to whatever remains. Only two lengths are ever
+/// tail is a final `BLAKE2b` sized to whatever remains. Only two lengths are ever
 /// requested here — 1024 for a seed block, 32 for the tag — but the general
 /// form is written out because a half-implemented `H'` fails silently at one
 /// length and correctly at another.
@@ -292,7 +292,7 @@ fn h_prime(out: &mut [u8], input: &[u8]) -> Result<()> {
     finalize(hasher, &mut out[written..])
 }
 
-/// Constructs a BLAKE2b instance with the requested digest length.
+/// Constructs a `BLAKE2b` instance with the requested digest length.
 fn blake2b(size: usize) -> Result<Blake2bVar> {
     Blake2bVar::new(size).map_err(|e| MinerError::Blake2OutputSize {
         size,
@@ -300,7 +300,7 @@ fn blake2b(size: usize) -> Result<Blake2bVar> {
     })
 }
 
-/// Drains a BLAKE2b instance into `out`.
+/// Drains a `BLAKE2b` instance into `out`.
 fn finalize(hasher: Blake2bVar, out: &mut [u8]) -> Result<()> {
     let size = out.len();
     hasher

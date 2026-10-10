@@ -16,7 +16,7 @@
 //! **executes**.
 //!
 //! The distinction is not pedantry. The foundation brief's `extended` tier
-//! names "DeFi, RWA, identity, bridges" — which are [`maya_dex`], `maya_rwa`,
+//! names "`DeFi`, RWA, identity, bridges" — which are [`maya_dex`], `maya_rwa`,
 //! `maya_identity` and `maya_iso20022` — and every one of those writes
 //! records that live under the state root (invariant 25). A cargo feature
 //! that removed one would make two honest nodes running the same tagged

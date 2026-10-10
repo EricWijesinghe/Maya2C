@@ -260,6 +260,80 @@ async fn within_engine_window(url: &str, height: u64, tip: [u8; 32], nonce: u64)
     .unwrap_or(false)
 }
 
+/// How long one source may take to answer the tip probe. A refused
+/// connection answers at once; a blackholed one would otherwise hold the
+/// probe for the HTTP client's whole request timeout.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// The `--catch-up-from` sources that answered, highest reported tip first
+/// (ADR-043). A single fixed source failed whenever it was the node that was
+/// down. The tip is the peer's own claim and only orders the attempts: what
+/// is imported is still checked against an attested checkpoint, and a source
+/// that lies high and then fails is followed by the next one. Probed
+/// concurrently; ties keep the order given.
+pub(super) async fn rank_catch_up_sources(urls: &[String]) -> Vec<String> {
+    let mut probes = tokio::task::JoinSet::new();
+    for (order, url) in urls.iter().enumerate() {
+        let Ok(source) = RpcBootstrapSource::new(url, tokio::runtime::Handle::current()) else {
+            continue;
+        };
+        probes.spawn(async move {
+            let probe = tokio::task::spawn_blocking(move || source.probe_tip_height().ok());
+            let tip = tokio::time::timeout(PROBE_TIMEOUT, probe)
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .flatten();
+            tip.map(|tip| (tip, order))
+        });
+    }
+    let mut answered: Vec<(u64, usize)> = probes.join_all().await.into_iter().flatten().collect();
+    answered.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    answered
+        .into_iter()
+        .map(|(_, order)| urls[order].clone())
+        .collect()
+}
+
+/// Rounds of probing before a node with no reachable source starts as an
+/// ordinary restart, and the pause between them: a peer restarting at the
+/// same moment gets a chance to answer.
+const PROBE_ROUNDS: u32 = 3;
+const PROBE_PAUSE: Duration = Duration::from_secs(5);
+
+/// Catches up from the best source that works (ADR-043): sources are tried
+/// in [`rank_catch_up_sources`] order, so one that lies about its tip and
+/// then fails costs one attempt. `Ok(None)` when no source answered at all,
+/// the cold-boot case; an error only when every answering source failed.
+pub(super) async fn catch_up_from_any(
+    urls: &[String],
+    chain: &Arc<Mutex<Chain>>,
+    driver: &mut BftDriver,
+) -> Result<Option<String>, Box<dyn Error>> {
+    let mut ranked = Vec::new();
+    for round in 1..=PROBE_ROUNDS {
+        ranked = rank_catch_up_sources(urls).await;
+        if !ranked.is_empty() || round == PROBE_ROUNDS {
+            break;
+        }
+        tokio::time::sleep(PROBE_PAUSE).await;
+    }
+    let mut last_error = None;
+    for url in ranked {
+        match catch_up(&url, chain, driver).await {
+            Ok(_) => return Ok(Some(url)),
+            Err(error) => {
+                eprintln!("catch-up:    {url} failed: {error}; trying the next source");
+                last_error = Some(error);
+            }
+        }
+    }
+    match last_error {
+        Some(error) => Err(error),
+        None => Ok(None),
+    }
+}
+
 /// Startup catch-up for a node that was down longer than the engine's
 /// window (`--catch-up-from`): imports to the peer's checkpoint, then turns
 /// the driver into an attested follower so it votes and proposes again.
@@ -614,8 +688,74 @@ pub(super) async fn bft_loop(
 mod tests {
     #![allow(clippy::unwrap_used)]
 
-    use super::Feed;
+    use super::{Feed, PROBE_TIMEOUT, rank_catch_up_sources};
     use custom_l1_node::core::staking_payload::StakingAction;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// A JSON-RPC peer that answers every request with `tip` as its height.
+    async fn peer(tip: u64) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = vec![0u8; 4096];
+                let _ = socket.read(&mut buf).await;
+                let body = format!(r#"{{"jsonrpc":"2.0","id":0,"result":{tip}}}"#);
+                let reply = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = socket.write_all(reply.as_bytes()).await;
+            }
+        });
+        url
+    }
+
+    /// A URL nothing listens on.
+    async fn dead() -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        format!("http://{}", listener.local_addr().unwrap())
+    }
+
+    /// A peer that accepts the connection and never answers (blackholed).
+    async fn silent() -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok((socket, _)) = listener.accept().await {
+                held.push(socket);
+            }
+        });
+        url
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn catch_up_sources_are_empty_when_no_peer_answers() {
+        let urls = vec![dead().await, dead().await];
+        assert!(rank_catch_up_sources(&urls).await.is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn catch_up_sources_rank_reachable_peers_by_tip() {
+        let (low, high) = (peer(5).await, peer(9).await);
+        let urls = vec![dead().await, low.clone(), high.clone()];
+        assert_eq!(rank_catch_up_sources(&urls).await, vec![high, low]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_silent_peer_costs_one_probe_timeout_not_the_client_timeout() {
+        let live = peer(7).await;
+        let urls = vec![silent().await, silent().await, live.clone()];
+        let started = std::time::Instant::now();
+        assert_eq!(rank_catch_up_sources(&urls).await, vec![live]);
+        // Concurrent probes: two silent peers cost one timeout, not two.
+        assert!(
+            started.elapsed() < PROBE_TIMEOUT * 2,
+            "took {:?}",
+            started.elapsed()
+        );
+    }
     use custom_l1_node::core::{Transaction, TxKind};
     use custom_l1_node::crypto::{PUBLIC_KEY_LEN, SIGNATURE_LENGTH};
 

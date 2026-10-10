@@ -1,10 +1,10 @@
 //! The block store: every block this node has accepted, kept in the same
-//! RocksDB as state.
+//! `RocksDB` as state.
 //!
 //! ## Why it exists
 //!
 //! Until 2026-09-12 no block was persisted anywhere. `Chain` held every block
-//! in memory, and RocksDB held only the current state and the undo journals. A
+//! in memory, and `RocksDB` held only the current state and the undo journals. A
 //! node that had applied one block could not restart. On boot `seed_state`
 //! rewrote the genesis allocations over the evolved state, the genesis root
 //! check then failed, and `Chain::new` rebuilt from genesis alone.

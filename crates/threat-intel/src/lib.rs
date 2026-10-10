@@ -24,7 +24,7 @@
 //!   are free, so a score from attestations counted by head would belong to
 //!   whoever spun up the most keys. One piece of verified evidence confirms; no
 //!   number of unverified ones does anything.
-//! - **Not a DDoS defence.** Keys are free too. What this stops is an identity
+//! - **Not a `DDoS` defence.** Keys are free too. What this stops is an identity
 //!   that sent provably invalid data being accepted again by any node.
 //!
 //! # Shape

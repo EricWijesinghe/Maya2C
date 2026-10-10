@@ -171,3 +171,68 @@ Eric chose all three recommended options:
 Why: investor money arrives only after three months of mainnet, so every
 gate waiting on people or money would have blocked the thing that pays for
 them. Each gap is written on the site, never relabelled away.
+
+## 2026-10-10: Nemotron-week work kept only where evidence backs it
+
+Eric used another model for a week while Claude was out of quota. Kept: the
+lint fixes and the property tests, once corrected. Not kept:
+- the lab PowerShell scripts, none of which parsed (quarantined outside the
+  repo);
+- `compact_epoch_logs`, an unwired rewrite of the anti-equivocation log that
+  drops undecodable records.
+The controller's unimplemented faults now fail instead of reporting PASS.
+
+Why: a PASS with no fault behind it is worse than no test (Standing Order 1).
+
+## 2026-10-10: validators serve snapshots; catch-up picks a live source (ADR-043)
+
+The live seed, 13 epochs behind, had no way back. Validators now snapshot by
+default, and `--catch-up-from` is repeatable.
+
+Why: checkpoints alone cannot bring back a node beyond the 8-epoch retention.
+Validators prune blocks, so a snapshot is the only thing that can.
+
+## 2026-10-10: `Vm::validate` stays compile + imports
+
+The new tests expected `validate` to reject a missing `invoke` or `memory`
+export and more than 256 pages. It does not; `execute` refuses all of these,
+and the tests now pin that.
+
+Why: tightening `validate` changes which deploys are valid. That is a
+consensus change, and it would need an activation height.
+
+## 2026-10-04 (recorded 2026-10-10): gate 6 economics is fees-only at launch
+
+Eric delegated the economics to Claude on 2026-10-04. The choice: no
+emission. Validators earn tips, and the base fee is burned (ADR-029). A reward
+schedule can be added only through a reviewed upgrade.
+
+Why: with nothing minted, nothing is created that an unaudited bug could
+inflate. It is also the simplest model to explain to a first investor.
+
+This was decided in conversation and never written down here, so the gate
+table showed it as open until today.
+
+## 2026-10-11 — Local multi-container staging net, explicitly not gate 4
+
+With Oracle Cloud deferred, `infra/stagenet/` models a multi-host network on
+one PC: one validator per Docker container, a private bridge giving each its
+own IP, and a `tc netem` link per node (15–120 ms, up to 1% loss). This
+exercises peer discovery over distinct addresses, latency and loss, and
+staking re-election across epochs — none of which a single-process localnet
+shows. It is **not** gate 4 and may never be described as independent: gate 4
+requires separate machines and separate operators, and a shared host shares a
+kernel, clock and scheduler. The README states this; results are recorded as
+"staging net (N containers, one host)". Chosen because it is zero-cost, uses
+the real release binary, and surfaces WAN-shaped behaviour before the Oracle
+machines exist.
+
+## 2026-10-11 — RPC rate limiter confirmed as the DoS defense, not a bug
+
+A Kali `wrk` flood (~4,000 req/s, single IP) against a staging node's RPC
+returned ~98% non-2xx. This is the per-IP token-bucket limiter
+(`crates/node/src/rpc/limit.rs`, 50 req/s + burst 100, HTTP 429 at
+`server.rs:768`) working as designed: ~50 req/s served, the rest rejected,
+consensus unaffected. No code change — the finding is that the defense holds
+under a real flood. Distributed floods get one bucket per IP, bounded by
+`MAX_TRACKED` (65,536); left as-is, matching the limiter's documented design.

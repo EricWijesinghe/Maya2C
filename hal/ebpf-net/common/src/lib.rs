@@ -21,7 +21,7 @@
 //! BPF-to-BPF call gets a fresh frame with only five argument registers. Left
 //! as calls, LLVM spilled a sixth argument through R11 ("R11 is invalid"), and
 //! read a callee-saved register it considered undefined while building a
-//! returned `Result` ("R9 !read_ok"). Inlined, the program has no such calls.
+//! returned `Result` ("R9 !`read_ok`"). Inlined, the program has no such calls.
 //!
 //! # What is deliberately absent
 //!

@@ -49,14 +49,14 @@ const TESTING_ACTIVATION_TARGET: [u8; 32] = {
 pub struct DagConfig {
     /// Cache and dataset sizes.
     pub params: Params,
-    /// First height whose proof of work is the DAG rather than ArgonBlake.
+    /// First height whose proof of work is the DAG rather than `ArgonBlake`.
     pub activation_height: u64,
     /// The target the fork block is mined to, replacing the inherited one.
     ///
     /// ## Why difficulty has to be reset here
     ///
     /// The target in force just before the fork was calibrated against
-    /// ArgonBlake: one hash, 32 MiB of Argon2id, ~25 ms of CPU. The rule that
+    /// `ArgonBlake`: one hash, 32 MiB of Argon2id, ~25 ms of CPU. The rule that
     /// replaces it costs about a millisecond on the same CPU and microseconds
     /// on a GPU. Carrying the old target across would let the next retarget
     /// window be mined in seconds, and retargeting moves by at most
@@ -99,7 +99,7 @@ impl DagConfig {
 
     /// A configuration that never activates the DAG.
     ///
-    /// The pre-fork rule, for tests and tooling that want ArgonBlake at every
+    /// The pre-fork rule, for tests and tooling that want `ArgonBlake` at every
     /// height without knowing what the activation height happens to be.
     pub const NEVER: Self = Self {
         params: Params::MAINNET,

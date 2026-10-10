@@ -9,7 +9,7 @@
 //!
 //! It runs on **ISM** spectrum (868/915 MHz), not amateur bands. That choice is
 //! load-bearing and not a detail: amateur allocations forbid encrypted
-//! transmission in most jurisdictions, and Maya2C's transport is ML-KEM-768
+//! transmission in most jurisdictions, and `Maya2C`'s transport is ML-KEM-768
 //! over Noise. A link that dropped the encryption to be legal on amateur
 //! spectrum would be a different security model, and the callsign that AX.25
 //! requires there would identify the operator of every relay.
@@ -17,7 +17,7 @@
 //! So: AX.25's *shape*, ISM's *rules*. The address fields carry short node tags
 //! rather than callsigns, and nothing here is required to identify a human.
 //!
-//! ## Why a checksum when LoRa already has a CRC
+//! ## Why a checksum when `LoRa` already has a CRC
 //!
 //! The radio's CRC covers the radio's idea of a frame. It says the bytes
 //! survived the air; it says nothing about whether the bytes came from the
@@ -35,7 +35,7 @@ use crate::error::{Error, Result};
 
 /// The most payload bytes one frame may carry.
 ///
-/// 222 is the LoRa limit at SF7 on EU868 with the default 125 kHz bandwidth,
+/// 222 is the `LoRa` limit at SF7 on EU868 with the default 125 kHz bandwidth,
 /// and the largest payload that fits a single frame at *any* usable spreading
 /// factor above it. At SF12 the radio limit falls to 51, which
 /// [`Frame::fits_spreading_factor`] is for: the fragmenter picks a symbol size,
@@ -166,7 +166,7 @@ impl Frame {
 
     /// Whether this frame can be sent at a given spreading factor.
     ///
-    /// SF12 caps a LoRa payload at 51 bytes and SF7 at 222, with the usual
+    /// SF12 caps a `LoRa` payload at 51 bytes and SF7 at 222, with the usual
     /// steps between. A frame that does not fit is not a slow transmission, it
     /// is one the radio refuses — so the fragmenter asks before it commits to a
     /// symbol size.
@@ -264,9 +264,9 @@ impl Frame {
 
 /// The largest whole frame a spreading factor permits.
 ///
-/// The LoRa payload limits for EU868 at 125 kHz. SF7 and SF8 allow 222 bytes,
+/// The `LoRa` payload limits for EU868 at 125 kHz. SF7 and SF8 allow 222 bytes,
 /// SF9 allows 115, and SF10 through SF12 allow 51. A spreading factor outside
-/// 7..=12 is not a LoRa setting, and is treated as the most restrictive rather
+/// 7..=12 is not a `LoRa` setting, and is treated as the most restrictive rather
 /// than the most permissive: a wrong guess that transmits is worse than one
 /// that refuses.
 #[must_use]

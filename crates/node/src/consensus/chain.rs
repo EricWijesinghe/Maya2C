@@ -60,7 +60,7 @@ pub struct ChainConfig {
     pub pow_limit: [u8; 32],
     /// Which proof-of-work rule applies at which height, and at what sizes.
     ///
-    /// Defaults to [`DagConfig::MAINNET`]: ArgonBlake below
+    /// Defaults to [`DagConfig::MAINNET`]: `ArgonBlake` below
     /// [`DAG_ACTIVATION_HEIGHT`], the 4 GiB DAG at and above it.
     ///
     /// [`DAG_ACTIVATION_HEIGHT`]: crate::crypto::dag::DAG_ACTIVATION_HEIGHT
@@ -101,7 +101,7 @@ impl ChainConfig {
     /// verification and no difficulty floor.
     ///
     /// Each verification costs a full 32 MiB Argon2id pass, so a test that
-    /// builds a multi-block fork would spend minutes mining blocks whose PoW is
+    /// builds a multi-block fork would spend minutes mining blocks whose `PoW` is
     /// irrelevant to the behaviour under test. Never use this on a node that
     /// accepts blocks from peers.
     #[must_use]

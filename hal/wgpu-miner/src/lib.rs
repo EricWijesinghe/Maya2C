@@ -1,13 +1,13 @@
-//! Cross-platform GPU mining for Maya2C's hashimoto proof of work.
+//! Cross-platform GPU mining for `Maya2C`'s hashimoto proof of work.
 //!
-//! # Why hashimoto and not ArgonBlake
+//! # Why hashimoto and not `ArgonBlake`
 //!
-//! `cuda-miner` accelerates ArgonBlake, the chain's proof of work before
+//! `cuda-miner` accelerates `ArgonBlake`, the chain's proof of work before
 //! `DAG_ACTIVATION_HEIGHT`. This crate does not duplicate it, for a reason that
 //! is about WGSL rather than about effort.
 //!
-//! **WGSL has no native 64-bit integer type.** Argon2id and BLAKE2b are u64
-//! algorithms throughout. Emulating u64 as pairs of u32 through BLAKE2b's G
+//! **WGSL has no native 64-bit integer type.** Argon2id and `BLAKE2b` are u64
+//! algorithms throughout. Emulating u64 as pairs of u32 through `BLAKE2b`'s G
 //! function is possible, slow, and a correctness surface on a consensus hash —
 //! where one wrong bit produces blocks the network rejects silently. CUDA has
 //! native u64, which is why that port belongs there and this one does not.

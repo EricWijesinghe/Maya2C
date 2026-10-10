@@ -16,7 +16,7 @@
 //!
 //! ## Construction
 //!
-//! Sequentially memory-hard, following Ethash's use of Lerner's RandMemoHash:
+//! Sequentially memory-hard, following Ethash's use of Lerner's `RandMemoHash`:
 //!
 //! ```text
 //! cache[0] = H(seed)

@@ -1,4 +1,4 @@
-//! IoT anchor records: one per device, under `v:`, one layer of the state root
+//! `IoT` anchor records: one per device, under `v:`, one layer of the state root
 //! (invariant 25).
 //!
 //! - `v:dev:<device id>` — [`DeviceRecord::encode`].
@@ -11,7 +11,7 @@ use maya_iot_anchor::{DeviceId, DeviceRecord};
 use crate::error::{NodeError, Result};
 use crate::state::db::{Overlay, StateDB};
 
-/// Prefix of every IoT anchor record.
+/// Prefix of every `IoT` anchor record.
 pub const IOT_PREFIX: &[u8] = b"v:";
 
 /// Prefix of device records.

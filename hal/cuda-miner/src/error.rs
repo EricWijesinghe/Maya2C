@@ -9,7 +9,7 @@
 /// Everything the miner can fail at.
 #[derive(Debug, thiserror::Error)]
 pub enum MinerError {
-    /// A BLAKE2b instance was constructed with an output size it rejects.
+    /// A `BLAKE2b` instance was constructed with an output size it rejects.
     ///
     /// Only reachable if a constant in this crate is wrong, since every call
     /// site passes a compile-time size. Kept as an error rather than a panic
@@ -17,7 +17,7 @@ pub enum MinerError {
     #[error("BLAKE2b rejected an output size of {size} bytes: {reason}")]
     Blake2OutputSize { size: usize, reason: String },
 
-    /// A BLAKE2b digest could not be written into the buffer provided.
+    /// A `BLAKE2b` digest could not be written into the buffer provided.
     #[error("BLAKE2b could not fill a {size}-byte buffer: {reason}")]
     Blake2Finalize { size: usize, reason: String },
 

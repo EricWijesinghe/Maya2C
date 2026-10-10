@@ -1,6 +1,6 @@
-//! Executing the RWA transitions: issuance, DvP, gated transfers, revenue.
+//! Executing the RWA transitions: issuance, `DvP`, gated transfers, revenue.
 //!
-//! ## A DvP that cannot settle is a no-op, never an error
+//! ## A `DvP` that cannot settle is a no-op, never an error
 //!
 //! Invariant 7, and it is not an analogy — it is the same rule:
 //!
@@ -10,7 +10,7 @@
 //!
 //! Delivery-versus-payment means both legs or neither. The obvious
 //! implementation returns an error when a leg cannot settle — and on this chain
-//! that voids the block, so anyone could kill any block by submitting a DvP
+//! that voids the block, so anyone could kill any block by submitting a `DvP`
 //! they know will fail. The counterparty does not even have to be involved.
 //!
 //! So `settle_dvp` — `pub(crate)`, so named here rather than linked —
@@ -62,7 +62,7 @@ pub const MAX_DISTRIBUTION_PAGES: u32 = 40;
 /// The most holders one distribution may pay.
 pub const MAX_DISTRIBUTION_HOLDERS: usize = MAX_DISTRIBUTION_PAGES as usize * HOLDERS_PER_PAGE;
 
-/// Why a DvP did not settle.
+/// Why a `DvP` did not settle.
 ///
 /// Returned rather than raised. Every variant is a reason the swap is a no-op,
 /// and none of them is a reason to fail the block.
@@ -98,7 +98,7 @@ impl StateDB {
     /// Returns [`NodeError::Decode`] if the asset already exists or the token
     /// is outside its bounds. Issuance is one of the few places an error is
     /// right: it is the issuer's own transaction and nobody else's block is at
-    /// stake in the way a DvP's counterparty's is.
+    /// stake in the way a `DvP`'s counterparty's is.
     pub(crate) fn issue_rwa(
         &self,
         overlay: &mut Overlay,
@@ -200,7 +200,7 @@ impl StateDB {
     /// Swaps native coin for RWA units, atomically or not at all.
     ///
     /// Returns why it did not settle rather than raising. See the module docs:
-    /// a DvP that errored would hand anyone a way to void a block.
+    /// a `DvP` that errored would hand anyone a way to void a block.
     ///
     /// # Errors
     ///
@@ -271,7 +271,7 @@ impl StateDB {
     /// no holders — and [`NodeError::InsufficientBalance`] if the issuer cannot
     /// cover the total.
     ///
-    /// An error here is right where it is wrong for a DvP: this is the issuer's
+    /// An error here is right where it is wrong for a `DvP`: this is the issuer's
     /// own transaction, and there is no counterparty whose block it could void.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn distribute_revenue(

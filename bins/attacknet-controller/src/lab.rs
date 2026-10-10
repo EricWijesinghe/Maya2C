@@ -115,8 +115,7 @@ impl Lab {
         ];
 
         for dir in dirs {
-            std::fs::create_dir_all(dir)
-                .with_context(|| format!("Creating directory {}", dir))?;
+            std::fs::create_dir_all(dir).with_context(|| format!("Creating directory {}", dir))?;
         }
 
         // Validator data directories
@@ -176,8 +175,7 @@ impl Lab {
             "chain_id": self.config.chain_id,
             "timestamp": std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+                .map_or(0, |d| d.as_secs()),
             "difficulty_bits": 0,
             "pow_limit_bits": 0,
             "allocations": [{
@@ -223,7 +221,10 @@ impl Lab {
                 .context("Generating validator key")?;
 
             if !output.status.success() {
-                error!("Key generation failed: {}", String::from_utf8_lossy(&output.stderr));
+                error!(
+                    "Key generation failed: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
                 anyhow::bail!("Failed to generate key for {}", validator.name);
             }
 
@@ -237,7 +238,8 @@ impl Lab {
 
     async fn write_validator_configs(&self) -> Result<()> {
         for validator in &self.config.validators {
-            let config = format!(r#"
+            let config = format!(
+                r#"
 [network]
 p2p_port = {}
 bootnodes = [
@@ -259,7 +261,9 @@ write_buffer_mib = 8
 max_open_files = 256
 "#,
                 validator.p2p_port,
-                self.config.validators.iter()
+                self.config
+                    .validators
+                    .iter()
                     .filter(|v| v.name != validator.name)
                     .map(|v| format!("\"/ip4/127.0.0.1/tcp/{}\"", v.p2p_port))
                     .collect::<Vec<_>>()
@@ -275,9 +279,18 @@ max_open_files = 256
         // Add bootnode to each validator's bootnodes
         for validator in &self.config.validators {
             let mut config = std::fs::read_to_string(&validator.config_path)?;
-            let bootnode_line = format!("\"/ip4/127.0.0.1/tcp/{}\"",
-                self.config.infrastructure.bootnode.p2p_port.unwrap_or(33310));
-            config = config.replace("bootnodes = [", &format!("bootnodes = [\n    {},", bootnode_line));
+            let bootnode_line = format!(
+                "\"/ip4/127.0.0.1/tcp/{}\"",
+                self.config
+                    .infrastructure
+                    .bootnode
+                    .p2p_port
+                    .unwrap_or(33310)
+            );
+            config = config.replace(
+                "bootnodes = [",
+                &format!("bootnodes = [\n    {},", bootnode_line),
+            );
             std::fs::write(&validator.config_path, config)?;
         }
 
@@ -286,7 +299,8 @@ max_open_files = 256
 
     async fn write_infrastructure_configs(&self) -> Result<()> {
         // Bootnode config
-        let bootnode_config = format!(r#"
+        let bootnode_config = format!(
+            r#"
 [network]
 p2p_port = {}
 bootnodes = []
@@ -298,14 +312,30 @@ listen = "127.0.0.1:{}"
 [metrics]
 listen = "127.0.0.1:{}"
 "#,
-            self.config.infrastructure.bootnode.p2p_port.unwrap_or(33310),
-            self.config.infrastructure.bootnode.rpc_port.unwrap_or(34310),
-            self.config.infrastructure.bootnode.metrics_port.unwrap_or(35310)
+            self.config
+                .infrastructure
+                .bootnode
+                .p2p_port
+                .unwrap_or(33310),
+            self.config
+                .infrastructure
+                .bootnode
+                .rpc_port
+                .unwrap_or(34310),
+            self.config
+                .infrastructure
+                .bootnode
+                .metrics_port
+                .unwrap_or(35310)
         );
-        std::fs::write(&self.config.infrastructure.bootnode.config_path, bootnode_config)?;
+        std::fs::write(
+            &self.config.infrastructure.bootnode.config_path,
+            bootnode_config,
+        )?;
 
         // RPC Gateway config
-        let gateway_config = format!(r#"
+        let gateway_config = format!(
+            r#"
 [server]
 listen = "127.0.0.1:{}"
 ws_listen = "127.0.0.1:{}"
@@ -322,18 +352,36 @@ burst = 2000
 [metrics]
 listen = "127.0.0.1:{}"
 "#,
-            self.config.infrastructure.rpc_gateway.rpc_port.unwrap_or(34310),
-            self.config.infrastructure.rpc_gateway.metrics_port.unwrap_or(35311),
-            self.config.validators.iter()
+            self.config
+                .infrastructure
+                .rpc_gateway
+                .rpc_port
+                .unwrap_or(34310),
+            self.config
+                .infrastructure
+                .rpc_gateway
+                .metrics_port
+                .unwrap_or(35311),
+            self.config
+                .validators
+                .iter()
                 .map(|v| format!("\"http://127.0.0.1:{}\"", v.rpc_port))
                 .collect::<Vec<_>>()
                 .join(",\n"),
-            self.config.infrastructure.rpc_gateway.metrics_port.unwrap_or(35311)
+            self.config
+                .infrastructure
+                .rpc_gateway
+                .metrics_port
+                .unwrap_or(35311)
         );
-        std::fs::write(&self.config.infrastructure.rpc_gateway.config_path, gateway_config)?;
+        std::fs::write(
+            &self.config.infrastructure.rpc_gateway.config_path,
+            gateway_config,
+        )?;
 
         // Adversarial peer config
-        let adversary_config = format!(r#"
+        let adversary_config = format!(
+            r#"
 [network]
 p2p_port = {}
 bootnodes = ["/ip4/127.0.0.1/tcp/{}"]
@@ -342,18 +390,34 @@ dual_kem = "off"
 [rpc]
 listen = "127.0.0.1:{}"
 "#,
-            self.config.infrastructure.adversarial_peer.p2p_port.unwrap_or(33320),
-            self.config.infrastructure.bootnode.p2p_port.unwrap_or(33310),
-            self.config.infrastructure.adversarial_peer.rpc_port.unwrap_or(34320)
+            self.config
+                .infrastructure
+                .adversarial_peer
+                .p2p_port
+                .unwrap_or(33320),
+            self.config
+                .infrastructure
+                .bootnode
+                .p2p_port
+                .unwrap_or(33310),
+            self.config
+                .infrastructure
+                .adversarial_peer
+                .rpc_port
+                .unwrap_or(34320)
         );
-        std::fs::write(&self.config.infrastructure.adversarial_peer.config_path, adversary_config)?;
+        std::fs::write(
+            &self.config.infrastructure.adversarial_peer.config_path,
+            adversary_config,
+        )?;
 
         Ok(())
     }
 
     async fn write_monitoring_configs(&self) -> Result<()> {
         // Prometheus config
-        let prometheus_config = format!(r#"
+        let prometheus_config = format!(
+            r#"
 global:
   scrape_interval: {}s
   evaluation_interval: 15s
@@ -374,12 +438,19 @@ scrape_configs:
       - targets: ['localhost:9090']
 "#,
             self.config.monitoring.prometheus.scrape_interval_secs,
-            self.config.monitoring.prometheus.scrape_targets.iter()
+            self.config
+                .monitoring
+                .prometheus
+                .scrape_targets
+                .iter()
                 .map(|t| format!("\"{}\"", t))
                 .collect::<Vec<_>>()
                 .join(", ")
         );
-        std::fs::write(&self.config.monitoring.prometheus.config_path, prometheus_config)?;
+        std::fs::write(
+            &self.config.monitoring.prometheus.config_path,
+            prometheus_config,
+        )?;
 
         // Alertmanager config
         let alertmanager_config = r#"
@@ -406,7 +477,10 @@ inhibit_rules:
       severity: 'warning'
     equal: ['alertname', 'instance']
 "#;
-        std::fs::write(&self.config.monitoring.alertmanager.config_path, alertmanager_config)?;
+        std::fs::write(
+            &self.config.monitoring.alertmanager.config_path,
+            alertmanager_config,
+        )?;
 
         // Vector config
         let vector_config = r#"
@@ -477,12 +551,23 @@ sinks:
         let binary = Self::find_binary(&bootnode.binary)?;
 
         let genesis_path = Path::new(&self.config.paths.genesis_dir).join("genesis.json");
+        let port = |p: Option<u16>, what: &str| {
+            p.ok_or_else(|| anyhow::anyhow!("bootnode {what} port is not configured"))
+        };
+        let rpc_port = port(bootnode.rpc_port, "rpc")?;
+        let p2p_port = port(bootnode.p2p_port, "p2p")?;
+        let metrics_port = port(bootnode.metrics_port, "metrics")?;
         let mut cmd = tokio::process::Command::new(binary);
-        cmd.arg("--genesis").arg(&genesis_path)
-            .arg("--data-dir").arg(&bootnode.data_dir)
-            .arg("--rpc-addr").arg(format!("127.0.0.1:{}", bootnode.rpc_port.unwrap()))
-            .arg("--p2p-port").arg(bootnode.p2p_port.unwrap().to_string())
-            .arg("--metrics-addr").arg(format!("127.0.0.1:{}", bootnode.metrics_port.unwrap()));
+        cmd.arg("--genesis")
+            .arg(&genesis_path)
+            .arg("--data-dir")
+            .arg(&bootnode.data_dir)
+            .arg("--rpc-addr")
+            .arg(format!("127.0.0.1:{rpc_port}"))
+            .arg("--p2p-port")
+            .arg(p2p_port.to_string())
+            .arg("--metrics-addr")
+            .arg(format!("127.0.0.1:{metrics_port}"));
 
         let log_file = File::options()
             .create(true)
@@ -570,21 +655,32 @@ sinks:
             .output()
             .await;
 
-        if output.is_err() || !output.unwrap().status.success() {
+        if !output.is_ok_and(|o| o.status.success()) {
             warn!("Docker not available in WSL2, skipping monitoring stack");
             return Ok(());
         }
 
         // Start monitoring stack via docker-compose
-        let compose_file = PathBuf::from(&self.config.paths.control_dir).join("docker-compose.monitoring.yml");
+        let compose_file =
+            PathBuf::from(&self.config.paths.control_dir).join("docker-compose.monitoring.yml");
         if compose_file.exists() {
             tokio::process::Command::new("wsl")
-                .args(["--", "docker-compose", "-f", &compose_file.to_string_lossy(), "up", "-d"])
+                .args([
+                    "--",
+                    "docker-compose",
+                    "-f",
+                    &compose_file.to_string_lossy(),
+                    "up",
+                    "-d",
+                ])
                 .output()
                 .await?;
             info!("Monitoring stack started");
         } else {
-            warn!("Monitoring docker-compose file not found at {}", compose_file.display());
+            warn!(
+                "Monitoring docker-compose file not found at {}",
+                compose_file.display()
+            );
         }
 
         Ok(())
@@ -609,7 +705,8 @@ sinks:
 
                 if let Ok(resp) = reqwest::get(&format!("{}/health", v.health_url())).await
                     && resp.status().is_success()
-                    && let Ok(tip_resp) = reqwest::get(&format!("{}/get_tip_height", v.rpc_url())).await
+                    && let Ok(tip_resp) =
+                        reqwest::get(&format!("{}/get_tip_height", v.rpc_url())).await
                     && let Ok(json) = tip_resp.json::<serde_json::Value>().await
                     && let Some(h) = json.get("result").and_then(|r| r.as_u64())
                 {
@@ -619,12 +716,9 @@ sinks:
                 }
             }
 
-            if all_healthy && !heights.is_empty() {
-                let min_height = *heights.iter().min().unwrap();
-                if min_height >= 3 {
-                    info!("Consensus reached at height {}", min_height);
-                    return Ok(());
-                }
+            if let Some(&min_height) = heights.iter().min().filter(|&&h| all_healthy && h >= 3) {
+                info!("Consensus reached at height {}", min_height);
+                return Ok(());
             }
 
             tokio::time::sleep(Duration::from_secs(2)).await;
@@ -697,7 +791,8 @@ sinks:
         println!("Validators:");
         let statuses = self.validator_manager.all_status().await;
         for status in statuses {
-            println!("  {}: {} (PID: {:?}, Restarts: {})",
+            println!(
+                "  {}: {} (PID: {:?}, Restarts: {})",
                 status.name,
                 if status.running { "RUNNING" } else { "STOPPED" },
                 status.pid,
@@ -708,8 +803,12 @@ sinks:
         println!("\nInfrastructure:");
         let mut processes = self.infrastructure_processes.lock().await;
         for (name, child) in processes.iter_mut() {
-            let running = child.try_wait().unwrap().is_none();
-            println!("  {}: {}", name, if running { "RUNNING" } else { "STOPPED" });
+            let running = matches!(child.try_wait(), Ok(None));
+            println!(
+                "  {}: {}",
+                name,
+                if running { "RUNNING" } else { "STOPPED" }
+            );
         }
 
         println!("\nResources:");
@@ -740,9 +839,7 @@ sinks:
 
     /// Generate daily report
     pub async fn generate_report(&self, date: Option<String>) -> Result<()> {
-        let date = date.unwrap_or_else(|| {
-            chrono::Utc::now().format("%Y-%m-%d").to_string()
-        });
+        let date = date.unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
 
         let runs_dir = PathBuf::from(&self.config.paths.runs_dir).join(&date);
         if !runs_dir.exists() {
@@ -758,7 +855,8 @@ sinks:
             }
         }
 
-        let output = PathBuf::from(&self.config.paths.reports_dir).join(format!("{}-aggregate.md", date));
+        let output =
+            PathBuf::from(&self.config.paths.reports_dir).join(format!("{}-aggregate.md", date));
         crate::evidence::generate_aggregate_report(&runs, &output)?;
 
         info!("Aggregate report generated: {}", output.display());

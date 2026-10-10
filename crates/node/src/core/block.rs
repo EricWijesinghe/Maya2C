@@ -39,7 +39,7 @@ pub const NONCE_RANGE: std::ops::Range<usize> = 72..80;
 /// The proof-of-work committed portion of a block.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BlockHeader {
-    /// ArgonBlake digest of the parent header.
+    /// `ArgonBlake` digest of the parent header.
     pub prev_hash: [u8; HASH_LEN],
     /// Commitment to post-execution chain state.
     pub state_root: [u8; HASH_LEN],
@@ -141,7 +141,7 @@ impl BlockHeader {
         *hasher.finalize().as_bytes()
     }
 
-    /// Computes the header's ArgonBlake proof-of-work digest.
+    /// Computes the header's `ArgonBlake` proof-of-work digest.
     ///
     /// The **pre-fork** rule. Blocks below [`DAG_ACTIVATION_HEIGHT`] are
     /// checked with this and always will be — a node syncing from genesis has
@@ -161,7 +161,7 @@ impl BlockHeader {
     /// Computes the header's proof-of-work digest under the rule that applies
     /// at `height`.
     ///
-    /// Below the registry's activation height this is ArgonBlake; at or above
+    /// Below the registry's activation height this is `ArgonBlake`; at or above
     /// it, hashimoto against the epoch's verification cache. This is the only
     /// function consensus should call: the height decides the rule, and the
     /// height is the validator's, not the header's — which is why the header
@@ -180,7 +180,7 @@ impl BlockHeader {
         Ok(hashimoto_light(&cache, &self.pow_seed(), self.nonce).result)
     }
 
-    /// Reports whether this header's ArgonBlake digest satisfies its own
+    /// Reports whether this header's `ArgonBlake` digest satisfies its own
     /// difficulty target.
     ///
     /// The pre-fork rule; see [`BlockHeader::pow_hash`].

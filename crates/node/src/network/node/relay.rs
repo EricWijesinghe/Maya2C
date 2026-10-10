@@ -1,6 +1,6 @@
 //! The driver's half of the block relay.
 //!
-//! The relay itself — sealed chunks, the XDP program, AF_XDP — is
+//! The relay itself — sealed chunks, the XDP program, `AF_XDP` — is
 //! `maya_ebpf_net`; the key exchange is [`crate::network::relay_key`]. This
 //! module joins them to the node:
 //!
@@ -74,7 +74,7 @@ const RECEIVE_BUFFER: usize = 65_536;
 pub enum RelayIngress {
     /// A kernel UDP socket on a thread of its own. Any platform.
     Socket,
-    /// The XDP program and AF_XDP sockets (Linux, the `xdp` feature). The relay
+    /// The XDP program and `AF_XDP` sockets (Linux, the `xdp` feature). The relay
     /// port and reassembly limits come from [`RelayConfig`] and override the
     /// XDP configuration's.
     Xdp(XdpIngressConfig),
@@ -103,7 +103,7 @@ impl RelayConfig {
         }
     }
 
-    /// A relay receiving through XDP and AF_XDP, sending from `bind`.
+    /// A relay receiving through XDP and `AF_XDP`, sending from `bind`.
     #[must_use]
     pub const fn xdp(bind: SocketAddr, xdp: XdpIngressConfig) -> Self {
         Self {

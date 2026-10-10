@@ -1,8 +1,8 @@
-//! Persistent account state backed by RocksDB.
+//! Persistent account state backed by `RocksDB`.
 //!
 //! ## Atomicity model
 //!
-//! Block execution never writes to RocksDB incrementally. Every mutation lands
+//! Block execution never writes to `RocksDB` incrementally. Every mutation lands
 //! first in an in-memory overlay; only after *all* transactions in the block
 //! have passed validation is that overlay flushed as a single
 //! [`rocksdb::WriteBatch`]. A failure at any transaction returns `Err` before
@@ -261,8 +261,8 @@ impl StateDB {
     ///
     /// # Why this exists
     ///
-    /// [`StateDB::open`] used `Options::default()`, which leaves RocksDB's own
-    /// defaults in place — and RocksDB's default block cache is 8 MiB. On a
+    /// [`StateDB::open`] used `Options::default()`, which leaves `RocksDB`'s own
+    /// defaults in place — and `RocksDB`'s default block cache is 8 MiB. On a
     /// chain-state database that means almost every account read reaches the
     /// disk, and the node's throughput becomes a reading of storage latency
     /// rather than of anything it decided.
@@ -435,7 +435,7 @@ impl StateDB {
 
     /// Reads every account in address order.
     ///
-    /// RocksDB iterates lexicographically, and the shared prefix preserves that
+    /// `RocksDB` iterates lexicographically, and the shared prefix preserves that
     /// order over raw addresses, so no explicit sort is needed.
     ///
     /// # Errors

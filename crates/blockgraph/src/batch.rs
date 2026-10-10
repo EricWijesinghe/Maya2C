@@ -2,7 +2,7 @@
 //! it.
 //!
 //! Transactions are held as opaque byte strings. This crate cannot decode a
-//! Maya2C transaction — that would mean depending on `custom-l1-node` — and it
+//! `Maya2C` transaction — that would mean depending on `custom-l1-node` — and it
 //! does not need to. What it enforces are the bounds that make a batch safe to
 //! accept from a stranger: how many, how large, and none of them empty.
 
@@ -14,7 +14,7 @@ use crate::error::{GraphError, Result};
 ///
 /// # Why 512 and not a round power of two further up
 ///
-/// A Maya2C transaction carries a hybrid signature pair — ML-DSA-65 at 3,309
+/// A `Maya2C` transaction carries a hybrid signature pair — ML-DSA-65 at 3,309
 /// bytes and SLH-DSA-SHA2-128s at 7,856 — so 11,165 bytes before any payload.
 /// 512 of them is about 5.7 MB, which is a batch a peer can hold, verify, and
 /// discard without the count alone becoming a memory bound. 4,096 would be

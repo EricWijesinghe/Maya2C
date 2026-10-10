@@ -1,6 +1,6 @@
 //! The one source of randomness in a simulation.
 //!
-//! SplitMix64, because it is four lines, has no state beyond a `u64`, and is
+//! `SplitMix64`, because it is four lines, has no state beyond a `u64`, and is
 //! identical on every platform and every toolchain. That last property is the
 //! whole point: a seed that reproduces a failure on one machine has to
 //! reproduce it on another, and an RNG that consults the operating system,

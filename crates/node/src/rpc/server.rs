@@ -1,7 +1,7 @@
 //! JSON-RPC server.
 //!
 //! Handlers are registered as synchronous methods. Every one of them is a short
-//! RocksDB read or an in-memory index lookup — microseconds — so dispatching
+//! `RocksDB` read or an in-memory index lookup — microseconds — so dispatching
 //! them to a blocking pool would cost more in scheduling than it saves. The one
 //! genuine exception is `submit_block`, which verifies proof of work: a 32 MiB
 //! Argon2id pass that would stall the reactor, so it runs on a blocking thread.
@@ -252,7 +252,7 @@ impl RpcContext {
     ///
     /// A poisoned chain lock is not automatically safe to ignore, but the
     /// alternative — refusing every subsequent request — takes the node down
-    /// permanently. State itself is protected by RocksDB's atomic batches, so
+    /// permanently. State itself is protected by `RocksDB`'s atomic batches, so
     /// the worst case is an index that lags committed state.
     pub(crate) fn chain(&self) -> std::sync::MutexGuard<'_, Chain> {
         self.chain
@@ -503,8 +503,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
             // otherwise have to guess and get wrong.
             let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
+                .map_or(0, |d| d.as_secs());
 
             let header = chain
                 .candidate_header(timestamp)

@@ -7,20 +7,20 @@
 //! own split, and the same honest limit applies: `MemoryLedger` proves the
 //! logic and cannot prove the durability.
 //!
-//! ## Why RocksDB and not the explorer's PostgreSQL
+//! ## Why `RocksDB` and not the explorer's PostgreSQL
 //!
 //! The two stores hold different kinds of data. Everything the explorer indexes
 //! can be rebuilt by re-reading the chain; a share credit exists nowhere but
 //! here, and a lost one is a miner who worked for nothing. That argues for the
 //! storage engine the operator already runs and already knows how to back up,
-//! which on this project is RocksDB.
+//! which on this project is `RocksDB`.
 //!
 //! The cost is stated rather than hidden: one node, no replication, and a
 //! restore is a file restore.
 //!
 //! ## The trait is synchronous
 //!
-//! RocksDB is a blocking API, and wrapping it in `async_trait` would produce
+//! `RocksDB` is a blocking API, and wrapping it in `async_trait` would produce
 //! futures that block their executor thread anyway — the appearance of async
 //! without the property. `src/rpc/server.rs` already calls `StateDB` straight
 //! from request handlers for the same reason. Every read a request handler

@@ -75,15 +75,12 @@ impl UndoRecord {
 
         for entry in &self.entries {
             buf.extend_from_slice(&entry.address);
-            match &entry.previous {
-                Some(account) => {
-                    buf.push(1);
-                    buf.extend_from_slice(&account.encode());
-                }
-                None => {
-                    buf.push(0);
-                    buf.extend_from_slice(&[0u8; ACCOUNT_LEN]);
-                }
+            if let Some(account) = &entry.previous {
+                buf.push(1);
+                buf.extend_from_slice(&account.encode());
+            } else {
+                buf.push(0);
+                buf.extend_from_slice(&[0u8; ACCOUNT_LEN]);
             }
         }
 

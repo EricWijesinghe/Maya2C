@@ -1,7 +1,7 @@
 //! Multi-threaded proof-of-work search, under whichever rule the target height
 //! calls for.
 //!
-//! Two rules exist and both are permanent: ArgonBlake below
+//! Two rules exist and both are permanent: `ArgonBlake` below
 //! [`DAG_ACTIVATION_HEIGHT`] and the memory-hard DAG at or above it. The caller
 //! picks with [`PowMode`], because the caller is the one that knows what height
 //! the candidate is for.
@@ -52,7 +52,7 @@ const CANCEL_CHECK_INTERVAL: u64 = 1;
 /// failure the chain's own dispatch in `BlockHeader::pow_hash_at` prevents on
 /// the validating side.
 pub enum PowMode<'a> {
-    /// ArgonBlake, the pre-fork rule.
+    /// `ArgonBlake`, the pre-fork rule.
     Argon,
     /// The DAG, recomputing each page from the epoch's 64 MiB cache.
     ///
@@ -84,7 +84,7 @@ impl PowMode<'_> {
 pub struct MiningResult {
     /// The header carrying the winning nonce.
     pub header: BlockHeader,
-    /// Its ArgonBlake digest.
+    /// Its `ArgonBlake` digest.
     pub hash: [u8; 32],
     /// Total attempts across all threads.
     pub attempts: u64,
@@ -98,13 +98,12 @@ pub struct MiningResult {
 #[must_use]
 pub fn suggested_threads() -> usize {
     std::thread::available_parallelism()
-        .map(|n| n.get().min(8))
-        .unwrap_or(1)
+        .map_or(1, |n| n.get().min(8))
         .max(1)
 }
 
 /// Searches for a nonce making `header` satisfy its own difficulty target,
-/// under the pre-fork ArgonBlake rule.
+/// under the pre-fork `ArgonBlake` rule.
 ///
 /// Kept as the plain entry point for tooling and tests that predate the fork.
 /// Anything mining against a real chain must use [`mine_header_with`] and pass

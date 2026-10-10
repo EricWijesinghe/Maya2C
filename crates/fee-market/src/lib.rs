@@ -13,7 +13,7 @@
 //! | Brief | This chain | So |
 //! |---|---|---|
 //! | base fee tracks "block gas saturation" | no block gas; fuel meters contract calls only | the base fee tracks serialized **bytes** ([`base_fee`]) |
-//! | tip to the "PoUW miner/validator" | no coinbase, no validators; PoUW is a dark research branch | a one-per-block [`FeeClaim`], the shape `WorkClaim` already has |
+//! | tip to the "`PoUW` miner/validator" | no coinbase, no validators; `PoUW` is a dark research branch | a one-per-block [`FeeClaim`], the shape `WorkClaim` already has |
 //! | burn "from total supply" | a burn credits the unspendable fee sink: `total` is conserved, `circulating` falls | [`Supply::after_burn`] moves `circulating` only |
 //! | a hard supply cap | nothing mints, so a cap is currently vacuous | [`MAX_SUPPLY`] exists anyway, for the day something does |
 //!

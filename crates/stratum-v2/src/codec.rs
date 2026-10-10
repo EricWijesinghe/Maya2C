@@ -139,7 +139,7 @@ impl<'a> Reader<'a> {
     ///
     /// ## Deviation from the specification, and why
     ///
-    /// Stratum V2 declares these `U256` and little-endian. Maya2C's targets are
+    /// Stratum V2 declares these `U256` and little-endian. `Maya2C`'s targets are
     /// compared as **big-endian byte strings** (`src/crypto/pow.rs:16-18`), and
     /// its header stores hashes in that same order (`src/core/block.rs:34-39`).
     /// Byte-swapping on the wire would mean every target crossing this boundary
