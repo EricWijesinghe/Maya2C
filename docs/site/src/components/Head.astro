@@ -5,6 +5,7 @@
 // says what Maya2C is; this says what each page is, so a result can show the
 // path and the page's own summary instead of the site's.
 import Default from "@astrojs/starlight/components/Head.astro";
+import Maintenance from "./Maintenance.astro";
 
 const route = Astro.locals.starlightRoute;
 const { title, description, template } = route.entry.data;
@@ -42,3 +43,4 @@ const ld = graph.length ? JSON.stringify({ "@context": "https://schema.org", "@g
 
 <Default />
 {ld && <script type="application/ld+json" set:html={ld} />}
+<Maintenance />
