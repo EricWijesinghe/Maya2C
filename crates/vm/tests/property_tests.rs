@@ -63,7 +63,7 @@ proptest! {
     ) {
         let vm = Vm::new().expect("vm creation");
         let module = wat::parse_str(
-            &format!(r#"(module
+            format!(r#"(module
                 (memory (export "memory") {initial_pages})
                 (func (export "invoke") (param i32) (result i64)
                   (if (i32.eq (memory.grow (i32.const {grow})) (i32.const -1))
@@ -96,8 +96,8 @@ proptest! {
         let mut input = vec![0u8; 32];
         input[0] = (seed & 0xFF) as u8;
 
-        let exec1 = vm.execute(&module, CONTRACT, &mut input.clone(), fuel_limit, MemoryState::default());
-        let exec2 = vm.execute(&module, CONTRACT, &mut input.clone(), fuel_limit, MemoryState::default());
+        let exec1 = vm.execute(&module, CONTRACT, &input, fuel_limit, MemoryState::default());
+        let exec2 = vm.execute(&module, CONTRACT, &input, fuel_limit, MemoryState::default());
 
         prop_assert_eq!(exec1.outcome.is_ok(), exec2.outcome.is_ok());
         if exec1.outcome.is_ok() && exec2.outcome.is_ok() {
@@ -112,7 +112,7 @@ proptest! {
         fuel_limit in 100000u64..10_000_000u64,
     ) {
         let module = wat::parse_str(
-            &format!(r#"(module
+            format!(r#"(module
                 (memory (export "memory") 1)
                 (func (export "invoke") (param i32) (result i64)
                   (local $i i32)
@@ -138,7 +138,7 @@ proptest! {
     ) {
         let vm = Vm::new().expect("vm creation");
         let module = wat::parse_str(
-            &format!(r#"(module
+            format!(r#"(module
                 (memory (export "memory") {pages})
                 (func (export "invoke") (param i32) (result i64) (i64.const 0)))"#, pages = pages)
         ).unwrap();
@@ -156,7 +156,7 @@ proptest! {
     ) {
         let vm = Vm::new().expect("vm creation");
         let module = wat::parse_str(
-            &format!(r#"(module
+            format!(r#"(module
                 (memory (export "memory") {pages})
                 (func (export "invoke") (param i32) (result i64) (i64.const 0)))"#, pages = pages)
         ).unwrap();
@@ -184,8 +184,8 @@ proptest! {
         let vm1 = Vm::new().expect("vm1");
         let vm2 = Vm::new().expect("vm2");
 
-        let exec1 = vm1.execute(&module, CONTRACT, &mut input.clone(), fuel_limit, MemoryState::default());
-        let exec2 = vm2.execute(&module, CONTRACT, &mut input.clone(), fuel_limit, MemoryState::default());
+        let exec1 = vm1.execute(&module, CONTRACT, &input, fuel_limit, MemoryState::default());
+        let exec2 = vm2.execute(&module, CONTRACT, &input, fuel_limit, MemoryState::default());
 
         prop_assert_eq!(exec1.outcome.is_ok(), exec2.outcome.is_ok());
         if exec1.outcome.is_ok() && exec2.outcome.is_ok() {

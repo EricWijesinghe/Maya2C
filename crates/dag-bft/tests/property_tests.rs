@@ -12,9 +12,9 @@ use proptest::prelude::*;
 
 fn check(committee: &Committee, total: u128) -> Result<(), TestCaseError> {
     let (q, f) = (committee.quorum(), committee.faults());
-    prop_assert!(total >= 3 * f + 1, "f too large: W={total} f={f}");
+    prop_assert!(total > 3 * f, "f too large: W={total} f={f}");
     prop_assert!(
-        2 * q >= total + f + 1,
+        2 * q > total + f,
         "quorums may share no honest weight: W={total} q={q} f={f}"
     );
     prop_assert!(
