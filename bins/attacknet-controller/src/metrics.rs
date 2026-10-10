@@ -10,7 +10,7 @@ use prometheus_client::metrics::family::Family;
 use prometheus_client::metrics::gauge::Gauge;
 use prometheus_client::metrics::histogram::Histogram;
 use prometheus_client::registry::Registry;
-use tracing::info;
+use tracing::{info, warn};
 
 /// Lab-wide metrics
 #[allow(dead_code)]
@@ -518,7 +518,10 @@ impl LabMetrics {
         info!("=== Lab Metrics Summary ===");
 
         let mut buffer = String::new();
-        prometheus_client::encoding::text::encode(&mut buffer, &self.registry).unwrap();
+        if let Err(error) = prometheus_client::encoding::text::encode(&mut buffer, &self.registry) {
+            warn!("metrics summary unavailable: {error}");
+            return;
+        }
 
         for line in buffer.lines() {
             if line.contains("validator_up")
