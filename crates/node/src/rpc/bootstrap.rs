@@ -49,7 +49,7 @@ pub struct SnapshotService {
     snapshots: Snapshots,
     min_depth: u64,
     /// Most recently used last.
-    cache: Mutex<Vec<Loaded>>,
+    cache: Mutex<Vec<Arc<Loaded>>>,
 }
 
 impl SnapshotService {
@@ -69,29 +69,45 @@ impl SnapshotService {
         &self.snapshots
     }
 
-    fn loaded(&self, height: u64) -> Result<Loaded> {
-        let mut cache = self
-            .cache
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(index) = cache.iter().position(|(m, _)| m.height == height) {
-            let hit = cache.remove(index);
-            cache.push(hit.clone());
+    /// A snapshot, shared: a hit clones a pointer, never the snapshot. Every
+    /// `get_snapshot_chunk` call comes here, and with validators serving
+    /// snapshots by default (ADR-043) a whole-state copy per request was a
+    /// cheap way to make one spend memory and CPU.
+    fn loaded(&self, height: u64) -> Result<Arc<Loaded>> {
+        if let Some(hit) = self.cached(height) {
             return Ok(hit);
         }
         // Only a checkpoint that exists: a made-up height costs a directory
-        // listing, never a state scan.
+        // listing, never a state scan. Loaded without holding the lock, so a
+        // slow disk read does not stall requests for cached snapshots.
         if !self.snapshots.heights()?.contains(&height) {
             return Err(NodeError::Network(format!(
                 "no snapshot at height {height}"
             )));
         }
-        let loaded = self.snapshots.load(height)?;
-        if cache.len() == LOADED_SNAPSHOTS {
-            cache.remove(0);
+        let loaded = Arc::new(self.snapshots.load(height)?);
+        let mut cache = self.lock_cache();
+        if !cache.iter().any(|l| l.0.height == height) {
+            if cache.len() == LOADED_SNAPSHOTS {
+                cache.remove(0);
+            }
+            cache.push(Arc::clone(&loaded));
         }
-        cache.push(loaded.clone());
         Ok(loaded)
+    }
+
+    fn cached(&self, height: u64) -> Option<Arc<Loaded>> {
+        let mut cache = self.lock_cache();
+        let index = cache.iter().position(|l| l.0.height == height)?;
+        let hit = cache.remove(index);
+        cache.push(Arc::clone(&hit));
+        Some(hit)
+    }
+
+    fn lock_cache(&self) -> std::sync::MutexGuard<'_, Vec<Arc<Loaded>>> {
+        self.cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }
 
@@ -143,10 +159,10 @@ pub fn register(module: &mut RpcModule<RpcContext>) -> std::result::Result<(), E
                 .serveable(tip, service.min_depth)
                 .map_err(|e| rejected(e.to_string()))?
                 .ok_or_else(|| rejected("no snapshot is deep enough yet"))?;
-            let (manifest, _) = service
+            let loaded = service
                 .loaded(height)
                 .map_err(|e| rejected(e.to_string()))?;
-            Ok::<_, ErrorObjectOwned>(hex::encode(manifest.encode()))
+            Ok::<_, ErrorObjectOwned>(hex::encode(loaded.0.encode()))
         })
         .map_err(|e| rejected(e.to_string()))?;
 
@@ -158,10 +174,11 @@ pub fn register(module: &mut RpcModule<RpcContext>) -> std::result::Result<(), E
                 .snapshots
                 .as_ref()
                 .ok_or_else(|| rejected("this node serves no snapshots"))?;
-            let (_, chunks) = service
+            let loaded = service
                 .loaded(height)
                 .map_err(|e| rejected(e.to_string()))?;
-            let chunk = chunks
+            let chunk = loaded
+                .1
                 .get(index)
                 .ok_or_else(|| rejected(format!("no chunk {index}")))?;
             Ok::<_, ErrorObjectOwned>(hex::encode(chunk))
