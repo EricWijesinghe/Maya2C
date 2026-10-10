@@ -3,7 +3,7 @@
 //! ## Transport
 //!
 //! The pool reuses `src/network/pq` — Noise-style XX over X25519 with an
-//! ML-KEM-768 exchange layered inside, ChaCha20Poly1305, 64 KiB frames.
+//! ML-KEM-768 exchange layered inside, `ChaCha20Poly1305`, 64 KiB frames.
 //! `docs/stratum-v2.md` §6 gives the reasoning: SV2 specifies
 //! `Noise_NX_secp256k1_…`, and adopting it would introduce secp256k1 — the one
 //! classical primitive this codebase deliberately avoids — to buy interop that

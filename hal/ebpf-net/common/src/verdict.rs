@@ -24,7 +24,7 @@ use crate::rate::{Bucket, RateLimit};
 /// What happens to one relay datagram.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Verdict {
-    /// Hand it to the AF_XDP socket on its queue.
+    /// Hand it to the `AF_XDP` socket on its queue.
     Redirect,
     /// Drop it at the driver, counting it under the given counter.
     Drop(Counter),

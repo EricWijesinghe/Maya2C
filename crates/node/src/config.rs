@@ -104,21 +104,21 @@ pub struct RpcConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct StorageConfig {
-    /// RocksDB block cache, in mebibytes.
+    /// `RocksDB` block cache, in mebibytes.
     ///
     /// The read cache. Larger keeps more of the account trie hot; the working
     /// set is a property of the chain's size and the node's traffic, so this is
     /// a knob rather than a constant.
     pub block_cache_mib: usize,
-    /// RocksDB write buffer, in mebibytes.
+    /// `RocksDB` write buffer, in mebibytes.
     ///
     /// Memtable size before a flush. Larger means fewer, bigger SSTs and less
     /// write amplification, at the cost of that much resident memory per
     /// column family.
     pub write_buffer_mib: usize,
-    /// Files RocksDB may keep open.
+    /// Files `RocksDB` may keep open.
     ///
-    /// `-1` lets RocksDB keep every file open, which is fastest and needs
+    /// `-1` lets `RocksDB` keep every file open, which is fastest and needs
     /// `LimitNOFILE` raised to match — the systemd units set it.
     pub max_open_files: i32,
 }

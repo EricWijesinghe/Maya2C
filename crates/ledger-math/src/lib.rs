@@ -114,7 +114,7 @@ pub fn total_outputs(amounts: impl IntoIterator<Item = u64>) -> Option<u64> {
 /// ## The property
 ///
 /// **`payouts.iter().sum() == total`**, always. Not approximately, not up to
-/// dust. Maya2C's invariant guard refuses any block whose value deltas do not
+/// dust. `Maya2C`'s invariant guard refuses any block whose value deltas do not
 /// balance, so a distribution that lost a base unit to rounding would not be a
 /// small unfairness — it would be a block nobody can mine.
 ///

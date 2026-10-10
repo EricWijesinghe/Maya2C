@@ -73,7 +73,7 @@ impl SnapshotService {
         let mut cache = self
             .cache
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(index) = cache.iter().position(|(m, _)| m.height == height) {
             let hit = cache.remove(index);
             cache.push(hit.clone());
@@ -295,7 +295,7 @@ impl BootstrapSource for RpcBootstrapSource {
         *self
             .snapshot_height
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(manifest.height);
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(manifest.height);
         Ok(manifest)
     }
 
@@ -303,7 +303,7 @@ impl BootstrapSource for RpcBootstrapSource {
         let height = self
             .snapshot_height
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .ok_or_else(|| NodeError::Network("chunk asked for before the manifest".into()))?;
         let text: String = self.call("get_snapshot_chunk", &rpc_params![height, index])?;
         unhex(&text)

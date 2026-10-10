@@ -1,4 +1,4 @@
-//! Poseidon2 over BabyBear, width 16 — the one hash inside every AIR here.
+//! Poseidon2 over `BabyBear`, width 16 — the one hash inside every AIR here.
 //!
 //! The round constants are the standard ones `p3-baby-bear` ships
 //! (`BABYBEAR_POSEIDON2_RC_16_*`, the Horizen Labs instance), not random
@@ -24,7 +24,7 @@ use p3_symmetric::Permutation as _;
 /// The field every AIR in this crate is over.
 pub type F = BabyBear;
 
-/// The BabyBear modulus, `2^31 − 2^27 + 1`.
+/// The `BabyBear` modulus, `2^31 − 2^27 + 1`.
 pub const MODULUS: u32 = 0x7800_0001;
 
 /// Permutation width.
@@ -38,7 +38,7 @@ pub type Digest = [F; DIGEST];
 pub const HALF_FULL_ROUNDS: usize = p3_baby_bear::BABYBEAR_POSEIDON2_HALF_FULL_ROUNDS;
 /// Partial rounds for width 16.
 pub const PARTIAL_ROUNDS: usize = p3_baby_bear::BABYBEAR_POSEIDON2_PARTIAL_ROUNDS_16;
-/// The S-box exponent, 7 for BabyBear.
+/// The S-box exponent, 7 for `BabyBear`.
 pub const SBOX_DEGREE: u64 = p3_baby_bear::BABYBEAR_S_BOX_DEGREE;
 /// Helper columns per S-box: one keeps every constraint at degree 3.
 pub const SBOX_REGISTERS: usize = 1;

@@ -12,7 +12,10 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::evidence::{EvidenceCollector, ScenarioConfig, ScenarioMetrics, Severity, Verdict};
-use crate::fault_injection::{FaultInjector, FaultSpec, NetworkFault, PartitionDirection, ProcessFault, ProtocolFault, StorageFault};
+use crate::fault_injection::{
+    FaultInjector, FaultSpec, NetworkFault, PartitionDirection, ProcessFault, ProtocolFault,
+    StorageFault,
+};
 use crate::lab::Lab;
 use crate::metrics::LabMetrics;
 
@@ -87,7 +90,9 @@ pub struct ScenarioRunner<'a> {
 impl<'a> ScenarioRunner<'a> {
     pub fn new(lab: &'a Lab) -> Self {
         let config = lab.config.clone();
-        let evidence_collector = Arc::new(Mutex::new(EvidenceCollector::new(config.paths.runs_dir.clone().into())));
+        let evidence_collector = Arc::new(Mutex::new(EvidenceCollector::new(
+            config.paths.runs_dir.clone().into(),
+        )));
         let metrics = Arc::new(LabMetrics::new());
 
         let mut runner = Self {
@@ -112,7 +117,9 @@ impl<'a> ScenarioRunner<'a> {
             description: "One validator stops signing; others continue".to_string(),
             expected_behavior: "No fork; silent validator catches up".to_string(),
             fault_spec: FaultSpec {
-                process: Some(vec![ProcessFault::Kill { target: "validator-1".to_string() }]),
+                process: Some(vec![ProcessFault::Kill {
+                    target: "validator-1".to_string(),
+                }]),
                 duration: Some(Duration::from_secs(30)),
                 ..Default::default()
             },
@@ -136,7 +143,7 @@ impl<'a> ScenarioRunner<'a> {
                 network: Some(vec![NetworkFault::Latency {
                     segment: "S1".to_string(),
                     ms: 2000,
-                    jitter_ms: 500
+                    jitter_ms: 500,
                 }]),
                 duration: Some(Duration::from_secs(60)),
                 ..Default::default()
@@ -156,7 +163,7 @@ impl<'a> ScenarioRunner<'a> {
             fault_spec: FaultSpec {
                 protocol: Some(vec![ProtocolFault::MalformedFrames {
                     target: "validator-1".to_string(),
-                    rate: 10
+                    rate: 10,
                 }]),
                 duration: Some(Duration::from_secs(60)),
                 ..Default::default()
@@ -175,12 +182,17 @@ impl<'a> ScenarioRunner<'a> {
             expected_behavior: "Equivocation detected; slashed".to_string(),
             fault_spec: FaultSpec {
                 process: Some(vec![
-                    ProcessFault::Kill { target: "validator-1".to_string() },
-                    ProcessFault::Restart { target: "validator-1".to_string(), catch_up_from: None },
+                    ProcessFault::Kill {
+                        target: "validator-1".to_string(),
+                    },
+                    ProcessFault::Restart {
+                        target: "validator-1".to_string(),
+                        catch_up_from: None,
+                    },
                 ]),
                 protocol: Some(vec![ProtocolFault::MalformedFrames {
                     target: "validator-1".to_string(),
-                    rate: 5
+                    rate: 5,
                 }]),
                 duration: Some(Duration::from_secs(60)),
                 ..Default::default()
@@ -215,7 +227,10 @@ impl<'a> ScenarioRunner<'a> {
             description: "Honest validators collect equivocation proof".to_string(),
             expected_behavior: "Evidence gossiped; tombstone created".to_string(),
             fault_spec: FaultSpec::empty(),
-            success_criteria: vec!["Evidence collected".to_string(), "Tombstone created".to_string()],
+            success_criteria: vec![
+                "Evidence collected".to_string(),
+                "Tombstone created".to_string(),
+            ],
             severity_if_failed: Severity::High,
             duration_estimate_secs: 120,
             implemented: false,
@@ -229,10 +244,20 @@ impl<'a> ScenarioRunner<'a> {
             expected_behavior: "Others unaffected; no fork".to_string(),
             fault_spec: FaultSpec {
                 process: Some(vec![
-                    ProcessFault::Kill { target: "validator-1".to_string() },
-                    ProcessFault::Restart { target: "validator-1".to_string(), catch_up_from: Some("http://127.0.0.1:34300".to_string()) },
-                    ProcessFault::Kill { target: "validator-1".to_string() },
-                    ProcessFault::Restart { target: "validator-1".to_string(), catch_up_from: Some("http://127.0.0.1:34300".to_string()) },
+                    ProcessFault::Kill {
+                        target: "validator-1".to_string(),
+                    },
+                    ProcessFault::Restart {
+                        target: "validator-1".to_string(),
+                        catch_up_from: Some("http://127.0.0.1:34300".to_string()),
+                    },
+                    ProcessFault::Kill {
+                        target: "validator-1".to_string(),
+                    },
+                    ProcessFault::Restart {
+                        target: "validator-1".to_string(),
+                        catch_up_from: Some("http://127.0.0.1:34300".to_string()),
+                    },
                 ]),
                 duration: Some(Duration::from_secs(60)),
                 ..Default::default()
@@ -251,8 +276,12 @@ impl<'a> ScenarioRunner<'a> {
             expected_behavior: "f: continues; f+1: halts safely".to_string(),
             fault_spec: FaultSpec {
                 process: Some(vec![
-                    ProcessFault::Kill { target: "validator-1".to_string() },
-                    ProcessFault::Kill { target: "validator-2".to_string() },
+                    ProcessFault::Kill {
+                        target: "validator-1".to_string(),
+                    },
+                    ProcessFault::Kill {
+                        target: "validator-2".to_string(),
+                    },
                 ]),
                 duration: Some(Duration::from_secs(60)),
                 ..Default::default()
@@ -276,12 +305,15 @@ impl<'a> ScenarioRunner<'a> {
             fault_spec: FaultSpec {
                 network: Some(vec![NetworkFault::Partition {
                     segment: "S1".to_string(),
-                    direction: PartitionDirection::Bidirectional
+                    direction: PartitionDirection::Bidirectional,
                 }]),
                 duration: Some(Duration::from_secs(60)),
                 ..Default::default()
             },
-            success_criteria: vec!["Isolated validator halts".to_string(), "Majority continues".to_string()],
+            success_criteria: vec![
+                "Isolated validator halts".to_string(),
+                "Majority continues".to_string(),
+            ],
             severity_if_failed: Severity::Critical,
             duration_estimate_secs: 90,
             implemented: true,
@@ -296,12 +328,15 @@ impl<'a> ScenarioRunner<'a> {
             fault_spec: FaultSpec {
                 network: Some(vec![NetworkFault::Partition {
                     segment: "S1".to_string(),
-                    direction: PartitionDirection::Bidirectional
+                    direction: PartitionDirection::Bidirectional,
                 }]),
                 duration: Some(Duration::from_secs(60)),
                 ..Default::default()
             },
-            success_criteria: vec!["Majority continues".to_string(), "Minority halts".to_string()],
+            success_criteria: vec![
+                "Majority continues".to_string(),
+                "Minority halts".to_string(),
+            ],
             severity_if_failed: Severity::Critical,
             duration_estimate_secs: 90,
             implemented: true,
@@ -316,7 +351,7 @@ impl<'a> ScenarioRunner<'a> {
             fault_spec: FaultSpec {
                 network: Some(vec![NetworkFault::Partition {
                     segment: "S1".to_string(),
-                    direction: PartitionDirection::Bidirectional
+                    direction: PartitionDirection::Bidirectional,
                 }]),
                 duration: Some(Duration::from_secs(60)),
                 ..Default::default()
@@ -336,7 +371,7 @@ impl<'a> ScenarioRunner<'a> {
             fault_spec: FaultSpec {
                 network: Some(vec![NetworkFault::Partition {
                     segment: "S1".to_string(),
-                    direction: PartitionDirection::Inbound
+                    direction: PartitionDirection::Inbound,
                 }]),
                 duration: Some(Duration::from_secs(60)),
                 ..Default::default()
@@ -356,12 +391,15 @@ impl<'a> ScenarioRunner<'a> {
             fault_spec: FaultSpec {
                 network: Some(vec![NetworkFault::Partition {
                     segment: "S1".to_string(),
-                    direction: PartitionDirection::Bidirectional
+                    direction: PartitionDirection::Bidirectional,
                 }]),
                 duration: Some(Duration::from_secs(30)),
                 ..Default::default()
             },
-            success_criteria: vec!["Chain resumes after healing".to_string(), "No fork".to_string()],
+            success_criteria: vec![
+                "Chain resumes after healing".to_string(),
+                "No fork".to_string(),
+            ],
             severity_if_failed: Severity::Critical,
             duration_estimate_secs: 90,
             implemented: true,
@@ -374,13 +412,16 @@ impl<'a> ScenarioRunner<'a> {
             description: "Validator down > GC window".to_string(),
             expected_behavior: "Catch-up via checkpoints".to_string(),
             fault_spec: FaultSpec {
-                process: Some(vec![
-                    ProcessFault::Kill { target: "validator-1".to_string() },
-                ]),
+                process: Some(vec![ProcessFault::Kill {
+                    target: "validator-1".to_string(),
+                }]),
                 duration: Some(Duration::from_secs(120)),
                 ..Default::default()
             },
-            success_criteria: vec!["Validator catches up via checkpoints".to_string(), "No fork".to_string()],
+            success_criteria: vec![
+                "Validator catches up via checkpoints".to_string(),
+                "No fork".to_string(),
+            ],
             severity_if_failed: Severity::High,
             duration_estimate_secs: 180,
             implemented: true,
@@ -395,7 +436,7 @@ impl<'a> ScenarioRunner<'a> {
             fault_spec: FaultSpec {
                 network: Some(vec![NetworkFault::Partition {
                     segment: "S1".to_string(),
-                    direction: PartitionDirection::Bidirectional
+                    direction: PartitionDirection::Bidirectional,
                 }]),
                 duration: Some(Duration::from_secs(180)),
                 ..Default::default()
@@ -416,12 +457,15 @@ impl<'a> ScenarioRunner<'a> {
             fault_spec: FaultSpec {
                 protocol: Some(vec![ProtocolFault::MalformedFrames {
                     target: "validator-1".to_string(),
-                    rate: 100
+                    rate: 100,
                 }]),
                 duration: Some(Duration::from_secs(60)),
                 ..Default::default()
             },
-            success_criteria: vec!["No validator crash".to_string(), "Consensus continues".to_string()],
+            success_criteria: vec![
+                "No validator crash".to_string(),
+                "Consensus continues".to_string(),
+            ],
             severity_if_failed: Severity::High,
             duration_estimate_secs: 90,
             implemented: true,
@@ -436,7 +480,7 @@ impl<'a> ScenarioRunner<'a> {
             fault_spec: FaultSpec {
                 protocol: Some(vec![ProtocolFault::MalformedFrames {
                     target: "all".to_string(),
-                    rate: 1000
+                    rate: 1000,
                 }]),
                 duration: Some(Duration::from_secs(30)),
                 ..Default::default()
@@ -472,13 +516,17 @@ impl<'a> ScenarioRunner<'a> {
             description: "Twin process with same key".to_string(),
             expected_behavior: "Equivocation detected; slashed".to_string(),
             fault_spec: FaultSpec {
-                process: Some(vec![
-                    ProcessFault::Restart { target: "validator-0-twin".to_string(), catch_up_from: None },
-                ]),
+                process: Some(vec![ProcessFault::Restart {
+                    target: "validator-0-twin".to_string(),
+                    catch_up_from: None,
+                }]),
                 duration: Some(Duration::from_secs(60)),
                 ..Default::default()
             },
-            success_criteria: vec!["Equivocation detected".to_string(), "Both validators jailed".to_string()],
+            success_criteria: vec![
+                "Equivocation detected".to_string(),
+                "Both validators jailed".to_string(),
+            ],
             severity_if_failed: Severity::Critical,
             duration_estimate_secs: 120,
             implemented: true, // Implemented in existing attacknet as "stolen_key"
@@ -493,10 +541,15 @@ impl<'a> ScenarioRunner<'a> {
 
     /// Run a specific scenario by ID
     pub async fn run_scenario(&self, scenario_id: &str, rounds: usize) -> Result<()> {
-        let scenario = self.scenarios.get(scenario_id)
+        let scenario = self
+            .scenarios
+            .get(scenario_id)
             .ok_or_else(|| anyhow::anyhow!("Scenario not found: {}", scenario_id))?;
 
-        info!("Running scenario {}: {} ({} rounds)", scenario_id, scenario.name, rounds);
+        info!(
+            "Running scenario {}: {} ({} rounds)",
+            scenario_id, scenario.name, rounds
+        );
 
         for round in 1..=rounds {
             info!("Round {}/{}", round, rounds);
@@ -530,7 +583,8 @@ impl<'a> ScenarioRunner<'a> {
         }
 
         // Record scenario start
-        self.metrics.record_scenario(&scenario.id, scenario.category, 0, "started");
+        self.metrics
+            .record_scenario(&scenario.id, scenario.category, 0, "started");
 
         // Wait for consensus first (like the existing attacknet)
         self.wait_for_consensus().await?;
@@ -538,27 +592,38 @@ impl<'a> ScenarioRunner<'a> {
         // Apply fault injection before scenario
         if let Some(ref process_faults) = scenario.fault_spec.process {
             for fault in process_faults {
-                self.fault_injector.inject_process_fault(fault.clone()).await?;
+                self.fault_injector
+                    .inject_process_fault(fault.clone())
+                    .await?;
             }
         }
         if let Some(ref network_faults) = scenario.fault_spec.network {
             for fault in network_faults {
-                self.fault_injector.inject_network_fault(fault.clone()).await?;
+                self.fault_injector
+                    .inject_network_fault(fault.clone())
+                    .await?;
             }
         }
         if let Some(ref storage_faults) = scenario.fault_spec.storage {
             for fault in storage_faults {
-                self.fault_injector.inject_storage_fault(fault.clone()).await?;
+                self.fault_injector
+                    .inject_storage_fault(fault.clone())
+                    .await?;
             }
         }
         if let Some(ref protocol_faults) = scenario.fault_spec.protocol {
             for fault in protocol_faults {
-                self.fault_injector.inject_protocol_fault(fault.clone()).await?;
+                self.fault_injector
+                    .inject_protocol_fault(fault.clone())
+                    .await?;
             }
         }
 
         // Wait for scenario duration
-        let duration = scenario.fault_spec.duration.unwrap_or(Duration::from_secs(60));
+        let duration = scenario
+            .fault_spec
+            .duration
+            .unwrap_or(Duration::from_secs(60));
         tokio::time::sleep(duration).await;
 
         // Verify success criteria
@@ -576,9 +641,15 @@ impl<'a> ScenarioRunner<'a> {
 
         // Record scenario completion
         let elapsed = start_time.elapsed().as_millis() as u64;
-        self.metrics.record_scenario(&scenario.id, scenario.category, elapsed, verdict.as_str());
+        self.metrics
+            .record_scenario(&scenario.id, scenario.category, elapsed, verdict.as_str());
 
-        info!("Scenario {} round {} completed: {}", scenario.id, round, verdict.as_str());
+        info!(
+            "Scenario {} round {} completed: {}",
+            scenario.id,
+            round,
+            verdict.as_str()
+        );
 
         // Clean up faults (restart killed validators, heal partitions, etc.)
         self.cleanup_after_scenario(scenario).await?;
@@ -673,7 +744,9 @@ impl<'a> ScenarioRunner<'a> {
         let mut total_blocks = 0u64;
 
         for name in &validators {
-            let Some(v) = self.lab.config.get_validator(name) else { continue };
+            let Some(v) = self.lab.config.get_validator(name) else {
+                continue;
+            };
             let rpc_url = v.rpc_url();
             let request = serde_json::json!({
                 "jsonrpc": "2.0",
@@ -708,7 +781,9 @@ impl<'a> ScenarioRunner<'a> {
         let client = reqwest::Client::new();
 
         for name in &validators {
-            let Some(v) = self.lab.config.get_validator(name) else { continue };
+            let Some(v) = self.lab.config.get_validator(name) else {
+                continue;
+            };
 
             let rpc_url = v.rpc_url();
             let request = serde_json::json!({
@@ -734,7 +809,9 @@ impl<'a> ScenarioRunner<'a> {
 
         // Check block IDs at min_height
         for name in &validators {
-            let Some(v) = self.lab.config.get_validator(name) else { continue };
+            let Some(v) = self.lab.config.get_validator(name) else {
+                continue;
+            };
 
             let rpc_url = v.rpc_url();
             let request = serde_json::json!({
@@ -777,7 +854,9 @@ impl<'a> ScenarioRunner<'a> {
 
         // Collect from each validator
         for name in self.lab.config.validator_names() {
-            let Some(v) = self.lab.config.get_validator(&name) else { continue };
+            let Some(v) = self.lab.config.get_validator(&name) else {
+                continue;
+            };
 
             if let Ok(resp) = reqwest::get(&format!("{}/get_tip_height", v.rpc_url())).await
                 && let Ok(json) = resp.json::<serde_json::Value>().await
@@ -800,7 +879,10 @@ impl<'a> ScenarioRunner<'a> {
                 if let ProcessFault::Kill { target } = fault
                     && target != "validator-0-twin"
                 {
-                    self.lab.validator_manager.restart(target, Some("http://127.0.0.1:34300".to_string())).await?;
+                    self.lab
+                        .validator_manager
+                        .restart(target, Some("http://127.0.0.1:34300".to_string()))
+                        .await?;
                 }
             }
         }
@@ -891,7 +973,10 @@ impl<'a> ScenarioRunner<'a> {
                 .output()
                 .await?;
             if !output.status.success() {
-                warn!("icacls restore failed: {}", String::from_utf8_lossy(&output.stderr));
+                warn!(
+                    "icacls restore failed: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
             }
         }
 
@@ -901,7 +986,10 @@ impl<'a> ScenarioRunner<'a> {
     async fn cleanup_disk_pressure(&self, target: &str) -> Result<()> {
         info!("Cleaning up disk pressure for {}", target);
 
-        let fill_file = PathBuf::from(format!("D:\\Maya2C-attacknet-{}\\DISK_PRESSURE_TEST.tmp", target));
+        let fill_file = PathBuf::from(format!(
+            "D:\\Maya2C-attacknet-{}\\DISK_PRESSURE_TEST.tmp",
+            target
+        ));
         if fill_file.exists() {
             std::fs::remove_file(fill_file)?;
         }
@@ -916,7 +1004,9 @@ impl<'a> ScenarioRunner<'a> {
 
         info!("Running category {:?} ({} rounds each)", cat, rounds);
 
-        let scenarios: Vec<_> = self.scenarios.values()
+        let scenarios: Vec<_> = self
+            .scenarios
+            .values()
             .filter(|s| s.category == category && s.implemented)
             .cloned()
             .collect();

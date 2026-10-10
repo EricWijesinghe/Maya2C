@@ -15,7 +15,7 @@
 //!
 //! ## Airtime is computed, not measured
 //!
-//! The time a LoRa frame occupies is a function of spreading factor, bandwidth,
+//! The time a `LoRa` frame occupies is a function of spreading factor, bandwidth,
 //! coding rate and payload length, all known before transmission. Computing it
 //! means the governor can refuse *before* the radio keys up, which is the only
 //! moment refusing helps. Measuring afterwards would be an audit log of
@@ -96,16 +96,16 @@ impl Band {
     }
 }
 
-/// A LoRa link's radio settings, enough to compute airtime.
+/// A `LoRa` link's radio settings, enough to compute airtime.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Settings {
     /// Spreading factor, 7 through 12.
     pub spreading_factor: u8,
-    /// Bandwidth in hertz. 125_000 is the EU868 default.
+    /// Bandwidth in hertz. `125_000` is the EU868 default.
     pub bandwidth_hz: u32,
     /// Coding-rate denominator: 5 through 8, for 4/5 through 4/8.
     pub coding_rate: u8,
-    /// Preamble length in symbols. 8 is the LoRaWAN default.
+    /// Preamble length in symbols. 8 is the `LoRaWAN` default.
     pub preamble_symbols: u16,
 }
 
@@ -158,7 +158,7 @@ impl Settings {
     #[must_use]
     pub fn airtime_micros(self, bytes: usize) -> u64 {
         let symbol = self.symbol_micros();
-        let sf = self.spreading_factor.clamp(7, 12) as i64;
+        let sf = i64::from(self.spreading_factor.clamp(7, 12));
 
         // Low-data-rate optimisation: on at SF11 and SF12 for 125 kHz, which is
         // where a symbol exceeds 16 ms. Written as the condition rather than as

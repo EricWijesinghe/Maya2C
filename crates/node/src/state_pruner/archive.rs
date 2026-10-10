@@ -76,7 +76,7 @@ impl Archiver {
 fn lock(chain: &Mutex<Chain>) -> std::sync::MutexGuard<'_, Chain> {
     chain
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// One pruning round: pick the next batch deep enough to prune, archive it if

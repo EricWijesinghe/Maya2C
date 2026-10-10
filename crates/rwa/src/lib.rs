@@ -5,7 +5,7 @@
 //!
 //! Nothing here knows what a block is. A cap table page or a legal attestation
 //! may arrive from an issuer's own tooling, so the decoder is fuzzable without
-//! RocksDB in the graph — the boundary `identity`, `iso20022` and
+//! `RocksDB` in the graph — the boundary `identity`, `iso20022` and
 //! `radio-transport` all hold.
 //!
 //! ## What is not here

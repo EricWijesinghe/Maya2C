@@ -1,23 +1,23 @@
-//! Stratum V2 framing and mining messages for Maya2C.
+//! Stratum V2 framing and mining messages for `Maya2C`.
 //!
 //! ## What this is, and what it deliberately is not
 //!
 //! This is Stratum V2's *architecture* — binary framing, a channel abstraction,
 //! per-channel targets, batched share acknowledgement, and the separation of
 //! template choice from pool operation — carrying a mining sub-protocol shaped
-//! around Maya2C's header.
+//! around `Maya2C`'s header.
 //!
 //! It is **not** wire-compatible with stock Stratum V2 clients, and it does not
 //! pretend to be. SV2's mining messages assume a Bitcoin header: they carry a
 //! `merkle_root`, a compact `nbits`, a rollable `version`, and a coinbase to
-//! hold an extranonce. Maya2C's 144-byte header (`src/core/block.rs`) keeps
+//! hold an extranonce. `Maya2C`'s 144-byte header (`src/core/block.rs`) keeps
 //! only the root, as `tx_root`. No SRI or Braiins client could mine this chain even against a
 //! byte-perfect implementation of the specification — it would need an
-//! ArgonBlake hasher and a Maya2C header builder, at which point it is a
+//! `ArgonBlake` hasher and a `Maya2C` header builder, at which point it is a
 //! different client.
 //!
 //! Given that, announcing compatibility would have been the harmful choice. So
-//! Maya2C's messages live under their own extension id
+//! `Maya2C`'s messages live under their own extension id
 //! ([`frame::MAYA_EXTENSION_TYPE`]) and a stock client's frames are refused with
 //! [`error::Sv2Error::UnknownExtension`] rather than misparsed. Message
 //! *numbering* still tracks the specification slot for slot, so the

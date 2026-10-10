@@ -17,7 +17,7 @@
 //!
 //! The usual construction for selective disclosure verifies the issuer's
 //! signature *inside* the zero-knowledge circuit, so the verifier learns the
-//! issuer attested something without learning what. Maya2C's signature is a
+//! issuer attested something without learning what. `Maya2C`'s signature is a
 //! hybrid pair, and verifying ML-DSA-65 in R1CS means an NTT over a 23-bit
 //! prime, 256-coefficient polynomials, a 6×5 matrix and SHAKE256 — on the order
 //! of 10^7 to 10^8 constraints, against a joinsplit circuit that is a few tens

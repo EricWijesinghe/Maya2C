@@ -1,4 +1,4 @@
-﻿//! `custom-l1-node` — a Layer-1 node built on ArgonBlake proof-of-work and
+﻿//! `custom-l1-node` — a Layer-1 node built on `ArgonBlake` proof-of-work and
 //! hybrid ML-DSA-65 + SLH-DSA-SHA2-128s transaction authorization.
 //!
 //! # Post-quantum authorization
@@ -12,7 +12,7 @@
 //!
 //! # Modules
 //!
-//! - [`crypto`] — the ArgonBlake hybrid hash, PoW target evaluation, hybrid keys
+//! - [`crypto`] — the `ArgonBlake` hybrid hash, `PoW` target evaluation, hybrid keys
 //! - [`core`] — [`Transaction`], [`BlockHeader`], [`Block`]
 //! - [`state`] — RocksDB-backed [`StateDB`], account transitions, Merkle state root
 //! - [`consensus`] — difficulty retargeting, fork choice, reorgs, mining

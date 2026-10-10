@@ -15,5 +15,8 @@ description = "Adaptive base fee, fee split, and supply bound: a research branch
 # Kani compiles a crate together with its whole dependency graph.
 [dependencies]
 
+[dev-dependencies]
+proptest = { workspace = true }
+
 [lints]
 workspace = true

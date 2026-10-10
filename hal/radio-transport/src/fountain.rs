@@ -63,7 +63,7 @@
 //!
 //! ## What this is not
 //!
-//! Not authentication and not confidentiality. A symbol is XORed source data
+//! Not authentication and not confidentiality. A symbol is `XORed` source data
 //! and anyone can produce one. What makes a recovered header trustworthy is the
 //! chain's proof of work over it — which is why this crate never needs to know
 //! what it is carrying.
@@ -388,16 +388,13 @@ impl Decoder {
             if !bit(&row, block) {
                 continue;
             }
-            match &self.pivots[block] {
-                Some((pivot_row, pivot_data)) => {
-                    xor_words(&mut row, pivot_row);
-                    xor_bytes(&mut data, pivot_data);
-                }
-                None => {
-                    self.pivots[block] = Some((row, data));
-                    self.rank += 1;
-                    return Ok(self.is_complete().then(|| self.assemble()));
-                }
+            if let Some((pivot_row, pivot_data)) = &self.pivots[block] {
+                xor_words(&mut row, pivot_row);
+                xor_bytes(&mut data, pivot_data);
+            } else {
+                self.pivots[block] = Some((row, data));
+                self.rank += 1;
+                return Ok(self.is_complete().then(|| self.assemble()));
             }
         }
         Ok(None)

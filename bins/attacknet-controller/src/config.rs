@@ -136,8 +136,7 @@ impl LabConfig {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("Creating config directory {}", parent.display()))?;
         }
-        let content = toml::to_string_pretty(self)
-            .context("Serializing config to TOML")?;
+        let content = toml::to_string_pretty(self).context("Serializing config to TOML")?;
         std::fs::write(path, content)
             .with_context(|| format!("Writing config to {}", path.display()))?;
         Ok(())
@@ -339,62 +338,136 @@ pub struct NetworkConfig {
 impl Default for NetworkConfig {
     fn default() -> Self {
         let mut segments = HashMap::new();
-        segments.insert("S1".to_string(), NetworkSegment {
-            id: "S1".to_string(),
-            name: "validator_mesh".to_string(),
-            endpoints: vec!["validator-1".to_string(), "validator-2".to_string(), "validator-3".to_string(), "validator-4".to_string()],
-            protocol: "libp2p".to_string(),
-            direction: "bidirectional".to_string(),
-        });
-        segments.insert("S2".to_string(), NetworkSegment {
-            id: "S2".to_string(),
-            name: "validator_to_bootnode".to_string(),
-            endpoints: vec!["validator-1".to_string(), "validator-2".to_string(), "validator-3".to_string(), "validator-4".to_string(), "bootnode".to_string()],
-            protocol: "libp2p".to_string(),
-            direction: "outbound".to_string(),
-        });
-        segments.insert("S3".to_string(), NetworkSegment {
-            id: "S3".to_string(),
-            name: "bootnode_to_validator".to_string(),
-            endpoints: vec!["bootnode".to_string(), "validator-1".to_string(), "validator-2".to_string(), "validator-3".to_string(), "validator-4".to_string()],
-            protocol: "libp2p".to_string(),
-            direction: "inbound".to_string(),
-        });
-        segments.insert("S4".to_string(), NetworkSegment {
-            id: "S4".to_string(),
-            name: "rpc_client_to_validator".to_string(),
-            endpoints: vec!["*".to_string(), "validator-1".to_string(), "validator-2".to_string(), "validator-3".to_string(), "validator-4".to_string()],
-            protocol: "jsonrpc".to_string(),
-            direction: "inbound".to_string(),
-        });
-        segments.insert("S5".to_string(), NetworkSegment {
-            id: "S5".to_string(),
-            name: "gateway_to_validator".to_string(),
-            endpoints: vec!["rpc-gateway".to_string(), "validator-1".to_string(), "validator-2".to_string(), "validator-3".to_string(), "validator-4".to_string()],
-            protocol: "jsonrpc".to_string(),
-            direction: "outbound".to_string(),
-        });
-        segments.insert("S6".to_string(), NetworkSegment {
-            id: "S6".to_string(),
-            name: "adversary_to_validator".to_string(),
-            endpoints: vec!["adversarial-peer".to_string(), "validator-1".to_string(), "validator-2".to_string(), "validator-3".to_string(), "validator-4".to_string()],
-            protocol: "libp2p".to_string(),
-            direction: "outbound".to_string(),
-        });
-        segments.insert("S7".to_string(), NetworkSegment {
-            id: "S7".to_string(),
-            name: "validator_to_adversary".to_string(),
-            endpoints: vec!["validator-1".to_string(), "validator-2".to_string(), "validator-3".to_string(), "validator-4".to_string(), "adversarial-peer".to_string()],
-            protocol: "libp2p".to_string(),
-            direction: "inbound".to_string(),
-        });
-        segments.insert("S8".to_string(), NetworkSegment {
-            id: "S8".to_string(),
-            name: "metrics_scraping".to_string(),
-            endpoints: vec!["monitoring-prometheus".to_string(), "validator-1".to_string(), "validator-2".to_string(), "validator-3".to_string(), "validator-4".to_string(), "rpc-gateway".to_string(), "bootnode".to_string(), "adversarial-peer".to_string()],
-            protocol: "prometheus".to_string(),
-            direction: "outbound".to_string(),
-        });
+        segments.insert(
+            "S1".to_string(),
+            NetworkSegment {
+                id: "S1".to_string(),
+                name: "validator_mesh".to_string(),
+                endpoints: vec![
+                    "validator-1".to_string(),
+                    "validator-2".to_string(),
+                    "validator-3".to_string(),
+                    "validator-4".to_string(),
+                ],
+                protocol: "libp2p".to_string(),
+                direction: "bidirectional".to_string(),
+            },
+        );
+        segments.insert(
+            "S2".to_string(),
+            NetworkSegment {
+                id: "S2".to_string(),
+                name: "validator_to_bootnode".to_string(),
+                endpoints: vec![
+                    "validator-1".to_string(),
+                    "validator-2".to_string(),
+                    "validator-3".to_string(),
+                    "validator-4".to_string(),
+                    "bootnode".to_string(),
+                ],
+                protocol: "libp2p".to_string(),
+                direction: "outbound".to_string(),
+            },
+        );
+        segments.insert(
+            "S3".to_string(),
+            NetworkSegment {
+                id: "S3".to_string(),
+                name: "bootnode_to_validator".to_string(),
+                endpoints: vec![
+                    "bootnode".to_string(),
+                    "validator-1".to_string(),
+                    "validator-2".to_string(),
+                    "validator-3".to_string(),
+                    "validator-4".to_string(),
+                ],
+                protocol: "libp2p".to_string(),
+                direction: "inbound".to_string(),
+            },
+        );
+        segments.insert(
+            "S4".to_string(),
+            NetworkSegment {
+                id: "S4".to_string(),
+                name: "rpc_client_to_validator".to_string(),
+                endpoints: vec![
+                    "*".to_string(),
+                    "validator-1".to_string(),
+                    "validator-2".to_string(),
+                    "validator-3".to_string(),
+                    "validator-4".to_string(),
+                ],
+                protocol: "jsonrpc".to_string(),
+                direction: "inbound".to_string(),
+            },
+        );
+        segments.insert(
+            "S5".to_string(),
+            NetworkSegment {
+                id: "S5".to_string(),
+                name: "gateway_to_validator".to_string(),
+                endpoints: vec![
+                    "rpc-gateway".to_string(),
+                    "validator-1".to_string(),
+                    "validator-2".to_string(),
+                    "validator-3".to_string(),
+                    "validator-4".to_string(),
+                ],
+                protocol: "jsonrpc".to_string(),
+                direction: "outbound".to_string(),
+            },
+        );
+        segments.insert(
+            "S6".to_string(),
+            NetworkSegment {
+                id: "S6".to_string(),
+                name: "adversary_to_validator".to_string(),
+                endpoints: vec![
+                    "adversarial-peer".to_string(),
+                    "validator-1".to_string(),
+                    "validator-2".to_string(),
+                    "validator-3".to_string(),
+                    "validator-4".to_string(),
+                ],
+                protocol: "libp2p".to_string(),
+                direction: "outbound".to_string(),
+            },
+        );
+        segments.insert(
+            "S7".to_string(),
+            NetworkSegment {
+                id: "S7".to_string(),
+                name: "validator_to_adversary".to_string(),
+                endpoints: vec![
+                    "validator-1".to_string(),
+                    "validator-2".to_string(),
+                    "validator-3".to_string(),
+                    "validator-4".to_string(),
+                    "adversarial-peer".to_string(),
+                ],
+                protocol: "libp2p".to_string(),
+                direction: "inbound".to_string(),
+            },
+        );
+        segments.insert(
+            "S8".to_string(),
+            NetworkSegment {
+                id: "S8".to_string(),
+                name: "metrics_scraping".to_string(),
+                endpoints: vec![
+                    "monitoring-prometheus".to_string(),
+                    "validator-1".to_string(),
+                    "validator-2".to_string(),
+                    "validator-3".to_string(),
+                    "validator-4".to_string(),
+                    "rpc-gateway".to_string(),
+                    "bootnode".to_string(),
+                    "adversarial-peer".to_string(),
+                ],
+                protocol: "prometheus".to_string(),
+                direction: "outbound".to_string(),
+            },
+        );
 
         Self {
             segments,
@@ -433,7 +506,13 @@ impl Default for ProcessFaultConfig {
     fn default() -> Self {
         Self {
             tool: "powershell_job_objects".to_string(),
-            capabilities: vec!["kill".to_string(), "start".to_string(), "restart".to_string(), "affinity".to_string(), "memory_limit".to_string()],
+            capabilities: vec![
+                "kill".to_string(),
+                "start".to_string(),
+                "restart".to_string(),
+                "affinity".to_string(),
+                "memory_limit".to_string(),
+            ],
         }
     }
 }
@@ -448,7 +527,12 @@ impl Default for NetworkL4FaultConfig {
     fn default() -> Self {
         Self {
             tool: "pktmon".to_string(),
-            capabilities: vec!["drop".to_string(), "corrupt".to_string(), "delay".to_string(), "reset".to_string()],
+            capabilities: vec![
+                "drop".to_string(),
+                "corrupt".to_string(),
+                "delay".to_string(),
+                "reset".to_string(),
+            ],
         }
     }
 }
@@ -463,7 +547,16 @@ impl Default for NetworkL7FaultConfig {
     fn default() -> Self {
         Self {
             tool: "toxiproxy_windows".to_string(),
-            capabilities: vec!["latency".to_string(), "bandwidth".to_string(), "loss".to_string(), "jitter".to_string(), "reorder".to_string(), "duplicate".to_string(), "reset".to_string(), "close".to_string()],
+            capabilities: vec![
+                "latency".to_string(),
+                "bandwidth".to_string(),
+                "loss".to_string(),
+                "jitter".to_string(),
+                "reorder".to_string(),
+                "duplicate".to_string(),
+                "reset".to_string(),
+                "close".to_string(),
+            ],
         }
     }
 }
@@ -478,7 +571,13 @@ impl Default for NetworkProtocolFaultConfig {
     fn default() -> Self {
         Self {
             tool: "custom_rust_proxy".to_string(),
-            capabilities: vec!["malformed_frames".to_string(), "invalid_handshakes".to_string(), "oversized".to_string(), "slow_send".to_string(), "churn".to_string()],
+            capabilities: vec![
+                "malformed_frames".to_string(),
+                "invalid_handshakes".to_string(),
+                "oversized".to_string(),
+                "slow_send".to_string(),
+                "churn".to_string(),
+            ],
         }
     }
 }
@@ -493,7 +592,13 @@ impl Default for StorageFaultConfig {
     fn default() -> Self {
         Self {
             tool: "ntfs_quota_powershell".to_string(),
-            capabilities: vec!["quota_enforce".to_string(), "file_replace".to_string(), "truncate".to_string(), "readonly".to_string(), "corrupt".to_string()],
+            capabilities: vec![
+                "quota_enforce".to_string(),
+                "file_replace".to_string(),
+                "truncate".to_string(),
+                "readonly".to_string(),
+                "corrupt".to_string(),
+            ],
         }
     }
 }

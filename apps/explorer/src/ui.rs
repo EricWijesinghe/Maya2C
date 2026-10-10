@@ -536,7 +536,7 @@ details.panel summary { cursor:pointer; color:var(--muted); margin-bottom:0.75re
 /// what makes the page live, and it must never break the server-rendered
 /// content it patches: every lookup is guarded, and a closed socket retries
 /// rather than leaving a silently stale page.
-const LIVE_SCRIPT: &str = r#"
+const LIVE_SCRIPT: &str = r"
 (function () {
   var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   function connect(path, onMessage) {
@@ -599,4 +599,4 @@ const LIVE_SCRIPT: &str = r#"
     ], 20);
   });
 })();
-"#;
+";

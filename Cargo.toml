@@ -350,7 +350,7 @@ members = [
     # member so it is type-checked by the same `cargo check --workspace` that
     # gates everything else, and so the ledger test in it runs in the ordinary
     # test job rather than in a script nobody executes.
-    "xtask",
+    "xtask", "bins/attacknet-controller",
 ]
 
 # ---------------------------------------------------------------------------
@@ -431,6 +431,7 @@ futures-util = "0.3"
 futures_ringbuf = "0.4"
 getrandom = "0.4"
 hex = "0.4"
+proptest = "1"
 http-body-util = "0.1"
 hyper = "1"
 hyper-util = "0.1"

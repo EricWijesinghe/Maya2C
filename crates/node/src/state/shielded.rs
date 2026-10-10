@@ -188,15 +188,12 @@ impl ShieldedPool {
 
         buf.extend_from_slice(&self.tree.count().to_le_bytes());
         for slot in self.tree.frontier() {
-            match slot {
-                Some(node) => {
-                    buf.push(1);
-                    buf.extend_from_slice(&digest_to_bytes(node));
-                }
-                None => {
-                    buf.push(0);
-                    buf.extend_from_slice(&[0u8; 32]);
-                }
+            if let Some(node) = slot {
+                buf.push(1);
+                buf.extend_from_slice(&digest_to_bytes(node));
+            } else {
+                buf.push(0);
+                buf.extend_from_slice(&[0u8; 32]);
             }
         }
 
@@ -221,7 +218,7 @@ impl ShieldedPool {
 
         let count = reader.read_u64()?;
         let mut frontier = [None; TREE_DEPTH];
-        for slot in frontier.iter_mut() {
+        for slot in &mut frontier {
             let present = reader.read_u8()?;
             let node = reader.read_array::<32>()?;
             *slot = match present {

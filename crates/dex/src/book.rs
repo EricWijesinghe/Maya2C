@@ -19,7 +19,7 @@
 //!
 //! # The same key orders the database
 //!
-//! [`sort_key`] emits the pair big-endian. RocksDB iterates keys
+//! [`sort_key`] emits the pair big-endian. `RocksDB` iterates keys
 //! lexicographically, so a prefix scan over `<pair><side>` yields resting
 //! orders in exactly the priority order this module matches them in — the book
 //! is rebuilt in priority order for free, with no sort step and no opportunity
@@ -171,8 +171,8 @@ pub fn quote_for_base(base: u64, price: u64, side: Side) -> Result<u64> {
         return Err(DexError::ZeroPrice);
     }
     let quote = match side {
-        Side::Bid => mul_div_ceil(base as u128, price as u128, PRICE_SCALE),
-        Side::Ask => mul_div_floor(base as u128, price as u128, PRICE_SCALE),
+        Side::Bid => mul_div_ceil(u128::from(base), u128::from(price), PRICE_SCALE),
+        Side::Ask => mul_div_floor(u128::from(base), u128::from(price), PRICE_SCALE),
     };
     quote.ok_or(DexError::Overflow)
 }

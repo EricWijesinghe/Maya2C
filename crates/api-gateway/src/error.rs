@@ -4,7 +4,7 @@
 //!
 //! [`GatewayError::Upstream`] holds the node's message for the log and renders
 //! as a flat "upstream node error" to the caller. A gateway that echoed the
-//! backend's error text would leak the node's internal addresses, RocksDB
+//! backend's error text would leak the node's internal addresses, `RocksDB`
 //! paths, and version strings to anyone who could provoke a failure.
 
 use axum::Json;

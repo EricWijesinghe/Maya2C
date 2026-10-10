@@ -170,7 +170,7 @@ impl<P: Copy + Eq + Hash> RelayReceiver<P> {
 
     /// A receiver sharing `reassembler` with others.
     ///
-    /// Required wherever several receivers serve one node — one per AF_XDP
+    /// Required wherever several receivers serve one node — one per `AF_XDP`
     /// queue. A sender can spread its chunks across queues by varying its UDP
     /// source port, and separate reassemblers would give it a separate memory
     /// allowance on each. Opening happens outside the lock; only the copy into

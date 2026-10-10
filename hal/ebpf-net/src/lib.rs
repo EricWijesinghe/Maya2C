@@ -1,4 +1,4 @@
-//! Block relay over UDP, with an optional XDP/AF_XDP receive path.
+//! Block relay over UDP, with an optional `XDP/AF_XDP` receive path.
 //!
 //! Gossip carries every block over the libp2p stack: TCP, Noise, the ML-KEM
 //! layer, yamux, gossipsub. Every byte of that is ciphertext to the kernel, so

@@ -1,4 +1,4 @@
-//! The wire forms of the IoT anchor transactions.
+//! The wire forms of the `IoT` anchor transactions.
 //!
 //! Every layout and bound belongs to `maya-iot-anchor`; each message has one
 //! fixed size, so this file only slices that many bytes off the reader.

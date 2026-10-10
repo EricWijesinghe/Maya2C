@@ -1,10 +1,10 @@
-//! Browser-side signing and verification for Maya2C, via wasm-bindgen.
+//! Browser-side signing and verification for `Maya2C`, via wasm-bindgen.
 //!
 //! # Why this crate does not use the node's `hybrid` module
 //!
 //! `custom_l1_node::crypto::hybrid` is the authoritative implementation, and
 //! reaching for it would be the obvious right answer. It is not available:
-//! `custom-l1-node` links RocksDB, which is C++, and C++ does not target
+//! `custom-l1-node` links `RocksDB`, which is C++, and C++ does not target
 //! `wasm32-unknown-unknown`. There is no feature flag that removes it, because
 //! the node *is* the database.
 //!

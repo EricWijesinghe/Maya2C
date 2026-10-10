@@ -47,7 +47,7 @@ pub struct Job {
     /// Height the solved block would occupy.
     ///
     /// Needed for verification, not decoration: `pow_hash_at` selects
-    /// ArgonBlake or the DAG rule by height, and hashing at the wrong height
+    /// `ArgonBlake` or the DAG rule by height, and hashing at the wrong height
     /// produces a digest the chain would never accept.
     pub height: u64,
     /// The header to mine, with `nonce` at zero.

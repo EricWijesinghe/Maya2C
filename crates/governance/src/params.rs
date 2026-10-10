@@ -19,7 +19,7 @@
 //! ships both implementations and a parameter decides which applies above a
 //! height. `crypto::dag::registry` already works this way, and
 //! `core::block::pow_hash_at` reads it: below the activation height the digest
-//! is ArgonBlake, at or above it is the DAG. Governance moving such a height is
+//! is `ArgonBlake`, at or above it is the DAG. Governance moving such a height is
 //! the same operation as governance moving a fee.
 //!
 //! # What is not here, and will not be

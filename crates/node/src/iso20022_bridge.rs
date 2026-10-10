@@ -8,7 +8,7 @@
 //!
 //! ## Virtual accounts
 //!
-//! A bank account has no Maya2C keypair. So each one is mapped to an address
+//! A bank account has no `Maya2C` keypair. So each one is mapped to an address
 //! **derived** from its list identifier rather than generated: the same IBAN
 //! always maps to the same address, on every node, without anybody storing a
 //! table. That matters twice over — a table is state that can disagree between

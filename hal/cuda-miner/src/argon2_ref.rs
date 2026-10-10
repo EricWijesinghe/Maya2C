@@ -167,7 +167,7 @@ fn index_alpha(slice: u32, index: u32, j1: u64) -> u32 {
 /// Argon2's compression function `G`, from RFC 9106 §3.4.
 ///
 /// `out = (prev ⊕ reference) ⊕ P_columns(P_rows(prev ⊕ reference))`, where `P`
-/// is the BLAKE2b round applied without a message schedule.
+/// is the `BLAKE2b` round applied without a message schedule.
 fn compress(previous: &Block, reference: &Block, out: &mut Block) {
     let mut r = ZERO_BLOCK;
     for (slot, (a, b)) in r.iter_mut().zip(previous.iter().zip(reference.iter())) {
@@ -226,7 +226,7 @@ const fn column_indices(column: usize) -> [usize; 16] {
     ]
 }
 
-/// The BLAKE2b round function over sixteen words, no message words mixed in.
+/// The `BLAKE2b` round function over sixteen words, no message words mixed in.
 fn permute(v: &mut [u64; 16]) {
     mix(v, 0, 4, 8, 12);
     mix(v, 1, 5, 9, 13);
@@ -238,7 +238,7 @@ fn permute(v: &mut [u64; 16]) {
     mix(v, 3, 4, 9, 14);
 }
 
-/// BLAKE2b's `G`, with Argon2's multiplication hardening.
+/// `BLAKE2b`'s `G`, with Argon2's multiplication hardening.
 fn mix(v: &mut [u64; 16], a: usize, b: usize, c: usize, d: usize) {
     v[a] = mka(v[a], v[b]);
     v[d] = (v[d] ^ v[a]).rotate_right(32);

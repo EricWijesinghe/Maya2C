@@ -9,7 +9,7 @@
 //! hand it to whoever you meet, and let it arrive by whatever chain of custody
 //! happens.
 //!
-//! So this is delay-tolerant networking in the sense CCSDS BPv7 means it — a
+//! So this is delay-tolerant networking in the sense CCSDS `BPv7` means it — a
 //! bundle, a custodian, a lifetime — rather than a routing table.
 //!
 //! ## A relay never looks inside

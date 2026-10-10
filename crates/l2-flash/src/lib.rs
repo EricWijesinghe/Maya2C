@@ -1,6 +1,6 @@
 //! # Maya Flash
 //!
-//! A state-channel network for micro-payments over the Maya2C L1.
+//! A state-channel network for micro-payments over the `Maya2C` L1.
 //!
 //! Two parties lock capacity into a channel on chain, then exchange
 //! bidirectionally signed states off chain at no per-payment cost. Only the

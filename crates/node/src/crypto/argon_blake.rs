@@ -1,4 +1,4 @@
-//! ArgonBlake: a memory-hard hybrid proof-of-work hash.
+//! `ArgonBlake`: a memory-hard hybrid proof-of-work hash.
 //!
 //! Three stages:
 //!
@@ -15,7 +15,7 @@
 //!
 //! | Stage | Time |
 //! |---|---|
-//! | Full ArgonBlake hash | ~25.4 ms |
+//! | Full `ArgonBlake` hash | ~25.4 ms |
 //! | BLAKE3 pre-hash alone | ~120 ns |
 //!
 //! The BLAKE3 stages are **0.0005%** of the total. Argon2id over 32 MiB is
@@ -52,7 +52,7 @@ use argon2::{Algorithm, Argon2, Params, Version};
 
 use crate::error::{NodeError, Result};
 
-/// Length of an ArgonBlake digest, in bytes.
+/// Length of an `ArgonBlake` digest, in bytes.
 pub const HASH_LEN: usize = 32;
 
 /// Argon2 memory cost in KiB. 32 MiB, as specified by the consensus rules.
@@ -73,7 +73,7 @@ const SALT_LEN: usize = 16;
 const SALT_CONTEXT: &str = "custom-l1-node 2026-08-27 argonblake salt v1";
 const SQUEEZE_CONTEXT: &str = "custom-l1-node 2026-08-27 argonblake squeeze v1";
 
-/// Computes the ArgonBlake digest of `header_bytes`.
+/// Computes the `ArgonBlake` digest of `header_bytes`.
 ///
 /// Deterministic: equal input always yields an equal digest, which is what
 /// makes the proof-of-work verifiable by any node.

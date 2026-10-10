@@ -2,7 +2,7 @@
 //!
 //! A leaf is a prefix of the address's first 32 bits: `depth` leading bits
 //! fixed, the rest free. Leaves are held in key order and must cover the space
-//! exactly once, so a leaf is a contiguous key range — a RocksDB range scan, as
+//! exactly once, so a leaf is a contiguous key range — a `RocksDB` range scan, as
 //! for the fixed partition — and lookup is a binary search.
 //!
 //! Merges are **buddy** merges only: two leaves merge exactly when they are the

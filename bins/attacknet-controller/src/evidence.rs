@@ -221,7 +221,9 @@ impl EvidenceCollector {
     #[allow(dead_code)]
     pub fn add_log_ref(&mut self, component: &str, path: &str) -> Result<()> {
         if let Some(run) = &mut self.current_run {
-            run.logs.validator_logs.insert(component.to_string(), path.to_string());
+            run.logs
+                .validator_logs
+                .insert(component.to_string(), path.to_string());
         }
         Ok(())
     }
@@ -237,7 +239,9 @@ impl EvidenceCollector {
 
     /// Finalize and save scenario evidence
     pub fn finalize(&mut self, verdict: Verdict) -> Result<ScenarioEvidence> {
-        let mut run = self.current_run.take()
+        let mut run = self
+            .current_run
+            .take()
             .ok_or_else(|| anyhow::anyhow!("No active scenario run"))?;
 
         let end_time = SystemTime::now()
@@ -255,21 +259,21 @@ impl EvidenceCollector {
             .format("%Y-%m-%d")
             .to_string();
 
-        let run_dir = self.base_dir.join("runs").join(&date).join(&run.scenario_id);
-        std::fs::create_dir_all(&run_dir)
-            .context("Creating run directory")?;
+        let run_dir = self
+            .base_dir
+            .join("runs")
+            .join(&date)
+            .join(&run.scenario_id);
+        std::fs::create_dir_all(&run_dir).context("Creating run directory")?;
 
         let evidence_path = run_dir.join("evidence.json");
-        let json = serde_json::to_string_pretty(&run)
-            .context("Serializing evidence")?;
-        std::fs::write(&evidence_path, json)
-            .context("Writing evidence file")?;
+        let json = serde_json::to_string_pretty(&run).context("Serializing evidence")?;
+        std::fs::write(&evidence_path, json).context("Writing evidence file")?;
 
         // Also save a human-readable summary
         let summary_path = run_dir.join("summary.md");
         let summary = self.generate_summary(&run);
-        std::fs::write(&summary_path, summary)
-            .context("Writing summary file")?;
+        std::fs::write(&summary_path, summary).context("Writing summary file")?;
 
         info!("Evidence saved to {}", run_dir.display());
 
@@ -282,11 +286,14 @@ impl EvidenceCollector {
             .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
             .unwrap_or_default();
 
-        let end = run.end_time.map(|t|
-            chrono::DateTime::from_timestamp(t as i64, 0)
-                .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
-                .unwrap_or_default()
-        ).unwrap_or_default();
+        let end = run
+            .end_time
+            .map(|t| {
+                chrono::DateTime::from_timestamp(t as i64, 0)
+                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+                    .unwrap_or_default()
+            })
+            .unwrap_or_default();
 
         let mut summary = String::new();
         summary.push_str(&format!("# Scenario Evidence: {}\n\n", run.scenario_name));
@@ -295,34 +302,86 @@ impl EvidenceCollector {
         summary.push_str(&format!("- **Run ID**: {}\n", run.run_id));
         summary.push_str(&format!("- **Start**: {}\n", start));
         summary.push_str(&format!("- **End**: {}\n", end));
-        summary.push_str(&format!("- **Duration**: {} ms\n", run.duration_ms.unwrap_or(0)));
+        summary.push_str(&format!(
+            "- **Duration**: {} ms\n",
+            run.duration_ms.unwrap_or(0)
+        ));
         summary.push_str(&format!("- **Verdict**: **{}**\n\n", run.verdict.as_str()));
 
         summary.push_str("## Metrics\n\n");
-        summary.push_str(&format!("- Blocks Finalized: {}\n", run.metrics.blocks_finalized));
-        summary.push_str(&format!("- Transactions Processed: {}\n", run.metrics.transactions_processed));
-        summary.push_str(&format!("- Consensus Rounds: {}\n", run.metrics.consensus_rounds));
-        summary.push_str(&format!("- Forks Detected: {}\n", run.metrics.forks_detected));
-        summary.push_str(&format!("- Validator Crashes: {}\n", run.metrics.validator_crashes));
-        summary.push_str(&format!("- Validator Restarts: {}\n", run.metrics.validator_restarts));
-        summary.push_str(&format!("- Network Partitions: {}\n", run.metrics.network_partitions));
+        summary.push_str(&format!(
+            "- Blocks Finalized: {}\n",
+            run.metrics.blocks_finalized
+        ));
+        summary.push_str(&format!(
+            "- Transactions Processed: {}\n",
+            run.metrics.transactions_processed
+        ));
+        summary.push_str(&format!(
+            "- Consensus Rounds: {}\n",
+            run.metrics.consensus_rounds
+        ));
+        summary.push_str(&format!(
+            "- Forks Detected: {}\n",
+            run.metrics.forks_detected
+        ));
+        summary.push_str(&format!(
+            "- Validator Crashes: {}\n",
+            run.metrics.validator_crashes
+        ));
+        summary.push_str(&format!(
+            "- Validator Restarts: {}\n",
+            run.metrics.validator_restarts
+        ));
+        summary.push_str(&format!(
+            "- Network Partitions: {}\n",
+            run.metrics.network_partitions
+        ));
         summary.push_str(&format!("- RPC Errors: {}\n", run.metrics.rpc_errors));
         summary.push_str(&format!("- P2P Errors: {}\n", run.metrics.p2p_errors));
-        summary.push_str(&format!("- Storage Errors: {}\n", run.metrics.storage_errors));
-        summary.push_str(&format!("- Avg Block Time: {:.1} ms\n", run.metrics.avg_block_time_ms));
-        summary.push_str(&format!("- Avg Finality Time: {:.1} ms\n", run.metrics.avg_finality_time_ms));
-        summary.push_str(&format!("- Peak Memory: {} MB\n", run.metrics.peak_memory_mb));
-        summary.push_str(&format!("- Peak CPU: {:.1}%\n", run.metrics.peak_cpu_percent));
-        summary.push_str(&format!("- Disk Growth: {} MB\n", run.metrics.disk_growth_mb));
-        summary.push_str(&format!("- Network Throughput: {:.1} Mbps\n\n", run.metrics.network_throughput_mbps));
+        summary.push_str(&format!(
+            "- Storage Errors: {}\n",
+            run.metrics.storage_errors
+        ));
+        summary.push_str(&format!(
+            "- Avg Block Time: {:.1} ms\n",
+            run.metrics.avg_block_time_ms
+        ));
+        summary.push_str(&format!(
+            "- Avg Finality Time: {:.1} ms\n",
+            run.metrics.avg_finality_time_ms
+        ));
+        summary.push_str(&format!(
+            "- Peak Memory: {} MB\n",
+            run.metrics.peak_memory_mb
+        ));
+        summary.push_str(&format!(
+            "- Peak CPU: {:.1}%\n",
+            run.metrics.peak_cpu_percent
+        ));
+        summary.push_str(&format!(
+            "- Disk Growth: {} MB\n",
+            run.metrics.disk_growth_mb
+        ));
+        summary.push_str(&format!(
+            "- Network Throughput: {:.1} Mbps\n\n",
+            run.metrics.network_throughput_mbps
+        ));
 
         if !run.findings.is_empty() {
             summary.push_str("## Findings\n\n");
             for finding in &run.findings {
-                summary.push_str(&format!("### {} [{}]\n", finding.title, finding.severity.as_str()));
+                summary.push_str(&format!(
+                    "### {} [{}]\n",
+                    finding.title,
+                    finding.severity.as_str()
+                ));
                 summary.push_str(&format!("**Category**: {}\n", finding.category));
                 summary.push_str(&format!("**Description**: {}\n", finding.description));
-                summary.push_str(&format!("**Affected**: {}\n", finding.affected_components.join(", ")));
+                summary.push_str(&format!(
+                    "**Affected**: {}\n",
+                    finding.affected_components.join(", ")
+                ));
                 summary.push_str("**Steps**:\n");
                 for step in &finding.reproduction_steps {
                     summary.push_str(&format!("1. {}\n", step));
@@ -336,13 +395,23 @@ impl EvidenceCollector {
         summary.push_str(&format!("- Chain ID: {}\n", run.configuration.chain_id));
         summary.push_str(&format!("- Git Commit: {}\n", run.configuration.git_commit));
         summary.push_str(&format!("- Git Branch: {}\n", run.configuration.git_branch));
-        summary.push_str(&format!("- Genesis Hash: {}\n", run.configuration.genesis_hash));
-        summary.push_str(&format!("- Validators: {}\n", run.configuration.validator_identities.join(", ")));
-        summary.push_str(&format!("- Random Seed: {}\n\n", run.configuration.random_seed));
+        summary.push_str(&format!(
+            "- Genesis Hash: {}\n",
+            run.configuration.genesis_hash
+        ));
+        summary.push_str(&format!(
+            "- Validators: {}\n",
+            run.configuration.validator_identities.join(", ")
+        ));
+        summary.push_str(&format!(
+            "- Random Seed: {}\n\n",
+            run.configuration.random_seed
+        ));
 
         summary.push_str("## Artifacts\n\n");
         for artifact in &run.artifacts {
-            summary.push_str(&format!("- **{}** ({}) - {} bytes - {}\n",
+            summary.push_str(&format!(
+                "- **{}** ({}) - {} bytes - {}\n",
                 artifact.name,
                 match &artifact.artifact_type {
                     ArtifactType::Log => "Log",
@@ -371,10 +440,9 @@ impl EvidenceCollector {
 
 /// Load evidence from a previous run
 pub fn load_evidence(path: &Path) -> Result<ScenarioEvidence> {
-    let content = std::fs::read_to_string(path)
-        .context("Reading evidence file")?;
-    let evidence: ScenarioEvidence = serde_json::from_str(&content)
-        .context("Parsing evidence JSON")?;
+    let content = std::fs::read_to_string(path).context("Reading evidence file")?;
+    let evidence: ScenarioEvidence =
+        serde_json::from_str(&content).context("Parsing evidence JSON")?;
     Ok(evidence)
 }
 
@@ -382,8 +450,10 @@ pub fn load_evidence(path: &Path) -> Result<ScenarioEvidence> {
 pub fn generate_aggregate_report(runs: &[ScenarioEvidence], output: &Path) -> Result<()> {
     let mut report = String::new();
     report.push_str("# Attacknet Aggregate Report\n\n");
-    report.push_str(&format!("Generated: {}\n\n",
-        chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")));
+    report.push_str(&format!(
+        "Generated: {}\n\n",
+        chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
+    ));
 
     // Summary table
     report.push_str("## Scenario Results\n\n");
@@ -391,9 +461,21 @@ pub fn generate_aggregate_report(runs: &[ScenarioEvidence], output: &Path) -> Re
     report.push_str("|----------|----------|---------|----------|--------|-------|----------|\n");
 
     for run in runs {
-        let findings_crit = run.findings.iter().filter(|f| f.severity == Severity::Critical).count();
-        let findings_high = run.findings.iter().filter(|f| f.severity == Severity::High).count();
-        let findings_med = run.findings.iter().filter(|f| f.severity == Severity::Medium).count();
+        let findings_crit = run
+            .findings
+            .iter()
+            .filter(|f| f.severity == Severity::Critical)
+            .count();
+        let findings_high = run
+            .findings
+            .iter()
+            .filter(|f| f.severity == Severity::High)
+            .count();
+        let findings_med = run
+            .findings
+            .iter()
+            .filter(|f| f.severity == Severity::Medium)
+            .count();
 
         report.push_str(&format!(
             "| {} | {} | {} | {} ms | {} | {} | C{} H{} M{} |\n",
@@ -403,7 +485,9 @@ pub fn generate_aggregate_report(runs: &[ScenarioEvidence], output: &Path) -> Re
             run.duration_ms.unwrap_or(0),
             run.metrics.blocks_finalized,
             run.metrics.forks_detected,
-            findings_crit, findings_high, findings_med
+            findings_crit,
+            findings_high,
+            findings_med
         ));
     }
 
@@ -427,8 +511,7 @@ pub fn generate_aggregate_report(runs: &[ScenarioEvidence], output: &Path) -> Re
         }
     }
 
-    std::fs::write(output, report)
-        .context("Writing aggregate report")?;
+    std::fs::write(output, report).context("Writing aggregate report")?;
 
     Ok(())
 }

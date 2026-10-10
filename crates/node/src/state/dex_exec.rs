@@ -663,13 +663,13 @@ impl StateDB {
             // revisits a pool is legal and prices the second visit against the
             // first, which is what makes a two-leg round trip lose money
             // rather than being free.
-            let mut record = match pools.iter().find(|(pair, _)| *pair == leg.pair) {
-                Some((_, record)) => *record,
-                None => {
+            let mut record =
+                if let Some((_, record)) = pools.iter().find(|(pair, _)| *pair == leg.pair) {
+                    *record
+                } else {
                     let stored = self.require_pool(overlay, &leg.pair)?;
                     self.priced(overlay, &stored)?
-                }
-            };
+                };
 
             let input = input_asset(&record, direction);
             match current_asset {
@@ -1019,42 +1019,39 @@ impl StateDB {
             .collect();
 
         for (id, mut record) in working {
-            match surviving.get(&id) {
-                Some(order) => {
-                    if order.remaining == record.order.remaining {
-                        // Untouched: leave the stored record exactly as it is,
-                        // so a block that matched nothing writes nothing.
-                        continue;
-                    }
-                    record.order.remaining = order.remaining;
-                    Self::put_record(
-                        overlay,
-                        order_key(
-                            pair,
-                            record.order.side,
-                            record.order.price,
-                            record.order.sequence,
-                        ),
-                        record.encode(),
-                    );
+            if let Some(order) = surviving.get(&id) {
+                if order.remaining == record.order.remaining {
+                    // Untouched: leave the stored record exactly as it is,
+                    // so a block that matched nothing writes nothing.
+                    continue;
                 }
-                None => {
-                    // Filled out, or expired. Either way it is gone and
-                    // whatever escrow it still holds belongs to its owner —
-                    // a bid that executed at a maker's better price has some.
-                    self.refund_order(overlay, &pool, &record)?;
-                    Self::delete_record(
-                        overlay,
-                        order_key(
-                            pair,
-                            record.order.side,
-                            record.order.price,
-                            record.order.sequence,
-                        ),
-                    );
-                    Self::delete_record(overlay, order_index_key(&id));
-                    self.adjust_order_count(overlay, pair, -1)?;
-                }
+                record.order.remaining = order.remaining;
+                Self::put_record(
+                    overlay,
+                    order_key(
+                        pair,
+                        record.order.side,
+                        record.order.price,
+                        record.order.sequence,
+                    ),
+                    record.encode(),
+                );
+            } else {
+                // Filled out, or expired. Either way it is gone and
+                // whatever escrow it still holds belongs to its owner —
+                // a bid that executed at a maker's better price has some.
+                self.refund_order(overlay, &pool, &record)?;
+                Self::delete_record(
+                    overlay,
+                    order_key(
+                        pair,
+                        record.order.side,
+                        record.order.price,
+                        record.order.sequence,
+                    ),
+                );
+                Self::delete_record(overlay, order_index_key(&id));
+                self.adjust_order_count(overlay, pair, -1)?;
             }
         }
 

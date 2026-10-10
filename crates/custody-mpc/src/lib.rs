@@ -1,4 +1,4 @@
-//! Threshold custody of a Maya2C chain key.
+//! Threshold custody of a `Maya2C` chain key.
 //!
 //! # Read this paragraph before the rest
 //!
@@ -16,7 +16,7 @@
 //!
 //! # Why not a real TSS
 //!
-//! Because a Maya2C signature is a hybrid pair and both halves must verify
+//! Because a `Maya2C` signature is a hybrid pair and both halves must verify
 //! (`src/crypto/hybrid.rs:337`):
 //!
 //! | Half | Scheme | Threshold construction available? |
@@ -29,7 +29,7 @@
 //!
 //! # What makes the problem tractable anyway
 //!
-//! A whole Maya2C identity is **32 bytes**: `signing_key_from_seed`
+//! A whole `Maya2C` identity is **32 bytes**: `signing_key_from_seed`
 //! (`src/crypto/hybrid.rs:469`) derives both halves of the hybrid pair from one
 //! chain key. So protecting 32 bytes protects both schemes at once, and the
 //! problem becomes threshold custody of a small secret rather than threshold

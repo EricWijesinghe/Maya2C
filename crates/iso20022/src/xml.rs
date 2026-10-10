@@ -420,7 +420,7 @@ fn resolve_reference(reference: &BytesRef<'_>) -> Result<String> {
         )));
     }
     quick_xml::escape::unescape(&format!("&{name};"))
-        .map(|value| value.into_owned())
+        .map(std::borrow::Cow::into_owned)
         .map_err(|error| Error::Xml(error.to_string()))
 }
 

@@ -111,7 +111,7 @@ impl Features {
     }
 }
 
-/// A 6-16-1 network with integer ReLU.
+/// A 6-16-1 network with integer `ReLU`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Model {
     /// Hidden weights, Q12, one row per hidden unit.
