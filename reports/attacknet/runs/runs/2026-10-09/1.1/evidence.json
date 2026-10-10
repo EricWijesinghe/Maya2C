@@ -1,0 +1,67 @@
+{
+  "scenario_id": "1.1",
+  "scenario_name": "validator_silence",
+  "category": 1,
+  "run_id": "1f4d2ab9-3e8d-4c48-b61b-ae35ff4a3126",
+  "start_time": 1791558740,
+  "end_time": 1791558771,
+  "duration_ms": 31000,
+  "verdict": "Pass",
+  "findings": [],
+  "metrics": {
+    "blocks_finalized": 0,
+    "transactions_processed": 0,
+    "consensus_rounds": 0,
+    "forks_detected": 0,
+    "validator_crashes": 0,
+    "validator_restarts": 0,
+    "network_partitions": 0,
+    "rpc_errors": 0,
+    "p2p_errors": 0,
+    "storage_errors": 0,
+    "avg_block_time_ms": 0.0,
+    "avg_finality_time_ms": 0.0,
+    "peak_memory_mb": 0,
+    "peak_cpu_percent": 0.0,
+    "disk_growth_mb": 0,
+    "network_throughput_mbps": 0.0
+  },
+  "configuration": {
+    "lab_id": "maya2c-attacknet-lab-v1",
+    "chain_id": "maya2c-attacknet-lab",
+    "git_commit": "6d7c0e8e",
+    "git_branch": "security/csp",
+    "binary_checksums": {},
+    "genesis_hash": "ba971871715eadd9a9d84716eb10741e775597aa9cb42b9afb5a55956ae920cd",
+    "validator_identities": [
+      "validator-1",
+      "validator-2",
+      "validator-3",
+      "validator-4"
+    ],
+    "fault_injection": {
+      "duration": {
+        "nanos": 0,
+        "secs": 30
+      },
+      "network": null,
+      "process": [
+        {
+          "Kill": {
+            "target": "validator-1"
+          }
+        }
+      ],
+      "protocol": null,
+      "storage": null
+    },
+    "random_seed": 17416470786419574663
+  },
+  "logs": {
+    "validator_logs": {},
+    "infrastructure_logs": {},
+    "controller_log": "",
+    "packet_captures": []
+  },
+  "artifacts": []
+}

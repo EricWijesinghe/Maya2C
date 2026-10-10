@@ -1,0 +1,81 @@
+# Monitoring stack for attacknet lab
+# Run with: docker-compose -f docker-compose.monitoring.yml up -d
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.0
+    container_name: attacknet-prometheus
+    ports:
+      - "35310:9090"
+    volumes:
+      - "./prometheus.yml:/etc/prometheus/prometheus.yml"
+      - "prometheus-data:/prometheus"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=14d"
+      - "--web.enable-lifecycle"
+    restart: unless-stopped
+    networks:
+      - attacknet-monitoring
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: attacknet-grafana
+    ports:
+      - "35311:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=lab
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - "grafana-data:/var/lib/grafana"
+      - "./dashboards:/etc/grafana/provisioning/dashboards"
+      - "./grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml"
+    restart: unless-stopped
+    networks:
+      - attacknet-monitoring
+    depends_on:
+      - prometheus
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: attacknet-alertmanager
+    ports:
+      - "35312:9093"
+    volumes:
+      - "./alertmanager.yml:/etc/alertmanager/alertmanager.yml"
+      - "alertmanager-data:/alertmanager"
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    restart: unless-stopped
+    networks:
+      - attacknet-monitoring
+
+  vector:
+    image: timberio/vector:0.42.0-alpine
+    container_name: attacknet-vector
+    ports:
+      - "35313:8686"
+    volumes:
+      - "./vector.yml:/etc/vector/vector.yml:ro"
+      - "/mnt/d/Maya2C-attacknet-v1:/mnt/d/Maya2C-attacknet-v1:ro"
+      - "/mnt/d/Maya2C-attacknet-v2:/mnt/d/Maya2C-attacknet-v2:ro"
+      - "/mnt/d/Maya2C-attacknet-v3:/mnt/d/Maya2C-attacknet-v3:ro"
+      - "/mnt/d/Maya2C-attacknet-v4:/mnt/d/Maya2C-attacknet-v4:ro"
+      - "/mnt/d/Maya2C-attacknet-bootnode:/mnt/d/Maya2C-attacknet-bootnode:ro"
+      - "/mnt/d/Maya2C-attacknet-adversary:/mnt/d/Maya2C-attacknet-adversary:ro"
+      - "/mnt/d/Maya2C-attacknet-gateway:/mnt/d/Maya2C-attacknet-gateway:ro"
+    restart: unless-stopped
+    networks:
+      - attacknet-monitoring
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  alertmanager-data:
+
+networks:
+  attacknet-monitoring:
+    driver: bridge
