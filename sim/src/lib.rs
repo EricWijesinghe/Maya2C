@@ -1,4 +1,4 @@
-//! Deterministic simulation for Maya2C.
+//! Deterministic simulation for `Maya2C`.
 //!
 //! A seeded, virtual-time harness for testing the things that only go wrong
 //! when the network is slow, lossy, reordering or split, and when the disk

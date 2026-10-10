@@ -59,7 +59,7 @@ pub mod msg_type {
     /// [`super::SubmitWorkerTelemetry`], in SV2's `SubmitSolution` slot.
     ///
     /// That slot belongs to job declaration, which this build does not
-    /// implement and which Maya2C's header leaves nothing to declare.
+    /// implement and which `Maya2C`'s header leaves nothing to declare.
     pub const SUBMIT_WORKER_TELEMETRY: u8 = 0x22;
 }
 

@@ -9,7 +9,7 @@
 //! divergence shows up as blocks the pool submits and the network refuses —
 //! after the shares behind them have been paid for.
 //!
-//! `pow_hash_at` also picks the rule by height, ArgonBlake below the DAG
+//! `pow_hash_at` also picks the rule by height, `ArgonBlake` below the DAG
 //! activation and hashimoto above it (`src/core/block.rs:142`). Hashing at the
 //! wrong height is the same class of error as hashing with the wrong function.
 //!

@@ -2,12 +2,12 @@
 //!
 //! ## Why hybrid, and not "encrypt the transaction as a curve point"
 //!
-//! Textbook ElGamal encrypts a group element. A transaction is a few hundred
+//! Textbook `ElGamal` encrypts a group element. A transaction is a few hundred
 //! bytes of structure, so encrypting it directly would mean an encoding from
 //! byte strings to curve points, which is either lossy, variable-time, or
 //! both — and would cap the plaintext at 32 bytes anyway.
 //!
-//! So this is a KEM/DEM construction. The ElGamal half transports a shared
+//! So this is a KEM/DEM construction. The `ElGamal` half transports a shared
 //! point; a hash of that point keys ChaCha20-Poly1305, which carries the actual
 //! bytes. The threshold property lives entirely in the KEM half, and the DEM
 //! half is an off-the-shelf AEAD already in this tree.

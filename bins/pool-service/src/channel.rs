@@ -3,7 +3,7 @@
 //! ## Disjoint nonce ranges are the whole design
 //!
 //! Bitcoin gives each miner its own search space through the coinbase
-//! extranonce. Maya2C has no coinbase, so the only field a miner may vary is
+//! extranonce. `Maya2C` has no coinbase, so the only field a miner may vary is
 //! the header's 8-byte nonce (`src/core/block.rs:23`). With tens of thousands
 //! of channels on one job, every one of them would otherwise start at zero and
 //! walk the same path — the pool would pay many miners for the same hash.
@@ -89,16 +89,15 @@ impl NonceAllocator {
     /// Returns `None` when every range is in use, which the caller reports as a
     /// channel-open error rather than by handing out an overlapping range.
     pub fn allocate(&mut self) -> Option<NonceRange> {
-        let index = match self.free.pop() {
-            Some(recycled) => recycled,
-            None => {
-                if self.next_index >= MAX_CHANNELS {
-                    return None;
-                }
-                let index = self.next_index;
-                self.next_index += 1;
-                index
+        let index = if let Some(recycled) = self.free.pop() {
+            recycled
+        } else {
+            if self.next_index >= MAX_CHANNELS {
+                return None;
             }
+            let index = self.next_index;
+            self.next_index += 1;
+            index
         };
 
         Some(NonceRange {

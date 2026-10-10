@@ -1,4 +1,4 @@
-//! ISO 20022 bank-rail messages, and the bridge to a Maya2C payment intent.
+//! ISO 20022 bank-rail messages, and the bridge to a `Maya2C` payment intent.
 //!
 //! ## What this crate is for
 //!
@@ -28,10 +28,10 @@
 //! amount and an identifier, and the gateway turns one into a sealed
 //! transaction. That boundary is the same one `archive` and `stratum-v2` hold,
 //! and it exists so the code that parses XML a stranger wrote can be fuzzed
-//! without RocksDB in the graph — `fuzz/fuzz_targets/iso20022_decode.rs`.
+//! without `RocksDB` in the graph — `fuzz/fuzz_targets/iso20022_decode.rs`.
 //!
 //! **Not a mainnet feature.** See [`bridge`]: the envelope a payment is sealed
-//! into is protected by Ristretto ElGamal, which a quantum adversary breaks,
+//! into is protected by Ristretto `ElGamal`, which a quantum adversary breaks,
 //! and envelopes are on chain forever.
 //!
 //! ## The two things to read first

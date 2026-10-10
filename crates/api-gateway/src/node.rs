@@ -2,7 +2,7 @@
 //!
 //! The trait exists so the REST and GraphQL layers can be tested against a
 //! recorded node without a running chain. That is not a convenience — an
-//! end-to-end test that needs RocksDB, a genesis file, and a mined block in
+//! end-to-end test that needs `RocksDB`, a genesis file, and a mined block in
 //! order to check that a 404 is a 404 is a test nobody runs.
 
 use std::time::Duration;

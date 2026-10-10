@@ -1,4 +1,4 @@
-//! # Maya2C pool service
+//! # `Maya2C` pool service
 //!
 //! A mining pool: a Stratum V2 listener that validates shares against the
 //! chain's own proof-of-work rule, an append-only ledger that records what each

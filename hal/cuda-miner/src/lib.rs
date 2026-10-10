@@ -1,4 +1,4 @@
-//! CUDA-accelerated ArgonBlake proof-of-work search.
+//! CUDA-accelerated `ArgonBlake` proof-of-work search.
 //!
 //! ## The contract this crate lives under
 //!
@@ -8,9 +8,9 @@
 //! So the organising principle is not throughput, it is *how little* had to be
 //! reimplemented to get throughput.
 //!
-//! ArgonBlake is three stages ([`crate::hash`] draws the diagram). The middle
+//! `ArgonBlake` is three stages ([`crate::hash`] draws the diagram). The middle
 //! one â€” an Argon2id fill over 32768 one-kilobyte blocks â€” is 99.99% of the
-//! cost. Everything else is a few microseconds of BLAKE3 and BLAKE2b. This
+//! cost. Everything else is a few microseconds of BLAKE3 and `BLAKE2b`. This
 //! crate therefore ports exactly one function to the GPU, [`argon2_ref::fill_lane`],
 //! and keeps every stage that frames it on the host in Rust.
 //!
@@ -32,7 +32,7 @@
 //!
 //! ## The DAG, and what changed
 //!
-//! Everything above describes ArgonBlake, which is the chain's proof of work
+//! Everything above describes `ArgonBlake`, which is the chain's proof of work
 //! below `DAG_ACTIVATION_HEIGHT` and stays in this crate permanently for
 //! checking pre-fork blocks. At and above that height the rule is the
 //! memory-hard DAG in [`dag`], and that is what the GPU path targets.
@@ -66,7 +66,7 @@ pub mod hash;
 pub use error::{MinerError, Result};
 pub use hash::{Block, HASH_LEN, HEADER_LEN, LANE_BLOCKS, set_nonce};
 
-/// Computes the ArgonBlake digest of `header_bytes` through the host/GPU split,
+/// Computes the `ArgonBlake` digest of `header_bytes` through the host/GPU split,
 /// with the fill running on this CPU.
 ///
 /// Bit-identical to the node's `argon_blake_hash` â€” which is asserted, not
@@ -80,7 +80,7 @@ pub use hash::{Block, HASH_LEN, HEADER_LEN, LANE_BLOCKS, set_nonce};
 ///
 /// # Errors
 ///
-/// Propagates BLAKE2b failures from the prologue and epilogue.
+/// Propagates `BLAKE2b` failures from the prologue and epilogue.
 pub fn argon_blake_hash(header_bytes: &[u8]) -> Result<[u8; HASH_LEN]> {
     let prologue = hash::prologue(header_bytes)?;
 

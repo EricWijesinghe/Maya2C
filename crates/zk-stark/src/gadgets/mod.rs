@@ -90,7 +90,7 @@ pub fn state(left: &Digest, right: &Digest) -> [F; WIDTH] {
 }
 
 /// A secret digest (a spending key, a blinding factor), held as canonical
-/// `u32` words so it can be wiped: BabyBear elements do not implement
+/// `u32` words so it can be wiped: `BabyBear` elements do not implement
 /// `Zeroize`. It becomes field elements only inside [`Self::to_field`] and the
 /// trace built from them — which the prover consumes and this crate cannot
 /// reach into to wipe. That copy is the residual exposure, and it is why a

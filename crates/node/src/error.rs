@@ -856,4 +856,13 @@ pub enum NodeError {
 /// Convenience alias used throughout the crate.
 ///
 /// Leading `::` disambiguates the `core` crate from this crate's `core` module.
+impl From<std::io::Error> for NodeError {
+    fn from(e: std::io::Error) -> Self {
+        NodeError::Storage(e.to_string())
+    }
+}
+
+/// Convenience alias used throughout the crate.
+///
+/// Leading `::` disambiguates the `core` crate from this crate's `core` module.
 pub type Result<T> = ::core::result::Result<T, NodeError>;

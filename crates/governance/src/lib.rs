@@ -7,7 +7,7 @@
 //! this crate decides is which changes to the chain's own rules are
 //! permissible, which makes it the last place a mistake should be hard to
 //! check — and the [Kani Rust Verifier] compiles a crate together with its
-//! whole dependency graph, so anything reaching RocksDB's C++ cannot be model
+//! whole dependency graph, so anything reaching `RocksDB`'s C++ cannot be model
 //! checked at all.
 //!
 //! So it has no dependencies, and the node calls into it rather than inlining
@@ -37,7 +37,7 @@
 //! That covers scalar limits, rates, resource bounds — and, using the same
 //! table, flipping between two rules the binary already ships, which is how
 //! `crypto::dag::registry` already decides whether a block's digest is
-//! ArgonBlake or the DAG.
+//! `ArgonBlake` or the DAG.
 //!
 //! It does **not** cover fetching native code from chain state and running it.
 //! See [`params`] for why that is not a limitation to be worked around.
@@ -49,8 +49,6 @@
 #![cfg_attr(not(test), no_std)]
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
-
-extern crate alloc;
 
 pub mod error;
 pub mod limits;

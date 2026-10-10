@@ -38,7 +38,7 @@
 //! # What this is not
 //!
 //! It is not a bridge to another chain. "Bridge" in the milestone list means the
-//! client can be embedded in something that needs to check Maya2C state without
+//! client can be embedded in something that needs to check `Maya2C` state without
 //! running a node — a wallet, an exchange's deposit watcher, a rollup's
 //! settlement checker. The cross-chain half of a bridge is a message-passing
 //! protocol on top of this, and it is not built here.

@@ -49,7 +49,7 @@
 //! **ChaCha20-Poly1305** is authenticated encryption, so tampering with the
 //! ciphertext is detected at decryption rather than silently yielding a
 //! different key. The nonce is random and freshly generated on every write —
-//! reusing a nonce under the same key would be catastrophic for ChaCha20.
+//! reusing a nonce under the same key would be catastrophic for `ChaCha20`.
 //!
 //! The salt is stored in the clear, which is correct: a salt is not a secret,
 //! it exists to make precomputed rainbow tables useless.

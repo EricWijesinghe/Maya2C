@@ -8,7 +8,7 @@
 //! <IntrBkSttlmAmt Ccy="EUR">1234.56</IntrBkSttlmAmt>
 //! ```
 //!
-//! Maya2C amounts are `u64` base units, and this codebase has **no decimals
+//! `Maya2C` amounts are `u64` base units, and this codebase has **no decimals
 //! constant anywhere** — `src/rpc/market.rs` says so explicitly, because saying
 //! "whole coins" in one place and "base units" everywhere else is how a listing
 //! form ends up wrong by a power of ten. So there is no scale to convert
@@ -46,7 +46,7 @@ use crate::error::{Error, Result};
 /// Decimal places an amount may carry.
 ///
 /// Two, matching the minor unit of the currencies this bridge is built for.
-/// `1234.56` is 123_456 base units; `1234.567` is refused rather than rounded.
+/// `1234.56` is `123_456` base units; `1234.567` is refused rather than rounded.
 ///
 /// A constant rather than configuration, because a value that decides how much
 /// money moves should not differ between two deployments of the same binary —

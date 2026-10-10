@@ -18,7 +18,7 @@
 //! them either accepts a block nobody paid for or rejects one somebody did.
 //! That is the class of code worth proving, and the [Kani Rust Verifier]
 //! compiles a crate *together with its whole dependency graph* — which rules
-//! out anything reaching RocksDB's C++ or the `ark-*` stack.
+//! out anything reaching `RocksDB`'s C++ or the `ark-*` stack.
 //!
 //! The visible cost of that boundary is that nothing here hashes. The basis
 //! coefficients arrive as plain integers; expanding them from a block header is

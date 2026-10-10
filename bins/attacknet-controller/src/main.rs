@@ -19,14 +19,18 @@ mod validators;
 
 use config::LabConfig;
 use lab::Lab;
-use scenarios::{ScenarioRunner};
+use scenarios::ScenarioRunner;
 
 /// Lab identifier that must be present for any destructive operation
 const LAB_CHAIN_ID: &str = "maya2c-attacknet-lab";
 const LAB_ID: &str = "maya2c-attacknet-lab-v1";
 
 #[derive(Parser, Debug)]
-#[command(name = "attacknet-controller", version, about = "Maya2C Attacknet Lab Controller")]
+#[command(
+    name = "attacknet-controller",
+    version,
+    about = "Maya2C Attacknet Lab Controller"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -99,7 +103,9 @@ async fn main() -> Result<()> {
     // Initialize tracing
     let level = if cli.verbose { "debug" } else { "info" };
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::new(format!("attacknet_controller={level},maya2c_node=warn")))
+        .with_env_filter(tracing_subscriber::EnvFilter::new(format!(
+            "attacknet_controller={level},maya2c_node=warn"
+        )))
         .init();
 
     // Verify lab context before any operation
@@ -132,7 +138,10 @@ async fn main() -> Result<()> {
             lab.emergency_down().await?;
             warn!("Lab terminated");
         }
-        Commands::Run { scenario_id, rounds } => {
+        Commands::Run {
+            scenario_id,
+            rounds,
+        } => {
             info!("Running scenario {} ({} rounds)", scenario_id, rounds);
             let runner = ScenarioRunner::new(&lab);
             runner.run_scenario(&scenario_id, rounds).await?;
@@ -177,7 +186,11 @@ fn verify_lab_context(config_path: &Path) -> Result<()> {
     if chain_id != LAB_CHAIN_ID {
         // Allow if not set (will be set by lab config)
         if !chain_id.is_empty() {
-            anyhow::bail!("CHAIN_ID mismatch: expected {}, got {}", LAB_CHAIN_ID, chain_id);
+            anyhow::bail!(
+                "CHAIN_ID mismatch: expected {}, got {}",
+                LAB_CHAIN_ID,
+                chain_id
+            );
         }
     }
 
@@ -186,10 +199,18 @@ fn verify_lab_context(config_path: &Path) -> Result<()> {
         let content = std::fs::read_to_string(config_path)?;
         let config: LabConfig = toml::from_str(&content)?;
         if config.chain_id != LAB_CHAIN_ID {
-            anyhow::bail!("Config chain_id mismatch: expected {}, got {}", LAB_CHAIN_ID, config.chain_id);
+            anyhow::bail!(
+                "Config chain_id mismatch: expected {}, got {}",
+                LAB_CHAIN_ID,
+                config.chain_id
+            );
         }
         if config.lab_id != LAB_ID {
-            anyhow::bail!("Config lab_id mismatch: expected {}, got {}", LAB_ID, config.lab_id);
+            anyhow::bail!(
+                "Config lab_id mismatch: expected {}, got {}",
+                LAB_ID,
+                config.lab_id
+            );
         }
     }
 
@@ -211,7 +232,10 @@ fn verify_lab_context(config_path: &Path) -> Result<()> {
                 let entry = entry?;
                 let name = entry.file_name().to_string_lossy().to_lowercase();
                 if name.contains("prod") || name.contains("mainnet") || name.contains("real") {
-                    anyhow::bail!("Production key detected in lab directory: {}", entry.path().display());
+                    anyhow::bail!(
+                        "Production key detected in lab directory: {}",
+                        entry.path().display()
+                    );
                 }
             }
         }

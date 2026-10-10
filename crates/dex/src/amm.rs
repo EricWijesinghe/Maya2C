@@ -139,9 +139,9 @@ impl Pool {
             return Err(DexError::EmptyPool);
         }
         mul_div_floor(
-            self.reserve_quote as u128,
+            u128::from(self.reserve_quote),
             PRICE_SCALE,
-            self.reserve_base as u128,
+            u128::from(self.reserve_base),
         )
         .ok_or(DexError::Overflow)
     }
@@ -201,9 +201,9 @@ impl Pool {
         // never with the treasury. The treasury is the party that can afford to
         // lose a unit; the invariant is not.
         let protocol_fee = mul_div_floor(
-            amount_in as u128,
-            self.fees.protocol_bps as u128,
-            FEE_DENOMINATOR as u128,
+            u128::from(amount_in),
+            u128::from(self.fees.protocol_bps),
+            u128::from(FEE_DENOMINATOR),
         )
         .ok_or(DexError::Overflow)?;
         let pool_in = amount_in
@@ -215,9 +215,9 @@ impl Pool {
 
         // Ceiling: an inexact LP fee rounds toward the reserves.
         let lp_fee = mul_div_ceil(
-            pool_in as u128,
-            self.fees.lp_bps as u128,
-            FEE_DENOMINATOR as u128,
+            u128::from(pool_in),
+            u128::from(self.fees.lp_bps),
+            u128::from(FEE_DENOMINATOR),
         )
         .ok_or(DexError::Overflow)?;
         let effective_in = pool_in.checked_sub(lp_fee).ok_or(DexError::Overflow)?;
@@ -228,11 +228,15 @@ impl Pool {
         // The curve. Only `effective_in` prices the trade, but the whole of
         // `pool_in` enters the reserve — that gap is the fee, and it is exactly
         // what makes `k` grow.
-        let denominator = (reserve_in as u128)
-            .checked_add(effective_in as u128)
+        let denominator = u128::from(reserve_in)
+            .checked_add(u128::from(effective_in))
             .ok_or(DexError::Overflow)?;
-        let amount_out = mul_div_floor(reserve_out as u128, effective_in as u128, denominator)
-            .ok_or(DexError::Overflow)?;
+        let amount_out = mul_div_floor(
+            u128::from(reserve_out),
+            u128::from(effective_in),
+            denominator,
+        )
+        .ok_or(DexError::Overflow)?;
         if amount_out == 0 {
             return Err(DexError::ZeroOutput);
         }
@@ -289,9 +293,9 @@ impl Pool {
         // trader never underpays.
         let remaining_out = reserve_out - amount_out;
         let effective_in = mul_div_ceil(
-            reserve_in as u128,
-            amount_out as u128,
-            remaining_out as u128,
+            u128::from(reserve_in),
+            u128::from(amount_out),
+            u128::from(remaining_out),
         )
         .ok_or(DexError::Overflow)?;
 
@@ -299,9 +303,9 @@ impl Pool {
             .checked_sub(self.fees.lp_bps)
             .ok_or(DexError::FeeTooHigh)?;
         let pool_in = mul_div_ceil(
-            effective_in as u128,
-            FEE_DENOMINATOR as u128,
-            lp_divisor as u128,
+            u128::from(effective_in),
+            u128::from(FEE_DENOMINATOR),
+            u128::from(lp_divisor),
         )
         .ok_or(DexError::Overflow)?;
 
@@ -309,9 +313,9 @@ impl Pool {
             .checked_sub(self.fees.protocol_bps)
             .ok_or(DexError::FeeTooHigh)?;
         let mut amount_in = mul_div_ceil(
-            pool_in as u128,
-            FEE_DENOMINATOR as u128,
-            protocol_divisor as u128,
+            u128::from(pool_in),
+            u128::from(FEE_DENOMINATOR),
+            u128::from(protocol_divisor),
         )
         .ok_or(DexError::Overflow)?;
 
@@ -396,9 +400,9 @@ impl Pool {
         // Ceiling on the amount required, so an inexact ratio is paid by the
         // depositor rather than by the pool.
         let quote_for_base = mul_div_ceil(
-            base_desired as u128,
-            self.reserve_quote as u128,
-            self.reserve_base as u128,
+            u128::from(base_desired),
+            u128::from(self.reserve_quote),
+            u128::from(self.reserve_base),
         )
         .ok_or(DexError::Overflow)?;
 
@@ -406,9 +410,9 @@ impl Pool {
             (base_desired, quote_for_base)
         } else {
             let base_for_quote = mul_div_ceil(
-                quote_desired as u128,
-                self.reserve_base as u128,
-                self.reserve_quote as u128,
+                u128::from(quote_desired),
+                u128::from(self.reserve_base),
+                u128::from(self.reserve_quote),
             )
             .ok_or(DexError::Overflow)?;
             (base_for_quote, quote_desired)
@@ -421,15 +425,15 @@ impl Pool {
         // Floor on both sides, then the smaller: the depositor is credited for
         // the side they under-supplied, never for the side they over-supplied.
         let by_base = mul_div_floor(
-            base as u128,
-            self.total_shares as u128,
-            self.reserve_base as u128,
+            u128::from(base),
+            u128::from(self.total_shares),
+            u128::from(self.reserve_base),
         )
         .ok_or(DexError::Overflow)?;
         let by_quote = mul_div_floor(
-            quote as u128,
-            self.total_shares as u128,
-            self.reserve_quote as u128,
+            u128::from(quote),
+            u128::from(self.total_shares),
+            u128::from(self.reserve_quote),
         )
         .ok_or(DexError::Overflow)?;
         let shares = by_base.min(by_quote);
@@ -478,7 +482,7 @@ impl Pool {
             return Err(DexError::InvariantViolation);
         }
 
-        let total = isqrt_u128((base as u128) * (quote as u128)).ok_or(DexError::Overflow)?;
+        let total = isqrt_u128(u128::from(base) * u128::from(quote)).ok_or(DexError::Overflow)?;
         let shares = total
             .checked_sub(MINIMUM_LIQUIDITY)
             .ok_or(DexError::InsufficientInitialLiquidity)?;
@@ -530,15 +534,15 @@ impl Pool {
         }
 
         let base = mul_div_floor(
-            self.reserve_base as u128,
-            shares as u128,
-            self.total_shares as u128,
+            u128::from(self.reserve_base),
+            u128::from(shares),
+            u128::from(self.total_shares),
         )
         .ok_or(DexError::Overflow)?;
         let quote = mul_div_floor(
-            self.reserve_quote as u128,
-            shares as u128,
-            self.total_shares as u128,
+            u128::from(self.reserve_quote),
+            u128::from(shares),
+            u128::from(self.total_shares),
         )
         .ok_or(DexError::Overflow)?;
 
@@ -607,9 +611,9 @@ fn share_price_preserved(before: &Pool, after: &Pool) -> bool {
         return true;
     }
 
-    let base_ok = (after.reserve_base as u128) * (before.total_shares as u128)
-        >= (before.reserve_base as u128) * (after.total_shares as u128);
-    let quote_ok = (after.reserve_quote as u128) * (before.total_shares as u128)
-        >= (before.reserve_quote as u128) * (after.total_shares as u128);
+    let base_ok = u128::from(after.reserve_base) * u128::from(before.total_shares)
+        >= u128::from(before.reserve_base) * u128::from(after.total_shares);
+    let quote_ok = u128::from(after.reserve_quote) * u128::from(before.total_shares)
+        >= u128::from(before.reserve_quote) * u128::from(after.total_shares);
     base_ok && quote_ok
 }

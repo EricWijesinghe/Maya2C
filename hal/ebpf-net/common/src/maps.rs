@@ -16,7 +16,7 @@ pub const BLOCK_V6: &str = "BLOCK_V6";
 pub const RATE_V4: &str = "RATE_V4";
 /// Token buckets for IPv6 sources.
 pub const RATE_V6: &str = "RATE_V6";
-/// AF_XDP sockets, indexed by receive queue.
+/// `AF_XDP` sockets, indexed by receive queue.
 pub const XSKS: &str = "XSKS";
 /// The single [`Config`] record, at index 0.
 pub const CONFIG: &str = "CONFIG";
@@ -90,7 +90,7 @@ pub enum Counter {
     Blocked = 2,
     /// Relay traffic from a source over its rate.
     RateLimited = 3,
-    /// Relay traffic redirected to an AF_XDP socket.
+    /// Relay traffic redirected to an `AF_XDP` socket.
     Redirected = 4,
     /// Relay traffic with no socket bound on its queue; dropped.
     RedirectFailed = 5,

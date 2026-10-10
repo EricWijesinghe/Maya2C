@@ -1,6 +1,6 @@
-//! SplitMix64: small, seedable, and the same on every platform.
+//! `SplitMix64`: small, seedable, and the same on every platform.
 
-/// A SplitMix64 generator.
+/// A `SplitMix64` generator.
 #[derive(Clone, Debug)]
 pub struct SplitMix64 {
     state: u64,

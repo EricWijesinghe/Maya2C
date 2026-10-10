@@ -36,7 +36,7 @@
 //! dependency graph, so Kani cannot compile it and no proof harness is coming.
 //!
 //! It is a crate because the wallet, the CLI, and any external beacon operator
-//! need to *produce* proofs without linking RocksDB, `libp2p`, and the SNARK
+//! need to *produce* proofs without linking `RocksDB`, `libp2p`, and the SNARK
 //! stack. A beacon that could only run inside a full node would be a beacon
 //! nobody could operate.
 //!

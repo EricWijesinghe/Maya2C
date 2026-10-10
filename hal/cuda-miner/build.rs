@@ -48,20 +48,21 @@ fn main() {
         "libmayadag.a"
     });
 
-    let archs = std::env::var("MAYA_CUDA_ARCHS")
-        .map(|value| {
+    let archs = std::env::var("MAYA_CUDA_ARCHS").map_or_else(
+        |_| {
+            DEFAULT_ARCHS
+                .iter()
+                .map(|arch| (*arch).to_string())
+                .collect()
+        },
+        |value| {
             value
                 .split(',')
                 .map(|arch| arch.trim().to_string())
                 .filter(|arch| !arch.is_empty())
                 .collect::<Vec<_>>()
-        })
-        .unwrap_or_else(|_| {
-            DEFAULT_ARCHS
-                .iter()
-                .map(|arch| (*arch).to_string())
-                .collect()
-        });
+        },
+    );
 
     let mut command = Command::new(nvcc());
     command

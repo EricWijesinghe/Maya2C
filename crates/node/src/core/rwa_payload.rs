@@ -3,7 +3,7 @@
 //! Five actions, and the split between them is about who bears the cost of a
 //! failure. Issuance, distribution and attestation are the issuer's own
 //! transactions, so a bad one is an error and fails only that transaction's
-//! block-worth of intent. A **DvP is not**: it names a counterparty, and an
+//! block-worth of intent. A **`DvP` is not**: it names a counterparty, and an
 //! error there would let anyone void a block by submitting a swap they know
 //! cannot settle. See `crate::state::rwa_exec`.
 

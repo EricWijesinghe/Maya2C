@@ -166,7 +166,7 @@ pub fn match_book(book: &Book, fees: FeeSchedule, limits: MatchLimits) -> Result
     let mut limit_reached = false;
 
     loop {
-        if fills.len() as u64 >= limits.max_fills as u64 {
+        if fills.len() as u64 >= u64::from(limits.max_fills) {
             // Only a *crossed* book left behind counts as hitting the limit. A
             // pass that used its last permitted fill to clear the last cross
             // finished; saying otherwise would have the caller schedule work
@@ -217,9 +217,9 @@ pub fn match_book(book: &Book, fees: FeeSchedule, limits: MatchLimits) -> Result
             Side::Ask => base,
         };
         let taker_fee = mul_div_floor(
-            taker_output as u128,
-            fees.protocol_bps as u128,
-            FEE_DENOMINATOR as u128,
+            u128::from(taker_output),
+            u128::from(fees.protocol_bps),
+            u128::from(FEE_DENOMINATOR),
         )
         .ok_or(DexError::Overflow)?;
 

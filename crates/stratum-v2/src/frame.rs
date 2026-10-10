@@ -9,19 +9,19 @@
 //! ```
 //!
 //! Six bytes, little-endian, exactly as SV2 specifies. This layer is the one
-//! part of the protocol Maya2C adopts without alteration — nothing in it
+//! part of the protocol `Maya2C` adopts without alteration — nothing in it
 //! mentions a Bitcoin header, so there is nothing to adapt.
 //!
 //! ## The extension namespace
 //!
 //! Extension type `0x0000` is the reserved SV2 mining protocol, and this is not
-//! that: Maya2C's mining messages carry a `state_root`, a `tx_root` where SV2
+//! that: `Maya2C`'s mining messages carry a `state_root`, a `tx_root` where SV2
 //! puts its merkle root, and a 256-bit target where SV2 has `nbits`. Using `0x0000` would announce
 //! wire compatibility that does not exist, and the failure mode — a stock SV2
 //! client parsing our `NewMiningJob` as its own — is a client mining garbage
 //! rather than a client reporting an error.
 //!
-//! So Maya2C's messages live under [`MAYA_EXTENSION_TYPE`], `0x4D41`, which is
+//! So `Maya2C`'s messages live under [`MAYA_EXTENSION_TYPE`], `0x4D41`, which is
 //! `"MA"` in ASCII and legible in a hex dump.
 
 use crate::codec::U24_MAX;
@@ -36,7 +36,7 @@ pub const CHANNEL_MSG_BIT: u16 = 0x8000;
 /// Mask recovering the extension id from `extension_type`.
 pub const EXTENSION_TYPE_MASK: u16 = 0x7FFF;
 
-/// Maya2C's extension id. See the module docs.
+/// `Maya2C`'s extension id. See the module docs.
 pub const MAYA_EXTENSION_TYPE: u16 = 0x4D41;
 
 /// Largest payload this build will emit or accept.

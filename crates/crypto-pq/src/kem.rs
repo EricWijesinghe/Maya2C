@@ -28,7 +28,7 @@
 //! it under a FIPS 203 label would be false.
 //!
 //! `ml-kem` is also pure Rust, which the infra/docker/Dockerfile's static-musl build depends
-//! on — the same reason `fips204` and `slh-dsa` were chosen over their PQClean
+//! on — the same reason `fips204` and `slh-dsa` were chosen over their `PQClean`
 //! equivalents.
 //!
 //! ## Sizes and cost

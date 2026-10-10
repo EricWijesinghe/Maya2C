@@ -17,7 +17,7 @@
 //!
 //! # Why, and it is not laziness
 //!
-//! A Maya2C signature is a hybrid pair: ML-DSA-65 (FIPS 204) **and**
+//! A `Maya2C` signature is a hybrid pair: ML-DSA-65 (FIPS 204) **and**
 //! SLH-DSA-SHA2-128s (FIPS 205). `HybridVerifyingKey::verify`
 //! (`src/crypto/hybrid.rs:337`) checks both, so a scheme that thresholds one
 //! half produces nothing the chain accepts.

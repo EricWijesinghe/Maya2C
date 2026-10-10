@@ -9,7 +9,7 @@
 //! Values are two 27-bit limbs, so a note holds less than `2^54` (about
 //! 1.8·10^16 base units). 27 rather than 30 bits because the joinsplit adds up
 //! to four limbs in one equation and every such sum must stay below the
-//! BabyBear modulus, `p ≈ 15·2^27` — see `joinsplit.rs`.
+//! `BabyBear` modulus, `p ≈ 15·2^27` — see `joinsplit.rs`.
 //!
 //! `rho` (4 elements, ~124 bits) makes every note unique, so every nullifier
 //! is; `rand` hides the commitment. The nullifier needs `sk`, so only the

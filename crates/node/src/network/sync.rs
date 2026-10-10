@@ -90,7 +90,7 @@ impl<'de> Deserialize<'de> for BlockBytes {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         struct BytesVisitor;
 
-        impl<'de> Visitor<'de> for BytesVisitor {
+        impl Visitor<'_> for BytesVisitor {
             type Value = BlockBytes;
 
             fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -1,6 +1,6 @@
 //! Transparent, post-quantum zero-knowledge proofs — ADR-008.
 //!
-//! One proof system: Plonky3 uni-STARKs over BabyBear with hiding FRI and
+//! One proof system: Plonky3 uni-STARKs over `BabyBear` with hiding FRI and
 //! Keccak commitments. No trusted setup, no pairing, nothing a quantum
 //! computer's discrete-log algorithm breaks; soundness rests on hash
 //! collision resistance. `tests/pqc_zk_tests.rs` checks the dependency graph

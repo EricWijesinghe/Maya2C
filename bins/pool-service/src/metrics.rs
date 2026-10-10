@@ -38,7 +38,7 @@ use crate::model::RejectReason;
 
 /// Bucket bounds for share validation, in seconds.
 ///
-/// Centred on the 25.4 ms an ArgonBlake verification costs
+/// Centred on the 25.4 ms an `ArgonBlake` verification costs
 /// (`src/crypto/argon_blake.rs`), with room below for the DAG rule — about a
 /// millisecond — and room above to show a saturated validator pool.
 fn validation_buckets() -> impl Iterator<Item = f64> {

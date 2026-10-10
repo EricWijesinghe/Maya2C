@@ -108,7 +108,7 @@ pub fn simulate(state: SyntheticState, setup: &Setup) -> Report {
                     for e in events {
                         match e {
                             Event::Verified(_) => {
-                                balance_sum += SyntheticState::balance_sum(&bytes)
+                                balance_sum += SyntheticState::balance_sum(&bytes);
                             }
                             Event::Complete => finished_at = now,
                             Event::Banned(_) => {}

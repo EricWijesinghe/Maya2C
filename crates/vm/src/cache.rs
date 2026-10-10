@@ -107,8 +107,14 @@ impl ModuleCache {
     #[must_use]
     pub fn stats(&self) -> (u64, u64) {
         (
-            *self.hits.lock().unwrap_or_else(|e| e.into_inner()),
-            *self.misses.lock().unwrap_or_else(|e| e.into_inner()),
+            *self
+                .hits
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+            *self
+                .misses
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
         )
     }
 
@@ -117,7 +123,7 @@ impl ModuleCache {
     pub fn len(&self) -> usize {
         self.entries
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .len()
     }
 
@@ -145,10 +151,13 @@ impl ModuleCache {
             let mut entries = self
                 .entries
                 .lock()
-                .unwrap_or_else(|error| error.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(entry) = entries.get_mut(&key) {
                 entry.touched = self.tick();
-                *self.hits.lock().unwrap_or_else(|e| e.into_inner()) += 1;
+                *self
+                    .hits
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) += 1;
                 return Ok(entry.module.clone());
             }
         }
@@ -158,13 +167,16 @@ impl ModuleCache {
         // in the process behind it.
         let module =
             Module::new(engine, wasm).map_err(|error| VmError::InvalidModule(error.to_string()))?;
-        *self.misses.lock().unwrap_or_else(|e| e.into_inner()) += 1;
+        *self
+            .misses
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) += 1;
 
         let touched = self.tick();
         let mut entries = self
             .entries
             .lock()
-            .unwrap_or_else(|error| error.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         // Another thread may have compiled the same module while this one was
         // working. Both results are the same code, so either is correct and the
         // duplicate work is simply lost.
@@ -194,7 +206,7 @@ impl ModuleCache {
     pub fn clear(&self) {
         self.entries
             .lock()
-            .unwrap_or_else(|error| error.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clear();
     }
 
@@ -212,7 +224,10 @@ impl ModuleCache {
 
     /// The next value of the monotonic counter.
     fn tick(&self) -> u64 {
-        let mut clock = self.clock.lock().unwrap_or_else(|error| error.into_inner());
+        let mut clock = self
+            .clock
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         *clock += 1;
         *clock
     }
