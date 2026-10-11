@@ -93,7 +93,7 @@ and it is written down as one. It is not how mainnet will work.
    node accept one that deep:
 
    ```bash
-   maya2c-node --genesis genesis.json --data-dir data      --validator-key validator.key      --bootnode /dns4/p2p.maya2c.dev/tcp/443/wss/p2p/12D3KooWK2bykmqyzdK4TMSTBQ5visSjkFoK8wj88aMn3ms4ByiG      --prune-depth 3600      --bootstrap-from https://bootstrap.maya2c.dev/rpc      --catch-up-from https://bootstrap.maya2c.dev/rpc
+   maya2c-node --genesis genesis.json --data-dir data      --validator-key validator.key      --bootnode /dns4/p2p.maya2c.dev/tcp/443/wss/p2p/12D3KooWJqH5AUQ1zPkMke18rcc8VHN2TWQ5XudGX3tP8zPLuyjB      --prune-depth 3600      --bootstrap-from https://bootstrap.maya2c.dev/rpc      --catch-up-from https://bootstrap.maya2c.dev/rpc
    ```
 
    A fresh node run this way on 2026-10-04 loaded the snapshot at height
