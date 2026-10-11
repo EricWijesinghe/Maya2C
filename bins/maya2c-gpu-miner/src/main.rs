@@ -10,7 +10,11 @@
 //! build on a runner with no adapter, and a binary that pretended otherwise
 //! would fail at dispatch instead of at startup.
 
+use std::path::PathBuf;
+
 use clap::Parser;
+
+mod share;
 
 /// Cross-platform GPU miner for Maya2C's hashimoto proof of work.
 #[derive(Parser, Debug)]
@@ -74,10 +78,43 @@ struct Args {
     /// rather than accumulate, and for nothing else.
     #[arg(long, default_value = "wgpu-miner")]
     telemetry_id: String,
+
+    /// Mine shares for the rewards lane (ADR-044) from `--rpc`'s
+    /// `get_mining_work`. Hashes on CPU threads in light mode today; works
+    /// with or without the `gpu` feature.
+    #[arg(long)]
+    mine: bool,
+
+    /// Payout key seed (hex). Created on first run; shares pay its address.
+    /// It is the wallet for what this rig earns: back it up, never share it.
+    #[arg(long, env = "MAYA_MINER_KEY", default_value = "maya2c-miner.key")]
+    key_file: PathBuf,
+
+    /// CPU threads for `--mine`.
+    #[arg(long, default_value_t = 4)]
+    threads: usize,
+
+    /// One JSON event per stdout line, for the Maya2C Hub.
+    #[arg(long)]
+    json: bool,
 }
 
 fn main() {
     let args = Args::parse();
+
+    if args.mine {
+        let mine = share::ShareArgs {
+            rpc: &args.rpc,
+            key_file: &args.key_file,
+            threads: args.threads,
+            json: args.json,
+        };
+        if let Err(error) = share::run(&mine) {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return;
+    }
 
     #[cfg(not(feature = "gpu"))]
     {
