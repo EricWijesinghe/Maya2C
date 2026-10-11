@@ -1,0 +1,43 @@
+name: Bug report
+description: Something in the node, wallet, chat or SDK does not work as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Security problem?** Stop here and use *Report a security vulnerability*
+        instead — a public issue tells attackers before a fix exists.
+        Never paste a private key, seed phrase or keystore password.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Output of `maya2c-node --version`, or the git commit you built.
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options: [Node, Wallet, Chat, Hub / miner, SDK, Website / docs, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. ...\n2. ...\n3. ..."
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant log lines. Remove anything private first.
+      render: text

@@ -243,14 +243,26 @@ function describe(body, title) {
   return `${cut.slice(0, cut.lastIndexOf(" "))}…`;
 }
 
+function stripTags(text) {
+  let prev;
+  do {
+    prev = text;
+    text = text.replace(/<[^>]*>/g, "");
+  } while (text !== prev);
+  return text.replace(/[<>]/g, "");
+}
+
 /** Markdown inline syntax to plain text. */
 function flatten(text) {
-  return text
+  const inline = text
     .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
     .replace(/`([^`]+)`/g, "$1")
-    .replace(/(\*\*|__|\*|_)(\S[^*_]*?\S|\S)\1/g, "$2")
-    .replace(/<[^>]+>/g, "")
+    .replace(/(\*\*|__|\*|_)(\S[^*_]*?\S|\S)\1/g, "$2");
+  // Strip tags until none are left, then any lone angle bracket, so input
+  // like "<scr<script>ipt>" cannot reassemble a tag (CodeQL
+  // js/incomplete-multi-character-sanitization).
+  return stripTags(inline)
     // Nested emphasis the pair above cannot unwind: drop what is left.
     .replace(/\*\*|__/g, "")
     .replace(/\s+/g, " ")
