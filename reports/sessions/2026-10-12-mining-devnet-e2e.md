@@ -104,3 +104,36 @@ cargo test -p custom-l1-node --test mining_rewards_tests   12 passed; 0 failed
 cargo test -p custom-l1-node --lib mining                    10 passed; 0 failed
 cargo clippy -p custom-l1-node --all-targets (CI flags)      Finished, no warnings
 ```
+
+## Run 4: retarget on the real node, shipped miner (150 s)
+
+The node was rebuilt with `spent_after` (`dd050e13`). The miner was the one
+`cargo xtask hub-bundle` ships (`apps/hub/src-tauri/target/release/maya2c-gpu-miner.exe`,
+release, 4 threads): 7,741 H/s, against 509 H/s for the debug build.
+
+```
+share target by epoch (first 4 bytes):
+  1 00ffffff  2 00e8ba2e  3 004685fe  4 001c3599
+  5 000e1acc  6 00070d66  7 00066945  8 0005d410
+shares: 219 accepted by pool, 7 refused
+get_balance(miner)  balance 5110000  nonce 73   (73 x 70,000 = 5,110,000)
+```
+
+The target hardens while the budget drains early, and the steps shrink as
+demand meets the target, which is the convergence ADR-044 intends. On the
+pre-fix node (run 3's build), the same miner left the target at the genesis
+floor through epoch 95.
+
+## Windows installers
+
+`cargo xtask hub-bundle` (exit 0):
+
+```
+Finished `release` profile [optimized] target(s) in 4m 19s     (miner)
+Finished `release` profile [optimized] target(s) in 2m 48s     (hub)
+ 6377472 bytes  apps/hub/src-tauri/target/release/bundle/msi/Maya2C Hub_0.1.0_x64_en-US.msi
+ 4333942 bytes  apps/hub/src-tauri/target/release/bundle/nsis/Maya2C Hub_0.1.0_x64-setup.exe
+```
+
+The installers are unsigned, so Windows SmartScreen will warn on first run.
+The Hub window from the installer was NOT VERIFIED, because the GUI was not driven.
