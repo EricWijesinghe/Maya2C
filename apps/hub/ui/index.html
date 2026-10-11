@@ -121,11 +121,13 @@
           <div class="card form">
             <h2>Node</h2>
             <label>JSON-RPC URL <input id="s-rpc" spellcheck="false" /></label>
-            <h2>Miner</h2>
-            <label>Miner program <input id="s-binary" spellcheck="false" /></label>
-            <label>Payout key file <input id="s-key" spellcheck="false" /></label>
-            <p class="fine">The key file is the wallet for what you mine. It is created on first start. Back it up and never share it.</p>
-            <label>CPU threads <span id="s-threads-v"></span><input id="s-threads" type="range" min="1" max="64" /></label>
+            <div id="s-miner">
+              <h2>Miner</h2>
+              <label>Miner program <input id="s-binary" spellcheck="false" /></label>
+              <label>Payout key file <input id="s-key" spellcheck="false" /></label>
+              <p class="fine">The key file is the wallet for what you mine. It is created on first start. Back it up and never share it.</p>
+              <label>CPU threads <span id="s-threads-v"></span><input id="s-threads" type="range" min="1" max="64" /></label>
+            </div>
             <button class="save" id="s-save">Save</button>
             <p class="fine" id="s-msg"></p>
           </div>

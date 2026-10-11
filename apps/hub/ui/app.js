@@ -372,8 +372,8 @@ async function main() {
   renderUniverse();
   if (defaults.can_mine === false) {
     // Phones watch; the desktop Hub mines.
-    $("power").disabled = true;
-    $("power").title = WATCH_ONLY;
+    $("power").hidden = true;
+    $("s-miner").hidden = true;
     state.watchOnly = true;
   } else {
     $("power").addEventListener("click", togglePower);

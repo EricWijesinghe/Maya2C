@@ -31,6 +31,7 @@ const ARTIFACT_DIRS: &[&str] = &[
     "apps/wallet-gui/ui/target",
     "apps/chat-gui/src-tauri/target",
     "apps/hub/src-tauri/target",
+    "apps/hub/src-tauri/gen/android/app/build",
     "docs/site/node_modules",
 ];
 
