@@ -14,6 +14,8 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
+#[cfg(feature = "gpu")]
+mod gpu_share;
 mod share;
 
 /// Cross-platform GPU miner for Maya2C's hashimoto proof of work.
@@ -97,6 +99,11 @@ struct Args {
     /// One JSON event per stdout line, for the Maya2C Hub.
     #[arg(long)]
     json: bool,
+
+    /// With `--mine`: hash on GPU `--device` (full dataset resident) instead
+    /// of CPU threads. Needs the `gpu` feature.
+    #[arg(long, requires = "mine")]
+    gpu: bool,
 }
 
 fn main() {
@@ -108,6 +115,11 @@ fn main() {
             key_file: &args.key_file,
             threads: args.threads,
             json: args.json,
+            gpu: args.gpu.then_some(share::GpuOpts {
+                device: args.device,
+                batch: args.batch,
+                workgroup_size: args.workgroup_size,
+            }),
         };
         if let Err(error) = share::run(&mine) {
             eprintln!("{error}");
