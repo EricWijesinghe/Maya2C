@@ -85,6 +85,8 @@ pub(crate) struct Overlay {
     pub(crate) shielded: Option<ShieldedPool>,
     /// Joinsplits staged so far, for the per-block verification budget.
     pub(crate) joinsplits: usize,
+    /// Mining shares staged so far, against the per-block cap (ADR-044).
+    pub(crate) mining_shares: u64,
     /// Every record the trading subsystem wrote, keyed by its storage key.
     /// `None` is a deletion.
     ///
@@ -245,6 +247,9 @@ pub struct StateDB {
     /// Set once on initialization and required for all transaction verification
     /// (ADR-036: chain-bound signatures).
     chain_tag: OnceLock<ChainTag>,
+    /// DAG caches for mining shares (ADR-044), built on the first share so a
+    /// chain that does not mine never pays for one.
+    pub(crate) mining_dag: OnceLock<std::sync::Arc<crate::crypto::dag::registry::CacheRegistry>>,
 }
 
 impl StateDB {
@@ -300,6 +305,7 @@ impl StateDB {
             verified: crate::state::verified::VerifiedCache::default(),
             preview: crate::state::preview::PreviewCache::default(),
             chain_tag: OnceLock::new(),
+            mining_dag: OnceLock::new(),
         })
     }
 
@@ -900,6 +906,9 @@ impl StateDB {
         // Burn the base fee before staking runs, so an epoch's reward pool is
         // the tips alone.
         self.settle_fees(&mut overlay)?;
+        // Before staking: an epoch boundary moves the committee's mining reward
+        // into the collector, which staking then pays out with the tips.
+        self.settle_mining(&mut overlay, &block.header, context)?;
         // After governance and before the invariants: the epoch boundary moves
         // bonds, rewards and slashes, which the conservation check must see.
         self.settle_staking(&mut overlay, &block.header, context)?;

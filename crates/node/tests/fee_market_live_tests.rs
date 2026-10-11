@@ -51,6 +51,7 @@ fn chain(dir: &TempDir) -> Chain {
             anchor_timeout_ms: 1_000,
             batch_size: 100,
             round_interval_ms: 500,
+            mining: None,
             staking: None,
             fees: Some(FeesGenesis {
                 initial_base_fee: BASE_FEE,
