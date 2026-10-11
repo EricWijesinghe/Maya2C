@@ -6,7 +6,7 @@ Tauri 2. The UI in `ui/` is plain HTML, CSS and canvas, and the Rust commands in
 | Platform | Status | How |
 |---|---|---|
 | Windows | Builds: NSIS `.exe` and `.msi`, unsigned | `cargo xtask hub-bundle` |
-| Linux | Not built yet | `cargo xtask hub-bundle` inside WSL Ubuntu, once Rust and the WebKitGTK dev packages are installed there |
+| Linux | Builds: `.deb`, `.rpm`, AppImage, unsigned | `CARGO_TARGET_DIR=/root/maya-target cargo xtask hub-bundle` inside WSL Ubuntu |
 | Android | Debug APK builds and runs (emulator, API 34) | see below |
 | macOS, iOS | Waiting for a Mac to build on | `cargo tauri build` / `cargo tauri ios build` |
 
