@@ -202,3 +202,29 @@ The first `mining-localnet` run was also aborted before it started nodes:
 localnet's ports (p2p 31100) collide with the live seed. Fixed:
 `localnet::ports_free()` refuses occupied ports, and `mining-localnet` uses
 p2p 33100+ and rpc 34000+. Test processes are now killed by PID only.
+
+## Explorer redeployed (Eric asked: the site's live dashboard was not updating)
+
+Cause:
+- `maya-explorer` (binary from 2026-10-04, in-memory index) was frozen at
+  height 340,966. That is likely since the seed was restored from a snapshot
+  on 2026-10-10, because the seed prunes to 3,600 blocks.
+- It restarted at 02:04, the time of this session's seed stop, and began again
+  at genesis, where it stuck: `indexed 1 block(s), tip now 0`.
+- The site's hero and the network status read the explorer's `/api/blocks`
+  and `/ws/blocks`, so they showed nothing new.
+
+Fix:
+- Another session committed `4cd2ecdc` (resume in the node's retained window).
+- `cargo test -p maya-explorer`: 2 + 2 + 21 + 24 passed.
+- The release build was copied to `D:\Maya2C-testnet\bin\maya-explorer.exe`;
+  the previous binary is in `bin\prev-20261012\`.
+- Only PID 36484 was restarted, with its own command line. The node and the
+  validators were not touched.
+
+After:
+```
+explorer.log: indexed 1 block(s), tip now 462534
+https://explorer.maya2c.dev/api/blocks  newest height 462535
+wss://explorer.maya2c.dev/ws/blocks     heights 462552..462557 in 8 s
+```
