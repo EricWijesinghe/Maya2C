@@ -192,10 +192,12 @@ Rules in CLAUDE.md, "Operating Protocol"; state in [STATE.md](STATE.md).
 - [x] Windows installers via `cargo xtask hub-bundle`; Android debug APK runs on an emulator (2026-10-12)
 - [x] Linux bundles (WSL): deb, rpm, AppImage (2026-10-12)
 - [x] api-gateway serves `get_mining_work` (not yet deployed)
-- [ ] GPU dataset hashing in the miner; real RTX 5070 run
-- [ ] Multi-validator mining devnet; Hub window driven against it
+- [x] GPU dataset hashing in the miner; RTX 5070 parity + 4-validator run (2026-10-12)
+- [x] Multi-validator mining devnet (`cargo xtask mining-localnet`, 2026-10-12)
+- [ ] Hub window driven against a mining devnet
 - [ ] Testnet activation path for mining (re-genesis or activation height)
-- [ ] Genesis tool fills `MINING_RESERVE` and `bft.mining`; measure block rate for `halving_epochs`
+- [x] Genesis tool fills `MINING_RESERVE` and `bft.mining` (2026-10-12)
+- [ ] Measure the block rate to set `halving_epochs`; mainnet-dataset GPU rate
 - [ ] Release signing (Windows code-signing, Android keystore — Eric's keys)
 - [ ] macOS/iOS builds (after Eric's MacBook)
 ---
