@@ -101,3 +101,32 @@ finalize blocks. They earn issuance by publishing work:
   not need to change to allow it.
 - Not covered: pools beyond the existing stratum-v2 service; lattice PoUW stays
   RESEARCH (ADR-016, no measured useful output).
+
+## Changes from review (2026-10-11)
+
+Rust review and blockchain security audit of `2e92cbd4`. No value creation or
+reserve drain was found. Fixed in `eea9a8af` and `0affbcf5`:
+
+- **Mining opens at the first epoch boundary, not block 1.** Epoch 0's anchor
+  is fixed before launch, so its work could be precomputed and land first.
+  From epoch 1, the anchor is a block nobody could predict. The committee's
+  part of epoch 0 is still paid at the boundary.
+- **Mempool admission runs the share rules first**: epoch, spent set, then the
+  2 ms proof of work, then the signature. A zero-balance miner's share is
+  admitted, and a share that would not pay is refused before it reaches a
+  block template.
+- **The genesis target is a floor.** Empty epochs can no longer ease the target
+  until every digest is a share.
+- **Spent shares are keyed by epoch and deleted at the epoch's close.** The
+  epoch check already refuses them, so the set no longer grows with the chain.
+- **One `validate()` serves genesis and decode.** The reserve must hold at least
+  one epoch's reward, and a share that rounds to zero is refused.
+
+Still open:
+
+- **The proposer of an epoch's boundary block learns the next anchor first.**
+  It can start on the next epoch's work one block early, and it can censor
+  shares it does not include. It cannot steal a share, because the payee is
+  bound into the work.
+- **Proposer timing under load is unmeasured.** No timing bound on
+  `select_applicable` exists yet.
