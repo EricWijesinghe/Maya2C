@@ -132,6 +132,7 @@ impl MiningGenesis {
             target,
             shares: 0,
             paid: 0,
+            spent_after: 0,
             target_limit: target,
         };
         record.validate()?;
@@ -167,6 +168,11 @@ pub struct MiningRecord {
     pub shares: u64,
     /// Units paid to miners in `epoch`.
     pub paid: u64,
+    /// Blocks into `epoch` after which its miner budget was spent; 0 while
+    /// some is left. Shares past the budget are refused, so `shares` stops
+    /// near `target_shares` and cannot show how far demand ran over it; how
+    /// early the budget ran out does (security review of ADR-044).
+    pub spent_after: u64,
     /// The easiest target retargeting may reach: the genesis target. Without
     /// a floor, empty epochs would ease the target until every digest is a
     /// share (security review of ADR-044).
@@ -215,7 +221,7 @@ impl MiningRecord {
     pub fn retarget(&self) -> [u8; 32] {
         let low = (self.target_shares / MAX_RETARGET_FACTOR).max(1);
         let high = self.target_shares.saturating_mul(MAX_RETARGET_FACTOR);
-        let observed = self.shares.clamp(low, high);
+        let observed = self.demand().clamp(low, high);
         let previous = U256::from_be_bytes(&self.target);
         // Overflow means past 256 bits, easier than any limit: saturate to the
         // limit rather than wrap to a hard target.
@@ -232,11 +238,23 @@ impl MiningRecord {
         }
     }
 
-    /// Fixed-width encoding, version 1.
+    /// Shares the epoch would have seen had the budget lasted it out:
+    /// `shares` scaled by how early the budget was spent. Integer only.
+    fn demand(&self) -> u64 {
+        if self.spent_after == 0 {
+            return self.shares;
+        }
+        let scaled =
+            u128::from(self.shares) * u128::from(self.epoch_blocks) / u128::from(self.spent_after);
+        u64::try_from(scaled).unwrap_or(u64::MAX)
+    }
+
+    /// Fixed-width encoding, version 2 (version 1 lacked `spent_after` and
+    /// was never on a public chain).
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(1 + 8 * 9 + 1 + 96);
-        out.push(1);
+        let mut out = Vec::with_capacity(1 + 8 * 10 + 1 + 96);
+        out.push(2);
         for value in [
             self.initial_epoch_reward,
             self.halving_epochs,
@@ -252,7 +270,7 @@ impl MiningRecord {
         }
         out.extend_from_slice(&self.anchor);
         out.extend_from_slice(&self.target);
-        for value in [self.shares, self.paid] {
+        for value in [self.shares, self.paid, self.spent_after] {
             out.extend_from_slice(&value.to_le_bytes());
         }
         out.extend_from_slice(&self.target_limit);
@@ -266,7 +284,7 @@ impl MiningRecord {
     /// [`NodeError::Decode`] on a wrong version, profile or length.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let mut r = ByteReader::new(bytes);
-        if r.read_u8()? != 1 {
+        if r.read_u8()? != 2 {
             return Err(NodeError::Decode("mining record version".into()));
         }
         let record = Self {
@@ -282,6 +300,7 @@ impl MiningRecord {
             target: r.read_array()?,
             shares: r.read_u64()?,
             paid: r.read_u64()?,
+            spent_after: r.read_u64()?,
             target_limit: r.read_array()?,
         };
         r.finish()?;
@@ -300,6 +319,9 @@ impl MiningRecord {
         let bad = |what: &str| Err(NodeError::Decode(format!("mining: {what}")));
         if self.halving_epochs == 0 || self.target_shares == 0 || self.epoch_blocks == 0 {
             return bad("halving_epochs, target_shares and epoch_blocks must be positive");
+        }
+        if self.spent_after > self.epoch_blocks {
+            return bad("spent_after past the end of the epoch");
         }
         if self.max_shares_per_block == 0 {
             return bad("max_shares_per_block must be positive");
@@ -440,6 +462,36 @@ mod tests {
         assert_eq!(r.retarget(), r.target_limit);
     }
 
+    /// Shares past the budget are refused, so `shares` stops near
+    /// `target_shares`; how early the budget ran out is what shows demand.
+    #[test]
+    fn a_budget_spent_early_hardens_the_target_by_how_early() {
+        let mut r = record();
+        let base = U256::from_be_bytes(&r.target);
+        r.shares = 100;
+        r.spent_after = 300; // half the 600-block epoch: twice the demand
+        assert_eq!(
+            U256::from_be_bytes(&r.retarget()),
+            base.mul_div_u64(1, 2).unwrap()
+        );
+        r.spent_after = 1; // drained in one block: clamped at x4
+        assert_eq!(
+            U256::from_be_bytes(&r.retarget()),
+            base.mul_div_u64(1, 4).unwrap()
+        );
+        r.spent_after = 0; // budget left over: shares alone, as before
+        assert_eq!(r.retarget(), r.target);
+    }
+
+    #[test]
+    fn a_spent_after_past_the_epoch_is_refused_on_decode() {
+        let mut r = record();
+        r.spent_after = 601;
+        assert!(MiningRecord::decode(&r.encode()).is_err());
+        r.spent_after = 600;
+        assert_eq!(MiningRecord::decode(&r.encode()).unwrap(), r);
+    }
+
     #[test]
     fn empty_epochs_never_ease_past_the_genesis_target() {
         let mut r = record();
@@ -466,7 +518,7 @@ mod tests {
         bytes.push(0);
         assert!(MiningRecord::decode(&bytes).is_err());
         bytes = r.encode();
-        bytes[0] = 2;
+        bytes[0] = 1;
         assert!(MiningRecord::decode(&bytes).is_err());
     }
 
