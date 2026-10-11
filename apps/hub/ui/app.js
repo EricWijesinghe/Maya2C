@@ -35,7 +35,7 @@ const preview = (() => {
   let height = 241_000;
   const events = [];
   return {
-    defaults: () => ({ rpc: "http://127.0.0.1:8545", miner_binary: "maya2c-gpu-miner.exe", key_file: "miner.key", cpu_threads: 16 }),
+    defaults: () => ({ rpc: "https://rpc.maya2c.dev/rpc", miner_binary: "maya2c-gpu-miner.exe", key_file: "miner.key", cpu_threads: 16, can_mine: true }),
     miner_state: () => {
       const t = Date.now();
       rates.push({ t_ms: t, hps: 6200 + 900 * Math.sin(t / 9000) + Math.random() * 400 });
@@ -111,7 +111,7 @@ function renderMiner() {
   const r = Charts.rate(m.running ? last : null);
   setText("rate-value", r.value);
   setText("rate-unit", r.unit);
-  setText("miner-status", m.status || (m.running ? "running" : "stopped"));
+  setText("miner-status", state.watchOnly ? WATCH_ONLY : m.status || (m.running ? "running" : "stopped"));
   setText("t-accepted", m.accepted.toLocaleString());
   setText("t-rejected", m.rejected.toLocaleString());
   setText("t-earned", maya(m.earned));
@@ -151,7 +151,7 @@ function renderFeed(events) {
       const ok = e.event === "share" && e.accepted;
       mark.className = ok ? "ok" : "bad";
       mark.textContent = ok ? "✓" : "✕";
-      what.textContent = ok ? `Share accepted  +${maya(e.reward)} MAYA` : e.reason || e.message || "refused";
+      what.textContent = ok ? `Share sent · pays up to +${maya(e.reward)} MAYA when it lands` : e.reason || e.message || "refused";
       time.textContent = clock(e.t_ms);
       li.append(mark, what, time);
       return li;
@@ -314,6 +314,8 @@ async function poll(cmd, args, apply, every) {
   setTimeout(() => poll(cmd, args, apply, every), every);
 }
 
+const WATCH_ONLY = "Watching — mining runs on the desktop Hub";
+
 async function togglePower() {
   const running = state.miner && state.miner.running;
   try {
@@ -368,7 +370,14 @@ async function main() {
   wireNav();
   wireSettings(defaults.cpu_threads);
   renderUniverse();
-  $("power").addEventListener("click", togglePower);
+  if (defaults.can_mine === false) {
+    // Phones watch; the desktop Hub mines.
+    $("power").disabled = true;
+    $("power").title = WATCH_ONLY;
+    state.watchOnly = true;
+  } else {
+    $("power").addEventListener("click", togglePower);
+  }
 
   const address = () => (state.miner && state.miner.address && state.miner.address !== "preview" ? state.miner.address : null);
   poll("miner_state", () => undefined, (m) => { if (m) { state.miner = m; renderMiner(); } }, POLL_MINER_MS);
