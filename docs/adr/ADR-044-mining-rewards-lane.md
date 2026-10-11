@@ -16,8 +16,8 @@ and visible, rather than through a premine.
 
 What exists:
 
-- `crypto::argon_blake::argon_blake_hash` + `crypto::pow::meets_target` — the
-  chain's original proof of work, still used by devnet mode (ADR-015).
+- `crypto::dag::hashimoto_light` + `crypto::pow::meets_target` — the DAG proof
+  of work (`docs/dag-pow.md`), with conformance vectors.
 - `hal/cuda-miner` — CUDA ArgonBlake, asserted bit-identical to the node.
   `bins/maya2c-gpu-miner`, `bins/maya2c-miner`, `crates/stratum-v2`,
   `bins/pool-service`.
@@ -37,13 +37,20 @@ finalize blocks. They earn issuance by publishing work:
    nonce: u64 }`. `anchor` is the hash of the last block of epoch `epoch − 1`,
    so work cannot be precomputed before that block is final and cannot be
    replayed into another epoch or chain (the chain tag is in the preimage,
-   ADR-036). Work = `argon_blake_hash(chain_tag ‖ epoch ‖ anchor ‖ miner ‖ nonce)`
-   meeting the epoch's share target.
+   ADR-036). Work = `hashimoto_light(cache(epoch), H(chain_tag ‖ epoch ‖ anchor ‖ miner), nonce)`
+   (the DAG proof of work, `docs/dag-pow.md`) meeting the epoch's share target.
 2. **Validity is deterministic and cheap to refuse.** Wrong epoch, wrong
    anchor or a duplicate `(miner, nonce)` is refused before hashing. At most
    `MAX_CLAIMS_PER_BLOCK` claims enter a block, and a claim pays the base fee,
-   so Argon2 verification (32 MiB, the costly step) is bounded per block.
-3. **Emission per epoch.** `R(e) = INITIAL_EPOCH_REWARD >> (e / HALVING_EPOCHS)`,
+   so verification is bounded per block. A DAG light check costs 2.0 ms on
+   a CPU (`docs/dag-pow.md`), against ~25.4 ms for ArgonBlake, which is why
+   shares use the DAG. A share pays no base fee, because a new miner holds no
+   coin. Spam is bounded by the per-block cap, a per-sender mempool limit, and the
+   signature check that runs before the hash.
+3. **Emission per epoch, paid from a reserve, never minted.** Genesis
+   allocates `MAX_SUPPLY − Σ allocations` to a keyless `MINING_RESERVE`
+   address, so the conservation invariant (no native mint, ever) is unchanged.
+   Rewards are transfers out of the reserve, and emission ends when it is empty. `R(e) = INITIAL_EPOCH_REWARD >> (e / HALVING_EPOCHS)`,
    integer only. At the epoch's last block:
    - `MINER_SHARE_BPS` of `R(e)` is split across the epoch's valid claims,
      pro rata by claim count (each claim is one share at the same target);
@@ -83,10 +90,11 @@ finalize blocks. They earn issuance by publishing work:
   retarget. It needs conformance vectors, red-team tests (replayed claims,
   wrong-epoch claims, cap overflow, claim floods) and its own testnet soak
   before genesis. **Gate 3 restarts on the build that carries it.**
-- ArgonBlake favours memory bandwidth (32 MiB per hash), so consumer GPUs stay
-  competitive with each other. A CPU miner works, but slower.
+- The DAG favours GDDR memory bandwidth (4 GiB dataset), so consumer GPUs
+  (`hal/cuda-miner` DAG path, `hal/wgpu-miner`) are the intended miners.
+  Validators hold only the 64 MiB cache.
 - **The lane is built to carry other kinds of work.** `WorkClaim` gets a
-  `kind` byte from day one (`0 = ArgonBlake`). The intended second kind is
+  `kind` byte from day one (`0 = DAG PoW`). The intended second kind is
   verified AI inference (Eric, 2026-10-11): a GPU serves a model job, and a
   zkML proof (`crates/zkml`, Halo2) or a challenge game shows it was computed.
   It activates at a written height, after its own ADR. The mainnet format does
