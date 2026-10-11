@@ -24,6 +24,15 @@ use crate::state::mining::{
 /// Marks a spent share. The key carries the meaning; the value is a byte.
 const SEEN: &[u8] = &[1];
 
+/// The DAG epoch a mining epoch hashes against: the one holding its first block.
+fn dag_epoch(record: &MiningRecord) -> Result<u64> {
+    let start = record
+        .epoch
+        .checked_mul(record.epoch_blocks)
+        .ok_or_else(|| NodeError::Mining("epoch start overflow".into()))?;
+    Ok(start / record.dag.params().epoch_length.max(1))
+}
+
 fn refuse(reason: &str) -> NodeError {
     NodeError::Mining(reason.to_string())
 }
@@ -51,6 +60,27 @@ impl StateDB {
             .transpose()
     }
 
+    /// The committed share header `miner` must hash, and the DAG epoch whose
+    /// cache it hashes against. A miner needs nothing else: the chain tag,
+    /// anchor and payee are already folded into the header (ADR-044).
+    ///
+    /// # Errors
+    ///
+    /// A damaged record, or an epoch start that overflows.
+    pub fn committed_share_work(
+        &self,
+        record: &MiningRecord,
+        miner: &Address,
+    ) -> Result<([u8; 32], u64)> {
+        let header = share_header(
+            &self.get_chain_tag()?.0,
+            record.epoch,
+            &record.anchor,
+            miner,
+        );
+        Ok((header, dag_epoch(record)?))
+    }
+
     /// How many shares of `epoch` the committed spent set holds. Zero for
     /// every closed epoch once its boundary block commits; RPC and the pruning
     /// test read it.
@@ -67,12 +97,7 @@ impl StateDB {
         let registry = self
             .mining_dag
             .get_or_init(|| Arc::new(CacheRegistry::new(dag_config(record.dag))));
-        let params = record.dag.params();
-        let start = record
-            .epoch
-            .checked_mul(record.epoch_blocks)
-            .ok_or_else(|| NodeError::Mining("epoch start overflow".into()))?;
-        registry.cache_for_epoch(start / params.epoch_length.max(1))
+        registry.cache_for_epoch(dag_epoch(record)?)
     }
 
     /// Pays one share from the reserve, or refuses it.

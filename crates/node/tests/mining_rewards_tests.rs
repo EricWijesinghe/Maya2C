@@ -313,3 +313,40 @@ fn mining_without_fees_is_refused_at_genesis() {
     let state = StateDB::open(dir.path()).unwrap();
     assert!(config.seed_state(&state).is_err());
 }
+
+#[test]
+fn the_work_handed_to_miners_finds_shares_the_chain_pays() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir, Some(mining()));
+    to_epoch_one(&mut c);
+    let record = c.state().committed_mining().unwrap().unwrap();
+
+    let (header, dag_epoch) = c
+        .state()
+        .committed_share_work(&record, &miner().address())
+        .unwrap();
+    let registry = CacheRegistry::new(DagConfig {
+        params: Params::TESTING,
+        activation_height: 0,
+        activation_target: [0xff; 32],
+    });
+    let cache = registry.cache_for_epoch(dag_epoch).unwrap();
+    let nonce = (0..)
+        .find(|&n| meets_target(&hashimoto_light(&cache, &header, n).result, &record.target))
+        .unwrap();
+
+    assert_eq!(
+        nonce,
+        find_shares(&c, 1, 0, 1)[0],
+        "same header as the chain"
+    );
+    mine(&mut c, H1, vec![share(1, nonce, 0)]).unwrap();
+    assert_eq!(balance(&c, &miner().address()), per_share());
+
+    // Another payee gets another header: work cannot be lifted.
+    let (other, _) = c
+        .state()
+        .committed_share_work(&record, &[0x77; 32])
+        .unwrap();
+    assert_ne!(other, header);
+}
