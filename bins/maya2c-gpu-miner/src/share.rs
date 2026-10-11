@@ -1,9 +1,10 @@
 //! Share mining against a node's `get_mining_work` (ADR-044).
 //!
-//! Hashes in light mode on CPU threads: each digest rebuilds its dataset items
-//! from the 64 MiB cache, which is what a validator does to verify a share.
-//! It is slow by design and it is real; the GPU full-dataset path replaces the
-//! hashing loop, not this protocol.
+//! Two engines behind one protocol. CPU threads hash in light mode: each digest
+//! rebuilds its dataset items from the cache, which is what a validator does to
+//! verify a share — slow, and real. `--gpu` (built with the `gpu` feature)
+//! holds the full dataset on the device and mixes nonces in batches; see
+//! `gpu_share`. Only the hashing differs, never the work, target or payout.
 //!
 //! With `--json` every line on stdout is one event, for the Hub GUI:
 //! `{"event":"work"|"hashrate"|"share"|"idle"|"error", ...}`.
@@ -43,6 +44,48 @@ pub struct ShareArgs<'a> {
     pub key_file: &'a Path,
     pub threads: usize,
     pub json: bool,
+    /// Mine on this GPU instead of CPU threads.
+    pub gpu: Option<GpuOpts>,
+}
+
+/// Which adapter, and how much work per dispatch.
+/// Read only by the `gpu` engine; a CPU-only build refuses `--gpu` instead.
+#[cfg_attr(not(feature = "gpu"), allow(dead_code))]
+#[derive(Clone, Copy, Debug)]
+pub struct GpuOpts {
+    pub device: usize,
+    pub batch: u32,
+    pub workgroup_size: u32,
+}
+
+/// What does the hashing.
+enum Engine {
+    Cpu(usize),
+    #[cfg(feature = "gpu")]
+    Gpu(crate::gpu_share::GpuEngine),
+}
+
+impl Engine {
+    fn new(args: &ShareArgs<'_>) -> Result<Self, String> {
+        match args.gpu {
+            None => Ok(Self::Cpu(args.threads.max(1))),
+            #[cfg(feature = "gpu")]
+            Some(opts) => Ok(Self::Gpu(crate::gpu_share::GpuEngine::new(opts))),
+            #[cfg(not(feature = "gpu"))]
+            Some(_) => Err("--gpu needs a build with the `gpu` feature: \
+                 cargo build --release -p maya2c-gpu-miner --features gpu"
+                .into()),
+        }
+    }
+
+    /// The `start` event's description of this engine.
+    fn describe(&self) -> Result<Value, String> {
+        match self {
+            Self::Cpu(threads) => Ok(json!({"mode": "cpu-light", "threads": threads})),
+            #[cfg(feature = "gpu")]
+            Self::Gpu(engine) => Ok(json!({"mode": "gpu", "device": engine.adapter_name()?})),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -166,8 +209,11 @@ pub fn run(args: &ShareArgs<'_>) -> Result<(), String> {
         json: args.json,
         next_nonce: Cell::new(0),
     };
-    session.emit(&json!({"event": "start", "address": session.address,
-        "threads": args.threads, "mode": "cpu-light"}));
+    let mut engine = Engine::new(args)?;
+    let mut start = engine.describe()?;
+    start["event"] = "start".into();
+    start["address"] = session.address.clone().into();
+    session.emit(&start);
 
     let mut caches: Option<(DagProfile, u64, Arc<Cache>)> = None;
     loop {
@@ -201,7 +247,10 @@ pub fn run(args: &ShareArgs<'_>) -> Result<(), String> {
             &json!({"event": "work", "epoch": work.epoch, "target": work.target,
             "share_reward": work.share_reward}),
         );
-        session.mine_epoch(&work, &cache, args.threads.max(1))?;
+        if let Err(error) = session.mine_epoch(&work, dag, &cache, &mut engine) {
+            session.emit(&json!({"event": "error", "message": error}));
+            thread::sleep(IDLE_WAIT);
+        }
     }
 }
 
@@ -232,7 +281,13 @@ impl Session {
     }
 
     /// Hashes one epoch's header until the node hands out different work.
-    fn mine_epoch(&self, work: &Work, cache: &Arc<Cache>, threads: usize) -> Result<(), String> {
+    fn mine_epoch(
+        &self,
+        work: &Work,
+        dag: DagProfile,
+        cache: &Arc<Cache>,
+        engine: &mut Engine,
+    ) -> Result<(), String> {
         let header = decode32(&work.header, "header")?;
         let target = decode32(&work.target, "target")?;
         let stop = Arc::new(AtomicBool::new(false));
@@ -241,47 +296,93 @@ impl Session {
         let mut start = [0u8; 8];
         getrandom::fill(&mut start).map_err(|e| e.to_string())?;
         let base = u64::from_le_bytes(start);
-        let stride = threads as u64;
         // Shares of the closed epoch were evicted from the pool, so nonces
         // handed to them never land; restart from the chain's count or every
         // later share waits behind the gap.
         self.next_nonce.set(0);
+        let failure = Arc::new(std::sync::Mutex::new(None::<String>));
 
-        let workers: Vec<_> = (0..stride)
-            .map(|lane| {
-                let (stop, hashes, found, cache) = (
-                    Arc::clone(&stop),
-                    Arc::clone(&hashes),
-                    found_tx.clone(),
-                    Arc::clone(cache),
-                );
-                thread::spawn(move || {
-                    let mut nonce = base.wrapping_add(lane);
-                    while !stop.load(Ordering::Relaxed) {
-                        let digest = hashimoto_light(&cache, &header, nonce).result;
-                        hashes.fetch_add(1, Ordering::Relaxed);
-                        if meets_target(&digest, &target) && found.send(nonce).is_err() {
-                            return;
-                        }
-                        nonce = nonce.wrapping_add(stride);
-                    }
-                })
-            })
-            .collect();
+        let workers = match engine {
+            Engine::Cpu(threads) => cpu_workers(
+                *threads, base, header, target, &stop, &hashes, &found_tx, cache,
+            ),
+            #[cfg(feature = "gpu")]
+            Engine::Gpu(gpu) => {
+                let lane = crate::gpu_share::Lane {
+                    header,
+                    target,
+                    base,
+                    stop: Arc::clone(&stop),
+                    hashes: Arc::clone(&hashes),
+                    found: found_tx.clone(),
+                    failure: Arc::clone(&failure),
+                };
+                vec![gpu.spawn(dag, work.dag_epoch, cache, lane)?]
+            }
+        };
+        drop(found_tx);
+        #[cfg(not(feature = "gpu"))]
+        let _ = dag;
 
-        self.watch(work, &hashes, &found_rx);
+        self.watch(work, &hashes, &found_rx, &stop);
         stop.store(true, Ordering::Relaxed);
         for worker in workers {
             let _ = worker.join();
         }
-        Ok(())
+        let failed = failure.lock().ok().and_then(|mut slot| slot.take());
+        failed.map_or(Ok(()), Err)
     }
+}
 
-    /// Reports the rate, submits found shares, and returns when work changes.
-    fn watch(&self, work: &Work, hashes: &AtomicU64, found: &mpsc::Receiver<u64>) {
+/// CPU light-mode workers, interleaving nonces from `base`.
+#[allow(clippy::too_many_arguments)]
+fn cpu_workers(
+    threads: usize,
+    base: u64,
+    header: [u8; 32],
+    target: [u8; 32],
+    stop: &Arc<AtomicBool>,
+    hashes: &Arc<AtomicU64>,
+    found_tx: &mpsc::Sender<u64>,
+    cache: &Arc<Cache>,
+) -> Vec<thread::JoinHandle<()>> {
+    let stride = threads as u64;
+    (0..stride)
+        .map(|lane| {
+            let (stop, hashes, found, cache) = (
+                Arc::clone(stop),
+                Arc::clone(hashes),
+                found_tx.clone(),
+                Arc::clone(cache),
+            );
+            thread::spawn(move || {
+                let mut nonce = base.wrapping_add(lane);
+                while !stop.load(Ordering::Relaxed) {
+                    let digest = hashimoto_light(&cache, &header, nonce).result;
+                    hashes.fetch_add(1, Ordering::Relaxed);
+                    if meets_target(&digest, &target) && found.send(nonce).is_err() {
+                        return;
+                    }
+                    nonce = nonce.wrapping_add(stride);
+                }
+            })
+        })
+        .collect()
+}
+
+impl Session {
+    /// Reports the rate, submits found shares, and returns when work changes
+    /// or a worker stops on its own (a GPU failure sets `stop`).
+    fn watch(
+        &self,
+        work: &Work,
+        hashes: &AtomicU64,
+        found: &mpsc::Receiver<u64>,
+        stop: &AtomicBool,
+    ) {
         let (mut last_report, mut last_refresh) = (Instant::now(), Instant::now());
         let mut counted = 0u64;
-        loop {
+        while !stop.load(Ordering::Relaxed) {
             if let Ok(nonce) = found.recv_timeout(Duration::from_millis(200))
                 && !self.submit(work, nonce)
             {
