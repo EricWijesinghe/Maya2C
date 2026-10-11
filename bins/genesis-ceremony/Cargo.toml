@@ -16,6 +16,8 @@ custom-l1-node = { path = "../../crates/node" }
 maya-zk-stark = { path = "../../crates/zk-stark" }
 hex.workspace = true
 blake3.workspace = true
+# Reads the `--mining` parameters file (ADR-044).
+serde_json.workspace = true
 
 [[bin]]
 name = "genesis-ceremony"
