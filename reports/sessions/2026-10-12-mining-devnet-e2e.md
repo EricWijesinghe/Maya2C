@@ -137,3 +137,29 @@ Finished `release` profile [optimized] target(s) in 2m 48s     (hub)
 
 The installers are unsigned, so Windows SmartScreen will warn on first run.
 The Hub window from the installer was NOT VERIFIED, because the GUI was not driven.
+
+## Linux packages (WSL Ubuntu 24.04)
+
+The Tauri Linux deps were installed in WSL. Then, from `/mnt/d/Maya2C`:
+`CARGO_TARGET_DIR=/root/maya-target cargo xtask hub-bundle` (exit 0).
+
+```
+Finished `release` profile [optimized] target(s) in 8m 33s     (miner)
+Finished `release` profile [optimized] target(s) in 1m 50s     (hub)
+ 6680725 bytes  Maya2C Hub-0.1.0-1.x86_64.rpm
+85015032 bytes  Maya2C Hub_0.1.0_amd64.AppImage
+ 6678462 bytes  Maya2C Hub_0.1.0_amd64.deb
+dpkg -c: usr/bin/maya-hub, usr/bin/maya2c-gpu-miner   (miner beside the hub, where it looks)
+```
+
+The Linux miner was run against `https://rpc.maya2c.dev/rpc`:
+- `start` event, then `get_mining_work: "method not available through the gateway"`.
+- The api-gateway's default-deny allowlist did not include the method.
+- Fixed in `7a9a24b4`. The address is validated at the gateway, and the tests failed first and then passed.
+- Live only once the gateway and node are redeployed. They were not touched.
+
+## Android
+
+- `cargo tauri android build --apk --debug` built with the JDK at `C:\Program Files\Java\jdk-21.0.12`. The system `JAVA_HOME` names a removed 21.0.11.
+- The x86_64 APK was installed on the `salon_avd` emulator (API 34), started `-read-only`. It showed the live public testnet with all four tabs.
+- Screenshots: session scratchpad only, not committed.

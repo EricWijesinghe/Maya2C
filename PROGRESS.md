@@ -190,7 +190,8 @@ Rules in CLAUDE.md, "Operating Protocol"; state in [STATE.md](STATE.md).
 - [x] `get_mining_work` RPC; miner `--mine` with JSON events; Hub desktop app (2026-10-11)
 - [x] Local mining devnet end to end; budget-overshoot, nonce-gap, retarget and earnings bugs fixed (2026-10-12, `reports/sessions/2026-10-12-mining-devnet-e2e.md`)
 - [x] Windows installers via `cargo xtask hub-bundle`; Android debug APK runs on an emulator (2026-10-12)
-- [ ] Linux bundles (WSL)
+- [x] Linux bundles (WSL): deb, rpm, AppImage (2026-10-12)
+- [x] api-gateway serves `get_mining_work` (not yet deployed)
 - [ ] GPU dataset hashing in the miner; real RTX 5070 run
 - [ ] Multi-validator mining devnet; Hub window driven against it
 - [ ] Testnet activation path for mining (re-genesis or activation height)
