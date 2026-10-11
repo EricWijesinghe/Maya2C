@@ -209,7 +209,14 @@ function Install-Node($tag) {
 
     Write-Step "Extracting to $InstallDir"
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-    tar -xzf $arcPath -C $tmp                       # bsdtar ships with Windows 10+
+    # Use Windows' bundled bsdtar by full path, not whatever `tar` is first on
+    # PATH: a GNU tar (e.g. from Git) reads the "D:\..." temp dir as a remote
+    # host "D:" and fails with "Cannot connect to D:". bsdtar handles drive
+    # paths. System32\tar.exe is bsdtar on Windows 10+.
+    $tarExe = Join-Path $env:SystemRoot 'System32\tar.exe'
+    if (-not (Test-Path $tarExe)) { $tarExe = 'tar' }
+    & $tarExe -xzf $arcPath -C $tmp
+    if ($LASTEXITCODE -ne 0) { Die "extracting $archive failed (tar exit $LASTEXITCODE)" }
     Copy-Item (Join-Path $tmp "$WinTarget\maya2c-node.exe") $NodeExe -Force
     Copy-Item (Join-Path $tmp "$WinTarget\l1-wallet.exe") (Join-Path $InstallDir 'l1-wallet.exe') -Force -ErrorAction SilentlyContinue
     Remove-Item $tmp -Recurse -Force
