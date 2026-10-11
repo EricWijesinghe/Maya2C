@@ -236,3 +236,25 @@ returned ~98% non-2xx. This is the per-IP token-bucket limiter
 consensus unaffected. No code change — the finding is that the defense holds
 under a real flood. Distributed floods get one bucket per IP, bounded by
 `MAX_TRACKED` (65,536); left as-is, matching the limiter's documented design.
+
+## 2026-10-12 — Repository lockdown: suggestions in, control stays with the owner
+
+Eric: outside contributions are suggestions; nothing reaches `master` until
+Claude has inspected and explained it and Eric has said yes, and no access is
+granted to anyone else. Enforced on GitHub, not by convention:
+ruleset `master: owner-approved changes only` (PR required, six required
+checks — reality ledger, spec conformance, rustfmt, clippy, nextest (core),
+cargo-deny — no force-push or deletion; the admin may bypass only through a
+PR, so even the owner's token cannot push directly); ruleset
+`release tags: owner only, immutable`; fork PR workflows wait for approval
+from every outside contributor; Actions limited to GitHub-owned plus seven
+named owners and **SHA pinning required** (all 108 `uses:` pinned, PR #110).
+Zero webhooks is deliberate: nothing needs repo events sent off-site.
+Openness: Discussions, private vulnerability reporting, issue forms that
+route security reports privately, CONTRIBUTING / CODE_OF_CONDUCT (PR #109).
+Releases: only the newest stays published, so known-vulnerable binaries are
+not left downloadable; testnet.1 and testnet.2 were deleted with their tags
+(commits remain in history: 930e7411, 9917db56). CodeQL: 862 alerts triaged
+one by one and dismissed with reasons (757 test fixtures, 105 false
+positives, including the two zero-nonce seals — safe, fresh ML-KEM secret per
+seal); the three real JS findings were fixed.
