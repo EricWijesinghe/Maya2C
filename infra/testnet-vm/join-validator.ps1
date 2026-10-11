@@ -69,7 +69,7 @@ param(
     # these explicitly only to point the installer at a different network.
     [string]$GenesisUrl    = 'https://maya2c.dev/testnet/genesis.json',
     [string]$GenesisSha256 = 'dd9bb356c94b7699e6e8d2595681faee48be435b02dc927677cbf833e55edd5d',
-    [string]$Bootnode      = '/dns4/p2p.maya2c.dev/tcp/443/wss/p2p/12D3KooWK2bykmqyzdK4TMSTBQ5visSjkFoK8wj88aMn3ms4ByiG',
+    [string]$Bootnode      = '/dns4/p2p.maya2c.dev/tcp/443/wss/p2p/12D3KooWJqH5AUQ1zPkMke18rcc8VHN2TWQ5XudGX3tP8zPLuyjB',
     # Snapshot/catch-up endpoint so a joining node loads a recent snapshot over
     # https (port 443, NAT-friendly) instead of replaying the chain from block 0.
     [string]$Bootstrap     = 'https://bootstrap.maya2c.dev/rpc',
