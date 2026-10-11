@@ -518,6 +518,10 @@ async fn json_rpc_bad_params_never_reach_the_node() {
         rpc_request("get_balance", serde_json::json!([])),
         rpc_request("get_block_by_height", serde_json::json!(["ten"])),
         rpc_request("send_raw_transaction", serde_json::json!([""])),
+        // get_mining_work takes exactly one 64-hex payout address.
+        rpc_request("get_mining_work", serde_json::json!([])),
+        rpc_request("get_mining_work", serde_json::json!(["nothex"])),
+        rpc_request("get_mining_work", serde_json::json!([7])),
         // get_checkpoint takes nothing or one epoch number, nothing else.
         rpc_request("get_checkpoint", serde_json::json!([-1])),
         rpc_request("get_checkpoint", serde_json::json!([1.5])),
