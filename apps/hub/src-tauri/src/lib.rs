@@ -21,6 +21,9 @@ struct Defaults {
     miner_binary: String,
     key_file: String,
     cpu_threads: usize,
+    /// Mine on the GPU unless the user turns it off; the miner reports an
+    /// error event when no adapter is found.
+    use_gpu: bool,
     /// False on phones: the Hub there watches the network and your miners'
     /// payouts, and runs no miner (battery and heat for next to no hashes).
     can_mine: bool,
@@ -57,6 +60,7 @@ fn defaults(app: tauri::AppHandle) -> Defaults {
         miner_binary: miner_beside_hub(),
         key_file: key_file.display().to_string(),
         cpu_threads: std::thread::available_parallelism().map_or(4, std::num::NonZero::get),
+        use_gpu: true,
         can_mine: cfg!(desktop),
     }
 }

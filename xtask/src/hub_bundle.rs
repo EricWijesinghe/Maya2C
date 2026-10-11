@@ -22,9 +22,9 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     let exe = std::env::consts::EXE_SUFFIX;
     status(
         Command::new("cargo")
-            .args(["build", "--release", "-p", MINER])
+            .args(["build", "--release", "-p", MINER, "--features", "gpu"])
             .current_dir(&root),
-        "cargo build --release -p maya2c-gpu-miner",
+        "cargo build --release -p maya2c-gpu-miner --features gpu",
     )?;
 
     let hub = root.join("apps/hub/src-tauri");
