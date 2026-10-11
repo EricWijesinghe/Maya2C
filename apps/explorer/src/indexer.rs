@@ -17,6 +17,18 @@
 //!
 //! Without that check the explorer would keep serving an abandoned branch
 //! indefinitely, and would never notice: heights would keep advancing normally.
+//!
+//! ## Pruned nodes
+//!
+//! The public node is pruned (`--prune-depth`): it keeps only a recent window
+//! of blocks and discards the rest. An indexer that walks up from genesis asks
+//! for block 1, the node no longer has it, and — since a missing block is
+//! normally "not produced yet" — the indexer concludes the chain ends at 0 and
+//! waits forever. So the indexer also reads the node's current tip from
+//! `get_checkpoint` (an allowlisted method), and when its resume point is below
+//! the node's retained window it jumps forward into that window instead of
+//! stalling on a block that was pruned away. The explorer then shows the live
+//! rolling window; full history needs an archive (unpruned) source.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -40,6 +52,15 @@ pub const POLL_INTERVAL: Duration = Duration::from_millis(500);
 /// over — it means the indexer is pointed at a different chain, and reindexing
 /// from scratch is the honest response.
 pub const MAX_REORG_DEPTH: i64 = 128;
+
+/// Where to resume, relative to the node's tip, when the previous resume point
+/// has been pruned away.
+///
+/// Comfortably inside a node pruned to `--prune-depth 3600`, with enough margin
+/// that the node does not prune the window's base faster than the indexer walks
+/// up to the tip. Smaller than the prune depth on purpose: landing exactly at
+/// the prune floor would race the next prune.
+pub const RETAINED_START_BEHIND: i64 = 1000;
 
 /// Capacity of the live-update broadcast channel.
 ///
@@ -71,6 +92,15 @@ pub enum IndexEvent {
 pub trait BlockSource: Send + Sync {
     /// Fetches a block by height, or `None` if the chain has not reached it.
     async fn block_at(&self, height: i64) -> Result<Option<BlockInfo>>;
+
+    /// The node's current tip height, or `None` if it cannot be determined.
+    ///
+    /// Used to tell a pruned-away resume point ("the node discarded this") from
+    /// a not-yet-produced one ("wait"). The default returns `None`, so a test
+    /// stub need not implement it and simply never triggers the pruned-skip.
+    async fn tip_height(&self) -> Result<Option<i64>> {
+        Ok(None)
+    }
 }
 
 /// A [`BlockSource`] backed by the node's JSON-RPC endpoint.
@@ -117,6 +147,21 @@ impl BlockSource for RpcSource {
             // rather than propagating and stopping the indexer.
             Err(_) => Ok(None),
         }
+    }
+
+    async fn tip_height(&self) -> Result<Option<i64>> {
+        // Only the height is needed; `get_checkpoint` also carries the block id
+        // and a large signature set, which serde drops for an unlisted field.
+        #[derive(serde::Deserialize)]
+        struct CheckpointHeight {
+            height: i64,
+        }
+        let response: core::result::Result<CheckpointHeight, _> =
+            self.client.request("get_checkpoint", rpc_params![]).await;
+        // A node still forming its first checkpoint, or a transient RPC error,
+        // leaves the tip unknown; the caller then skips the pruned-skip rather
+        // than failing. The steady-state path (block_at) still works.
+        Ok(response.ok().map(|c| c.height))
     }
 }
 
@@ -239,6 +284,17 @@ impl<S: BlockStore + ?Sized> Indexer<S> {
             Some(tip) => self.reconcile(tip).await?,
             None => 0,
         };
+
+        // Pruned-node skip: if the node's tip is above our resume point but it
+        // no longer has the block there, that height was pruned, not un-mined.
+        // Jump into the retained window so indexing resumes instead of waiting
+        // forever for a block the node discarded. A node whose tip is unknown,
+        // or that still has `next`, leaves this untouched.
+        if let Some(tip) = self.source.tip_height().await.ok().flatten() {
+            if next < tip && self.source.block_at(next).await?.is_none() {
+                next = (tip - RETAINED_START_BEHIND).max(next);
+            }
+        }
 
         let mut indexed = 0u64;
         while let Some(block) = self.source.block_at(next).await? {
