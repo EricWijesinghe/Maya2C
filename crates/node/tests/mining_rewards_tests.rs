@@ -24,6 +24,7 @@ use custom_l1_node::error::NodeError;
 use custom_l1_node::genesis::{
     Allocation, BftGenesis, FeesGenesis, GenesisBond, GenesisConfig, StakingGenesis,
 };
+use custom_l1_node::network::mempool::Mempool;
 use custom_l1_node::state::db::StateDB;
 use custom_l1_node::state::mining::{DagProfile, MINING_RESERVE, MiningGenesis, share_header};
 use tempfile::TempDir;
@@ -150,30 +151,76 @@ fn per_share() -> u64 {
     EPOCH_REWARD * 7 / 10 / TARGET_SHARES
 }
 
+fn validators_part() -> u64 {
+    EPOCH_REWARD - EPOCH_REWARD * 7 / 10
+}
+
+/// Mines epoch 0 empty. Mining opens at its boundary, anchored to a block.
+fn to_epoch_one(c: &mut Chain) {
+    for h in 1..=EPOCH_BLOCKS {
+        mine(c, h, Vec::new()).unwrap();
+    }
+    assert_eq!(c.state().committed_mining().unwrap().unwrap().epoch, 1);
+}
+
+const H1: u64 = EPOCH_BLOCKS + 1;
+
+#[test]
+fn epoch_zero_work_is_refused_because_its_anchor_was_known_before_launch() {
+    let dir = TempDir::new().unwrap();
+    let c = chain(&dir, Some(mining()));
+    let nonce = find_shares(&c, 0, 0, 1)[0];
+    let err = c
+        .candidate_block(1_000_001, vec![share(0, nonce, 0)])
+        .unwrap_err();
+    assert!(matches!(err, NodeError::Mining(_)), "{err:?}");
+}
+
 #[test]
 fn a_share_is_paid_from_the_reserve_and_a_new_miner_pays_no_fee() {
     let dir = TempDir::new().unwrap();
     let mut c = chain(&dir, Some(mining()));
-    let nonce = find_shares(&c, 0, 0, 1)[0];
+    to_epoch_one(&mut c);
+    let nonce = find_shares(&c, 1, 0, 1)[0];
 
-    mine(&mut c, 1, vec![share(0, nonce, 0)]).unwrap();
+    mine(&mut c, H1, vec![share(1, nonce, 0)]).unwrap();
 
     assert_eq!(balance(&c, &miner().address()), per_share());
-    assert_eq!(balance(&c, &MINING_RESERVE), RESERVE - per_share());
+    assert_eq!(
+        balance(&c, &MINING_RESERVE),
+        RESERVE - validators_part() - per_share()
+    );
     let record = c.state().committed_mining().unwrap().unwrap();
     assert_eq!((record.shares, record.paid), (1, per_share()));
+}
+
+#[test]
+fn the_mempool_admits_a_paying_share_from_an_empty_account_and_refuses_bad_work() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir, Some(mining()));
+    to_epoch_one(&mut c);
+    let pool = Mempool::new(Arc::clone(c.state()));
+    let good = find_shares(&c, 1, 0, 64);
+    let miss = (0..).find(|n| !good.contains(n)).unwrap();
+
+    assert!(pool.validate(&share(1, good[0], 0)).is_ok());
+    let err = pool.validate(&share(1, miss, 0)).unwrap_err();
+    assert!(matches!(err, NodeError::Mining(_)), "{err:?}");
+    let err = pool.validate(&share(2, good[0], 0)).unwrap_err();
+    assert!(matches!(err, NodeError::Mining(_)), "{err:?}");
 }
 
 #[test]
 fn a_share_cannot_be_paid_twice() {
     let dir = TempDir::new().unwrap();
     let mut c = chain(&dir, Some(mining()));
-    let nonce = find_shares(&c, 0, 0, 1)[0];
-    mine(&mut c, 1, vec![share(0, nonce, 0)]).unwrap();
+    to_epoch_one(&mut c);
+    let nonce = find_shares(&c, 1, 0, 1)[0];
+    mine(&mut c, H1, vec![share(1, nonce, 0)]).unwrap();
 
     // Same work, fresh transaction nonce: still the same share.
     let err = c
-        .candidate_block(1_000_002, vec![share(0, nonce, 1)])
+        .candidate_block(1_000_000 + H1 + 1, vec![share(1, nonce, 1)])
         .unwrap_err();
     assert!(matches!(err, NodeError::Mining(_)), "{err:?}");
 }
@@ -181,18 +228,18 @@ fn a_share_cannot_be_paid_twice() {
 #[test]
 fn work_for_another_epoch_or_below_target_is_refused() {
     let dir = TempDir::new().unwrap();
-    let c = chain(&dir, Some(mining()));
-    let nonce = find_shares(&c, 0, 0, 1)[0];
+    let mut c = chain(&dir, Some(mining()));
+    to_epoch_one(&mut c);
+    let good = find_shares(&c, 1, 0, 64);
 
     let err = c
-        .candidate_block(1_000_001, vec![share(1, nonce, 0)])
+        .candidate_block(1_000_000 + H1, vec![share(2, good[0], 0)])
         .unwrap_err();
     assert!(matches!(err, NodeError::Mining(_)), "{err:?}");
 
-    let good = find_shares(&c, 0, 0, 64);
     let miss = (0..).find(|n| !good.contains(n)).unwrap();
     let err = c
-        .candidate_block(1_000_001, vec![share(0, miss, 0)])
+        .candidate_block(1_000_000 + H1, vec![share(1, miss, 0)])
         .unwrap_err();
     assert!(matches!(err, NodeError::Mining(_)), "{err:?}");
 }
@@ -200,44 +247,48 @@ fn work_for_another_epoch_or_below_target_is_refused() {
 #[test]
 fn a_block_over_the_share_cap_is_refused() {
     let dir = TempDir::new().unwrap();
-    let c = chain(&dir, Some(mining()));
-    let nonces = find_shares(&c, 0, 0, 3);
-    let txs = nonces
+    let mut c = chain(&dir, Some(mining()));
+    to_epoch_one(&mut c);
+    let txs = find_shares(&c, 1, 0, 3)
         .iter()
         .zip(0..)
-        .map(|(&n, i)| share(0, n, i))
+        .map(|(&n, i)| share(1, n, i))
         .collect();
-    let err = c.candidate_block(1_000_001, txs).unwrap_err();
+    let err = c.candidate_block(1_000_000 + H1, txs).unwrap_err();
     assert!(matches!(err, NodeError::Mining(_)), "{err:?}");
 }
 
 #[test]
-fn the_epoch_boundary_pays_the_committee_retargets_and_reanchors() {
+fn the_epoch_boundary_pays_the_committee_reanchors_and_prunes_spent_shares() {
     let dir = TempDir::new().unwrap();
     let mut c = chain(&dir, Some(mining()));
-    let nonce = find_shares(&c, 0, 0, 1)[0];
-    mine(&mut c, 1, vec![share(0, nonce, 0)]).unwrap();
-    for h in 2..=EPOCH_BLOCKS {
+    to_epoch_one(&mut c);
+    let anchor_one = c.state().committed_mining().unwrap().unwrap().anchor;
+    assert_ne!(anchor_one, [0; 32], "anchored to the boundary block");
+    let nonce = find_shares(&c, 1, 0, 1)[0];
+    mine(&mut c, H1, vec![share(1, nonce, 0)]).unwrap();
+    assert_eq!(c.state().committed_seen_shares(1).unwrap(), 1);
+    for h in H1 + 1..=2 * EPOCH_BLOCKS {
         mine(&mut c, h, Vec::new()).unwrap();
     }
 
     let record = c.state().committed_mining().unwrap().unwrap();
-    assert_eq!(record.epoch, 1);
+    assert_eq!(record.epoch, 2);
     assert_eq!((record.shares, record.paid), (0, 0));
-    assert_ne!(record.anchor, [0; 32], "anchored to the boundary block");
-    // One share against a target of ten: shares get easier, clamped at ×4.
-    assert!(record.target > TARGET);
-
-    let validators = EPOCH_REWARD - EPOCH_REWARD * 7 / 10;
+    assert_ne!(record.anchor, anchor_one);
+    // One share against a target of ten would ease the target, but never past
+    // the genesis target.
+    assert_eq!(record.target, TARGET);
+    assert_eq!(c.state().committed_seen_shares(1).unwrap(), 0, "pruned");
     assert_eq!(
         balance(&c, &MINING_RESERVE),
-        RESERVE - per_share() - validators,
-        "the committee's part left the reserve"
+        RESERVE - 2 * validators_part() - per_share(),
+        "the committee's part left the reserve at both boundaries"
     );
 
-    // Work from epoch 0 is worthless now.
+    // Work from epoch 1 is worthless now.
     let err = c
-        .candidate_block(1_000_010, vec![share(0, nonce + 1, 1)])
+        .candidate_block(1_000_100, vec![share(1, nonce, 1)])
         .unwrap_err();
     assert!(matches!(err, NodeError::Mining(_)), "{err:?}");
 }

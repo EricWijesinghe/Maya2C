@@ -18,7 +18,7 @@ use crate::state::context::BlockContext;
 use crate::state::db::{Overlay, StateDB};
 use crate::state::fees::FEE_COLLECTOR;
 use crate::state::mining::{
-    DagProfile, MINING_KEY, MINING_RESERVE, MiningRecord, seen_key, share_header,
+    DagProfile, MINING_KEY, MINING_RESERVE, MiningRecord, seen_epoch_prefix, seen_key, share_header,
 };
 
 /// Marks a spent share. The key carries the meaning; the value is a byte.
@@ -51,6 +51,17 @@ impl StateDB {
             .transpose()
     }
 
+    /// How many shares of `epoch` the committed spent set holds. Zero for
+    /// every closed epoch once its boundary block commits; RPC and the pruning
+    /// test read it.
+    ///
+    /// # Errors
+    ///
+    /// Storage failure.
+    pub fn committed_seen_shares(&self, epoch: u64) -> Result<usize> {
+        Ok(self.scan_prefix(&seen_epoch_prefix(epoch))?.len())
+    }
+
     /// The DAG cache shares of `record`'s epoch are verified against.
     fn share_cache(&self, record: &MiningRecord) -> Result<Arc<Cache>> {
         let registry = self
@@ -79,6 +90,12 @@ impl StateDB {
         let Some(mut record) = self.mining_record(overlay)? else {
             return Err(refuse("this chain does not mine"));
         };
+        // Epoch 0's anchor is fixed before launch, so its work could be done
+        // in advance and land first. Mining opens at the first boundary, whose
+        // anchor is a block nobody could predict (security review, ADR-044).
+        if record.epoch == 0 {
+            return Err(refuse("mining opens at the first epoch boundary"));
+        }
         if share.epoch != record.epoch {
             return Err(refuse("wrong epoch"));
         }
@@ -91,7 +108,7 @@ impl StateDB {
             &record.anchor,
             miner,
         );
-        let key = seen_key(&header, share.nonce);
+        let key = seen_key(record.epoch, &header, share.nonce);
         if self.record(overlay, &key)?.is_some() {
             return Err(refuse("already paid"));
         }
@@ -137,6 +154,7 @@ impl StateDB {
             &FEE_COLLECTOR,
             record.validator_reward(record.epoch),
         )?;
+        self.prune_seen(overlay, record.epoch)?;
         let next = MiningRecord {
             epoch: record
                 .epoch
@@ -151,6 +169,35 @@ impl StateDB {
         overlay
             .records
             .insert(MINING_KEY.to_vec(), Some(next.encode()));
+        Ok(())
+    }
+
+    /// Admission check for the mempool: would `share` pay if it landed in the
+    /// next block? The same rules as execution, against committed state and a
+    /// throwaway overlay, so the mempool cannot drift from consensus.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::apply_mining_share`].
+    pub(crate) fn check_mining_share(&self, miner: &Address, share: &MiningShare) -> Result<()> {
+        self.apply_mining_share(&mut Overlay::default(), miner, share)
+    }
+
+    /// Deletes a closed epoch's spent-share set, committed and staged. Its
+    /// shares are refused by the epoch check from now on, so the set guards
+    /// nothing and would otherwise grow with the chain.
+    fn prune_seen(&self, overlay: &mut Overlay, epoch: u64) -> Result<()> {
+        let prefix = seen_epoch_prefix(epoch);
+        let staged: Vec<Vec<u8>> = overlay
+            .records
+            .range(prefix.clone()..)
+            .take_while(|(key, _)| key.starts_with(&prefix))
+            .map(|(key, _)| key.clone())
+            .collect();
+        let committed = self.scan_prefix(&prefix)?.into_iter().map(|(key, _)| key);
+        for key in staged.into_iter().chain(committed) {
+            overlay.records.insert(key, None);
+        }
         Ok(())
     }
 
