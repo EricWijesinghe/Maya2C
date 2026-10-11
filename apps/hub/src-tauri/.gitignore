@@ -1,2 +1,4 @@
 # Built outside the workspace, so the root /target rule does not reach it.
 /target/
+# Release miner copied in by `cargo xtask hub-bundle`.
+/binaries/

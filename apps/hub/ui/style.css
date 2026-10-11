@@ -200,3 +200,4 @@ h2 small { text-transform: none; letter-spacing: 0; font: 400 12px var(--body); 
 
 @media (max-width: 1100px) { .tiles { grid-template-columns: repeat(2, 1fr); } .grid2, .grid2.wide-left { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+.power:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }

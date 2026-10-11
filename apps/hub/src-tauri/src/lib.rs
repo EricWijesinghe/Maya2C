@@ -21,12 +21,23 @@ struct Defaults {
     miner_binary: String,
     key_file: String,
     cpu_threads: usize,
+    /// False on phones: the Hub there watches the network and your miners'
+    /// payouts, and runs no miner (battery and heat for next to no hashes).
+    can_mine: bool,
 }
+
+/// The public testnet RPC, so a fresh install shows a live network without
+/// running a node. Settings can point it at a local one.
+const PUBLIC_RPC: &str = "https://rpc.maya2c.dev/rpc";
 
 /// The miner next to the hub's own executable, where a release bundle puts
 /// it; otherwise the bare name, which the user can correct.
 fn miner_beside_hub() -> String {
-    let name = if cfg!(windows) { "maya2c-gpu-miner.exe" } else { "maya2c-gpu-miner" };
+    let name = if cfg!(windows) {
+        "maya2c-gpu-miner.exe"
+    } else {
+        "maya2c-gpu-miner"
+    };
     std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(|dir| dir.join(name)))
@@ -42,10 +53,11 @@ fn defaults(app: tauri::AppHandle) -> Defaults {
         .unwrap_or_else(|_| PathBuf::from("."))
         .join("miner.key");
     Defaults {
-        rpc: "http://127.0.0.1:8545".into(),
+        rpc: PUBLIC_RPC.into(),
         miner_binary: miner_beside_hub(),
         key_file: key_file.display().to_string(),
         cpu_threads: std::thread::available_parallelism().map_or(4, std::num::NonZero::get),
+        can_mine: cfg!(desktop),
     }
 }
 
@@ -66,6 +78,9 @@ async fn gpu_telemetry() -> Result<gpu::GpuReport, String> {
 
 #[tauri::command]
 fn miner_start(config: MinerConfig, state: tauri::State<'_, Miner>) -> Result<(), String> {
+    if cfg!(mobile) {
+        return Err("mining runs on the desktop Hub; this one watches".into());
+    }
     state.start(&config)
 }
 
@@ -82,6 +97,7 @@ fn miner_state(state: tauri::State<'_, Miner>) -> MinerState {
 /// # Panics
 ///
 /// If the Tauri runtime cannot start, which leaves nothing to show.
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(Miner::default())

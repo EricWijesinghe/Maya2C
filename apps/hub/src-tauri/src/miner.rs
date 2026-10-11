@@ -48,7 +48,13 @@ pub struct MinerState {
     pub share_reward: Option<u64>,
     pub accepted: u64,
     pub rejected: u64,
+    /// Growth of the payout account's on-chain balance since this run's
+    /// first share. Not the sum of accepted shares: the node accepting a
+    /// share into its pool is not the chain paying it (measured on the local
+    /// mining devnet, 145 accepted against 10 paid).
     pub earned: u64,
+    #[serde(skip)]
+    first_balance: Option<u64>,
     pub total_hashes: u64,
     pub started_ms: Option<u64>,
     pub status: String,
@@ -80,7 +86,11 @@ fn push<T>(queue: &mut VecDeque<T>, item: T, cap: usize) {
 /// a line that is not JSON is kept as text.
 pub fn ingest(state: &mut MinerState, line: &str, t_ms: u64) {
     let Ok(event) = serde_json::from_str::<Value>(line) else {
-        push(&mut state.events, serde_json::json!({"event": "log", "message": line, "t_ms": t_ms}), EVENT_HISTORY);
+        push(
+            &mut state.events,
+            serde_json::json!({"event": "log", "message": line, "t_ms": t_ms}),
+            EVENT_HISTORY,
+        );
         return;
     };
     match event["event"].as_str().unwrap_or("") {
@@ -94,7 +104,12 @@ pub fn ingest(state: &mut MinerState, line: &str, t_ms: u64) {
             state.share_reward = event["share_reward"].as_u64();
             state.status = "mining".into();
         }
-        "idle" => state.status = "waiting for mining to open".into(),
+        "idle" => {
+            state.status = event["reason"]
+                .as_str()
+                .unwrap_or("waiting for mining to open")
+                .to_string();
+        }
         "hashrate" => {
             let hps = event["hps"].as_f64().unwrap_or(0.0);
             state.total_hashes = event["total"].as_u64().unwrap_or(state.total_hashes);
@@ -103,7 +118,10 @@ pub fn ingest(state: &mut MinerState, line: &str, t_ms: u64) {
         }
         "share" if event["accepted"].as_bool() == Some(true) => {
             state.accepted += 1;
-            state.earned = state.earned.saturating_add(event["reward"].as_u64().unwrap_or(0));
+            if let Some(balance) = event["balance"].as_u64() {
+                let first = *state.first_balance.get_or_insert(balance);
+                state.earned = balance.saturating_sub(first);
+            }
         }
         "share" => state.rejected += 1,
         _ => {}
@@ -173,7 +191,12 @@ impl Miner {
 
     /// Stops the miner if it runs.
     pub fn stop(&self) {
-        if let Some(mut child) = self.child.lock().unwrap_or_else(PoisonError::into_inner).take() {
+        if let Some(mut child) = self
+            .child
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+        {
             let _ = child.kill();
             let _ = child.wait();
         }
@@ -206,18 +229,61 @@ mod tests {
     #[test]
     fn events_build_up_the_miner_state() {
         let mut s = MinerState::default();
-        ingest(&mut s, r#"{"event":"start","address":"ab","mode":"cpu-light"}"#, 1);
-        ingest(&mut s, r#"{"event":"work","epoch":7,"share_reward":70000}"#, 2);
-        ingest(&mut s, r#"{"event":"hashrate","hps":512.5,"total":1024}"#, 3);
-        ingest(&mut s, r#"{"event":"share","accepted":true,"reward":70000}"#, 4);
-        ingest(&mut s, r#"{"event":"share","accepted":false,"reason":"stale"}"#, 5);
+        ingest(
+            &mut s,
+            r#"{"event":"start","address":"ab","mode":"cpu-light"}"#,
+            1,
+        );
+        ingest(
+            &mut s,
+            r#"{"event":"work","epoch":7,"share_reward":70000}"#,
+            2,
+        );
+        ingest(
+            &mut s,
+            r#"{"event":"hashrate","hps":512.5,"total":1024}"#,
+            3,
+        );
+        ingest(
+            &mut s,
+            r#"{"event":"share","accepted":true,"reward":70000,"balance":500}"#,
+            4,
+        );
+        ingest(
+            &mut s,
+            r#"{"event":"share","accepted":false,"reason":"stale"}"#,
+            5,
+        );
         ingest(&mut s, "plain text from stderr", 6);
 
         assert_eq!(s.address.as_deref(), Some("ab"));
-        assert_eq!((s.epoch, s.accepted, s.rejected, s.earned), (Some(7), 1, 1, 70_000));
-        assert_eq!(s.rates.back(), Some(&RateSample { t_ms: 3, hps: 512.5 }));
+        assert_eq!(
+            (s.epoch, s.accepted, s.rejected, s.earned),
+            (Some(7), 1, 1, 0)
+        );
+        assert_eq!(
+            s.rates.back(),
+            Some(&RateSample {
+                t_ms: 3,
+                hps: 512.5
+            })
+        );
         assert_eq!(s.total_hashes, 1024);
-        assert_eq!(s.events.back().unwrap()["message"], "plain text from stderr");
+        assert_eq!(
+            s.events.back().unwrap()["message"],
+            "plain text from stderr"
+        );
+    }
+
+    #[test]
+    fn earned_is_on_chain_balance_growth_not_accepted_shares() {
+        let mut s = MinerState::default();
+        for balance in [100, 100, 100, 170] {
+            let line =
+                format!(r#"{{"event":"share","accepted":true,"reward":70,"balance":{balance}}}"#);
+            ingest(&mut s, &line, 1);
+        }
+        assert_eq!((s.accepted, s.earned), (4, 70));
     }
 
     #[test]
