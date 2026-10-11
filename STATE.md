@@ -1,6 +1,24 @@
 # State
 
 ## Handover
+- **2026-10-12 later — WARNING for Eric:** this session stopped the live
+  testnet **seed** four times (00:49, 00:54, 01:24, 02:04 KST) by killing a local
+  devnet with `taskkill /IM maya2c-node.exe`. The watchdog restarted it each time,
+  and the chain kept finalizing. The committee now shows **3** (v4 `validator:
+  null`), cause not established. With 3 seats, one more validator down halts
+  the testnet. Test processes are killed by PID only from now on, and the localnet
+  ports are guarded. Another session was running `D:\Temp\maya-join-test` and
+  rewrote `C:\Program Files\Maya2Cun-node.cmd` at 02:35; neither was touched.
+- **Done later 2026-10-12:**
+  - GPU mining (`--gpu`, parity 10/10 on the RTX 5070).
+  - `cargo xtask mining-localnet`: PASS with 4 validators, 714,426 H/s on the
+    test dataset.
+  - genesis-ceremony `--mining` / `--mining-reserve`.
+  - The Hub's GPU switch; installers rebuilt with the GPU miner.
+  - api-gateway serves `get_mining_work`; not deployed.
+- **Do first next:** with Eric, look at why v4 left the committee before
+  anything else touches the testnet.
+
 - **Done (2026-10-12, branch `feat/mainnet-mining-rewards`, not merged):**
   - Mining lane run end to end on a local one-validator devnet (real node +
     miner): four bugs found and fixed (`dd050e13`, `6a9a48a2`, `9d78c9a6`):
