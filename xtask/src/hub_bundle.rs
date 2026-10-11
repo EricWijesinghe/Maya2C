@@ -31,7 +31,11 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     let triple = host_triple()?;
     let sidecars = hub.join("binaries");
     fs::create_dir_all(&sidecars).map_err(|e| format!("{}: {e}", sidecars.display()))?;
-    let from = root.join("target/release").join(format!("{MINER}{exe}"));
+    // Honoured so a WSL build keeps its artifacts off the Windows `target/`:
+    // two hosts' fingerprints in one directory corrupt each other.
+    let custom = std::env::var_os("CARGO_TARGET_DIR").map(std::path::PathBuf::from);
+    let target = custom.clone().unwrap_or_else(|| root.join("target"));
+    let from = target.join("release").join(format!("{MINER}{exe}"));
     let to = sidecars.join(format!("{MINER}-{triple}{exe}"));
     fs::copy(&from, &to).map_err(|e| format!("{} -> {}: {e}", from.display(), to.display()))?;
     println!("sidecar: {}", to.display());
@@ -42,7 +46,8 @@ pub fn run(_args: &[String]) -> Result<(), String> {
             .current_dir(&hub),
         "cargo tauri build (install tauri-cli 2 if missing)",
     )?;
-    report(&hub.join("target/release/bundle"));
+    let hub_target = custom.unwrap_or_else(|| hub.join("target"));
+    report(&hub_target.join("release/bundle"));
     Ok(())
 }
 
