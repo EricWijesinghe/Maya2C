@@ -1,0 +1,264 @@
+//! Mining rewards on a live chain (ADR-044).
+//!
+//! A valid share is paid from the reserve, never minted; a replayed share, a
+//! share for the wrong epoch, a share over the block cap and work that misses
+//! the target are all refused; an epoch boundary pays the committee's part,
+//! retargets, and anchors the next epoch to the boundary block. Value is
+//! conserved throughout.
+
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
+use std::sync::Arc;
+
+use custom_l1_node::consensus::chain::{Chain, ChainConfig};
+use custom_l1_node::core::mining_payload::MiningShare;
+use custom_l1_node::core::payload::TxKind;
+use custom_l1_node::core::transaction::Transaction;
+use custom_l1_node::crypto::dag::Params;
+use custom_l1_node::crypto::dag::hashimoto::hashimoto_light;
+use custom_l1_node::crypto::dag::registry::{CacheRegistry, DagConfig};
+use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
+use custom_l1_node::crypto::keys;
+use custom_l1_node::crypto::pow::meets_target;
+use custom_l1_node::error::NodeError;
+use custom_l1_node::genesis::{
+    Allocation, BftGenesis, FeesGenesis, GenesisBond, GenesisConfig, StakingGenesis,
+};
+use custom_l1_node::state::db::StateDB;
+use custom_l1_node::state::mining::{DagProfile, MINING_RESERVE, MiningGenesis, share_header};
+use tempfile::TempDir;
+
+mod common;
+
+const EPOCH_BLOCKS: u64 = 5;
+const RESERVE: u64 = 1_000_000_000;
+const EPOCH_REWARD: u64 = 1_000_000;
+const TARGET_SHARES: u64 = 10;
+/// Easy enough that a test finds a share in a few dozen tries.
+const TARGET: [u8; 32] = [0x0f; 32];
+
+fn miner() -> HybridSigningKey {
+    signing_key_from_seed(&[0x51; 32]).unwrap()
+}
+
+fn mining() -> MiningGenesis {
+    MiningGenesis {
+        initial_epoch_reward: EPOCH_REWARD,
+        halving_epochs: 100,
+        miner_share_bps: 7_000,
+        target_shares: TARGET_SHARES,
+        max_shares_per_block: 2,
+        initial_target: hex::encode(TARGET),
+        dag: DagProfile::Testing,
+    }
+}
+
+fn config(mining: Option<MiningGenesis>) -> GenesisConfig {
+    let validator = keys::signing_key_from_seed(&[1; 32]).unwrap();
+    GenesisConfig {
+        chain_id: "mining-live".to_string(),
+        timestamp: 1_000_000,
+        difficulty_bits: 0,
+        pow_limit_bits: 0,
+        allocations: vec![Allocation {
+            address: hex::encode(MINING_RESERVE),
+            balance: RESERVE,
+        }],
+        oracle: None,
+        sealed: None,
+        treasury: None,
+        protocol_upgrades: Vec::new(),
+        security_council: None,
+        shielded_activation_height: None,
+        bft: Some(BftGenesis {
+            validators: vec![hex::encode(validator.verifying_key().to_bytes())],
+            anchor_timeout_ms: 1_000,
+            batch_size: 100,
+            round_interval_ms: 500,
+            staking: Some(StakingGenesis::with_bonds(
+                EPOCH_BLOCKS,
+                vec![GenesisBond {
+                    operator: hex::encode([0x0a; 32]),
+                    bond: 10_000,
+                    commission_bps: 0,
+                }],
+            )),
+            fees: Some(FeesGenesis {
+                initial_base_fee: 1,
+                min_base_fee: 1,
+                target_block_bytes: 100_000,
+                change_denominator: 8,
+            }),
+            mining,
+        }),
+    }
+}
+
+fn chain(dir: &TempDir, mining: Option<MiningGenesis>) -> Chain {
+    let config = config(mining);
+    let state = Arc::new(StateDB::open(dir.path()).unwrap());
+    config.seed_state(&state).unwrap();
+    common::open_chain(
+        state,
+        config.genesis_block().unwrap(),
+        ChainConfig::without_pow_verification(),
+    )
+    .unwrap()
+}
+
+/// Nonces at or after `from` whose work meets the target, for `epoch`.
+fn find_shares(c: &Chain, epoch: u64, from: u64, count: usize) -> Vec<u64> {
+    let record = c.state().committed_mining().unwrap().unwrap();
+    let header = share_header(
+        &common::test_chain().0,
+        epoch,
+        &record.anchor,
+        &miner().address(),
+    );
+    let registry = CacheRegistry::new(DagConfig {
+        params: Params::TESTING,
+        activation_height: 0,
+        activation_target: [0xff; 32],
+    });
+    let start = epoch * EPOCH_BLOCKS;
+    let cache = registry
+        .cache_for_epoch(start / Params::TESTING.epoch_length)
+        .unwrap();
+    (from..)
+        .filter(|&n| meets_target(&hashimoto_light(&cache, &header, n).result, &record.target))
+        .take(count)
+        .collect()
+}
+
+fn share(epoch: u64, nonce: u64, tx_nonce: u64) -> Transaction {
+    let mut tx = Transaction::new(vec![], vec![], tx_nonce);
+    tx.kind = TxKind::MiningShare(MiningShare { epoch, nonce });
+    tx.sign(&miner(), &common::test_chain()).unwrap();
+    tx
+}
+
+fn balance(c: &Chain, who: &[u8; 32]) -> u64 {
+    c.state().get_account(who).unwrap().balance
+}
+
+fn mine(c: &mut Chain, height: u64, txs: Vec<Transaction>) -> Result<(), NodeError> {
+    let block = c.candidate_block(1_000_000 + height, txs)?;
+    c.insert_block(block).map(|_| ())
+}
+
+fn per_share() -> u64 {
+    EPOCH_REWARD * 7 / 10 / TARGET_SHARES
+}
+
+#[test]
+fn a_share_is_paid_from_the_reserve_and_a_new_miner_pays_no_fee() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir, Some(mining()));
+    let nonce = find_shares(&c, 0, 0, 1)[0];
+
+    mine(&mut c, 1, vec![share(0, nonce, 0)]).unwrap();
+
+    assert_eq!(balance(&c, &miner().address()), per_share());
+    assert_eq!(balance(&c, &MINING_RESERVE), RESERVE - per_share());
+    let record = c.state().committed_mining().unwrap().unwrap();
+    assert_eq!((record.shares, record.paid), (1, per_share()));
+}
+
+#[test]
+fn a_share_cannot_be_paid_twice() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir, Some(mining()));
+    let nonce = find_shares(&c, 0, 0, 1)[0];
+    mine(&mut c, 1, vec![share(0, nonce, 0)]).unwrap();
+
+    // Same work, fresh transaction nonce: still the same share.
+    let err = c
+        .candidate_block(1_000_002, vec![share(0, nonce, 1)])
+        .unwrap_err();
+    assert!(matches!(err, NodeError::Mining(_)), "{err:?}");
+}
+
+#[test]
+fn work_for_another_epoch_or_below_target_is_refused() {
+    let dir = TempDir::new().unwrap();
+    let c = chain(&dir, Some(mining()));
+    let nonce = find_shares(&c, 0, 0, 1)[0];
+
+    let err = c
+        .candidate_block(1_000_001, vec![share(1, nonce, 0)])
+        .unwrap_err();
+    assert!(matches!(err, NodeError::Mining(_)), "{err:?}");
+
+    let good = find_shares(&c, 0, 0, 64);
+    let miss = (0..).find(|n| !good.contains(n)).unwrap();
+    let err = c
+        .candidate_block(1_000_001, vec![share(0, miss, 0)])
+        .unwrap_err();
+    assert!(matches!(err, NodeError::Mining(_)), "{err:?}");
+}
+
+#[test]
+fn a_block_over_the_share_cap_is_refused() {
+    let dir = TempDir::new().unwrap();
+    let c = chain(&dir, Some(mining()));
+    let nonces = find_shares(&c, 0, 0, 3);
+    let txs = nonces
+        .iter()
+        .zip(0..)
+        .map(|(&n, i)| share(0, n, i))
+        .collect();
+    let err = c.candidate_block(1_000_001, txs).unwrap_err();
+    assert!(matches!(err, NodeError::Mining(_)), "{err:?}");
+}
+
+#[test]
+fn the_epoch_boundary_pays_the_committee_retargets_and_reanchors() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir, Some(mining()));
+    let nonce = find_shares(&c, 0, 0, 1)[0];
+    mine(&mut c, 1, vec![share(0, nonce, 0)]).unwrap();
+    for h in 2..=EPOCH_BLOCKS {
+        mine(&mut c, h, Vec::new()).unwrap();
+    }
+
+    let record = c.state().committed_mining().unwrap().unwrap();
+    assert_eq!(record.epoch, 1);
+    assert_eq!((record.shares, record.paid), (0, 0));
+    assert_ne!(record.anchor, [0; 32], "anchored to the boundary block");
+    // One share against a target of ten: shares get easier, clamped at ×4.
+    assert!(record.target > TARGET);
+
+    let validators = EPOCH_REWARD - EPOCH_REWARD * 7 / 10;
+    assert_eq!(
+        balance(&c, &MINING_RESERVE),
+        RESERVE - per_share() - validators,
+        "the committee's part left the reserve"
+    );
+
+    // Work from epoch 0 is worthless now.
+    let err = c
+        .candidate_block(1_000_010, vec![share(0, nonce + 1, 1)])
+        .unwrap_err();
+    assert!(matches!(err, NodeError::Mining(_)), "{err:?}");
+}
+
+#[test]
+fn a_chain_without_mining_refuses_shares() {
+    let dir = TempDir::new().unwrap();
+    let c = chain(&dir, None);
+    let err = c
+        .candidate_block(1_000_001, vec![share(0, 0, 0)])
+        .unwrap_err();
+    assert!(matches!(err, NodeError::Mining(_)), "{err:?}");
+}
+
+#[test]
+fn mining_without_fees_is_refused_at_genesis() {
+    let mut config = config(Some(mining()));
+    if let Some(bft) = config.bft.as_mut() {
+        bft.fees = None;
+    }
+    let dir = TempDir::new().unwrap();
+    let state = StateDB::open(dir.path()).unwrap();
+    assert!(config.seed_state(&state).is_err());
+}
