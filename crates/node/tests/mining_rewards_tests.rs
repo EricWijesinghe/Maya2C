@@ -10,6 +10,7 @@
 
 use std::sync::Arc;
 
+use custom_l1_node::consensus::U256;
 use custom_l1_node::consensus::chain::{Chain, ChainConfig};
 use custom_l1_node::core::mining_payload::MiningShare;
 use custom_l1_node::core::payload::TxKind;
@@ -223,6 +224,76 @@ fn a_share_cannot_be_paid_twice() {
         .candidate_block(1_000_000 + H1 + 1, vec![share(1, nonce, 1)])
         .unwrap_err();
     assert!(matches!(err, NodeError::Mining(_)), "{err:?}");
+}
+
+/// Found on the local mining devnet: once an epoch's miner budget was paid,
+/// further shares still landed paying 0, taking block slots fee-free and
+/// spending the miner's nonces.
+#[test]
+fn a_share_past_the_epoch_budget_is_refused_by_pool_and_block() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(
+        &dir,
+        Some(MiningGenesis {
+            target_shares: 2,
+            ..mining()
+        }),
+    );
+    to_epoch_one(&mut c);
+    let found = find_shares(&c, 1, 0, 3);
+    mine(
+        &mut c,
+        H1,
+        vec![share(1, found[0], 0), share(1, found[1], 1)],
+    )
+    .unwrap();
+    let record = c.state().committed_mining().unwrap().unwrap();
+    assert_eq!(record.share_reward(), 0, "budget spent");
+
+    let late = share(1, found[2], 2);
+    let pool = Mempool::new(Arc::clone(c.state()));
+    let err = pool.validate(&late).unwrap_err();
+    assert!(matches!(err, NodeError::Mining(_)), "{err:?}");
+    let err = c
+        .candidate_block(1_000_000 + H1 + 1, vec![late])
+        .unwrap_err();
+    assert!(matches!(err, NodeError::Mining(_)), "{err:?}");
+}
+
+/// Security review of the budget refusal: with shares past the budget
+/// refused, the share count alone could only ease the target. A budget
+/// drained in the epoch's first block must harden the next one.
+#[test]
+fn a_budget_drained_early_hardens_the_next_epochs_target() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(
+        &dir,
+        Some(MiningGenesis {
+            target_shares: 2,
+            ..mining()
+        }),
+    );
+    to_epoch_one(&mut c);
+    let found = find_shares(&c, 1, 0, 2);
+    mine(
+        &mut c,
+        H1,
+        vec![share(1, found[0], 0), share(1, found[1], 1)],
+    )
+    .unwrap();
+    assert_eq!(
+        c.state().committed_mining().unwrap().unwrap().spent_after,
+        1
+    );
+    for h in H1 + 1..=2 * EPOCH_BLOCKS {
+        mine(&mut c, h, Vec::new()).unwrap();
+    }
+
+    let next = c.state().committed_mining().unwrap().unwrap();
+    assert_eq!((next.epoch, next.spent_after), (2, 0));
+    // 2 shares in 1 of 5 blocks is demand of 10 against 2: clamped at x4.
+    let quarter = U256::from_be_bytes(&TARGET).mul_div_u64(1, 4).unwrap();
+    assert_eq!(U256::from_be_bytes(&next.target), quarter);
 }
 
 #[test]

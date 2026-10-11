@@ -124,6 +124,12 @@ impl StateDB {
         if share.epoch != record.epoch {
             return Err(refuse("wrong epoch"));
         }
+        // A share that pays nothing would still take a block slot fee-free
+        // and spend the miner's nonce (found on the local mining devnet).
+        let reward = record.share_reward();
+        if reward == 0 {
+            return Err(refuse("this epoch's miner budget is spent"));
+        }
         if overlay.mining_shares >= record.max_shares_per_block {
             return Err(refuse("block share cap reached"));
         }
@@ -143,7 +149,10 @@ impl StateDB {
             return Err(refuse("work does not meet the share target"));
         }
 
-        let paid = self.pay_from_reserve(overlay, miner, record.share_reward())?;
+        let paid = self.pay_from_reserve(overlay, miner, reward)?;
+        if paid == 0 {
+            return Err(refuse("the mining reserve is empty"));
+        }
         record.shares = record.shares.saturating_add(1);
         record.paid = record.paid.saturating_add(paid);
         overlay.mining_shares += 1;
@@ -168,9 +177,25 @@ impl StateDB {
         header: &BlockHeader,
         context: BlockContext,
     ) -> Result<()> {
-        let Some(record) = self.mining_record(overlay)? else {
+        let Some(mut record) = self.mining_record(overlay)? else {
             return Ok(());
         };
+        if record.epoch > 0
+            && record.spent_after == 0
+            && record.paid > 0
+            && record.share_reward() == 0
+        {
+            // Shares past the budget are refused from here on, so record how
+            // early it ran out: the retarget's measure of excess demand.
+            let opened = record.epoch.saturating_mul(record.epoch_blocks);
+            record.spent_after = context
+                .height
+                .saturating_sub(opened)
+                .clamp(1, record.epoch_blocks);
+            overlay
+                .records
+                .insert(MINING_KEY.to_vec(), Some(record.encode()));
+        }
         if context.height == 0 || !context.height.is_multiple_of(record.epoch_blocks) {
             return Ok(());
         }
@@ -189,6 +214,7 @@ impl StateDB {
             target: record.retarget(),
             shares: 0,
             paid: 0,
+            spent_after: 0,
             ..record
         };
         overlay

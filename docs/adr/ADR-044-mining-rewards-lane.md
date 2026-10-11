@@ -130,3 +130,27 @@ Still open:
   bound into the work.
 - **Proposer timing under load is unmeasured.** No timing bound on
   `select_applicable` exists yet.
+
+## Changes from the first devnet run (2026-10-12)
+
+The first run of the real node and miner together
+(`reports/sessions/2026-10-12-mining-devnet-e2e.md`) paid one epoch and then
+stopped. Fixed:
+
+- **A share past the epoch's miner budget is refused.** Before, it applied,
+  paid 0, spent the miner's nonce and took a block slot fee-free. The mempool
+  runs the same rule, so it now refuses what it said it refused. A share is
+  also refused when the reserve can pay nothing.
+- **The retarget measures how early the budget ran out.** With overshoot
+  refused, `shares` stops near `target_shares` and could only ease the target
+  (security review of the fix above). The record now carries `spent_after`,
+  the number of blocks into the epoch at which the budget was spent, and the
+  retarget uses `shares × epoch_blocks / spent_after` as demand, still clamped
+  ×4. The record encoding is version 2; version 1 never reached a public chain.
+  Consequence for parameters: a budget can be spent no faster than
+  `target_shares / max_shares_per_block` blocks, so the ×4 hardening is
+  reachable only if `max_shares_per_block × epoch_blocks ≥ 4 × target_shares`.
+- **Miner:** it restarts its transaction nonce at each epoch, because the
+  pool evicted the closed epoch's shares and the gap stalled every later
+  share. It also idles while the budget is spent and parses `dag` only for
+  active work.
