@@ -57,7 +57,10 @@ impl StateDB {
             .mining_dag
             .get_or_init(|| Arc::new(CacheRegistry::new(dag_config(record.dag))));
         let params = record.dag.params();
-        let start = record.epoch.saturating_mul(record.epoch_blocks);
+        let start = record
+            .epoch
+            .checked_mul(record.epoch_blocks)
+            .ok_or_else(|| NodeError::Mining("epoch start overflow".into()))?;
         registry.cache_for_epoch(start / params.epoch_length.max(1))
     }
 
@@ -135,7 +138,10 @@ impl StateDB {
             record.validator_reward(record.epoch),
         )?;
         let next = MiningRecord {
-            epoch: record.epoch + 1,
+            epoch: record
+                .epoch
+                .checked_add(1)
+                .ok_or_else(|| NodeError::Mining("epoch counter overflow".into()))?,
             anchor: header.id(),
             target: record.retarget(),
             shares: 0,
