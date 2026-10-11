@@ -163,3 +163,42 @@ The Linux miner was run against `https://rpc.maya2c.dev/rpc`:
 - `cargo tauri android build --apk --debug` built with the JDK at `C:\Program Files\Java\jdk-21.0.12`. The system `JAVA_HOME` names a removed 21.0.11.
 - The x86_64 APK was installed on the `salon_avd` emulator (API 34), started `-read-only`. It showed the live public testnet with all four tabs.
 - Screenshots: session scratchpad only, not committed.
+
+## GPU mining (RTX 5070 Laptop)
+
+Parity on the device: `cargo test --release -p maya-wgpu-miner --features gpu`
+reports 10 passed, including `the_gpu_digest_matches_the_nodes`. The debug build
+of the same tests ran over 20 minutes without finishing, so it was stopped; use
+release.
+
+`cargo xtask mining-localnet --gpu --seconds 150` (new; exit 0):
+
+```
+mining-localnet: 4 validators on one chain
+mining-localnet: first share paid 32.1232511s after the miner started
+mining-localnet: validator 3 down; shares kept paying (4.0134866s)
+mining-localnet: miner balance 3150000 on all four nodes
+mining-localnet: reserve paid out 4650000
+mining-localnet: shares sent 323, refused 4, last rate 714426 H/s
+mining-localnet: targets by epoch 1:00ffffff 2:00ffffff 3:00745d17 4:002e8ba2 5:0019dbcc
+mining-localnet: PASS in 150.1576833s
+```
+
+Reconciliation: the reserve paid out 4,650,000 = 3,150,000 to the miner
+(45 × 70,000) + 5 boundaries × 300,000 to the committee. The rate is for the
+4 MiB test dataset; a mainnet-dataset (4 GiB) rate is MISSING.
+
+## Incident: the live seed was stopped four times by this session
+
+Stopping the local devnet with `taskkill /IM maya2c-node.exe` also killed the
+live maya-testnet-1 seed, which runs under the same image name. Watchdog
+restarts are logged at 00:49, 00:54, 01:24 and 02:04 KST. The seed was down
+for up to 5 minutes each time. The chain kept finalizing, and the validators
+v2..v4 run as `maya2c-validator.exe` and were not hit. Separately, the
+committee now shows 3 (v4 `validator: null`). The checkpoints that would date
+that change have been pruned, so the cause is NOT ESTABLISHED.
+
+The first `mining-localnet` run was also aborted before it started nodes:
+localnet's ports (p2p 31100) collide with the live seed. Fixed:
+`localnet::ports_free()` refuses occupied ports, and `mining-localnet` uses
+p2p 33100+ and rpc 34000+. Test processes are now killed by PID only.

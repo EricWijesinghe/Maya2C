@@ -25,6 +25,7 @@ mod guides_check;
 mod hub_bundle;
 mod localnet;
 mod mesh_check;
+mod mining_localnet;
 mod pgo;
 mod readiness;
 mod release_check;
@@ -63,6 +64,7 @@ fn main() -> ExitCode {
         "pgo" => pgo::run(rest),
         "hub-bundle" => hub_bundle::run(rest),
         "localnet" => localnet::localnet(rest),
+        "mining-localnet" => mining_localnet::mining_localnet(rest),
         "attacknet" => attacknet::attacknet(rest),
         "up" => up::up(),
         "down" => up::down(),
@@ -124,6 +126,10 @@ cargo xtask <command>
                         not exist.
   pgo                   Measure profile-guided optimisation on bft_tps:
                         baseline vs PGO build, medians of --runs runs.
+  mining-localnet [--gpu] [--seconds N]
+                        Four validators with block rewards in genesis and the
+                        release miner on node 1: a share pays, payouts survive
+                        one validator down, all nodes agree on balances.
   hub-bundle            Build the release miner and package the Maya2C Hub
                         with it: NSIS/MSI on Windows, deb/rpm/AppImage on
                         Linux (run in WSL).

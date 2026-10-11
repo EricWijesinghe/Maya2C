@@ -35,7 +35,7 @@ const preview = (() => {
   let height = 241_000;
   const events = [];
   return {
-    defaults: () => ({ rpc: "https://rpc.maya2c.dev/rpc", miner_binary: "maya2c-gpu-miner.exe", key_file: "miner.key", cpu_threads: 16, can_mine: true }),
+    defaults: () => ({ rpc: "https://rpc.maya2c.dev/rpc", miner_binary: "maya2c-gpu-miner.exe", key_file: "miner.key", cpu_threads: 16, use_gpu: true, can_mine: true }),
     miner_state: () => {
       const t = Date.now();
       rates.push({ t_ms: t, hps: 6200 + 900 * Math.sin(t / 9000) + Math.random() * 400 });
@@ -322,7 +322,7 @@ async function togglePower() {
     if (running) await call("miner_stop");
     else {
       const s = state.settings;
-      await call("miner_start", { config: { binary: s.miner_binary, rpc: s.rpc, key_file: s.key_file, threads: Number(s.cpu_threads) } });
+      await call("miner_start", { config: { binary: s.miner_binary, rpc: s.rpc, key_file: s.key_file, threads: Number(s.cpu_threads), gpu: s.use_gpu !== false } });
       state.peak = 0;
     }
   } catch (err) {
@@ -350,6 +350,7 @@ function wireSettings(maxThreads) {
   $("s-key").value = s.key_file;
   $("s-threads").max = String(Math.max(1, maxThreads));
   $("s-threads").value = String(s.cpu_threads);
+  $("s-gpu").checked = s.use_gpu !== false;
   setText("s-threads-v", s.cpu_threads);
   $("s-threads").addEventListener("input", (e) => setText("s-threads-v", e.target.value));
   $("s-save").addEventListener("click", () => {
@@ -358,7 +359,7 @@ function wireSettings(maxThreads) {
       setText("s-msg", "The node URL must start with http:// or https://");
       return;
     }
-    state.settings = { rpc, miner_binary: $("s-binary").value.trim(), key_file: $("s-key").value.trim(), cpu_threads: Number($("s-threads").value) };
+    state.settings = { rpc, miner_binary: $("s-binary").value.trim(), key_file: $("s-key").value.trim(), cpu_threads: Number($("s-threads").value), use_gpu: $("s-gpu").checked };
     setText("s-msg", saveSettings(state.settings) ? "Saved." : "Saved for this session only.");
   });
 }

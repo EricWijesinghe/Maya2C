@@ -29,6 +29,9 @@ pub struct MinerConfig {
     pub rpc: String,
     pub key_file: String,
     pub threads: usize,
+    /// Hash on the graphics card (`--gpu`) instead of CPU threads.
+    #[serde(default)]
+    pub gpu: bool,
 }
 
 /// One point on the hash-rate chart.
@@ -156,6 +159,7 @@ impl Miner {
             .arg(threads.to_string())
             .arg("--key-file")
             .arg(Path::new(&config.key_file))
+            .args(config.gpu.then_some("--gpu"))
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -305,6 +309,7 @@ mod tests {
                 rpc: "http://127.0.0.1:8545".into(),
                 key_file: "k".into(),
                 threads: 2,
+                gpu: false,
             })
             .unwrap_err();
         assert!(err.contains("not found"), "{err}");
