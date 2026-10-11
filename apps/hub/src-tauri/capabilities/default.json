@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Minimal capability set: the node, the GPU and the miner process are reached only through this app's Rust commands, never from the webview.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

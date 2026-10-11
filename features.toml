@@ -2751,6 +2751,28 @@ tests = ["crate:maya-chat", "apps/chat/tests/session_tests.rs", "apps/chat/tests
 note = "ADR-031. ML-DSA-65 identities (chain addresses), signed X-Wing prekeys, per-direction symmetric chains, libp2p store-and-forward relays. Unaudited; no groups, no metadata privacy, PoW postage per deposit; CLI sessions saved encrypted between runs; relays dialled by name (/dns4). Desktop app apps/chat-gui (Tauri 2, outside the workspace): seed in the OS keychain, contacts and history encrypted under a seed-derived key."
 
 [[subsystem]]
+id = "mining-rewards-lane"
+name = "Mining rewards lane (DAG-PoW shares paid from a genesis reserve)"
+domain = "Consensus and execution"
+paths = "`crates/node/src/state/mining.rs`, `crates/node/src/state/mining_exec.rs`, `bins/maya2c-gpu-miner/src/share.rs`"
+tier = "core"
+class = "REAL"
+status = "working"
+tests = ["crate:custom-l1-node", "crates/node/tests/mining_rewards_tests.rs"]
+note = "ADR-044. Miners never order blocks; shares are MiningShare transactions checked by hashimoto_light against a per-epoch target and paid from MINING_RESERVE, never minted. get_mining_work RPC hands each miner its header. The CLI miner (--mine) hashes on CPU in light mode; the GPU dataset path is not wired. Off on a chain whose genesis has no bft.mining; not yet on the testnet."
+
+[[subsystem]]
+id = "maya2c-hub"
+name = "Maya2C Hub (desktop miner and ecosystem dashboard)"
+domain = "Supplement (not in architecture-vision.md)"
+paths = "`apps/hub`"
+tier = "extended"
+class = "REAL"
+status = "planned"
+tests = []
+note = "ADR-045. Tauri 2, outside the workspace. Runs maya2c-gpu-miner --mine --json and draws hash rate, shares, earnings, NVIDIA telemetry via nvidia-smi, network height/committee/fees from JSON-RPC, and a status map of every app and field. Unit tests in src-tauri (cargo test there); not yet run against a mining chain, so planned until that end-to-end run is recorded."
+
+[[subsystem]]
 id = "ledger-hardware-wallet-app"
 name = "Ledger hardware wallet app"
 domain = "Supplement (not in architecture-vision.md)"
