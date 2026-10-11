@@ -31,8 +31,9 @@ use zeroize::Zeroizing;
 
 /// How often the hash rate is reported.
 const REPORT_EVERY: Duration = Duration::from_secs(2);
-/// How often work is re-fetched; a new epoch replaces the header.
-const REFRESH_EVERY: Duration = Duration::from_secs(10);
+/// How often work is re-fetched; a new epoch replaces the header. Shares
+/// mined after their epoch closed are refused, so this stays short.
+const REFRESH_EVERY: Duration = Duration::from_secs(3);
 /// How long to wait while mining has not opened.
 const IDLE_WAIT: Duration = Duration::from_secs(15);
 
@@ -50,7 +51,8 @@ struct Work {
     epoch: u64,
     header: String,
     target: String,
-    dag: DagProfile,
+    /// Empty while mining has not opened, so parsed only for active work.
+    dag: String,
     dag_epoch: u64,
     share_reward: u64,
 }
@@ -186,7 +188,15 @@ pub fn run(args: &ShareArgs<'_>) -> Result<(), String> {
             thread::sleep(IDLE_WAIT);
             continue;
         }
-        let cache = cache_for(&mut caches, work.dag, work.dag_epoch)?;
+        if work.share_reward == 0 {
+            session.emit(&json!({"event": "idle", "epoch": work.epoch,
+                "reason": "this epoch's miner budget is spent; waiting for the next epoch"}));
+            thread::sleep(REFRESH_EVERY);
+            continue;
+        }
+        let dag: DagProfile = serde_json::from_value(json!(work.dag))
+            .map_err(|e| format!("get_mining_work dag {:?}: {e}", work.dag))?;
+        let cache = cache_for(&mut caches, dag, work.dag_epoch)?;
         session.emit(
             &json!({"event": "work", "epoch": work.epoch, "target": work.target,
             "share_reward": work.share_reward}),
@@ -232,6 +242,10 @@ impl Session {
         getrandom::fill(&mut start).map_err(|e| e.to_string())?;
         let base = u64::from_le_bytes(start);
         let stride = threads as u64;
+        // Shares of the closed epoch were evicted from the pool, so nonces
+        // handed to them never land; restart from the chain's count or every
+        // later share waits behind the gap.
+        self.next_nonce.set(0);
 
         let workers: Vec<_> = (0..stride)
             .map(|lane| {
@@ -268,8 +282,14 @@ impl Session {
         let (mut last_report, mut last_refresh) = (Instant::now(), Instant::now());
         let mut counted = 0u64;
         loop {
-            if let Ok(nonce) = found.recv_timeout(Duration::from_millis(200)) {
-                self.submit(work, nonce);
+            if let Ok(nonce) = found.recv_timeout(Duration::from_millis(200))
+                && !self.submit(work, nonce)
+            {
+                // A refusal usually means the epoch closed or its budget is
+                // spent: look now rather than hashing stale work.
+                last_refresh = Instant::now()
+                    .checked_sub(REFRESH_EVERY)
+                    .unwrap_or(last_refresh);
             }
             if last_report.elapsed() >= REPORT_EVERY {
                 let total = hashes.load(Ordering::Relaxed);
@@ -285,7 +305,9 @@ impl Session {
                     .rpc
                     .call::<Work>("get_mining_work", json!([self.address]))
                 {
-                    Ok(next) if next.active && next.header == work.header => {}
+                    // Same header but nothing left to pay: stop hashing too.
+                    Ok(next)
+                        if next.active && next.header == work.header && next.share_reward > 0 => {}
                     Ok(_) => return,
                     Err(error) => self.emit(&json!({"event": "error", "message": error})),
                 }
@@ -295,8 +317,8 @@ impl Session {
 
     /// Signs and sends one share. The node checks the work before the
     /// signature, so a refused share costs it 2 ms; the reason is reported,
-    /// never retried.
-    fn submit(&self, work: &Work, nonce: u64) {
+    /// never retried. Returns whether the node accepted it.
+    fn submit(&self, work: &Work, nonce: u64) -> bool {
         let result = self
             .rpc
             .call::<Account>("get_balance", json!([self.address]))
@@ -314,6 +336,7 @@ impl Session {
                 self.next_nonce.set(tx_nonce + 1);
                 Ok((sent.txid, account.balance))
             });
+        let accepted = result.is_ok();
         let event = match result {
             Ok((txid, balance)) => json!({"event": "share", "accepted": true, "txid": txid,
                 "reward": work.share_reward, "balance": balance, "epoch": work.epoch}),
@@ -321,6 +344,7 @@ impl Session {
                 "epoch": work.epoch}),
         };
         self.emit(&event);
+        accepted
     }
 }
 
