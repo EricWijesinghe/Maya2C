@@ -114,28 +114,12 @@ impl MiningGenesis {
     /// A zero halving interval, target or cap, a miner share above 100%, or a
     /// malformed target.
     pub fn record(&self, epoch_blocks: u64) -> Result<MiningRecord> {
-        let bad = |what: &str| Err(NodeError::Decode(format!("bft.mining: {what}")));
-        if self.halving_epochs == 0 {
-            return bad("halving_epochs must be positive");
-        }
-        if self.target_shares == 0 || self.max_shares_per_block == 0 {
-            return bad("target_shares and max_shares_per_block must be positive");
-        }
-        if self.miner_share_bps > BPS {
-            return bad("miner_share_bps above 10000");
-        }
-        if epoch_blocks == 0 {
-            return bad("needs staking with positive epoch_blocks");
-        }
         let bytes = hex::decode(&self.initial_target)
             .map_err(|e| NodeError::Decode(format!("bft.mining.initial_target: {e}")))?;
         let target: [u8; 32] = bytes
             .try_into()
             .map_err(|_| NodeError::Decode("bft.mining.initial_target: not 32 bytes".into()))?;
-        if U256::from_be_bytes(&target).is_zero() {
-            return bad("initial_target is zero");
-        }
-        Ok(MiningRecord {
+        let record = MiningRecord {
             initial_epoch_reward: self.initial_epoch_reward,
             halving_epochs: self.halving_epochs,
             miner_share_bps: self.miner_share_bps,
@@ -148,7 +132,9 @@ impl MiningGenesis {
             target,
             shares: 0,
             paid: 0,
-        })
+        };
+        record.validate()?;
+        Ok(record)
     }
 }
 
@@ -226,6 +212,9 @@ impl MiningRecord {
         let high = self.target_shares.saturating_mul(MAX_RETARGET_FACTOR);
         let observed = self.shares.clamp(low, high);
         let previous = U256::from_be_bytes(&self.target);
+        // Overflow means the next target is past 256 bits, which is easier
+        // than any digest: saturate to the easiest target rather than wrap to
+        // a hard one. Only reachable from a target already near the top.
         let next = previous
             .mul_div_u64(self.target_shares, observed)
             .unwrap_or(U256::from_be_bytes(&[0xff; 32]));
@@ -287,10 +276,37 @@ impl MiningRecord {
             paid: r.read_u64()?,
         };
         r.finish()?;
-        if record.halving_epochs == 0 || record.target_shares == 0 || record.epoch_blocks == 0 {
-            return Err(NodeError::Decode("mining record has a zero divisor".into()));
-        }
+        record.validate()?;
         Ok(record)
+    }
+
+    /// The parameter rules, in one place for genesis and for decode, so a
+    /// record that genesis would refuse cannot arrive another way (a snapshot,
+    /// a corrupted store).
+    ///
+    /// # Errors
+    ///
+    /// [`NodeError::Decode`] naming the rule broken.
+    pub fn validate(&self) -> Result<()> {
+        let bad = |what: &str| Err(NodeError::Decode(format!("mining: {what}")));
+        if self.halving_epochs == 0 || self.target_shares == 0 || self.epoch_blocks == 0 {
+            return bad("halving_epochs, target_shares and epoch_blocks must be positive");
+        }
+        if self.max_shares_per_block == 0 {
+            return bad("max_shares_per_block must be positive");
+        }
+        if self.miner_share_bps > BPS {
+            return bad("miner_share_bps above 10000");
+        }
+        if U256::from_be_bytes(&self.target).is_zero() {
+            return bad("target is zero");
+        }
+        // A share that rounds to nothing would have miners working for free
+        // from block 1.
+        if self.miner_share_bps > 0 && self.miner_budget(0) / self.target_shares == 0 {
+            return bad("a share in epoch 0 would pay nothing");
+        }
+        Ok(())
     }
 }
 
@@ -416,7 +432,7 @@ mod tests {
     #[test]
     fn genesis_refuses_bad_parameters() {
         let good = MiningGenesis {
-            initial_epoch_reward: 1,
+            initial_epoch_reward: 1_000,
             halving_epochs: 1,
             miner_share_bps: 7_000,
             target_shares: 1,
@@ -425,6 +441,15 @@ mod tests {
             dag: DagProfile::Testing,
         };
         assert!(good.record(10).is_ok());
+        // 70% of 1 unit split over one share rounds to nothing.
+        assert!(
+            MiningGenesis {
+                initial_epoch_reward: 1,
+                ..good.clone()
+            }
+            .record(10)
+            .is_err()
+        );
         assert!(good.record(0).is_err());
         assert!(
             MiningGenesis {

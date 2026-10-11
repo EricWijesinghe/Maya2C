@@ -839,6 +839,20 @@ impl GenesisConfig {
             if bft.fees.is_none() {
                 return Err(NodeError::Decode("bft.mining needs bft.fees".into()));
             }
+            // Rewards are transfers out of the reserve. An unfunded reserve
+            // would be a mining chain that silently pays nothing.
+            let reserve = hex::encode(crate::state::mining::MINING_RESERVE);
+            let funded: u64 = self
+                .allocations
+                .iter()
+                .filter(|a| a.address.eq_ignore_ascii_case(&reserve))
+                .map(|a| a.balance)
+                .sum();
+            if funded < mining.initial_epoch_reward {
+                return Err(NodeError::Decode(
+                    "bft.mining: the mining reserve holds less than one epoch's reward".into(),
+                ));
+            }
             records.insert(
                 crate::state::mining::MINING_KEY.to_vec(),
                 mining.record(staking.epoch_blocks)?.encode(),
