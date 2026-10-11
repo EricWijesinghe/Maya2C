@@ -1,6 +1,31 @@
 # State
 
 ## Handover
+- **Done (2026-10-12, branch `feat/mainnet-mining-rewards`, not merged):**
+  - Mining lane run end to end on a local one-validator devnet (real node +
+    miner): four bugs found and fixed (`dd050e13`, `6a9a48a2`, `9d78c9a6`):
+    - budget overshoot shares paid 0 but took nonces;
+    - a nonce gap stalled the miner;
+    - the retarget could only ease, so it now uses `spent_after`;
+    - the Hub overcounted earnings by 14×.
+    Final run: 73/73 landed shares paid, the reserve reconciles, and the target
+    converges. Node suite: 1064 passed, 0 failed. Report:
+    `reports/sessions/2026-10-12-mining-devnet-e2e.md`.
+  - Hub installers: Windows NSIS + MSI (`cargo xtask hub-bundle`, miner
+    bundled). The Android debug APK runs on an emulator against the live
+    public testnet (phone = watch-only). The Linux build in WSL was started;
+    see the session report for the result.
+  - Eric 2026-10-12: Windows/Linux/Android now; macOS/iOS after his MacBook
+    (~3 weeks).
+- **Unfinished:** GPU hashing (the miner is CPU light mode only);
+  multi-validator mining run; the Hub desktop window not driven against the
+  devnet; release signing (Windows code-signing, Android upload keystore —
+  Eric generates keys); testnet activation of mining (needs re-genesis or an
+  activation height, not designed).
+- **Do first next session:** GPU dataset hashing in `maya2c-gpu-miner`
+  (`hal/wgpu-miner`) behind the same JSON events, then a real RTX 5070 run on
+  the devnet recipe in the report.
+
 - **Done (2026-10-11, full-PC staging + Kali):**
   - **PR #108 MERGED to master** (`fd4cfac4`, all 31 checks green, branch
     deleted). It carried the whole Nemotron recovery, ADR-043, the site dial,
@@ -13,11 +38,9 @@
     `x86_64-unknown-linux-gnu` in WSL, not visible on the Windows host.
   - **Live testnet healthy, untouched:** local seed reports epoch 116,
     committee 4, round ~1855 advancing; 4 RPC listeners (8545 + 13030/31/32).
-  - **ACTION FOR ERIC — public RPC 404.** `rpc.maya2c.dev` and
-    `bootstrap.maya2c.dev` both return HTTP 404 (GET and POST); the chain and
-    the local seed are fine, so this is a Cloudflare tunnel / ingress routing
-    issue, not a node fault. `status.maya2c.dev` serves 200. Not touched by me;
-    needs the cloudflared tunnel config checked (Eric's domain).
+  - ~~Public RPC 404~~ **Corrected 2026-10-12:** the 404 came from testing the
+    bare host path. `https://rpc.maya2c.dev/rpc` answers 200, and the Android
+    Hub read live blocks through it (height 457,0xx). Nothing to fix.
   - Site deploy running from the master merge; the mainnet-gates dial goes live
     on maya2c.dev when it finishes.
   - **Do NOT** blindly rolling-deploy the #108 build to the live testnet
