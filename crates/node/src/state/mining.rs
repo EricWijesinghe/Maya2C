@@ -132,6 +132,7 @@ impl MiningGenesis {
             target,
             shares: 0,
             paid: 0,
+            target_limit: target,
         };
         record.validate()?;
         Ok(record)
@@ -166,6 +167,10 @@ pub struct MiningRecord {
     pub shares: u64,
     /// Units paid to miners in `epoch`.
     pub paid: u64,
+    /// The easiest target retargeting may reach: the genesis target. Without
+    /// a floor, empty epochs would ease the target until every digest is a
+    /// share (security review of ADR-044).
+    pub target_limit: [u8; 32],
 }
 
 impl MiningRecord {
@@ -204,21 +209,23 @@ impl MiningRecord {
     }
 
     /// The next epoch's share target: more shares than wanted makes shares
-    /// harder. Clamped to a factor of [`MAX_RETARGET_FACTOR`] either way, and
-    /// never zero.
+    /// harder. Clamped to a factor of [`MAX_RETARGET_FACTOR`] either way, never
+    /// easier than [`Self::target_limit`], and never zero.
     #[must_use]
     pub fn retarget(&self) -> [u8; 32] {
         let low = (self.target_shares / MAX_RETARGET_FACTOR).max(1);
         let high = self.target_shares.saturating_mul(MAX_RETARGET_FACTOR);
         let observed = self.shares.clamp(low, high);
         let previous = U256::from_be_bytes(&self.target);
-        // Overflow means the next target is past 256 bits, which is easier
-        // than any digest: saturate to the easiest target rather than wrap to
-        // a hard one. Only reachable from a target already near the top.
+        // Overflow means past 256 bits, easier than any limit: saturate to the
+        // limit rather than wrap to a hard target.
+        let limit = U256::from_be_bytes(&self.target_limit);
         let next = previous
             .mul_div_u64(self.target_shares, observed)
-            .unwrap_or(U256::from_be_bytes(&[0xff; 32]));
-        if next.is_zero() {
+            .unwrap_or(limit);
+        if next > limit {
+            limit.to_be_bytes()
+        } else if next.is_zero() {
             U256::ONE.to_be_bytes()
         } else {
             next.to_be_bytes()
@@ -228,7 +235,7 @@ impl MiningRecord {
     /// Fixed-width encoding, version 1.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(1 + 8 * 9 + 1 + 64);
+        let mut out = Vec::with_capacity(1 + 8 * 9 + 1 + 96);
         out.push(1);
         for value in [
             self.initial_epoch_reward,
@@ -248,6 +255,7 @@ impl MiningRecord {
         for value in [self.shares, self.paid] {
             out.extend_from_slice(&value.to_le_bytes());
         }
+        out.extend_from_slice(&self.target_limit);
         out
     }
 
@@ -274,6 +282,7 @@ impl MiningRecord {
             target: r.read_array()?,
             shares: r.read_u64()?,
             paid: r.read_u64()?,
+            target_limit: r.read_array()?,
         };
         r.finish()?;
         record.validate()?;
@@ -297,6 +306,9 @@ impl MiningRecord {
         }
         if self.miner_share_bps > BPS {
             return bad("miner_share_bps above 10000");
+        }
+        if U256::from_be_bytes(&self.target) > U256::from_be_bytes(&self.target_limit) {
+            return bad("target easier than its limit");
         }
         if U256::from_be_bytes(&self.target).is_zero() {
             return bad("target is zero");
@@ -336,13 +348,23 @@ pub fn share_header(
     *hasher.finalize().as_bytes()
 }
 
-/// Key of one spent share.
+/// Prefix of one epoch's spent shares. The epoch leads the key so the whole
+/// set is deleted when the epoch closes: a share from a closed epoch is
+/// refused by the epoch check, so its record has nothing left to guard.
 #[must_use]
-pub fn seen_key(header: &[u8; 32], nonce: u64) -> Vec<u8> {
+pub fn seen_epoch_prefix(epoch: u64) -> Vec<u8> {
+    let mut key = SEEN_PREFIX.to_vec();
+    key.extend_from_slice(&epoch.to_be_bytes());
+    key
+}
+
+/// Key of one spent share of `epoch`.
+#[must_use]
+pub fn seen_key(epoch: u64, header: &[u8; 32], nonce: u64) -> Vec<u8> {
     let mut hasher = blake3::Hasher::new_derive_key("maya2c mining seen v1");
     hasher.update(header);
     hasher.update(&nonce.to_le_bytes());
-    let mut key = SEEN_PREFIX.to_vec();
+    let mut key = seen_epoch_prefix(epoch);
     key.extend_from_slice(hasher.finalize().as_bytes());
     key
 }
@@ -406,11 +428,30 @@ mod tests {
         r.shares = 1_000_000;
         let clamped = U256::from_be_bytes(&r.retarget());
         assert_eq!(clamped, base.mul_div_u64(1, 4).unwrap());
+        // Easing is clamped at ×4, and never past the genesis target.
+        let sixteenth = base.mul_div_u64(1, 16).unwrap();
+        r.target = sixteenth.to_be_bytes();
         r.shares = 0;
         assert_eq!(
             U256::from_be_bytes(&r.retarget()),
-            base.mul_div_u64(4, 1).unwrap()
+            sixteenth.mul_div_u64(4, 1).unwrap()
         );
+        r.target = base.mul_div_u64(1, 2).unwrap().to_be_bytes();
+        assert_eq!(r.retarget(), r.target_limit);
+    }
+
+    #[test]
+    fn empty_epochs_never_ease_past_the_genesis_target() {
+        let mut r = record();
+        for _ in 0..100 {
+            r.target = r.retarget();
+            assert!(U256::from_be_bytes(&r.target) <= U256::from_be_bytes(&r.target_limit));
+        }
+        assert_eq!(r.target, r.target_limit);
+        // Overflow from a near-max limit saturates to the limit, not to zero.
+        r.target_limit = [0xff; 32];
+        r.target = [0xff; 32];
+        assert_eq!(r.retarget(), [0xff; 32]);
     }
 
     #[test]
@@ -492,6 +533,7 @@ mod tests {
         assert_ne!(base, share_header(&[1; 32], 6, &[2; 32], &[3; 32]));
         assert_ne!(base, share_header(&[1; 32], 5, &[9; 32], &[3; 32]));
         assert_ne!(base, share_header(&[1; 32], 5, &[2; 32], &[9; 32]));
-        assert_ne!(seen_key(&base, 1), seen_key(&base, 2));
+        assert_ne!(seen_key(5, &base, 1), seen_key(5, &base, 2));
+        assert!(seen_key(5, &base, 1).starts_with(&seen_epoch_prefix(5)));
     }
 }
