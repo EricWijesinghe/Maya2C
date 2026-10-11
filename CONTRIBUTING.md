@@ -4,6 +4,11 @@ Maya2C is built and controlled by its maintainer. Outside contributions are
 welcome as **suggestions**: issues, security reports, and pull requests from
 forks. A suggestion is never merged automatically and never grants access.
 
+- Questions and ideas: [Discussions](https://github.com/EricWijesinghe/Maya2C/discussions).
+- Bugs and concrete proposals: an issue, using its template.
+- Vulnerabilities: privately, never in public — see [SECURITY.md](SECURITY.md).
+- Conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+
 ## What happens to a pull request
 
 1. It is inspected line by line: what it changes, why, and what it could
