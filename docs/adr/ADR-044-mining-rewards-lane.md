@@ -85,5 +85,11 @@ finalize blocks. They earn issuance by publishing work:
   before genesis. **Gate 3 restarts on the build that carries it.**
 - ArgonBlake favours memory bandwidth (32 MiB per hash), so consumer GPUs stay
   competitive with each other. A CPU miner works, but slower.
+- **The lane is built to carry other kinds of work.** `WorkClaim` gets a
+  `kind` byte from day one (`0 = ArgonBlake`). The intended second kind is
+  verified AI inference (Eric, 2026-10-11): a GPU serves a model job, and a
+  zkML proof (`crates/zkml`, Halo2) or a challenge game shows it was computed.
+  It activates at a written height, after its own ADR. The mainnet format does
+  not need to change to allow it.
 - Not covered: pools beyond the existing stratum-v2 service; lattice PoUW stays
   RESEARCH (ADR-016, no measured useful output).
