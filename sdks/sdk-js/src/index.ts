@@ -98,7 +98,11 @@ export class MayaClient {
   constructor(baseUrl: string, options: ClientOptions = {}) {
     // Trailing slashes are stripped so `${base}/v1/...` never produces a
     // double slash, which some proxies treat as a different path.
-    this.#baseUrl = baseUrl.replace(/\/+$/, "");
+    // A loop rather than /\/+$/: that regex backtracks quadratically on a
+    // long run of slashes (CodeQL js/polynomial-redos).
+    let end = baseUrl.length;
+    while (end > 0 && baseUrl[end - 1] === "/") end--;
+    this.#baseUrl = baseUrl.slice(0, end);
     this.#timeoutMs = options.timeoutMs ?? 10_000;
     this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
   }
