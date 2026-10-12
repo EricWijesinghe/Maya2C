@@ -89,7 +89,9 @@ jobs:
         run: |
           $helper = 'C:\Program Files\Maya2C\maya2c-validator.ps1'
           foreach ($i in 1..300) {   # 50 min, as above
-            $out = & $helper -Status | Out-String
+            # Status prints with Write-Host (the information stream): *>&1
+            # brings it into the pipeline, or Out-String sees nothing.
+            $out = & $helper -Status *>&1 | Out-String
             if ($out -match 'block') { $out; exit 0 }
             Start-Sleep 10
           }
