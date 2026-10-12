@@ -23,7 +23,7 @@ for (const file of walk(dist)) {
   if (!meta) continue;
   pages++;
   const allowed = new Set([...meta[1].matchAll(/'sha256-([^']+)'/g)].map((m) => m[1]));
-  for (const [, attrs, body] of html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/g)) {
+  for (const [, attrs, body] of html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script[^>]*>/gi)) {
     if (/\bsrc=/.test(attrs) || /application\/(ld\+)?json/.test(attrs)) continue;
     const h = createHash("sha256").update(body, "utf8").digest("base64");
     if (!allowed.has(h)) missing.set(h, (missing.get(h) ?? []).concat(file.slice(dist.length)));
