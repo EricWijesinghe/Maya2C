@@ -200,3 +200,215 @@ Machine: Core Ultra 9 275HX, 31.4 GB, Windows 11 build 29671, rustc 1.99.0-night
 - P6 deferred and frontier modules (BACKLOG.md P6) until their milestone.
 - MP24 lazy fork state — conflicts with invariant 24.
 - `apps/chat`, ADR-031 — owned by the chat session (its own worktree).
+# State
+
+## Handover
+- **2026-10-12 later — WARNING for Eric:** this session stopped the live
+  testnet **seed** four times (00:49, 00:54, 01:24, 02:04 KST) by killing a local
+  devnet with `taskkill /IM maya2c-node.exe`. The watchdog restarted it each time,
+  and the chain kept finalizing. The committee now shows **3** (v4 `validator:
+  null`), cause not established. With 3 seats, one more validator down halts
+  the testnet. Test processes are killed by PID only from now on, and the localnet
+  ports are guarded. Another session was running `D:\Temp\maya-join-test` and
+  rewrote `C:\Program Files\Maya2Cun-node.cmd` at 02:35; neither was touched.
+- **Done later 2026-10-12:**
+  - GPU mining (`--gpu`, parity 10/10 on the RTX 5070).
+  - `cargo xtask mining-localnet`: PASS with 4 validators, 714,426 H/s on the
+    test dataset.
+  - genesis-ceremony `--mining` / `--mining-reserve`.
+  - The Hub's GPU switch; installers rebuilt with the GPU miner.
+  - api-gateway serves `get_mining_work`; not deployed.
+- **Do first next:** with Eric, look at why v4 left the committee before
+  anything else touches the testnet.
+
+- **Done (2026-10-12, branch `feat/mainnet-mining-rewards`, not merged):**
+  - Mining lane run end to end on a local one-validator devnet (real node +
+    miner): four bugs found and fixed (`dd050e13`, `6a9a48a2`, `9d78c9a6`):
+    - budget overshoot shares paid 0 but took nonces;
+    - a nonce gap stalled the miner;
+    - the retarget could only ease, so it now uses `spent_after`;
+    - the Hub overcounted earnings by 14×.
+    Final run: 73/73 landed shares paid, the reserve reconciles, and the target
+    converges. Node suite: 1064 passed, 0 failed. Report:
+    `reports/sessions/2026-10-12-mining-devnet-e2e.md`.
+  - Hub installers: Windows NSIS + MSI (`cargo xtask hub-bundle`, miner
+    bundled). The Android debug APK runs on an emulator against the live
+    public testnet (phone = watch-only). The Linux build in WSL was started;
+    see the session report for the result.
+  - Eric 2026-10-12: Windows/Linux/Android now; macOS/iOS after his MacBook
+    (~3 weeks).
+- **Unfinished:** GPU hashing (the miner is CPU light mode only);
+  multi-validator mining run; the Hub desktop window not driven against the
+  devnet; release signing (Windows code-signing, Android upload keystore —
+  Eric generates keys); testnet activation of mining (needs re-genesis or an
+  activation height, not designed).
+- **Do first next session:** GPU dataset hashing in `maya2c-gpu-miner`
+  (`hal/wgpu-miner`) behind the same JSON events, then a real RTX 5070 run on
+  the devnet recipe in the report.
+
+- **Done (2026-10-11, full-PC staging + Kali):**
+  - **PR #108 MERGED to master** (`fd4cfac4`, all 31 checks green, branch
+    deleted). It carried the whole Nemotron recovery, ADR-043, the site dial,
+    the dep patches, and three rounds of CI fixes below. Local is on master.
+  - Getting CI green took four fixes, all from the recovery session's own code:
+    `f5069d97` attacknet-controller 12 `unwrap()`s; `54e2392a` vm/fee-market/
+    dag-bft property tests tripped the `-D warnings` clippy step (needless
+    borrow, RangeInclusive, `>= x+1`); `8ecc15f2` `data_dir` unused on
+    non-Windows (icacls behind `#[cfg(windows)]`) — caught by building for
+    `x86_64-unknown-linux-gnu` in WSL, not visible on the Windows host.
+  - **Live testnet healthy, untouched:** local seed reports epoch 116,
+    committee 4, round ~1855 advancing; 4 RPC listeners (8545 + 13030/31/32).
+  - ~~Public RPC 404~~ **Corrected 2026-10-12:** the 404 came from testing the
+    bare host path. `https://rpc.maya2c.dev/rpc` answers 200, and the Android
+    Hub read live blocks through it (height 457,0xx). Nothing to fix.
+  - Site deploy running from the master merge; the mainnet-gates dial goes live
+    on maya2c.dev when it finishes.
+  - **Do NOT** blindly rolling-deploy the #108 build to the live testnet
+    unattended: the gate-3 soak is running and committee is 4. Do it with Eric
+    watching, v4 → v3 → v2 → seed, only while committee stays 4.
+  - Dependabot: vitest 3→4, postcss-selector-parser override, rustls 0.23.45
+    in fuzz + wallet-gui; `f56dcb63`. SDK tests pass; site CSS byte-identical.
+  - Site: interactive mainnet-gates dial on the home page (`56f04564`),
+    sourced from `docs/mainnet-v1-plan.md`; checked at 1440/1100-light/390.
+  - Container staging net: `infra/stagenet/` runs 7 validators in 7 containers,
+    each its own IP + `tc netem` WAN link, on one PC. Verified epochs 0→5,
+    committee reshuffles and re-elects, chain survives the worst-link node
+    (120ms/1% loss) being jailed and re-elected. NOT gate 4.
+  - Kali RPC stress test (staging only): a ~4,000 req/s single-IP flood is
+    absorbed by the per-IP rate limiter (50/s, burst 100 → HTTP 429,
+    `rpc/limit.rs`), consensus unbroken. Verified in code.
+  - Report: `reports/sessions/2026-10-11-stagenet-kali.md`.
+  - Still running: the 7-container staging net in Ubuntu WSL, held by a
+    `sleep 86400` keepalive (WSL kills dockerd when its last session ends).
+    Tear down: `docker compose -f /root/stagenet/compose.yml down -v`.
+- **Do first next session:**
+  - `gh pr checks 108`; merge when green (merges approved 2026-10-04).
+  - Then rolling-deploy the #108 node build to the live testnet, v4 → v3 →
+    v2 → seed, only while the committee is 4.
+  - Gate 4 needs the Oracle VMs (Eric).
+
+- **Done (2026-10-10, recovery after the Nemotron week):**
+  - The maya2c.dev alert was a false positive (Cloudflare email obfuscation). The
+    watcher is fixed. Eric confirmed Cloudflare is clear.
+  - Harness settings restored, and the non-existent MCP entries removed.
+  - Nemotron's tree audited (PR #108, branch `fix/post-nemotron-recovery`):
+    - attacknet faults are now honest;
+    - the broken lab scripts are quarantined;
+    - the property tests are fixed;
+    - lint debt is 794.
+    - Workspace: 3159 passed.
+  - ADR-043: the seed, killed by the lab and 13 epochs behind, could not
+    rejoin. Code fixed:
+    - `--catch-up-from` is repeatable and picks the live peer with the
+      highest tip;
+    - validators snapshot by default.
+    - Testnet scripts updated to match.
+  - Report: `reports/sessions/2026-10-10-recovery.md`.
+- **Unfinished:**
+  - PR #108 awaiting CI. 9 commits:
+    - recovery;
+    - ADR-043 code;
+    - attacknet attack 7;
+    - p2p simultaneous-start fix;
+    - review fixes.
+  - Gate 3 soak running since 2026-10-10 19:25 KST.
+  - Seed fully back: epoch 110, committee 4, voting.
+  - The testnet binaries are still the old build. Deploy the #108 build
+    after merge, one validator at a time, only while the committee is 4.
+  - BACKLOG: `--min-epoch` floor, two-source agreement, snapshot metering.
+- **Do first next session:**
+  - `gh pr checks 108`; merge when green.
+  - Then rolling-deploy the new node build to the testnet, v4 → v3 → v2 →
+    seed, checking committee 4 between each step.
+  - Gate 4 needs the Oracle VMs (Eric).
+
+- **Done (2026-10-04/05):**
+  - Site: responsive and light-mode fix, live (#81).
+  - Status page (#75), bootstrap gateway (#76), published genesis
+    (#80, #83).
+  - ADR-040 part 2: stake-weighted genesis (#77).
+  - `cargo xtask attacknet`, with 8 rejoin and robustness bugs fixed (#85).
+  - Eric decided that checkpoints keep n − f, a >2/3 trust floor.
+  - `scripts/join-testnet.sh`; Dependabot.
+  - Release `node-v0.1.0-testnet.2` tagged.
+  - Seed redeployed from master 9917db56, with `node-config.toml` raising
+    the node RPC limit to 1000/s.
+  - 12 project peers in `D:\Maya2C-peers` (`start-peers.ps1`, process
+    name `maya2c-peer`).
+  - Report: `reports/sessions/2026-10-05-attacknet.md`.
+- **Unfinished:**
+  - Release run for testnet.2: confirm the assets, then smoke-test
+    `join-testnet.sh` in WSL against it.
+  - #79 (nightly link check): merge when green.
+  - Peer 1's public re-bootstrap: confirm it reaches the tip.
+- **Do first next session:**
+  - Check the release, then the `join-testnet.sh` smoke test.
+  - Gate 10: more than f validators that each genuinely need to follow.
+    Design followers that fetch missing blocks over p2p, cross-checked
+    against an n − f checkpoint. Write the ADR first.
+  - KNOWN_ISSUES 20: observers follow over p2p, not RPC polling.
+
+- **Done (2026-10-04 overnight):**
+  - explorer.maya2c.dev live.
+  - Testnet on master with ADR-038 checkpoints, `get_bft_status`, and the
+    `--min-register-bond 1000000000` floor.
+  - Quorum is n − f (ADR-039, #54).
+  - Validator tooling and guide (#55, #58).
+  - Live consensus cells, SEO card, NLnet refresh.
+  - First release tagged: `node-v0.1.0-testnet.1`.
+  - Report: `reports/sessions/2026-10-04-overnight.md`.
+- **Unfinished:**
+  - Release run 37166896701: confirm the assets, and that `releases/latest`
+    resolves.
+  - #59 (ADR-040 part 1) awaiting CI.
+  - #21 Astro bump needs a visual check.
+- **Do first next session:**
+  - Check the release run, then merge #59 when green.
+  - Then Eric's decisions:
+    - ADR-040 part 2 (weights at mainnet genesis?);
+    - P2P reachability (router port 31100, Oracle VM, or WebSocket
+      transport);
+    - submit NLnet.
+- **Done (2026-10-03):** gate 1 (ADR-036, PR #43) and gate 2 (ADR-037, PR #44) finished in code with full workspace runs green; Wasmtime 48.0.4 (#42); wallet redesign with Receive, live network pill and Sent screen (#45, e2e green); testnet watchdog task. Report: `reports/sessions/2026-10-03-gates-1-2-wallet.md`.
+- **Unfinished:** merge order #42 → #43 → #44 → #45 (each retargeted to master as its base merges), plus #32, #30, #35, #39 after updating against master; then rebuild testnet binaries from master and re-genesis maya-testnet-1 (third time) — the 7-day soak (gate 3) restarts there.
+- **Do first next session:** `gh pr checks 42 43`; merge what is green in that order; then the re-genesis runbook (ADR-036 consequences) and update docs/site join-page genesis values.
+- **Done (2026-09-29):** https://maya2c.dev live (GitHub Pages, certificate issued, HTTPS enforced). PR #10 has the quickstart, signatures and mining guides (each run first), `go get maya2c.dev/sdk`, `infra/oracle-free` (not applied, ADR-032) and `release-binaries.yml`. Report: `reports/sessions/2026-09-29-launch.md`.
+- **Unfinished:** none from this session. #10 merged; `release-binaries` built all four targets, aarch64 included (run 36478279508). PR #8 (installer) and #9 (site visuals) belong to the deploy session.
+- **Done (2026-09-29, later):** Eric approved the launch steps ("Everything is approved"). Apache-2.0 LICENSE (#18). Wallets pay fees correctly and reach the gateway's JSON-RPC at `/rpc` (#17). The gateway has CORS (#22) and per-client rate limiting (#30). "Join the testnet" page with faucet form (#24). maya-testnet-1 runs on Eric's PC from `D:\Maya2C-testnet` (node, gateway, faucet with journal, chat relay over WSS; `start-testnet.ps1` runs at logon).
+- **Blocked on Eric:** the Cloudflare Tunnel authorization (`cloudflared tunnel login` timed out three times); after it: rpc/faucet/chat.maya2c.dev, then tag `node-v0.1.0-testnet.1`. An Oracle Cloud account to move the seed off the PC. Mining vs ADR-016 (no block reward) is still undecided.
+- **Done (2026-09-28):** one branch (`master`); CI fixed; operating system in place (`cargo xtask status`/`sweep`, MISSION, EMPIRE, ECOSYSTEM, RISKS, DECISIONS, BACKLOG, Operating Protocol); first clean sweep: 2,972 passed, 0 failed; two gates that were silently wrong fixed (lint ratchet false pass, doc-coverage red).
+- **Unfinished:** GitHub CI for `2748cb5` (review fixes to xtask/lint script) was queued at handover; `master` runs cancel each other on new pushes, so the last *completed* full CI is PR #3's (21 checks green, contains `69073e3`). Maya Chat merged (PR #3) — Eric's decision on its difference still open.
+- **Do first next session:** `cargo xtask status`; `gh run list --branch master` — if anything is red, fix it (P0); else "Do next" item 1.
+
+## Current milestone and % complete by evidence
+**M1 CORE SOLID** — M0 TRUTH met. M1 exit criteria (docs/EMPIRE.md): 6 of 10 met by evidence (build, tests, gates, fuzzing, formal/invariants, MP12 baseline — criteria 1, 2, 3, 6, 7, 9); criterion 4 (CI green) pending one job; open: 5 (property tests for fees/consensus/VM), 8 (line coverage), 10 (MP06 scope, Eric).
+
+## Build health
+Clean sweep 2026-09-28 at `71c926a` — `reports/00-operating-baseline.md`, `reports/sweeps/2026-09-28.md`:
+- build from clean 1,392 s; clippy gate ok; fmt ok; unsafe ok; ledger, spec, readiness ok; deny ok
+- `Summary [ 883.401s] 2972 tests run: 2972 passed (11 slow), 11 skipped`
+- lint ratchet (re-run, Git bash): `lint_debt: 1140 diagnostics (baseline 1140)`
+- doc coverage (after link fix): `TOTAL 9719 9692 99%`, ok
+Machine: Core Ultra 9 275HX, 31.4 GB, Windows 11 build 29671, rustc 1.99.0-nightly 2026-07-14.
+
+## Open P0 and P1 gaps
+- P0 — none open locally. Confirm CI on `master` at `2748cb5` or later finishes green.
+- P1 — gap register: 3 P0 rows, all reviewed guards, not work (DECISIONS.md); 0 P1.
+- P2 — core line coverage never measured (M1 #8).
+- P2 — property tests for fees, consensus, VM not found (M1 #5).
+- P2 — doc links are checked only nightly (35 min); a per-PR check is in BACKLOG.md.
+
+## Do next
+1. Measure core line coverage with `cargo llvm-cov` and record it (M1 #8, P2).
+2. Read the fee-market, dag-bft and vm test suites; add seeded property tests where none exist (M1 #5, P2).
+3. Reconcile PROGRESS.md with git history; gap register in Rust that tells reviewed guards from gaps (P2).
+
+## Blocked on Eric
+- **Maya Chat's difference.** PQ encryption already ships in Signal, iMessage, SimpleX (`docs/prior-art/p2p-chat.md`). Candidates: PQ identity signatures; chat identity = chain account. Decide which claim chat stands on (its first version is merged, PR #3).
+- **EMPIRE Q1:** M1 needs all of MP06, or only its ADR-016 core parts? (Recommended: core parts.)
+- **`reports/31-handover.md` §4:** audits, testnet approvals, benchmark runner, study participants, signing certificate.
+
+## Do not touch
+- P6 deferred and frontier modules (BACKLOG.md P6) until their milestone.
+- MP24 lazy fork state — conflicts with invariant 24.
+- `apps/chat`, ADR-031 — owned by the chat session (its own worktree).

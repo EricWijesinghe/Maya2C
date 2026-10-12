@@ -195,6 +195,11 @@ pub struct BftGenesis {
     /// every chain before this field. Present: charged from block 1.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fees: Option<FeesGenesis>,
+    /// Mining rewards (ADR-044). Absent: fees-only, as before. Present: needs
+    /// `staking` (mining epochs are staking epochs) and `fees` (the
+    /// committee's part is paid through the fee collector).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mining: Option<crate::state::mining::MiningGenesis>,
 }
 
 /// Genesis fee-market parameters, checked against `maya-fee-market`'s limits.
@@ -331,6 +336,7 @@ impl BftGenesis {
             round_interval_ms: Self::default_round_interval_ms(),
             staking: None,
             fees: None,
+            mining: None,
         }
     }
 
@@ -824,8 +830,34 @@ impl GenesisConfig {
             );
         }
         let Some(staking) = &bft.staking else {
+            if bft.mining.is_some() {
+                return Err(NodeError::Decode("bft.mining needs bft.staking".into()));
+            }
             return Ok(records);
         };
+        if let Some(mining) = &bft.mining {
+            if bft.fees.is_none() {
+                return Err(NodeError::Decode("bft.mining needs bft.fees".into()));
+            }
+            // Rewards are transfers out of the reserve. An unfunded reserve
+            // would be a mining chain that silently pays nothing.
+            let reserve = hex::encode(crate::state::mining::MINING_RESERVE);
+            let funded: u64 = self
+                .allocations
+                .iter()
+                .filter(|a| a.address.eq_ignore_ascii_case(&reserve))
+                .map(|a| a.balance)
+                .sum();
+            if funded < mining.initial_epoch_reward {
+                return Err(NodeError::Decode(
+                    "bft.mining: the mining reserve holds less than one epoch's reward".into(),
+                ));
+            }
+            records.insert(
+                crate::state::mining::MINING_KEY.to_vec(),
+                mining.record(staking.epoch_blocks)?.encode(),
+            );
+        }
         if staking.bonds.len() != bft.validators.len() {
             return Err(NodeError::Decode(
                 "bft.staking.bonds must name one bond per validator".to_string(),

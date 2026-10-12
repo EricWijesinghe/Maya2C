@@ -112,3 +112,6 @@ mutants.out.old/
 # Python bytecode, written by every local SDK test run.
 __pycache__/
 *.pyc
+
+# Generated at build by docs/site/scripts/gen-updates.mjs.
+docs/site/public/updates/
