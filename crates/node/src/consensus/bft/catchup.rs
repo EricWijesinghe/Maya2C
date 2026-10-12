@@ -19,7 +19,9 @@ use super::attest::Checkpoint;
 
 /// Where a node that fell behind gets a checkpoint and the blocks up to it.
 /// Every answer is untrusted; [`catch_up`] checks all of it.
-pub trait CheckpointSource {
+/// `Sync` because blocks are fetched with several requests in flight
+/// ([`crate::state_pruner::prefetch`]).
+pub trait CheckpointSource: Sync {
     /// The source's newest checkpoint, if it holds one.
     ///
     /// # Errors
@@ -159,17 +161,25 @@ pub fn fetch(
         return Ok(Vec::new());
     }
     let mut parent = from.tip;
+    let mut height = from.height;
     let mut blocks = Vec::new();
-    for height in from.height + 1..=checkpoint.height {
-        let block = source.block(height)?;
-        if block.header.prev_hash != parent {
-            return Err(NodeError::Decode(format!(
-                "catch-up: block {height} does not extend the one before it"
-            )));
-        }
-        parent = block.header.id();
-        blocks.push(block);
-    }
+    // Fetched with several requests in flight, linked strictly in order.
+    crate::state_pruner::prefetch::for_each_prefetched(
+        from.height + 1,
+        checkpoint.height,
+        &|h| source.block(h),
+        |block| {
+            height += 1;
+            if block.header.prev_hash != parent {
+                return Err(NodeError::Decode(format!(
+                    "catch-up: block {height} does not extend the one before it"
+                )));
+            }
+            parent = block.header.id();
+            blocks.push(block);
+            Ok(())
+        },
+    )?;
     if parent != checkpoint.block {
         return Err(NodeError::Decode(
             "catch-up: the blocks do not lead to the attested block".to_string(),
@@ -204,8 +214,8 @@ pub fn import(chain: &mut Chain, blocks: Vec<Block>) -> Result<u64> {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
-    use std::cell::RefCell;
     use std::collections::BTreeMap;
+    use std::sync::Mutex;
 
     use super::*;
     use crate::consensus::bft::attest::Attestation;
@@ -242,7 +252,7 @@ mod tests {
     struct Source {
         newest: Checkpoint,
         of_epoch: Option<Checkpoint>,
-        asked: RefCell<Vec<u64>>,
+        asked: Mutex<Vec<u64>>,
     }
 
     impl CheckpointSource for Source {
@@ -250,7 +260,7 @@ mod tests {
             Ok(Some(self.newest.clone()))
         }
         fn checkpoint_of(&self, epoch: u64) -> Result<Option<Checkpoint>> {
-            self.asked.borrow_mut().push(epoch);
+            self.asked.lock().expect("lock").push(epoch);
             Ok(self.of_epoch.clone())
         }
         fn block(&self, height: u64) -> Result<Block> {
@@ -273,11 +283,11 @@ mod tests {
         let source = Source {
             newest: checkpoint(&signing, 2, 90), // a committee it cannot check
             of_epoch: Some(checkpoint(&signing, 1, 60)),
-            asked: RefCell::default(),
+            asked: Mutex::default(),
         };
         let err = fetch(at(40, 1), &source, &committee, None).unwrap_err();
         assert_eq!(
-            *source.asked.borrow(),
+            *source.asked.lock().expect("lock"),
             [1],
             "asked for its own epoch's final checkpoint"
         );
@@ -290,14 +300,14 @@ mod tests {
         let source = Source {
             newest: checkpoint(&signing, 1, 50),
             of_epoch: None,
-            asked: RefCell::default(),
+            asked: Mutex::default(),
         };
         assert!(
             fetch(at(50, 1), &source, &committee, None)
                 .unwrap()
                 .is_empty()
         );
-        assert!(source.asked.borrow().is_empty());
+        assert!(source.asked.lock().expect("lock").is_empty());
     }
 
     #[test]
@@ -306,14 +316,14 @@ mod tests {
         let forgotten = Source {
             newest: checkpoint(&signing, 9, 900),
             of_epoch: None,
-            asked: RefCell::default(),
+            asked: Mutex::default(),
         };
         let err = fetch(at(40, 1), &forgotten, &committee, None).unwrap_err();
         assert!(err.to_string().contains("snapshot"), "{err}");
         let short = Source {
             newest: checkpoint(&signing, 2, 90),
             of_epoch: Some(checkpoint(&signing, 1, 59)),
-            asked: RefCell::default(),
+            asked: Mutex::default(),
         };
         let err = fetch(at(59, 1), &short, &committee, None).unwrap_err();
         assert!(
