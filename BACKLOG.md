@@ -51,6 +51,13 @@ band; move an item to PROGRESS.md when it starts.
   key bytes can contain them, so it fails rarely (PR #114 CI, 2026-10-12).
   Search for a value whose encoding cannot occur by chance, or for the
   claim's full field-element encoding.
+- **Joining nodes dial private addresses learned from the DHT.** A helper's
+  node behind only the wss bootnode tried 172.25.x, 192.168.64.x and 10.1.x
+  (WSL, the stagenet containers, attacknet on the seed's PC), all refused, and
+  logged each as `outgoing connection failure #n`. Filter non-routable
+  Kademlia addresses unless the node itself is on that network, or stop the
+  seed advertising them. Harmless, but it reads as broken. (maya2c-c9's
+  real-PC join, 2026-10-13: testnet.3 bootstrap to ready in ~13 min.)
 - **Catch-up calls an already-held block "malformed".** v4's log (2026-10-13)
   has 1,975 lines `catch-up: malformed wire encoding: a block did not extend
   the tip: Duplicate {..}` while it follows attested blocks. `InsertOutcome::
