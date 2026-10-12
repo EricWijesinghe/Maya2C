@@ -2040,6 +2040,16 @@ status = "verified"
 tests = ["crate:maya-governance", "crates/governance/tests/limits_tests.rs", "crates/node/tests/governance_tests.rs", "crates/node/tests/treasury_tests.rs"]
 
 [[subsystem]]
+id = "amount-256"
+name = "256-bit amounts for the proved crates"
+domain = "Consensus and execution"
+paths = "`crates/amount`"
+tier = "core"
+class = "REAL"
+status = "working"
+tests = ["crate:maya-amount", "crates/amount/tests/property_tests.rs", "crates/node/tests/amount_bytes_tests.rs"]
+
+[[subsystem]]
 id = "eip-1559-base-fee-over-bytes"
 name = "EIP-1559 base fee over bytes"
 domain = "Consensus and execution"
@@ -2454,11 +2464,11 @@ tests = ["crates/node/tests/fuzz_harness.rs"]
 id = "kani-model-checking"
 name = "Kani model checking"
 domain = "Security and macro engines"
-paths = "`crates/ledger-math`, `crates/dex`, `crates/governance`, `crates/fee-market`, `crates/threat-intel`"
+paths = "`crates/ledger-math`, `crates/dex`, `crates/governance`, `crates/fee-market`, `crates/threat-intel`, `crates/amount`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-dex", "crate:maya-fee-market", "crate:maya-governance", "crate:maya-ledger-math", "crate:maya-threat-intel", "crates/dex/tests/amm_tests.rs", "crates/dex/tests/batch_tests.rs", "crates/dex/tests/book_tests.rs", "crates/dex/tests/encoding_tests.rs", "crates/dex/tests/matching_tests.rs", "crates/governance/tests/limits_tests.rs"]
+tests = ["crate:maya-amount", "crate:maya-dex", "crate:maya-fee-market", "crate:maya-governance", "crate:maya-ledger-math", "crate:maya-threat-intel", "crates/dex/tests/amm_tests.rs", "crates/dex/tests/batch_tests.rs", "crates/dex/tests/book_tests.rs", "crates/dex/tests/encoding_tests.rs", "crates/dex/tests/matching_tests.rs", "crates/governance/tests/limits_tests.rs"]
 gate = "cargo kani -p maya-ledger-math -p maya-dex -p maya-governance"
 
 [[subsystem]]

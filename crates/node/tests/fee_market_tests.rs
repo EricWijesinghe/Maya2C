@@ -16,7 +16,8 @@
 use custom_l1_node::core::transaction::{Transaction, TxInput, TxOutput};
 use custom_l1_node::crypto::hybrid::generate_signing_key;
 use maya_fee_market::{
-    BlockFeeOutcome, FeeClaim, FeeConfig, MAX_SUPPLY, ParentFees, Supply, TxFee, apply_block_fees,
+    Amount, BlockFeeOutcome, FeeClaim, FeeConfig, MAX_SUPPLY, ParentFees, Supply, TxFee,
+    apply_block_fees,
 };
 
 mod common;
@@ -60,7 +61,11 @@ fn circulating_supply_falls_every_block_while_total_is_conserved() {
         beneficiary: [0xB0; 32],
     };
 
-    let mut supply = Supply::new(1_000_000_000_000, 1_000_000_000_000).expect("supply");
+    let mut supply = Supply::new(
+        Amount::from(1_000_000_000_000),
+        Amount::from(1_000_000_000_000),
+    )
+    .expect("supply");
     let mut parent: Option<ParentFees> = None;
     let mut last_burn = 0u64;
 
@@ -104,7 +109,9 @@ fn circulating_supply_falls_every_block_while_total_is_conserved() {
             "block {height}"
         );
 
-        let next = supply.after_burn(burned).expect("burn within circulating");
+        let next = supply
+            .after_burn(Amount::from(burned))
+            .expect("burn within circulating");
         assert!(
             next.circulating < supply.circulating,
             "block {height} burned nothing"
@@ -165,8 +172,11 @@ fn the_treasury_receives_one_fifth_of_the_base_fee_and_the_producer_every_tip() 
 
 #[test]
 fn the_cap_holds_at_its_boundary() {
+    // ADR-046: the cap is 2^256 - 1, so a supply at it is valid and nothing
+    // larger can be represented; circulating above total is still refused.
     assert!(Supply::new(MAX_SUPPLY, MAX_SUPPLY).is_ok());
-    assert!(Supply::new(MAX_SUPPLY + 1, 0).is_err());
+    assert!(MAX_SUPPLY.checked_add(Amount::from(1)).is_none());
+    assert!(Supply::new(Amount::from(5), MAX_SUPPLY).is_err());
 }
 
 #[test]

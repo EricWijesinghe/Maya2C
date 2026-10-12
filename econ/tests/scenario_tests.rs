@@ -2,10 +2,10 @@
 //! them.
 
 use maya_econ::estimator::measure;
+use maya_econ::model::SIM_SUPPLY_CAP;
 use maya_econ::model::{Stability, run};
 use maya_econ::params::EconParams;
 use maya_econ::scenario::{self, Scenario};
-use maya_fee_market::MAX_SUPPLY;
 
 fn find(name: &str) -> Scenario {
     scenario::all()
@@ -15,12 +15,18 @@ fn find(name: &str) -> Scenario {
 }
 
 #[test]
-fn every_scenario_runs_and_never_exceeds_the_supply_cap() {
+fn every_scenario_runs_and_never_reaches_the_simulators_ceiling() {
     let p = EconParams::DRAFT;
     for s in scenario::all() {
         let r = run(&p, &s, 1);
         assert_eq!(r.days.len() as u64, s.days, "{}", s.name);
-        assert!(r.days.iter().all(|d| d.supply <= MAX_SUPPLY), "{}", s.name);
+        assert!(
+            // The chain's cap (2^256 - 1) cannot bind a u64; reaching u64's
+            // own ceiling would mean the simulator saturated, not the chain.
+            r.days.iter().all(|d| d.supply < SIM_SUPPLY_CAP),
+            "{}",
+            s.name
+        );
         assert!(
             r.days.iter().all(|d| d.base_fee >= p.fees.min_base_fee),
             "{}",
