@@ -6,6 +6,10 @@
 //!             [--threshold 60] [--ntfy https://ntfy.sh/<private-topic>]
 //! ```
 //!
+//! `--watch NAME=URL` (repeatable) adds a node to the live network view at
+//! `/live` (`/api/live`), polled every second; without it the view watches
+//! `--node` alone, as `seed`.
+//!
 //! On start it reads every block from genesis (the history is the chain's,
 //! recomputed, never stored here), then follows the tip. With `--ntfy` it
 //! posts one message when the chain stops for longer than the threshold and
@@ -24,8 +28,16 @@ use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
 use maya_status::Timeline;
+use maya_status::live::{BftStatus, Live, NetworkView, NodePoll};
 
 const POLL: Duration = Duration::from_secs(2);
+
+/// How often the live view polls each watched node: "within seconds" of a
+/// peer connecting, it is on the page.
+const LIVE_POLL: Duration = Duration::from_secs(1);
+
+/// A watched node slower than this counts as not answering this poll.
+const LIVE_TIMEOUT: Duration = Duration::from_millis(800);
 
 /// Headers per `get_headers` call: the node's own cap.
 const BATCH: u64 = 2_000;
@@ -54,6 +66,7 @@ struct Args {
     listen: SocketAddr,
     threshold: u64,
     ntfy: Option<String>,
+    watch: Vec<(String, String)>,
 }
 
 fn args() -> Result<Args, String> {
@@ -62,6 +75,7 @@ fn args() -> Result<Args, String> {
         listen: "127.0.0.1:3100".parse().map_err(|e| format!("{e}"))?,
         threshold: 60,
         ntfy: None,
+        watch: Vec::new(),
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -73,9 +87,14 @@ fn args() -> Result<Args, String> {
                 a.threshold = value()?.parse().map_err(|e| format!("--threshold: {e}"))?;
             }
             "--ntfy" => a.ntfy = Some(value()?),
+            "--watch" => {
+                let v = value()?;
+                let (name, url) = v.split_once('=').ok_or("--watch takes NAME=URL")?;
+                a.watch.push((name.to_owned(), url.to_owned()));
+            }
             "--help" | "-h" => {
                 return Err(
-                    "usage: maya-status --node URL --listen ADDR [--threshold SECS] [--ntfy URL]"
+                    "usage: maya-status --node URL --listen ADDR [--threshold SECS] [--ntfy URL] [--watch NAME=URL]..."
                         .into(),
                 );
             }
@@ -203,6 +222,66 @@ async fn page() -> Html<&'static str> {
     Html(include_str!("page.html"))
 }
 
+async fn live_page() -> Html<&'static str> {
+    Html(include_str!("live.html"))
+}
+
+async fn live_api(State(live): State<Arc<Mutex<Live>>>) -> impl IntoResponse {
+    let view = live.lock().map(|l| l.view().clone()).unwrap_or_default();
+    Json(serde_json::to_value(view).unwrap_or(serde_json::Value::Null))
+}
+
+/// One watched node's three answers; any it did not give stays `None`.
+async fn poll_node(name: &str, client: &HttpClient) -> NodePoll {
+    let (bft, view, height) = tokio::join!(
+        client.request::<BftStatus, _>("get_bft_status", rpc_params![]),
+        client.request::<NetworkView, _>("get_peers", rpc_params![]),
+        self::height(client),
+    );
+    NodePoll {
+        name: name.to_owned(),
+        bft: bft.ok(),
+        view: view.ok(),
+        height,
+    }
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// Polls every watched node each [`LIVE_POLL`] into the live view, all of
+/// them at once, so one slow node never delays the others.
+async fn watch(nodes: Vec<(String, HttpClient)>, live: Arc<Mutex<Live>>) {
+    let mut tick = tokio::time::interval(LIVE_POLL);
+    loop {
+        tick.tick().await;
+        let mut set = tokio::task::JoinSet::new();
+        for (i, (name, client)) in nodes.iter().enumerate() {
+            let (name, client) = (name.clone(), client.clone());
+            set.spawn(async move { (i, poll_node(&name, &client).await) });
+        }
+        // A poll task that panicked leaves its node reading as silent.
+        let mut polls: Vec<NodePoll> = nodes
+            .iter()
+            .map(|(name, _)| NodePoll {
+                name: name.clone(),
+                ..NodePoll::default()
+            })
+            .collect();
+        while let Some(joined) = set.join_next().await {
+            if let Ok((i, p)) = joined {
+                polls[i] = p;
+            }
+        }
+        if let Ok(mut l) = live.lock() {
+            l.observe(now_ms(), &polls);
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let a = match args() {
@@ -224,11 +303,35 @@ async fn main() {
         tip: AtomicU64::new(u64::MAX),
     });
     tokio::spawn(follow(client, Arc::clone(&shared), a.ntfy));
+
+    let watch_list = if a.watch.is_empty() {
+        vec![("seed".to_owned(), a.node.clone())]
+    } else {
+        a.watch.clone()
+    };
+    let mut watched = Vec::new();
+    for (name, url) in watch_list {
+        match HttpClientBuilder::default()
+            .request_timeout(LIVE_TIMEOUT)
+            .build(&url)
+        {
+            Ok(c) => watched.push((name, c)),
+            Err(e) => eprintln!("status: --watch {name}: {e}"),
+        }
+    }
+    let live = Arc::new(Mutex::new(Live::new("maya-testnet-1")));
+    tokio::spawn(watch(watched, Arc::clone(&live)));
+
+    let live_routes = Router::new()
+        .route("/live", get(live_page))
+        .route("/api/live", get(live_api))
+        .with_state(live);
     let app = Router::new()
         .route("/", get(page))
         .route("/api/status", get(api))
-        .layer(tower_http::cors::CorsLayer::new().allow_origin(tower_http::cors::Any))
-        .with_state(shared);
+        .with_state(shared)
+        .merge(live_routes)
+        .layer(tower_http::cors::CorsLayer::new().allow_origin(tower_http::cors::Any));
     let listener = match tokio::net::TcpListener::bind(a.listen).await {
         Ok(l) => l,
         Err(e) => {
