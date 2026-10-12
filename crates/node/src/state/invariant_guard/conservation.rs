@@ -491,7 +491,10 @@ mod tests {
     }
 
     fn account(balance: u64) -> Account {
-        Account { balance: U256::from(balance), nonce: 0 }
+        Account {
+            balance: U256::from(balance),
+            nonce: 0,
+        }
     }
 
     fn pool_record(base: u64, quote: u64, shares: u64) -> PoolRecord {
@@ -642,8 +645,11 @@ mod tests {
         db.raw_put(&pool_key(&PAIR), &pool_record(1_000, 2_000, 2_000).encode())
             .expect("seed pool");
         db.put_account(&ALICE, &account(500)).expect("fund");
-        db.raw_put(&balance_key(&QUOTE, &ALICE), &encode_balance(U256::from(1_000)))
-            .expect("seed balance");
+        db.raw_put(
+            &balance_key(&QUOTE, &ALICE),
+            &encode_balance(U256::from(1_000)),
+        )
+        .expect("seed balance");
 
         // Half the reserves added, so half again the shares: 2,000 -> 3,000
         // issued, of which 1,000 are the locked `MINIMUM_LIQUIDITY` on each
@@ -681,8 +687,11 @@ mod tests {
         // "simplifies" that subtraction away.
         let (db, _dir) = open();
         db.put_account(&ALICE, &account(1_000)).expect("fund");
-        db.raw_put(&balance_key(&QUOTE, &ALICE), &encode_balance(U256::from(2_000)))
-            .expect("seed balance");
+        db.raw_put(
+            &balance_key(&QUOTE, &ALICE),
+            &encode_balance(U256::from(2_000)),
+        )
+        .expect("seed balance");
 
         let mut overlay = Overlay::default();
         StateDB::put_record(
@@ -713,8 +722,11 @@ mod tests {
         // notices: it would start passing.
         let (db, _dir) = open();
         db.put_account(&ALICE, &account(1_000)).expect("fund");
-        db.raw_put(&balance_key(&QUOTE, &ALICE), &encode_balance(U256::from(2_000)))
-            .expect("seed balance");
+        db.raw_put(
+            &balance_key(&QUOTE, &ALICE),
+            &encode_balance(U256::from(2_000)),
+        )
+        .expect("seed balance");
 
         let mut overlay = Overlay::default();
         StateDB::put_record(

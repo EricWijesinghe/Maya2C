@@ -74,7 +74,7 @@ async fn balance(client: &NodeClient, address: [u8; 32]) -> u64 {
     client
         .get_balance(&hex::encode(address))
         .await
-        .map_or(0, |a| a.balance)
+        .map_or(0, |a| a.balance.low_u64()) // test amounts fit u64
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

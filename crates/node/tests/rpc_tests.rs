@@ -530,8 +530,16 @@ async fn balances_at_past_heights_undo_each_later_blocks_changes() {
         .map(|c| {
             (
                 c["address"].as_str().expect("address").to_string(),
-                c["before"].as_str().expect("before").parse().expect("before u64"),
-                c["after"].as_str().expect("after").parse().expect("after u64"),
+                c["before"]
+                    .as_str()
+                    .expect("before")
+                    .parse()
+                    .expect("before u64"),
+                c["after"]
+                    .as_str()
+                    .expect("after")
+                    .parse()
+                    .expect("after u64"),
             )
         })
         .collect();

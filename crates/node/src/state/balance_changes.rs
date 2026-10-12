@@ -156,8 +156,16 @@ mod tests {
             ]
         );
         assert_eq!(decode(&encode(&got)).unwrap(), got);
-        assert_eq!(before_block(&got, &[3; 32], U256::from(4)), U256::from(10), "moved: its before");
-        assert_eq!(before_block(&got, &[9; 32], U256::from(4)), U256::from(4), "untouched: unchanged");
+        assert_eq!(
+            before_block(&got, &[3; 32], U256::from(4)),
+            U256::from(10),
+            "moved: its before"
+        );
+        assert_eq!(
+            before_block(&got, &[9; 32], U256::from(4)),
+            U256::from(4),
+            "untouched: unchanged"
+        );
         assert!(decode(&[0; 5]).is_err());
     }
 }

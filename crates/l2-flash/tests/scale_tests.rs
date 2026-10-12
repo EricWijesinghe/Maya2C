@@ -23,6 +23,7 @@ use custom_l1_node::core::{Block, BlockHeader, ChainTag, Transaction, TxKind};
 use custom_l1_node::crypto::hybrid::{HybridPublicKey, generate_signing_key};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::state::{Account, Address, BlockContext, ChannelStatus, StateDB};
+use primitive_types::U256;
 
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
 use l2_flash::channel::{Channel, Party, SignedState};
@@ -84,7 +85,7 @@ fn open_state(funded: &[(Address, u64)]) -> (StateDB, TempDir) {
         db.put_account(
             address,
             &Account {
-                balance: *balance,
+                balance: (*balance).into(),
                 nonce: 0,
             },
         )
@@ -234,9 +235,12 @@ fn settle_as_one_closure(transfers: usize) {
 
     assert_eq!(
         db.get_account(&alice_addr).map(|a| a.balance),
-        Ok(1_000_000)
+        Ok(U256::from(1_000_000u64))
     );
-    assert_eq!(db.get_account(&bob_addr).map(|a| a.balance), Ok(0));
+    assert_eq!(
+        db.get_account(&bob_addr).map(|a| a.balance),
+        Ok(U256::zero())
+    );
     assert_eq!(
         db.get_channel(&channel_id)
             .expect("read")
@@ -355,7 +359,10 @@ fn a_revoked_state_from_a_long_channel_is_still_punishable() {
     db.apply_block(&block_of(vec![penalty]), BlockContext::at_height(6))
         .expect("penalty");
 
-    assert_eq!(db.get_account(&bob_addr).map(|a| a.balance), Ok(10_000));
+    assert_eq!(
+        db.get_account(&bob_addr).map(|a| a.balance),
+        Ok(U256::from(10_000u64))
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -461,24 +468,24 @@ fn a_hundred_channels_settle_in_one_transaction() {
         assert_eq!(record.status, ChannelStatus::Closed);
         assert_eq!(
             db.get_account(&address_of(peer)).map(|a| a.balance),
-            Ok(channel.current.balance_b)
+            Ok(U256::from(channel.current.balance_b))
         );
     }
 
     // Escrow fully returned: nothing minted, nothing burned across 10,000
     // payments and 100 settlements.
     let hub_balance = db.get_account(&hub_addr).map(|a| a.balance).expect("hub");
-    let peer_total: u64 = peers
+    let peer_total = peers
         .iter()
         .map(|peer| {
             db.get_account(&address_of(peer))
                 .map(|a| a.balance)
                 .expect("peer")
         })
-        .sum();
+        .fold(U256::zero(), |sum, b| sum + b);
     assert_eq!(
         hub_balance + peer_total,
-        10_000_000,
+        U256::from(10_000_000u64),
         "value must be conserved end to end"
     );
 

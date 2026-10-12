@@ -215,7 +215,13 @@ fn funded_chain(balance: u64) -> (Chain, HybridSigningKey, TempDir) {
 fn chain_funding(key: &HybridSigningKey, balance: u64) -> (Chain, TempDir) {
     let (state, dir) = open_state();
     state
-        .put_account(&address_of(key), &Account { balance: primitive_types::U256::from(balance), nonce: 0 })
+        .put_account(
+            &address_of(key),
+            &Account {
+                balance: primitive_types::U256::from(balance),
+                nonce: 0,
+            },
+        )
         .expect("fund");
     (test_chain(Arc::clone(&state)), dir)
 }

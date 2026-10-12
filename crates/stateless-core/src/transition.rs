@@ -99,10 +99,7 @@ where
         .into());
     }
 
-    account.balance = account
-        .balance
-        .checked_sub(total)
-        .ok_or(overflow(sender))?;
+    account.balance = account.balance.checked_sub(total).ok_or(overflow(sender))?;
     account.nonce = advance_nonce(account.nonce).ok_or(overflow(sender))?;
     tree.set(sender, account.encode())?;
 

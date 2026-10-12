@@ -18,7 +18,6 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use primitive_types::U256;
 use custom_l1_node::core::governance_payload::{
     Ballot, ProposalSubmission, StakeLock, StakeUnlock, WorkClaim,
 };
@@ -32,6 +31,7 @@ use maya_governance::limits::{MIN_TIMELOCK_BLOCKS, MIN_VOTING_BLOCKS};
 use maya_governance::params::ParameterKey;
 use maya_governance::proposal::ProposalState;
 use maya_governance::tally::Choice;
+use primitive_types::U256;
 use tempfile::TempDir;
 
 mod common;
@@ -208,7 +208,10 @@ fn locking_stake_moves_it_out_of_the_spendable_balance() {
         .db
         .get_account(&fixture.address(0))
         .expect("account");
-    assert_eq!(account.balance, primitive_types::U256::from(BALANCE - 1_000));
+    assert_eq!(
+        account.balance,
+        primitive_types::U256::from(BALANCE - 1_000)
+    );
     assert_eq!(
         fixture
             .db

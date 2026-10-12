@@ -511,7 +511,10 @@ fn the_expiry_height_belongs_to_the_refund_and_the_loser_is_a_no_op() {
     };
 
     apply(lock_kind(bob, 4_000, 10, &secret), 0, 1).expect("lock");
-    assert_eq!(db.get_account(&alice).expect("account").balance, primitive_types::U256::from(6_000));
+    assert_eq!(
+        db.get_account(&alice).expect("account").balance,
+        primitive_types::U256::from(6_000)
+    );
 
     // A refund one block early and a claim at the expiry both lose. Both
     // blocks are valid: an `Err` here would let the loser void the winner's.
@@ -519,13 +522,22 @@ fn the_expiry_height_belongs_to_the_refund_and_the_loser_is_a_no_op() {
     apply(claim_kind(lock_id, secret.opening()), 2, 10).expect("late claim is a valid no-op");
     let record = db.stored_htlc_lock(&lock_id).expect("read").expect("lock");
     assert_eq!(record.settlement, Settlement::Open);
-    assert_eq!(db.get_account(&bob).expect("account").balance, primitive_types::U256::from(0));
+    assert_eq!(
+        db.get_account(&bob).expect("account").balance,
+        primitive_types::U256::from(0)
+    );
 
     apply(refund_kind(lock_id), 3, 10).expect("refund at the expiry");
-    assert_eq!(db.get_account(&alice).expect("account").balance, primitive_types::U256::from(10_000));
+    assert_eq!(
+        db.get_account(&alice).expect("account").balance,
+        primitive_types::U256::from(10_000)
+    );
     // Settled means settled: a valid opening inside any window claims nothing.
     apply(claim_kind(lock_id, secret.opening()), 4, 5).expect("valid no-op");
-    assert_eq!(db.get_account(&bob).expect("account").balance, primitive_types::U256::from(0));
+    assert_eq!(
+        db.get_account(&bob).expect("account").balance,
+        primitive_types::U256::from(0)
+    );
 }
 
 #[test]
@@ -729,7 +741,10 @@ fn nothing_executes_before_activation() {
     )]);
     // `at_height` is what the node builds: HTLC_L_ACTIVATION_HEIGHT, u64::MAX.
     assert!(db.apply_block(&block, BlockContext::at_height(5)).is_err());
-    assert_eq!(db.get_account(&alice).expect("account").balance, primitive_types::U256::from(10_000));
+    assert_eq!(
+        db.get_account(&alice).expect("account").balance,
+        primitive_types::U256::from(10_000)
+    );
 }
 
 #[test]
@@ -750,7 +765,10 @@ fn a_lock_escrows_its_amount_under_the_state_root() {
         active(1),
     )
     .expect("conserved");
-    assert_eq!(db.get_account(&alice).expect("account").balance, primitive_types::U256::from(7_500));
+    assert_eq!(
+        db.get_account(&alice).expect("account").balance,
+        primitive_types::U256::from(7_500)
+    );
     assert_ne!(db.state_root().expect("root"), before);
 
     for bad_expiry in [0, 1] {
@@ -1003,7 +1021,10 @@ fn lattice_locks_stay_dark_while_hash_locks_are_live() {
         &alice_key,
     )]);
     db.apply_block(&hash, context).expect("REAL: live");
-    assert_eq!(db.get_account(&alice).expect("account").balance, primitive_types::U256::from(9_000));
+    assert_eq!(
+        db.get_account(&alice).expect("account").balance,
+        primitive_types::U256::from(9_000)
+    );
 }
 
 #[test]
@@ -1024,5 +1045,8 @@ fn a_claim_or_refund_on_an_unknown_lock_is_a_valid_no_op_in_production() {
     )
     .expect("unknown-lock refund is a no-op");
     let account = db.get_account(&address).expect("account");
-    assert_eq!((account.balance, account.nonce), (primitive_types::U256::from(1_000), 2));
+    assert_eq!(
+        (account.balance, account.nonce),
+        (primitive_types::U256::from(1_000), 2)
+    );
 }

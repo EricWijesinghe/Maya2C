@@ -13,6 +13,7 @@ use custom_l1_node::crypto::hybrid::HybridSigningKey;
 use l1_wallet::client::NodeClient;
 use maya2c_cli::dev::{CHAIN_ID, LocalChain, Options, launch};
 use maya2c_cli::vault::{RISK_LABEL, status};
+use primitive_types::U256;
 
 const RPC: u16 = 32_400;
 const DELAY: u64 = 5;
@@ -59,11 +60,11 @@ async fn height(client: &NodeClient) -> u64 {
     h
 }
 
-async fn balance(client: &NodeClient, a: [u8; 32]) -> u64 {
+async fn balance(client: &NodeClient, a: [u8; 32]) -> U256 {
     client
         .get_balance(&hex::encode(a))
         .await
-        .map_or(0, |a| a.balance)
+        .map_or(U256::zero(), |a| a.balance)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -143,7 +144,10 @@ async fn a_vault_on_a_devnet_delays_cancels_and_pays() {
         vec![],
     )
     .await;
-    assert_eq!(balance(client, owner_addr).await, before - 900_000_000);
+    assert_eq!(
+        balance(client, owner_addr).await,
+        before - U256::from(900_000_000u64)
+    );
     land(
         client,
         guardian,
@@ -155,7 +159,7 @@ async fn a_vault_on_a_devnet_delays_cancels_and_pays() {
     )
     .await;
     assert_eq!(balance(client, owner_addr).await, before);
-    assert_eq!(balance(client, thief).await, 0);
+    assert_eq!(balance(client, thief).await, U256::zero());
 
     // The owner's own withdrawal waits out the delay, then anyone executes it.
     land(
@@ -194,7 +198,7 @@ async fn a_vault_on_a_devnet_delays_cancels_and_pays() {
         vec![],
     )
     .await;
-    assert_eq!(balance(client, bob).await, 5_000);
+    assert_eq!(balance(client, bob).await, U256::from(5_000u64));
     let shown = status(&url, &hex::encode(owner_addr))
         .await
         .unwrap()
@@ -217,12 +221,15 @@ async fn a_vault_on_a_devnet_delays_cancels_and_pays() {
         owner_s.vault.is_object(),
         "the owner's vault policy is in the statement"
     );
-    assert_eq!((bob_s.opening, bob_s.closing), (0, 5_000));
+    assert_eq!(
+        (bob_s.opening, bob_s.closing),
+        (U256::zero(), U256::from(5_000u64))
+    );
     assert!(
         owner_s
             .movements
             .iter()
-            .any(|m| m.before - m.after >= 900_000_000),
+            .any(|m| m.before - m.after >= U256::from(900_000_000u64)),
         "the stolen-key request's escrow is a recorded movement"
     );
     println!(

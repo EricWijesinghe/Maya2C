@@ -26,8 +26,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use primitive_types::U256;
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
+use primitive_types::U256;
 use std::hint::black_box;
 
 use custom_l1_node::core::block::{Block, BlockHeader};

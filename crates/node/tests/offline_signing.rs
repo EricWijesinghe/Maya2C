@@ -105,7 +105,10 @@ fn build_export_sign_offline_and_broadcast() {
             nonce: 1
         }
     );
-    assert_eq!(state.get_account(&[7; 32]).unwrap().balance, primitive_types::U256::from(250));
+    assert_eq!(
+        state.get_account(&[7; 32]).unwrap().balance,
+        primitive_types::U256::from(250)
+    );
 }
 
 #[test]

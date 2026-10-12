@@ -22,7 +22,6 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use primitive_types::U256;
 use custom_l1_node::core::codec::ByteReader;
 use custom_l1_node::core::dex_payload::{AssetRegistration, PoolCreation, SwapRequest};
 use custom_l1_node::core::governance_payload::StakeLock;
@@ -42,6 +41,7 @@ use custom_l1_node::state::{
 };
 use maya_mev::committee::{Committee, MemberSecret};
 use maya_mev::seal;
+use primitive_types::U256;
 use tempfile::TempDir;
 
 mod common;

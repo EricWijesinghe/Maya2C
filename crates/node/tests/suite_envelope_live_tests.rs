@@ -127,8 +127,14 @@ fn a_v7_transfer_moves_value_at_the_production_context() {
     .expect("a v7 transfer applies");
 
     let after = db.get_account(&sender).expect("sender");
-    assert_eq!((u64::try_from(after.balance).expect("fits u64"), after.nonce), (FUNDS - 250, 1));
-    assert_eq!(u64::try_from(db.get_account(&RECIPIENT).expect("recipient").balance).expect("fits u64"), 250);
+    assert_eq!(
+        (u64::try_from(after.balance).expect("fits u64"), after.nonce),
+        (FUNDS - 250, 1)
+    );
+    assert_eq!(
+        u64::try_from(db.get_account(&RECIPIENT).expect("recipient").balance).expect("fits u64"),
+        250
+    );
 }
 
 #[test]
@@ -143,8 +149,14 @@ fn a_tampered_v7_transfer_is_refused_and_moves_nothing() {
         db.apply_block(&block_of(vec![forged]), BlockContext::at_height(1))
             .is_err()
     );
-    assert_eq!(u64::try_from(db.get_account(&sender).expect("sender").balance).expect("fits u64"), FUNDS);
-    assert_eq!(u64::try_from(db.get_account(&RECIPIENT).expect("recipient").balance).expect("fits u64"), 0);
+    assert_eq!(
+        u64::try_from(db.get_account(&sender).expect("sender").balance).expect("fits u64"),
+        FUNDS
+    );
+    assert_eq!(
+        u64::try_from(db.get_account(&RECIPIENT).expect("recipient").balance).expect("fits u64"),
+        0
+    );
 }
 
 #[test]
@@ -163,7 +175,10 @@ fn a_three_of_five_multisig_spends_through_the_apply_path() {
         u64::try_from(db.get_account(&account).expect("account").balance).expect("fits u64"),
         FUNDS - 400
     );
-    assert_eq!(u64::try_from(db.get_account(&RECIPIENT).expect("recipient").balance).expect("fits u64"), 400);
+    assert_eq!(
+        u64::try_from(db.get_account(&RECIPIENT).expect("recipient").balance).expect("fits u64"),
+        400
+    );
 }
 
 #[test]
@@ -179,7 +194,10 @@ fn two_approvals_cannot_spend_a_three_of_five_through_the_apply_path() {
         )
         .is_err()
     );
-    assert_eq!(u64::try_from(db.get_account(&account).expect("account").balance).expect("fits u64"), FUNDS);
+    assert_eq!(
+        u64::try_from(db.get_account(&account).expect("account").balance).expect("fits u64"),
+        FUNDS
+    );
 }
 
 #[test]
@@ -275,5 +293,8 @@ fn a_multisig_policy_naming_ed25519_cannot_spend_even_with_a_pq_quorum() {
         db.apply_block(&block_of(vec![tx]), BlockContext::at_height(1))
             .is_err()
     );
-    assert_eq!(u64::try_from(db.get_account(&account).expect("account").balance).expect("fits u64"), FUNDS);
+    assert_eq!(
+        u64::try_from(db.get_account(&account).expect("account").balance).expect("fits u64"),
+        FUNDS
+    );
 }

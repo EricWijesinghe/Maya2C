@@ -16,11 +16,11 @@
     clippy::single_match_else
 )]
 
-use primitive_types::U256;
 use custom_l1_node::core::{Block, BlockHeader, Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
+use primitive_types::U256;
 use tempfile::TempDir;
 
 mod common;

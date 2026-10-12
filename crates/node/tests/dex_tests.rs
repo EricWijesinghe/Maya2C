@@ -17,7 +17,6 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use primitive_types::U256;
 use custom_l1_node::core::dex_payload::{
     AssetRegistration, AssetTransfer, LiquidityDeposit, LiquidityWithdrawal, OrderPlacement,
     PoolCreation, RouteLeg, SwapRequest, SwapRoute,
@@ -30,6 +29,7 @@ use custom_l1_node::state::{
     Account, Address, AssetId, BlockContext, Direction, NATIVE_ASSET, PRICE_SCALE, Side, StateDB,
     derive_asset_id, derive_lp_asset, derive_pair_id,
 };
+use primitive_types::U256;
 use tempfile::TempDir;
 
 mod common;
@@ -227,7 +227,10 @@ fn registering_an_asset_credits_its_whole_supply_to_the_creator() {
         .get_asset(&market.asset)
         .expect("read")
         .expect("registered");
-    assert_eq!(record.total_supply, primitive_types::U256::from(ASSET_SUPPLY));
+    assert_eq!(
+        record.total_supply,
+        primitive_types::U256::from(ASSET_SUPPLY)
+    );
     assert_eq!(record.creator, market.maker_address);
 }
 
@@ -346,7 +349,11 @@ fn creating_a_pool_seeds_it_and_mints_share_tokens() {
         .get_pool(&market.pair)
         .expect("read")
         .expect("pool");
-    assert_eq!(record.pool.total_shares, u64::try_from(shares).expect("fits u64") + 1_000, "locked minimum");
+    assert_eq!(
+        record.pool.total_shares,
+        u64::try_from(shares).expect("fits u64") + 1_000,
+        "locked minimum"
+    );
 }
 
 #[test]

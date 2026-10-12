@@ -13,7 +13,6 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use primitive_types::U256;
 use custom_l1_node::core::htlc_payload::HtlcLock;
 use custom_l1_node::core::rwa_payload::{
     AttestLegal, DistributeRevenue, IssueRwa, RecordEligibility, RulePayload, SettleDvp,
@@ -23,6 +22,7 @@ use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::state::proof::{LAYER_ORDER, StateLayer};
 use custom_l1_node::state::{Account, AccountProof, BlockContext, StateDB};
+use primitive_types::U256;
 
 use maya_htlc_lattice::LatticeSecret;
 use tempfile::TempDir;

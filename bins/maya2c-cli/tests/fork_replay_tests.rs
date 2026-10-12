@@ -2,6 +2,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use primitive_types::U256;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -46,8 +47,8 @@ async fn wait_for_balance(client: &NodeClient, address: [u8; 32], amount: u64) {
     while client
         .get_balance(&hex::encode(address))
         .await
-        .map_or(0, |a| a.balance)
-        != amount
+        .map_or(U256::zero(), |a| a.balance)
+        != U256::from(amount)
     {
         assert!(
             Instant::now() < deadline,
@@ -151,7 +152,7 @@ async fn a_block_replays_exactly_and_a_fork_diverges_locally() {
         replayed
             .changes
             .iter()
-            .any(|c| c.address == bob && c.before == 0 && c.after == 777)
+            .any(|c| c.address == bob && c.before.is_zero() && c.after == U256::from(777u64))
     );
 
     // Fork: the source's state, extended only here.
@@ -184,7 +185,7 @@ async fn a_block_replays_exactly_and_a_fork_diverges_locally() {
             .await
             .unwrap()
             .balance,
-        0,
+        U256::zero(),
         "the source never sees the fork's transaction"
     );
     println!(

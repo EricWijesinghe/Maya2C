@@ -6,13 +6,18 @@ use maya_stateless_core::{
     AccountState, Blake3, Defect, Error, Key, Value, VerifiedTree, Violation, apply_transfer,
     sparse,
 };
+use primitive_types::U256;
 
 fn key(byte: u8) -> Key {
     *blake3::hash(&[byte]).as_bytes()
 }
 
 fn account(balance: u64, nonce: u64) -> Value {
-    AccountState { balance, nonce }.encode()
+    AccountState {
+        balance: U256::from(balance),
+        nonce,
+    }
+    .encode()
 }
 
 fn state(tree: &VerifiedTree<[u8; 32]>, key: &Key) -> AccountState {
@@ -35,16 +40,19 @@ fn tree(accounts: &[(Key, Value)], touched: &[Key]) -> VerifiedTree<[u8; 32]> {
 #[test]
 fn the_account_encoding_is_balance_then_nonce_little_endian() {
     let encoded = AccountState {
-        balance: 1,
+        balance: U256::from(1u64),
         nonce: 2,
     }
     .encode();
-    assert_eq!(encoded[..8], 1u64.to_le_bytes());
-    assert_eq!(encoded[8..], 2u64.to_le_bytes());
+    // ADR-046: a 32-byte little-endian U256 balance, then the u64 nonce.
+    let mut one = [0u8; 32];
+    one[0] = 1;
+    assert_eq!(encoded[..32], one);
+    assert_eq!(encoded[32..], 2u64.to_le_bytes());
     assert_eq!(
         AccountState::decode(&encoded),
         AccountState {
-            balance: 1,
+            balance: U256::from(1u64),
             nonce: 2
         }
     );
@@ -63,21 +71,21 @@ fn a_transfer_debits_credits_creates_and_bumps_the_nonce() {
     assert_eq!(
         state(&tree, &alice),
         AccountState {
-            balance: 50,
+            balance: U256::from(50u64),
             nonce: 5
         }
     );
     assert_eq!(
         state(&tree, &bob),
         AccountState {
-            balance: 35,
+            balance: U256::from(35u64),
             nonce: 0
         }
     );
     assert_eq!(
         state(&tree, &carol),
         AccountState {
-            balance: 20,
+            balance: U256::from(20u64),
             nonce: 0
         }
     );
@@ -91,7 +99,7 @@ fn a_self_transfer_reads_the_debited_balance_back() {
     assert_eq!(
         state(&tree, &alice),
         AccountState {
-            balance: 10,
+            balance: U256::from(10u64),
             nonce: 1
         }
     );
@@ -105,7 +113,7 @@ fn a_transfer_with_no_outputs_still_spends_the_nonce() {
     assert_eq!(
         state(&tree, &alice),
         AccountState {
-            balance: 10,
+            balance: U256::from(10u64),
             nonce: 1
         }
     );
@@ -120,8 +128,8 @@ fn a_sender_that_does_not_exist_reads_as_zero_and_can_send_nothing() {
         apply_transfer(&mut tree, ghost, 1, [(bob, 1)]),
         Err(Error::Invalid(Violation::InsufficientBalance {
             key: ghost,
-            required: 1,
-            available: 0,
+            required: U256::from(1u64),
+            available: U256::from(0u64),
         }))
     );
 }

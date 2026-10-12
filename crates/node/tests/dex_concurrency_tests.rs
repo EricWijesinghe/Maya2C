@@ -198,8 +198,14 @@ impl Arena {
                 (
                     self.db
                         .asset_balance(&NATIVE_ASSET, &address)
-                        .expect("native").try_into().expect("fits u64"),
-                    self.db.asset_balance(&self.asset, &address).expect("asset").try_into().expect("fits u64"),
+                        .expect("native")
+                        .try_into()
+                        .expect("fits u64"),
+                    self.db
+                        .asset_balance(&self.asset, &address)
+                        .expect("asset")
+                        .try_into()
+                        .expect("fits u64"),
                 )
             })
             .collect()
@@ -300,7 +306,10 @@ fn no_ordering_lets_one_trader_do_better_than_another_ordering_would() {
             arena
                 .db
                 .asset_balance(&arena.asset, &traders[0].address())
-                .expect("balance").try_into().map(|v: u64| v).expect("fits u64"),
+                .expect("balance")
+                .try_into()
+                .map(|v: u64| v)
+                .expect("fits u64"),
         );
     }
 
@@ -485,7 +494,10 @@ fn a_full_batch_of_swaps_clears_without_the_block_failing() {
                 arena
                     .db
                     .asset_balance(&arena.asset, &trader.address())
-                    .expect("balance").try_into().map(|v: u64| v).expect("fits u64"),
+                    .expect("balance")
+                    .try_into()
+                    .map(|v: u64| v)
+                    .expect("fits u64"),
                 500_000,
                 "a skipped intent did not get its input back"
             );
@@ -497,7 +509,10 @@ fn a_full_batch_of_swaps_clears_without_the_block_failing() {
 fn native_supply(db: &StateDB, addresses: &[Address]) -> u64 {
     addresses
         .iter()
-        .map(|address| u64::try_from((db).asset_balance(&NATIVE_ASSET, address).expect("balance")).expect("fits u64"))
+        .map(|address| {
+            u64::try_from((db).asset_balance(&NATIVE_ASSET, address).expect("balance"))
+                .expect("fits u64")
+        })
         .sum()
 }
 
@@ -515,7 +530,10 @@ fn a_block_of_trades_conserves_every_asset() {
     let pool_before = arena.db.get_pool(&arena.pair).expect("r").expect("p");
     let asset_before: u64 = addresses
         .iter()
-        .map(|address| u64::try_from((arena.db).asset_balance(&arena.asset, address).expect("b")).expect("fits u64"))
+        .map(|address| {
+            u64::try_from((arena.db).asset_balance(&arena.asset, address).expect("b"))
+                .expect("fits u64")
+        })
         .sum::<u64>()
         + pool_before.pool.reserve_quote;
 
@@ -528,7 +546,10 @@ fn a_block_of_trades_conserves_every_asset() {
     let native_after = native_supply(&arena.db, &addresses);
     let asset_after: u64 = addresses
         .iter()
-        .map(|address| u64::try_from((arena.db).asset_balance(&arena.asset, address).expect("b")).expect("fits u64"))
+        .map(|address| {
+            u64::try_from((arena.db).asset_balance(&arena.asset, address).expect("b"))
+                .expect("fits u64")
+        })
         .sum::<u64>()
         + pool_after.pool.reserve_quote;
 
