@@ -100,7 +100,7 @@ fn open_db(funded: &[(Address, u64)]) -> (Arc<StateDB>, TempDir) {
     common::bind(&state);
     for (address, balance) in funded {
         let account = Account {
-            balance: *balance,
+            balance: primitive_types::U256::from(*balance),
             nonce: 0,
         };
         state.put_account(address, &account).expect("fund");

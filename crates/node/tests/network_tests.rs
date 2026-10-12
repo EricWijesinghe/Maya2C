@@ -10,6 +10,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use primitive_types::U256;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -66,7 +67,7 @@ async fn spawn_node(funded: &[(Address, u64)]) -> TestNode {
             .put_account(
                 address,
                 &Account {
-                    balance: *balance,
+                    balance: U256::from(*balance),
                     nonce: 0,
                 },
             )

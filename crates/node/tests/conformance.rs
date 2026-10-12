@@ -151,7 +151,7 @@ fn run_stf_case(keys: &BTreeMap<String, HybridSigningKey>, case: &Value) {
     common::bind(&db);
     for a in case["pre"].as_array().unwrap() {
         let acc = Account {
-            balance: num(&a["balance"]),
+            balance: primitive_types::U256::from(num(&a["balance"])),
             nonce: num(&a["nonce"]),
         };
         db.put_account(&address(keys, a["account"].as_str().unwrap()), &acc)
@@ -195,7 +195,7 @@ fn run_stf_case(keys: &BTreeMap<String, HybridSigningKey>, case: &Value) {
                     .get_account(&unhex(a["address"].as_str().unwrap()).try_into().unwrap())
                     .unwrap();
                 assert_eq!(
-                    (acc.balance, acc.nonce),
+                    (u64::try_from(acc.balance).expect("fits u64"), acc.nonce),
                     (num(&a["balance"]), num(&a["nonce"])),
                     "{id}: post account"
                 );

@@ -160,10 +160,16 @@ impl StateDB {
     }
 
     /// Reads a balance through the overlay.
+    ///
+    /// The VM host ABI is `u64` (ADR-046 leaves contract ABIs for a later
+    /// pass). A balance above `u64::MAX` is refused rather than truncated: a
+    /// wrapped or clamped value would be a silently wrong input to contract
+    /// logic.
     fn load_balance(&self, overlay: &Overlay, address: &Address) -> Result<u64> {
-        match overlay.accounts.get(address) {
-            Some(account) => Ok(account.balance),
-            None => Ok(self.get_account(address)?.balance),
-        }
+        let balance = match overlay.accounts.get(address) {
+            Some(account) => account.balance,
+            None => self.get_account(address)?.balance,
+        };
+        u64::try_from(balance).map_err(|_| NodeError::BalanceOverflow)
     }
 }

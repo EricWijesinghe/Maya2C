@@ -17,6 +17,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use primitive_types::U256;
 use custom_l1_node::core::dex_payload::{
     AssetRegistration, AssetTransfer, LiquidityDeposit, LiquidityWithdrawal, OrderPlacement,
     PoolCreation, RouteLeg, SwapRequest, SwapRoute,
@@ -50,7 +51,7 @@ fn fixture(funded: &[(Address, u64)]) -> Fixture {
         db.put_account(
             address,
             &Account {
-                balance: *balance,
+                balance: primitive_types::U256::from(*balance),
                 nonce: 0,
             },
         )
@@ -169,12 +170,14 @@ impl Market {
     fn native(&self, address: &Address) -> u64 {
         self.db()
             .asset_balance(&NATIVE_ASSET, address)
+            .map(|v| u64::try_from(v).expect("fits u64"))
             .expect("balance")
     }
 
     fn held(&self, address: &Address) -> u64 {
         self.db()
             .asset_balance(&self.asset, address)
+            .map(|v| u64::try_from(v).expect("fits u64"))
             .expect("balance")
     }
 
@@ -224,7 +227,7 @@ fn registering_an_asset_credits_its_whole_supply_to_the_creator() {
         .get_asset(&market.asset)
         .expect("read")
         .expect("registered");
-    assert_eq!(record.total_supply, ASSET_SUPPLY);
+    assert_eq!(record.total_supply, primitive_types::U256::from(ASSET_SUPPLY));
     assert_eq!(record.creator, market.maker_address);
 }
 
@@ -334,7 +337,7 @@ fn creating_a_pool_seeds_it_and_mints_share_tokens() {
         .db()
         .asset_balance(&derive_lp_asset(&market.pair), &market.maker_address)
         .expect("shares");
-    assert!(shares > 0);
+    assert!(shares > primitive_types::U256::zero());
 
     // Shares are an asset like any other, so they have an issuing pool and can
     // be moved by the ordinary transfer path.
@@ -343,7 +346,7 @@ fn creating_a_pool_seeds_it_and_mints_share_tokens() {
         .get_pool(&market.pair)
         .expect("read")
         .expect("pool");
-    assert_eq!(record.pool.total_shares, shares + 1_000, "locked minimum");
+    assert_eq!(record.pool.total_shares, u64::try_from(shares).expect("fits u64") + 1_000, "locked minimum");
 }
 
 #[test]
@@ -446,7 +449,7 @@ fn depositing_and_withdrawing_returns_no_more_than_was_put_in() {
         .apply(
             vec![TxKind::RemoveLiquidity(LiquidityWithdrawal {
                 pair: market.pair,
-                shares: minted,
+                shares: u64::try_from(minted).expect("fits u64"),
                 min_base: 1,
                 min_quote: 1,
             })],
@@ -669,7 +672,7 @@ fn the_order_of_swaps_within_a_block_does_not_change_the_outcome() {
                 .put_account(
                     &buyer.address(),
                     &Account {
-                        balance: 50_000,
+                        balance: U256::from(50_000),
                         nonce: 0,
                     },
                 )
@@ -1120,7 +1123,7 @@ fn a_chain_that_has_never_traded_has_the_state_root_it_always_had() {
     let expected = custom_l1_node::state::merkle_root(&[custom_l1_node::state::account_leaf(
         &key.address(),
         &Account {
-            balance: 1_000,
+            balance: U256::from(1_000),
             nonce: 0,
         },
     )]);

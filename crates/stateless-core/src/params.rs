@@ -22,8 +22,9 @@ pub const KEY_BYTES: usize = 32;
 /// Bits in a tree key, and so the deepest a leaf can sit.
 pub const KEY_BITS: usize = KEY_BYTES * 8;
 
-/// Bytes in a leaf value: balance then nonce, little-endian.
-pub const VALUE_BYTES: usize = 16;
+/// Bytes in a leaf value: a 32-byte little-endian `U256` balance, then a
+/// little-endian `u64` nonce (ADR-046 widened the balance from 8 bytes).
+pub const VALUE_BYTES: usize = 40;
 
 /// Largest encoded witness a decoder will look at.
 ///
@@ -69,7 +70,15 @@ pub const LATTICE_DIGEST_BYTES: usize = RING_DEGREE * COEFFICIENT_BITS / 8;
 pub const INTERNAL_COLUMNS: usize = 2 * LATTICE_DIGEST_BYTES * 8 / RING_DEGREE;
 
 /// Binary polynomials a leaf's input fills: key, value and one marker bit.
-pub const LEAF_COLUMNS: usize = 2;
+///
+/// Raised 2 → 3 for ADR-046: a 40-byte value (u256 balance + u64 nonce) plus a
+/// 32-byte key plus the marker bit is 577 bits, past the 512 two ring elements
+/// hold (`RING_DEGREE` = 256 coefficients per polynomial). Three give 768.
+///
+/// NEEDS crypto review before STATELESS activation (dark path, u64::MAX) — not
+/// on the genesis path. The live state commitment uses the `Blake3` backend,
+/// which is independent of this lattice budget.
+pub const LEAF_COLUMNS: usize = 3;
 
 /// Bit set after a leaf's payload so no leaf input is the zero vector.
 ///

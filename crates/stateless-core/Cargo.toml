@@ -23,6 +23,8 @@ thiserror.workspace = true
 # The balance and nonce arithmetic, shared with the node so a stateless
 # transfer and a stateful one are the same `checked_*` calls.
 maya-ledger-math = { path = "../ledger-math" }
+# The balance is a U256 (ADR-046), byte-identical to the node's `Account`.
+primitive-types.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

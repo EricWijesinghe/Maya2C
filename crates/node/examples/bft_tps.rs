@@ -30,6 +30,7 @@ use custom_l1_node::core::transaction::{Transaction, TxOutput};
 use custom_l1_node::crypto::keys::{self, VerifyingKey};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::state::account::Account;
+use primitive_types::U256;
 use custom_l1_node::state::db::StateDB;
 use maya_crypto_pq::suite::{MasterSeed, MlDsa65, SignatureSuite};
 use maya_dag_bft::Params;
@@ -126,7 +127,7 @@ fn main() {
                 .put_account(
                     s,
                     &Account {
-                        balance: 1_000_000,
+                        balance: U256::from(1_000_000u64),
                         nonce: 0,
                     },
                 )

@@ -101,7 +101,7 @@ fn open_chain(state_dir: &PathBuf, fund: bool) -> Chain {
             .put_account(
                 &user().address(),
                 &Account {
-                    balance: START_BALANCE,
+                    balance: primitive_types::U256::from(START_BALANCE),
                     nonce: 0,
                 },
             )
@@ -246,6 +246,8 @@ impl Mesh {
             .get_account(who)
             .unwrap()
             .balance
+            .try_into()
+            .expect("fits u64")
     }
 }
 

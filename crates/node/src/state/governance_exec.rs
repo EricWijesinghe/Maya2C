@@ -32,6 +32,7 @@ use maya_governance::error::GovernanceError;
 use maya_governance::params::{ParameterChange, ParameterKey};
 use maya_governance::proposal::{Proposal, ProposalState};
 use maya_governance::tally::Choice;
+use primitive_types::U256;
 
 use crate::consensus::difficulty::work_from_target;
 use crate::core::governance_payload::{
@@ -275,8 +276,8 @@ impl StateDB {
         let remaining = existing.amount.checked_sub(request.amount).ok_or_else(|| {
             NodeError::InsufficientBalance {
                 address: hex::encode(sender),
-                required: request.amount,
-                available: existing.amount,
+                required: U256::from(request.amount),
+                available: U256::from(existing.amount),
             }
         })?;
 
@@ -587,13 +588,16 @@ impl StateDB {
             Some(existing) => *existing,
             None => self.get_account(address)?,
         };
-        account.balance = maya_ledger_math::debit(account.balance, amount).ok_or_else(|| {
-            NodeError::InsufficientBalance {
-                address: hex::encode(address),
-                required: amount,
-                available: account.balance,
-            }
-        })?;
+        let required = U256::from(amount);
+        let available = account.balance;
+        account.balance =
+            available
+                .checked_sub(required)
+                .ok_or_else(|| NodeError::InsufficientBalance {
+                    address: hex::encode(address),
+                    required,
+                    available,
+                })?;
         overlay.accounts.insert(*address, account);
         Ok(())
     }
@@ -607,8 +611,10 @@ impl StateDB {
             Some(existing) => *existing,
             None => self.get_account(address)?,
         };
-        account.balance =
-            maya_ledger_math::credit(account.balance, amount).ok_or(NodeError::BalanceOverflow)?;
+        account.balance = account
+            .balance
+            .checked_add(U256::from(amount))
+            .ok_or(NodeError::BalanceOverflow)?;
         overlay.accounts.insert(*address, account);
         Ok(())
     }

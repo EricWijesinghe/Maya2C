@@ -11,7 +11,8 @@
 //! Signatures are not checked here. The caller derives `sender` from keys it
 //! has just verified — the node's rule that a sender is never a wire field.
 
-use maya_ledger_math::{advance_nonce, credit, debit, total_outputs};
+use maya_ledger_math::{advance_nonce, total_outputs};
+use primitive_types::U256;
 
 use crate::compress::{Key, Value};
 use crate::error::{Result, Violation};
@@ -24,27 +25,30 @@ use crate::partial::VerifiedTree;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct AccountState {
     /// Spendable balance in base units.
-    pub balance: u64,
+    pub balance: U256,
     /// Transactions this account has sent.
     pub nonce: u64,
 }
+
+/// Width of the balance field inside a leaf: a little-endian `U256`.
+const BALANCE_BYTES: usize = 32;
 
 impl AccountState {
     /// Fixed-width leaf value.
     #[must_use]
     pub fn encode(&self) -> Value {
         let mut out = [0u8; VALUE_BYTES];
-        out[..8].copy_from_slice(&self.balance.to_le_bytes());
-        out[8..].copy_from_slice(&self.nonce.to_le_bytes());
+        self.balance.to_little_endian(&mut out[..BALANCE_BYTES]);
+        out[BALANCE_BYTES..].copy_from_slice(&self.nonce.to_le_bytes());
         out
     }
 
-    /// Decodes a leaf value. Every 16 bytes are some account.
+    /// Decodes a leaf value. Every 40 bytes are some account.
     #[must_use]
     pub fn decode(value: &Value) -> Self {
-        let (balance, nonce) = value.split_at(8);
+        let (balance, nonce) = value.split_at(BALANCE_BYTES);
         Self {
-            balance: u64::from_le_bytes(balance.try_into().unwrap_or_default()),
+            balance: U256::from_little_endian(balance),
             nonce: u64::from_le_bytes(nonce.try_into().unwrap_or_default()),
         }
     }
@@ -82,8 +86,10 @@ where
     }
 
     let overflow = |key| Violation::Overflow { key };
+    // Outputs are u64 on the wire; their sum is checked in u64 and widened.
     let total = total_outputs(outputs.clone().into_iter().map(|(_, amount)| amount))
         .ok_or(overflow(sender))?;
+    let total = U256::from(total);
     if account.balance < total {
         return Err(Violation::InsufficientBalance {
             key: sender,
@@ -93,13 +99,19 @@ where
         .into());
     }
 
-    account.balance = debit(account.balance, total).ok_or(overflow(sender))?;
+    account.balance = account
+        .balance
+        .checked_sub(total)
+        .ok_or(overflow(sender))?;
     account.nonce = advance_nonce(account.nonce).ok_or(overflow(sender))?;
     tree.set(sender, account.encode())?;
 
     for (recipient, amount) in outputs {
         let mut credited = load(tree, &recipient)?;
-        credited.balance = credit(credited.balance, amount).ok_or(overflow(recipient))?;
+        credited.balance = credited
+            .balance
+            .checked_add(U256::from(amount))
+            .ok_or(overflow(recipient))?;
         tree.set(recipient, credited.encode())?;
     }
     Ok(())

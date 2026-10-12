@@ -26,6 +26,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use primitive_types::U256;
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
 
@@ -246,7 +247,7 @@ fn bench_block_execution(c: &mut Criterion) {
                 db.put_account(
                     &sender.address(),
                     &Account {
-                        balance: 1_000_000,
+                        balance: U256::from(1_000_000u64),
                         nonce: 0,
                     },
                 )

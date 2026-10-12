@@ -33,6 +33,7 @@ use maya_iso20022::bridge::PaymentIntent;
 use maya_iso20022::camt053::{Direction, Entry, Statement};
 use maya_iso20022::party::{AccountId, Currency};
 use maya_iso20022::sanctions::{Identifier, identifier_for_account};
+use primitive_types::U256;
 
 use crate::core::{Transaction, TxOutput};
 use crate::error::{NodeError, Result};
@@ -80,10 +81,10 @@ pub fn transaction_for(db: &StateDB, intent: &PaymentIntent, nonce: u64) -> Resu
     let amount = intent.amount.base_units();
 
     let balance = db.get_account(&debtor)?.balance;
-    if balance < amount {
+    if balance < U256::from(amount) {
         return Err(NodeError::InsufficientBalance {
             address: hex::encode(debtor),
-            required: amount,
+            required: U256::from(amount),
             available: balance,
         });
     }

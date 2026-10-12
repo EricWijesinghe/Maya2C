@@ -140,7 +140,7 @@ fn the_treasury_is_credited_as_an_account() {
         .iter()
         .find(|(a, _)| a.as_slice() == address.as_slice())
         .expect("treasury account is present");
-    assert_eq!(found.1.balance, 200_000);
+    assert_eq!(u64::try_from(found.1.balance).expect("fits u64"), 200_000);
     assert_eq!(found.1.nonce, 0);
 }
 

@@ -22,6 +22,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use primitive_types::U256;
 use custom_l1_node::core::codec::ByteReader;
 use custom_l1_node::core::dex_payload::{AssetRegistration, PoolCreation, SwapRequest};
 use custom_l1_node::core::governance_payload::StakeLock;
@@ -91,7 +92,7 @@ fn fixture(funded: &[(Address, u64)]) -> Fixture {
         db.put_account(
             address,
             &Account {
-                balance: *balance,
+                balance: primitive_types::U256::from(*balance),
                 nonce: 0,
             },
         )
@@ -189,7 +190,7 @@ impl Fixture {
     }
 
     fn balance(&self, address: &Address) -> u64 {
-        self.db.get_account(address).expect("account").balance
+        u64::try_from(self.db.get_account(address).expect("account").balance).expect("fits u64")
     }
 
     fn apply(&self, transactions: Vec<Transaction>, height: u64) -> Result<(), NodeError> {
@@ -665,14 +666,18 @@ fn a_revealed_swap_clears_in_the_same_batch_as_a_plaintext_one() {
     reveal.push(signed(swap(20_000, 10), 0, &miner));
     fixture.apply(reveal, 4).expect("reveal block");
 
-    let victim_out = fixture
+    let victim_out: u64 = fixture
         .db
         .asset_balance(&asset, &victim.address())
-        .expect("balance");
-    let miner_out = fixture
+        .expect("balance")
+        .try_into()
+        .expect("fits u64");
+    let miner_out: u64 = fixture
         .db
         .asset_balance(&asset, &miner.address())
-        .expect("balance");
+        .expect("balance")
+        .try_into()
+        .expect("fits u64");
 
     assert!(victim_out > 0, "the sealed swap must have executed");
     assert_eq!(
@@ -700,7 +705,7 @@ fn a_chain_without_a_committee_refuses_sealed_transactions() {
     db.put_account(
         &sender.address(),
         &Account {
-            balance: 1_000_000,
+            balance: U256::from(1_000_000),
             nonce: 0,
         },
     )

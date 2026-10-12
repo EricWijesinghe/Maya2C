@@ -10,6 +10,7 @@
 //! Byte arrays cross the wire as lowercase hex strings, since JSON has no byte
 //! type and numeric arrays are both larger and harder to read.
 
+use primitive_types::U256;
 use serde::{Deserialize, Serialize};
 
 use crate::core::{Block, BlockHeader, ChainTag, Transaction};
@@ -143,7 +144,8 @@ pub struct AccountInfo {
     /// Hex-encoded account address.
     pub address: String,
     /// Spendable balance in base units.
-    pub balance: u64,
+    #[serde(with = "crate::state::amount_serde")]
+    pub balance: U256,
     /// Nonce the next transaction from this account must carry.
     pub nonce: u64,
 }
@@ -179,9 +181,11 @@ pub struct BalanceChangeInfo {
     /// Hex-encoded address.
     pub address: String,
     /// Balance before the block.
-    pub before: u64,
+    #[serde(with = "crate::state::amount_serde")]
+    pub before: U256,
     /// Balance after the block.
-    pub after: u64,
+    #[serde(with = "crate::state::amount_serde")]
+    pub after: U256,
 }
 
 /// Every balance a block moved (`state::balance_changes`).

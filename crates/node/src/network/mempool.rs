@@ -15,6 +15,7 @@
 //! well-formed, correctly signed, not already pooled, and consistent with
 //! committed state: nonce not stale, balance sufficient.
 
+use primitive_types::U256;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -142,7 +143,7 @@ impl Mempool {
 
         let sender_address = tx.sender();
         let sender = self.state.get_account(&sender_address)?;
-        if sender.balance == 0 && sender.nonce == 0 {
+        if sender.balance.is_zero() && sender.nonce == 0 {
             return Err(NodeError::EmptySender {
                 address: hex::encode(sender_address),
             });
@@ -166,10 +167,10 @@ impl Mempool {
                 .checked_add(output.amount)
                 .ok_or(NodeError::BalanceOverflow)?;
         }
-        if sender.balance < total_out {
+        if sender.balance < U256::from(total_out) {
             return Err(NodeError::InsufficientBalance {
                 address: hex::encode(sender_address),
-                required: total_out,
+                required: U256::from(total_out),
                 available: sender.balance,
             });
         }

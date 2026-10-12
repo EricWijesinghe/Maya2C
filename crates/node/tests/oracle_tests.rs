@@ -18,6 +18,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use primitive_types::U256;
 use std::collections::BTreeMap;
 
 use custom_l1_node::core::oracle_payload::{
@@ -110,7 +111,7 @@ fn fixture() -> Fixture {
         db.put_account(
             &authority.address,
             &Account {
-                balance: 1_000_000,
+                balance: U256::from(1_000_000),
                 nonce: 0,
             },
         )
@@ -649,7 +650,7 @@ fn only_an_authority_may_create_a_feed() {
         .put_account(
             &outsider.address(),
             &Account {
-                balance: 1_000,
+                balance: U256::from(1_000),
                 nonce: 0,
             },
         )
@@ -878,7 +879,7 @@ fn a_chain_with_no_oracle_has_the_state_root_it_always_had() {
     db.put_account(
         &key.address(),
         &Account {
-            balance: 1_000,
+            balance: U256::from(1_000),
             nonce: 0,
         },
     )
@@ -887,7 +888,7 @@ fn a_chain_with_no_oracle_has_the_state_root_it_always_had() {
     let expected = custom_l1_node::state::merkle_root(&[custom_l1_node::state::account_leaf(
         &key.address(),
         &Account {
-            balance: 1_000,
+            balance: U256::from(1_000),
             nonce: 0,
         },
     )]);

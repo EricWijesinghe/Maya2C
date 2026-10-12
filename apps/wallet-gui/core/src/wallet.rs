@@ -353,5 +353,10 @@ pub async fn fetch_account(node_url: &str, address: &str) -> Result<(u64, u64)> 
         .await
         .map_err(|e| WalletError::Node(e.to_string()))?;
 
-    Ok((info.balance, info.nonce))
+    // The wallet's balance API is still u64 (ADR-046 Priority 2). A balance above
+    // u64::MAX is refused, never truncated.
+    let balance = u64::try_from(info.balance).map_err(|_| {
+        WalletError::Node("balance exceeds u64; wallet not yet widened (ADR-046)".to_string())
+    })?;
+    Ok((balance, info.nonce))
 }

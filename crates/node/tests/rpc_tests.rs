@@ -9,6 +9,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use primitive_types::U256;
 use std::sync::{Arc, Mutex};
 
 use custom_l1_node::consensus::{Chain, ChainConfig, mine_header};
@@ -73,7 +74,7 @@ async fn start_node(funded: &[(Address, u64)], verify_pow: bool) -> TestNode {
             .put_account(
                 address,
                 &Account {
-                    balance: *balance,
+                    balance: U256::from(*balance),
                     nonce: 0,
                 },
             )
@@ -146,7 +147,7 @@ async fn get_balance_returns_funded_account_state() {
         .expect("get_balance");
 
     assert_eq!(account.address, hex::encode(alice_addr));
-    assert_eq!(account.balance, 5_000);
+    assert_eq!(account.balance, U256::from(5_000));
     assert_eq!(account.nonce, 0);
 }
 
@@ -160,7 +161,7 @@ async fn get_balance_reports_zero_for_an_unknown_account() {
         .await
         .expect("get_balance");
 
-    assert_eq!(account.balance, 0);
+    assert_eq!(account.balance, U256::from(0));
     assert_eq!(account.nonce, 0);
 }
 
@@ -460,9 +461,9 @@ async fn balances_seen_over_rpc_track_committed_state() {
         .await
         .expect("bob");
 
-    assert_eq!(alice_info.balance, 600);
+    assert_eq!(alice_info.balance, U256::from(600));
     assert_eq!(alice_info.nonce, 1);
-    assert_eq!(bob_info.balance, 400);
+    assert_eq!(bob_info.balance, U256::from(400));
 }
 
 // ---------------------------------------------------------------------------
@@ -498,7 +499,13 @@ async fn balances_at_past_heights_undo_each_later_blocks_changes() {
                 )
                 .await
                 .expect("get_balance_at_height");
-            reply["balance"].as_u64().expect("balance")
+            // ADR-046: amounts cross the wire as decimal strings so a u256
+            // balance survives JSON (a JSON number tops out at 2^53).
+            reply["balance"]
+                .as_str()
+                .expect("balance")
+                .parse::<u64>()
+                .expect("balance fits u64 in this fixture")
         }
     };
     assert_eq!(
@@ -523,8 +530,8 @@ async fn balances_at_past_heights_undo_each_later_blocks_changes() {
         .map(|c| {
             (
                 c["address"].as_str().expect("address").to_string(),
-                c["before"].as_u64().expect("before"),
-                c["after"].as_u64().expect("after"),
+                c["before"].as_str().expect("before").parse().expect("before u64"),
+                c["after"].as_str().expect("after").parse().expect("after u64"),
             )
         })
         .collect();

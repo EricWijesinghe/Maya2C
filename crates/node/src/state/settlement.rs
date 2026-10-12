@@ -19,7 +19,7 @@
 //! exists so the counterparty can present the revocation secret and take
 //! everything instead.
 
-use maya_ledger_math as ledger_math;
+use primitive_types::U256;
 
 use crate::core::payload::{
     ChannelClosure, ChannelId, ChannelOpen, RevocationProof, derive_channel_id,
@@ -71,8 +71,10 @@ impl StateDB {
             Some(existing) => *existing,
             None => self.get_account(address)?,
         };
-        account.balance =
-            ledger_math::credit(account.balance, amount).ok_or(NodeError::BalanceOverflow)?;
+        account.balance = account
+            .balance
+            .checked_add(U256::from(amount))
+            .ok_or(NodeError::BalanceOverflow)?;
         overlay.accounts.insert(*address, account);
         Ok(())
     }
@@ -331,17 +333,21 @@ impl StateDB {
             None => self.get_account(&opener)?,
         };
 
-        if account.balance < open.funding {
+        let funding = U256::from(open.funding);
+        if account.balance < funding {
             return Err(NodeError::InsufficientBalance {
                 address: hex::encode(opener),
-                required: open.funding,
+                required: funding,
                 available: account.balance,
             });
         }
 
         // Funds leave the opener's account and live in the channel record until
         // it closes. They are escrowed, not spent.
-        account.balance -= open.funding;
+        account.balance = account
+            .balance
+            .checked_sub(funding)
+            .ok_or(NodeError::BalanceOverflow)?;
         overlay.accounts.insert(opener, account);
 
         overlay.channels.insert(
@@ -604,6 +610,6 @@ impl StateDB {
 
 /// Convenience for tests and callers assembling settlement transactions.
 #[must_use]
-pub fn account_for(balance: u64, nonce: u64) -> Account {
+pub fn account_for(balance: U256, nonce: u64) -> Account {
     Account { balance, nonce }
 }

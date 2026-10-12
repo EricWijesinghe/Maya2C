@@ -10,6 +10,7 @@
 //! path must be serialized — two concurrent reorgs would interleave undo
 //! journals and corrupt state.
 
+use primitive_types::U256;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
@@ -80,7 +81,7 @@ fn balance_at_height(
     ctx: &RpcContext,
     address: &[u8; 32],
     height: u64,
-) -> Result<(u64, [u8; 32]), ErrorObjectOwned> {
+) -> Result<(U256, [u8; 32]), ErrorObjectOwned> {
     let (state, tip, tip_id, mut balance) = {
         let chain = ctx.chain();
         let balance = chain
@@ -336,7 +337,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
             let (balance, id) = balance_at_height(ctx, &address, height)?;
             Ok::<_, ErrorObjectOwned>(serde_json::json!({
                 "address": address_hex,
-                "balance": balance,
+                "balance": balance.to_string(),
                 "height": height,
                 "block_id": hex::encode(id),
             }))

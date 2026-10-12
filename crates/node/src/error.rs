@@ -2,6 +2,7 @@
 //!
 //! Every fallible operation returns [`Result`]; no production path panics.
 
+use primitive_types::U256;
 use thiserror::Error;
 
 /// Errors produced by node crypto and consensus primitives.
@@ -122,9 +123,9 @@ pub enum NodeError {
         /// Hex-encoded sender address.
         address: String,
         /// Total value the transaction attempts to move.
-        required: u64,
+        required: U256,
         /// Balance actually available.
-        available: u64,
+        available: U256,
     },
 
     /// Admission only: the sender holds nothing and has never sent, so no
@@ -378,9 +379,9 @@ pub enum NodeError {
     #[error("shielded pool underflow: holds {held}, {withdrawn} withdrawn")]
     ShieldedBalanceUnderflow {
         /// Value the pool held.
-        held: u64,
+        held: U256,
         /// Value the withdrawal attempted to remove.
-        withdrawn: u64,
+        withdrawn: U256,
     },
 
     /// A block carried more joinsplits than verification budget allows.
@@ -492,9 +493,9 @@ pub enum NodeError {
         /// Account involved.
         address: String,
         /// Units needed.
-        required: u64,
+        required: U256,
         /// Units held.
-        available: u64,
+        available: U256,
     },
 
     /// A pool was asked for that trades an asset against itself.

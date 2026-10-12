@@ -35,7 +35,7 @@
 use maya_htlc_lattice::{
     ClaimOutcome, Lock, LockRecord, RefundOutcome, Settlement, decide_claim, decide_refund,
 };
-use maya_ledger_math as ledger_math;
+use primitive_types::U256;
 
 use crate::core::htlc_payload::{HtlcClaim, HtlcLock, HtlcRefund, LockId};
 use crate::error::{NodeError, Result};
@@ -82,13 +82,15 @@ impl StateDB {
 
         let mut account = self.load(overlay, sender)?;
         let available = account.balance;
-        account.balance = ledger_math::debit(available, payload.amount).ok_or_else(|| {
-            NodeError::InsufficientBalance {
-                address: hex::encode(sender),
-                required: payload.amount,
-                available,
-            }
-        })?;
+        let required = U256::from(payload.amount);
+        account.balance =
+            available
+                .checked_sub(required)
+                .ok_or_else(|| NodeError::InsufficientBalance {
+                    address: hex::encode(sender),
+                    required,
+                    available,
+                })?;
         overlay.accounts.insert(*sender, account);
 
         let record = LockRecord {
@@ -176,8 +178,10 @@ impl StateDB {
     /// being treated as a lost race.
     fn credit_escrow(&self, overlay: &mut Overlay, address: &Address, amount: u64) -> Result<()> {
         let mut account = self.load(overlay, address)?;
-        account.balance =
-            ledger_math::credit(account.balance, amount).ok_or(NodeError::BalanceOverflow)?;
+        account.balance = account
+            .balance
+            .checked_add(U256::from(amount))
+            .ok_or(NodeError::BalanceOverflow)?;
         overlay.accounts.insert(*address, account);
         Ok(())
     }
