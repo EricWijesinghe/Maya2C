@@ -160,13 +160,22 @@ mod tests {
 
     #[test]
     fn transports_are_told_apart() {
-        assert_eq!(Transport::of(&"/ip4/1.2.3.4/tcp/31100".parse().unwrap()), Transport::Tcp);
+        assert_eq!(
+            Transport::of(&"/ip4/1.2.3.4/tcp/31100".parse().unwrap()),
+            Transport::Tcp
+        );
         assert_eq!(
             Transport::of(&"/dns4/p2p.maya2c.dev/tcp/443/wss".parse().unwrap()),
             Transport::WebSocket
         );
-        assert_eq!(Transport::of(&"/ip4/127.0.0.1/tcp/31101/ws".parse().unwrap()), Transport::WebSocket);
-        assert_eq!(Transport::of(&"/memory/7".parse().unwrap()), Transport::Memory);
+        assert_eq!(
+            Transport::of(&"/ip4/127.0.0.1/tcp/31101/ws".parse().unwrap()),
+            Transport::WebSocket
+        );
+        assert_eq!(
+            Transport::of(&"/memory/7".parse().unwrap()),
+            Transport::Memory
+        );
     }
 
     #[test]
@@ -194,7 +203,11 @@ mod tests {
         let (old, new) = (PeerId::random(), PeerId::random());
         let mut book = LinkBook::default();
         book.opened(old, &dialer("/ip4/10.0.0.1/tcp/1"), start);
-        book.opened(new, &dialer("/ip4/10.0.0.2/tcp/1"), start + Duration::from_secs(5));
+        book.opened(
+            new,
+            &dialer("/ip4/10.0.0.2/tcp/1"),
+            start + Duration::from_secs(5),
+        );
         let s = book.snapshot(start + Duration::from_secs(9));
         assert_eq!(s[0].peer, old);
         assert_eq!(s[0].connected_for, Duration::from_secs(9));
