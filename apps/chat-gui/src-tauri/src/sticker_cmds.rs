@@ -1,7 +1,7 @@
 //! The window's sticker commands, and what `poll` does with sticker messages.
 //!
 //! Files cross the IPC boundary as raw bytes (`tauri::ipc::Response` and a raw
-//! request body), never as JSON arrays: a 192 KB sticker as a JSON number
+//! request body), never as JSON arrays: a 120 KB sticker as a JSON number
 //! array is about a megabyte.
 
 use std::collections::{HashMap, HashSet};

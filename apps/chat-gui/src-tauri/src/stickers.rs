@@ -25,10 +25,13 @@ use serde::{Deserialize, Serialize};
 /// Starts every structured message. Plain text cannot start with NUL: the
 /// window refuses to send one.
 const MAGIC: &[u8] = b"\0MAYA-CHAT-1";
-/// A sticker file, in bytes. Telegram's own limits are 64 KB (animated) and
-/// 256 KB (video); this fits one relay envelope (256 KiB) with the
-/// encryption's overhead.
-pub const MAX_STICKER_BYTES: usize = 192 << 10;
+/// A sticker file, in bytes: what fits one relay envelope (256 KiB) in the
+/// worst case, a first message carrying the session handshake. The envelope's
+/// CBOR writes ciphertext as an integer array, about two bytes per byte, so a
+/// 120 KiB file seals to 247,427 bytes (measured by
+/// `the_largest_sticker_crosses_real_encryption_within_one_envelope`).
+/// Telegram's animated stickers are at most 64 KB.
+pub const MAX_STICKER_BYTES: usize = 120 << 10;
 /// The JSON header, in bytes. Titles and emoji are short.
 const MAX_HEADER: usize = 4 << 10;
 /// Stickers in one pack (Telegram allows 120).
@@ -318,7 +321,7 @@ mod tests {
     #[test]
     fn oversized_or_unknown_files_are_refused() {
         let big = [b"GIF89a".as_slice(), &vec![0; MAX_STICKER_BYTES]].concat();
-        assert!(check_file(&big).unwrap_err().contains("at most 192 KB"));
+        assert!(check_file(&big).unwrap_err().contains("at most 120 KB"));
         assert!(check_file(b"#!/bin/sh\nrm -rf /").is_err());
         assert!(check_file(b"").is_err());
     }
@@ -360,4 +363,38 @@ mod tests {
         assert!(make_pack("x", vec![item(GIF, " ")], true).is_err());
         assert!(make_pack(&"x".repeat(MAX_TITLE_CHARS + 1), vec![item(GIF, "😂")], true).is_err());
     }
+
+    #[test]
+    fn the_largest_sticker_crosses_real_encryption_within_one_envelope() {
+        use maya_chat::client::Client;
+        use maya_chat::identity::Identity;
+        const NOW: u64 = 1_760_000_000;
+        // The worst case: a full-size file (padded GIF) in a first message,
+        // which also carries the session handshake.
+        let file = [GIF, &vec![0u8; MAX_STICKER_BYTES - GIF.len()]].concat();
+        assert_eq!(file.len(), MAX_STICKER_BYTES);
+        let content = Content::Sticker {
+            id: sticker_id(&file),
+            emoji: "🎉".into(),
+            pack: "p".repeat(64),
+            title: "x".repeat(MAX_TITLE_CHARS),
+        };
+        let plain = encode(&content, &file).unwrap();
+
+        let (alice, bob) = (Identity::generate().unwrap(), Identity::generate().unwrap());
+        let bundle = bob.prekey_bundle(1, NOW + 3_600).unwrap();
+        let bob_addr = bob.address();
+        let (mut a, mut b) = (Client::new(alice), Client::new(bob));
+        let envelope = a.seal(bob_addr, Some(&bundle), &plain, NOW).unwrap();
+        let size = envelope.encode().unwrap().len();
+        assert!(
+            size <= maya_chat::relay::MAX_ENVELOPE_BYTES,
+            "a full sticker must fit one relay envelope: {size} bytes"
+        );
+        let opened = b.open(&envelope, NOW).unwrap();
+        let decoded = decode(&opened.text).unwrap();
+        assert_eq!(decoded.content, content);
+        assert_eq!(decoded.file, file);
+    }
 }
+
