@@ -128,6 +128,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# Captured here, at script scope: inside a function $PSBoundParameters is that
+# function's own (empty) set, so Assert-Admin forwarded no switches at all and
+# every non-elevated `-Register`, `-Status`, `-Uninstall`... ran as a plain
+# reinstall (found by the parallel session, 2026-10-13).
+$ScriptParams = $PSBoundParameters
 Set-StrictMode -Version Latest
 
 # --- Constants: one place, no magic numbers scattered through the body. ------
@@ -169,13 +174,22 @@ function Test-Admin {
 
 # Re-launch this script in an Administrator window with the same switches,
 # so a Start-menu shortcut or a double-click works without "Run as admin".
-function Assert-Admin {
-    if (Test-Admin) { return }
+# The arguments that relaunch this script elevated with the caller's switches.
+function Get-ElevationArgs {
     $fwd = @('-NoProfile', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"")
-    foreach ($kv in $PSBoundParameters.GetEnumerator()) {
-        if ($kv.Value -is [switch]) { if ($kv.Value) { $fwd += "-$($kv.Key)" } }
-        else { $fwd += "-$($kv.Key)"; $fwd += "`"$($kv.Value)`"" }
+    foreach ($kv in $ScriptParams.GetEnumerator()) {
+        if ($kv.Value -is [System.Management.Automation.SwitchParameter]) {
+            if ($kv.Value.IsPresent) { $fwd += "-$($kv.Key)" }
+        } else { $fwd += "-$($kv.Key)"; $fwd += "`"$($kv.Value)`"" }
     }
+    return ,$fwd
+}
+
+function Assert-Admin {
+    # For CI: show what an elevation would forward, without elevating.
+    if ($env:MAYA2C_SHOW_ELEVATION -eq '1') { (Get-ElevationArgs) -join ' '; exit 0 }
+    if (Test-Admin) { return }
+    $fwd = Get-ElevationArgs
     Write-Host 'Windows will ask for permission. Click Yes.' -ForegroundColor Cyan
     Start-Process powershell.exe -Verb RunAs -ArgumentList $fwd
     exit 0

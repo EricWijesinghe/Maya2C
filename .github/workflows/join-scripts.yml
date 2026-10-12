@@ -66,6 +66,22 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # A non-elevated call relaunches itself as Administrator; every switch
+      # must survive that, or `-Register <bond>` silently becomes a reinstall
+      # (it did until 2026-10-13). Checked in both PowerShells.
+      - name: Elevation forwards every switch
+        shell: pwsh
+        run: |
+          $env:MAYA2C_SHOW_ELEVATION = '1'
+          foreach ($ps in 'pwsh', 'powershell') {
+            $argv = & $ps -NoProfile -File ./infra/testnet-vm/join-validator.ps1 `
+              -Register 1000000000 -P2pPort 31150 -Uninstall -Status:$false | Out-String
+            "$ps -> $argv"
+            foreach ($want in '-Register "1000000000"', '-P2pPort "31150"', '-Uninstall') {
+              if ($argv -notlike "*$want*") { throw "$ps did not forward $want" }
+            }
+            if ($argv -like '*-Status*') { throw "$ps forwarded -Status:`$false" }
+          }
       - name: Install
         shell: pwsh
         run: ./infra/testnet-vm/join-validator.ps1 -Silent -IAmTheMachineOwner
