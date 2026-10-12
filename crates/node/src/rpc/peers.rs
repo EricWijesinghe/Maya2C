@@ -85,7 +85,10 @@ pub fn register(module: &mut RpcModule<RpcContext>) -> Result<(), ErrorObjectOwn
             let Some(node) = ctx.network_view.clone() else {
                 return Err(rejected("this node does not serve its peer list"));
             };
-            let links = node.peer_links().await.map_err(|e| rejected(e.to_string()))?;
+            let links = node
+                .peer_links()
+                .await
+                .map_err(|e| rejected(e.to_string()))?;
             Ok::<_, ErrorObjectOwned>(NetworkView {
                 peer_id: node.peer_id().to_string(),
                 peers: links

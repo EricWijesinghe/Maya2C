@@ -688,7 +688,8 @@ impl NodeDriver {
                 ..
             } => {
                 self.relay_connected(peer_id, &endpoint);
-                self.links.opened(peer_id, &endpoint, std::time::Instant::now());
+                self.links
+                    .opened(peer_id, &endpoint, std::time::Instant::now());
                 if let Some(ip) =
                     crate::network::relay_key::connection_ip(endpoint.get_remote_address())
                 {

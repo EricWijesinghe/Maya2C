@@ -35,7 +35,10 @@ fn free_tcp_port() -> u16 {
         .port()
 }
 
-async fn wait_for(events: &mut tokio::sync::broadcast::Receiver<NodeEvent>, connected: bool) -> bool {
+async fn wait_for(
+    events: &mut tokio::sync::broadcast::Receiver<NodeEvent>,
+    connected: bool,
+) -> bool {
     let wait = async {
         loop {
             match events.recv().await {
@@ -64,12 +67,25 @@ fn genesis() -> Block {
 }
 
 /// An RPC server over `state`, answering `get_peers` from `node`.
-async fn rpc_for(state: Arc<StateDB>, node: NodeHandle) -> (custom_l1_node::rpc::RpcServer, jsonrpsee::http_client::HttpClient) {
+async fn rpc_for(
+    state: Arc<StateDB>,
+    node: NodeHandle,
+) -> (
+    custom_l1_node::rpc::RpcServer,
+    jsonrpsee::http_client::HttpClient,
+) {
     let chain = Arc::new(Mutex::new(
-        common::open_chain(Arc::clone(&state), genesis(), ChainConfig::without_pow_verification()).unwrap(),
+        common::open_chain(
+            Arc::clone(&state),
+            genesis(),
+            ChainConfig::without_pow_verification(),
+        )
+        .unwrap(),
     ));
     let context = RpcContext::new(chain, Mempool::new(state)).with_network_view(node);
-    let server = serve("127.0.0.1:0".parse().unwrap(), context).await.unwrap();
+    let server = serve("127.0.0.1:0".parse().unwrap(), context)
+        .await
+        .unwrap();
     let client = HttpClientBuilder::default()
         .build(format!("http://{}", server.address))
         .unwrap();
@@ -83,7 +99,9 @@ async fn the_seed_lists_a_websocket_joiner_without_its_address_and_drops_it_when
     let mut seed = Node::new_tcp(Arc::clone(&seed_state)).unwrap();
     let joiner = Node::new_tcp(Arc::new(StateDB::open(dir_b.path()).unwrap())).unwrap();
 
-    let ws: Multiaddr = format!("/ip4/127.0.0.1/tcp/{}/ws", free_tcp_port()).parse().unwrap();
+    let ws: Multiaddr = format!("/ip4/127.0.0.1/tcp/{}/ws", free_tcp_port())
+        .parse()
+        .unwrap();
     seed.listen_on(ws.clone()).unwrap();
     let seed = seed.spawn();
     let joiner = joiner.spawn();
@@ -96,7 +114,10 @@ async fn the_seed_lists_a_websocket_joiner_without_its_address_and_drops_it_when
     assert!(empty.peers.is_empty());
 
     joiner.dial(ws).await.expect("dial over websocket");
-    assert!(wait_for(&mut seed_events, true).await, "seed never saw the joiner");
+    assert!(
+        wait_for(&mut seed_events, true).await,
+        "seed never saw the joiner"
+    );
 
     let view: NetworkView = client.request("get_peers", rpc_params![]).await.unwrap();
     assert_eq!(view.peers.len(), 1, "{view:?}");
@@ -125,7 +146,10 @@ async fn the_seed_lists_a_websocket_joiner_without_its_address_and_drops_it_when
     drop(joiner);
     drop(jclient);
     drop(_jserver);
-    assert!(wait_for(&mut seed_events, false).await, "seed never saw the joiner leave");
+    assert!(
+        wait_for(&mut seed_events, false).await,
+        "seed never saw the joiner leave"
+    );
     let after: NetworkView = client.request("get_peers", rpc_params![]).await.unwrap();
     assert!(after.peers.is_empty(), "{after:?}");
 }
@@ -135,11 +159,19 @@ async fn a_node_without_a_network_view_refuses_rather_than_answering_empty() {
     let dir = TempDir::new().unwrap();
     let state = Arc::new(StateDB::open(dir.path()).unwrap());
     let chain = Arc::new(Mutex::new(
-        common::open_chain(Arc::clone(&state), genesis(), ChainConfig::without_pow_verification()).unwrap(),
+        common::open_chain(
+            Arc::clone(&state),
+            genesis(),
+            ChainConfig::without_pow_verification(),
+        )
+        .unwrap(),
     ));
-    let server = serve("127.0.0.1:0".parse().unwrap(), RpcContext::new(chain, Mempool::new(state)))
-        .await
-        .unwrap();
+    let server = serve(
+        "127.0.0.1:0".parse().unwrap(),
+        RpcContext::new(chain, Mempool::new(state)),
+    )
+    .await
+    .unwrap();
     let client = HttpClientBuilder::default()
         .build(format!("http://{}", server.address))
         .unwrap();
