@@ -3366,4 +3366,5 @@ tier = "extended"
 class = "REAL"
 status = "working"
 tests = [".github/workflows/join-scripts.yml", "crates/node/tests/pruned_node_tests.rs"]
+gate = "join-scripts.yml: install, sync, status and uninstall on ubuntu-24.04, macos-14 and windows-latest runners"
 note = "join-scripts.yml installs, syncs, checks status and uninstalls on real ubuntu-24.04, macos-14 and windows runners. First sync measured 35-45 min with testnet.3 and 13 min 35 s with the 4-in-flight prefetch (one run each, reports/sessions/2026-10-12-easy-join.md)."

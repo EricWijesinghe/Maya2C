@@ -294,6 +294,33 @@ fn archive_node(blocks: u64) -> ArchiveNode {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn a_bootstrap_killed_before_its_snapshot_is_cleared_and_runs_again() {
+    let archive = archive_node(70);
+    let (state, _dir) = empty_state();
+    // What a kill leaves: the chain opened (metadata written, tip = genesis)
+    // and nothing adopted.
+    drop(Chain::open(Arc::clone(&state), genesis(), config()).expect("open"));
+    assert!(state.chain_meta().expect("meta").is_some());
+
+    assert!(state.discard_interrupted_bootstrap().expect("discard"));
+    assert!(state.chain_meta().expect("meta").is_none(), "cleared");
+    let pruned = bootstrap_pruned(
+        Arc::clone(&state),
+        genesis(),
+        config(),
+        &Source::honest(&archive),
+        K,
+    )
+    .expect("the bootstrap runs again from scratch");
+    assert_eq!(pruned.tip(), archive.chain.tip());
+    drop(pruned);
+
+    // A finished bootstrap is never mistaken for an interrupted one.
+    assert!(!state.discard_interrupted_bootstrap().expect("discard"));
+    assert!(state.chain_meta().expect("meta").is_some(), "kept");
+}
+
+#[test]
 fn a_pruned_node_bootstraps_without_a_single_body_below_the_snapshot() {
     let archive = archive_node(70);
     let source = Source::honest(&archive);

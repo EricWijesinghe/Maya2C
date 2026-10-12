@@ -1,6 +1,37 @@
 # State
 
 ## Handover
+- **2026-10-12/13 — helpers can join; u256 compiles; four PRs.** Eric: friends
+  on Macs could not run a node, docs were for engineers. Done:
+  - **#112** one line per OS (`scripts/join-testnet.{sh,ps1}`), helper commands
+    (`maya2c-validator status|apply|register|logs|update|uninstall`, Start-menu
+    shortcuts on Windows), `/guides/help-run` with per-OS tabs, Intel Mac
+    release target, README block. `join-scripts.yml` installs on real
+    ubuntu/macos/windows runners: macOS ✔ (26 min), ubuntu ✔.
+    First sync: **35–45 min → 13 min 35 s** (4 block requests in flight).
+    Windows runner found two more bugs, fixed: Task Scheduler never restarted
+    an exited node (launcher now loops), and a node killed during its first
+    sync could never recover (`discard_interrupted_bootstrap`).
+    Gateway "upstream node error" (-32603) is now retried.
+  - **#113** mining-rewards branch pushed, master merged in, explorer clippy
+    fix; 23 CodeQL test-fixture/address alerts dismissed with reasons.
+  - **#114** site/explorer visuals (emblem, facts, gates, health constellation).
+  - **#115 MERGED** (`e3aca02c`): in-app updates for Wallet and Chat; off until
+    Eric makes the update-signing key (`docs/in-app-updates.md`).
+  - **#118 draft** u256: workspace compiles, 3,164 tests pass (the HTLC
+    devnet test needs to run alone), spec ROOT-1/STF-5 at 256 bits.
+  - Testnet committee back to 4/4 at epoch 141 (v4 = seat 3).
+  - Dependabot: 3 alerts dismissed with reasons (glib via Tauri GTK3; atty
+    dev-only).
+- **Unfinished / for Eric:** u256 transaction amounts are still u64 (≈18.4
+  coins per tx at 18 decimals): widen all amounts, or 9 decimals. fee-market
+  `MAX_SUPPLY` needs a Kani-safe 256-bit form. Update-signing key (2 commands).
+  Next release (tags are owner-only) ships the faster sync and the fixes.
+- **Do first next:** merge #112/#113/#114 when green; Eric's u256 amount
+  decision; then the release.
+- **Parallel session maya2c-c9** owns: the OS-picker docs
+  (feat/docs-os-picker) and gate 5 / ADR-047 (single-PC foundation set).
+
 - **Done (2026-10-11, full-PC staging + Kali):**
   - **PR #108 MERGED to master** (`fd4cfac4`, all 31 checks green, branch
     deleted). It carried the whole Nemotron recovery, ADR-043, the site dial,

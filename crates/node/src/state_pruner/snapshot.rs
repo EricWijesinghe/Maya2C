@@ -159,6 +159,31 @@ impl StateDB {
         Ok(entries)
     }
 
+    /// Clears a pruned bootstrap that was interrupted before it adopted its
+    /// snapshot, and says whether it did.
+    ///
+    /// [`bootstrap_pruned`] writes the chain's metadata (tip = genesis) before
+    /// it downloads anything, and undoes itself on an *error*, but not when the
+    /// process is killed: a PC rebooted or switched off during a first sync.
+    /// That database then looks like a chain at height 0, a restart skipped
+    /// the bootstrap ("the database already holds a chain"), and catch-up from
+    /// epoch 0 failed on every restart, forever (seen 2026-10-12). Tip still
+    /// at genesis with nothing pruned means no snapshot was adopted, so there
+    /// is nothing to lose; any database past that is left alone.
+    ///
+    /// # Errors
+    ///
+    /// Storage failures reading the metadata or deleting the keys.
+    pub fn discard_interrupted_bootstrap(&self) -> Result<bool> {
+        let interrupted = self
+            .chain_meta()?
+            .is_some_and(|meta| meta.tip == meta.genesis && meta.prune_horizon == 0);
+        if interrupted {
+            self.purge_all()?;
+        }
+        Ok(interrupted)
+    }
+
     /// Deletes every key. What a failed bootstrap, which started from an
     /// empty database, is undone with.
     fn purge_all(&self) -> Result<()> {

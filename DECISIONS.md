@@ -258,3 +258,21 @@ not left downloadable; testnet.1 and testnet.2 were deleted with their tags
 one by one and dismissed with reasons (757 test fixtures, 105 false
 positives, including the two zero-nonce seals — safe, fresh ML-KEM secret per
 seal); the three real JS findings were fixed.
+
+## 2026-10-12 — Helpers join with one line; the installers restart and recover by themselves
+
+Eric: friends want to help and are not technical, so their comfort comes
+first. One pasted line per OS; a helper command for every later step; keys
+never leave the machine and uninstall keeps them. The installers are tested
+on real macOS, Windows and Linux runners (`join-scripts.yml`), not only here.
+Joining nodes fetch 4 blocks at once (validation still in order, one by one);
+a bootstrap interrupted before its snapshot is discarded and redone; Windows
+restarts an exited node itself. The release lookup reads the releases feed,
+because api.github.com's 60/hour limit failed the macOS run.
+
+## 2026-10-12 — In-app updates are off until the owner holds the signing key
+
+Whoever holds the update-signing key can push code to every installed app,
+so the owner generates it, never Claude. Builds stay unsigned and the
+updater stays off until the secret and `apps/updater-pubkey.txt` exist.
+
