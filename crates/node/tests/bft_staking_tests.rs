@@ -76,6 +76,7 @@ fn genesis_with(stake_weighted: bool) -> GenesisConfig {
             batch_size: 100,
             round_interval_ms: 0,
             fees: None,
+            mining: None,
             staking: Some(StakingGenesis {
                 epoch_blocks: EPOCH_BLOCKS,
                 bonds: (0..GENESIS_VALIDATORS)

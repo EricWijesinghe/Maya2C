@@ -298,6 +298,7 @@ impl StateDB {
             TxKind::Staking(action) => self.apply_staking(overlay, &sender, action),
             TxKind::Council(action) => self.apply_council(overlay, action, context),
             TxKind::Vault(action) => self.apply_vault(overlay, &sender, action, context),
+            TxKind::MiningShare(share) => self.apply_mining_share(overlay, &sender, share),
             TxKind::AttestLegal(payload) => self.attest_legal(
                 overlay,
                 &sender,
