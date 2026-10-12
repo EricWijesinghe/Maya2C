@@ -177,7 +177,7 @@ await writeFile(join(OUT, "index.mdx"), await readFile(HOME_SRC, "utf8"), "utf8"
 // are written against the site's routes rather than GitHub's.
 let authored = 0;
 for (const name of (await readdir(AUTHORED_SRC)).sort()) {
-  if (!name.endsWith(".md")) continue;
+  if (!name.endsWith(".md") && !name.endsWith(".mdx")) continue;
   await writeFile(
     join(OUT, AUTHORED_OUT, name),
     await readFile(join(AUTHORED_SRC, name), "utf8"),

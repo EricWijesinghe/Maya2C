@@ -10,7 +10,6 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
@@ -207,13 +206,13 @@ impl ArchiveNode {
     }
 }
 
-type Tamper = Box<dyn Fn(&mut Vec<(Vec<u8>, Vec<u8>)>)>;
+type Tamper = Box<dyn Fn(&mut Vec<(Vec<u8>, Vec<u8>)>) + Sync>;
 
 /// An archive node as a bootstrap source, recording every body asked for and
 /// optionally lying consistently about its snapshot.
 struct Source<'a> {
     node: &'a ArchiveNode,
-    bodies: RefCell<Vec<u64>>,
+    bodies: Mutex<Vec<u64>>,
     tamper: Option<Tamper>,
     wrong_block: bool,
 }
@@ -222,7 +221,7 @@ impl<'a> Source<'a> {
     fn honest(node: &'a ArchiveNode) -> Self {
         Self {
             node,
-            bodies: RefCell::default(),
+            bodies: Mutex::default(),
             tamper: None,
             wrong_block: false,
         }
@@ -273,7 +272,7 @@ impl BootstrapSource for Source<'_> {
     }
 
     fn block(&self, height: u64) -> Result<Block> {
-        self.bodies.borrow_mut().push(height);
+        self.bodies.lock().expect("lock").push(height);
         Ok(self.node.block(height))
     }
 }
@@ -295,6 +294,33 @@ fn archive_node(blocks: u64) -> ArchiveNode {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn a_bootstrap_killed_before_its_snapshot_is_cleared_and_runs_again() {
+    let archive = archive_node(70);
+    let (state, _dir) = empty_state();
+    // What a kill leaves: the chain opened (metadata written, tip = genesis)
+    // and nothing adopted.
+    drop(Chain::open(Arc::clone(&state), genesis(), config()).expect("open"));
+    assert!(state.chain_meta().expect("meta").is_some());
+
+    assert!(state.discard_interrupted_bootstrap().expect("discard"));
+    assert!(state.chain_meta().expect("meta").is_none(), "cleared");
+    let pruned = bootstrap_pruned(
+        Arc::clone(&state),
+        genesis(),
+        config(),
+        &Source::honest(&archive),
+        K,
+    )
+    .expect("the bootstrap runs again from scratch");
+    assert_eq!(pruned.tip(), archive.chain.tip());
+    drop(pruned);
+
+    // A finished bootstrap is never mistaken for an interrupted one.
+    assert!(!state.discard_interrupted_bootstrap().expect("discard"));
+    assert!(state.chain_meta().expect("meta").is_some(), "kept");
+}
+
+#[test]
 fn a_pruned_node_bootstraps_without_a_single_body_below_the_snapshot() {
     let archive = archive_node(70);
     let source = Source::honest(&archive);
@@ -311,8 +337,11 @@ fn a_pruned_node_bootstraps_without_a_single_body_below_the_snapshot() {
         archive.chain.state().state_root().expect("root"),
         "the pruned node must hold exactly the archive node's state"
     );
+    // Bodies are fetched several at a time, so the request order varies.
+    let mut bodies = source.bodies.lock().expect("lock").clone();
+    bodies.sort_unstable();
     assert_eq!(
-        *source.bodies.borrow(),
+        bodies,
         (51..=70).collect::<Vec<u64>>(),
         "no body at or below the snapshot height may be downloaded"
     );

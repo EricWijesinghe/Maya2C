@@ -46,6 +46,25 @@ band; move an item to PROGRESS.md when it starts.
 
 ## P2 — make claimed-working features verified
 
+- **Flaky: `identity_tests::no_committed_record_holds_a_claim_preimage`.**
+  It searches records for the 4 bytes `22 00 00 00` (age 34 as u32); random
+  key bytes can contain them, so it fails rarely (PR #114 CI, 2026-10-12).
+  Search for a value whose encoding cannot occur by chance, or for the
+  claim's full field-element encoding.
+- **Joining nodes dial private addresses learned from the DHT.** A helper's
+  node behind only the wss bootnode tried 172.25.x, 192.168.64.x and 10.1.x
+  (WSL, the stagenet containers, attacknet on the seed's PC), all refused, and
+  logged each as `outgoing connection failure #n`. Filter non-routable
+  Kademlia addresses unless the node itself is on that network, or stop the
+  seed advertising them. Harmless, but it reads as broken. (maya2c-c9's
+  real-PC join, 2026-10-13: testnet.3 bootstrap to ready in ~13 min.)
+- **Catch-up calls an already-held block "malformed".** v4's log (2026-10-13)
+  has 1,975 lines `catch-up: malformed wire encoding: a block did not extend
+  the tip: Duplicate {..}` while it follows attested blocks. `InsertOutcome::
+  Duplicate` should be skipped quietly; logging it as malformed hides real
+  decode errors in noise. Reported by maya2c-c9.
+- **HTLC two-devnet swap times out under full parallel load** (1,058 s in a
+  workspace nextest run; 18 s alone). Mark it heavy / serial in nextest.
 - **Chat envelopes are twice the size they need to be.** `Envelope::encode`
   (ciborium) writes ciphertext `Vec<u8>` as a CBOR integer array, about two
   bytes per byte: a 120 KiB sticker seals to 247,427 B. `serde_bytes` on the

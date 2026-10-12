@@ -32,6 +32,7 @@
 
 pub mod archive;
 pub mod cold;
+pub mod prefetch;
 pub mod snapshot;
 
 use crate::crypto::dag::EPOCH_LENGTH;
