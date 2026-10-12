@@ -241,6 +241,17 @@ async fn dispatch(
                     .await?),
             }
         }
+        // The address is checked here so a malformed one costs the node
+        // nothing; the node derives the header from committed state.
+        "get_mining_work" => {
+            let [Value::String(address)] = params else {
+                return Err(RpcError::new(INVALID_PARAMS, "expected [address]"));
+            };
+            let address = parse_address(address)?;
+            Ok(node
+                .forward("get_mining_work", vec![Value::String(address.to_string())])
+                .await?)
+        }
         "send_raw_transaction" => send_raw_transaction(node, params).await,
         _ => Err(RpcError::new(
             METHOD_NOT_FOUND,

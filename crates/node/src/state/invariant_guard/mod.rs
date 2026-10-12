@@ -234,7 +234,10 @@ impl Module {
             | TxKind::RotateAuthorities(_)
             | TxKind::SubmitBeacon(_) => Some(Self::Oracle),
 
+            // Mining shares pay out of the reserve, the same kind of work
+            // reward as a claim; one breaker halts both (ADR-044).
             TxKind::ClaimWork(_)
+            | TxKind::MiningShare(_)
             | TxKind::LockStake(_)
             | TxKind::UnlockStake(_)
             | TxKind::Propose(_)

@@ -16,6 +16,15 @@ description = "Cross-platform GPU miner (Vulkan/Metal/DX12) for the DAG proof of
 [dependencies]
 maya-wgpu-miner = { path = "../../hal/wgpu-miner" }
 clap.workspace = true
+# Share mining (`--mine`): the node's own share header, DAG and transaction
+# code, so a miner can never drift from what consensus checks (ADR-044).
+custom-l1-node = { path = "../../crates/node" }
+reqwest = { workspace = true, features = ["blocking", "json", "rustls-tls-native-roots"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+hex.workspace = true
+getrandom.workspace = true
+zeroize.workspace = true
 
 [features]
 # Forwarded, so `cargo build -p maya2c-gpu-miner --features gpu` reaches the

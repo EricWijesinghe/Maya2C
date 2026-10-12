@@ -27,6 +27,37 @@ pub struct FeeInfo {
     pub collector: String,
 }
 
+/// One miner's work for the current mining epoch (ADR-044).
+///
+/// `active` is false on a chain that does not mine, and while epoch 0 runs:
+/// mining opens at the first epoch boundary. Every other field is then zero
+/// or empty, and a miner should poll again later.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MiningWork {
+    /// Whether a share submitted now can be paid.
+    pub active: bool,
+    /// The mining epoch a share must name.
+    pub epoch: u64,
+    /// Hex header to hash; already binds the chain, epoch, anchor and payee.
+    pub header: String,
+    /// Hex big-endian share target; a digest at or below it is a share.
+    pub target: String,
+    /// `"mainnet"` (4 GiB dataset) or `"testing"` (4 MiB).
+    pub dag: String,
+    /// The DAG epoch whose cache and dataset the header hashes against.
+    pub dag_epoch: u64,
+    /// Base units the next accepted share earns.
+    pub share_reward: u64,
+    /// Shares accepted so far this epoch, and the number the target aims for.
+    pub shares: u64,
+    /// Target shares per epoch.
+    pub target_shares: u64,
+    /// Blocks per epoch.
+    pub epoch_blocks: u64,
+    /// Most shares one block may carry.
+    pub max_shares_per_block: u64,
+}
+
 /// Chain identification for offline signers (ADR-036).
 ///
 /// Offline signers need the chain's genesis block id to sign transactions that

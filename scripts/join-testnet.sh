@@ -24,7 +24,7 @@ set -euo pipefail
 REPO="EricWijesinghe/Maya2C"
 GENESIS_URL="https://maya2c.dev/testnet/genesis.json"
 GENESIS_SHA256="dd9bb356c94b7699e6e8d2595681faee48be435b02dc927677cbf833e55edd5d"
-BOOTNODE="/dns4/p2p.maya2c.dev/tcp/443/wss/p2p/12D3KooWK2bykmqyzdK4TMSTBQ5visSjkFoK8wj88aMn3ms4ByiG"
+BOOTNODE="/dns4/p2p.maya2c.dev/tcp/443/wss/p2p/12D3KooWJqH5AUQ1zPkMke18rcc8VHN2TWQ5XudGX3tP8zPLuyjB"
 BOOTSTRAP="https://bootstrap.maya2c.dev/rpc"
 HOME_DIR="${MAYA_HOME:-/var/lib/maya2c}"
 
