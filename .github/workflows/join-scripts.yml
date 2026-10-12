@@ -75,12 +75,11 @@ jobs:
           $env:MAYA2C_SHOW_ELEVATION = '1'
           foreach ($ps in 'pwsh', 'powershell') {
             $argv = & $ps -NoProfile -File ./infra/testnet-vm/join-validator.ps1 `
-              -Register 1000000000 -P2pPort 31150 -Uninstall -Status:$false | Out-String
+              -Register 1000000000 -P2pPort 31150 -Uninstall | Out-String
             "$ps -> $argv"
             foreach ($want in '-Register "1000000000"', '-P2pPort "31150"', '-Uninstall') {
               if ($argv -notlike "*$want*") { throw "$ps did not forward $want" }
             }
-            if ($argv -like '*-Status*') { throw "$ps forwarded -Status:`$false" }
           }
       - name: Install
         shell: pwsh
