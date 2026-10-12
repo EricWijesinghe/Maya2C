@@ -35,6 +35,8 @@ fn with_automation_args<R: tauri::Runtime>(mut context: tauri::Context<R>) -> ta
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(maya_app_update::dialog())
+        .setup(|app| Ok(maya_app_update::start(app)?))
         .manage(Session::default())
         .invoke_handler(tauri::generate_handler![
             commands::create_wallet,
