@@ -16,6 +16,7 @@
   .wrap { max-width: 1040px; margin: 0 auto; padding: 32px max(16px,4vw) 64px; }
   header { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
   header a { color: var(--text); text-decoration: none; font: 300 22px var(--display); display: flex; gap: 10px; align-items: center; }
+  header a img { filter: drop-shadow(0 0 8px rgba(34, 211, 238, 0.45)); }
   .pill { padding: 8px 16px; border-radius: 999px; background: var(--glass); border: 1px solid var(--edge); font: 400 13px var(--mono); color: var(--muted); }
   .pill b { color: var(--ok); font-weight: 400; }
   .pill.down b { color: var(--signal); }
@@ -48,7 +49,7 @@
 <body>
 <div class="wrap">
   <header>
-    <a href="https://maya2c.dev/"><img src="https://maya2c.dev/brand/orb.svg" width="32" height="32" alt="">Maya2C status</a>
+    <a href="https://maya2c.dev/"><img src="https://maya2c.dev/brand/emblem.png" width="34" height="34" alt="">Maya2C status</a>
     <span class="pill" id="state">maya-testnet-1 · <b>checking…</b></span>
   </header>
 
