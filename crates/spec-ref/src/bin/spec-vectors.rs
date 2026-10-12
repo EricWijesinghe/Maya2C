@@ -11,6 +11,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use maya_spec_ref::balance::Balance;
 use maya_spec_ref::stf::{Account, Transfer, apply_block};
 use maya_spec_ref::wire::{self, Frame};
 use maya_spec_ref::{Address, consensus, fees, header, root};
@@ -87,7 +88,7 @@ fn stf_case(
     let mut state = BTreeMap::new();
     for a in pre.as_array().unwrap() {
         let acc = Account {
-            balance: num(&a["balance"]),
+            balance: Balance::from_dec_str(a["balance"].as_str().unwrap()).unwrap(),
             nonce: num(&a["nonce"]),
         };
         state.insert(resolve(keys, a["account"].as_str().unwrap()), acc);
@@ -126,7 +127,8 @@ fn tx(from: &str, nonce: u64, outputs: &[(&str, u64)]) -> Value {
     json!({"from": from, "nonce": nonce.to_string(), "outputs": outs, "signature": "valid"})
 }
 
-fn acct(name: &str, balance: u64, nonce: u64) -> Value {
+fn acct(name: &str, balance: impl Into<Balance>, nonce: u64) -> Value {
+    let balance: Balance = balance.into();
     json!({"account": name, "balance": balance.to_string(), "nonce": nonce.to_string()})
 }
 
@@ -216,7 +218,11 @@ fn state_transitions(k: &BTreeMap<String, Address>) -> Value {
             k,
             "recipient-overflow",
             &["STF-5"],
-            &json!([acct("k0", 100, 0), acct("k1", u64::MAX - 5, 0)]),
+            // ADR-046: a credit overflows only past 2^256 - 1.
+            &json!([
+                acct("k0", 100, 0),
+                acct("k1", Balance::MAX.checked_sub(Balance::from(5)).unwrap(), 0)
+            ]),
             &json!([tx("k0", 0, &[("k1", 10)])]),
         ),
         stf_case(

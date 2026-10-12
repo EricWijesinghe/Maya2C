@@ -151,12 +151,16 @@ fn a_wrong_nonce_is_a_violation() {
 }
 
 #[test]
-fn an_output_total_or_a_credit_past_u64_is_a_violation() {
+fn an_output_total_past_u64_or_a_credit_past_u256_is_a_violation() {
+    // Outputs are u64 on the wire, so their total is checked in u64; a
+    // balance is a U256 (ADR-046), so a credit overflows only past U256::MAX.
     let (alice, bob) = (key(1), key(2));
-    let mut tree = tree(
-        &[(alice, account(u64::MAX, 0)), (bob, account(u64::MAX, 0))],
-        &[alice, bob],
-    );
+    let full = AccountState {
+        balance: U256::MAX,
+        nonce: 0,
+    }
+    .encode();
+    let mut tree = tree(&[(alice, account(u64::MAX, 0)), (bob, full)], &[alice, bob]);
     assert_eq!(
         apply_transfer(&mut tree, alice, 0, [(bob, u64::MAX), (bob, 1)]),
         Err(Error::Invalid(Violation::Overflow { key: alice }))

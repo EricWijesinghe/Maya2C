@@ -3,13 +3,14 @@
 use std::collections::BTreeMap;
 
 use crate::Address;
+use crate::balance::Balance;
 
 /// An account record. An address with no record reads as zero balance, zero
 /// nonce (STF-7).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Account {
-    /// Balance in base units.
-    pub balance: u64,
+    /// Balance in base units: 256 bits (ADR-046).
+    pub balance: Balance,
     /// Transactions sent.
     pub nonce: u64,
 }
@@ -75,10 +76,11 @@ pub fn apply_transfer(
             .checked_add(*amount)
             .ok_or(Rejection::BalanceOverflow)?; // STF-2
     }
-    if sender.balance < total {
+    // Outputs and their total are u64 on the wire (STF-2); balances are 256-bit.
+    let Some(left) = sender.balance.checked_sub(Balance::from(total)) else {
         return Err(Rejection::InsufficientBalance); // STF-3
-    }
-    sender.balance -= total;
+    };
+    sender.balance = left;
     sender.nonce = sender
         .nonce
         .checked_add(1)
@@ -88,7 +90,7 @@ pub fn apply_transfer(
         let mut r = state.get(recipient).copied().unwrap_or_default();
         r.balance = r
             .balance
-            .checked_add(*amount)
+            .checked_add(Balance::from(*amount))
             .ok_or(Rejection::BalanceOverflow)?; // STF-5
         state.insert(*recipient, r);
     }
