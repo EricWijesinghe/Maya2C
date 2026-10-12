@@ -40,6 +40,7 @@ APPLY_URL="https://github.com/$REPO/issues/new?template=validator-application.ym
 RPC_PORT="${MAYA_RPC_PORT:-8545}"  # loopback only: the node's RPC is unauthenticated
 PRUNE_DEPTH=3600       # one epoch: deep enough to accept the newest snapshot
 SYNCED_WITHIN=5        # blocks behind the network that still count as "in sync"
+MIN_BOND=1000000000    # the seed's --min-register-bond: smaller bonds never join
 BIN_DIR=/usr/local/bin
 HELPER="$BIN_DIR/maya2c-validator"
 MAC_LABEL="dev.maya2c.node"
@@ -320,9 +321,23 @@ cmd_apply() {
   [ "$OS" = Darwin ] && open -R "$HOME/maya2c-application.txt" 2>/dev/null || true
 }
 
+# Whether decimal $1 >= MIN_BOND. Compared as text, because a bond may exceed
+# what bash arithmetic holds (u64 against a signed 64-bit shell).
+bond_at_least_floor() {
+  local b=${1#"${1%%[!0]*}"}   # strip leading zeros
+  [ "${#b}" -gt "${#MIN_BOND}" ] && return 0
+  [ "${#b}" -lt "${#MIN_BOND}" ] && return 1
+  # Same length, no leading zeros: text order is numeric order.
+  # shellcheck disable=SC2071
+  [ "$b" = "$MIN_BOND" ] || [[ "$b" > "$MIN_BOND" ]]
+}
+
 cmd_register() {
   local bond=${1:-}
-  case "$bond" in ''|*[!0-9]*) die "give the bond amount as a number" "e.g.  maya2c-validator register 1000000";; esac
+  case "$bond" in ''|*[!0-9]*) die "give the bond amount as a number" "e.g.  maya2c-validator register $MIN_BOND";; esac
+  # The seed proposes no registration below its --min-register-bond: a
+  # smaller bond is accepted by the wallet and then never joins (ADR-039).
+  bond_at_least_floor "$bond"     || die "a bond below $MIN_BOND never joins the committee" "use the amount Eric gave you (at least $MIN_BOND)"
   $SUDO test -f "$WALLET" || die "no wallet yet" "run: maya2c-validator apply"
   say "Registering your validator (your wallet password is needed)"
   wallet register-validator --validator-key "$KEY" --bond "$bond"

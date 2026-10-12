@@ -153,6 +153,7 @@ $PublicRpc   = 'https://rpc.maya2c.dev/rpc'
 $ApplyUrl    = 'https://github.com/EricWijesinghe/Maya2C/issues/new?template=validator-application.yml'
 $SyncedWithin = 5   # blocks behind the network that still count as "in sync"
 $RestartSeconds = 10 # pause before the launcher restarts a node that exited
+$MinBond     = 1000000000 # the seed's --min-register-bond: smaller bonds never join
 $RpcAddr     = "127.0.0.1:$RpcPort" # RPC is unauthenticated; bind loopback only.
 # $P2pPort and $RpcPort come from params so a second node can coexist on one PC.
 
@@ -457,6 +458,9 @@ function Invoke-Apply {
 
 function Invoke-Register {
     if (-not (Test-Path $WalletPath)) { Die 'no wallet yet: Start menu > Maya2C Become a validator' }
+    # The seed proposes no registration below its --min-register-bond: a
+    # smaller bond is accepted by the wallet and then never joins (ADR-039).
+    if ($Register -lt $MinBond) { Die "a bond below $MinBond never joins the committee: use the amount Eric gave you" }
     Write-Step 'Registering your validator (your wallet password is needed)'
     Invoke-Wallet register-validator --validator-key $KeyPath --bond $Register
     Write-Host '  Registered. You join the committee at the next epoch (within about an hour).' -ForegroundColor Green
