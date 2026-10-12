@@ -63,7 +63,9 @@ jobs:
   windows:
     name: install on windows-latest
     runs-on: windows-latest
-    timeout-minutes: 60
+    # Longer than the Unix jobs: on this runner testnet.3 spent ~33 min just
+    # downloading the chain (2026-10-13). The prefetch build shortens it.
+    timeout-minutes: 95
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       # A non-elevated call relaunches itself as Administrator; every switch
@@ -88,11 +90,13 @@ jobs:
         shell: pwsh
         run: |
           $helper = 'C:\Program Files\Maya2C\maya2c-validator.ps1'
-          foreach ($i in 1..300) {   # 50 min, as above
+          foreach ($i in 1..480) {   # 80 min
             # Status prints with Write-Host (the information stream): *>&1
             # brings it into the pipeline, or Out-String sees nothing.
             $out = & $helper -Status *>&1 | Out-String
             if ($out -match 'block') { $out; exit 0 }
+            # Progress every 5 min, so a cancelled job still shows where it was.
+            if ($i % 30 -eq 0) { "--- $([int]($i / 6)) min"; $out; Get-Content 'C:\ProgramData\Maya2C\logs\node.log' -Tail 3 }
             Start-Sleep 10
           }
           $out
