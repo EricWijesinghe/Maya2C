@@ -1,6 +1,7 @@
 ---
-// The CUDA-style install picker: computer › version or chip › (Linux: processor)
-// › method, and a numbered walkthrough that changes with the choices.
+// The CUDA-style OS picker: computer › version or chip › (per guide: processor,
+// method), and a numbered walkthrough that changes with the choices. Each
+// guide's rows and steps live in src/data/ (install-matrix.ts, build-matrix.ts).
 //
 // Every combination is rendered here at build time and the script only shows
 // one, so no HTML is built in the browser (the site's CSP allows no
@@ -8,19 +9,17 @@
 // without JavaScript: the default walkthrough is visible. The choice lives in
 // the URL (?os=linux&v=fedora&arch=arm64&m=manual), so a helper can send a
 // friend a link that opens on their computer's steps.
-import {
-  allCombos,
-  archChoices,
-  archHelp,
-  comboKey,
-  methodChoices,
-  osChoices,
-  versionChoices,
-  type Choice,
-} from "../data/install-matrix";
+import { buildGuide } from "../data/build-matrix";
+import { joinGuide } from "../data/install-matrix";
 
-const DEFAULT = comboKey("windows", "11", "-", "oneline");
-const combos = allCombos();
+interface Props {
+  /** `join`: install a testnet node (Help run). `build`: build from source (Quickstart). */
+  guide: "join" | "build";
+}
+const { guide: guideId } = Astro.props;
+const guide = { join: joinGuide, build: buildGuide }[guideId];
+const DEFAULT = guide.defaultKey;
+const { combos, rows } = guide;
 
 const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -29,23 +28,16 @@ const inline = (s: string) =>
   esc(s)
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/`(.+?)`/g, "<code>$1</code>");
-
-const row = (name: string, choices: Choice[], group?: string) => ({ name, choices, group });
-const rows = [
-  { ...row("os", osChoices), label: "Your computer", help: "" },
-  ...Object.entries(versionChoices).map(([os, v]) => ({ ...row("v", v.choices, os), label: v.label, help: v.help })),
-  { ...row("arch", archChoices, "linux"), label: "Processor", help: archHelp },
-  { ...row("m", methodChoices), label: "How to install", help: "" },
-];
+const rowId = (name: string, group?: string) => `ip-${guideId}-${name}-${group ?? "all"}`;
 ---
 
-<section class="ip not-content" data-default={DEFAULT} aria-label="Choose your computer">
+<section class="ip not-content" data-guide={guideId} data-default={DEFAULT} aria-label="Choose your computer">
   <div class="ip-rows">
     {
       rows.map((r) => (
         <div class="ip-row" data-row={r.name} data-group={r.group ?? ""} hidden={r.group ? r.group !== "windows" : false}>
-          <span class="ip-label" id={`ip-${r.name}-${r.group ?? "all"}`}>{r.label}</span>
-          <div class="ip-opts" role="radiogroup" aria-labelledby={`ip-${r.name}-${r.group ?? "all"}`}>
+          <span class="ip-label" id={rowId(r.name, r.group)}>{r.label}</span>
+          <div class="ip-opts" role="radiogroup" aria-labelledby={rowId(r.name, r.group)}>
             {r.choices.map((c, i) => (
               <button type="button" role="radio" class="ip-opt" data-value={c.id} aria-checked={i === 0 ? "true" : "false"}>
                 <span class="ip-opt-name">{c.label}</span>
@@ -94,7 +86,7 @@ const rows = [
                   {i < w.steps.length - 1 ? (
                     <button type="button" class="ip-next">Next step</button>
                   ) : (
-                    <span class="ip-last">Last step. Then go on to "Check it is working" below.</span>
+                    <span class="ip-last">{guide.lastStepNote}</span>
                   )}
                 </div>
               </li>
