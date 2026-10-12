@@ -278,7 +278,7 @@ seal); the three real JS findings were fixed.
 
 Eric: Telegram-level stickers are a main reason people love Telegram. A
 sticker rides inside the existing end-to-end encryption as a framed message
-(one file, at most 192 KB, under the relay's 256 KiB envelope) named by its
+(one file, at most 120 KB: the envelope's CBOR doubles ciphertext, so that is what fits the relay's 256 KiB in the worst case, measured) named by its
 BLAKE3 hash, which the receiver re-checks; the format is read from the bytes.
 No sticker server: a pack travels from the person who has it, on request,
 and only packs they made or installed are ever sent. Formats: Lottie (.json,
