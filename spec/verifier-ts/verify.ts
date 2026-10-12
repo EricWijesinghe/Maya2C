@@ -17,8 +17,12 @@ import { blake3, deriveKey, fromHex, selftest, toHex } from "./blake3.ts";
 
 const TESTS = join(dirname(fileURLToPath(import.meta.url)), "..", "tests");
 const U64_MAX = (1n << 64n) - 1n;
+// ADR-046: a balance is 256 bits; outputs and nonces stay 64.
+const U256_MAX = (1n << 256n) - 1n;
 const load = (name: string) => JSON.parse(readFileSync(join(TESTS, name), "utf8"));
-const le64 = (v: bigint) => Uint8Array.from({ length: 8 }, (_, i) => Number((v >> BigInt(8 * i)) & 0xffn));
+const leN = (v: bigint, n: number) => Uint8Array.from({ length: n }, (_, i) => Number((v >> BigInt(8 * i)) & 0xffn));
+const le64 = (v: bigint) => leN(v, 8);
+const le256 = (v: bigint) => leN(v, 32);
 const readLe64 = (b: Uint8Array, at: number) => b.subarray(at, at + 8).reduceRight((acc, x) => (acc << 8n) | BigInt(x), 0n);
 const concat = (...parts: Uint8Array[]) => {
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
@@ -32,7 +36,7 @@ const text = (s: string) => new TextEncoder().encode(s);
 interface Account { balance: bigint; nonce: bigint }
 type State = Map<string, Account>; // key: address hex
 
-const leaf = (addr: string, a: Account) => blake3(concat(Uint8Array.of(0), fromHex(addr), le64(a.balance), le64(a.nonce)));
+const leaf = (addr: string, a: Account) => blake3(concat(Uint8Array.of(0), fromHex(addr), le256(a.balance), le64(a.nonce)));
 const node = (l: Uint8Array, r: Uint8Array) => blake3(concat(Uint8Array.of(1), l, r));
 
 function root(state: State): string {
@@ -60,7 +64,7 @@ function applyTx(s: State, tx: Tx): string | null {
   s.set(tx.from, { balance: sender.balance - total, nonce: sender.nonce + 1n });
   for (const [to, amount] of tx.outputs) {
     const r = s.get(to) ?? { balance: 0n, nonce: 0n };
-    if (r.balance + amount > U64_MAX) return "BalanceOverflow";
+    if (r.balance + amount > U256_MAX) return "BalanceOverflow";
     s.set(to, { balance: r.balance + amount, nonce: r.nonce });
   }
   return null;
