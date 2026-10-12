@@ -1,0 +1,271 @@
+---
+// The CUDA-style install picker: computer › version or chip › (Linux: processor)
+// › method, and a numbered walkthrough that changes with the choices.
+//
+// Every combination is rendered here at build time and the script only shows
+// one, so no HTML is built in the browser (the site's CSP allows no
+// unhashed script, and nothing here needs one) and the page reads correctly
+// without JavaScript: the default walkthrough is visible. The choice lives in
+// the URL (?os=linux&v=fedora&arch=arm64&m=manual), so a helper can send a
+// friend a link that opens on their computer's steps.
+import {
+  allCombos,
+  archChoices,
+  archHelp,
+  comboKey,
+  methodChoices,
+  osChoices,
+  versionChoices,
+  type Choice,
+} from "../data/install-matrix";
+
+const DEFAULT = comboKey("windows", "11", "-", "oneline");
+const combos = allCombos();
+
+const esc = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+// `**bold**` and `` `code` `` only; the text is ours, escaped first anyway.
+const inline = (s: string) =>
+  esc(s)
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/`(.+?)`/g, "<code>$1</code>");
+
+const row = (name: string, choices: Choice[], group?: string) => ({ name, choices, group });
+const rows = [
+  { ...row("os", osChoices), label: "Your computer", help: "" },
+  ...Object.entries(versionChoices).map(([os, v]) => ({ ...row("v", v.choices, os), label: v.label, help: v.help })),
+  { ...row("arch", archChoices, "linux"), label: "Processor", help: archHelp },
+  { ...row("m", methodChoices), label: "How to install", help: "" },
+];
+---
+
+<section class="ip not-content" data-default={DEFAULT} aria-label="Choose your computer">
+  <div class="ip-rows">
+    {
+      rows.map((r) => (
+        <div class="ip-row" data-row={r.name} data-group={r.group ?? ""} hidden={r.group ? r.group !== "windows" : false}>
+          <span class="ip-label" id={`ip-${r.name}-${r.group ?? "all"}`}>{r.label}</span>
+          <div class="ip-opts" role="radiogroup" aria-labelledby={`ip-${r.name}-${r.group ?? "all"}`}>
+            {r.choices.map((c, i) => (
+              <button type="button" role="radio" class="ip-opt" data-value={c.id} aria-checked={i === 0 ? "true" : "false"}>
+                <span class="ip-opt-name">{c.label}</span>
+                {c.hint && <span class="ip-opt-hint">{c.hint}</span>}
+              </button>
+            ))}
+          </div>
+          {r.help && <p class="ip-help" set:html={inline(r.help)} />}
+        </div>
+      ))
+    }
+  </div>
+
+  <div class="ip-bar">
+    <div class="ip-progress" aria-live="polite">
+      <div class="ip-meter"><span class="ip-meter-fill"></span></div>
+      <span class="ip-count">0 of 0 steps done</span>
+    </div>
+    <label class="ip-guided"><input type="checkbox" class="ip-guided-toggle" /> One step at a time</label>
+  </div>
+
+  {
+    combos.map(({ key, w }) => (
+      <div class="ip-walk" data-combo={key} hidden={key !== DEFAULT} data-tab={w.tab} data-pagefind-ignore={key !== DEFAULT ? "" : undefined}>
+        {w.unavailable ? (
+          <p class="ip-unavailable" set:html={inline(w.unavailable)} />
+        ) : (
+          <ol class="ip-steps">
+            {w.steps.map((s, i) => (
+              <li class="ip-step" data-step={i}>
+                <div class="ip-step-head">
+                  <span class="ip-num" aria-hidden="true">{i + 1}</span>
+                  <h3 class="ip-step-title">{s.title}</h3>
+                  <label class="ip-done"><input type="checkbox" class="ip-done-box" /> Done</label>
+                </div>
+                {s.body?.map((p) => <p set:html={inline(p)} />)}
+                {s.command && (
+                  <div class="ip-cmd">
+                    <pre><code data-lang={s.lang}>{s.command}</code></pre>
+                    <button type="button" class="ip-copy" aria-label={`Copy: ${s.title}`}>Copy</button>
+                  </div>
+                )}
+                {s.after && <p class="ip-after" set:html={inline(s.after)} />}
+                <div class="ip-nav">
+                  {i > 0 && <button type="button" class="ip-back">Back</button>}
+                  {i < w.steps.length - 1 ? (
+                    <button type="button" class="ip-next">Next step</button>
+                  ) : (
+                    <span class="ip-last">Last step. Then go on to "Check it is working" below.</span>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+    ))
+  }
+</section>
+
+<script>
+  import { initInstallPicker } from "../scripts/install-picker";
+  document.querySelectorAll<HTMLElement>(".ip").forEach(initInstallPicker);
+</script>
+
+<style>
+  .ip {
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 14px;
+    padding: 1rem;
+    background: color-mix(in srgb, var(--sl-color-bg) 88%, var(--accent, #1fb5c2) 12%);
+    margin-block: 1.25rem;
+  }
+  /* not-content opts out of Starlight's prose spacing, which pushed every
+     button after the first down a line; the few text styles needed are here. */
+  .ip :where(p) { line-height: 1.6; }
+  .ip :where(p code, .ip-help code) {
+    font-family: var(--sl-font-mono);
+    font-size: 0.85em;
+    padding: 0.1em 0.35em;
+    border-radius: 5px;
+    background: var(--sl-color-gray-6);
+  }
+  .ip :where(strong) { color: var(--sl-color-white); }
+  .ip-rows { display: grid; gap: 0.85rem; }
+  .ip-row[hidden] { display: none; }
+  .ip-label {
+    display: block;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--sl-color-gray-2);
+    margin-bottom: 0.35rem;
+  }
+  .ip-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); gap: 0.45rem; }
+  .ip-opt {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.1rem;
+    padding: 0.55rem 0.75rem;
+    border-radius: 10px;
+    border: 1px solid var(--sl-color-gray-5);
+    background: var(--sl-color-bg-nav);
+    color: var(--sl-color-white);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, transform 0.15s;
+  }
+  .ip-opt:hover { border-color: var(--sl-color-accent); transform: translateY(-1px); }
+  .ip-opt[aria-checked="true"] {
+    border-color: var(--sl-color-accent);
+    background: color-mix(in srgb, var(--sl-color-accent) 22%, var(--sl-color-bg-nav));
+    box-shadow: 0 0 0 1px var(--sl-color-accent) inset;
+  }
+  .ip-opt:focus-visible { outline: 2px solid var(--sl-color-accent-high); outline-offset: 2px; }
+  .ip-opt-name { font-weight: 650; }
+  .ip-opt-hint { font-size: 0.75rem; color: var(--sl-color-gray-3); }
+  .ip-help { margin: 0.35rem 0 0; font-size: 0.82rem; color: var(--sl-color-gray-3); }
+
+  .ip-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+    margin: 1.1rem 0 0.6rem;
+    padding-top: 0.9rem;
+    border-top: 1px solid var(--sl-color-gray-5);
+  }
+  .ip-progress { display: flex; align-items: center; gap: 0.6rem; flex: 1 1 14rem; }
+  .ip-meter { flex: 1; height: 8px; border-radius: 99px; background: var(--sl-color-gray-6); overflow: hidden; }
+  .ip-meter-fill {
+    display: block;
+    height: 100%;
+    width: 0;
+    background: linear-gradient(90deg, var(--sl-color-accent), var(--sl-color-accent-high));
+    transition: width 0.3s;
+  }
+  .ip-count { font-size: 0.85rem; color: var(--sl-color-gray-2); white-space: nowrap; }
+  .ip-guided { font-size: 0.85rem; cursor: pointer; white-space: nowrap; }
+
+  .ip-walk[hidden] { display: none; }
+  .ip-steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.7rem; }
+  .ip-step {
+    margin: 0;
+    padding: 0.8rem 0.9rem;
+    border-radius: 12px;
+    border: 1px solid var(--sl-color-gray-5);
+    background: var(--sl-color-bg);
+  }
+  .ip-step.is-done { opacity: 0.72; }
+  .ip-step.is-done .ip-num { background: var(--sl-color-green, #45e0a0); color: #02161a; }
+  .ip-step-head { display: flex; align-items: center; gap: 0.6rem; }
+  .ip-num {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 1.8rem;
+    height: 1.8rem;
+    border-radius: 50%;
+    font-weight: 700;
+    background: var(--sl-color-accent);
+    color: var(--sl-color-black);
+  }
+  .ip-step-title { margin: 0 !important; font-size: 1.02rem; flex: 1; }
+  .ip-done { font-size: 0.8rem; color: var(--sl-color-gray-3); cursor: pointer; white-space: nowrap; }
+  .ip-step > p { margin: 0.5rem 0 0; }
+  .ip-after { font-size: 0.85rem; color: var(--sl-color-gray-3); }
+  .ip-cmd { position: relative; margin-top: 0.55rem; }
+  .ip-cmd pre {
+    margin: 0;
+    padding: 0.75rem 5rem 0.75rem 0.85rem;
+    border-radius: 10px;
+    background: var(--sl-color-gray-7, #0a161b);
+    border: 1px solid var(--sl-color-gray-5);
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .ip-cmd code { font-size: 0.85rem; background: none; padding: 0; }
+  .ip-copy {
+    position: absolute;
+    top: 0.45rem;
+    right: 0.45rem;
+    padding: 0.3rem 0.7rem;
+    border-radius: 8px;
+    border: 1px solid var(--sl-color-accent);
+    background: var(--sl-color-bg-nav);
+    color: var(--sl-color-white);
+    font: inherit;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+  .ip-copy.is-copied { background: var(--sl-color-accent); color: var(--sl-color-black); }
+  .ip-nav { display: none; margin-top: 0.7rem; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+  .ip-nav button {
+    padding: 0.4rem 0.9rem;
+    border-radius: 8px;
+    border: 1px solid var(--sl-color-gray-4);
+    background: var(--sl-color-bg-nav);
+    color: var(--sl-color-white);
+    font: inherit;
+    cursor: pointer;
+  }
+  .ip-nav .ip-next { border-color: var(--sl-color-accent); background: var(--sl-color-accent); color: var(--sl-color-black); font-weight: 650; }
+  .ip-last { font-size: 0.85rem; color: var(--sl-color-gray-3); }
+  .ip.is-guided .ip-step { display: none; }
+  .ip.is-guided .ip-step.is-current { display: block; }
+  .ip.is-guided .ip-nav { display: flex; }
+  .ip-unavailable {
+    margin: 0;
+    padding: 0.9rem 1rem;
+    border-radius: 12px;
+    border: 1px dashed var(--sl-color-orange, #e6b260);
+    color: var(--sl-color-white);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ip-opt, .ip-meter-fill { transition: none; }
+  }
+</style>
