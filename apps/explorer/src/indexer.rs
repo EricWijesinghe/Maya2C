@@ -290,10 +290,11 @@ impl<S: BlockStore + ?Sized> Indexer<S> {
         // Jump into the retained window so indexing resumes instead of waiting
         // forever for a block the node discarded. A node whose tip is unknown,
         // or that still has `next`, leaves this untouched.
-        if let Some(tip) = self.source.tip_height().await.ok().flatten() {
-            if next < tip && self.source.block_at(next).await?.is_none() {
-                next = (tip - RETAINED_START_BEHIND).max(next);
-            }
+        if let Some(tip) = self.source.tip_height().await.ok().flatten()
+            && next < tip
+            && self.source.block_at(next).await?.is_none()
+        {
+            next = tip.saturating_sub(RETAINED_START_BEHIND).max(next);
         }
 
         let mut indexed = 0u64;
