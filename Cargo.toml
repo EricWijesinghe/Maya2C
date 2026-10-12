@@ -71,6 +71,10 @@ members = [
     "apps/wallet-gui/core",
     "crates/crypto-pq",
     "crates/ledger-math",
+    # 256-bit amounts for the dependency-free Kani crates (ADR-046, ADR-048).
+    # One internal leaf instead of a private limb type in each of fee-market,
+    # dex and ledger-math, so the carry and borrow chains are proved once.
+    "crates/amount",
     # GPU miner. A member so it cannot rot, but its `cuda` feature is off by
     # default: with no feature selected it compiles to host-side Rust and needs
     # no CUDA toolkit, which is what keeps `cargo build --workspace` green on
