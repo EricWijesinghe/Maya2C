@@ -46,6 +46,13 @@ band; move an item to PROGRESS.md when it starts.
 
 ## P2 — make claimed-working features verified
 
+- **Chat envelopes are twice the size they need to be.** `Envelope::encode`
+  (ciborium) writes ciphertext `Vec<u8>` as a CBOR integer array, about two
+  bytes per byte: a 120 KiB sticker seals to 247,427 B. `serde_bytes` on the
+  ciphertext fields would halve every message and double the sticker limit,
+  but it changes the chat wire format for the relay and every client: do it
+  with a version byte, while users are few.
+
 - **Measure line coverage of the core crates** with `cargo llvm-cov`
   (installed, 0.8.7; never run). M1 criterion 8. Source: EMPIRE.md.
 - **Property tests for fees, consensus and VM.** State has a seeded

@@ -273,3 +273,15 @@ not left downloadable; testnet.1 and testnet.2 were deleted with their tags
 one by one and dismissed with reasons (757 test fixtures, 105 false
 positives, including the two zero-nonce seals — safe, fresh ML-KEM secret per
 seal); the three real JS findings were fixed.
+
+## 2026-10-13 — Chat stickers: files named by their hash, packs shared person to person
+
+Eric: Telegram-level stickers are a main reason people love Telegram. A
+sticker rides inside the existing end-to-end encryption as a framed message
+(one file, at most 120 KB: the envelope's CBOR doubles ciphertext, so that is what fits the relay's 256 KiB in the worst case, measured) named by its
+BLAKE3 hash, which the receiver re-checks; the format is read from the bytes.
+No sticker server: a pack travels from the person who has it, on request,
+and only packs they made or installed are ever sent. Formats: Lottie (.json,
+Telegram .tgs), WebM, WebP, PNG/APNG, GIF, SVG (drawn only as <img>). The
+built-in pack is original art; no third-party pack ships with the app.
+
