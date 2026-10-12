@@ -49,7 +49,29 @@
     release (transfer integrity).
 
 .PARAMETER Uninstall
-    Stop and remove the task, the binary and the data directory, then exit.
+    Stop and remove the task, the binary and the chain data, then exit. The
+    keys are kept (a lost validator key costs its seat); -Everything removes
+    them too.
+
+.PARAMETER Status
+    Is the node running, in sync, and in the validator committee?
+
+.PARAMETER Apply
+    Make the wallet (asks for a new password) and write the validator
+    application, which holds only public values, to the Desktop.
+
+.PARAMETER Register
+    After approval: register as a validator with this bond.
+
+.PARAMETER Logs
+    Follow the node's log.
+
+.PARAMETER Update
+    Install the newest release; keys and chain data are kept.
+
+    The installer copies itself to C:\Program Files\Maya2C\maya2c-validator.ps1
+    and adds Start-menu shortcuts (Maya2C > Status, Apply, Logs, Update,
+    Uninstall), so none of these needs a path typed.
 
 .EXAMPLE
     # From an elevated PowerShell, on each machine the operator owns:
@@ -78,6 +100,13 @@ param(
     [switch]$Silent,
     [switch]$IAmTheMachineOwner,
     [switch]$Uninstall,
+    [switch]$Everything,
+    [switch]$Status,
+    [switch]$Apply,
+    [ValidateRange(1, [long]::MaxValue)]
+    [long]$Register,
+    [switch]$Logs,
+    [switch]$Update,
     [switch]$DryRun,
     # Task Scheduler priority, 0 (highest) .. 10 (idle). Default 10 so the node
     # yields all CPU to whatever is in the foreground: on a shared machine such
@@ -113,6 +142,16 @@ $NodeDataDir = Join-Path $DataDir 'v0'
 $TaskName    = 'Maya2C Validator'
 $ServiceDesc = 'Maya2C testnet validator (single-operator node). Logs: ' + $LogDir
 $WinTarget   = 'maya2c-x86_64-pc-windows-msvc'
+$WalletExe   = Join-Path $InstallDir 'l1-wallet.exe'
+$WalletPath  = Join-Path $DataDir 'wallet.key'
+$PubPath     = Join-Path $DataDir 'validator.pub'
+$Settings    = Join-Path $DataDir 'settings.json'  # the ports this install chose
+$SelfCopy    = Join-Path $InstallDir 'maya2c-validator.ps1'
+$MenuDir     = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\Maya2C'
+$SelfUrl     = 'https://raw.githubusercontent.com/EricWijesinghe/Maya2C/master/infra/testnet-vm/join-validator.ps1'
+$PublicRpc   = 'https://rpc.maya2c.dev/rpc'
+$ApplyUrl    = 'https://github.com/EricWijesinghe/Maya2C/issues/new?template=validator-application.yml'
+$SyncedWithin = 5   # blocks behind the network that still count as "in sync"
 $RpcAddr     = "127.0.0.1:$RpcPort" # RPC is unauthenticated; bind loopback only.
 # $P2pPort and $RpcPort come from params so a second node can coexist on one PC.
 
@@ -120,12 +159,24 @@ function Write-Step($m) { Write-Host "==> $m" -ForegroundColor Cyan }
 function Write-Note($m) { Write-Host "    $m" -ForegroundColor DarkGray }
 function Die($m)        { Write-Host "ERROR: $m" -ForegroundColor Red; exit 1 }
 
-function Assert-Admin {
+function Test-Admin {
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $p  = New-Object Security.Principal.WindowsPrincipal($id)
-    if (-not $p.IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)) {
-        Die 'Run this from an elevated PowerShell (Administrator). It installs a boot task.'
+    (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole(
+        [Security.Principal.WindowsBuiltinRole]::Administrator)
+}
+
+# Re-launch this script in an Administrator window with the same switches,
+# so a Start-menu shortcut or a double-click works without "Run as admin".
+function Assert-Admin {
+    if (Test-Admin) { return }
+    $fwd = @('-NoProfile', '-NoExit', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"")
+    foreach ($kv in $PSBoundParameters.GetEnumerator()) {
+        if ($kv.Value -is [switch]) { if ($kv.Value) { $fwd += "-$($kv.Key)" } }
+        else { $fwd += "-$($kv.Key)"; $fwd += "`"$($kv.Value)`"" }
     }
+    Write-Host 'Windows will ask for permission. Click Yes.' -ForegroundColor Cyan
+    Start-Process powershell.exe -Verb RunAs -ArgumentList $fwd
+    exit 0
 }
 
 function Remove-Install {
@@ -135,12 +186,27 @@ function Remove-Install {
         Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
         Write-Note "removed scheduled task '$TaskName'"
     }
-    Get-Process maya2c-node -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-    foreach ($d in @($InstallDir, $DataDir)) {
+    # By the path this install put it at, never by image name: a second node
+    # on the same PC (the seed operator's own) must survive an uninstall.
+    Get-Process maya2c-node -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -eq $NodeExe } | Stop-Process -Force
+    $doomed = @($InstallDir, $MenuDir, $NodeDataDir, $LogDir)
+    if ($Everything) { $doomed += $DataDir }
+    foreach ($d in $doomed) {
         if (Test-Path $d) { Remove-Item $d -Recurse -Force; Write-Note "removed $d" }
     }
-    Write-Host 'Uninstalled. The machine is clean.' -ForegroundColor Green
+    if (-not $Everything -and (Test-Path $DataDir)) {
+        Write-Note "your keys are kept in $DataDir (delete it only if you will never validate again)"
+    }
+    Write-Host 'Uninstalled.' -ForegroundColor Green
     exit 0
+}
+
+# Keys readable by SYSTEM and Administrators only. ProgramData otherwise
+# lets every local user read what is under it.
+function Protect-Secret($path) {
+    & icacls $path /inheritance:r /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
+    if ($LASTEXITCODE -ne 0) { Die "could not restrict access to $path (icacls exit $LASTEXITCODE)" }
 }
 
 function Show-Consent {
@@ -157,7 +223,7 @@ function Show-Consent {
     Write-Note "connect to the testnet at bootnode $Bootnode"
     Write-Note "catch up from snapshot endpoint $Bootstrap"
     Write-Host '  It is a TESTNET node. It carries no value. Remove any time with' -ForegroundColor White
-    Write-Host '      .\join-validator.ps1 -Uninstall' -ForegroundColor White
+    Write-Host '      Start menu > Maya2C > Uninstall Maya2C' -ForegroundColor White
     Write-Host ''
     if ($Silent) {
         if (-not $IAmTheMachineOwner) {
@@ -236,14 +302,14 @@ function Install-Genesis {
 }
 
 function New-ValidatorKey {
-    if (Test-Path $KeyPath) { Write-Note 'validator key already present; keeping it'; return }
+    # An older install left the key readable by every local user; fix that too.
+    if (Test-Path $KeyPath) { Protect-Secret $KeyPath; Write-Note 'validator key already present; keeping it'; return }
     Write-Step 'Generating validator key'
     $pub = (& $NodeExe --generate-validator-key $KeyPath).Trim()
-    Write-Host ''
-    Write-Host "  Validator public key (register this via staking to enter the committee):" -ForegroundColor Yellow
-    Write-Host "    $pub" -ForegroundColor Yellow
-    Write-Host ''
-    Set-Content -Path (Join-Path $DataDir 'validator.pub') -Value $pub
+    if ($LASTEXITCODE -ne 0 -or -not $pub) { Die 'making the validator key failed' }
+    Protect-Secret $KeyPath
+    Set-Content -Path $PubPath -Value $pub
+    Write-Note 'made a new validator key. It never leaves this computer.'
 }
 
 function Register-BootTask {
@@ -280,12 +346,123 @@ rem Maya2C validator launcher. Started at boot by the "$TaskName" task.
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
         -Principal $princ -Settings $set -Description $ServiceDesc | Out-Null
     Start-ScheduledTask -TaskName $TaskName
-    Write-Note "started. Follow it with:  Get-Content '$LogDir\node.log' -Wait"
+    @{ RpcPort = $RpcPort; P2pPort = $P2pPort } | ConvertTo-Json | Set-Content $Settings
+    Write-Note 'started'
+}
+
+# The installer stays on the machine as the helper behind the Start-menu
+# shortcuts. Under `irm | iex` there is no file to copy, so fetch it.
+function Install-Helper {
+    if ($PSCommandPath -and (Test-Path $PSCommandPath)) {
+        if ($PSCommandPath -ne $SelfCopy) { Copy-Item $PSCommandPath $SelfCopy -Force }
+    } else {
+        Invoke-WebRequest $SelfUrl -OutFile $SelfCopy -UseBasicParsing
+    }
+    New-Item -ItemType Directory -Force -Path $MenuDir | Out-Null
+    $shell = New-Object -ComObject WScript.Shell
+    $items = [ordered]@{
+        'Maya2C Status'             = '-Status'
+        'Maya2C Become a validator' = '-Apply'
+        'Maya2C Logs'               = '-Logs'
+        'Maya2C Update'             = '-Update'
+        'Uninstall Maya2C'          = '-Uninstall'
+    }
+    foreach ($name in $items.Keys) {
+        $lnk = $shell.CreateShortcut((Join-Path $MenuDir "$name.lnk"))
+        $lnk.TargetPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+        $lnk.Arguments  = "-NoProfile -NoExit -ExecutionPolicy Bypass -File `"$SelfCopy`" $($items[$name])"
+        $lnk.Save()
+    }
+    Write-Note "Start menu > Maya2C: Status, Become a validator, Logs, Update, Uninstall"
+}
+
+function Get-RpcPort {
+    if (Test-Path $Settings) { return (Get-Content $Settings -Raw | ConvertFrom-Json).RpcPort }
+    return $RpcPort
+}
+
+function Invoke-Rpc($url, $method) {
+    $body = @{ jsonrpc = '2.0'; id = 1; method = $method; params = @() } | ConvertTo-Json
+    try { (Invoke-RestMethod $url -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 5).result }
+    catch { $null }
+}
+
+function Show-Status {
+    Write-Host ''
+    Write-Host '  Maya2C node status' -ForegroundColor White
+    # This install's task, not any maya2c-node.exe: another node on the PC
+    # would otherwise answer for this one.
+    $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    if (-not $task -or $task.State -ne 'Running') {
+        Write-Host '  X the node is not running' -ForegroundColor Red
+        Write-Note "restart the PC, or run in Administrator PowerShell: Start-ScheduledTask '$TaskName'"
+        return
+    }
+    Write-Host '  OK the node is running' -ForegroundColor Green
+    $local = "http://127.0.0.1:$(Get-RpcPort)"
+    $mine = Invoke-Rpc $local 'get_tip_height'
+    $net  = Invoke-Rpc $Bootstrap 'get_tip_height'
+    if ($null -eq $mine) { Write-Note 'downloading the chain snapshot - check again in a few minutes' }
+    elseif ($null -ne $net -and ($net - $mine) -le $SyncedWithin) {
+        Write-Host "  OK in sync: block $mine (network: $net)" -ForegroundColor Green
+    } else {
+        Write-Note "catching up: block $mine of $net"
+        Write-Note 'The first start can take up to an hour. Nothing to do but wait.'
+    }
+    $bft = Invoke-Rpc $local 'get_bft_status'
+    if ($bft -and $null -ne $bft.validator) {
+        Write-Host '  OK validating: your node is in the committee and voting' -ForegroundColor Green
+    } else { Write-Note 'following the chain (not a validator yet: Start menu > Maya2C Become a validator)' }
+    Write-Note "files: $DataDir    log: $LogDir\node.log"
+}
+
+function Invoke-Wallet {
+    $env:L1_WALLET_KEYSTORE = $WalletPath
+    & $WalletExe --rpc-url $PublicRpc @args
+    if ($LASTEXITCODE -ne 0) { Die "l1-wallet $($args[0]) failed (exit $LASTEXITCODE)" }
+}
+
+function Invoke-Apply {
+    if (-not (Test-Path $PubPath)) { Die 'no validator key yet: run the installer first' }
+    if (-not (Test-Path $WalletPath)) {
+        Write-Step 'Making your wallet. Choose a password and write it down: it cannot be recovered.'
+        Invoke-Wallet generate
+        Protect-Secret $WalletPath
+    }
+    $address = (Invoke-Wallet address | Select-Object -Last 1).Trim()
+    $file = Join-Path ([Environment]::GetFolderPath('Desktop')) 'maya2c-application.txt'
+    @('Maya2C validator application', '', 'Wallet address:', $address, '',
+      'Validator public key:', (Get-Content $PubPath -Raw).Trim()) | Set-Content $file
+    Write-Host ''
+    Write-Host "  Your application is on the Desktop: $file" -ForegroundColor Green
+    Write-Note 'It holds only PUBLIC information. Send it to Eric any way you like,'
+    Write-Note "or paste the two values into the form: $ApplyUrl"
+    Write-Note 'When Eric says you are approved and funded, run in this window:'
+    Write-Note "  & '$SelfCopy' -Register <the amount Eric gives you>"
+    Start-Process notepad.exe $file
+}
+
+function Invoke-Register {
+    if (-not (Test-Path $WalletPath)) { Die 'no wallet yet: Start menu > Maya2C Become a validator' }
+    Write-Step 'Registering your validator (your wallet password is needed)'
+    Invoke-Wallet register-validator --validator-key $KeyPath --bond $Register
+    Write-Host '  Registered. You join the committee at the next epoch (within about an hour).' -ForegroundColor Green
 }
 
 # --- Main --------------------------------------------------------------------
+# Status and Logs only read, so they need no Administrator window.
+if ($Status) { Show-Status; exit 0 }
+if ($Logs)   { Get-Content (Join-Path $LogDir 'node.log') -Tail 50 -Wait; exit 0 }
 Assert-Admin
 if ($Uninstall) { Remove-Install }
+if ($Apply)     { Invoke-Apply; exit 0 }
+if ($Register)  { Invoke-Register; exit 0 }
+if ($Update) {
+    # The newest installer, not this copy of it: an update may fix the installer.
+    Invoke-WebRequest $SelfUrl -OutFile $SelfCopy -UseBasicParsing
+    & $SelfCopy -Silent -IAmTheMachineOwner -P2pPort $P2pPort -RpcPort (Get-RpcPort)
+    exit $LASTEXITCODE
+}
 
 if (-not $GenesisUrl)    { Die 'join mode needs -GenesisUrl, where the seed operator published genesis.json' }
 if (-not $GenesisSha256) { Die 'join mode needs -GenesisSha256, the hash the seed operator published with it' }
@@ -299,10 +476,11 @@ Install-Node $tag
 Install-Genesis
 New-ValidatorKey
 Register-BootTask
+Install-Helper
 
 Write-Host ''
-Write-Host 'Done. This machine is now a Maya2C testnet validator (single-operator).' -ForegroundColor Green
-Write-Note "task:   Task Scheduler > '$TaskName'"
-Write-Note "process: maya2c-node.exe"
-Write-Note "logs:   $LogDir\node.log"
-Write-Note "remove: .\join-validator.ps1 -Uninstall"
+Write-Host 'Done. Thank you for helping!' -ForegroundColor Green
+Write-Note 'The node runs in the background and starts by itself with Windows.'
+Write-Note 'Start menu > Maya2C Status            is it running and in sync?'
+Write-Note 'Start menu > Maya2C Become a validator  the next step'
+Write-Note "Files: $DataDir   Log: $LogDir\node.log"
