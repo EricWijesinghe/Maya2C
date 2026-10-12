@@ -8,12 +8,12 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use primitive_types::U256;
 use custom_l1_node::core::payload::{ContractCall, ContractDeploy, derive_contract_id};
 use custom_l1_node::core::{Block, BlockHeader, Transaction, TxKind};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::state::{Account, BlockContext, StateDB};
+use primitive_types::U256;
 use tempfile::TempDir;
 
 mod common;

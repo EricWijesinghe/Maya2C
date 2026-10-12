@@ -21,6 +21,8 @@ hex.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+# ADR-046: balances read back from the node are U256.
+primitive-types.workspace = true
 getrandom.workspace = true
 tempfile.workspace = true
 

@@ -392,7 +392,10 @@ fn a_statement_is_drawn_from_a_block_that_verified() {
     db.apply_block_checked(&checked, BlockContext::at_height(1))
         .expect("the block's declared state root is the one execution produced");
 
-    assert_eq!(db.get_account(&creditor).expect("account").balance, primitive_types::U256::from(123_456));
+    assert_eq!(
+        db.get_account(&creditor).expect("account").balance,
+        primitive_types::U256::from(123_456)
+    );
 
     let statement = StatementSource::for_block(
         "STMT-MSG-1",

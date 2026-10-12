@@ -15,7 +15,7 @@ fn key(index: u64) -> Key {
 }
 
 fn value(index: u64) -> Value {
-    let mut out = [0u8; 16];
+    let mut out: Value = [0u8; 40]; // ADR-046: 32-byte balance + 8-byte nonce
     out[..8].copy_from_slice(&index.to_le_bytes());
     out
 }
@@ -237,8 +237,8 @@ fn the_ring_sis_backend_builds_the_same_trees() {
 #[test]
 fn a_ring_sis_leaf_is_never_the_empty_digest_and_digests_are_canonical() {
     let ring = RingSis::new();
-    assert_ne!(ring.leaf(&[0; 32], &[0; 16]), ring.empty());
-    assert_ne!(ring.leaf(&[0; 32], &[0; 16]), ring.leaf(&[0; 32], &[1; 16]));
+    assert_ne!(ring.leaf(&[0; 32], &[0; 40]), ring.empty());
+    assert_ne!(ring.leaf(&[0; 32], &[0; 40]), ring.leaf(&[0; 32], &[1; 40]));
 
     // 0x3FFF in the first 14 bits is 16383, which is not below q.
     let mut digest = [0u8; 448];

@@ -7,7 +7,6 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use primitive_types::U256;
 use custom_l1_node::core::block::{Block, BlockHeader};
 use custom_l1_node::core::{Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
@@ -17,6 +16,7 @@ use custom_l1_node::state::{
     verify_block,
 };
 use maya_stateless_core::AccountState;
+use primitive_types::U256;
 use tempfile::TempDir;
 
 mod common;

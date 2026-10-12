@@ -37,7 +37,7 @@ fn render_blocking_requests(html: &str) -> usize {
 fn pages_stay_within_their_byte_budgets() {
     let account = account_page(
         "ab".repeat(32),
-        Some(5),
+        Some(5u64.into()),
         Some(50),
         (0..50).map(tx).collect(),
         None,

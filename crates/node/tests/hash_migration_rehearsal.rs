@@ -64,7 +64,11 @@ fn leaf(hash: Hash, addr: &Address, a: &Account) -> [u8; 32] {
     hash.digest(&[
         &[0x00],
         addr,
-        &{ let mut b = [0u8; 32]; a.balance.to_little_endian(&mut b); b },
+        &{
+            let mut b = [0u8; 32];
+            a.balance.to_little_endian(&mut b);
+            b
+        },
         &a.nonce.to_le_bytes(),
     ])
 }

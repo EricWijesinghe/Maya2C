@@ -30,10 +30,10 @@ use custom_l1_node::core::transaction::{Transaction, TxOutput};
 use custom_l1_node::crypto::keys::{self, VerifyingKey};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::state::account::Account;
-use primitive_types::U256;
 use custom_l1_node::state::db::StateDB;
 use maya_crypto_pq::suite::{MasterSeed, MlDsa65, SignatureSuite};
 use maya_dag_bft::Params;
+use primitive_types::U256;
 
 const VALIDATORS: usize = 4;
 

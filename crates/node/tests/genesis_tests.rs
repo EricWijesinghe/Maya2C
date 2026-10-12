@@ -269,7 +269,9 @@ fn seeding_is_idempotent_across_restarts() {
 
     assert_eq!(first, second);
     assert_eq!(
-        state.get_account(&[1u8; 32]).map(|a| u64::try_from(a.balance).expect("fits u64")),
+        state
+            .get_account(&[1u8; 32])
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
         Ok(1_000_000)
     );
 }

@@ -143,7 +143,11 @@ fn opening_a_channel_escrows_the_funding() {
     let id = open_channel(&f, &alice, address_of(&bob), 4_000, 50, 0);
 
     // The funds have left Alice's account but belong to nobody yet.
-    assert_eq!(f.db.get_account(&alice_addr).map(|a| u64::try_from(a.balance).expect("fits u64")), Ok(6_000));
+    assert_eq!(
+        f.db.get_account(&alice_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(6_000)
+    );
 
     let record = f.db.get_channel(&id).expect("read").expect("exists");
     assert_eq!(record.capacity, 4_000);
@@ -224,8 +228,16 @@ fn a_cooperative_close_pays_both_parties() {
     )
     .expect("close");
 
-    assert_eq!(f.db.get_account(&alice_addr).map(|a| u64::try_from(a.balance).expect("fits u64")), Ok(7_500));
-    assert_eq!(f.db.get_account(&bob_addr).map(|a| u64::try_from(a.balance).expect("fits u64")), Ok(2_500));
+    assert_eq!(
+        f.db.get_account(&alice_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(7_500)
+    );
+    assert_eq!(
+        f.db.get_account(&bob_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(2_500)
+    );
     assert_eq!(
         f.db.get_channel(&id).expect("read").expect("exists").status,
         ChannelStatus::Closed
@@ -301,7 +313,11 @@ fn a_third_party_may_submit_but_not_alter_a_closure() {
     )
     .expect("third-party submission is allowed");
 
-    assert_eq!(f.db.get_account(&bob_addr).map(|a| u64::try_from(a.balance).expect("fits u64")), Ok(3_000));
+    assert_eq!(
+        f.db.get_account(&bob_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(3_000)
+    );
 
     // But tampering with the balances invalidates the inner signatures.
     let f2 = fixture(&[(alice_addr, 10_000), (address_of(&carol), 10)]);
@@ -344,8 +360,16 @@ fn a_dispute_close_does_not_pay_out_immediately() {
     .expect("dispute");
 
     // Paying out now would make fraud costless.
-    assert_eq!(f.db.get_account(&alice_addr).map(|a| u64::try_from(a.balance).expect("fits u64")), Ok(6_000));
-    assert_eq!(f.db.get_account(&bob_addr).map(|a| u64::try_from(a.balance).expect("fits u64")), Ok(0));
+    assert_eq!(
+        f.db.get_account(&alice_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(6_000)
+    );
+    assert_eq!(
+        f.db.get_account(&bob_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(0)
+    );
 
     let record = f.db.get_channel(&id).expect("read").expect("exists");
     assert_eq!(record.status, ChannelStatus::Disputed);
@@ -398,8 +422,16 @@ fn publishing_a_revoked_state_forfeits_the_whole_channel() {
     .expect("penalty");
 
     // Everything goes to the victim; the cheater gets nothing back.
-    assert_eq!(f.db.get_account(&bob_addr).map(|a| u64::try_from(a.balance).expect("fits u64")), Ok(4_000));
-    assert_eq!(f.db.get_account(&alice_addr).map(|a| u64::try_from(a.balance).expect("fits u64")), Ok(6_000));
+    assert_eq!(
+        f.db.get_account(&bob_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(4_000)
+    );
+    assert_eq!(
+        f.db.get_account(&alice_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(6_000)
+    );
     assert_eq!(
         f.db.get_channel(&id).expect("read").expect("exists").status,
         ChannelStatus::Closed
@@ -534,8 +566,16 @@ fn an_unchallenged_dispute_finalizes_at_its_claimed_balances() {
     )
     .expect("finalize");
 
-    assert_eq!(f.db.get_account(&alice_addr).map(|a| u64::try_from(a.balance).expect("fits u64")), Ok(8_500));
-    assert_eq!(f.db.get_account(&bob_addr).map(|a| u64::try_from(a.balance).expect("fits u64")), Ok(1_500));
+    assert_eq!(
+        f.db.get_account(&alice_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(8_500)
+    );
+    assert_eq!(
+        f.db.get_account(&bob_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(1_500)
+    );
 }
 
 #[test]
@@ -667,13 +707,15 @@ fn one_transaction_settles_many_channels() {
 
     for peer in &peers {
         assert_eq!(
-            f.db.get_account(&address_of(peer)).map(|a| u64::try_from(a.balance).expect("fits u64")),
+            f.db.get_account(&address_of(peer))
+                .map(|a| u64::try_from(a.balance).expect("fits u64")),
             Ok(600)
         );
     }
     // 1_000_000 - 25_000 escrowed + 25 * 400 returned.
     assert_eq!(
-        f.db.get_account(&alice_addr).map(|a| u64::try_from(a.balance).expect("fits u64")),
+        f.db.get_account(&alice_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
         Ok(1_000_000 - 25_000 + 10_000)
     );
 }
@@ -710,7 +752,8 @@ fn one_forged_closure_rejects_the_entire_batch() {
 
     // Atomicity: the valid closure in the same batch must not have applied.
     assert_eq!(
-        f.db.get_account(&address_of(&peer_one)).map(|a| u64::try_from(a.balance).expect("fits u64")),
+        f.db.get_account(&address_of(&peer_one))
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
         Ok(0)
     );
     assert_eq!(
