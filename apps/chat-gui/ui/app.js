@@ -56,8 +56,14 @@ function drawContacts() {
 function drawLine(line) {
   const li = document.createElement("li");
   li.className = line.mine ? "mine" : "theirs";
-  const text = document.createElement("span");
-  text.textContent = line.text;
+  let text;
+  if (line.sticker) {
+    li.classList.add("is-sticker");
+    text = Stickers.line(line, line.peer);
+  } else {
+    text = document.createElement("span");
+    text.textContent = line.text;
+  }
   const at = document.createElement("time");
   const clock = new Date(line.at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   // What happened to the words: sealed here, or opened here after the trip.
@@ -72,6 +78,7 @@ async function openPeer(addr) {
   $("peer").replaceChildren(avatar(addr), document.createTextNode(nameOf(addr)));
   $("text").disabled = false;
   $("send").disabled = false;
+  $("sticker-toggle").disabled = false;
   drawContacts();
   $("lines").replaceChildren();
   try {
@@ -91,6 +98,8 @@ async function poll() {
         state.contacts = await invoke("add_contact", { name: short(line.peer), addr: line.peer });
         drawContacts();
       }
+      // A pack someone sent finished arriving: the picker shows it now.
+      if (line.text.startsWith("Sticker pack ") && !line.sticker) Stickers.refresh().catch(() => {});
       if (line.peer === state.peer) drawLine(line);
       else say("side-status", `New message from ${nameOf(line.peer)}`);
     }
@@ -114,6 +123,16 @@ async function enter(status, open) {
   $("copy").title = status.address;
   $("relay").value = status.relay;
   drawContacts();
+  Stickers.init(async (pack, id) => {
+    if (!state.peer) return;
+    say("chat-error", "");
+    try {
+      drawLine(await invoke("send_sticker", { peer: state.peer, pack, id }));
+    } catch (e) {
+      say("chat-error", e);
+    }
+  }).catch((e) => say("side-status", e));
+  $("text").oninput = () => Stickers.suggest($("text").value);
   if (open) openPeer(open);
   if (status.relay) {
     try {
@@ -249,6 +268,7 @@ $("compose").onsubmit = async (ev) => {
   try {
     drawLine(await invoke("send", { peer: state.peer, text }));
     $("text").value = "";
+    Stickers.suggest("");
   } catch (e) {
     say("chat-error", e);
   } finally {

@@ -22,6 +22,9 @@ const SERVICE: &str = "com.maya2c.chat";
 const SERVICE_ENV: &str = "MAYA_CHAT_KEYCHAIN_SERVICE";
 const SEED_ENTRY: &str = "identity-seed";
 const PROFILE_DOMAIN: &str = "maya-chat-gui 2026-09-29 profile v1";
+const STICKER_DOMAIN: &str = "maya-chat-gui 2026-10-13 sticker cache v1";
+/// Recently sent stickers kept for the picker's first row.
+pub const RECENT_LIMIT: usize = 30;
 const NONCE_LEN: usize = 12;
 
 /// A contact: a name the user chose and a chat address.
@@ -41,6 +44,18 @@ pub struct Line {
     pub text: String,
     /// Unix seconds.
     pub at: u64,
+    /// Set when the line is a sticker; `text` then holds its emoji.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sticker: Option<StickerRef>,
+}
+
+/// The sticker a line shows.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StickerRef {
+    pub id: String,
+    pub format: crate::stickers::Format,
+    pub pack: String,
+    pub title: String,
 }
 
 /// Everything that is not the key or the sessions.
@@ -49,6 +64,12 @@ pub struct Profile {
     pub relay: String,
     pub contacts: Vec<Contact>,
     pub history: Vec<Line>,
+    /// Installed and made packs, in the picker's order.
+    #[serde(default)]
+    pub packs: Vec<crate::stickers::Pack>,
+    /// Recently sent sticker ids, newest first.
+    #[serde(default)]
+    pub recent: Vec<String>,
 }
 
 fn keychain() -> Result<keyring::Entry, String> {
@@ -89,12 +110,41 @@ fn profile_key(seed: &[u8; 32]) -> Zeroizing<[u8; 32]> {
     Zeroizing::new(blake3::derive_key(PROFILE_DOMAIN, seed))
 }
 
+/// Encrypts `plain` under the key `domain` derives from `seed`: nonce ‖ body.
+fn seal(seed: &[u8; 32], domain: &str, plain: &[u8]) -> Result<Vec<u8>, String> {
+    let mut nonce = [0u8; NONCE_LEN];
+    getrandom::fill(&mut nonce).map_err(|e| format!("no entropy: {e}"))?;
+    let key = Zeroizing::new(blake3::derive_key(domain, seed));
+    let body = ChaCha20Poly1305::new(Key::from_slice(key.as_ref()))
+        .encrypt(Nonce::from_slice(&nonce), plain)
+        .map_err(|_| "encrypting failed".to_string())?;
+    Ok([nonce.as_slice(), &body].concat())
+}
+
+/// Reverses [`seal`]; `None` for a damaged file or another identity's.
+fn open(seed: &[u8; 32], domain: &str, sealed: &[u8]) -> Option<Vec<u8>> {
+    if sealed.len() < NONCE_LEN {
+        return None;
+    }
+    let (nonce, body) = sealed.split_at(NONCE_LEN);
+    let key = Zeroizing::new(blake3::derive_key(domain, seed));
+    ChaCha20Poly1305::new(Key::from_slice(key.as_ref()))
+        .decrypt(Nonce::from_slice(nonce), body)
+        .ok()
+}
+
 /// Writes `bytes` to `path` through a temporary file and a rename, so a
 /// crash leaves the old file or the new one, never half of each.
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let tmp = path.with_extension("tmp");
     std::fs::write(&tmp, bytes).map_err(|e| format!("{}: {e}", tmp.display()))?;
     std::fs::rename(&tmp, path).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// A sticker id as a file name: 64 lowercase hex characters and nothing else,
+/// so an id from a message can never name a path outside the cache.
+fn is_hex_id(id: &str) -> bool {
+    id.len() == 64 && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// The app's data directory and its files.
@@ -135,6 +185,26 @@ impl Files {
         serde_json::from_slice(&plain).map_err(|e| format!("the profile file is damaged: {e}"))
     }
 
+    /// A cached sticker file, if this computer holds it and it still hashes
+    /// to its id.
+    pub fn sticker(&self, seed: &[u8; 32], id: &str) -> Option<Vec<u8>> {
+        if !is_hex_id(id) {
+            return None;
+        }
+        let sealed = std::fs::read(self.dir.join("stickers").join(format!("{id}.bin"))).ok()?;
+        open(seed, STICKER_DOMAIN, &sealed).filter(|bytes| crate::stickers::sticker_id(bytes) == id)
+    }
+
+    /// Caches a sticker file under its id, encrypted like the profile: what
+    /// someone was sent says who they talk to.
+    pub fn save_sticker(&self, seed: &[u8; 32], bytes: &[u8]) -> Result<String, String> {
+        let id = crate::stickers::sticker_id(bytes);
+        let dir = self.dir.join("stickers");
+        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        write_atomic(&dir.join(format!("{id}.bin")), &seal(seed, STICKER_DOMAIN, bytes)?)?;
+        Ok(id)
+    }
+
     pub fn save_profile(&self, seed: &[u8; 32], profile: &Profile) -> Result<(), String> {
         let plain = Zeroizing::new(serde_json::to_vec(profile).map_err(|e| e.to_string())?);
         let mut nonce = [0u8; NONCE_LEN];
@@ -158,7 +228,8 @@ mod tests {
         let profile = Profile {
             relay: "/dns4/seed1.maya2c.dev/tcp/4001/p2p/x".into(),
             contacts: vec![Contact { name: "Ann".into(), address: "ab".repeat(32) }],
-            history: vec![Line { peer: "ab".repeat(32), mine: true, text: "hi".into(), at: 1 }],
+            history: vec![Line { peer: "ab".repeat(32), mine: true, text: "hi".into(), at: 1, sticker: None }],
+            ..Profile::default()
         };
         files.save_profile(&[1; 32], &profile).unwrap();
         assert_eq!(files.profile(&[1; 32]).unwrap(), profile);
@@ -166,5 +237,27 @@ mod tests {
         let raw = std::fs::read(dir.join("profile.bin")).unwrap();
         assert!(!String::from_utf8_lossy(&raw).contains("Ann"), "names are not in the clear");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn stickers_are_cached_encrypted_and_checked_on_read() {
+        let dir = std::env::temp_dir().join(format!("maya-chat-gui-stk-{}", std::process::id()));
+        let files = Files::new(dir.clone()).unwrap();
+        let gif = b"GIF89a-test-sticker".to_vec();
+        let id = files.save_sticker(&[1; 32], &gif).unwrap();
+        assert_eq!(files.sticker(&[1; 32], &id), Some(gif.clone()));
+        assert_eq!(files.sticker(&[2; 32], &id), None, "another identity cannot read it");
+        assert_eq!(files.sticker(&[1; 32], "../profile"), None, "an id is never a path");
+        let raw = std::fs::read(dir.join("stickers").join(format!("{id}.bin"))).unwrap();
+        assert!(!raw.windows(6).any(|w| w == b"GIF89a"), "not in the clear");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn an_older_profile_without_packs_still_loads() {
+        let old = r#"{"relay":"r","contacts":[],"history":[{"peer":"p","mine":true,"text":"hi","at":1}]}"#;
+        let profile: Profile = serde_json::from_str(old).unwrap();
+        assert!(profile.packs.is_empty() && profile.recent.is_empty());
+        assert_eq!(profile.history[0].sticker, None);
     }
 }

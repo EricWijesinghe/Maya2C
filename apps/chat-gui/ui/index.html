@@ -46,14 +46,37 @@
       <section class="chat">
         <header id="peer" class="peer">Choose a contact</header>
         <ol id="lines" class="lines" aria-live="polite"></ol>
+        <div id="sticker-suggest" class="suggest" aria-label="Stickers for this emoji" hidden></div>
+        <section id="sticker-panel" class="sticker-panel" aria-label="Stickers" hidden>
+          <nav id="sticker-tabs" class="sticker-tabs"></nav>
+          <div id="sticker-grid" class="sticker-grid"></div>
+        </section>
         <form id="compose" class="compose">
-          <input id="text" placeholder="Write a message" autocomplete="off" disabled />
+          <button id="sticker-toggle" type="button" class="icon" title="Stickers" disabled>😊</button>
+          <input id="text" placeholder="Write a message, or one emoji for stickers" autocomplete="off" disabled />
           <button id="send" class="primary" disabled>Send</button>
         </form>
         <p id="chat-error" class="error" role="alert"></p>
       </section>
     </div>
 
+    <dialog id="maker" class="maker">
+      <h2>Make a sticker pack</h2>
+      <input id="maker-title" placeholder="Pack name" maxlength="64" />
+      <label class="files">Add stickers: Lottie (.json, .tgs), video (.webm), WebP, PNG, GIF or SVG, up to 192 KB each
+        <input id="maker-files" type="file" multiple />
+      </label>
+      <div id="maker-items" class="maker-items"></div>
+      <p class="hint">Give each sticker the emoji it answers to: typing that emoji will suggest it. <span id="maker-count"></span></p>
+      <p id="maker-error" class="error" role="alert"></p>
+      <div class="maker-actions">
+        <button id="maker-cancel" type="button" class="secondary">Cancel</button>
+        <button id="maker-save" type="button" class="primary">Create pack</button>
+      </div>
+    </dialog>
+
+    <script src="vendor/lottie_light.min.js"></script>
+    <script src="stickers.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
