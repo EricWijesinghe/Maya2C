@@ -60,7 +60,10 @@ where
             .collect();
         handles
             .into_iter()
-            .map(|h| h.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)))
+            .map(|h| {
+                h.join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            })
             .collect()
     });
     let mut all: Vec<(u64, Result<T>)> = lanes.into_iter().flatten().collect();
@@ -87,7 +90,9 @@ where
         for item in fetch_ordered(start, end, PREFETCH_WORKERS, fetch)? {
             consume(item)?;
         }
-        let Some(next) = end.checked_add(1) else { break };
+        let Some(next) = end.checked_add(1) else {
+            break;
+        };
         start = next;
     }
     Ok(())
@@ -151,7 +156,11 @@ mod tests {
 
     #[test]
     fn empty_and_single_ranges() {
-        assert!(fetch_ordered(5, 4, 4, &|h| Ok(h)).expect("empty").is_empty());
+        assert!(
+            fetch_ordered(5, 4, 4, &|h| Ok(h))
+                .expect("empty")
+                .is_empty()
+        );
         assert_eq!(fetch_ordered(7, 7, 4, &|h| Ok(h)).expect("one"), vec![7]);
     }
 
@@ -168,7 +177,11 @@ mod tests {
         let mut consumed = 0;
         let result = for_each_prefetched(1, 200, &|h| Ok(h), |h| {
             consumed += 1;
-            if h == 70 { Err(NodeError::Network("bad".into())) } else { Ok(()) }
+            if h == 70 {
+                Err(NodeError::Network("bad".into()))
+            } else {
+                Ok(())
+            }
         });
         assert!(result.is_err());
         assert_eq!(consumed, 70, "nothing after the failing block is consumed");

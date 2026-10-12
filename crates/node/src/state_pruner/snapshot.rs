@@ -359,12 +359,9 @@ fn bootstrap_into(
     chain.adopt_snapshot(&ids[..=height as usize])?;
     // Fetched a window at a time with several requests in flight, inserted
     // strictly in order: every body is still fully validated.
-    super::prefetch::for_each_prefetched(
-        height + 1,
-        tip,
-        &|h| source.block(h),
-        |block| chain.insert_block(block).map(|_| ()),
-    )?;
+    super::prefetch::for_each_prefetched(height + 1, tip, &|h| source.block(h), |block| {
+        chain.insert_block(block).map(|_| ())
+    })?;
     Ok(chain)
 }
 

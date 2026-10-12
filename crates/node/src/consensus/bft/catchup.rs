@@ -214,8 +214,8 @@ pub fn import(chain: &mut Chain, blocks: Vec<Block>) -> Result<u64> {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
-    use std::sync::Mutex;
     use std::collections::BTreeMap;
+    use std::sync::Mutex;
 
     use super::*;
     use crate::consensus::bft::attest::Attestation;

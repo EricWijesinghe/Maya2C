@@ -92,15 +92,23 @@ release_target() {
   esac
 }
 
-# The newest testnet release that has a build for this machine.
+# The newest testnet release that has a build for this machine. Read from the
+# releases feed, not api.github.com: the API allows 60 unauthenticated calls
+# an hour per IP, and a shared or mobile IP (or a CI runner) runs out.
 find_release() {
-  local target=$1 tag
-  tag=$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=20" \
-    | grep -o "\"browser_download_url\": *\"[^\"]*/node-[^\"/]*testnet[^\"/]*/maya2c-$target.tar.gz\"" \
-    | head -1 | sed 's#.*/download/\([^/]*\)/.*#\1#') || true
-  [ -n "$tag" ] || die "no testnet release has a build for $target yet" \
-    "an Intel Mac build arrives with the next release; ask in the Maya2C chat"
-  echo "$tag"
+  local target=$1 tags tag
+  tags=$(curl -fsSL "https://github.com/$REPO/releases.atom" \
+    | grep -o 'releases/tag/node-[^"<]*testnet[^"<]*' | sed 's#releases/tag/##') \
+    || die "could not reach GitHub to find the newest release" "check the internet connection and run the command again"
+  for tag in $tags; do
+    if curl -fsIL -o /dev/null "https://github.com/$REPO/releases/download/$tag/maya2c-$target.tar.gz"; then
+      echo "$tag"; return
+    fi
+  done
+  case "$target" in
+    x86_64-apple-darwin) die "there is no build for Intel Macs in a release yet" "it arrives with the next release; tell Eric" ;;
+    *) die "no testnet release has a build for $target yet" "tell Eric which computer this is" ;;
+  esac
 }
 
 install_binaries() {

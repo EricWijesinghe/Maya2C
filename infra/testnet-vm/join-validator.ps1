@@ -239,8 +239,11 @@ function Show-Consent {
 function Get-ReleaseTag {
     if ($ReleaseTag) { return $ReleaseTag }
     Write-Step 'Finding newest node-v* release'
-    $rel = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases" -Headers @{ 'User-Agent' = 'maya2c-join' }
-    $tag = ($rel | Where-Object { $_.tag_name -like 'node-v*' } | Select-Object -First 1).tag_name
+    # The releases feed, not api.github.com: the API allows 60 unauthenticated
+    # calls an hour per IP, which a shared IP or a CI runner runs out of.
+    $feed = (Invoke-WebRequest "https://github.com/$Repo/releases.atom" -UseBasicParsing).Content
+    $tag = [regex]::Matches($feed, 'releases/tag/(node-v[^"<]+)') |
+        ForEach-Object { $_.Groups[1].Value } | Select-Object -First 1
     if (-not $tag) { Die 'No node-v* release found. Pass -ReleaseTag explicitly.' }
     Write-Note "using $tag"
     return $tag
