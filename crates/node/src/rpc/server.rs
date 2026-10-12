@@ -147,6 +147,9 @@ pub struct RpcContext {
     /// operator wires it: peer addresses are this node's private knowledge,
     /// so bind an RPC that carries them to a local interface.
     pub peers: Option<NodeHandle>,
+    /// The running node, for `get_peers`: connections without addresses,
+    /// so unlike `peers` it may be served on any interface.
+    pub network_view: Option<NodeHandle>,
     /// Whether `submit_block` accepts blocks. False on a DAG-BFT network,
     /// where a block is derived from certificates and a submitted one is only
     /// somebody's claim (`consensus::bft`); the chain there verifies no work,
@@ -175,6 +178,7 @@ impl RpcContext {
             snapshots: None,
             cold: None,
             peers: None,
+            network_view: None,
             accepts_blocks: true,
             network: None,
             checkpoint: None,
@@ -235,6 +239,15 @@ impl RpcContext {
     pub fn refusing_blocks(self) -> Self {
         Self {
             accepts_blocks: false,
+            ..self
+        }
+    }
+
+    /// The same context, answering `get_peers` from `node`.
+    #[must_use]
+    pub fn with_network_view(self, node: NodeHandle) -> Self {
+        Self {
+            network_view: Some(node),
             ..self
         }
     }
@@ -669,6 +682,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     crate::rpc::bootstrap::register(&mut module)?;
+    crate::rpc::peers::register(&mut module)?;
 
     Ok(module)
 }
