@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 200" role="img" aria-label="Maya2C" width="560" height="200">
+  <title>Maya2C</title>
+  <defs>
+    <linearGradient id="m2c-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="0.6" stop-color="#a78bfa"/>
+      <stop offset="1" stop-color="#f472b6"/>
+    </linearGradient>
+    <radialGradient id="m2c-core" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#e0f2fe"/>
+      <stop offset="0.4" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#a78bfa" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="m2c-glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Quantum lattice mark: a ring of nodes around a certifying core,
+       the structure ML-DSA and the DAG rest on. -->
+  <g transform="translate(100 100)" filter="url(#m2c-glow)">
+    <circle r="62" fill="none" stroke="url(#m2c-grad)" stroke-width="1.2" stroke-opacity="0.35"/>
+    <g stroke="url(#m2c-grad)" stroke-width="2" stroke-opacity="0.75" fill="none">
+      <path d="M0 -58 L50 -29 L50 29 L0 58 L-50 29 L-50 -29 Z"/>
+      <path d="M0 -58 L0 58 M-50 -29 L50 29 M-50 29 L50 -29"/>
+    </g>
+    <g fill="url(#m2c-grad)">
+      <circle cx="0" cy="-58" r="6"/>
+      <circle cx="50" cy="-29" r="6"/>
+      <circle cx="50" cy="29" r="6"/>
+      <circle cx="0" cy="58" r="6"/>
+      <circle cx="-50" cy="29" r="6"/>
+      <circle cx="-50" cy="-29" r="6"/>
+    </g>
+    <circle r="16" fill="url(#m2c-core)">
+      <animate attributeName="r" values="14;19;14" dur="3.2s" repeatCount="indefinite"/>
+    </circle>
+    <circle r="5.5" fill="#e0f2fe"/>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="190" y="128" font-family="'Manrope','Inter',system-ui,sans-serif"
+        font-size="86" font-weight="800" letter-spacing="-2"
+        fill="url(#m2c-grad)">Maya2C</text>
+</svg>

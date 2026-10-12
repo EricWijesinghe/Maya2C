@@ -31,18 +31,93 @@ const gates = [
 
 <style>
   .ladder { list-style: none; padding: 0; margin: 1.5rem 0 2rem; position: relative; }
+  /* The spine: a lit track for the passed gates fading to a dim one for what
+     is still ahead. */
   .ladder::before {
     content: ""; position: absolute; left: 0.7rem; top: 0.5rem; bottom: 0.5rem; width: 2px;
     background: linear-gradient(#22d3ee 0 50%, #a78bfa 50% 62%, var(--sl-color-hairline) 62%);
   }
-  li { display: grid; grid-template-columns: 1.4rem 1fr; gap: 1rem; margin: 0 0 1rem !important; }
-  .dot { width: 1.4rem; height: 1.4rem; border-radius: 50%; margin-top: 0.1rem; border: 2px solid var(--sl-color-gray-4); background: var(--sl-color-bg); z-index: 1; }
-  .done .dot { border-color: #22d3ee; background: #22d3ee; box-shadow: 0 0 14px rgb(34 211 238 / 0.6); }
-  .next .dot { border-color: #a78bfa; animation: ping 1.8s ease-in-out infinite; }
+  /* A spark that runs down the lit part of the spine — the chain making
+     progress, over and over. */
+  .ladder::after {
+    content: ""; position: absolute; left: 0.45rem; top: 0.5rem; width: 0.5rem; height: 0.5rem;
+    border-radius: 50%; background: #e0f2fe;
+    box-shadow: 0 0 10px 3px rgb(34 211 238 / 0.9);
+    animation: travel 3.6s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+  }
+  @keyframes travel {
+    0% { transform: translateY(0); opacity: 0; }
+    10% { opacity: 1; }
+    50% { opacity: 1; }
+    60% { transform: translateY(var(--spine, 9rem)); opacity: 0; }
+    100% { transform: translateY(var(--spine, 9rem)); opacity: 0; }
+  }
+  li {
+    display: grid; grid-template-columns: 1.4rem 1fr; gap: 1rem; margin: 0 0 1rem !important;
+    opacity: 0; transform: translateX(-8px);
+    transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  li.in { opacity: 1; transform: none; }
+  .dot {
+    width: 1.4rem; height: 1.4rem; border-radius: 50%; margin-top: 0.1rem;
+    border: 2px solid var(--sl-color-gray-4); background: var(--sl-color-bg); z-index: 1;
+    transition: transform 0.2s ease;
+  }
+  li:hover .dot { transform: scale(1.15); }
+  .done .dot {
+    border-color: #22d3ee; background: #22d3ee;
+    box-shadow: 0 0 14px rgb(34 211 238 / 0.6);
+    animation: shimmer 4s ease-in-out infinite;
+  }
+  /* The next gate is where the eye should land: a brighter, bigger pulse. */
+  .next .dot {
+    border-color: #a78bfa; background: rgb(167 139 250 / 0.2);
+    animation: ping 1.6s ease-in-out infinite;
+  }
   strong { margin-right: 0.6rem; }
   .state { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em; padding: 0.1rem 0.5rem; border-radius: 999px; border: 1px solid var(--sl-color-hairline); color: var(--sl-color-gray-3); }
   .done .state { color: #22d3ee; border-color: rgb(34 211 238 / 0.4); }
-  .next .state { color: #a78bfa; border-color: rgb(167 139 250 / 0.5); }
+  .next .state { color: #a78bfa; border-color: rgb(167 139 250 / 0.5); animation: glow 1.6s ease-in-out infinite; }
   p { margin: 0.2rem 0 0 !important; color: var(--sl-color-gray-3); font-size: 0.92rem; }
-  @keyframes ping { 50% { box-shadow: 0 0 0 7px rgb(167 139 250 / 0.15); } }
+  @keyframes ping {
+    0%, 100% { box-shadow: 0 0 0 0 rgb(167 139 250 / 0.5); }
+    50% { box-shadow: 0 0 0 9px rgb(167 139 250 / 0); }
+  }
+  @keyframes shimmer { 0%, 100% { box-shadow: 0 0 10px rgb(34 211 238 / 0.45); } 50% { box-shadow: 0 0 20px rgb(34 211 238 / 0.9); } }
+  @keyframes glow { 0%, 100% { border-color: rgb(167 139 250 / 0.5); } 50% { border-color: rgb(167 139 250 / 1); } }
+  @media (prefers-reduced-motion: reduce) {
+    .ladder::after, .done .dot, .next .dot, .next .state { animation: none; }
+    li { opacity: 1; transform: none; transition: none; }
+    .ladder::after { display: none; }
+  }
 </style>
+
+<script>
+  // Stagger the rungs in as the ladder scrolls up, and point the travelling
+  // spark at the last passed gate so it stops where progress stops. Without JS
+  // or with reduced motion the rungs are simply shown in place.
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const ladder = document.querySelector<HTMLOListElement>(".ladder");
+  if (ladder) {
+    const rungs = Array.from(ladder.querySelectorAll<HTMLElement>("li"));
+    const lastDone = ladder.querySelectorAll("li.done").length;
+    if (lastDone > 0) {
+      // Each rung is ~ (its height + gap); aim the spark at the last green dot.
+      ladder.style.setProperty("--spine", `${(lastDone - 1) * 4.4 + 0.2}rem`);
+    }
+    if (!reduce && "IntersectionObserver" in window) {
+      const io = new IntersectionObserver((entries) => {
+        for (const e of entries) {
+          if (!e.isIntersecting) continue;
+          const i = rungs.indexOf(e.target as HTMLElement);
+          (e.target as HTMLElement).style.transitionDelay = `${Math.max(0, i) * 70}ms`;
+          e.target.classList.add("in");
+          io.unobserve(e.target);
+        }
+      }, { threshold: 0.3 });
+      rungs.forEach((r) => io.observe(r));
+    } else {
+      rungs.forEach((r) => r.classList.add("in"));
+    }
+  }
+</script>

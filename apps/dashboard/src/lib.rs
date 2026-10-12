@@ -78,8 +78,7 @@ pub fn App() -> impl IntoView {
             <header>
                 <img
                     class="mark"
-                    src="assets/logo.png"
-                    srcset="assets/logo.png 1x, assets/logo@2x.png 2x"
+                    src="assets/logo.svg"
                     // Decorative: the `<h1>` beside it already carries the
                     // name, and a screen reader announcing it twice is worse
                     // than not announcing the image at all.

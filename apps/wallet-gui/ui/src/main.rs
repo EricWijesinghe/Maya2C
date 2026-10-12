@@ -147,8 +147,7 @@ fn App() -> impl IntoView {
             <header class="titlebar">
                 <img
                     class="logo"
-                    src="assets/logo.png"
-                    srcset="assets/logo.png 1x, assets/logo@2x.png 2x"
+                    src="assets/logo.svg"
                     // The wordmark is the app's name rendered as art, so the
                     // name beside it would be read out twice by a screen
                     // reader. Empty alt marks it decorative and lets the

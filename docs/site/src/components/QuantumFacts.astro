@@ -1,0 +1,169 @@
+---
+// Curiosity hooks, not benchmarks. Every figure here is a fixed fact of the
+// design — a key size, an address space, a memory cost — not a measured
+// number, so none of it is subject to Standing Order 1's "measure it" rule.
+// The sources are the specs and the code, named under each card.
+const facts = [
+  {
+    big: "2",
+    unit: "²⁵⁶",
+    hook: "addresses on the chain",
+    body: "Around 10⁷⁷ of them — comfortably more than the number of atoms that make up the Earth. You will never collide with anyone, by construction.",
+    source: "Address = [u8; 32]",
+    glyph: "lattice",
+  },
+  {
+    big: "2",
+    unit: "signatures",
+    hook: "on every transaction",
+    body: "ML-DSA-65 and SLH-DSA-SHA2-128s both sign and both must verify. A quantum computer has to break a lattice problem and a hash problem — breaking just one buys it nothing.",
+    source: "FIPS 204 + FIPS 205, hybrid suite",
+    glyph: "shield",
+  },
+  {
+    big: "11,165",
+    unit: "bytes",
+    hook: "of post-quantum proof per transfer",
+    body: "That is the price of not betting the whole chain on a single cryptographic assumption. Most chains spend 64–96 bytes and none of it survives a quantum computer.",
+    source: "3,309 B ML-DSA + 7,856 B SLH-DSA",
+    glyph: "wave",
+  },
+  {
+    big: "32",
+    unit: "MiB",
+    hook: "of memory per mining guess",
+    body: "Every proof-of-work attempt has to fill 32 mebibytes with Argon2id before it counts. That is the knob that keeps the network out of reach of cheap throwaway ASIC farms.",
+    source: "Argon2id over 32 MiB + BLAKE3",
+    glyph: "core",
+  },
+];
+---
+
+<section class="qfacts" aria-label="Things worth being curious about">
+  <p class="maya-eyebrow">Hard to believe, easy to check</p>
+  <h2 class="maya-section-title">The numbers behind a post-quantum chain</h2>
+  <div class="grid">
+    {
+      facts.map((f, i) => (
+        <article class="fact" style={`--i:${i}`}>
+          <div class={`orb ${f.glyph}`} aria-hidden="true">
+            <span class="halo" />
+            <span class="orbit o1"><i /></span>
+            <span class="orbit o2"><i /></span>
+            <span class="dot" />
+          </div>
+          <div class="num">
+            <span class="big">{f.big}</span>
+            <span class="unit">{f.unit}</span>
+          </div>
+          <p class="hook">{f.hook}</p>
+          <p class="body">{f.body}</p>
+          <p class="source">{f.source}</p>
+        </article>
+      ))
+    }
+  </div>
+</section>
+
+<script>
+  // Cards lift into place once, when the band scrolls into view. Without JS or
+  // with reduced motion they are simply already in place.
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const cards = document.querySelectorAll<HTMLElement>(".qfacts .fact");
+  if (!reduce && "IntersectionObserver" in window) {
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) {
+          e.target.classList.add("in");
+          io.unobserve(e.target);
+        }
+      }
+    }, { threshold: 0.2 });
+    cards.forEach((c) => io.observe(c));
+  } else {
+    cards.forEach((c) => c.classList.add("in"));
+  }
+</script>
+
+<style>
+  .qfacts { margin: 3rem 0 1.5rem; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: 1rem;
+    margin-top: 1.5rem;
+  }
+  .fact {
+    position: relative;
+    padding: 1.4rem 1.3rem 1.2rem;
+    border-radius: 1.1rem;
+    border: 1px solid var(--sl-color-hairline);
+    background:
+      radial-gradient(22rem 12rem at 100% -20%, rgb(34 211 238 / 0.1), transparent 60%),
+      linear-gradient(160deg, rgb(167 139 250 / 0.06), rgb(255 255 255 / 0.01));
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(14px);
+    transition: opacity 0.6s ease, transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition-delay: calc(var(--i) * 90ms);
+  }
+  .fact.in { opacity: 1; transform: none; }
+  .fact::after {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1px;
+    pointer-events: none;
+    background: linear-gradient(140deg, rgb(34 211 238 / 0.55), transparent 45%, transparent 60%, rgb(244 114 182 / 0.5));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+    opacity: 0.35; transition: opacity 0.25s ease;
+  }
+  .fact:hover::after { opacity: 1; }
+  .fact:hover { transform: translateY(-3px); }
+
+  .orb { position: absolute; top: 1rem; right: 1rem; width: 3rem; height: 3rem; }
+  .orb .halo, .orb .dot { position: absolute; inset: 0; border-radius: 50%; }
+  .orb .halo {
+    background: radial-gradient(circle, rgb(34 211 238 / 0.45), transparent 70%);
+    animation: breathe 3.4s ease-in-out infinite;
+  }
+  .orb .dot {
+    inset: 1rem; border-radius: 50%;
+    background: linear-gradient(140deg, #22d3ee, #a78bfa);
+    box-shadow: 0 0 16px rgb(34 211 238 / 0.7);
+  }
+  .orb.shield .dot { background: linear-gradient(140deg, #a78bfa, #f472b6); }
+  .orb.wave .dot { background: linear-gradient(140deg, #22d3ee, #f472b6); }
+  .orb.core .dot { animation: spin 7s linear infinite; background: conic-gradient(#22d3ee, #a78bfa, #f472b6, #22d3ee); }
+  /* Two electrons on tilted orbits: the quantum-cloud cue. */
+  .orb .orbit { position: absolute; inset: 0.1rem; border-radius: 50%;
+    border: 1px solid rgb(167 139 250 / 0.25); }
+  .orb .orbit i { position: absolute; top: -2.5px; left: 50%; width: 5px; height: 5px;
+    margin-left: -2.5px; border-radius: 50%; background: #e0f2fe;
+    box-shadow: 0 0 8px 2px rgb(34 211 238 / 0.9); }
+  .orb .o1 { transform: rotate(0deg); animation: orbit 4.5s linear infinite; }
+  .orb .o2 { transform: rotate(60deg) scale(0.68); animation: orbit 3s linear infinite reverse;
+    border-color: rgb(244 114 182 / 0.3); }
+  .orb .o2 i { background: #fbcfe8; box-shadow: 0 0 8px 2px rgb(244 114 182 / 0.8); }
+  @keyframes breathe { 0%, 100% { transform: scale(0.85); opacity: 0.6; } 50% { transform: scale(1.1); opacity: 1; } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes orbit { to { transform: rotate(360deg); } }
+  .orb .o2 { animation-name: orbit2; }
+  @keyframes orbit2 { from { transform: rotate(60deg) scale(0.68); } to { transform: rotate(420deg) scale(0.68); } }
+
+  .num { display: flex; align-items: baseline; gap: 0.35rem; margin-bottom: 0.4rem; }
+  .big {
+    font-size: clamp(2.4rem, 6vw, 3.4rem); font-weight: 800; line-height: 1;
+    background: linear-gradient(100deg, #22d3ee, #a78bfa 55%, #f472b6);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    font-variant-numeric: tabular-nums;
+  }
+  .unit { font-size: 1.05rem; font-weight: 700; color: var(--sl-color-white); }
+  .hook { margin: 0 0 0.6rem; font-weight: 600; color: var(--sl-color-white); }
+  .body { margin: 0 0 0.7rem; color: var(--sl-color-gray-3); font-size: 0.92rem; }
+  .source { margin: 0; font-size: 0.72rem; color: var(--sl-color-gray-4); font-family: var(--sl-font-mono); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .fact { opacity: 1; transform: none; transition: none; }
+    .orb .halo, .orb.core .dot, .orb .orbit { animation: none; }
+    .orb .orbit i { display: none; }
+  }
+</style>

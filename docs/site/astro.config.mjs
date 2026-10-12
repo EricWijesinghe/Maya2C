@@ -17,6 +17,9 @@ export default defineConfig({
     starlight({
       title: "Maya2C",
       favicon: "/favicon.ico",
+      // The quantum-lattice wordmark carries the name, so it replaces the
+      // text title rather than sitting beside a duplicate.
+      logo: { src: "./src/assets/logo.svg", replacesTitle: true },
       // Bing Webmaster Tools ownership check for maya2c.dev.
       head: [
         { tag: "meta", attrs: { name: "msvalidate.01", content: "76B55D3E70EB56CB2D46FE438641E2A4" } },
