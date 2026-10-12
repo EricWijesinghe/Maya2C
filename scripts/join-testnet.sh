@@ -223,8 +223,13 @@ PLIST
 }
 
 install_helper() {
-  local tmp; tmp=$(mktemp)
-  # Fetched rather than copied: under `curl | bash` this script has no file.
+  local tmp self="${BASH_SOURCE[0]:-}"
+  # Run from a file (a checkout, CI): install that file. Under `curl | bash`
+  # there is no file, so fetch the published copy.
+  if [ -n "$self" ] && [ -f "$self" ]; then
+    $SUDO install -m 755 "$self" "$HELPER"; return
+  fi
+  tmp=$(mktemp)
   if curl -fsSL -o "$tmp" "$SCRIPT_URL"; then
     $SUDO install -m 755 "$tmp" "$HELPER"
   fi

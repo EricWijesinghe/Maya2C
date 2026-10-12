@@ -1,0 +1,91 @@
+# The one-line node installers (docs/site/authored/help-run.mdx), run for
+# real on each OS a helper might have: install from the newest testnet
+# release, wait until the node answers on its RPC (the snapshot loaded),
+# check `status`, then uninstall and check nothing is left running.
+#
+# This joins the live maya-testnet-1 for a few minutes as an observer, the
+# same as any helper. It needs no secret and publishes nothing. It runs when
+# the installers change, weekly (a release can break them without touching
+# them), and on demand.
+name: join-scripts
+
+on:
+  pull_request:
+    paths:
+      - scripts/join-testnet.sh
+      - scripts/join-testnet.ps1
+      - infra/testnet-vm/join-validator.ps1
+      - .github/workflows/join-scripts.yml
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: join-scripts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unix:
+    name: install on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install
+        run: bash scripts/join-testnet.sh install
+      - name: Node answers on its RPC
+        run: |
+          for _ in $(seq 1 90); do
+            if maya2c-validator status | tee /tmp/status | grep -q 'block'; then
+              cat /tmp/status; exit 0
+            fi
+            sleep 10
+          done
+          cat /tmp/status
+          if [ "$(uname -s)" = Darwin ]; then tail -50 /Library/Logs/Maya2C/node.log
+          else sudo journalctl -u maya2c-node -n 50 --no-pager; fi
+          exit 1
+      - name: Uninstall leaves nothing running
+        run: |
+          maya2c-validator uninstall
+          sleep 5
+          # `! cmd` never trips `set -e`, so test explicitly.
+          if pgrep -x maya2c-node; then echo "maya2c-node still running"; exit 1; fi
+          if command -v maya2c-node; then echo "maya2c-node left installed"; exit 1; fi
+
+  windows:
+    name: install on windows-latest
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install
+        shell: pwsh
+        run: ./infra/testnet-vm/join-validator.ps1 -Silent -IAmTheMachineOwner
+      - name: Node answers on its RPC
+        shell: pwsh
+        run: |
+          $helper = 'C:\Program Files\Maya2C\maya2c-validator.ps1'
+          foreach ($i in 1..90) {
+            $out = & $helper -Status | Out-String
+            if ($out -match 'block') { $out; exit 0 }
+            Start-Sleep 10
+          }
+          $out
+          Get-Content 'C:\ProgramData\Maya2C\logs\node.log' -Tail 50
+          exit 1
+      - name: Uninstall leaves nothing running
+        shell: pwsh
+        run: |
+          & 'C:\Program Files\Maya2C\maya2c-validator.ps1' -Uninstall -Everything
+          Start-Sleep 5
+          if (Get-Process maya2c-node -ErrorAction SilentlyContinue) { throw 'maya2c-node still running' }
+          if (Test-Path 'C:\Program Files\Maya2C') { throw 'program folder left behind' }
+          if (Get-ScheduledTask -TaskName 'Maya2C Validator' -ErrorAction SilentlyContinue) { throw 'task left behind' }
