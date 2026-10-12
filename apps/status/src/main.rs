@@ -6,7 +6,8 @@
 //!             [--threshold 60] [--ntfy https://ntfy.sh/<private-topic>]
 //! ```
 //!
-//! `--watch NAME=URL` (repeatable) adds a node to the live network view at
+//! `--known NAME=PEERID` (repeatable) names a node by its peer id, for one
+//! that does not serve `get_peers` yet. `--watch NAME=URL` (repeatable) adds a node to the live network view at
 //! `/live` (`/api/live`), polled every second; without it the view watches
 //! `--node` alone, as `seed`.
 //!
@@ -67,6 +68,7 @@ struct Args {
     threshold: u64,
     ntfy: Option<String>,
     watch: Vec<(String, String)>,
+    known: Vec<(String, String)>,
 }
 
 fn args() -> Result<Args, String> {
@@ -76,6 +78,7 @@ fn args() -> Result<Args, String> {
         threshold: 60,
         ntfy: None,
         watch: Vec::new(),
+        known: Vec::new(),
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -92,9 +95,14 @@ fn args() -> Result<Args, String> {
                 let (name, url) = v.split_once('=').ok_or("--watch takes NAME=URL")?;
                 a.watch.push((name.to_owned(), url.to_owned()));
             }
+            "--known" => {
+                let v = value()?;
+                let (name, id) = v.split_once('=').ok_or("--known takes NAME=PEERID")?;
+                a.known.push((name.to_owned(), id.to_owned()));
+            }
             "--help" | "-h" => {
                 return Err(
-                    "usage: maya-status --node URL --listen ADDR [--threshold SECS] [--ntfy URL] [--watch NAME=URL]..."
+                    "usage: maya-status --node URL --listen ADDR [--threshold SECS] [--ntfy URL] [--watch NAME=URL]... [--known NAME=PEERID]..."
                         .into(),
                 );
             }
@@ -319,7 +327,12 @@ async fn main() {
             Err(e) => eprintln!("status: --watch {name}: {e}"),
         }
     }
-    let live = Arc::new(Mutex::new(Live::new("maya-testnet-1")));
+    let known = a
+        .known
+        .iter()
+        .map(|(name, id)| (id.clone(), name.clone()))
+        .collect();
+    let live = Arc::new(Mutex::new(Live::new("maya-testnet-1").with_known(known)));
     tokio::spawn(watch(watched, Arc::clone(&live)));
 
     let live_routes = Router::new()
