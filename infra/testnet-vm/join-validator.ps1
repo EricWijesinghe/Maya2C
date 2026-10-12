@@ -402,7 +402,7 @@ function Show-Status {
     $local = "http://127.0.0.1:$(Get-RpcPort)"
     $mine = Invoke-Rpc $local 'get_tip_height'
     $net  = Invoke-Rpc $Bootstrap 'get_tip_height'
-    if ($null -eq $mine) { Write-Note 'downloading the chain snapshot - check again in a few minutes' }
+    if ($null -eq $mine) { Write-Note 'downloading the chain - the first start can take up to an hour' }
     elseif ($null -ne $net -and ($net - $mine) -le $SyncedWithin) {
         Write-Host "  OK in sync: block $mine (network: $net)" -ForegroundColor Green
     } else {

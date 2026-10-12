@@ -258,7 +258,7 @@ cmd_install() {
   printf '\n\033[1;32mDone. Thank you for helping!\033[0m\n'
   note "Check on it any time:        maya2c-validator status"
   note "Become a validator (next):   maya2c-validator apply"
-  note "It takes a few minutes to download the chain; 'status' shows the progress."
+  note "The first start downloads the chain and can take up to an hour; 'status' shows the progress."
 }
 
 rpc() { # rpc <url> <method>: prints the raw JSON reply, or nothing
@@ -275,7 +275,7 @@ cmd_status() {
     die "the node is not running" "run: maya2c-validator restart   (then check again in a minute)"; fi
   mine=$(height_at "http://127.0.0.1:$RPC_PORT")
   net=$(height_at "$BOOTSTRAP")
-  if [ -z "$mine" ]; then note "⏳ downloading the chain snapshot — check again in a few minutes"
+  if [ -z "$mine" ]; then note "⏳ downloading the chain — the first start can take up to an hour"
   elif [ -n "$net" ] && [ $((net - mine)) -le "$SYNCED_WITHIN" ]; then ok "in sync: block $mine (network: $net)"
   else note "⏳ catching up: block $mine of ${net:-?}"
        note "  The first start can take up to an hour. Nothing to do but wait."; fi
