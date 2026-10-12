@@ -117,16 +117,18 @@ pub fn Shell(
             <body>
                 <nav class="nav">
                     <a class="brand" href="/">
-                        // Not decorative here: this is the only content of the
-                        // link, so without alt text the home link announces
-                        // itself as an unlabelled image.
+                        // The emblem is the mark; the wordmark span is the
+                        // readable name beside it, matching the main site's
+                        // header. Empty alt keeps the name from being read
+                        // twice, since the span already carries it.
                         <img
-                            src="/assets/logo.png"
-                            srcset="/assets/logo.png 1x, /assets/logo@2x.png 2x"
-                            alt="Maya2C"
-                            width="250"
-                            height="100"
+                            class="emblem"
+                            src="/assets/emblem.png"
+                            alt=""
+                            width="40"
+                            height="40"
                         />
+                        <span class="word">"Maya2C"</span>
                     </a>
                     <a href="/">"Dashboard"</a>
                     <a href="/blocks">"Blocks"</a>
@@ -466,45 +468,92 @@ const STYLES: &str = r#"
    as the same product as the site it is linked from. */
 :root, [data-theme="command"] { --accent:#22d3ee; --focus:#a78bfa; --on-accent:#04111a; }
 * { box-sizing: border-box; }
+/* The explorer leans into the "living lattice" look: an aurora that drifts and
+   a faint quantum grid behind everything, panels that glow like lit glass, and
+   the chain height breathing as the page's pulse. Every motion is held behind
+   prefers-reduced-motion. */
 body { margin:0; font:14px/1.5 "Inter",ui-sans-serif,system-ui,sans-serif; color:var(--fg);
+       background:var(--bg); min-height:100vh; position:relative; isolation:isolate; }
+body::before { content:""; position:fixed; inset:0; z-index:-2; pointer-events:none;
        background:
-         radial-gradient(50rem 24rem at 10% -10%, rgb(34 211 238 / 0.12), transparent 60%),
-         radial-gradient(44rem 22rem at 100% 0%, rgb(167 139 250 / 0.12), transparent 60%),
-         var(--bg); min-height:100vh; }
-h1 { background:linear-gradient(100deg,#22d3ee,#a78bfa 60%,#f472b6);
-     -webkit-background-clip:text; background-clip:text; color:transparent; }
+         radial-gradient(60rem 30rem at 12% -8%, rgb(34 211 238 / 0.16), transparent 60%),
+         radial-gradient(52rem 26rem at 92% 2%, rgb(167 139 250 / 0.15), transparent 60%),
+         radial-gradient(46rem 30rem at 50% 115%, rgb(244 114 182 / 0.12), transparent 62%);
+       background-size:200% 200%; animation:aurora 24s ease-in-out infinite; }
+body::after { content:""; position:fixed; inset:0; z-index:-1; pointer-events:none; opacity:0.5;
+       background-image:
+         linear-gradient(rgb(34 211 238 / 0.05) 1px, transparent 1px),
+         linear-gradient(90deg, rgb(167 139 250 / 0.05) 1px, transparent 1px);
+       background-size:44px 44px;
+       -webkit-mask-image:radial-gradient(120% 90% at 50% 0%, #000 35%, transparent 75%);
+       mask-image:radial-gradient(120% 90% at 50% 0%, #000 35%, transparent 75%); }
+@keyframes aurora { 0%,100% { background-position:0% 0%; } 50% { background-position:100% 100%; } }
+h1 { background:linear-gradient(100deg,#22d3ee,#a78bfa 45%,#f472b6,#22d3ee);
+     background-size:220% auto; -webkit-background-clip:text; background-clip:text; color:transparent;
+     animation:sheen 8s linear infinite; }
+@keyframes sheen { to { background-position:220% center; } }
 .lead { color:var(--muted); margin:-0.5rem 0 1.25rem; }
-.tile, .panel { background:linear-gradient(160deg, rgb(255 255 255 / 0.05), rgb(255 255 255 / 0.01)); }
 .tile .value { color:#e0f2fe; }
 .nav { display:flex; gap:1.25rem; align-items:center; padding:0.85rem 1.5rem;
-       border-bottom:1px solid var(--border); background:var(--panel); }
-.nav a { color:var(--muted); text-decoration:none; }
+       border-bottom:1px solid var(--border); background:rgb(8 12 22 / 0.72);
+       backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+       position:sticky; top:0; z-index:5; }
+.nav::after { content:""; position:absolute; left:0; right:0; bottom:-1px; height:1px;
+       background:linear-gradient(90deg, transparent, #22d3ee 30%, #a78bfa 55%, #f472b6 72%, transparent);
+       opacity:0.65; }
+.nav a { color:var(--muted); text-decoration:none; transition:color .18s ease; }
 .nav a:hover { color:var(--fg); }
-.nav .brand { display:flex; align-items:center; margin-right:0.5rem; }
-/* Height-constrained, width auto, so the 5:2 wordmark is never stretched. The
-   intrinsic size is on the element itself, so the nav does not reflow when the
-   image finishes loading. */
-.nav .brand img { height:1.6rem; width:auto; display:block; }
+.nav .brand { display:flex; align-items:center; gap:0.55rem; margin-right:0.5rem; }
+/* The emblem is square; the intrinsic size is on the element itself so the nav
+   does not reflow when the image finishes loading. */
+.nav .brand .emblem { height:2.1rem; width:2.1rem; display:block;
+       filter:drop-shadow(0 0 10px rgb(34 211 238 / 0.4)); }
+.nav .brand .word { font-weight:800; font-size:1.2rem; letter-spacing:-0.01em;
+       background:linear-gradient(100deg,#22d3ee,#a78bfa 60%,#f472b6);
+       -webkit-background-clip:text; background-clip:text; color:transparent; }
 main { max-width:1100px; margin:0 auto; padding:1.5rem; }
 h1 { font-size:1.4rem; margin:0 0 1rem; }
 h2 { font-size:1rem; margin:0 0 0.75rem; color:var(--muted);
      text-transform:uppercase; letter-spacing:0.06em; }
 .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
          gap:0.75rem; margin-bottom:1.5rem; }
-.tile { background:var(--panel); border:1px solid var(--border);
-        border-radius:8px; padding:0.85rem 1rem; display:flex;
-        flex-direction:column; gap:0.35rem; }
+.tile, .panel { position:relative;
+         background:
+           linear-gradient(160deg, rgb(255 255 255 / 0.055), rgb(255 255 255 / 0.012)),
+           var(--panel);
+         border:1px solid var(--border); border-radius:12px;
+         box-shadow:0 1px 0 rgb(255 255 255 / 0.04) inset, 0 10px 30px -18px rgb(0 0 0 / 0.8); }
+/* A hairline gradient edge that lights up on hover — the "lit glass" cue. */
+.tile::before, .panel::before { content:""; position:absolute; inset:0; border-radius:inherit;
+         padding:1px; pointer-events:none;
+         background:linear-gradient(140deg, rgb(34 211 238 / 0.5), transparent 40%, transparent 60%, rgb(167 139 250 / 0.45));
+         -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+         -webkit-mask-composite:xor; mask-composite:exclude; opacity:0; transition:opacity .25s ease; }
+.tile { padding:0.85rem 1rem; display:flex; flex-direction:column; gap:0.35rem;
+        transition:transform .2s ease, box-shadow .2s ease; }
+.tile:hover { transform:translateY(-2px);
+        box-shadow:0 1px 0 rgb(255 255 255 / 0.06) inset, 0 16px 40px -18px rgb(34 211 238 / 0.45); }
+.tile:hover::before, .panel:hover::before { opacity:1; }
 .tile .label { color:var(--muted); font-size:0.75rem; text-transform:uppercase;
                letter-spacing:0.06em; }
 .tile .value { font-size:1.35rem; font-variant-numeric:tabular-nums; }
-.panel { background:var(--panel); border:1px solid var(--border);
-         border-radius:8px; padding:1rem; margin-bottom:1.5rem; }
+/* The chain height is the page's pulse: a soft breathing glow on the live number. */
+#stat-height { text-shadow:0 0 18px rgb(34 211 238 / 0.55); animation:pulse 2.6s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { text-shadow:0 0 10px rgb(34 211 238 / 0.35); }
+                   50% { text-shadow:0 0 22px rgb(34 211 238 / 0.8); } }
+.panel { padding:1rem; margin-bottom:1.5rem; }
 table { width:100%; border-collapse:collapse; }
 th,td { text-align:left; padding:0.5rem 0.6rem;
         border-bottom:1px solid var(--border); }
+tbody tr { transition:background .15s ease; }
+tbody tr:hover { background:rgb(34 211 238 / 0.05); }
+/* A freshly streamed row flashes in, so the reader sees the chain moving. */
+tbody tr:first-child { animation:rowin .6s ease; }
+@keyframes rowin { from { background:rgb(34 211 238 / 0.18); } to { background:transparent; } }
 th { color:var(--muted); font-size:0.75rem; text-transform:uppercase;
      letter-spacing:0.06em; font-weight:500; }
 td a { color:var(--accent); text-decoration:none; }
+td a:hover { text-shadow:0 0 12px rgb(34 211 238 / 0.6); }
 .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:0.85em; }
 .muted { color:var(--muted); }
 .error { color:var(--danger); }
@@ -513,21 +562,30 @@ details.panel summary { cursor:pointer; color:var(--muted); margin-bottom:0.75re
 :focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
 .chart { display:flex; align-items:flex-end; gap:3px; height:120px;
          padding-top:0.5rem; }
-.bar { flex:1; min-width:2px; background:linear-gradient(180deg,#22d3ee,#a78bfa); opacity:0.8;
-       border-radius:2px 2px 0 0; }
-.bar:hover { opacity:1; }
+.bar { flex:1; min-width:2px; background:linear-gradient(180deg,#22d3ee,#a78bfa); opacity:0.85;
+       border-radius:3px 3px 0 0; box-shadow:0 0 10px rgb(34 211 238 / 0.25);
+       transition:opacity .18s ease, box-shadow .18s ease; }
+.bar:hover { opacity:1; box-shadow:0 0 16px rgb(34 211 238 / 0.7); }
 .detail { display:grid; grid-template-columns:150px 1fr; gap:0.4rem 1rem;
           margin:0; }
 .detail dt { color:var(--muted); }
 .detail dd { margin:0; overflow-wrap:anywhere; }
 .search { display:flex; gap:0.5rem; margin-bottom:1.25rem; }
 .search input { flex:1; padding:0.55rem 0.7rem; background:var(--panel);
-                border:1px solid var(--border); border-radius:6px;
-                color:var(--fg); font-family:ui-monospace,monospace; }
+                border:1px solid var(--border); border-radius:8px;
+                color:var(--fg); font-family:ui-monospace,monospace;
+                transition:border-color .18s ease, box-shadow .18s ease; }
+.search input:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgb(34 211 238 / 0.18); outline:none; }
 .search button { padding:0.55rem 1.1rem; background:var(--accent); color:var(--on-accent);
                  min-height:var(--touch-target);
-                 border:0; border-radius:6px; font-weight:600; cursor:pointer; }
+                 border:0; border-radius:8px; font-weight:600; cursor:pointer;
+                 box-shadow:0 0 18px rgb(34 211 238 / 0.35); transition:filter .18s ease; }
+.search button:hover { filter:brightness(1.1); }
 @media (max-width:600px) { .detail { grid-template-columns:1fr; } }
+@media (prefers-reduced-motion: reduce) {
+  body::before, h1, #stat-height, tbody tr:first-child { animation:none; }
+  .tile { transition:none; }
+}
 "#;
 
 /// Live-update client.
