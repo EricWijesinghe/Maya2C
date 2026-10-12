@@ -7,7 +7,7 @@
     "ingest": "node scripts/ingest.mjs",
     "health": "node scripts/gen-health.mjs",
     "dev": "npm run ingest && npm run health && astro dev",
-    "build": "npm run ingest && npm run health && astro build && node scripts/check-csp.mjs",
+    "build": "npm run ingest && npm run health && node scripts/gen-updates.mjs && astro build && node scripts/check-csp.mjs",
     "preview": "astro preview"
   },
   "dependencies": {

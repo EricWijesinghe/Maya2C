@@ -237,6 +237,21 @@ consensus unaffected. No code change — the finding is that the defense holds
 under a real flood. Distributed floods get one bucket per IP, bounded by
 `MAX_TRACKED` (65,536); left as-is, matching the limiter's documented design.
 
+## 2026-10-12 — Mining shares past the epoch budget are refused; retarget on time to exhaustion
+
+The first devnet run showed unpaid shares taking block slots and nonces. They
+are now refused (consensus). Because overshoot no longer shows in `shares`,
+the retarget extrapolates demand from `spent_after`, the block at which the
+budget ran out. The record encoding is v2. Details are in ADR-044, "Changes from the first
+devnet run". Parameter consequence: `max_shares_per_block × epoch_blocks ≥
+4 × target_shares` for the full ×4 hardening.
+
+## 2026-10-12 — The Hub on phones watches, does not mine
+
+Phone mining yields next to no hashes for battery and heat. The phone Hub
+shows the network, the universe and payouts, and runs no miner. Platform order:
+Windows, Linux and Android now; macOS and iOS when Eric has a Mac.
+
 ## 2026-10-12 — Repository lockdown: suggestions in, control stays with the owner
 
 Eric: outside contributions are suggestions; nothing reaches `master` until
