@@ -173,7 +173,9 @@ impl StateDB {
 /// Where a pruned node gets its headers, its snapshot and its recent bodies.
 ///
 /// Every call is untrusted: the bootstrap validates whatever comes back.
-pub trait BootstrapSource {
+/// `Sync` because block bodies are fetched with several requests in flight
+/// ([`super::prefetch`]).
+pub trait BootstrapSource: Sync {
     /// Height of the source's tip.
     ///
     /// # Errors
@@ -355,9 +357,14 @@ fn bootstrap_into(
     import_snapshot(state, source, &manifest, &expected_root)?;
 
     chain.adopt_snapshot(&ids[..=height as usize])?;
-    for body_height in height + 1..=tip {
-        chain.insert_block(source.block(body_height)?)?;
-    }
+    // Fetched a window at a time with several requests in flight, inserted
+    // strictly in order: every body is still fully validated.
+    super::prefetch::for_each_prefetched(
+        height + 1,
+        tip,
+        &|h| source.block(h),
+        |block| chain.insert_block(block).map(|_| ()),
+    )?;
     Ok(chain)
 }
 
