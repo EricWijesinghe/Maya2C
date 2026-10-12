@@ -85,7 +85,8 @@ html, body {
 }
 /* Height-constrained, width auto: the compact wordmark is 4:1, and pinning
    the width instead would stretch it the moment the pack's aspect changes. */
-.titlebar .logo { height: 1.7rem; width: auto; display: block; }
+.titlebar .logo { height: 2.1rem; width: 2.1rem; display: block;
+  filter: drop-shadow(0 0 9px rgba(34, 211, 238, 0.4)); }
 .titlebar .name {
   font-family: var(--font-display); font-weight: 650; letter-spacing: 0.01em;
 }

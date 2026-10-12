@@ -26,18 +26,69 @@ import { gates } from "../data/launch-gates";
     content: ""; position: absolute; left: 0.7rem; top: 0.5rem; bottom: 0.5rem; width: 2px;
     background: linear-gradient(var(--cherenkov) 0 50%, var(--iris-a) 50% 62%, var(--glass-edge) 62%);
   }
-  li { display: grid; grid-template-columns: 1.4rem 1fr; gap: 1rem; margin: 0 0 1rem !important; }
+  /* A spark runs down the lit part of the spine and stops at the last passed
+     gate — the chain making progress, over and over. */
+  .ladder::after {
+    content: ""; position: absolute; left: 0.45rem; top: 0.5rem; width: 0.5rem; height: 0.5rem;
+    border-radius: 50%; background: #e7fbfd; box-shadow: 0 0 10px 3px rgba(31, 181, 194, 0.9);
+    animation: travel 3.6s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+  }
+  @keyframes travel {
+    0% { transform: translateY(0); opacity: 0; }
+    10%, 50% { opacity: 1; }
+    60%, 100% { transform: translateY(var(--spine, 9rem)); opacity: 0; }
+  }
+  li {
+    display: grid; grid-template-columns: 1.4rem 1fr; gap: 1rem; margin: 0 0 1rem !important;
+    opacity: 0; transform: translateX(-8px);
+    transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  li.in { opacity: 1; transform: none; }
   .gate-link { display: contents; text-decoration: none; color: inherit; }
   .gate-link:hover, .gate-link:focus { outline: none; }
   .gate-link:hover div, .gate-link:focus div { transform: translateX(6px); transition: transform 0.35s cubic-bezier(.34,1.56,.64,1); }
-  .dot { width: 1.4rem; height: 1.4rem; border-radius: 50%; margin-top: 0.1rem; border: 2px solid var(--muted); background: var(--void); z-index: 1; }
-  .done .dot { border-color: var(--cherenkov); background: var(--cherenkov); box-shadow: 0 0 14px rgba(31, 181, 194, 0.6); }
-  .next .dot { border-color: var(--iris-a); animation: ping 1.8s ease-in-out infinite; }
-  .gate-link:hover .dot, .gate-link:focus .dot { filter: drop-shadow(0 0 6px currentColor); }
+  .dot { width: 1.4rem; height: 1.4rem; border-radius: 50%; margin-top: 0.1rem; border: 2px solid var(--muted); background: var(--void); z-index: 1; transition: transform 0.2s ease; }
+  .done .dot { border-color: var(--cherenkov); background: var(--cherenkov); box-shadow: 0 0 14px rgba(31, 181, 194, 0.6); animation: shimmer 4s ease-in-out infinite; }
+  .next .dot { border-color: var(--iris-a); background: rgba(201, 168, 106, 0.2); animation: ping 1.6s ease-in-out infinite; }
+  .gate-link:hover .dot, .gate-link:focus .dot { filter: drop-shadow(0 0 6px currentColor); transform: scale(1.12); }
   strong { margin-right: 0.6rem; }
   .state { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em; padding: 0.1rem 0.5rem; border-radius: 999px; border: 1px solid var(--glass-edge); color: var(--muted); }
   .done .state { color: var(--cherenkov); border-color: rgba(31, 181, 194, 0.4); }
-  .next .state { color: var(--iris-a); border-color: rgba(201, 168, 106, 0.5); }
+  .next .state { color: var(--iris-a); border-color: rgba(201, 168, 106, 0.5); animation: glow 1.6s ease-in-out infinite; }
   p { margin: 0.2rem 0 0 !important; color: var(--muted); font-size: 0.92rem; }
-  @keyframes ping { 50% { box-shadow: 0 0 0 7px rgba(201, 168, 106, 0.15); } }
+  @keyframes ping { 0%, 100% { box-shadow: 0 0 0 0 rgba(201, 168, 106, 0.5); } 50% { box-shadow: 0 0 0 9px rgba(201, 168, 106, 0); } }
+  @keyframes shimmer { 0%, 100% { box-shadow: 0 0 10px rgba(31, 181, 194, 0.45); } 50% { box-shadow: 0 0 20px rgba(31, 181, 194, 0.9); } }
+  @keyframes glow { 0%, 100% { border-color: rgba(201, 168, 106, 0.5); } 50% { border-color: rgba(201, 168, 106, 1); } }
+  @media (prefers-reduced-motion: reduce) {
+    .ladder::after { display: none; }
+    .done .dot, .next .dot, .next .state { animation: none; }
+    li { opacity: 1; transform: none; transition: none; }
+  }
 </style>
+
+<script>
+  // Stagger the rungs in as the ladder scrolls up, and point the travelling
+  // spark at the last passed gate. Without JS or with reduced motion the rungs
+  // are simply shown in place.
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const ladder = document.querySelector<HTMLOListElement>(".ladder");
+  if (ladder) {
+    const rungs = Array.from(ladder.querySelectorAll<HTMLElement>("li"));
+    const doneCount = ladder.querySelectorAll("li.done").length;
+    if (doneCount > 0) ladder.style.setProperty("--spine", `${(doneCount - 1) * 4.4 + 0.2}rem`);
+    if (!reduce && "IntersectionObserver" in window) {
+      const io = new IntersectionObserver((entries) => {
+        for (const e of entries) {
+          if (!e.isIntersecting) continue;
+          const i = rungs.indexOf(e.target as HTMLElement);
+          (e.target as HTMLElement).style.transitionDelay = `${Math.max(0, i) * 70}ms`;
+          e.target.classList.add("in");
+          io.unobserve(e.target);
+        }
+      }, { threshold: 0.3 });
+      rungs.forEach((r) => io.observe(r));
+    } else {
+      rungs.forEach((r) => r.classList.add("in"));
+    }
+  }
+</script>
