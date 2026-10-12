@@ -8,85 +8,70 @@
 // testnet release (node-v0.1.0-testnet.3: Windows x64, macOS Apple silicon,
 // Linux x86_64 and ARM64). Add a choice here only when its build ships.
 
-export type OsId = "windows" | "mac" | "linux";
-export type MethodId = "oneline" | "manual";
+import {
+  comboKey,
+  LINUX_DISTRO_HELP,
+  LINUX_DISTROS,
+  MAC_HELP,
+  OS_CHOICES,
+  WINDOWS_HELP,
+  type Choice,
+  type Combo,
+  type GuideDef,
+  type OsId,
+  type Step,
+  type Walkthrough,
+} from "./picker";
 
-export interface Choice {
-  id: string;
-  label: string;
-  hint?: string;
-}
-
-export interface Step {
-  title: string;
-  /** Plain sentences; `**bold**` and `` `code` `` are rendered. */
-  body?: string[];
-  /** A command the reader copies. */
-  command?: string;
-  lang?: "powershell" | "bash";
-  /** Shown after the command: what the reader should see next. */
-  after?: string;
-}
-
-export interface Walkthrough {
-  /** Set when there is no build for this combination yet. */
-  unavailable?: string;
-  steps: Step[];
-  /** The tab label the rest of the page uses for this OS. */
-  tab: "Windows" | "Mac" | "Linux";
-}
+type MethodId = "oneline" | "manual";
 
 const RAW = "https://raw.githubusercontent.com/EricWijesinghe/Maya2C/master";
 const PS_ONE_LINE = `irm ${RAW}/scripts/join-testnet.ps1 | iex`;
 const SH_ONE_LINE = `curl -fsSL ${RAW}/scripts/join-testnet.sh | bash`;
 const PS_FILE = "$env:USERPROFILE\\Downloads\\join-validator.ps1";
 
-export const osChoices: Choice[] = [
-  { id: "windows", label: "Windows" },
-  { id: "mac", label: "macOS" },
-  { id: "linux", label: "Linux" },
+const methodChoices: Choice[] = [
+  { id: "oneline", label: "One line", hint: "recommended" },
+  { id: "manual", label: "Download, read, then run", hint: "for the cautious" },
 ];
 
-/** The second row: Windows edition, Mac chip, or Linux distribution. */
-export const versionChoices: Record<OsId, { label: string; choices: Choice[]; help: string }> = {
-  windows: {
+const archChoices: Choice[] = [
+  { id: "x86_64", label: "x86_64 (Intel / AMD)" },
+  { id: "arm64", label: "ARM64", hint: "Raspberry Pi 4/5 with a 64-bit OS, ARM servers" },
+];
+
+const rows: GuideDef["rows"] = [
+  { name: "os", label: "Your computer", choices: OS_CHOICES },
+  {
+    name: "v",
+    group: "windows",
     label: "Version",
-    help: "Not sure? Press Windows key + R, type `winver`, press Enter.",
+    help: WINDOWS_HELP,
     choices: [
       { id: "11", label: "Windows 11" },
       { id: "10", label: "Windows 10", hint: "version 1803 or newer" },
       { id: "arm", label: "Windows on ARM", hint: "Surface Pro X, Snapdragon laptops" },
     ],
   },
-  mac: {
+  {
+    name: "v",
+    group: "mac",
     label: "Chip",
-    help: "Not sure? Apple menu  › About This Mac. \"Chip: Apple M…\" is Apple silicon; \"Processor: Intel…\" is Intel.",
+    help: MAC_HELP,
     choices: [
       { id: "apple", label: "Apple silicon", hint: "M1, M2, M3, M4" },
       { id: "intel", label: "Intel" },
     ],
   },
-  linux: {
-    label: "Distribution",
-    help: "Not sure? Run `cat /etc/os-release` and look at the NAME line.",
-    choices: [
-      { id: "debian", label: "Ubuntu / Debian", hint: "also Mint, Pop!_OS, Raspberry Pi OS" },
-      { id: "fedora", label: "Fedora / RHEL", hint: "also Rocky, Alma, CentOS Stream" },
-      { id: "arch", label: "Arch", hint: "also Manjaro, EndeavourOS" },
-      { id: "suse", label: "openSUSE" },
-    ],
+  { name: "v", group: "linux", label: "Distribution", help: LINUX_DISTRO_HELP, choices: LINUX_DISTROS },
+  {
+    name: "arch",
+    group: "linux",
+    label: "Processor",
+    help: "Not sure? Run `uname -m`. `x86_64` is Intel / AMD; `aarch64` is ARM64. `armv7l` means a 32-bit OS, which has no build.",
+    choices: archChoices,
   },
-};
-
-export const archChoices: Choice[] = [
-  { id: "x86_64", label: "x86_64 (Intel / AMD)" },
-  { id: "arm64", label: "ARM64", hint: "Raspberry Pi 4/5 with a 64-bit OS, ARM servers" },
-];
-export const archHelp = "Not sure? Run `uname -m`. `x86_64` is Intel / AMD; `aarch64` is ARM64. `armv7l` means a 32-bit OS, which has no build.";
-
-export const methodChoices: Choice[] = [
-  { id: "oneline", label: "One line", hint: "recommended" },
-  { id: "manual", label: "Download, read, then run", hint: "for the cautious" },
+  { name: "m", label: "How to install", choices: methodChoices },
 ];
 
 const curlInstall: Record<string, string> = {
@@ -265,12 +250,7 @@ function linuxSteps(distro: string, method: MethodId): Step[] {
   ];
 }
 
-/** One key per combination, e.g. `linux.fedora.arm64.manual`. */
-export function comboKey(os: OsId, version: string, arch: string, method: MethodId): string {
-  return [os, version, os === "linux" ? arch : "-", method].join(".");
-}
-
-export function walkthrough(os: OsId, version: string, arch: string, method: MethodId): Walkthrough {
+function walkthrough(os: OsId, version: string, method: MethodId): Walkthrough {
   if (os === "windows") {
     if (version === "arm") {
       return {
@@ -296,19 +276,26 @@ export function walkthrough(os: OsId, version: string, arch: string, method: Met
   return { tab: "Linux", steps: linuxSteps(version, method) };
 }
 
-/** Every combination, so the page can render them all at build time. */
-export function allCombos(): { key: string; os: OsId; w: Walkthrough }[] {
-  const out: { key: string; os: OsId; w: Walkthrough }[] = [];
-  const methods = methodChoices.map((m) => m.id as MethodId);
-  for (const os of osChoices.map((o) => o.id as OsId)) {
+function allCombos(): Combo[] {
+  const out: Combo[] = [];
+  for (const row of rows.filter((r) => r.name === "v")) {
+    const os = row.group!;
     const arches = os === "linux" ? archChoices.map((a) => a.id) : ["-"];
-    for (const v of versionChoices[os].choices.map((c) => c.id)) {
+    for (const v of row.choices) {
       for (const a of arches) {
-        for (const m of methods) {
-          out.push({ key: comboKey(os, v, a, m), os, w: walkthrough(os, v, a, m) });
+        for (const m of methodChoices) {
+          out.push({ key: comboKey(os, v.id, a, m.id), w: walkthrough(os, v.id, m.id as MethodId) });
         }
       }
     }
   }
   return out;
 }
+
+/** The "Help run the network" picker: install a testnet node. */
+export const joinGuide: GuideDef = {
+  rows,
+  defaultKey: comboKey("windows", "11", "-", "oneline"),
+  lastStepNote: 'Last step. Then go on to "Check it is working" below.',
+  combos: allCombos(),
+};

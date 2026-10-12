@@ -11,27 +11,49 @@ const COPIED_MS = 1600;
 
 // Storage can be missing or throw (private windows, blocked site data): the
 // picker then simply starts from its defaults.
-function load(): Partial<State> {
+function load(storageKey: string): Partial<State> {
   try {
-    return JSON.parse(localStorage.getItem(STORE_KEY) ?? "{}") as Partial<State>;
+    return JSON.parse(localStorage.getItem(storageKey) ?? "{}") as Partial<State>;
   } catch {
     return {};
   }
 }
-function save(s: State): void {
+function save(storageKey: string, s: State): void {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(s));
+    localStorage.setItem(storageKey, JSON.stringify(s));
   } catch {
     /* not remembering is fine */
   }
 }
 
+function hasRow(root: HTMLElement, name: string, os?: string): boolean {
+  const group = os ? `[data-group="${os}"]` : "";
+  return Boolean(root.querySelector(`.ip-row[data-row="${name}"]${group}`));
+}
+
+/** The first choice of each OS's version row: the default when nothing is stored. */
+function firstVersions(root: HTMLElement): Record<string, string> {
+  const out: Record<string, string> = {};
+  root.querySelectorAll<HTMLElement>('.ip-row[data-row="v"]').forEach((row) => {
+    const first = row.querySelector<HTMLElement>(".ip-opt")?.dataset.value;
+    if (row.dataset.group && first) out[row.dataset.group] = first;
+  });
+  return out;
+}
+
+// Each guide keeps its own remembered choice: the Quickstart has no
+// "Windows on ARM" or install-method row, so sharing one would leave a
+// choice there that the page cannot show.
+function storeKey(root: HTMLElement): string {
+  return `${STORE_KEY}:${root.dataset.guide ?? "join"}`;
+}
+
 function initialState(root: HTMLElement): State {
-  const [os, v, arch, m] = (root.dataset.default ?? "windows.11.-.oneline").split(".");
-  const stored = load();
+  const [os, , arch, m] = (root.dataset.default ?? "windows.11.-.-").split(".");
+  const stored = load(storeKey(root));
   const state: State = {
     os: stored.os ?? os,
-    v: { windows: v, mac: "apple", linux: "debian", ...(stored.v ?? {}) },
+    v: { ...firstVersions(root), ...(stored.v ?? {}) },
     arch: stored.arch ?? (arch === "-" ? "x86_64" : arch),
     m: stored.m ?? m,
   };
@@ -40,21 +62,24 @@ function initialState(root: HTMLElement): State {
   if (q.get("os")) state.os = q.get("os")!;
   if (q.get("v")) state.v[state.os] = q.get("v")!;
   if (q.get("arch")) state.arch = q.get("arch")!;
-  if (q.get("m")) state.m = q.get("m")!;
+  if (q.get("m") && hasRow(root, "m")) state.m = q.get("m")!;
   return state;
 }
 
-function key(s: State): string {
-  return [s.os, s.v[s.os], s.os === "linux" ? s.arch : "-", s.m].join(".");
+function key(root: HTMLElement, s: State): string {
+  const arch = hasRow(root, "arch", s.os) ? s.arch : "-";
+  const m = hasRow(root, "m") ? s.m : "-";
+  return [s.os, s.v[s.os], arch, m].join(".");
 }
 
-function writeUrl(s: State): void {
+function writeUrl(root: HTMLElement, s: State): void {
   const q = new URLSearchParams(location.search);
   q.set("os", s.os);
   q.set("v", s.v[s.os]);
-  if (s.os === "linux") q.set("arch", s.arch);
+  if (hasRow(root, "arch", s.os)) q.set("arch", s.arch);
   else q.delete("arch");
-  q.set("m", s.m);
+  if (hasRow(root, "m")) q.set("m", s.m);
+  else q.delete("m");
   history.replaceState(null, "", `${location.pathname}?${q}${location.hash}`);
 }
 
@@ -65,8 +90,11 @@ function markRow(row: HTMLElement, value: string): void {
   });
 }
 
-function syncTabs(label: string | undefined): void {
+async function syncTabs(label: string | undefined): Promise<void> {
   if (!label) return;
+  // Until Starlight defines <starlight-tabs>, a tab is a plain link: clicking
+  // it then follows its #tab-panel href and jumps the page down to it.
+  await customElements.whenDefined("starlight-tabs");
   const tabs = document.querySelector(TABS_SELECTOR);
   const tab = [...(tabs?.querySelectorAll<HTMLElement>('[role="tab"]') ?? [])].find(
     (t) => t.textContent?.trim() === label,
@@ -119,7 +147,18 @@ export function initInstallPicker(root: HTMLElement): void {
       else if (name === "arch") markRow(row, state.arch);
       else if (name === "m") markRow(row, state.m);
     });
-    const want = key(state);
+    // A link from another guide, or an edited one, can name a choice this
+    // guide does not have: fall back to the defaults rather than show nothing.
+    if (!root.querySelector(`.ip-walk[data-combo="${key(root, state)}"]`)) {
+      const [os, , arch, m] = (root.dataset.default ?? "windows.11.-.-").split(".");
+      if (!hasRow(root, "v", state.os)) state.os = os;
+      state.v = { ...state.v, [state.os]: firstVersions(root)[state.os] };
+      if (!root.querySelector(`.ip-walk[data-combo="${key(root, state)}"]`)) {
+        state.arch = arch === "-" ? "x86_64" : arch;
+        state.m = m;
+      }
+    }
+    const want = key(root, state);
     let current: HTMLElement | null = null;
     root.querySelectorAll<HTMLElement>(".ip-walk").forEach((w) => {
       w.hidden = w.dataset.combo !== want;
@@ -127,9 +166,9 @@ export function initInstallPicker(root: HTMLElement): void {
     });
     showStep(current, 0);
     updateProgress(root, current);
-    save(state);
-    writeUrl(state);
-    if (!fromTabs) syncTabs((current as HTMLElement | null)?.dataset.tab);
+    save(storeKey(root), state);
+    writeUrl(root, state);
+    if (!fromTabs) void syncTabs((current as HTMLElement | null)?.dataset.tab);
   };
 
   root.addEventListener("click", (e) => {
