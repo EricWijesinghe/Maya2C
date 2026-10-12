@@ -1,0 +1,10 @@
+# Blank issues are off so every report lands in the template that asks the
+# right questions. Security problems go private, questions go to Discussions.
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability (private)
+    url: https://github.com/EricWijesinghe/Maya2C/security/advisories/new
+    about: Never open a public issue for a vulnerability. This form is seen only by the maintainer.
+  - name: Ask a question or share an idea
+    url: https://github.com/EricWijesinghe/Maya2C/discussions
+    about: Questions, ideas and show-and-tell belong in Discussions.

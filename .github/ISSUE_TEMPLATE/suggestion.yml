@@ -1,0 +1,27 @@
+name: Suggestion
+description: Propose a change. The maintainer reviews every suggestion and decides.
+labels: ["suggestion"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you. Suggestions are read in full; accepted ones are usually
+        implemented by the maintainer. See CONTRIBUTING.md for how this works.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What is missing or wrong today, and who it affects.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Your proposal
+    validations:
+      required: true
+  - type: textarea
+    id: risks
+    attributes:
+      label: Security or consensus impact
+      description: Could this change fees, state roots, key handling or validator behaviour? Say so if unsure.

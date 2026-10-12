@@ -40,7 +40,7 @@ jobs:
           - { os: windows-latest, target: x86_64-pc-windows-msvc, exe: ".exe" }
           - { os: macos-14, target: aarch64-apple-darwin, exe: "" }
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # RocksDB is C++ and bindgen needs libclang. .cargo/config.toml links
       # x86_64 Linux through clang + mold; the other targets use their default.
@@ -53,7 +53,7 @@ jobs:
           toolchain: nightly-2026-07-15
           targets: ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           key: release-${{ matrix.target }}
 
@@ -85,7 +85,7 @@ jobs:
           cp LICENSE* README.md "dist/$name/" 2>/dev/null || true
           (cd dist && tar -czf "$name.tar.gz" "$name")
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: maya2c-${{ matrix.target }}
           path: dist/maya2c-${{ matrix.target }}.tar.gz
@@ -103,7 +103,7 @@ jobs:
       matrix:
         os: [windows-latest, macos-14, ubuntu-24.04]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # Tauri 2 on Linux: WebKitGTK 4.1; keyring's secret-service backend
       # needs D-Bus. RocksDB (linked through the node crate) needs clang.
@@ -123,7 +123,7 @@ jobs:
         with:
           tool: trunk,tauri-cli
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: apps/wallet-gui/src-tauri
           key: wallet-${{ matrix.os }}
@@ -133,7 +133,7 @@ jobs:
         working-directory: apps/wallet-gui/src-tauri
         run: cargo tauri build
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: maya-wallet-${{ matrix.os }}
           path: |
@@ -156,7 +156,7 @@ jobs:
       matrix:
         os: [windows-latest, macos-14, ubuntu-24.04]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # WebKitGTK 4.1 for Tauri; D-Bus for keyring's secret-service backend,
       # where the chat identity seed lives; clang and mold for the repo's
@@ -176,7 +176,7 @@ jobs:
         with:
           tool: tauri-cli
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: apps/chat-gui/src-tauri
           key: chat-${{ matrix.os }}
@@ -185,7 +185,7 @@ jobs:
         working-directory: apps/chat-gui/src-tauri
         run: cargo tauri build
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: maya-chat-${{ matrix.os }}
           path: |
@@ -205,8 +205,8 @@ jobs:
     steps:
       # First, for the release notes (docs/releases/<tag>.md): a checkout
       # cleans the workspace, so it must come before the artifacts.
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           path: dist
           merge-multiple: true
