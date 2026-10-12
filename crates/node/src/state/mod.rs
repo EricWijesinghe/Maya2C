@@ -35,6 +35,8 @@ pub mod invariant_guard;
 pub mod iot;
 pub mod iot_exec;
 pub mod merkle;
+pub mod mining;
+pub mod mining_exec;
 pub mod oracle_exec;
 pub(crate) mod preview;
 pub mod proof;

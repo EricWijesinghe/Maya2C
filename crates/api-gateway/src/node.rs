@@ -115,8 +115,9 @@ pub trait NodeClient: Send + Sync + 'static {
         false
     }
 
-    /// Forwards one of the read-only bootstrap methods the dispatch has
-    /// already validated, returning the node's JSON untouched. `null` by
+    /// Forwards a read-only method the dispatch has already validated (the
+    /// bootstrap methods and `get_mining_work`), returning the node's JSON
+    /// untouched. `null` by
     /// default, as from a node that serves no snapshots.
     async fn forward(
         &self,

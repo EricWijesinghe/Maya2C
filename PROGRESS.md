@@ -184,6 +184,22 @@ Rules in CLAUDE.md, "Operating Protocol"; state in [STATE.md](STATE.md).
 - [x] Lint ratchet's false pass fixed: under WSL bash clippy never ran and it reported 0; `lint_debt.sh` now requires `Finished`, and the sweep resolves Git bash. Real count 1,140 = baseline
 - [x] doc-coverage gate was red (broken `FEE_SINK` link; nightly-only gate); fixed, 99% (9,692 / 9,719)
 
+
+### Mainnet mining lane + Maya2C Hub (ADR-044/045, branch `feat/mainnet-mining-rewards`)
+
+- [x] `get_mining_work` RPC; miner `--mine` with JSON events; Hub desktop app (2026-10-11)
+- [x] Local mining devnet end to end; budget-overshoot, nonce-gap, retarget and earnings bugs fixed (2026-10-12, `reports/sessions/2026-10-12-mining-devnet-e2e.md`)
+- [x] Windows installers via `cargo xtask hub-bundle`; Android debug APK runs on an emulator (2026-10-12)
+- [x] Linux bundles (WSL): deb, rpm, AppImage (2026-10-12)
+- [x] api-gateway serves `get_mining_work` (not yet deployed)
+- [x] GPU dataset hashing in the miner; RTX 5070 parity + 4-validator run (2026-10-12)
+- [x] Multi-validator mining devnet (`cargo xtask mining-localnet`, 2026-10-12)
+- [ ] Hub window driven against a mining devnet
+- [ ] Testnet activation path for mining (re-genesis or activation height)
+- [x] Genesis tool fills `MINING_RESERVE` and `bft.mining` (2026-10-12)
+- [ ] Measure the block rate to set `halving_epochs`; mainnet-dataset GPU rate
+- [ ] Release signing (Windows code-signing, Android keystore — Eric's keys)
+- [ ] macOS/iOS builds (after Eric's MacBook)
 ---
 
 ## How to resume

@@ -438,6 +438,10 @@ pub enum NodeError {
     #[error("vault: {0}")]
     Vault(String),
 
+    /// A mining share refused (ADR-044).
+    #[error("mining share: {0}")]
+    Mining(String),
+
     /// An attack attestation whose evidence does not verify, or one
     /// submitted before threat intel is active.
     ///

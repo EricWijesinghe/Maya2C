@@ -3,7 +3,7 @@
 
 use primitive_types::U256;
 
-use crate::core::Transaction;
+use crate::core::{Transaction, TxKind};
 use crate::error::{NodeError, Result};
 use crate::state::db::{Overlay, StateDB};
 use crate::state::fees::{FEE_COLLECTOR, FEE_KEY, FeeRecord};
@@ -43,7 +43,15 @@ impl StateDB {
             return Ok(());
         };
         let size = tx.to_bytes().len();
-        let required = fees.required(size);
+        // A mining share that moves nothing pays no base fee: a new miner
+        // holds no coin, and Bitcoin's first miners paid none either. Its bytes
+        // still count toward the base-fee step, and the per-block share cap
+        // bounds how many there can be (ADR-044).
+        let required = if matches!(tx.kind, TxKind::MiningShare(_)) && tx.outputs.is_empty() {
+            0
+        } else {
+            fees.required(size)
+        };
         let offered: u128 = tx
             .outputs
             .iter()

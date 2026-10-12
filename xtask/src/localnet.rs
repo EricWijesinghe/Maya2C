@@ -23,6 +23,7 @@
 
 use std::path::Path;
 use std::process::{Child, Command};
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -38,8 +39,38 @@ const WAIT: Duration = Duration::from_secs(120);
 const POLL: Duration = Duration::from_millis(500);
 const PAYMENT: u64 = 12_345;
 
+/// Added to both port bases. The live testnet seed on the owner's PC holds
+/// p2p 31100, so a rehearsal there must move (`mining-localnet` uses 2000).
+static PORT_OFFSET: AtomicU16 = AtomicU16::new(0);
+
+pub(crate) fn use_port_offset(offset: u16) {
+    PORT_OFFSET.store(offset, Ordering::Relaxed);
+}
+
+fn p2p_port(i: u16) -> u16 {
+    P2P_BASE + PORT_OFFSET.load(Ordering::Relaxed) + i
+}
+
 pub(crate) fn rpc_addr(i: u16) -> String {
-    format!("127.0.0.1:{}", RPC_BASE + i)
+    format!(
+        "127.0.0.1:{}",
+        RPC_BASE + PORT_OFFSET.load(Ordering::Relaxed) + i
+    )
+}
+
+/// Refuses to start on ports something already holds. Found 2026-10-12: on
+/// the PC that runs the live testnet, node 0 would have taken the seed's p2p
+/// port and the others dialled the live seed with a foreign genesis.
+pub(crate) fn ports_free() -> Result<()> {
+    for i in 0..VALIDATORS {
+        let rpc_port = RPC_BASE + PORT_OFFSET.load(Ordering::Relaxed) + i;
+        for port in [rpc_port, p2p_port(i)] {
+            std::net::TcpListener::bind(("127.0.0.1", port)).map_err(|e| {
+                format!("port {port} is in use ({e}); is a live node running on this machine?")
+            })?;
+        }
+    }
+    Ok(())
 }
 
 fn rpc(i: u16, method: &str, params: &Value) -> Result<Value> {
@@ -124,11 +155,20 @@ pub(crate) fn setup(work: &Path) -> Result<String> {
     if work.exists() {
         std::fs::remove_dir_all(work).map_err(|e| format!("clearing {}: {e}", work.display()))?;
     }
-    setup_with(work, None)
+    setup_with(work, None, &|_| {})
+}
+
+/// As [`setup`], letting `tweak` change the genesis before it is written
+/// (`cargo xtask mining-localnet` adds fees and `bft.mining`).
+pub(crate) fn setup_tweaked(work: &Path, tweak: &dyn Fn(&mut Value)) -> Result<String> {
+    if work.exists() {
+        std::fs::remove_dir_all(work).map_err(|e| format!("clearing {}: {e}", work.display()))?;
+    }
+    setup_with(work, None, tweak)
 }
 
 /// As [`setup`]; with `remote`, the last validator's key is the signer's.
-fn setup_with(work: &Path, remote: Option<&Remote>) -> Result<String> {
+fn setup_with(work: &Path, remote: Option<&Remote>, tweak: &dyn Fn(&mut Value)) -> Result<String> {
     let mut validators = Vec::new();
     for i in 0..VALIDATORS {
         let dir = work.join(format!("v{i}"));
@@ -151,7 +191,7 @@ fn setup_with(work: &Path, remote: Option<&Remote>) -> Result<String> {
         .iter()
         .map(|_| json!({ "operator": address, "bond": BOND }))
         .collect();
-    let genesis = json!({
+    let mut genesis = json!({
         "chain_id": "maya2c-localnet",
         "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()),
         "difficulty_bits": 0,
@@ -162,6 +202,7 @@ fn setup_with(work: &Path, remote: Option<&Remote>) -> Result<String> {
             "staking": { "epoch_blocks": 20, "bonds": bonds }
         }
     });
+    tweak(&mut genesis);
     std::fs::write(work.join("genesis.json"), genesis.to_string())
         .map_err(|e| format!("writing genesis: {e}"))?;
     Ok(address)
@@ -187,7 +228,7 @@ fn start_with(work: &Path, i: u16, remote: Option<&Remote>) -> Result<Child> {
             "--rpc-addr",
             &rpc_addr(i),
             "--p2p-port",
-            &(P2P_BASE + i).to_string(),
+            &p2p_port(i).to_string(),
         ]);
     match remote {
         Some(r) if i == VALIDATORS - 1 => {
@@ -203,7 +244,7 @@ fn start_with(work: &Path, i: u16, remote: Option<&Remote>) -> Result<Child> {
     for peer in (0..VALIDATORS).filter(|p| *p != i) {
         cmd.args([
             "--bootnode",
-            &format!("/ip4/127.0.0.1/tcp/{}", P2P_BASE + peer),
+            &format!("/ip4/127.0.0.1/tcp/{}", p2p_port(peer)),
         ]);
     }
     cmd.stdout(log.try_clone().map_err(|e| e.to_string())?)
@@ -213,7 +254,7 @@ fn start_with(work: &Path, i: u16, remote: Option<&Remote>) -> Result<Child> {
 }
 
 /// `(height, block id)` of node `i`'s tip.
-fn tip(i: u16, address: &str) -> Result<(u64, String)> {
+pub(crate) fn tip(i: u16, address: &str) -> Result<(u64, String)> {
     let v = rpc(i, "get_account_at_tip", &json!([address]))?;
     let height = v["height"].as_u64().ok_or("no height")?;
     let id = v["block_id"].as_str().ok_or("no block_id")?.to_owned();
@@ -225,7 +266,7 @@ fn block_id(i: u16, height: u64) -> Result<String> {
     Ok(b["header"]["id"].as_str().ok_or("no header id")?.to_owned())
 }
 
-fn balance(i: u16, address: &str) -> Result<u64> {
+pub(crate) fn balance(i: u16, address: &str) -> Result<u64> {
     rpc(i, "get_balance", &json!([address]))?["balance"]
         .as_u64()
         .ok_or_else(|| format!("node {i}: get_balance carries no balance"))
@@ -282,7 +323,8 @@ fn run(work: &Path, with_signer: bool) -> Result<()> {
     } else {
         None
     };
-    let address = setup_with(work, remote.as_ref())?;
+    ports_free()?;
+    let address = setup_with(work, remote.as_ref(), &|_| {})?;
     let mut procs = Procs::default();
     let started = Instant::now();
     for i in 0..VALIDATORS {

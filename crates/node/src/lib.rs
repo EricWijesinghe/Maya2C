@@ -23,12 +23,15 @@
 //! # Example
 //!
 //! ```
-//! use custom_l1_node::core::{Transaction, TxOutput};
+//! use custom_l1_node::core::{ChainTag, Transaction, TxOutput};
 //! use custom_l1_node::crypto::hybrid::generate_signing_key;
 //!
 //! # fn main() -> custom_l1_node::Result<()> {
 //! // Key generation is fallible: it reads the OS entropy source directly.
 //! let signing_key = generate_signing_key()?;
+//! // Signatures commit to one chain, so a transaction cannot be replayed on
+//! // another; a real chain's tag is derived from its genesis block.
+//! let chain = ChainTag([1u8; 32]);
 //! let mut tx = Transaction::new(
 //!     vec![],
 //!     vec![TxOutput { amount: 42, recipient: [7u8; 32] }],
@@ -37,9 +40,9 @@
 //! // Signing is fallible under ML-DSA: FIPS 204 permits an implementation to
 //! // give up if its rejection loop does not terminate. It is also slow —
 //! // around 105 ms — because the SLH-DSA half dominates.
-//! tx.sign(&signing_key)?;
+//! tx.sign(&signing_key, &chain)?;
 //! // Passes only if *both* proofs verify.
-//! assert!(tx.verify().is_ok());
+//! assert!(tx.verify(&chain).is_ok());
 //! // The sender's address is derived from both keys, never carried separately.
 //! assert_eq!(tx.sender(), signing_key.address());
 //! # Ok(())
