@@ -9,7 +9,7 @@ description: For anyone who wants to help, no technical background needed. Pick 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
 
 Thank you for helping. Your computer becomes one of the machines that keep
-the Maya2C test network running. It takes about five minutes, and you can
+the Maya2C test network running. Setting it up takes about five minutes, and you can
 remove everything at any time.
 
 :::note[Before you start]
@@ -95,7 +95,7 @@ No "unidentified developer" warning appears, because Terminal installs the progr
 
 ## 2. Check it is working
 
-The node first downloads the chain. That usually takes a few minutes.
+The first time, the node downloads the chain. **That can take up to an hour.** You don't need to do anything while it runs; the computer can be used normally.
 
 <Tabs syncKey="os">
 <TabItem label="Windows" icon="seti:windows">
@@ -120,7 +120,7 @@ maya2c-validator status
 | You see | It means |
 |---|---|
 | **the node is running** | Installed and running |
-| **catching up: block 501,615 of 507,191** | Still downloading. Check again in a few minutes |
+| **catching up: block 501,615 of 507,191** | Still downloading. Check again later |
 | **in sync: block 507,191** | Done. Your node is following the network |
 | **validating** | You are a validator (step 3) |
 | **the node is not running** | See [Fix a problem](#fix-a-problem) |

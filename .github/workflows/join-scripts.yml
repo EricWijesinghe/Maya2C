@@ -31,7 +31,7 @@ jobs:
   unix:
     name: install on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -42,7 +42,7 @@ jobs:
         run: bash scripts/join-testnet.sh install
       - name: Node answers on its RPC
         run: |
-          for _ in $(seq 1 90); do
+          for _ in $(seq 1 300); do   # 50 min: a first sync took ~40 (2026-10-12)
             if maya2c-validator status | tee /tmp/status | grep -q 'block'; then
               cat /tmp/status; exit 0
             fi
@@ -63,7 +63,7 @@ jobs:
   windows:
     name: install on windows-latest
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Install
@@ -73,7 +73,7 @@ jobs:
         shell: pwsh
         run: |
           $helper = 'C:\Program Files\Maya2C\maya2c-validator.ps1'
-          foreach ($i in 1..90) {
+          foreach ($i in 1..300) {   # 50 min, as above
             $out = & $helper -Status | Out-String
             if ($out -match 'block') { $out; exit 0 }
             Start-Sleep 10
