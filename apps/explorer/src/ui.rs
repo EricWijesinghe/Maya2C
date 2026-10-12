@@ -117,16 +117,18 @@ pub fn Shell(
             <body>
                 <nav class="nav">
                     <a class="brand" href="/">
-                        // Not decorative here: this is the only content of the
-                        // link, so without alt text the home link announces
-                        // itself as an unlabelled image.
+                        // The emblem is the mark; the wordmark span is the
+                        // readable name beside it, matching the main site's
+                        // header. Empty alt keeps the name from being read
+                        // twice, since the span already carries it.
                         <img
-                            src="/assets/logo.png"
-                            srcset="/assets/logo.png 1x, /assets/logo@2x.png 2x"
-                            alt="Maya2C"
-                            width="250"
-                            height="100"
+                            class="emblem"
+                            src="/assets/emblem.png"
+                            alt=""
+                            width="40"
+                            height="40"
                         />
+                        <span class="word">"Maya2C"</span>
                     </a>
                     <a href="/">"Dashboard"</a>
                     <a href="/blocks">"Blocks"</a>
@@ -480,11 +482,14 @@ h1 { background:linear-gradient(100deg,#22d3ee,#a78bfa 60%,#f472b6);
        border-bottom:1px solid var(--border); background:var(--panel); }
 .nav a { color:var(--muted); text-decoration:none; }
 .nav a:hover { color:var(--fg); }
-.nav .brand { display:flex; align-items:center; margin-right:0.5rem; }
-/* Height-constrained, width auto, so the 5:2 wordmark is never stretched. The
-   intrinsic size is on the element itself, so the nav does not reflow when the
-   image finishes loading. */
-.nav .brand img { height:1.6rem; width:auto; display:block; }
+.nav .brand { display:flex; align-items:center; gap:0.55rem; margin-right:0.5rem; }
+/* The emblem is square; the intrinsic size is on the element itself so the nav
+   does not reflow when the image finishes loading. */
+.nav .brand .emblem { height:2.1rem; width:2.1rem; display:block;
+       filter:drop-shadow(0 0 10px rgb(34 211 238 / 0.4)); }
+.nav .brand .word { font-weight:800; font-size:1.2rem; letter-spacing:-0.01em;
+       background:linear-gradient(100deg,#22d3ee,#a78bfa 60%,#f472b6);
+       -webkit-background-clip:text; background-clip:text; color:transparent; }
 main { max-width:1100px; margin:0 auto; padding:1.5rem; }
 h1 { font-size:1.4rem; margin:0 0 1rem; }
 h2 { font-size:1rem; margin:0 0 0.75rem; color:var(--muted);
