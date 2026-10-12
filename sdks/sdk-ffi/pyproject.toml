@@ -36,6 +36,7 @@ version = "0.1.0"
 description = "Post-quantum signing primitives for the Maya2C network"
 readme = "bindings/python/README.md"
 license = { text = "Apache-2.0" }
+authors = [{ name = "Eric Wijesinghe" }]
 requires-python = ">=3.9"
 
 classifiers = [
