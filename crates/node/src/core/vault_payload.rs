@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! action = 0 delay:u64 limit:u64 n:u64 guardian[32]*n    configure
-//!        | 1 to[32] amount:u64                           request
+//!        | 1 to[32] amount:u256                           request
 //!        | 2 owner[32] id:u64                            execute
 //!        | 3 owner[32] id:u64                            cancel
 //! ```
@@ -77,7 +77,7 @@ pub enum VaultAction {
         /// Recipient.
         to: [u8; 32],
         /// Amount.
-        amount: u64,
+        amount: primitive_types::U256,
     },
     /// Pay a matured request.
     Execute {
@@ -106,7 +106,7 @@ impl VaultAction {
             Self::Request { to, amount } => {
                 buf.push(REQUEST);
                 buf.extend_from_slice(to);
-                buf.extend_from_slice(&amount.to_le_bytes());
+                crate::core::codec::put_amount(buf, &amount);
             }
             Self::Execute { owner, id } | Self::Cancel { owner, id } => {
                 buf.push(if matches!(self, Self::Execute { .. }) {
@@ -130,7 +130,7 @@ impl VaultAction {
             CONFIGURE => Ok(Self::Configure(VaultConfig::decode(r)?)),
             REQUEST => Ok(Self::Request {
                 to: r.read_array()?,
-                amount: r.read_u64()?,
+                amount: r.read_amount()?,
             }),
             EXECUTE => Ok(Self::Execute {
                 owner: r.read_array()?,

@@ -1,11 +1,11 @@
 //! Staking transactions (ADR-028): what a sender can do to the validator set.
 //!
 //! ```text
-//! action = 0 key[1952] bond:u64 commission:u16 possession[3309]   register
-//!        | 1 id[32] amount:u64                                    bond more
-//!        | 2 id[32] amount:u64                                    unbond
-//!        | 3 id[32] amount:u64                                    delegate
-//!        | 4 id[32] amount:u64                                    undelegate
+//! action = 0 key[1952] bond:u256 commission:u16 possession[3309]   register
+//!        | 1 id[32] amount:u256                                    bond more
+//!        | 2 id[32] amount:u256                                    unbond
+//!        | 3 id[32] amount:u256                                    delegate
+//!        | 4 id[32] amount:u256                                    undelegate
 //!        | 5 len:u64 frame len:u64 frame                          equivocation
 //! ```
 //!
@@ -44,7 +44,7 @@ pub enum StakingAction {
         /// The validator's ML-DSA-65 verifying key.
         key: Box<[u8; PUBLIC_KEY_LEN]>,
         /// Self bond.
-        bond: u64,
+        bond: primitive_types::U256,
         /// Commission on rewards, basis points.
         commission_bps: u16,
         /// The key's signature over [`POSSESSION_DOMAIN`] ‖ sender address.
@@ -55,28 +55,28 @@ pub enum StakingAction {
         /// Validator id.
         validator: [u8; 32],
         /// Amount.
-        amount: u64,
+        amount: primitive_types::U256,
     },
     /// Start unbonding the sender's own bond.
     Unbond {
         /// Validator id.
         validator: [u8; 32],
         /// Amount.
-        amount: u64,
+        amount: primitive_types::U256,
     },
     /// Delegate to a validator.
     Delegate {
         /// Validator id.
         validator: [u8; 32],
         /// Amount.
-        amount: u64,
+        amount: primitive_types::U256,
     },
     /// Start unbonding a delegation.
     Undelegate {
         /// Validator id.
         validator: [u8; 32],
         /// Amount.
-        amount: u64,
+        amount: primitive_types::U256,
     },
     /// Two conflicting signed proposals by one validator. Anyone may submit.
     ReportEquivocation {
@@ -96,10 +96,10 @@ impl StakingAction {
 
     /// Appends the encoding.
     pub fn encode_into(&self, buf: &mut Vec<u8>) {
-        let amount_op = |buf: &mut Vec<u8>, tag: u8, id: &[u8; 32], amount: u64| {
+        let amount_op = |buf: &mut Vec<u8>, tag: u8, id: &[u8; 32], amount: primitive_types::U256| {
             buf.push(tag);
             buf.extend_from_slice(id);
-            buf.extend_from_slice(&amount.to_le_bytes());
+            crate::core::codec::put_amount(buf, &amount);
         };
         match self {
             Self::Register {
@@ -110,7 +110,7 @@ impl StakingAction {
             } => {
                 buf.push(REGISTER);
                 buf.extend_from_slice(key.as_slice());
-                buf.extend_from_slice(&bond.to_le_bytes());
+                crate::core::codec::put_amount(buf, &bond);
                 buf.extend_from_slice(&commission_bps.to_le_bytes());
                 buf.extend_from_slice(possession.as_slice());
             }
@@ -138,13 +138,13 @@ impl StakingAction {
     /// evidence frame over its bound.
     pub fn decode(r: &mut ByteReader<'_>) -> Result<Self> {
         let tag = r.read_u8()?;
-        let amount_op = |r: &mut ByteReader<'_>| -> Result<([u8; 32], u64)> {
-            Ok((r.read_array()?, r.read_u64()?))
+        let amount_op = |r: &mut ByteReader<'_>| -> Result<([u8; 32], primitive_types::U256)> {
+            Ok((r.read_array()?, r.read_amount()?))
         };
         Ok(match tag {
             REGISTER => Self::Register {
                 key: Box::new(r.read_array()?),
-                bond: r.read_u64()?,
+                bond: r.read_amount()?,
                 commission_bps: u16::from_le_bytes(r.read_array()?),
                 possession: Box::new(r.read_array()?),
             },
