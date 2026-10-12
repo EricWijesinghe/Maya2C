@@ -168,6 +168,10 @@ pub struct LiveView {
 #[derive(Debug, Default)]
 pub struct Live {
     network: String,
+    /// Peer ids named on the command line (`--known NAME=PEERID`), for
+    /// watched nodes that do not serve `get_peers` yet and so cannot say
+    /// who they are.
+    known: BTreeMap<String, String>,
     first_seen: BTreeMap<String, u64>,
     present: BTreeSet<String>,
     up: BTreeMap<String, bool>,
@@ -192,6 +196,12 @@ impl Live {
         }
     }
 
+    /// The same view, naming `known` peer ids (peer id → node name).
+    #[must_use]
+    pub fn with_known(self, known: BTreeMap<String, String>) -> Self {
+        Self { known, ..self }
+    }
+
     /// The current view.
     #[must_use]
     pub fn view(&self) -> &LiveView {
@@ -209,12 +219,15 @@ impl Live {
 
     /// Folds one poll of every watched node into the view.
     pub fn observe(&mut self, at_ms: u64, polls: &[NodePoll]) {
-        let watched: BTreeMap<String, String> = polls
-            .iter()
-            .filter_map(|p| Some((p.view.as_ref()?.peer_id.clone(), p.name.clone())))
-            .collect();
+        // What a node says about itself wins over the command line.
+        let mut watched = self.known.clone();
+        watched.extend(
+            polls
+                .iter()
+                .filter_map(|p| Some((p.view.as_ref()?.peer_id.clone(), p.name.clone()))),
+        );
         let peers = self.merge_peers(at_ms, polls, &watched);
-        let nodes = self.watched_nodes(at_ms, polls);
+        let nodes = self.watched_nodes(at_ms, polls, &watched);
         self.note_epoch(at_ms, polls);
 
         let sample = Sample {
@@ -312,7 +325,12 @@ impl Live {
         out
     }
 
-    fn watched_nodes(&mut self, at_ms: u64, polls: &[NodePoll]) -> Vec<WatchedNode> {
+    fn watched_nodes(
+        &mut self,
+        at_ms: u64,
+        polls: &[NodePoll],
+        watched: &BTreeMap<String, String>,
+    ) -> Vec<WatchedNode> {
         let best = polls
             .iter()
             .filter_map(|p| p.bft.map(|b| b.committed_round))
@@ -330,7 +348,12 @@ impl Live {
             }
             out.push(WatchedNode {
                 name: p.name.clone(),
-                peer_id: p.view.as_ref().map(|v| v.peer_id.clone()),
+                peer_id: p.view.as_ref().map(|v| v.peer_id.clone()).or_else(|| {
+                    watched
+                        .iter()
+                        .find(|(_, name)| **name == p.name)
+                        .map(|(id, _)| id.clone())
+                }),
                 up,
                 height: p.height,
                 bft: p.bft,
@@ -466,6 +489,33 @@ mod tests {
         assert_eq!(v2.watched_as.as_deref(), Some("v2"));
         assert_eq!(v.nodes[1].lag_rounds, Some(2));
         assert!(v.nodes.iter().all(|n| n.voting));
+    }
+
+    #[test]
+    fn a_known_peer_id_names_a_node_that_cannot_say_who_it_is() {
+        let known = BTreeMap::from([("V3ID".to_string(), "v3".to_string())]);
+        let mut live = Live::new("t").with_known(known);
+        let old_v3 = NodePoll {
+            name: "v3".into(),
+            bft: Some(BftStatus {
+                validator: Some(1),
+                committee: 4,
+                ..BftStatus::default()
+            }),
+            view: None, // an old binary: no get_peers
+            height: Some(5),
+        };
+        live.observe(
+            1_000,
+            &[
+                poll("seed", "S", vec![peer("V3ID", 30, "tcp")], Some(0), 3),
+                old_v3,
+            ],
+        );
+        let v = live.view();
+        assert_eq!(v.peers[0].watched_as.as_deref(), Some("v3"));
+        assert_eq!(v.nodes[1].peer_id.as_deref(), Some("V3ID"));
+        assert!(v.events[0].text.starts_with("v3 "), "{:?}", v.events);
     }
 
     #[test]

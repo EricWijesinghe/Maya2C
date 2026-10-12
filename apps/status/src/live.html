@@ -125,7 +125,7 @@
     <div class="tile" data-learn="voting"><div class="k">Validators voting</div><div class="v" id="t-voting">–</div><div class="s" id="t-voting-s">&nbsp;</div></div>
     <div class="tile" data-learn="peers"><div class="k">Nodes connected</div><div class="v" id="t-peers">–</div><div class="s" id="t-peers-s">&nbsp;</div><svg id="spark-peers" viewBox="0 0 100 30" preserveAspectRatio="none"></svg></div>
     <div class="tile" data-learn="round"><div class="k">Consensus round</div><div class="v" id="t-round">–</div><div class="s" id="t-epoch">&nbsp;</div></div>
-    <div class="tile" data-learn="seen"><div class="k">Seen this session</div><div class="v" id="t-seen">–</div><div class="s">distinct nodes since the page's server started</div></div>
+    <div class="tile" data-learn="seen"><div class="k">Seen this session</div><div class="v" id="t-seen">–</div><div class="s">distinct nodes, validators included, since this server started</div></div>
   </div>
 
   <div class="cols">
@@ -451,7 +451,7 @@
     const best = view.nodes.filter((n) => n.bft).sort((a, b) => b.bft.committed_round - a.bft.committed_round)[0];
     setTile("t-round", best ? fmt.format(best.bft.committed_round) : "–");
     $("t-epoch").textContent = best ? `epoch ${best.bft.epoch}` : " ";
-    setTile("t-seen", fmt.format(Math.max(0, view.seen_total - view.nodes.filter(seated).length)));
+    setTile("t-seen", fmt.format(view.seen_total));
     spark("spark-height", h.slice(-120).map((s) => s.height));
     spark("spark-peers", h.slice(-600).map((s) => s.peers));
     // A new block: votes run around the committee mesh, then the block
