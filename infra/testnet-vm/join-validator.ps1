@@ -152,6 +152,7 @@ $SelfUrl     = 'https://raw.githubusercontent.com/EricWijesinghe/Maya2C/master/i
 $PublicRpc   = 'https://rpc.maya2c.dev/rpc'
 $ApplyUrl    = 'https://github.com/EricWijesinghe/Maya2C/issues/new?template=validator-application.yml'
 $SyncedWithin = 5   # blocks behind the network that still count as "in sync"
+$RestartSeconds = 10 # pause before the launcher restarts a node that exited
 $RpcAddr     = "127.0.0.1:$RpcPort" # RPC is unauthenticated; bind loopback only.
 # $P2pPort and $RpcPort come from params so a second node can coexist on one PC.
 
@@ -329,11 +330,20 @@ function Register-BootTask {
         '--catch-up-from',  $Bootstrap
     ) -join ' '
     # A tiny launcher so logs are captured and the task line stays readable.
+    # It restarts the node itself: Task Scheduler's restart-on-failure does
+    # not fire when the program simply exits, so a node that stopped (seen on
+    # a Windows CI runner, 2026-10-12) stayed stopped. systemd's
+    # Restart=always and launchd's KeepAlive already do this on Linux and Mac.
     $launcher = Join-Path $InstallDir 'run-node.cmd'
     @"
 @echo off
 rem Maya2C validator launcher. Started at boot by the "$TaskName" task.
+:run
 "$NodeExe" $nodeArgs >> "$LogDir\node.log" 2>&1
+echo %date% %time% maya2c-node exited with %errorlevel%; restarting in $RestartSeconds s >> "$LogDir\node.log"
+rem ping, not timeout: timeout fails at once in a session with no console.
+ping -n $($RestartSeconds + 1) 127.0.0.1 > nul
+goto run
 "@ | Set-Content -Path $launcher -Encoding ASCII
 
     if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {

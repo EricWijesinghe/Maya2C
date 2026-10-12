@@ -46,6 +46,14 @@ band; move an item to PROGRESS.md when it starts.
 
 ## P2 — make claimed-working features verified
 
+- **Flaky: `identity_tests::no_committed_record_holds_a_claim_preimage`.**
+  It searches records for the 4 bytes `22 00 00 00` (age 34 as u32); random
+  key bytes can contain them, so it fails rarely (PR #114 CI, 2026-10-12).
+  Search for a value whose encoding cannot occur by chance, or for the
+  claim's full field-element encoding.
+- **HTLC two-devnet swap times out under full parallel load** (1,058 s in a
+  workspace nextest run; 18 s alone). Mark it heavy / serial in nextest.
+
 - **Measure line coverage of the core crates** with `cargo llvm-cov`
   (installed, 0.8.7; never run). M1 criterion 8. Source: EMPIRE.md.
 - **Property tests for fees, consensus and VM.** State has a seeded
