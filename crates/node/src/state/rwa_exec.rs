@@ -43,6 +43,7 @@ use maya_ledger_math::distribute;
 use maya_rwa::cap_table::HOLDERS_PER_PAGE;
 use maya_rwa::token::{Eligibility, LegalAttestation, RevenueDistribution, RwaToken, TransferRule};
 use maya_rwa::{Address, Digest};
+use primitive_types::U256;
 
 use crate::error::{NodeError, Result};
 use crate::state::account::Address as ChainAddress;
@@ -237,11 +238,11 @@ impl StateDB {
         }
 
         let buyer_account = self.load(overlay, buyer)?;
-        let Some(buyer_after) = buyer_account.balance.checked_sub(price) else {
+        let Some(buyer_after) = buyer_account.balance.checked_sub(U256::from(price)) else {
             return Ok(DvpOutcome::BuyerShort);
         };
         let seller_account = self.load(overlay, seller)?;
-        let Some(seller_after) = seller_account.balance.checked_add(price) else {
+        let Some(seller_after) = seller_account.balance.checked_add(U256::from(price)) else {
             // The seller's balance would overflow. Not a loss and not an error:
             // the swap simply does not happen.
             return Ok(DvpOutcome::BuyerShort);
@@ -331,13 +332,15 @@ impl StateDB {
         // Debit the issuer first, so an issuer who cannot cover the total does
         // not leave a partially credited cap table behind.
         let mut issuer_account = self.load(overlay, issuer)?;
-        issuer_account.balance = issuer_account.balance.checked_sub(total).ok_or_else(|| {
-            NodeError::InsufficientBalance {
+        let required = U256::from(total);
+        issuer_account.balance = issuer_account
+            .balance
+            .checked_sub(required)
+            .ok_or_else(|| NodeError::InsufficientBalance {
                 address: hex::encode(issuer),
-                required: total,
+                required,
                 available: issuer_account.balance,
-            }
-        })?;
+            })?;
         overlay.accounts.insert(*issuer, issuer_account);
 
         for ((address, _), payout) in holders.iter().zip(&payouts) {
@@ -347,7 +350,7 @@ impl StateDB {
             let mut account = self.load(overlay, address)?;
             account.balance = account
                 .balance
-                .checked_add(*payout)
+                .checked_add(U256::from(*payout))
                 .ok_or(NodeError::BalanceOverflow)?;
             overlay.accounts.insert(*address, account);
         }

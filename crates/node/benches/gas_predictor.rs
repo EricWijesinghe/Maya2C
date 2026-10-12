@@ -21,6 +21,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use primitive_types::U256;
 use std::hint::black_box;
 use std::sync::Arc;
 
@@ -142,7 +143,7 @@ fn signed_setup(keys: &[HybridSigningKey]) -> (Arc<StateDB>, TempDir, Vec<Transa
             db.put_account(
                 &key.address(),
                 &Account {
-                    balance: 1_000_000,
+                    balance: U256::from(1_000_000u64),
                     nonce: 0,
                 },
             )

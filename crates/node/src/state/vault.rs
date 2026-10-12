@@ -10,7 +10,7 @@
 //! the record at or after its maturity sees the new policy, so nothing has to
 //! be sent for it to apply. Every action writes the record back normalised.
 
-use maya_ledger_math as ledger_math;
+use primitive_types::U256;
 
 use crate::core::Transaction;
 use crate::core::TxKind;
@@ -389,13 +389,15 @@ impl StateDB {
         }
         let mut account = self.load(overlay, owner)?;
         let available = account.balance;
-        account.balance = ledger_math::debit(available, amount).ok_or_else(|| {
-            NodeError::InsufficientBalance {
-                address: hex::encode(owner),
-                required: amount,
-                available,
-            }
-        })?;
+        let required = U256::from(amount);
+        account.balance =
+            available
+                .checked_sub(required)
+                .ok_or_else(|| NodeError::InsufficientBalance {
+                    address: hex::encode(owner),
+                    required,
+                    available,
+                })?;
         overlay.accounts.insert(*owner, account);
         let id = vault.next_id;
         let ready_height = height.saturating_add(vault.config.delay_blocks);
@@ -446,8 +448,10 @@ impl StateDB {
         }
         let payee = if status == EXECUTED { w.to } else { *owner };
         let mut account = self.load(overlay, &payee)?;
-        account.balance =
-            ledger_math::credit(account.balance, w.amount).ok_or(NodeError::BalanceOverflow)?;
+        account.balance = account
+            .balance
+            .checked_add(U256::from(w.amount))
+            .ok_or(NodeError::BalanceOverflow)?;
         overlay.accounts.insert(payee, account);
         // Settled requests are deleted, not kept with a status: history is in
         // the blocks, and a vault's record set stays bounded by its open

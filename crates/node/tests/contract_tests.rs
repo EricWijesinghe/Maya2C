@@ -60,7 +60,7 @@ fn open_state(funded: &[(Address, u64)]) -> (StateDB, TempDir) {
         db.put_account(
             address,
             &Account {
-                balance: *balance,
+                balance: primitive_types::U256::from(*balance),
                 nonce: 0,
             },
         )
@@ -314,10 +314,10 @@ fn a_failed_call_aborts_the_whole_block() {
     // Block atomicity holds across the VM boundary: the unrelated transfer is
     // discarded too.
     assert_eq!(
-        db.get_account(&address_of(&other)).map(|a| a.balance),
+        db.get_account(&address_of(&other)).map(|a| u64::try_from(a.balance).expect("fits u64")),
         Ok(500)
     );
-    assert_eq!(db.get_account(&[3u8; 32]).map(|a| a.balance), Ok(0));
+    assert_eq!(db.get_account(&[3u8; 32]).map(|a| u64::try_from(a.balance).expect("fits u64")), Ok(0));
 }
 
 #[test]

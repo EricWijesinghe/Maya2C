@@ -6,6 +6,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use primitive_types::U256;
 use std::sync::Arc;
 
 use custom_l1_node::consensus::{Chain, ChainConfig};
@@ -244,14 +245,14 @@ fn seeding_writes_allocations_and_matches_the_declared_root() {
     assert_eq!(
         state.get_account(&[1u8; 32]),
         Ok(Account {
-            balance: 1_000_000,
+            balance: U256::from(1_000_000),
             nonce: 0
         })
     );
     assert_eq!(
         state.get_account(&[2u8; 32]),
         Ok(Account {
-            balance: 500_000,
+            balance: U256::from(500_000),
             nonce: 0
         })
     );
@@ -268,7 +269,7 @@ fn seeding_is_idempotent_across_restarts() {
 
     assert_eq!(first, second);
     assert_eq!(
-        state.get_account(&[1u8; 32]).map(|a| a.balance),
+        state.get_account(&[1u8; 32]).map(|a| u64::try_from(a.balance).expect("fits u64")),
         Ok(1_000_000)
     );
 }

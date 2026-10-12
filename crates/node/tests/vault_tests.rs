@@ -39,7 +39,7 @@ impl Chain {
             db.put_account(
                 a,
                 &Account {
-                    balance: FUNDS,
+                    balance: primitive_types::U256::from(FUNDS),
                     nonce: 0,
                 },
             )
@@ -77,7 +77,7 @@ impl Chain {
     }
 
     fn balance(&self, a: &Address) -> u64 {
-        self.db.get_account(a).unwrap().balance
+        u64::try_from(self.db.get_account(a).unwrap().balance).expect("fits u64")
     }
 
     fn nonce(&self, a: &Address) -> u64 {

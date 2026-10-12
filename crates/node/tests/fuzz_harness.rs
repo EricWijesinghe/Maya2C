@@ -34,6 +34,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use primitive_types::U256;
 use std::panic::{self, AssertUnwindSafe};
 
 use custom_l1_node::core::{Block, BlockHeader, Transaction, TxInput, TxOutput};
@@ -141,7 +142,7 @@ fn fresh_state(owner: &Address) -> (StateDB, TempDir) {
         .put_account(
             owner,
             &Account {
-                balance: 1_000_000,
+                balance: U256::from(1_000_000),
                 nonce: 0,
             },
         )

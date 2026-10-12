@@ -31,6 +31,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use primitive_types::U256;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -386,14 +387,14 @@ fn account_seeds() -> Vec<(String, Vec<u8>)> {
         (
             "saturated",
             Account {
-                balance: u64::MAX,
+                balance: U256::from(u64::MAX),
                 nonce: u64::MAX,
             },
         ),
         (
             "typical",
             Account {
-                balance: 1_000_000,
+                balance: U256::from(1_000_000u64),
                 nonce: 3,
             },
         ),

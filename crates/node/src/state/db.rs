@@ -22,6 +22,7 @@ use maya_crypto_pq::agility::SuitePolicy;
 use maya_dex::batch::SwapIntent;
 use maya_dex::types::PairId;
 use maya_ledger_math as ledger_math;
+use primitive_types::U256;
 use rocksdb::{BlockBasedOptions, Cache, DB, IteratorMode, Options, WriteBatch};
 
 use crate::core::payload::ChannelId;
@@ -816,8 +817,12 @@ impl StateDB {
             });
         }
 
+        // Transaction outputs are still u64 on the wire (ADR-046 widens the
+        // ledger, not the wire format), so their sum is checked in u64 as before
+        // and then widened into the U256 balance arithmetic below.
         let total_out = ledger_math::total_outputs(tx.outputs.iter().map(|output| output.amount))
             .ok_or(NodeError::BalanceOverflow)?;
+        let total_out = U256::from(total_out);
 
         if sender.balance < total_out {
             return Err(NodeError::InsufficientBalance {
@@ -829,8 +834,10 @@ impl StateDB {
 
         // Debit and advance the nonce. The subtraction cannot underflow given
         // the check above, but stay explicit rather than relying on it.
-        sender.balance =
-            ledger_math::debit(sender.balance, total_out).ok_or(NodeError::BalanceOverflow)?;
+        sender.balance = sender
+            .balance
+            .checked_sub(total_out)
+            .ok_or(NodeError::BalanceOverflow)?;
         sender.nonce =
             ledger_math::advance_nonce(sender.nonce).ok_or(NodeError::BalanceOverflow)?;
         overlay.accounts.insert(sender_address, sender);
@@ -839,7 +846,9 @@ impl StateDB {
         // transfer sees the already-debited balance.
         for output in &tx.outputs {
             let mut recipient = self.load(overlay, &output.recipient)?;
-            recipient.balance = ledger_math::credit(recipient.balance, output.amount)
+            recipient.balance = recipient
+                .balance
+                .checked_add(U256::from(output.amount))
                 .ok_or(NodeError::BalanceOverflow)?;
             overlay.accounts.insert(output.recipient, recipient);
         }

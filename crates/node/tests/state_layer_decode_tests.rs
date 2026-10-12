@@ -13,6 +13,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use primitive_types::U256;
 use custom_l1_node::core::htlc_payload::HtlcLock;
 use custom_l1_node::core::rwa_payload::{
     AttestLegal, DistributeRevenue, IssueRwa, RecordEligibility, RulePayload, SettleDvp,
@@ -115,7 +116,7 @@ fn an_account_proof_verifies_from_a_state_holding_rwa_and_htlc_records() {
     db.put_account(
         &address,
         &Account {
-            balance: 100_000,
+            balance: U256::from(100_000),
             nonce: 0,
         },
     )

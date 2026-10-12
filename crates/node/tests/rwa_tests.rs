@@ -46,7 +46,7 @@ fn fixture(funded: &[(Address, u64)]) -> Fixture {
         db.put_account(
             address,
             &Account {
-                balance: *balance,
+                balance: primitive_types::U256::from(*balance),
                 nonce: 0,
             },
         )
@@ -115,7 +115,7 @@ fn asset_of(issuer: &Address) -> [u8; 32] {
 }
 
 fn balance(db: &StateDB, address: &Address) -> u64 {
-    db.get_account(address).expect("account").balance
+    u64::try_from(db.get_account(address).expect("account").balance).expect("fits u64")
 }
 
 // ---------------------------------------------------------------------------

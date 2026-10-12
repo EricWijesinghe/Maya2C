@@ -7,6 +7,7 @@
 //! downtime judged from those counts, rewards paid, unbonded funds released,
 //! the next committee chosen.
 
+use primitive_types::U256;
 use std::sync::Arc;
 
 use maya_dag_bft::{Equivocation, Message};
@@ -114,27 +115,36 @@ impl StateDB {
         effects: &[Effect],
     ) -> Result<()> {
         for effect in effects {
-            let (address, delta_in) = match effect {
+            // `(address, amount, is_debit)`: staking effects are u64 and widen
+            // here. A debit that exceeds the balance and a credit that would
+            // overflow both keep the u64 code's `InsufficientBalance` variant.
+            let (address, amount, is_debit) = match effect {
                 Effect::Debit(address, amount) => {
                     if Some(address) != sender {
                         return Err(NodeError::Network(
                             "staking tried to debit someone other than the sender".to_string(),
                         ));
                     }
-                    (*address, -i128::from(*amount))
+                    (*address, *amount, true)
                 }
-                Effect::Credit(address, amount) => (*address, i128::from(*amount)),
+                Effect::Credit(address, amount) => (*address, *amount, false),
                 // A burn is value moved to the unspendable sink: supply is
                 // conserved, circulation falls (the fee-market convention).
-                Effect::Burn(amount) => (FEE_SINK, i128::from(*amount)),
+                Effect::Burn(amount) => (FEE_SINK, *amount, false),
             };
             let mut account = self.load(overlay, &address)?;
-            let next = i128::from(account.balance) + delta_in;
-            account.balance = u64::try_from(next).map_err(|_| NodeError::InsufficientBalance {
+            let required = U256::from(amount);
+            let available = account.balance;
+            let insufficient = || NodeError::InsufficientBalance {
                 address: hex::encode(address),
-                required: u64::try_from(-delta_in).unwrap_or(u64::MAX),
-                available: account.balance,
-            })?;
+                required,
+                available,
+            };
+            account.balance = if is_debit {
+                available.checked_sub(required).ok_or_else(insufficient)?
+            } else {
+                available.checked_add(required).ok_or_else(insufficient)?
+            };
             overlay.accounts.insert(address, account);
         }
         Ok(())

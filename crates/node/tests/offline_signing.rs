@@ -8,6 +8,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use primitive_types::U256;
 use std::sync::Arc;
 
 use custom_l1_node::core::{Block, BlockHeader, Transaction, TxOutput};
@@ -61,7 +62,7 @@ fn build_export_sign_offline_and_broadcast() {
         .put_account(
             &sender,
             &Account {
-                balance: 1_000,
+                balance: U256::from(1_000),
                 nonce: 0,
             },
         )
@@ -100,11 +101,11 @@ fn build_export_sign_offline_and_broadcast() {
     assert_eq!(
         state.get_account(&sender).unwrap(),
         Account {
-            balance: 750,
+            balance: U256::from(750),
             nonce: 1
         }
     );
-    assert_eq!(state.get_account(&[7; 32]).unwrap().balance, 250);
+    assert_eq!(state.get_account(&[7; 32]).unwrap().balance, primitive_types::U256::from(250));
 }
 
 #[test]
@@ -118,7 +119,7 @@ fn a_frame_altered_after_signing_is_refused() {
         .put_account(
             &sender,
             &Account {
-                balance: 1_000,
+                balance: U256::from(1_000),
                 nonce: 0,
             },
         )

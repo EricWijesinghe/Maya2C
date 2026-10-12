@@ -2695,6 +2695,7 @@ dependencies = [
  "maya-vrf",
  "maya-wallet-core",
  "maya-zk-stark",
+ "primitive-types",
  "prometheus-client",
  "rand_chacha 0.3.1",
  "rocksdb",
@@ -6582,6 +6583,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "maya-ledger-math",
+ "primitive-types",
  "sha3 0.11.0",
  "tempfile",
  "thiserror 2.0.21",

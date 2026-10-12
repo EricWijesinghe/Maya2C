@@ -1,6 +1,8 @@
 //! Charging fees per transaction and settling them per block (ADR-029).
 //! The rules and the record are in [`crate::state::fees`].
 
+use primitive_types::U256;
+
 use crate::core::Transaction;
 use crate::error::{NodeError, Result};
 use crate::state::db::{Overlay, StateDB};
@@ -71,14 +73,18 @@ impl StateDB {
         let burn = u64::try_from(overlay.fee_burn).map_err(|_| NodeError::BalanceOverflow)?;
         if burn > 0 {
             let mut collector = self.load(overlay, &FEE_COLLECTOR)?;
-            collector.balance = collector.balance.checked_sub(burn).ok_or_else(|| {
-                NodeError::InvariantViolation("fee burn exceeds what was collected".into())
-            })?;
+            collector.balance =
+                collector
+                    .balance
+                    .checked_sub(U256::from(burn))
+                    .ok_or_else(|| {
+                        NodeError::InvariantViolation("fee burn exceeds what was collected".into())
+                    })?;
             overlay.accounts.insert(FEE_COLLECTOR, collector);
             let mut sink = self.load(overlay, &FEE_SINK)?;
             sink.balance = sink
                 .balance
-                .checked_add(burn)
+                .checked_add(U256::from(burn))
                 .ok_or(NodeError::BalanceOverflow)?;
             overlay.accounts.insert(FEE_SINK, sink);
         }
@@ -101,8 +107,11 @@ impl StateDB {
         }
         let mut collector = self.load(overlay, &FEE_COLLECTOR)?;
         let pool = collector.balance;
-        collector.balance = 0;
+        collector.balance = U256::zero();
         overlay.accounts.insert(FEE_COLLECTOR, collector);
-        Ok(pool)
+        // The staking reward pool is still u64 (ADR-046 leaves staking rewards
+        // out of this pass). A collector above u64::MAX fails the block here
+        // rather than truncating: silent truncation would destroy value.
+        u64::try_from(pool).map_err(|_| NodeError::BalanceOverflow)
     }
 }

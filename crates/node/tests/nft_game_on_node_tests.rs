@@ -8,6 +8,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use primitive_types::U256;
 use custom_l1_node::core::payload::{ContractCall, ContractDeploy, derive_contract_id};
 use custom_l1_node::core::{Block, BlockHeader, Transaction, TxKind};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
@@ -80,7 +81,7 @@ fn only_the_signing_owner_moves_a_token_through_the_node() {
         db.put_account(
             &k.address(),
             &Account {
-                balance: 1_000_000,
+                balance: U256::from(1_000_000),
                 nonce: 0,
             },
         )

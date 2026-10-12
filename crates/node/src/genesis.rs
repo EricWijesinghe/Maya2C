@@ -16,6 +16,7 @@
 //!   different ids can never share a genesis block, and a block mined for one
 //!   cannot be replayed onto the other.
 
+use primitive_types::U256;
 use serde::{Deserialize, Serialize};
 
 use crate::core::{Block, BlockHeader};
@@ -720,7 +721,7 @@ impl GenesisConfig {
                 Ok((
                     decode_address(&allocation.address)?,
                     Account {
-                        balance: allocation.balance,
+                        balance: U256::from(allocation.balance),
                         nonce: 0,
                     },
                 ))
@@ -735,7 +736,7 @@ impl GenesisConfig {
             accounts.push((
                 decode_address(&treasury.address)?,
                 Account {
-                    balance: treasury.balance,
+                    balance: U256::from(treasury.balance),
                     nonce: 0,
                 },
             ));

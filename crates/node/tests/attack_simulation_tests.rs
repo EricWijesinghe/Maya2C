@@ -26,6 +26,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use primitive_types::U256;
 use std::sync::Arc;
 
 use custom_l1_node::consensus::BlockId;
@@ -133,7 +134,7 @@ fn only_one_of_two_conflicting_spends_can_be_applied() {
         .put_account(
             &alice_addr,
             &Account {
-                balance: 1_000,
+                balance: U256::from(1_000),
                 nonce: 0,
             },
         )
@@ -167,7 +168,7 @@ fn only_one_of_two_conflicting_spends_can_be_applied() {
 
     let alice_after = state.get_account(&alice_addr).expect("read");
     assert_eq!(
-        alice_after.balance, 100,
+        alice_after.balance, primitive_types::U256::from(100),
         "exactly one spend may have landed"
     );
     assert_eq!(alice_after.nonce, 1);
@@ -187,7 +188,7 @@ fn two_conflicting_spends_in_one_block_fail_the_whole_block() {
         .put_account(
             &alice_addr,
             &Account {
-                balance: 1_000,
+                balance: U256::from(1_000),
                 nonce: 0,
             },
         )
@@ -212,7 +213,7 @@ fn two_conflicting_spends_in_one_block_fail_the_whole_block() {
 
     let after = state.get_account(&alice_addr).expect("read");
     assert_eq!(
-        after.balance, 1_000,
+        after.balance, primitive_types::U256::from(1_000),
         "a rejected block must leave no trace: neither spend may have applied"
     );
     assert_eq!(after.nonce, 0);

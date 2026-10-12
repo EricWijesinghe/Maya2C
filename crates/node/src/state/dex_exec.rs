@@ -49,6 +49,8 @@ use crate::core::dex_payload::{
     PoolCreation, SwapRequest, SwapRoute,
 };
 use crate::error::{NodeError, Result};
+use primitive_types::U256;
+
 use crate::state::account::Address;
 use crate::state::asset::{
     AssetId, AssetRecord, decode_balance, derive_asset_id, encode_balance, is_native,
@@ -106,6 +108,26 @@ pub const MAX_ORDERS_PER_BOOK: u64 = 4_096;
 /// Governed by [`ParameterKey::DexMaxFillsPerBlock`]; this is its default.
 pub const MAX_FILLS_PER_BLOCK: usize = 1_024;
 
+/// Stored width of a dex counter: a little-endian `u64`, unchanged by ADR-046
+/// because a sequence number or order count is not a monetary amount.
+fn encode_counter(value: u64) -> Vec<u8> {
+    value.to_le_bytes().to_vec()
+}
+
+/// Decodes a dex counter written by [`encode_counter`].
+///
+/// # Errors
+///
+/// Returns [`NodeError::InvalidLength`] if the record is not eight bytes.
+fn decode_counter(bytes: &[u8]) -> Result<u64> {
+    let raw: [u8; 8] = bytes.try_into().map_err(|_| NodeError::InvalidLength {
+        what: "dex counter",
+        expected: 8,
+        actual: bytes.len(),
+    })?;
+    Ok(u64::from_le_bytes(raw))
+}
+
 impl StateDB {
     // ---------------------------------------------------------------- reads
 
@@ -157,13 +179,13 @@ impl StateDB {
     /// # Errors
     ///
     /// Returns [`NodeError::Storage`] on a read failure.
-    pub fn asset_balance(&self, asset: &AssetId, address: &Address) -> Result<u64> {
+    pub fn asset_balance(&self, asset: &AssetId, address: &Address) -> Result<U256> {
         if is_native(asset) {
             return Ok(self.get_account(address)?.balance);
         }
         match self.raw_get(&balance_key(asset, address))? {
             Some(bytes) => decode_balance(&bytes),
-            None => Ok(0),
+            None => Ok(U256::zero()),
         }
     }
 
@@ -175,7 +197,7 @@ impl StateDB {
         overlay: &Overlay,
         asset: &AssetId,
         address: &Address,
-    ) -> Result<u64> {
+    ) -> Result<U256> {
         if is_native(asset) {
             return Ok(match overlay.accounts.get(address) {
                 Some(account) => account.balance,
@@ -184,6 +206,15 @@ impl StateDB {
         }
         match self.record(overlay, &balance_key(asset, address))? {
             Some(bytes) => decode_balance(&bytes),
+            None => Ok(U256::zero()),
+        }
+    }
+
+    /// Reads a dex counter (sequence, resting-order count). Counters are not
+    /// monetary, so they keep their 8-byte `u64` encoding (ADR-046).
+    fn load_counter(&self, overlay: &Overlay, key: &[u8]) -> Result<u64> {
+        match self.record(overlay, key)? {
+            Some(bytes) => decode_counter(&bytes),
             None => Ok(0),
         }
     }
@@ -194,7 +225,7 @@ impl StateDB {
         overlay: &mut Overlay,
         asset: &AssetId,
         address: &Address,
-        amount: u64,
+        amount: U256,
     ) -> Result<()> {
         if is_native(asset) {
             let mut account = match overlay.accounts.get(address) {
@@ -207,7 +238,7 @@ impl StateDB {
         }
 
         let key = balance_key(asset, address);
-        if amount == 0 {
+        if amount.is_zero() {
             // An absent key and a stored zero must not both be reachable, or
             // two states with identical balances would have different roots.
             Self::delete_record(overlay, key);
@@ -218,6 +249,9 @@ impl StateDB {
     }
 
     /// Credits `amount` of `asset` to `address`.
+    ///
+    /// DEX amounts are still `u64` on the wire and in `maya_dex` (ADR-046
+    /// widens the ledger, not the trade record), so they widen here.
     fn credit_asset(
         &self,
         overlay: &mut Overlay,
@@ -225,16 +259,19 @@ impl StateDB {
         address: &Address,
         amount: u64,
     ) -> Result<()> {
-        if amount == 0 {
+        let amount = U256::from(amount);
+        if amount.is_zero() {
             return Ok(());
         }
         let balance = self.load_asset_balance(overlay, asset, address)?;
-        let updated =
-            maya_ledger_math::credit(balance, amount).ok_or(NodeError::BalanceOverflow)?;
+        let updated = balance
+            .checked_add(amount)
+            .ok_or(NodeError::BalanceOverflow)?;
         self.store_balance(overlay, asset, address, updated)
     }
 
-    /// Debits `amount` of `asset` from `address`.
+    /// Debits `amount` of `asset` from `address`. Widened from `u64` as
+    /// [`Self::credit_asset`] is.
     fn debit_asset(
         &self,
         overlay: &mut Overlay,
@@ -242,18 +279,20 @@ impl StateDB {
         address: &Address,
         amount: u64,
     ) -> Result<()> {
-        if amount == 0 {
+        let amount = U256::from(amount);
+        if amount.is_zero() {
             return Ok(());
         }
         let balance = self.load_asset_balance(overlay, asset, address)?;
-        let updated = maya_ledger_math::debit(balance, amount).ok_or_else(|| {
-            NodeError::InsufficientAssetBalance {
-                asset: hex::encode(asset),
-                address: hex::encode(address),
-                required: amount,
-                available: balance,
-            }
-        })?;
+        let updated =
+            balance
+                .checked_sub(amount)
+                .ok_or_else(|| NodeError::InsufficientAssetBalance {
+                    asset: hex::encode(asset),
+                    address: hex::encode(address),
+                    required: amount,
+                    available: balance,
+                })?;
         self.store_balance(overlay, asset, address, updated)
     }
 
@@ -308,26 +347,16 @@ impl StateDB {
     /// upon, and one counter is one number to get right; a counter per book
     /// would be a hundred.
     fn next_sequence(&self, overlay: &mut Overlay) -> Result<u64> {
-        let current = match self.record(overlay, SEQUENCE_KEY)? {
-            Some(bytes) => decode_balance(&bytes)?,
-            None => 0,
-        };
+        let current = self.load_counter(overlay, SEQUENCE_KEY)?;
         let next = current.checked_add(1).ok_or(NodeError::BalanceOverflow)?;
-        Self::put_record(
-            overlay,
-            SEQUENCE_KEY.to_vec(),
-            encode_balance(next).to_vec(),
-        );
+        Self::put_record(overlay, SEQUENCE_KEY.to_vec(), encode_counter(next));
         Ok(current)
     }
 
     /// Adjusts a book's resting order count.
     fn adjust_order_count(&self, overlay: &mut Overlay, pair: &PairId, delta: i64) -> Result<u64> {
         let key = order_count_key(pair);
-        let current = match self.record(overlay, &key)? {
-            Some(bytes) => decode_balance(&bytes)?,
-            None => 0,
-        };
+        let current = self.load_counter(overlay, &key)?;
         let updated = if delta >= 0 {
             current
                 .checked_add(delta.unsigned_abs())
@@ -342,7 +371,7 @@ impl StateDB {
         if updated == 0 {
             Self::delete_record(overlay, key);
         } else {
-            Self::put_record(overlay, key, encode_balance(updated).to_vec());
+            Self::put_record(overlay, key, encode_counter(updated));
         }
         Ok(updated)
     }
@@ -385,7 +414,7 @@ impl StateDB {
 
         let record = AssetRecord {
             creator: *sender,
-            total_supply: registration.total_supply,
+            total_supply: U256::from(registration.total_supply),
             symbol: registration.symbol,
         };
         Self::put_record(overlay, asset_key(&asset), record.encode().to_vec());
@@ -406,8 +435,8 @@ impl StateDB {
             return Err(NodeError::InsufficientAssetBalance {
                 asset: hex::encode(transfer.asset),
                 address: hex::encode(sender),
-                required: 1,
-                available: 0,
+                required: U256::one(),
+                available: U256::zero(),
             });
         }
         if !self.asset_exists(overlay, &transfer.asset)? {

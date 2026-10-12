@@ -10,6 +10,8 @@
 //! [`BREAKER_BLOCKS`]: super::limits::BREAKER_BLOCKS
 
 use crate::consensus::uint::U256;
+// Shielded and transparent balances (ADR-046). Named differently from the
+// consensus `U256` above, which does pool-reserve tolerance math.
 use crate::error::Result;
 use crate::state::db::{Overlay, StateDB};
 use crate::state::dex::{POOL_PREFIX, PoolRecord};
@@ -17,6 +19,7 @@ use crate::state::invariant_guard::breaker::Invariant;
 use crate::state::invariant_guard::limits::{
     BPS_DENOMINATOR, POOL_VALUE_TOLERANCE_BPS, SHIELDED_DRAIN_BPS, SHIELDED_DRAIN_FLOOR,
 };
+use primitive_types::U256 as Balance;
 
 /// Low 64 bits.
 const LIMB: u128 = u64::MAX as u128;
@@ -169,13 +172,13 @@ impl StateDB {
         let Some(withdrawn) = before.checked_sub(after) else {
             return Ok(false);
         };
-        if before < SHIELDED_DRAIN_FLOOR {
+        if before < Balance::from(SHIELDED_DRAIN_FLOOR) {
             return Ok(false);
         }
-        // `before` is at least `withdrawn`, so neither product can overflow a
-        // u128 and neither needs saturating.
-        Ok(u128::from(withdrawn) * u128::from(BPS_DENOMINATOR)
-            > u128::from(before) * u128::from(SHIELDED_DRAIN_BPS))
+        // A product of two balances needs a 512-bit result, which `full_mul`
+        // returns exactly, so the comparison cannot wrap at any balance.
+        Ok(withdrawn.full_mul(Balance::from(BPS_DENOMINATOR))
+            > before.full_mul(Balance::from(SHIELDED_DRAIN_BPS)))
     }
 }
 

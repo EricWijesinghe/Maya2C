@@ -87,7 +87,7 @@ fn transfer(amount: u64, fee: Option<u64>, nonce: u64) -> Transaction {
 }
 
 fn balance(c: &Chain, who: &[u8; 32]) -> u64 {
-    c.state().get_account(who).unwrap().balance
+    u64::try_from(c.state().get_account(who).unwrap().balance).expect("fits u64")
 }
 
 #[test]

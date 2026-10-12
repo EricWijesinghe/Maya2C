@@ -18,6 +18,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use primitive_types::U256;
 use custom_l1_node::core::governance_payload::{
     Ballot, ProposalSubmission, StakeLock, StakeUnlock, WorkClaim,
 };
@@ -83,7 +84,7 @@ fn fixture() -> Fixture {
         db.put_account(
             &holder.address(),
             &Account {
-                balance: BALANCE,
+                balance: primitive_types::U256::from(BALANCE),
                 nonce: 0,
             },
         )
@@ -207,7 +208,7 @@ fn locking_stake_moves_it_out_of_the_spendable_balance() {
         .db
         .get_account(&fixture.address(0))
         .expect("account");
-    assert_eq!(account.balance, BALANCE - 1_000);
+    assert_eq!(account.balance, primitive_types::U256::from(BALANCE - 1_000));
     assert_eq!(
         fixture
             .db
@@ -246,7 +247,7 @@ fn stake_cannot_be_withdrawn_before_its_height() {
             .get_account(&fixture.address(0))
             .expect("account")
             .balance,
-        BALANCE
+        primitive_types::U256::from(BALANCE)
     );
 }
 
@@ -683,7 +684,7 @@ fn a_chain_that_has_never_governed_has_the_state_root_it_always_had() {
     common::bind(&db);
     let key = generate_signing_key().expect("key");
     let account = Account {
-        balance: 1_000,
+        balance: U256::from(1_000),
         nonce: 0,
     };
     db.put_account(&key.address(), &account).expect("fund");

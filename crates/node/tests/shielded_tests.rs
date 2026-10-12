@@ -44,7 +44,7 @@ fn open_state(funded: &[(Address, u64)]) -> (StateDB, TempDir) {
         db.put_account(
             address,
             &Account {
-                balance: *balance,
+                balance: primitive_types::U256::from(*balance),
                 nonce: 0,
             },
         )
@@ -82,7 +82,7 @@ fn shielded_tx(joinsplit: ShieldedJoinSplit, nonce: u64, key: &HybridSigningKey)
 }
 
 fn balance(db: &StateDB, address: &Address) -> u64 {
-    db.get_account(address).expect("read").balance
+    u64::try_from(db.get_account(address).expect("read").balance).expect("fits u64")
 }
 
 /// Total transparent value across the accounts a test touches.

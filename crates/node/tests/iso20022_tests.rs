@@ -128,7 +128,7 @@ fn fixture(funded: &[(Address, u64)]) -> Fixture {
         db.put_account(
             address,
             &Account {
-                balance: *balance,
+                balance: primitive_types::U256::from(*balance),
                 nonce: 0,
             },
         )
@@ -392,7 +392,7 @@ fn a_statement_is_drawn_from_a_block_that_verified() {
     db.apply_block_checked(&checked, BlockContext::at_height(1))
         .expect("the block's declared state root is the one execution produced");
 
-    assert_eq!(db.get_account(&creditor).expect("account").balance, 123_456);
+    assert_eq!(db.get_account(&creditor).expect("account").balance, primitive_types::U256::from(123_456));
 
     let statement = StatementSource::for_block(
         "STMT-MSG-1",
@@ -414,7 +414,7 @@ fn a_statement_is_drawn_from_a_block_that_verified() {
     // And it agrees with the ledger it was drawn from.
     assert_eq!(
         statement.closing.base_units(),
-        db.get_account(&creditor).expect("account").balance
+        u64::try_from(db.get_account(&creditor).expect("account").balance).expect("fits u64")
     );
 
     // Out to XML and back: the direction a counterparty reads.
