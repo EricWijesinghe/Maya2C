@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "ingest": "node scripts/ingest.mjs",
-    "dev": "npm run ingest && astro dev",
-    "build": "npm run ingest && astro build && node scripts/check-csp.mjs",
+    "health": "node scripts/gen-health.mjs",
+    "dev": "npm run ingest && npm run health && astro dev",
+    "build": "npm run ingest && npm run health && astro build && node scripts/check-csp.mjs",
     "preview": "astro preview"
   },
   "dependencies": {
