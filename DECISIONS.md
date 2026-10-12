@@ -273,3 +273,12 @@ not left downloadable; testnet.1 and testnet.2 were deleted with their tags
 one by one and dismissed with reasons (757 test fixtures, 105 false
 positives, including the two zero-nonce seals — safe, fresh ML-KEM secret per
 seal); the three real JS findings were fixed.
+
+## 2026-10-13 — Every amount is 256-bit (ADR-046 amendment)
+
+Balances were widened to U256 but transaction amounts stayed u64, which at 18
+decimals caps a transaction at ~18.4 coins. Eric: "Widen every amount to
+256-bit" (option 1 of two; option 2 was 9 decimals). Wire-format change under
+invariant 31: spec, vectors and spec-ref follow. fee-market keeps zero
+dependencies with its own 256-bit limbs (taken by the parallel session c9).
+

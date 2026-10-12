@@ -213,6 +213,15 @@ impl crate::payout::ChainView for NodeClient {
     }
 }
 
+/// `value`, or `u64::MAX` when it does not fit.
+pub(crate) fn saturating_u64(value: primitive_types::U256) -> u64 {
+    if value > primitive_types::U256::from(u64::MAX) {
+        u64::MAX
+    } else {
+        value.low_u64()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -233,14 +242,5 @@ mod tests {
             NodeClient::connect("not a url"),
             Err(PoolError::NodeRpc(_))
         ));
-    }
-}
-
-/// `value`, or `u64::MAX` when it does not fit.
-pub(crate) fn saturating_u64(value: primitive_types::U256) -> u64 {
-    if value > primitive_types::U256::from(u64::MAX) {
-        u64::MAX
-    } else {
-        value.low_u64()
     }
 }

@@ -70,3 +70,30 @@ miner-reward value stay healthy regardless of how large the ceiling is.
   a large, security-reviewed refactor; a new core dependency.
 - **Timing:** must land, be reviewed, and soak **before mainnet genesis** — it cannot change after.
   It is a dedicated effort, not merged blind into an open mainnet-gate branch.
+
+## Amendment 2026-10-13: every amount is 256-bit, not only balances
+
+The first implementation widened **balances** and left every amount a
+transaction carries at `u64`: transfer outputs, the fee, stake bonds and
+delegations, HTLC locks, DEX orders, governance spends, and genesis
+allocations. At 18 decimals `u64::MAX` is about 18.4 coins, so no single
+transaction could move more than that. The options put to Eric were:
+
+1. widen every amount to `U256` (a wire-format change), or
+2. keep `u64` amounts and use 9 decimals.
+
+**Eric chose option 1: "Widen every amount to 256-bit."** (2026-10-13, relayed
+from the parallel session maya2c-c9.)
+
+- **Wire format:** each amount becomes 32 bytes little-endian (+24 bytes per
+  amount). That changes the transaction encoding pinned by invariant 31, so it
+  needs a spec update (`spec/02-transactions.md`), regenerated encoding and
+  state-transition vectors, and the reference implementation (`crates/spec-ref`)
+  widened with its own 256-bit type, not the node's.
+- **Arithmetic:** output totals are summed in `U256` with checked arithmetic.
+  STF-2's "sum past `u64::MAX`" becomes "sum past `2^256 − 1`".
+- **JSON:** every amount on the wire is a base-10 string (`amount_serde`),
+  never a JSON number.
+- **`fee-market`:** stays dependency-free for Kani (invariants 1, 6, 12) and
+  gets its own four-limb 256-bit type for `MAX_SUPPLY = 2^256 − 1`.
+- **Before genesis only**, like the rest of this ADR.
