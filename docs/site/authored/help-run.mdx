@@ -92,7 +92,10 @@ every block. For now, Eric approves each validator by hand.
    [application form](https://github.com/EricWijesinghe/Maya2C/issues/new?template=validator-application.yml).
    It holds only public information. **Never send** `validator.key` or `wallet.key`.
 
-4. When Eric approves you, you get a **bond amount**. Register with it:
+4. When Eric approves you, he sends your wallet the bond plus a little for
+   fees. Register with the bond he gives you. On the testnet it is at least
+   **1000000000** (one billion base units): the network ignores a smaller
+   registration, so a smaller number never makes you a validator.
 
    <Tabs syncKey="os">
    <TabItem label="Windows" icon="seti:windows">
