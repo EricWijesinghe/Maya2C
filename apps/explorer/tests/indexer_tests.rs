@@ -215,7 +215,10 @@ async fn a_pruned_node_does_not_freeze_the_indexer_at_genesis() {
         .expect("sync");
 
     // It jumped into the retained window instead of stalling at 0.
-    assert!(indexed > 0, "indexer stalled instead of skipping pruned blocks");
+    assert!(
+        indexed > 0,
+        "indexer stalled instead of skipping pruned blocks"
+    );
     assert_eq!(
         store.latest_height().await.expect("tip"),
         Some(tip),
