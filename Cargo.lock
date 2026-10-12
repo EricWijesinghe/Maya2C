@@ -3732,6 +3732,7 @@ dependencies = [
  "custom-l1-node",
  "hex",
  "maya-zk-stark",
+ "serde_json",
 ]
 
 [[package]]
@@ -6840,7 +6841,14 @@ name = "maya2c-gpu-miner"
 version = "0.1.0"
 dependencies = [
  "clap 4.6.7",
+ "custom-l1-node",
+ "getrandom 0.4.3",
+ "hex",
  "maya-wgpu-miner",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "zeroize",
 ]
 
 [[package]]

@@ -173,6 +173,8 @@ const TAG_STAKING: u8 = 50;
 const TAG_COUNCIL: u8 = 51;
 // Vault accounts (ADR-030): configure, request, execute, cancel.
 const TAG_VAULT: u8 = 52;
+// Mining shares (ADR-044).
+const TAG_MINING_SHARE: u8 = 53;
 
 /// Largest joinsplit proof accepted on the wire.
 ///
@@ -551,6 +553,9 @@ pub enum TxKind {
     Council(Box<crate::core::council_payload::CouncilAction>),
     /// A vault action — see [`crate::core::vault_payload`] and ADR-030.
     Vault(Box<crate::core::vault_payload::VaultAction>),
+    /// A proof-of-work share paid from the mining reserve — see
+    /// [`crate::core::mining_payload`] and ADR-044.
+    MiningShare(crate::core::mining_payload::MiningShare),
 }
 
 impl TxKind {
@@ -617,6 +622,7 @@ impl TxKind {
             Self::Staking(_) => "staking",
             Self::Council(_) => "council",
             Self::Vault(_) => "vault",
+            Self::MiningShare(_) => "mining_share",
         }
     }
 
@@ -842,6 +848,10 @@ impl TxKind {
                 buf.push(TAG_VAULT);
                 action.encode_into(buf);
             }
+            Self::MiningShare(share) => {
+                buf.push(TAG_MINING_SHARE);
+                share.encode_into(buf);
+            }
             Self::RevealShare(share) => {
                 buf.push(TAG_REVEAL_SHARE);
                 share.encode_into(buf);
@@ -980,6 +990,9 @@ impl TxKind {
             TAG_VAULT => Ok(Self::Vault(Box::new(
                 crate::core::vault_payload::VaultAction::decode(reader)?,
             ))),
+            TAG_MINING_SHARE => Ok(Self::MiningShare(
+                crate::core::mining_payload::MiningShare::decode(reader)?,
+            )),
             other => Err(NodeError::Decode(format!(
                 "unknown transaction payload tag {other}"
             ))),

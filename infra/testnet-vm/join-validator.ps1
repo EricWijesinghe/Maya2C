@@ -63,15 +63,39 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$GenesisUrl,
-    [string]$GenesisSha256,
-    [string]$Bootnode,
+    # The three network values default to the live maya-testnet-1 settings,
+    # kept in step with scripts/join-testnet.sh (the Linux join path). Someone
+    # helping run the testnet needs only  -Silent -IAmTheMachineOwner ; pass
+    # these explicitly only to point the installer at a different network.
+    [string]$GenesisUrl    = 'https://maya2c.dev/testnet/genesis.json',
+    [string]$GenesisSha256 = 'dd9bb356c94b7699e6e8d2595681faee48be435b02dc927677cbf833e55edd5d',
+    [string]$Bootnode      = '/dns4/p2p.maya2c.dev/tcp/443/wss/p2p/12D3KooWJqH5AUQ1zPkMke18rcc8VHN2TWQ5XudGX3tP8zPLuyjB',
+    # Snapshot/catch-up endpoint so a joining node loads a recent snapshot over
+    # https (port 443, NAT-friendly) instead of replaying the chain from block 0.
+    [string]$Bootstrap     = 'https://bootstrap.maya2c.dev/rpc',
     [string]$ReleaseTag,
     [string]$NodeSha256,
     [switch]$Silent,
     [switch]$IAmTheMachineOwner,
     [switch]$Uninstall,
-    [switch]$DryRun
+    [switch]$DryRun,
+    # Task Scheduler priority, 0 (highest) .. 10 (idle). Default 10 so the node
+    # yields all CPU to whatever is in the foreground: on a shared machine such
+    # as a gaming cafe it runs flat-out only while the PC is otherwise idle and
+    # steps aside the instant a game needs the cores. 7 (below-normal) keeps it
+    # a little more responsive if liveness ever suffers.
+    [ValidateRange(0, 10)]
+    [int]$Priority = 10,
+    # The libp2p TCP port the node listens on. Default 31100 (install.sh's
+    # P2P_BASE). One node per machine, so the default is right for a cafe PC;
+    # override it only to run a second node on a machine that already has one —
+    # e.g. testing a joiner on the seed operator's own PC, where the seed
+    # already holds 31100 and two nodes cannot share it.
+    [ValidateRange(1, 65535)]
+    [int]$P2pPort = 31100,
+    # The loopback RPC port. Also must differ for a second node on one machine.
+    [ValidateRange(1, 65535)]
+    [int]$RpcPort = 32000
 )
 
 $ErrorActionPreference = 'Stop'
@@ -89,8 +113,8 @@ $NodeDataDir = Join-Path $DataDir 'v0'
 $TaskName    = 'Maya2C Validator'
 $ServiceDesc = 'Maya2C testnet validator (single-operator node). Logs: ' + $LogDir
 $WinTarget   = 'maya2c-x86_64-pc-windows-msvc'
-$RpcAddr     = '127.0.0.1:32000'   # RPC is unauthenticated; bind loopback only.
-$P2pPort     = 31100               # P2P_BASE in install.sh; the one public port.
+$RpcAddr     = "127.0.0.1:$RpcPort" # RPC is unauthenticated; bind loopback only.
+# $P2pPort and $RpcPort come from params so a second node can coexist on one PC.
 
 function Write-Step($m) { Write-Host "==> $m" -ForegroundColor Cyan }
 function Write-Note($m) { Write-Host "    $m" -ForegroundColor DarkGray }
@@ -127,8 +151,11 @@ function Show-Consent {
     Write-Note "install maya2c-node.exe to  $InstallDir"
     Write-Note "store chain data and keys in $DataDir"
     Write-Note "register a boot task '$TaskName' (visible in Task Scheduler)"
-    Write-Note "run the node headless as SYSTEM; logs at $LogDir\node.log"
+    Write-Note "run the node headless as SYSTEM (no window) at idle priority $Priority"
+    Write-Note "  -> yields CPU to games/foreground apps; logs at $LogDir\node.log"
+    Write-Note "listen on p2p port $P2pPort, rpc 127.0.0.1:$RpcPort (loopback)"
     Write-Note "connect to the testnet at bootnode $Bootnode"
+    Write-Note "catch up from snapshot endpoint $Bootstrap"
     Write-Host '  It is a TESTNET node. It carries no value. Remove any time with' -ForegroundColor White
     Write-Host '      .\join-validator.ps1 -Uninstall' -ForegroundColor White
     Write-Host ''
@@ -182,7 +209,14 @@ function Install-Node($tag) {
 
     Write-Step "Extracting to $InstallDir"
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-    tar -xzf $arcPath -C $tmp                       # bsdtar ships with Windows 10+
+    # Use Windows' bundled bsdtar by full path, not whatever `tar` is first on
+    # PATH: a GNU tar (e.g. from Git) reads the "D:\..." temp dir as a remote
+    # host "D:" and fails with "Cannot connect to D:". bsdtar handles drive
+    # paths. System32\tar.exe is bsdtar on Windows 10+.
+    $tarExe = Join-Path $env:SystemRoot 'System32\tar.exe'
+    if (-not (Test-Path $tarExe)) { $tarExe = 'tar' }
+    & $tarExe -xzf $arcPath -C $tmp
+    if ($LASTEXITCODE -ne 0) { Die "extracting $archive failed (tar exit $LASTEXITCODE)" }
     Copy-Item (Join-Path $tmp "$WinTarget\maya2c-node.exe") $NodeExe -Force
     Copy-Item (Join-Path $tmp "$WinTarget\l1-wallet.exe") (Join-Path $InstallDir 'l1-wallet.exe') -Force -ErrorAction SilentlyContinue
     Remove-Item $tmp -Recurse -Force
@@ -218,9 +252,12 @@ function Register-BootTask {
         '--genesis',       $GenesisPath,
         '--data-dir',      $NodeDataDir,
         '--validator-key', $KeyPath,
-        '--rpc-addr',      $RpcAddr,
-        '--p2p-port',      "$P2pPort",
-        '--bootnode',      $Bootnode
+        '--rpc-addr',       $RpcAddr,
+        '--p2p-port',       "$P2pPort",
+        '--bootnode',       $Bootnode,
+        '--prune-depth',    '3600',
+        '--bootstrap-from', $Bootstrap,
+        '--catch-up-from',  $Bootstrap
     ) -join ' '
     # A tiny launcher so logs are captured and the task line stays readable.
     $launcher = Join-Path $InstallDir 'run-node.cmd'
@@ -239,7 +276,7 @@ rem Maya2C validator launcher. Started at boot by the "$TaskName" task.
     # Restart if it ever exits; keep running indefinitely (a validator is a daemon).
     $set     = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
                    -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
-                   -ExecutionTimeLimit ([TimeSpan]::Zero)
+                   -ExecutionTimeLimit ([TimeSpan]::Zero) -Priority $Priority
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
         -Principal $princ -Settings $set -Description $ServiceDesc | Out-Null
     Start-ScheduledTask -TaskName $TaskName

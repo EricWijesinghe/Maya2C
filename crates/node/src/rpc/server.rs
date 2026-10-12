@@ -440,6 +440,14 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     module
+        .register_method("get_mining_work", |params, ctx, _| {
+            let miner_hex: String = params.one().map_err(|e| invalid_params(e.to_string()))?;
+            let miner = decode_array::<32>(&miner_hex, "miner")?;
+            mining_work(ctx, &miner)
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
+    module
         .register_method("send_raw_transaction", |params, ctx, _| {
             let raw: String = params.one().map_err(|e| invalid_params(e.to_string()))?;
             let bytes = hex::decode(raw.trim_start_matches("0x"))
@@ -802,6 +810,42 @@ fn check_peer_exposure(address: SocketAddr, serves_peers: bool) -> crate::error:
         )));
     }
     Ok(())
+}
+
+/// The work `miner` should hash now; inactive where the chain does not mine
+/// or mining has not opened yet.
+fn mining_work(
+    ctx: &RpcContext,
+    miner: &[u8; 32],
+) -> Result<crate::rpc::types::MiningWork, ErrorObjectOwned> {
+    let chain = ctx.chain();
+    let state = chain.state();
+    let record = state
+        .committed_mining()
+        .map_err(|e| rejected(e.to_string()))?;
+    let Some(record) = record.filter(|r| r.epoch > 0) else {
+        return Ok(crate::rpc::types::MiningWork::default());
+    };
+    let (header, dag_epoch) = state
+        .committed_share_work(&record, miner)
+        .map_err(|e| rejected(e.to_string()))?;
+    let dag = match record.dag {
+        crate::state::mining::DagProfile::Mainnet => "mainnet",
+        crate::state::mining::DagProfile::Testing => "testing",
+    };
+    Ok(crate::rpc::types::MiningWork {
+        active: true,
+        epoch: record.epoch,
+        header: hex::encode(header),
+        target: hex::encode(record.target),
+        dag: dag.to_string(),
+        dag_epoch,
+        share_reward: record.share_reward(),
+        shares: record.shares,
+        target_shares: record.target_shares,
+        epoch_blocks: record.epoch_blocks,
+        max_shares_per_block: record.max_shares_per_block,
+    })
 }
 
 #[cfg(test)]
