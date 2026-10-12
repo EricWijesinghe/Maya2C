@@ -27,6 +27,7 @@
     "README.md"
   ],
   "sideEffects": false,
+  "author": "Eric Wijesinghe",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
