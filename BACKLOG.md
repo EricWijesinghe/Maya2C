@@ -51,6 +51,11 @@ band; move an item to PROGRESS.md when it starts.
   key bytes can contain them, so it fails rarely (PR #114 CI, 2026-10-12).
   Search for a value whose encoding cannot occur by chance, or for the
   claim's full field-element encoding.
+- **Catch-up calls an already-held block "malformed".** v4's log (2026-10-13)
+  has 1,975 lines `catch-up: malformed wire encoding: a block did not extend
+  the tip: Duplicate {..}` while it follows attested blocks. `InsertOutcome::
+  Duplicate` should be skipped quietly; logging it as malformed hides real
+  decode errors in noise. Reported by maya2c-c9.
 - **HTLC two-devnet swap times out under full parallel load** (1,058 s in a
   workspace nextest run; 18 s alone). Mark it heavy / serial in nextest.
 
