@@ -12,7 +12,7 @@ use std::sync::Mutex;
 
 use custom_l1_node::rpc::{BlockInfo, HeaderInfo};
 use maya_explorer::error::Result;
-use maya_explorer::indexer::{BlockSource, IndexEvent, Indexer};
+use maya_explorer::indexer::{BlockSource, IndexEvent, Indexer, RETAINED_START_BEHIND};
 use maya_explorer::model::{IndexedBlock, average_block_time, estimate_hashrate};
 use maya_explorer::store::BlockStore;
 use maya_explorer::store::memory::MemoryStore;
@@ -25,6 +25,11 @@ use maya_explorer::store::memory::MemoryStore;
 #[derive(Default)]
 struct StubChain {
     blocks: Mutex<Vec<BlockInfo>>,
+    /// Heights below this are reported as absent, as a pruned node does.
+    pruned_below: Mutex<i64>,
+    /// The tip `tip_height` reports; `None` leaves it unknown (the default),
+    /// which is how every existing test keeps the old behaviour.
+    reported_tip: Mutex<Option<i64>>,
 }
 
 impl StubChain {
@@ -81,17 +86,31 @@ impl StubChain {
     fn truncate(&self, height: usize) {
         self.blocks.lock().expect("lock").truncate(height);
     }
+
+    /// Reports heights below `floor` as absent, as a pruned node does, and
+    /// makes `tip_height` report `tip`.
+    fn prune(&self, floor: i64, tip: i64) {
+        *self.pruned_below.lock().expect("lock") = floor;
+        *self.reported_tip.lock().expect("lock") = Some(tip);
+    }
 }
 
 #[async_trait::async_trait]
 impl BlockSource for StubChain {
     async fn block_at(&self, height: i64) -> Result<Option<BlockInfo>> {
+        if height < *self.pruned_below.lock().expect("lock") {
+            return Ok(None);
+        }
         Ok(self
             .blocks
             .lock()
             .expect("lock")
             .get(height as usize)
             .cloned())
+    }
+
+    async fn tip_height(&self) -> Result<Option<i64>> {
+        Ok(*self.reported_tip.lock().expect("lock"))
     }
 }
 
@@ -172,6 +191,45 @@ async fn the_indexer_ingests_every_available_block() {
     assert_eq!(indexed, 10);
     assert_eq!(store.latest_height().await.expect("tip"), Some(9));
     assert_eq!(store.transaction_count().await.expect("count"), 20);
+}
+
+#[tokio::test]
+async fn a_pruned_node_does_not_freeze_the_indexer_at_genesis() {
+    // The regression this fixes: the node is pruned, so block 1 is gone. An
+    // indexer that walks up from 0 asks for block 1, is told "absent", reads
+    // that as "not produced yet", and waits forever at height 0.
+    let chain = StubChain::new();
+    let store = Arc::new(MemoryStore::new());
+    let tip = RETAINED_START_BEHIND + 50; // a tip well above the start-behind
+    for height in 0..=tip as u64 {
+        chain.push(height, 0, 0);
+    }
+    // Keep only a recent window: everything below `tip - 2*START_BEHIND` is
+    // pruned, so the naive resume point (block 1) is absent.
+    let floor = tip - 2 * RETAINED_START_BEHIND;
+    chain.prune(floor.max(1), tip);
+
+    let indexed = indexer_from(&chain, &store)
+        .sync_once()
+        .await
+        .expect("sync");
+
+    // It jumped into the retained window instead of stalling at 0.
+    assert!(
+        indexed > 0,
+        "indexer stalled instead of skipping pruned blocks"
+    );
+    assert_eq!(
+        store.latest_height().await.expect("tip"),
+        Some(tip),
+        "did not catch up to the node's tip",
+    );
+    // And it started at the window base, not genesis.
+    assert_eq!(
+        store.block_by_height(0).await.expect("query"),
+        None,
+        "indexed a pruned-away block",
+    );
 }
 
 #[tokio::test]

@@ -268,10 +268,12 @@ async fn poll(app: State<'_, Arc<App>>) -> Result<Vec<Line>, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(maya_app_update::dialog())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             let state = App::open(Files::new(dir)?)?;
             app.manage(Arc::new(state));
+            maya_app_update::start(app)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

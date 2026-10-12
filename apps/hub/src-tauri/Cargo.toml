@@ -1,0 +1,41 @@
+[package]
+name = "maya-hub"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Maya2C Hub: one desktop window for mining, the network and every app"
+
+# Standalone, not a host workspace member, for the wallet GUI's reason:
+# `tauri::generate_context!` checks the frontend at compile time.
+[workspace]
+
+[lib]
+name = "maya_hub_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "maya-hub"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Blocking JSON-RPC to the node, run off the UI thread. The hub reaches the
+# network only through these Rust commands, never from the webview.
+ureq = { version = "3.4", features = ["json"] }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
+# A nested workspace inherits none of the root profiles; see
+# apps/chat-gui/src-tauri/Cargo.toml for the measured disk cost of omitting this.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 3
+debug = false

@@ -1,0 +1,18 @@
+[package]
+name = "maya-app-update"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "Apache-2.0"
+description = "In-app updates for the Maya2C desktop apps: check, ask, install, restart."
+publish = false
+
+# Standalone, like the apps that use it: they are not host workspace members
+# (`tauri::generate_context!` checks their frontends at compile time), so this
+# path dependency must not pull the host workspace in either.
+[workspace]
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-updater = "2.13"
+tauri-plugin-dialog = "2"

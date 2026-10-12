@@ -29,6 +29,9 @@ const ARTIFACT_DIRS: &[&str] = &[
     "contracts/token-swap/target",
     "apps/wallet-gui/src-tauri/target",
     "apps/wallet-gui/ui/target",
+    "apps/chat-gui/src-tauri/target",
+    "apps/hub/src-tauri/target",
+    "apps/hub/src-tauri/gen/android/app/build",
     "docs/site/node_modules",
 ];
 
