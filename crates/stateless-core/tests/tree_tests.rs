@@ -164,7 +164,7 @@ fn malformed_and_non_canonical_encodings_are_refused() {
 
     // A split holding one leaf beside nothing: the leaf, spelled a second way.
     let mut uncollapsed = vec![TAG_INTERNAL, TAG_LEAF];
-    uncollapsed.extend_from_slice(&[0; 48]);
+    uncollapsed.extend_from_slice(&[0; 72]); // key 32 + value 40 (ADR-046)
     uncollapsed.push(0);
     assert_eq!(
         decode(&uncollapsed),

@@ -27,7 +27,7 @@
             "nonce": "0"
           }
         ],
-        "post_root": "bfd496c4101d21422121235ea2889b8a458b1e6ec3e84cb08b62c8c75c7d8780",
+        "post_root": "ad5c5575e0d31bad10e4770c895aa37736db6a7592474d2a4de2011821f99b02",
         "result": "ok"
       },
       "id": "transfer-basic",
@@ -43,7 +43,7 @@
           "nonce": "0"
         }
       ],
-      "pre_root": "ecb71febbee01145b0134f164c87395efc114c41d07b84231b483c5f1f90d154",
+      "pre_root": "4fb4efe5e55cc41d78c2c0f4aa498ab1cf31d4fa35823a66ace18ddd1067375c",
       "rules": [
         "TX-1",
         "STF-1",
@@ -83,7 +83,7 @@
           "nonce": "0"
         }
       ],
-      "pre_root": "58eb5f529cef3c008f55c27aa289ac64bc220f2af31ac808c1ecd5ce0f79bbe0",
+      "pre_root": "f125e708d43c532c77d309fc311b404d2305d7f872bc827b96ebec497614b86f",
       "rules": [
         "TX-1"
       ]
@@ -115,7 +115,7 @@
           "nonce": "0"
         }
       ],
-      "pre_root": "58eb5f529cef3c008f55c27aa289ac64bc220f2af31ac808c1ecd5ce0f79bbe0",
+      "pre_root": "f125e708d43c532c77d309fc311b404d2305d7f872bc827b96ebec497614b86f",
       "rules": [
         "TX-1",
         "TX-5"
@@ -148,7 +148,7 @@
           "nonce": "3"
         }
       ],
-      "pre_root": "a6525a08af3b9d24ba08b8cd4e6b772946f2e3edd454e7837bc19c11a6cb081e",
+      "pre_root": "26f4618a489a6ac10abd7561fb063c2fec53543ccb3d314c844167a64c94a466",
       "rules": [
         "STF-1"
       ]
@@ -180,7 +180,7 @@
           "nonce": "3"
         }
       ],
-      "pre_root": "a6525a08af3b9d24ba08b8cd4e6b772946f2e3edd454e7837bc19c11a6cb081e",
+      "pre_root": "26f4618a489a6ac10abd7561fb063c2fec53543ccb3d314c844167a64c94a466",
       "rules": [
         "STF-1"
       ]
@@ -216,7 +216,7 @@
           "nonce": "0"
         }
       ],
-      "pre_root": "cbe702f125d71c6838b0e13baedb8bcd2f42a36bf1228baef6d44c16919f30f3",
+      "pre_root": "1eebb26861bbbcf77fe0e2556e21650c62ae064d3f548688755c22a85dddd7c2",
       "rules": [
         "STF-2"
       ]
@@ -257,7 +257,7 @@
             "nonce": "0"
           }
         ],
-        "post_root": "0f2c8647bc859ff0b10b787503794e9fa7af7e3ce8f1434ec3952305d9e1e436",
+        "post_root": "f84dc4c2ff599e9a9ef06636697b4d4edad234f4875ed86164d9a1b260b0ff83",
         "result": "ok"
       },
       "id": "multi-output",
@@ -268,7 +268,7 @@
           "nonce": "0"
         }
       ],
-      "pre_root": "a713c2e0179b930724299719ecd40471452ebeb75c339fa9bc91de6540737a44",
+      "pre_root": "f8317d771419f114b2885d9bd3fef21c4b24461a3f370f95bbcba7e10ec73f2d",
       "rules": [
         "STF-2",
         "ROOT-3"
@@ -301,7 +301,7 @@
           "nonce": "0"
         }
       ],
-      "pre_root": "a713c2e0179b930724299719ecd40471452ebeb75c339fa9bc91de6540737a44",
+      "pre_root": "f8317d771419f114b2885d9bd3fef21c4b24461a3f370f95bbcba7e10ec73f2d",
       "rules": [
         "STF-3"
       ]
@@ -333,7 +333,7 @@
             "nonce": "0"
           }
         ],
-        "post_root": "cdd3c7a13ef2153fbc2bc7e023e65b07c8febfd5ca2d7dd7004fafa617519567",
+        "post_root": "b0219c8a032c98466104de7c9202c4127430b713251710dbe1e2820371d62723",
         "result": "ok"
       },
       "id": "spend-exact-balance",
@@ -344,7 +344,7 @@
           "nonce": "0"
         }
       ],
-      "pre_root": "a713c2e0179b930724299719ecd40471452ebeb75c339fa9bc91de6540737a44",
+      "pre_root": "f8317d771419f114b2885d9bd3fef21c4b24461a3f370f95bbcba7e10ec73f2d",
       "rules": [
         "STF-3"
       ]
@@ -376,7 +376,7 @@
           "nonce": "18446744073709551615"
         }
       ],
-      "pre_root": "ff5052babd2f4739c182dd13bca8410e0bd9a5be7cfeef8d4857e332ceb2bb67",
+      "pre_root": "6ec016b3d008fb85e94b480a6eb5c57ce37dc16b3af93b74b3d9d530eebbc164",
       "rules": [
         "STF-4"
       ]
@@ -409,11 +409,11 @@
         },
         {
           "account": "k1",
-          "balance": "18446744073709551610",
+          "balance": "115792089237316195423570985008687907853269984665640564039457584007913129639930",
           "nonce": "0"
         }
       ],
-      "pre_root": "8f412094f61264b39eacedf59ceb4d03188e17c019d1cc24fcead501c7f0ae41",
+      "pre_root": "0e146071c8788c0a6a2210705bd0eddf3ad6e71b7e90b14ae0508bffe7a81b84",
       "rules": [
         "STF-5"
       ]
@@ -440,7 +440,7 @@
             "nonce": "1"
           }
         ],
-        "post_root": "62e1989a2037888636b83797e36590a0772f7f5db94531099b36df0c0b9c6aaf",
+        "post_root": "d848e9da6fef5737e09ca4c06321da2c645215321d68fa5995f7ab8c2792bb87",
         "result": "ok"
       },
       "id": "self-transfer-nets-zero",
@@ -451,7 +451,7 @@
           "nonce": "0"
         }
       ],
-      "pre_root": "a713c2e0179b930724299719ecd40471452ebeb75c339fa9bc91de6540737a44",
+      "pre_root": "f8317d771419f114b2885d9bd3fef21c4b24461a3f370f95bbcba7e10ec73f2d",
       "rules": [
         "STF-6"
       ]
@@ -483,7 +483,7 @@
             "nonce": "0"
           }
         ],
-        "post_root": "dd62c161c206c6bf694e8cba1d4c9822ca8789b52beaf7350dd9f5a7211403b9",
+        "post_root": "4906ea4431de5108fc1a121bba611d7beedb6f79551b53aaf765471010cb857d",
         "result": "ok"
       },
       "id": "credit-creates-account",
@@ -494,7 +494,7 @@
           "nonce": "0"
         }
       ],
-      "pre_root": "a713c2e0179b930724299719ecd40471452ebeb75c339fa9bc91de6540737a44",
+      "pre_root": "f8317d771419f114b2885d9bd3fef21c4b24461a3f370f95bbcba7e10ec73f2d",
       "rules": [
         "STF-7"
       ]
@@ -542,7 +542,7 @@
             "nonce": "1"
           }
         ],
-        "post_root": "9ace468ad9ca475018abbba1d915d0ccbbf8e19b57f937596a34d21ae51ea612",
+        "post_root": "b30466d889bb6295fd948b3d77a0ea92dde67fde9cafdb585c5800a42d104ff5",
         "result": "ok"
       },
       "id": "absent-sender-zero-outputs",
@@ -596,7 +596,7 @@
             "nonce": "1"
           }
         ],
-        "post_root": "7c78c054672cbdf92d41a447bf82bb47312f1350394bc7ef8bb8ec6efde61259",
+        "post_root": "07d0bf50d72dd8d22797bd69814d1fd9ef17133f7bea69a2bf352f99721dde57",
         "result": "ok"
       },
       "id": "chained-in-block",
@@ -607,7 +607,7 @@
           "nonce": "0"
         }
       ],
-      "pre_root": "a713c2e0179b930724299719ecd40471452ebeb75c339fa9bc91de6540737a44",
+      "pre_root": "f8317d771419f114b2885d9bd3fef21c4b24461a3f370f95bbcba7e10ec73f2d",
       "rules": [
         "STF-8"
       ]
@@ -650,7 +650,7 @@
           "nonce": "0"
         }
       ],
-      "pre_root": "a713c2e0179b930724299719ecd40471452ebeb75c339fa9bc91de6540737a44",
+      "pre_root": "f8317d771419f114b2885d9bd3fef21c4b24461a3f370f95bbcba7e10ec73f2d",
       "rules": [
         "STF-8"
       ]
@@ -683,7 +683,7 @@
           "signature": "valid"
         }
       ],
-      "declared_state_root": "bfd496c4101d21422121235ea2889b8a458b1e6ec3e84cb08b62c8c75c7d8780",
+      "declared_state_root": "ad5c5575e0d31bad10e4770c895aa37736db6a7592474d2a4de2011821f99b02",
       "expect": {
         "post": [
           {
@@ -697,7 +697,7 @@
             "nonce": "0"
           }
         ],
-        "post_root": "bfd496c4101d21422121235ea2889b8a458b1e6ec3e84cb08b62c8c75c7d8780",
+        "post_root": "ad5c5575e0d31bad10e4770c895aa37736db6a7592474d2a4de2011821f99b02",
         "result": "ok"
       },
       "id": "declared-root-matches",
@@ -713,7 +713,7 @@
           "nonce": "0"
         }
       ],
-      "pre_root": "ecb71febbee01145b0134f164c87395efc114c41d07b84231b483c5f1f90d154",
+      "pre_root": "4fb4efe5e55cc41d78c2c0f4aa498ab1cf31d4fa35823a66ace18ddd1067375c",
       "rules": [
         "CON-4"
       ]
@@ -750,7 +750,7 @@
           "nonce": "0"
         }
       ],
-      "pre_root": "ecb71febbee01145b0134f164c87395efc114c41d07b84231b483c5f1f90d154",
+      "pre_root": "4fb4efe5e55cc41d78c2c0f4aa498ab1cf31d4fa35823a66ace18ddd1067375c",
       "rules": [
         "CON-4"
       ]

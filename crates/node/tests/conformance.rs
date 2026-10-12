@@ -36,6 +36,11 @@ fn load(name: &str) -> Value {
     serde_json::from_str(&std::fs::read_to_string(spec(name)).expect(name)).unwrap()
 }
 
+/// A balance: a 256-bit decimal string (ADR-046), not a u64.
+fn amount(v: &Value) -> primitive_types::U256 {
+    primitive_types::U256::from_dec_str(v.as_str().unwrap()).unwrap()
+}
+
 /// Vectors carry every u64 as a decimal string (see spec-vectors).
 fn num(v: &Value) -> u64 {
     v.as_str()
@@ -151,7 +156,7 @@ fn run_stf_case(keys: &BTreeMap<String, HybridSigningKey>, case: &Value) {
     common::bind(&db);
     for a in case["pre"].as_array().unwrap() {
         let acc = Account {
-            balance: primitive_types::U256::from(num(&a["balance"])),
+            balance: amount(&a["balance"]),
             nonce: num(&a["nonce"]),
         };
         db.put_account(&address(keys, a["account"].as_str().unwrap()), &acc)
@@ -195,8 +200,8 @@ fn run_stf_case(keys: &BTreeMap<String, HybridSigningKey>, case: &Value) {
                     .get_account(&unhex(a["address"].as_str().unwrap()).try_into().unwrap())
                     .unwrap();
                 assert_eq!(
-                    (u64::try_from(acc.balance).expect("fits u64"), acc.nonce),
-                    (num(&a["balance"]), num(&a["nonce"])),
+                    (acc.balance, acc.nonce),
+                    (amount(&a["balance"]), num(&a["nonce"])),
                     "{id}: post account"
                 );
             }
