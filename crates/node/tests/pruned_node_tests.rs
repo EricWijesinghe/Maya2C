@@ -10,7 +10,6 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
@@ -207,13 +206,13 @@ impl ArchiveNode {
     }
 }
 
-type Tamper = Box<dyn Fn(&mut Vec<(Vec<u8>, Vec<u8>)>)>;
+type Tamper = Box<dyn Fn(&mut Vec<(Vec<u8>, Vec<u8>)>) + Sync>;
 
 /// An archive node as a bootstrap source, recording every body asked for and
 /// optionally lying consistently about its snapshot.
 struct Source<'a> {
     node: &'a ArchiveNode,
-    bodies: RefCell<Vec<u64>>,
+    bodies: Mutex<Vec<u64>>,
     tamper: Option<Tamper>,
     wrong_block: bool,
 }
@@ -222,7 +221,7 @@ impl<'a> Source<'a> {
     fn honest(node: &'a ArchiveNode) -> Self {
         Self {
             node,
-            bodies: RefCell::default(),
+            bodies: Mutex::default(),
             tamper: None,
             wrong_block: false,
         }
@@ -273,7 +272,7 @@ impl BootstrapSource for Source<'_> {
     }
 
     fn block(&self, height: u64) -> Result<Block> {
-        self.bodies.borrow_mut().push(height);
+        self.bodies.lock().expect("lock").push(height);
         Ok(self.node.block(height))
     }
 }
@@ -311,8 +310,11 @@ fn a_pruned_node_bootstraps_without_a_single_body_below_the_snapshot() {
         archive.chain.state().state_root().expect("root"),
         "the pruned node must hold exactly the archive node's state"
     );
+    // Bodies are fetched several at a time, so the request order varies.
+    let mut bodies = source.bodies.lock().expect("lock").clone();
+    bodies.sort_unstable();
     assert_eq!(
-        *source.bodies.borrow(),
+        bodies,
         (51..=70).collect::<Vec<u64>>(),
         "no body at or below the snapshot height may be downloaded"
     );
