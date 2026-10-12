@@ -305,6 +305,9 @@ function Install-Node($tag) {
     Copy-Item (Join-Path $tmp "$WinTarget\maya2c-node.exe") $NodeExe -Force
     Copy-Item (Join-Path $tmp "$WinTarget\l1-wallet.exe") (Join-Path $InstallDir 'l1-wallet.exe') -Force -ErrorAction SilentlyContinue
     Remove-Item $tmp -Recurse -Force
+    # The node writes UTF-8 (an em dash in its banner); Windows PowerShell
+    # decodes a child's output with the OEM code page unless told otherwise.
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
     & $NodeExe --help | Select-Object -First 1 | ForEach-Object { Write-Note "node: $_" }
 }
 
