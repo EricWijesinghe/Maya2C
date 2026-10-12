@@ -78,3 +78,4 @@ The observation that would make this worth reopening.
 | [038](ADR-038-attested-checkpoints.md) | Attested checkpoints, so a validator can rejoin | Accepted |
 | [039](ADR-039-quorum-n-minus-f.md) | DAG-BFT quorum is n − f, not 2f + 1; committee capture open | Accepted |
 | [040](ADR-040-stake-weighted-committee.md) | Stake-weighted DAG-BFT committees — engine built, node wiring for decision | Proposed |
+| [047](ADR-047-single-pc-foundation-set.md) | The foundation validator set runs on one PC, said so publicly (supersedes ADR-042 gate 5) | Accepted |
