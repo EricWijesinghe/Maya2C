@@ -101,7 +101,7 @@ fn signed(keys: &BTreeMap<String, HybridSigningKey>, t: &Value) -> Transaction {
         .unwrap()
         .iter()
         .map(|o| TxOutput {
-            amount: num(&o["amount"]),
+            amount: primitive_types::U256::from(num(&o["amount"])),
             recipient: address(keys, o["to"].as_str().unwrap()),
         })
         .collect();
@@ -287,12 +287,12 @@ fn fee_vectors() {
         let n = |k: &str| num(&case[k]);
         match case["fn"].as_str().unwrap() {
             "split" => {
-                let s = maya_fee_market::split(n("base_fee_paid"), 0, n("treasury_bps"));
+                let s = maya_fee_market::split(maya_ledger_math::Amount::from_u64(n("base_fee_paid")), maya_ledger_math::Amount::from_u64(0), n("treasury_bps"));
                 assert_eq!(
                     (s.burned, s.treasury),
                     (
-                        num(&case["expect"]["burned"]),
-                        num(&case["expect"]["treasury"])
+                        maya_ledger_math::Amount::from_u64(num(&case["expect"]["burned"])),
+                        maya_ledger_math::Amount::from_u64(num(&case["expect"]["treasury"]))
                     ),
                     "{id}"
                 );
@@ -316,8 +316,8 @@ fn fee_vectors() {
                 );
                 let tx = maya_fee_market::TxFee {
                     size_bytes: n("size_bytes"),
-                    max_fee: n("max_fee"),
-                    max_tip: 0,
+                    max_fee: maya_ledger_math::Amount::from_u64(n("max_fee")),
+                    max_tip: maya_ledger_math::Amount::from_u64(0),
                 };
                 let got = maya_fee_market::apply_block_fees(
                     &c,

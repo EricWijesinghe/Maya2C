@@ -66,7 +66,7 @@ fn pay(amount: u64, nonce: u64) -> Transaction {
     Transaction::new(
         Vec::new(),
         vec![TxOutput {
-            amount,
+            amount: primitive_types::U256::from(amount),
             recipient: RECIPIENT,
         }],
         nonce,
@@ -144,7 +144,7 @@ fn a_tampered_v7_transfer_is_refused_and_moves_nothing() {
     let (db, _dir) = open_db(&[sender]);
 
     let mut forged = v7::<MlDsa87>(&key, 250, 0);
-    forged.outputs[0].amount = FUNDS;
+    forged.outputs[0].amount = primitive_types::U256::from(FUNDS);
     assert!(
         db.apply_block(&block_of(vec![forged]), BlockContext::at_height(1))
             .is_err()

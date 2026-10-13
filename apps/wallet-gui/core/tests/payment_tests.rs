@@ -240,8 +240,8 @@ fn the_fee_becomes_a_second_output_to_the_burn_address() {
     // The chain has no fee field, so a fee is value deliberately not sent to
     // the recipient. That is what makes manual fee control meaningful.
     assert_eq!(decoded.outputs.len(), 2);
-    assert_eq!(decoded.outputs[0].amount, 1_000);
-    assert_eq!(decoded.outputs[1].amount, 7);
+    assert_eq!(decoded.outputs[0].amount, primitive_types::U256::from(1_000));
+    assert_eq!(decoded.outputs[1].amount, primitive_types::U256::from(7));
     assert_eq!(decoded.outputs[1].recipient, FEE_SINK);
 }
 
@@ -328,7 +328,7 @@ fn a_manual_fee_overrides_the_tier() {
 
     let decoded =
         Transaction::from_bytes(&hex::decode(&signed.raw_hex).expect("hex")).expect("decode");
-    assert_eq!(decoded.outputs[1].amount, 4_242);
+    assert_eq!(decoded.outputs[1].amount, primitive_types::U256::from(4_242));
 }
 
 // ---------------------------------------------------------------------------
@@ -360,8 +360,8 @@ fn on_a_fee_market_chain_the_fee_is_paid_to_the_collector_not_burned() {
         Transaction::from_bytes(&hex::decode(&signed.raw_hex).expect("hex")).expect("decode");
 
     assert_eq!(decoded.outputs.len(), 2);
-    assert_eq!(decoded.outputs[0].amount, 1_000);
-    assert_eq!(decoded.outputs[1].amount, 26_510);
+    assert_eq!(decoded.outputs[0].amount, primitive_types::U256::from(1_000));
+    assert_eq!(decoded.outputs[1].amount, primitive_types::U256::from(26_510));
     assert_eq!(hex::encode(decoded.outputs[1].recipient), collector());
     assert_ne!(decoded.outputs[1].recipient, FEE_SINK);
     assert_eq!(decoded.verify(&CHAIN), Ok(()));

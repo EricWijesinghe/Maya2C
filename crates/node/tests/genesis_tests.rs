@@ -18,7 +18,7 @@ use tempfile::TempDir;
 fn allocation(byte: u8, balance: u64) -> Allocation {
     Allocation {
         address: hex::encode([byte; 32]),
-        balance,
+        balance: primitive_types::U256::from(balance),
     }
 }
 
@@ -144,7 +144,7 @@ fn the_shielded_activation_is_bound_into_the_genesis_only_when_named() {
 fn changing_an_allocation_changes_the_genesis_block() {
     let base = config();
     let mut altered = config();
-    altered.allocations[0].balance += 1;
+    altered.allocations[0].balance += primitive_types::U256::from(1);
 
     assert_ne!(
         base.state_root().expect("root"),

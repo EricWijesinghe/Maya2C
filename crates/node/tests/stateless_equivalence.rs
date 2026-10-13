@@ -40,7 +40,7 @@ fn transfer(sender: &HybridSigningKey, nonce: u64, outputs: &[(Address, u64)]) -
     let outputs = outputs
         .iter()
         .map(|(recipient, amount)| TxOutput {
-            amount: *amount,
+            amount: primitive_types::U256::from(*amount),
             recipient: *recipient,
         })
         .collect();

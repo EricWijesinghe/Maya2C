@@ -126,7 +126,7 @@ impl Fixture {
         self.act(
             index,
             TxKind::LockStake(StakeLock {
-                amount,
+                amount: primitive_types::U256::from(amount),
                 unlock_height,
             }),
             height,
@@ -218,14 +218,14 @@ fn locking_stake_moves_it_out_of_the_spendable_balance() {
             .stake_lock(&fixture.address(0))
             .expect("lock")
             .amount,
-        1_000
+        primitive_types::U256::from(1_000)
     );
     assert_eq!(
         fixture
             .db
             .voting_power(&fixture.address(0), 1)
             .expect("power"),
-        1_000
+        primitive_types::U256::from(1_000)
     );
 }
 
@@ -236,13 +236,13 @@ fn stake_cannot_be_withdrawn_before_its_height() {
 
     assert!(matches!(
         fixture
-            .act(0, TxKind::UnlockStake(StakeUnlock { amount: 1_000 }), 4_999)
+            .act(0, TxKind::UnlockStake(StakeUnlock { amount: primitive_types::U256::from(1_000) }), 4_999)
             .unwrap_err(),
         NodeError::StakeLocked { .. }
     ));
 
     fixture
-        .act(0, TxKind::UnlockStake(StakeUnlock { amount: 1_000 }), 5_000)
+        .act(0, TxKind::UnlockStake(StakeUnlock { amount: primitive_types::U256::from(1_000) }), 5_000)
         .expect("unlock");
     assert_eq!(
         fixture
@@ -263,7 +263,7 @@ fn locking_again_extends_the_release_and_never_shortens_it() {
     fixture.lock(0, 500, 2_000, 2);
 
     let lock = fixture.db.stake_lock(&fixture.address(0)).expect("lock");
-    assert_eq!(lock.amount, 1_500);
+    assert_eq!(lock.amount, primitive_types::U256::from(1_500));
     assert_eq!(lock.unlock_height, 9_000, "the later height survived");
 }
 

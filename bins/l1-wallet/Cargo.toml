@@ -21,6 +21,8 @@ name = "l1-wallet"
 path = "src/main.rs"
 
 [dependencies]
+# Amounts are 256-bit (ADR-046), the node's U256.
+primitive-types.workspace = true
 custom-l1-node = { path = "../../crates/node" }
 clap = { workspace = true, features = ["derive", "env"] }
 jsonrpsee = { workspace = true, features = ["http-client"] }

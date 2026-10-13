@@ -85,8 +85,9 @@ pub struct IndexedTx {
     pub nonce: i64,
     /// Number of outputs.
     pub output_count: i32,
-    /// Total value moved.
-    pub total_out: i64,
+    /// Total value moved, as an exact decimal string: amounts are 256-bit
+    /// (ADR-046), past what any SQL integer or JSON number holds.
+    pub total_out: String,
     /// Whether a signature is present.
     pub signed: bool,
 }
@@ -104,7 +105,11 @@ impl IndexedTx {
                 sender: tx.sender.clone(),
                 nonce: clamp_i64(tx.nonce),
                 output_count: tx.outputs.len().min(i32::MAX as usize) as i32,
-                total_out: clamp_i64(tx.outputs.iter().map(|o| o.amount).sum::<u64>()),
+                total_out: tx
+                    .outputs
+                    .iter()
+                    .fold(primitive_types::U256::zero(), |sum, o| sum.saturating_add(o.amount))
+                    .to_string(),
                 signed: tx.signed,
             })
             .collect()

@@ -508,9 +508,9 @@ mod tests {
             base_asset: NATIVE_ASSET,
             quote_asset: QUOTE,
             pool: Pool {
-                reserve_base: base,
-                reserve_quote: quote,
-                total_shares: shares,
+                reserve_base: maya_ledger_math::Amount::from_u64(base),
+                reserve_quote: maya_ledger_math::Amount::from_u64(quote),
+                total_shares: maya_ledger_math::Amount::from_u64(shares),
                 fees: FeeSchedule {
                     lp_bps: 30,
                     protocol_bps: 0,
@@ -578,7 +578,7 @@ mod tests {
         overlay.accounts.insert(ALICE, account(400));
         overlay
             .channels
-            .insert([9u8; 32], ChannelRecord::new(ALICE, BOB, 600, 10));
+            .insert([9u8; 32], ChannelRecord::new(ALICE, BOB, primitive_types::U256::from(600), 10));
         db.check_value_conservation(&overlay).expect("conserved");
     }
 
@@ -591,14 +591,14 @@ mod tests {
         overlay.accounts.insert(ALICE, account(400));
         overlay
             .channels
-            .insert([9u8; 32], ChannelRecord::new(ALICE, BOB, 900, 10));
+            .insert([9u8; 32], ChannelRecord::new(ALICE, BOB, primitive_types::U256::from(900), 10));
         assert!(violation(&db, &overlay).contains("out by 300"));
     }
 
     #[test]
     fn a_closed_channel_pays_out_exactly_what_it_escrowed() {
         let (db, _dir) = open();
-        let mut open_channel = ChannelRecord::new(ALICE, BOB, 600, 10);
+        let mut open_channel = ChannelRecord::new(ALICE, BOB, primitive_types::U256::from(600), 10);
         db.put_channel(&[9u8; 32], &open_channel).expect("escrow");
         db.put_account(&ALICE, &account(0)).expect("fund");
 
@@ -613,7 +613,7 @@ mod tests {
     #[test]
     fn a_closed_channel_paying_out_more_than_it_escrowed_is_refused() {
         let (db, _dir) = open();
-        let mut open_channel = ChannelRecord::new(ALICE, BOB, 600, 10);
+        let mut open_channel = ChannelRecord::new(ALICE, BOB, primitive_types::U256::from(600), 10);
         db.put_channel(&[9u8; 32], &open_channel).expect("escrow");
 
         open_channel.status = ChannelStatus::Closed;
@@ -831,7 +831,7 @@ mod tests {
             &mut overlay,
             crate::governance::lock_key(&ALICE),
             LockRecord {
-                amount: 300,
+                amount: primitive_types::U256::from(300),
                 unlock_height: 100,
             }
             .encode()
@@ -850,7 +850,7 @@ mod tests {
             &mut overlay,
             crate::governance::lock_key(&ALICE),
             LockRecord {
-                amount: 300,
+                amount: primitive_types::U256::from(300),
                 unlock_height: 100,
             }
             .encode()

@@ -280,7 +280,7 @@ fn lock_kind(
 ) -> TxKind {
     TxKind::HtlcLock(Box::new(HtlcLock {
         recipient,
-        amount,
+        amount: primitive_types::U256::from(amount),
         expiry_height,
         lock: Lock::Lattice(secret.commitment().expect("commit")),
     }))
@@ -315,7 +315,7 @@ async fn a_swap_between_two_chains_settles_both_legs() {
     let secret = LatticeSecret::from_entropy([1; 32]);
     let commitment = secret.commitment().expect("commit");
     let alice_lock = alice_watcher
-        .initiate(SwapSecret::Lattice(secret), bob, 4_000, 80)
+        .initiate(SwapSecret::Lattice(secret), bob, primitive_types::U256::from(4_000), 80)
         .await
         .expect("initiate");
     chain_a.mine();
@@ -324,9 +324,9 @@ async fn a_swap_between_two_chains_settles_both_legs() {
         .respond(RespondRequest {
             inbound_lock_id: alice_lock,
             lock: Lock::Lattice(commitment.clone()),
-            min_inbound_amount: 4_000,
+            min_inbound_amount: primitive_types::U256::from(4_000),
             outbound_recipient: alice,
-            outbound_amount: 3_000,
+            outbound_amount: primitive_types::U256::from(3_000),
             outbound_expiry: 40,
             rate: BlockRate::EQUAL,
         })
@@ -338,7 +338,7 @@ async fn a_swap_between_two_chains_settles_both_legs() {
         .accept_response(InitiatedSwap {
             commitment_id: commitment.id(),
             inbound_lock_id: bob_lock,
-            min_inbound_amount: 3_000,
+            min_inbound_amount: primitive_types::U256::from(3_000),
             rate: BlockRate::EQUAL,
         })
         .await
@@ -391,9 +391,9 @@ async fn the_watcher_claims_from_the_revelation_alone() {
         .respond(RespondRequest {
             inbound_lock_id: alice_lock,
             lock: Lock::Lattice(secret.commitment().expect("commit")),
-            min_inbound_amount: 4_000,
+            min_inbound_amount: primitive_types::U256::from(4_000),
             outbound_recipient: alice,
-            outbound_amount: 3_000,
+            outbound_amount: primitive_types::U256::from(3_000),
             outbound_expiry: 40,
             rate: BlockRate::EQUAL,
         })
@@ -430,9 +430,9 @@ async fn a_watcher_refuses_a_lock_that_does_not_pay_it_or_pairs_too_tightly() {
     let request = |inbound_lock_id| RespondRequest {
         inbound_lock_id,
         lock: Lock::Lattice(secret.commitment().expect("commit")),
-        min_inbound_amount: 4_000,
+        min_inbound_amount: primitive_types::U256::from(4_000),
         outbound_recipient: alice,
-        outbound_amount: 3_000,
+        outbound_amount: primitive_types::U256::from(3_000),
         outbound_expiry: 40,
         rate: BlockRate::EQUAL,
     };
@@ -471,9 +471,9 @@ async fn an_unrevealed_swap_refunds_both_sides() {
         .respond(RespondRequest {
             inbound_lock_id: alice_lock,
             lock: Lock::Lattice(secret.commitment().expect("commit")),
-            min_inbound_amount: 4_000,
+            min_inbound_amount: primitive_types::U256::from(4_000),
             outbound_recipient: alice,
-            outbound_amount: 3_000,
+            outbound_amount: primitive_types::U256::from(3_000),
             outbound_expiry: 15,
             rate: BlockRate::EQUAL,
         })
@@ -828,7 +828,7 @@ fn hash_lock_kind(
 ) -> TxKind {
     TxKind::HtlcLock(Box::new(HtlcLock {
         recipient,
-        amount,
+        amount: primitive_types::U256::from(amount),
         expiry_height,
         lock: Lock::hash(function, preimage),
     }))
@@ -855,7 +855,7 @@ async fn a_sha256_hash_lock_swap_settles_both_legs_with_no_activation_override()
                 preimage: preimage.clone(),
             },
             bob,
-            4_000,
+            primitive_types::U256::from(4_000),
             80,
         )
         .await
@@ -866,9 +866,9 @@ async fn a_sha256_hash_lock_swap_settles_both_legs_with_no_activation_override()
         .respond(RespondRequest {
             inbound_lock_id: alice_lock,
             lock: lock.clone(),
-            min_inbound_amount: 4_000,
+            min_inbound_amount: primitive_types::U256::from(4_000),
             outbound_recipient: alice,
-            outbound_amount: 3_000,
+            outbound_amount: primitive_types::U256::from(3_000),
             outbound_expiry: 40,
             rate: BlockRate::EQUAL,
         })
@@ -879,7 +879,7 @@ async fn a_sha256_hash_lock_swap_settles_both_legs_with_no_activation_override()
         .accept_response(InitiatedSwap {
             commitment_id: lock.id(),
             inbound_lock_id: bob_lock,
-            min_inbound_amount: 3_000,
+            min_inbound_amount: primitive_types::U256::from(3_000),
             rate: BlockRate::EQUAL,
         })
         .await

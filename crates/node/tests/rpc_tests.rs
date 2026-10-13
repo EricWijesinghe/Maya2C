@@ -121,7 +121,7 @@ fn signed_transfer(from: &HybridSigningKey, to: Address, amount: u64, nonce: u64
     let mut tx = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount,
+            amount: primitive_types::U256::from(amount),
             recipient: to,
         }],
         nonce,
@@ -255,7 +255,7 @@ async fn the_node_rejects_a_tampered_transaction() {
 
     let mut tx = signed_transfer(&alice, [2u8; 32], 100, 0);
     // Raise the amount after signing; the signature no longer covers it.
-    tx.outputs[0].amount = 900;
+    tx.outputs[0].amount = primitive_types::U256::from(900);
 
     let result: Result<SubmitTransactionResult, _> = node
         .client

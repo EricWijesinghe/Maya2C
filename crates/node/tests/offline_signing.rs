@@ -24,7 +24,7 @@ fn build_unsigned(nonce: u64, to: [u8; 32], amount: u64) -> Vec<u8> {
     Transaction::new(
         vec![],
         vec![TxOutput {
-            amount,
+            amount: primitive_types::U256::from(amount),
             recipient: to,
         }],
         nonce,

@@ -414,7 +414,7 @@ mod tests {
 
     fn record() -> MiningRecord {
         MiningGenesis {
-            initial_epoch_reward: 1_000_000,
+            initial_epoch_reward: primitive_types::U256::from(1_000_000),
             halving_epochs: 10,
             miner_share_bps: 7_000,
             target_shares: 100,
@@ -429,11 +429,11 @@ mod tests {
     #[test]
     fn the_reward_halves_on_schedule_and_ends() {
         let r = record();
-        assert_eq!(r.epoch_reward(0), 1_000_000);
-        assert_eq!(r.epoch_reward(9), 1_000_000);
-        assert_eq!(r.epoch_reward(10), 500_000);
-        assert_eq!(r.epoch_reward(640), 0);
-        assert_eq!(r.epoch_reward(u64::MAX), 0);
+        assert_eq!(r.epoch_reward(0), maya_ledger_math::Amount::from_u64(1_000_000));
+        assert_eq!(r.epoch_reward(9), maya_ledger_math::Amount::from_u64(1_000_000));
+        assert_eq!(r.epoch_reward(10), maya_ledger_math::Amount::from_u64(500_000));
+        assert_eq!(r.epoch_reward(640), maya_ledger_math::Amount::from_u64(0));
+        assert_eq!(r.epoch_reward(u64::MAX), maya_ledger_math::Amount::from_u64(0));
     }
 
     #[test]
@@ -441,21 +441,21 @@ mod tests {
         let r = record();
         for epoch in [0, 10, 33, 200] {
             assert_eq!(
-                r.miner_budget(epoch) + r.validator_reward(epoch),
-                r.epoch_reward(epoch)
+                r.miner_budget(epoch).checked_add(r.validator_reward(epoch)),
+                Some(r.epoch_reward(epoch))
             );
         }
-        assert_eq!(r.miner_budget(0), 700_000);
+        assert_eq!(r.miner_budget(0), maya_ledger_math::Amount::from_u64(700_000));
     }
 
     #[test]
     fn share_reward_stops_at_the_epoch_budget() {
         let mut r = record();
-        assert_eq!(r.share_reward(), 7_000);
-        r.paid = 700_000 - 3;
-        assert_eq!(r.share_reward(), 3);
-        r.paid = 700_000;
-        assert_eq!(r.share_reward(), 0);
+        assert_eq!(r.share_reward(), maya_ledger_math::Amount::from_u64(7_000));
+        r.paid = maya_ledger_math::Amount::from_u64(700_000 - 3);
+        assert_eq!(r.share_reward(), maya_ledger_math::Amount::from_u64(3));
+        r.paid = maya_ledger_math::Amount::from_u64(700_000);
+        assert_eq!(r.share_reward(), maya_ledger_math::Amount::from_u64(0));
     }
 
     #[test]
@@ -529,7 +529,7 @@ mod tests {
         r.epoch = 7;
         r.anchor = [9; 32];
         r.shares = 3;
-        r.paid = 21_000;
+        r.paid = maya_ledger_math::Amount::from_u64(21_000);
         assert_eq!(MiningRecord::decode(&r.encode()).unwrap(), r);
         let mut bytes = r.encode();
         bytes.push(0);
@@ -542,7 +542,7 @@ mod tests {
     #[test]
     fn genesis_refuses_bad_parameters() {
         let good = MiningGenesis {
-            initial_epoch_reward: 1_000,
+            initial_epoch_reward: primitive_types::U256::from(1_000),
             halving_epochs: 1,
             miner_share_bps: 7_000,
             target_shares: 1,
@@ -554,7 +554,7 @@ mod tests {
         // 70% of 1 unit split over one share rounds to nothing.
         assert!(
             MiningGenesis {
-                initial_epoch_reward: 1,
+                initial_epoch_reward: primitive_types::U256::from(1),
                 ..good.clone()
             }
             .record(10)

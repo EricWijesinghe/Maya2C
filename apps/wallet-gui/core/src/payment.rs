@@ -422,12 +422,12 @@ fn sign_with_fee_to(
     amount.checked_add(fee).ok_or(WalletError::AmountOverflow)?;
 
     let mut outputs = vec![TxOutput {
-        amount,
+        amount: primitive_types::U256::from(amount),
         recipient: recipient_bytes,
     }];
     if fee > 0 {
         outputs.push(TxOutput {
-            amount: fee,
+            amount: primitive_types::U256::from(fee),
             recipient: fee_recipient,
         });
     }

@@ -200,25 +200,25 @@ mod tests {
         let actions = [
             StakingAction::Register {
                 key: Box::new([3; PUBLIC_KEY_LEN]),
-                bond: 5_000,
+                bond: primitive_types::U256::from(5_000),
                 commission_bps: 700,
                 possession: Box::new([4; SIGNATURE_LENGTH]),
             },
             StakingAction::BondMore {
                 validator: [1; 32],
-                amount: 9,
+                amount: primitive_types::U256::from(9),
             },
             StakingAction::Unbond {
                 validator: [1; 32],
-                amount: 9,
+                amount: primitive_types::U256::from(9),
             },
             StakingAction::Delegate {
                 validator: [2; 32],
-                amount: 10,
+                amount: primitive_types::U256::from(10),
             },
             StakingAction::Undelegate {
                 validator: [2; 32],
-                amount: 10,
+                amount: primitive_types::U256::from(10),
             },
             StakingAction::ReportEquivocation {
                 first: vec![1, 2, 3],

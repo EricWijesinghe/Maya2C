@@ -24,7 +24,7 @@ fn tx(i: i64) -> IndexedTx {
         sender: "ab".repeat(32),
         nonce: i,
         output_count: 2,
-        total_out: 1_000_000 + i,
+        total_out: (1_000_000 + i).to_string(),
         signed: true,
     }
 }

@@ -151,7 +151,7 @@ fn signed_block(sender: &HybridSigningKey, recipient: &Address, count: usize) ->
             let mut tx = Transaction::new(
                 vec![],
                 vec![TxOutput {
-                    amount: 1,
+                    amount: primitive_types::U256::from(1),
                     recipient: *recipient,
                 }],
                 nonce as u64,
@@ -210,7 +210,7 @@ fn main() {
             let mut tx = Transaction::new(
                 vec![],
                 vec![TxOutput {
-                    amount: 1,
+                    amount: primitive_types::U256::from(1),
                     recipient: [0u8; 32],
                 }],
                 0,
@@ -225,7 +225,7 @@ fn main() {
             let mut tx = Transaction::new(
                 vec![],
                 vec![TxOutput {
-                    amount: 1,
+                    amount: primitive_types::U256::from(1),
                     recipient: [0u8; 32],
                 }],
                 0,

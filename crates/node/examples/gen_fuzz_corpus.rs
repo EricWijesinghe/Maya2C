@@ -126,8 +126,8 @@ fn filler_closure(seq: u64, balance_a: u64, balance_b: u64) -> ChannelClosure {
     ChannelClosure {
         channel_id: [0x11; 32],
         seq,
-        balance_a,
-        balance_b,
+        balance_a: primitive_types::U256::from(balance_a),
+        balance_b: primitive_types::U256::from(balance_b),
         revocation_commitment: [0x22; 32],
         pubkey_a: filler_public_key(0x30),
         pubkey_b: filler_public_key(0x40),
@@ -147,13 +147,13 @@ fn signed(mut transaction: Transaction) -> Transaction {
 fn transaction_seeds() -> Vec<(String, Vec<u8>)> {
     let outputs = vec![
         TxOutput {
-            amount: 1,
+            amount: primitive_types::U256::from(1),
             recipient: [0xAA; 32],
         },
         // A near-ceiling amount, so the corpus already contains the operand
         // that makes `total_outputs` overflow after one mutation.
         TxOutput {
-            amount: u64::MAX,
+            amount: primitive_types::U256::from(u64::MAX),
             recipient: [0xBB; 32],
         },
     ];
@@ -177,7 +177,7 @@ fn transaction_seeds() -> Vec<(String, Vec<u8>)> {
             signed(Transaction::with_kind(
                 TxKind::OpenChannel(ChannelOpen {
                     counterparty: [0xDD; 32],
-                    funding: 1_000,
+                    funding: primitive_types::U256::from(1_000),
                     dispute_window: 144,
                 }),
                 1,
@@ -271,7 +271,7 @@ fn block_seeds() -> Vec<(String, Vec<u8>)> {
     let one = signed(Transaction::new(
         vec![],
         vec![TxOutput {
-            amount: 500,
+            amount: primitive_types::U256::from(500),
             recipient: [0xAA; 32],
         }],
         0,
@@ -282,7 +282,7 @@ fn block_seeds() -> Vec<(String, Vec<u8>)> {
             index: 0,
         }],
         vec![TxOutput {
-            amount: u64::MAX,
+            amount: primitive_types::U256::from(u64::MAX),
             recipient: [0xBB; 32],
         }],
         1,
@@ -319,7 +319,7 @@ fn payload_seeds() -> Vec<(String, Vec<u8>)> {
             "open_channel",
             TxKind::OpenChannel(ChannelOpen {
                 counterparty: [0xDD; 32],
-                funding: u64::MAX,
+                funding: primitive_types::U256::from(u64::MAX),
                 dispute_window: 144,
             }),
         ),

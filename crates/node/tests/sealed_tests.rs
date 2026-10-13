@@ -224,7 +224,7 @@ fn an_envelope_executes_at_its_reveal_height_and_not_before() {
     let locked = 250_000;
     let (envelope, id) = fixture.seal(
         &TxKind::LockStake(StakeLock {
-            amount: locked,
+            amount: primitive_types::U256::from(locked),
             unlock_height: 100_000,
         }),
         &sender,
@@ -250,7 +250,7 @@ fn an_envelope_executes_at_its_reveal_height_and_not_before() {
     assert_eq!(fixture.balance(&address), 1_000_000 - locked);
     assert_eq!(
         fixture.db.stake_lock(&address).expect("lock").amount,
-        locked
+        primitive_types::U256::from(locked)
     );
     assert!(
         !fixture.is_pending(&id, 5),
@@ -271,7 +271,7 @@ fn an_envelope_nobody_opens_expires_and_moves_nothing() {
 
     let (envelope, id) = fixture.seal(
         &TxKind::LockStake(StakeLock {
-            amount: 250_000,
+            amount: primitive_types::U256::from(250_000),
             unlock_height: 100_000,
         }),
         &sender,
@@ -286,7 +286,7 @@ fn an_envelope_nobody_opens_expires_and_moves_nothing() {
     fixture.apply(vec![], 4).expect("reveal block");
 
     assert_eq!(fixture.balance(&address), 1_000_000);
-    assert_eq!(fixture.db.stake_lock(&address).expect("lock").amount, 0);
+    assert_eq!(fixture.db.stake_lock(&address).expect("lock").amount, primitive_types::U256::from(0));
     assert!(
         !fixture.is_pending(&id, 4),
         "an expired envelope must be consumed, or it sits in state forever"
@@ -305,7 +305,7 @@ fn one_share_short_of_the_threshold_opens_nothing() {
 
     let (envelope, id) = fixture.seal(
         &TxKind::LockStake(StakeLock {
-            amount: 250_000,
+            amount: primitive_types::U256::from(250_000),
             unlock_height: 100_000,
         }),
         &sender,
@@ -531,7 +531,7 @@ fn a_revealed_action_that_fails_does_not_fail_its_block() {
     // the censorship weapon that exists if a revealed failure aborts a block.
     let (envelope, id) = fixture.seal(
         &TxKind::LockStake(StakeLock {
-            amount: u64::MAX,
+            amount: primitive_types::U256::from(u64::MAX),
             unlock_height: 100_000,
         }),
         &sender,
@@ -548,7 +548,7 @@ fn a_revealed_action_that_fails_does_not_fail_its_block() {
         let mut tx = Transaction::with_kind(TxKind::Transfer, 0);
         tx.outputs.push(custom_l1_node::core::TxOutput {
             recipient: address,
-            amount: 7_000,
+            amount: primitive_types::U256::from(7_000),
         });
         tx.sign(&bystander, &common::test_chain()).expect("sign");
         tx
@@ -559,7 +559,7 @@ fn a_revealed_action_that_fails_does_not_fail_its_block() {
 
     // The stranger's payment landed; the sealed action did not happen.
     assert_eq!(fixture.balance(&address), 1_000 + 7_000);
-    assert_eq!(fixture.db.stake_lock(&address).expect("lock").amount, 0);
+    assert_eq!(fixture.db.stake_lock(&address).expect("lock").amount, primitive_types::U256::from(0));
     assert!(!fixture.is_pending(&id, 4));
 }
 
@@ -626,7 +626,7 @@ fn a_revealed_swap_clears_in_the_same_batch_as_a_plaintext_one() {
                 signed(
                     TxKind::RegisterAsset(AssetRegistration {
                         symbol: symbol("USD"),
-                        total_supply: 4_000_000,
+                        total_supply: primitive_types::U256::from(4_000_000),
                     }),
                     0,
                     &maker,
@@ -636,8 +636,8 @@ fn a_revealed_swap_clears_in_the_same_batch_as_a_plaintext_one() {
                         asset_a: NATIVE_ASSET,
                         asset_b: asset,
                         lp_fee_bps: 30,
-                        amount_a: 100_000,
-                        amount_b: 400_000,
+                        amount_a: primitive_types::U256::from(100_000),
+                        amount_b: primitive_types::U256::from(400_000),
                     }),
                     1,
                     &maker,
@@ -651,8 +651,8 @@ fn a_revealed_swap_clears_in_the_same_batch_as_a_plaintext_one() {
         TxKind::Swap(SwapRequest {
             pair,
             direction: Direction::BaseToQuote.tag(),
-            amount_in: amount,
-            min_out: 0,
+            amount_in: primitive_types::U256::from(amount),
+            min_out: primitive_types::U256::from(0),
             deadline,
         })
     };
