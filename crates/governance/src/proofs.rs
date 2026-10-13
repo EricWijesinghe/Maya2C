@@ -32,26 +32,44 @@ use crate::limits::{
 };
 use crate::params::{ALL_KEYS, ParameterKey};
 use crate::proposal::{Proposal, ProposalState};
-use crate::tally::{Choice, MAX_WEIGHT, Tally};
+use maya_amount::Amount;
 
-/// A symbolic tally within the weights the crate admits.
-fn any_tally() -> Tally {
-    let for_votes: u128 = kani::any();
-    let against_votes: u128 = kani::any();
-    let abstain_votes: u128 = kani::any();
+use crate::tally::{Choice, Tally};
 
-    // Each field is the sum of at most a few hundred votes, none above
-    // `MAX_WEIGHT`. Bounding them is what keeps `turnout` and `decisive` — which
-    // add without checking — provably free of overflow.
-    kani::assume(for_votes <= MAX_WEIGHT);
-    kani::assume(against_votes <= MAX_WEIGHT);
-    kani::assume(abstain_votes <= MAX_WEIGHT);
+/// A symbolic 256-bit weight.
+fn any_amount() -> Amount {
+    Amount(kani::any())
+}
 
-    Tally {
+/// A symbolic weight below 2^128.
+///
+/// The threshold harnesses multiply two weights into 512 bits and compare;
+/// over all 256-bit operands CBMC does not finish. They are proved for weights
+/// below 2^128 — every products' high half is then zero — and the 512-bit
+/// comparison itself is exercised at the ceiling by the unit tests
+/// (`quorum_and_approval_stay_exact_at_the_ceiling`). Bounded, and said so.
+fn any_bounded_amount() -> Amount {
+    Amount::from_u128(kani::any())
+}
+
+/// A symbolic tally that [`Tally::add`] could have built: its turnout is
+/// representable.
+fn tally_from(for_votes: Amount, against_votes: Amount, abstain_votes: Amount) -> Tally {
+    let tally = Tally {
         for_votes,
         against_votes,
         abstain_votes,
-    }
+    };
+    kani::assume(tally.checked_turnout().is_some());
+    tally
+}
+
+fn any_tally() -> Tally {
+    tally_from(any_amount(), any_amount(), any_amount())
+}
+
+fn any_bounded_tally() -> Tally {
+    tally_from(any_bounded_amount(), any_bounded_amount(), any_bounded_amount())
 }
 
 /// A symbolic choice.
@@ -74,7 +92,7 @@ fn any_choice() -> Choice {
 #[kani::proof]
 fn adding_a_vote_moves_exactly_one_column() {
     let tally = any_tally();
-    let weight: u128 = kani::any();
+    let weight = any_amount();
     let choice = any_choice();
 
     if let Ok(next) = tally.add(choice, weight) {
@@ -83,7 +101,7 @@ fn adding_a_vote_moves_exactly_one_column() {
             + u32::from(next.abstain_votes != tally.abstain_votes);
         assert!(moved == 1);
 
-        assert!(next.turnout() == tally.turnout() + weight);
+        assert!(next.checked_turnout() == tally.turnout().checked_add(weight));
     }
 }
 
@@ -95,7 +113,7 @@ fn adding_a_vote_moves_exactly_one_column() {
 fn a_zero_weight_vote_is_never_accepted() {
     let tally = any_tally();
     let choice = any_choice();
-    assert!(tally.add(choice, 0).is_err());
+    assert!(tally.add(choice, Amount::ZERO).is_err());
 }
 
 /// Approval is monotone in votes for and antitone in votes against.
@@ -105,9 +123,9 @@ fn a_zero_weight_vote_is_never_accepted() {
 /// a pass into a failure, and nobody would notice until it mattered.
 #[kani::proof]
 fn more_support_never_turns_a_pass_into_a_failure() {
-    let tally = any_tally();
-    let extra: u128 = kani::any();
-    kani::assume(extra > 0 && extra <= MAX_WEIGHT);
+    let tally = any_bounded_tally();
+    let extra = any_bounded_amount();
+    kani::assume(!extra.is_zero());
 
     let approval_bps: u32 = kani::any();
     kani::assume(approval_bps >= MIN_APPROVAL_BPS && approval_bps <= BPS_DENOMINATOR);
@@ -122,11 +140,11 @@ fn more_support_never_turns_a_pass_into_a_failure() {
 /// Quorum is monotone in turnout.
 #[kani::proof]
 fn more_turnout_never_loses_a_quorum() {
-    let tally = any_tally();
-    let extra: u128 = kani::any();
-    kani::assume(extra > 0 && extra <= MAX_WEIGHT);
+    let tally = any_bounded_tally();
+    let extra = any_bounded_amount();
+    kani::assume(!extra.is_zero());
 
-    let eligible: u128 = kani::any();
+    let eligible = any_bounded_amount();
     let quorum_bps: u32 = kani::any();
     kani::assume(quorum_bps >= MIN_QUORUM_BPS && quorum_bps <= BPS_DENOMINATOR);
 
@@ -146,7 +164,7 @@ fn nothing_passes_against_an_empty_denominator() {
     let tally = any_tally();
     let quorum_bps: u32 = kani::any();
     let approval_bps: u32 = kani::any();
-    assert!(!tally.passes(0, quorum_bps, approval_bps));
+    assert!(!tally.passes(Amount::ZERO, quorum_bps, approval_bps));
 }
 
 /// A proposal that opens has a schedule that runs forward.
@@ -230,13 +248,13 @@ fn a_settled_proposal_never_moves_again() {
     if let Ok(proposal) = Proposal::open(height, voting, timelock) {
         let settled = Proposal { state, ..proposal };
 
-        assert!(settled.vote(any_choice(), 1, at).is_err());
+        assert!(settled.vote(any_choice(), Amount::ONE, at).is_err());
         assert!(settled.execute(at).is_err());
         assert!(settled.cancel().is_err());
         assert!(!settled.is_executable(at));
         // Finalizing is a no-op rather than an error, because the end-of-block
         // pass visits every proposal and must not fail on a settled one.
-        assert!(settled.finalize(at, 1, MIN_QUORUM_BPS, MIN_APPROVAL_BPS) == Ok(settled));
+        assert!(settled.finalize(at, Amount::ONE, MIN_QUORUM_BPS, MIN_APPROVAL_BPS) == Ok(settled));
     }
 }
 
