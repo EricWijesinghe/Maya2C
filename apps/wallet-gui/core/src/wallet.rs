@@ -138,7 +138,7 @@ impl Wallet {
         &mut self,
         index: u32,
         recipient: &str,
-        amount: u64,
+        amount: primitive_types::U256,
         terms: &SignTerms<'_>,
     ) -> Result<SignedTransfer> {
         let path = DerivationPath::account(0, index);
@@ -276,8 +276,8 @@ pub async fn fee_quote(node_url: &str) -> Result<FeeQuote> {
 /// used offline: the fee and where it goes, the nonce, and the chain.
 #[derive(Clone, Copy, Debug)]
 pub struct SignTerms<'a> {
-    /// The fee, in base units.
-    pub fee: u64,
+    /// The fee, in base units: 256-bit like every amount (ADR-046).
+    pub fee: primitive_types::U256,
     /// The fee collector from [`fee_quote`] on a fee-market chain; `None`
     /// burns the fee, which only a chain without fees accepts.
     pub fee_to: Option<&'a str>,

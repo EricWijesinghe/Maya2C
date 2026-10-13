@@ -50,6 +50,11 @@ unexpected_cfgs = { level = "warn", check-cfg = [
 # Ledger target (`nanosplus` has none). Host tests use the same pin.
 blake3 = { version = "=1.8.2", default-features = false }
 
+# Amounts are 256-bit (ADR-046). `maya-amount` is `no_std` with no
+# dependencies, so the device links nothing new beyond its own code, and the
+# screen prints the same exact decimal the node and wallet do.
+maya-amount = { path = "../../crates/amount" }
+
 zeroize = { version = "1", default-features = false }
 # The low-memory ML-DSA-65 in `src/lowmem/`: SHAKE128/256 streamed as they
 # are squeezed. The same `sha3` release `fips204` already links, so the device

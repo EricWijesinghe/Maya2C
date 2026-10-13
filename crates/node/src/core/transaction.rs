@@ -132,7 +132,7 @@ const INPUT_SIZE: usize = 36;
 ///
 /// Unchanged by the move to ML-DSA, because outputs name an address rather than
 /// a key. Only the sender's key grew.
-const OUTPUT_SIZE: usize = 40;
+const OUTPUT_SIZE: usize = 32 + ADDRESS_LEN;
 
 /// Reference to the output of an earlier transaction.
 #[derive(Clone, Debug, PartialEq, Eq)]

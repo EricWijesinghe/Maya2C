@@ -202,7 +202,8 @@ fn hostile_frames_are_refused_before_any_signature_is_read() {
     assert!(Transaction::from_bytes(&trailing).is_err());
 
     // Locate the approval count: after version, io, policy and nonce.
-    let io = 8 + 36 + 8 + 40;
+    // One input, one output; an output is a 32-byte amount (ADR-046) and an address.
+    let io = 8 + 36 + 8 + 64;
     let policy_len = tx
         .multisig
         .as_ref()

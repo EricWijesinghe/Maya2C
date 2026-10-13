@@ -72,7 +72,7 @@ const CHANNEL_ID_DOMAIN: &str = "maya-flash channel id v1";
 /// A closure is the most signature-dense structure on the chain — four proofs
 /// in one record — so it is where the hybrid scheme's bulk shows up worst.
 pub const CLOSURE_SIZE: usize =
-    32 + 8 + 8 + 8 + 32 + 2 * HYBRID_PUBLIC_KEY_LEN + 2 * HYBRID_SIGNATURE_LENGTH;
+    32 + 8 + 32 + 32 + 32 + 2 * HYBRID_PUBLIC_KEY_LEN + 2 * HYBRID_SIGNATURE_LENGTH;
 
 /// Maximum channels settled by one [`TxKind::SettleBatch`].
 ///

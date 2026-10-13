@@ -101,7 +101,7 @@ fn a_full_uri_parses_every_field() {
     let request = PaymentRequest::parse(&uri).expect("parse");
 
     assert_eq!(request.recipient, address(4));
-    assert_eq!(request.amount, Some(1500));
+    assert_eq!(request.amount, Some(primitive_types::U256::from(1500u64)));
     assert_eq!(request.label.as_deref(), Some("Coffee Shop"));
 }
 
@@ -109,7 +109,7 @@ fn a_full_uri_parses_every_field() {
 fn a_uri_round_trips() {
     let original = PaymentRequest {
         recipient: address(5),
-        amount: Some(42),
+        amount: Some(primitive_types::U256::from(42)),
         label: Some("Rent & Bills".to_string()),
     };
     let parsed = PaymentRequest::parse(&original.to_uri()).expect("parse");
@@ -121,7 +121,7 @@ fn unknown_parameters_are_ignored() {
     // A newer wallet's extra fields must not break an older one.
     let uri = format!("maya:{}?amount=10&future=whatever", address(6));
     let request = PaymentRequest::parse(&uri).expect("parse");
-    assert_eq!(request.amount, Some(10));
+    assert_eq!(request.amount, Some(primitive_types::U256::from(10u64)));
 }
 
 #[test]
@@ -135,8 +135,12 @@ fn a_hostile_uri_is_rejected_rather_than_guessed() {
         Err(WalletError::Qr(_))
     ));
 
-    let bad_amount = format!("maya:{}?amount=99999999999999999999999", address(7));
+    // ADR-046: amounts are 256-bit, so only a value past 2^256 - 1 is refused.
+    let past_max = "1".repeat(80);
+    let bad_amount = format!("maya:{}?amount={past_max}", address(7));
     assert!(PaymentRequest::parse(&bad_amount).is_err());
+    let big = format!("maya:{}?amount=99999999999999999999999", address(7));
+    assert!(PaymentRequest::parse(&big).is_ok(), "past u64 is a valid amount now");
 
     let malformed_query = format!("maya:{}?amount", address(7));
     assert!(PaymentRequest::parse(&malformed_query).is_err());
@@ -169,7 +173,7 @@ fn scanning_a_qr_code_yields_a_payment_request() {
     let request = scan_payment_request(&qr_png(&uri)).expect("scan");
 
     assert_eq!(request.recipient, address(11));
-    assert_eq!(request.amount, Some(777));
+    assert_eq!(request.amount, Some(primitive_types::U256::from(777u64)));
     assert_eq!(request.label.as_deref(), Some("Lunch"));
 }
 
@@ -215,11 +219,11 @@ fn a_qr_code_carrying_junk_fails_to_parse() {
 #[test]
 fn a_signed_transfer_verifies_and_carries_the_right_fields() {
     let key = signing_key();
-    let signed = sign_transfer(&key, &address(20), 5_000, 25, 3, &CHAIN).expect("sign");
+    let signed = sign_transfer(&key, &address(20), primitive_types::U256::from(5_000), primitive_types::U256::from(25), 3, &CHAIN).expect("sign");
 
     assert_eq!(signed.recipient, address(20));
-    assert_eq!(signed.amount, 5_000);
-    assert_eq!(signed.fee, 25);
+    assert_eq!(signed.amount, primitive_types::U256::from(5_000));
+    assert_eq!(signed.fee, primitive_types::U256::from(25));
     assert_eq!(signed.nonce, 3);
     assert_eq!(signed.sender, hex::encode(key.address()));
 
@@ -233,7 +237,7 @@ fn a_signed_transfer_verifies_and_carries_the_right_fields() {
 
 #[test]
 fn the_fee_becomes_a_second_output_to_the_burn_address() {
-    let signed = sign_transfer(&signing_key(), &address(21), 1_000, 7, 0, &CHAIN).expect("sign");
+    let signed = sign_transfer(&signing_key(), &address(21), primitive_types::U256::from(1_000), primitive_types::U256::from(7), 0, &CHAIN).expect("sign");
     let decoded =
         Transaction::from_bytes(&hex::decode(&signed.raw_hex).expect("hex")).expect("decode");
 
@@ -247,7 +251,7 @@ fn the_fee_becomes_a_second_output_to_the_burn_address() {
 
 #[test]
 fn a_zero_fee_adds_no_output() {
-    let signed = sign_transfer(&signing_key(), &address(22), 1_000, 0, 0, &CHAIN).expect("sign");
+    let signed = sign_transfer(&signing_key(), &address(22), primitive_types::U256::from(1_000), primitive_types::U256::from(0), 0, &CHAIN).expect("sign");
     let decoded =
         Transaction::from_bytes(&hex::decode(&signed.raw_hex).expect("hex")).expect("decode");
 
@@ -258,14 +262,14 @@ fn a_zero_fee_adds_no_output() {
 fn signing_needs_no_network() {
     // The whole point of offline signing: this test has no node, no socket, and
     // no async runtime, and still produces broadcastable hex.
-    let signed = sign_transfer(&signing_key(), &address(23), 1, 0, 0, &CHAIN).expect("sign");
+    let signed = sign_transfer(&signing_key(), &address(23), primitive_types::U256::from(1), primitive_types::U256::from(0), 0, &CHAIN).expect("sign");
     assert!(!signed.raw_hex.is_empty());
     assert!(hex::decode(&signed.raw_hex).is_ok());
 }
 
 #[test]
 fn a_tampered_raw_transaction_stops_verifying() {
-    let signed = sign_transfer(&signing_key(), &address(24), 1_000, 0, 0, &CHAIN).expect("sign");
+    let signed = sign_transfer(&signing_key(), &address(24), primitive_types::U256::from(1_000), primitive_types::U256::from(0), 0, &CHAIN).expect("sign");
     let mut raw = hex::decode(&signed.raw_hex).expect("hex");
 
     // Change the amount after signing.
@@ -283,7 +287,15 @@ fn a_tampered_raw_transaction_stops_verifying() {
 #[test]
 fn an_overflowing_amount_and_fee_are_refused() {
     assert_eq!(
-        sign_transfer(&signing_key(), &address(25), u64::MAX, 1, 0, &CHAIN).err(),
+        sign_transfer(
+            &signing_key(),
+            &address(25),
+            primitive_types::U256::MAX,
+            primitive_types::U256::one(),
+            0,
+            &CHAIN
+        )
+        .err(),
         Some(WalletError::AmountOverflow)
     );
 }
@@ -291,7 +303,7 @@ fn an_overflowing_amount_and_fee_are_refused() {
 #[test]
 fn signing_to_a_malformed_address_is_refused() {
     assert!(matches!(
-        sign_transfer(&signing_key(), "not-an-address", 1, 0, 0, &CHAIN),
+        sign_transfer(&signing_key(), "not-an-address", primitive_types::U256::from(1), primitive_types::U256::from(0), 0, &CHAIN),
         Err(WalletError::Address(_))
     ));
 }
@@ -301,8 +313,8 @@ fn two_signings_of_the_same_transfer_are_identical() {
     // Ed25519 is deterministic, so a resend produces the same txid rather than
     // a second transaction competing for the same nonce.
     let key = signing_key();
-    let first = sign_transfer(&key, &address(26), 100, 5, 1, &CHAIN).expect("sign");
-    let second = sign_transfer(&key, &address(26), 100, 5, 1, &CHAIN).expect("sign");
+    let first = sign_transfer(&key, &address(26), primitive_types::U256::from(100), primitive_types::U256::from(5), 1, &CHAIN).expect("sign");
+    let second = sign_transfer(&key, &address(26), primitive_types::U256::from(100), primitive_types::U256::from(5), 1, &CHAIN).expect("sign");
     assert_eq!(first, second);
 }
 
@@ -323,8 +335,8 @@ fn fee_tiers_are_ordered() {
 fn a_manual_fee_overrides_the_tier() {
     // Manual control means the user's number is used verbatim, including one
     // no preset offers.
-    let signed = sign_transfer(&signing_key(), &address(27), 500, 4_242, 0, &CHAIN).expect("sign");
-    assert_eq!(signed.fee, 4_242);
+    let signed = sign_transfer(&signing_key(), &address(27), primitive_types::U256::from(500), primitive_types::U256::from(4_242), 0, &CHAIN).expect("sign");
+    assert_eq!(signed.fee, primitive_types::U256::from(4_242));
 
     let decoded =
         Transaction::from_bytes(&hex::decode(&signed.raw_hex).expect("hex")).expect("decode");
@@ -349,8 +361,8 @@ fn on_a_fee_market_chain_the_fee_is_paid_to_the_collector_not_burned() {
     let signed = sign_transfer_to(
         &signing_key(),
         &address(30),
-        1_000,
-        26_510,
+        primitive_types::U256::from(1_000),
+        primitive_types::U256::from(26_510),
         &collector(),
         0,
         &CHAIN,
@@ -365,7 +377,7 @@ fn on_a_fee_market_chain_the_fee_is_paid_to_the_collector_not_burned() {
     assert_eq!(hex::encode(decoded.outputs[1].recipient), collector());
     assert_ne!(decoded.outputs[1].recipient, FEE_SINK);
     assert_eq!(decoded.verify(&CHAIN), Ok(()));
-    assert_eq!(signed.fee, 26_510);
+    assert_eq!(signed.fee, primitive_types::U256::from(26_510));
 }
 
 #[test]
@@ -377,8 +389,8 @@ fn the_priced_size_is_the_size_of_the_transaction_actually_signed() {
     let signed = sign_transfer_to(
         &key,
         &address(31),
-        123_456,
-        987_654,
+        primitive_types::U256::from(123_456),
+        primitive_types::U256::from(987_654),
         &collector(),
         4,
         &CHAIN,
@@ -412,7 +424,7 @@ fn pricing_that_would_overflow_is_refused() {
 #[test]
 fn a_collector_that_is_not_an_address_is_refused() {
     assert!(matches!(
-        sign_transfer_to(&signing_key(), &address(32), 1, 1, "collector", 0, &CHAIN),
+        sign_transfer_to(&signing_key(), &address(32), primitive_types::U256::from(1), primitive_types::U256::from(1), "collector", 0, &CHAIN),
         Err(WalletError::Address(_))
     ));
 }

@@ -111,7 +111,7 @@ const TRANSFER_SIGNING_PREFIX: &str = "\
 2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a\
 0000000000000000\
 0100000000000000\
-f401000000000000\
+f401000000000000000000000000000000000000000000000000000000000000\
 0303030303030303030303030303030303030303030303030303030303030303";
 
 /// BLAKE3 of an unsigned transfer's complete signing bytes.
@@ -119,13 +119,17 @@ f401000000000000\
 /// Frozen rather than recomputed, so a change to the encoding fails here instead
 /// of silently agreeing with itself. Any change to this value is a consensus
 /// change: it invalidates every signature in existence.
+///
+/// Re-pinned 2026-10-13 for ADR-046: the output amount became 32 bytes. That
+/// is the consensus change this constant exists to make deliberate; every
+/// signature over the old 8-byte form is invalid on a re-genesised chain.
 const TRANSFER_SIGNING_DIGEST: &str =
-    "f617a3a3df21d4f32e26593e770dc81d389f121ff2c34897d11e677c3a7608ce";
+    "002988bfd60e9ec080eb541072d63117ea489dddddfe3c8939e3a1b96da90e5a";
 
 /// Length of those signing bytes: domain, chain tag, two counts, one output,
 /// both public keys, and the nonce.
 const TRANSFER_SIGNING_LEN: usize =
-    20 + 32 + 8 + 8 + 8 + 32 + ML_DSA_PUBLIC_KEY_LEN + SLH_DSA_PUBLIC_KEY_LEN + 8;
+    20 + 32 + 8 + 8 + 32 + 32 + ML_DSA_PUBLIC_KEY_LEN + SLH_DSA_PUBLIC_KEY_LEN + 8;
 
 /// The genesis id the documented bytes are signed for: fixed here rather than
 /// taken from a test helper, so the literal above cannot drift with one.
@@ -565,8 +569,8 @@ fn a_route_with_no_legs_is_rejected() {
     )
     .to_bytes();
 
-    // The leg count sits before one leg and three trailing `u64`s.
-    let count_index = encoded.len() - ROUTE_LEG_SIZE - 24 - 8;
+    // The leg count sits before one leg, two 256-bit amounts and a `u64` deadline.
+    let count_index = encoded.len() - ROUTE_LEG_SIZE - (32 + 32 + 8) - 8;
     encoded[count_index..count_index + 8].copy_from_slice(&0u64.to_le_bytes());
 
     assert!(Transaction::from_bytes(&encoded).is_err());
@@ -588,7 +592,7 @@ fn a_route_longer_than_the_ceiling_is_rejected_before_it_is_allocated() {
     )
     .to_bytes();
 
-    let count_index = encoded.len() - ROUTE_LEG_SIZE - 24 - 8;
+    let count_index = encoded.len() - ROUTE_LEG_SIZE - (32 + 32 + 8) - 8;
     encoded[count_index..count_index + 8]
         .copy_from_slice(&(MAX_ROUTE_LEGS as u64 + 1).to_le_bytes());
 

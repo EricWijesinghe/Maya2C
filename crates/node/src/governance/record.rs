@@ -379,7 +379,7 @@ mod tests {
 
         let proposal = Proposal::open(10, MIN_VOTING_BLOCKS, MIN_TIMELOCK_BLOCKS)
             .expect("open")
-            .vote(Choice::For, Amount::MAX, 20)
+            .vote(Choice::For, Amount::MAX.shr(1), 20)
             .expect("vote")
             .vote(Choice::Abstain, maya_ledger_math::Amount::from_u64(7), 21)
             .expect("vote");

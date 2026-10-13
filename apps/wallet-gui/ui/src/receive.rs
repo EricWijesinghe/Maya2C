@@ -21,7 +21,7 @@ pub struct SentTransfer {
     /// Its id, hex.
     pub txid: String,
     /// Base units sent to the recipient.
-    pub amount: u64,
+    pub amount: String,
     /// The recipient, hex.
     pub recipient: String,
 }
@@ -142,7 +142,7 @@ pub fn Sent(sent: SentTransfer) -> impl IntoView {
             </div>
             <h1>"Sent"</h1>
             <p class="sent-amount">
-                {group_digits(sent.amount)}
+                {group_digits(&sent.amount)}
                 <span class="unit">" units"</span>
             </p>
             <p class="lede">{format!("to {}", short(&sent.recipient))}</p>

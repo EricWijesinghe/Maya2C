@@ -31,6 +31,11 @@ phase that did it.
    The visible cost is that it cannot hash, so pair and share-asset identifiers
    are derived in `custom-l1-node` and passed in as opaque bytes. That is the
    price of the boundary, not an oversight to tidy up.
+   *Amended 2026-10-13 (ADR-048):* "dependency-free" now reads "no dependency
+   outside the workspace's proved crates". `dex`, `ledger-math`, `fee-market`,
+   `staking` and `governance` depend on `maya-amount` alone — itself `no_std`
+   with an empty `[dependencies]` — so each Kani graph is still all
+   first-party Rust. The reason is unchanged; only its letter moved.
 7. **A trade that merely *loses* is a no-op, never an `Err`.** A missed slippage
    bound, a lost arbitrage race, a batch the pool cannot price: nonce advances,
    nothing moves. A failing transaction fails its whole block here, so making
