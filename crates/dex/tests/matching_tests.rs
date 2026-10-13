@@ -5,21 +5,34 @@
 use maya_dex::book::{Book, Order, Side};
 use maya_dex::fees::FeeSchedule;
 use maya_dex::matching::{MatchLimits, match_book};
+use maya_amount::Amount;
 use maya_dex::types::PRICE_SCALE;
 
-/// A price of `n` whole quote units per whole base unit.
-fn price(n: u64) -> u64 {
-    n * PRICE_SCALE as u64
+fn a(v: u64) -> Amount {
+    Amount::from_u64(v)
 }
 
-fn order(id: u8, side: Side, price: u64, amount: u64, sequence: u64) -> Order {
+fn add(x: Amount, y: u64) -> Amount {
+    x.checked_add(a(y)).expect("fits")
+}
+
+fn sub(x: Amount, y: u64) -> Amount {
+    x.checked_sub(a(y)).expect("fits")
+}
+
+/// A price of `n` whole quote units per whole base unit.
+fn price(n: u64) -> Amount {
+    a(n).checked_mul(PRICE_SCALE).expect("fits")
+}
+
+fn order(id: u8, side: Side, price: Amount, amount: u64, sequence: u64) -> Order {
     Order {
         id: [id; 32],
         owner: [id; 32],
         side,
         price,
-        amount,
-        remaining: amount,
+        amount: a(amount),
+        remaining: a(amount),
         sequence,
         expiry: 0,
     }
@@ -48,8 +61,8 @@ fn two_orders_that_cross_trade_and_leave_the_book_empty() {
     let outcome = match_book(&book, FREE, MatchLimits::at(1)).expect("match");
 
     assert_eq!(outcome.fills.len(), 1);
-    assert_eq!(outcome.fills[0].base, 100);
-    assert_eq!(outcome.fills[0].quote, 1_000);
+    assert_eq!(outcome.fills[0].base, a(100));
+    assert_eq!(outcome.fills[0].quote, a(1_000));
     assert!(outcome.book.is_empty());
     assert!(!outcome.limit_reached);
 }
@@ -82,7 +95,7 @@ fn the_order_that_arrived_first_sets_the_price() {
 
     assert_eq!(outcome.fills[0].price, price(10));
     assert_eq!(outcome.fills[0].maker_side, Side::Ask);
-    assert_eq!(outcome.fills[0].quote, 1_000);
+    assert_eq!(outcome.fills[0].quote, a(1_000));
 }
 
 #[test]
@@ -108,9 +121,9 @@ fn a_partial_fill_leaves_the_remainder_resting() {
     let outcome = match_book(&book, FREE, MatchLimits::at(1)).expect("match");
 
     assert_eq!(outcome.fills.len(), 1);
-    assert_eq!(outcome.fills[0].base, 30);
+    assert_eq!(outcome.fills[0].base, a(30));
     assert_eq!(outcome.book.len(), 1);
-    assert_eq!(outcome.book.best(Side::Ask).expect("ask").remaining, 70);
+    assert_eq!(outcome.book.best(Side::Ask).expect("ask").remaining, a(70));
 }
 
 #[test]
@@ -124,7 +137,7 @@ fn one_large_order_walks_the_book_in_price_order() {
 
     let outcome = match_book(&book, FREE, MatchLimits::at(1)).expect("match");
 
-    let prices: Vec<u64> = outcome.fills.iter().map(|f| f.price).collect();
+    let prices: Vec<Amount> = outcome.fills.iter().map(|f| f.price).collect();
     assert_eq!(prices, vec![price(10), price(11), price(12)]);
     assert!(outcome.book.is_empty());
 }
@@ -136,11 +149,11 @@ fn the_book_is_never_left_crossed_by_a_completed_pass() {
     // sitting there.
     let mut orders = Vec::new();
     for i in 0..20u8 {
-        orders.push(order(i, Side::Ask, price(10) + i as u64, 7, i as u64));
+        orders.push(order(i, Side::Ask, add(price(10), u64::from(i)), 7, i as u64));
         orders.push(order(
             100 + i,
             Side::Bid,
-            price(30) - i as u64,
+            sub(price(30), u64::from(i)),
             5,
             100 + i as u64,
         ));
@@ -220,10 +233,10 @@ fn the_taker_pays_the_protocol_fee_and_the_maker_does_not() {
     .expect("match");
 
     let fill = outcome.fills[0];
-    assert_eq!(fill.taker_fee, 10, "100 bps of the taker's 1000 base");
-    assert_eq!(fill.base_to_bidder(), 990);
+    assert_eq!(fill.taker_fee, a(10), "100 bps of the taker's 1000 base");
+    assert_eq!(fill.base_to_bidder(), a(990));
     assert_eq!(fill.quote_to_asker(), fill.quote, "the maker keeps it all");
-    assert_eq!(outcome.protocol_fees, 10);
+    assert_eq!(outcome.protocol_fees, a(10));
 }
 
 #[test]
@@ -246,8 +259,8 @@ fn the_lp_rate_is_not_charged_on_a_book_trade() {
     )
     .expect("match");
 
-    assert_eq!(outcome.protocol_fees, 0);
-    assert_eq!(outcome.fills[0].base_to_bidder(), 1_000);
+    assert_eq!(outcome.protocol_fees, a(0));
+    assert_eq!(outcome.fills[0].base_to_bidder(), a(1_000));
 }
 
 #[test]
@@ -270,8 +283,8 @@ fn a_cross_too_small_to_move_a_quote_unit_does_not_trade_base_for_nothing() {
     // At a price below one quote unit per base unit, a one-unit fill rounds the
     // quote to zero. Filling it would hand over base for free.
     let book = book_of(&[
-        order(1, Side::Ask, 1, 1, 1),
-        order(2, Side::Bid, u64::MAX, 1, 2),
+        order(1, Side::Ask, a(1), 1, 1),
+        order(2, Side::Bid, a(u64::MAX), 1, 2),
     ]);
 
     let outcome = match_book(&book, FREE, MatchLimits::at(1)).expect("match");
@@ -301,7 +314,7 @@ fn every_fill_conserves_value_between_the_two_parties_and_the_sink() {
     };
     let mut orders = Vec::new();
     for i in 0..10u8 {
-        orders.push(order(i, Side::Ask, price(10) + i as u64, 137, i as u64));
+        orders.push(order(i, Side::Ask, add(price(10), u64::from(i)), 137, i as u64));
         orders.push(order(50 + i, Side::Bid, price(20), 91, 50 + i as u64));
     }
 
@@ -311,18 +324,18 @@ fn every_fill_conserves_value_between_the_two_parties_and_the_sink() {
     for fill in &outcome.fills {
         // What leaves the seller is `base`; what reaches the buyer plus what
         // reaches the sink is the same number. Same on the quote side.
-        let base_accounted = fill.base_to_bidder()
-            + if fill.maker_side == Side::Ask {
-                fill.taker_fee
-            } else {
-                0
-            };
-        let quote_accounted = fill.quote_to_asker()
-            + if fill.maker_side == Side::Bid {
-                fill.taker_fee
-            } else {
-                0
-            };
+        let base_fee = if fill.maker_side == Side::Ask {
+            fill.taker_fee
+        } else {
+            Amount::ZERO
+        };
+        let quote_fee = if fill.maker_side == Side::Bid {
+            fill.taker_fee
+        } else {
+            Amount::ZERO
+        };
+        let base_accounted = fill.base_to_bidder().checked_add(base_fee).expect("fits");
+        let quote_accounted = fill.quote_to_asker().checked_add(quote_fee).expect("fits");
         assert_eq!(base_accounted, fill.base);
         assert_eq!(quote_accounted, fill.quote);
     }

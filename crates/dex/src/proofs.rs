@@ -10,8 +10,8 @@
 //!
 //! Not "the swap returns roughly the right number" — a test does that better
 //! and faster. What a model checker is for is the *edges*: the reserve sizes
-//! where a `u64` product wraps, the fee rates where an intermediate rounds to
-//! zero, the one input in `2^64` where a floor and a ceiling disagree by enough
+//! where a product passes the amounts' width, the fee rates where an intermediate rounds to
+//! zero, the one input in billions where a floor and a ceiling disagree by enough
 //! to matter. Those are exactly the inputs nobody writes a test for, and
 //! exactly the inputs an attacker looks for.
 //!
@@ -26,8 +26,9 @@
 //!
 //! - [`mul_div_floor_and_ceil_bracket_the_true_quotient`],
 //!   [`mul_div_rounding_differs_by_at_most_one`] and
-//!   [`isqrt_is_the_floor_of_the_real_root`] are **unbounded** over every input
-//!   their arguments can take.
+//!   [`isqrt_is_the_floor_of_the_real_root`] are proved over every `u64`
+//!   operand. Amounts are 256-bit (ADR-046); the 512-bit product and division
+//!   these helpers call are proved over every 256-bit operand in `maya-amount`.
 //! - Every pool harness constrains the reserves and the fee rate with
 //!   `kani::assume`. Those are not simplifications: each one mirrors a check
 //!   the function itself performs and returns an error for, so what is proved
@@ -40,24 +41,39 @@
 //!   `crates/dex/tests/` that run it at full width. Said here rather than left to be
 //!   inferred from the absence.
 
+use maya_amount::Amount;
+
 use crate::amm::{MINIMUM_LIQUIDITY, Pool};
 use crate::fees::{FeeSchedule, MAX_TOTAL_FEE_BPS};
-use crate::math::{isqrt_u128, mul_div_ceil, mul_div_floor};
+use crate::math::{isqrt_wide, mul_div_ceil, mul_div_floor};
 use crate::types::Direction;
 
 /// Largest reserve the pool harnesses quantify over.
 ///
 /// `2^40`, about a trillion base units. The unconstrained problem is a
-/// `u128` division over two symbolic `u64` reserves plus a symbolic amount and
-/// a symbolic fee, which CBMC will chew on for a very long time.
+/// 512-bit division over two symbolic 256-bit reserves plus a symbolic amount
+/// and a symbolic fee, which CBMC will chew on for a very long time.
 ///
-/// The honest reading: the *arithmetic* underneath is proved unbounded — that
-/// is what [`mul_div_floor_and_ceil_bracket_the_true_quotient`] establishes —
-/// and the pool properties are proved for pools up to this size. A pool larger
-/// than this would have to hold more than a trillion units on one side, which
-/// is above the whole native supply, but nothing enforces that for a registered
-/// asset, so the gap is real.
+/// The honest reading: the 256-bit *arithmetic* underneath is proved in
+/// `maya-amount`, the rounding helpers here are proved over every `u64`
+/// operand, and the pool properties are proved for pools up to this size. A
+/// pool larger than this is reachable since ADR-046, and nothing enforces a
+/// limit for a registered asset, so the gap is real; the DEX property tests
+/// run pools past `u64` by execution instead.
 const PROVED_RESERVE_CEILING: u64 = 1 << 40;
+
+/// A symbolic `u64` as an [`Amount`].
+fn any_u64_amount() -> Amount {
+    Amount::from_u64(kani::any())
+}
+
+/// `x` as a `u128`. Every amount a bounded harness builds fits.
+fn wide(x: Amount) -> u128 {
+    match x.to_u128() {
+        Some(v) => v,
+        None => u128::MAX,
+    }
+}
 
 /// A symbolic fee schedule inside the permitted range.
 fn any_schedule() -> FeeSchedule {
@@ -84,21 +100,30 @@ fn any_pool() -> Pool {
     // moves with deposits, so it cannot exceed the larger reserve by more than
     // rounding. Bounding it keeps the share-price harnesses tractable without
     // admitting a supply no sequence of operations could produce.
-    kani::assume(total_shares >= MINIMUM_LIQUIDITY);
+    kani::assume(Amount::from_u64(total_shares) >= MINIMUM_LIQUIDITY);
     kani::assume(total_shares <= PROVED_RESERVE_CEILING);
 
     Pool {
-        reserve_base,
-        reserve_quote,
-        total_shares,
+        reserve_base: Amount::from_u64(reserve_base),
+        reserve_quote: Amount::from_u64(reserve_quote),
+        total_shares: Amount::from_u64(total_shares),
         fees: any_schedule(),
+    }
+}
+
+fn any_direction() -> Direction {
+    if kani::any() {
+        Direction::BaseToQuote
+    } else {
+        Direction::QuoteToBase
     }
 }
 
 /// `mul_div_floor` and `mul_div_ceil` bracket the exact quotient.
 ///
-/// The foundation everything else rests on. If this held only for small inputs,
-/// every rounding argument above it would be a claim about small inputs.
+/// The foundation everything else rests on, proved over every `u64` operand
+/// against a `u128` oracle; the 512-bit product and division underneath are
+/// proved over every 256-bit operand in `maya-amount`.
 #[kani::proof]
 fn mul_div_floor_and_ceil_bracket_the_true_quotient() {
     let a: u64 = kani::any();
@@ -106,13 +131,14 @@ fn mul_div_floor_and_ceil_bracket_the_true_quotient() {
     let c: u64 = kani::any();
     kani::assume(c > 0);
 
-    let exact = (a as u128) * (b as u128) / (c as u128);
+    let exact = u128::from(a) * u128::from(b) / u128::from(c);
+    let (a, b, c) = (Amount::from_u64(a), Amount::from_u64(b), Amount::from_u64(c));
 
-    if let Some(floor) = mul_div_floor(a as u128, b as u128, c as u128) {
-        assert!(floor as u128 == exact);
+    if let Some(floor) = mul_div_floor(a, b, c) {
+        assert!(wide(floor) == exact);
     }
-    if let Some(ceil) = mul_div_ceil(a as u128, b as u128, c as u128) {
-        assert!(ceil as u128 >= exact);
+    if let Some(ceil) = mul_div_ceil(a, b, c) {
+        assert!(wide(ceil) >= exact);
     }
 }
 
@@ -123,17 +149,14 @@ fn mul_div_floor_and_ceil_bracket_the_true_quotient() {
 /// unbounded amount rather than by a unit.
 #[kani::proof]
 fn mul_div_rounding_differs_by_at_most_one() {
-    let a: u64 = kani::any();
-    let b: u64 = kani::any();
-    let c: u64 = kani::any();
-    kani::assume(c > 0);
+    let a = any_u64_amount();
+    let b = any_u64_amount();
+    let c = any_u64_amount();
+    kani::assume(!c.is_zero());
 
-    if let (Some(floor), Some(ceil)) = (
-        mul_div_floor(a as u128, b as u128, c as u128),
-        mul_div_ceil(a as u128, b as u128, c as u128),
-    ) {
+    if let (Some(floor), Some(ceil)) = (mul_div_floor(a, b, c), mul_div_ceil(a, b, c)) {
         assert!(ceil >= floor);
-        assert!(ceil - floor <= 1);
+        assert!(ceil == floor || floor.checked_add(Amount::ONE) == Some(ceil));
     }
 }
 
@@ -141,14 +164,18 @@ fn mul_div_rounding_differs_by_at_most_one() {
 ///
 /// Used once, for a pool's initial share supply. An `isqrt` that rounded up
 /// would mint the first depositor shares against liquidity that is not there.
+/// Proved over every `u64` radicand; the bit-by-bit loop is the same at every
+/// width.
 #[kani::proof]
+#[kani::unwind(257)]
 fn isqrt_is_the_floor_of_the_real_root() {
     let value: u64 = kani::any();
-    let root = isqrt_u128(value as u128).expect("a u64 has a u64 root");
+    let radicand = Amount::from_u64(value).mul_wide(Amount::ONE);
+    let root = wide(isqrt_wide(radicand));
 
-    assert!((root as u128) * (root as u128) <= value as u128);
-    let next = root as u128 + 1;
-    assert!(next * next > value as u128);
+    assert!(root * root <= u128::from(value));
+    let next = root + 1;
+    assert!(next * next > u128::from(value));
 }
 
 /// A swap never decreases `k`.
@@ -159,13 +186,8 @@ fn isqrt_is_the_floor_of_the_real_root() {
 #[kani::proof]
 fn a_swap_never_decreases_the_invariant() {
     let pool = any_pool();
-    let amount_in: u64 = kani::any();
-    let base_to_quote: bool = kani::any();
-    let direction = if base_to_quote {
-        Direction::BaseToQuote
-    } else {
-        Direction::QuoteToBase
-    };
+    let amount_in = any_u64_amount();
+    let direction = any_direction();
 
     if let Ok(outcome) = pool.swap_exact_in(direction, amount_in) {
         assert!(outcome.pool.k() >= pool.k());
@@ -181,13 +203,8 @@ fn a_swap_never_decreases_the_invariant() {
 #[kani::proof]
 fn a_swap_conserves_both_sides() {
     let pool = any_pool();
-    let amount_in: u64 = kani::any();
-    let base_to_quote: bool = kani::any();
-    let direction = if base_to_quote {
-        Direction::BaseToQuote
-    } else {
-        Direction::QuoteToBase
-    };
+    let amount_in = any_u64_amount();
+    let direction = any_direction();
 
     if let Ok(outcome) = pool.swap_exact_in(direction, amount_in) {
         let (before_in, before_out, after_in, after_out) = match direction {
@@ -208,15 +225,15 @@ fn a_swap_conserves_both_sides() {
         // Input side: what the trader paid, less the protocol's cut, is exactly
         // what the reserve gained.
         assert!(
-            after_in as u128
-                == before_in as u128 + outcome.amount_in as u128 - outcome.protocol_fee as u128
+            wide(after_in)
+                == wide(before_in) + wide(outcome.amount_in) - wide(outcome.protocol_fee)
         );
         // Output side: what the trader received is exactly what the reserve
         // lost.
-        assert!(after_out as u128 == before_out as u128 - outcome.amount_out as u128);
+        assert!(wide(after_out) == wide(before_out) - wide(outcome.amount_out));
         // And the LP fee never left, so it is inside the input reserve above
         // rather than being a third destination.
-        assert!(outcome.lp_fee as u128 <= outcome.amount_in as u128);
+        assert!(outcome.lp_fee <= outcome.amount_in);
     }
 }
 
@@ -229,17 +246,12 @@ fn a_swap_conserves_both_sides() {
 #[kani::proof]
 fn a_swap_leaves_both_reserves_non_empty() {
     let pool = any_pool();
-    let amount_in: u64 = kani::any();
-    let base_to_quote: bool = kani::any();
-    let direction = if base_to_quote {
-        Direction::BaseToQuote
-    } else {
-        Direction::QuoteToBase
-    };
+    let amount_in = any_u64_amount();
+    let direction = any_direction();
 
     if let Ok(outcome) = pool.swap_exact_in(direction, amount_in) {
-        assert!(outcome.pool.reserve_base > 0);
-        assert!(outcome.pool.reserve_quote > 0);
+        assert!(!outcome.pool.reserve_base.is_zero());
+        assert!(!outcome.pool.reserve_quote.is_zero());
     }
 }
 
@@ -252,20 +264,20 @@ fn a_swap_leaves_both_reserves_non_empty() {
 #[kani::proof]
 fn a_redemption_does_not_lower_the_share_price() {
     let pool = any_pool();
-    let shares: u64 = kani::any();
+    let shares = any_u64_amount();
 
     if let Ok(delta) = pool.remove_liquidity(shares) {
-        assert!(delta.pool.total_shares == pool.total_shares - shares);
+        assert!(delta.pool.total_shares.checked_add(shares) == Some(pool.total_shares));
         // Cross-multiplied, so the comparison is exact rather than a comparison
         // of two floors.
-        if delta.pool.total_shares > 0 {
+        if !delta.pool.total_shares.is_zero() {
             assert!(
-                (delta.pool.reserve_base as u128) * (pool.total_shares as u128)
-                    >= (pool.reserve_base as u128) * (delta.pool.total_shares as u128)
+                delta.pool.reserve_base.mul_wide(pool.total_shares)
+                    >= pool.reserve_base.mul_wide(delta.pool.total_shares)
             );
             assert!(
-                (delta.pool.reserve_quote as u128) * (pool.total_shares as u128)
-                    >= (pool.reserve_quote as u128) * (delta.pool.total_shares as u128)
+                delta.pool.reserve_quote.mul_wide(pool.total_shares)
+                    >= pool.reserve_quote.mul_wide(delta.pool.total_shares)
             );
         }
     }
@@ -278,7 +290,7 @@ fn a_redemption_does_not_lower_the_share_price() {
 #[kani::proof]
 fn the_locked_minimum_is_never_redeemable() {
     let pool = any_pool();
-    let shares: u64 = kani::any();
+    let shares = any_u64_amount();
 
     if let Ok(delta) = pool.remove_liquidity(shares) {
         assert!(delta.pool.total_shares >= MINIMUM_LIQUIDITY);
@@ -289,18 +301,18 @@ fn the_locked_minimum_is_never_redeemable() {
 #[kani::proof]
 fn a_deposit_does_not_dilute() {
     let pool = any_pool();
-    let base: u64 = kani::any();
-    let quote: u64 = kani::any();
+    let base = any_u64_amount();
+    let quote = any_u64_amount();
 
     if let Ok(delta) = pool.add_liquidity(base, quote) {
         assert!(delta.pool.total_shares >= pool.total_shares);
         assert!(
-            (delta.pool.reserve_base as u128) * (pool.total_shares as u128)
-                >= (pool.reserve_base as u128) * (delta.pool.total_shares as u128)
+            delta.pool.reserve_base.mul_wide(pool.total_shares)
+                >= pool.reserve_base.mul_wide(delta.pool.total_shares)
         );
         assert!(
-            (delta.pool.reserve_quote as u128) * (pool.total_shares as u128)
-                >= (pool.reserve_quote as u128) * (delta.pool.total_shares as u128)
+            delta.pool.reserve_quote.mul_wide(pool.total_shares)
+                >= pool.reserve_quote.mul_wide(delta.pool.total_shares)
         );
     }
 }
@@ -313,13 +325,8 @@ fn a_deposit_does_not_dilute() {
 #[kani::proof]
 fn exact_out_never_undercharges() {
     let pool = any_pool();
-    let amount_out: u64 = kani::any();
-    let base_to_quote: bool = kani::any();
-    let direction = if base_to_quote {
-        Direction::BaseToQuote
-    } else {
-        Direction::QuoteToBase
-    };
+    let amount_out = any_u64_amount();
+    let direction = any_direction();
 
     if let Ok(inverse) = pool.swap_exact_out(direction, amount_out) {
         assert!(inverse.amount_out == amount_out);
