@@ -274,6 +274,34 @@ one by one and dismissed with reasons (757 test fixtures, 105 false
 positives, including the two zero-nonce seals — safe, fresh ML-KEM secret per
 seal); the three real JS findings were fixed.
 
+## 2026-10-12 — Helpers join with one line; the installers restart and recover by themselves
+
+Eric: friends want to help and are not technical, so their comfort comes
+first. One pasted line per OS; a helper command for every later step; keys
+never leave the machine and uninstall keeps them. The installers are tested
+on real macOS, Windows and Linux runners (`join-scripts.yml`), not only here.
+Joining nodes fetch 4 blocks at once (validation still in order, one by one);
+a bootstrap interrupted before its snapshot is discarded and redone; Windows
+restarts an exited node itself. The release lookup reads the releases feed,
+because api.github.com's 60/hour limit failed the macOS run.
+
+## 2026-10-12 — In-app updates are off until the owner holds the signing key
+
+Whoever holds the update-signing key can push code to every installed app,
+so the owner generates it, never Claude. Builds stay unsigned and the
+updater stays off until the secret and `apps/updater-pubkey.txt` exist.
+
+## 2026-10-13 — Chat stickers: files named by their hash, packs shared person to person
+
+Eric: Telegram-level stickers are a main reason people love Telegram. A
+sticker rides inside the existing end-to-end encryption as a framed message
+(one file, at most 120 KB: the envelope's CBOR doubles ciphertext, so that is what fits the relay's 256 KiB in the worst case, measured) named by its
+BLAKE3 hash, which the receiver re-checks; the format is read from the bytes.
+No sticker server: a pack travels from the person who has it, on request,
+and only packs they made or installed are ever sent. Formats: Lottie (.json,
+Telegram .tgs), WebM, WebP, PNG/APNG, GIF, SVG (drawn only as <img>). The
+built-in pack is original art; no third-party pack ships with the app.
+
 ## 2026-10-13 — Every amount is 256-bit (ADR-046 amendment)
 
 Balances were widened to U256 but transaction amounts stayed u64, which at 18

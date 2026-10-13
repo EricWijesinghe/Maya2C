@@ -78,14 +78,13 @@ pub fn App() -> impl IntoView {
             <header>
                 <img
                     class="mark"
-                    src="assets/logo.png"
-                    srcset="assets/logo.png 1x, assets/logo@2x.png 2x"
+                    src="assets/emblem.png"
                     // Decorative: the `<h1>` beside it already carries the
                     // name, and a screen reader announcing it twice is worse
                     // than not announcing the image at all.
                     alt=""
-                    width="250"
-                    height="100"
+                    width="44"
+                    height="44"
                 />
                 <h1>"Maya2C network"</h1>
                 <span class=move || link.get().class()>{move || link.get().label()}</span>

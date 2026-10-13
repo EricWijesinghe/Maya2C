@@ -159,6 +159,31 @@ impl StateDB {
         Ok(entries)
     }
 
+    /// Clears a pruned bootstrap that was interrupted before it adopted its
+    /// snapshot, and says whether it did.
+    ///
+    /// [`bootstrap_pruned`] writes the chain's metadata (tip = genesis) before
+    /// it downloads anything, and undoes itself on an *error*, but not when the
+    /// process is killed: a PC rebooted or switched off during a first sync.
+    /// That database then looks like a chain at height 0, a restart skipped
+    /// the bootstrap ("the database already holds a chain"), and catch-up from
+    /// epoch 0 failed on every restart, forever (seen 2026-10-12). Tip still
+    /// at genesis with nothing pruned means no snapshot was adopted, so there
+    /// is nothing to lose; any database past that is left alone.
+    ///
+    /// # Errors
+    ///
+    /// Storage failures reading the metadata or deleting the keys.
+    pub fn discard_interrupted_bootstrap(&self) -> Result<bool> {
+        let interrupted = self
+            .chain_meta()?
+            .is_some_and(|meta| meta.tip == meta.genesis && meta.prune_horizon == 0);
+        if interrupted {
+            self.purge_all()?;
+        }
+        Ok(interrupted)
+    }
+
     /// Deletes every key. What a failed bootstrap, which started from an
     /// empty database, is undone with.
     fn purge_all(&self) -> Result<()> {
@@ -173,7 +198,9 @@ impl StateDB {
 /// Where a pruned node gets its headers, its snapshot and its recent bodies.
 ///
 /// Every call is untrusted: the bootstrap validates whatever comes back.
-pub trait BootstrapSource {
+/// `Sync` because block bodies are fetched with several requests in flight
+/// ([`super::prefetch`]).
+pub trait BootstrapSource: Sync {
     /// Height of the source's tip.
     ///
     /// # Errors
@@ -355,9 +382,11 @@ fn bootstrap_into(
     import_snapshot(state, source, &manifest, &expected_root)?;
 
     chain.adopt_snapshot(&ids[..=height as usize])?;
-    for body_height in height + 1..=tip {
-        chain.insert_block(source.block(body_height)?)?;
-    }
+    // Fetched a window at a time with several requests in flight, inserted
+    // strictly in order: every body is still fully validated.
+    super::prefetch::for_each_prefetched(height + 1, tip, &|h| source.block(h), |block| {
+        chain.insert_block(block).map(|_| ())
+    })?;
     Ok(chain)
 }
 

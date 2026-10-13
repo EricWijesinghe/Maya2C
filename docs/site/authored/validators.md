@@ -11,6 +11,11 @@ round, and a block is final once a quorum has certified it. A network run
 by one operator is a demo. A network run by many independent operators is
 a blockchain. This page is how you become one of them.
 
+:::tip[Not technical? Start here]
+[Help run the network](/guides/help-run/) does everything on this page with
+one pasted line, on Windows, Mac or Linux. This page is the full detail.
+:::
+
 :::caution[No money, no tokens]
 Testnet coins have **no value**. Running a testnet validator earns public
 recognition only: your name in the validator list and in the release
