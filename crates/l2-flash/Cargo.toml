@@ -19,10 +19,10 @@ custom-l1-node = { path = "../node" }
 blake3.workspace = true
 hex.workspace = true
 thiserror.workspace = true
+# ADR-046: every channel amount is 256-bit, like the node's balances.
+primitive-types.workspace = true
 
 [dev-dependencies]
-# ADR-046: balances read back from the node are U256.
-primitive-types.workspace = true
 getrandom.workspace = true
 tempfile.workspace = true
 

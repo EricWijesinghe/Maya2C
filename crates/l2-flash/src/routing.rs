@@ -25,6 +25,7 @@
 //! grows the amount as it goes. Searching forward would require knowing the
 //! final amount before the fees that determine it.
 
+use primitive_types::{U256, U512};
 use std::collections::{BinaryHeap, HashMap, HashSet};
 
 use custom_l1_node::core::ChannelId;
@@ -49,7 +50,7 @@ pub const MAX_HOPS: usize = 8;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct FeePolicy {
     /// Flat fee charged per forward.
-    pub base_fee: u64,
+    pub base_fee: U256,
     /// Additional fee in parts-per-million of the forwarded amount.
     pub fee_ppm: u64,
 }
@@ -57,13 +58,13 @@ pub struct FeePolicy {
 impl FeePolicy {
     /// A policy charging `base_fee` plus `fee_ppm` parts per million.
     #[must_use]
-    pub const fn new(base_fee: u64, fee_ppm: u64) -> Self {
+    pub const fn new(base_fee: U256, fee_ppm: u64) -> Self {
         Self { base_fee, fee_ppm }
     }
 
     /// A policy that charges nothing.
     pub const FREE: Self = Self {
-        base_fee: 0,
+        base_fee: U256::zero(),
         fee_ppm: 0,
     };
 }
@@ -78,9 +79,9 @@ pub struct Edge {
     /// Node that receives.
     pub to: NodeId,
     /// Value `from` can currently push toward `to`.
-    pub capacity: u64,
+    pub capacity: U256,
     /// Flat fee charged for forwarding.
-    pub base_fee: u64,
+    pub base_fee: U256,
     /// Fee in parts-per-million of the forwarded amount.
     pub fee_ppm: u64,
 }
@@ -91,9 +92,12 @@ impl Edge {
     /// # Errors
     ///
     /// Returns [`FlashError::BalanceOverflow`] on overflow.
-    pub fn fee_for(&self, amount: u64) -> Result<u64> {
-        let proportional = (u128::from(amount) * u128::from(self.fee_ppm)) / 1_000_000;
-        let proportional = u64::try_from(proportional).map_err(|_| FlashError::BalanceOverflow)?;
+    pub fn fee_for(&self, amount: U256) -> Result<U256> {
+        // Through a 512-bit product: 256-bit amounts (ADR-046) times a ppm
+        // rate overflow 256 bits before the division brings them back.
+        let proportional = amount.full_mul(U256::from(self.fee_ppm)) / U512::from(1_000_000u64);
+        let proportional =
+            U256::try_from(proportional).map_err(|_| FlashError::BalanceOverflow)?;
         self.base_fee
             .checked_add(proportional)
             .ok_or(FlashError::BalanceOverflow)
@@ -110,9 +114,9 @@ pub struct Hop {
     /// Receiving node.
     pub to: NodeId,
     /// Value entering this hop, inclusive of downstream fees.
-    pub amount_in: u64,
+    pub amount_in: U256,
     /// Fee retained by `from` for forwarding.
-    pub fee: u64,
+    pub fee: U256,
 }
 
 /// A complete path from sender to recipient.
@@ -121,15 +125,15 @@ pub struct Route {
     /// Hops in send order.
     pub hops: Vec<Hop>,
     /// Amount the sender must commit, fees included.
-    pub total_amount: u64,
+    pub total_amount: U256,
     /// Amount the recipient receives.
-    pub delivered: u64,
+    pub delivered: U256,
 }
 
 impl Route {
     /// Total fees paid across the route.
     #[must_use]
-    pub fn total_fees(&self) -> u64 {
+    pub fn total_fees(&self) -> U256 {
         self.total_amount.saturating_sub(self.delivered)
     }
 
@@ -162,8 +166,8 @@ impl ChannelGraph {
         channel_id: ChannelId,
         node_a: NodeId,
         node_b: NodeId,
-        capacity_a_to_b: u64,
-        capacity_b_to_a: u64,
+        capacity_a_to_b: U256,
+        capacity_b_to_a: U256,
         fees: FeePolicy,
     ) {
         for (from, to, capacity) in [
@@ -206,7 +210,7 @@ impl ChannelGraph {
     /// Updates one direction's capacity after a payment moves value.
     ///
     /// Returns `true` if the edge was found.
-    pub fn set_capacity(&mut self, channel_id: &ChannelId, from: &NodeId, capacity: u64) -> bool {
+    pub fn set_capacity(&mut self, channel_id: &ChannelId, from: &NodeId, capacity: U256) -> bool {
         let mut found = false;
         if let Some(edges) = self.outgoing.get_mut(from) {
             for edge in edges.iter_mut() {
@@ -236,7 +240,7 @@ impl ChannelGraph {
         &self,
         source: &NodeId,
         target: &NodeId,
-        amount: u64,
+        amount: U256,
         max_hops: usize,
     ) -> Result<Route> {
         if source == target {
@@ -262,12 +266,12 @@ impl ChannelGraph {
         &self,
         source: &NodeId,
         target: &NodeId,
-        amount: u64,
+        amount: U256,
         max_hops: usize,
-    ) -> Result<HashMap<NodeId, (u64, Edge)>> {
+    ) -> Result<HashMap<NodeId, (U256, Edge)>> {
         // Ordered by amount-to-send: minimising what the sender pays is exactly
         // minimising accumulated fees.
-        let mut best: HashMap<NodeId, (u64, Edge)> = HashMap::new();
+        let mut best: HashMap<NodeId, (U256, Edge)> = HashMap::new();
         let mut settled: HashSet<NodeId> = HashSet::new();
         let mut queue: BinaryHeap<Candidate> = BinaryHeap::new();
 
@@ -300,7 +304,7 @@ impl ChannelGraph {
 
                 let fee = if &edge.from == source {
                     // The sender pays no forwarding fee to itself.
-                    0
+                    U256::zero()
                 } else {
                     edge.fee_for(cost)?
                 };
@@ -338,8 +342,8 @@ impl ChannelGraph {
         &self,
         source: &NodeId,
         target: &NodeId,
-        amount: u64,
-        best: &HashMap<NodeId, (u64, Edge)>,
+        amount: U256,
+        best: &HashMap<NodeId, (U256, Edge)>,
         max_hops: usize,
     ) -> Result<Route> {
         let mut hops = Vec::new();
@@ -362,7 +366,7 @@ impl ChannelGraph {
             })?;
 
             let fee = if &edge.from == source {
-                0
+                U256::zero()
             } else {
                 // What this node keeps is the difference between what it
                 // receives and what it must forward.
@@ -403,7 +407,7 @@ impl ChannelGraph {
 /// cheapest candidate.
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct Candidate {
-    cost: u64,
+    cost: U256,
     hops: usize,
     node: NodeId,
 }
