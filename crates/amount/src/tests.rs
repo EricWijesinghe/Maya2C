@@ -132,3 +132,12 @@ fn shr_moves_bits_across_limbs_and_drops_the_rest() {
     assert_eq!(Amount::MAX.shr(192), a(u64::MAX));
     assert_eq!(a(6).shr(1), a(3));
 }
+
+#[test]
+fn wide_order_is_numeric_not_limbwise() {
+    let high = Amount::MAX.mul_wide(Amount::from_u64(2));
+    let low = Amount::MAX.mul_wide(Amount::ONE);
+    assert!(high > low);
+    assert!(Wide::from_amount(Amount([0, 0, 0, 1])) > Wide::from_amount(Amount([u64::MAX, u64::MAX, u64::MAX, 0])));
+    assert_eq!(low.cmp(&low), core::cmp::Ordering::Equal);
+}

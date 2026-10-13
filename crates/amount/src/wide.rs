@@ -4,6 +4,8 @@
 //! with [`Wide::checked_div`]. No addition or other arithmetic on `Wide`,
 //! because nothing in the chain carries a 512-bit value past one expression.
 
+use core::cmp::Ordering;
+
 use crate::{Amount, LIMBS};
 
 /// Limbs in a [`Wide`].
@@ -176,4 +178,18 @@ const fn sub(a: [u64; REM_LIMBS], b: [u64; REM_LIMBS]) -> [u64; REM_LIMBS] {
         i += 1;
     }
     out
+}
+
+impl Ord for Wide {
+    /// Numeric order: most significant limb first. Lets a ratio be compared
+    /// exactly by cross-multiplying (`a·d >= c·b`) with no division.
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.iter().rev().cmp(other.0.iter().rev())
+    }
+}
+
+impl PartialOrd for Wide {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
