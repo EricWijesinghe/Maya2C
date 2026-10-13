@@ -84,6 +84,7 @@ signature on the chain is a hybrid pair and both halves must verify; see
 | Historical pruning + archive bootstrap | **SHIPPED** | `archive`, `crates/node/src/state/blocks.rs` | No body deleted before a verified copy exists — invariant 27, [pruning.md](pruning.md) |
 | Constant-product DEX + order book | **SHIPPED** | `dex` | Dependency-free for Kani. A losing trade is a no-op — invariants 6, 7 |
 | Governance lifecycle and bounds | **SHIPPED** | `governance` | Governance cannot make governance unsafe — invariants 12, 13, 17 |
+| 256-bit amounts for the proved crates | **SHIPPED** | `amount` (`maya-amount`) | ADR-046/048: `Amount` (four `u64` limbs) and a 512-bit `Wide` for `x × y / z`, no dependencies and `no_std`, so `fee-market`, `dex` and `ledger-math` keep 256-bit math inside their Kani graphs. Cross-checked against `primitive_types::U256` byte for byte (`amount_bytes_tests.rs`) |
 | EIP-1559 base fee over bytes | **RESEARCH** | `fee-market` | `FeeConfig::DISABLED`, activation `u64::MAX`. Called by nothing in `crates/node/src/` |
 | Neural base-fee gain | **RESEARCH** | `crates/fee-market/src/model/`, `crates/node/src/neural_gas/`, `neural-gas-trainer` | A 6-16-1 integer network, i16 weights compiled in, scales EIP-1559's step by a one-sided gain — a rise ×1 to ×2, a fall ×0 to ×1 — so no feature a block producer writes can price a block below EIP-1559. Native inference, **no zkML**: every validator can re-run 112 multiplies, and a proof would cost ~10⁴× that. Trained on a synthetic demand simulator, because no chain history exists — [neural-gas.md](neural-gas.md) |
 | Multi-shard asynchronous DAG (Narwhal/Tusk) | **RESEARCH** | `blockgraph` | Batch references and deterministic shard scheduling. Nothing in consensus references a batch yet — [blockgraph.md](blockgraph.md) |
@@ -179,7 +180,7 @@ is a fork; §7 states the rule.
 | Component | Status | Where | Notes |
 |---|---|---|---|
 | Fuzz targets (cargo-fuzz, libFuzzer) | **SHIPPED** | `fuzz/` | Decoders and SV2 frames; `car_decode.rs` fuzzes untrusted archives |
-| Kani model checking | **SHIPPED** | `ledger-math`, `dex`, `governance`, `fee-market`, `threat-intel` | Which is why those crates stay dependency-free — invariants 1, 6. `threat-intel`'s 4 harnesses verified 2026-09-15 (Kani 0.67.0, Linux) |
+| Kani model checking | **SHIPPED** | `ledger-math`, `dex`, `governance`, `fee-market`, `threat-intel`, `amount` | Which is why those crates stay dependency-free — invariants 1, 6. `threat-intel`'s 4 harnesses verified 2026-09-15 (Kani 0.67.0, Linux) |
 | Supply-chain gates | **SHIPPED** | `deny.toml`, `cargo audit` | Committed, run in CI |
 | Telemetry threat surface | **SHIPPED** | `telemetry` | Nothing on the dashboard is verified, and that is stated rather than papered over — invariants 14, 15 |
 | State invariant guard + circuit breaker | **SHIPPED** | `crates/node/src/state/invariant_guard/` | Value conservation over all five holding places fails the block; an anomaly halts one module for 100 blocks and never a transfer — invariant 28, [invariant-guard.md](invariant-guard.md) |

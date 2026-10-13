@@ -47,9 +47,9 @@ impl EconParams {
         fees: FeeConfig::TESTING,
         block_secs: 2,
         epoch_blocks: 43_200, // one day at 2 s
-        // 10M tokens: half of `maya_fee_market::MAX_SUPPLY` (21M), so the
-        // hard cap binds within the horizons simulated only under extreme
-        // emission, and the cap check is exercised rather than assumed.
+        // 10M tokens. This was half of the old 21M cap; since ADR-046 the
+        // chain's cap is 2^256 - 1 and never binds, so emission alone shapes
+        // supply here, as it does on the chain.
         genesis_supply: 10_000_000 * UNIT,
         emission_ppm_per_year: 30_000, // 3%
         validators: 100,
