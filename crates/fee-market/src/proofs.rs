@@ -19,11 +19,11 @@ fn any_amount() -> Amount {
 
 #[kani::proof]
 fn a_split_conserves_every_unit() {
-    let fee: u64 = kani::any();
-    let tip: u64 = kani::any();
+    let fee = any_amount();
+    let tip = any_amount();
     let bps: u64 = kani::any();
     let s = split(fee, tip, bps);
-    assert!(s.total() == u128::from(fee) + u128::from(tip));
+    assert!(s.total() == fee.checked_add(tip));
     assert!(s.treasury <= fee);
 }
 

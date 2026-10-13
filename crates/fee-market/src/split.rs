@@ -9,28 +9,32 @@
 //! `burned + treasury + tip == base_fee_paid + tip` holds exactly, and the only
 //! direction a rounding error can ever move value is out of circulation.
 
+use maya_amount::Amount;
+
 use crate::limits::BPS;
 
 /// One transaction's fee, divided.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FeeSplit {
     /// Sent to the unspendable fee sink: leaves circulation for good.
-    pub burned: u64,
+    pub burned: Amount,
     /// Credited to the treasury.
-    pub treasury: u64,
+    pub treasury: Amount,
     /// Credited to whoever produced the block.
-    pub tip: u64,
+    pub tip: Amount,
 }
 
 impl FeeSplit {
-    /// Everything the transaction paid.
+    /// Everything the transaction paid, or `None` past 2²⁵⁶ − 1.
     ///
-    /// `u128` because three `u64` totals can exceed `u64`; the caller compares
-    /// it against what was charged, and a sum that wrapped would pass that
-    /// comparison by accident.
+    /// Checked because the caller compares it against what was charged, and a
+    /// sum that wrapped would pass that comparison by accident.
     #[must_use]
-    pub fn total(self) -> u128 {
-        u128::from(self.burned) + u128::from(self.treasury) + u128::from(self.tip)
+    pub const fn total(self) -> Option<Amount> {
+        match self.burned.checked_add(self.treasury) {
+            Some(base) => base.checked_add(self.tip),
+            None => None,
+        }
     }
 }
 
@@ -41,12 +45,16 @@ impl FeeSplit {
 /// [`crate::limits::MAX_TREASURY_BPS`]. A value above 100% is clamped to 100%
 /// rather than creating value.
 #[must_use]
-pub fn split(base_fee_paid: u64, tip: u64, treasury_bps: u64) -> FeeSplit {
-    let bps = u128::from(treasury_bps.min(BPS));
-    let treasury = u64::try_from(u128::from(base_fee_paid) * bps / u128::from(BPS))
-        .expect("a share of at most 100% of a u64 fits in a u64");
+pub fn split(base_fee_paid: Amount, tip: Amount, treasury_bps: u64) -> FeeSplit {
+    let bps = Amount::from_u64(treasury_bps.min(BPS));
+    // At most 100% of `base_fee_paid`, through a 512-bit product: the
+    // division by a non-zero constant cannot fail, so the fallback (all to
+    // the burn) is unreachable and errs toward holders, never the treasury.
+    let treasury = base_fee_paid
+        .mul_div(bps, Amount::from_u64(BPS))
+        .unwrap_or(Amount::ZERO);
     FeeSplit {
-        burned: base_fee_paid - treasury,
+        burned: base_fee_paid.saturating_sub(treasury),
         treasury,
         tip,
     }
@@ -57,24 +65,28 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
+    fn a(v: u64) -> Amount {
+        Amount::from_u64(v)
+    }
+
     const EIGHTY_TWENTY: u64 = 2_000;
 
     #[test]
     fn eighty_percent_is_burned_and_twenty_goes_to_the_treasury() {
-        let s = split(1_000, 0, EIGHTY_TWENTY);
-        assert_eq!((s.burned, s.treasury), (800, 200));
+        let s = split(a(1_000), a(0), EIGHTY_TWENTY);
+        assert_eq!((s.burned, s.treasury), (a(800), a(200)));
     }
 
     #[test]
     fn the_whole_tip_goes_to_the_producer() {
-        assert_eq!(split(1_000, 37, EIGHTY_TWENTY).tip, 37);
+        assert_eq!(split(a(1_000), a(37), EIGHTY_TWENTY).tip, a(37));
     }
 
     #[test]
     fn the_remainder_is_burned_never_credited() {
         // 7 · 20% = 1.4: the treasury gets 1, the burn gets 6.
-        let s = split(7, 0, EIGHTY_TWENTY);
-        assert_eq!((s.burned, s.treasury), (6, 1));
+        let s = split(a(7), a(0), EIGHTY_TWENTY);
+        assert_eq!((s.burned, s.treasury), (a(6), a(1)));
     }
 
     #[test]
@@ -86,16 +98,27 @@ mod tests {
             .chain([u64::MAX, u64::MAX - 1, u64::MAX / 3]);
         for fee in samples {
             for bps in [0, 1, 1_999, EIGHTY_TWENTY, 5_000, BPS] {
-                let s = split(fee, 11, bps);
-                assert_eq!(s.total(), u128::from(fee) + 11, "fee {fee} at {bps} bps");
-                assert!(s.treasury <= fee);
+                let s = split(a(fee), a(11), bps);
+                assert_eq!(
+                    s.total(),
+                    a(fee).checked_add(a(11)),
+                    "fee {fee} at {bps} bps"
+                );
+                assert!(s.treasury <= a(fee));
+            }
+        }
+        // ADR-046: fees past u64 split as exactly.
+        for fee in [Amount::MAX, Amount::MAX.shr(1), Amount::from_u128(u128::MAX)] {
+            for bps in [0, 1, EIGHTY_TWENTY, BPS] {
+                let s = split(fee, Amount::ZERO, bps);
+                assert_eq!(s.total(), Some(fee), "fee {fee} at {bps} bps");
             }
         }
     }
 
     #[test]
     fn a_treasury_share_above_one_hundred_percent_cannot_create_value() {
-        let s = split(1_000, 0, 50_000);
-        assert_eq!((s.burned, s.treasury), (0, 1_000));
+        let s = split(a(1_000), a(0), 50_000);
+        assert_eq!((s.burned, s.treasury), (a(0), a(1_000)));
     }
 }
