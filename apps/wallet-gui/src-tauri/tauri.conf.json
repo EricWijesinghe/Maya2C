@@ -28,6 +28,8 @@
   },
   "bundle": {
     "active": true,
+    "publisher": "Eric Wijesinghe",
+    "copyright": "Copyright © 2026 Eric Wijesinghe. Apache License 2.0.",
     "targets": "all",
     "icon": [
       "icons/32x32.png",
