@@ -24,8 +24,8 @@ pub struct Transfer {
     pub signature_valid: bool,
     /// Replay counter.
     pub nonce: u64,
-    /// `(recipient, amount)` in order.
-    pub outputs: Vec<(Address, u64)>,
+    /// `(recipient, amount)` in order; amounts are 256-bit (ADR-046).
+    pub outputs: Vec<(Address, Balance)>,
 }
 
 /// Why a block is invalid. The names are the spec's error kinds.
@@ -70,14 +70,14 @@ pub fn apply_transfer(
     if tx.nonce != sender.nonce {
         return Err(Rejection::InvalidNonce); // STF-1
     }
-    let mut total: u64 = 0;
+    let mut total = Balance::default();
     for (_, amount) in &tx.outputs {
         total = total
             .checked_add(*amount)
             .ok_or(Rejection::BalanceOverflow)?; // STF-2
     }
-    // Outputs and their total are u64 on the wire (STF-2); balances are 256-bit.
-    let Some(left) = sender.balance.checked_sub(Balance::from(total)) else {
+    // Outputs, their total and balances are all 256-bit (ADR-046).
+    let Some(left) = sender.balance.checked_sub(total) else {
         return Err(Rejection::InsufficientBalance); // STF-3
     };
     sender.balance = left;
@@ -90,7 +90,7 @@ pub fn apply_transfer(
         let mut r = state.get(recipient).copied().unwrap_or_default();
         r.balance = r
             .balance
-            .checked_add(Balance::from(*amount))
+            .checked_add(*amount)
             .ok_or(Rejection::BalanceOverflow)?; // STF-5
         state.insert(*recipient, r);
     }

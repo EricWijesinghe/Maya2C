@@ -17,7 +17,7 @@ import { blake3, deriveKey, fromHex, selftest, toHex } from "./blake3.ts";
 
 const TESTS = join(dirname(fileURLToPath(import.meta.url)), "..", "tests");
 const U64_MAX = (1n << 64n) - 1n;
-// ADR-046: a balance is 256 bits; outputs and nonces stay 64.
+// ADR-046: balances and output amounts are 256 bits; nonces stay 64.
 const U256_MAX = (1n << 256n) - 1n;
 const load = (name: string) => JSON.parse(readFileSync(join(TESTS, name), "utf8"));
 const leN = (v: bigint, n: number) => Uint8Array.from({ length: n }, (_, i) => Number((v >> BigInt(8 * i)) & 0xffn));
@@ -58,7 +58,7 @@ function applyTx(s: State, tx: Tx): string | null {
   const sender = s.get(tx.from) ?? { balance: 0n, nonce: 0n };
   if (tx.nonce !== sender.nonce) return "InvalidNonce";
   let total = 0n;
-  for (const [, amount] of tx.outputs) if ((total += amount) > U64_MAX) return "BalanceOverflow";
+  for (const [, amount] of tx.outputs) if ((total += amount) > U256_MAX) return "BalanceOverflow";
   if (sender.balance < total) return "InsufficientBalance";
   if (sender.nonce === U64_MAX) return "BalanceOverflow";
   s.set(tx.from, { balance: sender.balance - total, nonce: sender.nonce + 1n });
@@ -116,7 +116,7 @@ function decode(b: Uint8Array): { io: Uint8Array; pk: Uint8Array; nonce: bigint;
     at += Number(n) * elem;
     return n;
   };
-  if (count(36) === null || count(40) === null) return null;
+  if (count(36) === null || count(64) === null) return null; // output: amount_le256 ‖ recipient
   const io = b.subarray(1, at);
   if (at + PK + 9 > b.length) return null;
   const pk = b.subarray(at, at + PK);
