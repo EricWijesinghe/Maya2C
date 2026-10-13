@@ -101,7 +101,7 @@ fn signed(keys: &BTreeMap<String, HybridSigningKey>, t: &Value) -> Transaction {
         .unwrap()
         .iter()
         .map(|o| TxOutput {
-            amount: primitive_types::U256::from(num(&o["amount"])),
+            amount: amount(&o["amount"]),
             recipient: address(keys, o["to"].as_str().unwrap()),
         })
         .collect();

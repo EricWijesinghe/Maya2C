@@ -220,7 +220,10 @@ fn an_empty_chain_id_is_rejected() {
 #[test]
 fn an_overflowing_total_allocation_is_rejected() {
     let mut invalid = config();
-    invalid.allocations = vec![allocation(1, u64::MAX), allocation(2, 1)];
+    // ADR-046: allocations are 256-bit; the total overflows past 2^256 - 1.
+    let mut max = allocation(1, 0);
+    max.balance = primitive_types::U256::MAX;
+    invalid.allocations = vec![max, allocation(2, 1)];
     assert!(invalid.validate().is_err());
 }
 
