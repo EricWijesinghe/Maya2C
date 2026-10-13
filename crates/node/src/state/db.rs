@@ -154,7 +154,7 @@ pub(crate) struct Overlay {
     pub(crate) difficulty_target: [u8; HASH_LEN],
     /// Base fee owed by this block's transactions so far, to be burned at the
     /// end of the block (ADR-029). Zero where fees are not configured.
-    pub(crate) fee_burn: u128,
+    pub(crate) fee_burn: U256,
     /// Serialized bytes of this block's transactions so far: what the next
     /// base fee steps from.
     pub(crate) fee_bytes: u64,
@@ -823,12 +823,15 @@ impl StateDB {
             });
         }
 
-        // Transaction outputs are still u64 on the wire (ADR-046 widens the
-        // ledger, not the wire format), so their sum is checked in u64 as before
-        // and then widened into the U256 balance arithmetic below.
-        let total_out = ledger_math::total_outputs(tx.outputs.iter().map(|output| output.amount))
-            .ok_or(NodeError::BalanceOverflow)?;
-        let total_out = U256::from(total_out);
+        // Outputs are 256-bit on the wire (ADR-046); ledger-math's proved fold
+        // sums them and refuses any intermediate overflow.
+        let total_out = ledger_math::total_outputs(
+            tx.outputs
+                .iter()
+                .map(|output| maya_stateless_core::amount::to_amount(output.amount)),
+        )
+        .map(maya_stateless_core::amount::to_u256)
+        .ok_or(NodeError::BalanceOverflow)?;
 
         if sender.balance < total_out {
             return Err(NodeError::InsufficientBalance {

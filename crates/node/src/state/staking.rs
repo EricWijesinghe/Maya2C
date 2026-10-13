@@ -18,7 +18,11 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use maya_staking::{Params, Staking, Status, Unbonding, ValidatorRecord};
+use maya_staking::{Amount, Params, Staking, Status, Unbonding, ValidatorRecord};
+
+/// Staking record format. 2 since ADR-046 widened every amount to 256 bits; a
+/// version-1 record is refused, not reinterpreted.
+const RECORD_VERSION: u8 = 2;
 
 use crate::core::codec::ByteReader;
 use crate::error::{NodeError, Result};
@@ -100,15 +104,35 @@ pub fn decode_weights(bytes: &[u8]) -> Result<Vec<u64>> {
 
 /// Each member's total stake (self bond plus delegations), committee order:
 /// the weights an epoch votes with.
+///
+/// The DAG-BFT engine weighs votes in `u64` (summed in `u128`). Stakes are
+/// 256-bit (ADR-046), so when the largest stake does not fit a `u64`, every
+/// weight is shifted right by the same number of bits, which keeps each
+/// member's share to within 2^-63 of the largest stake. While every stake fits
+/// a `u64` the shift is zero and the weights are the stakes, exactly as before.
+/// A member with any stake keeps a weight of at least one.
 #[must_use]
 pub fn stake_weights(staking: &maya_staking::Staking, active: &[[u8; 32]]) -> Vec<u64> {
-    active
+    let stakes: Vec<maya_staking::Amount> = active
         .iter()
         .map(|id| {
             staking
                 .validators
                 .get(id)
-                .map_or(0, maya_staking::ValidatorRecord::total)
+                .map_or(maya_staking::Amount::ZERO, maya_staking::ValidatorRecord::total)
+        })
+        .collect();
+    let largest = stakes.iter().copied().max().unwrap_or(maya_staking::Amount::ZERO);
+    let shift = largest.bits().saturating_sub(u64::BITS);
+    stakes
+        .iter()
+        .map(|stake| {
+            if stake.is_zero() {
+                0
+            } else {
+                // Below 2^64 after the shift, by the choice of `shift`.
+                stake.shr(shift).saturating_to_u64().max(1)
+            }
         })
         .collect()
 }
@@ -144,9 +168,18 @@ fn put_u16(out: &mut Vec<u8>, v: u16) {
     out.extend_from_slice(&v.to_le_bytes());
 }
 
+/// A 256-bit amount, 32 bytes little-endian (ADR-046).
+fn put_amount(out: &mut Vec<u8>, v: Amount) {
+    out.extend_from_slice(&v.to_le_bytes());
+}
+
+fn read_amount(r: &mut ByteReader<'_>) -> Result<Amount> {
+    Ok(Amount::from_le_bytes(r.read_array()?))
+}
+
 fn put_params(out: &mut Vec<u8>, p: &Params) {
-    put_u64(out, p.min_self_bond);
-    put_u64(out, p.min_delegation);
+    put_amount(out, p.min_self_bond);
+    put_amount(out, p.min_delegation);
     put_u16(out, p.max_validators);
     put_u64(out, p.unbonding_epochs);
     put_u16(out, p.double_sign_slash_bps);
@@ -162,8 +195,8 @@ fn read_u16(r: &mut ByteReader<'_>) -> Result<u16> {
 
 fn read_params(r: &mut ByteReader<'_>) -> Result<Params> {
     Ok(Params {
-        min_self_bond: r.read_u64()?,
-        min_delegation: r.read_u64()?,
+        min_self_bond: read_amount(r)?,
+        min_delegation: read_amount(r)?,
         max_validators: read_u16(r)?,
         unbonding_epochs: r.read_u64()?,
         double_sign_slash_bps: read_u16(r)?,
@@ -216,15 +249,16 @@ impl StakingRecord {
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
         let s = &self.staking;
-        let mut out = vec![1u8]; // record version
+        // Record version 2: every amount is 256-bit (ADR-046).
+        let mut out = vec![RECORD_VERSION];
         put_params(&mut out, &s.params);
         put_u64(&mut out, s.epoch);
         put_u64(&mut out, s.validators.len() as u64);
         for (id, v) in &s.validators {
             out.extend_from_slice(id);
             out.extend_from_slice(&v.operator);
-            put_u64(&mut out, v.self_bond);
-            put_u64(&mut out, v.delegated);
+            put_amount(&mut out, v.self_bond);
+            put_amount(&mut out, v.delegated);
             put_u16(&mut out, v.commission_bps);
             put_status(&mut out, v.status);
         }
@@ -232,13 +266,13 @@ impl StakingRecord {
         for ((d, v), amount) in &s.delegations {
             out.extend_from_slice(d);
             out.extend_from_slice(v);
-            put_u64(&mut out, *amount);
+            put_amount(&mut out, *amount);
         }
         put_u64(&mut out, s.unbonding.len() as u64);
         for u in &s.unbonding {
             out.extend_from_slice(&u.owner);
             out.extend_from_slice(&u.validator);
-            put_u64(&mut out, u.amount);
+            put_amount(&mut out, u.amount);
             put_u64(&mut out, u.release_epoch);
         }
         out.extend_from_slice(&encode_committee(&s.active));
@@ -261,36 +295,37 @@ impl StakingRecord {
     /// parameters `maya-staking` refuses.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let mut r = ByteReader::new(bytes);
-        if r.read_u8()? != 1 {
+        if r.read_u8()? != RECORD_VERSION {
             return Err(NodeError::Decode("staking record version".to_string()));
         }
         let params = read_params(&mut r)?;
         let mut staking = Staking::new(params)
             .map_err(|e| NodeError::Decode(format!("staking params: {e:?}")))?;
         staking.epoch = r.read_u64()?;
-        let n = r.read_collection_len(83)?;
+        // Id, operator, two amounts, commission, status tag.
+        let n = r.read_collection_len(32 + 32 + 32 + 32 + 2 + 1)?;
         for _ in 0..n {
             let id: [u8; 32] = r.read_array()?;
             let record = ValidatorRecord {
                 operator: r.read_array()?,
-                self_bond: r.read_u64()?,
-                delegated: r.read_u64()?,
+                self_bond: read_amount(&mut r)?,
+                delegated: read_amount(&mut r)?,
                 commission_bps: read_u16(&mut r)?,
                 status: read_status(&mut r)?,
             };
             staking.validators.insert(id, record);
         }
-        let n = r.read_collection_len(72)?;
+        let n = r.read_collection_len(32 + 32 + 32)?;
         for _ in 0..n {
             let key = (r.read_array()?, r.read_array()?);
-            staking.delegations.insert(key, r.read_u64()?);
+            staking.delegations.insert(key, read_amount(&mut r)?);
         }
-        let n = r.read_collection_len(80)?;
+        let n = r.read_collection_len(32 + 32 + 32 + 8)?;
         for _ in 0..n {
             staking.unbonding.push(Unbonding {
                 owner: r.read_array()?,
                 validator: r.read_array()?,
-                amount: r.read_u64()?,
+                amount: read_amount(&mut r)?,
                 release_epoch: r.read_u64()?,
             });
         }

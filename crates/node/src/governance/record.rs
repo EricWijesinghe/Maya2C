@@ -6,15 +6,22 @@ use maya_governance::params::{ALL_KEYS, ParameterKey};
 use maya_governance::proposal::{Proposal, ProposalState, Schedule};
 use maya_governance::tally::Tally;
 
-use crate::core::codec::ByteReader;
+use maya_governance::Amount;
+use primitive_types::U256;
+
+use crate::core::codec::{ByteReader, put_amount};
 use crate::error::{NodeError, Result};
 use crate::state::account::Address;
 
 /// Encoded size of a [`LockRecord`].
-pub const LOCK_RECORD_LEN: usize = 8 + 8;
+///
+/// A 256-bit amount (ADR-046) and a height.
+pub const LOCK_RECORD_LEN: usize = 32 + 8;
 
 /// Encoded size of a [`Totals`] record.
-pub const TOTALS_LEN: usize = 8;
+///
+/// One 256-bit amount (ADR-046).
+pub const TOTALS_LEN: usize = 32;
 
 /// One address's locked stake.
 ///
@@ -25,7 +32,7 @@ pub const TOTALS_LEN: usize = 8;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LockRecord {
     /// Native coin held.
-    pub amount: u64,
+    pub amount: U256,
     /// Earliest height any of it may be withdrawn.
     pub unlock_height: u64,
 }
@@ -41,8 +48,8 @@ impl LockRecord {
     #[must_use]
     pub fn encode(&self) -> [u8; LOCK_RECORD_LEN] {
         let mut buf = [0u8; LOCK_RECORD_LEN];
-        buf[..8].copy_from_slice(&self.amount.to_le_bytes());
-        buf[8..].copy_from_slice(&self.unlock_height.to_le_bytes());
+        self.amount.to_little_endian(&mut buf[..32]);
+        buf[32..].copy_from_slice(&self.unlock_height.to_le_bytes());
         buf
     }
 
@@ -54,7 +61,7 @@ impl LockRecord {
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let mut reader = ByteReader::new(bytes);
         let record = Self {
-            amount: reader.read_u64()?,
+            amount: reader.read_amount()?,
             unlock_height: reader.read_u64()?,
         };
         reader.finish()?;
@@ -70,14 +77,16 @@ pub struct Totals {
     /// Exact rather than derived: locks are explicit, so this is maintained
     /// alongside them. Counting it by scanning would be a walk of every locker
     /// on every proposal that closed.
-    pub locked: u64,
+    pub locked: U256,
 }
 
 impl Totals {
     /// Encodes the record.
     #[must_use]
     pub fn encode(&self) -> [u8; TOTALS_LEN] {
-        self.locked.to_le_bytes()
+        let mut buf = [0u8; TOTALS_LEN];
+        self.locked.to_little_endian(&mut buf);
+        buf
     }
 
     /// Decodes a stored record.
@@ -88,7 +97,7 @@ impl Totals {
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let mut reader = ByteReader::new(bytes);
         let record = Self {
-            locked: reader.read_u64()?,
+            locked: reader.read_amount()?,
         };
         reader.finish()?;
         Ok(record)
@@ -202,7 +211,7 @@ pub struct ProposalRecord {
     /// Address that opened it, and to which the deposit returns.
     pub proposer: Address,
     /// Deposit held for the life of the proposal.
-    pub deposit: u64,
+    pub deposit: U256,
     /// The lifecycle state, schedule, and tally.
     pub proposal: Proposal,
     /// Rule changes it would apply, as `(tag, value)` pairs.
@@ -218,9 +227,10 @@ impl ProposalRecord {
     /// Encodes the record.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(32 + 8 + 1 + 32 + 8 + self.changes.len() * 10);
+        // Proposer, deposit, state, schedule, three 256-bit tallies, count.
+        let mut buf = Vec::with_capacity(32 + 32 + 1 + 32 + 96 + 8 + self.changes.len() * 10);
         buf.extend_from_slice(&self.proposer);
-        buf.extend_from_slice(&self.deposit.to_le_bytes());
+        put_amount(&mut buf, &self.deposit);
         buf.push(self.proposal.state.tag());
         buf.extend_from_slice(&self.proposal.schedule.created.to_le_bytes());
         buf.extend_from_slice(&self.proposal.schedule.voting_closes.to_le_bytes());
@@ -246,7 +256,7 @@ impl ProposalRecord {
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let mut reader = ByteReader::new(bytes);
         let proposer = reader.read_array::<32>()?;
-        let deposit = reader.read_u64()?;
+        let deposit = reader.read_amount()?;
 
         let state_tag = reader.read_u8()?;
         let state = ProposalState::from_tag(state_tag)
@@ -259,9 +269,9 @@ impl ProposalRecord {
             expires_after: reader.read_u64()?,
         };
         let tally = Tally {
-            for_votes: read_u128(&mut reader)?,
-            against_votes: read_u128(&mut reader)?,
-            abstain_votes: read_u128(&mut reader)?,
+            for_votes: read_weight(&mut reader)?,
+            against_votes: read_weight(&mut reader)?,
+            abstain_votes: read_weight(&mut reader)?,
         };
 
         let count = reader.read_collection_len(10)?;
@@ -294,11 +304,9 @@ impl ProposalRecord {
     }
 }
 
-/// Reads a little-endian `u128`.
-fn read_u128(reader: &mut ByteReader<'_>) -> Result<u128> {
-    let low = reader.read_u64()?;
-    let high = reader.read_u64()?;
-    Ok(u128::from(low) | (u128::from(high) << 64))
+/// Reads a 256-bit vote weight, 32 bytes little-endian (ADR-046).
+fn read_weight(reader: &mut ByteReader<'_>) -> Result<Amount> {
+    Ok(Amount::from_le_bytes(reader.read_array::<32>()?))
 }
 
 #[cfg(test)]
@@ -356,7 +364,7 @@ mod tests {
     #[test]
     fn a_lock_releases_at_its_height_and_not_before() {
         let lock = LockRecord {
-            amount: 100,
+            amount: U256::from(100u64),
             unlock_height: 50,
         };
         assert!(!lock.is_released(49));
@@ -371,14 +379,14 @@ mod tests {
 
         let proposal = Proposal::open(10, MIN_VOTING_BLOCKS, MIN_TIMELOCK_BLOCKS)
             .expect("open")
-            .vote(Choice::For, u128::from(u64::MAX), 20)
+            .vote(Choice::For, Amount::MAX, 20)
             .expect("vote")
             .vote(Choice::Abstain, 7, 21)
             .expect("vote");
 
         let record = ProposalRecord {
             proposer: [3u8; 32],
-            deposit: 10_000,
+            deposit: U256::from(10_000u64),
             proposal,
             changes: vec![(1, 25), (6, 512)],
         };

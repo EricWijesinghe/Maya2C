@@ -441,7 +441,7 @@ fn a_statement_is_drawn_from_a_block_that_verified() {
     );
     assert!(reference.len() <= 35, "NtryRef is Max35Text");
     assert!(
-        hex::encode(&Settled::in_block(&checked, &creditor)[0].txid[..]).starts_with(reference),
+        hex::encode(&Settled::in_block(&checked, &creditor).expect("statement")[0].txid[..]).starts_with(reference),
         "the reference must be a prefix of the transaction id it names"
     );
 }

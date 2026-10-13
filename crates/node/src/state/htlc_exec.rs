@@ -61,7 +61,7 @@ impl StateDB {
         context: BlockContext,
     ) -> Result<LockId> {
         require_active(context, &payload.lock)?;
-        if payload.amount == 0 {
+        if payload.amount.is_zero() {
             return Err(NodeError::Htlc("a lock must escrow something".to_owned()));
         }
         // A lock born expired admits only a refund: a round trip through
@@ -96,7 +96,7 @@ impl StateDB {
         let record = LockRecord {
             sender: *sender,
             recipient: payload.recipient,
-            amount: payload.amount,
+            amount: maya_stateless_core::amount::to_amount(payload.amount),
             created_height: context.height,
             expiry_height: payload.expiry_height,
             lock: payload.lock.clone(),
@@ -176,11 +176,16 @@ impl StateDB {
     /// An overflow here is unreachable while supply is conserved — no account
     /// can hold more than the whole supply — so it fails the block rather than
     /// being treated as a lost race.
-    fn credit_escrow(&self, overlay: &mut Overlay, address: &Address, amount: u64) -> Result<()> {
+    fn credit_escrow(
+        &self,
+        overlay: &mut Overlay,
+        address: &Address,
+        amount: maya_htlc_lattice::Amount,
+    ) -> Result<()> {
         let mut account = self.load(overlay, address)?;
         account.balance = account
             .balance
-            .checked_add(U256::from(amount))
+            .checked_add(maya_stateless_core::amount::to_u256(amount))
             .ok_or(NodeError::BalanceOverflow)?;
         overlay.accounts.insert(*address, account);
         Ok(())

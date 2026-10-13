@@ -27,13 +27,16 @@
 //! advancing past that state. Storing the secrets themselves would grow
 //! on-chain state without bound for no gain.
 
-use crate::core::codec::ByteReader;
+use crate::core::codec::{ByteReader, put_amount};
+use primitive_types::U256;
 use crate::core::payload::ChannelId;
 use crate::error::{NodeError, Result};
 use crate::state::account::Address;
 
 /// Encoded size of a [`ChannelRecord`].
-pub const CHANNEL_RECORD_LEN: usize = 32 + 32 + 8 + 1 + 8 + 8 + 8 + 8 + 32 + 32 + 8;
+///
+/// Capacity and the disputed balances are 256-bit (ADR-046), 32 bytes each.
+pub const CHANNEL_RECORD_LEN: usize = 32 + 32 + 32 + 1 + 8 + 32 + 32 + 8 + 32 + 32 + 8;
 
 /// Where a channel is in its lifecycle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,15 +76,15 @@ pub struct ChannelRecord {
     /// Counterparty.
     pub party_b: Address,
     /// Total escrowed value. Every valid state must account for exactly this.
-    pub capacity: u64,
+    pub capacity: U256,
     /// Lifecycle position.
     pub status: ChannelStatus,
     /// Sequence number of the state submitted in a dispute.
     pub dispute_seq: u64,
     /// Party A's balance in the disputed state.
-    pub dispute_balance_a: u64,
+    pub dispute_balance_a: U256,
     /// Party B's balance in the disputed state.
-    pub dispute_balance_b: u64,
+    pub dispute_balance_b: U256,
     /// Height at and after which a dispute may be finalized.
     pub dispute_deadline: u64,
     /// Address that submitted the disputed state. Only the *other* party may
@@ -96,15 +99,15 @@ pub struct ChannelRecord {
 impl ChannelRecord {
     /// Creates a freshly funded channel.
     #[must_use]
-    pub fn new(party_a: Address, party_b: Address, capacity: u64, dispute_window: u64) -> Self {
+    pub fn new(party_a: Address, party_b: Address, capacity: U256, dispute_window: u64) -> Self {
         Self {
             party_a,
             party_b,
             capacity,
             status: ChannelStatus::Open,
             dispute_seq: 0,
-            dispute_balance_a: 0,
-            dispute_balance_b: 0,
+            dispute_balance_a: U256::zero(),
+            dispute_balance_b: U256::zero(),
             dispute_deadline: 0,
             dispute_closer: [0u8; 32],
             dispute_commitment: [0u8; 32],
@@ -133,19 +136,21 @@ impl ChannelRecord {
     /// Fixed-width encoding.
     #[must_use]
     pub fn encode(&self) -> [u8; CHANNEL_RECORD_LEN] {
-        let mut buf = [0u8; CHANNEL_RECORD_LEN];
-        buf[0..32].copy_from_slice(&self.party_a);
-        buf[32..64].copy_from_slice(&self.party_b);
-        buf[64..72].copy_from_slice(&self.capacity.to_le_bytes());
-        buf[72] = self.status.tag();
-        buf[73..81].copy_from_slice(&self.dispute_seq.to_le_bytes());
-        buf[81..89].copy_from_slice(&self.dispute_balance_a.to_le_bytes());
-        buf[89..97].copy_from_slice(&self.dispute_balance_b.to_le_bytes());
-        buf[97..105].copy_from_slice(&self.dispute_deadline.to_le_bytes());
-        buf[105..137].copy_from_slice(&self.dispute_closer);
-        buf[137..169].copy_from_slice(&self.dispute_commitment);
-        buf[169..177].copy_from_slice(&self.dispute_window.to_le_bytes());
-        buf
+        let mut buf = Vec::with_capacity(CHANNEL_RECORD_LEN);
+        buf.extend_from_slice(&self.party_a);
+        buf.extend_from_slice(&self.party_b);
+        put_amount(&mut buf, &self.capacity);
+        buf.push(self.status.tag());
+        buf.extend_from_slice(&self.dispute_seq.to_le_bytes());
+        put_amount(&mut buf, &self.dispute_balance_a);
+        put_amount(&mut buf, &self.dispute_balance_b);
+        buf.extend_from_slice(&self.dispute_deadline.to_le_bytes());
+        buf.extend_from_slice(&self.dispute_closer);
+        buf.extend_from_slice(&self.dispute_commitment);
+        buf.extend_from_slice(&self.dispute_window.to_le_bytes());
+        let mut out = [0u8; CHANNEL_RECORD_LEN];
+        out.copy_from_slice(&buf);
+        out
     }
 
     /// Decodes a stored record.
@@ -167,11 +172,11 @@ impl ChannelRecord {
         let record = Self {
             party_a: reader.read_array::<32>()?,
             party_b: reader.read_array::<32>()?,
-            capacity: reader.read_u64()?,
+            capacity: reader.read_amount()?,
             status: ChannelStatus::from_tag(reader.read_u8()?)?,
             dispute_seq: reader.read_u64()?,
-            dispute_balance_a: reader.read_u64()?,
-            dispute_balance_b: reader.read_u64()?,
+            dispute_balance_a: reader.read_amount()?,
+            dispute_balance_b: reader.read_amount()?,
             dispute_deadline: reader.read_u64()?,
             dispute_closer: reader.read_array::<32>()?,
             dispute_commitment: reader.read_array::<32>()?,

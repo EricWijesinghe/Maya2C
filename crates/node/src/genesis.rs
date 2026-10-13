@@ -16,6 +16,8 @@
 //!   different ids can never share a genesis block, and a block mined for one
 //!   cannot be replayed onto the other.
 
+use maya_ledger_math::Amount;
+use maya_stateless_core::amount::{to_amount, to_u256};
 use primitive_types::U256;
 use serde::{Deserialize, Serialize};
 
@@ -31,13 +33,22 @@ use crate::state::context::SHIELDED_ACTIVATION_HEIGHT;
 use crate::state::{Account, Address, StateDB};
 use crate::upgrade::{ProtocolUpgrade, UpgradeSchedule};
 
+/// A 256-bit amount as the 32 little-endian bytes the genesis id hashes.
+fn amount_bytes(value: U256) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    value.to_little_endian(&mut out);
+    out
+}
+
 /// A premined balance assigned at genesis.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Allocation {
     /// Hex-encoded 32-byte account address.
     pub address: String,
-    /// Balance credited at genesis, in base units.
-    pub balance: u64,
+    /// Balance credited at genesis, in base units: 256-bit (ADR-046), a JSON
+    /// number or a decimal string.
+    #[serde(with = "crate::state::amount_serde::lenient")]
+    pub balance: U256,
 }
 
 /// Everything needed to construct a network's first block and starting state.
@@ -253,8 +264,11 @@ pub struct StakingGenesis {
     /// One bond per genesis validator, in `validators` order.
     pub bonds: Vec<GenesisBond>,
     /// Least self bond. Defaults to the devnet value.
-    #[serde(default = "StakingGenesis::default_min_self_bond")]
-    pub min_self_bond: u64,
+    #[serde(
+        default = "StakingGenesis::default_min_self_bond",
+        with = "crate::state::amount_serde::lenient"
+    )]
+    pub min_self_bond: U256,
     /// Largest committee. Defaults to the devnet value.
     #[serde(default = "StakingGenesis::default_max_validators")]
     pub max_validators: u16,
@@ -272,8 +286,9 @@ pub struct GenesisBond {
     /// Hex address of the operator: pays nothing at genesis, receives
     /// commission and rewards, and alone may add to or unbond the bond.
     pub operator: String,
-    /// The bond. Counts toward total supply.
-    pub bond: u64,
+    /// The bond. Counts toward total supply. 256-bit (ADR-046).
+    #[serde(with = "crate::state::amount_serde::lenient")]
+    pub bond: U256,
     /// Commission, basis points.
     #[serde(default)]
     pub commission_bps: u16,
@@ -293,8 +308,8 @@ impl StakingGenesis {
         }
     }
 
-    const fn default_min_self_bond() -> u64 {
-        maya_staking::Params::DEVNET.min_self_bond
+    fn default_min_self_bond() -> U256 {
+        to_u256(maya_staking::Params::DEVNET.min_self_bond)
     }
 
     const fn default_max_validators() -> u16 {
@@ -305,7 +320,7 @@ impl StakingGenesis {
     #[must_use]
     pub fn params(&self) -> maya_staking::Params {
         maya_staking::Params {
-            min_self_bond: self.min_self_bond,
+            min_self_bond: to_amount(self.min_self_bond),
             max_validators: self.max_validators,
             ..maya_staking::Params::DEVNET
         }
@@ -316,10 +331,10 @@ impl StakingGenesis {
     /// # Errors
     ///
     /// [`NodeError::Decode`] on overflow.
-    pub fn bonded(&self) -> Result<u64> {
-        self.bonds.iter().try_fold(0u64, |acc, b| {
+    pub fn bonded(&self) -> Result<U256> {
+        self.bonds.iter().try_fold(U256::zero(), |acc, b| {
             acc.checked_add(b.bond)
-                .ok_or_else(|| NodeError::Decode("genesis bonds overflow u64".to_string()))
+                .ok_or_else(|| NodeError::Decode("genesis bonds overflow 256 bits".to_string()))
         })
     }
 }
@@ -407,8 +422,10 @@ impl BftGenesis {
 pub struct TreasuryGenesis {
     /// Hex-encoded 32-byte address the treasury balance is credited to.
     pub address: String,
-    /// Units credited to that address.
-    pub balance: u64,
+    /// Units credited to that address: 256-bit (ADR-046), a JSON number or a
+    /// decimal string.
+    #[serde(with = "crate::state::amount_serde::lenient")]
+    pub balance: U256,
     /// The share of total genesis supply this is intended to be, in basis
     /// points.
     ///
@@ -620,7 +637,7 @@ impl GenesisConfig {
         }
 
         let mut seen = std::collections::BTreeSet::new();
-        let mut total: u64 = 0;
+        let mut total = U256::zero();
         for allocation in &self.allocations {
             let address = decode_address(&allocation.address)?;
             if !seen.insert(address) {
@@ -633,7 +650,7 @@ impl GenesisConfig {
             }
             total = total
                 .checked_add(allocation.balance)
-                .ok_or_else(|| NodeError::Decode("total allocation overflows u64".to_string()))?;
+                .ok_or_else(|| NodeError::Decode("total allocation overflows 256 bits".to_string()))?;
         }
 
         if let Some(treasury) = &self.treasury {
@@ -658,10 +675,10 @@ impl GenesisConfig {
             }
 
             total = total.checked_add(treasury.balance).ok_or_else(|| {
-                NodeError::Decode("total supply overflows u64 with the treasury".to_string())
+                NodeError::Decode("total supply overflows 256 bits with the treasury".to_string())
             })?;
 
-            if total == 0 {
+            if total.is_zero() {
                 return Err(NodeError::Decode(
                     "a treasury cannot be funded on a chain with no supply".to_string(),
                 ));
@@ -672,9 +689,15 @@ impl GenesisConfig {
             // make validation depend on rounding, and a genesis file that
             // validated on one machine and not another is worse than one that
             // fails everywhere.
-            let implied_bps =
-                (u128::from(treasury.balance) * u128::from(BPS_DENOMINATOR)) / u128::from(total);
-            if implied_bps != u128::from(treasury.share_bps) {
+            // Through the 512-bit product: a 256-bit balance times 10 000
+            // overflows 256 bits. The quotient is at most 10 000.
+            let implied_bps = to_amount(treasury.balance)
+                .mul_div(
+                    Amount::from_u64(u64::from(BPS_DENOMINATOR)),
+                    to_amount(total),
+                )
+                .map_or(u64::MAX, Amount::saturating_to_u64);
+            if implied_bps != u64::from(treasury.share_bps) {
                 return Err(NodeError::Decode(format!(
                     "treasury declares {} bps of supply but holds {implied_bps} bps \
                      ({} of {total} units)",
@@ -691,22 +714,22 @@ impl GenesisConfig {
     /// # Errors
     ///
     /// Propagates validation failures.
-    pub fn total_supply(&self) -> Result<u64> {
+    pub fn total_supply(&self) -> Result<U256> {
         self.validate()?;
-        let mut total: u64 = 0;
+        let mut total = U256::zero();
         for allocation in &self.allocations {
             total = total
                 .checked_add(allocation.balance)
-                .ok_or_else(|| NodeError::Decode("total allocation overflows u64".to_string()))?;
+                .ok_or_else(|| NodeError::Decode("total allocation overflows 256 bits".to_string()))?;
         }
         if let Some(treasury) = &self.treasury {
             total = total.checked_add(treasury.balance).ok_or_else(|| {
-                NodeError::Decode("total supply overflows u64 with the treasury".to_string())
+                NodeError::Decode("total supply overflows 256 bits with the treasury".to_string())
             })?;
         }
         if let Some(staking) = self.bft.as_ref().and_then(|b| b.staking.as_ref()) {
             total = total.checked_add(staking.bonded()?).ok_or_else(|| {
-                NodeError::Decode("total supply overflows u64 with genesis bonds".to_string())
+                NodeError::Decode("total supply overflows 256 bits with genesis bonds".to_string())
             })?;
         }
         Ok(total)
@@ -727,7 +750,7 @@ impl GenesisConfig {
                 Ok((
                     decode_address(&allocation.address)?,
                     Account {
-                        balance: U256::from(allocation.balance),
+                        balance: allocation.balance,
                         nonce: 0,
                     },
                 ))
@@ -742,7 +765,7 @@ impl GenesisConfig {
             accounts.push((
                 decode_address(&treasury.address)?,
                 Account {
-                    balance: U256::from(treasury.balance),
+                    balance: treasury.balance,
                     nonce: 0,
                 },
             ));
@@ -843,12 +866,11 @@ impl GenesisConfig {
             // Rewards are transfers out of the reserve. An unfunded reserve
             // would be a mining chain that silently pays nothing.
             let reserve = hex::encode(crate::state::mining::MINING_RESERVE);
-            let funded: u64 = self
+            let funded = self
                 .allocations
                 .iter()
                 .filter(|a| a.address.eq_ignore_ascii_case(&reserve))
-                .map(|a| a.balance)
-                .sum();
+                .fold(U256::zero(), |sum, a| sum.saturating_add(a.balance));
             if funded < mining.initial_epoch_reward {
                 return Err(NodeError::Decode(
                     "bft.mining: the mining reserve holds less than one epoch's reward".into(),
@@ -877,7 +899,7 @@ impl GenesisConfig {
             let id = validator_id(&encoded);
             let operator = decode_address(&bond.operator)?;
             state
-                .register(operator, id, bond.bond, bond.commission_bps)
+                .register(operator, id, to_amount(bond.bond), bond.commission_bps)
                 .map_err(|e| NodeError::Decode(format!("genesis bond refused: {e:?}")))?;
             records.insert(key_record(&id), encoded.to_vec());
             active.push(id);
@@ -990,11 +1012,11 @@ impl GenesisConfig {
         if let Some(staking) = &bft.staking {
             h.update(b"staking");
             h.update(&staking.epoch_blocks.to_le_bytes());
-            h.update(&staking.min_self_bond.to_le_bytes());
+            h.update(&amount_bytes(staking.min_self_bond));
             h.update(&staking.max_validators.to_le_bytes());
             for bond in &staking.bonds {
                 h.update(bond.operator.to_ascii_lowercase().as_bytes());
-                h.update(&bond.bond.to_le_bytes());
+                h.update(&amount_bytes(bond.bond));
                 h.update(&bond.commission_bps.to_le_bytes());
             }
         }

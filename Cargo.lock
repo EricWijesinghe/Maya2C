@@ -6109,6 +6109,9 @@ version = "0.1.0"
 [[package]]
 name = "maya-dex"
 version = "0.1.0"
+dependencies = [
+ "maya-amount",
+]
 
 [[package]]
 name = "maya-docgen"
@@ -6239,6 +6242,9 @@ dependencies = [
 [[package]]
 name = "maya-governance"
 version = "0.1.0"
+dependencies = [
+ "maya-amount",
+]
 
 [[package]]
 name = "maya-history-compactor"
@@ -6253,6 +6259,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "criterion",
+ "maya-amount",
  "sha2 0.10.9",
  "sha3 0.11.0",
  "thiserror 2.0.21",
@@ -6327,6 +6334,9 @@ version = "0.1.0"
 [[package]]
 name = "maya-ledger-math"
 version = "0.1.0"
+dependencies = [
+ "maya-amount",
+]
 
 [[package]]
 name = "maya-light-client"
@@ -6514,6 +6524,7 @@ dependencies = [
 name = "maya-rwa"
 version = "0.1.0"
 dependencies = [
+ "maya-amount",
  "thiserror 2.0.21",
 ]
 
@@ -6581,6 +6592,9 @@ dependencies = [
 [[package]]
 name = "maya-staking"
 version = "0.1.0"
+dependencies = [
+ "maya-amount",
+]
 
 [[package]]
 name = "maya-state-sync"

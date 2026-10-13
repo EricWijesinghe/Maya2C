@@ -217,7 +217,8 @@ pub struct RevenueDistribution {
     /// Which round.
     pub round: u64,
     /// Total paid out, which equals what was debited from the issuer.
-    pub total: u64,
+    /// Native coin, so 256-bit (ADR-046).
+    pub total: maya_amount::Amount,
     /// How many holders were paid.
     pub holders: u32,
     /// Height at which it settled.
@@ -394,7 +395,7 @@ impl RevenueDistribution {
     /// The canonical encoding.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(DIGEST_BYTES + 28);
+        let mut out = Vec::with_capacity(DIGEST_BYTES + 8 + 32 + 4 + 8);
         out.extend_from_slice(&self.asset);
         out.extend_from_slice(&self.round.to_le_bytes());
         out.extend_from_slice(&self.total.to_le_bytes());
@@ -409,7 +410,7 @@ impl RevenueDistribution {
     ///
     /// Returns [`Error::Malformed`] for anything but exactly the fixed size.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
-        const SIZE: usize = DIGEST_BYTES + 8 + 8 + 4 + 8;
+        const SIZE: usize = DIGEST_BYTES + 8 + 32 + 4 + 8;
         if bytes.len() != SIZE {
             return Err(Error::Malformed {
                 what: "revenue distribution",
@@ -420,8 +421,8 @@ impl RevenueDistribution {
         let asset: Digest = bytes[..DIGEST_BYTES].try_into().expect("sized");
         let round = u64::from_le_bytes(bytes[at..at + 8].try_into().expect("sized"));
         at += 8;
-        let total = u64::from_le_bytes(bytes[at..at + 8].try_into().expect("sized"));
-        at += 8;
+        let total = maya_amount::Amount::from_le_bytes(bytes[at..at + 32].try_into().expect("sized"));
+        at += 32;
         let holders = u32::from_le_bytes(bytes[at..at + 4].try_into().expect("sized"));
         at += 4;
         let settled_at = u64::from_le_bytes(bytes[at..at + 8].try_into().expect("sized"));
@@ -702,7 +703,7 @@ mod tests {
         let distribution = RevenueDistribution {
             asset: [1; DIGEST_BYTES],
             round: 3,
-            total: 1_000_000,
+            total: maya_amount::Amount::from_u64(1_000_000),
             holders: 10_000,
             settled_at: 500,
         };

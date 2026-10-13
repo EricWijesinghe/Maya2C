@@ -112,9 +112,9 @@ pub enum NodeError {
     #[error("fee too low: base fee requires {required}, the transaction pays {offered}")]
     FeeTooLow {
         /// `base_fee × size`.
-        required: u128,
+        required: primitive_types::U256,
         /// Sum of the transaction's outputs to the collector.
-        offered: u128,
+        offered: primitive_types::U256,
     },
 
     /// The sender cannot cover the transaction's outputs.
@@ -267,9 +267,9 @@ pub enum NodeError {
         /// Hex-encoded channel id.
         channel: String,
         /// Capacity escrowed on chain.
-        expected: u64,
+        expected: primitive_types::U256,
         /// What the closure distributes.
-        actual: u64,
+        actual: primitive_types::U256,
     },
 
     /// A submitted state did not supersede the one already on chain.
@@ -546,9 +546,9 @@ pub enum NodeError {
         /// Which quantity fell short.
         what: &'static str,
         /// The sender's floor.
-        expected: u64,
+        expected: primitive_types::U256,
         /// What the operation would actually have produced.
-        actual: u64,
+        actual: primitive_types::U256,
     },
 
     /// A transaction named an order that is not resting.

@@ -361,14 +361,14 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 .iter()
                 .map(|(id, w)| {
                     serde_json::json!({
-                        "id": id, "to": hex::encode(w.to), "amount": w.amount,
+                        "id": id, "to": hex::encode(w.to), "amount": w.amount.to_string(),
                         "ready_height": w.ready_height,
                     })
                 })
                 .collect();
             Ok(serde_json::json!({
                 "delay_blocks": config.delay_blocks,
-                "limit": config.limit,
+                "limit": config.limit.to_string(),
                 "guardians": config.guardians.iter().map(hex::encode).collect::<Vec<_>>(),
                 "pending_reconfiguration_height": vault.pending.as_ref().map(|(_, ready)| *ready),
                 "open_requests": vault.open,
@@ -840,7 +840,7 @@ fn mining_work(
         target: hex::encode(record.target),
         dag: dag.to_string(),
         dag_epoch,
-        share_reward: record.share_reward(),
+        share_reward: maya_stateless_core::amount::to_u256(record.share_reward()),
         shares: record.shares,
         target_shares: record.target_shares,
         epoch_blocks: record.epoch_blocks,
