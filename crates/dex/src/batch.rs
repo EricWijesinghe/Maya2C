@@ -51,6 +51,8 @@
 
 use alloc::vec::Vec;
 
+use maya_amount::Amount;
+
 use crate::amm::Pool;
 use crate::error::{DexError, Result};
 use crate::math::{mul_div_ceil, mul_div_floor};
@@ -76,13 +78,13 @@ pub struct SwapIntent {
     /// Which way the trader is going.
     pub direction: Direction,
     /// Units supplied.
-    pub amount_in: u64,
+    pub amount_in: Amount,
     /// Least the trader will accept in return.
     ///
     /// The bound is against the *clearing* price, which depends on everyone
     /// else in the batch. A trader who will not accept that uncertainty sets
     /// `min_out` tightly and is dropped from the batch rather than filled.
-    pub min_out: u64,
+    pub min_out: Amount,
 }
 
 /// A swap that cleared.
@@ -95,16 +97,16 @@ pub struct ClearedTrade {
     /// Direction taken.
     pub direction: Direction,
     /// Units taken from the trader.
-    pub amount_in: u64,
+    pub amount_in: Amount,
     /// Units delivered to the trader, at the batch's uniform price.
-    pub amount_out: u64,
+    pub amount_out: Amount,
 }
 
 /// What a batch produced.
 #[derive(Clone, Debug)]
 pub struct BatchOutcome {
     /// The uniform clearing price: quote units per [`PRICE_SCALE`] base units.
-    pub price: u64,
+    pub price: Amount,
     /// Trades that settled, in the order the intents were supplied.
     pub cleared: Vec<ClearedTrade>,
     /// Intents dropped for missing their slippage bound.
@@ -117,7 +119,7 @@ pub struct BatchOutcome {
     /// The pool after the batch, rounding surplus included.
     pub pool: Pool,
     /// Protocol fee taken on the imbalance that reached the curve.
-    pub protocol_fee: u64,
+    pub protocol_fee: Amount,
     /// Which asset [`BatchOutcome::protocol_fee`] is denominated in — the input
     /// side of the net trade. `None` when the batch netted perfectly and no
     /// trade reached the curve.
@@ -143,7 +145,7 @@ pub struct BatchOutcome {
 ///   pool unable to honour them, or would lower `k`. Both are unreachable given
 ///   the pricing below; reaching either means the caller must abandon the whole
 ///   batch rather than write a pool that is short.
-/// - [`DexError::Overflow`] if the arithmetic leaves `u64`.
+/// - [`DexError::Overflow`] if the arithmetic leaves 256 bits.
 pub fn clear_batch(pool: &Pool, intents: &[SwapIntent]) -> Result<BatchOutcome> {
     if intents.len() > MAX_BATCH_INTENTS {
         return Err(DexError::WorkLimitReached);
@@ -152,7 +154,7 @@ pub fn clear_batch(pool: &Pool, intents: &[SwapIntent]) -> Result<BatchOutcome> 
         return Err(DexError::EmptyPool);
     }
     for intent in intents {
-        if intent.amount_in == 0 {
+        if intent.amount_in.is_zero() {
             return Err(DexError::ZeroAmount);
         }
     }
@@ -173,7 +175,7 @@ pub fn clear_batch(pool: &Pool, intents: &[SwapIntent]) -> Result<BatchOutcome> 
                 cleared: Vec::new(),
                 skipped,
                 pool: *pool,
-                protocol_fee: 0,
+                protocol_fee: Amount::ZERO,
                 protocol_fee_direction: None,
             });
         }
@@ -211,7 +213,7 @@ pub fn clear_batch(pool: &Pool, intents: &[SwapIntent]) -> Result<BatchOutcome> 
             .cleared
             .iter()
             .zip(active.iter())
-            .filter(|(trade, intent)| trade.amount_out < intent.min_out || trade.amount_out == 0)
+            .filter(|(trade, intent)| trade.amount_out < intent.min_out || trade.amount_out.is_zero())
             .map(|(trade, _)| trade.id)
             .collect();
 
@@ -247,38 +249,41 @@ fn smallest(active: &[SwapIntent]) -> [u8; 32] {
 /// Prices and settles one fixed set of intents, ignoring slippage bounds.
 fn settle(pool: &Pool, intents: &[SwapIntent]) -> Result<BatchOutcome> {
     let spot = pool.spot_price()?;
-    if spot == 0 {
+    if spot.is_zero() {
         // A pool so lopsided that a whole base unit is worth less than one
         // quote unit has no usable price, and dividing by it below would be a
         // division by zero. Refusing the batch leaves every intent a no-op.
         return Err(DexError::ZeroPrice);
     }
 
-    let mut base_in: u128 = 0;
-    let mut quote_in: u128 = 0;
+    let mut base_in = Amount::ZERO;
+    let mut quote_in = Amount::ZERO;
     for intent in intents {
-        match intent.direction {
-            Direction::BaseToQuote => base_in += u128::from(intent.amount_in),
-            Direction::QuoteToBase => quote_in += u128::from(intent.amount_in),
-        }
+        let side = match intent.direction {
+            Direction::BaseToQuote => &mut base_in,
+            Direction::QuoteToBase => &mut quote_in,
+        };
+        *side = side
+            .checked_add(intent.amount_in)
+            .ok_or(DexError::Overflow)?;
     }
 
     // Value the two sides against each other at the spot price to find which
     // way the batch leans. Spot is only used to size the imbalance; the price
     // everyone settles at comes from executing it.
-    let quote_as_base = u128::from(
-        mul_div_floor(quote_in, PRICE_SCALE, u128::from(spot)).ok_or(DexError::Overflow)?,
-    );
+    let quote_as_base = mul_div_floor(quote_in, PRICE_SCALE, spot).ok_or(DexError::Overflow)?;
 
     let (price, protocol_fee, protocol_fee_direction, curve_pool) = if base_in == quote_as_base {
         // Perfectly netted. Nothing reaches the curve, so nothing is charged
         // and the spot price stands.
-        (spot, 0, None, *pool)
+        (spot, Amount::ZERO, None, *pool)
     } else if base_in > quote_as_base {
-        let net = crate::math::narrow(base_in - quote_as_base).ok_or(DexError::Overflow)?;
-        let swap = pool.swap_exact_in(Direction::BaseToQuote, net)?;
-        let price = mul_div_floor(u128::from(swap.amount_out), PRICE_SCALE, u128::from(net))
+        let net = base_in
+            .checked_sub(quote_as_base)
             .ok_or(DexError::Overflow)?;
+        let swap = pool.swap_exact_in(Direction::BaseToQuote, net)?;
+        let price =
+            mul_div_floor(swap.amount_out, PRICE_SCALE, net).ok_or(DexError::Overflow)?;
         (
             price,
             swap.protocol_fee,
@@ -289,19 +294,17 @@ fn settle(pool: &Pool, intents: &[SwapIntent]) -> Result<BatchOutcome> {
         // The batch wants more base than it supplies, so quote reaches the
         // curve. Size the imbalance in quote at spot for symmetry with the
         // branch above.
-        let base_as_quote = u128::from(
-            mul_div_floor(base_in, u128::from(spot), PRICE_SCALE).ok_or(DexError::Overflow)?,
-        );
-        let net = crate::math::narrow(quote_in.saturating_sub(base_as_quote))
-            .ok_or(DexError::Overflow)?;
-        if net == 0 {
-            (spot, 0, None, *pool)
+        let base_as_quote =
+            mul_div_floor(base_in, spot, PRICE_SCALE).ok_or(DexError::Overflow)?;
+        let net = quote_in.saturating_sub(base_as_quote);
+        if net.is_zero() {
+            (spot, Amount::ZERO, None, *pool)
         } else {
             let swap = pool.swap_exact_in(Direction::QuoteToBase, net)?;
             // Ceiling: the price buyers pay rounds against them, never against
             // the reserves.
-            let price = mul_div_ceil(u128::from(net), PRICE_SCALE, u128::from(swap.amount_out))
-                .ok_or(DexError::Overflow)?;
+            let price =
+                mul_div_ceil(net, PRICE_SCALE, swap.amount_out).ok_or(DexError::Overflow)?;
             (
                 price,
                 swap.protocol_fee,
@@ -311,29 +314,27 @@ fn settle(pool: &Pool, intents: &[SwapIntent]) -> Result<BatchOutcome> {
         }
     };
 
-    if price == 0 {
+    if price.is_zero() {
         return Err(DexError::ZeroPrice);
     }
 
     // Settle everyone at `price`, flooring every payout.
     let mut cleared = Vec::with_capacity(intents.len());
-    let mut base_out: u128 = 0;
-    let mut quote_out: u128 = 0;
+    let mut base_out = Amount::ZERO;
+    let mut quote_out = Amount::ZERO;
 
     for intent in intents {
         let amount_out = match intent.direction {
             Direction::BaseToQuote => {
-                let out =
-                    mul_div_floor(u128::from(intent.amount_in), u128::from(price), PRICE_SCALE)
-                        .ok_or(DexError::Overflow)?;
-                quote_out += u128::from(out);
+                let out = mul_div_floor(intent.amount_in, price, PRICE_SCALE)
+                    .ok_or(DexError::Overflow)?;
+                quote_out = quote_out.checked_add(out).ok_or(DexError::Overflow)?;
                 out
             }
             Direction::QuoteToBase => {
-                let out =
-                    mul_div_floor(u128::from(intent.amount_in), PRICE_SCALE, u128::from(price))
-                        .ok_or(DexError::Overflow)?;
-                base_out += u128::from(out);
+                let out = mul_div_floor(intent.amount_in, PRICE_SCALE, price)
+                    .ok_or(DexError::Overflow)?;
+                base_out = base_out.checked_add(out).ok_or(DexError::Overflow)?;
                 out
             }
         };
@@ -354,28 +355,20 @@ fn settle(pool: &Pool, intents: &[SwapIntent]) -> Result<BatchOutcome> {
     // The protocol's cut has already left `curve_pool`'s input reserve, so it
     // must not be counted as available here either.
     let protocol_base = match protocol_fee_direction {
-        Some(Direction::BaseToQuote) => u128::from(protocol_fee),
-        _ => 0,
+        Some(Direction::BaseToQuote) => protocol_fee,
+        _ => Amount::ZERO,
     };
     let protocol_quote = match protocol_fee_direction {
-        Some(Direction::QuoteToBase) => u128::from(protocol_fee),
-        _ => 0,
+        Some(Direction::QuoteToBase) => protocol_fee,
+        _ => Amount::ZERO,
     };
 
-    let reserve_base = u128::from(pool.reserve_base)
-        .checked_add(base_in)
-        .ok_or(DexError::Overflow)?
-        .checked_sub(base_out + protocol_base)
-        .ok_or(DexError::InvariantViolation)?;
-    let reserve_quote = u128::from(pool.reserve_quote)
-        .checked_add(quote_in)
-        .ok_or(DexError::Overflow)?
-        .checked_sub(quote_out + protocol_quote)
-        .ok_or(DexError::InvariantViolation)?;
+    let reserve_base = settle_reserve(pool.reserve_base, base_in, base_out, protocol_base)?;
+    let reserve_quote = settle_reserve(pool.reserve_quote, quote_in, quote_out, protocol_quote)?;
 
     let settled = Pool {
-        reserve_base: crate::math::narrow(reserve_base).ok_or(DexError::Overflow)?,
-        reserve_quote: crate::math::narrow(reserve_quote).ok_or(DexError::Overflow)?,
+        reserve_base,
+        reserve_quote,
         total_shares: pool.total_shares,
         fees: pool.fees,
     };
@@ -397,4 +390,20 @@ fn settle(pool: &Pool, intents: &[SwapIntent]) -> Result<BatchOutcome> {
         protocol_fee,
         protocol_fee_direction,
     })
+}
+
+/// `reserve + paid_in - (paid_out + protocol)`: overflow is malformed input,
+/// a shortfall is a pricing bug the solvency check must surface.
+fn settle_reserve(
+    reserve: Amount,
+    paid_in: Amount,
+    paid_out: Amount,
+    protocol: Amount,
+) -> Result<Amount> {
+    let leaving = paid_out.checked_add(protocol).ok_or(DexError::Overflow)?;
+    reserve
+        .checked_add(paid_in)
+        .ok_or(DexError::Overflow)?
+        .checked_sub(leaving)
+        .ok_or(DexError::InvariantViolation)
 }

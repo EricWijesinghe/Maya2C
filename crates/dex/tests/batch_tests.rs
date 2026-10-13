@@ -6,16 +6,26 @@ use maya_dex::amm::Pool;
 use maya_dex::batch::{MAX_BATCH_INTENTS, SwapIntent, clear_batch};
 use maya_dex::error::DexError;
 use maya_dex::fees::FeeSchedule;
-use maya_dex::types::Direction;
+use maya_amount::Amount;
+use maya_dex::types::{Direction, PRICE_SCALE};
+
+fn a(v: u64) -> Amount {
+    Amount::from_u64(v)
+}
+
+/// A test amount as `u128` for arithmetic: every amount here is far below 2^128.
+fn w(x: Amount) -> u128 {
+    x.to_u128().expect("test amounts fit u128")
+}
 
 fn seeded(base: u64, quote: u64, fees: FeeSchedule) -> Pool {
     Pool::empty(fees)
-        .add_liquidity(base, quote)
+        .add_liquidity(a(base), a(quote))
         .expect("seed")
         .pool
 }
 
-fn intent(id: u8, direction: Direction, amount_in: u64, min_out: u64) -> SwapIntent {
+fn intent(id: u8, direction: Direction, amount_in: Amount, min_out: Amount) -> SwapIntent {
     SwapIntent {
         id: [id; 32],
         trader: [id; 32],
@@ -34,9 +44,9 @@ const FREE: FeeSchedule = FeeSchedule {
 fn everyone_in_a_batch_settles_at_the_same_price() {
     let pool = seeded(1_000_000, 1_000_000, FeeSchedule::standard());
     let intents = [
-        intent(1, Direction::BaseToQuote, 10_000, 0),
-        intent(2, Direction::BaseToQuote, 50_000, 0),
-        intent(3, Direction::QuoteToBase, 20_000, 0),
+        intent(1, Direction::BaseToQuote, a(10_000), a(0)),
+        intent(2, Direction::BaseToQuote, a(50_000), a(0)),
+        intent(3, Direction::QuoteToBase, a(20_000), a(0)),
     ];
 
     let outcome = clear_batch(&pool, &intents).expect("clear");
@@ -45,14 +55,15 @@ fn everyone_in_a_batch_settles_at_the_same_price() {
     // Not "approximately the same price" — exactly the batch price, floored.
     // An approximate check would pass a design that quietly gave large traders
     // a better rate, which is the thing being ruled out.
-    let scale = 1_000_000_000_u128;
+    let scale = w(PRICE_SCALE);
     for trade in &outcome.cleared {
         let expected = match trade.direction {
-            Direction::BaseToQuote => (trade.amount_in as u128) * (outcome.price as u128) / scale,
-            Direction::QuoteToBase => (trade.amount_in as u128) * scale / (outcome.price as u128),
+            Direction::BaseToQuote => w(trade.amount_in) * w(outcome.price) / scale,
+            Direction::QuoteToBase => w(trade.amount_in) * scale / w(outcome.price),
         };
         assert_eq!(
-            trade.amount_out as u128, expected,
+            w(trade.amount_out),
+            expected,
             "trade {} did not settle at the batch price",
             trade.id[0]
         );
@@ -65,8 +76,8 @@ fn a_sandwich_that_profits_when_executed_in_sequence_does_not_profit_in_a_batch(
     // of individual swaps, which is what a curve without batching does, and
     // once as a batch.
     let pool = seeded(1_000_000, 1_000_000, FREE);
-    let victim_in = 50_000_u64;
-    let attack_in = 100_000_u64;
+    let victim_in = a(50_000);
+    let attack_in = a(100_000);
 
     // Sequential: buy in front of the victim, sell behind them.
     let front = pool
@@ -81,7 +92,8 @@ fn a_sandwich_that_profits_when_executed_in_sequence_does_not_profit_in_a_batch(
         .swap_exact_in(Direction::BaseToQuote, front.amount_out)
         .expect("back-run");
 
-    let sequential_profit = back.amount_out as i128 - attack_in as i128;
+    let sequential_profit = i128::try_from(w(back.amount_out)).expect("small")
+        - i128::try_from(w(attack_in)).expect("small");
     assert!(
         sequential_profit > 0,
         "the sandwich must actually pay when executed in sequence, \
@@ -94,9 +106,9 @@ fn a_sandwich_that_profits_when_executed_in_sequence_does_not_profit_in_a_batch(
     let batch = clear_batch(
         &pool,
         &[
-            intent(1, Direction::QuoteToBase, attack_in, 0),
-            intent(2, Direction::QuoteToBase, victim_in, 0),
-            intent(3, Direction::BaseToQuote, front.amount_out, 0),
+            intent(1, Direction::QuoteToBase, attack_in, a(0)),
+            intent(2, Direction::QuoteToBase, victim_in, a(0)),
+            intent(3, Direction::BaseToQuote, front.amount_out, a(0)),
         ],
     )
     .expect("clear");
@@ -136,17 +148,17 @@ fn a_balanced_batch_clears_at_spot_and_charges_nothing() {
     let outcome = clear_batch(
         &pool,
         &[
-            intent(1, Direction::BaseToQuote, 10_000, 0),
-            intent(2, Direction::QuoteToBase, 10_000, 0),
+            intent(1, Direction::BaseToQuote, a(10_000), a(0)),
+            intent(2, Direction::QuoteToBase, a(10_000), a(0)),
         ],
     )
     .expect("clear");
 
     assert_eq!(outcome.price, spot);
-    assert_eq!(outcome.protocol_fee, 0);
+    assert_eq!(outcome.protocol_fee, Amount::ZERO);
     assert_eq!(outcome.protocol_fee_direction, None);
-    assert_eq!(outcome.cleared[0].amount_out, 10_000);
-    assert_eq!(outcome.cleared[1].amount_out, 10_000);
+    assert_eq!(outcome.cleared[0].amount_out, a(10_000));
+    assert_eq!(outcome.cleared[1].amount_out, a(10_000));
 }
 
 #[test]
@@ -155,11 +167,11 @@ fn the_result_does_not_depend_on_the_order_the_intents_arrive_in() {
     // every claim in this module would be void.
     let pool = seeded(2_000_000, 3_000_000, FeeSchedule::standard());
     let mut intents = vec![
-        intent(1, Direction::BaseToQuote, 11_111, 0),
-        intent(2, Direction::QuoteToBase, 70_000, 0),
-        intent(3, Direction::BaseToQuote, 3, 0),
-        intent(4, Direction::QuoteToBase, 999, 0),
-        intent(5, Direction::BaseToQuote, 250_000, 0),
+        intent(1, Direction::BaseToQuote, a(11_111), a(0)),
+        intent(2, Direction::QuoteToBase, a(70_000), a(0)),
+        intent(3, Direction::BaseToQuote, a(3), a(0)),
+        intent(4, Direction::QuoteToBase, a(999), a(0)),
+        intent(5, Direction::BaseToQuote, a(250_000), a(0)),
     ];
 
     let baseline = clear_batch(&pool, &intents).expect("clear");
@@ -193,10 +205,10 @@ fn an_intent_that_misses_its_bound_is_skipped_and_the_rest_still_clear() {
     let outcome = clear_batch(
         &pool,
         &[
-            intent(1, Direction::BaseToQuote, 100_000, 0),
+            intent(1, Direction::BaseToQuote, a(100_000), a(0)),
             // Demands more than any price this batch could produce.
-            intent(2, Direction::BaseToQuote, 10_000, u64::MAX),
-            intent(3, Direction::QuoteToBase, 5_000, 0),
+            intent(2, Direction::BaseToQuote, a(10_000), Amount::MAX),
+            intent(3, Direction::QuoteToBase, a(5_000), a(0)),
         ],
     )
     .expect("clear");
@@ -217,8 +229,8 @@ fn dropping_one_intent_can_drop_another_and_the_loop_still_terminates() {
     let reference = clear_batch(
         &pool,
         &[
-            intent(1, Direction::BaseToQuote, 200_000, 0),
-            intent(2, Direction::QuoteToBase, 10_000, 0),
+            intent(1, Direction::BaseToQuote, a(200_000), a(0)),
+            intent(2, Direction::QuoteToBase, a(10_000), a(0)),
         ],
     )
     .expect("reference");
@@ -227,10 +239,10 @@ fn dropping_one_intent_can_drop_another_and_the_loop_still_terminates() {
     let outcome = clear_batch(
         &pool,
         &[
-            intent(1, Direction::BaseToQuote, 200_000, u64::MAX),
+            intent(1, Direction::BaseToQuote, a(200_000), Amount::MAX),
             // Only achievable while the big seller is in the batch pushing the
             // price down.
-            intent(2, Direction::QuoteToBase, 10_000, buyer_out),
+            intent(2, Direction::QuoteToBase, a(10_000), buyer_out),
         ],
     )
     .expect("clear");
@@ -254,15 +266,15 @@ fn a_batch_never_lowers_the_invariant() {
         let outcome = clear_batch(
             &pool,
             &[
-                intent(1, Direction::BaseToQuote, sell, 0),
-                intent(2, Direction::QuoteToBase, buy, 0),
+                intent(1, Direction::BaseToQuote, a(sell), a(0)),
+                intent(2, Direction::QuoteToBase, a(buy), a(0)),
             ],
         )
         .expect("clear");
 
         assert!(
             outcome.pool.k() >= pool.k(),
-            "k fell on ({sell}, {buy}): {} -> {}",
+            "k fell on ({sell}, {buy}): {:?} -> {:?}",
             pool.k(),
             outcome.pool.k()
         );
@@ -274,9 +286,9 @@ fn every_unit_supplied_is_accounted_for_by_a_payout_the_pool_or_the_sink() {
     let fees = FeeSchedule::new(30, 20).expect("fees");
     let pool = seeded(4_000_000, 1_000_000, fees);
     let intents = [
-        intent(1, Direction::BaseToQuote, 300_000, 0),
-        intent(2, Direction::BaseToQuote, 17, 0),
-        intent(3, Direction::QuoteToBase, 40_000, 0),
+        intent(1, Direction::BaseToQuote, a(300_000), a(0)),
+        intent(2, Direction::BaseToQuote, a(17), a(0)),
+        intent(3, Direction::QuoteToBase, a(40_000), a(0)),
     ];
 
     let outcome = clear_batch(&pool, &intents).expect("clear");
@@ -286,33 +298,33 @@ fn every_unit_supplied_is_accounted_for_by_a_payout_the_pool_or_the_sink() {
     for trade in &outcome.cleared {
         match trade.direction {
             Direction::BaseToQuote => {
-                base_in += trade.amount_in as u128;
-                quote_out += trade.amount_out as u128;
+                base_in += w(trade.amount_in);
+                quote_out += w(trade.amount_out);
             }
             Direction::QuoteToBase => {
-                quote_in += trade.amount_in as u128;
-                base_out += trade.amount_out as u128;
+                quote_in += w(trade.amount_in);
+                base_out += w(trade.amount_out);
             }
         }
     }
 
     let sink_base = match outcome.protocol_fee_direction {
-        Some(Direction::BaseToQuote) => outcome.protocol_fee as u128,
+        Some(Direction::BaseToQuote) => w(outcome.protocol_fee),
         _ => 0,
     };
     let sink_quote = match outcome.protocol_fee_direction {
-        Some(Direction::QuoteToBase) => outcome.protocol_fee as u128,
+        Some(Direction::QuoteToBase) => w(outcome.protocol_fee),
         _ => 0,
     };
 
     assert_eq!(
-        pool.reserve_base as u128 + base_in,
-        outcome.pool.reserve_base as u128 + base_out + sink_base,
+        w(pool.reserve_base) + base_in,
+        w(outcome.pool.reserve_base) + base_out + sink_base,
         "base is not conserved"
     );
     assert_eq!(
-        pool.reserve_quote as u128 + quote_in,
-        outcome.pool.reserve_quote as u128 + quote_out + sink_quote,
+        w(pool.reserve_quote) + quote_in,
+        w(outcome.pool.reserve_quote) + quote_out + sink_quote,
         "quote is not conserved"
     );
 }
@@ -321,7 +333,7 @@ fn every_unit_supplied_is_accounted_for_by_a_payout_the_pool_or_the_sink() {
 fn shares_are_untouched_by_trading() {
     let pool = seeded(1_000_000, 1_000_000, FeeSchedule::standard());
     let outcome =
-        clear_batch(&pool, &[intent(1, Direction::BaseToQuote, 90_000, 0)]).expect("clear");
+        clear_batch(&pool, &[intent(1, Direction::BaseToQuote, a(90_000), a(0))]).expect("clear");
     assert_eq!(outcome.pool.total_shares, pool.total_shares);
     // But each share is worth more, which is how the providers were paid.
     assert!(outcome.pool.k() > pool.k());
@@ -335,8 +347,8 @@ fn a_batch_larger_than_the_ceiling_is_refused() {
             id: [i as u8; 32],
             trader: [i as u8; 32],
             direction: Direction::BaseToQuote,
-            amount_in: 1_000,
-            min_out: 0,
+            amount_in: a(1_000),
+            min_out: Amount::ZERO,
         })
         .collect();
 
@@ -350,7 +362,7 @@ fn a_batch_larger_than_the_ceiling_is_refused() {
 fn an_unfunded_pool_clears_nothing() {
     let pool = Pool::empty(FeeSchedule::standard());
     assert_eq!(
-        clear_batch(&pool, &[intent(1, Direction::BaseToQuote, 10, 0)]).err(),
+        clear_batch(&pool, &[intent(1, Direction::BaseToQuote, a(10), a(0))]).err(),
         Some(DexError::EmptyPool)
     );
 }
@@ -359,7 +371,7 @@ fn an_unfunded_pool_clears_nothing() {
 fn a_zero_amount_intent_is_rejected_before_anything_is_priced() {
     let pool = seeded(1_000_000, 1_000_000, FREE);
     assert_eq!(
-        clear_batch(&pool, &[intent(1, Direction::BaseToQuote, 0, 0)]).err(),
+        clear_batch(&pool, &[intent(1, Direction::BaseToQuote, a(0), a(0))]).err(),
         Some(DexError::ZeroAmount)
     );
 }
@@ -381,10 +393,10 @@ fn a_lone_swap_in_a_batch_is_priced_no_better_than_the_curve_would_have() {
     // their order to game it.
     let pool = seeded(1_000_000, 1_000_000, FeeSchedule::standard());
     let direct = pool
-        .swap_exact_in(Direction::BaseToQuote, 75_000)
+        .swap_exact_in(Direction::BaseToQuote, a(75_000))
         .expect("swap");
     let batched =
-        clear_batch(&pool, &[intent(1, Direction::BaseToQuote, 75_000, 0)]).expect("clear");
+        clear_batch(&pool, &[intent(1, Direction::BaseToQuote, a(75_000), a(0))]).expect("clear");
 
     assert!(
         batched.cleared[0].amount_out <= direct.amount_out,
