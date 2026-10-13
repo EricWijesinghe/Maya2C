@@ -66,7 +66,7 @@ fn a_transfer_debits_credits_creates_and_bumps_the_nonce() {
         &[alice, bob, carol],
     );
 
-    apply_transfer(&mut tree, alice, 4, [(bob, 30), (carol, 20)]).expect("apply");
+    apply_transfer(&mut tree, alice, 4, [(bob, U256::from(30u64)), (carol, U256::from(20u64))]).expect("apply");
 
     assert_eq!(
         state(&tree, &alice),
@@ -95,7 +95,7 @@ fn a_transfer_debits_credits_creates_and_bumps_the_nonce() {
 fn a_self_transfer_reads_the_debited_balance_back() {
     let alice = key(1);
     let mut tree = tree(&[(alice, account(10, 0))], &[alice]);
-    apply_transfer(&mut tree, alice, 0, [(alice, 10)]).expect("apply");
+    apply_transfer(&mut tree, alice, 0, [(alice, U256::from(10u64))]).expect("apply");
     assert_eq!(
         state(&tree, &alice),
         AccountState {
@@ -125,7 +125,7 @@ fn a_sender_that_does_not_exist_reads_as_zero_and_can_send_nothing() {
     let mut tree = tree(&[], &[ghost, bob]);
     apply_transfer(&mut tree, ghost, 0, []).expect("zero-value transfer");
     assert_eq!(
-        apply_transfer(&mut tree, ghost, 1, [(bob, 1)]),
+        apply_transfer(&mut tree, ghost, 1, [(bob, U256::from(1u64))]),
         Err(Error::Invalid(Violation::InsufficientBalance {
             key: ghost,
             required: U256::from(1u64),
@@ -138,7 +138,7 @@ fn a_sender_that_does_not_exist_reads_as_zero_and_can_send_nothing() {
 fn a_wrong_nonce_is_a_violation() {
     let (alice, bob) = (key(1), key(2));
     let mut tree = tree(&[(alice, account(10, 3))], &[alice, bob]);
-    let error = apply_transfer(&mut tree, alice, 2, [(bob, 1)]).expect_err("nonce");
+    let error = apply_transfer(&mut tree, alice, 2, [(bob, U256::from(1u64))]).expect_err("nonce");
     assert!(error.is_invalid());
     assert_eq!(
         error,
@@ -152,8 +152,8 @@ fn a_wrong_nonce_is_a_violation() {
 
 #[test]
 fn an_output_total_past_u64_or_a_credit_past_u256_is_a_violation() {
-    // Outputs are u64 on the wire, so their total is checked in u64; a
-    // balance is a U256 (ADR-046), so a credit overflows only past U256::MAX.
+    // Outputs and balances are 256-bit (ADR-046): the output total overflows
+    // only past U256::MAX, and so does a credit.
     let (alice, bob) = (key(1), key(2));
     let full = AccountState {
         balance: U256::MAX,
@@ -162,11 +162,11 @@ fn an_output_total_past_u64_or_a_credit_past_u256_is_a_violation() {
     .encode();
     let mut tree = tree(&[(alice, account(u64::MAX, 0)), (bob, full)], &[alice, bob]);
     assert_eq!(
-        apply_transfer(&mut tree, alice, 0, [(bob, u64::MAX), (bob, 1)]),
+        apply_transfer(&mut tree, alice, 0, [(bob, U256::MAX), (bob, U256::one())]),
         Err(Error::Invalid(Violation::Overflow { key: alice }))
     );
     assert_eq!(
-        apply_transfer(&mut tree, alice, 0, [(bob, 1)]),
+        apply_transfer(&mut tree, alice, 0, [(bob, U256::from(1u64))]),
         Err(Error::Invalid(Violation::Overflow { key: bob }))
     );
 }
@@ -179,7 +179,7 @@ fn a_recipient_the_witness_does_not_open_is_unverifiable_not_invalid() {
     accounts.push((alice, account(10, 0)));
     let mut tree = tree(&accounts, &[alice]);
 
-    let error = apply_transfer(&mut tree, alice, 0, [(bob, 1)]).expect_err("unopened");
+    let error = apply_transfer(&mut tree, alice, 0, [(bob, U256::from(1u64))]).expect_err("unopened");
     assert!(!error.is_invalid());
     assert_eq!(error, Error::Unverifiable(Defect::Unopened { key: bob }));
 }

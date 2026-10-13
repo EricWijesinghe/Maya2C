@@ -227,10 +227,15 @@ fn simulate_day(
         }
         let base_paid = st.base_fee.saturating_mul(bytes);
         let tip = bytes / params.avg_tx_bytes.max(1); // one base unit per tx
-        let s = split(base_paid, tip, params.fees.treasury_bps);
-        burned += s.burned;
-        treasury += s.treasury;
-        tips += s.tip;
+        let s = split(
+            maya_fee_market::Amount::from_u64(base_paid),
+            maya_fee_market::Amount::from_u64(tip),
+            params.fees.treasury_bps,
+        );
+        // Shares of a u64 fee are themselves below 2^64.
+        burned += s.burned.saturating_to_u64();
+        treasury += s.treasury.saturating_to_u64();
+        tips += s.tip.saturating_to_u64();
         used += bytes;
         st.base_fee = next_base_fee(
             st.base_fee,

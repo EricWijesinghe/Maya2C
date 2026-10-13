@@ -2,6 +2,7 @@
 
 #![allow(clippy::unwrap_used)]
 
+use maya_dex::Amount;
 use maya_clear_sign::{Effect, Warning};
 use maya_design_system::guard::Token;
 use maya_dex::amm::Pool;
@@ -68,7 +69,7 @@ fn payments_the_till_charges_only_the_merchant_within_scope() {
 #[test]
 fn dex_front_end_quotes_from_the_curve_refuses_look_alikes_and_catches_a_lying_page() {
     let pool = Pool::empty(FeeSchedule::standard())
-        .add_liquidity(1_000_000_000, 2_000_000_000)
+        .add_liquidity(Amount::from_u64(1_000_000_000), Amount::from_u64(2_000_000_000))
         .unwrap()
         .pool;
     let verified = [Token {
@@ -80,7 +81,7 @@ fn dex_front_end_quotes_from_the_curve_refuses_look_alikes_and_catches_a_lying_p
     let small = quote(
         &pool,
         Direction::BaseToQuote,
-        1_000_000,
+        Amount::from_u64(1_000_000),
         50,
         maya,
         &verified,
@@ -89,17 +90,17 @@ fn dex_front_end_quotes_from_the_curve_refuses_look_alikes_and_catches_a_lying_p
     let large = quote(
         &pool,
         Direction::BaseToQuote,
-        100_000_000,
+        Amount::from_u64(100_000_000),
         50,
         maya,
         &verified,
     )
     .unwrap();
     println!("small: {small:?}\nlarge: {large:?}");
-    assert!(small.expected_out < 2_000_000, "never the spot price");
-    assert!(
-        small.min_out < small.expected_out && small.min_out >= small.expected_out * 995 / 1_000
-    );
+    let expected = small.expected_out.to_u64().unwrap();
+    let min_out = small.min_out.to_u64().unwrap();
+    assert!(expected < 2_000_000, "never the spot price");
+    assert!(min_out < expected && min_out >= expected * 995 / 1_000);
     assert!(!small.high_impact);
     assert!(large.high_impact, "a 10% trade needs a second confirmation");
 
@@ -108,7 +109,14 @@ fn dex_front_end_quotes_from_the_curve_refuses_look_alikes_and_catches_a_lying_p
         contract: "evil",
     };
     assert_eq!(
-        quote(&pool, Direction::BaseToQuote, 1_000, 50, fake, &verified),
+        quote(
+            &pool,
+            Direction::BaseToQuote,
+            Amount::from_u64(1_000),
+            50,
+            fake,
+            &verified
+        ),
         Err(FrontError::LookAlike("MAYA".into()))
     );
 
@@ -140,15 +148,15 @@ const RULES: Rules = Rules {
     timelock_blocks: 960,
     quorum_bps: 2_000,
     approval_bps: 6_000,
-    eligible: 1_000,
+    eligible: Amount::from_u64(1_000),
 };
 
 #[test]
 fn dao_a_passed_grant_pays_after_the_timelock_and_the_epoch_limit_binds() {
     let mut t = Treasury::new(100_000, 10_000, 30_000, 1);
     let mut g = dao::propose(&mut t, &RULES, [7; 32], 20_000, "audit grant", 10).unwrap();
-    dao::vote(&mut g, Choice::For, 300, 20).unwrap();
-    dao::vote(&mut g, Choice::Against, 100, 21).unwrap();
+    dao::vote(&mut g, Choice::For, Amount::from_u64(300), 20).unwrap();
+    dao::vote(&mut g, Choice::Against, Amount::from_u64(100), 21).unwrap();
     assert!(matches!(
         dao::execute(&mut t, &mut g, &RULES, 900),
         Err(DaoError::Governance(
@@ -159,7 +167,7 @@ fn dao_a_passed_grant_pays_after_the_timelock_and_the_epoch_limit_binds() {
     assert_eq!(t.balance, 80_000);
 
     let mut second = dao::propose(&mut t, &RULES, [8; 32], 20_000, "second", 1_460).unwrap();
-    dao::vote(&mut second, Choice::For, 900, 1_470).unwrap();
+    dao::vote(&mut second, Choice::For, Amount::from_u64(900), 1_470).unwrap();
     assert_eq!(
         dao::execute(&mut t, &mut second, &RULES, 2_900),
         Err(DaoError::Treasury(SpendError::OverEpochLimit)),
@@ -167,7 +175,7 @@ fn dao_a_passed_grant_pays_after_the_timelock_and_the_epoch_limit_binds() {
     );
 
     let mut failed = dao::propose(&mut t, &RULES, [9; 32], 1, "no quorum", 3_000).unwrap();
-    dao::vote(&mut failed, Choice::For, 50, 3_010).unwrap();
+    dao::vote(&mut failed, Choice::For, Amount::from_u64(50), 3_010).unwrap();
     assert_eq!(
         dao::execute(&mut t, &mut failed, &RULES, 4_500),
         Err(DaoError::Rejected)

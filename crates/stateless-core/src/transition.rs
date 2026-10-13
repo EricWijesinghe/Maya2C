@@ -14,6 +14,8 @@
 use maya_ledger_math::{advance_nonce, total_outputs};
 use primitive_types::U256;
 
+use crate::amount::{to_amount, to_u256};
+
 use crate::compress::{Key, Value};
 use crate::error::{Result, Violation};
 use crate::params::VALUE_BYTES;
@@ -73,7 +75,7 @@ pub fn apply_transfer<D, I>(
 ) -> Result<()>
 where
     D: Copy + Eq,
-    I: IntoIterator<Item = (Key, u64)> + Clone,
+    I: IntoIterator<Item = (Key, U256)> + Clone,
 {
     let mut account = load(tree, &sender)?;
     if nonce != account.nonce {
@@ -86,10 +88,10 @@ where
     }
 
     let overflow = |key| Violation::Overflow { key };
-    // Outputs are u64 on the wire; their sum is checked in u64 and widened.
-    let total = total_outputs(outputs.clone().into_iter().map(|(_, amount)| amount))
+    // Outputs are 256-bit on the wire (ADR-046); the proved fold sums them.
+    let total = total_outputs(outputs.clone().into_iter().map(|(_, amount)| to_amount(amount)))
+        .map(to_u256)
         .ok_or(overflow(sender))?;
-    let total = U256::from(total);
     if account.balance < total {
         return Err(Violation::InsufficientBalance {
             key: sender,
@@ -107,7 +109,7 @@ where
         let mut credited = load(tree, &recipient)?;
         credited.balance = credited
             .balance
-            .checked_add(U256::from(amount))
+            .checked_add(amount)
             .ok_or(overflow(recipient))?;
         tree.set(recipient, credited.encode())?;
     }
