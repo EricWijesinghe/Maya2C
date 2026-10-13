@@ -3,6 +3,8 @@
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
+use maya_amount::Amount;
+
 use crate::params::Params;
 
 /// An account on the ledger (the node's 32-byte address).
@@ -32,9 +34,9 @@ pub struct ValidatorRecord {
     /// The account that bonded it and receives its commission.
     pub operator: Address,
     /// The operator's own stake.
-    pub self_bond: u64,
+    pub self_bond: Amount,
     /// Sum of all delegations to it.
-    pub delegated: u64,
+    pub delegated: Amount,
     /// Commission taken from its rewards before delegators are paid.
     pub commission_bps: u16,
     /// Standing.
@@ -44,7 +46,7 @@ pub struct ValidatorRecord {
 impl ValidatorRecord {
     /// Self bond plus delegations: what ranks it and what it risks.
     #[must_use]
-    pub fn total(&self) -> u64 {
+    pub fn total(&self) -> Amount {
         self.self_bond.saturating_add(self.delegated)
     }
 }
@@ -57,7 +59,7 @@ pub struct Unbonding {
     /// The validator they were bonded to: evidence against it reaches them.
     pub validator: ValidatorId,
     /// How much.
-    pub amount: u64,
+    pub amount: Amount,
     /// First epoch at which they are credited.
     pub release_epoch: u64,
 }
@@ -67,11 +69,11 @@ pub struct Unbonding {
 pub enum Effect {
     /// Take `amount` from the account (the node refuses the operation if the
     /// balance is short).
-    Debit(Address, u64),
+    Debit(Address, Amount),
     /// Give `amount` to the account.
-    Credit(Address, u64),
+    Credit(Address, Amount),
     /// Destroy `amount`: slashed stake, reward dust.
-    Burn(u64),
+    Burn(Amount),
 }
 
 /// Why an operation was refused. A refusal changes nothing.
@@ -107,7 +109,7 @@ pub struct Staking {
     /// Every registered validator.
     pub validators: BTreeMap<ValidatorId, ValidatorRecord>,
     /// Delegations, keyed by (delegator, validator).
-    pub delegations: BTreeMap<(Address, ValidatorId), u64>,
+    pub delegations: BTreeMap<(Address, ValidatorId), Amount>,
     /// Funds waiting out the unbonding delay, in creation order.
     pub unbonding: Vec<Unbonding>,
     /// The committee for the current epoch, in committee order.
@@ -122,7 +124,7 @@ pub struct Stake {
     /// The validator.
     pub id: ValidatorId,
     /// Its total stake.
-    pub amount: u64,
+    pub amount: Amount,
 }
 
 impl Staking {
@@ -147,16 +149,19 @@ impl Staking {
     }
 
     /// Everything the module holds: bonds, delegations, unbonding funds.
+    ///
+    /// `None` if the sum passes 2²⁵⁶ − 1, which conservation makes
+    /// unreachable: everything held was debited from accounts whose total is
+    /// at most that. A conservation check treats `None` as a violation.
     #[must_use]
-    pub fn held(&self) -> u128 {
-        let bonds: u128 = self
-            .validators
-            .values()
-            .map(|v| u128::from(v.self_bond))
-            .sum();
-        let delegated: u128 = self.delegations.values().map(|a| u128::from(*a)).sum();
-        let unbonding: u128 = self.unbonding.iter().map(|u| u128::from(u.amount)).sum();
-        bonds + delegated + unbonding
+    pub fn held(&self) -> Option<Amount> {
+        let bonds = self.validators.values().map(|v| v.self_bond);
+        let delegated = self.delegations.values().copied();
+        let unbonding = self.unbonding.iter().map(|u| u.amount);
+        bonds
+            .chain(delegated)
+            .chain(unbonding)
+            .try_fold(Amount::ZERO, Amount::checked_add)
     }
 
     /// Every eligible validator's total stake, largest first, ties by id.

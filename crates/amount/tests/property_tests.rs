@@ -74,6 +74,17 @@ proptest! {
     fn bytes_round_trip(a in amount()) {
         prop_assert_eq!(Amount::from_le_bytes(a.to_le_bytes()), a);
     }
+
+    #[test]
+    fn shr_matches_u128(x in any::<u128>(), s in 0u32..128) {
+        prop_assert_eq!(Amount::from(x).shr(s), Amount::from(x >> s));
+    }
+
+    #[test]
+    fn shr_by_bits_minus_one_leaves_one(a in any_width()) {
+        prop_assume!(!a.is_zero());
+        prop_assert_eq!(a.shr(a.bits() - 1), Amount::ONE);
+    }
 }
 
 /// 512-bit add for the test's own check; Wide has none on purpose.

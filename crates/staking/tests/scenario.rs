@@ -8,7 +8,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use maya_staking::{Effect, Params, Participation, StakeError, Staking, Status, concentration};
+use maya_staking::{
+    Amount, Effect, Params, Participation, StakeError, Staking, Status, concentration,
+};
 
 const VALIDATORS: u32 = 1_000;
 const EPOCHS: u64 = 30;
@@ -27,6 +29,16 @@ impl Lcg {
     fn below(&mut self, n: u64) -> u64 {
         self.next() % n
     }
+}
+
+/// An amount from a small test number.
+fn a(n: u64) -> Amount {
+    Amount::from_u64(n)
+}
+
+/// A test amount as `u128`: every amount this file builds is far below 2^128.
+fn wide(x: Amount) -> u128 {
+    x.to_u128().expect("test amounts fit u128")
 }
 
 fn id(n: u32) -> [u8; 32] {
@@ -53,9 +65,9 @@ impl Ledger {
     fn apply(&mut self, effects: &[Effect]) {
         for e in effects {
             match e {
-                Effect::Debit(_, a) => self.debited += u128::from(*a),
-                Effect::Credit(_, a) => self.credited += u128::from(*a),
-                Effect::Burn(a) => self.burned += u128::from(*a),
+                Effect::Debit(_, x) => self.debited += wide(*x),
+                Effect::Credit(_, x) => self.credited += wide(*x),
+                Effect::Burn(x) => self.burned += wide(*x),
             }
         }
     }
@@ -64,7 +76,7 @@ impl Ledger {
 fn check(s: &Staking, ledger: &Ledger, rewards_in: u128) {
     assert_eq!(
         ledger.debited + rewards_in,
-        s.held() + ledger.credited + ledger.burned,
+        wide(s.held().expect("held fits")) + ledger.credited + ledger.burned,
         "value leaked or appeared at epoch {}",
         s.epoch
     );
@@ -100,17 +112,17 @@ fn a_thousand_validators_under_byzantine_faults_conserve_value() {
             .register(
                 account(n),
                 id(n),
-                bond,
+                a(bond),
                 u16::try_from(rng.below(2_000)).unwrap(),
             )
             .unwrap();
         ledger.apply(&effects);
     }
     assert_eq!(
-        s.register(account(0), id(0), 5_000, 0),
+        s.register(account(0), id(0), a(5_000), 0),
         Err(StakeError::AlreadyRegistered)
     );
-    let first = s.end_epoch(&Participation::default(), 0).unwrap();
+    let first = s.end_epoch(&Participation::default(), Amount::ZERO).unwrap();
     ledger.apply(&first.effects);
     assert_eq!(
         first.active.len(),
@@ -123,20 +135,20 @@ fn a_thousand_validators_under_byzantine_faults_conserve_value() {
             let n = u32::try_from(rng.below(u64::from(VALIDATORS))).unwrap();
             let who = account(10_000 + u32::try_from(rng.below(500)).unwrap());
             let result = match rng.below(6) {
-                0 => s.delegate(who, id(n), 10 + rng.below(50_000)),
+                0 => s.delegate(who, id(n), a(10 + rng.below(50_000))),
                 1 => {
                     let held: Vec<_> = s.delegations.keys().copied().collect();
                     if held.is_empty() {
                         continue;
                     }
                     let (d, v) = held[usize::try_from(rng.below(held.len() as u64)).unwrap()];
-                    let amount = s.delegations[&(d, v)];
-                    s.undelegate(d, v, 1 + rng.below(amount))
+                    let amount = s.delegations[&(d, v)].to_u64().unwrap();
+                    s.undelegate(d, v, a(1 + rng.below(amount)))
                 }
-                2 => s.bond_more(account(n), id(n), rng.below(10_000)),
-                3 => s.unbond(account(n), id(n), rng.below(200_000)),
-                4 => s.delegate(who, id(n), rng.below(9)), // below minimum
-                _ => s.unbond(account(n + 1), id(n), 1),   // not the operator
+                2 => s.bond_more(account(n), id(n), a(rng.below(10_000))),
+                3 => s.unbond(account(n), id(n), a(rng.below(200_000))),
+                4 => s.delegate(who, id(n), a(rng.below(9))), // below minimum
+                _ => s.unbond(account(n + 1), id(n), Amount::ONE), // not the operator
             };
             if let Ok(effects) = result {
                 ledger.apply(&effects);
@@ -177,7 +189,7 @@ fn a_thousand_validators_under_byzantine_faults_conserve_value() {
                     authored,
                     ..Participation::default()
                 },
-                REWARD_PER_EPOCH,
+                a(REWARD_PER_EPOCH),
             )
             .unwrap();
         rewards_in += u128::from(REWARD_PER_EPOCH);
@@ -192,7 +204,7 @@ fn a_thousand_validators_under_byzantine_faults_conserve_value() {
     }
     for t in &tombstoned {
         assert!(
-            s.register(account(0), *t, 1_000_000, 0).is_err(),
+            s.register(account(0), *t, a(1_000_000), 0).is_err(),
             "a tombstoned id re-registered"
         );
         assert!(!s.active.contains(t));
@@ -216,46 +228,46 @@ fn a_thousand_validators_under_byzantine_faults_conserve_value() {
 #[test]
 fn unbonded_funds_wait_out_the_delay_and_remain_slashable() {
     let mut s = Staking::new(Params::DEVNET).unwrap();
-    s.register(account(1), id(1), 10_000, 0).unwrap();
-    s.delegate(account(2), id(1), 4_000).unwrap();
-    s.undelegate(account(2), id(1), 4_000).unwrap();
+    s.register(account(1), id(1), a(10_000), 0).unwrap();
+    s.delegate(account(2), id(1), a(4_000)).unwrap();
+    s.undelegate(account(2), id(1), a(4_000)).unwrap();
     // Offence discovered during the delay: the leaving delegation pays too.
     let burned = s.slash_double_sign(id(1)).unwrap();
-    assert_eq!(burned, vec![Effect::Burn(5_000 + 2_000)]);
+    assert_eq!(burned, vec![Effect::Burn(a(5_000 + 2_000))]);
     for _ in 0..Params::DEVNET.unbonding_epochs - 1 {
-        let out = s.end_epoch(&Participation::default(), 0).unwrap();
+        let out = s.end_epoch(&Participation::default(), Amount::ZERO).unwrap();
         assert!(
             !out.effects.iter().any(|e| matches!(e, Effect::Credit(..))),
             "released early"
         );
     }
-    let out = s.end_epoch(&Participation::default(), 0).unwrap();
-    assert!(out.effects.contains(&Effect::Credit(account(2), 2_000)));
+    let out = s.end_epoch(&Participation::default(), Amount::ZERO).unwrap();
+    assert!(out.effects.contains(&Effect::Credit(account(2), a(2_000))));
 }
 
 #[test]
 fn rewards_pay_commission_then_pro_rata_and_burn_only_dust() {
     let mut s = Staking::new(Params::DEVNET).unwrap();
-    s.register(account(1), id(1), 3_000, 1_000).unwrap(); // 10% commission
-    s.delegate(account(2), id(1), 1_000).unwrap();
-    s.end_epoch(&Participation::default(), 0).unwrap();
-    let out = s.end_epoch(&Participation::default(), 1_000).unwrap();
+    s.register(account(1), id(1), a(3_000), 1_000).unwrap(); // 10% commission
+    s.delegate(account(2), id(1), a(1_000)).unwrap();
+    s.end_epoch(&Participation::default(), Amount::ZERO).unwrap();
+    let out = s.end_epoch(&Participation::default(), a(1_000)).unwrap();
     // Commission 100; rest 900 split 3:1 → 675 and 225.
-    assert!(out.effects.contains(&Effect::Credit(account(1), 100 + 675)));
-    assert!(out.effects.contains(&Effect::Credit(account(2), 225)));
+    assert!(out.effects.contains(&Effect::Credit(account(1), a(100 + 675))));
+    assert!(out.effects.contains(&Effect::Credit(account(2), a(225))));
     assert!(
         !out.effects
             .iter()
-            .any(|e| matches!(e, Effect::Burn(b) if *b > 0))
+            .any(|e| matches!(e, Effect::Burn(b) if !b.is_zero()))
     );
 }
 
 #[test]
 fn a_validator_that_misses_its_rounds_is_slashed_and_sits_out() {
     let mut s = Staking::new(Params::DEVNET).unwrap();
-    s.register(account(1), id(1), 10_000, 0).unwrap();
-    s.register(account(2), id(2), 10_000, 0).unwrap();
-    s.end_epoch(&Participation::default(), 0).unwrap();
+    s.register(account(1), id(1), a(10_000), 0).unwrap();
+    s.register(account(2), id(2), a(10_000), 0).unwrap();
+    s.end_epoch(&Participation::default(), Amount::ZERO).unwrap();
     let authored = BTreeMap::from([(id(1), 100), (id(2), 10)]);
     let out = s
         .end_epoch(
@@ -264,15 +276,41 @@ fn a_validator_that_misses_its_rounds_is_slashed_and_sits_out() {
                 authored,
                 ..Participation::default()
             },
-            0,
+            Amount::ZERO,
         )
         .unwrap();
     assert_eq!(out.jailed, vec![id(2)]);
     assert_eq!(out.active, vec![id(1)]);
-    assert_eq!(s.validators[&id(2)].self_bond, 9_900);
+    assert_eq!(s.validators[&id(2)].self_bond, a(9_900));
     // Back after the jail term.
     for _ in 0..Params::DEVNET.jail_epochs {
-        s.end_epoch(&Participation::default(), 0).unwrap();
+        s.end_epoch(&Participation::default(), Amount::ZERO).unwrap();
     }
     assert!(s.active.contains(&id(2)));
+}
+
+/// ADR-046: stake, delegations and rewards past `u64::MAX` (about 18.4 coins at
+/// 18 decimals) bond, earn pro rata and slash without loss.
+#[test]
+fn stakes_past_u64_bond_earn_and_slash_exactly() {
+    let mut s = Staking::new(Params::DEVNET).unwrap();
+    let big = Amount::from_u128(1u128 << 66); // even, so a 50% slash floors exactly
+    let pool = Amount::from_u128(u128::from(u64::MAX) * 4);
+    s.register(account(1), id(1), big, 0).unwrap();
+    s.delegate(account(2), id(1), big).unwrap();
+    s.end_epoch(&Participation::default(), Amount::ZERO).unwrap();
+    let out = s.end_epoch(&Participation::default(), pool).unwrap();
+    // Equal stakes, no commission: the pool splits exactly in half.
+    let half = Amount::from_u128(u128::from(u64::MAX) * 2);
+    assert!(out.effects.contains(&Effect::Credit(account(1), half)));
+    assert!(out.effects.contains(&Effect::Credit(account(2), half)));
+
+    let before = s.held().unwrap();
+    let burned = s.slash_double_sign(id(1)).unwrap();
+    let [Effect::Burn(b)] = burned.as_slice() else {
+        panic!("one burn, got {burned:?}");
+    };
+    assert_eq!(s.held().unwrap().checked_add(*b), Some(before));
+    // DEVNET double-sign slash is 50% of each holding: half of 2 × big.
+    assert_eq!(*b, big);
 }

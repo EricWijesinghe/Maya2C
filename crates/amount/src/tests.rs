@@ -112,3 +112,23 @@ fn narrowing_is_exact_or_refused() {
     assert_eq!(Amount::from(u128::MAX).to_u128(), Some(u128::MAX));
     assert!(Amount::ZERO.is_zero() && !Amount::ONE.is_zero());
 }
+
+#[test]
+fn bits_counts_the_highest_set_bit() {
+    assert_eq!(Amount::ZERO.bits(), 0);
+    assert_eq!(Amount::ONE.bits(), 1);
+    assert_eq!(a(u64::MAX).bits(), 64);
+    assert_eq!(Amount([0, 1, 0, 0]).bits(), 65);
+    assert_eq!(Amount::MAX.bits(), 256);
+}
+
+#[test]
+fn shr_moves_bits_across_limbs_and_drops_the_rest() {
+    assert_eq!(Amount([0, 1, 0, 0]).shr(1), a(1 << 63));
+    assert_eq!(Amount([0, 0, 0, 1]).shr(192), Amount::ONE);
+    assert_eq!(Amount::MAX.shr(255), Amount::ONE);
+    assert_eq!(Amount::MAX.shr(256), Amount::ZERO);
+    assert_eq!(Amount::MAX.shr(0), Amount::MAX);
+    assert_eq!(Amount::MAX.shr(192), a(u64::MAX));
+    assert_eq!(a(6).shr(1), a(3));
+}

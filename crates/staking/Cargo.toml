@@ -13,6 +13,8 @@ description = "Validator registration, delegation, active-set selection, slashin
 # with its whole dependency graph. Hashing a validator key into its id is the
 # node's job; this crate takes the 32-byte id as given.
 [dependencies]
+# Dependency-free and `no_std`: Kani's graph stays first-party (ADR-048).
+maya-amount = { path = "../amount" }
 
 [lints]
 workspace = true

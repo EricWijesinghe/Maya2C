@@ -8,12 +8,13 @@
 //!
 //! # How these are written
 //!
-//! Most harnesses check the operation against a **wider-type oracle**: the same
-//! arithmetic performed in `u128`, where no `u64` ledger quantity can overflow.
-//! That is a stronger statement than "the result did not wrap", because it pins
-//! down what the answer must be rather than only what it must not be. A
-//! `checked_add` replaced with a `saturating_add` still never wraps; it fails
-//! the oracle immediately.
+//! Amounts are 256-bit (ADR-046), so there is no wider primitive to use as an
+//! oracle. Each harness instead pins the answer down by its **inverse**: a
+//! credit that returns `r` must satisfy `r - amount == balance`, and one that
+//! returns `None` must have `amount > MAX - balance`. That fixes what the
+//! answer must be, not only what it must not be: a `checked_add` replaced with
+//! a `saturating_add` still never wraps, and it fails the `None` arm
+//! immediately. The limb arithmetic underneath is proved in `maya-amount`.
 //!
 //! # Bounded versus unbounded
 //!
@@ -22,7 +23,7 @@
 //!
 //! - [`credit`], [`debit`], [`advance_nonce`], [`combined_balance`] and
 //!   [`settle_pool`] are proved **unbounded**. Their harnesses quantify over
-//!   every `u64` input, with no loop and no unwind bound. There is no input
+//!   every 256-bit input, with no loop and no unwind bound. There is no input
 //!   these functions have not been checked on.
 //! - [`total_outputs`] folds over a sequence, so its harness carries a
 //!   `#[kani::unwind]` bound and is proved for sequences up to that length
@@ -32,7 +33,7 @@
 //!   see the constant's documentation.
 //! - [`distribute`]'s placement of the spare is proved here, **bounded** at
 //!   three holders but at every magnitude. Its flooring and sort are not: a
-//!   harness through them has to decide a symbolic 128-bit division per holder
+//!   harness through them has to decide a symbolic 512-by-256-bit division per holder
 //!   and did not finish in fifteen minutes. Those are checked exhaustively over
 //!   a small domain by `every_small_distribution_is_exact_and_fair` in the
 //!   crate's unit tests instead, which is a finite enumeration, not a proof.
@@ -46,57 +47,67 @@
 //! [`distribute`]: super::distribute
 
 use crate::{
-    SettleError, advance_nonce, combined_balance, credit, debit, place_spare, settle_pool,
+    Amount, SettleError, advance_nonce, combined_balance, credit, debit, place_spare, settle_pool,
     total_outputs,
 };
 
 /// Output count the fold is proved over.
 ///
 /// `ByteReader::read_collection_len` in the node accepts up to 65,536 elements,
-/// so this proof does not cover every transaction the codec will decode. Four
+/// so this proof does not cover every transaction the codec will decode. Three
 /// is chosen because the fold is uniform — each step is one `checked_add` on
 /// the running total, and the induction from step `n` to step `n + 1` carries no
 /// new case — so a bound past the point where a second and third step have been
 /// exercised buys confidence rather than coverage, at a cost that grows with the
-/// bound.
+/// bound (each step is now a 256-bit carry chain).
 ///
-/// The honest reading: the *step* is proved for all `u64`, and the *fold* is
-/// proved up to four steps.
-const PROVED_OUTPUT_COUNT: usize = 4;
+/// The honest reading: the *step* is proved for every amount, and the *fold* is
+/// proved up to three steps.
+const PROVED_OUTPUT_COUNT: usize = 3;
+
+fn any_amount() -> Amount {
+    Amount(kani::any())
+}
+
+/// `a + b` is not representable exactly when `a > MAX - b`.
+fn sum_overflows(a: Amount, b: Amount) -> bool {
+    match Amount::MAX.checked_sub(b) {
+        Some(room) => a > room,
+        None => true,
+    }
+}
 
 /// `credit` returns the exact sum when it is representable, and `None`
 /// precisely when it is not.
 #[kani::proof]
-fn credit_agrees_with_wide_addition() {
-    let balance: u64 = kani::any();
-    let amount: u64 = kani::any();
-
-    let exact = u128::from(balance) + u128::from(amount);
+fn credit_agrees_with_its_inverse() {
+    let balance = any_amount();
+    let amount = any_amount();
 
     match credit(balance, amount) {
         Some(result) => {
-            assert!(exact <= u128::from(u64::MAX));
-            assert!(u128::from(result) == exact);
+            assert!(!sum_overflows(balance, amount));
+            assert!(result.checked_sub(amount) == Some(balance));
             // The two consequences a ledger actually relies on: money added is
             // money that did not go backwards.
             assert!(result >= balance);
             assert!(result >= amount);
         }
-        None => assert!(exact > u128::from(u64::MAX)),
+        None => assert!(sum_overflows(balance, amount)),
     }
 }
 
 /// `debit` returns the exact difference when it is non-negative, and `None`
 /// precisely when the account is overdrawn.
 #[kani::proof]
-fn debit_agrees_with_wide_subtraction() {
-    let balance: u64 = kani::any();
-    let amount: u64 = kani::any();
+fn debit_agrees_with_its_inverse() {
+    let balance = any_amount();
+    let amount = any_amount();
 
     match debit(balance, amount) {
         Some(result) => {
             assert!(amount <= balance);
-            assert!(u128::from(result) == u128::from(balance) - u128::from(amount));
+            assert!(result.checked_add(amount) == Some(balance));
             // The property that makes an overdraft safe: a debit never leaves
             // the account richer. This is the assertion that a wrapping
             // subtraction fails, and it is the worst bug a ledger can have.
@@ -109,16 +120,13 @@ fn debit_agrees_with_wide_subtraction() {
 /// Debiting then re-crediting the same amount restores the original balance.
 ///
 /// Round-tripping is what rules out an off-by-one that both directions share
-/// and that the oracle checks above would each accept on their own.
+/// and that the inverse checks above would each accept on their own.
 #[kani::proof]
 fn debit_then_credit_is_the_identity() {
-    let balance: u64 = kani::any();
-    let amount: u64 = kani::any();
+    let balance = any_amount();
+    let amount = any_amount();
 
     if let Some(debited) = debit(balance, amount) {
-        // Re-crediting cannot overflow: `debited + amount == balance`, which
-        // was representable to begin with. Asserting that rather than assuming
-        // it is the point of the harness.
         let restored = credit(debited, amount);
         assert!(restored == Some(balance));
     }
@@ -127,9 +135,9 @@ fn debit_then_credit_is_the_identity() {
 /// A debit strictly reduces the balance unless it moves nothing.
 #[kani::proof]
 fn debit_is_strict_unless_zero() {
-    let balance: u64 = kani::any();
-    let amount: u64 = kani::any();
-    kani::assume(amount > 0);
+    let balance = any_amount();
+    let amount = any_amount();
+    kani::assume(!amount.is_zero());
 
     if let Some(result) = debit(balance, amount) {
         assert!(result < balance);
@@ -155,62 +163,63 @@ fn advance_nonce_steps_by_one() {
     }
 }
 
-/// `combined_balance` agrees with wide addition.
+/// `combined_balance` agrees with its inverse.
 ///
 /// This is what a channel closure's claimed total is checked against before the
 /// chain honours it. A wrap here would let two parties sign balances summing
-/// past `u64::MAX`, present a small total to the capacity check, and mint the
+/// past the ceiling, present a small total to the capacity check, and mint the
 /// difference.
 #[kani::proof]
-fn combined_balance_agrees_with_wide_addition() {
-    let balance_a: u64 = kani::any();
-    let balance_b: u64 = kani::any();
-
-    let exact = u128::from(balance_a) + u128::from(balance_b);
+fn combined_balance_agrees_with_its_inverse() {
+    let balance_a = any_amount();
+    let balance_b = any_amount();
 
     match combined_balance(balance_a, balance_b) {
         Some(total) => {
-            assert!(u128::from(total) == exact);
+            assert!(total.checked_sub(balance_b) == Some(balance_a));
             assert!(total >= balance_a);
             assert!(total >= balance_b);
         }
-        None => assert!(exact > u128::from(u64::MAX)),
+        None => assert!(sum_overflows(balance_a, balance_b)),
     }
 }
 
-/// `total_outputs` agrees with the exact `u128` sum of the same amounts.
+/// `total_outputs` agrees with a step-by-step sum that stops at the first
+/// overflow.
 ///
 /// **Bounded** at [`PROVED_OUTPUT_COUNT`] — see the module documentation.
 ///
-/// The oracle is what makes this worth proving. The dangerous implementation is
-/// not one that panics; it is one that wraps through the middle of the fold and
-/// lands on a small, plausible total. `[u64::MAX, 1, u64::MAX]` sums to
-/// `u64::MAX` under wrapping arithmetic, and a transaction reporting that total
-/// would pass a balance check it should fail.
+/// The dangerous implementation is not one that panics; it is one that wraps
+/// through the middle of the fold and lands on a small, plausible total.
+/// `[MAX, 1, MAX]` sums to `MAX` under wrapping arithmetic, and a transaction
+/// reporting that total would pass a balance check it should fail.
 #[kani::proof]
-#[kani::unwind(5)]
-fn total_outputs_agrees_with_wide_summation() {
-    let amounts: [u64; PROVED_OUTPUT_COUNT] = kani::any();
+#[kani::unwind(4)]
+fn total_outputs_refuses_any_intermediate_overflow() {
+    let amounts: [Amount; PROVED_OUTPUT_COUNT] = [any_amount(), any_amount(), any_amount()];
 
-    let mut exact: u128 = 0;
+    let mut running = Some(Amount::ZERO);
     for amount in amounts {
-        exact += u128::from(amount);
+        running = match running {
+            Some(sum) if !sum_overflows(sum, amount) => sum.checked_add(amount),
+            _ => None,
+        };
     }
 
-    match total_outputs(amounts) {
-        Some(total) => {
-            assert!(u128::from(total) == exact);
-            assert!(exact <= u128::from(u64::MAX));
+    let total = total_outputs(amounts);
+    assert!(total == running);
+    if let Some(total) = total {
+        for amount in amounts {
+            assert!(total >= amount);
         }
-        None => assert!(exact > u128::from(u64::MAX)),
     }
 }
 
 /// The empty transaction moves nothing.
 #[kani::proof]
 fn total_outputs_of_nothing_is_zero() {
-    let amounts: [u64; 0] = [];
-    assert!(total_outputs(amounts) == Some(0));
+    let amounts: [Amount; 0] = [];
+    assert!(total_outputs(amounts) == Some(Amount::ZERO));
 }
 
 /// A two-output transfer conserves value.
@@ -221,26 +230,24 @@ fn total_outputs_of_nothing_is_zero() {
 /// hold; a self-transfer reads through the overlay and so sees its own debit,
 /// which is a separate claim about the overlay rather than about arithmetic.
 ///
-/// What is asserted: the total held across sender and both recipients is
-/// identical before and after, computed in `u128` so the assertion itself
-/// cannot be the thing that wraps.
+/// What is asserted: the value that left the sender is exactly the value that
+/// reached the recipients, each side measured by subtraction so the assertion
+/// itself cannot be the thing that wraps.
 #[kani::proof]
 #[kani::unwind(3)]
 fn a_two_output_transfer_conserves_value() {
-    let sender_before: u64 = kani::any();
-    let first_before: u64 = kani::any();
-    let second_before: u64 = kani::any();
-    let first_amount: u64 = kani::any();
-    let second_amount: u64 = kani::any();
+    let sender_before = any_amount();
+    let first_before = any_amount();
+    let second_before = any_amount();
+    let first_amount = any_amount();
+    let second_amount = any_amount();
 
     // The node rejects the transaction unless every step below succeeds, so the
-    // property is conditional on exactly that. Each `assume` mirrors a check in
+    // property is conditional on exactly that. Each step mirrors a check in
     // `StateDB::stage_transaction`, in the order it performs them.
     let Some(total_out) = total_outputs([first_amount, second_amount]) else {
         return;
     };
-    kani::assume(sender_before >= total_out);
-
     let Some(sender_after) = debit(sender_before, total_out) else {
         return;
     };
@@ -251,38 +258,44 @@ fn a_two_output_transfer_conserves_value() {
         return;
     };
 
-    let held_before =
-        u128::from(sender_before) + u128::from(first_before) + u128::from(second_before);
-    let held_after = u128::from(sender_after) + u128::from(first_after) + u128::from(second_after);
-
-    assert!(held_before == held_after);
+    let left = sender_before.checked_sub(sender_after);
+    let gained_first = first_after.checked_sub(first_before);
+    let gained_second = second_after.checked_sub(second_before);
+    let arrived = match (gained_first, gained_second) {
+        (Some(a), Some(b)) => a.checked_add(b),
+        _ => None,
+    };
+    assert!(left.is_some());
+    assert!(left == arrived);
 }
 
-/// `settle_pool` agrees with exact wide arithmetic in all three outcomes.
+/// `settle_pool` agrees with its inverse in all three outcomes.
 ///
 /// The pool is the one balance on the chain whose contents nobody can audit
 /// directly — that is what shielding means — so an arithmetic error here would
 /// mint hidden supply rather than visible supply.
 #[kani::proof]
-fn settle_pool_agrees_with_wide_arithmetic() {
-    let held: u64 = kani::any();
-    let public_in: u64 = kani::any();
-    let public_out: u64 = kani::any();
-    let fee: u64 = kani::any();
+fn settle_pool_agrees_with_its_inverse() {
+    let held = any_amount();
+    let public_in = any_amount();
+    let public_out = any_amount();
+    let fee = any_amount();
 
-    let ceiling = u128::from(u64::MAX);
-    let withdrawn = u128::from(public_out) + u128::from(fee);
-    let credited = u128::from(held) + u128::from(public_in);
+    let out_overflows = sum_overflows(public_out, fee);
+    let in_overflows = sum_overflows(held, public_in);
 
     match settle_pool(held, public_in, public_out, fee) {
         Ok(remaining) => {
-            assert!(withdrawn <= ceiling);
-            assert!(credited <= ceiling);
-            assert!(withdrawn <= credited);
-            assert!(u128::from(remaining) == credited - withdrawn);
+            assert!(!out_overflows && !in_overflows);
+            let withdrawn = public_out.checked_add(fee);
+            let credited = held.checked_add(public_in);
+            assert!(withdrawn.is_some() && credited.is_some());
+            if let (Some(w), Some(c)) = (withdrawn, credited) {
+                assert!(remaining.checked_add(w) == Some(c));
+            }
         }
         Err(SettleError::Overflow) => {
-            assert!(withdrawn > ceiling || credited > ceiling);
+            assert!(out_overflows || in_overflows);
         }
         Err(SettleError::Underflow {
             held: reported_held,
@@ -292,11 +305,10 @@ fn settle_pool_agrees_with_wide_arithmetic() {
             // overflow arm — and the reported figures are the real ones, so the
             // tripwire says what actually happened rather than approximately
             // what happened.
-            assert!(withdrawn <= ceiling);
-            assert!(credited <= ceiling);
-            assert!(withdrawn > credited);
-            assert!(u128::from(reported_held) == credited);
-            assert!(u128::from(reported_withdrawn) == withdrawn);
+            assert!(!out_overflows && !in_overflows);
+            assert!(held.checked_add(public_in) == Some(reported_held));
+            assert!(public_out.checked_add(fee) == Some(reported_withdrawn));
+            assert!(reported_withdrawn > reported_held);
         }
     }
 }
@@ -306,16 +318,16 @@ fn settle_pool_agrees_with_wide_arithmetic() {
 ///
 /// Directionality, separate from the value check above: it is the property that
 /// would break if `public_in` and `public_out` were ever transposed at a call
-/// site, which the oracle harness alone would still accept.
+/// site, which the inverse harness alone would still accept.
 #[kani::proof]
 fn settle_pool_moves_value_in_the_stated_direction() {
-    let held: u64 = kani::any();
-    let amount: u64 = kani::any();
+    let held = any_amount();
+    let amount = any_amount();
 
-    if let Ok(after_deposit) = settle_pool(held, amount, 0, 0) {
+    if let Ok(after_deposit) = settle_pool(held, amount, Amount::ZERO, Amount::ZERO) {
         assert!(after_deposit >= held);
     }
-    if let Ok(after_withdrawal) = settle_pool(held, 0, amount, 0) {
+    if let Ok(after_withdrawal) = settle_pool(held, Amount::ZERO, amount, Amount::ZERO) {
         assert!(after_withdrawal <= held);
     }
 }
@@ -333,11 +345,14 @@ fn settle_pool_moves_value_in_the_stated_direction() {
 /// that nobody is short or over by more than a unit. A rule that met the sum
 /// by paying one holder everything would add the right total and fail this.
 ///
-/// Unbounded in magnitude: no division, so the payouts range over every `u64`.
+/// Unbounded in magnitude: no division, so the payouts range over every
+/// 256-bit amount.
+///
+/// [`distribute`]: super::distribute
 #[kani::proof]
 #[kani::unwind(4)]
 fn placing_the_spare_adds_exactly_the_spare() {
-    let before: [u64; 3] = kani::any();
+    let before: [Amount; 3] = [any_amount(), any_amount(), any_amount()];
     let order: [u32; 3] = kani::any();
     for index in order {
         kani::assume(index < 3);
@@ -348,13 +363,16 @@ fn placing_the_spare_adds_exactly_the_spare() {
 
     let mut after = before;
     if place_spare(&mut after, &order, spare).is_some() {
-        let sum = |payouts: &[u64; 3]| -> u128 { payouts.iter().map(|p| u128::from(*p)).sum() };
-        assert!(sum(&after) == sum(&before) + spare as u128);
+        let mut added = 0usize;
         for (was, now) in before.iter().zip(&after) {
-            assert!(*now == *was || *now == *was + 1);
+            if *now != *was {
+                assert!(was.checked_add(Amount::ONE) == Some(*now));
+                added += 1;
+            }
         }
+        assert!(added == spare);
     } else {
-        // Refused only when a holder already had every unit a u64 can hold.
-        assert!(before.contains(&u64::MAX));
+        // Refused only when a holder already had every unit an Amount holds.
+        assert!(before.contains(&Amount::MAX));
     }
 }

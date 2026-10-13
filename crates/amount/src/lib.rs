@@ -206,6 +206,47 @@ impl Amount {
         self.mul_wide(mul).checked_div(div)
     }
 
+    /// Bits needed to write the value: 0 for zero, 256 for [`Amount::MAX`].
+    #[must_use]
+    pub const fn bits(self) -> u32 {
+        let mut i = LIMBS;
+        while i > 0 {
+            i -= 1;
+            let limb = self.0[i];
+            if limb != 0 {
+                // i < 4, so the cast is exact.
+                #[allow(clippy::cast_possible_truncation)]
+                return u64::BITS * (i as u32) + (u64::BITS - limb.leading_zeros());
+            }
+        }
+        0
+    }
+
+    /// `self >> shift`, rounded down; zero for a shift of 256 or more. Used to
+    /// scale a set of amounts into a narrower integer with their ratios kept
+    /// (voting weights, published concentration figures), never to move value.
+    #[must_use]
+    pub const fn shr(self, shift: u32) -> Self {
+        if shift >= u64::BITS * LIMBS as u32 {
+            return Self::ZERO;
+        }
+        let limbs = (shift / u64::BITS) as usize;
+        let bits = shift % u64::BITS;
+        let mut out = [0u64; LIMBS];
+        let mut i = 0;
+        while i + limbs < LIMBS {
+            let low = self.0[i + limbs] >> bits;
+            let high = if bits == 0 || i + limbs + 1 >= LIMBS {
+                0
+            } else {
+                self.0[i + limbs + 1] << (u64::BITS - bits)
+            };
+            out[i] = low | high;
+            i += 1;
+        }
+        Self(out)
+    }
+
     /// 32 bytes, low byte first: the node's state encoding (spec ROOT-1).
     #[must_use]
     pub const fn to_le_bytes(self) -> [u8; BYTES] {
