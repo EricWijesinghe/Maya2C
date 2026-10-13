@@ -62,7 +62,7 @@ pub struct Htlc {
     /// Identifier, unique within the channel.
     pub id: u64,
     /// Value reserved.
-    pub amount: u64,
+    pub amount: primitive_types::U256,
     /// Commitment to the unlocking preimage.
     pub hash_lock: HashLock,
     /// Block height at and after which the offerer may reclaim the value.
@@ -93,9 +93,12 @@ impl Htlc {
     /// Commitment bytes contributed to the channel state's HTLC root.
     #[must_use]
     pub fn commitment_bytes(&self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(8 + 8 + 32 + 8 + 1);
+        // id, 256-bit amount (ADR-046), lock, expiry, direction.
+        let mut buf = Vec::with_capacity(8 + 32 + 32 + 8 + 1);
         buf.extend_from_slice(&self.id.to_le_bytes());
-        buf.extend_from_slice(&self.amount.to_le_bytes());
+        let mut amount = [0u8; 32];
+        self.amount.to_little_endian(&mut amount);
+        buf.extend_from_slice(&amount);
         buf.extend_from_slice(&self.hash_lock);
         buf.extend_from_slice(&self.expiry_height.to_le_bytes());
         buf.push(match self.direction {
@@ -131,7 +134,7 @@ pub struct HopHtlc {
     /// Channel the HTLC is added to.
     pub channel_id: ChannelId,
     /// Value forwarded on this hop, including downstream fees.
-    pub amount: u64,
+    pub amount: primitive_types::U256,
     /// Shared across every hop of one payment.
     pub hash_lock: HashLock,
     /// Expiry for this hop; strictly greater than the next hop's.

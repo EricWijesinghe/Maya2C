@@ -139,7 +139,7 @@ fn run_transfers(
         let next_seq = channel.current.seq + 1;
 
         let next = channel
-            .propose_transfer(from, 1, commitment_for_seq(next_seq))
+            .propose_transfer(from, primitive_types::U256::from(1), commitment_for_seq(next_seq))
             .expect("transfer must fit within the channel balance");
 
         // Both parties sign every state. One signature is a proposal; two are
@@ -191,7 +191,7 @@ fn settle_as_one_closure(transfers: usize) {
     let mut open_tx = Transaction::with_kind(
         TxKind::OpenChannel(custom_l1_node::core::ChannelOpen {
             counterparty: bob_addr,
-            funding: 100_000,
+            funding: primitive_types::U256::from(100_000),
             dispute_window: 50,
         }),
         0,
@@ -201,24 +201,24 @@ fn settle_as_one_closure(transfers: usize) {
         .expect("open");
 
     let channel_id =
-        custom_l1_node::core::payload::derive_channel_id(&alice_addr, &bob_addr, 100_000, 0);
+        custom_l1_node::core::payload::derive_channel_id(&alice_addr, &bob_addr, primitive_types::U256::from(100_000), 0);
 
     // --- every payment, entirely off chain ---
     let mut channel = Channel::open(
         channel_id,
         public_key_of(&alice),
         public_key_of(&bob),
-        100_000,
+        primitive_types::U256::from(100_000),
     );
     run_transfers(&mut channel, &alice, &bob, transfers);
 
     assert_eq!(channel.current.seq, transfers as u64);
     // Alternating single-unit transfers net to zero over an even count.
-    assert_eq!(channel.current.balance_a, 100_000);
-    assert_eq!(channel.current.balance_b, 0);
+    assert_eq!(channel.current.balance_a, primitive_types::U256::from(100_000));
+    assert_eq!(channel.current.balance_b, primitive_types::U256::from(0));
     assert_eq!(
         channel.current.total().expect("total"),
-        100_000,
+        primitive_types::U256::from(100_000),
         "capacity must be conserved across every one of the transfers"
     );
 
@@ -273,7 +273,7 @@ fn a_channel_carrying_many_transfers_still_conserves_value() {
         [1u8; 32],
         public_key_of(&alice),
         public_key_of(&bob),
-        50_000,
+        primitive_types::U256::from(50_000),
     );
 
     // An odd count leaves the balance genuinely shifted rather than netting out,
@@ -281,9 +281,9 @@ fn a_channel_carrying_many_transfers_still_conserves_value() {
     run_transfers(&mut channel, &alice, &bob, TOTAL_TRANSFERS + 1);
 
     assert_eq!(channel.current.seq, TOTAL_TRANSFERS as u64 + 1);
-    assert_eq!(channel.current.balance_a, 50_000 - 1);
-    assert_eq!(channel.current.balance_b, 1);
-    assert_eq!(channel.current.total().expect("total"), 50_000);
+    assert_eq!(channel.current.balance_a, primitive_types::U256::from(50_000 - 1));
+    assert_eq!(channel.current.balance_b, primitive_types::U256::from(1));
+    assert_eq!(channel.current.total().expect("total"), primitive_types::U256::from(50_000));
 }
 
 #[test]
@@ -297,7 +297,7 @@ fn a_revoked_state_from_a_long_channel_is_still_punishable() {
     let mut open_tx = Transaction::with_kind(
         TxKind::OpenChannel(custom_l1_node::core::ChannelOpen {
             counterparty: bob_addr,
-            funding: 10_000,
+            funding: primitive_types::U256::from(10_000),
             dispute_window: 20,
         }),
         0,
@@ -307,12 +307,12 @@ fn a_revoked_state_from_a_long_channel_is_still_punishable() {
         .expect("open");
 
     let channel_id =
-        custom_l1_node::core::payload::derive_channel_id(&alice_addr, &bob_addr, 10_000, 0);
+        custom_l1_node::core::payload::derive_channel_id(&alice_addr, &bob_addr, primitive_types::U256::from(10_000), 0);
     let mut channel = Channel::open(
         channel_id,
         public_key_of(&alice),
         public_key_of(&bob),
-        10_000,
+        primitive_types::U256::from(10_000),
     );
 
     // Enough history that a stale state is genuinely stale.
@@ -323,8 +323,8 @@ fn a_revoked_state_from_a_long_channel_is_still_punishable() {
     let stale = l2_flash::channel::ChannelState {
         channel_id,
         seq: stale_seq,
-        balance_a: 10_000,
-        balance_b: 0,
+        balance_a: primitive_types::U256::from(10_000),
+        balance_b: primitive_types::U256::from(0),
         htlcs: Vec::new(),
         revocation_commitment: commitment_for_seq(stale_seq),
     };
@@ -332,8 +332,8 @@ fn a_revoked_state_from_a_long_channel_is_still_punishable() {
     let closure = ChannelClosure {
         channel_id,
         seq: stale_seq,
-        balance_a: 10_000,
-        balance_b: 0,
+        balance_a: primitive_types::U256::from(10_000),
+        balance_b: primitive_types::U256::from(0),
         revocation_commitment: commitment_for_seq(stale_seq),
         pubkey_a: public_key_of(&alice),
         pubkey_b: public_key_of(&bob),
@@ -401,7 +401,7 @@ fn a_hundred_channels_settle_in_one_transaction() {
         let mut tx = Transaction::with_kind(
             TxKind::OpenChannel(custom_l1_node::core::ChannelOpen {
                 counterparty: peer_addr,
-                funding: CAPACITY,
+                funding: primitive_types::U256::from(CAPACITY),
                 dispute_window: 50,
             }),
             index as u64,
@@ -412,14 +412,14 @@ fn a_hundred_channels_settle_in_one_transaction() {
         let id = custom_l1_node::core::payload::derive_channel_id(
             &hub_addr,
             &peer_addr,
-            CAPACITY,
+            primitive_types::U256::from(CAPACITY),
             index as u64,
         );
         channels.push(Channel::open(
             id,
             public_key_of(&hub),
             public_key_of(&peer),
-            CAPACITY,
+            primitive_types::U256::from(CAPACITY),
         ));
         peers.push(peer);
     }
