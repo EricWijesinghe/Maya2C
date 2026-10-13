@@ -27,12 +27,12 @@ pub struct RespondRequest {
     /// The lock (digest or commitment), as the initiator sent it. Checked
     /// against the inbound lock on chain.
     pub lock: Lock,
-    /// The least the inbound lock must escrow.
-    pub min_inbound_amount: u64,
+    /// The least the inbound lock must escrow (256-bit, ADR-046).
+    pub min_inbound_amount: primitive_types::U256,
     /// Whom this watcher's lock on the counterparty chain pays.
     pub outbound_recipient: Address,
-    /// What it escrows.
-    pub outbound_amount: u64,
+    /// What it escrows (256-bit, ADR-046).
+    pub outbound_amount: primitive_types::U256,
     /// Its expiry on the counterparty chain.
     pub outbound_expiry: u64,
     /// Upper bound on Maya blocks per counterparty block.
@@ -46,8 +46,8 @@ pub struct InitiatedSwap {
     pub commitment_id: CommitmentId,
     /// The responder's lock on the counterparty chain, which pays this watcher.
     pub inbound_lock_id: LockId,
-    /// The least it must escrow.
-    pub min_inbound_amount: u64,
+    /// The least it must escrow (256-bit, ADR-046).
+    pub min_inbound_amount: primitive_types::U256,
     /// Upper bound on Maya blocks per counterparty block.
     pub rate: BlockRate,
 }
@@ -137,7 +137,7 @@ impl Worker {
         &mut self,
         secret: SwapSecret,
         recipient: Address,
-        amount: u64,
+        amount: primitive_types::U256,
         expiry_height: u64,
     ) -> Result<LockId> {
         let lock = secret
@@ -310,7 +310,7 @@ impl Worker {
         let amount = match chain.fees().await? {
             Some(fees) => claim_fee(&self.key, fees)?,
             // No fees: one unit is enough to stop being an empty account.
-            None => 1,
+            None => primitive_types::U256::one(),
         };
         self.pending
             .submit_with_outputs(
@@ -319,7 +319,10 @@ impl Worker {
                 &self.key,
                 Purpose::Allowance(commitment_id),
                 TxKind::Transfer,
-                vec![TxOutput { amount, recipient }],
+                vec![TxOutput {
+                    amount,
+                    recipient,
+                }],
             )
             .await
     }
@@ -328,7 +331,7 @@ impl Worker {
         &self,
         inbound: &LockView,
         commitment_id: &CommitmentId,
-        min_amount: u64,
+        min_amount: primitive_types::U256,
     ) -> Result<()> {
         let refuse = |reason: String| Err(WatcherError::Refused(reason));
         if inbound.state != LockState::Locked {
@@ -498,7 +501,7 @@ impl Worker {
 /// What a claim will pay in fees on a chain with `fees`: measured on a probe
 /// claim signed with this watcher's key, the same size class as any hybrid
 /// signer's.
-fn claim_fee(key: &HybridSigningKey, fees: crate::chain::Fees) -> Result<u64> {
+fn claim_fee(key: &HybridSigningKey, fees: crate::chain::Fees) -> Result<primitive_types::U256> {
     let probe = TxKind::HtlcClaim(Box::new(HtlcClaim {
         lock_id: [0; 32],
         unlock: maya_htlc_lattice::Unlock::Preimage(maya_htlc_lattice::Preimage::new([0; 32])),
@@ -508,5 +511,5 @@ fn claim_fee(key: &HybridSigningKey, fees: crate::chain::Fees) -> Result<u64> {
     // must never be broadcast — it is valid on no chain.
     let size_probe_tag = ChainTag::from_genesis([0; 32]);
     let tx = crate::submit::sign_with_fee(&probe, Vec::new(), 0, key, &size_probe_tag, Some(fees))?;
-    Ok(tx.outputs.last().map_or(0, |fee| fee.amount))
+    Ok(tx.outputs.last().map_or(primitive_types::U256::zero(), |fee| fee.amount))
 }

@@ -72,7 +72,7 @@ fn sign_all(accounts: usize, per_account: u64) -> Vec<Transaction> {
                         let mut tx = Transaction::new(
                             vec![],
                             vec![TxOutput {
-                                amount: 1,
+                                amount: primitive_types::U256::from(1),
                                 recipient: [0x77; 32],
                             }],
                             nonce,

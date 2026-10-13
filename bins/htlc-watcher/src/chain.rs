@@ -35,7 +35,7 @@ pub struct LockView {
     /// Who a claim pays.
     pub recipient: Address,
     /// Escrowed base units.
-    pub amount: u64,
+    pub amount: primitive_types::U256,
     /// First height at which a claim is refused.
     pub expiry_height: u64,
     /// The lock's id (`maya_htlc_lattice::Lock::id`).
@@ -59,7 +59,7 @@ impl LockView {
         Self {
             sender: record.sender,
             recipient: record.recipient,
-            amount: record.amount,
+            amount: primitive_types::U256::from_little_endian(&record.amount.to_le_bytes()),
             expiry_height: record.expiry_height,
             commitment_id: record.lock.id(),
             state,

@@ -90,7 +90,8 @@ impl Chain {
             .unwrap()
             .iter()
             .map(|(_, w)| w.escrowed())
-            .sum()
+            .fold(primitive_types::U256::zero(), |sum, e| sum + e)
+            .as_u64()
     }
 }
 
@@ -105,7 +106,7 @@ fn transfer(chain: &Chain, key: &HybridSigningKey, to: Address, amount: u64) -> 
     let mut tx = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount,
+            amount: primitive_types::U256::from(amount),
             recipient: to,
         }],
         chain.nonce(&key.address()),
@@ -117,7 +118,7 @@ fn transfer(chain: &Chain, key: &HybridSigningKey, to: Address, amount: u64) -> 
 fn configure(guardian: Address) -> VaultAction {
     VaultAction::Configure(VaultConfig {
         delay_blocks: DELAY,
-        limit: LIMIT,
+        limit: primitive_types::U256::from(LIMIT),
         guardians: vec![guardian],
     })
 }
@@ -145,7 +146,7 @@ fn a_stolen_key_waits_and_a_guardian_cancels() {
     let mut lock = Transaction::with_kind(
         TxKind::HtlcLock(Box::new(HtlcLock {
             recipient: thief_payee,
-            amount: 5_000,
+            amount: primitive_types::U256::from(5_000),
             expiry_height: 1_000,
             lock: Lock::hash(HashFunction::Sha256, &Preimage::new([1; 32])),
         })),
@@ -163,7 +164,7 @@ fn a_stolen_key_waits_and_a_guardian_cancels() {
             &owner_key,
             VaultAction::Request {
                 to: thief_payee,
-                amount: 9_000,
+                amount: primitive_types::U256::from(9_000),
             },
         ))
         .unwrap();
@@ -212,7 +213,7 @@ fn a_matured_request_pays_and_only_once() {
             &owner_key,
             VaultAction::Request {
                 to: bob,
-                amount: 2_000,
+                amount: primitive_types::U256::from(2_000),
             },
         ))
         .unwrap();
@@ -261,7 +262,7 @@ fn reconfiguration_waits_out_the_current_delay_and_can_be_cancelled() {
     // A thief tries to lift the limit: it is queued, not applied.
     let open = VaultAction::Configure(VaultConfig {
         delay_blocks: 1,
-        limit: u64::MAX,
+        limit: primitive_types::U256::from(u64::MAX),
         guardians: vec![guardian],
     });
     chain.send(vault(&chain, &owner_key, open)).unwrap();
@@ -287,7 +288,7 @@ fn reconfiguration_waits_out_the_current_delay_and_can_be_cancelled() {
     // An honest reconfiguration takes effect by height, with nothing sent.
     let raise = VaultAction::Configure(VaultConfig {
         delay_blocks: DELAY,
-        limit: 1_000,
+        limit: primitive_types::U256::from(1_000),
         guardians: vec![guardian],
     });
     chain.send(vault(&chain, &owner_key, raise)).unwrap();
@@ -310,13 +311,13 @@ fn bad_policies_and_requests_are_refused() {
     let mut chain = Chain::new(&[owner]);
     let zero_delay = VaultAction::Configure(VaultConfig {
         delay_blocks: 0,
-        limit: 1,
+        limit: primitive_types::U256::from(1),
         guardians: vec![guardian],
     });
     assert!(chain.send(vault(&chain, &owner_key, zero_delay)).is_err());
     let no_guardian = VaultAction::Configure(VaultConfig {
         delay_blocks: 5,
-        limit: 1,
+        limit: primitive_types::U256::from(1),
         guardians: vec![],
     });
     assert!(chain.send(vault(&chain, &owner_key, no_guardian)).is_err());
@@ -328,7 +329,7 @@ fn bad_policies_and_requests_are_refused() {
                 &owner_key,
                 VaultAction::Request {
                     to: guardian,
-                    amount: 1
+                    amount: primitive_types::U256::from(1)
                 }
             ))
             .is_err()

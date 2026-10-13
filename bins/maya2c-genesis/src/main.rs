@@ -220,7 +220,10 @@ fn run() -> Result<(), Box<dyn Error>> {
     }
     std::fs::write(&args.out, &json)?;
 
-    let total: u64 = config.allocations.iter().map(|a| a.balance).sum();
+    let total = config
+        .allocations
+        .iter()
+        .fold(primitive_types::U256::zero(), |sum, a| sum.saturating_add(a.balance));
     println!("wrote {}", args.out.display());
     println!("  chain id:     {}", config.chain_id);
     println!("  timestamp:    {}", config.timestamp);

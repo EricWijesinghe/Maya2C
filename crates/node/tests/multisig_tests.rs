@@ -48,7 +48,7 @@ fn draft(policy: MultisigPolicy) -> Transaction {
             index: 0,
         }],
         vec![TxOutput {
-            amount: 40,
+            amount: primitive_types::U256::from(40),
             recipient: [9; 32],
         }],
         3,
@@ -156,7 +156,7 @@ fn two_approvals_do_not_spend_a_three_of_five() {
 fn a_changed_output_invalidates_every_approval() {
     let keys = members();
     let mut tx = approve(draft(policy(&keys)), &keys, &[0, 1, 2]);
-    tx.outputs[0].amount = 4_000;
+    tx.outputs[0].amount = primitive_types::U256::from(4_000);
     assert!(
         tx.verify_at(AT, &SuitePolicy::genesis(Network::Mainnet), &CHAIN)
             .is_err()

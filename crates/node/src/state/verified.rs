@@ -134,7 +134,7 @@ mod tests {
         let mut tx = Transaction::new(
             vec![],
             vec![TxOutput {
-                amount,
+                amount: primitive_types::U256::from(amount),
                 recipient: [9; 32],
             }],
             0,
@@ -159,7 +159,7 @@ mod tests {
         assert_eq!(cache.len(), 1, "a hit adds nothing");
         // Same signature, different amount: a different key, and it fails.
         let mut forged = tx.clone();
-        forged.outputs[0].amount = 6;
+        forged.outputs[0].amount = primitive_types::U256::from(6);
         assert!(cache.verify(&forged, 1, &policy, &chain).is_err());
         assert_eq!(cache.len(), 1, "failures are never stored");
     }

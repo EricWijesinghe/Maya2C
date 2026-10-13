@@ -97,7 +97,7 @@ async fn a_vault_on_a_devnet_delays_cancels_and_pays() {
         owner,
         vault(VaultAction::Configure(VaultConfig {
             delay_blocks: DELAY,
-            limit: LIMIT,
+            limit: primitive_types::U256::from(LIMIT),
             guardians: vec![guardian.address()],
         })),
         vec![],
@@ -115,7 +115,7 @@ async fn a_vault_on_a_devnet_delays_cancels_and_pays() {
     let mut big = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount: LIMIT + 1,
+            amount: primitive_types::U256::from(LIMIT + 1),
             recipient: thief,
         }],
         n,
@@ -139,7 +139,7 @@ async fn a_vault_on_a_devnet_delays_cancels_and_pays() {
         owner,
         vault(VaultAction::Request {
             to: thief,
-            amount: 900_000_000,
+            amount: primitive_types::U256::from(900_000_000),
         }),
         vec![],
     )
@@ -167,7 +167,7 @@ async fn a_vault_on_a_devnet_delays_cancels_and_pays() {
         owner,
         vault(VaultAction::Request {
             to: bob,
-            amount: 5_000,
+            amount: primitive_types::U256::from(5_000),
         }),
         vec![],
     )
@@ -182,7 +182,7 @@ async fn a_vault_on_a_devnet_delays_cancels_and_pays() {
             guardian,
             TxKind::Transfer,
             vec![TxOutput {
-                amount: 1,
+                amount: primitive_types::U256::from(1),
                 recipient: guardian.address(),
             }],
         )

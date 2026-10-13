@@ -3732,6 +3732,7 @@ dependencies = [
  "custom-l1-node",
  "hex",
  "maya-zk-stark",
+ "primitive-types",
  "serde_json",
 ]
 
@@ -5124,6 +5125,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hex",
  "jsonrpsee",
+ "primitive-types",
  "rpassword",
  "serde",
  "serde_json",
@@ -6220,6 +6222,7 @@ dependencies = [
  "hex",
  "http-body-util",
  "jsonrpsee",
+ "primitive-types",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -6277,6 +6280,7 @@ dependencies = [
  "l1-wallet",
  "maya-htlc-lattice",
  "maya2c-cli",
+ "primitive-types",
  "serde",
  "serde_json",
  "tempfile",
@@ -6765,6 +6769,7 @@ dependencies = [
  "keyring",
  "maya-zk-stark",
  "pbkdf2",
+ "primitive-types",
  "qrcode",
  "rqrr",
  "serde",
@@ -6856,6 +6861,7 @@ version = "0.1.0"
 dependencies = [
  "custom-l1-node",
  "hex",
+ "primitive-types",
 ]
 
 [[package]]
@@ -6904,6 +6910,7 @@ dependencies = [
  "maya-dag-bft",
  "maya-signer",
  "maya-zk-stark",
+ "primitive-types",
  "serde_json",
  "tokio",
  "zeroize",

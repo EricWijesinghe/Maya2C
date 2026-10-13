@@ -131,7 +131,7 @@ fn every_node_recommits_to_the_same_new_root_and_proofs_switch_at_the_boundary()
             let mut tx = Transaction::new(
                 vec![],
                 vec![TxOutput {
-                    amount: 10 + n,
+                    amount: primitive_types::U256::from(10 + n),
                     recipient: [u8::try_from(n).unwrap() + 1; 32],
                 }],
                 n,

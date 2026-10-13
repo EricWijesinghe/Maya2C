@@ -372,7 +372,7 @@ fn a_statement_is_drawn_from_a_block_that_verified() {
             Vec::new(),
             vec![TxOutput {
                 recipient: creditor,
-                amount: intent.amount.base_units(),
+                amount: primitive_types::U256::from(intent.amount.base_units()),
             }],
             0,
         ),

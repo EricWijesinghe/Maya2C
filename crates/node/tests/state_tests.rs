@@ -48,7 +48,7 @@ fn transfer(from: &HybridSigningKey, to: &Address, amount: u64, nonce: u64) -> T
     let mut tx = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount,
+            amount: primitive_types::U256::from(amount),
             recipient: *to,
         }],
         nonce,
@@ -401,7 +401,7 @@ fn unsigned_transaction_aborts_the_whole_block() {
     let unsigned = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount: 1,
+            amount: primitive_types::U256::from(1),
             recipient: [3u8; 32],
         }],
         0,
@@ -427,7 +427,7 @@ fn tampered_transaction_aborts_the_whole_block() {
     fund(&db, &alice_addr, 1_000);
 
     let mut tampered = transfer(&alice, &[2u8; 32], 10, 0);
-    tampered.outputs[0].amount = 999; // invalidates the signature
+    tampered.outputs[0].amount = primitive_types::U256::from(999); // invalidates the signature
 
     assert_eq!(
         db.apply_block(&block_of(vec![tampered]), BlockContext::GENESIS),

@@ -82,12 +82,12 @@ fn signed_closure(
     key_a: &HybridSigningKey,
     key_b: &HybridSigningKey,
 ) -> ChannelClosure {
-    let message = channel_state_signing_bytes(&channel_id, seq, balance_a, balance_b, &commitment);
+    let message = channel_state_signing_bytes(&channel_id, seq, primitive_types::U256::from(balance_a), primitive_types::U256::from(balance_b), &commitment);
     ChannelClosure {
         channel_id,
         seq,
-        balance_a,
-        balance_b,
+        balance_a: primitive_types::U256::from(balance_a),
+        balance_b: primitive_types::U256::from(balance_b),
         revocation_commitment: commitment,
         // The chain binds these to the recorded participants by hashing them,
         // so a closure must now carry the keys it is signed by.
@@ -110,7 +110,7 @@ fn open_channel(
     let tx = signed_tx(
         TxKind::OpenChannel(ChannelOpen {
             counterparty: party_b,
-            funding,
+            funding: primitive_types::U256::from(funding),
             dispute_window,
         }),
         nonce,
@@ -126,7 +126,7 @@ fn open_channel(
         "every stored key must be under the state root or declared local-only"
     );
 
-    derive_channel_id(&address_of(key_a), &party_b, funding, nonce)
+    derive_channel_id(&address_of(key_a), &party_b, primitive_types::U256::from(funding), nonce)
 }
 
 // ---------------------------------------------------------------------------
@@ -150,7 +150,7 @@ fn opening_a_channel_escrows_the_funding() {
     );
 
     let record = f.db.get_channel(&id).expect("read").expect("exists");
-    assert_eq!(record.capacity, 4_000);
+    assert_eq!(record.capacity, primitive_types::U256::from(4_000));
     assert_eq!(record.status, ChannelStatus::Open);
     assert_eq!(record.party_a, alice_addr);
     assert_eq!(record.party_b, address_of(&bob));
@@ -165,7 +165,7 @@ fn opening_a_channel_beyond_the_balance_is_rejected() {
     let tx = signed_tx(
         TxKind::OpenChannel(ChannelOpen {
             counterparty: address_of(&bob),
-            funding: 5_000,
+            funding: primitive_types::U256::from(5_000),
             dispute_window: 50,
         }),
         0,
@@ -187,14 +187,14 @@ fn a_channel_operation_may_not_also_carry_transfer_outputs() {
     let mut tx = Transaction::with_kind(
         TxKind::OpenChannel(ChannelOpen {
             counterparty: address_of(&bob),
-            funding: 1_000,
+            funding: primitive_types::U256::from(1_000),
             dispute_window: 50,
         }),
         0,
     );
     // Two value-moving mechanisms in one transaction.
     tx.outputs.push(custom_l1_node::core::TxOutput {
-        amount: 500,
+        amount: primitive_types::U256::from(500),
         recipient: [9u8; 32],
     });
     tx.sign(&alice, &common::test_chain()).expect("sign");
@@ -323,8 +323,8 @@ fn a_third_party_may_submit_but_not_alter_a_closure() {
     let f2 = fixture(&[(alice_addr, 10_000), (address_of(&carol), 10)]);
     let id2 = open_channel(&f2, &alice, bob_addr, 4_000, 50, 0);
     let mut tampered = signed_closure(id2, 1, 1_000, 3_000, [1u8; 32], &alice, &bob);
-    tampered.balance_a = 4_000;
-    tampered.balance_b = 0;
+    tampered.balance_a = primitive_types::U256::from(4_000);
+    tampered.balance_b = primitive_types::U256::from(0);
 
     assert!(matches!(
         f2.db.apply_block(
@@ -605,7 +605,7 @@ fn a_newer_state_overrides_a_stale_dispute_without_a_penalty() {
     let record = f.db.get_channel(&id).expect("read").expect("exists");
     assert_eq!(record.dispute_seq, 9);
     assert_eq!(record.dispute_closer, bob_addr);
-    assert_eq!(record.dispute_balance_b, 3_000);
+    assert_eq!(record.dispute_balance_b, primitive_types::U256::from(3_000));
 }
 
 #[test]

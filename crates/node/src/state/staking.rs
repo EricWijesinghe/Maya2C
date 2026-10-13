@@ -360,10 +360,10 @@ mod tests {
     #[test]
     fn a_populated_record_round_trips_byte_for_byte() {
         let mut staking = Staking::new(Params::DEVNET).unwrap();
-        staking.register([1; 32], [9; 32], 5_000, 100).unwrap();
-        staking.register([2; 32], [8; 32], 7_000, 0).unwrap();
-        staking.delegate([3; 32], [9; 32], 400).unwrap();
-        staking.undelegate([3; 32], [9; 32], 100).unwrap();
+        staking.register([1; 32], [9; 32], maya_ledger_math::Amount::from_u64(5_000), 100).unwrap();
+        staking.register([2; 32], [8; 32], maya_ledger_math::Amount::from_u64(7_000), 0).unwrap();
+        staking.delegate([3; 32], [9; 32], maya_ledger_math::Amount::from_u64(400)).unwrap();
+        staking.undelegate([3; 32], [9; 32], maya_ledger_math::Amount::from_u64(100)).unwrap();
         staking.slash_double_sign([8; 32]).unwrap();
         staking.active = vec![[9; 32]];
         let record = StakingRecord {

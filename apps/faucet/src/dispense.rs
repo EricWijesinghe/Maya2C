@@ -233,12 +233,12 @@ fn sign_transfer(
     chain: &ChainTag,
 ) -> Result<String, DispenseError> {
     let mut outputs = vec![TxOutput {
-        amount,
+        amount: primitive_types::U256::from(amount),
         recipient: *recipient,
     }];
     if let Some(fees) = fees {
         outputs.push(TxOutput {
-            amount: 0,
+            amount: primitive_types::U256::from(0),
             recipient: fees.collector,
         });
         let mut probe = Transaction::new(vec![], outputs.clone(), nonce);
@@ -254,7 +254,7 @@ fn sign_transfer(
         // Checked, because a wrapped total would sign a transfer nobody intended.
         amount.checked_add(fee).ok_or(DispenseError::Underfunded)?;
         if let Some(last) = outputs.last_mut() {
-            last.amount = fee;
+            last.amount = primitive_types::U256::from(fee);
         }
     }
 
@@ -288,10 +288,10 @@ mod tests {
 
         assert_eq!(tx.outputs.len(), 2, "the recipient and the collector");
         assert_eq!(tx.outputs[0].recipient, [7u8; 32]);
-        assert_eq!(tx.outputs[0].amount, 100);
+        assert_eq!(tx.outputs[0].amount, primitive_types::U256::from(100));
         assert_eq!(tx.outputs[1].recipient, FEES.collector);
         let size = u64::try_from(bytes.len()).unwrap();
-        assert_eq!(tx.outputs[1].amount, FEES.base_fee * size * FEE_HEADROOM);
+        assert_eq!(tx.outputs[1].amount, primitive_types::U256::from(FEES.base_fee * size * FEE_HEADROOM));
     }
 
     #[test]

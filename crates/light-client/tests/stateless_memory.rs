@@ -107,7 +107,7 @@ fn signed_block(keys: &[HybridSigningKey], block: u64) -> Vec<Transaction> {
                                 account_address(0xFD, slot % FUNDED_RECIPIENTS)
                             };
                             let output = TxOutput {
-                                amount: 1 + slot % 3,
+                                amount: primitive_types::U256::from(1 + slot % 3),
                                 recipient,
                             };
                             let mut tx = Transaction::new(vec![], vec![output], block);

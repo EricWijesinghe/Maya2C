@@ -160,7 +160,7 @@ mod tests {
             }),
             VaultAction::Request {
                 to: [3; 32],
-                amount: 9_000,
+                amount: primitive_types::U256::from(9_000),
             },
             VaultAction::Execute {
                 owner: [4; 32],

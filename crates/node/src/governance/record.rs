@@ -381,7 +381,7 @@ mod tests {
             .expect("open")
             .vote(Choice::For, Amount::MAX, 20)
             .expect("vote")
-            .vote(Choice::Abstain, 7, 21)
+            .vote(Choice::Abstain, maya_ledger_math::Amount::from_u64(7), 21)
             .expect("vote");
 
         let record = ProposalRecord {

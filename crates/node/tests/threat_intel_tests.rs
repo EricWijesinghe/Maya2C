@@ -207,7 +207,7 @@ fn signed(kind: TxKind, nonce: u64, key: &HybridSigningKey) -> Transaction {
 }
 
 fn transfer(key: &HybridSigningKey, recipient: Address, amount: u64, nonce: u64) -> Transaction {
-    let outputs = vec![TxOutput { amount, recipient }];
+    let outputs = vec![TxOutput { amount: primitive_types::U256::from(amount), recipient }];
     let mut tx = Transaction::new(vec![], outputs, nonce);
     tx.sign(key, &common::test_chain()).expect("sign");
     tx

@@ -29,7 +29,7 @@ fn transfer(chain: &ChainTag, amount: u64) -> Transaction {
     let mut tx = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount,
+            amount: primitive_types::U256::from(amount),
             recipient: [9; 32],
         }],
         0,

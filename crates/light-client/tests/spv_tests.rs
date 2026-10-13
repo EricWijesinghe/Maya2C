@@ -141,7 +141,7 @@ fn a_proof_stops_verifying_once_the_account_it_names_moves() {
     let mut tx = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount: 1_000,
+            amount: primitive_types::U256::from(1_000),
             recipient: holders[1].address(),
         }],
         0,
@@ -265,7 +265,7 @@ fn a_proof_from_a_chain_with_every_layer_populated_still_verifies() {
     let mut register = Transaction::with_kind(
         TxKind::RegisterAsset(AssetRegistration {
             symbol: *b"USD\0\0\0\0\0",
-            total_supply: 1_000,
+            total_supply: primitive_types::U256::from(1_000),
         }),
         0,
     );
@@ -273,7 +273,7 @@ fn a_proof_from_a_chain_with_every_layer_populated_still_verifies() {
 
     let mut lock = Transaction::with_kind(
         TxKind::LockStake(StakeLock {
-            amount: 500,
+            amount: primitive_types::U256::from(500),
             unlock_height: 10_000,
         }),
         0,

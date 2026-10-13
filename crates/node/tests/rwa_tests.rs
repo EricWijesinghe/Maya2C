@@ -162,7 +162,7 @@ fn dvp(asset: [u8; 32], seller: Address, units: u64, price: u64) -> TxKind {
         asset,
         seller,
         units,
-        price,
+        price: primitive_types::U256::from(price),
         page: 0,
     }))
 }
@@ -440,7 +440,7 @@ fn ten_thousand_dividends_settle_in_one_block() {
             TxKind::DistributeRevenue(Box::new(DistributeRevenue {
                 asset,
                 round: 1,
-                total: REVENUE,
+                total: primitive_types::U256::from(REVENUE),
                 pages,
             })),
             1,
@@ -471,7 +471,7 @@ fn ten_thousand_dividends_settle_in_one_block() {
         .stored_distribution(&asset, 1)
         .expect("read")
         .expect("settled");
-    assert_eq!(settled.total, REVENUE);
+    assert_eq!(settled.total, maya_ledger_math::Amount::from_u64(REVENUE));
     assert_eq!(settled.holders, HOLDERS as u32);
 }
 
@@ -489,7 +489,7 @@ fn a_round_cannot_be_settled_twice() {
             TxKind::DistributeRevenue(Box::new(DistributeRevenue {
                 asset,
                 round: 1,
-                total: 1_000,
+                total: primitive_types::U256::from(1_000),
                 pages: 1,
             })),
             nonce,
@@ -511,7 +511,7 @@ fn only_the_issuer_distributes_and_only_within_the_page_bound() {
         TxKind::DistributeRevenue(Box::new(DistributeRevenue {
             asset,
             round: 9,
-            total: 100,
+            total: primitive_types::U256::from(100),
             pages,
         }))
     };

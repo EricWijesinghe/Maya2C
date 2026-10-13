@@ -575,7 +575,7 @@ fn a_shielded_transaction_may_not_also_carry_transparent_outputs() {
     let mut tx = Transaction::with_kind(TxKind::Shielded(Box::new(joinsplit)), 1);
     tx.outputs
         .push(custom_l1_node::core::transaction::TxOutput {
-            amount: 1,
+            amount: primitive_types::U256::from(1),
             recipient: [9u8; 32],
         });
     tx.sign(&owner, &common::test_chain()).expect("sign");
@@ -649,7 +649,7 @@ fn a_block_without_joinsplits_leaves_the_pool_untouched() {
     let mut tx = Transaction::new(
         Vec::new(),
         vec![custom_l1_node::core::transaction::TxOutput {
-            amount: 5,
+            amount: primitive_types::U256::from(5),
             recipient,
         }],
         1,

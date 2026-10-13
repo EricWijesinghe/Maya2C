@@ -533,7 +533,7 @@ mod tests {
     fn config(delay: u64) -> VaultConfig {
         VaultConfig {
             delay_blocks: delay,
-            limit: 100,
+            limit: primitive_types::U256::from(100),
             guardians: vec![[7; 32]],
         }
     }
@@ -546,26 +546,26 @@ mod tests {
             next_id: 4,
             open: 2,
             window_start: 30,
-            window_spent: 70,
+            window_spent: primitive_types::U256::from(70),
         };
         assert_eq!(VaultRecord::decode(&r.encode()).unwrap(), r);
         assert_eq!(r.effective(49).delay_blocks, 10);
         assert_eq!(r.effective(50).delay_blocks, 3);
         let w = Withdrawal {
             to: [1; 32],
-            amount: 9,
+            amount: primitive_types::U256::from(9),
             ready_height: 20,
             status: OPEN,
         };
         assert_eq!(Withdrawal::decode(&w.encode()).unwrap(), w);
-        assert_eq!(w.escrowed(), 9);
+        assert_eq!(w.escrowed(), primitive_types::U256::from(9));
         assert_eq!(
             Withdrawal {
                 status: CANCELLED,
                 ..w
             }
             .escrowed(),
-            0
+            primitive_types::U256::from(0)
         );
     }
 }

@@ -51,7 +51,7 @@ fn transfer(from: &HybridSigningKey, amount: u64, nonce: u64) -> Transaction {
     let mut tx = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount,
+            amount: primitive_types::U256::from(amount),
             recipient: [0x77; 32],
         }],
         nonce,

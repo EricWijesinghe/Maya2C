@@ -31,7 +31,7 @@ fn signed_transfer_size() -> u64 {
             index: 0,
         }],
         vec![TxOutput {
-            amount: 1_000,
+            amount: primitive_types::U256::from(1_000),
             recipient: [2; 32],
         }],
         0,
@@ -62,12 +62,12 @@ fn circulating_supply_falls_every_block_while_total_is_conserved() {
     };
 
     let mut supply = Supply::new(
-        Amount::from(1_000_000_000_000),
-        Amount::from(1_000_000_000_000),
+        Amount::from_u64(1_000_000_000_000),
+        Amount::from_u64(1_000_000_000_000),
     )
     .expect("supply");
     let mut parent: Option<ParentFees> = None;
-    let mut last_burn = 0u64;
+    let mut last_burn = maya_ledger_math::Amount::ZERO;
 
     for height in 1..=40 {
         let base_fee = parent.map_or(config.initial_base_fee, |p| {
@@ -83,8 +83,8 @@ fn circulating_supply_falls_every_block_while_total_is_conserved() {
         let txs: Vec<TxFee> = (0..per_block)
             .map(|_| TxFee {
                 size_bytes: size,
-                max_fee: base_fee * size + 100,
-                max_tip: 100,
+                max_fee: maya_ledger_math::Amount::from_u64(base_fee * size + 100),
+                max_tip: maya_ledger_math::Amount::from_u64(100),
             })
             .collect();
 
@@ -102,15 +102,16 @@ fn circulating_supply_falls_every_block_while_total_is_conserved() {
         assert_eq!(charged_at, base_fee);
 
         // What was charged is exactly what was distributed.
-        let charged: u128 = charges.iter().map(|c| u128::from(c.charged)).sum();
+        let wide = |a: maya_ledger_math::Amount| a.to_u128().expect("small");
+        let charged: u128 = charges.iter().map(|c| wide(c.charged)).sum();
         assert_eq!(
             charged,
-            u128::from(burned) + u128::from(treasury) + u128::from(tips),
+            wide(burned) + wide(treasury) + wide(tips),
             "block {height}"
         );
 
         let next = supply
-            .after_burn(Amount::from(burned))
+            .after_burn(burned)
             .expect("burn within circulating");
         assert!(
             next.circulating < supply.circulating,
@@ -142,8 +143,8 @@ fn the_treasury_receives_one_fifth_of_the_base_fee_and_the_producer_every_tip() 
     let base_fee = config.initial_base_fee;
     let txs = [TxFee {
         size_bytes: size,
-        max_fee: base_fee * size + 250,
-        max_tip: 250,
+        max_fee: maya_ledger_math::Amount::from_u64(base_fee * size + 250),
+        max_tip: maya_ledger_math::Amount::from_u64(250),
     }];
     let Ok(BlockFeeOutcome::Charged {
         burned,
@@ -164,9 +165,9 @@ fn the_treasury_receives_one_fifth_of_the_base_fee_and_the_producer_every_tip() 
         panic!("charged");
     };
     let base_paid = base_fee * size;
-    assert_eq!(treasury, base_paid / 5);
-    assert_eq!(burned, base_paid - base_paid / 5);
-    assert_eq!(tips, 250);
+    assert_eq!(treasury, maya_ledger_math::Amount::from_u64(base_paid / 5));
+    assert_eq!(burned, maya_ledger_math::Amount::from_u64(base_paid - base_paid / 5));
+    assert_eq!(tips, maya_ledger_math::Amount::from_u64(250));
     assert_eq!(beneficiary, Some([9; 32]));
 }
 
@@ -175,8 +176,8 @@ fn the_cap_holds_at_its_boundary() {
     // ADR-046: the cap is 2^256 - 1, so a supply at it is valid and nothing
     // larger can be represented; circulating above total is still refused.
     assert!(Supply::new(MAX_SUPPLY, MAX_SUPPLY).is_ok());
-    assert!(MAX_SUPPLY.checked_add(Amount::from(1)).is_none());
-    assert!(Supply::new(Amount::from(5), MAX_SUPPLY).is_err());
+    assert!(MAX_SUPPLY.checked_add(Amount::from_u64(1)).is_none());
+    assert!(Supply::new(Amount::from_u64(5), MAX_SUPPLY).is_err());
 }
 
 #[test]

@@ -105,7 +105,7 @@ fn signed(keys: &[HybridSigningKey]) -> Vec<Transaction> {
                             let mut tx = Transaction::new(
                                 vec![],
                                 vec![TxOutput {
-                                    amount: 1,
+                                    amount: primitive_types::U256::from(1),
                                     recipient: to,
                                 }],
                                 nonce,

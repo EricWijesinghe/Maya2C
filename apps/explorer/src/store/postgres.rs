@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     sender       TEXT NOT NULL,
     nonce        BIGINT NOT NULL,
     output_count INTEGER NOT NULL,
-    total_out    BIGINT NOT NULL,
+    total_out    TEXT NOT NULL,
     signed       BOOLEAN NOT NULL,
     position     INTEGER NOT NULL
 );
@@ -67,6 +67,10 @@ CREATE TABLE IF NOT EXISTS transactions (
 -- the delete order significant.
 CREATE INDEX IF NOT EXISTS transactions_height_idx ON transactions (height);
 CREATE INDEX IF NOT EXISTS transactions_sender_idx ON transactions (sender, height DESC);
+
+-- ADR-046: a table created before amounts were 256-bit held a BIGINT. A no-op
+-- once the column is already TEXT.
+ALTER TABLE transactions ALTER COLUMN total_out TYPE TEXT USING total_out::text;
 ";
 
 /// A PostgreSQL-backed index.
@@ -195,7 +199,7 @@ impl BlockStore for PostgresStore {
             .bind(&transaction.sender)
             .bind(transaction.nonce)
             .bind(transaction.output_count)
-            .bind(transaction.total_out)
+            .bind(&transaction.total_out)
             .bind(transaction.signed)
             .bind(position as i32)
             .execute(&mut *tx)

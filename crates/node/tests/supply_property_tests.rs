@@ -102,7 +102,7 @@ fn random_transfer_sequences_conserve_supply_and_failed_blocks_change_nothing() 
             let mut tx = Transaction::new(
                 vec![],
                 vec![TxOutput {
-                    amount,
+                    amount: primitive_types::U256::from(amount),
                     recipient: to,
                 }],
                 nonce,

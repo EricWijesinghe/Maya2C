@@ -39,7 +39,7 @@ use std::hint::black_box;
 /// A pool deep enough that no benchmark trade exhausts it.
 fn deep_pool() -> Pool {
     Pool::empty(FeeSchedule::standard())
-        .add_liquidity(1_000_000_000, 1_000_000_000)
+        .add_liquidity(maya_ledger_math::Amount::from_u64(1_000_000_000), maya_ledger_math::Amount::from_u64(1_000_000_000))
         .expect("seed")
         .pool
 }
@@ -50,7 +50,7 @@ fn deep_pool() -> Pool {
 /// filling everything against one level, which is the shape that actually costs
 /// something.
 fn crossed_book(depth: u32) -> Book {
-    let mid = PRICE_SCALE as u64;
+    let mid = PRICE_SCALE.to_u64().expect("1e9");
     let mut book = Book::new();
 
     for index in 0..depth {
@@ -61,9 +61,9 @@ fn crossed_book(depth: u32) -> Book {
             id,
             owner: [1u8; 32],
             side: Side::Ask,
-            price: mid - u64::from(index),
-            amount: 1_000,
-            remaining: 1_000,
+            price: maya_ledger_math::Amount::from_u64(mid - u64::from(index)),
+            amount: maya_ledger_math::Amount::from_u64(1_000),
+            remaining: maya_ledger_math::Amount::from_u64(1_000),
             sequence: u64::from(index) * 2,
             expiry: 0,
         })
@@ -76,9 +76,9 @@ fn crossed_book(depth: u32) -> Book {
             id,
             owner: [2u8; 32],
             side: Side::Bid,
-            price: mid + u64::from(index),
-            amount: 1_000,
-            remaining: 1_000,
+            price: maya_ledger_math::Amount::from_u64(mid + u64::from(index)),
+            amount: maya_ledger_math::Amount::from_u64(1_000),
+            remaining: maya_ledger_math::Amount::from_u64(1_000),
             sequence: u64::from(index) * 2 + 1,
             expiry: 0,
         })
@@ -145,8 +145,8 @@ fn bench_batch(c: &mut Criterion) {
                 } else {
                     Direction::QuoteToBase
                 },
-                amount_in: 100_000 + index as u64 * 977,
-                min_out: 0,
+                amount_in: maya_ledger_math::Amount::from_u64(100_000 + index as u64 * 977),
+                min_out: maya_ledger_math::Amount::from_u64(0),
             })
             .collect();
 
@@ -166,8 +166,8 @@ fn bench_batch(c: &mut Criterion) {
             id: [index as u8; 32],
             trader: [index as u8; 32],
             direction: Direction::BaseToQuote,
-            amount_in: 100_000 + index as u64,
-            min_out: u64::MAX,
+            amount_in: maya_ledger_math::Amount::from_u64(100_000 + index as u64),
+            min_out: maya_ledger_math::Amount::from_u64(u64::MAX),
         })
         .collect();
 
@@ -189,7 +189,7 @@ fn bench_curve(c: &mut Criterion) {
     c.bench_function("swap_exact_in", |b| {
         b.iter(|| {
             let outcome = pool
-                .swap_exact_in(black_box(Direction::BaseToQuote), black_box(1_000_000))
+                .swap_exact_in(black_box(Direction::BaseToQuote), black_box(maya_ledger_math::Amount::from_u64(1_000_000)))
                 .expect("swap");
             black_box(outcome.amount_out)
         });

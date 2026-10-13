@@ -106,7 +106,7 @@ async fn an_intent_settles_across_two_devnets_by_hash_locked_swap() {
                 preimage,
             },
             solver_addr,
-            4_000,
+            primitive_types::U256::from(4_000),
             200,
         )
         .await
@@ -124,9 +124,9 @@ async fn an_intent_settles_across_two_devnets_by_hash_locked_swap() {
             .respond(RespondRequest {
                 inbound_lock_id: user_lock,
                 lock: lock.clone(),
-                min_inbound_amount: 4_000,
+                min_inbound_amount: primitive_types::U256::from(4_000),
                 outbound_recipient: user_addr,
-                outbound_amount: 3_000,
+                outbound_amount: primitive_types::U256::from(3_000),
                 outbound_expiry: 100,
                 rate: BlockRate::EQUAL,
             })
@@ -141,7 +141,7 @@ async fn an_intent_settles_across_two_devnets_by_hash_locked_swap() {
             .accept_response(InitiatedSwap {
                 commitment_id: lock.id(),
                 inbound_lock_id: solver_lock,
-                min_inbound_amount: 3_000,
+                min_inbound_amount: primitive_types::U256::from(3_000),
                 rate: BlockRate::EQUAL,
             })
             .await;
