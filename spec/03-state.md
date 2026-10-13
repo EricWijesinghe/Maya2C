@@ -8,7 +8,7 @@ An account is `(balance: u64, nonce: u64)`. A transfer is applied in this
 order, and the first rule that fails is the result:
 
 - **STF-1** The transaction's nonce equals the sender's current nonce; otherwise `InvalidNonce`. (The replay and double-spend guard.)
-- **STF-2** The sum of the outputs fits in a `u64`; otherwise `BalanceOverflow`.
+- **STF-2** The sum of the outputs, each 256-bit (ADR-046), fits in 256 bits at every step; otherwise `BalanceOverflow`.
 - **STF-3** The sender's balance is at least that sum; otherwise `InsufficientBalance`.
 - **STF-4** The sender is debited and its nonce advanced by one; a nonce at `u64::MAX` cannot advance and is `BalanceOverflow`.
 - **STF-5** Each recipient, in output order, is credited; a balance is 256 bits (ADR-046), and a credit past `2^256 − 1` is `BalanceOverflow`.

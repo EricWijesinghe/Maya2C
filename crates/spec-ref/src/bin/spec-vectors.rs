@@ -105,7 +105,10 @@ fn stf_case(
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(|o| (resolve(keys, o["to"].as_str().unwrap()), num(&o["amount"])))
+                .map(|o| {
+                    let amount = Balance::from_dec_str(o["amount"].as_str().unwrap()).unwrap();
+                    (resolve(keys, o["to"].as_str().unwrap()), amount)
+                })
                 .collect(),
         })
         .collect();
@@ -120,6 +123,12 @@ fn stf_case(
 }
 
 fn tx(from: &str, nonce: u64, outputs: &[(&str, u64)]) -> Value {
+    let wide: Vec<(&str, Balance)> = outputs.iter().map(|(to, a)| (*to, Balance::from(*a))).collect();
+    tx_wide(from, nonce, &wide)
+}
+
+/// A transfer whose output amounts are 256-bit (ADR-046).
+fn tx_wide(from: &str, nonce: u64, outputs: &[(&str, Balance)]) -> Value {
     let outs: Vec<Value> = outputs
         .iter()
         .map(|(to, amount)| json!({"to": to, "amount": amount.to_string()}))
@@ -183,8 +192,10 @@ fn state_transitions(k: &BTreeMap<String, Address>) -> Value {
             k,
             "outputs-overflow",
             &["STF-2"],
-            &json!([acct("k0", u64::MAX, 0)]),
-            &json!([tx("k0", 0, &[("k1", u64::MAX), ("k2", 1)])]),
+            // ADR-046: outputs are 256-bit, so the sum overflows only past
+            // 2^256 - 1; a u64-sized pair no longer overflows.
+            &json!([acct("k0", Balance::MAX, 0)]),
+            &json!([tx_wide("k0", 0, &[("k1", Balance::MAX), ("k2", Balance::from(1))])]),
         ),
         stf_case(
             k,
@@ -348,7 +359,7 @@ fn pattern(len: usize, seed: u8) -> Vec<u8> {
 
 fn encoding_vectors(k: &BTreeMap<String, Address>) -> Value {
     let signed = Frame {
-        outputs: vec![(k["k1"], 42), (resolve(k, FRESH), 7)],
+        outputs: vec![(k["k1"], Balance::from(42)), (resolve(k, FRESH), Balance::from(7))],
         public_key: pattern(wire::HYBRID_PK, 3),
         nonce: 9,
         signature: Some(pattern(wire::HYBRID_SIG, 101)),
@@ -566,7 +577,7 @@ fn header_vectors(k: &BTreeMap<String, Address>) -> Value {
     };
     let frames: Vec<Frame> = (0..3u64)
         .map(|n| Frame {
-            outputs: vec![(k["k1"], 5 + n)],
+            outputs: vec![(k["k1"], Balance::from(5 + n))],
             public_key: pattern(wire::HYBRID_PK, 7),
             nonce: n,
             signature: (n == 0).then(|| pattern(wire::HYBRID_SIG, 9)),
