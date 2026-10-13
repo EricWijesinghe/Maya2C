@@ -185,7 +185,7 @@ fn validate(reader: &mut impl Read, genesis: [u8; 32]) -> usize {
                 &mut tree,
                 sender.try_into().expect("key"),
                 u64::from_le_bytes(nonce.try_into().expect("nonce")),
-                [(recipient, amount)],
+                [(recipient, primitive_types::U256::from(amount))],
             )
             .expect("valid transfer");
             applied += 1;

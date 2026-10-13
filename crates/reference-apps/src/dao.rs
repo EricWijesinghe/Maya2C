@@ -6,6 +6,7 @@
 //! treasury's per-epoch limit still applies: a captured vote cannot empty it
 //! in one epoch.
 
+use maya_governance::Amount;
 use maya_governance::error::GovernanceError;
 use maya_governance::proposal::{Proposal, ProposalState};
 use maya_governance::tally::Choice;
@@ -23,7 +24,7 @@ pub struct Rules {
     /// Share of decisive votes that must be "for", in basis points.
     pub approval_bps: u32,
     /// Total voting weight.
-    pub eligible: u128,
+    pub eligible: Amount,
 }
 
 /// Why a grant did not pay.
@@ -68,7 +69,7 @@ pub fn propose(
 /// # Errors
 ///
 /// [`DaoError::Governance`] outside the voting window.
-pub fn vote(grant: &mut Grant, choice: Choice, weight: u128, height: u64) -> Result<(), DaoError> {
+pub fn vote(grant: &mut Grant, choice: Choice, weight: Amount, height: u64) -> Result<(), DaoError> {
     grant.proposal = grant
         .proposal
         .vote(choice, weight, height)

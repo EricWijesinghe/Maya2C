@@ -15,6 +15,7 @@ use maya_clear_sign::{Address, Context, Effect, Warning, review};
 use maya_design_system::guard::{Token, TokenVerdict, token};
 use maya_dex::amm::Pool;
 use maya_dex::error::DexError;
+use maya_dex::Amount;
 use maya_dex::types::{Direction, PRICE_SCALE};
 
 /// Basis points in one whole.
@@ -26,11 +27,11 @@ pub const HIGH_IMPACT_BPS: u64 = 300;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Quote {
     /// Exact input.
-    pub amount_in: u64,
+    pub amount_in: Amount,
     /// Output the curve gives now.
-    pub expected_out: u64,
+    pub expected_out: Amount,
     /// Floor written into the transaction: it reverts below this.
-    pub min_out: u64,
+    pub min_out: Amount,
     /// Execution price against the marginal price, in basis points.
     pub impact_bps: u64,
     /// Whether the impact needs a second confirmation.
@@ -55,7 +56,7 @@ pub enum FrontError {
 pub fn quote(
     pool: &Pool,
     direction: Direction,
-    amount_in: u64,
+    amount_in: Amount,
     slippage_bps: u64,
     selling: Token<'_>,
     verified: &[Token<'_>],
@@ -67,21 +68,26 @@ pub fn quote(
         .swap_exact_in(direction, amount_in)
         .map_err(FrontError::Pool)?
         .amount_out;
-    let spot = u128::from(pool.spot_price().map_err(FrontError::Pool)?);
-    let scale = PRICE_SCALE;
+    let spot = pool.spot_price().map_err(FrontError::Pool)?;
     let ideal = match direction {
-        Direction::BaseToQuote => u128::from(amount_in) * spot / scale,
-        Direction::QuoteToBase => u128::from(amount_in) * scale / spot.max(1),
-    };
-    let impact = (ideal.saturating_sub(u128::from(out)) * u128::from(BPS))
-        .checked_div(ideal)
-        .unwrap_or(0);
-    let impact_bps = u64::try_from(impact).unwrap_or(BPS);
-    let floor = u128::from(out) * u128::from(BPS.saturating_sub(slippage_bps)) / u128::from(BPS);
+        Direction::BaseToQuote => amount_in.mul_div(spot, PRICE_SCALE),
+        Direction::QuoteToBase => amount_in.mul_div(PRICE_SCALE, spot.max(Amount::ONE)),
+    }
+    .unwrap_or(Amount::MAX);
+    let bps = Amount::from_u64(BPS);
+    // Impact at most 100%: the shortfall is never above `ideal`.
+    let impact = ideal
+        .saturating_sub(out)
+        .mul_div(bps, ideal)
+        .map_or(BPS, |v| v.saturating_to_u64().min(BPS));
+    let impact_bps = impact;
+    let floor = out
+        .mul_div(Amount::from_u64(BPS.saturating_sub(slippage_bps)), bps)
+        .unwrap_or(Amount::ZERO);
     Ok(Quote {
         amount_in,
         expected_out: out,
-        min_out: u64::try_from(floor).unwrap_or(0),
+        min_out: floor,
         impact_bps,
         high_impact: impact_bps > HIGH_IMPACT_BPS,
     })
