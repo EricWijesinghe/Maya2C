@@ -107,22 +107,26 @@ impl ShieldedPool {
         // leaves the pool alongside `public_out`. The two failure modes stay
         // distinct for the reason the doc comment gives: an underflow here is
         // the tripwire for a soundness break, and folding it into the overflow
-        // case would erase the one signal that matters. This is the U256 form
-        // of `ledger_math::settle_pool`, which stays u64 (ADR-046 leaves the
-        // proof-facing ledger-math crate untouched; see the report).
-        let withdrawn = public_out
-            .checked_add(fee)
-            .ok_or(NodeError::BalanceOverflow)?;
-        let credited = self
-            .balance
-            .checked_add(U256::from(public_in))
-            .ok_or(NodeError::BalanceOverflow)?;
-        self.balance = credited.checked_sub(U256::from(withdrawn)).ok_or(
-            NodeError::ShieldedBalanceUnderflow {
-                held: credited,
-                withdrawn: U256::from(withdrawn),
+        // case would erase the one signal that matters. The pool balance is
+        // 256-bit (ADR-046) and goes through ledger-math's proved
+        // `settle_pool`; the three public values stay `u64` because the
+        // joinsplit circuit range-checks them at that width.
+        use maya_ledger_math::{Amount, SettleError, settle_pool};
+        use maya_stateless_core::amount::{to_amount, to_u256};
+        self.balance = settle_pool(
+            to_amount(self.balance),
+            Amount::from_u64(public_in),
+            Amount::from_u64(public_out),
+            Amount::from_u64(fee),
+        )
+        .map(to_u256)
+        .map_err(|error| match error {
+            SettleError::Overflow => NodeError::BalanceOverflow,
+            SettleError::Underflow { held, withdrawn } => NodeError::ShieldedBalanceUnderflow {
+                held: to_u256(held),
+                withdrawn: to_u256(withdrawn),
             },
-        )?;
+        })?;
         Ok(())
     }
 

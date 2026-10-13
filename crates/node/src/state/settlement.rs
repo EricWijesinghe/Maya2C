@@ -66,14 +66,14 @@ impl StateDB {
     }
 
     /// Credits an account through the overlay.
-    fn credit(&self, overlay: &mut Overlay, address: &Address, amount: u64) -> Result<()> {
+    fn credit(&self, overlay: &mut Overlay, address: &Address, amount: U256) -> Result<()> {
         let mut account = match overlay.accounts.get(address) {
             Some(existing) => *existing,
             None => self.get_account(address)?,
         };
         account.balance = account
             .balance
-            .checked_add(U256::from(amount))
+            .checked_add(amount)
             .ok_or(NodeError::BalanceOverflow)?;
         overlay.accounts.insert(*address, account);
         Ok(())

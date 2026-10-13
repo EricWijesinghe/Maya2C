@@ -47,8 +47,10 @@ pub struct MiningWork {
     pub dag: String,
     /// The DAG epoch whose cache and dataset the header hashes against.
     pub dag_epoch: u64,
-    /// Base units the next accepted share earns.
-    pub share_reward: u64,
+    /// Base units the next accepted share earns, as a decimal string
+    /// (ADR-046: 256-bit).
+    #[serde(with = "crate::state::amount_serde")]
+    pub share_reward: U256,
     /// Shares accepted so far this epoch, and the number the target aims for.
     pub shares: u64,
     /// Target shares per epoch.
@@ -235,8 +237,9 @@ pub struct BalanceChangesInfo {
 pub struct OutputInfo {
     /// Hex-encoded recipient address.
     pub recipient: String,
-    /// Amount transferred.
-    pub amount: u64,
+    /// Amount transferred, as a decimal string (ADR-046: 256-bit).
+    #[serde(with = "crate::state::amount_serde")]
+    pub amount: U256,
 }
 
 /// A transaction as returned by the API.
@@ -459,8 +462,9 @@ pub struct HtlcLockInfo {
     pub sender: String,
     /// Hex-encoded recipient, whom a claim pays.
     pub recipient: String,
-    /// Escrowed base units.
-    pub amount: u64,
+    /// Escrowed base units, as a decimal string (ADR-046: 256-bit).
+    #[serde(with = "crate::state::amount_serde")]
+    pub amount: U256,
     /// Height of the locking block.
     pub created_height: u64,
     /// First height at which a claim is refused.
@@ -500,7 +504,7 @@ impl HtlcLockInfo {
             lock_id: hex::encode(lock_id),
             sender: hex::encode(record.sender),
             recipient: hex::encode(record.recipient),
-            amount: record.amount,
+            amount: maya_stateless_core::amount::to_u256(record.amount),
             created_height: record.created_height,
             expiry_height: record.expiry_height,
             commitment_id: hex::encode(record.lock.id()),

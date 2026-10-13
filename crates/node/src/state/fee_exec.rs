@@ -48,20 +48,24 @@ impl StateDB {
         // still count toward the base-fee step, and the per-block share cap
         // bounds how many there can be (ADR-044).
         let required = if matches!(tx.kind, TxKind::MiningShare(_)) && tx.outputs.is_empty() {
-            0
+            U256::zero()
         } else {
-            fees.required(size)
+            U256::from(fees.required(size))
         };
-        let offered: u128 = tx
+        // Saturating: the outputs already passed the transaction's checked
+        // output total, so a sum past 2^256 cannot reach here.
+        let offered = tx
             .outputs
             .iter()
             .filter(|o| o.recipient == FEE_COLLECTOR)
-            .map(|o| u128::from(o.amount))
-            .sum();
+            .fold(U256::zero(), |sum, o| sum.saturating_add(o.amount));
         if offered < required {
             return Err(NodeError::FeeTooLow { required, offered });
         }
-        overlay.fee_burn += required;
+        overlay.fee_burn = overlay
+            .fee_burn
+            .checked_add(required)
+            .ok_or(NodeError::BalanceOverflow)?;
         overlay.fee_bytes = overlay
             .fee_bytes
             .saturating_add(u64::try_from(size).unwrap_or(u64::MAX));
@@ -78,13 +82,13 @@ impl StateDB {
         let Some(fees) = self.fee_record(overlay)? else {
             return Ok(());
         };
-        let burn = u64::try_from(overlay.fee_burn).map_err(|_| NodeError::BalanceOverflow)?;
-        if burn > 0 {
+        let burn = overlay.fee_burn;
+        if !burn.is_zero() {
             let mut collector = self.load(overlay, &FEE_COLLECTOR)?;
             collector.balance =
                 collector
                     .balance
-                    .checked_sub(U256::from(burn))
+                    .checked_sub(burn)
                     .ok_or_else(|| {
                         NodeError::InvariantViolation("fee burn exceeds what was collected".into())
                     })?;
@@ -92,7 +96,7 @@ impl StateDB {
             let mut sink = self.load(overlay, &FEE_SINK)?;
             sink.balance = sink
                 .balance
-                .checked_add(U256::from(burn))
+                .checked_add(burn)
                 .ok_or(NodeError::BalanceOverflow)?;
             overlay.accounts.insert(FEE_SINK, sink);
         }
@@ -109,17 +113,16 @@ impl StateDB {
     /// # Errors
     ///
     /// Storage failure.
-    pub(crate) fn take_fee_pool(&self, overlay: &mut Overlay) -> Result<u64> {
+    pub(crate) fn take_fee_pool(&self, overlay: &mut Overlay) -> Result<U256> {
         if self.fee_record(overlay)?.is_none() {
-            return Ok(0);
+            return Ok(U256::zero());
         }
         let mut collector = self.load(overlay, &FEE_COLLECTOR)?;
         let pool = collector.balance;
         collector.balance = U256::zero();
         overlay.accounts.insert(FEE_COLLECTOR, collector);
-        // The staking reward pool is still u64 (ADR-046 leaves staking rewards
-        // out of this pass). A collector above u64::MAX fails the block here
-        // rather than truncating: silent truncation would destroy value.
-        u64::try_from(pool).map_err(|_| NodeError::BalanceOverflow)
+        // The whole collector, 256-bit (ADR-046): the staking reward pool is
+        // an Amount, so nothing is truncated.
+        Ok(pool)
     }
 }

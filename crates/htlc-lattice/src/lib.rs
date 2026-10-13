@@ -49,6 +49,7 @@ pub mod timelock;
 #[cfg(kani)]
 mod proofs;
 
+pub use maya_amount::Amount;
 pub use commitment::{Commitment, CommitmentId, centered};
 pub use error::{Error, Result};
 pub use lock::{HashFunction, Lock, PREIMAGE_BYTES, Preimage, SwapSecret, Unlock};

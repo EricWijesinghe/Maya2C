@@ -139,13 +139,12 @@ impl Mempool {
             return self.validate_share(tx, share);
         }
         if let Some(fees) = self.state.committed_fees()? {
-            let required = fees.required(tx.to_bytes().len());
-            let offered: u128 = tx
+            let required = U256::from(fees.required(tx.to_bytes().len()));
+            let offered = tx
                 .outputs
                 .iter()
                 .filter(|o| o.recipient == crate::state::fees::FEE_COLLECTOR)
-                .map(|o| u128::from(o.amount))
-                .sum();
+                .fold(U256::zero(), |sum, o| sum.saturating_add(o.amount));
             if offered < required {
                 return Err(NodeError::FeeTooLow { required, offered });
             }
@@ -171,16 +170,16 @@ impl Mempool {
             });
         }
 
-        let mut total_out: u64 = 0;
+        let mut total_out = U256::zero();
         for output in &tx.outputs {
             total_out = total_out
                 .checked_add(output.amount)
                 .ok_or(NodeError::BalanceOverflow)?;
         }
-        if sender.balance < U256::from(total_out) {
+        if sender.balance < total_out {
             return Err(NodeError::InsufficientBalance {
                 address: hex::encode(sender_address),
-                required: U256::from(total_out),
+                required: total_out,
                 available: sender.balance,
             });
         }

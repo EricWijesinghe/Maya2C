@@ -47,6 +47,8 @@
 //! [breaker](super::breaker) exists for the other case: a block that is valid
 //! and suspicious.
 
+use maya_dex::Amount;
+use maya_stateless_core::amount::to_u256;
 use std::collections::BTreeMap;
 
 use maya_dex::amm::MINIMUM_LIQUIDITY;
@@ -296,7 +298,7 @@ impl StateDB {
                 )));
             };
             let pool = PoolRecord::decode(&pool)?;
-            let (asset, amount) = (order.escrow_asset(&pool), U256::from(order.escrow));
+            let (asset, amount) = (order.escrow_asset(&pool), to_u256(order.escrow));
             if is_staged {
                 gain(ledger, asset, amount)?;
             } else {
@@ -321,9 +323,9 @@ fn fold_pool(
     let reserves = |record: Option<&PoolRecord>| {
         record.map_or((U256::zero(), U256::zero(), U256::zero()), |record| {
             (
-                U256::from(record.pool.reserve_base),
-                U256::from(record.pool.reserve_quote),
-                U256::from(holdable_shares(record.pool.total_shares)),
+                to_u256(record.pool.reserve_base),
+                to_u256(record.pool.reserve_quote),
+                to_u256(holdable_shares(record.pool.total_shares)),
             )
         })
     };
@@ -359,7 +361,7 @@ fn fold_pool(
 /// Saturating rather than checked because a pool that exists has at least this
 /// many shares — `Pool::seed` refuses a first deposit that cannot cover them —
 /// and a pool that does not exist has zero, which is the answer either way.
-fn holdable_shares(total: u64) -> u64 {
+fn holdable_shares(total: Amount) -> Amount {
     total.saturating_sub(MINIMUM_LIQUIDITY)
 }
 
@@ -415,7 +417,7 @@ fn fold_htlc_lock(
 ) -> Result<()> {
     let escrowed = |bytes: Option<&[u8]>| -> Result<U256> {
         Ok(match bytes {
-            Some(bytes) => U256::from(htlc_decode(bytes)?.escrowed()),
+            Some(bytes) => to_u256(htlc_decode(bytes)?.escrowed()),
             None => U256::zero(),
         })
     };
@@ -443,10 +445,14 @@ fn fold_vault_withdrawal(
 fn fold_staking(staged: Option<&[u8]>, previous: Option<&[u8]>, ledger: &mut Ledger) -> Result<()> {
     let held = |bytes: Option<&[u8]>| -> Result<U256> {
         Ok(match bytes {
-            Some(bytes) => U256::from(
+            // An unrepresentable total is itself a conservation failure.
+            Some(bytes) => to_u256(
                 crate::state::staking::StakingRecord::decode(bytes)?
                     .staking
-                    .held(),
+                    .held()
+                    .ok_or_else(|| {
+                        NodeError::InvariantViolation("staking holds past 2^256 - 1".into())
+                    })?,
             ),
             None => U256::zero(),
         })

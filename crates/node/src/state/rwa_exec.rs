@@ -39,7 +39,8 @@
 //! deltas do not balance, so a rounding rule that lost a base unit would be a
 //! distribution nobody can mine.
 
-use maya_ledger_math::distribute;
+use maya_ledger_math::{Amount, distribute};
+use maya_stateless_core::amount::{to_amount, to_u256};
 use maya_rwa::cap_table::HOLDERS_PER_PAGE;
 use maya_rwa::token::{Eligibility, LegalAttestation, RevenueDistribution, RwaToken, TransferRule};
 use maya_rwa::{Address, Digest};
@@ -218,7 +219,7 @@ impl StateDB {
         seller: &ChainAddress,
         asset: &Digest,
         units: u64,
-        price: u64,
+        price: U256,
         page_index: u32,
         height: u64,
     ) -> Result<DvpOutcome> {
@@ -238,11 +239,11 @@ impl StateDB {
         }
 
         let buyer_account = self.load(overlay, buyer)?;
-        let Some(buyer_after) = buyer_account.balance.checked_sub(U256::from(price)) else {
+        let Some(buyer_after) = buyer_account.balance.checked_sub(price) else {
             return Ok(DvpOutcome::BuyerShort);
         };
         let seller_account = self.load(overlay, seller)?;
-        let Some(seller_after) = seller_account.balance.checked_add(U256::from(price)) else {
+        let Some(seller_after) = seller_account.balance.checked_add(price) else {
             // The seller's balance would overflow. Not a loss and not an error:
             // the swap simply does not happen.
             return Ok(DvpOutcome::BuyerShort);
@@ -281,7 +282,7 @@ impl StateDB {
         issuer: &ChainAddress,
         asset: &Digest,
         round: u64,
-        total: u64,
+        total: U256,
         pages: u32,
         height: u64,
     ) -> Result<u32> {
@@ -322,17 +323,22 @@ impl StateDB {
             ));
         }
 
-        let weights: Vec<u64> = holders.iter().map(|(_, units)| *units).collect();
-        let mut payouts = vec![0u64; holders.len()];
+        // Units are a u64 share count; the revenue split over them is 256-bit
+        // native coin (ADR-046), through ledger-math's proved distribution.
+        let weights: Vec<Amount> = holders
+            .iter()
+            .map(|(_, units)| Amount::from_u64(*units))
+            .collect();
+        let mut payouts = vec![Amount::ZERO; holders.len()];
         let mut order = vec![0u32; holders.len()];
-        distribute(total, &weights, &mut payouts, &mut order).ok_or_else(|| {
+        distribute(to_amount(total), &weights, &mut payouts, &mut order).ok_or_else(|| {
             NodeError::Decode("rwa: the holdings cannot be distributed against".to_owned())
         })?;
 
         // Debit the issuer first, so an issuer who cannot cover the total does
         // not leave a partially credited cap table behind.
         let mut issuer_account = self.load(overlay, issuer)?;
-        let required = U256::from(total);
+        let required = total;
         issuer_account.balance = issuer_account
             .balance
             .checked_sub(required)
@@ -344,13 +350,13 @@ impl StateDB {
         overlay.accounts.insert(*issuer, issuer_account);
 
         for ((address, _), payout) in holders.iter().zip(&payouts) {
-            if *payout == 0 {
+            if payout.is_zero() {
                 continue;
             }
             let mut account = self.load(overlay, address)?;
             account.balance = account
                 .balance
-                .checked_add(U256::from(*payout))
+                .checked_add(to_u256(*payout))
                 .ok_or(NodeError::BalanceOverflow)?;
             overlay.accounts.insert(*address, account);
         }
@@ -358,7 +364,7 @@ impl StateDB {
         let settled = RevenueDistribution {
             asset: *asset,
             round,
-            total,
+            total: to_amount(total),
             holders: holders.len() as u32,
             settled_at: height,
         };

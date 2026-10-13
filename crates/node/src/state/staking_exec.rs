@@ -7,7 +7,7 @@
 //! downtime judged from those counts, rewards paid, unbonded funds released,
 //! the next committee chosen.
 
-use primitive_types::U256;
+use maya_stateless_core::amount::{to_amount, to_u256};
 use std::sync::Arc;
 
 use maya_dag_bft::{Equivocation, Message};
@@ -115,9 +115,9 @@ impl StateDB {
         effects: &[Effect],
     ) -> Result<()> {
         for effect in effects {
-            // `(address, amount, is_debit)`: staking effects are u64 and widen
-            // here. A debit that exceeds the balance and a credit that would
-            // overflow both keep the u64 code's `InsufficientBalance` variant.
+            // `(address, amount, is_debit)`: staking effects are Amounts and
+            // copy into U256 here (ADR-048). A debit that exceeds the balance
+            // and a credit that would overflow both report `InsufficientBalance`.
             let (address, amount, is_debit) = match effect {
                 Effect::Debit(address, amount) => {
                     if Some(address) != sender {
@@ -133,7 +133,7 @@ impl StateDB {
                 Effect::Burn(amount) => (FEE_SINK, *amount, false),
             };
             let mut account = self.load(overlay, &address)?;
-            let required = U256::from(amount);
+            let required = to_u256(amount);
             let available = account.balance;
             let insufficient = || NodeError::InsufficientBalance {
                 address: hex::encode(address),
@@ -178,22 +178,23 @@ impl StateDB {
                 verifying.verify(&StakingAction::possession_message(sender), possession)?;
                 let id = validator_id(key.as_slice());
                 let effects = s
-                    .register(*sender, id, *bond, *commission_bps)
+                    .register(*sender, id, to_amount(*bond), *commission_bps)
                     .map_err(stake_err)?;
                 overlay.records.insert(key_record(&id), Some(key.to_vec()));
                 effects
             }
             StakingAction::BondMore { validator, amount } => s
-                .bond_more(*sender, *validator, *amount)
+                .bond_more(*sender, *validator, to_amount(*amount))
                 .map_err(stake_err)?,
             StakingAction::Unbond { validator, amount } => {
-                s.unbond(*sender, *validator, *amount).map_err(stake_err)?
+                s.unbond(*sender, *validator, to_amount(*amount))
+                    .map_err(stake_err)?
             }
             StakingAction::Delegate { validator, amount } => s
-                .delegate(*sender, *validator, *amount)
+                .delegate(*sender, *validator, to_amount(*amount))
                 .map_err(stake_err)?,
             StakingAction::Undelegate { validator, amount } => s
-                .undelegate(*sender, *validator, *amount)
+                .undelegate(*sender, *validator, to_amount(*amount))
                 .map_err(stake_err)?,
             StakingAction::ReportEquivocation { first, second } => {
                 let id = self.verify_equivocation(overlay, first, second)?;
@@ -289,7 +290,7 @@ impl StateDB {
         let pool = self.take_fee_pool(overlay)?;
         let outcome = record
             .staking
-            .end_epoch(&participation, pool)
+            .end_epoch(&participation, to_amount(pool))
             .map_err(stake_err)?;
         self.apply_effects(overlay, None, &outcome.effects)?;
         // An empty committee would halt the chain for good. Keep the old one

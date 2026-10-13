@@ -93,7 +93,7 @@ pub fn transaction_for(db: &StateDB, intent: &PaymentIntent, nonce: u64) -> Resu
         Vec::new(),
         vec![TxOutput {
             recipient: creditor,
-            amount,
+            amount: U256::from(amount),
         }],
         nonce,
     ))
@@ -134,30 +134,41 @@ impl Settled {
     /// Reads the block's transactions rather than the state, because a balance
     /// is a total and a statement is a list — two payments that net to zero are
     /// invisible in the balance and are two lines here.
-    #[must_use]
-    pub fn in_block(block: &crate::core::Block, account: &Address) -> Vec<Self> {
+    ///
+    /// # Errors
+    ///
+    /// [`NodeError::BalanceOverflow`] for an output past what an ISO 20022
+    /// amount carries (`u64` minor units): chain amounts are 256-bit
+    /// (ADR-046), and a statement that dropped or clamped a line would not
+    /// reconcile.
+    pub fn in_block(block: &crate::core::Block, account: &Address) -> Result<Vec<Self>> {
         let mut settled = Vec::new();
         for transaction in &block.transactions {
             let txid = transaction.txid();
             let sender = transaction.sender();
             for output in &transaction.outputs {
+                let iso_amount = || {
+                    u64::try_from(output.amount)
+                        .map(Amount::from_base_units)
+                        .map_err(|_| NodeError::BalanceOverflow)
+                };
                 if output.recipient == *account {
                     settled.push(Self {
                         txid,
-                        amount: Amount::from_base_units(output.amount),
+                        amount: iso_amount()?,
                         direction: Direction::Credit,
                     });
                 }
                 if sender == *account {
                     settled.push(Self {
                         txid,
-                        amount: Amount::from_base_units(output.amount),
+                        amount: iso_amount()?,
                         direction: Direction::Debit,
                     });
                 }
             }
         }
-        settled
+        Ok(settled)
     }
 }
 
@@ -189,7 +200,7 @@ impl StatementSource {
         block: &crate::core::Block,
     ) -> Result<Statement> {
         let address = address_for_account(&account);
-        let entries = Settled::in_block(block, &address)
+        let entries = Settled::in_block(block, &address)?
             .into_iter()
             .map(|settled| Entry {
                 reference: Some(hex::encode(&settled.txid[..ENTRY_REFERENCE_BYTES])),

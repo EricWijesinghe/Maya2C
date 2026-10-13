@@ -53,7 +53,7 @@ pub struct AssetRegistration {
     /// Ticker, ASCII uppercase and digits, right-padded with zeros.
     pub symbol: [u8; SYMBOL_LEN],
     /// Units to create, all credited to the sender.
-    pub total_supply: u64,
+    pub total_supply: primitive_types::U256,
 }
 
 /// Moving a non-native asset.
@@ -67,7 +67,7 @@ pub struct AssetTransfer {
     /// Account to credit.
     pub recipient: Address,
     /// Units to move.
-    pub amount: u64,
+    pub amount: primitive_types::U256,
 }
 
 /// Creating a pool and seeding it.
@@ -86,9 +86,9 @@ pub struct PoolCreation {
     /// Basis points retained for liquidity providers.
     pub lp_fee_bps: u32,
     /// Units of `asset_a` to deposit.
-    pub amount_a: u64,
+    pub amount_a: primitive_types::U256,
     /// Units of `asset_b` to deposit.
-    pub amount_b: u64,
+    pub amount_b: primitive_types::U256,
 }
 
 /// Depositing into an existing pool.
@@ -97,14 +97,14 @@ pub struct LiquidityDeposit {
     /// Pool to deposit into.
     pub pair: PairId,
     /// Most base the sender will supply.
-    pub base_desired: u64,
+    pub base_desired: primitive_types::U256,
     /// Most quote the sender will supply.
-    pub quote_desired: u64,
+    pub quote_desired: primitive_types::U256,
     /// Fewest shares the sender will accept.
     ///
     /// The deposit is taken at the pool's ratio, which another transaction in
     /// the same block can have moved. This is the slippage bound for a deposit.
-    pub min_shares: u64,
+    pub min_shares: primitive_types::U256,
 }
 
 /// Redeeming shares.
@@ -113,11 +113,11 @@ pub struct LiquidityWithdrawal {
     /// Pool to withdraw from.
     pub pair: PairId,
     /// Shares to burn.
-    pub shares: u64,
+    pub shares: primitive_types::U256,
     /// Least base the sender will accept.
-    pub min_base: u64,
+    pub min_base: primitive_types::U256,
     /// Least quote the sender will accept.
-    pub min_quote: u64,
+    pub min_quote: primitive_types::U256,
 }
 
 /// A swap against a pool, settled in that pool's batch for the block.
@@ -128,13 +128,13 @@ pub struct SwapRequest {
     /// Tag of a [`maya_dex::types::Direction`].
     pub direction: u8,
     /// Units supplied.
-    pub amount_in: u64,
+    pub amount_in: primitive_types::U256,
     /// Least the sender will accept in return.
     ///
     /// Missing it is **not** an error. The swap is skipped, the input is
     /// returned, and the transaction still occupies its nonce. Making it an
     /// error would let one trader's bound invalidate a block that carried it.
-    pub min_out: u64,
+    pub min_out: primitive_types::U256,
     /// Last height at which the swap may execute. Zero means no deadline.
     ///
     /// Distinct from the slippage bound: a bound protects against the price
@@ -170,7 +170,7 @@ pub struct SwapRoute {
     /// Hops, in order. The output asset of each must be the input of the next.
     pub legs: Vec<RouteLeg>,
     /// Units supplied to the first leg.
-    pub amount_in: u64,
+    pub amount_in: primitive_types::U256,
     /// Least the sender will accept out of the last leg.
     ///
     /// Missing it is a no-op, exactly as for a plain swap: nothing moves, no
@@ -181,7 +181,7 @@ pub struct SwapRoute {
     /// A malformed route is still an error — legs that do not join up, or a
     /// pool that does not exist. The distinction is between a transaction that
     /// is wrong and a transaction that merely lost.
-    pub min_out: u64,
+    pub min_out: primitive_types::U256,
     /// Last height at which the route may execute. Zero means no deadline.
     pub deadline: u64,
 }
@@ -195,9 +195,9 @@ pub struct OrderPlacement {
     pub side: u8,
     /// Limit price: quote units per [`maya_dex::types::PRICE_SCALE`] base
     /// units.
-    pub price: u64,
+    pub price: primitive_types::U256,
     /// Base units to trade.
-    pub amount: u64,
+    pub amount: primitive_types::U256,
     /// Last height the order may match at. Zero is good-till-cancelled.
     pub expiry: u64,
 }
@@ -206,7 +206,7 @@ impl AssetRegistration {
     /// Appends the fixed-width encoding.
     pub fn encode_into(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&self.symbol);
-        buf.extend_from_slice(&self.total_supply.to_le_bytes());
+        crate::core::codec::put_amount(buf, &self.total_supply);
     }
 
     /// Decodes a registration.
@@ -217,7 +217,7 @@ impl AssetRegistration {
     pub fn decode(reader: &mut ByteReader<'_>) -> Result<Self> {
         Ok(Self {
             symbol: reader.read_array::<SYMBOL_LEN>()?,
-            total_supply: reader.read_u64()?,
+            total_supply: reader.read_amount()?,
         })
     }
 }
@@ -227,7 +227,7 @@ impl AssetTransfer {
     pub fn encode_into(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&self.asset);
         buf.extend_from_slice(&self.recipient);
-        buf.extend_from_slice(&self.amount.to_le_bytes());
+        crate::core::codec::put_amount(buf, &self.amount);
     }
 
     /// Decodes a transfer.
@@ -239,7 +239,7 @@ impl AssetTransfer {
         Ok(Self {
             asset: reader.read_array::<32>()?,
             recipient: reader.read_array::<32>()?,
-            amount: reader.read_u64()?,
+            amount: reader.read_amount()?,
         })
     }
 }
@@ -250,8 +250,8 @@ impl PoolCreation {
         buf.extend_from_slice(&self.asset_a);
         buf.extend_from_slice(&self.asset_b);
         buf.extend_from_slice(&self.lp_fee_bps.to_le_bytes());
-        buf.extend_from_slice(&self.amount_a.to_le_bytes());
-        buf.extend_from_slice(&self.amount_b.to_le_bytes());
+        crate::core::codec::put_amount(buf, &self.amount_a);
+        crate::core::codec::put_amount(buf, &self.amount_b);
     }
 
     /// Decodes a pool creation.
@@ -264,8 +264,8 @@ impl PoolCreation {
             asset_a: reader.read_array::<32>()?,
             asset_b: reader.read_array::<32>()?,
             lp_fee_bps: reader.read_u32()?,
-            amount_a: reader.read_u64()?,
-            amount_b: reader.read_u64()?,
+            amount_a: reader.read_amount()?,
+            amount_b: reader.read_amount()?,
         })
     }
 }
@@ -274,9 +274,9 @@ impl LiquidityDeposit {
     /// Appends the fixed-width encoding.
     pub fn encode_into(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&self.pair);
-        buf.extend_from_slice(&self.base_desired.to_le_bytes());
-        buf.extend_from_slice(&self.quote_desired.to_le_bytes());
-        buf.extend_from_slice(&self.min_shares.to_le_bytes());
+        crate::core::codec::put_amount(buf, &self.base_desired);
+        crate::core::codec::put_amount(buf, &self.quote_desired);
+        crate::core::codec::put_amount(buf, &self.min_shares);
     }
 
     /// Decodes a deposit.
@@ -287,9 +287,9 @@ impl LiquidityDeposit {
     pub fn decode(reader: &mut ByteReader<'_>) -> Result<Self> {
         Ok(Self {
             pair: reader.read_array::<32>()?,
-            base_desired: reader.read_u64()?,
-            quote_desired: reader.read_u64()?,
-            min_shares: reader.read_u64()?,
+            base_desired: reader.read_amount()?,
+            quote_desired: reader.read_amount()?,
+            min_shares: reader.read_amount()?,
         })
     }
 }
@@ -298,9 +298,9 @@ impl LiquidityWithdrawal {
     /// Appends the fixed-width encoding.
     pub fn encode_into(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&self.pair);
-        buf.extend_from_slice(&self.shares.to_le_bytes());
-        buf.extend_from_slice(&self.min_base.to_le_bytes());
-        buf.extend_from_slice(&self.min_quote.to_le_bytes());
+        crate::core::codec::put_amount(buf, &self.shares);
+        crate::core::codec::put_amount(buf, &self.min_base);
+        crate::core::codec::put_amount(buf, &self.min_quote);
     }
 
     /// Decodes a withdrawal.
@@ -311,9 +311,9 @@ impl LiquidityWithdrawal {
     pub fn decode(reader: &mut ByteReader<'_>) -> Result<Self> {
         Ok(Self {
             pair: reader.read_array::<32>()?,
-            shares: reader.read_u64()?,
-            min_base: reader.read_u64()?,
-            min_quote: reader.read_u64()?,
+            shares: reader.read_amount()?,
+            min_base: reader.read_amount()?,
+            min_quote: reader.read_amount()?,
         })
     }
 }
@@ -323,8 +323,8 @@ impl SwapRequest {
     pub fn encode_into(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&self.pair);
         buf.push(self.direction);
-        buf.extend_from_slice(&self.amount_in.to_le_bytes());
-        buf.extend_from_slice(&self.min_out.to_le_bytes());
+        crate::core::codec::put_amount(buf, &self.amount_in);
+        crate::core::codec::put_amount(buf, &self.min_out);
         buf.extend_from_slice(&self.deadline.to_le_bytes());
     }
 
@@ -337,8 +337,8 @@ impl SwapRequest {
         Ok(Self {
             pair: reader.read_array::<32>()?,
             direction: reader.read_u8()?,
-            amount_in: reader.read_u64()?,
-            min_out: reader.read_u64()?,
+            amount_in: reader.read_amount()?,
+            min_out: reader.read_amount()?,
             deadline: reader.read_u64()?,
         })
     }
@@ -352,8 +352,8 @@ impl SwapRoute {
             buf.extend_from_slice(&leg.pair);
             buf.push(leg.direction);
         }
-        buf.extend_from_slice(&self.amount_in.to_le_bytes());
-        buf.extend_from_slice(&self.min_out.to_le_bytes());
+        crate::core::codec::put_amount(buf, &self.amount_in);
+        crate::core::codec::put_amount(buf, &self.min_out);
         buf.extend_from_slice(&self.deadline.to_le_bytes());
     }
 
@@ -384,8 +384,8 @@ impl SwapRoute {
 
         Ok(Self {
             legs,
-            amount_in: reader.read_u64()?,
-            min_out: reader.read_u64()?,
+            amount_in: reader.read_amount()?,
+            min_out: reader.read_amount()?,
             deadline: reader.read_u64()?,
         })
     }
@@ -396,8 +396,8 @@ impl OrderPlacement {
     pub fn encode_into(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&self.pair);
         buf.push(self.side);
-        buf.extend_from_slice(&self.price.to_le_bytes());
-        buf.extend_from_slice(&self.amount.to_le_bytes());
+        crate::core::codec::put_amount(buf, &self.price);
+        crate::core::codec::put_amount(buf, &self.amount);
         buf.extend_from_slice(&self.expiry.to_le_bytes());
     }
 
@@ -410,8 +410,8 @@ impl OrderPlacement {
         Ok(Self {
             pair: reader.read_array::<32>()?,
             side: reader.read_u8()?,
-            price: reader.read_u64()?,
-            amount: reader.read_u64()?,
+            price: reader.read_amount()?,
+            amount: reader.read_amount()?,
             expiry: reader.read_u64()?,
         })
     }
