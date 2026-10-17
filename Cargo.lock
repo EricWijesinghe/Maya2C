@@ -5125,6 +5125,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hex",
  "jsonrpsee",
+ "maya-signer",
  "primitive-types",
  "rpassword",
  "serde",
@@ -6913,6 +6914,7 @@ dependencies = [
  "maya-zk-stark",
  "primitive-types",
  "serde_json",
+ "tempfile",
  "tokio",
  "zeroize",
 ]
