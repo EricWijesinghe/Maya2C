@@ -10,13 +10,18 @@ use crate::error::{Error, Result};
 use crate::lock::{Lock, Unlock};
 use crate::params::{COMMITMENT_BYTES, DIGEST_BYTES, OPENING_BYTES};
 use crate::timelock::LockStatus;
+use maya_amount::Amount;
 
 /// Record format version.
 ///
 /// 2 since hash locks: the lock and the unlock carry a family tag. No
 /// version-1 record exists on any chain — HTLCs never activated before the
 /// change — so version 1 is refused rather than migrated.
-const RECORD_VERSION: u8 = 2;
+///
+/// 3 since ADR-046: the amount is 256-bit. A version-2 record would read its
+/// eight amount bytes plus twenty-four bytes of heights as one amount, so it is
+/// refused, not reinterpreted; HTLCs have not activated on mainnet.
+const RECORD_VERSION: u8 = 3;
 
 /// A chain address.
 pub type Address = [u8; DIGEST_BYTES];
@@ -28,7 +33,10 @@ const TAG_REFUNDED: u8 = 2;
 /// Largest encoding: version, two addresses, amount, two heights, a lattice
 /// lock, and a claimed settlement carrying an opening.
 const MAX_BYTES: usize =
-    1 + 2 * DIGEST_BYTES + 3 * 8 + 1 + COMMITMENT_BYTES + 1 + 8 + 1 + OPENING_BYTES;
+    1 + 2 * DIGEST_BYTES + AMOUNT_BYTES + 2 * 8 + 1 + COMMITMENT_BYTES + 1 + 8 + 1 + OPENING_BYTES;
+
+/// A 256-bit amount, little-endian (ADR-046).
+const AMOUNT_BYTES: usize = 32;
 
 /// How a lock ended, if it has.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -57,8 +65,8 @@ pub struct LockRecord {
     /// Who a claim pays. Fixed at lock time, so a copied opening can only pay
     /// the party the sender named.
     pub recipient: Address,
-    /// Escrowed native base units.
-    pub amount: u64,
+    /// Escrowed native base units, 256-bit (ADR-046).
+    pub amount: Amount,
     /// Height of the locking block.
     pub created_height: u64,
     /// First height at which a claim is refused and a refund admitted.
@@ -82,10 +90,10 @@ impl LockRecord {
 
     /// Value the record still holds: all of it until settled, none after.
     #[must_use]
-    pub const fn escrowed(&self) -> u64 {
+    pub const fn escrowed(&self) -> Amount {
         match self.settlement {
             Settlement::Open => self.amount,
-            Settlement::Claimed { .. } | Settlement::Refunded { .. } => 0,
+            Settlement::Claimed { .. } | Settlement::Refunded { .. } => Amount::ZERO,
         }
     }
 
@@ -137,7 +145,12 @@ impl LockRecord {
         }
         let sender = reader.array()?;
         let recipient = reader.array()?;
-        let amount = reader.u64()?;
+        let amount = Amount::from_le_bytes(
+            reader
+                .take(AMOUNT_BYTES)?
+                .try_into()
+                .map_err(|_| malformed("amount"))?,
+        );
         let created_height = reader.u64()?;
         let expiry_height = reader.u64()?;
         let (lock, used) = Lock::decode(reader.0)?;
@@ -228,7 +241,7 @@ mod tests {
         LockRecord {
             sender: [1; 32],
             recipient: [2; 32],
-            amount: 5_000,
+            amount: Amount::from_u64(5_000),
             created_height: 7,
             expiry_height: 107,
             lock,
@@ -288,8 +301,11 @@ mod tests {
 
     #[test]
     fn a_settled_record_escrows_nothing() {
-        assert_eq!(record(Settlement::Open).escrowed(), 5_000);
-        assert_eq!(record(Settlement::Refunded { height: 1 }).escrowed(), 0);
+        assert_eq!(record(Settlement::Open).escrowed(), Amount::from_u64(5_000));
+        assert_eq!(
+            record(Settlement::Refunded { height: 1 }).escrowed(),
+            Amount::ZERO
+        );
     }
 
     #[test]

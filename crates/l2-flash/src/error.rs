@@ -22,18 +22,18 @@ pub enum FlashError {
     #[error("state does not conserve capacity: expected {expected}, state totals {actual}")]
     CapacityMismatch {
         /// The channel's funded capacity.
-        expected: u64,
+        expected: primitive_types::U256,
         /// What the proposed state accounts for.
-        actual: u64,
+        actual: primitive_types::U256,
     },
 
     /// A party tried to send more than its side holds.
     #[error("insufficient channel balance: need {required}, have {available}")]
     InsufficientBalance {
         /// Amount the transfer needs.
-        required: u64,
+        required: primitive_types::U256,
         /// Amount available on that side.
-        available: u64,
+        available: primitive_types::U256,
     },
 
     /// A signature did not verify against the expected participant.
@@ -109,7 +109,7 @@ pub enum FlashError {
         /// Hex-encoded destination.
         to: String,
         /// Amount that could not be routed.
-        amount: u64,
+        amount: primitive_types::U256,
     },
 
     /// A route exceeded the permitted number of hops.

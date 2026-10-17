@@ -2,6 +2,7 @@ package maya2c
 
 import (
 	"errors"
+	"math/big"
 	"os"
 	"testing"
 	"time"
@@ -25,7 +26,7 @@ func TestReadsTheChain(t *testing.T) {
 		t.Fatal(err)
 	}
 	tip, err := c.AccountAtTip(sender)
-	if err != nil || tip.Balance == 0 || len(tip.BlockID) != 64 {
+	if err != nil || tip.Balance == "0" || len(tip.BlockID) != 64 {
 		t.Fatalf("account at tip: %+v, %v", tip, err)
 	}
 	b, err := c.BlockByHeight(1)
@@ -41,13 +42,14 @@ func TestATransferSignedInRustIsCredited(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	txid, err := w.Transfer(to, 4321)
+	amount := big.NewInt(4321)
+	txid, err := w.Transfer(to, amount)
 	if err != nil || len(txid) != 64 {
 		t.Fatalf("transfer: %q, %v", txid, err)
 	}
 	waited, err := WaitUntil(func() bool {
 		now, err := c.Balance(to)
-		return err == nil && now == before+4321
+		return err == nil && now.Cmp(new(big.Int).Add(before, amount)) == 0
 	}, 60*time.Second)
 	if err != nil {
 		t.Fatal(err)

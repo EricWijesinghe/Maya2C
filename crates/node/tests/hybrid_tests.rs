@@ -385,7 +385,7 @@ fn a_transaction_signs_verifies_and_names_its_sender() {
     let mut tx = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount: 42,
+            amount: primitive_types::U256::from(42),
             recipient: [7u8; 32],
         }],
         0,
@@ -404,7 +404,7 @@ fn a_signed_transaction_survives_the_wire() {
     let mut tx = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount: 7,
+            amount: primitive_types::U256::from(7),
             recipient: [3u8; 32],
         }],
         11,
@@ -424,7 +424,7 @@ fn an_unsigned_transaction_reports_a_missing_signature() {
     let tx = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount: 1,
+            amount: primitive_types::U256::from(1),
             recipient: [0u8; 32],
         }],
         0,
@@ -446,7 +446,7 @@ fn a_transaction_with_a_tampered_hash_proof_is_rejected() {
     let mut tx = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount: 5,
+            amount: primitive_types::U256::from(5),
             recipient: [1u8; 32],
         }],
         0,
@@ -474,7 +474,7 @@ fn the_encoded_transaction_is_as_large_as_the_schemes_imply() {
     let mut tx = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount: 1,
+            amount: primitive_types::U256::from(1),
             recipient: [0u8; 32],
         }],
         0,

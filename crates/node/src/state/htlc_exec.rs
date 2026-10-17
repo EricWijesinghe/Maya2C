@@ -35,7 +35,6 @@
 use maya_htlc_lattice::{
     ClaimOutcome, Lock, LockRecord, RefundOutcome, Settlement, decide_claim, decide_refund,
 };
-use maya_ledger_math as ledger_math;
 
 use crate::core::htlc_payload::{HtlcClaim, HtlcLock, HtlcRefund, LockId};
 use crate::error::{NodeError, Result};
@@ -61,7 +60,7 @@ impl StateDB {
         context: BlockContext,
     ) -> Result<LockId> {
         require_active(context, &payload.lock)?;
-        if payload.amount == 0 {
+        if payload.amount.is_zero() {
             return Err(NodeError::Htlc("a lock must escrow something".to_owned()));
         }
         // A lock born expired admits only a refund: a round trip through
@@ -82,19 +81,21 @@ impl StateDB {
 
         let mut account = self.load(overlay, sender)?;
         let available = account.balance;
-        account.balance = ledger_math::debit(available, payload.amount).ok_or_else(|| {
-            NodeError::InsufficientBalance {
-                address: hex::encode(sender),
-                required: payload.amount,
-                available,
-            }
-        })?;
+        let required = payload.amount;
+        account.balance =
+            available
+                .checked_sub(required)
+                .ok_or_else(|| NodeError::InsufficientBalance {
+                    address: hex::encode(sender),
+                    required,
+                    available,
+                })?;
         overlay.accounts.insert(*sender, account);
 
         let record = LockRecord {
             sender: *sender,
             recipient: payload.recipient,
-            amount: payload.amount,
+            amount: maya_stateless_core::amount::to_amount(payload.amount),
             created_height: context.height,
             expiry_height: payload.expiry_height,
             lock: payload.lock.clone(),
@@ -174,10 +175,17 @@ impl StateDB {
     /// An overflow here is unreachable while supply is conserved — no account
     /// can hold more than the whole supply — so it fails the block rather than
     /// being treated as a lost race.
-    fn credit_escrow(&self, overlay: &mut Overlay, address: &Address, amount: u64) -> Result<()> {
+    fn credit_escrow(
+        &self,
+        overlay: &mut Overlay,
+        address: &Address,
+        amount: maya_htlc_lattice::Amount,
+    ) -> Result<()> {
         let mut account = self.load(overlay, address)?;
-        account.balance =
-            ledger_math::credit(account.balance, amount).ok_or(NodeError::BalanceOverflow)?;
+        account.balance = account
+            .balance
+            .checked_add(maya_stateless_core::amount::to_u256(amount))
+            .ok_or(NodeError::BalanceOverflow)?;
         overlay.accounts.insert(*address, account);
         Ok(())
     }

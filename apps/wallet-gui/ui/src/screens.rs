@@ -19,7 +19,7 @@ pub fn short(hash: &str) -> String {
 /// Amounts stay in base units, the way the explorer shows them: the chain has
 /// no ratified display symbol or decimals yet, and a decimal point invented
 /// here would put a number on screen nobody has agreed to.
-pub fn group_digits(n: u64) -> String {
+pub fn group_digits(n: impl std::fmt::Display) -> String {
     let digits = n.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
     for (i, c) in digits.chars().enumerate() {
@@ -430,8 +430,8 @@ pub mod wallet {
                                 <span class="amount">
                                     {format!(
                                         "\u{2212}{} (+{} fee)",
-                                        group_digits(entry.transfer.amount),
-                                        group_digits(entry.transfer.fee),
+                                        group_digits(&entry.transfer.amount),
+                                        group_digits(&entry.transfer.fee),
                                     )}
                                 </span>
                             </div>
@@ -735,7 +735,7 @@ pub mod send {
                         state.clear();
                         state.screen.set(Screen::Sent(crate::receive::SentTransfer {
                             txid,
-                            amount: transfer.amount,
+                            amount: transfer.amount.clone(),
                             recipient: transfer.recipient.clone(),
                         }));
                     }

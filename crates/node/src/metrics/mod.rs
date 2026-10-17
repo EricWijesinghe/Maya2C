@@ -365,13 +365,18 @@ impl Metrics {
     }
 
     /// Records shielded pool size.
-    pub fn set_shielded(&self, notes: u64, balance: u64) {
+    pub fn set_shielded(&self, notes: u64, balance: primitive_types::U256) {
         self.shielded_notes.set(notes as i64);
         // Saturating rather than wrapping: a balance beyond `i64::MAX` would
         // otherwise report as negative, which reads as a bug in the chain
-        // rather than in the exporter.
-        self.shielded_balance
-            .set(i64::try_from(balance).unwrap_or(i64::MAX));
+        // rather than in the exporter. A Prometheus gauge is an i64/f64, so a
+        // U256 balance (ADR-046) above it reads as the ceiling.
+        let capped = if balance > primitive_types::U256::from(i64::MAX as u64) {
+            i64::MAX
+        } else {
+            i64::try_from(balance.low_u64()).unwrap_or(i64::MAX)
+        };
+        self.shielded_balance.set(capped);
     }
 
     /// Publishes the post-quantum transport totals.
@@ -533,7 +538,7 @@ mod tests {
     #[test]
     fn an_oversized_shielded_balance_saturates_instead_of_going_negative() {
         let metrics = Metrics::new();
-        metrics.set_shielded(2, u64::MAX);
+        metrics.set_shielded(2, primitive_types::U256::MAX);
         let text = metrics.encode().expect("encode");
         assert!(text.contains(&format!("maya_shielded_balance {}", i64::MAX)));
         assert!(!text.contains("maya_shielded_balance -"));

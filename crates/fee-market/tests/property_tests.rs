@@ -5,6 +5,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::too_many_lines)]
 
+use maya_amount::Amount;
 use maya_fee_market::limits::{
     MAX_CHANGE_DENOMINATOR, MAX_TARGET_BLOCK_BYTES, MAX_TREASURY_BPS, MIN_CHANGE_DENOMINATOR,
     MIN_TARGET_BLOCK_BYTES,
@@ -16,6 +17,23 @@ use maya_fee_market::{
 };
 use proptest::prelude::*;
 
+/// `split` at `u64` inputs, read back as `u64`: every input here is below
+/// 2^64, so every share is too.
+struct Split64 {
+    burned: u64,
+    treasury: u64,
+    tip: u64,
+}
+
+fn split64(base_fee: u64, tip: u64, bps: u64) -> Split64 {
+    let s = maya_fee_market::split(Amount::from_u64(base_fee), Amount::from_u64(tip), bps);
+    Split64 {
+        burned: s.burned.to_u64().expect("share of a u64"),
+        treasury: s.treasury.to_u64().expect("share of a u64"),
+        tip: s.tip.to_u64().expect("passed through"),
+    }
+}
+
 proptest! {
     /// The fee market's split function should always distribute exactly what was paid:
     /// burned + treasury + tip == base_fee * size + tip (where tip is the priority fee).
@@ -25,7 +43,7 @@ proptest! {
         tip in 0u64..1_000_000_000u64,
         bps in 0u64..=10_000u64,
     ) {
-        let s = maya_fee_market::split(base_fee, tip, bps);
+        let s = split64(base_fee, tip, bps);
         let expected_total = base_fee.saturating_add(tip);
         let actual_total = s.burned.saturating_add(s.treasury).saturating_add(s.tip);
         prop_assert_eq!(actual_total, expected_total,
@@ -39,7 +57,7 @@ proptest! {
         tip in 0u64..1_000_000_000u64,
         bps in 0u64..=10_000u64,
     ) {
-        let s = maya_fee_market::split(base_fee, tip, bps);
+        let s = split64(base_fee, tip, bps);
         // The treasury portion comes from bps of the base fee portion only
         prop_assert!(s.treasury <= base_fee,
             "treasury portion must not exceed base fee: treasury={}, base={}", s.treasury, base_fee);
@@ -52,7 +70,7 @@ proptest! {
         tip in 0u64..1_000_000_000u64,
         bps in 0u64..=10_000u64,
     ) {
-        let s = maya_fee_market::split(base_fee, tip, bps);
+        let s = split64(base_fee, tip, bps);
         // Treasury is computed with integer division: base_fee * bps / 10000
         // Burned = base_fee - treasury
         let treasury = base_fee.saturating_mul(bps.min(10_000)) / 10_000;
@@ -68,7 +86,7 @@ proptest! {
         tip in 0u64..1_000_000_000u64,
         bps in 0u64..=10_000u64,
     ) {
-        let s = maya_fee_market::split(base_fee, tip, bps);
+        let s = split64(base_fee, tip, bps);
         prop_assert_eq!(s.tip, tip, "tip must be passed through unchanged");
     }
 
@@ -165,8 +183,8 @@ proptest! {
         let max_fee = base_fee.saturating_mul(size).saturating_add(tip);
         let tx = TxFee {
             size_bytes: size,
-            max_fee,
-            max_tip: tip,
+            max_fee: Amount::from_u64(max_fee),
+            max_tip: Amount::from_u64(tip),
         };
 
         let result = apply_block_fees(&config, 1, None, &[tx], &[FeeClaim { beneficiary: [1u8; 32] }]);
@@ -175,7 +193,7 @@ proptest! {
         let expected_total = base_fee.saturating_mul(size).saturating_add(tip);
         if let BlockFeeOutcome::Charged { burned, treasury, tips, .. } = outcome {
             let actual_total = burned.saturating_add(treasury).saturating_add(tips);
-            prop_assert_eq!(actual_total, expected_total,
+            prop_assert_eq!(actual_total, Amount::from_u64(expected_total),
                 "collected total must match sum of max fees");
         } else {
             prop_assert!(false, "expected Charged outcome");
@@ -189,9 +207,9 @@ proptest! {
         tip in 0u64..1_000_000_000u64,
         bps in 0u64..=10_000u64,
     ) {
-        let s1 = maya_fee_market::split(base_fee, tip, bps);
-        let s2 = maya_fee_market::split(base_fee, tip, bps);
-        let s3 = maya_fee_market::split(base_fee, tip, bps);
+        let s1 = split64(base_fee, tip, bps);
+        let s2 = split64(base_fee, tip, bps);
+        let s3 = split64(base_fee, tip, bps);
         prop_assert_eq!(s1.burned, s2.burned);
         prop_assert_eq!(s1.burned, s3.burned);
         prop_assert_eq!(s1.treasury, s2.treasury);
@@ -208,7 +226,7 @@ mod edge_cases {
 
     #[test]
     fn split_at_max_bps_puts_everything_in_treasury() {
-        let s = maya_fee_market::split(1000, 0, 10_000);
+        let s = split64(1000, 0, 10_000);
         assert_eq!(s.burned, 0);
         assert_eq!(s.treasury, 1000);
         assert_eq!(s.tip, 0);
@@ -216,7 +234,7 @@ mod edge_cases {
 
     #[test]
     fn split_at_zero_bps_burns_everything() {
-        let s = maya_fee_market::split(1000, 0, 0);
+        let s = split64(1000, 0, 0);
         assert_eq!(s.burned, 1000);
         assert_eq!(s.treasury, 0);
         assert_eq!(s.tip, 0);
@@ -224,7 +242,7 @@ mod edge_cases {
 
     #[test]
     fn split_with_tip_keeps_tip_separate() {
-        let s = maya_fee_market::split(1000, 500, 5_000);
+        let s = split64(1000, 500, 5_000);
         // 50% to treasury, 50% burned, tip unchanged
         assert_eq!(s.tip, 500);
         assert_eq!(s.treasury, 500);

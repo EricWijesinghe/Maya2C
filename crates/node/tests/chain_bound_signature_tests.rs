@@ -4,6 +4,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use primitive_types::U256;
 use std::sync::Arc;
 
 use custom_l1_node::consensus::chain::{Chain, ChainConfig};
@@ -28,7 +29,7 @@ fn transfer(chain: &ChainTag, amount: u64) -> Transaction {
     let mut tx = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount,
+            amount: primitive_types::U256::from(amount),
             recipient: [9; 32],
         }],
         0,
@@ -125,7 +126,7 @@ fn a_chain_accepts_its_own_transactions_and_refuses_a_replay_from_another() {
         .put_account(
             &key().address(),
             &Account {
-                balance: 1_000_000,
+                balance: U256::from(1_000_000),
                 nonce: 0,
             },
         )

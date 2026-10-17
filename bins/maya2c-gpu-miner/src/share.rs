@@ -97,7 +97,30 @@ struct Work {
     /// Empty while mining has not opened, so parsed only for active work.
     dag: String,
     dag_epoch: u64,
-    share_reward: u64,
+    /// Base units, 256-bit (ADR-046): a decimal string on the wire, carried
+    /// through to the event stream unchanged.
+    #[serde(deserialize_with = "decimal")]
+    share_reward: String,
+}
+
+/// An amount as the node sends it: a base-10 string (ADR-046), or a JSON
+/// number from an older node. Kept as text — the miner never does arithmetic
+/// on it, only shows it — so no width is imposed here.
+fn decimal<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    use serde::de::Error as _;
+    match Value::deserialize(deserializer)? {
+        Value::String(text) if !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()) => {
+            Ok(text)
+        }
+        Value::Number(n) if n.is_u64() => Ok(n.to_string()),
+        other => Err(D::Error::custom(format!("not a decimal amount: {other}"))),
+    }
+}
+
+/// Whether a decimal from [`decimal`] is zero, leading zeros included
+/// (`"00"` is zero too).
+fn is_zero(text: &str) -> bool {
+    text.bytes().all(|b| b == b'0')
 }
 
 #[derive(Deserialize)]
@@ -107,7 +130,8 @@ struct ChainInfo {
 
 #[derive(Deserialize)]
 struct Account {
-    balance: u64,
+    #[serde(deserialize_with = "decimal")]
+    balance: String,
     nonce: u64,
 }
 
@@ -234,7 +258,7 @@ pub fn run(args: &ShareArgs<'_>) -> Result<(), String> {
             thread::sleep(IDLE_WAIT);
             continue;
         }
-        if work.share_reward == 0 {
+        if is_zero(&work.share_reward) {
             session.emit(&json!({"event": "idle", "epoch": work.epoch,
                 "reason": "this epoch's miner budget is spent; waiting for the next epoch"}));
             thread::sleep(REFRESH_EVERY);
@@ -408,7 +432,9 @@ impl Session {
                 {
                     // Same header but nothing left to pay: stop hashing too.
                     Ok(next)
-                        if next.active && next.header == work.header && next.share_reward > 0 => {}
+                        if next.active
+                            && next.header == work.header
+                            && !is_zero(&next.share_reward) => {}
                     Ok(_) => return,
                     Err(error) => self.emit(&json!({"event": "error", "message": error})),
                 }

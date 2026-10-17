@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"net/http"
 	"sync/atomic"
 	"time"
@@ -73,7 +74,8 @@ func (c *Client) Call(method string, params []any, out any) error {
 // Account is an account's state.
 type Account struct {
 	Address string `json:"address"`
-	Balance uint64 `json:"balance"`
+	// Balance is an exact decimal string: amounts are 256-bit (ADR-046).
+	Balance string `json:"balance"`
 	Nonce   uint64 `json:"nonce"`
 }
 
@@ -84,11 +86,18 @@ type AccountAtTip struct {
 	BlockID string `json:"block_id"`
 }
 
-// Balance returns an account's balance.
-func (c *Client) Balance(address string) (uint64, error) {
+// Balance returns an account's balance. Amounts are 256-bit (ADR-046), so
+// the result is a big.Int parsed from the node's decimal string.
+func (c *Client) Balance(address string) (*big.Int, error) {
 	var a Account
-	err := c.Call("get_balance", []any{address}, &a)
-	return a.Balance, err
+	if err := c.Call("get_balance", []any{address}, &a); err != nil {
+		return nil, err
+	}
+	balance, ok := new(big.Int).SetString(a.Balance, 10)
+	if !ok {
+		return nil, fmt.Errorf("balance %q is not a decimal amount", a.Balance)
+	}
+	return balance, nil
 }
 
 // AccountAtTip returns an account with the tip it was read at.

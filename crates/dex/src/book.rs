@@ -9,7 +9,7 @@
 //! - `sequence` is a monotonic arrival counter, so ties in price break in
 //!   arrival order without a timestamp — and without a timestamp there is
 //!   nothing for a miner to backdate.
-//! - `price_key` is the price for an ask and `u64::MAX - price` for a bid, so
+//! - `price_key` is the price for an ask and `Amount::MAX - price` for a bid, so
 //!   that *both* sides are best-first in ascending order. Without the
 //!   inversion, one side would have to be iterated backwards, and every
 //!   function that walks a book would need to know which side it was holding.
@@ -40,6 +40,8 @@
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
+use maya_amount::{Amount, BYTES};
+
 use crate::error::{DexError, Result};
 use crate::math::{mul_div_ceil, mul_div_floor};
 use crate::types::PRICE_SCALE;
@@ -48,7 +50,9 @@ use crate::types::PRICE_SCALE;
 pub type OrderId = [u8; 32];
 
 /// Length of an encoded [`sort_key`].
-pub const SORT_KEY_LEN: usize = 16;
+///
+/// A 256-bit price key (ADR-046) and a `u64` sequence, both big-endian.
+pub const SORT_KEY_LEN: usize = BYTES + 8;
 
 /// Which side of the book an order rests on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -96,9 +100,10 @@ impl Side {
     /// Asks sort by price directly — the cheapest offer is the one a buyer
     /// wants. Bids sort by the complement, so the highest offer comes first.
     #[must_use]
-    pub const fn price_key(self, price: u64) -> u64 {
+    pub const fn price_key(self, price: Amount) -> Amount {
         match self {
-            Self::Bid => u64::MAX - price,
+            // MAX - price never underflows.
+            Self::Bid => Amount::MAX.saturating_sub(price),
             Self::Ask => price,
         }
     }
@@ -116,11 +121,11 @@ pub struct Order {
     /// Limit price: quote base-units per [`PRICE_SCALE`] base base-units.
     ///
     /// A bid will not pay above it; an ask will not sell below it.
-    pub price: u64,
+    pub price: Amount,
     /// Base units the order was placed for.
-    pub amount: u64,
+    pub amount: Amount,
     /// Base units still open. Falls to zero as the order fills.
-    pub remaining: u64,
+    pub remaining: Amount,
     /// Arrival counter, assigned by the chain. Breaks price ties.
     pub sequence: u64,
     /// Block height after which the order is no longer matchable.
@@ -135,12 +140,12 @@ impl Order {
     /// Whether the order can still be matched at `height`.
     #[must_use]
     pub const fn is_live(&self, height: u64) -> bool {
-        self.remaining > 0 && (self.expiry == 0 || height <= self.expiry)
+        !self.remaining.is_zero() && (self.expiry == 0 || height <= self.expiry)
     }
 
     /// The key this order files under.
     #[must_use]
-    pub const fn key(&self) -> (u64, u64) {
+    pub const fn key(&self) -> (Amount, u64) {
         (self.side.price_key(self.price), self.sequence)
     }
 
@@ -148,9 +153,9 @@ impl Order {
     ///
     /// # Errors
     ///
-    /// Returns [`DexError::Overflow`] if the product leaves `u64`, or
+    /// Returns [`DexError::Overflow`] if the product leaves 256 bits, or
     /// [`DexError::ZeroPrice`] if the price is zero.
-    pub fn open_quote(&self) -> Result<u64> {
+    pub fn open_quote(&self) -> Result<Amount> {
         quote_for_base(self.remaining, self.price, self.side)
     }
 }
@@ -165,14 +170,14 @@ impl Order {
 /// # Errors
 ///
 /// Returns [`DexError::ZeroPrice`] for a zero price and [`DexError::Overflow`]
-/// if the result leaves `u64`.
-pub fn quote_for_base(base: u64, price: u64, side: Side) -> Result<u64> {
-    if price == 0 {
+/// if the result leaves 256 bits.
+pub fn quote_for_base(base: Amount, price: Amount, side: Side) -> Result<Amount> {
+    if price.is_zero() {
         return Err(DexError::ZeroPrice);
     }
     let quote = match side {
-        Side::Bid => mul_div_ceil(u128::from(base), u128::from(price), PRICE_SCALE),
-        Side::Ask => mul_div_floor(u128::from(base), u128::from(price), PRICE_SCALE),
+        Side::Bid => mul_div_ceil(base, price, PRICE_SCALE),
+        Side::Ask => mul_div_floor(base, price, PRICE_SCALE),
     };
     quote.ok_or(DexError::Overflow)
 }
@@ -185,17 +190,20 @@ pub fn quote_for_base(base: u64, price: u64, side: Side) -> Result<u64> {
 /// two sides in one range and make "the best ask" a filtered scan rather than a
 /// seek.
 #[must_use]
-pub fn sort_key(side: Side, price: u64, sequence: u64) -> [u8; SORT_KEY_LEN] {
+pub fn sort_key(side: Side, price: Amount, sequence: u64) -> [u8; SORT_KEY_LEN] {
     let mut key = [0u8; SORT_KEY_LEN];
-    key[0..8].copy_from_slice(&side.price_key(price).to_be_bytes());
-    key[8..16].copy_from_slice(&sequence.to_be_bytes());
+    let mut price_key = side.price_key(price).to_le_bytes();
+    // Big-endian, so byte order is numeric order.
+    price_key.reverse();
+    key[..BYTES].copy_from_slice(&price_key);
+    key[BYTES..].copy_from_slice(&sequence.to_be_bytes());
     key
 }
 
 /// One side's resting orders, plus the index needed to cancel by identifier.
 #[derive(Clone, Debug, Default)]
 struct BookSide {
-    orders: BTreeMap<(u64, u64), Order>,
+    orders: BTreeMap<(Amount, u64), Order>,
 }
 
 /// Both sides of one pair's order book.
@@ -208,7 +216,7 @@ pub struct Book {
     asks: BookSide,
     /// Where each live order sits, so a cancellation is a lookup rather than a
     /// scan of both sides.
-    index: BTreeMap<OrderId, (Side, u64, u64)>,
+    index: BTreeMap<OrderId, (Side, Amount, u64)>,
 }
 
 impl Book {
@@ -241,10 +249,10 @@ impl Book {
     /// that cannot trade is an order that occupies a slot and a database key
     /// forever, and a book full of them is a cheap denial of service.
     pub fn insert(&mut self, order: Order) -> Result<()> {
-        if order.price == 0 {
+        if order.price.is_zero() {
             return Err(DexError::ZeroPrice);
         }
-        if order.remaining == 0 {
+        if order.remaining.is_zero() {
             return Err(DexError::ZeroAmount);
         }
         let key = order.key();
@@ -267,7 +275,7 @@ impl Book {
 
     /// The best price on `side`.
     #[must_use]
-    pub fn best_price(&self, side: Side) -> Option<u64> {
+    pub fn best_price(&self, side: Side) -> Option<Amount> {
         self.best(side).map(|order| order.price)
     }
 
@@ -325,7 +333,7 @@ impl Book {
     /// the fill exceeds what is open — either means the matcher and the book
     /// have disagreed about the book's contents, which is not a condition to
     /// recover from.
-    pub(crate) fn reduce(&mut self, id: &OrderId, base: u64) -> Result<()> {
+    pub(crate) fn reduce(&mut self, id: &OrderId, base: Amount) -> Result<()> {
         let &(side, price_key, sequence) =
             self.index.get(id).ok_or(DexError::InvariantViolation)?;
         let slot = self
@@ -339,7 +347,7 @@ impl Book {
             .checked_sub(base)
             .ok_or(DexError::InvariantViolation)?;
 
-        if slot.remaining == 0 {
+        if slot.remaining.is_zero() {
             self.side_mut(side).orders.remove(&(price_key, sequence));
             self.index.remove(id);
         }

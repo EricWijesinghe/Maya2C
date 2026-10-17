@@ -3,6 +3,8 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
+use maya_amount::Amount;
+
 use crate::params::bps_of;
 use crate::types::{
     Address, Effect, StakeError, Staking, Status, Unbonding, ValidatorId, ValidatorRecord,
@@ -19,7 +21,7 @@ impl Staking {
         &mut self,
         operator: Address,
         id: ValidatorId,
-        bond: u64,
+        bond: Amount,
         commission_bps: u16,
     ) -> Result<Vec<Effect>, StakeError> {
         if bond < self.params.min_self_bond {
@@ -36,7 +38,7 @@ impl Staking {
             ValidatorRecord {
                 operator,
                 self_bond: bond,
-                delegated: 0,
+                delegated: Amount::ZERO,
                 commission_bps,
                 status: Status::Bonded,
             },
@@ -53,7 +55,7 @@ impl Staking {
         &mut self,
         operator: Address,
         id: ValidatorId,
-        amount: u64,
+        amount: Amount,
     ) -> Result<Vec<Effect>, StakeError> {
         let v = self.operated_mut(operator, &id)?;
         v.self_bond = v
@@ -75,7 +77,7 @@ impl Staking {
         &mut self,
         operator: Address,
         id: ValidatorId,
-        amount: u64,
+        amount: Amount,
     ) -> Result<Vec<Effect>, StakeError> {
         let min = self.params.min_self_bond;
         let release_epoch = self.release_epoch()?;
@@ -84,7 +86,7 @@ impl Staking {
             .self_bond
             .checked_sub(amount)
             .ok_or(StakeError::InsufficientStake)?;
-        if rest != 0 && rest < min {
+        if !rest.is_zero() && rest < min {
             return Err(StakeError::BelowMinimum);
         }
         v.self_bond = rest;
@@ -106,7 +108,7 @@ impl Staking {
         &mut self,
         delegator: Address,
         id: ValidatorId,
-        amount: u64,
+        amount: Amount,
     ) -> Result<Vec<Effect>, StakeError> {
         if amount < self.params.min_delegation {
             return Err(StakeError::BelowMinimum);
@@ -122,7 +124,10 @@ impl Staking {
             .delegated
             .checked_add(amount)
             .ok_or(StakeError::Overflow)?;
-        let entry = self.delegations.entry((delegator, id)).or_insert(0);
+        let entry = self
+            .delegations
+            .entry((delegator, id))
+            .or_insert(Amount::ZERO);
         let new_entry = entry.checked_add(amount).ok_or(StakeError::Overflow)?;
         *entry = new_entry;
         v.delegated = delegated;
@@ -138,7 +143,7 @@ impl Staking {
         &mut self,
         delegator: Address,
         id: ValidatorId,
-        amount: u64,
+        amount: Amount,
     ) -> Result<Vec<Effect>, StakeError> {
         let release_epoch = self.release_epoch()?;
         let key = (delegator, id);
@@ -157,7 +162,7 @@ impl Staking {
             .delegated
             .checked_sub(amount)
             .ok_or(StakeError::InsufficientStake)?;
-        if rest == 0 {
+        if rest.is_zero() {
             self.delegations.remove(&key);
         } else {
             self.delegations.insert(key, rest);
@@ -202,8 +207,8 @@ impl Staking {
     }
 
     /// Takes `bps` of everything bonded to `id`, including unbonding funds.
-    pub(crate) fn slash(&mut self, id: ValidatorId, bps: u16) -> Result<u64, StakeError> {
-        let mut burned: u64 = 0;
+    pub(crate) fn slash(&mut self, id: ValidatorId, bps: u16) -> Result<Amount, StakeError> {
+        let mut burned = Amount::ZERO;
         let v = self
             .validators
             .get_mut(&id)
@@ -213,7 +218,7 @@ impl Staking {
         // caller with an unvalidated rate refuses instead of panicking.
         v.self_bond = v.self_bond.checked_sub(cut).ok_or(StakeError::Overflow)?;
         burned = burned.checked_add(cut).ok_or(StakeError::Overflow)?;
-        let mut delegated_cut: u64 = 0;
+        let mut delegated_cut = Amount::ZERO;
         for ((_, validator), amount) in &mut self.delegations {
             if *validator == id {
                 let cut = bps_of(*amount, bps);
@@ -232,7 +237,7 @@ impl Staking {
                 burned = burned.checked_add(cut).ok_or(StakeError::Overflow)?;
             }
         }
-        self.delegations.retain(|_, a| *a > 0);
+        self.delegations.retain(|_, a| !a.is_zero());
         Ok(burned)
     }
 

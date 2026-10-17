@@ -159,11 +159,13 @@ impl StateDB {
         Ok(outcome.output)
     }
 
-    /// Reads a balance through the overlay.
-    fn load_balance(&self, overlay: &Overlay, address: &Address) -> Result<u64> {
-        match overlay.accounts.get(address) {
-            Some(account) => Ok(account.balance),
-            None => Ok(self.get_account(address)?.balance),
-        }
+    /// Reads a balance through the overlay, 256-bit (ADR-046): contracts see
+    /// the exact value through `get_balance_u256`.
+    fn load_balance(&self, overlay: &Overlay, address: &Address) -> Result<maya_vm::Amount> {
+        let balance = match overlay.accounts.get(address) {
+            Some(account) => account.balance,
+            None => self.get_account(address)?.balance,
+        };
+        Ok(maya_stateless_core::amount::to_amount(balance))
     }
 }

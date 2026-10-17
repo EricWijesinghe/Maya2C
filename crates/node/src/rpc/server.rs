@@ -10,6 +10,7 @@
 //! path must be serialized — two concurrent reorgs would interleave undo
 //! journals and corrupt state.
 
+use primitive_types::U256;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
@@ -80,7 +81,7 @@ fn balance_at_height(
     ctx: &RpcContext,
     address: &[u8; 32],
     height: u64,
-) -> Result<(u64, [u8; 32]), ErrorObjectOwned> {
+) -> Result<(U256, [u8; 32]), ErrorObjectOwned> {
     let (state, tip, tip_id, mut balance) = {
         let chain = ctx.chain();
         let balance = chain
@@ -336,7 +337,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
             let (balance, id) = balance_at_height(ctx, &address, height)?;
             Ok::<_, ErrorObjectOwned>(serde_json::json!({
                 "address": address_hex,
-                "balance": balance,
+                "balance": balance.to_string(),
                 "height": height,
                 "block_id": hex::encode(id),
             }))
@@ -360,14 +361,14 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 .iter()
                 .map(|(id, w)| {
                     serde_json::json!({
-                        "id": id, "to": hex::encode(w.to), "amount": w.amount,
+                        "id": id, "to": hex::encode(w.to), "amount": w.amount.to_string(),
                         "ready_height": w.ready_height,
                     })
                 })
                 .collect();
             Ok(serde_json::json!({
                 "delay_blocks": config.delay_blocks,
-                "limit": config.limit,
+                "limit": config.limit.to_string(),
                 "guardians": config.guardians.iter().map(hex::encode).collect::<Vec<_>>(),
                 "pending_reconfiguration_height": vault.pending.as_ref().map(|(_, ready)| *ready),
                 "open_requests": vault.open,
@@ -839,7 +840,7 @@ fn mining_work(
         target: hex::encode(record.target),
         dag: dag.to_string(),
         dag_epoch,
-        share_reward: record.share_reward(),
+        share_reward: maya_stateless_core::amount::to_u256(record.share_reward()),
         shares: record.shares,
         target_shares: record.target_shares,
         epoch_blocks: record.epoch_blocks,

@@ -85,7 +85,7 @@ fn open_db(funded: &[(Address, u64)]) -> (StateDB, TempDir) {
         db.put_account(
             address,
             &Account {
-                balance: *balance,
+                balance: primitive_types::U256::from(*balance),
                 nonce: 0,
             },
         )
@@ -172,7 +172,7 @@ impl LocalChain {
     }
 
     fn balance(&self, address: &Address) -> u64 {
-        self.db.get_account(address).expect("account").balance
+        u64::try_from(self.db.get_account(address).expect("account").balance).expect("fits u64")
     }
 
     fn nonce(&self, address: &Address) -> u64 {
@@ -280,7 +280,7 @@ fn lock_kind(
 ) -> TxKind {
     TxKind::HtlcLock(Box::new(HtlcLock {
         recipient,
-        amount,
+        amount: primitive_types::U256::from(amount),
         expiry_height,
         lock: Lock::Lattice(secret.commitment().expect("commit")),
     }))
@@ -315,7 +315,12 @@ async fn a_swap_between_two_chains_settles_both_legs() {
     let secret = LatticeSecret::from_entropy([1; 32]);
     let commitment = secret.commitment().expect("commit");
     let alice_lock = alice_watcher
-        .initiate(SwapSecret::Lattice(secret), bob, 4_000, 80)
+        .initiate(
+            SwapSecret::Lattice(secret),
+            bob,
+            primitive_types::U256::from(4_000),
+            80,
+        )
         .await
         .expect("initiate");
     chain_a.mine();
@@ -324,9 +329,9 @@ async fn a_swap_between_two_chains_settles_both_legs() {
         .respond(RespondRequest {
             inbound_lock_id: alice_lock,
             lock: Lock::Lattice(commitment.clone()),
-            min_inbound_amount: 4_000,
+            min_inbound_amount: primitive_types::U256::from(4_000),
             outbound_recipient: alice,
-            outbound_amount: 3_000,
+            outbound_amount: primitive_types::U256::from(3_000),
             outbound_expiry: 40,
             rate: BlockRate::EQUAL,
         })
@@ -338,7 +343,7 @@ async fn a_swap_between_two_chains_settles_both_legs() {
         .accept_response(InitiatedSwap {
             commitment_id: commitment.id(),
             inbound_lock_id: bob_lock,
-            min_inbound_amount: 3_000,
+            min_inbound_amount: primitive_types::U256::from(3_000),
             rate: BlockRate::EQUAL,
         })
         .await
@@ -391,9 +396,9 @@ async fn the_watcher_claims_from_the_revelation_alone() {
         .respond(RespondRequest {
             inbound_lock_id: alice_lock,
             lock: Lock::Lattice(secret.commitment().expect("commit")),
-            min_inbound_amount: 4_000,
+            min_inbound_amount: primitive_types::U256::from(4_000),
             outbound_recipient: alice,
-            outbound_amount: 3_000,
+            outbound_amount: primitive_types::U256::from(3_000),
             outbound_expiry: 40,
             rate: BlockRate::EQUAL,
         })
@@ -430,9 +435,9 @@ async fn a_watcher_refuses_a_lock_that_does_not_pay_it_or_pairs_too_tightly() {
     let request = |inbound_lock_id| RespondRequest {
         inbound_lock_id,
         lock: Lock::Lattice(secret.commitment().expect("commit")),
-        min_inbound_amount: 4_000,
+        min_inbound_amount: primitive_types::U256::from(4_000),
         outbound_recipient: alice,
-        outbound_amount: 3_000,
+        outbound_amount: primitive_types::U256::from(3_000),
         outbound_expiry: 40,
         rate: BlockRate::EQUAL,
     };
@@ -471,9 +476,9 @@ async fn an_unrevealed_swap_refunds_both_sides() {
         .respond(RespondRequest {
             inbound_lock_id: alice_lock,
             lock: Lock::Lattice(secret.commitment().expect("commit")),
-            min_inbound_amount: 4_000,
+            min_inbound_amount: primitive_types::U256::from(4_000),
             outbound_recipient: alice,
-            outbound_amount: 3_000,
+            outbound_amount: primitive_types::U256::from(3_000),
             outbound_expiry: 15,
             rate: BlockRate::EQUAL,
         })
@@ -511,7 +516,10 @@ fn the_expiry_height_belongs_to_the_refund_and_the_loser_is_a_no_op() {
     };
 
     apply(lock_kind(bob, 4_000, 10, &secret), 0, 1).expect("lock");
-    assert_eq!(db.get_account(&alice).expect("account").balance, 6_000);
+    assert_eq!(
+        db.get_account(&alice).expect("account").balance,
+        primitive_types::U256::from(6_000)
+    );
 
     // A refund one block early and a claim at the expiry both lose. Both
     // blocks are valid: an `Err` here would let the loser void the winner's.
@@ -519,13 +527,22 @@ fn the_expiry_height_belongs_to_the_refund_and_the_loser_is_a_no_op() {
     apply(claim_kind(lock_id, secret.opening()), 2, 10).expect("late claim is a valid no-op");
     let record = db.stored_htlc_lock(&lock_id).expect("read").expect("lock");
     assert_eq!(record.settlement, Settlement::Open);
-    assert_eq!(db.get_account(&bob).expect("account").balance, 0);
+    assert_eq!(
+        db.get_account(&bob).expect("account").balance,
+        primitive_types::U256::from(0)
+    );
 
     apply(refund_kind(lock_id), 3, 10).expect("refund at the expiry");
-    assert_eq!(db.get_account(&alice).expect("account").balance, 10_000);
+    assert_eq!(
+        db.get_account(&alice).expect("account").balance,
+        primitive_types::U256::from(10_000)
+    );
     // Settled means settled: a valid opening inside any window claims nothing.
     apply(claim_kind(lock_id, secret.opening()), 4, 5).expect("valid no-op");
-    assert_eq!(db.get_account(&bob).expect("account").balance, 0);
+    assert_eq!(
+        db.get_account(&bob).expect("account").balance,
+        primitive_types::U256::from(0)
+    );
 }
 
 #[test]
@@ -617,7 +634,7 @@ impl Locked {
                 active(2),
             )
             .expect("a losing claim leaves the block valid");
-        self.db.get_account(&self.bob).expect("account").balance
+        u64::try_from(self.db.get_account(&self.bob).expect("account").balance).expect("fits u64")
     }
 }
 
@@ -729,7 +746,10 @@ fn nothing_executes_before_activation() {
     )]);
     // `at_height` is what the node builds: HTLC_L_ACTIVATION_HEIGHT, u64::MAX.
     assert!(db.apply_block(&block, BlockContext::at_height(5)).is_err());
-    assert_eq!(db.get_account(&alice).expect("account").balance, 10_000);
+    assert_eq!(
+        db.get_account(&alice).expect("account").balance,
+        primitive_types::U256::from(10_000)
+    );
 }
 
 #[test]
@@ -750,7 +770,10 @@ fn a_lock_escrows_its_amount_under_the_state_root() {
         active(1),
     )
     .expect("conserved");
-    assert_eq!(db.get_account(&alice).expect("account").balance, 7_500);
+    assert_eq!(
+        db.get_account(&alice).expect("account").balance,
+        primitive_types::U256::from(7_500)
+    );
     assert_ne!(db.state_root().expect("root"), before);
 
     for bad_expiry in [0, 1] {
@@ -810,7 +833,7 @@ fn hash_lock_kind(
 ) -> TxKind {
     TxKind::HtlcLock(Box::new(HtlcLock {
         recipient,
-        amount,
+        amount: primitive_types::U256::from(amount),
         expiry_height,
         lock: Lock::hash(function, preimage),
     }))
@@ -837,7 +860,7 @@ async fn a_sha256_hash_lock_swap_settles_both_legs_with_no_activation_override()
                 preimage: preimage.clone(),
             },
             bob,
-            4_000,
+            primitive_types::U256::from(4_000),
             80,
         )
         .await
@@ -848,9 +871,9 @@ async fn a_sha256_hash_lock_swap_settles_both_legs_with_no_activation_override()
         .respond(RespondRequest {
             inbound_lock_id: alice_lock,
             lock: lock.clone(),
-            min_inbound_amount: 4_000,
+            min_inbound_amount: primitive_types::U256::from(4_000),
             outbound_recipient: alice,
-            outbound_amount: 3_000,
+            outbound_amount: primitive_types::U256::from(3_000),
             outbound_expiry: 40,
             rate: BlockRate::EQUAL,
         })
@@ -861,7 +884,7 @@ async fn a_sha256_hash_lock_swap_settles_both_legs_with_no_activation_override()
         .accept_response(InitiatedSwap {
             commitment_id: lock.id(),
             inbound_lock_id: bob_lock,
-            min_inbound_amount: 3_000,
+            min_inbound_amount: primitive_types::U256::from(3_000),
             rate: BlockRate::EQUAL,
         })
         .await
@@ -1003,7 +1026,10 @@ fn lattice_locks_stay_dark_while_hash_locks_are_live() {
         &alice_key,
     )]);
     db.apply_block(&hash, context).expect("REAL: live");
-    assert_eq!(db.get_account(&alice).expect("account").balance, 9_000);
+    assert_eq!(
+        db.get_account(&alice).expect("account").balance,
+        primitive_types::U256::from(9_000)
+    );
 }
 
 #[test]
@@ -1024,5 +1050,8 @@ fn a_claim_or_refund_on_an_unknown_lock_is_a_valid_no_op_in_production() {
     )
     .expect("unknown-lock refund is a no-op");
     let account = db.get_account(&address).expect("account");
-    assert_eq!((account.balance, account.nonce), (1_000, 2));
+    assert_eq!(
+        (account.balance, account.nonce),
+        (primitive_types::U256::from(1_000), 2)
+    );
 }

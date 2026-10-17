@@ -29,6 +29,7 @@ use custom_l1_node::state::{
     Account, Address, AssetId, BlockContext, Direction, NATIVE_ASSET, PRICE_SCALE, Side, StateDB,
     derive_asset_id, derive_lp_asset, derive_pair_id,
 };
+use primitive_types::U256;
 use tempfile::TempDir;
 
 mod common;
@@ -50,7 +51,7 @@ fn fixture(funded: &[(Address, u64)]) -> Fixture {
         db.put_account(
             address,
             &Account {
-                balance: *balance,
+                balance: primitive_types::U256::from(*balance),
                 nonce: 0,
             },
         )
@@ -86,8 +87,10 @@ fn symbol(text: &str) -> [u8; 8] {
 }
 
 /// A price of `whole` quote units per whole base unit.
-fn price(whole: u64) -> u64 {
-    whole * PRICE_SCALE as u64
+fn price(whole: u64) -> maya_ledger_math::Amount {
+    maya_ledger_math::Amount::from_u64(whole)
+        .checked_mul(PRICE_SCALE)
+        .expect("fits")
 }
 
 /// The world every trading test starts from: one account holding native coin
@@ -129,7 +132,7 @@ fn market_with(maker: HybridSigningKey) -> Market {
         signed(
             TxKind::RegisterAsset(AssetRegistration {
                 symbol: symbol("USD"),
-                total_supply: ASSET_SUPPLY,
+                total_supply: primitive_types::U256::from(ASSET_SUPPLY),
             }),
             0,
             &maker,
@@ -139,8 +142,8 @@ fn market_with(maker: HybridSigningKey) -> Market {
                 asset_a: NATIVE_ASSET,
                 asset_b: asset,
                 lp_fee_bps: LP_FEE_BPS,
-                amount_a: POOL_NATIVE,
-                amount_b: POOL_ASSET,
+                amount_a: primitive_types::U256::from(POOL_NATIVE),
+                amount_b: primitive_types::U256::from(POOL_ASSET),
             }),
             1,
             &maker,
@@ -169,18 +172,24 @@ impl Market {
     fn native(&self, address: &Address) -> u64 {
         self.db()
             .asset_balance(&NATIVE_ASSET, address)
+            .map(|v| u64::try_from(v).expect("fits u64"))
             .expect("balance")
     }
 
     fn held(&self, address: &Address) -> u64 {
         self.db()
             .asset_balance(&self.asset, address)
+            .map(|v| u64::try_from(v).expect("fits u64"))
             .expect("balance")
     }
 
     fn reserves(&self) -> (u64, u64) {
         let record = self.db().get_pool(&self.pair).expect("read").expect("pool");
-        (record.pool.reserve_base, record.pool.reserve_quote)
+        // Test pools are far below 2^64.
+        (
+            record.pool.reserve_base.to_u64().expect("small"),
+            record.pool.reserve_quote.to_u64().expect("small"),
+        )
     }
 
     /// Applies one block of transactions from `maker`, advancing its nonce.
@@ -224,7 +233,10 @@ fn registering_an_asset_credits_its_whole_supply_to_the_creator() {
         .get_asset(&market.asset)
         .expect("read")
         .expect("registered");
-    assert_eq!(record.total_supply, ASSET_SUPPLY);
+    assert_eq!(
+        record.total_supply,
+        primitive_types::U256::from(ASSET_SUPPLY)
+    );
     assert_eq!(record.creator, market.maker_address);
 }
 
@@ -244,7 +256,7 @@ fn an_asset_symbol_that_could_be_used_to_impersonate_is_refused() {
         let block = block_of(vec![signed(
             TxKind::RegisterAsset(AssetRegistration {
                 symbol: bad,
-                total_supply: 1_000,
+                total_supply: primitive_types::U256::from(1_000),
             }),
             0,
             &key,
@@ -272,7 +284,7 @@ fn the_native_coin_cannot_be_moved_through_the_asset_transfer_path() {
             vec![TxKind::TransferAsset(AssetTransfer {
                 asset: NATIVE_ASSET,
                 recipient,
-                amount: 1,
+                amount: primitive_types::U256::from(1),
             })],
             2,
         )
@@ -291,7 +303,7 @@ fn an_asset_nobody_registered_cannot_be_transferred() {
             vec![TxKind::TransferAsset(AssetTransfer {
                 asset: [7u8; 32],
                 recipient,
-                amount: 1,
+                amount: primitive_types::U256::from(1),
             })],
             2,
         )
@@ -311,7 +323,7 @@ fn asset_supply_is_conserved_by_a_transfer() {
             vec![TxKind::TransferAsset(AssetTransfer {
                 asset: market.asset,
                 recipient,
-                amount: 12_345,
+                amount: primitive_types::U256::from(12_345),
             })],
             2,
         )
@@ -334,7 +346,7 @@ fn creating_a_pool_seeds_it_and_mints_share_tokens() {
         .db()
         .asset_balance(&derive_lp_asset(&market.pair), &market.maker_address)
         .expect("shares");
-    assert!(shares > 0);
+    assert!(shares > primitive_types::U256::zero());
 
     // Shares are an asset like any other, so they have an issuing pool and can
     // be moved by the ordinary transfer path.
@@ -343,7 +355,11 @@ fn creating_a_pool_seeds_it_and_mints_share_tokens() {
         .get_pool(&market.pair)
         .expect("read")
         .expect("pool");
-    assert_eq!(record.pool.total_shares, shares + 1_000, "locked minimum");
+    assert_eq!(
+        record.pool.total_shares,
+        maya_ledger_math::Amount::from_u64(u64::try_from(shares).expect("fits u64") + 1_000),
+        "locked minimum"
+    );
 }
 
 #[test]
@@ -355,8 +371,8 @@ fn the_same_pair_cannot_have_two_pools_at_one_fee_rate() {
                 asset_a: market.asset,
                 asset_b: NATIVE_ASSET,
                 lp_fee_bps: LP_FEE_BPS,
-                amount_a: 1_000,
-                amount_b: 1_000,
+                amount_a: primitive_types::U256::from(1_000),
+                amount_b: primitive_types::U256::from(1_000),
             })],
             2,
         )
@@ -377,9 +393,9 @@ fn the_pair_ordering_is_canonical_so_naming_the_assets_backwards_finds_the_same_
         .apply(
             vec![TxKind::AddLiquidity(LiquidityDeposit {
                 pair: market.pair,
-                base_desired: 1_000,
-                quote_desired: 4_000,
-                min_shares: 1,
+                base_desired: primitive_types::U256::from(1_000),
+                quote_desired: primitive_types::U256::from(4_000),
+                min_shares: primitive_types::U256::from(1),
             })],
             2,
         )
@@ -397,9 +413,9 @@ fn a_deposit_that_would_mint_fewer_shares_than_asked_for_is_refused() {
         .apply(
             vec![TxKind::AddLiquidity(LiquidityDeposit {
                 pair: market.pair,
-                base_desired: 1_000,
-                quote_desired: 4_000,
-                min_shares: u64::MAX,
+                base_desired: primitive_types::U256::from(1_000),
+                quote_desired: primitive_types::U256::from(4_000),
+                min_shares: primitive_types::U256::from(u64::MAX),
             })],
             2,
         )
@@ -429,9 +445,9 @@ fn depositing_and_withdrawing_returns_no_more_than_was_put_in() {
         .apply(
             vec![TxKind::AddLiquidity(LiquidityDeposit {
                 pair: market.pair,
-                base_desired: 10_000,
-                quote_desired: 40_000,
-                min_shares: 1,
+                base_desired: primitive_types::U256::from(10_000),
+                quote_desired: primitive_types::U256::from(40_000),
+                min_shares: primitive_types::U256::from(1),
             })],
             2,
         )
@@ -446,9 +462,9 @@ fn depositing_and_withdrawing_returns_no_more_than_was_put_in() {
         .apply(
             vec![TxKind::RemoveLiquidity(LiquidityWithdrawal {
                 pair: market.pair,
-                shares: minted,
-                min_base: 1,
-                min_quote: 1,
+                shares: primitive_types::U256::from(u64::try_from(minted).expect("fits u64")),
+                min_base: primitive_types::U256::from(1),
+                min_quote: primitive_types::U256::from(1),
             })],
             3,
         )
@@ -467,9 +483,9 @@ fn nobody_can_redeem_shares_they_do_not_hold() {
     let block = block_of(vec![signed(
         TxKind::RemoveLiquidity(LiquidityWithdrawal {
             pair: market.pair,
-            shares: 1_000,
-            min_base: 0,
-            min_quote: 0,
+            shares: primitive_types::U256::from(1_000),
+            min_base: primitive_types::U256::from(0),
+            min_quote: primitive_types::U256::from(0),
         }),
         harness_nonce,
         &thief,
@@ -497,8 +513,8 @@ fn a_swap_settles_at_the_end_of_the_block_and_moves_both_balances() {
             vec![TxKind::Swap(SwapRequest {
                 pair: market.pair,
                 direction: Direction::BaseToQuote.tag(),
-                amount_in: 1_000,
-                min_out: 1,
+                amount_in: primitive_types::U256::from(1_000),
+                min_out: primitive_types::U256::from(1),
                 deadline: 0,
             })],
             2,
@@ -527,8 +543,8 @@ fn a_swap_that_misses_its_bound_is_a_no_op_and_does_not_fail_the_block() {
             vec![TxKind::Swap(SwapRequest {
                 pair: market.pair,
                 direction: Direction::BaseToQuote.tag(),
-                amount_in: 1_000,
-                min_out: u64::MAX,
+                amount_in: primitive_types::U256::from(1_000),
+                min_out: primitive_types::U256::from(u64::MAX),
                 deadline: 0,
             })],
             2,
@@ -559,8 +575,8 @@ fn a_swap_past_its_deadline_is_refused() {
             vec![TxKind::Swap(SwapRequest {
                 pair: market.pair,
                 direction: Direction::BaseToQuote.tag(),
-                amount_in: 1_000,
-                min_out: 0,
+                amount_in: primitive_types::U256::from(1_000),
+                min_out: primitive_types::U256::from(0),
                 deadline: 5,
             })],
             6,
@@ -585,7 +601,7 @@ fn two_opposing_swaps_in_one_block_settle_at_one_price() {
             vec![TxKind::TransferAsset(AssetTransfer {
                 asset: market.asset,
                 recipient: other_address,
-                amount: 40_000,
+                amount: primitive_types::U256::from(40_000),
             })],
             2,
         )
@@ -599,8 +615,8 @@ fn two_opposing_swaps_in_one_block_settle_at_one_price() {
             TxKind::Swap(SwapRequest {
                 pair: market.pair,
                 direction: Direction::BaseToQuote.tag(),
-                amount_in: 5_000,
-                min_out: 1,
+                amount_in: primitive_types::U256::from(5_000),
+                min_out: primitive_types::U256::from(1),
                 deadline: 0,
             }),
             market.nonce,
@@ -610,8 +626,8 @@ fn two_opposing_swaps_in_one_block_settle_at_one_price() {
             TxKind::Swap(SwapRequest {
                 pair: market.pair,
                 direction: Direction::QuoteToBase.tag(),
-                amount_in: 20_000,
-                min_out: 1,
+                amount_in: primitive_types::U256::from(20_000),
+                min_out: primitive_types::U256::from(1),
                 deadline: 0,
             }),
             0,
@@ -639,7 +655,7 @@ fn two_opposing_swaps_in_one_block_settle_at_one_price() {
         .get_pool(&market.pair)
         .expect("read")
         .expect("pool");
-    assert!(batch_price.pool.reserve_base > 0);
+    assert!(batch_price.pool.reserve_base > maya_ledger_math::Amount::from_u64(0));
 }
 
 #[test]
@@ -659,7 +675,7 @@ fn the_order_of_swaps_within_a_block_does_not_change_the_outcome() {
                     vec![TxKind::TransferAsset(AssetTransfer {
                         asset: market.asset,
                         recipient: seller.address(),
-                        amount: 50_000,
+                        amount: primitive_types::U256::from(50_000),
                     })],
                     2,
                 )
@@ -669,7 +685,7 @@ fn the_order_of_swaps_within_a_block_does_not_change_the_outcome() {
                 .put_account(
                     &buyer.address(),
                     &Account {
-                        balance: 50_000,
+                        balance: U256::from(50_000),
                         nonce: 0,
                     },
                 )
@@ -680,8 +696,8 @@ fn the_order_of_swaps_within_a_block_does_not_change_the_outcome() {
                     TxKind::Swap(SwapRequest {
                         pair: market.pair,
                         direction: Direction::QuoteToBase.tag(),
-                        amount_in: 30_000,
-                        min_out: 1,
+                        amount_in: primitive_types::U256::from(30_000),
+                        min_out: primitive_types::U256::from(1),
                         deadline: 0,
                     }),
                     0,
@@ -691,8 +707,8 @@ fn the_order_of_swaps_within_a_block_does_not_change_the_outcome() {
                     TxKind::Swap(SwapRequest {
                         pair: market.pair,
                         direction: Direction::BaseToQuote.tag(),
-                        amount_in: 7_000,
-                        min_out: 1,
+                        amount_in: primitive_types::U256::from(7_000),
+                        min_out: primitive_types::U256::from(1),
                         deadline: 0,
                     }),
                     0,
@@ -731,8 +747,8 @@ fn placing_an_order_takes_its_escrow_and_cancelling_returns_it() {
             vec![TxKind::PlaceOrder(OrderPlacement {
                 pair: market.pair,
                 side: Side::Bid.tag(),
-                price: price(4),
-                amount: 1_000,
+                price: maya_stateless_core::amount::to_u256(price(4)),
+                amount: primitive_types::U256::from(1_000),
                 expiry: 0,
             })],
             2,
@@ -760,8 +776,8 @@ fn nobody_but_an_orders_owner_can_cancel_it() {
             vec![TxKind::PlaceOrder(OrderPlacement {
                 pair: market.pair,
                 side: Side::Bid.tag(),
-                price: price(4),
-                amount: 1_000,
+                price: maya_stateless_core::amount::to_u256(price(4)),
+                amount: primitive_types::U256::from(1_000),
                 expiry: 0,
             })],
             2,
@@ -789,7 +805,7 @@ fn two_crossing_orders_match_at_the_end_of_the_block() {
             vec![TxKind::TransferAsset(AssetTransfer {
                 asset: market.asset,
                 recipient: taker_address,
-                amount: 100_000,
+                amount: primitive_types::U256::from(100_000),
             })],
             2,
         )
@@ -804,8 +820,8 @@ fn two_crossing_orders_match_at_the_end_of_the_block() {
             TxKind::PlaceOrder(OrderPlacement {
                 pair: market.pair,
                 side: Side::Ask.tag(),
-                price: price(4),
-                amount: 1_000,
+                price: maya_stateless_core::amount::to_u256(price(4)),
+                amount: primitive_types::U256::from(1_000),
                 expiry: 0,
             }),
             market.nonce,
@@ -815,8 +831,8 @@ fn two_crossing_orders_match_at_the_end_of_the_block() {
             TxKind::PlaceOrder(OrderPlacement {
                 pair: market.pair,
                 side: Side::Bid.tag(),
-                price: price(5),
-                amount: 1_000,
+                price: maya_stateless_core::amount::to_u256(price(5)),
+                amount: primitive_types::U256::from(1_000),
                 expiry: 0,
             }),
             0,
@@ -873,8 +889,8 @@ fn an_atomic_route_across_two_mispriced_pools_captures_the_difference() {
                 asset_b: market.asset,
                 lp_fee_bps: 100,
                 // Half the price of the first pool.
-                amount_a: 100_000,
-                amount_b: 200_000,
+                amount_a: primitive_types::U256::from(100_000),
+                amount_b: primitive_types::U256::from(200_000),
             })],
             2,
         )
@@ -897,8 +913,8 @@ fn an_atomic_route_across_two_mispriced_pools_captures_the_difference() {
                         direction: Direction::QuoteToBase.tag(),
                     },
                 ],
-                amount_in: 5_000,
-                min_out: 1,
+                amount_in: primitive_types::U256::from(5_000),
+                min_out: primitive_types::U256::from(1),
                 deadline: 0,
             })],
             3,
@@ -910,8 +926,8 @@ fn an_atomic_route_across_two_mispriced_pools_captures_the_difference() {
     assert_eq!(market.held(&market.maker_address), before);
     let dear = market.db().get_pool(&market.pair).expect("r").expect("p");
     let cheap = market.db().get_pool(&cheap_pair).expect("r").expect("p");
-    assert!(dear.pool.reserve_base > POOL_NATIVE);
-    assert!(cheap.pool.reserve_base < 100_000);
+    assert!(dear.pool.reserve_base > maya_ledger_math::Amount::from_u64(POOL_NATIVE));
+    assert!(cheap.pool.reserve_base < maya_ledger_math::Amount::from_u64(100_000));
 }
 
 #[test]
@@ -927,8 +943,8 @@ fn a_route_that_does_not_clear_its_bound_leaves_no_trace() {
                 asset_a: NATIVE_ASSET,
                 asset_b: market.asset,
                 lp_fee_bps: 100,
-                amount_a: 100_000,
-                amount_b: 400_000,
+                amount_a: primitive_types::U256::from(100_000),
+                amount_b: primitive_types::U256::from(400_000),
             })],
             2,
         )
@@ -950,8 +966,8 @@ fn a_route_that_does_not_clear_its_bound_leaves_no_trace() {
                         direction: Direction::QuoteToBase.tag(),
                     },
                 ],
-                amount_in: 5_000,
-                min_out: u64::MAX,
+                amount_in: primitive_types::U256::from(5_000),
+                min_out: primitive_types::U256::from(u64::MAX),
                 deadline: 0,
             })],
             3,
@@ -982,8 +998,8 @@ fn a_round_trip_through_one_pool_loses_money_rather_than_being_free() {
                         direction: Direction::QuoteToBase.tag(),
                     },
                 ],
-                amount_in: 10_000,
-                min_out: 1,
+                amount_in: primitive_types::U256::from(10_000),
+                min_out: primitive_types::U256::from(1),
                 deadline: 0,
             })],
             2,
@@ -1015,8 +1031,8 @@ fn a_route_whose_legs_do_not_join_up_is_rejected() {
                         direction: Direction::BaseToQuote.tag(),
                     },
                 ],
-                amount_in: 1_000,
-                min_out: 0,
+                amount_in: primitive_types::U256::from(1_000),
+                min_out: primitive_types::U256::from(0),
                 deadline: 0,
             })],
             2,
@@ -1043,8 +1059,8 @@ fn reverting_a_block_restores_the_pool_it_traded_against() {
         TxKind::Swap(SwapRequest {
             pair: market.pair,
             direction: Direction::BaseToQuote.tag(),
-            amount_in: 20_000,
-            min_out: 1,
+            amount_in: primitive_types::U256::from(20_000),
+            min_out: primitive_types::U256::from(1),
             deadline: 0,
         }),
         market.nonce,
@@ -1087,8 +1103,8 @@ fn reverting_a_block_that_created_a_pool_removes_it_entirely() {
             asset_a: NATIVE_ASSET,
             asset_b: market.asset,
             lp_fee_bps: 100,
-            amount_a: 10_000,
-            amount_b: 40_000,
+            amount_a: primitive_types::U256::from(10_000),
+            amount_b: primitive_types::U256::from(40_000),
         }),
         market.nonce,
         &market.maker,
@@ -1120,7 +1136,7 @@ fn a_chain_that_has_never_traded_has_the_state_root_it_always_had() {
     let expected = custom_l1_node::state::merkle_root(&[custom_l1_node::state::account_leaf(
         &key.address(),
         &Account {
-            balance: 1_000,
+            balance: U256::from(1_000),
             nonce: 0,
         },
     )]);
@@ -1139,7 +1155,7 @@ fn registering_an_asset_changes_the_state_root() {
     let block = block_of(vec![signed(
         TxKind::RegisterAsset(AssetRegistration {
             symbol: symbol("AAA"),
-            total_supply: 500,
+            total_supply: primitive_types::U256::from(500),
         }),
         0,
         &key,

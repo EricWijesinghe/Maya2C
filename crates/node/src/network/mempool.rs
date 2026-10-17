@@ -15,6 +15,7 @@
 //! well-formed, correctly signed, not already pooled, and consistent with
 //! committed state: nonce not stale, balance sufficient.
 
+use primitive_types::U256;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -138,13 +139,12 @@ impl Mempool {
             return self.validate_share(tx, share);
         }
         if let Some(fees) = self.state.committed_fees()? {
-            let required = fees.required(tx.to_bytes().len());
-            let offered: u128 = tx
+            let required = U256::from(fees.required(tx.to_bytes().len()));
+            let offered = tx
                 .outputs
                 .iter()
                 .filter(|o| o.recipient == crate::state::fees::FEE_COLLECTOR)
-                .map(|o| u128::from(o.amount))
-                .sum();
+                .fold(U256::zero(), |sum, o| sum.saturating_add(o.amount));
             if offered < required {
                 return Err(NodeError::FeeTooLow { required, offered });
             }
@@ -152,7 +152,7 @@ impl Mempool {
 
         let sender_address = tx.sender();
         let sender = self.state.get_account(&sender_address)?;
-        if sender.balance == 0 && sender.nonce == 0 {
+        if sender.balance.is_zero() && sender.nonce == 0 {
             return Err(NodeError::EmptySender {
                 address: hex::encode(sender_address),
             });
@@ -170,7 +170,7 @@ impl Mempool {
             });
         }
 
-        let mut total_out: u64 = 0;
+        let mut total_out = U256::zero();
         for output in &tx.outputs {
             total_out = total_out
                 .checked_add(output.amount)

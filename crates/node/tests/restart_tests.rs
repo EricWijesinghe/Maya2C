@@ -9,6 +9,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use primitive_types::U256;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -58,7 +59,7 @@ fn funded(dir: &Path, key: &HybridSigningKey) -> Chain {
         .put_account(
             &key.address(),
             &Account {
-                balance: 1_000_000,
+                balance: U256::from(1_000_000),
                 nonce: 0,
             },
         )
@@ -70,7 +71,7 @@ fn transfer(from: &HybridSigningKey, to: Address, amount: u64, nonce: u64) -> Tr
     let mut tx = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount,
+            amount: primitive_types::U256::from(amount),
             recipient: to,
         }],
         nonce,

@@ -309,7 +309,7 @@ fn launch_config(
         bft.mining = Some(mining.clone());
         allocations.push(Allocation {
             address: hex::encode(MINING_RESERVE),
-            balance: *reserve,
+            balance: primitive_types::U256::from(*reserve),
         });
     }
     // A value-bearing chain counts votes by stake (ADR-040 part 2): one seat
@@ -532,7 +532,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         public_lines.push(format!("  root-{index}  {address}  {balance}"));
         allocations.push(Allocation {
             address: address.clone(),
-            balance,
+            balance: primitive_types::U256::from(balance),
         });
     }
 
@@ -550,7 +550,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
         Some(TreasuryGenesis {
             address,
-            balance: treasury_balance,
+            balance: primitive_types::U256::from(treasury_balance),
             share_bps: args.treasury_share_bps,
         })
     } else {
@@ -878,7 +878,7 @@ fn assemble(args: &Args) -> Result<(), Box<dyn Error>> {
         ));
         allocations.push(Allocation {
             address: contribution.address.clone(),
-            balance,
+            balance: primitive_types::U256::from(balance),
         });
     }
 
@@ -913,7 +913,7 @@ fn assemble(args: &Args) -> Result<(), Box<dyn Error>> {
 
         Some(TreasuryGenesis {
             address,
-            balance: treasury_balance,
+            balance: primitive_types::U256::from(treasury_balance),
             share_bps: args.treasury_share_bps,
         })
     } else {
@@ -1056,7 +1056,7 @@ mod mining_tests {
 
     fn mining() -> MiningGenesis {
         MiningGenesis {
-            initial_epoch_reward: 1_000_000,
+            initial_epoch_reward: primitive_types::U256::from(1_000_000),
             halving_epochs: 100,
             miner_share_bps: 7_000,
             target_shares: 10,
@@ -1077,10 +1077,9 @@ mod mining_tests {
         let config = launch_config(&args, Vec::new(), None, Some(&members()));
         let reserve = hex::encode(MINING_RESERVE);
         assert!(
-            config
-                .allocations
-                .iter()
-                .any(|a| a.address == reserve && a.balance == 5_000_000)
+            config.allocations.iter().any(
+                |a| a.address == reserve && a.balance == primitive_types::U256::from(5_000_000)
+            )
         );
         assert_eq!(
             config.bft.as_ref().and_then(|b| b.mining.clone()),

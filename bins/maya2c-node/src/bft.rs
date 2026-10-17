@@ -475,7 +475,7 @@ impl Feed {
         matches!(
             &tx.kind,
             TxKind::Staking(action)
-                if matches!(**action, StakingAction::Register { bond, .. } if bond < self.min_register_bond)
+                if matches!(**action, StakingAction::Register { bond, .. } if bond < primitive_types::U256::from(self.min_register_bond))
         )
     }
 
@@ -768,7 +768,7 @@ mod tests {
     fn register(bond: u64) -> Transaction {
         tx(TxKind::Staking(Box::new(StakingAction::Register {
             key: Box::new([0; PUBLIC_KEY_LEN]),
-            bond,
+            bond: primitive_types::U256::from(bond),
             commission_bps: 0,
             possession: Box::new([0; SIGNATURE_LENGTH]),
         })))
@@ -782,7 +782,7 @@ mod tests {
         // Other staking actions and transfers pass: the floor is about seats.
         let delegate = tx(TxKind::Staking(Box::new(StakingAction::Delegate {
             validator: [1; 32],
-            amount: 1,
+            amount: primitive_types::U256::from(1),
         })));
         assert!(!feed.below_floor(&delegate));
         assert!(!feed.below_floor(&tx(TxKind::Transfer)));

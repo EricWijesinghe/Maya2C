@@ -62,7 +62,7 @@ fn genesis_with(stake_weighted: bool) -> GenesisConfig {
         pow_limit_bits: 0,
         allocations: vec![Allocation {
             address: op.clone(),
-            balance: 1_000_000,
+            balance: primitive_types::U256::from(1_000_000),
         }],
         oracle: None,
         sealed: None,
@@ -82,11 +82,11 @@ fn genesis_with(stake_weighted: bool) -> GenesisConfig {
                 bonds: (0..GENESIS_VALIDATORS)
                     .map(|_| GenesisBond {
                         operator: op.clone(),
-                        bond: 10_000,
+                        bond: primitive_types::U256::from(10_000),
                         commission_bps: 0,
                     })
                     .collect(),
-                min_self_bond: 1_000,
+                min_self_bond: primitive_types::U256::from(1_000),
                 max_validators: 100,
                 stake_weighted,
             }),
@@ -256,7 +256,7 @@ fn register(i: usize, bond: u64, nonce: u64) -> Transaction {
     staking_tx(
         StakingAction::Register {
             key: Box::new(key.verifying_key().to_bytes()),
-            bond,
+            bond: primitive_types::U256::from(bond),
             commission_bps: 0,
             possession: Box::new(possession),
         },
@@ -354,7 +354,8 @@ fn a_registration_joins_the_committee_and_evidence_removes_an_equivocator() {
     );
     assert!(record.staking.retired.contains(&offender));
     assert_eq!(
-        record.staking.validators[&offender].self_bond, 5_000,
+        record.staking.validators[&offender].self_bond,
+        maya_ledger_math::Amount::from_u64(5_000),
         "half the bond burned"
     );
     let h = mesh.members[0].chain.height();

@@ -2,6 +2,7 @@
 //! `spec/01-encoding.md` ENC-1 .. ENC-8 and `spec/02-transactions.md` TX-2, TX-3.
 
 use crate::Address;
+use crate::balance::Balance;
 
 /// ML-DSA-65 public key (FIPS 204, Table 2).
 pub const ML_DSA_65_PK: usize = 1952;
@@ -29,8 +30,8 @@ const ADDRESS_DOMAIN: &[u8] = b"custom-l1-node.address.v3";
 /// A transfer's fields, keys and signature as opaque bytes.
 #[derive(Clone, Debug)]
 pub struct Frame {
-    /// `(recipient, amount)`.
-    pub outputs: Vec<(Address, u64)>,
+    /// `(recipient, amount)`; amounts are 256-bit (ADR-046).
+    pub outputs: Vec<(Address, Balance)>,
     /// `HYBRID_PK` bytes.
     pub public_key: Vec<u8>,
     /// Replay counter.
@@ -39,9 +40,9 @@ pub struct Frame {
     pub signature: Option<Vec<u8>>,
 }
 
-/// ENC-3: `u64` count, inputs; `u64` count, then per output `amount_le64 ‖ recipient`.
+/// ENC-3: `u64` count, inputs; `u64` count, then per output `amount_le256 ‖ recipient`.
 /// Transfers carry no inputs in the account model.
-fn io_section(outputs: &[(Address, u64)]) -> Vec<u8> {
+fn io_section(outputs: &[(Address, Balance)]) -> Vec<u8> {
     let mut out = Vec::new();
     out.extend_from_slice(&0u64.to_le_bytes());
     out.extend_from_slice(&(outputs.len() as u64).to_le_bytes());

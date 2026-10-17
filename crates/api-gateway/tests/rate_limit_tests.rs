@@ -25,7 +25,7 @@ struct QuietNode;
 impl NodeClient for QuietNode {
     async fn get_balance(&self, _address: &str) -> Result<Balance, GatewayError> {
         Ok(Balance {
-            balance: 0,
+            balance: (0).to_string(),
             nonce: 0,
         })
     }
@@ -34,8 +34,8 @@ impl NodeClient for QuietNode {
     }
     async fn get_supply(&self) -> Result<Supply, GatewayError> {
         Ok(Supply {
-            circulating: 0,
-            total: 0,
+            circulating: (0).to_string(),
+            total: (0).to_string(),
         })
     }
     async fn send_raw_transaction(&self, _raw: &str) -> Result<String, GatewayError> {

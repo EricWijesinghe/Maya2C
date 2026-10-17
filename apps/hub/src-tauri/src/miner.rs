@@ -48,16 +48,16 @@ pub struct MinerState {
     pub address: Option<String>,
     pub mode: Option<String>,
     pub epoch: Option<u64>,
-    pub share_reward: Option<u64>,
+    pub share_reward: Option<u128>,
     pub accepted: u64,
     pub rejected: u64,
     /// Growth of the payout account's on-chain balance since this run's
     /// first share. Not the sum of accepted shares: the node accepting a
     /// share into its pool is not the chain paying it (measured on the local
     /// mining devnet, 145 accepted against 10 paid).
-    pub earned: u64,
+    pub earned: u128,
     #[serde(skip)]
-    first_balance: Option<u64>,
+    first_balance: Option<u128>,
     pub total_hashes: u64,
     pub started_ms: Option<u64>,
     pub status: String,
@@ -104,7 +104,7 @@ pub fn ingest(state: &mut MinerState, line: &str, t_ms: u64) {
         }
         "work" => {
             state.epoch = event["epoch"].as_u64();
-            state.share_reward = event["share_reward"].as_u64();
+            state.share_reward = units(&event["share_reward"]);
             state.status = "mining".into();
         }
         "idle" => {
@@ -121,7 +121,7 @@ pub fn ingest(state: &mut MinerState, line: &str, t_ms: u64) {
         }
         "share" if event["accepted"].as_bool() == Some(true) => {
             state.accepted += 1;
-            if let Some(balance) = event["balance"].as_u64() {
+            if let Some(balance) = units(&event["balance"]) {
                 let first = *state.first_balance.get_or_insert(balance);
                 state.earned = balance.saturating_sub(first);
             }
@@ -223,6 +223,19 @@ impl Miner {
             state.status = format!("miner exited ({status})");
         }
         state.clone()
+    }
+}
+
+/// An amount from the miner's event stream: a decimal string (the node's
+/// 256-bit form, ADR-046) or a JSON number from an older miner. Read into
+/// `u128` for the dashboard, saturating past it: these figures are shown,
+/// never spent.
+fn units(value: &serde_json::Value) -> Option<u128> {
+    match value {
+        serde_json::Value::String(text) if !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()) => {
+            Some(text.parse::<u128>().unwrap_or(u128::MAX))
+        }
+        other => other.as_u64().map(u128::from),
     }
 }
 

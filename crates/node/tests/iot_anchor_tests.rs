@@ -12,6 +12,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use primitive_types::U256;
 use std::sync::Arc;
 
 use rand_chacha::ChaCha20Rng;
@@ -69,7 +70,7 @@ impl Chain {
         common::bind(&db);
         for key in funded {
             let account = Account {
-                balance: 1_000_000,
+                balance: U256::from(1_000_000),
                 nonce: 0,
             };
             db.put_account(&key.address(), &account).expect("fund");

@@ -19,6 +19,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use maya_ledger_math::Amount;
+
 use crate::consensus::uint::U256;
 use crate::core::codec::ByteReader;
 use crate::error::{NodeError, Result};
@@ -43,6 +45,9 @@ pub const MINING_RESERVE: Address = [
 
 /// Basis points in a whole.
 pub const BPS: u64 = 10_000;
+
+/// Mining record format; see [`MiningRecord::encode`].
+const RECORD_VERSION: u8 = 3;
 
 /// The retarget moves at most this factor per epoch, either way.
 pub const MAX_RETARGET_FACTOR: u64 = 4;
@@ -90,8 +95,10 @@ impl DagProfile {
 /// Genesis mining parameters (`bft.mining`). Absent: a fees-only chain.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MiningGenesis {
-    /// Units issued in epoch 0, before any halving.
-    pub initial_epoch_reward: u64,
+    /// Units issued in epoch 0, before any halving: 256-bit (ADR-046), a JSON
+    /// number or a decimal string.
+    #[serde(with = "crate::state::amount_serde::lenient")]
+    pub initial_epoch_reward: primitive_types::U256,
     /// Epochs between halvings.
     pub halving_epochs: u64,
     /// Miners' part of each epoch's reward; the rest goes to the committee.
@@ -120,7 +127,7 @@ impl MiningGenesis {
             .try_into()
             .map_err(|_| NodeError::Decode("bft.mining.initial_target: not 32 bytes".into()))?;
         let record = MiningRecord {
-            initial_epoch_reward: self.initial_epoch_reward,
+            initial_epoch_reward: maya_stateless_core::amount::to_amount(self.initial_epoch_reward),
             halving_epochs: self.halving_epochs,
             miner_share_bps: self.miner_share_bps,
             target_shares: self.target_shares,
@@ -131,7 +138,7 @@ impl MiningGenesis {
             anchor: [0; 32],
             target,
             shares: 0,
-            paid: 0,
+            paid: Amount::ZERO,
             spent_after: 0,
             target_limit: target,
         };
@@ -144,7 +151,7 @@ impl MiningGenesis {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MiningRecord {
     /// As [`MiningGenesis::initial_epoch_reward`].
-    pub initial_epoch_reward: u64,
+    pub initial_epoch_reward: Amount,
     /// As [`MiningGenesis::halving_epochs`].
     pub halving_epochs: u64,
     /// As [`MiningGenesis::miner_share_bps`].
@@ -167,7 +174,7 @@ pub struct MiningRecord {
     /// Shares accepted in `epoch`.
     pub shares: u64,
     /// Units paid to miners in `epoch`.
-    pub paid: u64,
+    pub paid: Amount,
     /// Blocks into `epoch` after which its miner budget was spent; 0 while
     /// some is left. Shares past the budget are refused, so `shares` stops
     /// near `target_shares` and cannot show how far demand ran over it; how
@@ -181,20 +188,17 @@ pub struct MiningRecord {
 
 impl MiningRecord {
     /// The whole reward of `epoch`: the initial reward halved once per
-    /// `halving_epochs`, reaching zero after 64 halvings.
+    /// `halving_epochs`, reaching zero once every bit has shifted out (at most
+    /// 256 halvings for a 256-bit reward, ADR-046).
     #[must_use]
-    pub fn epoch_reward(&self, epoch: u64) -> u64 {
-        let halvings = epoch / self.halving_epochs;
-        if halvings >= 64 {
-            0
-        } else {
-            self.initial_epoch_reward >> halvings
-        }
+    pub fn epoch_reward(&self, epoch: u64) -> Amount {
+        let halvings = u32::try_from(epoch / self.halving_epochs).unwrap_or(u32::MAX);
+        self.initial_epoch_reward.shr(halvings)
     }
 
     /// Miners' part of `epoch`'s reward.
     #[must_use]
-    pub fn miner_budget(&self, epoch: u64) -> u64 {
+    pub fn miner_budget(&self, epoch: u64) -> Amount {
         bps_of(self.epoch_reward(epoch), self.miner_share_bps)
     }
 
@@ -202,16 +206,21 @@ impl MiningRecord {
     /// Zero once the budget is spent: the share still lands, it just pays
     /// nothing, and the remainder stays in the reserve.
     #[must_use]
-    pub fn share_reward(&self) -> u64 {
+    pub fn share_reward(&self) -> Amount {
         let budget = self.miner_budget(self.epoch);
-        let per_share = budget / self.target_shares;
+        // `validate` keeps `target_shares` positive.
+        let per_share = budget
+            .checked_div(Amount::from_u64(self.target_shares))
+            .unwrap_or(Amount::ZERO);
         per_share.min(budget.saturating_sub(self.paid))
     }
 
     /// The committee's part of `epoch`'s reward.
     #[must_use]
-    pub fn validator_reward(&self, epoch: u64) -> u64 {
-        self.epoch_reward(epoch) - self.miner_budget(epoch)
+    pub fn validator_reward(&self, epoch: u64) -> Amount {
+        // The miner budget is a share of at most 100% of the reward.
+        self.epoch_reward(epoch)
+            .saturating_sub(self.miner_budget(epoch))
     }
 
     /// The next epoch's share target: more shares than wanted makes shares
@@ -249,14 +258,15 @@ impl MiningRecord {
         u64::try_from(scaled).unwrap_or(u64::MAX)
     }
 
-    /// Fixed-width encoding, version 2 (version 1 lacked `spent_after` and
-    /// was never on a public chain).
+    /// Fixed-width encoding, version 3: the reward and `paid` are 256-bit
+    /// (ADR-046). Version 2 held them as `u64` and version 1 lacked
+    /// `spent_after`; neither was on a public chain with mining active.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(1 + 8 * 10 + 1 + 96);
-        out.push(2);
+        let mut out = Vec::with_capacity(1 + 32 + 8 * 8 + 32 + 1 + 96);
+        out.push(RECORD_VERSION);
+        out.extend_from_slice(&self.initial_epoch_reward.to_le_bytes());
         for value in [
-            self.initial_epoch_reward,
             self.halving_epochs,
             self.miner_share_bps,
             self.target_shares,
@@ -270,9 +280,9 @@ impl MiningRecord {
         }
         out.extend_from_slice(&self.anchor);
         out.extend_from_slice(&self.target);
-        for value in [self.shares, self.paid, self.spent_after] {
-            out.extend_from_slice(&value.to_le_bytes());
-        }
+        out.extend_from_slice(&self.shares.to_le_bytes());
+        out.extend_from_slice(&self.paid.to_le_bytes());
+        out.extend_from_slice(&self.spent_after.to_le_bytes());
         out.extend_from_slice(&self.target_limit);
         out
     }
@@ -284,11 +294,11 @@ impl MiningRecord {
     /// [`NodeError::Decode`] on a wrong version, profile or length.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let mut r = ByteReader::new(bytes);
-        if r.read_u8()? != 2 {
+        if r.read_u8()? != RECORD_VERSION {
             return Err(NodeError::Decode("mining record version".into()));
         }
         let record = Self {
-            initial_epoch_reward: r.read_u64()?,
+            initial_epoch_reward: Amount::from_le_bytes(r.read_array()?),
             halving_epochs: r.read_u64()?,
             miner_share_bps: r.read_u64()?,
             target_shares: r.read_u64()?,
@@ -299,7 +309,7 @@ impl MiningRecord {
             anchor: r.read_array()?,
             target: r.read_array()?,
             shares: r.read_u64()?,
-            paid: r.read_u64()?,
+            paid: Amount::from_le_bytes(r.read_array()?),
             spent_after: r.read_u64()?,
             target_limit: r.read_array()?,
         };
@@ -337,19 +347,24 @@ impl MiningRecord {
         }
         // A share that rounds to nothing would have miners working for free
         // from block 1.
-        if self.miner_share_bps > 0 && self.miner_budget(0) / self.target_shares == 0 {
+        let per_share = self
+            .miner_budget(0)
+            .checked_div(Amount::from_u64(self.target_shares))
+            .unwrap_or(Amount::ZERO);
+        if self.miner_share_bps > 0 && per_share.is_zero() {
             return bad("a share in epoch 0 would pay nothing");
         }
         Ok(())
     }
 }
 
-/// `value × bps / 10000`, in 128 bits so it cannot overflow.
+/// `value × bps / 10000`, through a 512-bit product so it cannot overflow.
 #[must_use]
-pub fn bps_of(value: u64, bps: u64) -> u64 {
-    let scaled = u128::from(value) * u128::from(bps.min(BPS)) / u128::from(BPS);
-    // At most `value`, so it fits.
-    u64::try_from(scaled).unwrap_or(value)
+pub fn bps_of(value: Amount, bps: u64) -> Amount {
+    // At most `value`, so the quotient fits; the fallback is unreachable.
+    value
+        .mul_div(Amount::from_u64(bps.min(BPS)), Amount::from_u64(BPS))
+        .unwrap_or(value)
 }
 
 /// The header hash a share's DAG proof of work is computed over. Binds the
@@ -397,7 +412,7 @@ mod tests {
 
     fn record() -> MiningRecord {
         MiningGenesis {
-            initial_epoch_reward: 1_000_000,
+            initial_epoch_reward: primitive_types::U256::from(1_000_000),
             halving_epochs: 10,
             miner_share_bps: 7_000,
             target_shares: 100,
@@ -412,11 +427,23 @@ mod tests {
     #[test]
     fn the_reward_halves_on_schedule_and_ends() {
         let r = record();
-        assert_eq!(r.epoch_reward(0), 1_000_000);
-        assert_eq!(r.epoch_reward(9), 1_000_000);
-        assert_eq!(r.epoch_reward(10), 500_000);
-        assert_eq!(r.epoch_reward(640), 0);
-        assert_eq!(r.epoch_reward(u64::MAX), 0);
+        assert_eq!(
+            r.epoch_reward(0),
+            maya_ledger_math::Amount::from_u64(1_000_000)
+        );
+        assert_eq!(
+            r.epoch_reward(9),
+            maya_ledger_math::Amount::from_u64(1_000_000)
+        );
+        assert_eq!(
+            r.epoch_reward(10),
+            maya_ledger_math::Amount::from_u64(500_000)
+        );
+        assert_eq!(r.epoch_reward(640), maya_ledger_math::Amount::from_u64(0));
+        assert_eq!(
+            r.epoch_reward(u64::MAX),
+            maya_ledger_math::Amount::from_u64(0)
+        );
     }
 
     #[test]
@@ -424,21 +451,24 @@ mod tests {
         let r = record();
         for epoch in [0, 10, 33, 200] {
             assert_eq!(
-                r.miner_budget(epoch) + r.validator_reward(epoch),
-                r.epoch_reward(epoch)
+                r.miner_budget(epoch).checked_add(r.validator_reward(epoch)),
+                Some(r.epoch_reward(epoch))
             );
         }
-        assert_eq!(r.miner_budget(0), 700_000);
+        assert_eq!(
+            r.miner_budget(0),
+            maya_ledger_math::Amount::from_u64(700_000)
+        );
     }
 
     #[test]
     fn share_reward_stops_at_the_epoch_budget() {
         let mut r = record();
-        assert_eq!(r.share_reward(), 7_000);
-        r.paid = 700_000 - 3;
-        assert_eq!(r.share_reward(), 3);
-        r.paid = 700_000;
-        assert_eq!(r.share_reward(), 0);
+        assert_eq!(r.share_reward(), maya_ledger_math::Amount::from_u64(7_000));
+        r.paid = maya_ledger_math::Amount::from_u64(700_000 - 3);
+        assert_eq!(r.share_reward(), maya_ledger_math::Amount::from_u64(3));
+        r.paid = maya_ledger_math::Amount::from_u64(700_000);
+        assert_eq!(r.share_reward(), maya_ledger_math::Amount::from_u64(0));
     }
 
     #[test]
@@ -512,7 +542,7 @@ mod tests {
         r.epoch = 7;
         r.anchor = [9; 32];
         r.shares = 3;
-        r.paid = 21_000;
+        r.paid = maya_ledger_math::Amount::from_u64(21_000);
         assert_eq!(MiningRecord::decode(&r.encode()).unwrap(), r);
         let mut bytes = r.encode();
         bytes.push(0);
@@ -525,7 +555,7 @@ mod tests {
     #[test]
     fn genesis_refuses_bad_parameters() {
         let good = MiningGenesis {
-            initial_epoch_reward: 1_000,
+            initial_epoch_reward: primitive_types::U256::from(1_000),
             halving_epochs: 1,
             miner_share_bps: 7_000,
             target_shares: 1,
@@ -537,7 +567,7 @@ mod tests {
         // 70% of 1 unit split over one share rounds to nothing.
         assert!(
             MiningGenesis {
-                initial_epoch_reward: 1,
+                initial_epoch_reward: primitive_types::U256::from(1),
                 ..good.clone()
             }
             .record(10)

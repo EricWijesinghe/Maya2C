@@ -12,6 +12,7 @@
 //! [`Transaction::inputs`]: crate::core::Transaction::inputs
 
 pub mod account;
+pub mod amount_serde;
 pub mod asset;
 pub mod balance_changes;
 pub mod blocks;

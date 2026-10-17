@@ -22,6 +22,7 @@ use maya_crypto_pq::agility::SuitePolicy;
 use maya_dex::batch::SwapIntent;
 use maya_dex::types::PairId;
 use maya_ledger_math as ledger_math;
+use primitive_types::U256;
 use rocksdb::{BlockBasedOptions, Cache, DB, IteratorMode, Options, WriteBatch};
 
 use crate::core::payload::ChannelId;
@@ -153,7 +154,7 @@ pub(crate) struct Overlay {
     pub(crate) difficulty_target: [u8; HASH_LEN],
     /// Base fee owed by this block's transactions so far, to be burned at the
     /// end of the block (ADR-029). Zero where fees are not configured.
-    pub(crate) fee_burn: u128,
+    pub(crate) fee_burn: U256,
     /// Serialized bytes of this block's transactions so far: what the next
     /// base fee steps from.
     pub(crate) fee_bytes: u64,
@@ -822,8 +823,15 @@ impl StateDB {
             });
         }
 
-        let total_out = ledger_math::total_outputs(tx.outputs.iter().map(|output| output.amount))
-            .ok_or(NodeError::BalanceOverflow)?;
+        // Outputs are 256-bit on the wire (ADR-046); ledger-math's proved fold
+        // sums them and refuses any intermediate overflow.
+        let total_out = ledger_math::total_outputs(
+            tx.outputs
+                .iter()
+                .map(|output| maya_stateless_core::amount::to_amount(output.amount)),
+        )
+        .map(maya_stateless_core::amount::to_u256)
+        .ok_or(NodeError::BalanceOverflow)?;
 
         if sender.balance < total_out {
             return Err(NodeError::InsufficientBalance {
@@ -835,8 +843,10 @@ impl StateDB {
 
         // Debit and advance the nonce. The subtraction cannot underflow given
         // the check above, but stay explicit rather than relying on it.
-        sender.balance =
-            ledger_math::debit(sender.balance, total_out).ok_or(NodeError::BalanceOverflow)?;
+        sender.balance = sender
+            .balance
+            .checked_sub(total_out)
+            .ok_or(NodeError::BalanceOverflow)?;
         sender.nonce =
             ledger_math::advance_nonce(sender.nonce).ok_or(NodeError::BalanceOverflow)?;
         overlay.accounts.insert(sender_address, sender);
@@ -845,7 +855,9 @@ impl StateDB {
         // transfer sees the already-debited balance.
         for output in &tx.outputs {
             let mut recipient = self.load(overlay, &output.recipient)?;
-            recipient.balance = ledger_math::credit(recipient.balance, output.amount)
+            recipient.balance = recipient
+                .balance
+                .checked_add(output.amount)
                 .ok_or(NodeError::BalanceOverflow)?;
             overlay.accounts.insert(output.recipient, recipient);
         }
