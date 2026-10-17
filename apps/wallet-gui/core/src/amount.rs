@@ -162,20 +162,12 @@ mod tests {
             "18,446,744,073,709,551,616.000000000000000000"
         );
         // 2^64 base units is 18.446744073709551616 coins.
-        assert_eq!(
-            format_display(u64_max_plus_one()),
-            "18.446744073709551616"
-        );
+        assert_eq!(format_display(u64_max_plus_one()), "18.446744073709551616");
     }
 
     #[test]
     fn base_unit_round_trips_at_the_edges() {
-        for value in [
-            U256::zero(),
-            U256::one(),
-            u64_max_plus_one(),
-            U256::MAX,
-        ] {
+        for value in [U256::zero(), U256::one(), u64_max_plus_one(), U256::MAX] {
             let text = value.to_string();
             assert_eq!(parse_base_units(&text), Ok(value), "base {text}");
         }
@@ -209,7 +201,11 @@ mod tests {
     #[test]
     fn malformed_ipc_strings_are_rejected() {
         for text in ["-1", "+1", "1e18", " 1", "1 ", "0x10", "1,000", "1.5"] {
-            assert_eq!(parse_base_units(text), Err(AmountError::NotDecimal), "{text}");
+            assert_eq!(
+                parse_base_units(text),
+                Err(AmountError::NotDecimal),
+                "{text}"
+            );
         }
         assert_eq!(parse_base_units(""), Err(AmountError::Empty));
         assert_eq!(parse_display(""), Err(AmountError::Empty));
@@ -238,10 +234,13 @@ mod tests {
     #[test]
     fn values_above_2_256_are_overflow_not_wrap() {
         // 2^256 exactly: one past the largest value.
-        let two_pow_256 = "115792089237316195423570985008687907853269984665640564039457584007913129639936";
+        let two_pow_256 =
+            "115792089237316195423570985008687907853269984665640564039457584007913129639936";
         assert_eq!(parse_base_units(two_pow_256), Err(AmountError::Overflow));
         assert_eq!(
-            parse_display("115792089237316195423570985008687907853269984665640564039457.584007913129639936"),
+            parse_display(
+                "115792089237316195423570985008687907853269984665640564039457.584007913129639936"
+            ),
             Err(AmountError::Overflow)
         );
     }
