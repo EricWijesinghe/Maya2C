@@ -184,6 +184,13 @@ jobs:
       # batch moves the counter forward, equivocation needs real conflict.
       - run: cargo kani -p maya-iot-anchor --output-format terse
 
+      # Every balance is a maya-amount. The full crate takes over half an
+      # hour, so CI runs the long-division step proof (seconds); the rest
+      # runs by hand (ADR-048).
+      - run: >-
+          cargo kani -p maya-amount --output-format terse
+          --harness long_division_step_keeps_the_invariant
+
   # ---------------------------------------------------------------------------
   geiger:
     name: unsafe accounting

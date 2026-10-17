@@ -8,9 +8,14 @@
 //! Add, subtract and compare are proved for all 256-bit values. The
 //! multiply and divide harnesses bound the width where CBMC would otherwise
 //! not finish: 64-bit factors against `u128`, 128-bit factors for
-//! commutativity, and divisors that fit in a `u64` for the round trip. The 512-step long division of a wider divisor
-//! is covered by the proptest suite (`tests/property_tests.rs`), not here.
+//! commutativity, and divisors that fit in a `u64` for the round trip. The
+//! 512-step long division of a wider divisor is proved one step at a time, at
+//! full width: `long_division_step_keeps_the_invariant` shows each step keeps
+//! `r < d` and adds one exact quotient bit, which by induction is the whole
+//! division. The loop around the step is covered by the proptest suite
+//! (`tests/property_tests.rs`).
 
+use crate::wide::{REM_LIMBS, lt, shl1_or, sub};
 use crate::{Amount, Wide};
 
 fn any_amount() -> Amount {
@@ -122,4 +127,71 @@ fn bytes_round_trip() {
     let a = any_amount();
     assert!(Amount::from_le_bytes(a.to_le_bytes()) == a);
     assert!(a.to_le_bytes()[0] == a.0[0].to_le_bytes()[0]);
+}
+
+/// Independent 5-limb adder for the step proof below: `a + b` and the carry
+/// out. Written separately from `wide.rs` on purpose, so the proof checks
+/// `shl1_or` and `sub` against arithmetic they do not share code with.
+fn add5(a: [u64; REM_LIMBS], b: [u64; REM_LIMBS]) -> ([u64; REM_LIMBS], bool) {
+    let mut out = [0u64; REM_LIMBS];
+    let mut carry = 0u128;
+    for i in 0..REM_LIMBS {
+        let s = u128::from(a[i]) + u128::from(b[i]) + carry;
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            out[i] = s as u64;
+        }
+        carry = s >> 64;
+    }
+    (out, carry != 0)
+}
+
+/// One step of `Wide::long_div`, for **every** 256-bit divisor and every
+/// remainder below it, with no bound on width. That is what lets the 512-step
+/// loop be trusted without unrolling it.
+///
+/// With `r < d` on entry (true at the start, `r = 0`), the step computes
+/// `r2 = 2r + bit` exactly, then either keeps it or subtracts `d`, and
+/// leaves:
+/// - `r' < d`, so the invariant holds for the next step;
+/// - `r2 = q·d + r'` with `q` the quotient bit, so each step
+///   contributes exactly one correct quotient bit.
+///
+/// By induction over the bits of the dividend, `n = q·d + r` with `r < d`.
+// Five-limb loops need 6; the array `==` compares 40 bytes through memcmp,
+// which needs 41.
+#[kani::proof]
+#[kani::unwind(41)]
+fn long_division_step_keeps_the_invariant() {
+    let d: [u64; REM_LIMBS] = [kani::any(), kani::any(), kani::any(), kani::any(), 0];
+    // long_div only runs for divisors wider than 64 bits.
+    kani::assume(d[1] != 0 || d[2] != 0 || d[3] != 0);
+    let r: [u64; REM_LIMBS] = [
+        kani::any(),
+        kani::any(),
+        kani::any(),
+        kani::any(),
+        kani::any(),
+    ];
+    kani::assume(lt(r, d));
+    let bit: u64 = kani::any();
+    kani::assume(bit <= 1);
+
+    let r2 = shl1_or(r, bit);
+    let (doubled, overflow) = add5(r, r);
+    let (expected, overflow_bit) = add5(doubled, [bit, 0, 0, 0, 0]);
+    assert!(!overflow && !overflow_bit);
+    assert!(r2 == expected, "shl1_or is exactly 2r + bit");
+
+    let (next, quotient_bit) = if lt(r2, d) {
+        (r2, false)
+    } else {
+        (sub(r2, d), true)
+    };
+    assert!(lt(next, d), "the remainder stays below the divisor");
+    if quotient_bit {
+        assert!(add5(next, d) == (r2, false), "r2 = d + r'");
+    } else {
+        assert!(next == r2);
+    }
 }
