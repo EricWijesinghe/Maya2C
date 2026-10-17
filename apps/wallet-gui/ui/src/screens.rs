@@ -666,7 +666,13 @@ pub mod send {
 
         let recipient = RwSignal::new(request.recipient.clone());
         // A payment request carries base units; the form edits whole coins.
-        let amount = RwSignal::new(request.amount.as_deref().map(input_amount).unwrap_or_default());
+        let amount = RwSignal::new(
+            request
+                .amount
+                .as_deref()
+                .map(input_amount)
+                .unwrap_or_default(),
+        );
         let fee = RwSignal::new(String::new());
         let label = request.label.clone();
         let preview = RwSignal::new(None::<bridge::TransferPreview>);
