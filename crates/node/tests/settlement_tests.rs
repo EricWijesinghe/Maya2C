@@ -82,7 +82,13 @@ fn signed_closure(
     key_a: &HybridSigningKey,
     key_b: &HybridSigningKey,
 ) -> ChannelClosure {
-    let message = channel_state_signing_bytes(&channel_id, seq, primitive_types::U256::from(balance_a), primitive_types::U256::from(balance_b), &commitment);
+    let message = channel_state_signing_bytes(
+        &channel_id,
+        seq,
+        primitive_types::U256::from(balance_a),
+        primitive_types::U256::from(balance_b),
+        &commitment,
+    );
     ChannelClosure {
         channel_id,
         seq,
@@ -126,7 +132,12 @@ fn open_channel(
         "every stored key must be under the state root or declared local-only"
     );
 
-    derive_channel_id(&address_of(key_a), &party_b, primitive_types::U256::from(funding), nonce)
+    derive_channel_id(
+        &address_of(key_a),
+        &party_b,
+        primitive_types::U256::from(funding),
+        nonce,
+    )
 }
 
 // ---------------------------------------------------------------------------

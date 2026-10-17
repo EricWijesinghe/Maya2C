@@ -108,7 +108,11 @@ mod tests {
             }
         }
         // ADR-046: fees past u64 split as exactly.
-        for fee in [Amount::MAX, Amount::MAX.shr(1), Amount::from_u128(u128::MAX)] {
+        for fee in [
+            Amount::MAX,
+            Amount::MAX.shr(1),
+            Amount::from_u128(u128::MAX),
+        ] {
             for bps in [0, 1, EIGHTY_TWENTY, BPS] {
                 let s = split(fee, Amount::ZERO, bps);
                 assert_eq!(s.total(), Some(fee), "fee {fee} at {bps} bps");

@@ -38,11 +38,20 @@ const SCALED_BITS: u32 = 64;
 /// one basis point. These numbers are published, not consensus.
 #[must_use]
 pub fn concentration(stakes: &[Stake]) -> Concentration {
-    let largest = stakes.iter().map(|s| s.amount).max().unwrap_or(Amount::ZERO);
+    let largest = stakes
+        .iter()
+        .map(|s| s.amount)
+        .max()
+        .unwrap_or(Amount::ZERO);
     let shift = largest.bits().saturating_sub(SCALED_BITS);
     let mut amounts: Vec<u128> = stakes
         .iter()
-        .map(|s| s.amount.shr(shift).to_u128().unwrap_or(u128::from(u64::MAX)))
+        .map(|s| {
+            s.amount
+                .shr(shift)
+                .to_u128()
+                .unwrap_or(u128::from(u64::MAX))
+        })
         .collect();
     amounts.sort_unstable_by(|a, b| b.cmp(a));
     let total: u128 = amounts.iter().sum();
@@ -137,7 +146,10 @@ mod tests {
         // read exactly like ten equal small ones.
         let big = Amount::MAX.shr(4);
         let stakes: Vec<Stake> = (0u8..10)
-            .map(|i| Stake { id: [i; 32], amount: big })
+            .map(|i| Stake {
+                id: [i; 32],
+                amount: big,
+            })
             .collect();
         let c = concentration(&stakes);
         assert_eq!(c.gini_bps, 0);

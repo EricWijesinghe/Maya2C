@@ -122,7 +122,9 @@ fn a_thousand_validators_under_byzantine_faults_conserve_value() {
         s.register(account(0), id(0), a(5_000), 0),
         Err(StakeError::AlreadyRegistered)
     );
-    let first = s.end_epoch(&Participation::default(), Amount::ZERO).unwrap();
+    let first = s
+        .end_epoch(&Participation::default(), Amount::ZERO)
+        .unwrap();
     ledger.apply(&first.effects);
     assert_eq!(
         first.active.len(),
@@ -235,13 +237,17 @@ fn unbonded_funds_wait_out_the_delay_and_remain_slashable() {
     let burned = s.slash_double_sign(id(1)).unwrap();
     assert_eq!(burned, vec![Effect::Burn(a(5_000 + 2_000))]);
     for _ in 0..Params::DEVNET.unbonding_epochs - 1 {
-        let out = s.end_epoch(&Participation::default(), Amount::ZERO).unwrap();
+        let out = s
+            .end_epoch(&Participation::default(), Amount::ZERO)
+            .unwrap();
         assert!(
             !out.effects.iter().any(|e| matches!(e, Effect::Credit(..))),
             "released early"
         );
     }
-    let out = s.end_epoch(&Participation::default(), Amount::ZERO).unwrap();
+    let out = s
+        .end_epoch(&Participation::default(), Amount::ZERO)
+        .unwrap();
     assert!(out.effects.contains(&Effect::Credit(account(2), a(2_000))));
 }
 
@@ -250,10 +256,14 @@ fn rewards_pay_commission_then_pro_rata_and_burn_only_dust() {
     let mut s = Staking::new(Params::DEVNET).unwrap();
     s.register(account(1), id(1), a(3_000), 1_000).unwrap(); // 10% commission
     s.delegate(account(2), id(1), a(1_000)).unwrap();
-    s.end_epoch(&Participation::default(), Amount::ZERO).unwrap();
+    s.end_epoch(&Participation::default(), Amount::ZERO)
+        .unwrap();
     let out = s.end_epoch(&Participation::default(), a(1_000)).unwrap();
     // Commission 100; rest 900 split 3:1 → 675 and 225.
-    assert!(out.effects.contains(&Effect::Credit(account(1), a(100 + 675))));
+    assert!(
+        out.effects
+            .contains(&Effect::Credit(account(1), a(100 + 675)))
+    );
     assert!(out.effects.contains(&Effect::Credit(account(2), a(225))));
     assert!(
         !out.effects
@@ -267,7 +277,8 @@ fn a_validator_that_misses_its_rounds_is_slashed_and_sits_out() {
     let mut s = Staking::new(Params::DEVNET).unwrap();
     s.register(account(1), id(1), a(10_000), 0).unwrap();
     s.register(account(2), id(2), a(10_000), 0).unwrap();
-    s.end_epoch(&Participation::default(), Amount::ZERO).unwrap();
+    s.end_epoch(&Participation::default(), Amount::ZERO)
+        .unwrap();
     let authored = BTreeMap::from([(id(1), 100), (id(2), 10)]);
     let out = s
         .end_epoch(
@@ -284,7 +295,8 @@ fn a_validator_that_misses_its_rounds_is_slashed_and_sits_out() {
     assert_eq!(s.validators[&id(2)].self_bond, a(9_900));
     // Back after the jail term.
     for _ in 0..Params::DEVNET.jail_epochs {
-        s.end_epoch(&Participation::default(), Amount::ZERO).unwrap();
+        s.end_epoch(&Participation::default(), Amount::ZERO)
+            .unwrap();
     }
     assert!(s.active.contains(&id(2)));
 }
@@ -298,7 +310,8 @@ fn stakes_past_u64_bond_earn_and_slash_exactly() {
     let pool = Amount::from_u128(u128::from(u64::MAX) * 4);
     s.register(account(1), id(1), big, 0).unwrap();
     s.delegate(account(2), id(1), big).unwrap();
-    s.end_epoch(&Participation::default(), Amount::ZERO).unwrap();
+    s.end_epoch(&Participation::default(), Amount::ZERO)
+        .unwrap();
     let out = s.end_epoch(&Participation::default(), pool).unwrap();
     // Equal stakes, no commission: the pool splits exactly in half.
     let half = Amount::from_u128(u128::from(u64::MAX) * 2);

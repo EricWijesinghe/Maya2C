@@ -39,7 +39,10 @@ use std::hint::black_box;
 /// A pool deep enough that no benchmark trade exhausts it.
 fn deep_pool() -> Pool {
     Pool::empty(FeeSchedule::standard())
-        .add_liquidity(maya_ledger_math::Amount::from_u64(1_000_000_000), maya_ledger_math::Amount::from_u64(1_000_000_000))
+        .add_liquidity(
+            maya_ledger_math::Amount::from_u64(1_000_000_000),
+            maya_ledger_math::Amount::from_u64(1_000_000_000),
+        )
         .expect("seed")
         .pool
 }
@@ -189,7 +192,10 @@ fn bench_curve(c: &mut Criterion) {
     c.bench_function("swap_exact_in", |b| {
         b.iter(|| {
             let outcome = pool
-                .swap_exact_in(black_box(Direction::BaseToQuote), black_box(maya_ledger_math::Amount::from_u64(1_000_000)))
+                .swap_exact_in(
+                    black_box(Direction::BaseToQuote),
+                    black_box(maya_ledger_math::Amount::from_u64(1_000_000)),
+                )
                 .expect("swap");
             black_box(outcome.amount_out)
         });

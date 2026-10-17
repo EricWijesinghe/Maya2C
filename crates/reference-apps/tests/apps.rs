@@ -2,9 +2,9 @@
 
 #![allow(clippy::unwrap_used)]
 
-use maya_dex::Amount;
 use maya_clear_sign::{Effect, Warning};
 use maya_design_system::guard::Token;
+use maya_dex::Amount;
 use maya_dex::amm::Pool;
 use maya_dex::fees::FeeSchedule;
 use maya_dex::types::Direction;
@@ -69,7 +69,10 @@ fn payments_the_till_charges_only_the_merchant_within_scope() {
 #[test]
 fn dex_front_end_quotes_from_the_curve_refuses_look_alikes_and_catches_a_lying_page() {
     let pool = Pool::empty(FeeSchedule::standard())
-        .add_liquidity(Amount::from_u64(1_000_000_000), Amount::from_u64(2_000_000_000))
+        .add_liquidity(
+            Amount::from_u64(1_000_000_000),
+            Amount::from_u64(2_000_000_000),
+        )
         .unwrap()
         .pool;
     let verified = [Token {

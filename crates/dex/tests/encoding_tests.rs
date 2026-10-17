@@ -7,9 +7,9 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use maya_amount::Amount;
 use maya_dex::book::{Book, Order, Side, quote_for_base};
 use maya_dex::error::DexError;
-use maya_amount::Amount;
 use maya_dex::types::{Direction, NATIVE_ASSET, PRICE_SCALE};
 
 fn a(v: u64) -> Amount {

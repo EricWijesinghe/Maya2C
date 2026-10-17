@@ -13,9 +13,9 @@
 
 use maya_clear_sign::{Address, Context, Effect, Warning, review};
 use maya_design_system::guard::{Token, TokenVerdict, token};
+use maya_dex::Amount;
 use maya_dex::amm::Pool;
 use maya_dex::error::DexError;
-use maya_dex::Amount;
 use maya_dex::types::{Direction, PRICE_SCALE};
 
 /// Basis points in one whole.

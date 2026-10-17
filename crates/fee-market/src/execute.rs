@@ -183,7 +183,10 @@ pub fn apply_block_fees_with_features(
             });
         }
         let base_paid = required;
-        let left_over = tx.max_fee.checked_sub(base_paid).ok_or(FeeError::Overflow)?;
+        let left_over = tx
+            .max_fee
+            .checked_sub(base_paid)
+            .ok_or(FeeError::Overflow)?;
         let tip = tx.max_tip.min(left_over);
         let s = split(base_paid, tip, config.treasury_bps);
 
@@ -451,9 +454,8 @@ mod tests {
             max_fee: big,
             max_tip: Amount::MAX,
         };
-        let Ok(BlockFeeOutcome::Charged {
-            charges, tips, ..
-        }) = apply_block_fees(&CONFIG, 1, None, &[fee], &[ALICE])
+        let Ok(BlockFeeOutcome::Charged { charges, tips, .. }) =
+            apply_block_fees(&CONFIG, 1, None, &[fee], &[ALICE])
         else {
             panic!("charged");
         };

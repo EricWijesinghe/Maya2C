@@ -66,7 +66,13 @@ fn a_transfer_debits_credits_creates_and_bumps_the_nonce() {
         &[alice, bob, carol],
     );
 
-    apply_transfer(&mut tree, alice, 4, [(bob, U256::from(30u64)), (carol, U256::from(20u64))]).expect("apply");
+    apply_transfer(
+        &mut tree,
+        alice,
+        4,
+        [(bob, U256::from(30u64)), (carol, U256::from(20u64))],
+    )
+    .expect("apply");
 
     assert_eq!(
         state(&tree, &alice),
@@ -179,7 +185,8 @@ fn a_recipient_the_witness_does_not_open_is_unverifiable_not_invalid() {
     accounts.push((alice, account(10, 0)));
     let mut tree = tree(&accounts, &[alice]);
 
-    let error = apply_transfer(&mut tree, alice, 0, [(bob, U256::from(1u64))]).expect_err("unopened");
+    let error =
+        apply_transfer(&mut tree, alice, 0, [(bob, U256::from(1u64))]).expect_err("unopened");
     assert!(!error.is_invalid());
     assert_eq!(error, Error::Unverifiable(Defect::Unopened { key: bob }));
 }

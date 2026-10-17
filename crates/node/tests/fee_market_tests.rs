@@ -110,9 +110,7 @@ fn circulating_supply_falls_every_block_while_total_is_conserved() {
             "block {height}"
         );
 
-        let next = supply
-            .after_burn(burned)
-            .expect("burn within circulating");
+        let next = supply.after_burn(burned).expect("burn within circulating");
         assert!(
             next.circulating < supply.circulating,
             "block {height} burned nothing"
@@ -166,7 +164,10 @@ fn the_treasury_receives_one_fifth_of_the_base_fee_and_the_producer_every_tip() 
     };
     let base_paid = base_fee * size;
     assert_eq!(treasury, maya_ledger_math::Amount::from_u64(base_paid / 5));
-    assert_eq!(burned, maya_ledger_math::Amount::from_u64(base_paid - base_paid / 5));
+    assert_eq!(
+        burned,
+        maya_ledger_math::Amount::from_u64(base_paid - base_paid / 5)
+    );
     assert_eq!(tips, maya_ledger_math::Amount::from_u64(250));
     assert_eq!(beneficiary, Some([9; 32]));
 }

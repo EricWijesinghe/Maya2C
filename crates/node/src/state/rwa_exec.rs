@@ -40,10 +40,10 @@
 //! distribution nobody can mine.
 
 use maya_ledger_math::{Amount, distribute};
-use maya_stateless_core::amount::{to_amount, to_u256};
 use maya_rwa::cap_table::HOLDERS_PER_PAGE;
 use maya_rwa::token::{Eligibility, LegalAttestation, RevenueDistribution, RwaToken, TransferRule};
 use maya_rwa::{Address, Digest};
+use maya_stateless_core::amount::{to_amount, to_u256};
 use primitive_types::U256;
 
 use crate::error::{NodeError, Result};

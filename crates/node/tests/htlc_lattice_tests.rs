@@ -315,7 +315,12 @@ async fn a_swap_between_two_chains_settles_both_legs() {
     let secret = LatticeSecret::from_entropy([1; 32]);
     let commitment = secret.commitment().expect("commit");
     let alice_lock = alice_watcher
-        .initiate(SwapSecret::Lattice(secret), bob, primitive_types::U256::from(4_000), 80)
+        .initiate(
+            SwapSecret::Lattice(secret),
+            bob,
+            primitive_types::U256::from(4_000),
+            80,
+        )
         .await
         .expect("initiate");
     chain_a.mine();

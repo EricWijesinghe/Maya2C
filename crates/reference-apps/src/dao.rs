@@ -69,7 +69,12 @@ pub fn propose(
 /// # Errors
 ///
 /// [`DaoError::Governance`] outside the voting window.
-pub fn vote(grant: &mut Grant, choice: Choice, weight: Amount, height: u64) -> Result<(), DaoError> {
+pub fn vote(
+    grant: &mut Grant,
+    choice: Choice,
+    weight: Amount,
+    height: u64,
+) -> Result<(), DaoError> {
     grant.proposal = grant
         .proposal
         .vote(choice, weight, height)

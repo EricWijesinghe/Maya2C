@@ -106,7 +106,7 @@ impl VaultAction {
             Self::Request { to, amount } => {
                 buf.push(REQUEST);
                 buf.extend_from_slice(to);
-                crate::core::codec::put_amount(buf, &amount);
+                crate::core::codec::put_amount(buf, amount);
             }
             Self::Execute { owner, id } | Self::Cancel { owner, id } => {
                 buf.push(if matches!(self, Self::Execute { .. }) {

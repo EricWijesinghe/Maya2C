@@ -88,7 +88,9 @@ fn symbol(text: &str) -> [u8; 8] {
 
 /// A price of `whole` quote units per whole base unit.
 fn price(whole: u64) -> maya_ledger_math::Amount {
-    maya_ledger_math::Amount::from_u64(whole).checked_mul(PRICE_SCALE).expect("fits")
+    maya_ledger_math::Amount::from_u64(whole)
+        .checked_mul(PRICE_SCALE)
+        .expect("fits")
 }
 
 /// The world every trading test starts from: one account holding native coin

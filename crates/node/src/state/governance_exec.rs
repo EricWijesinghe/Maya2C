@@ -29,11 +29,11 @@
 //! program.
 
 use maya_governance::Amount;
-use maya_stateless_core::amount::to_amount;
 use maya_governance::error::GovernanceError;
 use maya_governance::params::{ParameterChange, ParameterKey};
 use maya_governance::proposal::{Proposal, ProposalState};
 use maya_governance::tally::Choice;
+use maya_stateless_core::amount::to_amount;
 use primitive_types::U256;
 
 use crate::consensus::difficulty::work_from_target;

@@ -338,7 +338,9 @@ fn every_payload_kind_has_distinct_signing_bytes() {
             amount: primitive_types::U256::from(1_000),
             unlock_height: 5_000,
         }),
-        TxKind::UnlockStake(StakeUnlock { amount: primitive_types::U256::from(1_000) }),
+        TxKind::UnlockStake(StakeUnlock {
+            amount: primitive_types::U256::from(1_000),
+        }),
         TxKind::Propose(Box::new(ProposalSubmission {
             voting_blocks: 480,
             timelock_blocks: 960,
@@ -768,7 +770,9 @@ fn every_governance_kind_survives_a_round_trip_unchanged() {
             amount: primitive_types::U256::from(u64::MAX),
             unlock_height: u64::MAX,
         }),
-        TxKind::UnlockStake(StakeUnlock { amount: primitive_types::U256::from(1) }),
+        TxKind::UnlockStake(StakeUnlock {
+            amount: primitive_types::U256::from(1),
+        }),
         TxKind::Propose(Box::new(ProposalSubmission {
             voting_blocks: 500,
             timelock_blocks: 1_000,
@@ -863,7 +867,13 @@ fn channel_ids_are_deterministic_and_parameter_sensitive() {
 
 #[test]
 fn channel_state_bytes_are_domain_separated_from_transactions() {
-    let bytes = channel_state_signing_bytes(&[9u8; 32], 4, primitive_types::U256::from(10), primitive_types::U256::from(20), &[3u8; 32]);
+    let bytes = channel_state_signing_bytes(
+        &[9u8; 32],
+        4,
+        primitive_types::U256::from(10),
+        primitive_types::U256::from(20),
+        &[3u8; 32],
+    );
 
     // A channel state must never be reinterpretable as a transaction payload.
     assert!(bytes.starts_with(b"maya-flash.channel-state.v1"));

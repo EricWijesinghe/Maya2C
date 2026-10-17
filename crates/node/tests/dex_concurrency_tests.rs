@@ -361,27 +361,28 @@ fn the_state_database_is_shareable_across_reader_threads() {
     let arena = arena(&maker, &traders);
     let pair = arena.pair;
 
-    let observations: Vec<(maya_ledger_math::Amount, maya_ledger_math::Amount)> = thread::scope(|scope| {
-        let handles: Vec<_> = (0..8)
-            .map(|_| {
-                let db = Arc::clone(&arena.db);
-                scope.spawn(move || {
-                    let record = db.get_pool(&pair).expect("read").expect("pool");
-                    (record.pool.reserve_base, record.pool.reserve_quote)
+    let observations: Vec<(maya_ledger_math::Amount, maya_ledger_math::Amount)> =
+        thread::scope(|scope| {
+            let handles: Vec<_> = (0..8)
+                .map(|_| {
+                    let db = Arc::clone(&arena.db);
+                    scope.spawn(move || {
+                        let record = db.get_pool(&pair).expect("read").expect("pool");
+                        (record.pool.reserve_base, record.pool.reserve_quote)
+                    })
                 })
-            })
-            .collect();
-        handles
-            .into_iter()
-            .map(|handle| handle.join().expect("join"))
-            .collect()
-    });
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().expect("join"))
+                .collect()
+        });
 
-    assert!(
-        observations
-            .iter()
-            .all(|reserves| *reserves == (maya_ledger_math::Amount::from_u64(POOL_NATIVE), maya_ledger_math::Amount::from_u64(POOL_ASSET)))
-    );
+    assert!(observations.iter().all(|reserves| *reserves
+        == (
+            maya_ledger_math::Amount::from_u64(POOL_NATIVE),
+            maya_ledger_math::Amount::from_u64(POOL_ASSET)
+        )));
 }
 
 #[test]

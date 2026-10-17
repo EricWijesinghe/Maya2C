@@ -382,7 +382,11 @@ mod tests {
         let proposal = open();
         let closes = proposal.schedule.voting_closes;
 
-        assert!(proposal.vote(Choice::For, Amount::from_u64(1), closes).is_ok());
+        assert!(
+            proposal
+                .vote(Choice::For, Amount::from_u64(1), closes)
+                .is_ok()
+        );
         assert_eq!(
             proposal.vote(Choice::For, Amount::from_u64(1), closes + 1),
             Err(GovernanceError::OutsideVotingWindow {
@@ -397,7 +401,12 @@ mod tests {
         // Finalizing early decides a vote that is still being cast.
         let proposal = open();
         assert!(matches!(
-            proposal.finalize(proposal.schedule.voting_closes, Amount::from_u64(1_000), 1_000, 5_001),
+            proposal.finalize(
+                proposal.schedule.voting_closes,
+                Amount::from_u64(1_000),
+                1_000,
+                5_001
+            ),
             Err(GovernanceError::WrongState { .. })
         ));
     }
@@ -512,12 +521,19 @@ mod tests {
             .expect("finalize");
         assert!(rejected.state.is_settled());
 
-        assert!(rejected.vote(Choice::For, Amount::from_u64(1), 200).is_err());
+        assert!(
+            rejected
+                .vote(Choice::For, Amount::from_u64(1), 200)
+                .is_err()
+        );
         assert!(rejected.execute(100_000).is_err());
         assert!(rejected.cancel().is_err());
         // Finalizing again is a no-op rather than an error: the end-of-block
         // pass visits every proposal and must not fail on a settled one.
-        assert_eq!(rejected.finalize(2_000, Amount::from_u64(1_000), 1_000, 5_001), Ok(rejected));
+        assert_eq!(
+            rejected.finalize(2_000, Amount::from_u64(1_000), 1_000, 5_001),
+            Ok(rejected)
+        );
     }
 
     #[test]

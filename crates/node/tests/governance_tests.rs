@@ -236,13 +236,25 @@ fn stake_cannot_be_withdrawn_before_its_height() {
 
     assert!(matches!(
         fixture
-            .act(0, TxKind::UnlockStake(StakeUnlock { amount: primitive_types::U256::from(1_000) }), 4_999)
+            .act(
+                0,
+                TxKind::UnlockStake(StakeUnlock {
+                    amount: primitive_types::U256::from(1_000)
+                }),
+                4_999
+            )
             .unwrap_err(),
         NodeError::StakeLocked { .. }
     ));
 
     fixture
-        .act(0, TxKind::UnlockStake(StakeUnlock { amount: primitive_types::U256::from(1_000) }), 5_000)
+        .act(
+            0,
+            TxKind::UnlockStake(StakeUnlock {
+                amount: primitive_types::U256::from(1_000),
+            }),
+            5_000,
+        )
         .expect("unlock");
     assert_eq!(
         fixture

@@ -85,13 +85,9 @@ impl StateDB {
         let burn = overlay.fee_burn;
         if !burn.is_zero() {
             let mut collector = self.load(overlay, &FEE_COLLECTOR)?;
-            collector.balance =
-                collector
-                    .balance
-                    .checked_sub(burn)
-                    .ok_or_else(|| {
-                        NodeError::InvariantViolation("fee burn exceeds what was collected".into())
-                    })?;
+            collector.balance = collector.balance.checked_sub(burn).ok_or_else(|| {
+                NodeError::InvariantViolation("fee burn exceeds what was collected".into())
+            })?;
             overlay.accounts.insert(FEE_COLLECTOR, collector);
             let mut sink = self.load(overlay, &FEE_SINK)?;
             sink.balance = sink

@@ -2,11 +2,11 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use maya_amount::Amount;
 use maya_dex::amm::Pool;
 use maya_dex::batch::{MAX_BATCH_INTENTS, SwapIntent, clear_batch};
 use maya_dex::error::DexError;
 use maya_dex::fees::FeeSchedule;
-use maya_amount::Amount;
 use maya_dex::types::{Direction, PRICE_SCALE};
 
 fn a(v: u64) -> Amount {

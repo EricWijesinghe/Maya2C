@@ -6,11 +6,11 @@
 //! pruned node while the other chain's timelock was still running. In state it
 //! is also under the state root, so a light client can prove the revelation.
 
-use maya_amount::Amount;
 use crate::error::{Error, Result};
 use crate::lock::{Lock, Unlock};
 use crate::params::{COMMITMENT_BYTES, DIGEST_BYTES, OPENING_BYTES};
 use crate::timelock::LockStatus;
+use maya_amount::Amount;
 
 /// Record format version.
 ///
@@ -145,7 +145,12 @@ impl LockRecord {
         }
         let sender = reader.array()?;
         let recipient = reader.array()?;
-        let amount = Amount::from_le_bytes(reader.take(AMOUNT_BYTES)?.try_into().map_err(|_| malformed("amount"))?);
+        let amount = Amount::from_le_bytes(
+            reader
+                .take(AMOUNT_BYTES)?
+                .try_into()
+                .map_err(|_| malformed("amount"))?,
+        );
         let created_height = reader.u64()?;
         let expiry_height = reader.u64()?;
         let (lock, used) = Lock::decode(reader.0)?;
@@ -297,7 +302,10 @@ mod tests {
     #[test]
     fn a_settled_record_escrows_nothing() {
         assert_eq!(record(Settlement::Open).escrowed(), Amount::from_u64(5_000));
-        assert_eq!(record(Settlement::Refunded { height: 1 }).escrowed(), Amount::ZERO);
+        assert_eq!(
+            record(Settlement::Refunded { height: 1 }).escrowed(),
+            Amount::ZERO
+        );
     }
 
     #[test]

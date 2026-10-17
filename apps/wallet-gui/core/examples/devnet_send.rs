@@ -54,7 +54,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             &chain,
         )?
     } else {
-        sign_transfer(&key, recipient, primitive_types::U256::from(amount), primitive_types::U256::from(0), nonce, &chain)?
+        sign_transfer(
+            &key,
+            recipient,
+            primitive_types::U256::from(amount),
+            primitive_types::U256::from(0),
+            nonce,
+            &chain,
+        )?
     };
     let txid = broadcast(url, &transfer.raw_hex).await?;
     println!("txid:     {txid}");

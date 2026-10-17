@@ -28,10 +28,10 @@
 //! on-chain state without bound for no gain.
 
 use crate::core::codec::{ByteReader, put_amount};
-use primitive_types::U256;
 use crate::core::payload::ChannelId;
 use crate::error::{NodeError, Result};
 use crate::state::account::Address;
+use primitive_types::U256;
 
 /// Encoded size of a [`ChannelRecord`].
 ///

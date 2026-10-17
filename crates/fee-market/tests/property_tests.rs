@@ -5,6 +5,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::too_many_lines)]
 
+use maya_amount::Amount;
 use maya_fee_market::limits::{
     MAX_CHANGE_DENOMINATOR, MAX_TARGET_BLOCK_BYTES, MAX_TREASURY_BPS, MIN_CHANGE_DENOMINATOR,
     MIN_TARGET_BLOCK_BYTES,
@@ -14,7 +15,6 @@ use maya_fee_market::{
     BlockFeeOutcome, Features, FeeClaim, FeeConfig, MODEL_V1, TxFee, apply_block_fees,
     neural_next_base_fee, next_base_fee,
 };
-use maya_amount::Amount;
 use proptest::prelude::*;
 
 /// `split` at `u64` inputs, read back as `u64`: every input here is below

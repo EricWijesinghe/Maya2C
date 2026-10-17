@@ -35,8 +35,15 @@ fn signed_blob() -> Vec<u8> {
     let seed = seed_from_mnemonic(PHRASE, "").expect("a valid phrase yields a seed");
     let key = signing_key_at(seed.as_slice(), &DerivationPath::account(0, 0)).expect("derive");
 
-    let signed = sign_transfer(&key, &hex::encode([9u8; 32]), primitive_types::U256::from(1_000), primitive_types::U256::from(0), 10, &CHAIN)
-        .expect("signing needs no network");
+    let signed = sign_transfer(
+        &key,
+        &hex::encode([9u8; 32]),
+        primitive_types::U256::from(1_000),
+        primitive_types::U256::from(0),
+        10,
+        &CHAIN,
+    )
+    .expect("signing needs no network");
 
     hex::decode(&signed.raw_hex).expect("the wallet emits valid hex")
 }
@@ -158,15 +165,29 @@ fn frames_from_two_different_transfers_cannot_be_mixed() {
     let key = signing_key_at(seed.as_slice(), &DerivationPath::account(0, 0)).expect("derive");
 
     let first = hex::decode(
-        &sign_transfer(&key, &hex::encode([9u8; 32]), primitive_types::U256::from(1_000), primitive_types::U256::from(0), 10, &CHAIN)
-            .expect("sign")
-            .raw_hex,
+        &sign_transfer(
+            &key,
+            &hex::encode([9u8; 32]),
+            primitive_types::U256::from(1_000),
+            primitive_types::U256::from(0),
+            10,
+            &CHAIN,
+        )
+        .expect("sign")
+        .raw_hex,
     )
     .expect("hex");
     let second = hex::decode(
-        &sign_transfer(&key, &hex::encode([9u8; 32]), primitive_types::U256::from(1_000), primitive_types::U256::from(0), 11, &CHAIN)
-            .expect("sign")
-            .raw_hex,
+        &sign_transfer(
+            &key,
+            &hex::encode([9u8; 32]),
+            primitive_types::U256::from(1_000),
+            primitive_types::U256::from(0),
+            11,
+            &CHAIN,
+        )
+        .expect("sign")
+        .raw_hex,
     )
     .expect("hex");
 

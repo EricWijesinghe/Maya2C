@@ -291,7 +291,10 @@ mod tests {
         assert_eq!(tx.outputs[0].amount, primitive_types::U256::from(100));
         assert_eq!(tx.outputs[1].recipient, FEES.collector);
         let size = u64::try_from(bytes.len()).unwrap();
-        assert_eq!(tx.outputs[1].amount, primitive_types::U256::from(FEES.base_fee * size * FEE_HEADROOM));
+        assert_eq!(
+            tx.outputs[1].amount,
+            primitive_types::U256::from(FEES.base_fee * size * FEE_HEADROOM)
+        );
     }
 
     #[test]

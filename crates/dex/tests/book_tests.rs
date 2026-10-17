@@ -7,9 +7,9 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use maya_amount::Amount;
 use maya_dex::book::{Book, Order, SORT_KEY_LEN, Side, quote_for_base, sort_key};
 use maya_dex::error::DexError;
-use maya_amount::Amount;
 use maya_dex::types::PRICE_SCALE;
 
 fn a(v: u64) -> Amount {
@@ -221,7 +221,13 @@ fn prices_past_u64_keep_priority_order_in_the_storage_key() {
         Amount::MAX,
     ];
     let asks: Vec<_> = prices.iter().map(|&p| sort_key(Side::Ask, p, 0)).collect();
-    assert!(asks.windows(2).all(|w| w[0] < w[1]), "asks ascend with price");
+    assert!(
+        asks.windows(2).all(|w| w[0] < w[1]),
+        "asks ascend with price"
+    );
     let bids: Vec<_> = prices.iter().map(|&p| sort_key(Side::Bid, p, 0)).collect();
-    assert!(bids.windows(2).all(|w| w[0] > w[1]), "bids descend with price");
+    assert!(
+        bids.windows(2).all(|w| w[0] > w[1]),
+        "bids descend with price"
+    );
 }

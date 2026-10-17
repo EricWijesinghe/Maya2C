@@ -116,13 +116,17 @@ pub fn stake_weights(staking: &maya_staking::Staking, active: &[[u8; 32]]) -> Ve
     let stakes: Vec<maya_staking::Amount> = active
         .iter()
         .map(|id| {
-            staking
-                .validators
-                .get(id)
-                .map_or(maya_staking::Amount::ZERO, maya_staking::ValidatorRecord::total)
+            staking.validators.get(id).map_or(
+                maya_staking::Amount::ZERO,
+                maya_staking::ValidatorRecord::total,
+            )
         })
         .collect();
-    let largest = stakes.iter().copied().max().unwrap_or(maya_staking::Amount::ZERO);
+    let largest = stakes
+        .iter()
+        .copied()
+        .max()
+        .unwrap_or(maya_staking::Amount::ZERO);
     let shift = largest.bits().saturating_sub(u64::BITS);
     stakes
         .iter()
@@ -360,10 +364,28 @@ mod tests {
     #[test]
     fn a_populated_record_round_trips_byte_for_byte() {
         let mut staking = Staking::new(Params::DEVNET).unwrap();
-        staking.register([1; 32], [9; 32], maya_ledger_math::Amount::from_u64(5_000), 100).unwrap();
-        staking.register([2; 32], [8; 32], maya_ledger_math::Amount::from_u64(7_000), 0).unwrap();
-        staking.delegate([3; 32], [9; 32], maya_ledger_math::Amount::from_u64(400)).unwrap();
-        staking.undelegate([3; 32], [9; 32], maya_ledger_math::Amount::from_u64(100)).unwrap();
+        staking
+            .register(
+                [1; 32],
+                [9; 32],
+                maya_ledger_math::Amount::from_u64(5_000),
+                100,
+            )
+            .unwrap();
+        staking
+            .register(
+                [2; 32],
+                [8; 32],
+                maya_ledger_math::Amount::from_u64(7_000),
+                0,
+            )
+            .unwrap();
+        staking
+            .delegate([3; 32], [9; 32], maya_ledger_math::Amount::from_u64(400))
+            .unwrap();
+        staking
+            .undelegate([3; 32], [9; 32], maya_ledger_math::Amount::from_u64(100))
+            .unwrap();
         staking.slash_double_sign([8; 32]).unwrap();
         staking.active = vec![[9; 32]];
         let record = StakingRecord {

@@ -364,10 +364,7 @@ mod tests {
     fn total_outputs_rejects_a_wrap_through_the_middle() {
         // The sum of these three is not representable. An implementation that
         // wrapped on the second addition would report `Some(MAX)` here.
-        assert_eq!(
-            total_outputs([Amount::MAX, Amount::ONE, Amount::MAX]),
-            None
-        );
+        assert_eq!(total_outputs([Amount::MAX, Amount::ONE, Amount::MAX]), None);
     }
 
     #[test]
@@ -593,10 +590,22 @@ mod distribution_tests {
     fn distributions_at_the_256_bit_ceiling_are_exact() {
         let half = Amount::MAX.checked_div(Amount::from_u64(2)).expect("half");
         let cases: [(Amount, Vec<Amount>); 4] = [
-            (Amount::MAX, vec![half, half.checked_add(Amount::ONE).expect("fits")]),
-            (Amount::MAX, vec![Amount::MAX.checked_sub(Amount::ONE).expect("fits"), Amount::ONE]),
+            (
+                Amount::MAX,
+                vec![half, half.checked_add(Amount::ONE).expect("fits")],
+            ),
+            (
+                Amount::MAX,
+                vec![
+                    Amount::MAX.checked_sub(Amount::ONE).expect("fits"),
+                    Amount::ONE,
+                ],
+            ),
             (Amount::MAX, amounts(&[1, 1, 1])),
-            (half, vec![half, Amount::from_u64(7), Amount::from_u64(u64::MAX)]),
+            (
+                half,
+                vec![half, Amount::from_u64(7), Amount::from_u64(u64::MAX)],
+            ),
         ];
         for (total, weights) in cases {
             let payouts = split(total, &weights);
@@ -617,7 +626,12 @@ mod distribution_tests {
         let weights_wide = amounts(weights);
         let mut payouts = vec![Amount::ZERO; weights.len()];
         let mut order = vec![0u32; weights.len()];
-        let placed = distribute(Amount::from_u64(total), &weights_wide, &mut payouts, &mut order);
+        let placed = distribute(
+            Amount::from_u64(total),
+            &weights_wide,
+            &mut payouts,
+            &mut order,
+        );
         if total_weight == 0 {
             assert!(placed.is_none(), "zero weight must refuse");
             return;
@@ -650,7 +664,15 @@ mod distribution_tests {
         // weight would be a division by zero.
         let mut payouts = vec![Amount::ZERO; 3];
         let mut order = vec![0u32; 3];
-        assert!(distribute(Amount::from_u64(10), &amounts(&[0, 0, 0]), &mut payouts, &mut order).is_none());
+        assert!(
+            distribute(
+                Amount::from_u64(10),
+                &amounts(&[0, 0, 0]),
+                &mut payouts,
+                &mut order
+            )
+            .is_none()
+        );
     }
 
     #[test]
@@ -662,7 +684,15 @@ mod distribution_tests {
 
         let mut payouts = vec![Amount::ZERO; 3];
         let mut short_order = vec![0u32; 2];
-        assert!(distribute(Amount::from_u64(10), &weights, &mut payouts, &mut short_order).is_none());
+        assert!(
+            distribute(
+                Amount::from_u64(10),
+                &weights,
+                &mut payouts,
+                &mut short_order
+            )
+            .is_none()
+        );
     }
 
     #[test]

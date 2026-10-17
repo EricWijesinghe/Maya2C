@@ -426,7 +426,9 @@ impl Session {
                 {
                     // Same header but nothing left to pay: stop hashing too.
                     Ok(next)
-                        if next.active && next.header == work.header && next.share_reward != "0" => {}
+                        if next.active
+                            && next.header == work.header
+                            && next.share_reward != "0" => {}
                     Ok(_) => return,
                     Err(error) => self.emit(&json!({"event": "error", "message": error})),
                 }

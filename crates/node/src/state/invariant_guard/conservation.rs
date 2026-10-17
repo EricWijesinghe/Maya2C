@@ -124,7 +124,7 @@ fn moved(ledger: &mut Ledger, asset: AssetId, new: U256, old: U256) -> Result<()
 fn escrowed(record: &ChannelRecord) -> U256 {
     match record.status {
         ChannelStatus::Closed => U256::zero(),
-        ChannelStatus::Open | ChannelStatus::Disputed => U256::from(record.capacity),
+        ChannelStatus::Open | ChannelStatus::Disputed => record.capacity,
     }
 }
 
@@ -387,7 +387,7 @@ fn fold_asset(
 fn fold_lock(staged: Option<&[u8]>, previous: Option<&[u8]>, ledger: &mut Ledger) -> Result<()> {
     let amount = |bytes: Option<&[u8]>| -> Result<U256> {
         Ok(match bytes {
-            Some(bytes) => U256::from(LockRecord::decode(bytes)?.amount),
+            Some(bytes) => LockRecord::decode(bytes)?.amount,
             None => U256::zero(),
         })
     };
@@ -402,7 +402,7 @@ fn fold_proposal(
 ) -> Result<()> {
     let deposit = |bytes: Option<&[u8]>| -> Result<U256> {
         Ok(match bytes {
-            Some(bytes) => U256::from(ProposalRecord::decode(bytes)?.deposit),
+            Some(bytes) => ProposalRecord::decode(bytes)?.deposit,
             None => U256::zero(),
         })
     };
@@ -432,7 +432,7 @@ fn fold_vault_withdrawal(
 ) -> Result<()> {
     let escrowed = |bytes: Option<&[u8]>| -> Result<U256> {
         Ok(match bytes {
-            Some(bytes) => U256::from(crate::state::vault::Withdrawal::decode(bytes)?.escrowed()),
+            Some(bytes) => crate::state::vault::Withdrawal::decode(bytes)?.escrowed(),
             None => U256::zero(),
         })
     };
@@ -576,9 +576,10 @@ mod tests {
 
         let mut overlay = Overlay::default();
         overlay.accounts.insert(ALICE, account(400));
-        overlay
-            .channels
-            .insert([9u8; 32], ChannelRecord::new(ALICE, BOB, primitive_types::U256::from(600), 10));
+        overlay.channels.insert(
+            [9u8; 32],
+            ChannelRecord::new(ALICE, BOB, primitive_types::U256::from(600), 10),
+        );
         db.check_value_conservation(&overlay).expect("conserved");
     }
 
@@ -589,9 +590,10 @@ mod tests {
 
         let mut overlay = Overlay::default();
         overlay.accounts.insert(ALICE, account(400));
-        overlay
-            .channels
-            .insert([9u8; 32], ChannelRecord::new(ALICE, BOB, primitive_types::U256::from(900), 10));
+        overlay.channels.insert(
+            [9u8; 32],
+            ChannelRecord::new(ALICE, BOB, primitive_types::U256::from(900), 10),
+        );
         assert!(violation(&db, &overlay).contains("out by 300"));
     }
 

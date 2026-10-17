@@ -334,7 +334,7 @@ impl StateDB {
             None => self.get_account(&opener)?,
         };
 
-        let funding = U256::from(open.funding);
+        let funding = open.funding;
         if account.balance < funding {
             return Err(NodeError::InsufficientBalance {
                 address: hex::encode(opener),

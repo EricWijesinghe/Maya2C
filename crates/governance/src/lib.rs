@@ -60,7 +60,7 @@ pub mod tally;
 pub mod proofs;
 
 pub use error::GovernanceError;
+pub use maya_amount::Amount;
 pub use params::{Bounds, MAX_CHANGES_PER_PROPOSAL, ParameterChange, ParameterKey};
 pub use proposal::{Proposal, ProposalState, Schedule};
-pub use maya_amount::Amount;
 pub use tally::{Choice, Tally};
