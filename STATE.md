@@ -1,6 +1,33 @@
 # State
 
 ## Handover
+- **2026-10-18 overnight: 12 PRs merged.**
+  - **Merged:**
+    - sealed validator keys (#131, ADR-049);
+    - Kani long-division step proof (#134);
+    - SBOM and provenance (#130);
+    - layered docs (#133);
+    - site 3D, mobile and sections (#129, #136);
+    - explorer and status redesign (#137, not redeployed);
+    - ADR-050/051 Proposed (#132);
+    - #116, #119, #123, #128.
+  - **Also:**
+    - eric.maya2c.dev rebuilt and live;
+    - GitHub profile repo created;
+    - validator key files locked to EricW + SYSTEM on this PC.
+  - **Report:** `reports/sessions/2026-10-18-overnight.md`.
+  - **Unfinished:**
+    - #135 (wallet u256) awaits Eric's send-screen check;
+    - the live keys are still plaintext, since migration needs a restart of each validator;
+    - BitLocker is off;
+    - the full-width maya-amount Kani harnesses are unproven (3 h+ in CBMC);
+    - explorer and status still serve the old pages;
+    - the coin ticker is undecided;
+    - Cloudflare headers and DNSSEC, CAA, SPF and DMARC are not set (checklist in the report).
+  - **Do first:**
+    1. Eric answers ADR-050/051 and the ticker, and checks #135.
+    2. With Eric present, seal the four testnet keys, one validator at a time.
+    3. Redeploy explorer and status.
 - **2026-10-17 — every amount is 256-bit (ADR-048), branch `feat/u256-supply`.**
   Done: all value paths, spec/vectors/TS verifier, wallets, Ledger app, L2.
   3236/3236 tests, both clippy gates, vectors 0 mismatches
