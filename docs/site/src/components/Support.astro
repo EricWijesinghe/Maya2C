@@ -1,0 +1,61 @@
+---
+// "Support Maya2C": the ways to help that exist today, and a single slot for a
+// donation link once one exists (src/config/support.ts). No account is implied.
+import { DONATION_URL } from "../config/support";
+const REPO = "https://github.com/EricWijesinghe/Maya2C";
+---
+
+<section class="support not-content" aria-labelledby="support-t">
+  <h2 id="support-t" class="sr">Ways to support Maya2C</h2>
+  <div class="cards">
+    <a class="card" href={REPO} target="_blank" rel="noopener">
+      <span class="ico" aria-hidden="true">★</span>
+      <b>Star the repo</b>
+      <span>A star tells others the project is worth a look.</span>
+    </a>
+    <a class="card" href={`${REPO}/blob/master/CONTRIBUTING.md`} target="_blank" rel="noopener">
+      <span class="ico" aria-hidden="true">⟡</span>
+      <b>Contribute</b>
+      <span>Code, docs and review are all welcome.</span>
+    </a>
+    <a class="card" href={`${REPO}/issues`} target="_blank" rel="noopener">
+      <span class="ico" aria-hidden="true">◎</span>
+      <b>Report or test</b>
+      <span>Run the testnet and tell us where it breaks.</span>
+    </a>
+    {DONATION_URL ? (
+      <a class="card gold" href={DONATION_URL} target="_blank" rel="noopener">
+        <span class="ico" aria-hidden="true">◆</span>
+        <b>Donate</b>
+        <span>Keep the work going.</span>
+      </a>
+    ) : (
+      <div class="card gold soon" aria-disabled="true">
+        <span class="ico" aria-hidden="true">◆</span>
+        <b>Donations</b>
+        <span>Donation links are coming soon.</span>
+      </div>
+    )}
+  </div>
+</section>
+
+<style>
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 14px; margin: 1.5rem 0; }
+  .card {
+    position: relative; display: flex; flex-direction: column; gap: 6px; padding: 20px; min-height: 44px;
+    border-radius: 18px; text-decoration: none; color: var(--text);
+    background: linear-gradient(160deg, rgba(31, 181, 194, 0.16), rgba(31, 181, 194, 0.02)), var(--glass, rgba(255,255,255,0.03));
+    border: 1px solid var(--glass-edge, rgba(126, 234, 240, 0.18));
+    backdrop-filter: blur(12px); transition: transform .35s ease, box-shadow .35s ease;
+  }
+  .card:hover, .card:focus-visible { transform: translateY(-3px); box-shadow: 0 16px 40px -18px rgba(31, 181, 194, 0.7); outline: none; }
+  .card:focus-visible { box-shadow: 0 0 0 3px rgba(126, 234, 240, 0.6); }
+  .card.gold { background: linear-gradient(160deg, rgba(201, 168, 106, 0.22), rgba(201, 168, 106, 0.03)), var(--glass, rgba(255,255,255,0.03)); }
+  .card.soon { cursor: default; opacity: 0.85; }
+  .card .ico { font-size: 1.4rem; color: #7eeaf0; line-height: 1; }
+  .card.gold .ico { color: #d9b97a; }
+  .card b { font-size: 1.05rem; }
+  .card span:last-child { color: var(--muted, #93a4aa); font-size: 0.92rem; }
+  @media (prefers-reduced-motion: reduce) { .card { transition: none; } .card:hover { transform: none; } }
+</style>

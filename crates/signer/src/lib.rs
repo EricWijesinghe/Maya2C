@@ -13,4 +13,5 @@ pub mod backend;
 pub mod channel;
 pub mod keystore;
 pub mod protection;
+pub mod sealed;
 pub mod service;

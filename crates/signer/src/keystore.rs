@@ -18,8 +18,8 @@ use zeroize::Zeroizing;
 
 /// Argon2id memory, KiB. 64 MiB: slow enough to make guessing a weak
 /// passphrase expensive, small enough for a signer box.
-const KDF_MEMORY_KIB: u32 = 64 * 1024;
-const KDF_PASSES: u32 = 3;
+pub(crate) const KDF_MEMORY_KIB: u32 = 64 * 1024;
+pub(crate) const KDF_PASSES: u32 = 3;
 const FORMAT: u32 = 1;
 
 /// Keystore failures.
@@ -51,7 +51,7 @@ struct File {
     ml_dsa_65_public_key: String,
 }
 
-fn key_from(
+pub(crate) fn key_from(
     passphrase: &[u8],
     salt: &[u8],
     memory: u32,
@@ -66,7 +66,7 @@ fn key_from(
     Ok(key)
 }
 
-fn hex(b: &[u8]) -> String {
+pub(crate) fn hex(b: &[u8]) -> String {
     b.iter()
         .fold(String::with_capacity(b.len() * 2), |mut s, x| {
             use std::fmt::Write;
@@ -75,7 +75,7 @@ fn hex(b: &[u8]) -> String {
         })
 }
 
-fn unhex(s: &str) -> Result<Vec<u8>, KeystoreError> {
+pub(crate) fn unhex(s: &str) -> Result<Vec<u8>, KeystoreError> {
     if !s.len().is_multiple_of(2) {
         return Err(KeystoreError::Format("odd hex".into()));
     }
