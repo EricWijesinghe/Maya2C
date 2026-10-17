@@ -1,0 +1,53 @@
+/* Living details shared by every page: animated section dividers, glow accents
+   and phone-safe text wrapping. Colours come from the Forged Light tokens in
+   maya.css. Decorative motion stops under prefers-reduced-motion. */
+
+.sl-markdown-content hr,
+.maya-divider {
+  border: 0;
+  height: 2px;
+  margin: 3.5rem auto;
+  max-width: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--cherenkov), #7eeaf0, var(--signal), transparent);
+  background-size: 200% 100%;
+  opacity: 0.85;
+  animation: maya-sweep 9s linear infinite;
+}
+
+@keyframes maya-sweep {
+  from { background-position: 0% 50%; }
+  to { background-position: 200% 50%; }
+}
+
+/* Long words and URLs wrap inside the column instead of pushing the page wide. */
+.sl-markdown-content p,
+.sl-markdown-content li,
+.sl-markdown-content dd,
+.sl-markdown-content a {
+  overflow-wrap: anywhere;
+}
+
+/* Wide code and tables scroll inside their own box, never the page. */
+.sl-markdown-content pre,
+.expressive-code,
+.expressive-code .frame,
+.expressive-code pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.sl-markdown-content table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* Glow accent for headings that introduce a visual block. */
+.sl-markdown-content h2 {
+  text-shadow: 0 0 28px rgba(126, 234, 240, 0.18);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sl-markdown-content hr,
+  .maya-divider { animation: none; }
+}
