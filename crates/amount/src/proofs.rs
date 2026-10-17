@@ -69,8 +69,9 @@ fn mul_wide_matches_u128_multiplication() {
     assert!(Amount::from(x).checked_mul(Amount::from(y)) == Some(Amount::from(exact)));
 }
 
-/// The product is commutative for 128-bit factors, where every partial
-/// product and carry of the schoolbook loop is exercised.
+/// The product is commutative for 128-bit factors. Limbs 2 and 3 are zero
+/// here, so the upper partial products are not exercised; full-width
+/// products are property-tested (`tests/property_tests.rs`), not proved.
 #[kani::proof]
 #[kani::unwind(5)]
 fn mul_wide_is_commutative() {

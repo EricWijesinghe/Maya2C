@@ -19,9 +19,13 @@
 //! Stated plainly, because the difference is the difference between a proof and
 //! a very good test:
 //!
-//! - Every harness here is **unbounded** over the inputs it quantifies. There
-//!   are no loops in the code they cover, so there is no unwind bound and no
-//!   sequence length to assume.
+//! - Every harness here is **unbounded** over the inputs it quantifies,
+//!   except the two threshold harnesses
+//!   (`more_support_never_turns_a_pass_into_a_failure`,
+//!   `more_turnout_never_loses_a_quorum`): they quantify over weights below
+//!   2^128, because a 512-bit cross-multiplication over every 256-bit weight
+//!   does not finish in CBMC (ADR-046). The ceiling itself is covered by a
+//!   unit test, not a proof.
 //! - What they do *not* cover is a sequence of operations. Each proves a
 //!   property of one transition; the composition of many transitions is covered
 //!   by the tests in `proposal.rs` and `tests/governance_tests.rs`. Said here

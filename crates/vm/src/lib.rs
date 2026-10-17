@@ -43,6 +43,7 @@ pub mod tier;
 pub mod trace;
 pub mod zkml;
 
+pub use maya_amount::Amount;
 pub use config::{MAX_MEMORY_PAGES, MAX_MODULE_BYTES, WASMTIME_VERSION, deterministic_engine};
 pub use error::{Result, VmError};
 pub use host::{Address, ContractId, Event, HostState, MemoryState};

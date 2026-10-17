@@ -268,7 +268,11 @@ impl StateDB {
         if paid.is_zero() {
             return Ok(Amount::ZERO);
         }
-        reserve.balance -= paid;
+        // `paid` is at most the reserve; checked so a later edit fails closed.
+        reserve.balance = reserve
+            .balance
+            .checked_sub(paid)
+            .ok_or(NodeError::BalanceOverflow)?;
         overlay.accounts.insert(MINING_RESERVE, reserve);
         let mut payee = self.load(overlay, to)?;
         payee.balance = payee

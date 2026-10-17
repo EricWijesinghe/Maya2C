@@ -19,6 +19,8 @@ path = "src/lib.rs"
 # to execute contracts, so the reverse would be a cycle. Chain state reaches the
 # VM through the `HostState` trait instead.
 thiserror.workspace = true
+# Balances are 256-bit (ADR-046). `maya-amount` is dependency-free and `no_std`.
+maya-amount = { path = "../amount" }
 hex.workspace = true
 # The resource rules the opt-in `maya_res` imports enforce (`src/resources.rs`).
 # Dependency-free, so this adds no crate to the consensus VM's graph but itself.

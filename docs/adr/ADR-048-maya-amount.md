@@ -82,9 +82,13 @@ Deliberately not 256-bit, each with its reason:
 | RWA cap-table units | `u64` | A share count; the revenue split over them is 256-bit. |
 | ISO 20022 bridge amounts | `u64` minor units | The message standard's amount. A chain output larger than it refuses the statement rather than clamping a line. |
 | Faucet grants, mining-pool payouts | `u64` | App-internal figures; they widen at the chain boundary. |
+| VM `get_balance` | `i64` | The original contract ABI, kept for existing modules: identical below 2^64, saturates above it. New host function `get_balance_u256(addr_ptr, out_ptr)` writes the exact 32-byte value. |
+| GUI wallet (Leptos screens) | `u64` input | The core signs 256-bit amounts; the screens still enter u64. Follow-up. |
 
-Proof scope, honestly: `maya-amount`'s own harnesses cover its arithmetic at
-every 256-bit input. `ledger-math`, `staking` and `fee-market` harnesses take
+Proof scope, honestly: `maya-amount`'s harnesses prove add, subtract, order
+and the byte encoding at every 256-bit input, the 512-bit product for factors
+below 2^128, and division for divisors below 2^64; the long-division path is
+property-tested, not proved. `ledger-math`, `staking` and `fee-market` harnesses take
 256-bit symbolic inputs. Governance threshold harnesses are bounded to weights
 below 2^128, and DEX pool harnesses to reserves below 2^40 (as before);
 256-bit behaviour there is covered by tests, not proofs. Kani was NOT run in
