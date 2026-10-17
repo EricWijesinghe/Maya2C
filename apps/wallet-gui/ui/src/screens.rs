@@ -3,6 +3,7 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
+use crate::amount;
 use crate::bridge;
 use crate::{AppState, Screen};
 
@@ -29,6 +30,33 @@ pub fn group_digits(n: impl std::fmt::Display) -> String {
         out.push(c);
     }
     out
+}
+
+/// A base-unit decimal string from IPC as the 18-decimal amount a person
+/// reads. Empty means "not loaded yet" and reads as zero, as it always has.
+pub fn show_amount(base: &str) -> String {
+    match amount::parse_base_units(base) {
+        Ok(value) => amount::format_display(value),
+        Err(amount::AmountError::Empty) => amount::format_display(primitive_types::U256::zero()),
+        Err(_) => "invalid amount".to_string(),
+    }
+}
+
+/// A base-unit decimal string as a plain value an input field can hold.
+pub fn input_amount(base: &str) -> String {
+    amount::parse_base_units(base).map_or_else(|_| String::new(), amount::format_input)
+}
+
+/// What someone typed, a whole-coin decimal, as the base-unit string IPC takes.
+/// Rejected text is an error the form shows, never a rounded value.
+pub fn typed_amount(text: &str) -> Result<String, amount::AmountError> {
+    amount::parse_display(text.trim()).map(|value| value.to_string())
+}
+
+/// A base-unit string as a number, for comparing two amounts. `None` if
+/// it is not one.
+pub fn base_value(base: &str) -> Option<primitive_types::U256> {
+    amount::parse_base_units(base).ok()
 }
 
 // ---------------------------------------------------------------------------
@@ -430,8 +458,8 @@ pub mod wallet {
                                 <span class="amount">
                                     {format!(
                                         "\u{2212}{} (+{} fee)",
-                                        group_digits(&entry.transfer.amount),
-                                        group_digits(&entry.transfer.fee),
+                                        show_amount(&entry.transfer.amount),
+                                        show_amount(&entry.transfer.fee),
                                     )}
                                 </span>
                             </div>
@@ -468,7 +496,7 @@ pub mod wallet {
                 </div>
                 <div class="hero-balance">
                     <span class="value">
-                        {move || group_digits(state.account_state.get().balance)}
+                        {move || show_amount(&state.account_state.get().balance)}
                     </span>
                     <span class="unit">"units"</span>
                 </div>
@@ -638,7 +666,8 @@ pub mod send {
         let state = expect_context::<AppState>();
 
         let recipient = RwSignal::new(request.recipient.clone());
-        let amount = RwSignal::new(request.amount.map(|a| a.to_string()).unwrap_or_default());
+        // A payment request carries base units; the form edits whole coins.
+        let amount = RwSignal::new(request.amount.as_deref().map(input_amount).unwrap_or_default());
         let fee = RwSignal::new(String::new());
         let label = request.label.clone();
         let preview = RwSignal::new(None::<bridge::TransferPreview>);
@@ -657,7 +686,7 @@ pub mod send {
                     Ok(terms) => {
                         // Standard, the second tier, is the default.
                         if let Some(standard) = terms.options.get(1) {
-                            fee.set(standard.fee.to_string());
+                            fee.set(input_amount(&standard.fee));
                         }
                         fee_terms.set(terms);
                     }
@@ -667,12 +696,12 @@ pub mod send {
         });
 
         let build_preview = move |_| {
-            let Ok(amount_value) = amount.get().parse::<u64>() else {
-                state.fail("Amount must be a whole number.");
+            let Ok(amount_value) = typed_amount(&amount.get()) else {
+                state.fail("Amount must be a number with at most 18 decimal places.");
                 return;
             };
-            let Ok(fee_value) = fee.get().parse::<u64>() else {
-                state.fail("Fee must be a whole number.");
+            let Ok(fee_value) = typed_amount(&fee.get()) else {
+                state.fail("Fee must be a number with at most 18 decimal places.");
                 return;
             };
             state.clear();
@@ -681,7 +710,7 @@ pub mod send {
             let to = recipient.get();
 
             spawn_local(async move {
-                match bridge::preview_transfer(index, &to, amount_value, fee_value, nonce).await {
+                match bridge::preview_transfer(index, &to, &amount_value, &fee_value, nonce).await {
                     Ok(summary) => preview.set(Some(summary)),
                     Err(error) => state.fail(error),
                 }
@@ -698,8 +727,8 @@ pub mod send {
                 match bridge::sign_transfer(
                     state.selected.get_untracked(),
                     &summary.recipient,
-                    summary.amount,
-                    summary.fee,
+                    &summary.amount,
+                    &summary.fee,
                     summary.nonce,
                     &terms,
                 )
@@ -755,18 +784,20 @@ pub mod send {
                 .options
                 .into_iter()
                 .map(|option| {
-                    let value = option.fee;
+                    let shown = input_amount(&option.fee);
+                    let on_click = shown.clone();
+                    let chip_value = show_amount(&option.fee);
                     view! {
                         <button
-                            class=move || if fee.get() == value.to_string() {
+                            class=move || if fee.get() == shown {
                                 "chip selected"
                             } else {
                                 "chip"
                             }
-                            on:click=move |_| fee.set(value.to_string())
+                            on:click=move |_| fee.set(on_click.clone())
                         >
                             {option.label.clone()}
-                            <span class="chip-value">{value}</span>
+                            <span class="chip-value">{chip_value}</span>
                         </button>
                     }
                 })
@@ -827,14 +858,18 @@ pub mod send {
                     {move || {
                         let summary = preview.get().expect("checked");
                         let is_signed = signed.get().is_some();
-                        let fee_is_large = summary.fee > summary.amount;
+                        // Compared as numbers: the strings would order "9" above "10".
+                        let fee_is_large = match (base_value(&summary.fee), base_value(&summary.amount)) {
+                            (Some(fee), Some(amount)) => fee > amount,
+                            _ => false,
+                        };
                         view! {
                             <div class="summary">
                                 <div><span>"From"</span><span class="mono">{short(&summary.sender)}</span></div>
                                 <div><span>"To"</span><span class="mono">{short(&summary.recipient)}</span></div>
-                                <div><span>"Amount"</span><span>{summary.amount}</span></div>
-                                <div><span>"Fee"</span><span>{summary.fee}</span></div>
-                                <div class="total"><span>"Total"</span><span>{summary.total}</span></div>
+                                <div><span>"Amount"</span><span>{show_amount(&summary.amount)}</span></div>
+                                <div><span>"Fee"</span><span>{show_amount(&summary.fee)}</span></div>
+                                <div class="total"><span>"Total"</span><span>{show_amount(&summary.total)}</span></div>
                                 <div><span>"Nonce"</span><span>{summary.nonce}</span></div>
                             </div>
                             // The collector itself is checked in the wallet core against

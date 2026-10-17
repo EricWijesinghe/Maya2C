@@ -9,7 +9,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::bridge;
-use crate::screens::{group_digits, short};
+use crate::screens::{short, show_amount, typed_amount};
 use crate::{AppState, Screen};
 
 /// How long "Copied" stays on a copy button before it reads "Copy" again.
@@ -61,7 +61,8 @@ pub fn Receive() -> impl IntoView {
     // someone is still typing.
     Effect::new(move |_| {
         let index = state.selected.get();
-        let wanted = amount.get().trim().parse::<u64>().ok().filter(|a| *a > 0);
+        // Typed as whole coins, sent as base units; zero asks for nothing.
+        let wanted = typed_amount(&amount.get()).ok().filter(|base| base != "0");
         spawn_local(async move {
             match bridge::receive_request(index, wanted).await {
                 Ok(drawn) => request.set(Some(drawn)),
@@ -142,7 +143,7 @@ pub fn Sent(sent: SentTransfer) -> impl IntoView {
             </div>
             <h1>"Sent"</h1>
             <p class="sent-amount">
-                {group_digits(&sent.amount)}
+                {show_amount(&sent.amount)}
                 <span class="unit">" units"</span>
             </p>
             <p class="lede">{format!("to {}", short(&sent.recipient))}</p>
