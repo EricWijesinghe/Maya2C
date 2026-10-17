@@ -828,6 +828,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         node_config.rpc.rate_limit_per_second,
         node_config.rpc.rate_limit_burst,
     ));
+    // `get_peers`: who this node is connected to, with no addresses, so it is
+    // safe on every node (`rpc::peers`).
+    let rpc_context = rpc_context.with_network_view(network.clone());
     let rpc = serve_metered(args.rpc_addr, rpc_context, Arc::clone(&metrics), limiter).await?;
     println!("rpc:         http://{}", rpc.address);
 

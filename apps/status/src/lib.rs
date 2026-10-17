@@ -11,6 +11,8 @@
 
 #![warn(missing_docs)]
 
+pub mod live;
+
 use serde::Serialize;
 
 /// A gap between consecutive blocks long enough to count as a halt.
