@@ -195,9 +195,9 @@ fn combined_balance_agrees_with_its_inverse() {
 /// `[MAX, 1, MAX]` sums to `MAX` under wrapping arithmetic, and a transaction
 /// reporting that total would pass a balance check it should fail.
 #[kani::proof]
-// 10: four-limb carry loops and the limb-order comparison (which also
-// steps past the last limb), plus the three-output fold.
-#[kani::unwind(10)]
+// 40: `==` on an Amount is a 32-byte memcmp, which CBMC unrolls per byte;
+// the carry loops (4 limbs) and the three-output fold sit well inside it.
+#[kani::unwind(40)]
 fn total_outputs_refuses_any_intermediate_overflow() {
     let amounts: [Amount; PROVED_OUTPUT_COUNT] = [any_amount(), any_amount(), any_amount()];
 
@@ -237,8 +237,8 @@ fn total_outputs_of_nothing_is_zero() {
 /// reached the recipients, each side measured by subtraction so the assertion
 /// itself cannot be the thing that wraps.
 #[kani::proof]
-// 10: four-limb carry/borrow loops and the limb-order comparison.
-#[kani::unwind(10)]
+// 40: `==` on an Amount is a 32-byte memcmp, unrolled per byte.
+#[kani::unwind(40)]
 fn a_two_output_transfer_conserves_value() {
     let sender_before = any_amount();
     let first_before = any_amount();
@@ -354,8 +354,8 @@ fn settle_pool_moves_value_in_the_stated_direction() {
 ///
 /// [`distribute`]: super::distribute
 #[kani::proof]
-// 10: the four-limb carry loop and limb comparison inside each placed unit.
-#[kani::unwind(10)]
+// 40: `==` on an Amount is a 32-byte memcmp, unrolled per byte.
+#[kani::unwind(40)]
 fn placing_the_spare_adds_exactly_the_spare() {
     let before: [Amount; 3] = [any_amount(), any_amount(), any_amount()];
     let order: [u32; 3] = kani::any();
