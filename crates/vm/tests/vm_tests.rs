@@ -692,5 +692,9 @@ fn a_contract_reads_a_balance_past_u64_exactly() {
         .execute(&narrow, CONTRACT, &[], 1_000_000, state)
         .outcome
         .expect("run");
-    assert_eq!(outcome.output, u64::MAX.to_le_bytes(), "saturates, never wraps");
+    assert_eq!(
+        outcome.output,
+        u64::MAX.to_le_bytes(),
+        "saturates, never wraps"
+    );
 }

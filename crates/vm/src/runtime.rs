@@ -644,11 +644,7 @@ fn register_host_functions<S: HostState + Send + 'static>(
                         // balance that fits a u64; anything larger saturates
                         // to u64::MAX (read as -1). `get_balance_u256` gives
                         // the exact value.
-                        caller
-                            .data()
-                            .state
-                            .balance_of(&address)
-                            .saturating_to_u64() as i64
+                        caller.data().state.balance_of(&address).saturating_to_u64() as i64
                     }
                     Err(error) => {
                         caller.data_mut().fail(error);
