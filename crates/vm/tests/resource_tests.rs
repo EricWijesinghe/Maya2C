@@ -24,7 +24,7 @@ struct Host {
 }
 
 impl HostState for Host {
-    fn balance_of(&self, address: &Address) -> u64 {
+    fn balance_of(&self, address: &Address) -> maya_vm::Amount {
         self.inner.balance_of(address)
     }
     fn block_height(&self) -> u64 {

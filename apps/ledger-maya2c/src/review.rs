@@ -30,13 +30,14 @@ pub const MAX_OUTPUTS: usize = 4;
 pub const MAX_INPUTS: usize = 32;
 
 const INPUT_BYTES: usize = 36;
-const OUTPUT_BYTES: usize = 40;
+/// A 32-byte little-endian amount (ADR-046) and a 32-byte recipient.
+const OUTPUT_BYTES: usize = 64;
 
 /// One output, as the screen shows it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Output {
-    /// Base units.
-    pub amount: u64,
+    /// Base units, 256-bit (ADR-046).
+    pub amount: maya_amount::Amount,
     /// Recipient address.
     pub recipient: [u8; 32],
 }
@@ -152,10 +153,10 @@ pub fn review(
     let mut outputs = [Output::default(); MAX_OUTPUTS];
     for output in outputs.iter_mut().take(output_count) {
         let raw = r.take(OUTPUT_BYTES)?;
-        let mut amount = [0u8; 8];
-        amount.copy_from_slice(&raw[..8]);
-        output.amount = u64::from_le_bytes(amount);
-        output.recipient.copy_from_slice(&raw[8..]);
+        let mut amount = [0u8; 32];
+        amount.copy_from_slice(&raw[..32]);
+        output.amount = maya_amount::Amount::from_le_bytes(amount);
+        output.recipient.copy_from_slice(&raw[32..]);
     }
 
     let suite = r.take(1)?[0];

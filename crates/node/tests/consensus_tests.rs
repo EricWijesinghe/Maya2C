@@ -46,7 +46,7 @@ fn transfer(from: &HybridSigningKey, to: Address, amount: u64, nonce: u64) -> Tr
     let mut tx = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount,
+            amount: primitive_types::U256::from(amount),
             recipient: to,
         }],
         nonce,
@@ -117,7 +117,13 @@ fn test_chain(state: Arc<StateDB>) -> Chain {
 fn funded_shadow(address: &Address, balance: u64) -> (Chain, TempDir) {
     let (state, dir) = open_state();
     state
-        .put_account(address, &Account { balance, nonce: 0 })
+        .put_account(
+            address,
+            &Account {
+                balance: primitive_types::U256::from(balance),
+                nonce: 0,
+            },
+        )
         .expect("fund the shadow");
     (test_chain(state), dir)
 }
@@ -320,7 +326,7 @@ fn reverting_a_block_restores_state_exactly() {
         .put_account(
             &alice_addr,
             &Account {
-                balance: 1_000,
+                balance: primitive_types::U256::from(1_000),
                 nonce: 0,
             },
         )
@@ -337,8 +343,18 @@ fn reverting_a_block_restores_state_exactly() {
     state
         .apply_block_journaled(&block, &block_id, BlockContext::GENESIS)
         .expect("apply");
-    assert_eq!(state.get_account(&alice_addr).map(|a| a.balance), Ok(750));
-    assert_eq!(state.get_account(&bob_addr).map(|a| a.balance), Ok(250));
+    assert_eq!(
+        state
+            .get_account(&alice_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(750)
+    );
+    assert_eq!(
+        state
+            .get_account(&bob_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(250)
+    );
     assert!(state.has_undo(&block_id).expect("undo present"));
     // The Mesh view of the block: exactly the two balances it moved.
     let moved = state
@@ -350,7 +366,11 @@ fn reverting_a_block_restores_state_exactly() {
     assert_eq!(
         moved
             .iter()
-            .map(|c| (c.address, c.before, c.after))
+            .map(|c| (
+                c.address,
+                u64::try_from(c.before).expect("fits u64"),
+                u64::try_from(c.after).expect("fits u64")
+            ))
             .collect::<Vec<_>>(),
         expected
     );
@@ -365,7 +385,7 @@ fn reverting_a_block_restores_state_exactly() {
     assert_eq!(
         state.get_account(&alice_addr),
         Ok(Account {
-            balance: 1_000,
+            balance: primitive_types::U256::from(1_000),
             nonce: 0
         })
     );
@@ -488,7 +508,7 @@ fn a_heavier_branch_triggers_a_reorg_and_rewrites_state() {
         .put_account(
             &alice_addr,
             &Account {
-                balance: 1_000,
+                balance: primitive_types::U256::from(1_000),
                 nonce: 0,
             },
         )
@@ -511,8 +531,18 @@ fn a_heavier_branch_triggers_a_reorg_and_rewrites_state() {
     chain.insert_block(a2).expect("a2");
 
     assert_eq!(chain.tip(), a2_id);
-    assert_eq!(state.get_account(&alice_addr).map(|a| a.balance), Ok(900));
-    assert_eq!(state.get_account(&bob_addr).map(|a| a.balance), Ok(100));
+    assert_eq!(
+        state
+            .get_account(&alice_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(900)
+    );
+    assert_eq!(
+        state
+            .get_account(&bob_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(100)
+    );
 
     // Branch B: three blocks spending to Carol instead. Same nonces as branch
     // A, which is exactly the cross-fork double spend a reorg must resolve.
@@ -576,11 +606,16 @@ fn a_heavier_branch_triggers_a_reorg_and_rewrites_state() {
     assert_eq!(
         state.get_account(&alice_addr),
         Ok(Account {
-            balance: 500,
+            balance: primitive_types::U256::from(500),
             nonce: 2
         })
     );
-    assert_eq!(state.get_account(&carol_addr).map(|a| a.balance), Ok(500));
+    assert_eq!(
+        state
+            .get_account(&carol_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(500)
+    );
     assert_eq!(state.get_account(&bob_addr), Ok(Account::default()));
 }
 
@@ -596,7 +631,7 @@ fn a_reorg_that_fails_midway_restores_the_original_chain() {
         .put_account(
             &alice_addr,
             &Account {
-                balance: 1_000,
+                balance: primitive_types::U256::from(1_000),
                 nonce: 0,
             },
         )
@@ -647,8 +682,18 @@ fn a_reorg_that_fails_midway_restores_the_original_chain() {
     // The failed reorg must leave no trace: same tip, same state, same root.
     assert_eq!(chain.tip(), a2_id, "tip must survive a failed reorg");
     assert_eq!(chain.height(), 2);
-    assert_eq!(state.get_account(&alice_addr).map(|a| a.balance), Ok(900));
-    assert_eq!(state.get_account(&bob_addr).map(|a| a.balance), Ok(100));
+    assert_eq!(
+        state
+            .get_account(&alice_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(900)
+    );
+    assert_eq!(
+        state
+            .get_account(&bob_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(100)
+    );
     assert_eq!(state.state_root(), Ok(root_before));
 }
 

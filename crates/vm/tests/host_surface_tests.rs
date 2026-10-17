@@ -27,12 +27,14 @@ fn module_importing(module: &str, name: &str, signature: &str) -> Vec<u8> {
     wat::parse_str(&text).expect("valid WAT")
 }
 
-/// Signatures for the ten, in the same order as [`HOST_FUNCTIONS`].
+/// Signatures for the eleven, in the same order as [`HOST_FUNCTIONS`].
 const SIGNATURES: &[&str] = &[
     "(result i64)",
     // caller (ADR-026)
     "(param i32) (result i32)",
     "(param i32) (result i64)",
+    // get_balance_u256 (ADR-046)
+    "(param i32 i32) (result i32)",
     "(param i32 i32 i32 i32) (result i32)",
     "(param i32 i32 i32 i32)",
     "(param i32)",
@@ -48,8 +50,8 @@ fn the_list_and_the_signatures_stay_the_same_length() {
     assert_eq!(HOST_FUNCTIONS.len(), SIGNATURES.len());
     assert_eq!(
         HOST_FUNCTIONS.len(),
-        10,
-        "the host surface changed size (caller: ADR-026)"
+        11,
+        "the host surface changed size (caller: ADR-026; get_balance_u256: ADR-046)"
     );
 }
 

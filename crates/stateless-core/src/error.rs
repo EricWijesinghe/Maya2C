@@ -8,6 +8,7 @@
 //! can corrupt it — a node that marked a block invalid over a defect would let
 //! one relay censor an honest block (the attack invariant 24 closed for bodies).
 
+use primitive_types::U256;
 use thiserror::Error;
 
 use crate::params::KEY_BYTES;
@@ -62,9 +63,9 @@ pub enum Violation {
         /// Sender.
         key: [u8; KEY_BYTES],
         /// Sum of the outputs.
-        required: u64,
+        required: U256,
         /// The sender's balance.
-        available: u64,
+        available: U256,
     },
     /// An amount, a balance or a nonce would leave `u64`.
     #[error("arithmetic overflow at {}", hex(.key))]

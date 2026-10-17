@@ -564,7 +564,9 @@ pub async fn maintenance_loop(state: Arc<PoolState>, node: Arc<NodeClient>, trea
         // The treasury balance is the gauge to page on: this chain mints no
         // block reward, so an empty account means every payout stops.
         match node.account_info(&treasury).await {
-            Ok(info) => state.metrics.set_treasury_balance(info.balance),
+            Ok(info) => state
+                .metrics
+                .set_treasury_balance(crate::node::saturating_u64(info.balance)),
             Err(error) => eprintln!("pool: could not read the treasury balance: {error}"),
         }
 

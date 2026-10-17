@@ -1,5 +1,7 @@
 //! Identifiers, units, and the scale every price is quoted in.
 
+use maya_amount::Amount;
+
 /// Identifier of a tradable asset.
 ///
 /// The native coin is [`NATIVE_ASSET`], all zeros. Every other asset is a
@@ -20,17 +22,15 @@ pub type PairId = [u8; 32];
 
 /// Fixed-point scale for prices.
 ///
-/// A price is quote base-units per [`PRICE_SCALE`] base base-units. `1e9` is
-/// chosen so that `price * amount` stays inside `u128` for every `u64` amount
-/// (`2^64 * 2^64 * 10^9` does not, but `amount * price` does — the products are
-/// always formed as `u128 * u128` and reduced by [`crate::math::mul_div_floor`]
-/// before they can grow), and so that a price can express nine decimal digits
-/// of precision, which is more than the eight the smallest sensible base unit
-/// needs.
+/// A price is quote base-units per [`PRICE_SCALE`] base base-units, and like
+/// every amount it is 256-bit (ADR-046). Every `price * amount` is formed as a
+/// 512-bit product and reduced by [`crate::math::mul_div_floor`], so it cannot
+/// overflow. `1e9` lets a price express nine decimal digits of precision, which
+/// is more than the eight the smallest sensible base unit needs.
 ///
 /// It is *not* a decimals constant for assets. Every amount in this crate, and
 /// everywhere in the node, is in base units.
-pub const PRICE_SCALE: u128 = 1_000_000_000;
+pub const PRICE_SCALE: Amount = Amount::from_u64(1_000_000_000);
 
 /// Which way value moves through a pair.
 ///

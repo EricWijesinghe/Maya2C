@@ -36,6 +36,8 @@ use custom_l1_node::crypto::hybrid::{
     HybridPublicKey, HybridSignature, HybridSigningKey, HybridVerifyingKey, address_of,
 };
 
+use primitive_types::U256;
+
 use crate::error::{FlashError, Result};
 use crate::htlc::{Direction, Htlc, Preimage, htlc_root};
 
@@ -80,10 +82,10 @@ pub struct ChannelState {
     pub channel_id: ChannelId,
     /// Monotonic sequence number. Higher supersedes lower.
     pub seq: u64,
-    /// Value freely spendable by A.
-    pub balance_a: u64,
+    /// Value freely spendable by A (256-bit, ADR-046).
+    pub balance_a: U256,
     /// Value freely spendable by B.
-    pub balance_b: u64,
+    pub balance_b: U256,
     /// In-flight conditional payments, kept sorted by id.
     pub htlcs: Vec<Htlc>,
     /// Commitment to this state's revocation secret.
@@ -100,7 +102,7 @@ impl ChannelState {
     /// # Errors
     ///
     /// Returns [`FlashError::BalanceOverflow`] on overflow.
-    pub fn total(&self) -> Result<u64> {
+    pub fn total(&self) -> Result<U256> {
         let mut total = self
             .balance_a
             .checked_add(self.balance_b)
@@ -116,12 +118,16 @@ impl ChannelState {
     /// The bytes both parties sign for an off-chain update.
     #[must_use]
     pub fn update_signing_bytes(&self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(UPDATE_DOMAIN.len() + 88);
+        // id 32 + seq 8 + two 256-bit balances + htlc root 32 + commitment 32.
+        let mut buf = Vec::with_capacity(UPDATE_DOMAIN.len() + 32 + 8 + 64 + 64);
         buf.extend_from_slice(UPDATE_DOMAIN);
         buf.extend_from_slice(&self.channel_id);
         buf.extend_from_slice(&self.seq.to_le_bytes());
-        buf.extend_from_slice(&self.balance_a.to_le_bytes());
-        buf.extend_from_slice(&self.balance_b.to_le_bytes());
+        let mut bytes = [0u8; 32];
+        self.balance_a.to_little_endian(&mut bytes);
+        buf.extend_from_slice(&bytes);
+        self.balance_b.to_little_endian(&mut bytes);
+        buf.extend_from_slice(&bytes);
         // Committing to the HTLC set stops either side from agreeing balances
         // while quietly disagreeing about what is still in flight.
         buf.extend_from_slice(&htlc_root(&self.htlcs));
@@ -149,14 +155,14 @@ impl ChannelState {
 
     /// Balance available to `party`.
     #[must_use]
-    pub fn balance_of(&self, party: Party) -> u64 {
+    pub fn balance_of(&self, party: Party) -> U256 {
         match party {
             Party::A => self.balance_a,
             Party::B => self.balance_b,
         }
     }
 
-    fn balance_mut(&mut self, party: Party) -> &mut u64 {
+    fn balance_mut(&mut self, party: Party) -> &mut U256 {
         match party {
             Party::A => &mut self.balance_a,
             Party::B => &mut self.balance_b,
@@ -223,7 +229,7 @@ pub struct Channel {
     /// Party B's ML-DSA-65 public key.
     pub pubkey_b: Box<HybridPublicKey>,
     /// Total funded capacity. Invariant across every valid state.
-    pub capacity: u64,
+    pub capacity: U256,
     /// The latest fully signed state.
     pub current: ChannelState,
     /// Revocation secrets received from the counterparty, by sequence.
@@ -244,7 +250,7 @@ impl Channel {
         channel_id: ChannelId,
         pubkey_a: Box<HybridPublicKey>,
         pubkey_b: Box<HybridPublicKey>,
-        capacity: u64,
+        capacity: U256,
     ) -> Self {
         Self {
             channel_id,
@@ -257,7 +263,7 @@ impl Channel {
                 channel_id,
                 seq: 0,
                 balance_a: capacity,
-                balance_b: 0,
+                balance_b: U256::zero(),
                 htlcs: Vec::new(),
                 revocation_commitment: [0u8; 32],
             },
@@ -277,7 +283,7 @@ impl Channel {
 
     /// Capacity currently spendable from `party` toward the other side.
     #[must_use]
-    pub fn spendable(&self, party: Party) -> u64 {
+    pub fn spendable(&self, party: Party) -> U256 {
         self.current.balance_of(party)
     }
 
@@ -317,7 +323,7 @@ impl Channel {
     pub fn propose_transfer(
         &self,
         from: Party,
-        amount: u64,
+        amount: U256,
         next_commitment: [u8; 32],
     ) -> Result<ChannelState> {
         let available = self.current.balance_of(from);
@@ -331,7 +337,9 @@ impl Channel {
         let mut next = self.current.clone();
         next.seq += 1;
         next.revocation_commitment = next_commitment;
-        *next.balance_mut(from) = available - amount;
+        *next.balance_mut(from) = available
+            .checked_sub(amount)
+            .ok_or(FlashError::BalanceOverflow)?;
         let to = from.other();
         *next.balance_mut(to) = next
             .balance_of(to)
@@ -353,7 +361,7 @@ impl Channel {
     pub fn propose_htlc(
         &mut self,
         from: Party,
-        amount: u64,
+        amount: U256,
         hash_lock: [u8; 32],
         expiry_height: u64,
         next_commitment: [u8; 32],
@@ -369,7 +377,9 @@ impl Channel {
         let mut next = self.current.clone();
         next.seq += 1;
         next.revocation_commitment = next_commitment;
-        *next.balance_mut(from) = available - amount;
+        *next.balance_mut(from) = available
+            .checked_sub(amount)
+            .ok_or(FlashError::BalanceOverflow)?;
         next.htlcs.push(Htlc {
             id: self.next_htlc_id,
             amount,

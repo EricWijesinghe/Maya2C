@@ -45,7 +45,7 @@ fn miner() -> HybridSigningKey {
 
 fn mining() -> MiningGenesis {
     MiningGenesis {
-        initial_epoch_reward: EPOCH_REWARD,
+        initial_epoch_reward: primitive_types::U256::from(EPOCH_REWARD),
         halving_epochs: 100,
         miner_share_bps: 7_000,
         target_shares: TARGET_SHARES,
@@ -64,7 +64,7 @@ fn config(mining: Option<MiningGenesis>) -> GenesisConfig {
         pow_limit_bits: 0,
         allocations: vec![Allocation {
             address: hex::encode(MINING_RESERVE),
-            balance: RESERVE,
+            balance: primitive_types::U256::from(RESERVE),
         }],
         oracle: None,
         sealed: None,
@@ -81,7 +81,7 @@ fn config(mining: Option<MiningGenesis>) -> GenesisConfig {
                 EPOCH_BLOCKS,
                 vec![GenesisBond {
                     operator: hex::encode([0x0a; 32]),
-                    bond: 10_000,
+                    bond: primitive_types::U256::from(10_000),
                     commission_bps: 0,
                 }],
             )),
@@ -140,7 +140,7 @@ fn share(epoch: u64, nonce: u64, tx_nonce: u64) -> Transaction {
 }
 
 fn balance(c: &Chain, who: &[u8; 32]) -> u64 {
-    c.state().get_account(who).unwrap().balance
+    u64::try_from(c.state().get_account(who).unwrap().balance).expect("test balances fit u64")
 }
 
 fn mine(c: &mut Chain, height: u64, txs: Vec<Transaction>) -> Result<(), NodeError> {
@@ -192,7 +192,10 @@ fn a_share_is_paid_from_the_reserve_and_a_new_miner_pays_no_fee() {
         RESERVE - validators_part() - per_share()
     );
     let record = c.state().committed_mining().unwrap().unwrap();
-    assert_eq!((record.shares, record.paid), (1, per_share()));
+    assert_eq!(
+        (record.shares, record.paid),
+        (1, maya_ledger_math::Amount::from_u64(per_share()))
+    );
 }
 
 #[test]
@@ -248,7 +251,11 @@ fn a_share_past_the_epoch_budget_is_refused_by_pool_and_block() {
     )
     .unwrap();
     let record = c.state().committed_mining().unwrap().unwrap();
-    assert_eq!(record.share_reward(), 0, "budget spent");
+    assert_eq!(
+        record.share_reward(),
+        maya_ledger_math::Amount::from_u64(0),
+        "budget spent"
+    );
 
     let late = share(1, found[2], 2);
     let pool = Mempool::new(Arc::clone(c.state()));
@@ -345,7 +352,10 @@ fn the_epoch_boundary_pays_the_committee_reanchors_and_prunes_spent_shares() {
 
     let record = c.state().committed_mining().unwrap().unwrap();
     assert_eq!(record.epoch, 2);
-    assert_eq!((record.shares, record.paid), (0, 0));
+    assert_eq!(
+        (record.shares, record.paid),
+        (0, maya_ledger_math::Amount::ZERO)
+    );
     assert_ne!(record.anchor, anchor_one);
     // One share against a target of ten would ease the target, but never past
     // the genesis target.

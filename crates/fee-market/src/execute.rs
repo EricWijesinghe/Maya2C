@@ -21,6 +21,8 @@
 
 use alloc::vec::Vec;
 
+use maya_amount::Amount;
+
 use crate::config::{ConfigError, FeeConfig};
 use crate::model::{Features, INPUTS, weights_v1::MODEL_V1};
 use crate::rule::{FeeRule, next_base_fee_by_rule};
@@ -47,9 +49,9 @@ pub struct TxFee {
     /// Serialized size, in bytes — what the base fee is charged on.
     pub size_bytes: u64,
     /// The most the sender will pay in total, base fee and tip together.
-    pub max_fee: u64,
+    pub max_fee: Amount,
     /// The most the sender will pay the producer on top of the base fee.
-    pub max_tip: u64,
+    pub max_tip: Amount,
 }
 
 /// A producer naming who receives the block's tips.
@@ -63,7 +65,7 @@ pub struct FeeClaim {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Charge {
     /// What leaves the sender's balance.
-    pub charged: u64,
+    pub charged: Amount,
     /// Where it goes.
     pub split: FeeSplit,
 }
@@ -80,11 +82,11 @@ pub enum BlockFeeOutcome {
         /// One entry per transaction, in order.
         charges: Vec<Charge>,
         /// Total sent to the fee sink, including unclaimed tips.
-        burned: u64,
+        burned: Amount,
         /// Total credited to the treasury.
-        treasury: u64,
+        treasury: Amount,
         /// Total credited to the beneficiary.
-        tips: u64,
+        tips: Amount,
         /// Who the tips went to, if anyone claimed them.
         beneficiary: Option<[u8; 32]>,
     },
@@ -106,16 +108,16 @@ pub enum FeeError {
         /// The transaction's position in the block.
         index: usize,
         /// What the base fee on its size comes to.
-        required: u128,
+        required: Amount,
         /// What the sender offered.
-        offered: u64,
+        offered: Amount,
     },
     /// More than one fee claim in a block.
     DuplicateClaim,
     /// The neural rule is active and the parent block's features were not
     /// supplied.
     MissingFeatures,
-    /// A total overflowed `u64` — unreachable under [`crate::MAX_SUPPLY`], and
+    /// A total overflowed 2²⁵⁶ − 1 — unreachable under [`crate::MAX_SUPPLY`], and
     /// refused rather than wrapped if it is ever reached.
     Overflow,
 }
@@ -169,27 +171,30 @@ pub fn apply_block_fees_with_features(
     let base_fee = resolve_base_fee(config, height, parent, features)?;
 
     let mut charges = Vec::with_capacity(txs.len());
-    let (mut burned, mut treasury, mut tips) = (0u64, 0u64, 0u64);
+    let (mut burned, mut treasury, mut tips) = (Amount::ZERO, Amount::ZERO, Amount::ZERO);
     for (index, tx) in txs.iter().enumerate() {
-        let required = u128::from(base_fee) * u128::from(tx.size_bytes);
-        let offered = u128::from(tx.max_fee);
-        if offered < required {
+        // A u64 price times a u64 size is below 2^128: never overflows.
+        let required = Amount::from_u128(u128::from(base_fee) * u128::from(tx.size_bytes));
+        if tx.max_fee < required {
             return Err(FeeError::Underpriced {
                 index,
                 required,
                 offered: tx.max_fee,
             });
         }
-        // Both fit in u64: required <= offered <= u64::MAX.
-        let base_paid = u64::try_from(required).map_err(|_| FeeError::Overflow)?;
-        let tip = tx.max_tip.min(tx.max_fee - base_paid);
+        let base_paid = required;
+        let left_over = tx
+            .max_fee
+            .checked_sub(base_paid)
+            .ok_or(FeeError::Overflow)?;
+        let tip = tx.max_tip.min(left_over);
         let s = split(base_paid, tip, config.treasury_bps);
 
         burned = burned.checked_add(s.burned).ok_or(FeeError::Overflow)?;
         treasury = treasury.checked_add(s.treasury).ok_or(FeeError::Overflow)?;
         tips = tips.checked_add(s.tip).ok_or(FeeError::Overflow)?;
         charges.push(Charge {
-            charged: base_paid + tip,
+            charged: base_paid.checked_add(tip).ok_or(FeeError::Overflow)?,
             split: s,
         });
     }
@@ -198,7 +203,7 @@ pub fn apply_block_fees_with_features(
     if beneficiary.is_none() {
         // Nobody to pay: the tips join the burn rather than vanishing.
         burned = burned.checked_add(tips).ok_or(FeeError::Overflow)?;
-        tips = 0;
+        tips = Amount::ZERO;
     }
 
     Ok(BlockFeeOutcome::Charged {
@@ -249,11 +254,15 @@ mod tests {
         beneficiary: [0xA1; 32],
     };
 
+    fn a(v: u64) -> Amount {
+        Amount::from_u64(v)
+    }
+
     fn tx(size_bytes: u64, max_fee: u64, max_tip: u64) -> TxFee {
         TxFee {
             size_bytes,
-            max_fee,
-            max_tip,
+            max_fee: a(max_fee),
+            max_tip: a(max_tip),
         }
     }
 
@@ -286,8 +295,8 @@ mod tests {
         else {
             panic!("charged");
         };
-        assert_eq!(charges[0].charged, 1_050);
-        assert_eq!((burned, treasury, tips), (800, 200, 50));
+        assert_eq!(charges[0].charged, a(1_050));
+        assert_eq!((burned, treasury, tips), (a(800), a(200), a(50)));
     }
 
     fn base_fee_of(outcome: Result<BlockFeeOutcome, FeeError>) -> u64 {
@@ -358,8 +367,8 @@ mod tests {
         else {
             panic!("charged");
         };
-        assert_eq!(charges[0].split.tip, 20);
-        assert_eq!(charges[0].charged, 1_020);
+        assert_eq!(charges[0].split.tip, a(20));
+        assert_eq!(charges[0].charged, a(1_020));
     }
 
     #[test]
@@ -369,8 +378,8 @@ mod tests {
             out,
             Err(FeeError::Underpriced {
                 index: 0,
-                required: 1_000,
-                offered: 999
+                required: a(1_000),
+                offered: a(999)
             })
         );
     }
@@ -386,7 +395,7 @@ mod tests {
         else {
             panic!("charged");
         };
-        assert_eq!((burned, tips, beneficiary), (850, 0, None));
+        assert_eq!((burned, tips, beneficiary), (a(850), Amount::ZERO, None));
     }
 
     #[test]
@@ -424,10 +433,33 @@ mod tests {
         else {
             panic!("charged");
         };
-        let charged: u128 = charges.iter().map(|c| u128::from(c.charged)).sum();
-        assert_eq!(
-            charged,
-            u128::from(burned) + u128::from(treasury) + u128::from(tips)
-        );
+        let charged = charges
+            .iter()
+            .try_fold(Amount::ZERO, |sum, c| sum.checked_add(c.charged))
+            .expect("fits");
+        let paid_out = burned
+            .checked_add(treasury)
+            .and_then(|x| x.checked_add(tips))
+            .expect("fits");
+        assert_eq!(charged, paid_out);
+    }
+
+    #[test]
+    fn a_fee_past_u64_is_charged_and_split_exactly() {
+        // ADR-046: max_fee is 256-bit; a sender may offer more than 2^64 base
+        // units (about 18.4 coins at 18 decimals) and the excess is a tip.
+        let big = Amount::from_u128(u128::from(u64::MAX) * 3);
+        let fee = TxFee {
+            size_bytes: 100,
+            max_fee: big,
+            max_tip: Amount::MAX,
+        };
+        let Ok(BlockFeeOutcome::Charged { charges, tips, .. }) =
+            apply_block_fees(&CONFIG, 1, None, &[fee], &[ALICE])
+        else {
+            panic!("charged");
+        };
+        assert_eq!(charges[0].charged, big);
+        assert_eq!(Some(tips), big.checked_sub(a(1_000)));
     }
 }

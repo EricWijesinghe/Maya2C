@@ -23,6 +23,8 @@ description = "Constant-product AMM and limit order book matching, isolated so i
 # asset identifiers are *taken* as opaque 32-byte values rather than derived.
 # Derivation lives in `custom-l1-node`, which already depends on BLAKE3.
 [dependencies]
+# Dependency-free and `no_std`: Kani's graph stays first-party (ADR-048).
+maya-amount = { path = "../amount" }
 
 # No `[features]` section, on purpose. `no_std` unconditionally outside tests; a
 # `std` feature would be a platform the proofs could start depending on.

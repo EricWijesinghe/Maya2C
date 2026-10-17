@@ -189,7 +189,7 @@ fn transfer(from: &HybridSigningKey, to: Address, amount: u64, nonce: u64) -> Tr
     let mut tx = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount,
+            amount: primitive_types::U256::from(amount),
             recipient: to,
         }],
         nonce,
@@ -215,7 +215,13 @@ fn funded_chain(balance: u64) -> (Chain, HybridSigningKey, TempDir) {
 fn chain_funding(key: &HybridSigningKey, balance: u64) -> (Chain, TempDir) {
     let (state, dir) = open_state();
     state
-        .put_account(&address_of(key), &Account { balance, nonce: 0 })
+        .put_account(
+            &address_of(key),
+            &Account {
+                balance: primitive_types::U256::from(balance),
+                nonce: 0,
+            },
+        )
         .expect("fund");
     (test_chain(Arc::clone(&state)), dir)
 }
@@ -988,7 +994,7 @@ async fn spawn_sim_node(accounts: &[(Address, u64)], dial: Option<LatencyDial>) 
             .put_account(
                 address,
                 &Account {
-                    balance: *balance,
+                    balance: primitive_types::U256::from(*balance),
                     nonce: 0,
                 },
             )

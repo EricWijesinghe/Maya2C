@@ -8,6 +8,7 @@ use custom_l1_node::crypto::hybrid::generate_signing_key;
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::error::NodeError;
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
+use primitive_types::U256;
 
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
 use tempfile::TempDir;
@@ -32,8 +33,14 @@ fn address_of(key: &HybridSigningKey) -> Address {
 }
 
 fn fund(db: &StateDB, address: &Address, balance: u64) {
-    db.put_account(address, &Account { balance, nonce: 0 })
-        .expect("fund account");
+    db.put_account(
+        address,
+        &Account {
+            balance: primitive_types::U256::from(balance),
+            nonce: 0,
+        },
+    )
+    .expect("fund account");
 }
 
 /// Builds a signed transfer of `amount` from `from` to `to` at `nonce`.
@@ -41,7 +48,7 @@ fn transfer(from: &HybridSigningKey, to: &Address, amount: u64, nonce: u64) -> T
     let mut tx = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount,
+            amount: primitive_types::U256::from(amount),
             recipient: *to,
         }],
         nonce,
@@ -90,7 +97,7 @@ fn accounts_survive_reopen() {
     assert_eq!(
         reopened.get_account(&address),
         Ok(Account {
-            balance: 500,
+            balance: U256::from(500),
             nonce: 0
         })
     );
@@ -116,14 +123,14 @@ fn valid_transfer_moves_balance_and_advances_nonce() {
     assert_eq!(
         db.get_account(&alice_addr),
         Ok(Account {
-            balance: 600,
+            balance: U256::from(600),
             nonce: 1
         })
     );
     assert_eq!(
         db.get_account(&bob_addr),
         Ok(Account {
-            balance: 400,
+            balance: U256::from(400),
             nonce: 0
         })
     );
@@ -149,11 +156,15 @@ fn sequential_transfers_in_one_block_both_apply() {
     assert_eq!(
         db.get_account(&alice_addr),
         Ok(Account {
-            balance: 650,
+            balance: U256::from(650),
             nonce: 2
         })
     );
-    assert_eq!(db.get_account(&bob_addr).map(|a| a.balance), Ok(350));
+    assert_eq!(
+        db.get_account(&bob_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(350)
+    );
 }
 
 #[test]
@@ -172,7 +183,7 @@ fn self_transfer_nets_to_zero_and_does_not_mint() {
     assert_eq!(
         db.get_account(&alice_addr),
         Ok(Account {
-            balance: 1_000,
+            balance: U256::from(1_000),
             nonce: 1
         })
     );
@@ -211,7 +222,7 @@ fn double_spend_within_one_block_is_rejected() {
     assert_eq!(
         db.get_account(&alice_addr),
         Ok(Account {
-            balance: 1_000,
+            balance: U256::from(1_000),
             nonce: 0
         })
     );
@@ -238,11 +249,15 @@ fn overspending_across_two_transactions_is_rejected() {
         db.apply_block(&block, BlockContext::GENESIS),
         Err(NodeError::InsufficientBalance {
             address: hex::encode(alice_addr),
-            required: 600,
-            available: 400,
+            required: primitive_types::U256::from(600),
+            available: primitive_types::U256::from(400),
         })
     );
-    assert_eq!(db.get_account(&alice_addr).map(|a| a.balance), Ok(1_000));
+    assert_eq!(
+        db.get_account(&alice_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(1_000)
+    );
 }
 
 #[test]
@@ -267,7 +282,11 @@ fn replaying_a_committed_transaction_is_rejected() {
             actual: 0,
         })
     );
-    assert_eq!(db.get_account(&alice_addr).map(|a| a.balance), Ok(700));
+    assert_eq!(
+        db.get_account(&alice_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(700)
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -305,7 +324,7 @@ fn stale_nonce_is_rejected() {
     db.put_account(
         &alice_addr,
         &Account {
-            balance: 1_000,
+            balance: U256::from(1_000),
             nonce: 3,
         },
     )
@@ -355,9 +374,17 @@ fn failure_late_in_a_block_rolls_back_earlier_transactions() {
     ));
 
     // Every account is exactly as it was; the WriteBatch never reached disk.
-    assert_eq!(db.get_account(&alice_addr).map(|a| a.balance), Ok(1_000));
+    assert_eq!(
+        db.get_account(&alice_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(1_000)
+    );
     assert_eq!(db.get_account(&alice_addr).map(|a| a.nonce), Ok(0));
-    assert_eq!(db.get_account(&bob_addr).map(|a| a.balance), Ok(50));
+    assert_eq!(
+        db.get_account(&bob_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(50)
+    );
     assert_eq!(db.get_account(&carol_addr), Ok(Account::default()));
     assert_eq!(db.state_root(), Ok(root_before));
 }
@@ -374,7 +401,7 @@ fn unsigned_transaction_aborts_the_whole_block() {
     let unsigned = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount: 1,
+            amount: primitive_types::U256::from(1),
             recipient: [3u8; 32],
         }],
         0,
@@ -384,7 +411,11 @@ fn unsigned_transaction_aborts_the_whole_block() {
         db.apply_block(&block_of(vec![good, unsigned]), BlockContext::GENESIS),
         Err(NodeError::MissingSignature)
     );
-    assert_eq!(db.get_account(&alice_addr).map(|a| a.balance), Ok(1_000));
+    assert_eq!(
+        db.get_account(&alice_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(1_000)
+    );
 }
 
 #[test]
@@ -396,13 +427,17 @@ fn tampered_transaction_aborts_the_whole_block() {
     fund(&db, &alice_addr, 1_000);
 
     let mut tampered = transfer(&alice, &[2u8; 32], 10, 0);
-    tampered.outputs[0].amount = 999; // invalidates the signature
+    tampered.outputs[0].amount = primitive_types::U256::from(999); // invalidates the signature
 
     assert_eq!(
         db.apply_block(&block_of(vec![tampered]), BlockContext::GENESIS),
         Err(NodeError::SignatureVerification)
     );
-    assert_eq!(db.get_account(&alice_addr).map(|a| a.balance), Ok(1_000));
+    assert_eq!(
+        db.get_account(&alice_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(1_000)
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -481,7 +516,11 @@ fn checked_apply_rejects_a_header_with_the_wrong_state_root() {
         db.apply_block_checked(&block, BlockContext::GENESIS),
         Err(NodeError::StateRootMismatch { .. })
     ));
-    assert_eq!(db.get_account(&alice_addr).map(|a| a.balance), Ok(1_000));
+    assert_eq!(
+        db.get_account(&alice_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(1_000)
+    );
 }
 
 #[test]
@@ -506,5 +545,9 @@ fn checked_apply_commits_when_the_header_root_matches() {
         db.apply_block_checked(&block, BlockContext::GENESIS),
         Ok(expected)
     );
-    assert_eq!(db.get_account(&alice_addr).map(|a| a.balance), Ok(900));
+    assert_eq!(
+        db.get_account(&alice_addr)
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(900)
+    );
 }

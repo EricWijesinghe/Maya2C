@@ -29,7 +29,7 @@ fn view(expiry_height: u64, state: LockState) -> LockView {
     LockView {
         sender: [1; 32],
         recipient: [2; 32],
-        amount: 100,
+        amount: primitive_types::U256::from(100),
         expiry_height,
         commitment_id: COMMITMENT,
         state,

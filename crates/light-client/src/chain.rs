@@ -298,7 +298,11 @@ impl LightClient {
     /// # Errors
     ///
     /// As [`LightClient::verify_account`].
-    pub fn verified_balance(&self, height: u64, proof: &AccountProof) -> Result<u64> {
+    pub fn verified_balance(
+        &self,
+        height: u64,
+        proof: &AccountProof,
+    ) -> Result<primitive_types::U256> {
         self.verify_account(height, proof)?;
         Ok(proof.account.balance)
     }

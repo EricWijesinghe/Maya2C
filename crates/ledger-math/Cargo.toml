@@ -10,7 +10,9 @@ edition.workspace = true
 rust-version.workspace = true
 description = "Ledger value arithmetic, isolated so it can be formally verified"
 
-# Deliberately empty, and it must stay that way.
+# One dependency only, and it must stay that way: `maya-amount`, itself
+# dependency-free and `no_std`, which carries the 256-bit arithmetic every
+# amount uses since ADR-046 (ADR-048). Kani's graph stays all first-party.
 #
 # This crate exists to be model-checked. Kani compiles a crate *and its entire
 # dependency graph* to a CBMC goto-binary, and it has no semantics for the C and
@@ -20,6 +22,7 @@ description = "Ledger value arithmetic, isolated so it can be formally verified"
 #
 # A dependency added here is a dependency added to every proof.
 [dependencies]
+maya-amount = { path = "../amount" }
 
 # No `[features]` section, on purpose. The crate is `no_std` unconditionally; a
 # `std` feature would be a platform the proofs could start depending on.

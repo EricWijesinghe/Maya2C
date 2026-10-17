@@ -315,15 +315,18 @@ pub fn sign_transfer(
     session: tauri::State<'_, Session>,
 ) -> Result<SignedTransfer, String> {
     let chain = parse_genesis(&genesis)?;
+    // The screens still enter u64 amounts; the wallet core and the chain are
+    // 256-bit (ADR-046). shortcut: GUI input capped at u64, widen the Leptos
+    // screens to decimal strings when large single sends are needed.
     let terms = SignTerms {
-        fee,
+        fee: primitive_types::U256::from(fee),
         fee_to: fee_to.as_deref(),
         nonce,
         chain: &chain,
     };
     session.with(|wallet| {
         wallet
-            .sign(index, &recipient, amount, &terms)
+            .sign(index, &recipient, primitive_types::U256::from(amount), &terms)
             .map_err(|e| e.to_string())
     })
 }
@@ -418,7 +421,7 @@ pub fn receive_request(
     })?;
     let request = PaymentRequest {
         recipient: address.clone(),
-        amount,
+        amount: amount.map(primitive_types::U256::from),
         label: None,
     };
     Ok(ReceiveRequest {

@@ -72,7 +72,7 @@ const CHANNEL_ID_DOMAIN: &str = "maya-flash channel id v1";
 /// A closure is the most signature-dense structure on the chain — four proofs
 /// in one record — so it is where the hybrid scheme's bulk shows up worst.
 pub const CLOSURE_SIZE: usize =
-    32 + 8 + 8 + 8 + 32 + 2 * HYBRID_PUBLIC_KEY_LEN + 2 * HYBRID_SIGNATURE_LENGTH;
+    32 + 8 + 32 + 32 + 32 + 2 * HYBRID_PUBLIC_KEY_LEN + 2 * HYBRID_SIGNATURE_LENGTH;
 
 /// Maximum channels settled by one [`TxKind::SettleBatch`].
 ///
@@ -312,7 +312,7 @@ pub struct ChannelOpen {
     /// The other participant's address.
     pub counterparty: [u8; 32],
     /// Amount the opener locks into the channel.
-    pub funding: u64,
+    pub funding: primitive_types::U256,
     /// Blocks a unilateral close must wait before funds can be swept.
     ///
     /// This is the window in which a defrauded counterparty can submit a
@@ -328,9 +328,9 @@ pub struct ChannelClosure {
     /// State sequence number. Higher supersedes lower.
     pub seq: u64,
     /// Final balance of party A.
-    pub balance_a: u64,
+    pub balance_a: primitive_types::U256,
     /// Final balance of party B.
-    pub balance_b: u64,
+    pub balance_b: primitive_types::U256,
     /// Commitment to this state's revocation secret.
     ///
     /// A single secret per state, known to both parties once they advance past
@@ -376,17 +376,19 @@ impl ChannelClosure {
     ///
     /// # Errors
     ///
-    /// Returns [`NodeError::BalanceOverflow`] if the balances overflow `u64`.
-    pub fn total(&self) -> Result<u64> {
-        maya_ledger_math::combined_balance(self.balance_a, self.balance_b)
+    /// Returns [`NodeError::BalanceOverflow`] if the balances overflow 256 bits.
+    pub fn total(&self) -> Result<primitive_types::U256> {
+        use maya_stateless_core::amount::{to_amount, to_u256};
+        maya_ledger_math::combined_balance(to_amount(self.balance_a), to_amount(self.balance_b))
+            .map(to_u256)
             .ok_or(NodeError::BalanceOverflow)
     }
 
     fn encode_into(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&self.channel_id);
         buf.extend_from_slice(&self.seq.to_le_bytes());
-        buf.extend_from_slice(&self.balance_a.to_le_bytes());
-        buf.extend_from_slice(&self.balance_b.to_le_bytes());
+        crate::core::codec::put_amount(buf, &self.balance_a);
+        crate::core::codec::put_amount(buf, &self.balance_b);
         buf.extend_from_slice(&self.revocation_commitment);
         self.pubkey_a.encode_into(buf);
         self.pubkey_b.encode_into(buf);
@@ -398,8 +400,8 @@ impl ChannelClosure {
         Ok(Self {
             channel_id: reader.read_array::<32>()?,
             seq: reader.read_u64()?,
-            balance_a: reader.read_u64()?,
-            balance_b: reader.read_u64()?,
+            balance_a: reader.read_amount()?,
+            balance_b: reader.read_amount()?,
             revocation_commitment: reader.read_array::<32>()?,
             pubkey_a: Box::new(HybridPublicKey::decode(reader)?),
             pubkey_b: Box::new(HybridPublicKey::decode(reader)?),
@@ -636,7 +638,7 @@ impl TxKind {
             Self::OpenChannel(open) => {
                 buf.push(TAG_OPEN);
                 buf.extend_from_slice(&open.counterparty);
-                buf.extend_from_slice(&open.funding.to_le_bytes());
+                crate::core::codec::put_amount(buf, &open.funding);
                 buf.extend_from_slice(&open.dispute_window.to_le_bytes());
             }
             Self::CooperativeClose(closure) => {
@@ -870,7 +872,7 @@ impl TxKind {
         match tag {
             TAG_OPEN => Ok(Self::OpenChannel(ChannelOpen {
                 counterparty: reader.read_array::<32>()?,
-                funding: reader.read_u64()?,
+                funding: reader.read_amount()?,
                 dispute_window: reader.read_u64()?,
             })),
             TAG_COOPERATIVE_CLOSE => Ok(Self::CooperativeClose(ChannelClosure::decode(reader)?)),
@@ -1009,16 +1011,17 @@ impl TxKind {
 pub fn channel_state_signing_bytes(
     channel_id: &ChannelId,
     seq: u64,
-    balance_a: u64,
-    balance_b: u64,
+    balance_a: primitive_types::U256,
+    balance_b: primitive_types::U256,
     revocation_commitment: &[u8; 32],
 ) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(CHANNEL_STATE_DOMAIN.len() + 88);
+    // id 32 + seq 8 + two 256-bit balances (ADR-046) + commitment 32.
+    let mut buf = Vec::with_capacity(CHANNEL_STATE_DOMAIN.len() + 32 + 8 + 64 + 32);
     buf.extend_from_slice(CHANNEL_STATE_DOMAIN);
     buf.extend_from_slice(channel_id);
     buf.extend_from_slice(&seq.to_le_bytes());
-    buf.extend_from_slice(&balance_a.to_le_bytes());
-    buf.extend_from_slice(&balance_b.to_le_bytes());
+    crate::core::codec::put_amount(&mut buf, &balance_a);
+    crate::core::codec::put_amount(&mut buf, &balance_b);
     // Signed, not merely carried: an unsigned commitment could be swapped by
     // the submitter to one whose preimage nobody holds, defeating the penalty.
     buf.extend_from_slice(revocation_commitment);
@@ -1046,13 +1049,15 @@ pub fn derive_contract_id(deployer: &[u8; 32], nonce: u64, code: &[u8]) -> Chann
 pub fn derive_channel_id(
     party_a: &[u8; 32],
     party_b: &[u8; 32],
-    funding: u64,
+    funding: primitive_types::U256,
     nonce: u64,
 ) -> ChannelId {
     let mut hasher = blake3::Hasher::new_derive_key(CHANNEL_ID_DOMAIN);
     hasher.update(party_a);
     hasher.update(party_b);
-    hasher.update(&funding.to_le_bytes());
+    let mut funding_bytes = [0u8; 32];
+    funding.to_little_endian(&mut funding_bytes);
+    hasher.update(&funding_bytes);
     hasher.update(&nonce.to_le_bytes());
     *hasher.finalize().as_bytes()
 }

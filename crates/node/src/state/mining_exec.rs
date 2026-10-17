@@ -4,6 +4,8 @@
 //! not already spent, then the proof of work. The cheap refusals come first
 //! so the 2 ms DAG check only runs for a share that could pay.
 
+use maya_ledger_math::Amount;
+use maya_stateless_core::amount::{to_amount, to_u256};
 use std::sync::Arc;
 
 use crate::core::block::BlockHeader;
@@ -127,7 +129,7 @@ impl StateDB {
         // A share that pays nothing would still take a block slot fee-free
         // and spend the miner's nonce (found on the local mining devnet).
         let reward = record.share_reward();
-        if reward == 0 {
+        if reward.is_zero() {
             return Err(refuse("this epoch's miner budget is spent"));
         }
         if overlay.mining_shares >= record.max_shares_per_block {
@@ -150,7 +152,7 @@ impl StateDB {
         }
 
         let paid = self.pay_from_reserve(overlay, miner, reward)?;
-        if paid == 0 {
+        if paid.is_zero() {
             return Err(refuse("the mining reserve is empty"));
         }
         record.shares = record.shares.saturating_add(1);
@@ -182,8 +184,8 @@ impl StateDB {
         };
         if record.epoch > 0
             && record.spent_after == 0
-            && record.paid > 0
-            && record.share_reward() == 0
+            && !record.paid.is_zero()
+            && record.share_reward().is_zero()
         {
             // Shares past the budget are refused from here on, so record how
             // early it ran out: the retarget's measure of excess demand.
@@ -213,7 +215,7 @@ impl StateDB {
             anchor: header.id(),
             target: record.retarget(),
             shares: 0,
-            paid: 0,
+            paid: Amount::ZERO,
             spent_after: 0,
             ..record
         };
@@ -254,13 +256,23 @@ impl StateDB {
 
     /// Moves up to `amount` from the reserve to `to` and returns what moved.
     /// A transfer, never a mint: once the reserve is empty, emission ends.
-    fn pay_from_reserve(&self, overlay: &mut Overlay, to: &Address, amount: u64) -> Result<u64> {
+    fn pay_from_reserve(
+        &self,
+        overlay: &mut Overlay,
+        to: &Address,
+        amount: Amount,
+    ) -> Result<Amount> {
         let mut reserve = self.load(overlay, &MINING_RESERVE)?;
-        let paid = amount.min(reserve.balance);
-        if paid == 0 {
-            return Ok(0);
+        // Both 256-bit (ADR-046): pays `amount`, or whatever the reserve has.
+        let paid = reserve.balance.min(to_u256(amount));
+        if paid.is_zero() {
+            return Ok(Amount::ZERO);
         }
-        reserve.balance -= paid;
+        // `paid` is at most the reserve; checked so a later edit fails closed.
+        reserve.balance = reserve
+            .balance
+            .checked_sub(paid)
+            .ok_or(NodeError::BalanceOverflow)?;
         overlay.accounts.insert(MINING_RESERVE, reserve);
         let mut payee = self.load(overlay, to)?;
         payee.balance = payee
@@ -268,7 +280,7 @@ impl StateDB {
             .checked_add(paid)
             .ok_or(NodeError::BalanceOverflow)?;
         overlay.accounts.insert(*to, payee);
-        Ok(paid)
+        Ok(to_amount(paid))
     }
 }
 

@@ -304,7 +304,7 @@ async fn account(
 }
 
 /// Reads a live balance from the node.
-async fn fetch_account(url: &str, address: &str) -> Result<(u64, u64)> {
+async fn fetch_account(url: &str, address: &str) -> Result<(primitive_types::U256, u64)> {
     use jsonrpsee::core::client::ClientT;
     use jsonrpsee::http_client::HttpClientBuilder;
     use jsonrpsee::rpc_params;

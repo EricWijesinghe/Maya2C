@@ -33,6 +33,7 @@
 //! wallet's business.
 
 use maya_dex::types::NATIVE_ASSET;
+use primitive_types::U256;
 
 use crate::error::{NodeError, Result};
 use crate::state::account::{Account, Address};
@@ -44,7 +45,10 @@ pub type AssetId = [u8; 32];
 pub const SYMBOL_LEN: usize = 8;
 
 /// Serialized length of an [`AssetRecord`].
-pub const ASSET_RECORD_LEN: usize = 32 + 8 + SYMBOL_LEN;
+pub const ASSET_RECORD_LEN: usize = 32 + BALANCE_LEN + SYMBOL_LEN;
+
+/// Stored width of a balance or supply: a little-endian `U256` (ADR-046).
+pub const BALANCE_LEN: usize = 32;
 
 /// Domain separator for deriving an asset identifier.
 const ASSET_ID_DOMAIN: &str = "maya-dex asset id v1";
@@ -55,7 +59,7 @@ pub struct AssetRecord {
     /// Address that registered it and received the whole supply.
     pub creator: Address,
     /// Units in existence. Fixed forever at registration.
-    pub total_supply: u64,
+    pub total_supply: U256,
     /// Ticker, ASCII, right-padded with zero bytes.
     pub symbol: [u8; SYMBOL_LEN],
 }
@@ -66,8 +70,9 @@ impl AssetRecord {
     pub fn encode(&self) -> [u8; ASSET_RECORD_LEN] {
         let mut buf = [0u8; ASSET_RECORD_LEN];
         buf[0..32].copy_from_slice(&self.creator);
-        buf[32..40].copy_from_slice(&self.total_supply.to_le_bytes());
-        buf[40..48].copy_from_slice(&self.symbol);
+        let supply_end = 32 + BALANCE_LEN;
+        self.total_supply.to_little_endian(&mut buf[32..supply_end]);
+        buf[supply_end..supply_end + SYMBOL_LEN].copy_from_slice(&self.symbol);
         buf
     }
 
@@ -88,14 +93,14 @@ impl AssetRecord {
 
         let mut creator = [0u8; 32];
         creator.copy_from_slice(&bytes[0..32]);
-        let mut supply = [0u8; 8];
-        supply.copy_from_slice(&bytes[32..40]);
+        let supply_end = 32 + BALANCE_LEN;
+        let total_supply = U256::from_little_endian(&bytes[32..supply_end]);
         let mut symbol = [0u8; SYMBOL_LEN];
-        symbol.copy_from_slice(&bytes[40..48]);
+        symbol.copy_from_slice(&bytes[supply_end..supply_end + SYMBOL_LEN]);
 
         Ok(Self {
             creator,
-            total_supply: u64::from_le_bytes(supply),
+            total_supply,
             symbol,
         })
     }
@@ -183,24 +188,28 @@ pub fn is_native(asset: &AssetId) -> bool {
     *asset == NATIVE_ASSET
 }
 
-/// Encodes a balance for storage.
+/// Encodes a balance for storage: 32 little-endian bytes.
 #[must_use]
-pub fn encode_balance(amount: u64) -> [u8; 8] {
-    amount.to_le_bytes()
+pub fn encode_balance(amount: U256) -> [u8; BALANCE_LEN] {
+    let mut buf = [0u8; BALANCE_LEN];
+    amount.to_little_endian(&mut buf);
+    buf
 }
 
 /// Decodes a stored balance.
 ///
 /// # Errors
 ///
-/// Returns [`NodeError::InvalidLength`] if the record is not eight bytes.
-pub fn decode_balance(bytes: &[u8]) -> Result<u64> {
-    let raw: [u8; 8] = bytes.try_into().map_err(|_| NodeError::InvalidLength {
-        what: "asset balance",
-        expected: 8,
-        actual: bytes.len(),
-    })?;
-    Ok(u64::from_le_bytes(raw))
+/// Returns [`NodeError::InvalidLength`] if the record is not 32 bytes.
+pub fn decode_balance(bytes: &[u8]) -> Result<U256> {
+    if bytes.len() != BALANCE_LEN {
+        return Err(NodeError::InvalidLength {
+            what: "asset balance",
+            expected: BALANCE_LEN,
+            actual: bytes.len(),
+        });
+    }
+    Ok(U256::from_little_endian(bytes))
 }
 
 /// The native balance held by `account`.
@@ -208,6 +217,6 @@ pub fn decode_balance(bytes: &[u8]) -> Result<u64> {
 /// Exists so that call sites reading a balance for an arbitrary asset have one
 /// shape rather than a branch, with the native special case named once here.
 #[must_use]
-pub fn native_balance(account: &Account) -> u64 {
+pub fn native_balance(account: &Account) -> U256 {
     account.balance
 }

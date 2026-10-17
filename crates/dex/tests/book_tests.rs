@@ -7,18 +7,23 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use maya_amount::Amount;
 use maya_dex::book::{Book, Order, SORT_KEY_LEN, Side, quote_for_base, sort_key};
 use maya_dex::error::DexError;
 use maya_dex::types::PRICE_SCALE;
+
+fn a(v: u64) -> Amount {
+    Amount::from_u64(v)
+}
 
 fn order(id: u8, side: Side, price: u64, amount: u64, sequence: u64) -> Order {
     Order {
         id: [id; 32],
         owner: [id; 32],
         side,
-        price,
-        amount,
-        remaining: amount,
+        price: a(price),
+        amount: a(amount),
+        remaining: a(amount),
         sequence,
         expiry: 0,
     }
@@ -37,19 +42,19 @@ fn asks_sort_cheapest_first_and_bids_sort_dearest_first() {
     book.insert(order(5, Side::Bid, 90, 10, 5)).expect("insert");
     book.insert(order(6, Side::Bid, 70, 10, 6)).expect("insert");
 
-    let asks: Vec<u64> = book
+    let asks: Vec<Amount> = book
         .side_orders(Side::Ask)
         .iter()
         .map(|o| o.price)
         .collect();
-    let bids: Vec<u64> = book
+    let bids: Vec<Amount> = book
         .side_orders(Side::Bid)
         .iter()
         .map(|o| o.price)
         .collect();
 
-    assert_eq!(asks, vec![100, 200, 300]);
-    assert_eq!(bids, vec![90, 70, 50]);
+    assert_eq!(asks, vec![a(100), a(200), a(300)]);
+    assert_eq!(bids, vec![a(90), a(70), a(50)]);
 }
 
 #[test]
@@ -76,7 +81,7 @@ fn the_storage_key_sorts_lexicographically_in_priority_order() {
     // whole scheme nonsense, so the case is checked explicitly.
     let mut ask_keys: Vec<[u8; SORT_KEY_LEN]> = [1_u64, 2, 255, 256, 65_536, u64::MAX / 2]
         .iter()
-        .map(|&price| sort_key(Side::Ask, price, 0))
+        .map(|&price| sort_key(Side::Ask, a(price), 0))
         .collect();
     let sorted = {
         let mut copy = ask_keys.clone();
@@ -89,7 +94,7 @@ fn the_storage_key_sorts_lexicographically_in_priority_order() {
     ask_keys = [1_u64, 2, 255, 256, 65_536, u64::MAX / 2]
         .iter()
         .rev()
-        .map(|&price| sort_key(Side::Bid, price, 0))
+        .map(|&price| sort_key(Side::Bid, a(price), 0))
         .collect();
     let sorted = {
         let mut copy = ask_keys.clone();
@@ -103,8 +108,8 @@ fn the_storage_key_sorts_lexicographically_in_priority_order() {
 fn the_sequence_only_breaks_ties_and_never_outranks_price() {
     // A later order at a better price must still come first. Packing sequence
     // into the high bytes instead of the low ones would invert that.
-    let early_bad_price = sort_key(Side::Ask, 500, 1);
-    let late_good_price = sort_key(Side::Ask, 100, 999_999);
+    let early_bad_price = sort_key(Side::Ask, a(500), 1);
+    let late_good_price = sort_key(Side::Ask, a(100), 999_999);
     assert!(late_good_price < early_bad_price);
 }
 
@@ -113,14 +118,17 @@ fn a_bid_pays_a_rounded_up_quote_and_an_ask_receives_a_rounded_down_one() {
     // 3 base at a price of one-and-a-half quote per base is 4.5 quote. The bid
     // escrows 5 so it can never be short; the ask is credited 4 so a fill can
     // never create a unit.
-    let price = (PRICE_SCALE as u64) * 3 / 2;
-    assert_eq!(quote_for_base(3, price, Side::Bid), Ok(5));
-    assert_eq!(quote_for_base(3, price, Side::Ask), Ok(4));
+    let price = PRICE_SCALE.mul_div(a(3), a(2)).expect("price");
+    assert_eq!(quote_for_base(a(3), price, Side::Bid), Ok(a(5)));
+    assert_eq!(quote_for_base(a(3), price, Side::Ask), Ok(a(4)));
 }
 
 #[test]
 fn a_zero_price_is_rejected_rather_than_dividing() {
-    assert_eq!(quote_for_base(1, 0, Side::Bid), Err(DexError::ZeroPrice));
+    assert_eq!(
+        quote_for_base(a(1), Amount::ZERO, Side::Bid),
+        Err(DexError::ZeroPrice)
+    );
 
     let mut book = Book::new();
     assert_eq!(
@@ -148,10 +156,10 @@ fn cancelling_removes_an_order_from_both_the_queue_and_the_index() {
     book.insert(order(2, Side::Ask, 200, 10, 2)).expect("i");
 
     let removed = book.remove(&[1; 32]).expect("removed");
-    assert_eq!(removed.price, 100);
+    assert_eq!(removed.price, a(100));
     assert_eq!(book.len(), 1);
     assert!(book.get(&[1; 32]).is_none());
-    assert_eq!(book.best_price(Side::Ask), Some(200));
+    assert_eq!(book.best_price(Side::Ask), Some(a(200)));
 
     // Cancelling twice is not an error and not a double-free.
     assert!(book.remove(&[1; 32]).is_none());
@@ -200,4 +208,26 @@ fn cloning_a_book_does_not_share_it() {
 
     assert_eq!(book.len(), 1);
     assert_eq!(scratch.len(), 0);
+}
+
+#[test]
+fn prices_past_u64_keep_priority_order_in_the_storage_key() {
+    // ADR-046: a price is 256-bit, and the key must still sort numerically
+    // across limb boundaries.
+    let prices = [
+        a(u64::MAX),
+        Amount::from_u128(u128::from(u64::MAX) + 1),
+        Amount::MAX.shr(1),
+        Amount::MAX,
+    ];
+    let asks: Vec<_> = prices.iter().map(|&p| sort_key(Side::Ask, p, 0)).collect();
+    assert!(
+        asks.windows(2).all(|w| w[0] < w[1]),
+        "asks ascend with price"
+    );
+    let bids: Vec<_> = prices.iter().map(|&p| sort_key(Side::Bid, p, 0)).collect();
+    assert!(
+        bids.windows(2).all(|w| w[0] > w[1]),
+        "bids descend with price"
+    );
 }

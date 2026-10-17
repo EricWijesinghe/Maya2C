@@ -71,6 +71,10 @@ members = [
     "apps/wallet-gui/core",
     "crates/crypto-pq",
     "crates/ledger-math",
+    # 256-bit amounts for the dependency-free Kani crates (ADR-046, ADR-048).
+    # One internal leaf instead of a private limb type in each of fee-market,
+    # dex and ledger-math, so the carry and borrow chains are proved once.
+    "crates/amount",
     # GPU miner. A member so it cannot rot, but its `cuda` feature is off by
     # default: with no feature selected it compiles to host-side Rust and needs
     # no CUDA toolkit, which is what keeps `cargo build --workspace` green on
@@ -442,6 +446,10 @@ leptos = "0.8"
 # needs `PeerId`, both of which are libp2p's core types. The long feature list
 # stays in `crates/node`, which is the crate that actually opens a socket.
 libp2p = "0.57"
+# Monetary integer width for the ledger (ADR-046): `U256` balances, supply and
+# amounts. Already in the lockfile through the transitive graph at 0.12.2, so
+# the workspace pins that exact version rather than introducing a second one.
+primitive-types = { version = "0.12.2", default-features = false }
 prometheus-client = "0.25"
 rand_chacha = "0.3"
 rocksdb = "0.25"

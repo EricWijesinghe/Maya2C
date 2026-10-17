@@ -72,7 +72,7 @@ fn funded() -> (StateDB, Vec<HybridSigningKey>, TempDir) {
         db.put_account(
             &holder.address(),
             &Account {
-                balance: BALANCE,
+                balance: BALANCE.into(),
                 nonce: 0,
             },
         )
@@ -103,7 +103,7 @@ fn every_account_in_a_real_state_proves_against_its_root() {
         assert!(client.verify_account(0, &proof).is_ok());
         assert_eq!(
             client.verified_balance(0, &proof).expect("balance"),
-            BALANCE
+            BALANCE.into()
         );
     }
 }
@@ -141,7 +141,7 @@ fn a_proof_stops_verifying_once_the_account_it_names_moves() {
     let mut tx = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount: 1_000,
+            amount: primitive_types::U256::from(1_000),
             recipient: holders[1].address(),
         }],
         0,
@@ -169,7 +169,7 @@ fn a_proof_stops_verifying_once_the_account_it_names_moves() {
         .expect("exists");
     assert_eq!(
         new_client.verified_balance(0, &fresh).expect("balance"),
-        BALANCE - 1_000
+        (BALANCE - 1_000).into()
     );
 }
 
@@ -186,7 +186,7 @@ fn a_tampered_proof_is_refused() {
 
     // Inflating the balance is the attack a light client exists to refuse.
     let mut inflated = honest.clone();
-    inflated.account.balance = u64::MAX;
+    inflated.account.balance = primitive_types::U256::MAX;
     assert!(client.verify_account(0, &inflated).is_err());
 
     // So is rewriting a sibling to fabricate a path.
@@ -265,7 +265,7 @@ fn a_proof_from_a_chain_with_every_layer_populated_still_verifies() {
     let mut register = Transaction::with_kind(
         TxKind::RegisterAsset(AssetRegistration {
             symbol: *b"USD\0\0\0\0\0",
-            total_supply: 1_000,
+            total_supply: primitive_types::U256::from(1_000),
         }),
         0,
     );
@@ -273,7 +273,7 @@ fn a_proof_from_a_chain_with_every_layer_populated_still_verifies() {
 
     let mut lock = Transaction::with_kind(
         TxKind::LockStake(StakeLock {
-            amount: 500,
+            amount: primitive_types::U256::from(500),
             unlock_height: 10_000,
         }),
         0,
@@ -491,7 +491,7 @@ fn the_light_client_catches_a_lying_rpc_server() {
         client
             .verified_balance(0, &truthful.balance_proof(&who))
             .expect("honest"),
-        BALANCE
+        BALANCE.into()
     );
 
     // Liar 1 edits the balance in a real proof on the way out.
@@ -514,7 +514,13 @@ fn the_light_client_catches_a_lying_rpc_server() {
     for (i, h) in holders.iter().enumerate() {
         let balance = if i == 0 { BALANCE * 10 } else { BALANCE };
         forged
-            .put_account(&h.address(), &Account { balance, nonce: 0 })
+            .put_account(
+                &h.address(),
+                &Account {
+                    balance: balance.into(),
+                    nonce: 0,
+                },
+            )
             .expect("fund");
     }
     let forger = Rpc {

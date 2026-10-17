@@ -393,7 +393,7 @@ pub fn transaction_page(transaction: Option<IndexedTx>, query: String) -> String
 #[must_use]
 pub fn account_page(
     address: String,
-    balance: Option<u64>,
+    balance: Option<primitive_types::U256>,
     nonce: Option<u64>,
     transactions: Vec<IndexedTx>,
     error: Option<String>,

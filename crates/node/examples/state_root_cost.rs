@@ -11,6 +11,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::cast_precision_loss)]
 
+use primitive_types::U256;
 use std::time::Instant;
 
 use custom_l1_node::state::{Account, StateDB};
@@ -29,7 +30,7 @@ fn main() {
             db.put_account(
                 &address,
                 &Account {
-                    balance: u64::from(i) + 1,
+                    balance: U256::from(u64::from(i) + 1),
                     nonce: 0,
                 },
             )

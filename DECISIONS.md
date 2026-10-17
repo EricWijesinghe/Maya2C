@@ -302,3 +302,13 @@ and only packs they made or installed are ever sent. Formats: Lottie (.json,
 Telegram .tgs), WebM, WebP, PNG/APNG, GIF, SVG (drawn only as <img>). The
 built-in pack is original art; no third-party pack ships with the app.
 
+## 2026-10-13 — Every amount is 256-bit (ADR-046 amendment)
+
+Balances were widened to U256 but transaction amounts stayed u64, which at 18
+decimals caps a transaction at ~18.4 coins. Eric: "Widen every amount to
+256-bit" (option 1 of two; option 2 was 9 decimals). Wire-format change under
+invariant 31: spec, vectors and spec-ref follow. The proved crates share one
+dependency-free 256-bit type, `maya-amount` (ADR-048), rather than five copies.
+Done 2026-10-13 (`feat/u256-supply`): every value path is 256-bit; the values
+deliberately left at 64 bits, and why, are tabled in ADR-048.
+

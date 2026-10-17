@@ -32,7 +32,7 @@ pub enum Step {
         /// Whose.
         address: Address,
         /// What it returned.
-        value: u64,
+        value: maya_amount::Amount,
     },
     /// `caller`.
     Caller(Option<Address>),
@@ -137,7 +137,7 @@ impl<S: HostState> Traced<S> {
 }
 
 impl<S: HostState> HostState for Traced<S> {
-    fn balance_of(&self, address: &Address) -> u64 {
+    fn balance_of(&self, address: &Address) -> maya_amount::Amount {
         let value = self.inner.balance_of(address);
         self.record(Step::Balance {
             address: *address,
