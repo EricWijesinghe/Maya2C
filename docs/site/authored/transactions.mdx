@@ -1,0 +1,237 @@
+---
+title: How a transaction works
+description: From a signed note in your wallet to a balance change in every node's ledger, with the checks in order, the fee rule, and the 256-bit arithmetic behind the amounts.
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+## In plain words
+
+Imagine a **shared notebook** that everyone in town copies. Every page of it
+is a list of who paid whom. Nobody owns the notebook. Everybody keeps a copy,
+and they all agree on the same pages.
+
+A transaction is a **signed note** that says: "I, the owner of this account,
+pay 5 coins to my friend." Four things decide whether the note is written in the
+notebook:
+
+1. **The lock works.** The note carries two signatures, like two different
+   keys turning two different locks. Both must fit. If either is wrong, the
+   note is thrown away.
+2. **The note is the next one.** Each account numbers its notes 0, 1, 2, and so
+   on, like cheque numbers. A note that reuses an old number is refused. This
+   stops someone from copying your note and paying twice.
+3. **You have the coins.** You cannot spend more than your account holds.
+4. **You paid the postage.** Every note costs a small fee, in proportion to its
+   size. The fee is destroyed, so it does not go to anyone.
+
+When enough of the town agrees on a page, that page is final.
+
+<Tabs>
+<TabItem label="For engineers">
+
+## The short path
+
+```text
+wallet                    node                                    ledger
+──────                    ────                                    ──────
+build body ─► sign ─► mempool ─► DAG anchor commits ─► block ─► stage each tx ─► state root
+ (inputs,      (ML-DSA +  (both sigs      (ADR-027: block      verify sigs   (apply in order,
+  outputs,      SLH-DSA)   checked         derived from         fee, nonce,    all or nothing)
+  nonce, fee)              early)          certificates)        balance)
+```
+
+The steps in the order the code runs them, in
+`crates/node/src/state/db.rs`, `stage_transaction`:
+
+| # | Check | Code | Refusal |
+|---|---|---|---|
+| 1 | Both signatures verify over the signing bytes | `Transaction::verify` (`core/transaction.rs`) | `MissingSignature`, `SignatureSuite` or a verification error |
+| 2 | Fee: outputs to the fee collector cover `base_fee × size` | `charge_fee` (`state/fee_exec.rs`) | `FeeTooLow { required, offered }` |
+| 3 | Sender: derived from the keys, never from the wire | `tx.sender()` | the address is the hash of both keys |
+| 4 | Vault limits, if the sender is a vault account (ADR-030) | `vault_check` | vault error |
+| 5 | Nonce equals the sender's next nonce | `tx.nonce != sender.nonce` | `InvalidNonce` |
+| 6 | Sum of outputs (checked, 256-bit) is covered by the balance | `ledger_math::total_outputs` | `InsufficientBalance`, `BalanceOverflow` |
+| 7 | Debit the sender, advance the nonce, credit outputs | overlay writes | none, once 1 to 6 pass |
+
+A block is applied all-or-nothing. The fee burn is recorded in the overlay and
+settled before staking runs (`settle_fees`).
+
+### What a transaction contains
+
+From `crates/node/src/core/transaction.rs`:
+
+| Field | Meaning |
+|---|---|
+| `inputs` | references `(prev_tx, index)` to earlier outputs |
+| `outputs` | `(amount: U256, recipient: [u8; 32])` pairs, amounts in base units |
+| `nonce` | replay counter; the account's next expected value |
+| `kind` | what it does; `TxKind::Transfer` adds nothing to the encoding |
+| `public_key` | both public keys, ML-DSA-65 and SLH-DSA-SHA2-128s |
+| `signature` | both signatures, present or absent, never half |
+
+The wire version selects the authorization. Versions 5 and 6 are the hybrid
+pair. Version 7 is a suite-tagged single signature, accepted only at or past
+`SUITE_ENVELOPE_ACTIVATION_HEIGHT`. Version 8 is an m-of-n multisig policy.
+Versions 1 to 4 are refused by name, because their 3,309-byte single signature
+is the thing the hybrid exists to rule out
+([docs/hybrid-signatures.md](/reference/hybrid-signatures/)).
+
+### What gets signed
+
+```text
+TX_DOMAIN     = "custom-l1-node.tx.v4"
+signing_bytes = TX_DOMAIN ‖ chain_tag ‖ body_bytes()        (signature excluded)
+TXID_DOMAIN   = "custom-l1-node.txid.v1"
+txid          = BLAKE3(TXID_DOMAIN ‖ kind ‖ body ‖ σ_ML ‖ σ_SLH)   (hybrid)
+```
+
+The txid hashes the signatures too, so re-signing changes the id. Signing is
+deterministic (see [signatures](/guides/signatures/)), so one payload signed
+by one key pair always gives one id.
+
+The chain tag is the genesis block id (ADR-036). A transaction signed for one
+Maya2C network cannot verify on another. The txid is chain-independent and only
+deduplicates; verification is what stops replay.
+
+### Fees
+
+| Rule | Where |
+|---|---|
+| `required = base_fee × size_in_bytes`, `size = tx.to_bytes().len()` | `fee_exec.rs` |
+| The offer is the sum of outputs to `FEE_COLLECTOR` | `fee_exec.rs` |
+| A mining share with no outputs pays no base fee | `fee_exec.rs` (ADR-044) |
+| The burned fee leaves circulating supply | `settle_fees` |
+
+Measured on 2026-09-29 through a gateway on a fee-charging chain: a hybrid
+transfer was 13,255 bytes, so the minimum fee at base fee 1 was 13,255. The
+wallets' default, "Standard", paid twice that
+([API reference](/guides/api/)).
+
+A demand-responsive fee market is built and tested in `crates/fee-market` and
+**switched off**: every network runs `FeeConfig::DISABLED`, and nothing calls the
+crate from the node. See [docs/fee-market.md](/reference/fee-market/).
+
+### Build and send one
+
+```bash
+l1-wallet --keystore my.key --rpc-url https://rpc.maya2c.dev/rpc balance
+
+l1-wallet --keystore my.key --rpc-url https://rpc.maya2c.dev/rpc \
+    send --to <recipient address> --amount 100
+
+# Sign and print the hex without broadcasting:
+l1-wallet --keystore my.key send --to <recipient address> --amount 100 --no-broadcast
+
+# Pin the nonce yourself when submitting a burst:
+l1-wallet --keystore my.key send --to <recipient address> --amount 1 --nonce 7
+```
+
+Flags are those of `bins/l1-wallet/src/main.rs`: `--keystore` (default
+`wallet.key`, env `L1_WALLET_KEYSTORE`), `--rpc-url` (default
+`http://127.0.0.1:8545`, env `L1_RPC_URL`), and on `send` `--to`, `--amount`,
+`--nonce`, `--fee`, `--no-broadcast`.
+
+### Data-flow references
+
+- Mempool applies the same both-signatures rule earlier:
+  `crates/node/src/network/mempool.rs`.
+- Block contents are derived from committed certificates, not proposed:
+  `consensus::bft::builder`, described in [consensus](/guides/consensus/).
+- Wallet guidance on nonces and bursts: [wallet integration](/guides/wallet/).
+
+</TabItem>
+<TabItem label="For scientists">
+
+## The predicate
+
+Let $\mathcal{L}$ be the ledger state and $\sigma = (\sigma_{\text{ML}}, \sigma_{\text{SLH}})$
+the signature pair over $m = \mathrm{TX\_DOMAIN} \,\|\, c \,\|\, \mathrm{body}$,
+where $c$ is the chain tag. A transaction $\tau$ is applicable to $\mathcal{L}$
+exactly when
+
+$$
+\mathrm{V}_{\mathrm{ML}}(pk_{\mathrm{ML}}, m, \sigma_{\mathrm{ML}}) \wedge
+\mathrm{V}_{\mathrm{SLH}}(pk_{\mathrm{SLH}}, m, \sigma_{\mathrm{SLH}}) \wedge
+H_3(pk_{\mathrm{ML}} \| pk_{\mathrm{SLH}}) = a_s \wedge
+\nu_\tau = n_s \wedge
+\sum_{j} v_j \le b_s \wedge
+\sum_{j:\, r_j = \mathrm{FEE}} v_j \ge f_{\text{base}}\cdot |\tau|
+$$
+
+where $a_s$ and $b_s$ are the sender's address and balance, $n_s$ its next
+nonce, $v_j$ and $r_j$ the amounts and recipients of the outputs, $|\tau|$ the
+serialized length in bytes, and $H_3$ the BLAKE3 address derivation with its
+domain string. The fee output is one of the $v_j$, so the balance inequality
+covers it too.
+
+The conjunction is ordered. The signature conjunction is evaluated first, before any
+balance rule reads state, which is what makes the stage order in the engineer
+tab a security property, not a style choice.
+
+## Amounts: 256-bit, checked
+
+Amounts are unsigned 256-bit integers in base units. [ADR-046](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-046-universe-scale-supply.md) sets
+18 decimals as a convention, so one coin is $10^{18}$ base units.
+[ADR-048](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-048-maya-amount.md)
+implements the arithmetic in the dependency-free crate `crates/amount`.
+
+| Quantity | Value |
+|---|---|
+| Largest amount $2^{256} - 1$ | $\approx 1.158 \times 10^{77}$ base units |
+| In coins at 18 decimals | $\approx 1.158 \times 10^{59}$ |
+| Largest `u64` at 18 decimals | $2^{64} - 1 \approx 1.845 \times 10^{19}$ base units, about 18 coins |
+
+Representation: $\mathtt{Amount} = [u64; 4]$, little-endian limbs.
+Operations are total: `checked_add` returns $\bot$ rather than wrapping, and
+`checked_sub` returns $\bot$ when $x < y$. Multiplication widens:
+
+$$
+\mathrm{mul\_wide}(x, y) = xy \in [0, (2^{256}-1)^2] \subset \mathbb{Z}_{2^{512}},
+\qquad
+\mathrm{checked\_div}(xy,\, z) = \left\lfloor \frac{xy}{z} \right\rfloor \text{ if } \left\lfloor \frac{xy}{z} \right\rfloor < 2^{256}.
+$$
+
+This is what lets a constant-product quote compute $x\cdot y / z$ exactly even
+though the intermediate product needs 512 bits. Kani harnesses in the crate
+prove that no checked operation wraps and that add and subtract are inverses.
+
+## The fee rule
+
+The base fee $b_t$ is charged per byte. The controller in `crates/fee-market`
+(built, **switched off**) is an EIP-1559-style update. With $T$ the target block
+size in bytes, $s_t$ the parent's size and $D = 8$ the denominator:
+
+$$
+b_{t+1} = \max\!\left(b_{\min},\; b_t + \frac{b_t\,(s_t - T)}{T\,D}\right),
+\qquad \text{with at least one unit of rise when } s_t > T.
+$$
+
+So a block at $2T$ raises the fee by exactly $1/8$, and an empty block lowers it
+by $1/8$. The charge is $c = b_t\,|\tau| + \mathrm{tip}$, where
+$\mathrm{tip} = \min(\texttt{max\_tip}, \texttt{max\_fee} - b_t)$. Of the base
+fee, 80% is burned and 20% goes to the treasury, rounding the treasury share
+down, so no unit is created or lost.
+
+The bound the code enforces is `MAX_SUPPLY` $= 2^{256}-1$ in
+`crates/fee-market/src/supply.rs`. Older documentation mentions a cap of
+21,000,000 coins at 8 decimals; that predates ADR-046 and is out of date.
+
+## Replay and ordering
+
+Nonce monotonicity gives each account a total order on its own transactions.
+Two transactions built on the same nonce are mutually exclusive, and only the
+first one in the final order applies.
+
+Across accounts, the order is the one the DAG commits: a function of the
+certificate graph alone, with no clock in it (see [consensus](/guides/consensus/)).
+
+## Status
+
+- Built and tested. Not audited.
+- Fee market: built, tested, not wired into state transitions.
+- 256-bit amounts: implemented in the node path for transfers; the DEX
+  arithmetic uses the same crate.
+
+</TabItem>
+</Tabs>
