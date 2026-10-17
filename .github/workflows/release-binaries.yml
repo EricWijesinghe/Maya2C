@@ -299,15 +299,20 @@ jobs:
           ls -la
       # A software bill of materials for the source tree the binaries were
       # built from, so a user can check which dependency versions shipped
-      # without trusting this page. Before Checksums, so it is summed too.
-      - name: SBOM
-        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+      # without trusting this page. CycloneDX from Cargo.lock via
+      # `cargo cyclonedx`: the action allow-list admits taiki-e, not anchore.
+      # Before Checksums, so the SBOM is summed too.
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master, pinned 2026-09-29
         with:
-          path: .
-          format: spdx-json
-          output-file: dist/maya2c-sbom.spdx.json
-          upload-artifact: false
-          upload-release-assets: false
+          toolchain: nightly-2026-07-15
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2, pinned 2026-09-29
+        with:
+          tool: cargo-cyclonedx@0.5.9
+      - name: SBOM
+        run: |
+          cargo cyclonedx --format json --spec-version 1.5
+          find . -name '*.cdx.json' -not -path './dist/*' -not -path './target/*' -print0             | tar --null -czf dist/maya2c-sbom-cyclonedx.tar.gz --files-from -
+          tar -tzf dist/maya2c-sbom-cyclonedx.tar.gz | wc -l
       - name: Checksums
         run: |
           cd dist
