@@ -1,0 +1,118 @@
+---
+// The living background on every page: one fixed, full-viewport WebGL canvas
+// behind the content, drawn once in the footer override so all pages share it.
+// A teal and bronze constellation drifts slowly and parallaxes with scroll.
+// Pauses when the tab is hidden, caps device pixels, and draws fewer points on
+// phones. With no WebGL, or with reduced motion, the CSS gradient below stays.
+---
+
+<div class="ambient" aria-hidden="true">
+  <div class="fallback"></div>
+  <canvas id="ambient-canvas"></canvas>
+</div>
+
+<script>
+  const canvas = document.getElementById("ambient-canvas") as HTMLCanvasElement | null;
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const gl = canvas && !reduce ? (canvas.getContext("webgl", { antialias: false, alpha: true, premultipliedAlpha: true }) as WebGLRenderingContext | null) : null;
+
+  if (canvas && gl) {
+    const phone = window.innerWidth < 760;
+    const N = phone ? 70 : 170;
+    // Per point: x, y in [-1,1]; depth z in [0.25,1.6]; palette index 0..2.
+    const seed = new Float32Array(N * 4);
+    for (let i = 0; i < N; i++) {
+      seed[i * 4] = Math.random() * 2 - 1;
+      seed[i * 4 + 1] = Math.random() * 2 - 1;
+      seed[i * 4 + 2] = 0.25 + Math.random() * 1.35;
+      seed[i * 4 + 3] = Math.floor(Math.random() * 3);
+    }
+    const VS = `attribute vec4 a;
+uniform float uT; uniform float uS; uniform float uDpr; uniform vec2 uRes;
+varying float vA; varying float vK;
+void main(){
+  float z = a.z;
+  float drift = uT * 0.02 / z;
+  float x = a.x + sin(uT * 0.05 + a.y * 3.0) * 0.04 / z + drift;
+  // Scroll parallax: near points (small z) move more than far ones.
+  float y = fract((a.y + 1.0) * 0.5 - uS * 0.12 / z) * 2.0 - 1.0;
+  gl_Position = vec4(fract((x + 1.0) * 0.5) * 2.0 - 1.0, y, 0.0, 1.0);
+  gl_PointSize = (1.6 + 4.2 / z) * uDpr;
+  vA = 0.25 + 0.45 / z;
+  vK = a.w;
+}`;
+    const FS = `precision mediump float;
+varying float vA; varying float vK;
+void main(){
+  vec2 d = gl_PointCoord - 0.5;
+  float r = length(d);
+  if (r > 0.5) discard;
+  float core = smoothstep(0.5, 0.0, r);
+  vec3 teal = vec3(0.122, 0.710, 0.761);
+  vec3 glow = vec3(0.494, 0.918, 0.941);
+  vec3 bronze = vec3(0.788, 0.659, 0.416);
+  vec3 c = vK < 0.5 ? teal : (vK < 1.5 ? glow : bronze);
+  gl_FragColor = vec4(c, core * vA * 0.9);
+}`;
+    const sh = (type: number, src: string) => {
+      const s = gl.createShader(type)!; gl.shaderSource(s, src); gl.compileShader(s);
+      return gl.getShaderParameter(s, gl.COMPILE_STATUS) ? s : null;
+    };
+    const vs = sh(gl.VERTEX_SHADER, VS), fs = sh(gl.FRAGMENT_SHADER, FS);
+    const prog = gl.createProgram();
+    if (vs && fs && prog) {
+      gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog);
+      if (gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+        gl.useProgram(prog);
+        gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+        gl.bufferData(gl.ARRAY_BUFFER, seed, gl.STATIC_DRAW);
+        const loc = gl.getAttribLocation(prog, "a");
+        gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 4, gl.FLOAT, false, 0, 0);
+        const uT = gl.getUniformLocation(prog, "uT"), uS = gl.getUniformLocation(prog, "uS");
+        const uDpr = gl.getUniformLocation(prog, "uDpr"), uRes = gl.getUniformLocation(prog, "uRes");
+        // Pixel ratio capped: the field is soft, so 1.5 is plenty.
+        const dpr = Math.min(window.devicePixelRatio || 1, phone ? 1 : 1.5);
+        const resize = () => {
+          const w = Math.floor(window.innerWidth * dpr), h = Math.floor(window.innerHeight * dpr);
+          if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; gl.viewport(0, 0, w, h); }
+          gl.uniform2f(uRes, w, h); gl.uniform1f(uDpr, dpr);
+        };
+        resize(); window.addEventListener("resize", resize);
+        let scroll = 0, running = !document.hidden;
+        window.addEventListener("scroll", () => { scroll = window.scrollY / Math.max(1, window.innerHeight); }, { passive: true });
+        document.addEventListener("visibilitychange", () => {
+          running = !document.hidden;
+          if (running) requestAnimationFrame(frame);
+        });
+        const t0 = performance.now();
+        function frame(now: number) {
+          if (!running) return;
+          gl!.uniform1f(uT, (now - t0) / 1000);
+          gl!.uniform1f(uS, scroll);
+          gl!.clearColor(0, 0, 0, 0); gl!.clear(gl!.COLOR_BUFFER_BIT);
+          gl!.drawArrays(gl!.POINTS, 0, N);
+          requestAnimationFrame(frame);
+        }
+        requestAnimationFrame(frame);
+        document.documentElement.classList.add("ambient-gl");
+      }
+    }
+  }
+</script>
+
+<style>
+  .ambient { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
+  .fallback, canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  /* The gradient is the whole background without WebGL or with reduced motion. */
+  .fallback {
+    background:
+      radial-gradient(60rem 40rem at 88% 8%, rgba(31, 181, 194, 0.16), transparent 70%),
+      radial-gradient(50rem 36rem at 6% 92%, rgba(201, 168, 106, 0.12), transparent 70%),
+      radial-gradient(40rem 30rem at 50% 50%, rgba(126, 234, 240, 0.05), transparent 70%),
+      var(--void);
+  }
+  canvas { display: none; }
+  :global(html.ambient-gl) canvas { display: block; }
+  :global(html.ambient-gl) .fallback { background: var(--void); }
+</style>
