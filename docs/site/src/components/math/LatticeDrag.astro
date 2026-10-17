@@ -1,0 +1,187 @@
+<!-- A 2-D lattice you can search by hand. Plain TS + SVG: no external script,
+     no animation (so nothing to suppress for reduced motion), and the probe is
+     keyboard-operable with the arrow keys. -->
+<figure class="lattice" data-lattice>
+  <svg viewBox="0 0 320 320" role="application" tabindex="0"
+       aria-label="A two-dimensional lattice. Drag the probe, or use the arrow keys, to search for its shortest non-zero vector.">
+    <g data-layer="grid"></g>
+    <g data-layer="basis"></g>
+    <g data-layer="probe"></g>
+  </svg>
+  <figcaption>
+    <div class="row">
+      <button type="button" data-action="reveal" aria-pressed="false">Show a short basis</button>
+      <button type="button" data-action="reset">Reset the search</button>
+    </div>
+    <p data-readout aria-live="polite"></p>
+  </figcaption>
+</figure>
+
+<script>
+  import { latticePoint, nearestLatticePoint, gaussReduce, norm, type Basis, type Vec } from "./lattice";
+
+  // A long, skewed basis of Z^2. Its shortest vector hides inside it:
+  // (1, 0) = (9, 2) - 2 * (4, 1).
+  const BAD: Basis = [[9, 2], [4, 1]];
+  const SCALE = 16; // pixels per unit; the window shows about +/-10 units
+  const HALF = 160;
+  const RANGE = 12; // coefficients searched: the naive "look around" search
+  const NS = "http://www.w3.org/2000/svg";
+
+  const figure = document.querySelector<HTMLElement>("[data-lattice]");
+  if (figure) mount(figure);
+
+  function mount(root: HTMLElement) {
+    const svg = root.querySelector<SVGSVGElement>("svg")!;
+    const readout = root.querySelector<HTMLElement>("[data-readout]")!;
+    const reveal = root.querySelector<HTMLButtonElement>('[data-action="reveal"]')!;
+    const reset = root.querySelector<HTMLButtonElement>('[data-action="reset"]')!;
+    const layers = {
+      grid: svg.querySelector<SVGGElement>('[data-layer="grid"]')!,
+      basis: svg.querySelector<SVGGElement>('[data-layer="basis"]')!,
+      probe: svg.querySelector<SVGGElement>('[data-layer="probe"]')!,
+    };
+
+    let probe: Vec = [5, 4];
+    let tries = 0;
+    let shortest: Vec | null = null;
+    let shown = false;
+
+    const toPx = (v: Vec): [number, number] => [HALF + v[0] * SCALE, HALF - v[1] * SCALE];
+
+    function el(name: string, attrs: Record<string, string | number>, parent: SVGGElement) {
+      const node = document.createElementNS(NS, name);
+      for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, String(v));
+      parent.appendChild(node);
+      return node;
+    }
+
+    function drawGrid() {
+      layers.grid.replaceChildren();
+      el("line", { x1: 0, y1: HALF, x2: 320, y2: HALF, class: "axis" }, layers.grid);
+      el("line", { x1: HALF, y1: 0, x2: HALF, y2: 320, class: "axis" }, layers.grid);
+      for (let i = -RANGE; i <= RANGE; i++) {
+        for (let j = -RANGE; j <= RANGE; j++) {
+          const p = latticePoint(BAD, i, j);
+          if (Math.abs(p[0]) > 10 || Math.abs(p[1]) > 10) continue;
+          const [x, y] = toPx(p);
+          el("circle", { cx: x, cy: y, r: 2.2, class: "dot" }, layers.grid);
+        }
+      }
+    }
+
+    function drawBasis() {
+      layers.basis.replaceChildren();
+      if (!shown) return;
+      const good = gaussReduce(BAD);
+      for (const v of good) {
+        const [x, y] = toPx(v);
+        el("line", { x1: HALF, y1: HALF, x2: x, y2: y, class: "good" }, layers.basis);
+      }
+    }
+
+    function drawProbe(snapped: Vec) {
+      layers.probe.replaceChildren();
+      const [px, py] = toPx(probe);
+      const [sx, sy] = toPx(snapped);
+      el("line", { x1: px, y1: py, x2: sx, y2: sy, class: "snap" }, layers.probe);
+      el("circle", { cx: sx, cy: sy, r: 5, class: "found" }, layers.probe);
+      el("circle", { cx: px, cy: py, r: 7, class: "handle", "data-handle": "" }, layers.probe);
+    }
+
+    function describe(snapped: Vec) {
+      const len = norm(snapped);
+      const best = shortest ? norm(shortest) : Infinity;
+      readout.textContent =
+        `Nearest lattice point: (${snapped[0]}, ${snapped[1]}), length ${len.toFixed(2)}. ` +
+        `Shortest non-zero found so far: ${Number.isFinite(best) ? best.toFixed(2) : "none"} ` +
+        `after ${tries} tries. The grid has ${(2 * RANGE + 1) ** 2} candidates in this window; ` +
+        `in 512 dimensions the candidates grow exponentially.`;
+    }
+
+    function update(countTry: boolean) {
+      const { point } = nearestLatticePoint(BAD, probe, RANGE);
+      if (countTry) tries++;
+      if (norm(point) > 0 && (!shortest || norm(point) < norm(shortest))) shortest = point;
+      drawProbe(point);
+      describe(point);
+    }
+
+    function toPlane(clientX: number, clientY: number): Vec {
+      const r = svg.getBoundingClientRect();
+      const sx = ((clientX - r.left) / r.width) * 320;
+      const sy = ((clientY - r.top) / r.height) * 320;
+      return [(sx - HALF) / SCALE, (HALF - sy) / SCALE];
+    }
+
+    svg.addEventListener("pointerdown", (event) => {
+      svg.setPointerCapture(event.pointerId);
+      probe = toPlane(event.clientX, event.clientY);
+      update(true);
+    });
+    svg.addEventListener("pointermove", (event) => {
+      if (!svg.hasPointerCapture(event.pointerId)) return;
+      probe = toPlane(event.clientX, event.clientY);
+      update(false);
+    });
+
+    svg.addEventListener("keydown", (event) => {
+      const step: Record<string, Vec> = {
+        ArrowLeft: [-0.5, 0],
+        ArrowRight: [0.5, 0],
+        ArrowUp: [0, 0.5],
+        ArrowDown: [0, -0.5],
+      };
+      const d = step[event.key];
+      if (!d) return;
+      event.preventDefault();
+      probe = [probe[0] + d[0], probe[1] + d[1]];
+      update(true);
+    });
+
+    reveal.addEventListener("click", () => {
+      shown = !shown;
+      reveal.setAttribute("aria-pressed", String(shown));
+      reveal.textContent = shown ? "Hide the short basis" : "Show a short basis";
+      drawBasis();
+      if (shown) {
+        const good = gaussReduce(BAD);
+        readout.textContent =
+          `Gauss reduction of the same lattice gives the basis (${good[0]}) and (${good[1]}). ` +
+          "A short basis exposes the short vectors; the skewed one only hides them.";
+      } else {
+        update(false);
+      }
+    });
+
+    reset.addEventListener("click", () => {
+      probe = [5, 4];
+      tries = 0;
+      shortest = null;
+      shown = false;
+      reveal.setAttribute("aria-pressed", "false");
+      reveal.textContent = "Show a short basis";
+      drawBasis();
+      update(false);
+    });
+
+    drawGrid();
+    update(false);
+  }
+</script>
+
+<style>
+  .lattice { margin: 1.5rem 0; max-width: 24rem; }
+  .lattice svg { width: 100%; height: auto; display: block; touch-action: none; cursor: grab;
+                 border-radius: 0.5rem; background: var(--sl-color-gray-6, #0e1a20); }
+  .lattice svg:focus-visible { outline: 2px solid var(--sl-color-accent, #2dd4bf); outline-offset: 2px; }
+  .lattice .axis { stroke: var(--sl-color-gray-4, #3a4d57); stroke-width: 1; }
+  .lattice .dot { fill: var(--sl-color-gray-3, #7b8f99); }
+  .lattice .good { stroke: var(--sl-color-accent, #2dd4bf); stroke-width: 3; }
+  .lattice .snap { stroke: var(--sl-color-gray-2, #b8c4cb); stroke-dasharray: 3 3; }
+  .lattice .found { fill: var(--sl-color-accent-high, #5eead4); }
+  .lattice .handle { fill: none; stroke: var(--sl-color-orange, #d97706); stroke-width: 2; }
+  .lattice .row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+  .lattice button { padding: 0.4rem 0.8rem; cursor: pointer; }
+  .lattice figcaption p { margin: 0.5rem 0 0; font-size: 0.9rem; }
+</style>

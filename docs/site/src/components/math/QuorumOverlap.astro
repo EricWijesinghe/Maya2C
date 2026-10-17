@@ -1,0 +1,94 @@
+<!-- Two quorums out of n validators, and the overlap they must share. The
+     worst case is drawn: every faulty validator sits inside the overlap. -->
+<figure class="quorum" data-quorum>
+  <label>
+    Validators, n = <output data-n-out>7</output>
+    <input type="range" min="1" max="100" value="7" data-n aria-describedby="quorum-readout" />
+  </label>
+  <label class="legacy">
+    <input type="checkbox" data-legacy /> Use the retired 2f + 1 rule instead
+  </label>
+  <svg viewBox="0 0 320 120" role="img" aria-label="Dots for each validator: the first quorum in blue, the second in orange, their overlap in teal, faulty members ringed." data-svg></svg>
+  <p id="quorum-readout" aria-live="polite" data-readout></p>
+</figure>
+
+<script>
+  import { faults, quorum, legacyQuorum, minOverlap, isSafe } from "./quorum";
+
+  const NS = "http://www.w3.org/2000/svg";
+  const root = document.querySelector<HTMLElement>("[data-quorum]");
+  if (root) mount(root);
+
+  function mount(figure: HTMLElement) {
+    const range = figure.querySelector<HTMLInputElement>("[data-n]")!;
+    const nOut = figure.querySelector<HTMLElement>("[data-n-out]")!;
+    const legacy = figure.querySelector<HTMLInputElement>("[data-legacy]")!;
+    const svg = figure.querySelector<SVGSVGElement>("[data-svg]")!;
+    const readout = figure.querySelector<HTMLElement>("[data-readout]")!;
+
+    function dot(parent: Element, x: number, y: number, cls: string) {
+      const c = document.createElementNS(NS, "circle");
+      c.setAttribute("cx", String(x));
+      c.setAttribute("cy", String(y));
+      c.setAttribute("r", "5");
+      c.setAttribute("class", cls);
+      parent.appendChild(c);
+    }
+
+    function draw() {
+      const n = Number(range.value);
+      const q = legacy.checked ? legacyQuorum(n) : quorum(n);
+      const f = faults(n);
+      const overlap = minOverlap(q, n);
+      const safe = isSafe(n, q);
+      nOut.textContent = String(n);
+
+      // Validators are laid out in rows of 20 so 100 still fits the box.
+      const perRow = 20;
+      const pos = (i: number) => [12 + (i % perRow) * 15, 16 + Math.floor(i / perRow) * 24] as const;
+
+      svg.replaceChildren();
+      for (let i = 0; i < n; i++) {
+        const [x, y] = pos(i);
+        // First quorum: the first q. Second quorum: the last q.
+        const inA = i < q;
+        const inB = i >= n - q;
+        const cls = inA && inB ? "both" : inA ? "only-a" : inB ? "only-b" : "idle";
+        dot(svg, x, y, cls);
+      }
+      // Worst case: the f faulty validators are the first f members of the overlap.
+      const overlapStart = n - q;
+      for (let k = 0; k < Math.min(f, Math.max(0, overlap)); k++) {
+        const [x, y] = pos(overlapStart + k);
+        dot(svg, x, y, "faulty");
+      }
+
+      const honestInOverlap = overlap - f;
+      readout.textContent =
+        `n = ${n}, f = ${f}, quorum q = ${q}. Any two quorums share at least ${overlap} ` +
+        `validator${overlap === 1 ? "" : "s"}. ` +
+        (safe
+          ? `At least one of those is honest in the worst case (${honestInOverlap} honest). Safe.`
+          : `In the worst case all ${Math.max(overlap, 0)} shared seats are faulty, so two ` +
+            `quorums can certify different vertices for one round. Not safe.`);
+    }
+
+    range.addEventListener("input", draw);
+    legacy.addEventListener("change", draw);
+    draw();
+  }
+</script>
+
+<style>
+  .quorum { margin: 1.5rem 0; max-width: 40rem; }
+  .quorum label { display: block; margin: 0.4rem 0; }
+  .quorum input[type="range"] { width: 100%; }
+  .quorum svg { width: 100%; height: auto; background: var(--sl-color-gray-6, #0e1a20); border-radius: 0.5rem; }
+  .quorum circle { stroke: none; }
+  .quorum .only-a { fill: var(--sl-color-blue, #3b82f6); }
+  .quorum .only-b { fill: var(--sl-color-orange, #d97706); }
+  .quorum .both { fill: var(--sl-color-accent-high, #5eead4); }
+  .quorum .idle { fill: var(--sl-color-gray-4, #3a4d57); }
+  .quorum .faulty { fill: none; stroke: #f87171; stroke-width: 2.5; }
+  .quorum p { font-size: 0.92rem; }
+</style>
