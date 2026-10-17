@@ -35,7 +35,7 @@ allocation, and anyone who says otherwise is not speaking for this project.
 | Validator software | Shipped: `maya2c-node` on the [releases page](https://github.com/EricWijesinghe/Maya2C/releases) |
 | Registering a key | Shipped: `l1-wallet register-validator` |
 | Rejoining after an outage | Shipped: attested checkpoints, `--catch-up-from` ([ADR-038](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-038-attested-checkpoints.md)) |
-| Committee today | Four validators, all run by the project, on one machine. Live membership is on the [status page](https://status.maya2c.dev/). |
+| Committee today | Four validators, all run by the project, on one machine. Real multi-signer DAG-BFT, but not independent: one machine failing halts the chain until it returns (it does not fork it). Mainnet launches the same way, and other machines join after launch ([ADR-047](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-047-single-pc-foundation-set.md)). Live membership is on the [status page](https://status.maya2c.dev/). |
 | Connecting to the network | A public WebSocket bootnode at `p2p.maya2c.dev`, and a bootstrap endpoint for snapshots and headers at `bootstrap.maya2c.dev` |
 | Open registration | **Not yet.** Registrations are reviewed; see below. |
 

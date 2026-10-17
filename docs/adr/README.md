@@ -80,3 +80,4 @@ The observation that would make this worth reopening.
 | [040](ADR-040-stake-weighted-committee.md) | Stake-weighted DAG-BFT committees — engine built, node wiring for decision | Proposed |
 | [044](ADR-044-mining-rewards-lane.md) | Block rewards and GPU mining at launch, without letting miners order blocks | Proposed |
 | [045](ADR-045-maya2c-hub.md) | Maya2C Hub: one desktop window for mining and every app | Proposed |
+| [047](ADR-047-single-pc-foundation-set.md) | The foundation validator set runs on one PC, said so publicly (supersedes ADR-042 gate 5) | Accepted |

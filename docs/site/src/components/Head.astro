@@ -42,5 +42,14 @@ const ld = graph.length ? JSON.stringify({ "@context": "https://schema.org", "@g
 ---
 
 <Default />
-{ld && <script type="application/ld+json" set:html={ld} />}
+{/* The home hero fetches these at once; opening the connections early saves a round trip. */}
+{parts.length === 0 && (
+  <>
+    <link rel="preconnect" href="https://explorer.maya2c.dev" crossorigin />
+    <link rel="preconnect" href="https://rpc.maya2c.dev" crossorigin />
+  </>
+)}
+{ld &&<script type="application/ld+json" set:html={ld} />}
+{/* Sets the section token set before first paint (see maya-living.css). Constant text, so one CSP hash. */}
+<script is:inline>document.documentElement.dataset.section = location.pathname.split("/")[1] || "home";</script>
 <Maintenance />
