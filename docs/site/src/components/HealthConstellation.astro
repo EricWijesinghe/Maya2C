@@ -289,23 +289,28 @@
   .tip { position: absolute; transform: translate(-50%, -140%); pointer-events: none; white-space: nowrap;
     background: rgb(8 12 22 / 0.92); border: 1px solid var(--sl-color-hairline); border-radius: 0.5rem;
     padding: 0.35rem 0.6rem; font-size: 0.8rem; z-index: 2; backdrop-filter: blur(6px); }
-  .tip b { display: block; color: var(--sl-color-white); }
-  .tip span { color: var(--sl-color-gray-3); text-transform: capitalize; font-size: 0.72rem; }
+  .tip :global(b) { display: block; color: var(--sl-color-white); }
+  .tip :global(span) { color: var(--sl-color-gray-3); text-transform: capitalize; font-size: 0.72rem; }
 
   .flat-grid { display: flex; flex-wrap: wrap; gap: 0.45rem; list-style: none; padding: 1rem; margin: 0;
     border-radius: 1.1rem; border: 1px solid var(--sl-color-hairline); background: rgb(5 8 14 / 0.5); }
+  /* Children are built in the script, so they carry no scope attribute: :global. */
   .flat-grid[hidden] { display: none; }
-  .flat-grid button { width: 1.1rem; height: 1.1rem; border-radius: 50%; border: 0; padding: 0; cursor: pointer; }
-  .flat-grid button:focus-visible { outline: 2px solid #22d3ee; outline-offset: 2px; }
-  .dot.verified { background: #22d3ee; } .dot.working { background: #a78bfa; } .dot.planned { background: #64748b; }
+  .flat-grid :global(li) { display: block; list-style: none; }
+  .flat-grid :global(li::before), .flat-grid :global(li::marker) { content: none; }
+  .flat-grid :global(button) { width: 1.1rem; height: 1.1rem; border-radius: 50%; border: 0; padding: 0; cursor: pointer; }
+  .flat-grid :global(button:focus-visible) { outline: 2px solid #22d3ee; outline-offset: 2px; }
+  .flat-grid :global(.dot.verified) { background: #22d3ee; }
+  .flat-grid :global(.dot.working) { background: #a78bfa; }
+  .flat-grid :global(.dot.planned) { background: #64748b; }
 
   .detail { margin-top: 0.9rem; padding: 0.9rem 1.1rem; border-radius: 0.9rem; display: flex; flex-direction: column; gap: 0.2rem;
     border: 1px solid var(--sl-color-hairline); background: rgb(5 8 14 / 0.6); }
   .detail[hidden] { display: none; }
-  .detail b { color: var(--sl-color-white); font-size: 1rem; }
-  .detail span { color: var(--sl-color-gray-3); font-size: 0.8rem; text-transform: capitalize; }
-  .detail a { margin-top: 0.4rem; color: var(--sl-color-text-accent); font-size: 0.85rem; }
-  .detail a:focus-visible { outline: 2px solid #22d3ee; outline-offset: 2px; }
+  .detail :global(b) { color: var(--sl-color-white); font-size: 1rem; }
+  .detail :global(span) { color: var(--sl-color-gray-3); font-size: 0.8rem; text-transform: capitalize; }
+  .detail :global(a) { margin-top: 0.4rem; color: var(--sl-color-text-accent); font-size: 0.85rem; }
+  .detail :global(a:focus-visible) { outline: 2px solid #22d3ee; outline-offset: 2px; }
 
   .legend { display: flex; flex-wrap: wrap; gap: 0.5rem 1.1rem; list-style: none; padding: 0; margin: 0.9rem 0 0.3rem;
     font-size: 0.8rem; color: var(--sl-color-gray-3); }
