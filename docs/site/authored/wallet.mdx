@@ -1,0 +1,206 @@
+---
+title: Wallet integration
+description: How a wallet holds keys, builds and signs post-quantum transactions, sets nonces and fees, and talks to a gateway, with the l1-wallet commands checked against the source.
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+## In plain words
+
+A wallet is the part of the app that **holds your keys and writes your notes**.
+Your keys are locked inside an encrypted file, like a diary with a lock. You
+open it with a password, sign a note, and send it to the notebook keepers.
+
+Three rules keep a wallet safe:
+
+- **Never give anyone the wallet file or its password.** Anyone who has both can
+  write notes as you.
+- **Keep track of your note numbers.** Each note carries the next number on your
+  account. Send two notes with the same number and only one of them is written.
+- **Expect big notes.** A post-quantum signature is much larger than an old-style
+  one, so every transfer weighs about 13 KB and costs a fee in proportion.
+
+<Tabs>
+<TabItem label="For engineers">
+
+## Three facts that decide the design
+
+**1. A signature is a hybrid pair, and it is large.** Every transaction carries
+two signatures over the same payload:
+
+| Scheme | Standard | Size |
+|---|---|---|
+| ML-DSA-65 | FIPS 204 (lattice) | 3,309 B |
+| SLH-DSA-SHA2-128s | FIPS 205 (hash-based) | 7,856 B |
+| | **total** | **11,165 B** |
+
+Both must verify. A transfer is about 13 KB before it carries any value. Block
+size, not compute, is the scarce resource, and that drives most downstream
+decisions.
+
+**2. Signing is deterministic, and that is load-bearing.** The same transfer
+signed twice is byte-identical. A transaction id hashes its signature, so a
+randomised signature would give one transfer two identities. Re-signing and
+re-broadcasting is therefore safe, and a half-finished air-gapped scan can be
+completed.
+
+**3. An address is a hash of both public keys, with a domain string.**
+
+```text
+address = BLAKE3("custom-l1-node.address.v3" ‖ ml_dsa_pk ‖ slh_dsa_pk)     (32 bytes)
+```
+
+Deriving an address with any other domain string produces a well-formed address
+that **no key can spend from**. Funds sent there are gone, and nothing reports an
+error. Do not reimplement the derivation. `sdk-wasm` is pinned against the
+node's own implementation by `crates/node/tests/hybrid_parity_tests.rs` for this
+reason.
+
+## Which package does what
+
+| Package | Does | Does not |
+|---|---|---|
+| `maya2c.js` | reads and submits, through the gateway | sign |
+| `sdks/sdk-wasm` | builds and signs transactions | touch the network |
+| Python bindings (`sdks/sdk-ffi`) | sign and verify | build transactions; not on PyPI yet |
+
+The split is deliberate. Signing needs the two post-quantum primitives, which
+means compiled code: wasm in the browser, a native library in Python. Reading
+needs only HTTP.
+
+```ts
+import { MayaClient } from "maya2c.js";
+
+const client = new MayaClient({ baseUrl: "https://gateway.example.com" });
+const { balance, nonce } = await client.getBalance(address);
+
+// ... build and sign with sdk-wasm, producing rawHex ...
+
+const { txid } = await client.submitTransaction(rawHex);
+```
+
+## Talk to the gateway, not to a node
+
+A node's JSON-RPC port has **no authentication** and serves
+`get_mining_candidate` and `submit_block`. Pointing a client at it works for reads
+and is the wrong thing to ship. Use the [API reference](/guides/api/); the gateway
+serves REST under `/v1/…`, including `/v1/supply`.
+
+## The keystore
+
+`l1-wallet generate` writes an encrypted keystore. Version 4 holds both the
+ML-DSA-65 and SLH-DSA secret keys. From `bins/l1-wallet/src/keystore.rs`:
+
+| Part | Choice |
+|---|---|
+| Key stretching | Argon2id, 64 MiB memory |
+| Cipher | ChaCha20-Poly1305 (authenticated; tampering is detected) |
+| Salt | 16 bytes, random, stored in the clear |
+| Nonce | 12 bytes, random, fresh on every write |
+| Secret memory | wrapped in `Zeroizing`, wiped on drop |
+
+Keystore version 3 holds only an ML-DSA key and cannot be upgraded: pairing it
+with a fresh SLH-DSA key names a different address that holds nothing. `l1-wallet`
+says so rather than failing obscurely.
+
+`l1-wallet` has **no `--password` flag**, because a password on the command line
+lands in shell history and the process list. It prompts on a terminal, and reads
+`L1_WALLET_PASSWORD` for scripts.
+
+## The l1-wallet commands
+
+From `bins/l1-wallet/src/main.rs`. Global flags come before the subcommand.
+
+```bash
+l1-wallet --keystore my.key generate            # new keypair, encrypted
+l1-wallet --keystore my.key address             # address held in the keystore
+l1-wallet --keystore my.key --rpc-url https://rpc.maya2c.dev/rpc balance
+l1-wallet --keystore my.key block --height 0    # genesis is height 0
+l1-wallet --keystore my.key send --to <address> --amount 100 [--nonce N] [--fee F] [--no-broadcast]
+l1-wallet --keystore my.key delegate --validator <64 hex> --amount 1000
+```
+
+| Global flag | Default | Environment variable |
+|---|---|---|
+| `--keystore` | `wallet.key` | `L1_WALLET_KEYSTORE` |
+| `--rpc-url` | `http://127.0.0.1:8545` | `L1_RPC_URL` |
+
+Amounts are decimal integers in base units, parsed as 256-bit values. The
+`balance` command with no `--address` reads the keystore's own address.
+
+## Nonces
+
+`balance` gives the next valid nonce. Two transactions built against the same
+nonce are two transactions of which the chain accepts one; the other is silently
+not applied. For a burst of submissions, track the nonce locally and advance it
+yourself, or pass `--nonce` explicitly, rather than re-reading between submissions.
+
+## Fees
+
+The fee is a per-byte charge. A transaction pays at least `base_fee × size_in_bytes`
+to the fee-collector address, and the node burns that amount. The wallet default,
+"Standard", paid twice the minimum on the 2026-09-29 measurement
+([API reference](/guides/api/)). A demand-responsive fee market exists in
+`crates/fee-market` and is switched off; see [transactions](/guides/transactions/).
+
+## Fees are burned
+
+There is no coinbase. The fee goes to an unspendable address rather than to a
+miner, so total supply is conserved and circulating supply falls.
+`/v1/supply` reports both.
+
+</TabItem>
+<TabItem label="For scientists">
+
+## Address collisions
+
+An address is a 256-bit BLAKE3 output. For $N$ accounts, the probability of any two
+addresses colliding, under the random-oracle model, is
+
+$$
+\Pr[\text{collision}] \approx 1 - e^{-N^2 / 2^{257}} \;\approx\; \frac{N^2}{2^{257}}.
+$$
+
+With $N = 10^9$ accounts, $N^2 = 10^{18} \approx 2^{60}$, so the probability is about
+$2^{-197}$. A birthday search would cost about $2^{128}$ hash evaluations. Under
+this model an accidental collision is not a practical concern. A deliberate one
+needs $2^{128}$ work, which is the classical birthday bound for a 256-bit hash.
+
+## Why the address binds two keys
+
+Write $\mathrm{addr} = H(\mathtt{dom} \,\|\, pk_{\mathrm{ML}} \,\|\, pk_{\mathrm{SLH}})$ with
+$\mathtt{dom}$ the v3 domain string. An adversary who has broken one scheme cannot
+present a key pair that hashes to a victim's address unless it also breaks the hash.
+A wallet that derived an address from one key would make the second scheme
+decorative, which is why the domain and both keys are fixed.
+
+## Deterministic signatures
+
+Let $\mathrm{Sign}(sk, m)$ be deterministic. Its output is a function of $(sk, m)$
+alone, so it cannot leak $sk$ through a repeated or biased random nonce, the
+failure mode behind several ECDSA breaks. The price is that a signer must never
+reuse a $(sk, m)$ pair for a different purpose, which the domain separation in
+`signing_bytes` prevents.
+
+## Nonce monotonicity
+
+Let $n_s(t)$ be the sender's nonce at height $t$. A transaction with nonce $\nu$
+applies only if $\nu = n_s(t)$, and then $n_s(t+1) = n_s(t) + 1$. Two transactions
+built on the same nonce are mutually exclusive, so the set of applicable
+transactions per account is a chain, not a set. Bursts need a local counter.
+
+## Fee arithmetic
+
+A transfer of $|\tau|$ bytes at base fee $b$ must satisfy
+$\sum_{r_j = \mathrm{FEE}} v_j \ge b\,|\tau|$. Two consequences a wallet should compute
+rather than guess: the cost is linear in size, and a size near 13,255 bytes
+makes the fee $13\,255\,b$ at base fee $b$ (measured, 2026-09-29). See the
+[transactions page](/guides/transactions/) for the balance inequality.
+
+## Status
+
+- Keystore v4, signing, and the l1-wallet commands: built and tested. Not audited.
+- Parity between `sdk-wasm` and the node: tested, not formally verified.
+
+</TabItem>
+</Tabs>
