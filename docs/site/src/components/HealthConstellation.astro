@@ -126,11 +126,11 @@
     const canvas = document.getElementById("health-canvas") as HTMLCanvasElement;
     const flat = document.getElementById("health-flat") as HTMLElement;
 
-    if (!host || !canvas || !webgl()) {
+    const flatFallback = () => {
       host?.setAttribute("hidden", "");
       if (flat) buildFlatGrid(flat, subs, (i) => fillDetail(detail, subs[i]));
-      return;
-    }
+    };
+    if (!host || !canvas) { flatFallback(); return; }
 
     await new Promise<void>((resolve) => {
       const io = new IntersectionObserver((entries) => {
@@ -138,6 +138,9 @@
       }, { rootMargin: "400px 0px" });
       io.observe(host);
     });
+    // The probe creates a throwaway WebGL context (~80 ms on the main thread), so
+    // it runs only once the map is near the viewport, not on page load.
+    if (!webgl()) { flatFallback(); return; }
     const {
       AdditiveBlending, BufferGeometry, Clock, Color, Float32BufferAttribute,
       PerspectiveCamera, Points, PointsMaterial, Raycaster, Scene, Vector2, Vector3,

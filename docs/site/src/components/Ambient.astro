@@ -15,7 +15,9 @@
 
 <script>
   import { startAmbient } from "../scripts/ambient";
-  startAmbient();
+  import { whenIdle } from "../scripts/idle";
+  // After first paint: the page's own content, not the field, is what loads first.
+  whenIdle(startAmbient);
 </script>
 
 <style>

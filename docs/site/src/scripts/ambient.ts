@@ -3,6 +3,7 @@
 // Head.astro). Phones, reduced motion and browsers without WebGL never reach
 // here: the CSS fallback for each motif (maya-living.css) stays on screen.
 import { FIELD_FS, FIELD_VS, POINT_FS, POINT_VS } from "./ambient-shaders";
+import { linkAsync } from "./gl";
 
 const PHONE_PX = 760;
 const DPR_CAP = 1.5;
@@ -15,33 +16,10 @@ const FIELD_CODE: Record<string, number> = { aurora: 2, blueprint: 3, circuit: 4
 // from 98 to 82 in the lab (software GL, desktop preset).
 const FIELD_SCALE: Record<string, number> = { aurora: 0.5, blueprint: 1, circuit: 1 };
 const FIELD_MIN_GAP_MS = 1000 / 30;
+// True while the home hero covers the viewport: the field then skips its draws.
+let covered = false;
 
 type Uniforms = Record<string, WebGLUniformLocation | null>;
-
-function compile(gl: WebGLRenderingContext, type: number, src: string): WebGLShader | null {
-  const shader = gl.createShader(type);
-  if (!shader) return null;
-  gl.shaderSource(shader, src);
-  gl.compileShader(shader);
-  if (gl.getShaderParameter(shader, gl.COMPILE_STATUS)) return shader;
-  gl.deleteShader(shader);
-  return null;
-}
-
-function link(gl: WebGLRenderingContext, vsSrc: string, fsSrc: string, names: string[]): { prog: WebGLProgram; u: Uniforms } | null {
-  const vs = compile(gl, gl.VERTEX_SHADER, vsSrc);
-  const fs = compile(gl, gl.FRAGMENT_SHADER, fsSrc);
-  const prog = gl.createProgram();
-  if (!vs || !fs || !prog) return null;
-  gl.attachShader(prog, vs);
-  gl.attachShader(prog, fs);
-  gl.linkProgram(prog);
-  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
-  gl.useProgram(prog);
-  const u: Uniforms = {};
-  for (const name of names) u[name] = gl.getUniformLocation(prog, name);
-  return { prog, u };
-}
 
 // Section tokens are hex in maya-living.css; the shaders take 0..1 floats.
 function tokenRgb(css: CSSStyleDeclaration, name: string, fallback: string): [number, number, number] {
@@ -63,10 +41,29 @@ function seedPoints(): Float32Array {
 }
 
 export function startAmbient(): void {
-  const root = document.documentElement;
   const canvas = document.getElementById("ambient-canvas") as HTMLCanvasElement | null;
   if (!canvas) return;
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || window.innerWidth < PHONE_PX) return;
+  // The home hero paints an opaque field over the viewport. While it covers the
+  // screen this field is invisible, so its WebGL context is not created until
+  // the hero scrolls away (creating a context costs ~100 ms on the main thread).
+  // The 80px slack allows for the fixed header above the hero.
+  // The hero is the page's <section>; HealthConstellation's .stage is a div.
+  const hero = document.querySelector("section.stage");
+  if (!hero) boot(canvas);
+  else {
+    new IntersectionObserver(([e]) => {
+      covered = e.boundingClientRect.top <= 80 && e.intersectionRect.bottom >= window.innerHeight - 1;
+      if (!covered) boot(canvas);
+    }).observe(hero);
+  }
+}
+
+let booted = false;
+function boot(canvas: HTMLCanvasElement): void {
+  if (booted) return;
+  booted = true;
+  const root = document.documentElement;
   const gl = canvas.getContext("webgl", { antialias: false, alpha: true, premultipliedAlpha: true }) as WebGLRenderingContext | null;
   if (!gl) return;
 
@@ -75,9 +72,17 @@ export function startAmbient(): void {
   // Every uniform name for both programs: a name a program does not declare
   // resolves to null, and uniform calls on null are no-ops.
   const names = ["uRes", "uDpr", "uT", "uS", "uSpeed", "uAlpha", "uSunrise", "uMotif", "uA", "uB", "uC"];
-  const prog = points ? link(gl, POINT_VS, POINT_FS, names) : link(gl, FIELD_VS, FIELD_FS, names);
-  if (!prog) return;
-  const { u } = prog;
+  // The link is polled, not waited on: the page keeps painting while the driver compiles.
+  const vs = points ? POINT_VS : FIELD_VS;
+  const fs = points ? POINT_FS : FIELD_FS;
+  linkAsync(gl, vs, fs, (prog) => mount(gl, canvas, prog, names, motif, points));
+}
+
+function mount(gl: WebGLRenderingContext, canvas: HTMLCanvasElement, prog: WebGLProgram, names: string[], motif: string, points: boolean): void {
+  const root = document.documentElement;
+  gl.useProgram(prog);
+  const u: Uniforms = {};
+  for (const name of names) u[name] = gl.getUniformLocation(prog, name);
 
   const css = getComputedStyle(root);
   const [ar, ag, ab] = tokenRgb(css, "--acc", "#1fb5c2");
@@ -97,7 +102,7 @@ export function startAmbient(): void {
   const count = data.length / size;
   gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
   gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
-  const loc = gl.getAttribLocation(prog.prog, "a");
+  const loc = gl.getAttribLocation(prog, "a");
   gl.enableVertexAttribArray(loc);
   gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
   gl.enable(gl.BLEND);
@@ -132,7 +137,7 @@ export function startAmbient(): void {
   let raf = 0;
   const frame = (now: number) => {
     raf = requestAnimationFrame(frame);
-    if (now - last < minGap) return;
+    if (covered || now - last < minGap) return;
     last = now;
     gl.uniform1f(u.uT, (now - t0) / 1000);
     gl.uniform1f(u.uS, scroll);
