@@ -3139,7 +3139,7 @@ paths = "`crates/signer/src/sealed.rs`, `bins/maya2c-node/src/validator_key.rs`,
 tier = "core"
 class = "REAL"
 status = "working"
-tests = ["crates/signer/src/sealed.rs", "bins/maya2c-node/src/validator_key.rs"]
+tests = ["crate:maya-signer", "crate:maya2c-node", "crate:l1-wallet"]
 note = "ADR-049. Argon2id + ChaCha20-Poly1305 with every cleartext field bound as AAD; production builds refuse plaintext keys. The live testnet keys are not migrated yet; the passphrase file is not yet DPAPI/TPM-protected. Not externally reviewed."
 
 [[subsystem]]
