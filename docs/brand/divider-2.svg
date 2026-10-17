@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 60" width="1200" height="60" role="img" aria-labelledby="t d">
+<title id="t">Divider</title>
+<desc id="d">Animated section divider</desc>
+<defs>
+  <linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="#c9a86a" stop-opacity="0"/>
+    <stop offset=".3" stop-color="#c9a86a"/><stop offset=".7" stop-color="#1fb5c2"/><stop offset="1" stop-color="#1fb5c2" stop-opacity="0"/></linearGradient>
+  <filter id="glow" x="-20%" y="-200%" width="140%" height="500%"><feGaussianBlur stdDeviation="3" result="b"/>
+    <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  <path id="p" d="M0 30 Q50 16 100 30 Q150 44 200 30 Q250 16 300 30 Q350 44 400 30 Q450 16 500 30 Q550 44 600 30 Q650 16 700 30 Q750 44 800 30 Q850 16 900 30 Q950 44 1000 30 Q1050 16 1100 30 Q1150 44 1200 30"/>
+</defs>
+<rect width="1200" height="60" fill="#050b0f"/>
+<use href="#p" fill="none" stroke="url(#g)" stroke-width="2" opacity=".35"/>
+<use href="#p" fill="none" stroke="url(#g)" stroke-width="2.5" stroke-dasharray="160 900" filter="url(#glow)">
+  <animate attributeName="stroke-dashoffset" from="1060" to="0" dur="4s" repeatCount="indefinite"/></use>
+<circle r="5" fill="#7eeaf0" filter="url(#glow)"><animateMotion dur="6s" repeatCount="indefinite" path="M0 30 Q50 16 100 30 Q150 44 200 30 Q250 16 300 30 Q350 44 400 30 Q450 16 500 30 Q550 44 600 30 Q650 16 700 30 Q750 44 800 30 Q850 16 900 30 Q950 44 1000 30 Q1050 16 1100 30 Q1150 44 1200 30"/></circle>
+<circle r="3" fill="#c9a86a"><animateMotion dur="6s" begin="-3s" repeatCount="indefinite" path="M0 30 Q50 16 100 30 Q150 44 200 30 Q250 16 300 30 Q350 44 400 30 Q450 16 500 30 Q550 44 600 30 Q650 16 700 30 Q750 44 800 30 Q850 16 900 30 Q950 44 1000 30 Q1050 16 1100 30 Q1150 44 1200 30"/></circle>
+</svg>
