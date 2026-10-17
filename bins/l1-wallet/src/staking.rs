@@ -43,6 +43,11 @@ pub fn load_validator_key_with(path: &Path, pass_path: Option<&Path>) -> Result<
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?,
     );
     if !sealed::is_sealed(&text) {
+        eprintln!(
+            "warning: {} is a PLAINTEXT validator key; seal it with \
+             `maya2c-node --seal-validator-key`",
+            path.display()
+        );
         let bytes = Zeroizing::new(
             hex::decode(text.trim()).with_context(|| format!("{} is not hex", path.display()))?,
         );
@@ -160,8 +165,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let key = generate_signing_key().unwrap();
         let pass_path = dir.path().join("pass");
-        std::fs::write(&pass_path, "a long enough passphrase
-").unwrap();
+        std::fs::write(&pass_path, "a long enough passphrase\n").unwrap();
         let sealed_text = sealed::seal(
             key.to_bytes().as_slice(),
             &key.verifying_key().to_bytes(),
