@@ -144,7 +144,7 @@ pub fn Sent(sent: SentTransfer) -> impl IntoView {
             <h1>"Sent"</h1>
             <p class="sent-amount">
                 {show_amount(&sent.amount)}
-                <span class="unit">" units"</span>
+                <span class="unit">" coins"</span>
             </p>
             <p class="lede">{format!("to {}", short(&sent.recipient))}</p>
             <p class="hint">

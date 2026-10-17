@@ -39,6 +39,7 @@ pub fn parse_base_units(text: &str) -> Result<U256, AmountError> {
     if text.is_empty() {
         return Err(AmountError::Empty);
     }
+    check_length(text)?;
     if !text.bytes().all(|b| b.is_ascii_digit()) {
         return Err(AmountError::NotDecimal);
     }
@@ -59,6 +60,7 @@ pub fn parse_display(text: &str) -> Result<U256, AmountError> {
     if text.is_empty() {
         return Err(AmountError::Empty);
     }
+    check_length(text)?;
     let (whole, fraction) = match text.split_once('.') {
         Some((whole, fraction)) => (whole, Some(fraction)),
         None => (text, None),
@@ -114,6 +116,18 @@ fn render(value: U256, grouped: bool, trim: bool) -> String {
     } else {
         format!("{whole}.{fraction}")
     }
+}
+
+/// Longest input either parser will scan. A 2^256 - 1 decimal is 78 digits;
+/// the rest is headroom for a decimal point and leading zeros. Refusing before
+/// scanning keeps a hostile multi-megabyte string from being copied or walked.
+pub const MAX_INPUT_LEN: usize = 100;
+
+fn check_length(text: &str) -> Result<(), AmountError> {
+    if text.len() > MAX_INPUT_LEN {
+        return Err(AmountError::Overflow);
+    }
+    Ok(())
 }
 
 /// Groups a run of decimal digits in threes: `1234567` becomes `1,234,567`.
@@ -208,6 +222,17 @@ mod tests {
             parse_display("0.0000000000000000001"),
             Err(AmountError::TooManyDecimals)
         );
+    }
+
+    #[test]
+    fn input_longer_than_the_cap_is_refused_before_scanning() {
+        // Zero-padded values are legal up to the cap, so the cap is on length, not value.
+        let at_cap = format!("{}7", "0".repeat(MAX_INPUT_LEN - 1));
+        assert_eq!(parse_base_units(&at_cap), Ok(U256::from(7)));
+        let over_cap = format!("{}7", "0".repeat(MAX_INPUT_LEN));
+        assert_eq!(parse_base_units(&over_cap), Err(AmountError::Overflow));
+        let over_cap_display = format!("{}.5", "0".repeat(MAX_INPUT_LEN));
+        assert_eq!(parse_display(&over_cap_display), Err(AmountError::Overflow));
     }
 
     #[test]
