@@ -27,8 +27,11 @@
 //! - [`mul_div_floor_and_ceil_bracket_the_true_quotient`],
 //!   [`mul_div_rounding_differs_by_at_most_one`] and
 //!   [`isqrt_is_the_floor_of_the_real_root`] are proved over every `u64`
-//!   operand. Amounts are 256-bit (ADR-046); the 512-bit product and division
-//!   these helpers call are proved over every 256-bit operand in `maya-amount`.
+//!   operand. Amounts are 256-bit (ADR-046), and the 512-bit product and
+//!   division underneath are only partly proved: `maya-amount`'s harnesses
+//!   cover the product for factors below 2^128 and division for divisors
+//!   below 2^64. The long-division path (larger divisors) is covered by
+//!   property tests, not proofs.
 //! - Every pool harness constrains the reserves and the fee rate with
 //!   `kani::assume`. Those are not simplifications: each one mirrors a check
 //!   the function itself performs and returns an error for, so what is proved
@@ -54,9 +57,10 @@ use crate::types::Direction;
 /// 512-bit division over two symbolic 256-bit reserves plus a symbolic amount
 /// and a symbolic fee, which CBMC will chew on for a very long time.
 ///
-/// The honest reading: the 256-bit *arithmetic* underneath is proved in
-/// `maya-amount`, the rounding helpers here are proved over every `u64`
-/// operand, and the pool properties are proved for pools up to this size. A
+/// The honest reading: the rounding helpers here are proved over every `u64`
+/// operand, the 512-bit arithmetic underneath is proved only in part (see the
+/// module documentation), and the pool properties are proved for pools up to
+/// this size. A
 /// pool larger than this is reachable since ADR-046, and nothing enforces a
 /// limit for a registered asset, so the gap is real; the DEX property tests
 /// run pools past `u64` by execution instead.
@@ -122,8 +126,7 @@ fn any_direction() -> Direction {
 /// `mul_div_floor` and `mul_div_ceil` bracket the exact quotient.
 ///
 /// The foundation everything else rests on, proved over every `u64` operand
-/// against a `u128` oracle; the 512-bit product and division underneath are
-/// proved over every 256-bit operand in `maya-amount`.
+/// against a `u128` oracle. Wider operands are property-tested, not proved.
 #[kani::proof]
 fn mul_div_floor_and_ceil_bracket_the_true_quotient() {
     let a: u64 = kani::any();

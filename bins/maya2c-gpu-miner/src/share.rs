@@ -117,6 +117,12 @@ fn decimal<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, 
     }
 }
 
+/// Whether a decimal from [`decimal`] is zero, leading zeros included
+/// (`"00"` is zero too).
+fn is_zero(text: &str) -> bool {
+    text.bytes().all(|b| b == b'0')
+}
+
 #[derive(Deserialize)]
 struct ChainInfo {
     genesis: String,
@@ -252,7 +258,7 @@ pub fn run(args: &ShareArgs<'_>) -> Result<(), String> {
             thread::sleep(IDLE_WAIT);
             continue;
         }
-        if work.share_reward == "0" {
+        if is_zero(&work.share_reward) {
             session.emit(&json!({"event": "idle", "epoch": work.epoch,
                 "reason": "this epoch's miner budget is spent; waiting for the next epoch"}));
             thread::sleep(REFRESH_EVERY);
@@ -428,7 +434,7 @@ impl Session {
                     Ok(next)
                         if next.active
                             && next.header == work.header
-                            && next.share_reward != "0" => {}
+                            && !is_zero(&next.share_reward) => {}
                     Ok(_) => return,
                     Err(error) => self.emit(&json!({"event": "error", "message": error})),
                 }

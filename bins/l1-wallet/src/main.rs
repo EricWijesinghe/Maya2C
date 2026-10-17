@@ -435,7 +435,18 @@ async fn with_fee(
         probe.kind = payload.kind.clone();
         probe.sign(key, chain).context("signing the fee probe")?;
         let size = u64::try_from(probe.to_bytes().len())?;
-        U256::from(info.base_fee) * U256::from(size) * U256::from(2u8)
+        let quoted = U256::from(info.base_fee) * U256::from(size) * U256::from(2u8);
+        // The quote comes from the node and is signed without a prompt, so a
+        // hostile node could name a fee that empties the account into its own
+        // collector. Above the old u64 ceiling it is refused: such a fee must
+        // be chosen deliberately with --fee.
+        if quoted > U256::from(u64::MAX) {
+            bail!(
+                "the node quoted a fee of {quoted} base units; refusing to pay it \
+                 automatically (pass --fee to choose a fee yourself)"
+            );
+        }
+        quoted
     };
     if let Some(last) = outputs.last_mut() {
         last.amount = amount;

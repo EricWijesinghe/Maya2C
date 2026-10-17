@@ -38,7 +38,7 @@ pub struct ChainHost {
     /// Height of the executing block.
     height: u64,
     /// Balances the call may observe.
-    balances: BTreeMap<Address, u64>,
+    balances: BTreeMap<Address, maya_vm::Amount>,
     /// The contract's storage, as read before execution.
     storage: BTreeMap<Vec<u8>, Vec<u8>>,
     /// Keys this call wrote, and their new values.
@@ -120,7 +120,7 @@ impl ChainHost {
 
     /// Supplies the balances a call may observe.
     #[must_use]
-    pub fn with_balances(mut self, balances: BTreeMap<Address, u64>) -> Self {
+    pub fn with_balances(mut self, balances: BTreeMap<Address, maya_vm::Amount>) -> Self {
         self.balances = balances;
         self
     }
@@ -145,8 +145,11 @@ impl ChainHost {
 }
 
 impl HostState for ChainHost {
-    fn balance_of(&self, address: &VmAddress) -> u64 {
-        self.balances.get(address).copied().unwrap_or(0)
+    fn balance_of(&self, address: &VmAddress) -> maya_vm::Amount {
+        self.balances
+            .get(address)
+            .copied()
+            .unwrap_or(maya_vm::Amount::ZERO)
     }
 
     fn caller(&self) -> Option<VmAddress> {

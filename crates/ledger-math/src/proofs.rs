@@ -14,7 +14,8 @@
 //! returns `None` must have `amount > MAX - balance`. That fixes what the
 //! answer must be, not only what it must not be: a `checked_add` replaced with
 //! a `saturating_add` still never wraps, and it fails the `None` arm
-//! immediately. The limb arithmetic underneath is proved in `maya-amount`.
+//! immediately. These harnesses take full 256-bit symbolic inputs; the
+//! carry and borrow chains are also proved on their own in `maya-amount`.
 //!
 //! # Bounded versus unbounded
 //!
@@ -194,7 +195,8 @@ fn combined_balance_agrees_with_its_inverse() {
 /// `[MAX, 1, MAX]` sums to `MAX` under wrapping arithmetic, and a transaction
 /// reporting that total would pass a balance check it should fail.
 #[kani::proof]
-#[kani::unwind(4)]
+// 5: every 256-bit add is a four-limb carry loop, plus the three-output fold.
+#[kani::unwind(5)]
 fn total_outputs_refuses_any_intermediate_overflow() {
     let amounts: [Amount; PROVED_OUTPUT_COUNT] = [any_amount(), any_amount(), any_amount()];
 
@@ -234,7 +236,8 @@ fn total_outputs_of_nothing_is_zero() {
 /// reached the recipients, each side measured by subtraction so the assertion
 /// itself cannot be the thing that wraps.
 #[kani::proof]
-#[kani::unwind(3)]
+// 5: the four-limb carry and borrow loops in every Amount operation.
+#[kani::unwind(5)]
 fn a_two_output_transfer_conserves_value() {
     let sender_before = any_amount();
     let first_before = any_amount();
@@ -350,7 +353,8 @@ fn settle_pool_moves_value_in_the_stated_direction() {
 ///
 /// [`distribute`]: super::distribute
 #[kani::proof]
-#[kani::unwind(4)]
+// 5: the four-limb carry loop inside each placed unit.
+#[kani::unwind(5)]
 fn placing_the_spare_adds_exactly_the_spare() {
     let before: [Amount; 3] = [any_amount(), any_amount(), any_amount()];
     let order: [u32; 3] = kani::any();

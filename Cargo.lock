@@ -6733,6 +6733,7 @@ dependencies = [
  "blake3",
  "criterion",
  "hex",
+ "maya-amount",
  "maya-contract-safety",
  "maya-zk-stark",
  "proptest",

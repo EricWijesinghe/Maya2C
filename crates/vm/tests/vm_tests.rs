@@ -54,7 +54,7 @@ fn the_wasmtime_version_pin_has_not_drifted() {
     let actual = env!("CARGO_PKG_VERSION_MAJOR");
     let _ = actual;
     assert_eq!(
-        WASMTIME_VERSION, "48.0.1",
+        WASMTIME_VERSION, "48.0.6",
         "the recorded wasmtime version changed; verify the gas schedule"
     );
 }
@@ -655,4 +655,42 @@ fn a_memory64_module_is_rejected() {
             (memory (export "memory") i64 1)
             (func (export "invoke") (param i32) (result i64) (i64.const 0)))"#,
     );
+}
+
+/// ADR-046: a contract reads the exact 256-bit balance, and the original i64
+/// call saturates rather than wrapping for a balance past `u64::MAX`.
+#[test]
+fn a_contract_reads_a_balance_past_u64_exactly() {
+    let vm = Vm::new().expect("vm");
+    let module = wasm(
+        r#"(module
+            (import "env" "get_balance_u256" (func $wide (param i32 i32) (result i32)))
+            (memory (export "memory") 1)
+            (func (export "invoke") (param i32) (result i64)
+              (drop (call $wide (i32.const 0) (i32.const 64)))
+              (i64.or (i64.shl (i64.const 64) (i64.const 32)) (i64.const 32))))"#,
+    );
+    let big = maya_vm::Amount([7, 0, 0, 1 << 40]);
+    let mut state = MemoryState::default();
+    state.set_balance_amount([0u8; 32], big);
+
+    let outcome = vm
+        .execute(&module, CONTRACT, &[], 1_000_000, state.clone())
+        .outcome
+        .expect("run");
+    assert_eq!(outcome.output, big.to_le_bytes());
+
+    let narrow = wasm(
+        r#"(module
+            (import "env" "get_balance" (func $balance (param i32) (result i64)))
+            (memory (export "memory") 1)
+            (func (export "invoke") (param i32) (result i64)
+              (i64.store (i32.const 64) (call $balance (i32.const 0)))
+              (i64.or (i64.shl (i64.const 64) (i64.const 32)) (i64.const 8))))"#,
+    );
+    let outcome = vm
+        .execute(&narrow, CONTRACT, &[], 1_000_000, state)
+        .outcome
+        .expect("run");
+    assert_eq!(outcome.output, u64::MAX.to_le_bytes(), "saturates, never wraps");
 }

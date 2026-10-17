@@ -23,18 +23,18 @@
 
 /** Balance and nonce for an account. */
 export interface Balance {
-  /** Spendable amount in base units. */
-  balance: number;
+  /** Spendable amount in base units: an exact decimal string (256-bit, ADR-046). */
+  balance: string;
   /** Next valid nonce. */
   nonce: number;
 }
 
 /** Circulating and total supply. */
 export interface Supply {
-  /** Units in circulation. */
-  circulating: number;
-  /** Units issued in total. */
-  total: number;
+  /** Units in circulation, a decimal string. */
+  circulating: string;
+  /** Units issued in total, a decimal string. */
+  total: string;
 }
 
 /** A transaction the gateway accepted. */
