@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 160" width="1200" height="160" role="img" aria-labelledby="t d">
+<title id="t">Subsystem status in features.toml: 61 verified, 72 working, 21 planned</title>
+<desc id="d">Stacked bar of the 154 subsystem entries in features.toml, by status.</desc>
+<rect width="1200" height="160" fill="#050b0f"/>
+<text x="100" y="40" font-size="20" fill="#edf3f2" fill-opacity=".8" letter-spacing="1" font-family="Segoe UI, Helvetica, Arial, sans-serif">154 SUBSYSTEMS IN features.toml</text>
+<g><rect x="100.0" y="60" width="0" height="56" fill="#1fb5c2" opacity="1"><animate attributeName="width" from="0" to="396.1" dur="1.4s" fill="freeze"/></rect><text x="112.0" y="96" font-size="22" font-weight="700" fill="#050b0f" font-family="Segoe UI, Helvetica, Arial, sans-serif">61 verified</text></g><g><rect x="496.1" y="60" width="0" height="56" fill="#7eeaf0" opacity=".75"><animate attributeName="width" from="0" to="467.5" dur="1.4s" fill="freeze"/></rect><text x="508.1" y="96" font-size="22" font-weight="700" fill="#050b0f" font-family="Segoe UI, Helvetica, Arial, sans-serif">72 working</text></g><g><rect x="963.6" y="60" width="0" height="56" fill="#edf3f2" opacity=".22"><animate attributeName="width" from="0" to="136.4" dur="1.4s" fill="freeze"/></rect><text x="975.6" y="96" font-size="22" font-weight="700" fill="#050b0f" font-family="Segoe UI, Helvetica, Arial, sans-serif">21 planned</text></g>
+<rect x="100" y="132" width="1000" height="2" fill="#c9a86a" opacity=".6"/>
+</svg>
