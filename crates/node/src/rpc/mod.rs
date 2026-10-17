@@ -14,6 +14,7 @@
 //! | `get_supply` | `[]` | [`market::SupplyReport`] |
 //! | `threat_indicators` | `[]` | `Vec<`[`types::ThreatIndicatorInfo`]`>` |
 //! | `threat_peer_addresses` | `[]` | `Vec<`[`types::PeerAddressInfo`]`>` — only with [`RpcContext::with_peers`] |
+//! | `get_peers` | `[]` | [`peers::NetworkView`]: this node's peer id and its connected peers, no addresses — only with [`RpcContext::with_network_view`] |
 //!
 //! `submit_block` is the counterpart to `get_mining_candidate`: a candidate a
 //! miner can fetch but never return is not a usable interface, and the
@@ -29,6 +30,7 @@ pub mod limit;
 pub mod market;
 pub mod market_http;
 pub mod metered;
+pub mod peers;
 pub mod server;
 pub mod types;
 
