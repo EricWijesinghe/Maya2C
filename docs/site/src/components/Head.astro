@@ -50,6 +50,6 @@ const ld = graph.length ? JSON.stringify({ "@context": "https://schema.org", "@g
   </>
 )}
 {ld &&<script type="application/ld+json" set:html={ld} />}
-{/* Sets the section token set before first paint (see maya-living.css). Constant text, so one CSP hash. */}
-<script is:inline>document.documentElement.dataset.section = location.pathname.split("/")[1] || "home";</script>
+{/* Sets the section and background motif before first paint (see maya-living.css and Ambient.astro). Constant text, so one CSP hash. */}
+<script is:inline>(function(){var p=location.pathname.split("/").filter(Boolean),s=p[0]||"home",l=p[p.length-1]||"",d=document.documentElement;d.dataset.section=s;d.dataset.motif=/^(support|community)$/.test(l)?"sunrise":s==="experience"||s==="sdk"||(s==="guides"&&/^(api|wallet|contracts|quickstart)$/.test(l))?"circuit":s==="guides"?"aurora":s==="reference"?"blueprint":"lattice";})();</script>
 <Maintenance />

@@ -234,6 +234,20 @@ async fn live_page() -> Html<&'static str> {
     Html(include_str!("live.html"))
 }
 
+/// The official emblem, served from this origin so the pages make no
+/// third-party requests (the old pages pulled it from maya2c.dev).
+const EMBLEM: &[u8] = include_bytes!("../../../docs/site/public/brand/emblem.png");
+
+async fn emblem() -> impl IntoResponse {
+    (
+        [
+            (axum::http::header::CONTENT_TYPE, "image/png"),
+            (axum::http::header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        EMBLEM,
+    )
+}
+
 async fn live_api(State(live): State<Arc<Mutex<Live>>>) -> impl IntoResponse {
     let view = live.lock().map(|l| l.view().clone()).unwrap_or_default();
     Json(serde_json::to_value(view).unwrap_or(serde_json::Value::Null))
@@ -342,6 +356,7 @@ async fn main() {
     let app = Router::new()
         .route("/", get(page))
         .route("/api/status", get(api))
+        .route("/brand/emblem.png", get(emblem))
         .with_state(shared)
         .merge(live_routes)
         .layer(tower_http::cors::CorsLayer::new().allow_origin(tower_http::cors::Any));

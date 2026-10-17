@@ -54,6 +54,8 @@ const lattice = nodes.map((p, i) => `${p.x},${p.y} ${nodes[(i + 3) % 12].x},${no
 </section>
 
 <script>
+  import { whenIdle } from "../scripts/idle";
+  import { linkAsync } from "../scripts/gl";
   const canvas = document.getElementById("field") as HTMLCanvasElement;
   const stage = canvas.parentElement as HTMLElement;
   const pop = document.getElementById("pop") as HTMLElement;
@@ -219,7 +221,6 @@ const lattice = nodes.map((p, i) => `${p.x},${p.y} ${nodes[(i + 3) % 12].x},${no
     for (let i = balls.length - 1; i >= 0; i--) if (balls[i].leaving && balls[i].r < 0.5) balls.splice(i, 1);
   }
 
-  const gl = (() => { try { return canvas.getContext("webgl", { antialias: false }); } catch { return null; } })();
   const FS = `precision highp float;
 uniform vec2 uRes; uniform float uT; uniform float uDpr; uniform float uLight; uniform vec4 uB[${MAX}];
 float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
@@ -266,16 +267,17 @@ void main(){
   gl_FragColor = vec4(col, 1.0);
 }`;
 
+  // The context is created here, not at script evaluation: nothing is spent on
+  // the field until the page has painted and gone idle (see whenIdle below).
+  // The link is polled, not waited on (see linkAsync). A shader that fails to
+  // link never reaches mountField, so the poster stays.
   function start() {
+    const gl = (() => { try { return canvas.getContext("webgl", { antialias: false }); } catch { return null; } })();
     if (!gl) return;
-    const sh = (type: number, src: string) => { const s = gl.createShader(type)!; gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error("shader"); return s; };
-    const prog = gl.createProgram()!;
-    try {
-      gl.attachShader(prog, sh(gl.VERTEX_SHADER, "attribute vec2 p; void main(){ gl_Position = vec4(p, 0.0, 1.0); }"));
-      gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
-      gl.linkProgram(prog);
-      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error("link");
-    } catch { return; } // the poster stays
+    linkAsync(gl, "attribute vec2 p; void main(){ gl_Position = vec4(p, 0.0, 1.0); }", FS, (prog) => mountField(gl, prog));
+  }
+
+  function mountField(gl: WebGLRenderingContext, prog: WebGLProgram) {
     stage.classList.add("gl");
     gl.useProgram(prog);
     gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
@@ -318,7 +320,9 @@ void main(){
     new IntersectionObserver(([e]) => { const was = visible; visible = e.isIntersecting && !document.hidden; if (visible && !was) { last = performance.now(); requestAnimationFrame(loop); } }).observe(stage);
     requestAnimationFrame(loop);
   }
-  if (!reduce) start();
+  // Phones keep the poster: the field is the costly part, and the bubbles
+  // (the data) keep running in the DOM either way.
+  if (!reduce && window.innerWidth >= 760) whenIdle(start);
 </script>
 
 <style>
