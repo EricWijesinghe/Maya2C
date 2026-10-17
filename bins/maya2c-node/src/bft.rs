@@ -15,7 +15,7 @@ use custom_l1_node::consensus::bft::attest::CheckpointBook;
 use custom_l1_node::consensus::bft::catchup::{self, Position};
 use custom_l1_node::consensus::bft::remote::{DEFAULT_DEADLINE, RemoteSigner, ValidatorKey};
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
-use custom_l1_node::crypto::keys::{self, SigningKey, VerifyingKey};
+use custom_l1_node::crypto::keys::{self, VerifyingKey};
 use custom_l1_node::genesis::BftGenesis;
 use custom_l1_node::metrics::Metrics;
 use custom_l1_node::network::{Mempool, NodeEvent, NodeHandle};
@@ -66,27 +66,6 @@ const DROP_REPORT_INTERVAL: Duration = Duration::from_secs(10);
 
 /// Where the per-epoch safety logs live.
 const BFT_DIR: &str = "bft";
-
-/// Writes a fresh ML-DSA-65 validator key to `path` (hex, refusing to
-/// overwrite) and prints the public key an operator puts in genesis.
-pub(super) fn generate_validator_key(path: &Path) -> Result<(), Box<dyn Error>> {
-    let key = keys::generate_signing_key()?;
-    let secret = Zeroizing::new(hex::encode(key.to_bytes().as_slice()));
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options
-        .open(path)
-        .map_err(|e| format!("{}: {e} (refusing to overwrite a key)", path.display()))?;
-    std::io::Write::write_all(&mut file, secret.as_bytes())?;
-    file.sync_all()?;
-    println!("{}", hex::encode(key.verifying_key().to_bytes()));
-    Ok(())
-}
 
 /// Writes this node's channel identity for the remote signer (a 32-byte
 /// seed, hex, 0600, never overwritten) and prints the public key the signer
@@ -146,21 +125,6 @@ pub(super) fn remote_signer(
         DEFAULT_DEADLINE,
     )?;
     Ok(ValidatorKey::Remote(Arc::new(remote)))
-}
-
-/// Reads a key written by [`generate_validator_key`].
-pub(super) fn load_validator_key(path: &Path) -> Result<Arc<SigningKey>, Box<dyn Error>> {
-    let text = Zeroizing::new(
-        std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?,
-    );
-    let bytes = Zeroizing::new(hex::decode(text.trim())?);
-    let array: Zeroizing<[u8; keys::SECRET_KEY_LEN]> = Zeroizing::new(
-        bytes
-            .as_slice()
-            .try_into()
-            .map_err(|_| format!("{}: not an ML-DSA-65 secret key", path.display()))?,
-    );
-    Ok(Arc::new(SigningKey::from_bytes(&array)?))
 }
 
 /// Builds the engine setup from genesis and an optional validator key.
