@@ -135,6 +135,7 @@ export default defineConfig({
         "@fontsource-variable/inter",
         "@fontsource-variable/jetbrains-mono",
         "./src/styles/maya.css",
+        "./src/styles/maya-living.css",
       ],
       components: {
         // Our footer (about, contact, copyright) after Starlight's own.
