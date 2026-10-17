@@ -35,6 +35,13 @@ A new workspace crate, **`crates/amount` (`maya-amount`)**:
 - Kani harnesses in the crate: no checked operation wraps, add and subtract are
   inverses, the order matches the integer order, and `mul_wide` then
   `checked_div` returns the exact quotient.
+  Added 2026-10-18: `long_division_step_keeps_the_invariant` proves one step
+  of the restoring long division for every 256-bit divisor wider than 64
+  bits and every remainder below it: the remainder stays below the divisor,
+  and the step contributes exactly one correct quotient bit. Each step is
+  checked against an independent five-limb adder. By induction, that covers
+  the 512-step loop, which CBMC cannot unroll. Two seeded mutations were both
+  caught: a dropped borrow in `sub`, and a wrong carry in `shl1_or`.
 
 `ledger-math`, `dex`, `fee-market`, `staking` and `governance` depend on it by
 path. That is a dependency on a crate with no dependencies, so each one's Kani
