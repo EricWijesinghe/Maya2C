@@ -9,6 +9,11 @@
 </p>
 
 <p align="center">
+  <a href="https://maya2c.dev"><b>maya2c.dev</b></a> &nbsp;·&nbsp;
+  <a href="https://eric.maya2c.dev"><b>Built by Eric Wijesinghe: eric.maya2c.dev</b></a>
+</p>
+
+<p align="center">
   <a href="https://status.maya2c.dev"><img alt="testnet height" src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fstatus.maya2c.dev%2Fapi%2Fstatus&query=%24.height&label=testnet%20block&color=1fb5c2&style=for-the-badge&labelColor=0a161b"></a>
   <a href="https://status.maya2c.dev"><img alt="seconds since last block" src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fstatus.maya2c.dev%2Fapi%2Fstatus&query=%24.since_last_block&suffix=%20s%20ago&label=last%20block&color=45e0a0&style=for-the-badge&labelColor=0a161b"></a>
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-Apache%202.0-c9a86a?style=for-the-badge&labelColor=0a161b"></a>
@@ -26,6 +31,8 @@
 
 ---
 
+<p align="center"><img src="docs/brand/divider-1.svg" width="100%" alt=""></p>
+
 ## Run a node in one line
 
 Paste one line and your computer joins the test network. No technical
@@ -38,7 +45,11 @@ background is needed. Steps for each OS:
 | **Mac** (Terminal) | `curl -fsSL https://raw.githubusercontent.com/EricWijesinghe/Maya2C/master/scripts/join-testnet.sh \| bash` |
 | **Linux** | `curl -fsSL https://raw.githubusercontent.com/EricWijesinghe/Maya2C/master/scripts/join-testnet.sh \| bash` |
 
+<p align="center"><img src="docs/brand/divider-2.svg" width="100%" alt=""></p>
+
 ## Two signatures per transaction
+
+<p align="center"><img src="docs/brand/architecture.svg" width="100%" alt="Animated card: a transaction moves from wallet to API gateway to node, which verifies both signatures, then the WASM VM, DAG-BFT, and finality."></p>
 
 ```mermaid
 flowchart LR
@@ -62,12 +73,14 @@ the shielded pool's joinsplit circuit has no independent audit, and six
 separate guards refuse a value-bearing chain id. Read
 [docs/mainnet-readiness.md](docs/mainnet-readiness.md) before anything else here.
 
+<p align="center"><img src="docs/brand/divider-1.svg" width="100%" alt=""></p>
+
 ## What is real today
 
 Counted from the repo, not from the roadmap. Status meanings are defined in
 [docs/architecture-vision.md](docs/architecture-vision.md).
 
-![Subsystem status, from features.toml](docs/brand/status-bar.svg)
+<p align="center"><img src="docs/brand/status-strip.svg" width="100%" alt="Status strip from features.toml: 154 subsystems, 61 verified, 72 working, 21 planned, 77 research, mainnet audit blocked."></p>
 
 | Count | Value | Source |
 |---|---|---|
@@ -205,6 +218,23 @@ cd apps/dashboard      && trunk build --release   # telemetry dashboard
 cd apps/wallet-gui/ui  && trunk build --release   # wallet frontend
 ```
 
+<p align="center"><img src="docs/brand/divider-2.svg" width="100%" alt=""></p>
+
+## Support Maya2C
+
+Maya2C is built in the open by one maintainer. Here is how to help:
+
+| | |
+|---|---|
+| ⭐ **Star** | [Star the repo](https://github.com/EricWijesinghe/Maya2C) so more people find it |
+| 🍴 **Fork** | [Fork it](https://github.com/EricWijesinghe/Maya2C/fork) and try the devnet on your own machine |
+| 🛠️ **Contribute** | Read [CONTRIBUTING.md](CONTRIBUTING.md). Issues and proposals are welcome |
+| 🌱 **Good first issues** | [Browse the label](https://github.com/EricWijesinghe/Maya2C/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) |
+| 💬 **Talk** | [Discussions](https://github.com/EricWijesinghe/Maya2C/discussions) |
+| ☕ **Donate** | Donation links are coming soon. None are live yet. |
+
+Security reports go privately, never in public issues: see [SECURITY.md](SECURITY.md).
+
 ## Documentation
 
 [docs/README.md](docs/README.md) indexes the full set. Start with:
@@ -236,6 +266,10 @@ The hero banner in `docs/brand/` is drawn from the official emblem in
 This is pre-launch software on a chain that refuses to be worth anything. Read
 `CLAUDE.md` for the invariants that are load-bearing before changing consensus,
 crypto, or ledger code.
+
+## Author
+
+Eric Wijesinghe builds Maya2C. Portfolio: [eric.maya2c.dev](https://eric.maya2c.dev) · GitHub: [@EricWijesinghe](https://github.com/EricWijesinghe)
 
 ## License
 
