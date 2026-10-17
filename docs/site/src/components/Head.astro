@@ -50,4 +50,6 @@ const ld = graph.length ? JSON.stringify({ "@context": "https://schema.org", "@g
   </>
 )}
 {ld &&<script type="application/ld+json" set:html={ld} />}
+{/* Sets the section token set before first paint (see maya-living.css). Constant text, so one CSP hash. */}
+<script is:inline>document.documentElement.dataset.section = location.pathname.split("/")[1] || "home";</script>
 <Maintenance />
