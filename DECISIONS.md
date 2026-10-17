@@ -326,3 +326,13 @@ dependency-free 256-bit type, `maya-amount` (ADR-048), rather than five copies.
 Done 2026-10-13 (`feat/u256-supply`): every value path is 256-bit; the values
 deliberately left at 64 bits, and why, are tabled in ADR-048.
 
+## 2026-10-18 — Overnight run decisions
+
+- **Validator keys sealed at rest (ADR-049).** This is a new format instead of reusing the 32-byte-seed keystore, because node keys are expanded ML-DSA-65 secrets. A production build refuses plaintext; devnets warn so the live testnet survives the upgrade.
+- **No backdoor (ADR-050, proposed).** "Full control" for Eric means operator control plus the existing bounded council pause at 2-of-3. It never means a master key over anyone's funds. Claude holds no keys.
+- **Level 5 ordered by cost (ADR-051, proposed):**
+  - now: transport ML-KEM-1024 and an opt-in wallet suite;
+  - at mainnet genesis: validator keys at ML-DSA-87;
+  - not now: the default account suite.
+- **Funding links are left empty** until Eric creates the accounts; inventing them would be dishonest.
+- **The release SBOM uses cargo-cyclonedx** through the allowed taiki-e action, because the action allow-list does not admit anchore.
