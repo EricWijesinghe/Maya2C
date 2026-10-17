@@ -5,11 +5,33 @@
 // simulated: if the stream drops, no bubble is born and the chip says so.
 // WebGL draws the thin-film bubbles; without it, or with reduced motion,
 // the still poster behind the canvas stays.
+//
+// The emblem sits where the bubbles gather. Two lattice rings and twelve nodes
+// turn slowly around it (CSS, no JS), and it drifts up and fades as the page
+// scrolls. All of it is decoration; the bubbles carry the data.
+import { Picture } from "astro:assets";
+import emblem from "../assets/emblem.png";
+
+const RX = 92, RY = 36;
+const nodes = Array.from({ length: 12 }, (_, i) => {
+  const a = (i / 12) * Math.PI * 2;
+  return { x: +(Math.cos(a) * RX).toFixed(2), y: +(Math.sin(a) * RY).toFixed(2) };
+});
+const lattice = nodes.map((p, i) => `${p.x},${p.y} ${nodes[(i + 3) % 12].x},${nodes[(i + 3) % 12].y}`);
 ---
 
 <section class="stage not-content" aria-label="Maya2C, live">
   <div class="poster" aria-hidden="true"></div>
   <canvas id="field" aria-label="Live bubbles, one per finalized block. Drag them, or tap one to open its block."></canvas>
+  <div class="core" aria-hidden="true">
+    <svg class="lattice" viewBox="-110 -110 220 220" focusable="false">
+      <ellipse class="ring r1" cx="0" cy="0" rx={RX} ry={RY} />
+      <ellipse class="ring r2" cx="0" cy="0" rx={RY + 40} ry={RX - 4} />
+      {lattice.map((seg) => <polyline class="link" points={seg} />)}
+      {nodes.map((p, i) => <circle class="node" cx={p.x} cy={p.y} r="2.6" style={`--d:${(i * 0.37).toFixed(2)}s`} />)}
+    </svg>
+    <Picture src={emblem} formats={["avif", "webp"]} widths={[192, 384]} sizes="(max-width: 759px) 46vw, 300px" width={192} height={192} alt="" class="emblem" loading="eager" />
+  </div>
   <div class="card-pop" id="pop" hidden role="status"></div>
   <div class="ui">
     <div class="copy">
@@ -39,6 +61,20 @@
   const MAX = 20;
   const fmt = (n: number) => n.toLocaleString("en-US");
   const $ = (id: string) => document.getElementById(id);
+
+  // Scroll reaction for the emblem: one value, 0 at the top to 1 after a
+  // screenful. Written once per frame, and not at all under reduced motion.
+  if (!reduce) {
+    let frame = 0;
+    const onScroll = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        stage.style.setProperty("--scroll", Math.min(1, window.scrollY / Math.max(1, window.innerHeight)).toFixed(3));
+      });
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+  }
 
   type Ball = { x: number; y: number; vx: number; vy: number; r: number; vr: number; rt: number; hue: number; h: number; leaving: boolean };
   const balls: Ball[] = [];
@@ -312,6 +348,26 @@ void main(){
   .card-pop[hidden] { display: block !important; opacity: 0; transform: scale(.6); pointer-events: none; }
   .card-pop :global(b) { display: block; font: 300 22px/1.2 var(--display); color: var(--text); margin-bottom: 4px; }
   .card-pop :global(a) { color: var(--accent-text); font-weight: 600; }
+  .core { position: absolute; z-index: 1; left: 74%; top: 46%; width: min(30vmin, 320px); aspect-ratio: 1; pointer-events: none;
+    transform: translate(-50%, calc(-50% - var(--scroll, 0) * 70px)) scale(calc(1 - var(--scroll, 0) * 0.14));
+    opacity: calc(1 - var(--scroll, 0) * 0.7); transition: opacity .2s linear; }
+  .core .lattice { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .lattice .ring { fill: none; stroke: var(--cherenkov); stroke-opacity: .42; stroke-width: .6; transform-box: view-box; transform-origin: 50% 50%; }
+  .lattice .ring.r1 { animation: orbit 58s linear infinite; }
+  .lattice .ring.r2 { stroke: var(--iris-a); stroke-opacity: .30; animation: orbit 86s linear infinite reverse; }
+  .lattice .link { fill: none; stroke: #7eeaf0; stroke-opacity: .16; stroke-width: .4; }
+  .lattice .node { fill: #7eeaf0; animation: pulse 3.6s ease-in-out var(--d) infinite; }
+  .core :global(.emblem) { position: absolute; inset: 22%; width: 56%; height: 56%; border-radius: 50%;
+    filter: drop-shadow(0 0 22px rgba(126, 234, 240, .55)); }
+  @keyframes orbit { to { transform: rotate(360deg); } }
+  @keyframes pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+  @media (max-width: 759px) {
+    .core { left: 55%; top: 20%; width: min(46vw, 200px); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .lattice .ring, .lattice .node { animation: none; }
+    .core { transform: translate(-50%, -50%); opacity: 1; }
+  }
   /* The hero is the page title; Starlight's own h1 would repeat "Maya2C". */
   :global(main h1#_top) { display: none; }
   @media (prefers-reduced-motion: reduce) { .stage.live .dot { animation: none; } .btn { transition: none; } }
