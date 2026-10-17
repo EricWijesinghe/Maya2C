@@ -1,6 +1,13 @@
 # State
 
 ## Handover
+- **2026-10-17 — every amount is 256-bit (ADR-048), branch `feat/u256-supply`.**
+  Done: all value paths, spec/vectors/TS verifier, wallets, Ledger app, L2.
+  3236/3236 tests, both clippy gates, vectors 0 mismatches
+  (`reports/sessions/2026-10-17-u256-every-amount.md`). Unfinished: Kani not
+  run; lint/doc/ledger gates killed by low memory (CI runs them); GUI wallet
+  screens still enter u64; testnet needs a re-genesis for this format.
+  **Do first:** watch the PR's CI, then plan the testnet re-genesis with Eric.
 - **2026-10-12/13 — helpers can join; u256 compiles; four PRs.** Eric: friends
   on Macs could not run a node, docs were for engineers. Done:
   - **#112** one line per OS (`scripts/join-testnet.{sh,ps1}`), helper commands
@@ -210,7 +217,8 @@ Machine: Core Ultra 9 275HX, 31.4 GB, Windows 11 build 29671, rustc 1.99.0-night
   null`), cause not established. With 3 seats, one more validator down halts
   the testnet. Test processes are killed by PID only from now on, and the localnet
   ports are guarded. Another session was running `D:\Temp\maya-join-test` and
-  rewrote `C:\Program Files\Maya2Cun-node.cmd` at 02:35; neither was touched.
+  rewrote `C:\Program Files\Maya2C
+un-node.cmd` at 02:35; neither was touched.
 - **Done later 2026-10-12:**
   - GPU mining (`--gpu`, parity 10/10 on the RTX 5070).
   - `cargo xtask mining-localnet`: PASS with 4 validators, 714,426 H/s on the
