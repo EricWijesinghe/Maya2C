@@ -2,6 +2,37 @@
    and phone-safe text wrapping. Colours come from the Forged Light tokens in
    maya.css. Decorative motion stops under prefers-reduced-motion. */
 
+/* Per-section accent families. Each route gets its own set, set on <html> by
+   data-section (Head.astro). Teal and bronze stay the anchors everywhere.
+   --speed paces the ambient field: calmer for docs, livelier for the marketing pages. */
+:root, html[data-section="home"], html[data-section="status"] {
+  --acc: #1fb5c2; --acc-rgb: 31 181 194;
+  --acc-2: #c9a86a; --acc-2-rgb: 201 168 106;
+  --acc-3: #a78bfa; --acc-3-rgb: 167 139 250;
+  --speed: 1;
+}
+/* Aurora: violet into teal, for the app and SDK surfaces. */
+html[data-section="experience"], html[data-section="sdk"] {
+  --acc: #8b7cf6; --acc-rgb: 139 124 246;
+  --acc-2: #1fb5c2; --acc-2-rgb: 31 181 194;
+  --acc-3: #7eeaf0; --acc-3-rgb: 126 234 240;
+  --speed: 1.4;
+}
+/* Sunrise: bronze into coral, for the guides. Slowest field: reading happens here. */
+html[data-section="guides"] {
+  --acc: #e08a5c; --acc-rgb: 224 138 92;
+  --acc-2: #c9a86a; --acc-2-rgb: 201 168 106;
+  --acc-3: #f2b38a; --acc-3-rgb: 242 179 138;
+  --speed: 0.5;
+}
+/* Deep sea: cyan into indigo, for the reference and the launch record. */
+html[data-section="reference"] {
+  --acc: #22d3ee; --acc-rgb: 34 211 238;
+  --acc-2: #4f6fd6; --acc-2-rgb: 79 111 214;
+  --acc-3: #1fb5c2; --acc-3-rgb: 31 181 194;
+  --speed: 0.7;
+}
+
 .sl-markdown-content hr,
 .maya-divider {
   border: 0;
@@ -9,7 +40,7 @@
   margin: 3.5rem auto;
   max-width: 100%;
   border-radius: 2px;
-  background: linear-gradient(90deg, transparent, var(--cherenkov), #7eeaf0, var(--signal), transparent);
+  background: linear-gradient(90deg, transparent, var(--acc), var(--acc-3), var(--acc-2), transparent);
   background-size: 200% 100%;
   opacity: 0.85;
   animation: maya-sweep 9s linear infinite;

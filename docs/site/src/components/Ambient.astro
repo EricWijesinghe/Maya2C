@@ -28,12 +28,13 @@
       seed[i * 4 + 3] = Math.floor(Math.random() * 3);
     }
     const VS = `attribute vec4 a;
-uniform float uT; uniform float uS; uniform float uDpr; uniform vec2 uRes;
+uniform float uT; uniform float uS; uniform float uDpr; uniform vec2 uRes; uniform float uSpeed;
 varying float vA; varying float vK;
 void main(){
   float z = a.z;
-  float drift = uT * 0.02 / z;
-  float x = a.x + sin(uT * 0.05 + a.y * 3.0) * 0.04 / z + drift;
+  float tt = uT * uSpeed;
+  float drift = tt * 0.02 / z;
+  float x = a.x + sin(tt * 0.05 + a.y * 3.0) * 0.04 / z + drift;
   // Scroll parallax: near points (small z) move more than far ones.
   float y = fract((a.y + 1.0) * 0.5 - uS * 0.12 / z) * 2.0 - 1.0;
   gl_Position = vec4(fract((x + 1.0) * 0.5) * 2.0 - 1.0, y, 0.0, 1.0);
@@ -42,16 +43,14 @@ void main(){
   vK = a.w;
 }`;
     const FS = `precision mediump float;
+uniform vec3 uA; uniform vec3 uB; uniform vec3 uC;
 varying float vA; varying float vK;
 void main(){
   vec2 d = gl_PointCoord - 0.5;
   float r = length(d);
   if (r > 0.5) discard;
   float core = smoothstep(0.5, 0.0, r);
-  vec3 teal = vec3(0.122, 0.710, 0.761);
-  vec3 glow = vec3(0.494, 0.918, 0.941);
-  vec3 bronze = vec3(0.788, 0.659, 0.416);
-  vec3 c = vK < 0.5 ? teal : (vK < 1.5 ? glow : bronze);
+  vec3 c = vK < 0.5 ? uA : (vK < 1.5 ? uB : uC);
   gl_FragColor = vec4(c, core * vA * 0.9);
 }`;
     const sh = (type: number, src: string) => {
@@ -71,6 +70,19 @@ void main(){
         gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 4, gl.FLOAT, false, 0, 0);
         const uT = gl.getUniformLocation(prog, "uT"), uS = gl.getUniformLocation(prog, "uS");
         const uDpr = gl.getUniformLocation(prog, "uDpr"), uRes = gl.getUniformLocation(prog, "uRes");
+        // Colours and pace come from the section's tokens (maya-living.css), so
+        // each section has its own field without a second script.
+        const css = getComputedStyle(document.documentElement);
+        const rgb = (name: string, fb: string) => {
+          const hex = (css.getPropertyValue(name).trim() || fb).replace("#", "");
+          const n = parseInt(hex, 16);
+          return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+        };
+        gl.uniform3fv(gl.getUniformLocation(prog, "uA"), rgb("--acc", "#1fb5c2"));
+        gl.uniform3fv(gl.getUniformLocation(prog, "uB"), rgb("--acc-2", "#c9a86a"));
+        gl.uniform3fv(gl.getUniformLocation(prog, "uC"), rgb("--acc-3", "#7eeaf0"));
+        const uSpeed = gl.getUniformLocation(prog, "uSpeed");
+        gl.uniform1f(uSpeed, Number(css.getPropertyValue("--speed").trim()) || 1);
         // Pixel ratio capped: the field is soft, so 1.5 is plenty.
         const dpr = Math.min(window.devicePixelRatio || 1, phone ? 1 : 1.5);
         const resize = () => {
@@ -107,9 +119,9 @@ void main(){
   /* The gradient is the whole background without WebGL or with reduced motion. */
   .fallback {
     background:
-      radial-gradient(60rem 40rem at 88% 8%, rgba(31, 181, 194, 0.16), transparent 70%),
-      radial-gradient(50rem 36rem at 6% 92%, rgba(201, 168, 106, 0.12), transparent 70%),
-      radial-gradient(40rem 30rem at 50% 50%, rgba(126, 234, 240, 0.05), transparent 70%),
+      radial-gradient(60rem 40rem at 88% 8%, rgb(var(--acc-rgb, 31 181 194) / 0.16), transparent 70%),
+      radial-gradient(50rem 36rem at 6% 92%, rgb(var(--acc-2-rgb, 201 168 106) / 0.12), transparent 70%),
+      radial-gradient(40rem 30rem at 50% 50%, rgb(var(--acc-3-rgb, 126 234 240) / 0.05), transparent 70%),
       var(--void);
   }
   canvas { display: none; }

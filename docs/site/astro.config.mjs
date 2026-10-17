@@ -34,6 +34,7 @@ export default defineConfig({
         // scripts/check-csp.mjs fails the build if one changes.
         hashes: [
           "sha256-7eCV4jtsr4t4knb3c4FCRPeu7GGZeOUGE3XvWix0XOQ=",
+          "sha256-DM6+zVcqjQZjHZ+l61F0OCurK3I+J8n39PEuPvnjXFs=",
           "sha256-GkZBRnvSuhtx/cvzvukVkX2JJZW+DdPlVr7BX8Tefqo=",
           "sha256-VWo5Wp4aqSj6nSgMpeAp9cKieaoIfwFUAunAVugI5gA=",
           "sha256-f/zAUE74ucc3JYp4r4QQvkJofoQdkOIhHYK+jeZ6eko=",
