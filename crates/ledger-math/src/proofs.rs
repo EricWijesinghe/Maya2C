@@ -195,8 +195,9 @@ fn combined_balance_agrees_with_its_inverse() {
 /// `[MAX, 1, MAX]` sums to `MAX` under wrapping arithmetic, and a transaction
 /// reporting that total would pass a balance check it should fail.
 #[kani::proof]
-// 5: every 256-bit add is a four-limb carry loop, plus the three-output fold.
-#[kani::unwind(5)]
+// 10: four-limb carry loops and the limb-order comparison (which also
+// steps past the last limb), plus the three-output fold.
+#[kani::unwind(10)]
 fn total_outputs_refuses_any_intermediate_overflow() {
     let amounts: [Amount; PROVED_OUTPUT_COUNT] = [any_amount(), any_amount(), any_amount()];
 
@@ -236,8 +237,8 @@ fn total_outputs_of_nothing_is_zero() {
 /// reached the recipients, each side measured by subtraction so the assertion
 /// itself cannot be the thing that wraps.
 #[kani::proof]
-// 5: the four-limb carry and borrow loops in every Amount operation.
-#[kani::unwind(5)]
+// 10: four-limb carry/borrow loops and the limb-order comparison.
+#[kani::unwind(10)]
 fn a_two_output_transfer_conserves_value() {
     let sender_before = any_amount();
     let first_before = any_amount();
@@ -353,8 +354,8 @@ fn settle_pool_moves_value_in_the_stated_direction() {
 ///
 /// [`distribute`]: super::distribute
 #[kani::proof]
-// 5: the four-limb carry loop inside each placed unit.
-#[kani::unwind(5)]
+// 10: the four-limb carry loop and limb comparison inside each placed unit.
+#[kani::unwind(10)]
 fn placing_the_spare_adds_exactly_the_spare() {
     let before: [Amount; 3] = [any_amount(), any_amount(), any_amount()];
     let order: [u32; 3] = kani::any();
