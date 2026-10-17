@@ -80,3 +80,4 @@ The observation that would make this worth reopening.
 | [040](ADR-040-stake-weighted-committee.md) | Stake-weighted DAG-BFT committees — engine built, node wiring for decision | Proposed |
 | [044](ADR-044-mining-rewards-lane.md) | Block rewards and GPU mining at launch, without letting miners order blocks | Proposed |
 | [045](ADR-045-maya2c-hub.md) | Maya2C Hub: one desktop window for mining and every app | Proposed |
+| [050](ADR-050-owner-control-plane.md) | Owner control plane: full operator control, a bounded 2-of-3 council pause, no backdoor | Proposed |
