@@ -274,6 +274,20 @@ one by one and dismissed with reasons (757 test fixtures, 105 false
 positives, including the two zero-nonce seals — safe, fresh ML-KEM secret per
 seal); the three real JS findings were fixed.
 
+## 2026-10-12 — Foundation validator set on one PC (ADR-047)
+
+Eric chose the "PC launch" on 2026-10-11 and confirmed on 2026-10-12 that it
+should be recorded and gate 5 closed on it. ADR-047 supersedes ADR-042's
+four-machine gate 5: four project-run validators on Eric's PC, the same
+sentence about it everywhere it is described, and the host's own failure
+modes closed first (`infra/foundation-pc/harden-host.ps1`). Investigating
+it found that the watchdog task ran only in Eric's interactive session, so
+after an unattended restart no validator would start until he logged in.
+`-Apply` re-registers it to run at boot (S4U), and `-SelfTest` proves it runs
+in session 0. Residual risks, written into the ADR: no machine independence;
+the PC is on the Insider Dev channel, which cannot be left without
+reinstalling; and the reboot drill waits for gate 3's soak, because a
+deliberate restart would reset the soak clock.
 ## 2026-10-12 — Helpers join with one line; the installers restart and recover by themselves
 
 Eric: friends want to help and are not technical, so their comfort comes

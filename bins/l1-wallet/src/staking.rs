@@ -12,26 +12,67 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use custom_l1_node::core::staking_payload::StakingAction;
 use custom_l1_node::crypto::keys::{SECRET_KEY_LEN, SigningKey};
+use maya_signer::sealed;
 use zeroize::Zeroizing;
 
 /// Commission is in basis points; above 100 % would pay the operator more than
 /// the rewards the validator earned.
 pub const MAX_COMMISSION_BPS: u16 = 10_000;
 
-/// Reads a validator key in the format `maya2c-node --generate-validator-key`
-/// writes: the ML-DSA-65 secret key as hex.
+/// Reads a validator key in either format `maya2c-node` writes: sealed
+/// (`--seal-validator-key`, opened with the passphrase file named by
+/// `MAYA2C_VALIDATOR_PASSPHRASE_FILE`) or the legacy ML-DSA-65 secret key as hex.
 ///
 /// # Errors
 ///
-/// The file is unreadable, not hex, or not a secret key's length.
+/// The file is unreadable, sealed without a passphrase file, fails to open,
+/// is not hex, or is not a secret key's length.
 pub fn load_validator_key(path: &Path) -> Result<SigningKey> {
+    let pass_path = std::env::var_os(sealed::PASSPHRASE_FILE_ENV).map(std::path::PathBuf::from);
+    load_validator_key_with(path, pass_path.as_deref())
+}
+
+/// [`load_validator_key`] with the passphrase file given rather than read
+/// from the environment.
+///
+/// # Errors
+///
+/// As [`load_validator_key`].
+pub fn load_validator_key_with(path: &Path, pass_path: Option<&Path>) -> Result<SigningKey> {
     let text = Zeroizing::new(
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?,
     );
-    let bytes = Zeroizing::new(
-        hex::decode(text.trim()).with_context(|| format!("{} is not hex", path.display()))?,
-    );
-    let Ok(array) = <[u8; SECRET_KEY_LEN]>::try_from(bytes.as_slice()) else {
+    if !sealed::is_sealed(&text) {
+        eprintln!(
+            "warning: {} is a PLAINTEXT validator key; seal it with \
+             `maya2c-node --seal-validator-key`",
+            path.display()
+        );
+        let bytes = Zeroizing::new(
+            hex::decode(text.trim()).with_context(|| format!("{} is not hex", path.display()))?,
+        );
+        return key_from_bytes(&bytes, path);
+    }
+    let Some(pass_path) = pass_path else {
+        bail!(
+            "{} is sealed: set {} to its passphrase file",
+            path.display(),
+            sealed::PASSPHRASE_FILE_ENV
+        );
+    };
+    let pass = sealed::read_passphrase_file(pass_path)
+        .with_context(|| format!("reading the passphrase file for {}", path.display()))?;
+    let (secret, public) = sealed::open(&text, sealed::VALIDATOR_KEY_KIND, &pass)
+        .with_context(|| format!("opening {}", path.display()))?;
+    let key = key_from_bytes(&secret, path)?;
+    if key.verifying_key().to_bytes().as_slice() != public.as_slice() {
+        bail!("{}: secret and declared public key differ", path.display());
+    }
+    Ok(key)
+}
+
+fn key_from_bytes(bytes: &[u8], path: &Path) -> Result<SigningKey> {
+    let Ok(array) = <[u8; SECRET_KEY_LEN]>::try_from(bytes) else {
         bail!("{}: not an ML-DSA-65 validator secret key", path.display());
     };
     let array = Zeroizing::new(array);
@@ -117,6 +158,32 @@ mod tests {
             vk.verify(&StakingAction::possession_message(&[8u8; 32]), &possession)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn a_sealed_key_loads_with_its_passphrase_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let key = generate_signing_key().unwrap();
+        let pass_path = dir.path().join("pass");
+        std::fs::write(&pass_path, "a long enough passphrase\n").unwrap();
+        let sealed_text = sealed::seal(
+            key.to_bytes().as_slice(),
+            &key.verifying_key().to_bytes(),
+            sealed::VALIDATOR_KEY_KIND,
+            b"a long enough passphrase",
+        )
+        .unwrap();
+        let path = dir.path().join("v.key");
+        std::fs::write(&path, sealed_text).unwrap();
+
+        let loaded = load_validator_key_with(&path, Some(&pass_path)).unwrap();
+        assert_eq!(
+            loaded.verifying_key().to_bytes(),
+            key.verifying_key().to_bytes()
+        );
+        assert!(load_validator_key_with(&path, None).is_err());
+        std::fs::write(&pass_path, "wrong passphrase here").unwrap();
+        assert!(load_validator_key_with(&path, Some(&pass_path)).is_err());
     }
 
     #[test]

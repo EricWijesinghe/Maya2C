@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" width="1200" height="420" role="img" aria-labelledby="t d">
+<title id="t">Transaction path</title>
+<desc id="d">Neon circuit card: wallet, gateway, node, VM, DAG-BFT, finality.</desc>
+<defs>
+  <linearGradient id="aur" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#a855f7"/><stop offset=".5" stop-color="#1fb5c2"/><stop offset="1" stop-color="#c9a86a"/>
+  </linearGradient>
+  <filter id="neon" x="-30%" y="-30%" width="160%" height="160%">
+    <feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
+  <pattern id="circ" width="60" height="60" patternUnits="userSpaceOnUse">
+    <path d="M0 30H25M35 30H60M30 0V25M30 35V60" stroke="#a855f7" stroke-opacity=".08" fill="none"/>
+    <circle cx="30" cy="30" r="2" fill="#1fb5c2" fill-opacity=".15"/>
+  </pattern>
+  
+</defs>
+<rect width="1200" height="420" rx="22" fill="#060611" stroke="#a855f7" stroke-opacity=".6" stroke-width="2" filter="url(#neon)"/>
+<rect x="8" y="8" width="1184" height="404" rx="18" fill="url(#circ)"/>
+<text x="40" y="70" font-size="26" font-weight="800" fill="url(#aur)" font-family="Segoe UI, Helvetica, Arial, sans-serif">One transaction, end to end</text>
+<text x="40" y="100" font-size="15" fill="#edf3f2" fill-opacity=".7" font-family="Segoe UI, Helvetica, Arial, sans-serif">Source: README.md diagram · docs/hybrid-signatures.md</text>
+<path d="M190 205.0 H240 M390 205.0 H440 M590 205.0 H640 M790 205.0 H840 M990 205.0 H1040 " fill="none" stroke="#a855f7" stroke-opacity=".3" stroke-width="2"/>
+<path d="M190 205.0 H240 M390 205.0 H440 M590 205.0 H640 M790 205.0 H840 M990 205.0 H1040 " fill="none" stroke="url(#aur)" stroke-width="3" stroke-linecap="round" stroke-dasharray="90 1200" filter="url(#neon)"><animate attributeName="stroke-dashoffset" from="1290" to="0" dur="5s" begin="0s" repeatCount="indefinite"/></path>
+<rect x="40" y="150" width="150" height="110" rx="12" fill="#0b0b1d" stroke="#a855f7" stroke-width="2" filter="url(#neon)"/><text x="115.0" y="202" text-anchor="middle" font-size="21" font-weight="700" fill="#edf3f2" font-family="Segoe UI, Helvetica, Arial, sans-serif">Wallet</text><text x="115.0" y="230" text-anchor="middle" font-size="13" fill="#a855f7" font-family="Segoe UI, Helvetica, Arial, sans-serif">signs the transaction</text><rect x="240" y="150" width="150" height="110" rx="12" fill="#0b0b1d" stroke="#1fb5c2" stroke-width="2" filter="url(#neon)"/><text x="315.0" y="202" text-anchor="middle" font-size="21" font-weight="700" fill="#edf3f2" font-family="Segoe UI, Helvetica, Arial, sans-serif">API gateway</text><text x="315.0" y="230" text-anchor="middle" font-size="13" fill="#1fb5c2" font-family="Segoe UI, Helvetica, Arial, sans-serif">default-deny allowlist</text><rect x="440" y="150" width="150" height="110" rx="12" fill="#0b0b1d" stroke="#c9a86a" stroke-width="2" filter="url(#neon)"/><text x="515.0" y="202" text-anchor="middle" font-size="21" font-weight="700" fill="#edf3f2" font-family="Segoe UI, Helvetica, Arial, sans-serif">Node</text><text x="515.0" y="230" text-anchor="middle" font-size="13" fill="#c9a86a" font-family="Segoe UI, Helvetica, Arial, sans-serif">verify ML-DSA-65 + SLH-DSA</text><rect x="640" y="150" width="150" height="110" rx="12" fill="#0b0b1d" stroke="#1fb5c2" stroke-width="2" filter="url(#neon)"/><text x="715.0" y="202" text-anchor="middle" font-size="21" font-weight="700" fill="#edf3f2" font-family="Segoe UI, Helvetica, Arial, sans-serif">WASM VM</text><text x="715.0" y="230" text-anchor="middle" font-size="13" fill="#1fb5c2" font-family="Segoe UI, Helvetica, Arial, sans-serif">fee market, state root</text><rect x="840" y="150" width="150" height="110" rx="12" fill="#0b0b1d" stroke="#a855f7" stroke-width="2" filter="url(#neon)"/><text x="915.0" y="202" text-anchor="middle" font-size="21" font-weight="700" fill="#edf3f2" font-family="Segoe UI, Helvetica, Arial, sans-serif">DAG-BFT</text><text x="915.0" y="230" text-anchor="middle" font-size="13" fill="#a855f7" font-family="Segoe UI, Helvetica, Arial, sans-serif">Narwhal + Bullshark</text><rect x="1040" y="150" width="150" height="110" rx="12" fill="#0b0b1d" stroke="#c9a86a" stroke-width="2" filter="url(#neon)"/><text x="1115.0" y="202" text-anchor="middle" font-size="21" font-weight="700" fill="#edf3f2" font-family="Segoe UI, Helvetica, Arial, sans-serif">Finalized</text><text x="1115.0" y="230" text-anchor="middle" font-size="13" fill="#c9a86a" font-family="Segoe UI, Helvetica, Arial, sans-serif">state committed</text>
+<circle r="4" fill="#edf3f2" filter="url(#neon)"><animateMotion dur="5s" begin="0s" repeatCount="indefinite" path="M40 205.0 H1090"/></circle>
+<circle r="4" fill="#c9a86a" filter="url(#neon)"><animateMotion dur="5s" begin="-2.5s" repeatCount="indefinite" path="M40 205.0 H1090"/></circle>
+<text x="40" y="340" font-size="16" fill="#edf3f2" fill-opacity=".85" font-family="Segoe UI, Helvetica, Arial, sans-serif">Every transaction carries two signatures. Both must verify before the VM runs.</text>
+<text x="40" y="372" font-size="16" fill="#c9a86a" font-family="Consolas, Menlo, monospace">11,165 bytes of signature per transaction</text>
+</svg>

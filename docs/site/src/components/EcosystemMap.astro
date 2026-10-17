@@ -54,6 +54,8 @@ const placed = apps.map((a, i) => {
 
 <style>
   .eco { margin: 1.5rem auto 2.5rem; max-width: 34rem; }
+  /* On phones the labels would fall under 9 px: keep the map at a readable size and let it scroll in its own box. */
+  @media (max-width: 759px) { .eco { overflow-x: auto; } .eco svg { min-width: 540px; } }
   svg { width: 100%; height: auto; overflow: visible; }
   .orbit { fill: none; stroke: var(--sl-color-hairline); stroke-dasharray: 3 7; }
   .spoke { stroke-width: 1.5; stroke-dasharray: 5 9; animation: flow 4s linear infinite; }
