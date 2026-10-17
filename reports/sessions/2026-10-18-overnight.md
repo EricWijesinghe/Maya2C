@@ -109,3 +109,15 @@ Every balance, amount and fee is `U256`. IPC amounts are strings, the parser is 
 - **"Full control" beyond ADR-050.** A master key over other people's funds is a backdoor. ADR-050 proposes the safe version: Eric's operator control, plus a 2-of-3 bounded council pause the code already supports. The testnet genesis has no council today.
 - **The `glib` 0.18 Dependabot alert** (apps/hub, GHSA-wrw7-89jp-8q8g). It is pinned by Tauri's GTK3 stack, there is no compatible fix, and the iterator is not called.
 - **Code-signing certificate.** It costs money: Eric decides. SignPath Foundation (free for OSS) is the first option to try.
+
+## Web and DNS check on maya2c.dev (read-only, 04:40)
+
+`curl -sI https://maya2c.dev/` returns only `strict-transport-security: max-age=31556952` (behind Cloudflare). The page carries a `<meta>` CSP (`default-src 'self'`). Missing at the edge, or not set:
+
+| Item | Now | Fix (Cloudflare dashboard; Eric, since Claude holds no Cloudflare token after the 10-06 incident) |
+|---|---|---|
+| `X-Frame-Options` / `frame-ancestors` | absent (a meta CSP cannot set `frame-ancestors`) | Rules → Transform Rules → Response headers: `X-Frame-Options: DENY` |
+| `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` | absent | same rule: `nosniff`, `strict-origin-when-cross-origin`, `camera=(), microphone=(), geolocation=()` |
+| DNSSEC | off (no DS record) | DNS → Settings → Enable DNSSEC, then add the DS at the registrar |
+| CAA | none | DNS: `CAA 0 issue "letsencrypt.org"`, `CAA 0 issue "pki.goog"`, `CAA 0 iodef "mailto:<your email>"` |
+| SPF / DMARC | none, so anyone can spoof @maya2c.dev mail | If the domain sends no mail: `TXT "v=spf1 -all"`, `_dmarc TXT "v=DMARC1; p=reject"`, null MX `MX 0 .` |
