@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             &key,
             recipient,
             primitive_types::U256::from(amount),
-            primitive_types::U256::from(standard),
+            standard,
             &quote.collector,
             nonce,
             &chain,
