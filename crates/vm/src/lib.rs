@@ -46,6 +46,7 @@ pub mod zkml;
 pub use config::{MAX_MEMORY_PAGES, MAX_MODULE_BYTES, WASMTIME_VERSION, deterministic_engine};
 pub use error::{Result, VmError};
 pub use host::{Address, ContractId, Event, HostState, MemoryState};
+pub use maya_amount::Amount;
 pub use runtime::{Execution, Outcome, Vm};
 pub use tier::Tier;
 pub use zkml::ZkmlVerdict;

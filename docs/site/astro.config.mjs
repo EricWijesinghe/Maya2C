@@ -38,6 +38,9 @@ export default defineConfig({
           "sha256-VWo5Wp4aqSj6nSgMpeAp9cKieaoIfwFUAunAVugI5gA=",
           "sha256-f/zAUE74ucc3JYp4r4QQvkJofoQdkOIhHYK+jeZ6eko=",
           "sha256-wX2yOADeV+NMngflD5uYi3vl50SHC4sfM1EmylVjlX4=",
+          // <Tabs syncKey>: restores the reader's chosen OS tab from
+          // localStorage; reads one key, no network. Reviewed 2026-10-12.
+          "sha256-OizSKqsU+f0G4vojbxNt0Lao3kUpTmCLQSv3y6P7qhQ=",
         ],
       },
       directives: [
@@ -153,6 +156,7 @@ export default defineConfig({
           label: "Guides",
           items: [
             { label: "Experience Maya2C", link: "/experience/" },
+            { label: "Help run the network (easy)", link: "/guides/help-run" },
             { label: "Join the testnet", link: "/guides/testnet" },
             { label: "Quickstart", link: "/guides/quickstart" },
             { label: "Post-quantum signatures", link: "/guides/signatures" },

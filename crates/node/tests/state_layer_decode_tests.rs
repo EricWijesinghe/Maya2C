@@ -22,6 +22,7 @@ use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::state::proof::{LAYER_ORDER, StateLayer};
 use custom_l1_node::state::{Account, AccountProof, BlockContext, StateDB};
+use primitive_types::U256;
 
 use maya_htlc_lattice::LatticeSecret;
 use tempfile::TempDir;
@@ -67,14 +68,14 @@ fn every_rwa_kind_decodes_from_its_own_bytes() {
             asset: [3; 32],
             seller: [4; 32],
             units: 5,
-            price: 6,
+            price: primitive_types::U256::from(6),
             page: 7,
         })),
         TxKind::RecordEligibility(RecordEligibility { asset: [8; 32] }),
         TxKind::DistributeRevenue(Box::new(DistributeRevenue {
             asset: [9; 32],
             round: 1,
-            total: 2,
+            total: primitive_types::U256::from(2),
             pages: 3,
         })),
         TxKind::AttestLegal(Box::new(AttestLegal {
@@ -115,7 +116,7 @@ fn an_account_proof_verifies_from_a_state_holding_rwa_and_htlc_records() {
     db.put_account(
         &address,
         &Account {
-            balance: 100_000,
+            balance: U256::from(100_000),
             nonce: 0,
         },
     )
@@ -128,7 +129,7 @@ fn an_account_proof_verifies_from_a_state_holding_rwa_and_htlc_records() {
     }));
     let lock = TxKind::HtlcLock(Box::new(HtlcLock {
         recipient: [7; 32],
-        amount: 1_000,
+        amount: primitive_types::U256::from(1_000),
         expiry_height: 100,
         lock: maya_htlc_lattice::Lock::Lattice(
             LatticeSecret::from_entropy([1; 32])

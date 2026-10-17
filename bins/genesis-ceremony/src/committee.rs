@@ -144,7 +144,7 @@ pub fn genesis(members: &[Member], epoch_blocks: u64) -> BftGenesis {
         .filter_map(|m| m.bond.clone())
         .map(|(operator, bond)| GenesisBond {
             operator,
-            bond,
+            bond: primitive_types::U256::from(bond),
             commission_bps: 0,
         })
         .collect();
@@ -234,7 +234,7 @@ mod tests {
         let staking = bft.staking.expect("staked");
         assert_eq!(staking.epoch_blocks, 7);
         assert_eq!(staking.bonds[1].operator, address('2'));
-        assert_eq!(staking.bonds[1].bond, 20);
+        assert_eq!(staking.bonds[1].bond, primitive_types::U256::from(20));
     }
 
     #[test]

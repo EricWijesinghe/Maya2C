@@ -19,6 +19,7 @@ use custom_l1_node::rpc::types::BalanceChangesInfo;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
+use primitive_types::U256;
 use serde::Serialize;
 use sha2::{Digest as _, Sha256};
 
@@ -30,9 +31,11 @@ pub struct Movement {
     /// Block id, hex.
     pub block_id: String,
     /// Balance before the block.
-    pub before: u64,
+    #[serde(serialize_with = "custom_l1_node::state::amount_serde::serialize")]
+    pub before: U256,
     /// Balance after it.
-    pub after: u64,
+    #[serde(serialize_with = "custom_l1_node::state::amount_serde::serialize")]
+    pub after: U256,
 }
 
 /// One account's statement.
@@ -41,9 +44,11 @@ pub struct Statement {
     /// Address, hex.
     pub address: String,
     /// Balance before block `from`.
-    pub opening: u64,
+    #[serde(serialize_with = "custom_l1_node::state::amount_serde::serialize")]
+    pub opening: U256,
     /// Balance after block `to`.
-    pub closing: u64,
+    #[serde(serialize_with = "custom_l1_node::state::amount_serde::serialize")]
+    pub closing: U256,
     /// Every block in the range that moved it, ascending.
     pub movements: Vec<Movement>,
     /// Vault policy at the tip (`vault_get`), or null.
@@ -89,7 +94,12 @@ impl Report {
     pub fn csv(&self) -> String {
         let rows = self.accounts.iter().flat_map(|s| {
             s.movements.iter().map(move |m| {
-                let delta = i128::from(m.after) - i128::from(m.before);
+                // U256 has no sign: a fall is written with a leading '-'.
+                let delta = if m.after >= m.before {
+                    (m.after - m.before).to_string()
+                } else {
+                    format!("-{}", m.before - m.after)
+                };
                 format!(
                     "{},{},{},{},{},{delta}\n",
                     s.address, m.height, m.block_id, m.before, m.after
@@ -110,8 +120,8 @@ impl Report {
 /// balance the movements do not reach: the data has a gap.
 pub fn reconcile(
     address: &str,
-    opening: u64,
-    closing: u64,
+    opening: U256,
+    closing: U256,
     blocks: &[BalanceChangesInfo],
 ) -> anyhow::Result<Vec<Movement>> {
     let mut running = opening;
@@ -144,12 +154,14 @@ async fn balance_at(
     client: &HttpClient,
     address: &str,
     height: u64,
-) -> anyhow::Result<(u64, String)> {
+) -> anyhow::Result<(U256, String)> {
     let v: serde_json::Value = client
         .request("get_balance_at_height", rpc_params![address, height])
         .await?;
+    // A base-10 string on the wire (ADR-046), never a JSON number.
     let balance = v["balance"]
-        .as_u64()
+        .as_str()
+        .and_then(|s| U256::from_dec_str(s).ok())
         .ok_or_else(|| anyhow::anyhow!("get_balance_at_height: no balance in {v}"))?;
     let id = v["block_id"]
         .as_str()
@@ -268,8 +280,8 @@ mod tests {
                 .iter()
                 .map(|&(a, before, after)| BalanceChangeInfo {
                     address: a.into(),
-                    before,
-                    after,
+                    before: before.into(),
+                    after: after.into(),
                 })
                 .collect(),
         }
@@ -282,18 +294,20 @@ mod tests {
             block(6, &[("bb", 30, 20)]),
             block(7, &[("aa", 70, 80)]),
         ];
-        let m = reconcile("aa", 100, 80, &blocks).unwrap();
+        let m = reconcile("aa", U256::from(100u64), U256::from(80u64), &blocks).unwrap();
         assert_eq!(m.iter().map(|m| m.height).collect::<Vec<_>>(), [5, 7]);
         assert!(
-            reconcile("aa", 100, 81, &blocks).is_err(),
+            reconcile("aa", U256::from(100u64), U256::from(81u64), &blocks).is_err(),
             "closing disagrees"
         );
         assert!(
-            reconcile("aa", 100, 80, &blocks[1..]).is_err(),
+            reconcile("aa", U256::from(100u64), U256::from(80u64), &blocks[1..]).is_err(),
             "block 5 missing"
         );
         assert!(
-            reconcile("cc", 9, 9, &blocks).unwrap().is_empty(),
+            reconcile("cc", U256::from(9u64), U256::from(9u64), &blocks)
+                .unwrap()
+                .is_empty(),
             "untouched account"
         );
     }
@@ -303,9 +317,9 @@ mod tests {
         let blocks = [block(5, &[("aa", 100, 70)])];
         let statement = Statement {
             address: "aa".into(),
-            opening: 100,
-            closing: 70,
-            movements: reconcile("aa", 100, 70, &blocks).unwrap(),
+            opening: U256::from(100u64),
+            closing: U256::from(70u64),
+            movements: reconcile("aa", U256::from(100u64), U256::from(70u64), &blocks).unwrap(),
             vault: serde_json::Value::Null,
         };
         let report = Report {

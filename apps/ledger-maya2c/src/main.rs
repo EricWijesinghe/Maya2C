@@ -300,11 +300,11 @@ mod device {
     /// would have to prove or display.
     #[inline(never)]
     fn approve(shown: &review::Review, public: &[u8; PUBLIC_KEY_LEN]) -> bool {
-        // 20 digits of u64 plus the unit suffix; `Text` refuses to write past
-        // its capacity, and a truncated amount on a review screen is exactly
-        // what must not happen silently.
-        const AMOUNT_CAPACITY: usize = 40;
-        const _: () = assert!(AMOUNT_CAPACITY >= 20 + " base units".len());
+        // 78 digits of a 256-bit amount (ADR-046) plus the unit suffix; `Text`
+        // refuses to write past its capacity, and a truncated amount on a
+        // review screen is exactly what must not happen silently.
+        const AMOUNT_CAPACITY: usize = 96;
+        const _: () = assert!(AMOUNT_CAPACITY >= 78 + " base units".len());
         let mut amounts: [Text<AMOUNT_CAPACITY>; MAX_OUTPUTS] =
             [const { Text::new() }; MAX_OUTPUTS];
         let mut recipients: [Text<64>; MAX_OUTPUTS] = [const { Text::new() }; MAX_OUTPUTS];

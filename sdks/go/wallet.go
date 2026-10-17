@@ -3,6 +3,7 @@ package maya2c
 import (
 	"bytes"
 	"fmt"
+	"math/big"
 	"os"
 	"os/exec"
 	"strings"
@@ -50,8 +51,8 @@ func (w *Wallet) Address() (string, error) {
 
 // SignTransfer builds and signs a transfer without broadcasting it and
 // returns the raw transaction and its txid.
-func (w *Wallet) SignTransfer(to string, amount uint64) (raw, txid string, err error) {
-	out, err := w.output("send", "--to", to, "--amount", fmt.Sprint(amount), "--no-broadcast")
+func (w *Wallet) SignTransfer(to string, amount *big.Int) (raw, txid string, err error) {
+	out, err := w.output("send", "--to", to, "--amount", amount.String(), "--no-broadcast")
 	if err != nil {
 		return "", "", err
 	}
@@ -74,7 +75,7 @@ func (w *Wallet) SignTransfer(to string, amount uint64) (raw, txid string, err e
 }
 
 // Transfer signs a transfer and submits it through the node.
-func (w *Wallet) Transfer(to string, amount uint64) (string, error) {
+func (w *Wallet) Transfer(to string, amount *big.Int) (string, error) {
 	raw, _, err := w.SignTransfer(to, amount)
 	if err != nil {
 		return "", err

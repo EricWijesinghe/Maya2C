@@ -7,15 +7,25 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use maya_amount::Amount;
 use maya_dex::amm::{MINIMUM_LIQUIDITY, Pool};
 use maya_dex::error::DexError;
 use maya_dex::fees::FeeSchedule;
 use maya_dex::types::{Direction, PRICE_SCALE};
 
+fn a(v: u64) -> Amount {
+    Amount::from_u64(v)
+}
+
+/// A test amount as `u128` for arithmetic: every amount here is far below 2^128.
+fn w(x: Amount) -> u128 {
+    x.to_u128().expect("test amounts fit u128")
+}
+
 /// A funded pool at a 1:4 ratio with the conventional fee and no protocol cut.
 fn seeded(base: u64, quote: u64) -> Pool {
     Pool::empty(FeeSchedule::standard())
-        .add_liquidity(base, quote)
+        .add_liquidity(a(base), a(quote))
         .expect("seed deposit")
         .pool
 }
@@ -26,12 +36,12 @@ fn a_swap_never_decreases_the_invariant() {
     let before = pool.k();
 
     let outcome = pool
-        .swap_exact_in(Direction::BaseToQuote, 12_345)
+        .swap_exact_in(Direction::BaseToQuote, a(12_345))
         .expect("swap");
 
     assert!(
         outcome.pool.k() >= before,
-        "k fell from {before} to {}",
+        "k fell from {before:?} to {:?}",
         outcome.pool.k()
     );
 }
@@ -51,7 +61,7 @@ fn the_invariant_holds_across_a_long_run_of_alternating_swaps() {
             Direction::QuoteToBase
         };
         pool = pool
-            .swap_exact_in(direction, 1_000 + round)
+            .swap_exact_in(direction, a(1_000 + round))
             .expect("swap")
             .pool;
         assert!(pool.k() >= previous, "k fell on round {round}");
@@ -71,11 +81,11 @@ fn fees_are_what_make_the_invariant_grow() {
     let charged = seeded(1_000_000, 1_000_000);
 
     let after_free = free
-        .swap_exact_in(Direction::BaseToQuote, 50_000)
+        .swap_exact_in(Direction::BaseToQuote, a(50_000))
         .expect("swap")
         .pool;
     let after_charged = charged
-        .swap_exact_in(Direction::BaseToQuote, 50_000)
+        .swap_exact_in(Direction::BaseToQuote, a(50_000))
         .expect("swap")
         .pool;
 
@@ -83,11 +93,11 @@ fn fees_are_what_make_the_invariant_grow() {
     // The trader is the one who pays for it.
     assert!(
         charged
-            .swap_exact_in(Direction::BaseToQuote, 50_000)
+            .swap_exact_in(Direction::BaseToQuote, a(50_000))
             .expect("swap")
             .amount_out
             < free
-                .swap_exact_in(Direction::BaseToQuote, 50_000)
+                .swap_exact_in(Direction::BaseToQuote, a(50_000))
                 .expect("swap")
                 .amount_out
     );
@@ -101,18 +111,18 @@ fn the_protocol_cut_leaves_the_pool_and_the_lp_cut_stays() {
     };
 
     let outcome = pool
-        .swap_exact_in(Direction::BaseToQuote, 100_000)
+        .swap_exact_in(Direction::BaseToQuote, a(100_000))
         .expect("swap");
 
-    assert_eq!(outcome.protocol_fee, 200, "20 bps of 100_000");
+    assert_eq!(outcome.protocol_fee, a(200), "20 bps of 100_000");
     // The input reserve grew by the input less the protocol's share, so the
     // protocol's share genuinely left rather than being accounted twice.
     assert_eq!(
-        outcome.pool.reserve_base,
-        pool.reserve_base + outcome.amount_in - outcome.protocol_fee
+        w(outcome.pool.reserve_base),
+        w(pool.reserve_base) + w(outcome.amount_in) - w(outcome.protocol_fee)
     );
     // The LP fee never left: it is inside that same reserve.
-    assert!(outcome.lp_fee > 0);
+    assert!(!outcome.lp_fee.is_zero());
 }
 
 #[test]
@@ -122,7 +132,7 @@ fn a_swap_too_small_to_produce_output_is_rejected_rather_than_absorbed() {
     // expense, repeated as often as anyone cared to.
     let pool = seeded(1_000_000, 1_000_000);
     assert_eq!(
-        pool.swap_exact_in(Direction::BaseToQuote, 1),
+        pool.swap_exact_in(Direction::BaseToQuote, a(1)),
         Err(DexError::ZeroOutput)
     );
 }
@@ -136,22 +146,25 @@ fn a_swap_cannot_empty_the_output_reserve() {
     );
     // Nor at any input, which is the same statement made from the other side.
     let huge = pool
-        .swap_exact_in(Direction::BaseToQuote, u64::MAX / 4)
+        .swap_exact_in(Direction::BaseToQuote, a(u64::MAX / 4))
         .expect("swap");
-    assert!(huge.pool.reserve_quote > 0);
+    assert!(!huge.pool.reserve_quote.is_zero());
 }
 
 #[test]
 fn exact_out_delivers_exactly_what_was_asked_and_keeps_the_rounding() {
     let pool = seeded(1_000_000, 4_000_000);
-    let wanted = 7_777;
+    let wanted = a(7_777);
 
     let outcome = pool
         .swap_exact_out(Direction::BaseToQuote, wanted)
         .expect("swap");
 
     assert_eq!(outcome.amount_out, wanted);
-    assert_eq!(outcome.pool.reserve_quote, pool.reserve_quote - wanted);
+    assert_eq!(
+        w(outcome.pool.reserve_quote),
+        w(pool.reserve_quote) - w(wanted)
+    );
     assert!(outcome.pool.k() >= pool.k());
 }
 
@@ -162,7 +175,7 @@ fn exact_out_never_charges_less_than_exact_in_would_require() {
     // would have produced, and pay less for it.
     let pool = seeded(1_000_000, 4_000_000);
 
-    for wanted in [1_u64, 7, 999, 12_345, 100_000] {
+    for wanted in [1_u64, 7, 999, 12_345, 100_000].map(a) {
         let inverse = pool
             .swap_exact_out(Direction::BaseToQuote, wanted)
             .expect("exact out");
@@ -181,10 +194,13 @@ fn exact_out_never_charges_less_than_exact_in_would_require() {
 #[test]
 fn the_first_deposit_locks_a_minimum_that_nobody_can_redeem() {
     let delta = Pool::empty(FeeSchedule::standard())
-        .add_liquidity(1_000_000, 1_000_000)
+        .add_liquidity(a(1_000_000), a(1_000_000))
         .expect("seed");
 
-    assert_eq!(delta.pool.total_shares, delta.shares + MINIMUM_LIQUIDITY);
+    assert_eq!(
+        w(delta.pool.total_shares),
+        w(delta.shares) + w(MINIMUM_LIQUIDITY)
+    );
     assert_eq!(
         delta.pool.remove_liquidity(delta.pool.total_shares),
         Err(DexError::InsufficientShares),
@@ -198,7 +214,7 @@ fn the_first_deposit_locks_a_minimum_that_nobody_can_redeem() {
 fn a_first_deposit_below_the_locked_minimum_is_refused() {
     // The geometric mean of 10 and 10 is 10, which is under the lock.
     assert_eq!(
-        Pool::empty(FeeSchedule::standard()).add_liquidity(10, 10),
+        Pool::empty(FeeSchedule::standard()).add_liquidity(a(10), a(10)),
         Err(DexError::InsufficientInitialLiquidity)
     );
 }
@@ -210,22 +226,22 @@ fn the_share_price_inflation_attack_does_not_pay() {
     // than a later depositor's whole contribution — which then rounds to zero
     // shares and is absorbed.
     let seeded = Pool::empty(FeeSchedule::standard())
-        .add_liquidity(1_001, 1_001)
+        .add_liquidity(a(1_001), a(1_001))
         .expect("minimal seed");
-    assert_eq!(seeded.shares, 1, "the attacker holds a single share");
+    assert_eq!(seeded.shares, a(1), "the attacker holds a single share");
 
     let inflated = seeded
         .pool
-        .donate(1_000_000_000, 1_000_000_000)
+        .donate(a(1_000_000_000), a(1_000_000_000))
         .expect("donation");
 
     // A victim deposits. Without the locked minimum the mint would round to
     // zero and the deposit would be a gift; with it, the share price is bounded
     // and the victim is credited.
     let victim = inflated
-        .add_liquidity(500_000_000, 500_000_000)
+        .add_liquidity(a(500_000_000), a(500_000_000))
         .expect("victim deposit");
-    assert!(victim.shares > 0, "victim received no shares");
+    assert!(!victim.shares.is_zero(), "victim received no shares");
 
     let refund = victim
         .pool
@@ -236,20 +252,20 @@ fn the_share_price_inflation_attack_does_not_pay() {
     // made one share expensive, so the deposit rounds down by up to a share's
     // worth. That residue is what the locked minimum bounds — it caps how
     // expensive a share can be made — rather than eliminating it.
-    let share_value = inflated.reserve_base / inflated.total_shares;
-    assert!(refund.base + share_value >= victim.base);
-    assert!(refund.quote + share_value >= victim.quote);
+    let share_value = w(inflated.reserve_base) / w(inflated.total_shares);
+    assert!(w(refund.base) + share_value >= w(victim.base));
+    assert!(w(refund.quote) + share_value >= w(victim.quote));
 
     // And the bound is what makes the attack pointless: the attacker owns one
     // share out of a thousand, so they recover a thousandth of what the victim
     // lost, having spent the whole donation to arrange it.
-    let attacker_spent_base = 1_001 + 1_000_000_000;
+    let attacker_spent_base: u128 = 1_001 + 1_000_000_000;
     let attacker_out = refund
         .pool
         .remove_liquidity(seeded.shares)
         .expect("attacker redemption");
     assert!(
-        attacker_out.base < attacker_spent_base,
+        w(attacker_out.base) < attacker_spent_base,
         "attacker recovered {} of {attacker_spent_base} — the attack paid",
         attacker_out.base
     );
@@ -260,7 +276,7 @@ fn a_deposit_and_immediate_redemption_never_profits() {
     let pool = seeded(1_000_000, 4_000_000);
 
     for (base, quote) in [(1_000_u64, 4_000_u64), (7, 31), (999_999, 1)] {
-        let Ok(deposit) = pool.add_liquidity(base, quote) else {
+        let Ok(deposit) = pool.add_liquidity(a(base), a(quote)) else {
             continue;
         };
         let refund = deposit
@@ -288,11 +304,11 @@ fn a_deposit_is_taken_at_the_pools_ratio_not_at_the_amounts_offered() {
     let before = pool.spot_price().expect("spot");
 
     let deposit = pool
-        .add_liquidity(1_000, 4_000_000)
+        .add_liquidity(a(1_000), a(4_000_000))
         .expect("lopsided deposit");
 
-    assert_eq!(deposit.base, 1_000);
-    assert_eq!(deposit.quote, 4_000, "only the matching quote is taken");
+    assert_eq!(deposit.base, a(1_000));
+    assert_eq!(deposit.quote, a(4_000), "only the matching quote is taken");
     let after = deposit.pool.spot_price().expect("spot");
     // The ceiling on the required quote can move the price by a unit in the
     // pool's favour, never against it.
@@ -305,14 +321,16 @@ fn the_share_price_never_falls_across_deposits_and_redemptions() {
 
     let value = |p: &Pool| -> (u128, u128) {
         (
-            (p.reserve_base as u128) * 1_000_000 / (p.total_shares as u128),
-            (p.reserve_quote as u128) * 1_000_000 / (p.total_shares as u128),
+            w(p.reserve_base) * 1_000_000 / w(p.total_shares),
+            w(p.reserve_quote) * 1_000_000 / w(p.total_shares),
         )
     };
     let mut previous = value(&pool);
 
     for round in 1..50u64 {
-        let deposit = pool.add_liquidity(round * 13, round * 13).expect("deposit");
+        let deposit = pool
+            .add_liquidity(a(round * 13), a(round * 13))
+            .expect("deposit");
         pool = deposit.pool;
         let now = value(&pool);
         assert!(
@@ -337,13 +355,13 @@ fn a_redemption_too_small_to_return_anything_is_refused() {
     // Burning shares for nothing is a burn, not a redemption.
     let pool = seeded(1_000, 1_000_000_000);
     // One share out of a large supply rounds to zero base.
-    let result = pool.remove_liquidity(1);
+    let result = pool.remove_liquidity(a(1));
     assert!(matches!(
         result,
         Err(DexError::ZeroOutput) | Ok(_) // a large enough pool may still pay
     ));
     if let Ok(delta) = result {
-        assert!(delta.base > 0 && delta.quote > 0);
+        assert!(!delta.base.is_zero() && !delta.quote.is_zero());
     }
 }
 
@@ -351,16 +369,16 @@ fn a_redemption_too_small_to_return_anything_is_refused() {
 fn zero_amounts_are_refused_everywhere() {
     let pool = seeded(1_000_000, 1_000_000);
     assert_eq!(
-        pool.swap_exact_in(Direction::BaseToQuote, 0),
+        pool.swap_exact_in(Direction::BaseToQuote, a(0)),
         Err(DexError::ZeroAmount)
     );
     assert_eq!(
-        pool.swap_exact_out(Direction::BaseToQuote, 0),
+        pool.swap_exact_out(Direction::BaseToQuote, a(0)),
         Err(DexError::ZeroAmount)
     );
-    assert_eq!(pool.add_liquidity(0, 1), Err(DexError::ZeroAmount));
-    assert_eq!(pool.add_liquidity(1, 0), Err(DexError::ZeroAmount));
-    assert_eq!(pool.remove_liquidity(0), Err(DexError::ZeroAmount));
+    assert_eq!(pool.add_liquidity(a(0), a(1)), Err(DexError::ZeroAmount));
+    assert_eq!(pool.add_liquidity(a(1), a(0)), Err(DexError::ZeroAmount));
+    assert_eq!(pool.remove_liquidity(a(0)), Err(DexError::ZeroAmount));
 }
 
 #[test]
@@ -368,16 +386,19 @@ fn an_unfunded_pool_has_no_price_and_serves_no_swap() {
     let empty = Pool::empty(FeeSchedule::standard());
     assert_eq!(empty.spot_price(), Err(DexError::EmptyPool));
     assert_eq!(
-        empty.swap_exact_in(Direction::BaseToQuote, 100),
+        empty.swap_exact_in(Direction::BaseToQuote, a(100)),
         Err(DexError::EmptyPool)
     );
-    assert_eq!(empty.remove_liquidity(1), Err(DexError::EmptyPool));
+    assert_eq!(empty.remove_liquidity(a(1)), Err(DexError::EmptyPool));
 }
 
 #[test]
 fn spot_price_is_the_ratio_of_the_reserves() {
     let pool = seeded(1_000_000, 4_000_000);
-    assert_eq!(pool.spot_price().expect("spot"), 4 * PRICE_SCALE as u64);
+    assert_eq!(
+        pool.spot_price().expect("spot"),
+        a(4).checked_mul(PRICE_SCALE).expect("fits")
+    );
 }
 
 #[test]
@@ -393,20 +414,46 @@ fn a_stored_fee_schedule_out_of_bounds_is_caught_at_use() {
         ..seeded(1_000_000, 1_000_000)
     };
     assert_eq!(
-        forged.swap_exact_in(Direction::BaseToQuote, 1_000),
+        forged.swap_exact_in(Direction::BaseToQuote, a(1_000)),
         Err(DexError::FeeTooHigh)
     );
 }
 
 #[test]
 fn large_reserves_do_not_overflow_the_intermediate() {
-    // The naive `u64` formula wraps well below this. If the wide intermediate
+    // The naive narrow formula wraps well below this. If the wide intermediate
     // were dropped, this would return a wildly wrong output rather than fail.
     let pool = seeded(u32::MAX as u64 * 4, u32::MAX as u64 * 4);
     let outcome = pool
-        .swap_exact_in(Direction::BaseToQuote, 1_000_000_000)
+        .swap_exact_in(Direction::BaseToQuote, a(1_000_000_000))
         .expect("swap");
-    assert!(outcome.amount_out > 0);
+    assert!(!outcome.amount_out.is_zero());
     assert!(outcome.amount_out < pool.reserve_quote);
     assert!(outcome.pool.k() >= pool.k());
+}
+
+#[test]
+fn pools_past_u64_swap_deposit_and_redeem_exactly() {
+    // ADR-046: reserves are 256-bit. A pool holding far more than u64::MAX on
+    // each side keeps k, conserves both sides and keeps the share price.
+    let big = Amount::MAX.shr(130); // about 2^126 per side
+    let pool = Pool::empty(FeeSchedule::standard())
+        .add_liquidity(big, big)
+        .expect("seed")
+        .pool;
+    let amount_in = Amount::MAX.shr(140);
+    let swap = pool
+        .swap_exact_in(Direction::BaseToQuote, amount_in)
+        .expect("swap");
+    assert!(swap.pool.k() >= pool.k());
+    assert_eq!(
+        swap.pool.reserve_base.checked_add(swap.protocol_fee),
+        pool.reserve_base.checked_add(amount_in)
+    );
+    let deposit = swap.pool.add_liquidity(big, big).expect("deposit");
+    let refund = deposit
+        .pool
+        .remove_liquidity(deposit.shares)
+        .expect("redeem");
+    assert!(refund.base <= deposit.base && refund.quote <= deposit.quote);
 }

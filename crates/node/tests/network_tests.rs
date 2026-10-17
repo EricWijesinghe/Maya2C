@@ -10,6 +10,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use primitive_types::U256;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -66,7 +67,7 @@ async fn spawn_node(funded: &[(Address, u64)]) -> TestNode {
             .put_account(
                 address,
                 &Account {
-                    balance: *balance,
+                    balance: U256::from(*balance),
                     nonce: 0,
                 },
             )
@@ -156,7 +157,7 @@ fn signed_transfer(from: &HybridSigningKey, to: Address, amount: u64, nonce: u64
     let mut tx = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount,
+            amount: primitive_types::U256::from(amount),
             recipient: to,
         }],
         nonce,
@@ -319,7 +320,7 @@ async fn peers_reject_a_tampered_transaction() {
 
     // Mutate a signed transaction so its signature no longer matches.
     let mut tampered = signed_transfer(&alice, [2u8; 32], 100, 0);
-    tampered.outputs[0].amount = 9_999;
+    tampered.outputs[0].amount = primitive_types::U256::from(9_999);
     let tampered_txid = tampered.txid();
 
     nodes[0]

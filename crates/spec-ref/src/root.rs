@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use crate::Address;
 use crate::stf::Account;
 
-/// ROOT-1: `blake3(0x00 ‖ address ‖ balance_le64 ‖ nonce_le64)`.
+/// ROOT-1: `blake3(0x00 ‖ address ‖ balance_le256 ‖ nonce_le64)`.
 #[must_use]
 pub fn account_leaf(address: &Address, account: &Account) -> [u8; 32] {
     let mut bytes = vec![0x00];

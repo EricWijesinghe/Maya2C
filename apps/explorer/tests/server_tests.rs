@@ -51,7 +51,7 @@ fn transaction(height: i64, index: usize) -> IndexedTx {
         sender: "aa".repeat(32),
         nonce: index as i64,
         output_count: 1,
-        total_out: 500 + index as i64,
+        total_out: (500 + index as i64).to_string(),
         signed: true,
     }
 }

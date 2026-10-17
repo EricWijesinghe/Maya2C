@@ -10,11 +10,11 @@
 //! the record at or after its maturity sees the new policy, so nothing has to
 //! be sent for it to apply. Every action writes the record back normalised.
 
-use maya_ledger_math as ledger_math;
+use primitive_types::U256;
 
 use crate::core::Transaction;
 use crate::core::TxKind;
-use crate::core::codec::ByteReader;
+use crate::core::codec::{ByteReader, put_amount};
 use crate::core::vault_payload::{MAX_GUARDIANS, RECONFIGURE_ID, VaultAction, VaultConfig};
 use crate::error::{NodeError, Result};
 use crate::state::account::Address;
@@ -34,7 +34,11 @@ pub const MAX_OPEN_REQUESTS: u32 = 64;
 /// Multiple of the required fee a vault transaction may pay before the excess
 /// counts against its limit. Wallets pay 2x (`l1-wallet`), so 4x is headroom
 /// for a base fee that rose between signing and inclusion.
-pub const VAULT_FEE_HEADROOM: u128 = 4;
+pub const VAULT_FEE_HEADROOM: u64 = 4;
+
+/// Record format of a vault and a withdrawal: 2 since ADR-046 made every
+/// amount 256-bit. A version-1 record is refused, not reinterpreted.
+const RECORD_VERSION: u8 = 2;
 
 const OPEN: u8 = 0;
 const EXECUTED: u8 = 1;
@@ -54,7 +58,7 @@ pub struct VaultRecord {
     /// Start of the current instant-outflow window.
     pub window_start: u64,
     /// Instant outflow so far in that window.
-    pub window_spent: u64,
+    pub window_spent: U256,
 }
 
 /// One withdrawal request.
@@ -63,7 +67,7 @@ pub struct Withdrawal {
     /// Recipient.
     pub to: Address,
     /// Escrowed amount.
-    pub amount: u64,
+    pub amount: U256,
     /// First height it may execute.
     pub ready_height: u64,
     /// 0 open, 1 executed, 2 cancelled.
@@ -92,7 +96,7 @@ impl VaultRecord {
     }
 
     fn encode(&self) -> Vec<u8> {
-        let mut out = vec![1u8];
+        let mut out = vec![RECORD_VERSION];
         self.config.encode_into(&mut out);
         match &self.pending {
             Some((next, ready)) => {
@@ -105,13 +109,13 @@ impl VaultRecord {
         out.extend_from_slice(&self.next_id.to_le_bytes());
         out.extend_from_slice(&self.open.to_le_bytes());
         out.extend_from_slice(&self.window_start.to_le_bytes());
-        out.extend_from_slice(&self.window_spent.to_le_bytes());
+        put_amount(&mut out, &self.window_spent);
         out
     }
 
     fn decode(bytes: &[u8]) -> Result<Self> {
         let mut r = ByteReader::new(bytes);
-        if r.read_u8()? != 1 {
+        if r.read_u8()? != RECORD_VERSION {
             return Err(NodeError::Decode("vault record version".into()));
         }
         let config = VaultConfig::decode(&mut r)?;
@@ -123,7 +127,7 @@ impl VaultRecord {
         let next_id = r.read_u64()?;
         let open = u32::from_le_bytes(r.read_array()?);
         let window_start = r.read_u64()?;
-        let window_spent = r.read_u64()?;
+        let window_spent = r.read_amount()?;
         r.finish()?;
         Ok(Self {
             config,
@@ -139,14 +143,18 @@ impl VaultRecord {
 impl Withdrawal {
     /// What the request holds in escrow: its amount while open.
     #[must_use]
-    pub fn escrowed(&self) -> u64 {
-        if self.status == OPEN { self.amount } else { 0 }
+    pub fn escrowed(&self) -> U256 {
+        if self.status == OPEN {
+            self.amount
+        } else {
+            U256::zero()
+        }
     }
 
     fn encode(&self) -> Vec<u8> {
-        let mut out = vec![1u8];
+        let mut out = vec![RECORD_VERSION];
         out.extend_from_slice(&self.to);
-        out.extend_from_slice(&self.amount.to_le_bytes());
+        put_amount(&mut out, &self.amount);
         out.extend_from_slice(&self.ready_height.to_le_bytes());
         out.push(self.status);
         out
@@ -159,12 +167,12 @@ impl Withdrawal {
     /// [`NodeError::Decode`] for a wrong version or malformed bytes.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let mut r = ByteReader::new(bytes);
-        if r.read_u8()? != 1 {
+        if r.read_u8()? != RECORD_VERSION {
             return Err(NodeError::Decode("withdrawal version".into()));
         }
         let w = Self {
             to: r.read_array()?,
-            amount: r.read_u64()?,
+            amount: r.read_amount()?,
             ready_height: r.read_u64()?,
             status: r.read_u8()?,
         };
@@ -271,35 +279,34 @@ impl StateDB {
         let config = vault.config.clone();
         if height >= vault.window_start.saturating_add(config.delay_blocks) {
             vault.window_start = height;
-            vault.window_spent = 0;
+            vault.window_spent = U256::zero();
         }
-        let spent = u128::from(vault.window_spent).saturating_add(moved);
-        if spent > u128::from(config.limit) {
+        let spent = vault.window_spent.saturating_add(moved);
+        if spent > config.limit {
             return refuse(format!(
                 "{moved} would take this window's outflow past the vault's instant limit {}                  ({} already used); request a delayed withdrawal",
                 config.limit, vault.window_spent
             ));
         }
-        vault.window_spent = u64::try_from(spent).map_err(|_| NodeError::BalanceOverflow)?;
+        vault.window_spent = spent;
         Ok(Some(vault))
     }
 
     /// Value `tx` moves out: every non-fee output, plus fee outputs above
     /// [`VAULT_FEE_HEADROOM`] times the required fee.
-    fn vault_outflow(&self, overlay: &Overlay, tx: &Transaction) -> Result<u128> {
+    fn vault_outflow(&self, overlay: &Overlay, tx: &Transaction) -> Result<U256> {
         let collector = crate::state::fees::FEE_COLLECTOR;
-        let sum = |fee: bool| -> u128 {
+        // Saturating: an outflow past 2^256 is past any limit either way.
+        let sum = |fee: bool| -> U256 {
             tx.outputs
                 .iter()
                 .filter(|o| (o.recipient == collector) == fee)
-                .map(|o| u128::from(o.amount))
-                .sum()
+                .fold(U256::zero(), |total, o| total.saturating_add(o.amount))
         };
         let allowed_fee = match self.fee_record(overlay)? {
-            Some(fees) => fees
-                .required(tx.to_bytes().len())
-                .saturating_mul(VAULT_FEE_HEADROOM),
-            None => 0,
+            Some(fees) => U256::from(fees.required(tx.to_bytes().len()))
+                .saturating_mul(U256::from(VAULT_FEE_HEADROOM)),
+            None => U256::zero(),
         };
         Ok(sum(false).saturating_add(sum(true).saturating_sub(allowed_fee)))
     }
@@ -352,7 +359,7 @@ impl StateDB {
                 next_id: 0,
                 open: 0,
                 window_start: height,
-                window_spent: 0,
+                window_spent: U256::zero(),
             },
             Some(existing) => {
                 // Queued behind the *current* delay: a thief with the key
@@ -374,14 +381,14 @@ impl StateDB {
         overlay: &mut Overlay,
         owner: &Address,
         to: &Address,
-        amount: u64,
+        amount: U256,
         height: u64,
     ) -> Result<()> {
         let Some(vault) = self.vault_record(overlay, owner)? else {
             return refuse("the sender has no vault");
         };
         let mut vault = vault.normalised(height);
-        if amount == 0 {
+        if amount.is_zero() {
             return refuse("a withdrawal must move something");
         }
         if vault.open >= MAX_OPEN_REQUESTS {
@@ -389,13 +396,15 @@ impl StateDB {
         }
         let mut account = self.load(overlay, owner)?;
         let available = account.balance;
-        account.balance = ledger_math::debit(available, amount).ok_or_else(|| {
-            NodeError::InsufficientBalance {
-                address: hex::encode(owner),
-                required: amount,
-                available,
-            }
-        })?;
+        let required = amount;
+        account.balance =
+            available
+                .checked_sub(required)
+                .ok_or_else(|| NodeError::InsufficientBalance {
+                    address: hex::encode(owner),
+                    required,
+                    available,
+                })?;
         overlay.accounts.insert(*owner, account);
         let id = vault.next_id;
         let ready_height = height.saturating_add(vault.config.delay_blocks);
@@ -446,8 +455,10 @@ impl StateDB {
         }
         let payee = if status == EXECUTED { w.to } else { *owner };
         let mut account = self.load(overlay, &payee)?;
-        account.balance =
-            ledger_math::credit(account.balance, w.amount).ok_or(NodeError::BalanceOverflow)?;
+        account.balance = account
+            .balance
+            .checked_add(w.amount)
+            .ok_or(NodeError::BalanceOverflow)?;
         overlay.accounts.insert(payee, account);
         // Settled requests are deleted, not kept with a status: history is in
         // the blocks, and a vault's record set stays bounded by its open
@@ -522,7 +533,7 @@ mod tests {
     fn config(delay: u64) -> VaultConfig {
         VaultConfig {
             delay_blocks: delay,
-            limit: 100,
+            limit: primitive_types::U256::from(100),
             guardians: vec![[7; 32]],
         }
     }
@@ -535,26 +546,26 @@ mod tests {
             next_id: 4,
             open: 2,
             window_start: 30,
-            window_spent: 70,
+            window_spent: primitive_types::U256::from(70),
         };
         assert_eq!(VaultRecord::decode(&r.encode()).unwrap(), r);
         assert_eq!(r.effective(49).delay_blocks, 10);
         assert_eq!(r.effective(50).delay_blocks, 3);
         let w = Withdrawal {
             to: [1; 32],
-            amount: 9,
+            amount: primitive_types::U256::from(9),
             ready_height: 20,
             status: OPEN,
         };
         assert_eq!(Withdrawal::decode(&w.encode()).unwrap(), w);
-        assert_eq!(w.escrowed(), 9);
+        assert_eq!(w.escrowed(), primitive_types::U256::from(9));
         assert_eq!(
             Withdrawal {
                 status: CANCELLED,
                 ..w
             }
             .escrowed(),
-            0
+            primitive_types::U256::from(0)
         );
     }
 }

@@ -84,6 +84,7 @@ signature on the chain is a hybrid pair and both halves must verify; see
 | Historical pruning + archive bootstrap | **SHIPPED** | `archive`, `crates/node/src/state/blocks.rs` | No body deleted before a verified copy exists — invariant 27, [pruning.md](pruning.md) |
 | Constant-product DEX + order book | **SHIPPED** | `dex` | Dependency-free for Kani. A losing trade is a no-op — invariants 6, 7 |
 | Governance lifecycle and bounds | **SHIPPED** | `governance` | Governance cannot make governance unsafe — invariants 12, 13, 17 |
+| 256-bit amounts for the proved crates | **SHIPPED** | `amount` (`maya-amount`) | ADR-046/048: `Amount` (four `u64` limbs) and a 512-bit `Wide` for `x × y / z`, no dependencies and `no_std`, so `fee-market`, `dex` and `ledger-math` keep 256-bit math inside their Kani graphs; `staking` and `governance` too since 2026-10-13, when every value path went 256-bit (ADR-048 tables what stays 64-bit and why). Cross-checked against `primitive_types::U256` byte for byte (`amount_bytes_tests.rs`) |
 | EIP-1559 base fee over bytes | **RESEARCH** | `fee-market` | `FeeConfig::DISABLED`, activation `u64::MAX`. Called by nothing in `crates/node/src/` |
 | Neural base-fee gain | **RESEARCH** | `crates/fee-market/src/model/`, `crates/node/src/neural_gas/`, `neural-gas-trainer` | A 6-16-1 integer network, i16 weights compiled in, scales EIP-1559's step by a one-sided gain — a rise ×1 to ×2, a fall ×0 to ×1 — so no feature a block producer writes can price a block below EIP-1559. Native inference, **no zkML**: every validator can re-run 112 multiplies, and a proof would cost ~10⁴× that. Trained on a synthetic demand simulator, because no chain history exists — [neural-gas.md](neural-gas.md) |
 | Multi-shard asynchronous DAG (Narwhal/Tusk) | **RESEARCH** | `blockgraph` | Batch references and deterministic shard scheduling. Nothing in consensus references a batch yet — [blockgraph.md](blockgraph.md) |
@@ -179,7 +180,7 @@ is a fork; §7 states the rule.
 | Component | Status | Where | Notes |
 |---|---|---|---|
 | Fuzz targets (cargo-fuzz, libFuzzer) | **SHIPPED** | `fuzz/` | Decoders and SV2 frames; `car_decode.rs` fuzzes untrusted archives |
-| Kani model checking | **SHIPPED** | `ledger-math`, `dex`, `governance`, `fee-market`, `threat-intel` | Which is why those crates stay dependency-free — invariants 1, 6. `threat-intel`'s 4 harnesses verified 2026-09-15 (Kani 0.67.0, Linux) |
+| Kani model checking | **SHIPPED** | `ledger-math`, `dex`, `governance`, `fee-market`, `threat-intel`, `amount` | Which is why those crates stay dependency-free — invariants 1, 6. `threat-intel`'s 4 harnesses verified 2026-09-15 (Kani 0.67.0, Linux) |
 | Supply-chain gates | **SHIPPED** | `deny.toml`, `cargo audit` | Committed, run in CI |
 | Telemetry threat surface | **SHIPPED** | `telemetry` | Nothing on the dashboard is verified, and that is stated rather than papered over — invariants 14, 15 |
 | State invariant guard + circuit breaker | **SHIPPED** | `crates/node/src/state/invariant_guard/` | Value conservation over all five holding places fails the block; an anomaly halts one module for 100 blocks and never a transfer — invariant 28, [invariant-guard.md](invariant-guard.md) |
@@ -204,6 +205,7 @@ is a fork; §7 states the rule.
 |---|---|---|---|
 | Tauri 2.0 desktop wallet | **SHIPPED** | `apps/wallet-gui/` | Plus the CLI wallet in `wallet` |
 | Maya Chat (detached P2P messenger) | **RESEARCH** | `apps/chat` | ADR-031: an identity is an ML-DSA-65 key whose address is the chain's; X-Wing (ML-KEM-768 + X25519) prekeys; each message key used once; relays over libp2p hold ciphertext for offline recipients under per-mailbox and relay-wide quotas. Links no node code. Unaudited — external review before anyone relies on it. **PLANNED:** MLS groups, a per-message KEM ratchet, mixnet metadata privacy, on-chain prekey anchoring |
+| Maya2C Hub (desktop miner and app map) | **PLANNED** | `apps/hub` | ADR-045: Tauri 2 window that runs the share miner as a child process and draws its hash rate, shares and earnings, NVIDIA telemetry, network height and committee, and a status map of every app and field. Never holds keys. Built and unit-tested; no end-to-end run against a mining chain yet |
 | Leptos block explorer and dashboard | **SHIPPED** | `explorer`, `apps/dashboard/` | `apps/dashboard/` is not a workspace member — CSR Leptos is `wasm32` only |
 | Axum REST/GraphQL gateway | **SHIPPED** | `api-gateway` | Talks JSON-RPC to a node, never opens the state database. `maya2c-gateway` serves it; the TypeScript SDK reaches a live node through it (`cargo xtask sdk-e2e`) |
 | Vault accounts (PQ harbor) | **SHIPPED** | `state::vault`, `TxKind::Vault` (tag 52), `maya2c vault` | ADR-030: over-limit withdrawals wait `delay_blocks` and any guardian cancels; the limit is per window and counts fee outputs above 4x the required fee; nothing else leaves a vault. Invariant 32. Outside-asset bridging not built |

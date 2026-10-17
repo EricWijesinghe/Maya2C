@@ -16,6 +16,8 @@ path = "src/main.rs"
 
 [dependencies]
 maya-vm = { path = "../../crates/vm" }
+# ADR-046: money is a U256 (the node's wire amounts, decimal strings).
+primitive-types.workspace = true
 # `maya2c dev`: transaction construction and the wallet's keystore and RPC
 # client, so a dev deploy is exactly what a real one is.
 custom-l1-node = { path = "../../crates/node" }

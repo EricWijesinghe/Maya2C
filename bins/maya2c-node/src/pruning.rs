@@ -45,6 +45,11 @@ pub(super) async fn open_or_bootstrap(
     genesis: Block,
     chain_config: ChainConfig,
 ) -> Result<Chain, Box<dyn Error>> {
+    // Only with --bootstrap-from: without it, a genesis-only database is a
+    // real chain at height 0 and is kept.
+    if args.bootstrap_from.is_some() && state.discard_interrupted_bootstrap()? {
+        println!("bootstrap:   the last bootstrap never finished; starting it again");
+    }
     let fresh = state.chain_meta()?.is_none();
     if fresh && let Some(url) = &args.bootstrap_from {
         let depth = args.prune_depth.unwrap_or(PRUNE_DEPTH);

@@ -48,7 +48,7 @@ fn draft(policy: MultisigPolicy) -> Transaction {
             index: 0,
         }],
         vec![TxOutput {
-            amount: 40,
+            amount: primitive_types::U256::from(40),
             recipient: [9; 32],
         }],
         3,
@@ -156,7 +156,7 @@ fn two_approvals_do_not_spend_a_three_of_five() {
 fn a_changed_output_invalidates_every_approval() {
     let keys = members();
     let mut tx = approve(draft(policy(&keys)), &keys, &[0, 1, 2]);
-    tx.outputs[0].amount = 4_000;
+    tx.outputs[0].amount = primitive_types::U256::from(4_000);
     assert!(
         tx.verify_at(AT, &SuitePolicy::genesis(Network::Mainnet), &CHAIN)
             .is_err()
@@ -202,7 +202,8 @@ fn hostile_frames_are_refused_before_any_signature_is_read() {
     assert!(Transaction::from_bytes(&trailing).is_err());
 
     // Locate the approval count: after version, io, policy and nonce.
-    let io = 8 + 36 + 8 + 40;
+    // One input, one output; an output is a 32-byte amount (ADR-046) and an address.
+    let io = 8 + 36 + 8 + 64;
     let policy_len = tx
         .multisig
         .as_ref()

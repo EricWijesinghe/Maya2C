@@ -33,6 +33,7 @@ use custom_l1_node::state::account::Account;
 use custom_l1_node::state::db::StateDB;
 use maya_crypto_pq::suite::{MasterSeed, MlDsa65, SignatureSuite};
 use maya_dag_bft::Params;
+use primitive_types::U256;
 
 const VALIDATORS: usize = 4;
 
@@ -71,7 +72,7 @@ fn sign_all(accounts: usize, per_account: u64) -> Vec<Transaction> {
                         let mut tx = Transaction::new(
                             vec![],
                             vec![TxOutput {
-                                amount: 1,
+                                amount: primitive_types::U256::from(1),
                                 recipient: [0x77; 32],
                             }],
                             nonce,
@@ -126,7 +127,7 @@ fn main() {
                 .put_account(
                     s,
                     &Account {
-                        balance: 1_000_000,
+                        balance: U256::from(1_000_000u64),
                         nonce: 0,
                     },
                 )

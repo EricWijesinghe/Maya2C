@@ -128,11 +128,11 @@ const LAST_SINGLE_SIGNATURE_WIRE_VERSION: u8 = 4;
 /// Encoded size of a [`TxInput`]: 32-byte hash plus a `u32` index.
 const INPUT_SIZE: usize = 36;
 
-/// Encoded size of a [`TxOutput`]: `u64` amount plus a 32-byte address.
+/// Encoded size of a [`TxOutput`]: 32-byte `U256` amount plus a 32-byte address.
 ///
 /// Unchanged by the move to ML-DSA, because outputs name an address rather than
 /// a key. Only the sender's key grew.
-const OUTPUT_SIZE: usize = 40;
+const OUTPUT_SIZE: usize = 32 + ADDRESS_LEN;
 
 /// Reference to the output of an earlier transaction.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -147,7 +147,7 @@ pub struct TxInput {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TxOutput {
     /// Amount transferred, in base units.
-    pub amount: u64,
+    pub amount: primitive_types::U256,
     /// Recipient's address, i.e. the hash of their ML-DSA-65 public key.
     pub recipient: [u8; ADDRESS_LEN],
 }
@@ -496,7 +496,7 @@ impl Transaction {
         }
         buf.extend_from_slice(&(self.outputs.len() as u64).to_le_bytes());
         for output in &self.outputs {
-            buf.extend_from_slice(&output.amount.to_le_bytes());
+            crate::core::codec::put_amount(buf, &output.amount);
             buf.extend_from_slice(&output.recipient);
         }
     }
@@ -516,7 +516,7 @@ impl Transaction {
         let mut outputs = Vec::with_capacity(output_count);
         for _ in 0..output_count {
             outputs.push(TxOutput {
-                amount: reader.read_u64()?,
+                amount: reader.read_amount()?,
                 recipient: reader.read_array::<ADDRESS_LEN>()?,
             });
         }

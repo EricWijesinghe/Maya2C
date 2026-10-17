@@ -138,7 +138,7 @@ impl Wallet {
         &mut self,
         index: u32,
         recipient: &str,
-        amount: u64,
+        amount: primitive_types::U256,
         terms: &SignTerms<'_>,
     ) -> Result<SignedTransfer> {
         let path = DerivationPath::account(0, index);
@@ -276,8 +276,8 @@ pub async fn fee_quote(node_url: &str) -> Result<FeeQuote> {
 /// used offline: the fee and where it goes, the nonce, and the chain.
 #[derive(Clone, Copy, Debug)]
 pub struct SignTerms<'a> {
-    /// The fee, in base units.
-    pub fee: u64,
+    /// The fee, in base units: 256-bit like every amount (ADR-046).
+    pub fee: primitive_types::U256,
     /// The fee collector from [`fee_quote`] on a fee-market chain; `None`
     /// burns the fee, which only a chain without fees accepts.
     pub fee_to: Option<&'a str>,
@@ -353,5 +353,10 @@ pub async fn fetch_account(node_url: &str, address: &str) -> Result<(u64, u64)> 
         .await
         .map_err(|e| WalletError::Node(e.to_string()))?;
 
-    Ok((info.balance, info.nonce))
+    // The wallet's balance API is still u64 (ADR-046 Priority 2). A balance above
+    // u64::MAX is refused, never truncated.
+    let balance = u64::try_from(info.balance).map_err(|_| {
+        WalletError::Node("balance exceeds u64; wallet not yet widened (ADR-046)".to_string())
+    })?;
+    Ok((balance, info.nonce))
 }

@@ -25,6 +25,18 @@
 
 ---
 
+## Help run the network — one line
+
+Paste one line and your computer becomes a node of the test network. No
+technical background is needed. Full steps, with a section for each OS:
+**[maya2c.dev/guides/help-run](https://maya2c.dev/guides/help-run/)**.
+
+| Your computer | Paste this |
+|---|---|
+| **Windows** (PowerShell) | `irm https://raw.githubusercontent.com/EricWijesinghe/Maya2C/master/scripts/join-testnet.ps1 \| iex` |
+| **Mac** (Terminal) | `curl -fsSL https://raw.githubusercontent.com/EricWijesinghe/Maya2C/master/scripts/join-testnet.sh \| bash` |
+| **Linux** | `curl -fsSL https://raw.githubusercontent.com/EricWijesinghe/Maya2C/master/scripts/join-testnet.sh \| bash` |
+
 ## The short version
 
 Every transaction carries **two** signatures — ML-DSA-65 (FIPS 204) and

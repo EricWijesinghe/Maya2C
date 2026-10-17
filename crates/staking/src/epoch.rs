@@ -3,6 +3,8 @@
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
+use maya_amount::Amount;
+
 use crate::params::{BPS, bps_of};
 use crate::types::{Address, Effect, StakeError, Staking, Status, ValidatorId};
 
@@ -44,12 +46,12 @@ impl Staking {
     ///
     /// # Errors
     ///
-    /// Only overflow, which conservation makes unreachable below `u64::MAX`
+    /// Only overflow, which conservation makes unreachable below 2²⁵⁶ − 1
     /// total supply.
     pub fn end_epoch(
         &mut self,
         participation: &Participation,
-        reward_pool: u64,
+        reward_pool: Amount,
     ) -> Result<EpochOutcome, StakeError> {
         let mut out = EpochOutcome::default();
         let jailed = self.punish_downtime(participation, &mut out)?;
@@ -57,7 +59,7 @@ impl Staking {
         self.epoch = self.epoch.checked_add(1).ok_or(StakeError::Overflow)?;
         self.release(&mut out);
         self.validators
-            .retain(|_, v| v.status == Status::Tombstoned || v.total() > 0);
+            .retain(|_, v| v.status == Status::Tombstoned || !v.total().is_zero());
         let max = usize::from(self.params.max_validators);
         self.active = self.ranked().into_iter().take(max).map(|s| s.id).collect();
         out.active.clone_from(&self.active);
@@ -101,31 +103,34 @@ impl Staking {
     fn pay_rewards(
         &self,
         jailed: &[ValidatorId],
-        pool: u64,
+        pool: Amount,
         out: &mut EpochOutcome,
     ) -> Result<(), StakeError> {
-        let earners: Vec<(ValidatorId, u64)> = self
+        let earners: Vec<(ValidatorId, Amount)> = self
             .active
             .iter()
             .filter(|id| !jailed.contains(id))
             .filter_map(|id| self.validators.get(id).map(|v| (*id, v.total())))
-            .filter(|(_, t)| *t > 0)
+            .filter(|(_, t)| !t.is_zero())
             .collect();
-        let total: u128 = earners.iter().map(|(_, t)| u128::from(*t)).sum();
+        let total = earners
+            .iter()
+            .try_fold(Amount::ZERO, |sum, (_, t)| sum.checked_add(*t))
+            .ok_or(StakeError::Overflow)?;
         // Delegations grouped by validator in one pass, so paying every
         // validator is O(delegations), not O(validators × delegations): an
         // attacker who mass-delegates dust must not make every node's epoch
         // boundary quadratic. Grouping keeps each list in delegator order,
         // which is the order the effects were emitted in before.
-        let mut by_validator: BTreeMap<ValidatorId, Vec<(Address, u64)>> = BTreeMap::new();
+        let mut by_validator: BTreeMap<ValidatorId, Vec<(Address, Amount)>> = BTreeMap::new();
         for ((delegator, validator), amount) in &self.delegations {
             by_validator
                 .entry(*validator)
                 .or_default()
                 .push((*delegator, *amount));
         }
-        let mut paid: u64 = 0;
-        if total > 0 {
+        let mut paid = Amount::ZERO;
+        if !total.is_zero() {
             for (id, stake) in &earners {
                 let share = share_of(pool, *stake, total);
                 let delegations = by_validator.get(id).map_or(&[][..], Vec::as_slice);
@@ -135,7 +140,7 @@ impl Staking {
             }
         }
         let dust = pool.checked_sub(paid).ok_or(StakeError::Overflow)?;
-        if dust > 0 {
+        if !dust.is_zero() {
             out.effects.push(Effect::Burn(dust));
         }
         Ok(())
@@ -146,27 +151,27 @@ impl Staking {
     fn pay_validator(
         &self,
         id: ValidatorId,
-        reward: u64,
-        delegations: &[(Address, u64)],
+        reward: Amount,
+        delegations: &[(Address, Amount)],
         out: &mut EpochOutcome,
-    ) -> Result<u64, StakeError> {
+    ) -> Result<Amount, StakeError> {
         let Some(v) = self.validators.get(&id) else {
-            return Ok(0);
+            return Ok(Amount::ZERO);
         };
         let commission = bps_of(reward, v.commission_bps);
-        let rest = reward - commission;
-        let total = u128::from(v.total());
-        let mut credited: u64 = 0;
+        let rest = reward.checked_sub(commission).ok_or(StakeError::Overflow)?;
+        let total = v.total();
+        let mut credited = Amount::ZERO;
         let own = commission
             .checked_add(share_of(rest, v.self_bond, total))
             .ok_or(StakeError::Overflow)?;
-        if own > 0 {
+        if !own.is_zero() {
             out.effects.push(Effect::Credit(v.operator, own));
             credited = own;
         }
         for (delegator, amount) in delegations {
             let cut = share_of(rest, *amount, total);
-            if cut > 0 {
+            if !cut.is_zero() {
                 out.effects.push(Effect::Credit(*delegator, cut));
                 credited = credited.checked_add(cut).ok_or(StakeError::Overflow)?;
             }
@@ -182,18 +187,15 @@ impl Staking {
         self.unbonding = waiting;
         out.effects.extend(
             due.into_iter()
-                .filter(|u| u.amount > 0)
+                .filter(|u| !u.amount.is_zero())
                 .map(|u| Effect::Credit(u.owner, u.amount)),
         );
     }
 }
 
-/// `pool × part / whole`, rounded down. `part ≤ whole` for every caller, so
-/// the result fits `u64`.
-fn share_of(pool: u64, part: u64, whole: u128) -> u64 {
-    if whole == 0 {
-        return 0;
-    }
-    let share = u128::from(pool) * u128::from(part) / whole;
-    u64::try_from(share).unwrap_or(0)
+/// `pool × part / whole`, rounded down, through a 512-bit product. `part ≤
+/// whole` for every caller, so the result is at most `pool`; zero for an empty
+/// `whole`.
+fn share_of(pool: Amount, part: Amount, whole: Amount) -> Amount {
+    pool.mul_div(part, whole).unwrap_or(Amount::ZERO)
 }

@@ -22,6 +22,7 @@ use maya_crypto_pq::agility::SuitePolicy;
 use maya_dex::batch::SwapIntent;
 use maya_dex::types::PairId;
 use maya_ledger_math as ledger_math;
+use primitive_types::U256;
 use rocksdb::{BlockBasedOptions, Cache, DB, IteratorMode, Options, WriteBatch};
 
 use crate::core::payload::ChannelId;
@@ -85,6 +86,8 @@ pub(crate) struct Overlay {
     pub(crate) shielded: Option<ShieldedPool>,
     /// Joinsplits staged so far, for the per-block verification budget.
     pub(crate) joinsplits: usize,
+    /// Mining shares staged so far, against the per-block cap (ADR-044).
+    pub(crate) mining_shares: u64,
     /// Every record the trading subsystem wrote, keyed by its storage key.
     /// `None` is a deletion.
     ///
@@ -151,7 +154,7 @@ pub(crate) struct Overlay {
     pub(crate) difficulty_target: [u8; HASH_LEN],
     /// Base fee owed by this block's transactions so far, to be burned at the
     /// end of the block (ADR-029). Zero where fees are not configured.
-    pub(crate) fee_burn: u128,
+    pub(crate) fee_burn: U256,
     /// Serialized bytes of this block's transactions so far: what the next
     /// base fee steps from.
     pub(crate) fee_bytes: u64,
@@ -245,6 +248,9 @@ pub struct StateDB {
     /// Set once on initialization and required for all transaction verification
     /// (ADR-036: chain-bound signatures).
     chain_tag: OnceLock<ChainTag>,
+    /// DAG caches for mining shares (ADR-044), built on the first share so a
+    /// chain that does not mine never pays for one.
+    pub(crate) mining_dag: OnceLock<std::sync::Arc<crate::crypto::dag::registry::CacheRegistry>>,
 }
 
 impl StateDB {
@@ -300,6 +306,7 @@ impl StateDB {
             verified: crate::state::verified::VerifiedCache::default(),
             preview: crate::state::preview::PreviewCache::default(),
             chain_tag: OnceLock::new(),
+            mining_dag: OnceLock::new(),
         })
     }
 
@@ -816,8 +823,15 @@ impl StateDB {
             });
         }
 
-        let total_out = ledger_math::total_outputs(tx.outputs.iter().map(|output| output.amount))
-            .ok_or(NodeError::BalanceOverflow)?;
+        // Outputs are 256-bit on the wire (ADR-046); ledger-math's proved fold
+        // sums them and refuses any intermediate overflow.
+        let total_out = ledger_math::total_outputs(
+            tx.outputs
+                .iter()
+                .map(|output| maya_stateless_core::amount::to_amount(output.amount)),
+        )
+        .map(maya_stateless_core::amount::to_u256)
+        .ok_or(NodeError::BalanceOverflow)?;
 
         if sender.balance < total_out {
             return Err(NodeError::InsufficientBalance {
@@ -829,8 +843,10 @@ impl StateDB {
 
         // Debit and advance the nonce. The subtraction cannot underflow given
         // the check above, but stay explicit rather than relying on it.
-        sender.balance =
-            ledger_math::debit(sender.balance, total_out).ok_or(NodeError::BalanceOverflow)?;
+        sender.balance = sender
+            .balance
+            .checked_sub(total_out)
+            .ok_or(NodeError::BalanceOverflow)?;
         sender.nonce =
             ledger_math::advance_nonce(sender.nonce).ok_or(NodeError::BalanceOverflow)?;
         overlay.accounts.insert(sender_address, sender);
@@ -839,7 +855,9 @@ impl StateDB {
         // transfer sees the already-debited balance.
         for output in &tx.outputs {
             let mut recipient = self.load(overlay, &output.recipient)?;
-            recipient.balance = ledger_math::credit(recipient.balance, output.amount)
+            recipient.balance = recipient
+                .balance
+                .checked_add(output.amount)
                 .ok_or(NodeError::BalanceOverflow)?;
             overlay.accounts.insert(output.recipient, recipient);
         }
@@ -900,6 +918,9 @@ impl StateDB {
         // Burn the base fee before staking runs, so an epoch's reward pool is
         // the tips alone.
         self.settle_fees(&mut overlay)?;
+        // Before staking: an epoch boundary moves the committee's mining reward
+        // into the collector, which staking then pays out with the tips.
+        self.settle_mining(&mut overlay, &block.header, context)?;
         // After governance and before the invariants: the epoch boundary moves
         // bonds, rewards and slashes, which the conservation check must see.
         self.settle_staking(&mut overlay, &block.header, context)?;

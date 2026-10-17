@@ -12,6 +12,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use primitive_types::U256;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -50,7 +51,7 @@ fn transfer(from: &HybridSigningKey, amount: u64, nonce: u64) -> Transaction {
     let mut tx = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount,
+            amount: primitive_types::U256::from(amount),
             recipient: [0x77; 32],
         }],
         nonce,
@@ -68,7 +69,7 @@ fn funded(n: u8) -> (Chain, TempDir) {
             .put_account(
                 &key(i).address(),
                 &Account {
-                    balance: 1_000_000,
+                    balance: U256::from(1_000_000),
                     nonce: 0,
                 },
             )
@@ -152,7 +153,7 @@ fn deep_reorg_of_twenty_blocks_rewrites_state_to_the_heavier_branch() {
     );
     assert_eq!(
         main.state().get_account(&key(0).address()).unwrap().balance,
-        1_000_000 - 21 * 7
+        primitive_types::U256::from(1_000_000 - 21 * 7)
     );
     println!(
         "deep-reorg: 20 blocks reverted, 21 applied, state identical to the heavier branch's, in {secs:.2} s"
@@ -191,7 +192,7 @@ fn silent_state_corruption_is_detected_and_rebuilt_from_the_block_store() {
             .put_account(
                 &key(0).address(),
                 &Account {
-                    balance: 1_000_000,
+                    balance: U256::from(1_000_000),
                     nonce: 0,
                 },
             )
@@ -206,7 +207,7 @@ fn silent_state_corruption_is_detected_and_rebuilt_from_the_block_store() {
             .put_account(
                 &key(0).address(),
                 &Account {
-                    balance: 42,
+                    balance: U256::from(42),
                     nonce: 10,
                 },
             )
@@ -236,7 +237,7 @@ fn silent_state_corruption_is_detected_and_rebuilt_from_the_block_store() {
         .put_account(
             &key(0).address(),
             &Account {
-                balance: 1_000_000,
+                balance: U256::from(1_000_000),
                 nonce: 0,
             },
         )

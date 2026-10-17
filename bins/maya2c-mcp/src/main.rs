@@ -134,7 +134,7 @@ fn explain(kind: &str) -> Result<Value, String> {
             "STF-3",
         ),
         "BalanceOverflow" => (
-            "An amount would exceed the largest representable balance (2^64 - 1).",
+            "An amount would exceed the largest representable amount (2^256 - 1, ADR-046).",
             "STF-2, STF-4, STF-5",
         ),
         "BadSignature" | "SignatureVerification" | "HashSignatureVerification" => (

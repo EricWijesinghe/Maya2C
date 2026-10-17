@@ -36,6 +36,11 @@ fn load(name: &str) -> Value {
     serde_json::from_str(&std::fs::read_to_string(spec(name)).expect(name)).unwrap()
 }
 
+/// A balance: a 256-bit decimal string (ADR-046), not a u64.
+fn amount(v: &Value) -> primitive_types::U256 {
+    primitive_types::U256::from_dec_str(v.as_str().unwrap()).unwrap()
+}
+
 /// Vectors carry every u64 as a decimal string (see spec-vectors).
 fn num(v: &Value) -> u64 {
     v.as_str()
@@ -96,7 +101,7 @@ fn signed(keys: &BTreeMap<String, HybridSigningKey>, t: &Value) -> Transaction {
         .unwrap()
         .iter()
         .map(|o| TxOutput {
-            amount: num(&o["amount"]),
+            amount: amount(&o["amount"]),
             recipient: address(keys, o["to"].as_str().unwrap()),
         })
         .collect();
@@ -151,7 +156,7 @@ fn run_stf_case(keys: &BTreeMap<String, HybridSigningKey>, case: &Value) {
     common::bind(&db);
     for a in case["pre"].as_array().unwrap() {
         let acc = Account {
-            balance: num(&a["balance"]),
+            balance: amount(&a["balance"]),
             nonce: num(&a["nonce"]),
         };
         db.put_account(&address(keys, a["account"].as_str().unwrap()), &acc)
@@ -196,7 +201,7 @@ fn run_stf_case(keys: &BTreeMap<String, HybridSigningKey>, case: &Value) {
                     .unwrap();
                 assert_eq!(
                     (acc.balance, acc.nonce),
-                    (num(&a["balance"]), num(&a["nonce"])),
+                    (amount(&a["balance"]), num(&a["nonce"])),
                     "{id}: post account"
                 );
             }
@@ -282,12 +287,16 @@ fn fee_vectors() {
         let n = |k: &str| num(&case[k]);
         match case["fn"].as_str().unwrap() {
             "split" => {
-                let s = maya_fee_market::split(n("base_fee_paid"), 0, n("treasury_bps"));
+                let s = maya_fee_market::split(
+                    maya_ledger_math::Amount::from_u64(n("base_fee_paid")),
+                    maya_ledger_math::Amount::from_u64(0),
+                    n("treasury_bps"),
+                );
                 assert_eq!(
                     (s.burned, s.treasury),
                     (
-                        num(&case["expect"]["burned"]),
-                        num(&case["expect"]["treasury"])
+                        maya_ledger_math::Amount::from_u64(num(&case["expect"]["burned"])),
+                        maya_ledger_math::Amount::from_u64(num(&case["expect"]["treasury"]))
                     ),
                     "{id}"
                 );
@@ -311,8 +320,8 @@ fn fee_vectors() {
                 );
                 let tx = maya_fee_market::TxFee {
                     size_bytes: n("size_bytes"),
-                    max_fee: n("max_fee"),
-                    max_tip: 0,
+                    max_fee: maya_ledger_math::Amount::from_u64(n("max_fee")),
+                    max_tip: maya_ledger_math::Amount::from_u64(0),
                 };
                 let got = maya_fee_market::apply_block_fees(
                     &c,

@@ -13,7 +13,7 @@ use custom_l1_node::genesis::{Allocation, GenesisConfig, MAX_TREASURY_SHARE_BPS,
 fn allocation(byte: u8, balance: u64) -> Allocation {
     Allocation {
         address: hex::encode([byte; 32]),
-        balance,
+        balance: primitive_types::U256::from(balance),
     }
 }
 
@@ -37,7 +37,7 @@ fn config(treasury: Option<TreasuryGenesis>) -> GenesisConfig {
 fn treasury(byte: u8, balance: u64, share_bps: u16) -> TreasuryGenesis {
     TreasuryGenesis {
         address: hex::encode([byte; 32]),
-        balance,
+        balance: primitive_types::U256::from(balance),
         share_bps,
     }
 }
@@ -140,7 +140,7 @@ fn the_treasury_is_credited_as_an_account() {
         .iter()
         .find(|(a, _)| a.as_slice() == address.as_slice())
         .expect("treasury account is present");
-    assert_eq!(found.1.balance, 200_000);
+    assert_eq!(u64::try_from(found.1.balance).expect("fits u64"), 200_000);
     assert_eq!(found.1.nonce, 0);
 }
 
@@ -172,12 +172,15 @@ fn the_state_root_does_not_depend_on_where_the_treasury_was_declared() {
 
 #[test]
 fn total_supply_includes_the_treasury() {
-    assert_eq!(config(None).total_supply().expect("valid"), 800_000);
+    assert_eq!(
+        config(None).total_supply().expect("valid"),
+        primitive_types::U256::from(800_000)
+    );
     assert_eq!(
         config(Some(treasury(9, 200_000, 2_000)))
             .total_supply()
             .expect("valid"),
-        1_000_000
+        primitive_types::U256::from(1_000_000)
     );
 }
 

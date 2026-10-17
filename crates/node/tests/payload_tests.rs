@@ -55,8 +55,8 @@ fn closure(seq: u64, a: u64, b: u64) -> ChannelClosure {
     ChannelClosure {
         channel_id: [7u8; 32],
         seq,
-        balance_a: a,
-        balance_b: b,
+        balance_a: primitive_types::U256::from(a),
+        balance_b: primitive_types::U256::from(b),
         revocation_commitment: [9u8; 32],
         // Arbitrary bytes: these tests exercise the wire encoding, not the
         // signature schemes, so nothing here has to verify. Each half gets a
@@ -89,7 +89,7 @@ fn transfer_tx() -> Transaction {
     Transaction::new(
         vec![],
         vec![TxOutput {
-            amount: 500,
+            amount: primitive_types::U256::from(500),
             recipient: [3u8; 32],
         }],
         7,
@@ -111,7 +111,7 @@ const TRANSFER_SIGNING_PREFIX: &str = "\
 2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a\
 0000000000000000\
 0100000000000000\
-f401000000000000\
+f401000000000000000000000000000000000000000000000000000000000000\
 0303030303030303030303030303030303030303030303030303030303030303";
 
 /// BLAKE3 of an unsigned transfer's complete signing bytes.
@@ -119,13 +119,17 @@ f401000000000000\
 /// Frozen rather than recomputed, so a change to the encoding fails here instead
 /// of silently agreeing with itself. Any change to this value is a consensus
 /// change: it invalidates every signature in existence.
+///
+/// Re-pinned 2026-10-13 for ADR-046: the output amount became 32 bytes. That
+/// is the consensus change this constant exists to make deliberate; every
+/// signature over the old 8-byte form is invalid on a re-genesised chain.
 const TRANSFER_SIGNING_DIGEST: &str =
-    "f617a3a3df21d4f32e26593e770dc81d389f121ff2c34897d11e677c3a7608ce";
+    "002988bfd60e9ec080eb541072d63117ea489dddddfe3c8939e3a1b96da90e5a";
 
 /// Length of those signing bytes: domain, chain tag, two counts, one output,
 /// both public keys, and the nonce.
 const TRANSFER_SIGNING_LEN: usize =
-    20 + 32 + 8 + 8 + 8 + 32 + ML_DSA_PUBLIC_KEY_LEN + SLH_DSA_PUBLIC_KEY_LEN + 8;
+    20 + 32 + 8 + 8 + 32 + 32 + ML_DSA_PUBLIC_KEY_LEN + SLH_DSA_PUBLIC_KEY_LEN + 8;
 
 /// The genesis id the documented bytes are signed for: fixed here rather than
 /// taken from a test helper, so the literal above cannot drift with one.
@@ -218,7 +222,7 @@ fn every_payload_kind_has_distinct_signing_bytes() {
         TxKind::Transfer,
         TxKind::OpenChannel(ChannelOpen {
             counterparty: [4u8; 32],
-            funding: 1_000,
+            funding: primitive_types::U256::from(1_000),
             dispute_window: 100,
         }),
         TxKind::CooperativeClose(closure(1, 50, 50)),
@@ -236,37 +240,37 @@ fn every_payload_kind_has_distinct_signing_bytes() {
         // signature authorizing one must never authorize the other.
         TxKind::RegisterAsset(AssetRegistration {
             symbol: *b"AAA\0\0\0\0\0",
-            total_supply: 1_000,
+            total_supply: primitive_types::U256::from(1_000),
         }),
         TxKind::TransferAsset(AssetTransfer {
             asset: [1u8; 32],
             recipient: [2u8; 32],
-            amount: 1_000,
+            amount: primitive_types::U256::from(1_000),
         }),
         TxKind::CreatePool(PoolCreation {
             asset_a: [1u8; 32],
             asset_b: [2u8; 32],
             lp_fee_bps: 30,
-            amount_a: 1_000,
-            amount_b: 2_000,
+            amount_a: primitive_types::U256::from(1_000),
+            amount_b: primitive_types::U256::from(2_000),
         }),
         TxKind::AddLiquidity(LiquidityDeposit {
             pair: [3u8; 32],
-            base_desired: 1_000,
-            quote_desired: 2_000,
-            min_shares: 1,
+            base_desired: primitive_types::U256::from(1_000),
+            quote_desired: primitive_types::U256::from(2_000),
+            min_shares: primitive_types::U256::from(1),
         }),
         TxKind::RemoveLiquidity(LiquidityWithdrawal {
             pair: [3u8; 32],
-            shares: 1_000,
-            min_base: 2_000,
-            min_quote: 1,
+            shares: primitive_types::U256::from(1_000),
+            min_base: primitive_types::U256::from(2_000),
+            min_quote: primitive_types::U256::from(1),
         }),
         TxKind::Swap(SwapRequest {
             pair: [3u8; 32],
             direction: 0,
-            amount_in: 1_000,
-            min_out: 1,
+            amount_in: primitive_types::U256::from(1_000),
+            min_out: primitive_types::U256::from(1),
             deadline: 0,
         }),
         // Same numbers, other direction: a signature for a buy must not
@@ -274,8 +278,8 @@ fn every_payload_kind_has_distinct_signing_bytes() {
         TxKind::Swap(SwapRequest {
             pair: [3u8; 32],
             direction: 1,
-            amount_in: 1_000,
-            min_out: 1,
+            amount_in: primitive_types::U256::from(1_000),
+            min_out: primitive_types::U256::from(1),
             deadline: 0,
         }),
         TxKind::SwapRoute(SwapRoute {
@@ -283,15 +287,15 @@ fn every_payload_kind_has_distinct_signing_bytes() {
                 pair: [3u8; 32],
                 direction: 0,
             }],
-            amount_in: 1_000,
-            min_out: 1,
+            amount_in: primitive_types::U256::from(1_000),
+            min_out: primitive_types::U256::from(1),
             deadline: 0,
         }),
         TxKind::PlaceOrder(OrderPlacement {
             pair: [3u8; 32],
             side: 0,
-            price: 1_000,
-            amount: 1,
+            price: primitive_types::U256::from(1_000),
+            amount: primitive_types::U256::from(1),
             expiry: 0,
         }),
         TxKind::CancelOrder([4u8; 32]),
@@ -331,10 +335,12 @@ fn every_payload_kind_has_distinct_signing_bytes() {
             beneficiary: [11u8; 32],
         }),
         TxKind::LockStake(StakeLock {
-            amount: 1_000,
+            amount: primitive_types::U256::from(1_000),
             unlock_height: 5_000,
         }),
-        TxKind::UnlockStake(StakeUnlock { amount: 1_000 }),
+        TxKind::UnlockStake(StakeUnlock {
+            amount: primitive_types::U256::from(1_000),
+        }),
         TxKind::Propose(Box::new(ProposalSubmission {
             voting_blocks: 480,
             timelock_blocks: 960,
@@ -485,37 +491,37 @@ fn every_trading_kind_survives_a_round_trip_unchanged() {
     let kinds = vec![
         TxKind::RegisterAsset(AssetRegistration {
             symbol: *b"MAYA2C\0\0",
-            total_supply: u64::MAX,
+            total_supply: primitive_types::U256::from(u64::MAX),
         }),
         TxKind::TransferAsset(AssetTransfer {
             asset: [0xAB; 32],
             recipient: [0xCD; 32],
-            amount: 1,
+            amount: primitive_types::U256::from(1),
         }),
         TxKind::CreatePool(PoolCreation {
             asset_a: [1u8; 32],
             asset_b: [2u8; 32],
             lp_fee_bps: 9_999,
-            amount_a: 12_345,
-            amount_b: 67_890,
+            amount_a: primitive_types::U256::from(12_345),
+            amount_b: primitive_types::U256::from(67_890),
         }),
         TxKind::AddLiquidity(LiquidityDeposit {
             pair: [3u8; 32],
-            base_desired: 1,
-            quote_desired: 2,
-            min_shares: 3,
+            base_desired: primitive_types::U256::from(1),
+            quote_desired: primitive_types::U256::from(2),
+            min_shares: primitive_types::U256::from(3),
         }),
         TxKind::RemoveLiquidity(LiquidityWithdrawal {
             pair: [3u8; 32],
-            shares: 4,
-            min_base: 5,
-            min_quote: 6,
+            shares: primitive_types::U256::from(4),
+            min_base: primitive_types::U256::from(5),
+            min_quote: primitive_types::U256::from(6),
         }),
         TxKind::Swap(SwapRequest {
             pair: [3u8; 32],
             direction: 1,
-            amount_in: 7,
-            min_out: 8,
+            amount_in: primitive_types::U256::from(7),
+            min_out: primitive_types::U256::from(8),
             deadline: 9,
         }),
         TxKind::SwapRoute(SwapRoute {
@@ -525,15 +531,15 @@ fn every_trading_kind_survives_a_round_trip_unchanged() {
                     direction: (index % 2) as u8,
                 })
                 .collect(),
-            amount_in: 10,
-            min_out: 11,
+            amount_in: primitive_types::U256::from(10),
+            min_out: primitive_types::U256::from(11),
             deadline: 12,
         }),
         TxKind::PlaceOrder(OrderPlacement {
             pair: [3u8; 32],
             side: 1,
-            price: 13,
-            amount: 14,
+            price: primitive_types::U256::from(13),
+            amount: primitive_types::U256::from(14),
             expiry: 15,
         }),
         TxKind::CancelOrder([0xEF; 32]),
@@ -557,16 +563,16 @@ fn a_route_with_no_legs_is_rejected() {
                 pair: [3u8; 32],
                 direction: 0,
             }],
-            amount_in: 1,
-            min_out: 0,
+            amount_in: primitive_types::U256::from(1),
+            min_out: primitive_types::U256::from(0),
             deadline: 0,
         }),
         0,
     )
     .to_bytes();
 
-    // The leg count sits before one leg and three trailing `u64`s.
-    let count_index = encoded.len() - ROUTE_LEG_SIZE - 24 - 8;
+    // The leg count sits before one leg, two 256-bit amounts and a `u64` deadline.
+    let count_index = encoded.len() - ROUTE_LEG_SIZE - (32 + 32 + 8) - 8;
     encoded[count_index..count_index + 8].copy_from_slice(&0u64.to_le_bytes());
 
     assert!(Transaction::from_bytes(&encoded).is_err());
@@ -580,15 +586,15 @@ fn a_route_longer_than_the_ceiling_is_rejected_before_it_is_allocated() {
                 pair: [3u8; 32],
                 direction: 0,
             }],
-            amount_in: 1,
-            min_out: 0,
+            amount_in: primitive_types::U256::from(1),
+            min_out: primitive_types::U256::from(0),
             deadline: 0,
         }),
         0,
     )
     .to_bytes();
 
-    let count_index = encoded.len() - ROUTE_LEG_SIZE - 24 - 8;
+    let count_index = encoded.len() - ROUTE_LEG_SIZE - (32 + 32 + 8) - 8;
     encoded[count_index..count_index + 8]
         .copy_from_slice(&(MAX_ROUTE_LEGS as u64 + 1).to_le_bytes());
 
@@ -607,8 +613,8 @@ fn a_trading_payload_cannot_collide_with_a_transfer() {
         TxKind::Swap(SwapRequest {
             pair: [0u8; 32],
             direction: 0,
-            amount_in: 0,
-            min_out: 0,
+            amount_in: primitive_types::U256::from(0),
+            min_out: primitive_types::U256::from(0),
             deadline: 0,
         }),
         TxKind::CancelOrder([0u8; 32]),
@@ -761,10 +767,12 @@ fn every_governance_kind_survives_a_round_trip_unchanged() {
             beneficiary: [0xAB; 32],
         }),
         TxKind::LockStake(StakeLock {
-            amount: u64::MAX,
+            amount: primitive_types::U256::from(u64::MAX),
             unlock_height: u64::MAX,
         }),
-        TxKind::UnlockStake(StakeUnlock { amount: 1 }),
+        TxKind::UnlockStake(StakeUnlock {
+            amount: primitive_types::U256::from(1),
+        }),
         TxKind::Propose(Box::new(ProposalSubmission {
             voting_blocks: 500,
             timelock_blocks: 1_000,
@@ -837,29 +845,35 @@ fn channel_ids_are_deterministic_and_parameter_sensitive() {
     let b = [2u8; 32];
 
     assert_eq!(
-        derive_channel_id(&a, &b, 1_000, 0),
-        derive_channel_id(&a, &b, 1_000, 0)
+        derive_channel_id(&a, &b, primitive_types::U256::from(1_000), 0),
+        derive_channel_id(&a, &b, primitive_types::U256::from(1_000), 0)
     );
 
     // The nonce is what lets one pair hold many channels without collision.
     assert_ne!(
-        derive_channel_id(&a, &b, 1_000, 0),
-        derive_channel_id(&a, &b, 1_000, 1)
+        derive_channel_id(&a, &b, primitive_types::U256::from(1_000), 0),
+        derive_channel_id(&a, &b, primitive_types::U256::from(1_000), 1)
     );
     assert_ne!(
-        derive_channel_id(&a, &b, 1_000, 0),
-        derive_channel_id(&a, &b, 2_000, 0)
+        derive_channel_id(&a, &b, primitive_types::U256::from(1_000), 0),
+        derive_channel_id(&a, &b, primitive_types::U256::from(2_000), 0)
     );
     // Ordering matters: A->B is not the same channel as B->A.
     assert_ne!(
-        derive_channel_id(&a, &b, 1_000, 0),
-        derive_channel_id(&b, &a, 1_000, 0)
+        derive_channel_id(&a, &b, primitive_types::U256::from(1_000), 0),
+        derive_channel_id(&b, &a, primitive_types::U256::from(1_000), 0)
     );
 }
 
 #[test]
 fn channel_state_bytes_are_domain_separated_from_transactions() {
-    let bytes = channel_state_signing_bytes(&[9u8; 32], 4, 10, 20, &[3u8; 32]);
+    let bytes = channel_state_signing_bytes(
+        &[9u8; 32],
+        4,
+        primitive_types::U256::from(10),
+        primitive_types::U256::from(20),
+        &[3u8; 32],
+    );
 
     // A channel state must never be reinterpretable as a transaction payload.
     assert!(bytes.starts_with(b"maya-flash.channel-state.v1"));

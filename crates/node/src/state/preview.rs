@@ -169,7 +169,7 @@ mod tests {
         let tx = Transaction::new(
             vec![],
             vec![TxOutput {
-                amount: 1,
+                amount: primitive_types::U256::from(1),
                 recipient: [2; 32],
             }],
             0,

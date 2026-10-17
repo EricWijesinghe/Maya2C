@@ -15,6 +15,7 @@
 //! well-formed, correctly signed, not already pooled, and consistent with
 //! committed state: nonce not stale, balance sufficient.
 
+use primitive_types::U256;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -127,14 +128,23 @@ impl Mempool {
         // transaction could never be built into a block, so pooling and
         // relaying it only costs every peer. The block's own check still runs
         // against the base fee at the height it lands.
+        // A mining share that moves nothing is fee-free and may come from an
+        // account that has never held a coin (ADR-044), so neither the fee nor
+        // the empty-sender rule below applies. It is admitted only if it would
+        // pay right now: right epoch, not yet spent, work meeting the target.
+        // Those run first because they are cheaper than the signature.
+        if let crate::core::TxKind::MiningShare(share) = &tx.kind
+            && tx.outputs.is_empty()
+        {
+            return self.validate_share(tx, share);
+        }
         if let Some(fees) = self.state.committed_fees()? {
-            let required = fees.required(tx.to_bytes().len());
-            let offered: u128 = tx
+            let required = U256::from(fees.required(tx.to_bytes().len()));
+            let offered = tx
                 .outputs
                 .iter()
                 .filter(|o| o.recipient == crate::state::fees::FEE_COLLECTOR)
-                .map(|o| u128::from(o.amount))
-                .sum();
+                .fold(U256::zero(), |sum, o| sum.saturating_add(o.amount));
             if offered < required {
                 return Err(NodeError::FeeTooLow { required, offered });
             }
@@ -142,7 +152,7 @@ impl Mempool {
 
         let sender_address = tx.sender();
         let sender = self.state.get_account(&sender_address)?;
-        if sender.balance == 0 && sender.nonce == 0 {
+        if sender.balance.is_zero() && sender.nonce == 0 {
             return Err(NodeError::EmptySender {
                 address: hex::encode(sender_address),
             });
@@ -160,7 +170,7 @@ impl Mempool {
             });
         }
 
-        let mut total_out: u64 = 0;
+        let mut total_out = U256::zero();
         for output in &tx.outputs {
             total_out = total_out
                 .checked_add(output.amount)
@@ -217,6 +227,32 @@ impl Mempool {
         }
         crate::state::iot_exec::admit(&self.state, &sender_address, &tx.kind)?;
 
+        self.check_breaker(&tx.kind)
+    }
+
+    /// Admission for a fee-free mining share (ADR-044). Cheapest first: a
+    /// stale nonce, then the share rules against committed state (epoch, spent
+    /// set, the 2 ms proof of work), and only then the signature. A flood of
+    /// shares that do not pay is refused before any of it reaches a block
+    /// template, and getting one admitted costs real work.
+    fn validate_share(
+        &self,
+        tx: &Transaction,
+        share: &crate::core::mining_payload::MiningShare,
+    ) -> Result<()> {
+        let miner = tx.sender();
+        let account = self.state.get_account(&miner)?;
+        if tx.nonce < account.nonce {
+            return Err(NodeError::InvalidNonce {
+                address: hex::encode(miner),
+                expected: account.nonce,
+                actual: tx.nonce,
+            });
+        }
+        self.state.check_mining_share(&miner, share)?;
+        let height = self.admission_height()?;
+        let policy = crate::crypto::suites::policy(&self.state.parameters()?)?;
+        self.state.verify_cached(tx, height, &policy)?;
         self.check_breaker(&tx.kind)
     }
 

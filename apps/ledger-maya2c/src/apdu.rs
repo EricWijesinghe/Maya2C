@@ -46,7 +46,7 @@ pub const INS_GET_PAGE: u8 = 0x08;
 /// A ceiling on RAM the host can make the device commit — the largest single
 /// buffer the app holds. What arrives is a v7 transfer's *signing bytes*:
 /// ~2 KB, most of it the device's own 1,952-byte public key, plus 36 bytes per
-/// input and 40 per output, so 4 KiB covers the most a review will show
+/// input and 64 per output (256-bit amounts, ADR-046), so 4 KiB covers the most a review will show
 /// (`review::MAX_INPUTS`, `MAX_OUTPUTS`) with room. It was 16 KiB when the
 /// signer was expected to be the hybrid, and that alone was 40% of a Nano S
 /// Plus's RAM.

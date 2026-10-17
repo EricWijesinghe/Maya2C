@@ -26,7 +26,7 @@ pub struct HtlcLock {
     /// out of a mempool can only pay the party the sender named.
     pub recipient: [u8; 32],
     /// Native base units to escrow.
-    pub amount: u64,
+    pub amount: primitive_types::U256,
     /// First height at which a claim is refused and a refund admitted.
     pub expiry_height: u64,
     /// What a claim must unlock. The same digest (or commitment) on both
@@ -54,7 +54,7 @@ impl HtlcLock {
     /// Appends the wire form.
     pub fn encode_into(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&self.recipient);
-        buf.extend_from_slice(&self.amount.to_le_bytes());
+        crate::core::codec::put_amount(buf, &self.amount);
         buf.extend_from_slice(&self.expiry_height.to_le_bytes());
         self.lock.encode_into(buf);
     }
@@ -67,7 +67,7 @@ impl HtlcLock {
     /// tag, or a commitment that is non-canonical or trivially openable.
     pub fn decode(reader: &mut ByteReader<'_>) -> Result<Self> {
         let recipient = reader.read_array::<32>()?;
-        let amount = reader.read_u64()?;
+        let amount = reader.read_amount()?;
         let expiry_height = reader.read_u64()?;
         let (lock, used) = Lock::decode(reader.peek_remaining()).map_err(lattice)?;
         reader.read_slice(used)?;

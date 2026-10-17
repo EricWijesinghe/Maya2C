@@ -66,9 +66,9 @@ fn the_review_shows_what_the_node_encoded() {
     assert_eq!(shown.output_count, 2);
     assert_eq!(shown.nonce, 7);
     assert_eq!(shown.genesis, f.genesis, "the network the user approves");
-    assert_eq!(shown.outputs[0].amount, 1_250_000);
+    assert_eq!(shown.outputs[0].amount, maya_amount::Amount::from_u64(1_250_000));
     assert_eq!(shown.outputs[0].recipient, [0x33; 32]);
-    assert_eq!(shown.outputs[1].amount, 40_000);
+    assert_eq!(shown.outputs[1].amount, maya_amount::Amount::from_u64(40_000));
     assert_eq!(shown.outputs[1].recipient, [0x44; 32]);
 }
 
@@ -125,7 +125,7 @@ fn the_review_refuses_what_it_cannot_honestly_show() {
     assert_eq!(review::review(&many, &public), Err(ReviewError::TooMany));
 
     // Another suite byte.
-    let suite_at = outputs_at + 8 + 2 * 40;
+    let suite_at = outputs_at + 8 + 2 * 64; // two outputs, 256-bit amounts
     let mut hybrid = f.signing_bytes.clone();
     hybrid[suite_at] = 0x30;
     assert_eq!(

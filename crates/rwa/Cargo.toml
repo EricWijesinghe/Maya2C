@@ -17,6 +17,8 @@ path = "src/lib.rs"
 # here — it lives in `ledger-math`, which is dependency-free so Kani can check
 # that the payouts sum to exactly the total.
 [dependencies]
+# Revenue is native coin, 256-bit (ADR-046); dependency-free.
+maya-amount = { path = "../amount" }
 thiserror.workspace = true
 
 [lints]

@@ -80,7 +80,7 @@ fn signed_block() -> Block {
     let mut tx = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount: 77,
+            amount: primitive_types::U256::from(77),
             recipient: [0x5Au8; 32],
         }],
         0,

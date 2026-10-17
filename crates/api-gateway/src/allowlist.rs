@@ -58,6 +58,12 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "get_checkpoint",
     "get_bft_status",
     "get_supply",
+    // Public by necessity (ADR-044/045): a miner with a GPU and no node gets
+    // its share header from here. Unlike `get_mining_candidate` it reveals
+    // nothing a node would not: the epoch's anchor and target are committed
+    // state, and the header is bound to the caller's own payout address, so
+    // work fetched for one address pays nobody else.
+    "get_mining_work",
     "send_raw_transaction",
 ];
 

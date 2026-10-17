@@ -20,6 +20,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::cast_precision_loss)]
 
+use primitive_types::U256;
 use std::time::Instant;
 
 use custom_l1_node::core::{Block, BlockHeader, Transaction, TxOutput};
@@ -63,7 +64,11 @@ fn leaf(hash: Hash, addr: &Address, a: &Account) -> [u8; 32] {
     hash.digest(&[
         &[0x00],
         addr,
-        &a.balance.to_le_bytes(),
+        &{
+            let mut b = [0u8; 32];
+            a.balance.to_little_endian(&mut b);
+            b
+        },
         &a.nonce.to_le_bytes(),
     ])
 }
@@ -126,7 +131,7 @@ fn every_node_recommits_to_the_same_new_root_and_proofs_switch_at_the_boundary()
             let mut tx = Transaction::new(
                 vec![],
                 vec![TxOutput {
-                    amount: 10 + n,
+                    amount: primitive_types::U256::from(10 + n),
                     recipient: [u8::try_from(n).unwrap() + 1; 32],
                 }],
                 n,
@@ -145,7 +150,7 @@ fn every_node_recommits_to_the_same_new_root_and_proofs_switch_at_the_boundary()
         db.put_account(
             &key.address(),
             &Account {
-                balance: 1_000,
+                balance: U256::from(1_000),
                 nonce: 0,
             },
         )
@@ -215,7 +220,7 @@ fn recommitment_time_for_a_million_accounts() {
             (
                 *blake3::hash(&i.to_le_bytes()).as_bytes(),
                 Account {
-                    balance: i,
+                    balance: primitive_types::U256::from(i),
                     nonce: i % 97,
                 },
             )

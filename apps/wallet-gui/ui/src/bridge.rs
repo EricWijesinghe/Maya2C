@@ -34,8 +34,9 @@ pub struct Account {
 pub struct PaymentRequest {
     /// Hex-encoded recipient.
     pub recipient: String,
-    /// Requested amount, if any.
-    pub amount: Option<u64>,
+    /// Requested amount, if any: a decimal string, as the wallet core sends
+    /// every 256-bit amount (ADR-046).
+    pub amount: Option<String>,
     /// Requester-supplied label. Untrusted text.
     pub label: Option<String>,
 }
@@ -49,12 +50,12 @@ pub struct SignedTransfer {
     pub sender: String,
     /// Hex-encoded recipient.
     pub recipient: String,
-    /// Amount sent.
-    pub amount: u64,
+    /// Amount sent, a decimal string (256-bit, ADR-046).
+    pub amount: String,
     /// Nonce used.
     pub nonce: u64,
-    /// Fee burned.
-    pub fee: u64,
+    /// Fee, a decimal string.
+    pub fee: String,
     /// Raw transaction hex.
     pub raw_hex: String,
 }

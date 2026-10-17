@@ -14,7 +14,7 @@ use core::fmt;
 /// Why a trading operation could not be performed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DexError {
-    /// An intermediate or result exceeded `u64`.
+    /// An intermediate or result exceeded 2^256 − 1.
     ///
     /// Distinct from a rule violation: it means the trade is unrepresentable at
     /// this pool's size, not that it was disallowed.
