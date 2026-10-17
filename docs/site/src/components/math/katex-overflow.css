@@ -1,0 +1,9 @@
+/* KaTeX's stylesheet centres display equations but does not contain them. A
+   long display formula at phone width would otherwise widen the whole page.
+   Scrolling inside the equation keeps the page at 390 px wide. */
+.katex-display {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}

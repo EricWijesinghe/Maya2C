@@ -147,6 +147,7 @@ export default defineConfig({
         "@fontsource-variable/jetbrains-mono",
         // KaTeX glyph styles, self-hosted from node_modules (fonts are same-origin).
         "katex/dist/katex.min.css",
+        "./src/components/math/katex-overflow.css",
         "./src/styles/maya.css",
       ],
       components: {
