@@ -2,35 +2,119 @@
    and phone-safe text wrapping. Colours come from the Forged Light tokens in
    maya.css. Decorative motion stops under prefers-reduced-motion. */
 
-/* Per-section accent families. Each route gets its own set, set on <html> by
-   data-section (Head.astro). Teal and bronze stay the anchors everywhere.
-   --speed paces the ambient field: calmer for docs, livelier for the marketing pages. */
-:root, html[data-section="home"], html[data-section="status"] {
+/* One background motif per route, set on <html> as data-motif by Head.astro.
+   Each motif has its own accent family, pace (--speed) and field strength
+   (--field-alpha). Teal and bronze stay the anchors everywhere. */
+
+/* Constellation lattice: home and status. The richest field. */
+:root, html[data-motif="lattice"] {
   --acc: #1fb5c2; --acc-rgb: 31 181 194;
   --acc-2: #c9a86a; --acc-2-rgb: 201 168 106;
   --acc-3: #a78bfa; --acc-3-rgb: 167 139 250;
   --speed: 1;
 }
-/* Aurora: violet into teal, for the app and SDK surfaces. */
-html[data-section="experience"], html[data-section="sdk"] {
+/* Aurora: flowing violet-teal ribbons with a warm bronze haze. Soft, for guides. */
+html[data-motif="aurora"] {
   --acc: #8b7cf6; --acc-rgb: 139 124 246;
   --acc-2: #1fb5c2; --acc-2-rgb: 31 181 194;
-  --acc-3: #7eeaf0; --acc-3-rgb: 126 234 240;
-  --speed: 1.4;
+  --acc-3: #e0a46c; --acc-3-rgb: 224 164 108;
+  --speed: 0.6;
 }
-/* Sunrise: bronze into coral, for the guides. Slowest field: reading happens here. */
-html[data-section="guides"] {
-  --acc: #e08a5c; --acc-rgb: 224 138 92;
-  --acc-2: #c9a86a; --acc-2-rgb: 201 168 106;
-  --acc-3: #f2b38a; --acc-3-rgb: 242 179 138;
-  --speed: 0.5;
-}
-/* Deep sea: cyan into indigo, for the reference and the launch record. */
-html[data-section="reference"] {
+/* Blueprint: calm cyan-indigo grid with slowly pulsing nodes. Reference, lowest motion. */
+html[data-motif="blueprint"] {
   --acc: #22d3ee; --acc-rgb: 34 211 238;
   --acc-2: #4f6fd6; --acc-2-rgb: 79 111 214;
   --acc-3: #1fb5c2; --acc-3-rgb: 31 181 194;
-  --speed: 0.7;
+  --speed: 0.5;
+}
+/* Circuit: neon traces with travelling current. Experience, SDK and developer pages. */
+html[data-motif="circuit"] {
+  --acc: #1fb5c2; --acc-rgb: 31 181 194;
+  --acc-2: #8b7cf6; --acc-2-rgb: 139 124 246;
+  --acc-3: #7eeaf0; --acc-3-rgb: 126 234 240;
+  --speed: 1.2;
+}
+/* Sunrise: bronze-coral particles drifting upward. Support and community. */
+html[data-motif="sunrise"] {
+  --acc: #e08a5c; --acc-rgb: 224 138 92;
+  --acc-2: #c9a86a; --acc-2-rgb: 201 168 106;
+  --acc-3: #f2b38a; --acc-3-rgb: 242 179 138;
+  --speed: 0.8;
+}
+/* The light theme paints the same fields at lower strength so body text stays readable. */
+:root[data-theme="light"] { --field-alpha: 0.55; }
+
+/* Static fallback per motif: phones, reduced motion, and browsers without WebGL.
+   Colours come from the same tokens, so the still picture matches the moving one. */
+.ambient > .fallback {
+  background:
+    radial-gradient(60rem 40rem at 88% 8%, rgb(var(--acc-rgb) / 0.16), transparent 70%),
+    radial-gradient(50rem 36rem at 6% 92%, rgb(var(--acc-2-rgb) / 0.12), transparent 70%),
+    var(--void);
+}
+html[data-motif="aurora"] .ambient > .fallback {
+  background:
+    radial-gradient(120% 22% at 30% 38%, rgb(var(--acc-rgb) / 0.20), transparent 70%),
+    radial-gradient(110% 18% at 75% 60%, rgb(var(--acc-2-rgb) / 0.16), transparent 70%),
+    radial-gradient(90% 14% at 50% 20%, rgb(var(--acc-3-rgb) / 0.08), transparent 70%),
+    var(--void);
+}
+html[data-motif="blueprint"] .ambient > .fallback {
+  background-color: var(--void);
+  background-image:
+    linear-gradient(rgb(var(--acc-rgb) / 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--acc-rgb) / 0.08) 1px, transparent 1px),
+    radial-gradient(60rem 40rem at 90% 10%, rgb(var(--acc-2-rgb) / 0.12), transparent 70%);
+  background-size: 48px 48px, 48px 48px, auto;
+}
+html[data-motif="circuit"] .ambient > .fallback {
+  background-color: var(--void);
+  background-image:
+    radial-gradient(circle, rgb(var(--acc-3-rgb) / 0.45) 1.5px, transparent 2px),
+    linear-gradient(rgb(var(--acc-rgb) / 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--acc-rgb) / 0.07) 1px, transparent 1px);
+  background-size: 64px 64px, 64px 64px, 64px 64px;
+}
+html[data-motif="sunrise"] .ambient > .fallback {
+  background-color: var(--void);
+  background-image:
+    radial-gradient(circle, rgb(var(--acc-rgb) / 0.45) 1.2px, transparent 1.8px),
+    linear-gradient(to top, rgb(var(--acc-2-rgb) / 0.16), transparent 55%);
+  background-size: 40px 40px, auto;
+}
+
+/* Section headers: a bar in the section's own accent family, moving to the
+   rhythm of its motif (sweep for lattice and aurora, a quick run for circuit,
+   a breath for blueprint, a glow for sunrise). Static under reduced motion. */
+.sl-markdown-content h2::after,
+.maya-section-title::after {
+  content: "";
+  display: block;
+  width: 3.5rem;
+  height: 3px;
+  margin-top: 0.6em;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--acc), var(--acc-3), var(--acc-2), transparent);
+  background-size: 200% 100%;
+  animation: maya-sweep 9s linear infinite;
+}
+html[data-motif="aurora"] :is(.sl-markdown-content h2, .maya-section-title)::after { animation-duration: 14s; }
+html[data-motif="circuit"] :is(.sl-markdown-content h2, .maya-section-title)::after { animation-duration: 2.4s; }
+html[data-motif="blueprint"] :is(.sl-markdown-content h2, .maya-section-title)::after {
+  background: var(--acc);
+  animation: maya-breathe 5s ease-in-out infinite;
+}
+html[data-motif="sunrise"] :is(.sl-markdown-content h2, .maya-section-title)::after {
+  animation: maya-glow 6s ease-in-out infinite;
+}
+
+@keyframes maya-breathe {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+@keyframes maya-glow {
+  0%, 100% { box-shadow: 0 0 0 rgb(var(--acc-rgb) / 0); }
+  50% { box-shadow: 0 0 16px rgb(var(--acc-rgb) / 0.55); }
 }
 
 .sl-markdown-content hr,
@@ -80,5 +164,8 @@ html[data-section="reference"] {
 
 @media (prefers-reduced-motion: reduce) {
   .sl-markdown-content hr,
-  .maya-divider { animation: none; }
+  .maya-divider,
+  .sl-markdown-content h2::after,
+  .maya-section-title::after,
+  html[data-motif] :is(.sl-markdown-content h2, .maya-section-title)::after { animation: none; }
 }
