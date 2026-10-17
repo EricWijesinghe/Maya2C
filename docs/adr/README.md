@@ -81,5 +81,6 @@ The observation that would make this worth reopening.
 | [044](ADR-044-mining-rewards-lane.md) | Block rewards and GPU mining at launch, without letting miners order blocks | Proposed |
 | [045](ADR-045-maya2c-hub.md) | Maya2C Hub: one desktop window for mining and every app | Proposed |
 | [047](ADR-047-single-pc-foundation-set.md) | The foundation validator set runs on one PC, said so publicly (supersedes ADR-042 gate 5) | Accepted |
+| [049](ADR-049-sealed-validator-keys.md) | Validator keys sealed at rest; a production build refuses plaintext | Accepted |
 | [050](ADR-050-owner-control-plane.md) | Owner control plane: full operator control, a bounded 2-of-3 council pause, no backdoor | Proposed |
 | [051](ADR-051-security-level-5-defaults.md) | NIST level 5: ML-KEM-1024 transport and a Maximum wallet option now, ML-DSA-87 validator keys at mainnet genesis | Proposed |
