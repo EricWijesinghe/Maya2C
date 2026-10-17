@@ -5,18 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Maya2C Network Live</title>
 <meta name="description" content="maya-testnet-1 as it happens: every connected node, every voting validator, every block, updated each second.">
-<link rel="icon" href="https://maya2c.dev/favicon.ico">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@200;300;400;600&family=Figtree:wght@400;600&family=JetBrains+Mono:wght@400&display=swap">
+<link rel="icon" href="/brand/emblem.png" type="image/png">
 <style>
+  /* Same mission-control palette as the status page: teal over a dark console,
+     bronze for validators. System fonts, no third-party requests. */
   :root {
     color-scheme: dark;
-    --void:#05060d; --glass:rgba(22,28,52,.55); --edge:rgba(190,205,255,.12); --text:#eef0f8; --muted:#9aa1b8;
-    --blue:#5b8cff; --hi:#b3c8ff; --teal:#3fd2e0; --gold:#d9b97a; --signal:#ffb547; --ok:#45e0a0; --bad:#ff6b7a;
-    --display:"Sora","Segoe UI",sans-serif; --sans:"Figtree","Segoe UI",sans-serif; --mono:"JetBrains Mono",Consolas,monospace;
+    --void:#04110f; --glass:rgba(12,34,32,.6); --edge:rgba(45,212,191,.16); --text:#e8f6f2; --muted:#8fb3ab;
+    --blue:#2dd4bf; --hi:#9ff0e0; --teal:#2dd4bf; --gold:#d4a06a; --signal:#f5b04a; --ok:#5eead4; --bad:#ff6b7a;
+    --display:"Segoe UI Variable Display","Segoe UI",system-ui,sans-serif; --sans:"Segoe UI",system-ui,sans-serif; --mono:ui-monospace,SFMono-Regular,Consolas,monospace;
     --spring:cubic-bezier(.34,1.56,.64,1);
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: radial-gradient(1200px 700px at 50% -10%, #0d1630 0%, var(--void) 60%); color: var(--text); font: 400 15px/1.55 var(--sans); min-height: 100vh; }
+  body { margin: 0; background: radial-gradient(1200px 700px at 50% -10%, #0c2a27 0%, var(--void) 60%); color: var(--text); font: 400 15px/1.55 var(--sans); min-height: 100vh; }
   .wrap { max-width: 1240px; margin: 0 auto; padding: 24px max(16px,3vw) 64px; }
   header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
   header a.brand { color: var(--text); text-decoration: none; font: 300 21px var(--display); display: flex; gap: 10px; align-items: center; }
@@ -31,7 +32,7 @@
   nav.links a { color: var(--muted); text-decoration: none; font-size: 13px; padding: 6px 10px; border-radius: 8px; }
   nav.links a:hover { color: var(--text); background: var(--glass); }
 
-  .stage { position: relative; margin-top: 18px; border-radius: 22px; border: 1px solid var(--edge); background: radial-gradient(closest-side, rgba(63,210,224,.08), transparent 70%), rgba(8,12,26,.6); overflow: hidden; }
+  .stage { position: relative; margin-top: 18px; border-radius: 22px; border: 1px solid var(--edge); background: radial-gradient(closest-side, rgba(45,212,191,.09), transparent 70%), rgba(4,17,15,.6); overflow: hidden; }
   canvas#sky { display: block; width: 100%; height: min(62vh, 560px); cursor: crosshair; }
   .legend { position: absolute; left: 14px; bottom: 12px; display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); pointer-events: none; }
   .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
@@ -107,7 +108,7 @@
 <body>
 <div class="wrap">
   <header>
-    <a class="brand" href="https://maya2c.dev/"><img src="https://maya2c.dev/brand/emblem.png" alt="" width="34" height="34"><span><b>Maya2C</b> network, live</span></a>
+    <a class="brand" href="https://maya2c.dev/"><img src="/brand/emblem.png" alt="" width="34" height="34"><span><b>Maya2C</b> network, live</span></a>
     <nav class="links"><a href="/">Uptime</a><a href="https://explorer.maya2c.dev/">Explorer</a><a href="https://maya2c.dev/guides/help-run/">Run a node</a></nav>
     <span class="pill" id="pill"><span class="dot"></span><span id="pilltext">connecting…</span></span>
   </header>
