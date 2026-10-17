@@ -20,7 +20,7 @@ fn bps_of_never_exceeds_the_amount() {
 }
 
 #[kani::proof]
-#[kani::unwind(5)]
+#[kani::unwind(10)]
 fn a_double_sign_slash_conserves_value() {
     let bond = Amount(kani::any());
     let delegation = Amount(kani::any());
