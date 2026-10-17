@@ -20,7 +20,7 @@ Every number below comes from a command run in this session.
 - **The old branch checkout used rustls 0.23.45 and wasmtime 48.0.4** (15 advisories, including a PQ→classical downgrade). master already had 0.23.46 and 48.0.6, and `cargo deny check` on master reported `advisories ok, bans ok, licenses ok, sources ok`. The checkout was moved to master.
 - **Windows Defender's ClickFix/Commando detections** are from 2026-10-06 (the CDN incident's own investigation command) and were already handled. No new detections.
 
-## Merged to master (13 PRs)
+## Merged to master (12 PRs)
 
 | PR | What |
 |---|---|
