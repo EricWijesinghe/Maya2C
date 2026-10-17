@@ -25,10 +25,14 @@ pub const PASSPHRASE_FILE_ENV: &str = "MAYA2C_VALIDATOR_PASSPHRASE_FILE";
 /// Shorter passphrases are refused at sealing time: Argon2id slows guessing,
 /// but it cannot rescue a guessable word.
 pub const MIN_PASSPHRASE_LEN: usize = 12;
-/// A file asking for more Argon2 memory than this is refused rather than
-/// allowed to exhaust the host (1 GiB).
-const MAX_KDF_MEMORY_KIB: u32 = 1024 * 1024;
-const MAX_KDF_PASSES: u32 = 64;
+/// Accepted KDF parameters when opening. The cleartext parameters are bound
+/// in the tag, so these bounds are not about forgery: they stop a crafted
+/// file making the host hash for minutes (above) or the KDF refuse with an
+/// internal error (below). Sealing always uses 64 MiB and 3 passes.
+const MIN_KDF_MEMORY_KIB: u32 = 8 * 1024;
+const MAX_KDF_MEMORY_KIB: u32 = 256 * 1024;
+const MIN_KDF_PASSES: u32 = 1;
+const MAX_KDF_PASSES: u32 = 10;
 
 #[derive(Serialize, Deserialize)]
 struct SealedFile {
@@ -73,11 +77,13 @@ impl SealedFile {
 /// [`KeystoreError::Io`] when the file cannot be read.
 pub fn read_passphrase_file(path: &std::path::Path) -> Result<Zeroizing<Vec<u8>>, KeystoreError> {
     let mut bytes = Zeroizing::new(std::fs::read(path)?);
-    for end in b"\n\r" {
-        if bytes.last() == Some(end) {
-            bytes.pop();
-        }
-    }
+    let trailing = if bytes.ends_with(b"\r\n") {
+        2
+    } else {
+        usize::from(bytes.ends_with(b"\n"))
+    };
+    let keep = bytes.len() - trailing;
+    bytes.truncate(keep);
     Ok(bytes)
 }
 
@@ -123,7 +129,13 @@ pub fn seal(
     let cipher = ChaCha20Poly1305::new(Key::from_slice(key.as_ref()));
     let aad = file.aad();
     let ciphertext = cipher
-        .encrypt(Nonce::from_slice(&nonce), Payload { msg: secret, aad: &aad })
+        .encrypt(
+            Nonce::from_slice(&nonce),
+            Payload {
+                msg: secret,
+                aad: &aad,
+            },
+        )
         .map_err(|_| KeystoreError::Decrypt)?;
     file.ciphertext = hex(&ciphertext);
     serde_json::to_string_pretty(&file).map_err(|e| KeystoreError::Format(e.to_string()))
@@ -151,7 +163,9 @@ pub fn open(
             file.format, file.kdf, file.kind
         )));
     }
-    if file.kdf_memory_kib > MAX_KDF_MEMORY_KIB || file.kdf_passes > MAX_KDF_PASSES {
+    if !(MIN_KDF_MEMORY_KIB..=MAX_KDF_MEMORY_KIB).contains(&file.kdf_memory_kib)
+        || !(MIN_KDF_PASSES..=MAX_KDF_PASSES).contains(&file.kdf_passes)
+    {
         return Err(KeystoreError::Format("KDF parameters out of bounds".into()));
     }
     let nonce = unhex(&file.nonce)?;
@@ -169,7 +183,13 @@ pub fn open(
     let aad = file.aad();
     let secret = Zeroizing::new(
         cipher
-            .decrypt(Nonce::from_slice(&nonce), Payload { msg: &ciphertext, aad: &aad })
+            .decrypt(
+                Nonce::from_slice(&nonce),
+                Payload {
+                    msg: &ciphertext,
+                    aad: &aad,
+                },
+            )
             .map_err(|_| KeystoreError::Decrypt)?,
     );
     Ok((secret, unhex(&file.public_key)?))
@@ -219,14 +239,20 @@ mod tests {
     fn swapped_public_key_fails() {
         let text = seal(b"s", b"p", KIND, PASS).unwrap();
         let forged = tamper(&text, "public_key", hex(b"attacker").into());
-        assert!(matches!(open(&forged, KIND, PASS), Err(KeystoreError::Decrypt)));
+        assert!(matches!(
+            open(&forged, KIND, PASS),
+            Err(KeystoreError::Decrypt)
+        ));
     }
 
     #[test]
     fn weakened_kdf_fails() {
         let text = seal(b"s", b"p", KIND, PASS).unwrap();
         let forged = tamper(&text, "kdf_passes", 1.into());
-        assert!(matches!(open(&forged, KIND, PASS), Err(KeystoreError::Decrypt)));
+        assert!(matches!(
+            open(&forged, KIND, PASS),
+            Err(KeystoreError::Decrypt)
+        ));
     }
 
     #[test]
@@ -236,20 +262,64 @@ mod tests {
         let mut ct = unhex(json["ciphertext"].as_str().unwrap()).unwrap();
         ct[0] ^= 1;
         let forged = tamper(&text, "ciphertext", hex(&ct).into());
-        assert!(matches!(open(&forged, KIND, PASS), Err(KeystoreError::Decrypt)));
+        assert!(matches!(
+            open(&forged, KIND, PASS),
+            Err(KeystoreError::Decrypt)
+        ));
+    }
+
+    #[test]
+    fn swapped_salt_fails() {
+        let text = seal(b"s", b"p", KIND, PASS).unwrap();
+        let forged = tamper(&text, "salt", hex(&[7u8; 16]).into());
+        assert!(matches!(
+            open(&forged, KIND, PASS),
+            Err(KeystoreError::Decrypt)
+        ));
+    }
+
+    #[test]
+    fn passphrase_file_drops_exactly_one_newline() {
+        let dir = std::env::temp_dir().join(format!("maya-sealed-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cases: [(&[u8], &[u8]); 4] = [
+            (b"pass\n", b"pass"),
+            (b"pass\r\n", b"pass"),
+            (b"pass\n\n", b"pass\n"),
+            (b"pass\r", b"pass\r"),
+        ];
+        for (i, (raw, want)) in cases.iter().enumerate() {
+            let path = dir.join(i.to_string());
+            std::fs::write(&path, raw).unwrap();
+            assert_eq!(read_passphrase_file(&path).unwrap().as_slice(), *want);
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
     fn other_kind_is_refused() {
         let text = seal(b"s", b"p", KIND, PASS).unwrap();
-        assert!(matches!(open(&text, "other", PASS), Err(KeystoreError::Format(_))));
+        assert!(matches!(
+            open(&text, "other", PASS),
+            Err(KeystoreError::Format(_))
+        ));
     }
 
     #[test]
-    fn huge_kdf_memory_is_refused_before_hashing() {
+    fn out_of_bounds_kdf_is_refused_before_hashing() {
         let text = seal(b"s", b"p", KIND, PASS).unwrap();
-        let forged = tamper(&text, "kdf_memory_kib", (MAX_KDF_MEMORY_KIB + 1).into());
-        assert!(matches!(open(&forged, KIND, PASS), Err(KeystoreError::Format(_))));
+        for (field, value) in [
+            ("kdf_memory_kib", MAX_KDF_MEMORY_KIB + 1),
+            ("kdf_memory_kib", MIN_KDF_MEMORY_KIB - 1),
+            ("kdf_passes", MAX_KDF_PASSES + 1),
+            ("kdf_passes", 0),
+        ] {
+            let forged = tamper(&text, field, value.into());
+            assert!(matches!(
+                open(&forged, KIND, PASS),
+                Err(KeystoreError::Format(_))
+            ));
+        }
     }
 
     #[test]

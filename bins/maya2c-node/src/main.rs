@@ -188,6 +188,9 @@ struct Args {
     validator_key: Option<PathBuf>,
     /// File holding the passphrase of a sealed `validator_key`.
     validator_passphrase_file: Option<PathBuf>,
+    /// `--generate-validator-key` / `--seal-validator-key`, run once every
+    /// flag is parsed, so the passphrase flag may come before or after it.
+    key_command: Option<validator_key::KeyCommand>,
     /// The validator key lives in `maya2c-signer` at this address instead
     /// (ADR-033). Needs `signer_pin`, `validator_pubkey` and `signer_identity`.
     remote_signer: Option<SocketAddr>,
@@ -244,6 +247,7 @@ impl Default for Args {
             min_register_bond: 0,
             validator_key: None,
             validator_passphrase_file: None,
+            key_command: None,
             remote_signer: None,
             signer_pin: None,
             validator_pubkey: None,
@@ -361,18 +365,12 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
                 args.validator_passphrase_file = Some(PathBuf::from(value()?));
             }
             "--generate-validator-key" => {
-                let path = value()?;
-                validator_key::generate(Path::new(&path), args.validator_passphrase_file.as_deref())?;
-                std::process::exit(0);
+                let path = PathBuf::from(value()?);
+                args.key_command = Some(validator_key::KeyCommand::Generate(path));
             }
             "--seal-validator-key" => {
-                let (input, output) = (value()?, value()?);
-                validator_key::seal_file(
-                    Path::new(&input),
-                    Path::new(&output),
-                    args.validator_passphrase_file.as_deref(),
-                )?;
-                std::process::exit(0);
+                let (input, output) = (PathBuf::from(value()?), PathBuf::from(value()?));
+                args.key_command = Some(validator_key::KeyCommand::Seal(input, output));
             }
             "--threads" => args.threads = value()?.parse()?,
             "-h" | "--help" => {
@@ -383,6 +381,10 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
         }
     }
 
+    if let Some(command) = args.key_command.take() {
+        command.run(args.validator_passphrase_file.as_deref())?;
+        std::process::exit(0);
+    }
     Ok(args)
 }
 
@@ -897,9 +899,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     "--validator-key and --remote-signer are exclusive: one key, one place".into(),
                 );
             }
-            (Some(path), None) => Some(
-                validator_key::load(path, args.validator_passphrase_file.as_deref())?.into(),
-            ),
+            (Some(path), None) => {
+                Some(validator_key::load(path, args.validator_passphrase_file.as_deref())?.into())
+            }
             (None, Some(addr)) => Some(bft::remote_signer(
                 addr,
                 args.signer_identity

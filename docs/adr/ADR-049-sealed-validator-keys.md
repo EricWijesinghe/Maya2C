@@ -26,16 +26,20 @@ Anyone who copied one file could sign as that validator. Permissions were tighte
      - ChaCha20-Poly1305, with a random 16-byte salt and 12-byte nonce.
    - Every cleartext field is bound in as length-prefixed associated data: format, kind, KDF parameters, salt and public key. So swapping the public key, cheapening the KDF or relabelling the kind fails the tag, exactly like a wrong passphrase does.
    - Two bounds:
-     - KDF parameters above 1 GiB or 64 passes are refused *before* hashing, so a crafted file cannot exhaust the host.
+     - KDF parameters outside 8–256 MiB or 1–10 passes are refused *before* hashing, so a crafted file can neither stall the host nor trip the KDF's internal errors.
      - Passphrases under 12 bytes are refused when sealing.
 2. **The node reads the passphrase from a file.** It comes from `--validator-passphrase-file` or from the file named by `MAYA2C_VALIDATOR_PASSPHRASE_FILE`. Never from argv or an environment value: both are visible to any process that can list this one.
 3. **New and migrated keys.**
    - `--generate-validator-key` seals when a passphrase file is set.
    - `--seal-validator-key <IN> <OUT>` migrates an existing key. It refuses to overwrite `OUT`, and it reopens `OUT` and compares public keys before reporting success.
+   - **Key files are written atomically.** The file goes to `<OUT>.partial-<pid>`, is verified there, and is then hard-linked into place, which fails rather than replace a file that appeared in the meantime. A crash or a failed check therefore leaves no partial key behind to block a retry.
+   - **Flags may come in any order.** Both commands run only after every flag is parsed, so a passphrase flag placed after the command still applies. Before this, it would have silently produced a plaintext key.
 4. **Plaintext keys:**
-   - **A `production` build refuses them.** A mainnet validator cannot start with a readable consensus key.
+   - **A `production` build refuses them,** both when loading and when generating. A mainnet validator cannot start with a readable consensus key.
+   - **Upgrade note:** a validator moved to a `--features production` binary will not start until its key is sealed.
    - **Devnet and testnet builds still load them,** with a warning, so the running testnet is not broken by an upgrade.
-5. **The wallet** (`l1-wallet register-validator`) opens both formats, using the same kind label and passphrase variable.
+5. **The wallet** (`l1-wallet register-validator`) opens both formats, using the same kind label and passphrase variable, and warns on a plaintext key.
+6. **On Windows there is no 0600.** The key file inherits its directory's ACL, so the key directory must be restricted to the service account; see the 2026-10-17 audit.
 
 ## Consequences
 
@@ -47,6 +51,17 @@ Anyone who copied one file could sign as that validator. Permissions were tighte
   - **Memory.** The key is in process memory while the node runs; zeroized buffers limit stray copies but do not stop a debugger. The remote signer (ADR-033) remains the stronger option for a validator that can run one.
   - **No external review.** The format has unit tests for every tamper case, but it has not been externally reviewed.
 
+## Review
+
+On 2026-10-18, a rust-reviewer pass and a security-reviewer pass were run by AI agents. These are not independent human reviews. Fixed from them:
+
+- flag-order plaintext;
+- production plaintext generation;
+- non-atomic writes;
+- loose KDF bounds;
+- newline stripping;
+- missing tamper tests.
+
 ## Tests
 
 - `crates/signer/src/sealed.rs` covers:
@@ -57,7 +72,9 @@ Anyone who copied one file could sign as that validator. Permissions were tighte
   - weakened KDF;
   - flipped ciphertext bit;
   - wrong kind;
-  - oversized KDF memory;
+  - KDF parameters out of bounds;
+  - swapped salt;
+  - passphrase-file newline handling;
   - short passphrase.
 - `bins/maya2c-node/src/validator_key.rs` covers:
   - generate and load;
@@ -66,5 +83,7 @@ Anyone who copied one file could sign as that validator. Permissions were tighte
   - seal preserving the key and refusing overwrite;
   - CRLF passphrase files;
   - devnet plaintext;
-  - production refusal.
+  - production refusal of loading and of generating plaintext;
+  - mismatched public key;
+  - no file left after a failed seal.
 - `bins/l1-wallet/src/staking.rs` covers a sealed key loading only with its passphrase.
