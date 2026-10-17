@@ -20,26 +20,36 @@ Every number below comes from a command run in this session.
 - **The old branch checkout used rustls 0.23.45 and wasmtime 48.0.4** (15 advisories, including a PQ→classical downgrade). master already had 0.23.46 and 48.0.6, and `cargo deny check` on master reported `advisories ok, bans ok, licenses ok, sources ok`. The checkout was moved to master.
 - **Windows Defender's ClickFix/Commando detections** are from 2026-10-06 (the CDN incident's own investigation command) and were already handled. No new detections.
 
-## Merged
+## Merged to master (13 PRs)
 
 | PR | What |
 |---|---|
 | #123 | Windows install CI progress |
 | #119 | Live network dashboard + `get_peers` (no addresses exposed: checked) |
-| #116 | ADR-047 single-PC foundation set (gate 5), conflicts resolved |
+| #116 | ADR-047 single-PC foundation set (gate 5); conflicts resolved |
 | #128 | README + GitHub presentation, Support section, animated SVGs |
-| #129 | maya2c.dev: living 3D background on every page, per-section palettes, mobile fixes (0 overflow offenders on 75 pages at 360–768 px), portfolio + socials footer, Support page |
+| #129 | maya2c.dev: living 3D background on every page, mobile fixes (0 overflow offenders on 75 pages at 360–768 px), portfolio + socials footer, Support page |
+| #130 | Release SBOM (cargo-cyclonedx) + signed SLSA build provenance |
+| #131 | **Sealed validator keys (ADR-049)** |
+| #134 | **Kani proof of the 256-bit long-division step**, run in CI |
+| #133 | Layered docs (plain words, engineers, scientists), KaTeX, 4 interactive math graphics |
+| #132 | ADR-050 owner control plane + ADR-051 level-5 PQ (both **Proposed**: Eric decides) |
+| #136 | Each site section has its own motif (aurora, blueprint, circuit, sunrise); home performance raised |
+| #137 | Explorer ("living quantum ledger") and status ("mission control") redesign, in the repo but **not redeployed** |
 
-## Opened, waiting on CI or on Eric
+Live checks after the deploy (`site.yml` at `6ad51e4a`, success):
 
-| PR | What | State |
+- `/`, `/guides/consensus/`, `/guides/transactions/`, `/guides/signatures/` and `/guides/support/` all return 200.
+- KaTeX blocks per page: 15, 20 and 31.
+- No external scripts on any of them.
+- Home Lighthouse (headless, median of 3): mobile performance 69 → 93, desktop 77 → 99.
+
+## Still open
+
+| PR | What | Waiting on |
 |---|---|---|
-| #131 | **Sealed validator keys (ADR-049)** | CI |
-| #130 | Release SBOM (cargo-cyclonedx) + signed SLSA provenance | CI; release path NOT VERIFIED (needs a tag) |
-| #134 | **Kani proof of the 256-bit long-division step** | CI |
-| #133 | Layered docs: plain words / engineers / scientists, KaTeX, 4 interactive math graphics | CI |
-| #132 | ADR-050 owner control plane + ADR-051 level-5 PQ (both Proposed) | Eric decides |
-| #135 | Wallet GUI 256-bit amounts | Needs Eric to look at the send screen |
+| #135 | Wallet GUI 256-bit amounts | CI green. **Eric smoke-tests the send screen** (amounts are now typed in whole coins) |
+| #127, #125, #124 | Dependabot | Not reviewed tonight; #127's CI run was cancelled to free runners |
 
 ### #131 sealed keys
 
@@ -80,7 +90,7 @@ CodeQL flagged 12 `rust/cleartext-logging` alerts. All were false positives: the
   - borrow dropped in `sub` → FAILED;
   - wrong carry in `shl1_or` → FAILED.
 - Also SUCCESSFUL: `bytes_round_trip`, `division_by_zero_is_refused`.
-- `mul_then_div_round_trips` (pre-existing) did not finish within 40 minutes: **NOT VERIFIED**. It is being rerun.
+- **NOT VERIFIED:** the pre-existing full-width harnesses. `add_and_sub_are_exact_inverses_and_never_wrap` was still in CBMC after 3 h 04 min and was stopped. It and the four after it are unproven on 256-bit types, a gap left from #118. Fix: split them per limb the way the step proof does.
 
 ### #135 wallet GUI
 
@@ -100,7 +110,8 @@ Every balance, amount and fee is `U256`. IPC amounts are strings, the parser is 
   - Lighthouse mobile 100/100/100/100. Desktop performance 70 with WebGL under software GL; real GPU NOT VERIFIED.
   - Phone QA at 360/390/414/768 px: no horizontal overflow, tap targets ≥ 44 px.
 - **GitHub profile:** the new public repo `EricWijesinghe/EricWijesinghe` has a README in its own aurora/neon-circuit look.
-- **maya2c.dev:** deploys from master through `site.yml` after #129 (run queued at 04:27).
+- **maya2c.dev:** live from master; see the checks above.
+- **Explorer and status:** #137 is merged, but the running services still serve the old pages. Redeploying means restarting live services on this PC, so it waits for Eric.
 
 ## Not done, and why
 
@@ -121,3 +132,9 @@ Every balance, amount and fee is `U256`. IPC amounts are strings, the parser is 
 | DNSSEC | off (no DS record) | DNS → Settings → Enable DNSSEC, then add the DS at the registrar |
 | CAA | none | DNS: `CAA 0 issue "letsencrypt.org"`, `CAA 0 issue "pki.goog"`, `CAA 0 iodef "mailto:<your email>"` |
 | SPF / DMARC | none, so anyone can spoof @maya2c.dev mail | If the domain sends no mail: `TXT "v=spf1 -all"`, `_dmarc TXT "v=DMARC1; p=reject"`, null MX `MX 0 .` |
+
+## Housekeeping
+
+- CI runners were congested by 6 PRs at once. Five superseded or low-priority runs were cancelled: three older pushes of the same branches, and Dependabot #127.
+- One stray `astro preview` left by a design agent was stopped by its PID (80080).
+- The explorer shows "HASHRATE 0.71 H/s" from the existing stats API on a validator-finalized chain. It may confuse visitors until mining is active: Eric decides whether to hide it.
