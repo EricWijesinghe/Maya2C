@@ -1,6 +1,28 @@
 # State
 
 ## Handover
+- **2026-10-18 overnight: sealed keys, Kani division step, sites, docs, wallet u256.**
+  - **Done:**
+    - merged #116, #119, #123, #128 and #129: maya2c.dev 3D, mobile, socials;
+    - eric.maya2c.dev rebuilt and live on Netlify;
+    - GitHub profile repo;
+    - validator key files locked to EricW + SYSTEM on this PC.
+  - **Open PRs:**
+    - #131 sealed validator keys (ADR-049);
+    - #134 Kani step proof;
+    - #130 SBOM and provenance;
+    - #133 layered docs;
+    - #132 ADR-050/051 (Proposed);
+    - #135 wallet GUI u256.
+  - **Report:** `reports/sessions/2026-10-18-overnight.md`.
+  - **Unfinished:**
+    - live keys still plaintext on disk (migration needs a restart of each validator);
+    - BitLocker off;
+    - `mul_then_div_round_trips` Kani not verified in 40 min;
+    - coin ticker undecided.
+  - **Do first:**
+    - Eric: answer ADR-050/051, the ticker, and smoke-test the #135 send screen;
+    - then, after #131 merges and with Eric present, seal the four testnet keys one validator at a time (`--seal-validator-key`, restart with `--validator-passphrase-file`, keeping the passphrase file off the key's folder).
 - **2026-10-17 — every amount is 256-bit (ADR-048), branch `feat/u256-supply`.**
   Done: all value paths, spec/vectors/TS verifier, wallets, Ledger app, L2.
   3236/3236 tests, both clippy gates, vectors 0 mismatches
