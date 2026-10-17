@@ -15,7 +15,7 @@ const WIDE_BITS: u32 = u64::BITS * 8;
 // The two must describe the same width.
 const _: () = assert!(WIDE_BITS as usize == 64 * WIDE_LIMBS);
 /// A remainder during long division: below 2 × divisor, so 257 bits at most.
-const REM_LIMBS: usize = LIMBS + 1;
+pub(crate) const REM_LIMBS: usize = LIMBS + 1;
 
 /// A non-negative integer below 2⁵¹², little-endian `u64` limbs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
@@ -141,7 +141,7 @@ impl Wide {
 }
 
 /// `(r << 1) | low_bit`; `r` is below 2²⁵⁶ on entry, so nothing shifts out.
-const fn shl1_or(r: [u64; REM_LIMBS], low_bit: u64) -> [u64; REM_LIMBS] {
+pub(crate) const fn shl1_or(r: [u64; REM_LIMBS], low_bit: u64) -> [u64; REM_LIMBS] {
     let mut out = [0u64; REM_LIMBS];
     let mut carry = low_bit;
     let mut i = 0;
@@ -154,7 +154,7 @@ const fn shl1_or(r: [u64; REM_LIMBS], low_bit: u64) -> [u64; REM_LIMBS] {
 }
 
 /// `a < b`, most significant limb first.
-const fn lt(a: [u64; REM_LIMBS], b: [u64; REM_LIMBS]) -> bool {
+pub(crate) const fn lt(a: [u64; REM_LIMBS], b: [u64; REM_LIMBS]) -> bool {
     let mut i = REM_LIMBS;
     while i > 0 {
         i -= 1;
@@ -166,7 +166,7 @@ const fn lt(a: [u64; REM_LIMBS], b: [u64; REM_LIMBS]) -> bool {
 }
 
 /// `a − b` for `a ≥ b`.
-const fn sub(a: [u64; REM_LIMBS], b: [u64; REM_LIMBS]) -> [u64; REM_LIMBS] {
+pub(crate) const fn sub(a: [u64; REM_LIMBS], b: [u64; REM_LIMBS]) -> [u64; REM_LIMBS] {
     let mut out = [0u64; REM_LIMBS];
     let mut borrow = false;
     let mut i = 0;
