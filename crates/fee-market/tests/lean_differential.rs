@@ -5,6 +5,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use maya_amount::Amount;
 use maya_fee_market::split;
 
 #[test]
@@ -24,10 +25,15 @@ fn split_matches_the_lean_model_on_every_vector() {
             .map(|x| x.parse().unwrap())
             .collect();
         let (base, tip, bps) = (v[0], v[1], v[2]);
-        let s = split(base, tip, bps);
+        let s = split(Amount::from_u64(base), Amount::from_u64(tip), bps);
+        let expected = (
+            Amount::from_u64(v[3]),
+            Amount::from_u64(v[4]),
+            Amount::from_u64(v[5]),
+        );
         assert_eq!(
             (s.burned, s.treasury, s.tip),
-            (v[3], v[4], v[5]),
+            expected,
             "base {base} bps {bps}"
         );
         checked += 1;

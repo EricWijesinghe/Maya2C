@@ -40,7 +40,9 @@ use alloc::vec::Vec;
 use crate::book::{Book, Order, OrderId, Side, quote_for_base};
 use crate::error::{DexError, Result};
 use crate::fees::{FEE_DENOMINATOR, FeeSchedule};
-use crate::math::mul_div_floor;
+use maya_amount::Amount;
+
+use crate::math::{mul_div_floor, small};
 
 /// Ceilings and context for one matching pass.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -90,14 +92,14 @@ pub struct Fill {
     /// Which side was resting first and therefore set the price.
     pub maker_side: Side,
     /// Price the trade executed at: the maker's.
-    pub price: u64,
+    pub price: Amount,
     /// Base units moved from the ask's owner to the bid's owner.
-    pub base: u64,
+    pub base: Amount,
     /// Quote units moved from the bid's owner to the ask's owner, before the
     /// taker's fee.
-    pub quote: u64,
+    pub quote: Amount,
     /// Protocol fee, deducted from whichever asset the taker received.
-    pub taker_fee: u64,
+    pub taker_fee: Amount,
 }
 
 impl Fill {
@@ -106,20 +108,21 @@ impl Fill {
     /// Equal to [`Fill::base`] unless the bid was the taker, in which case the
     /// fee comes out of it.
     #[must_use]
-    pub const fn base_to_bidder(&self) -> u64 {
+    pub const fn base_to_bidder(&self) -> Amount {
         match self.maker_side {
             // The ask was the maker, so the bid took — fee off the base.
-            Side::Ask => self.base - self.taker_fee,
+            // The fee is at most 100% of the base it is taken from.
+            Side::Ask => self.base.saturating_sub(self.taker_fee),
             Side::Bid => self.base,
         }
     }
 
     /// Quote units the ask's owner actually receives.
     #[must_use]
-    pub const fn quote_to_asker(&self) -> u64 {
+    pub const fn quote_to_asker(&self) -> Amount {
         match self.maker_side {
             // The bid was the maker, so the ask took — fee off the quote.
-            Side::Bid => self.quote - self.taker_fee,
+            Side::Bid => self.quote.saturating_sub(self.taker_fee),
             Side::Ask => self.quote,
         }
     }
@@ -139,7 +142,7 @@ pub struct MatchOutcome {
     /// crossed.
     pub limit_reached: bool,
     /// Total protocol fees accrued, summed for the caller's convenience.
-    pub protocol_fees: u64,
+    pub protocol_fees: Amount,
 }
 
 /// Crosses `book` until it no longer crosses itself or the ceiling is reached.
@@ -150,7 +153,7 @@ pub struct MatchOutcome {
 /// # Errors
 ///
 /// - [`DexError::FeeTooHigh`] if the schedule is out of bounds.
-/// - [`DexError::Overflow`] if a fill's arithmetic leaves `u64`.
+/// - [`DexError::Overflow`] if a fill's arithmetic leaves 256 bits.
 /// - [`DexError::InvariantViolation`] if the book and the matcher disagree
 ///   about what is resting, which is a bug rather than a condition.
 pub fn match_book(book: &Book, fees: FeeSchedule, limits: MatchLimits) -> Result<MatchOutcome> {
@@ -162,7 +165,7 @@ pub fn match_book(book: &Book, fees: FeeSchedule, limits: MatchLimits) -> Result
     let expired = working.reap_expired(limits.height);
 
     let mut fills = Vec::new();
-    let mut protocol_fees: u64 = 0;
+    let mut protocol_fees = Amount::ZERO;
     let mut limit_reached = false;
 
     loop {
@@ -202,7 +205,7 @@ pub fn match_book(book: &Book, fees: FeeSchedule, limits: MatchLimits) -> Result
         // be transferred stays with the buyer rather than being conjured for
         // the seller.
         let quote = quote_for_base(base, price, Side::Ask)?;
-        if quote == 0 {
+        if quote.is_zero() {
             // The two orders cross, but the trade is smaller than one quote
             // unit. Filling it would move base for nothing. Nothing further
             // can be done with this pair of orders at this price, and looping
@@ -217,9 +220,9 @@ pub fn match_book(book: &Book, fees: FeeSchedule, limits: MatchLimits) -> Result
             Side::Ask => base,
         };
         let taker_fee = mul_div_floor(
-            u128::from(taker_output),
-            u128::from(fees.protocol_bps),
-            u128::from(FEE_DENOMINATOR),
+            taker_output,
+            small(fees.protocol_bps),
+            small(FEE_DENOMINATOR),
         )
         .ok_or(DexError::Overflow)?;
 

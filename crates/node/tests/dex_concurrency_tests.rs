@@ -22,6 +22,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use primitive_types::U256;
 use std::sync::Arc;
 use std::thread;
 
@@ -94,7 +95,7 @@ fn arena(maker: &HybridSigningKey, traders: &[HybridSigningKey]) -> Arena {
     db.put_account(
         &maker_address,
         &Account {
-            balance: 10_000_000,
+            balance: U256::from(10_000_000),
             nonce: 0,
         },
     )
@@ -107,7 +108,7 @@ fn arena(maker: &HybridSigningKey, traders: &[HybridSigningKey]) -> Arena {
         signed(
             TxKind::RegisterAsset(AssetRegistration {
                 symbol: symbol("USD"),
-                total_supply: 40_000_000,
+                total_supply: primitive_types::U256::from(40_000_000),
             }),
             0,
             maker,
@@ -117,8 +118,8 @@ fn arena(maker: &HybridSigningKey, traders: &[HybridSigningKey]) -> Arena {
                 asset_a: NATIVE_ASSET,
                 asset_b: asset,
                 lp_fee_bps: LP_FEE_BPS,
-                amount_a: POOL_NATIVE,
-                amount_b: POOL_ASSET,
+                amount_a: primitive_types::U256::from(POOL_NATIVE),
+                amount_b: primitive_types::U256::from(POOL_ASSET),
             }),
             1,
             maker,
@@ -131,7 +132,7 @@ fn arena(maker: &HybridSigningKey, traders: &[HybridSigningKey]) -> Arena {
             TxKind::TransferAsset(AssetTransfer {
                 asset,
                 recipient: trader.address(),
-                amount: 500_000,
+                amount: primitive_types::U256::from(500_000),
             }),
             2 + index as u64,
             maker,
@@ -146,7 +147,7 @@ fn arena(maker: &HybridSigningKey, traders: &[HybridSigningKey]) -> Arena {
         db.put_account(
             &trader.address(),
             &Account {
-                balance: 500_000,
+                balance: U256::from(500_000),
                 nonce: 0,
             },
         )
@@ -178,8 +179,8 @@ impl Arena {
                     TxKind::Swap(SwapRequest {
                         pair: self.pair,
                         direction: direction.tag(),
-                        amount_in: 10_000 + (index as u64) * 3_137,
-                        min_out: 1,
+                        amount_in: primitive_types::U256::from(10_000 + (index as u64) * 3_137),
+                        min_out: primitive_types::U256::from(1),
                         deadline: 0,
                     }),
                     0,
@@ -197,8 +198,14 @@ impl Arena {
                 (
                     self.db
                         .asset_balance(&NATIVE_ASSET, &address)
-                        .expect("native"),
-                    self.db.asset_balance(&self.asset, &address).expect("asset"),
+                        .expect("native")
+                        .try_into()
+                        .expect("fits u64"),
+                    self.db
+                        .asset_balance(&self.asset, &address)
+                        .expect("asset")
+                        .try_into()
+                        .expect("fits u64"),
                 )
             })
             .collect()
@@ -299,7 +306,10 @@ fn no_ordering_lets_one_trader_do_better_than_another_ordering_would() {
             arena
                 .db
                 .asset_balance(&arena.asset, &traders[0].address())
-                .expect("balance"),
+                .expect("balance")
+                .try_into()
+                .map(|v: u64| v)
+                .expect("fits u64"),
         );
     }
 
@@ -351,27 +361,28 @@ fn the_state_database_is_shareable_across_reader_threads() {
     let arena = arena(&maker, &traders);
     let pair = arena.pair;
 
-    let observations: Vec<(u64, u64)> = thread::scope(|scope| {
-        let handles: Vec<_> = (0..8)
-            .map(|_| {
-                let db = Arc::clone(&arena.db);
-                scope.spawn(move || {
-                    let record = db.get_pool(&pair).expect("read").expect("pool");
-                    (record.pool.reserve_base, record.pool.reserve_quote)
+    let observations: Vec<(maya_ledger_math::Amount, maya_ledger_math::Amount)> =
+        thread::scope(|scope| {
+            let handles: Vec<_> = (0..8)
+                .map(|_| {
+                    let db = Arc::clone(&arena.db);
+                    scope.spawn(move || {
+                        let record = db.get_pool(&pair).expect("read").expect("pool");
+                        (record.pool.reserve_base, record.pool.reserve_quote)
+                    })
                 })
-            })
-            .collect();
-        handles
-            .into_iter()
-            .map(|handle| handle.join().expect("join"))
-            .collect()
-    });
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().expect("join"))
+                .collect()
+        });
 
-    assert!(
-        observations
-            .iter()
-            .all(|reserves| *reserves == (POOL_NATIVE, POOL_ASSET))
-    );
+    assert!(observations.iter().all(|reserves| *reserves
+        == (
+            maya_ledger_math::Amount::from_u64(POOL_NATIVE),
+            maya_ledger_math::Amount::from_u64(POOL_ASSET)
+        )));
 }
 
 #[test]
@@ -390,8 +401,8 @@ fn concurrent_submission_never_admits_two_transactions_on_one_nonce() {
             TxKind::Swap(SwapRequest {
                 pair,
                 direction: Direction::BaseToQuote.tag(),
-                amount_in: amount,
-                min_out: 1,
+                amount_in: primitive_types::U256::from(amount),
+                min_out: primitive_types::U256::from(1),
                 deadline: 0,
             }),
             0,
@@ -462,8 +473,8 @@ fn a_full_batch_of_swaps_clears_without_the_block_failing() {
                 TxKind::Swap(SwapRequest {
                     pair: arena.pair,
                     direction: direction.tag(),
-                    amount_in: 5_000 + index as u64,
-                    min_out,
+                    amount_in: primitive_types::U256::from(5_000 + index as u64),
+                    min_out: primitive_types::U256::from(min_out),
                     deadline: 0,
                 }),
                 0,
@@ -484,7 +495,10 @@ fn a_full_batch_of_swaps_clears_without_the_block_failing() {
                 arena
                     .db
                     .asset_balance(&arena.asset, &trader.address())
-                    .expect("balance"),
+                    .expect("balance")
+                    .try_into()
+                    .map(|v: u64| v)
+                    .expect("fits u64"),
                 500_000,
                 "a skipped intent did not get its input back"
             );
@@ -496,7 +510,10 @@ fn a_full_batch_of_swaps_clears_without_the_block_failing() {
 fn native_supply(db: &StateDB, addresses: &[Address]) -> u64 {
     addresses
         .iter()
-        .map(|address| db.asset_balance(&NATIVE_ASSET, address).expect("balance"))
+        .map(|address| {
+            u64::try_from((db).asset_balance(&NATIVE_ASSET, address).expect("balance"))
+                .expect("fits u64")
+        })
         .sum()
 }
 
@@ -514,9 +531,12 @@ fn a_block_of_trades_conserves_every_asset() {
     let pool_before = arena.db.get_pool(&arena.pair).expect("r").expect("p");
     let asset_before: u64 = addresses
         .iter()
-        .map(|address| arena.db.asset_balance(&arena.asset, address).expect("b"))
+        .map(|address| {
+            u64::try_from((arena.db).asset_balance(&arena.asset, address).expect("b"))
+                .expect("fits u64")
+        })
         .sum::<u64>()
-        + pool_before.pool.reserve_quote;
+        + pool_before.pool.reserve_quote.to_u64().expect("small");
 
     arena
         .db
@@ -527,16 +547,19 @@ fn a_block_of_trades_conserves_every_asset() {
     let native_after = native_supply(&arena.db, &addresses);
     let asset_after: u64 = addresses
         .iter()
-        .map(|address| arena.db.asset_balance(&arena.asset, address).expect("b"))
+        .map(|address| {
+            u64::try_from((arena.db).asset_balance(&arena.asset, address).expect("b"))
+                .expect("fits u64")
+        })
         .sum::<u64>()
-        + pool_after.pool.reserve_quote;
+        + pool_after.pool.reserve_quote.to_u64().expect("small");
 
     // The fee sink is the all-zero address, which is also where the pool's
     // native reserve is *not* held — the reserve lives in the pool record, so
     // it has to be added in on both sides.
     assert_eq!(
-        native_before + pool_before.pool.reserve_base,
-        native_after + pool_after.pool.reserve_base,
+        native_before + pool_before.pool.reserve_base.to_u64().expect("small"),
+        native_after + pool_after.pool.reserve_base.to_u64().expect("small"),
         "native coin was created or destroyed"
     );
     assert_eq!(asset_before, asset_after, "asset was created or destroyed");

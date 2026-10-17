@@ -15,6 +15,11 @@
 
 use maya_fee_market::{MAX_SUPPLY, next_base_fee, split};
 
+/// The cap as this simulator can hold it. Its supply is a `u64`, and the
+/// chain's cap is 2^256 - 1 (ADR-046), so the binding bound here is u64's own
+/// width: it keeps the emission arithmetic below from overflowing.
+pub const SIM_SUPPLY_CAP: u64 = MAX_SUPPLY.saturating_to_u64();
+
 use crate::params::{EconParams, UNIT};
 use crate::rng::Rng;
 use crate::scenario::{Scenario, Shock};
@@ -115,13 +120,12 @@ impl Run {
         i64::try_from(change).unwrap_or(i64::MIN)
     }
 
-    /// Whether every stability criterion held on every day, and no supply
-    /// ever exceeded the hard cap.
+    /// Whether every stability criterion held on every day.
     pub fn is_stable(&self, initial_validators: u32, s: Stability) -> bool {
         let floor = u64::from(initial_validators) * s.min_validator_share_ppm / 1_000_000;
-        self.min_staking_ppm() >= s.min_staking_ppm
-            && u64::from(self.min_validators()) >= floor
-            && self.days.iter().all(|d| d.supply <= MAX_SUPPLY)
+        // No supply check: a u64 supply cannot exceed SIM_SUPPLY_CAP
+        // (u64::MAX), and step() never wraps past it.
+        self.min_staking_ppm() >= s.min_staking_ppm && u64::from(self.min_validators()) >= floor
     }
 }
 
@@ -223,10 +227,15 @@ fn simulate_day(
         }
         let base_paid = st.base_fee.saturating_mul(bytes);
         let tip = bytes / params.avg_tx_bytes.max(1); // one base unit per tx
-        let s = split(base_paid, tip, params.fees.treasury_bps);
-        burned += s.burned;
-        treasury += s.treasury;
-        tips += s.tip;
+        let s = split(
+            maya_fee_market::Amount::from_u64(base_paid),
+            maya_fee_market::Amount::from_u64(tip),
+            params.fees.treasury_bps,
+        );
+        // Shares of a u64 fee are themselves below 2^64.
+        burned += s.burned.saturating_to_u64();
+        treasury += s.treasury.saturating_to_u64();
+        tips += s.tip.saturating_to_u64();
         used += bytes;
         st.base_fee = next_base_fee(
             st.base_fee,
@@ -252,7 +261,7 @@ fn simulate_day(
     let emitted = (u128::from(st.supply) * u128::from(params.emission_ppm_per_year)
         / 1_000_000
         / u128::from(params.epochs_per_year())) as u64;
-    let emitted = emitted.min(MAX_SUPPLY - st.supply.min(MAX_SUPPLY));
+    let emitted = emitted.min(SIM_SUPPLY_CAP - st.supply);
     st.supply = st.supply + emitted - burned.min(st.supply);
 
     // Delegation: stake follows yield against the hurdle.

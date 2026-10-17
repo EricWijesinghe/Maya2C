@@ -688,10 +688,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Some(path) => NodeConfig::from_path(path)?,
         None => NodeConfig::load_or_default(&custom_l1_node::config::default_path())?,
     };
+    // No ports here: --p2p-port and --rpc-addr override the file, and the
+    // ports actually bound are printed once listening ("p2p port:", "rpc:").
+    // Printing the file's defaults sent operators to the wrong port.
     println!(
-        "config: p2p {}, rpc {}, rate {}/s burst {}, block cache {} MiB",
-        node_config.network.p2p_port,
-        node_config.rpc.listen,
+        "config: rate {}/s burst {}, block cache {} MiB",
         node_config.rpc.rate_limit_per_second,
         node_config.rpc.rate_limit_burst,
         node_config.storage.block_cache_mib,
@@ -827,6 +828,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         node_config.rpc.rate_limit_per_second,
         node_config.rpc.rate_limit_burst,
     ));
+    // `get_peers`: who this node is connected to, with no addresses, so it is
+    // safe on every node (`rpc::peers`).
+    let rpc_context = rpc_context.with_network_view(network.clone());
     let rpc = serve_metered(args.rpc_addr, rpc_context, Arc::clone(&metrics), limiter).await?;
     println!("rpc:         http://{}", rpc.address);
 

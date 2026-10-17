@@ -53,7 +53,7 @@ fn transactions(n: usize) -> Vec<Vec<u8>> {
             let mut tx = Transaction::new(
                 vec![],
                 vec![TxOutput {
-                    amount: 1,
+                    amount: primitive_types::U256::from(1),
                     recipient: [7; 32],
                 }],
                 i as u64 / 64,

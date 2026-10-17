@@ -61,6 +61,8 @@ chacha20poly1305.workspace = true
 zeroize.workspace = true
 hex.workspace = true
 thiserror.workspace = true
+# Monetary amounts are U256 (ADR-046); see the workspace entry for the pin.
+primitive-types.workspace = true
 rocksdb.workspace = true
 serde = { workspace = true, features = ["derive"] }
 # `config.toml` parsing. `toml` rather than a general config crate: one format,

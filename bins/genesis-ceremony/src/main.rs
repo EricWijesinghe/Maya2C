@@ -48,6 +48,7 @@ use custom_l1_node::crypto::hybrid;
 use custom_l1_node::genesis::{
     Allocation, BPS_DENOMINATOR, GenesisConfig, MAX_TREASURY_SHARE_BPS, TreasuryGenesis,
 };
+use custom_l1_node::state::mining::{MINING_RESERVE, MiningGenesis};
 
 mod committee;
 
@@ -101,6 +102,11 @@ struct Args {
     /// The DAG-BFT committee file; absent, a proof-of-work genesis.
     validators: Option<PathBuf>,
     epoch_blocks: u64,
+    /// Mining rewards (ADR-044): the `bft.mining` parameters and the units
+    /// the keyless reserve starts with. Both or neither.
+    mining: Option<(MiningGenesis, u64)>,
+    mining_file: Option<PathBuf>,
+    mining_reserve: Option<u64>,
 }
 
 impl Default for Args {
@@ -121,6 +127,9 @@ impl Default for Args {
             force: false,
             validators: None,
             epoch_blocks: committee::DEFAULT_EPOCH_BLOCKS,
+            mining: None,
+            mining_file: None,
+            mining_reserve: None,
         }
     }
 }
@@ -151,6 +160,10 @@ fn print_usage() {
          --validators <FILE>          DAG-BFT committee, `label key [operator bond]` per\n                               \
          line; keys from `maya2c-node --generate-validator-key`\n  \
          --epoch-blocks <N>           staking epoch when bonds are given (default 3600)\n  \
+         --mining <FILE>              bft.mining parameters as JSON (ADR-044); needs\n                               \
+         bonds (staking) and --mining-reserve\n  \
+         --mining-reserve <UNITS>     units the keyless mining reserve starts with;\n                               \
+         paid out as block rewards, never minted\n  \
          --supply <UNITS>             total genesis supply, treasury included\n  \
          --timestamp <UNIX>           genesis timestamp; pin it for a real launch\n  \
          --difficulty-bits <N>        starting difficulty (default 22)\n  \
@@ -201,6 +214,8 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--force" => args.force = true,
             "--validators" => args.validators = Some(PathBuf::from(value()?)),
             "--epoch-blocks" => args.epoch_blocks = value()?.parse()?,
+            "--mining" => args.mining_file = Some(PathBuf::from(value()?)),
+            "--mining-reserve" => args.mining_reserve = Some(value()?.parse()?),
             "-h" | "--help" => {
                 print_usage();
                 std::process::exit(0);
@@ -208,6 +223,8 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             other => return Err(format!("unknown flag {other}").into()),
         }
     }
+
+    args.mining = load_mining(&args)?;
 
     // `contribute` mints nothing, so it has neither a chain to name nor a
     // supply to divide. A root key is chain-agnostic until an assemble step
@@ -256,15 +273,45 @@ fn read_committee(args: &Args) -> Result<Option<Vec<committee::Member>>, Box<dyn
     Ok(Some(members))
 }
 
+/// `--mining` and `--mining-reserve` together, read and checked; both
+/// absent is a fees-only chain.
+fn load_mining(args: &Args) -> Result<Option<(MiningGenesis, u64)>, Box<dyn Error>> {
+    match (&args.mining_file, args.mining_reserve) {
+        (None, None) => Ok(None),
+        (Some(path), Some(reserve)) => {
+            if args.validators.is_none() {
+                return Err("--mining needs a DAG-BFT committee (--validators with bonds)".into());
+            }
+            let text = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+            let mining: MiningGenesis =
+                serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+            Ok(Some((mining, reserve)))
+        }
+        _ => Err("--mining and --mining-reserve go together".into()),
+    }
+}
+
 /// The genesis both ceremony paths mint. With a committee it is DAG-BFT,
 /// which verifies no work, so difficulty is zero as on the testnet.
 fn launch_config(
     args: &Args,
-    allocations: Vec<Allocation>,
+    mut allocations: Vec<Allocation>,
     treasury: Option<TreasuryGenesis>,
     committee: Option<&[committee::Member]>,
 ) -> GenesisConfig {
     let mut bft = committee.map(|members| committee::genesis(members, args.epoch_blocks));
+    // Rewards are transfers out of a keyless reserve, so the reserve is an
+    // allocation like any other and the supply sums as before. `parse_args`
+    // refuses `--mining` without `--validators`, so `bft` exists here.
+    if let Some((mining, reserve)) = &args.mining
+        && let Some(bft) = bft.as_mut()
+    {
+        bft.mining = Some(mining.clone());
+        allocations.push(Allocation {
+            address: hex::encode(MINING_RESERVE),
+            balance: primitive_types::U256::from(*reserve),
+        });
+    }
     // A value-bearing chain counts votes by stake (ADR-040 part 2): one seat
     // one vote would let a few cheap registrations halt it for good.
     if is_value_bearing(&args.chain_id)
@@ -485,7 +532,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         public_lines.push(format!("  root-{index}  {address}  {balance}"));
         allocations.push(Allocation {
             address: address.clone(),
-            balance,
+            balance: primitive_types::U256::from(balance),
         });
     }
 
@@ -503,7 +550,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
         Some(TreasuryGenesis {
             address,
-            balance: treasury_balance,
+            balance: primitive_types::U256::from(treasury_balance),
             share_bps: args.treasury_share_bps,
         })
     } else {
@@ -831,7 +878,7 @@ fn assemble(args: &Args) -> Result<(), Box<dyn Error>> {
         ));
         allocations.push(Allocation {
             address: contribution.address.clone(),
-            balance,
+            balance: primitive_types::U256::from(balance),
         });
     }
 
@@ -866,7 +913,7 @@ fn assemble(args: &Args) -> Result<(), Box<dyn Error>> {
 
         Some(TreasuryGenesis {
             address,
-            balance: treasury_balance,
+            balance: primitive_types::U256::from(treasury_balance),
             share_bps: args.treasury_share_bps,
         })
     } else {
@@ -982,5 +1029,79 @@ mod shielded_tests {
     fn any_other_genesis_keeps_the_id_it_always_had() {
         assert_eq!(shielded_activation_for("maya-testnet-1", false), None);
         assert_eq!(shielded_activation_for("maya-genesis-rc1", false), None);
+    }
+}
+
+#[cfg(test)]
+mod mining_tests {
+    use super::{Args, committee, launch_config};
+    use custom_l1_node::crypto::keys;
+    use custom_l1_node::state::mining::{DagProfile, MINING_RESERVE, MiningGenesis};
+
+    fn members() -> Vec<committee::Member> {
+        (1..=4u8)
+            .map(|i| committee::Member {
+                label: format!("op{i}"),
+                // Real keys: the state root decodes every validator key.
+                key: hex::encode(
+                    keys::signing_key_from_seed(&[i; 32])
+                        .unwrap()
+                        .verifying_key()
+                        .to_bytes(),
+                ),
+                bond: Some((hex::encode([i; 32]), 1_000_000)),
+            })
+            .collect()
+    }
+
+    fn mining() -> MiningGenesis {
+        MiningGenesis {
+            initial_epoch_reward: primitive_types::U256::from(1_000_000),
+            halving_epochs: 100,
+            miner_share_bps: 7_000,
+            target_shares: 10,
+            max_shares_per_block: 2,
+            initial_target: "0f".repeat(32),
+            dag: DagProfile::Testing,
+        }
+    }
+
+    #[test]
+    fn mining_funds_the_keyless_reserve_and_turns_on_bft_mining() {
+        let args = Args {
+            chain_id: "maya-testnet-2".into(),
+            epoch_blocks: 20,
+            mining: Some((mining(), 5_000_000)),
+            ..Args::default()
+        };
+        let config = launch_config(&args, Vec::new(), None, Some(&members()));
+        let reserve = hex::encode(MINING_RESERVE);
+        assert!(
+            config.allocations.iter().any(
+                |a| a.address == reserve && a.balance == primitive_types::U256::from(5_000_000)
+            )
+        );
+        assert_eq!(
+            config.bft.as_ref().and_then(|b| b.mining.clone()),
+            Some(mining())
+        );
+        config.validate().unwrap();
+        config.state_root().unwrap();
+    }
+
+    #[test]
+    fn a_reserve_below_one_epochs_reward_is_refused() {
+        let args = Args {
+            chain_id: "maya-testnet-2".into(),
+            epoch_blocks: 20,
+            mining: Some((mining(), 999_999)),
+            ..Args::default()
+        };
+        let config = launch_config(&args, Vec::new(), None, Some(&members()));
+        let err = config
+            .validate()
+            .and_then(|()| config.state_root().map(|_| ()))
+            .unwrap_err();
+        assert!(err.to_string().contains("mining reserve"), "{err}");
     }
 }

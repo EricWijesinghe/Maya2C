@@ -18,6 +18,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::cast_precision_loss)]
 
+use primitive_types::U256;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
@@ -104,7 +105,7 @@ fn signed(keys: &[HybridSigningKey]) -> Vec<Transaction> {
                             let mut tx = Transaction::new(
                                 vec![],
                                 vec![TxOutput {
-                                    amount: 1,
+                                    amount: primitive_types::U256::from(1),
                                     recipient: to,
                                 }],
                                 nonce,
@@ -199,7 +200,7 @@ fn main() {
         db.put_account(
             &k.address(),
             &Account {
-                balance: 1_000_000,
+                balance: U256::from(1_000_000u64),
                 nonce: 0,
             },
         )

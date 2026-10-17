@@ -562,6 +562,9 @@ pub const HOST_FUNCTIONS: &[&str] = &[
     // could import it before it existed, so no deployed contract changes.
     "caller",
     "get_balance",
+    // ADR-046: the full 256-bit balance, written to guest memory. Added
+    // pre-genesis with the 256-bit re-genesis; `get_balance` keeps its i64.
+    "get_balance_u256",
     "storage_read",
     "storage_write",
     "block_randomness",
@@ -637,13 +640,52 @@ fn register_host_functions<S: HostState + Send + 'static>(
                     Ok(bytes) => {
                         let mut address: Address = [0u8; 32];
                         address.copy_from_slice(&bytes);
-                        caller.data().state.balance_of(&address) as i64
+                        // The original i64 ABI: the same bits as before for a
+                        // balance that fits a u64; anything larger saturates
+                        // to u64::MAX (read as -1). `get_balance_u256` gives
+                        // the exact value.
+                        caller.data().state.balance_of(&address).saturating_to_u64() as i64
                     }
                     Err(error) => {
                         caller.data_mut().fail(error);
                         0
                     }
                 }
+            },
+        )
+        .map_err(wrap)?;
+
+    // get_balance_u256(addr_ptr: i32, out_ptr: i32) -> i32
+    // Writes the 32-byte little-endian balance (ADR-046) and returns 0, or -1
+    // after recording the fault when either pointer is out of bounds.
+    linker
+        .func_wrap(
+            "env",
+            "get_balance_u256",
+            |mut caller: Caller<'_, CallContext<S>>, addr_ptr: i32, out_ptr: i32| -> i32 {
+                let Some(memory) = caller_memory(&mut caller) else {
+                    caller
+                        .data_mut()
+                        .fail(VmError::MissingExport("memory".into()));
+                    return -1;
+                };
+                let address = match read_guest(&memory, &caller, addr_ptr as u32, 32) {
+                    Ok(bytes) => {
+                        let mut address: Address = [0u8; 32];
+                        address.copy_from_slice(&bytes);
+                        address
+                    }
+                    Err(error) => {
+                        caller.data_mut().fail(error);
+                        return -1;
+                    }
+                };
+                let balance = caller.data().state.balance_of(&address).to_le_bytes();
+                if let Err(error) = write_guest(&memory, &mut caller, out_ptr as u32, &balance) {
+                    caller.data_mut().fail(error);
+                    return -1;
+                }
+                0
             },
         )
         .map_err(wrap)?;

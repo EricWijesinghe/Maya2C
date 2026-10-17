@@ -278,8 +278,20 @@ const RETRY_MAX_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
 /// succeed again.
 fn is_transient(e: &jsonrpsee::core::ClientError) -> bool {
     use jsonrpsee::core::ClientError;
-    matches!(e, ClientError::Transport(_) | ClientError::RequestTimeout)
+    match e {
+        ClientError::Transport(_) | ClientError::RequestTimeout => true,
+        // JSON-RPC "internal error": the server failed, it did not answer
+        // about the data. The public gateway reports any upstream hiccup this
+        // way ("upstream node error"); a joining Windows CI node died on one
+        // during get_headers (2026-10-12) and the same call succeeded seconds
+        // later. Every other error code is an answer and is not retried.
+        ClientError::Call(object) => object.code() == INTERNAL_ERROR_CODE,
+        _ => false,
+    }
 }
+
+/// JSON-RPC 2.0 "Internal error".
+const INTERNAL_ERROR_CODE: i32 = -32603;
 
 fn unhex(text: &str) -> Result<Vec<u8>> {
     hex::decode(text).map_err(|e| NodeError::Decode(format!("bad hex from peer: {e}")))
@@ -364,6 +376,13 @@ mod tests {
             None::<()>,
         ));
         assert!(!is_transient(&answered));
+        // The gateway's "upstream node error" is a failure, not an answer.
+        let upstream = ClientError::Call(ErrorObjectOwned::owned(
+            -32603,
+            "upstream node error",
+            None::<()>,
+        ));
+        assert!(is_transient(&upstream));
         let dead = ClientError::RestartNeeded(std::sync::Arc::new(ClientError::RequestTimeout));
         assert!(!is_transient(&dead), "a dead client is not retried");
     }

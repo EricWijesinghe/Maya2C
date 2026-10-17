@@ -66,12 +66,12 @@ fn a_fee_of_exactly_the_base_fee_is_accepted_and_one_less_is_not() {
     let size = 1_000;
     let exact = TxFee {
         size_bytes: size,
-        max_fee: c.initial_base_fee * size,
-        max_tip: 0,
+        max_fee: maya_amount::Amount::from_u64(c.initial_base_fee * size),
+        max_tip: maya_amount::Amount::ZERO,
     };
     assert!(apply_block_fees(&c, 1, None, &[exact], &claim).is_ok());
     let short = TxFee {
-        max_fee: exact.max_fee - 1,
+        max_fee: exact.max_fee.checked_sub(maya_amount::Amount::ONE).unwrap(),
         ..exact
     };
     assert!(apply_block_fees(&c, 1, None, &[short], &claim).is_err());

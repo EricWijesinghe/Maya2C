@@ -41,7 +41,7 @@ fn chain(dir: &TempDir) -> Chain {
         pow_limit_bits: 0,
         allocations: vec![Allocation {
             address: hex::encode(user().address()),
-            balance: 10_000_000,
+            balance: primitive_types::U256::from(10_000_000),
         }],
         oracle: None,
         sealed: None,
@@ -91,7 +91,7 @@ fn council(kind: CouncilKind, nonce: u64, signers: &[u8], sender_nonce: u64) -> 
 fn lock(nonce: u64) -> Transaction {
     signed(
         TxKind::LockStake(StakeLock {
-            amount: 10,
+            amount: primitive_types::U256::from(10),
             unlock_height: 1_000,
         }),
         vec![],
@@ -103,7 +103,7 @@ fn transfer(nonce: u64) -> Transaction {
     signed(
         TxKind::Transfer,
         vec![TxOutput {
-            amount: 1,
+            amount: primitive_types::U256::from(1),
             recipient: [9; 32],
         }],
         nonce,

@@ -40,7 +40,7 @@ fn pay() -> Transaction {
     Transaction::new(
         Vec::new(),
         vec![TxOutput {
-            amount: 1,
+            amount: primitive_types::U256::from(1),
             recipient: [0x5a; 32],
         }],
         0,
@@ -85,7 +85,7 @@ fn transaction(version: u64, valid: bool) -> Transaction {
     }
     if !valid {
         // Change what was signed: the signature no longer covers the frame.
-        tx.outputs[0].amount += 1;
+        tx.outputs[0].amount += primitive_types::U256::from(1);
     }
     tx
 }

@@ -10,6 +10,7 @@
 //! Byte arrays cross the wire as lowercase hex strings, since JSON has no byte
 //! type and numeric arrays are both larger and harder to read.
 
+use primitive_types::U256;
 use serde::{Deserialize, Serialize};
 
 use crate::core::{Block, BlockHeader, ChainTag, Transaction};
@@ -25,6 +26,39 @@ pub struct FeeInfo {
     pub base_fee: u64,
     /// Hex address a transaction pays its fee to, as an ordinary output.
     pub collector: String,
+}
+
+/// One miner's work for the current mining epoch (ADR-044).
+///
+/// `active` is false on a chain that does not mine, and while epoch 0 runs:
+/// mining opens at the first epoch boundary. Every other field is then zero
+/// or empty, and a miner should poll again later.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MiningWork {
+    /// Whether a share submitted now can be paid.
+    pub active: bool,
+    /// The mining epoch a share must name.
+    pub epoch: u64,
+    /// Hex header to hash; already binds the chain, epoch, anchor and payee.
+    pub header: String,
+    /// Hex big-endian share target; a digest at or below it is a share.
+    pub target: String,
+    /// `"mainnet"` (4 GiB dataset) or `"testing"` (4 MiB).
+    pub dag: String,
+    /// The DAG epoch whose cache and dataset the header hashes against.
+    pub dag_epoch: u64,
+    /// Base units the next accepted share earns, as a decimal string
+    /// (ADR-046: 256-bit).
+    #[serde(with = "crate::state::amount_serde")]
+    pub share_reward: U256,
+    /// Shares accepted so far this epoch, and the number the target aims for.
+    pub shares: u64,
+    /// Target shares per epoch.
+    pub target_shares: u64,
+    /// Blocks per epoch.
+    pub epoch_blocks: u64,
+    /// Most shares one block may carry.
+    pub max_shares_per_block: u64,
 }
 
 /// Chain identification for offline signers (ADR-036).
@@ -143,7 +177,8 @@ pub struct AccountInfo {
     /// Hex-encoded account address.
     pub address: String,
     /// Spendable balance in base units.
-    pub balance: u64,
+    #[serde(with = "crate::state::amount_serde")]
+    pub balance: U256,
     /// Nonce the next transaction from this account must carry.
     pub nonce: u64,
 }
@@ -179,9 +214,11 @@ pub struct BalanceChangeInfo {
     /// Hex-encoded address.
     pub address: String,
     /// Balance before the block.
-    pub before: u64,
+    #[serde(with = "crate::state::amount_serde")]
+    pub before: U256,
     /// Balance after the block.
-    pub after: u64,
+    #[serde(with = "crate::state::amount_serde")]
+    pub after: U256,
 }
 
 /// Every balance a block moved (`state::balance_changes`).
@@ -200,8 +237,9 @@ pub struct BalanceChangesInfo {
 pub struct OutputInfo {
     /// Hex-encoded recipient address.
     pub recipient: String,
-    /// Amount transferred.
-    pub amount: u64,
+    /// Amount transferred, as a decimal string (ADR-046: 256-bit).
+    #[serde(with = "crate::state::amount_serde")]
+    pub amount: U256,
 }
 
 /// A transaction as returned by the API.
@@ -424,8 +462,9 @@ pub struct HtlcLockInfo {
     pub sender: String,
     /// Hex-encoded recipient, whom a claim pays.
     pub recipient: String,
-    /// Escrowed base units.
-    pub amount: u64,
+    /// Escrowed base units, as a decimal string (ADR-046: 256-bit).
+    #[serde(with = "crate::state::amount_serde")]
+    pub amount: U256,
     /// Height of the locking block.
     pub created_height: u64,
     /// First height at which a claim is refused.
@@ -465,7 +504,7 @@ impl HtlcLockInfo {
             lock_id: hex::encode(lock_id),
             sender: hex::encode(record.sender),
             recipient: hex::encode(record.recipient),
-            amount: record.amount,
+            amount: maya_stateless_core::amount::to_u256(record.amount),
             created_height: record.created_height,
             expiry_height: record.expiry_height,
             commitment_id: hex::encode(record.lock.id()),

@@ -10,10 +10,12 @@ edition.workspace = true
 rust-version.workspace = true
 description = "Adaptive base fee, fee split, and supply bound: a research branch, activated nowhere"
 
-# Deliberately empty, for the same reason `maya-ledger-math`, `maya-dex` and
-# `maya-governance` are: every function here decides how much value moves, and
-# Kani compiles a crate together with its whole dependency graph.
+# Only `maya-amount`, itself dependency-free, for the same reason
+# `maya-ledger-math`, `maya-dex` and `maya-governance` have nothing else:
+# every function here decides how much value moves, and Kani compiles a crate
+# together with its whole dependency graph (ADR-048).
 [dependencies]
+maya-amount = { path = "../amount" }
 
 [dev-dependencies]
 proptest = { workspace = true }

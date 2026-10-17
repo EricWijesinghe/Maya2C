@@ -16,6 +16,7 @@ use custom_l1_node::state::{
     verify_block,
 };
 use maya_stateless_core::AccountState;
+use primitive_types::U256;
 use tempfile::TempDir;
 
 mod common;
@@ -39,7 +40,7 @@ fn transfer(sender: &HybridSigningKey, nonce: u64, outputs: &[(Address, u64)]) -
     let outputs = outputs
         .iter()
         .map(|(recipient, amount)| TxOutput {
-            amount: *amount,
+            amount: primitive_types::U256::from(*amount),
             recipient: *recipient,
         })
         .collect();
@@ -65,7 +66,7 @@ impl Node {
         let fillers = (0..FILLER_ACCOUNTS).map(filler);
         for address in accounts.iter().copied().chain(fillers) {
             let account = Account {
-                balance: 1_000,
+                balance: U256::from(1_000),
                 nonce: 0,
             };
             db.put_account(&address, &account).expect("fund");
@@ -152,13 +153,13 @@ fn invalid(result: Result<(), StatelessError>) -> String {
 #[test]
 fn the_account_encoding_is_the_stateless_leaf_value() {
     let account = Account {
-        balance: 5,
+        balance: U256::from(5),
         nonce: 9,
     };
     assert_eq!(
         account.encode(),
         AccountState {
-            balance: 5,
+            balance: U256::from(5),
             nonce: 9
         }
         .encode()

@@ -147,17 +147,15 @@ fn App() -> impl IntoView {
             <header class="titlebar">
                 <img
                     class="logo"
-                    src="assets/logo.png"
-                    srcset="assets/logo.png 1x, assets/logo@2x.png 2x"
-                    // The wordmark is the app's name rendered as art, so the
-                    // name beside it would be read out twice by a screen
-                    // reader. Empty alt marks it decorative and lets the
-                    // `.name` span be the accessible name.
+                    src="assets/emblem.png"
+                    // The emblem is the mark; the `.name` span beside it is the
+                    // accessible name, so empty alt keeps it from being read
+                    // out twice.
                     alt=""
-                    // The compact wordmark's intrinsic size, so the titlebar
-                    // does not reflow when the image finishes loading.
-                    width="200"
-                    height="50"
+                    // The emblem's square intrinsic size, so the titlebar does
+                    // not reflow when the image finishes loading.
+                    width="40"
+                    height="40"
                 />
                 <span class="name">"Maya Wallet"</span>
                 <span class="spacer"></span>

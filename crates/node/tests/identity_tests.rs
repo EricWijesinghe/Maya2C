@@ -53,7 +53,7 @@ fn fixture(funded: &[(Address, u64)]) -> Fixture {
         db.put_account(
             address,
             &Account {
-                balance: *balance,
+                balance: primitive_types::U256::from(*balance),
                 nonce: 0,
             },
         )

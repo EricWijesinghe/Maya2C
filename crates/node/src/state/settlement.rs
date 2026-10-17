@@ -19,7 +19,7 @@
 //! exists so the counterparty can present the revocation secret and take
 //! everything instead.
 
-use maya_ledger_math as ledger_math;
+use primitive_types::U256;
 
 use crate::core::payload::{
     ChannelClosure, ChannelId, ChannelOpen, RevocationProof, derive_channel_id,
@@ -66,13 +66,15 @@ impl StateDB {
     }
 
     /// Credits an account through the overlay.
-    fn credit(&self, overlay: &mut Overlay, address: &Address, amount: u64) -> Result<()> {
+    fn credit(&self, overlay: &mut Overlay, address: &Address, amount: U256) -> Result<()> {
         let mut account = match overlay.accounts.get(address) {
             Some(existing) => *existing,
             None => self.get_account(address)?,
         };
-        account.balance =
-            ledger_math::credit(account.balance, amount).ok_or(NodeError::BalanceOverflow)?;
+        account.balance = account
+            .balance
+            .checked_add(amount)
+            .ok_or(NodeError::BalanceOverflow)?;
         overlay.accounts.insert(*address, account);
         Ok(())
     }
@@ -298,6 +300,7 @@ impl StateDB {
             TxKind::Staking(action) => self.apply_staking(overlay, &sender, action),
             TxKind::Council(action) => self.apply_council(overlay, action, context),
             TxKind::Vault(action) => self.apply_vault(overlay, &sender, action, context),
+            TxKind::MiningShare(share) => self.apply_mining_share(overlay, &sender, share),
             TxKind::AttestLegal(payload) => self.attest_legal(
                 overlay,
                 &sender,
@@ -331,17 +334,21 @@ impl StateDB {
             None => self.get_account(&opener)?,
         };
 
-        if account.balance < open.funding {
+        let funding = open.funding;
+        if account.balance < funding {
             return Err(NodeError::InsufficientBalance {
                 address: hex::encode(opener),
-                required: open.funding,
+                required: funding,
                 available: account.balance,
             });
         }
 
         // Funds leave the opener's account and live in the channel record until
         // it closes. They are escrowed, not spent.
-        account.balance -= open.funding;
+        account.balance = account
+            .balance
+            .checked_sub(funding)
+            .ok_or(NodeError::BalanceOverflow)?;
         overlay.accounts.insert(opener, account);
 
         overlay.channels.insert(
@@ -604,6 +611,6 @@ impl StateDB {
 
 /// Convenience for tests and callers assembling settlement transactions.
 #[must_use]
-pub fn account_for(balance: u64, nonce: u64) -> Account {
+pub fn account_for(balance: U256, nonce: u64) -> Account {
     Account { balance, nonce }
 }

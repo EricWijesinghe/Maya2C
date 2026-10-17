@@ -1,6 +1,7 @@
 ﻿//! Account records and their on-disk encoding.
 
 use crate::error::{NodeError, Result};
+use primitive_types::U256;
 
 /// An account is addressed by the BLAKE3 hash of its ML-DSA-65 public key.
 ///
@@ -12,8 +13,9 @@ use crate::error::{NodeError, Result};
 /// verifying a signature must be handed that key separately.
 pub type Address = [u8; 32];
 
-/// Serialized length of an [`Account`]: two little-endian `u64`s.
-pub const ACCOUNT_LEN: usize = 16;
+/// Serialized length of an [`Account`]: a 32-byte little-endian `U256` balance
+/// then a little-endian `u64` nonce. ADR-046 widened the balance from 8 bytes.
+pub const ACCOUNT_LEN: usize = 40;
 
 /// Balance and replay counter for a single account.
 ///
@@ -22,20 +24,20 @@ pub const ACCOUNT_LEN: usize = 16;
 /// special case.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Account {
-    /// Spendable balance in base units.
-    pub balance: u64,
+    /// Spendable balance in base units (ADR-046: `U256`).
+    pub balance: U256,
     /// Number of transactions this account has already sent. The next valid
     /// transaction must carry exactly this nonce.
     pub nonce: u64,
 }
 
 impl Account {
-    /// Encodes the account as a fixed-width 16-byte record.
+    /// Encodes the account as a fixed-width 40-byte record.
     #[must_use]
     pub fn encode(&self) -> [u8; ACCOUNT_LEN] {
         let mut buf = [0u8; ACCOUNT_LEN];
-        buf[0..8].copy_from_slice(&self.balance.to_le_bytes());
-        buf[8..16].copy_from_slice(&self.nonce.to_le_bytes());
+        self.balance.to_little_endian(&mut buf[0..32]);
+        buf[32..40].copy_from_slice(&self.nonce.to_le_bytes());
         buf
     }
 
@@ -55,14 +57,13 @@ impl Account {
             });
         }
 
-        // Both slices are exactly 8 bytes given the length check above.
-        let mut balance_bytes = [0u8; 8];
-        balance_bytes.copy_from_slice(&bytes[0..8]);
+        // Slices are exactly 32 and 8 bytes given the length check above.
+        let balance = U256::from_little_endian(&bytes[0..32]);
         let mut nonce_bytes = [0u8; 8];
-        nonce_bytes.copy_from_slice(&bytes[8..16]);
+        nonce_bytes.copy_from_slice(&bytes[32..40]);
 
         Ok(Self {
-            balance: u64::from_le_bytes(balance_bytes),
+            balance,
             nonce: u64::from_le_bytes(nonce_bytes),
         })
     }

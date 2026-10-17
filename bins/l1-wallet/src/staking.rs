@@ -46,13 +46,13 @@ pub fn load_validator_key(path: &Path) -> Result<SigningKey> {
 pub fn register(
     validator: &SigningKey,
     sender: &[u8; 32],
-    bond: u64,
+    bond: primitive_types::U256,
     commission_bps: u16,
 ) -> Result<StakingAction> {
     if commission_bps > MAX_COMMISSION_BPS {
         bail!("commission {commission_bps} bps is above 100 % ({MAX_COMMISSION_BPS} bps)");
     }
-    if bond == 0 {
+    if bond.is_zero() {
         bail!("a registration must bond something");
     }
     let possession = validator
@@ -100,12 +100,12 @@ mod tests {
             possession,
             bond,
             ..
-        } = register(&key, &sender, 5_000, 500).unwrap()
+        } = register(&key, &sender, primitive_types::U256::from(5_000), 500).unwrap()
         else {
             panic!("not a registration");
         };
 
-        assert_eq!(bond, 5_000);
+        assert_eq!(bond, primitive_types::U256::from(5_000));
         let vk = key.verifying_key();
         assert_eq!(*public, vk.to_bytes());
         assert!(
@@ -122,8 +122,16 @@ mod tests {
     #[test]
     fn an_impossible_commission_or_empty_bond_is_refused() {
         let key = generate_signing_key().unwrap();
-        assert!(register(&key, &[0; 32], 1, MAX_COMMISSION_BPS + 1).is_err());
-        assert!(register(&key, &[0; 32], 0, 0).is_err());
+        assert!(
+            register(
+                &key,
+                &[0; 32],
+                primitive_types::U256::one(),
+                MAX_COMMISSION_BPS + 1
+            )
+            .is_err()
+        );
+        assert!(register(&key, &[0; 32], primitive_types::U256::zero(), 0).is_err());
     }
 
     #[test]

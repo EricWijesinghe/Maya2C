@@ -50,8 +50,9 @@ pub const MAX_COMPLEXITY: usize = 200;
 pub struct Account {
     /// Hex-encoded address, echoed back.
     pub address: String,
-    /// Spendable amount in base units.
-    pub balance: u64,
+    /// Spendable amount in base units, as an exact decimal string: 256-bit
+    /// (ADR-046), past what a JSON or GraphQL number holds.
+    pub balance: String,
     /// Next valid nonce.
     pub nonce: u64,
 }
@@ -59,10 +60,10 @@ pub struct Account {
 /// Circulating and total supply.
 #[derive(SimpleObject)]
 pub struct Supply {
-    /// Units in circulation.
-    pub circulating: u64,
-    /// Units issued in total.
-    pub total: u64,
+    /// Units in circulation, as a decimal string (256-bit, ADR-046).
+    pub circulating: String,
+    /// Units issued in total, as a decimal string.
+    pub total: String,
 }
 
 /// Root query.

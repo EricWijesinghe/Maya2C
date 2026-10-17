@@ -33,6 +33,8 @@
 
 use crate::error::{GovernanceError, Result};
 use crate::limits::{EXECUTION_GRACE_BLOCKS, is_timelock_valid, is_voting_period_valid};
+use maya_amount::Amount;
+
 use crate::tally::{Choice, Tally};
 
 /// Where a proposal is in its life.
@@ -198,7 +200,7 @@ impl Proposal {
     /// - [`GovernanceError::WrongState`] unless the proposal is open.
     /// - [`GovernanceError::OutsideVotingWindow`] past the close.
     /// - Whatever [`Tally::add`] returns for the weight.
-    pub const fn vote(&self, choice: Choice, weight: u128, height: u64) -> Result<Self> {
+    pub const fn vote(&self, choice: Choice, weight: Amount, height: u64) -> Result<Self> {
         if !matches!(self.state, ProposalState::Voting) {
             return Err(GovernanceError::WrongState {
                 action: "vote on",
@@ -237,10 +239,10 @@ impl Proposal {
     ///
     /// Returns [`GovernanceError::WrongState`] if called before voting closes.
     /// Finalizing early would decide a vote that is still being cast.
-    pub const fn finalize(
+    pub fn finalize(
         &self,
         height: u64,
-        eligible: u128,
+        eligible: Amount,
         quorum_bps: u32,
         approval_bps: u32,
     ) -> Result<Self> {
@@ -380,9 +382,13 @@ mod tests {
         let proposal = open();
         let closes = proposal.schedule.voting_closes;
 
-        assert!(proposal.vote(Choice::For, 1, closes).is_ok());
+        assert!(
+            proposal
+                .vote(Choice::For, Amount::from_u64(1), closes)
+                .is_ok()
+        );
         assert_eq!(
-            proposal.vote(Choice::For, 1, closes + 1),
+            proposal.vote(Choice::For, Amount::from_u64(1), closes + 1),
             Err(GovernanceError::OutsideVotingWindow {
                 height: closes + 1,
                 closes
@@ -395,7 +401,12 @@ mod tests {
         // Finalizing early decides a vote that is still being cast.
         let proposal = open();
         assert!(matches!(
-            proposal.finalize(proposal.schedule.voting_closes, 1_000, 1_000, 5_001),
+            proposal.finalize(
+                proposal.schedule.voting_closes,
+                Amount::from_u64(1_000),
+                1_000,
+                5_001
+            ),
             Err(GovernanceError::WrongState { .. })
         ));
     }
@@ -405,9 +416,9 @@ mod tests {
         // The gap between passing and taking effect is the exit window, and it
         // is the whole reason a timelock exists.
         let proposal = open()
-            .vote(Choice::For, 800, 200)
+            .vote(Choice::For, Amount::from_u64(800), 200)
             .expect("vote")
-            .finalize(1_000, 1_000, 1_000, 5_001)
+            .finalize(1_000, Amount::from_u64(1_000), 1_000, 5_001)
             .expect("finalize");
 
         assert_eq!(proposal.state, ProposalState::Queued);
@@ -418,9 +429,9 @@ mod tests {
     #[test]
     fn executing_before_the_timelock_elapses_is_refused() {
         let queued = open()
-            .vote(Choice::For, 800, 200)
+            .vote(Choice::For, Amount::from_u64(800), 200)
             .expect("vote")
-            .finalize(1_000, 1_000, 1_000, 5_001)
+            .finalize(1_000, Amount::from_u64(1_000), 1_000, 5_001)
             .expect("finalize");
 
         let early = queued.schedule.executable_from - 1;
@@ -439,9 +450,9 @@ mod tests {
         // Unanimity among three voters is not a mandate when a thousand were
         // eligible.
         let proposal = open()
-            .vote(Choice::For, 3, 200)
+            .vote(Choice::For, Amount::from_u64(3), 200)
             .expect("vote")
-            .finalize(1_000, 1_000, 1_000, 5_001)
+            .finalize(1_000, Amount::from_u64(1_000), 1_000, 5_001)
             .expect("finalize");
 
         assert_eq!(proposal.state, ProposalState::Rejected);
@@ -450,11 +461,11 @@ mod tests {
     #[test]
     fn a_proposal_that_misses_approval_is_rejected_however_well_attended() {
         let proposal = open()
-            .vote(Choice::For, 500, 200)
+            .vote(Choice::For, Amount::from_u64(500), 200)
             .expect("for")
-            .vote(Choice::Against, 500, 200)
+            .vote(Choice::Against, Amount::from_u64(500), 200)
             .expect("against")
-            .finalize(1_000, 1_000, 1_000, 5_001)
+            .finalize(1_000, Amount::from_u64(1_000), 1_000, 5_001)
             .expect("finalize");
 
         assert_eq!(proposal.state, ProposalState::Rejected);
@@ -465,9 +476,9 @@ mod tests {
         // Otherwise a change nobody remembers wanting lands years later into a
         // chain it was never argued about.
         let queued = open()
-            .vote(Choice::For, 800, 200)
+            .vote(Choice::For, Amount::from_u64(800), 200)
             .expect("vote")
-            .finalize(1_000, 1_000, 1_000, 5_001)
+            .finalize(1_000, Amount::from_u64(1_000), 1_000, 5_001)
             .expect("finalize");
 
         let past = queued.schedule.expires_after + 1;
@@ -491,9 +502,9 @@ mod tests {
         // author retract it would make every vote conditional on the author's
         // continued agreement.
         let queued = open()
-            .vote(Choice::For, 800, 200)
+            .vote(Choice::For, Amount::from_u64(800), 200)
             .expect("vote")
-            .finalize(1_000, 1_000, 1_000, 5_001)
+            .finalize(1_000, Amount::from_u64(1_000), 1_000, 5_001)
             .expect("finalize");
 
         assert!(matches!(
@@ -506,16 +517,23 @@ mod tests {
     #[test]
     fn a_settled_proposal_admits_nothing_further() {
         let rejected = open()
-            .finalize(1_000, 1_000, 1_000, 5_001)
+            .finalize(1_000, Amount::from_u64(1_000), 1_000, 5_001)
             .expect("finalize");
         assert!(rejected.state.is_settled());
 
-        assert!(rejected.vote(Choice::For, 1, 200).is_err());
+        assert!(
+            rejected
+                .vote(Choice::For, Amount::from_u64(1), 200)
+                .is_err()
+        );
         assert!(rejected.execute(100_000).is_err());
         assert!(rejected.cancel().is_err());
         // Finalizing again is a no-op rather than an error: the end-of-block
         // pass visits every proposal and must not fail on a settled one.
-        assert_eq!(rejected.finalize(2_000, 1_000, 1_000, 5_001), Ok(rejected));
+        assert_eq!(
+            rejected.finalize(2_000, Amount::from_u64(1_000), 1_000, 5_001),
+            Ok(rejected)
+        );
     }
 
     #[test]

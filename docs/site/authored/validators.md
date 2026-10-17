@@ -11,6 +11,11 @@ round, and a block is final once a quorum has certified it. A network run
 by one operator is a demo. A network run by many independent operators is
 a blockchain. This page is how you become one of them.
 
+:::tip[Not technical? Start here]
+[Help run the network](/guides/help-run/) does everything on this page with
+one pasted line, on Windows, Mac or Linux. This page is the full detail.
+:::
+
 :::caution[No money, no tokens]
 Testnet coins have **no value**. Running a testnet validator earns public
 recognition only: your name in the validator list and in the release
@@ -93,7 +98,7 @@ and it is written down as one. It is not how mainnet will work.
    node accept one that deep:
 
    ```bash
-   maya2c-node --genesis genesis.json --data-dir data      --validator-key validator.key      --bootnode /dns4/p2p.maya2c.dev/tcp/443/wss/p2p/12D3KooWK2bykmqyzdK4TMSTBQ5visSjkFoK8wj88aMn3ms4ByiG      --prune-depth 3600      --bootstrap-from https://bootstrap.maya2c.dev/rpc      --catch-up-from https://bootstrap.maya2c.dev/rpc
+   maya2c-node --genesis genesis.json --data-dir data      --validator-key validator.key      --bootnode /dns4/p2p.maya2c.dev/tcp/443/wss/p2p/12D3KooWJqH5AUQ1zPkMke18rcc8VHN2TWQ5XudGX3tP8zPLuyjB      --prune-depth 3600      --bootstrap-from https://bootstrap.maya2c.dev/rpc      --catch-up-from https://bootstrap.maya2c.dev/rpc
    ```
 
    A fresh node run this way on 2026-10-04 loaded the snapshot at height

@@ -107,7 +107,7 @@ fn signed_block(keys: &[HybridSigningKey], block: u64) -> Vec<Transaction> {
                                 account_address(0xFD, slot % FUNDED_RECIPIENTS)
                             };
                             let output = TxOutput {
-                                amount: 1 + slot % 3,
+                                amount: primitive_types::U256::from(1 + slot % 3),
                                 recipient,
                             };
                             let mut tx = Transaction::new(vec![], vec![output], block);
@@ -152,7 +152,7 @@ fn write_chain(directory: &std::path::Path, out: &mut impl Write) -> BlockHeader
         db.put_account(
             &key.address(),
             &Account {
-                balance: 1_000_000,
+                balance: 1_000_000u64.into(),
                 nonce: 0,
             },
         )
@@ -162,7 +162,7 @@ fn write_chain(directory: &std::path::Path, out: &mut impl Write) -> BlockHeader
         db.put_account(
             &account_address(0xFD, index),
             &Account {
-                balance: 1,
+                balance: 1u64.into(),
                 nonce: 0,
             },
         )

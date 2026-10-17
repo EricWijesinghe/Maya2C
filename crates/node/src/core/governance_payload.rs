@@ -43,7 +43,7 @@ pub struct WorkClaim {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StakeLock {
     /// Units to lock.
-    pub amount: u64,
+    pub amount: primitive_types::U256,
     /// Earliest height the whole lock may be withdrawn at.
     ///
     /// A lock already in place is *extended* to the later of the two heights,
@@ -57,7 +57,7 @@ pub struct StakeLock {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StakeUnlock {
     /// Units to withdraw.
-    pub amount: u64,
+    pub amount: primitive_types::U256,
 }
 
 /// Opening a proposal.
@@ -101,7 +101,7 @@ impl WorkClaim {
 impl StakeLock {
     /// Appends the fixed-width encoding.
     pub fn encode_into(&self, buf: &mut Vec<u8>) {
-        buf.extend_from_slice(&self.amount.to_le_bytes());
+        crate::core::codec::put_amount(buf, &self.amount);
         buf.extend_from_slice(&self.unlock_height.to_le_bytes());
     }
 
@@ -112,7 +112,7 @@ impl StakeLock {
     /// Returns [`NodeError::Decode`] if the section is truncated.
     pub fn decode(reader: &mut ByteReader<'_>) -> Result<Self> {
         Ok(Self {
-            amount: reader.read_u64()?,
+            amount: reader.read_amount()?,
             unlock_height: reader.read_u64()?,
         })
     }
@@ -121,7 +121,7 @@ impl StakeLock {
 impl StakeUnlock {
     /// Appends the fixed-width encoding.
     pub fn encode_into(&self, buf: &mut Vec<u8>) {
-        buf.extend_from_slice(&self.amount.to_le_bytes());
+        crate::core::codec::put_amount(buf, &self.amount);
     }
 
     /// Decodes an unlock.
@@ -131,7 +131,7 @@ impl StakeUnlock {
     /// Returns [`NodeError::Decode`] if the section is truncated.
     pub fn decode(reader: &mut ByteReader<'_>) -> Result<Self> {
         Ok(Self {
-            amount: reader.read_u64()?,
+            amount: reader.read_amount()?,
         })
     }
 }

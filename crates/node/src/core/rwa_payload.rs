@@ -59,7 +59,7 @@ pub struct SettleDvp {
     /// How many units.
     pub units: u64,
     /// What the buyer pays, in native base units.
-    pub price: u64,
+    pub price: primitive_types::U256,
     /// Which cap table page the seller's holding is on.
     pub page: u32,
 }
@@ -83,7 +83,7 @@ pub struct DistributeRevenue {
     /// cannot be replayed.
     pub round: u64,
     /// Total to pay, in native base units.
-    pub total: u64,
+    pub total: primitive_types::U256,
     /// How many cap table pages to fan out over.
     pub pages: u32,
 }
@@ -181,7 +181,7 @@ impl SettleDvp {
         buf.extend_from_slice(&self.asset);
         buf.extend_from_slice(&self.seller);
         buf.extend_from_slice(&self.units.to_le_bytes());
-        buf.extend_from_slice(&self.price.to_le_bytes());
+        crate::core::codec::put_amount(buf, &self.price);
         buf.extend_from_slice(&self.page.to_le_bytes());
     }
 
@@ -195,7 +195,7 @@ impl SettleDvp {
             asset: reader.read_array::<DIGEST_LEN>()?,
             seller: reader.read_array::<DIGEST_LEN>()?,
             units: reader.read_u64()?,
-            price: reader.read_u64()?,
+            price: reader.read_amount()?,
             page: reader.read_u32()?,
         })
     }
@@ -224,7 +224,7 @@ impl DistributeRevenue {
     pub fn encode_into(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&self.asset);
         buf.extend_from_slice(&self.round.to_le_bytes());
-        buf.extend_from_slice(&self.total.to_le_bytes());
+        crate::core::codec::put_amount(buf, &self.total);
         buf.extend_from_slice(&self.pages.to_le_bytes());
     }
 
@@ -237,7 +237,7 @@ impl DistributeRevenue {
         Ok(Self {
             asset: reader.read_array::<DIGEST_LEN>()?,
             round: reader.read_u64()?,
-            total: reader.read_u64()?,
+            total: reader.read_amount()?,
             pages: reader.read_u32()?,
         })
     }

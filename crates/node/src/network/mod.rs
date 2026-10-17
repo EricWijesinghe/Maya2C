@@ -19,7 +19,7 @@ pub use behaviour::NodeBehaviour;
 pub use evidence_tap::EvidenceTap;
 pub use identity::{NODE_KEY_FILE, load_or_create as load_or_create_identity, peer_id_at};
 pub use mempool::{Mempool, TxHash};
-pub use node::{Node, NodeEvent, NodeHandle, RelayConfig, RelayIngress};
+pub use node::{Node, NodeEvent, NodeHandle, PeerLink, RelayConfig, RelayIngress, Transport};
 pub use peer_health::{GuardConfig, Offence, PeerReport};
 pub use pq::{EpochClock, PqUpgrade, ROTATION_INTERVAL_BLOCKS, SessionStats};
 pub use sim::{DelayStream, LATENCY_SWEEP, LatencyDial};

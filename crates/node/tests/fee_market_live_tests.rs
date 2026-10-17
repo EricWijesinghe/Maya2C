@@ -38,7 +38,7 @@ fn chain(dir: &TempDir) -> Chain {
         pow_limit_bits: 0,
         allocations: vec![Allocation {
             address: hex::encode(user().address()),
-            balance: START,
+            balance: primitive_types::U256::from(START),
         }],
         oracle: None,
         sealed: None,
@@ -51,6 +51,7 @@ fn chain(dir: &TempDir) -> Chain {
             anchor_timeout_ms: 1_000,
             batch_size: 100,
             round_interval_ms: 500,
+            mining: None,
             staking: None,
             fees: Some(FeesGenesis {
                 initial_base_fee: BASE_FEE,
@@ -72,12 +73,12 @@ fn chain(dir: &TempDir) -> Chain {
 
 fn transfer(amount: u64, fee: Option<u64>, nonce: u64) -> Transaction {
     let mut outputs = vec![TxOutput {
-        amount,
+        amount: primitive_types::U256::from(amount),
         recipient: [0x77; 32],
     }];
     if let Some(fee) = fee {
         outputs.push(TxOutput {
-            amount: fee,
+            amount: primitive_types::U256::from(fee),
             recipient: FEE_COLLECTOR,
         });
     }
@@ -87,7 +88,7 @@ fn transfer(amount: u64, fee: Option<u64>, nonce: u64) -> Transaction {
 }
 
 fn balance(c: &Chain, who: &[u8; 32]) -> u64 {
-    c.state().get_account(who).unwrap().balance
+    u64::try_from(c.state().get_account(who).unwrap().balance).expect("fits u64")
 }
 
 #[test]
@@ -159,11 +160,11 @@ fn measured_transfer_sizes_for_the_fee_derivation() {
         vec![],
         vec![
             TxOutput {
-                amount: 1,
+                amount: primitive_types::U256::from(1),
                 recipient: [9; 32],
             },
             TxOutput {
-                amount: 1,
+                amount: primitive_types::U256::from(1),
                 recipient: FEE_COLLECTOR,
             },
         ],

@@ -36,6 +36,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod amount;
 pub mod compress;
 pub mod error;
 pub mod lattice;

@@ -107,7 +107,7 @@ fn signed_block(key: &HybridSigningKey) -> Block {
     let mut tx = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount: 4_242,
+            amount: primitive_types::U256::from(4_242),
             recipient: [0xABu8; 32],
         }],
         0,

@@ -244,3 +244,58 @@ input:focus { border-color: rgb(34 211 238 / 0.6); }
   .orbit span, .steps li, .lines li { animation: none; }
   .steps li::before { animation: none; }
 }
+
+/* ---- stickers ---------------------------------------------------------- */
+.sticker { display: grid; place-items: center; }
+.sticker img, .sticker video, .sticker svg { width: 100%; height: 100%; object-fit: contain; }
+/* A sticker line has no bubble, like Telegram: the sticker is the message. */
+.lines li.is-sticker.mine, .lines li.is-sticker.theirs { background: none; border: none; box-shadow: none; padding: 0.2rem 0; }
+.sticker-line { display: flex; flex-direction: column; align-items: flex-start; gap: 0.35rem; }
+.mine .sticker-line { align-items: flex-end; }
+.add-pack {
+  border: 1px solid var(--line); border-radius: 999px; background: rgb(34 211 238 / 0.08);
+  color: var(--cyan); padding: 0.25rem 0.75rem; font: inherit; font-size: 0.8rem; cursor: pointer;
+}
+.add-pack:disabled { color: var(--dim); cursor: default; }
+.compose .icon {
+  border: 1px solid var(--line); border-radius: 0.75rem; background: var(--panel);
+  font-size: 1.3rem; width: 2.75rem; cursor: pointer;
+}
+.compose .icon:disabled { opacity: 0.4; cursor: default; }
+.sticker-panel {
+  border-top: 1px solid var(--line); background: var(--panel);
+  display: flex; flex-direction: column; max-height: 22rem;
+}
+.sticker-tabs { display: flex; gap: 0.25rem; padding: 0.4rem 0.75rem; overflow-x: auto; border-bottom: 1px solid var(--line); }
+.sticker-tabs .tab {
+  flex: none; width: 2.5rem; height: 2.5rem; border-radius: 0.6rem; border: 1px solid transparent;
+  background: none; color: var(--text); font-size: 1.2rem; cursor: pointer; display: grid; place-items: center;
+}
+.sticker-tabs .tab.active { border-color: var(--cyan); background: rgb(34 211 238 / 0.1); }
+.sticker-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 0.35rem; padding: 0.6rem 0.75rem; overflow-y: auto;
+}
+.pick { border: none; background: none; border-radius: 0.75rem; padding: 0.25rem; cursor: pointer; display: grid; place-items: center; }
+.pick:hover, .pick:focus-visible { background: rgb(148 163 184 / 0.12); outline: none; transform: scale(1.06); }
+.suggest { display: flex; gap: 0.25rem; padding: 0.4rem 1.25rem; overflow-x: auto; border-top: 1px solid var(--line); }
+.pack-row { grid-column: 1 / -1; display: flex; align-items: center; gap: 0.5rem; }
+.pack-row .secondary { margin-left: auto; }
+.sticker-grid > .primary { grid-column: 1 / -1; justify-self: start; }
+.maker {
+  width: min(42rem, 92vw); border: 1px solid var(--line); border-radius: 1rem;
+  background: var(--panel); color: var(--text); padding: 1.25rem;
+}
+.maker::backdrop { background: rgb(5 7 15 / 0.7); }
+.maker h2 { margin: 0 0 0.75rem; }
+.maker input:not([type="file"]) {
+  width: 100%; padding: 0.55rem 0.75rem; border-radius: 0.6rem; border: 1px solid var(--line);
+  background: var(--bg); color: var(--text); font: inherit;
+}
+.maker .files { display: block; margin: 0.75rem 0; color: var(--dim); font-size: 0.85rem; }
+.maker .files input { display: block; margin-top: 0.4rem; }
+.maker-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.5rem; max-height: 18rem; overflow-y: auto; }
+.draft { display: flex; align-items: center; gap: 0.35rem; border: 1px solid var(--line); border-radius: 0.6rem; padding: 0.3rem; }
+.draft input { width: 3.2rem !important; text-align: center; font-size: 1.1rem; }
+.maker-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
+@media (prefers-reduced-motion: reduce) { .pick:hover { transform: none; } }

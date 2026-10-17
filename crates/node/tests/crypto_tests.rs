@@ -29,7 +29,7 @@ fn sample_transaction() -> Transaction {
             index: 0,
         }],
         vec![TxOutput {
-            amount: 1_000,
+            amount: primitive_types::U256::from(1_000),
             recipient: [2u8; 32],
         }],
         7,
@@ -84,7 +84,7 @@ fn tampered_output_amount_fails_verification() {
     let key = generate_signing_key().expect("keygen");
     let mut tx = sample_transaction();
     tx.sign(&key, &common::test_chain()).expect("sign");
-    tx.outputs[0].amount += 1;
+    tx.outputs[0].amount += primitive_types::U256::from(1);
 
     assert_eq!(
         tx.verify(&common::test_chain()),
@@ -146,7 +146,7 @@ fn signature_from_another_transaction_fails_verification() {
     let mut other = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount: 999_999,
+            amount: primitive_types::U256::from(999_999),
             recipient: [8u8; 32],
         }],
         42,
@@ -205,7 +205,7 @@ fn block_verifies_all_transaction_signatures() {
     good.sign(&key, &common::test_chain()).expect("sign");
     let mut tampered = sample_transaction();
     tampered.sign(&key, &common::test_chain()).expect("sign");
-    tampered.outputs[0].amount = 0;
+    tampered.outputs[0].amount = primitive_types::U256::from(0);
 
     let target = target_from_leading_zero_bits(0);
 
@@ -457,7 +457,7 @@ fn signed_transfers(count: u64) -> Vec<Transaction> {
             let mut tx = Transaction::new(
                 vec![],
                 vec![TxOutput {
-                    amount: 10 + nonce,
+                    amount: primitive_types::U256::from(10 + nonce),
                     recipient: [7u8; 32],
                 }],
                 nonce,

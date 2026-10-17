@@ -20,6 +20,7 @@ use custom_l1_node::core::{Block, BlockHeader, Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
+use primitive_types::U256;
 use tempfile::TempDir;
 
 mod common;
@@ -51,7 +52,7 @@ fn block_of(transactions: Vec<Transaction>) -> Block {
 fn supply(db: &StateDB, addrs: &[Address]) -> u128 {
     addrs
         .iter()
-        .map(|a| u128::from(db.get_account(a).unwrap().balance))
+        .map(|a| u128::try_from(db.get_account(a).unwrap().balance).expect("fits u128"))
         .sum()
 }
 
@@ -69,7 +70,7 @@ fn random_transfer_sequences_conserve_supply_and_failed_blocks_change_nothing() 
         db.put_account(
             &k.address(),
             &Account {
-                balance: 10_000,
+                balance: U256::from(10_000),
                 nonce: 0,
             },
         )
@@ -101,7 +102,7 @@ fn random_transfer_sequences_conserve_supply_and_failed_blocks_change_nothing() 
             let mut tx = Transaction::new(
                 vec![],
                 vec![TxOutput {
-                    amount,
+                    amount: primitive_types::U256::from(amount),
                     recipient: to,
                 }],
                 nonce,

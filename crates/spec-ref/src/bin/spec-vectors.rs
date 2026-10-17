@@ -11,6 +11,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use maya_spec_ref::balance::Balance;
 use maya_spec_ref::stf::{Account, Transfer, apply_block};
 use maya_spec_ref::wire::{self, Frame};
 use maya_spec_ref::{Address, consensus, fees, header, root};
@@ -87,7 +88,7 @@ fn stf_case(
     let mut state = BTreeMap::new();
     for a in pre.as_array().unwrap() {
         let acc = Account {
-            balance: num(&a["balance"]),
+            balance: Balance::from_dec_str(a["balance"].as_str().unwrap()).unwrap(),
             nonce: num(&a["nonce"]),
         };
         state.insert(resolve(keys, a["account"].as_str().unwrap()), acc);
@@ -104,7 +105,10 @@ fn stf_case(
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(|o| (resolve(keys, o["to"].as_str().unwrap()), num(&o["amount"])))
+                .map(|o| {
+                    let amount = Balance::from_dec_str(o["amount"].as_str().unwrap()).unwrap();
+                    (resolve(keys, o["to"].as_str().unwrap()), amount)
+                })
                 .collect(),
         })
         .collect();
@@ -119,6 +123,15 @@ fn stf_case(
 }
 
 fn tx(from: &str, nonce: u64, outputs: &[(&str, u64)]) -> Value {
+    let wide: Vec<(&str, Balance)> = outputs
+        .iter()
+        .map(|(to, a)| (*to, Balance::from(*a)))
+        .collect();
+    tx_wide(from, nonce, &wide)
+}
+
+/// A transfer whose output amounts are 256-bit (ADR-046).
+fn tx_wide(from: &str, nonce: u64, outputs: &[(&str, Balance)]) -> Value {
     let outs: Vec<Value> = outputs
         .iter()
         .map(|(to, amount)| json!({"to": to, "amount": amount.to_string()}))
@@ -126,7 +139,8 @@ fn tx(from: &str, nonce: u64, outputs: &[(&str, u64)]) -> Value {
     json!({"from": from, "nonce": nonce.to_string(), "outputs": outs, "signature": "valid"})
 }
 
-fn acct(name: &str, balance: u64, nonce: u64) -> Value {
+fn acct(name: &str, balance: impl Into<Balance>, nonce: u64) -> Value {
+    let balance: Balance = balance.into();
     json!({"account": name, "balance": balance.to_string(), "nonce": nonce.to_string()})
 }
 
@@ -181,8 +195,14 @@ fn state_transitions(k: &BTreeMap<String, Address>) -> Value {
             k,
             "outputs-overflow",
             &["STF-2"],
-            &json!([acct("k0", u64::MAX, 0)]),
-            &json!([tx("k0", 0, &[("k1", u64::MAX), ("k2", 1)])]),
+            // ADR-046: outputs are 256-bit, so the sum overflows only past
+            // 2^256 - 1; a u64-sized pair no longer overflows.
+            &json!([acct("k0", Balance::MAX, 0)]),
+            &json!([tx_wide(
+                "k0",
+                0,
+                &[("k1", Balance::MAX), ("k2", Balance::from(1))]
+            )]),
         ),
         stf_case(
             k,
@@ -216,7 +236,11 @@ fn state_transitions(k: &BTreeMap<String, Address>) -> Value {
             k,
             "recipient-overflow",
             &["STF-5"],
-            &json!([acct("k0", 100, 0), acct("k1", u64::MAX - 5, 0)]),
+            // ADR-046: a credit overflows only past 2^256 - 1.
+            &json!([
+                acct("k0", 100, 0),
+                acct("k1", Balance::MAX.checked_sub(Balance::from(5)).unwrap(), 0)
+            ]),
             &json!([tx("k0", 0, &[("k1", 10)])]),
         ),
         stf_case(
@@ -342,7 +366,10 @@ fn pattern(len: usize, seed: u8) -> Vec<u8> {
 
 fn encoding_vectors(k: &BTreeMap<String, Address>) -> Value {
     let signed = Frame {
-        outputs: vec![(k["k1"], 42), (resolve(k, FRESH), 7)],
+        outputs: vec![
+            (k["k1"], Balance::from(42)),
+            (resolve(k, FRESH), Balance::from(7)),
+        ],
         public_key: pattern(wire::HYBRID_PK, 3),
         nonce: 9,
         signature: Some(pattern(wire::HYBRID_SIG, 101)),
@@ -560,7 +587,7 @@ fn header_vectors(k: &BTreeMap<String, Address>) -> Value {
     };
     let frames: Vec<Frame> = (0..3u64)
         .map(|n| Frame {
-            outputs: vec![(k["k1"], 5 + n)],
+            outputs: vec![(k["k1"], Balance::from(5 + n))],
             public_key: pattern(wire::HYBRID_PK, 7),
             nonce: n,
             signature: (n == 0).then(|| pattern(wire::HYBRID_SIG, 9)),

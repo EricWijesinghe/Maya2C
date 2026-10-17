@@ -30,10 +30,9 @@
 //! soundness rests only on hash collision resistance (Poseidon2 inside,
 //! Keccak outside) and it has no setup at all — `maya_zk_stark::pool`.
 
+use primitive_types::U256;
 use std::collections::VecDeque;
 
-use maya_ledger_math as ledger_math;
-use maya_ledger_math::SettleError;
 use maya_zk_stark::Proof;
 use maya_zk_stark::pool::tree::{CommitmentTree, TREE_DEPTH, digest_from_bytes, digest_to_bytes};
 use maya_zk_stark::pool::{ANCHOR_WINDOW, JoinSplitPublic};
@@ -42,6 +41,7 @@ use crate::core::codec::ByteReader;
 use crate::core::payload::ShieldedJoinSplit;
 use crate::error::{NodeError, Result};
 use crate::state::account::{Account, Address};
+use crate::state::asset::{BALANCE_LEN, encode_balance};
 use crate::state::db::{Overlay, POOL_KEY, StateDB, nullifier_key_bytes};
 
 /// Joinsplits allowed in one block.
@@ -64,7 +64,7 @@ pub struct ShieldedPool {
     /// applied, and both of those are in the clear. That is what keeps total
     /// supply auditable even though balances are private — without it, an
     /// inflation bug in the circuit would be undetectable from outside.
-    balance: u64,
+    balance: U256,
 }
 
 impl Default for ShieldedPool {
@@ -83,13 +83,13 @@ impl ShieldedPool {
         Self {
             tree,
             anchors,
-            balance: 0,
+            balance: U256::zero(),
         }
     }
 
     /// Value currently held inside the pool.
     #[must_use]
-    pub fn balance(&self) -> u64 {
+    pub fn balance(&self) -> U256 {
         self.balance
     }
 
@@ -105,17 +105,28 @@ impl ShieldedPool {
     pub fn settle(&mut self, public_in: u64, public_out: u64, fee: u64) -> Result<()> {
         // The fee is paid out of shielded value to a transparent sink, so it
         // leaves the pool alongside `public_out`. The two failure modes stay
-        // distinct through `ledger_math` for the reason the doc comment gives:
-        // an underflow here is the tripwire for a soundness break, and folding
-        // it into the overflow case would erase the one signal that matters.
-        self.balance = ledger_math::settle_pool(self.balance, public_in, public_out, fee).map_err(
-            |error| match error {
-                SettleError::Overflow => NodeError::BalanceOverflow,
-                SettleError::Underflow { held, withdrawn } => {
-                    NodeError::ShieldedBalanceUnderflow { held, withdrawn }
-                }
+        // distinct for the reason the doc comment gives: an underflow here is
+        // the tripwire for a soundness break, and folding it into the overflow
+        // case would erase the one signal that matters. The pool balance is
+        // 256-bit (ADR-046) and goes through ledger-math's proved
+        // `settle_pool`; the three public values stay `u64` because the
+        // joinsplit circuit range-checks them at that width.
+        use maya_ledger_math::{Amount, SettleError, settle_pool};
+        use maya_stateless_core::amount::{to_amount, to_u256};
+        self.balance = settle_pool(
+            to_amount(self.balance),
+            Amount::from_u64(public_in),
+            Amount::from_u64(public_out),
+            Amount::from_u64(fee),
+        )
+        .map(to_u256)
+        .map_err(|error| match error {
+            SettleError::Overflow => NodeError::BalanceOverflow,
+            SettleError::Underflow { held, withdrawn } => NodeError::ShieldedBalanceUnderflow {
+                held: to_u256(held),
+                withdrawn: to_u256(withdrawn),
             },
-        )?;
+        })?;
         Ok(())
     }
 
@@ -197,7 +208,7 @@ impl ShieldedPool {
             }
         }
 
-        buf.extend_from_slice(&self.balance.to_le_bytes());
+        buf.extend_from_slice(&encode_balance(self.balance));
 
         buf.extend_from_slice(&(self.anchors.len() as u64).to_le_bytes());
         for anchor in &self.anchors {
@@ -234,7 +245,7 @@ impl ShieldedPool {
             };
         }
 
-        let balance = reader.read_u64()?;
+        let balance = U256::from_little_endian(&reader.read_array::<BALANCE_LEN>()?);
 
         let anchor_count = reader.read_collection_len(32)?;
         if anchor_count > ANCHOR_WINDOW {
@@ -411,14 +422,20 @@ impl StateDB {
         // Transparent value entering the pool leaves the signer's account.
         if joinsplit.public_in > 0 {
             let mut account = self.account_through(overlay, signer)?;
-            if account.balance < joinsplit.public_in {
+            let public_in = U256::from(joinsplit.public_in);
+            if account.balance < public_in {
                 return Err(NodeError::InsufficientBalance {
                     address: hex::encode(signer),
-                    required: joinsplit.public_in,
+                    required: public_in,
                     available: account.balance,
                 });
             }
-            account.balance -= joinsplit.public_in;
+            // The check above makes this subtraction exact; checked anyway so a
+            // future edit that drops the check fails closed, not by wrapping.
+            account.balance = account
+                .balance
+                .checked_sub(public_in)
+                .ok_or(NodeError::BalanceOverflow)?;
             overlay.accounts.insert(*signer, account);
         }
 
@@ -449,8 +466,10 @@ impl StateDB {
     /// Credits an account through the overlay.
     fn credit_through(&self, overlay: &mut Overlay, address: &Address, amount: u64) -> Result<()> {
         let mut account = self.account_through(overlay, address)?;
-        account.balance =
-            ledger_math::credit(account.balance, amount).ok_or(NodeError::BalanceOverflow)?;
+        account.balance = account
+            .balance
+            .checked_add(U256::from(amount))
+            .ok_or(NodeError::BalanceOverflow)?;
         overlay.accounts.insert(*address, account);
         Ok(())
     }

@@ -10,6 +10,7 @@
 //! path must be serialized — two concurrent reorgs would interleave undo
 //! journals and corrupt state.
 
+use primitive_types::U256;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
@@ -80,7 +81,7 @@ fn balance_at_height(
     ctx: &RpcContext,
     address: &[u8; 32],
     height: u64,
-) -> Result<(u64, [u8; 32]), ErrorObjectOwned> {
+) -> Result<(U256, [u8; 32]), ErrorObjectOwned> {
     let (state, tip, tip_id, mut balance) = {
         let chain = ctx.chain();
         let balance = chain
@@ -147,6 +148,9 @@ pub struct RpcContext {
     /// operator wires it: peer addresses are this node's private knowledge,
     /// so bind an RPC that carries them to a local interface.
     pub peers: Option<NodeHandle>,
+    /// The running node, for `get_peers`: connections without addresses,
+    /// so unlike `peers` it may be served on any interface.
+    pub network_view: Option<NodeHandle>,
     /// Whether `submit_block` accepts blocks. False on a DAG-BFT network,
     /// where a block is derived from certificates and a submitted one is only
     /// somebody's claim (`consensus::bft`); the chain there verifies no work,
@@ -175,6 +179,7 @@ impl RpcContext {
             snapshots: None,
             cold: None,
             peers: None,
+            network_view: None,
             accepts_blocks: true,
             network: None,
             checkpoint: None,
@@ -235,6 +240,15 @@ impl RpcContext {
     pub fn refusing_blocks(self) -> Self {
         Self {
             accepts_blocks: false,
+            ..self
+        }
+    }
+
+    /// The same context, answering `get_peers` from `node`.
+    #[must_use]
+    pub fn with_network_view(self, node: NodeHandle) -> Self {
+        Self {
+            network_view: Some(node),
             ..self
         }
     }
@@ -336,7 +350,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
             let (balance, id) = balance_at_height(ctx, &address, height)?;
             Ok::<_, ErrorObjectOwned>(serde_json::json!({
                 "address": address_hex,
-                "balance": balance,
+                "balance": balance.to_string(),
                 "height": height,
                 "block_id": hex::encode(id),
             }))
@@ -360,14 +374,14 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 .iter()
                 .map(|(id, w)| {
                     serde_json::json!({
-                        "id": id, "to": hex::encode(w.to), "amount": w.amount,
+                        "id": id, "to": hex::encode(w.to), "amount": w.amount.to_string(),
                         "ready_height": w.ready_height,
                     })
                 })
                 .collect();
             Ok(serde_json::json!({
                 "delay_blocks": config.delay_blocks,
-                "limit": config.limit,
+                "limit": config.limit.to_string(),
                 "guardians": config.guardians.iter().map(hex::encode).collect::<Vec<_>>(),
                 "pending_reconfiguration_height": vault.pending.as_ref().map(|(_, ready)| *ready),
                 "open_requests": vault.open,
@@ -435,6 +449,14 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 base_fee: fees.map_or(0, |f| f.base_fee),
                 collector: hex::encode(crate::state::fees::FEE_COLLECTOR),
             })
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
+    module
+        .register_method("get_mining_work", |params, ctx, _| {
+            let miner_hex: String = params.one().map_err(|e| invalid_params(e.to_string()))?;
+            let miner = decode_array::<32>(&miner_hex, "miner")?;
+            mining_work(ctx, &miner)
         })
         .map_err(|e| rejected(e.to_string()))?;
 
@@ -661,6 +683,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     crate::rpc::bootstrap::register(&mut module)?;
+    crate::rpc::peers::register(&mut module)?;
 
     Ok(module)
 }
@@ -801,6 +824,42 @@ fn check_peer_exposure(address: SocketAddr, serves_peers: bool) -> crate::error:
         )));
     }
     Ok(())
+}
+
+/// The work `miner` should hash now; inactive where the chain does not mine
+/// or mining has not opened yet.
+fn mining_work(
+    ctx: &RpcContext,
+    miner: &[u8; 32],
+) -> Result<crate::rpc::types::MiningWork, ErrorObjectOwned> {
+    let chain = ctx.chain();
+    let state = chain.state();
+    let record = state
+        .committed_mining()
+        .map_err(|e| rejected(e.to_string()))?;
+    let Some(record) = record.filter(|r| r.epoch > 0) else {
+        return Ok(crate::rpc::types::MiningWork::default());
+    };
+    let (header, dag_epoch) = state
+        .committed_share_work(&record, miner)
+        .map_err(|e| rejected(e.to_string()))?;
+    let dag = match record.dag {
+        crate::state::mining::DagProfile::Mainnet => "mainnet",
+        crate::state::mining::DagProfile::Testing => "testing",
+    };
+    Ok(crate::rpc::types::MiningWork {
+        active: true,
+        epoch: record.epoch,
+        header: hex::encode(header),
+        target: hex::encode(record.target),
+        dag: dag.to_string(),
+        dag_epoch,
+        share_reward: maya_stateless_core::amount::to_u256(record.share_reward()),
+        shares: record.shares,
+        target_shares: record.target_shares,
+        epoch_blocks: record.epoch_blocks,
+        max_shares_per_block: record.max_shares_per_block,
+    })
 }
 
 #[cfg(test)]
