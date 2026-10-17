@@ -51,6 +51,7 @@ use libp2p::Multiaddr;
 mod bft;
 mod import;
 mod pruning;
+mod validator_key;
 use import::{backfill_loop, block_import_loop};
 use pruning::{open_or_bootstrap, pruning_loop, pruning_services};
 
@@ -185,6 +186,8 @@ struct Args {
     min_register_bond: u64,
     /// ML-DSA-65 validator key; absent means an observer on a DAG-BFT network.
     validator_key: Option<PathBuf>,
+    /// File holding the passphrase of a sealed `validator_key`.
+    validator_passphrase_file: Option<PathBuf>,
     /// The validator key lives in `maya2c-signer` at this address instead
     /// (ADR-033). Needs `signer_pin`, `validator_pubkey` and `signer_identity`.
     remote_signer: Option<SocketAddr>,
@@ -240,6 +243,7 @@ impl Default for Args {
             catch_up_from: Vec::new(),
             min_register_bond: 0,
             validator_key: None,
+            validator_passphrase_file: None,
             remote_signer: None,
             signer_pin: None,
             validator_pubkey: None,
@@ -353,8 +357,21 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
                 bft::generate_signer_identity(Path::new(&value()?))?;
                 std::process::exit(0);
             }
+            "--validator-passphrase-file" => {
+                args.validator_passphrase_file = Some(PathBuf::from(value()?));
+            }
             "--generate-validator-key" => {
-                bft::generate_validator_key(Path::new(&value()?))?;
+                let path = value()?;
+                validator_key::generate(Path::new(&path), args.validator_passphrase_file.as_deref())?;
+                std::process::exit(0);
+            }
+            "--seal-validator-key" => {
+                let (input, output) = (value()?, value()?);
+                validator_key::seal_file(
+                    Path::new(&input),
+                    Path::new(&output),
+                    args.validator_passphrase_file.as_deref(),
+                )?;
                 std::process::exit(0);
             }
             "--threads" => args.threads = value()?.parse()?,
@@ -877,7 +894,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     "--validator-key and --remote-signer are exclusive: one key, one place".into(),
                 );
             }
-            (Some(path), None) => Some(bft::load_validator_key(path)?.into()),
+            (Some(path), None) => Some(
+                validator_key::load(path, args.validator_passphrase_file.as_deref())?.into(),
+            ),
             (None, Some(addr)) => Some(bft::remote_signer(
                 addr,
                 args.signer_identity
