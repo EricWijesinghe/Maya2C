@@ -2,10 +2,10 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use maya_amount::Amount;
 use maya_dex::book::{Book, Order, Side};
 use maya_dex::fees::FeeSchedule;
 use maya_dex::matching::{MatchLimits, match_book};
-use maya_amount::Amount;
 use maya_dex::types::PRICE_SCALE;
 
 fn a(v: u64) -> Amount {
@@ -149,7 +149,13 @@ fn the_book_is_never_left_crossed_by_a_completed_pass() {
     // sitting there.
     let mut orders = Vec::new();
     for i in 0..20u8 {
-        orders.push(order(i, Side::Ask, add(price(10), u64::from(i)), 7, i as u64));
+        orders.push(order(
+            i,
+            Side::Ask,
+            add(price(10), u64::from(i)),
+            7,
+            i as u64,
+        ));
         orders.push(order(
             100 + i,
             Side::Bid,
@@ -314,7 +320,13 @@ fn every_fill_conserves_value_between_the_two_parties_and_the_sink() {
     };
     let mut orders = Vec::new();
     for i in 0..10u8 {
-        orders.push(order(i, Side::Ask, add(price(10), u64::from(i)), 137, i as u64));
+        orders.push(order(
+            i,
+            Side::Ask,
+            add(price(10), u64::from(i)),
+            137,
+            i as u64,
+        ));
         orders.push(order(50 + i, Side::Bid, price(20), 91, 50 + i as u64));
     }
 

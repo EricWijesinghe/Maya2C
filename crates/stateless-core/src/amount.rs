@@ -30,7 +30,12 @@ mod tests {
 
     #[test]
     fn the_byte_copy_is_exact_at_the_edges() {
-        for v in [U256::zero(), U256::one(), U256::from(u64::MAX) + 1, U256::MAX] {
+        for v in [
+            U256::zero(),
+            U256::one(),
+            U256::from(u64::MAX) + 1,
+            U256::MAX,
+        ] {
             assert_eq!(to_u256(to_amount(v)), v);
         }
         assert_eq!(to_amount(U256::MAX), Amount::MAX);

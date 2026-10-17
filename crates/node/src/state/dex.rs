@@ -34,11 +34,11 @@
 //! one. Recomputing it would mean deriving the same rounding twice and being
 //! right both times.
 
+use maya_dex::Amount;
 use maya_dex::amm::Pool;
 use maya_dex::book::{Order, OrderId, SORT_KEY_LEN, Side, sort_key};
 use maya_dex::fees::FeeSchedule;
 use maya_dex::types::PairId;
-use maya_dex::Amount;
 
 use crate::core::codec::ByteReader;
 use crate::error::{NodeError, Result};

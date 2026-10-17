@@ -124,7 +124,10 @@ impl Staking {
             .delegated
             .checked_add(amount)
             .ok_or(StakeError::Overflow)?;
-        let entry = self.delegations.entry((delegator, id)).or_insert(Amount::ZERO);
+        let entry = self
+            .delegations
+            .entry((delegator, id))
+            .or_insert(Amount::ZERO);
         let new_entry = entry.checked_add(amount).ok_or(StakeError::Overflow)?;
         *entry = new_entry;
         v.delegated = delegated;

@@ -69,7 +69,11 @@ fn any_tally() -> Tally {
 }
 
 fn any_bounded_tally() -> Tally {
-    tally_from(any_bounded_amount(), any_bounded_amount(), any_bounded_amount())
+    tally_from(
+        any_bounded_amount(),
+        any_bounded_amount(),
+        any_bounded_amount(),
+    )
 }
 
 /// A symbolic choice.

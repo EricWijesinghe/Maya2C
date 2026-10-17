@@ -185,9 +185,7 @@ impl Treasury {
                 .map(|entry| maya_ledger_math::Amount::from_u64(entry.amount)),
         )
         .and_then(maya_ledger_math::Amount::to_u64)
-        .ok_or_else(|| {
-            PoolError::Treasury("payout outputs overflow a u64 in total".to_string())
-        })?;
+        .ok_or_else(|| PoolError::Treasury("payout outputs overflow a u64 in total".to_string()))?;
 
         if total > config.max_batch_value {
             return Err(PoolError::Treasury(format!(

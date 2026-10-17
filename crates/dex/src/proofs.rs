@@ -132,7 +132,11 @@ fn mul_div_floor_and_ceil_bracket_the_true_quotient() {
     kani::assume(c > 0);
 
     let exact = u128::from(a) * u128::from(b) / u128::from(c);
-    let (a, b, c) = (Amount::from_u64(a), Amount::from_u64(b), Amount::from_u64(c));
+    let (a, b, c) = (
+        Amount::from_u64(a),
+        Amount::from_u64(b),
+        Amount::from_u64(c),
+    );
 
     if let Some(floor) = mul_div_floor(a, b, c) {
         assert!(wide(floor) == exact);

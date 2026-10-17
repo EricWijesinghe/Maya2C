@@ -1077,10 +1077,9 @@ mod mining_tests {
         let config = launch_config(&args, Vec::new(), None, Some(&members()));
         let reserve = hex::encode(MINING_RESERVE);
         assert!(
-            config
-                .allocations
-                .iter()
-                .any(|a| a.address == reserve && a.balance == primitive_types::U256::from(5_000_000))
+            config.allocations.iter().any(
+                |a| a.address == reserve && a.balance == primitive_types::U256::from(5_000_000)
+            )
         );
         assert_eq!(
             config.bft.as_ref().and_then(|b| b.mining.clone()),

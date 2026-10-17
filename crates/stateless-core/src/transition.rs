@@ -89,9 +89,14 @@ where
 
     let overflow = |key| Violation::Overflow { key };
     // Outputs are 256-bit on the wire (ADR-046); the proved fold sums them.
-    let total = total_outputs(outputs.clone().into_iter().map(|(_, amount)| to_amount(amount)))
-        .map(to_u256)
-        .ok_or(overflow(sender))?;
+    let total = total_outputs(
+        outputs
+            .clone()
+            .into_iter()
+            .map(|(_, amount)| to_amount(amount)),
+    )
+    .map(to_u256)
+    .ok_or(overflow(sender))?;
     if account.balance < total {
         return Err(Violation::InsufficientBalance {
             key: sender,

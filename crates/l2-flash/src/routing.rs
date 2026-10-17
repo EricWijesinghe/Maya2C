@@ -96,8 +96,7 @@ impl Edge {
         // Through a 512-bit product: 256-bit amounts (ADR-046) times a ppm
         // rate overflow 256 bits before the division brings them back.
         let proportional = amount.full_mul(U256::from(self.fee_ppm)) / U512::from(1_000_000u64);
-        let proportional =
-            U256::try_from(proportional).map_err(|_| FlashError::BalanceOverflow)?;
+        let proportional = U256::try_from(proportional).map_err(|_| FlashError::BalanceOverflow)?;
         self.base_fee
             .checked_add(proportional)
             .ok_or(FlashError::BalanceOverflow)

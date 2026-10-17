@@ -186,10 +186,9 @@ impl StateDB {
             StakingAction::BondMore { validator, amount } => s
                 .bond_more(*sender, *validator, to_amount(*amount))
                 .map_err(stake_err)?,
-            StakingAction::Unbond { validator, amount } => {
-                s.unbond(*sender, *validator, to_amount(*amount))
-                    .map_err(stake_err)?
-            }
+            StakingAction::Unbond { validator, amount } => s
+                .unbond(*sender, *validator, to_amount(*amount))
+                .map_err(stake_err)?,
             StakingAction::Delegate { validator, amount } => s
                 .delegate(*sender, *validator, to_amount(*amount))
                 .map_err(stake_err)?,

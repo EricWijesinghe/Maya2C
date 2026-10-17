@@ -172,7 +172,10 @@ fn the_state_root_does_not_depend_on_where_the_treasury_was_declared() {
 
 #[test]
 fn total_supply_includes_the_treasury() {
-    assert_eq!(config(None).total_supply().expect("valid"), primitive_types::U256::from(800_000));
+    assert_eq!(
+        config(None).total_supply().expect("valid"),
+        primitive_types::U256::from(800_000)
+    );
     assert_eq!(
         config(Some(treasury(9, 200_000, 2_000)))
             .total_supply()

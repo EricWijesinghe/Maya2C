@@ -354,7 +354,8 @@ fn a_registration_joins_the_committee_and_evidence_removes_an_equivocator() {
     );
     assert!(record.staking.retired.contains(&offender));
     assert_eq!(
-        record.staking.validators[&offender].self_bond, maya_ledger_math::Amount::from_u64(5_000),
+        record.staking.validators[&offender].self_bond,
+        maya_ledger_math::Amount::from_u64(5_000),
         "half the bond burned"
     );
     let h = mesh.members[0].chain.height();

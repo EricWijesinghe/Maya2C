@@ -127,9 +127,7 @@ impl MiningGenesis {
             .try_into()
             .map_err(|_| NodeError::Decode("bft.mining.initial_target: not 32 bytes".into()))?;
         let record = MiningRecord {
-            initial_epoch_reward: maya_stateless_core::amount::to_amount(
-                self.initial_epoch_reward,
-            ),
+            initial_epoch_reward: maya_stateless_core::amount::to_amount(self.initial_epoch_reward),
             halving_epochs: self.halving_epochs,
             miner_share_bps: self.miner_share_bps,
             target_shares: self.target_shares,
@@ -429,11 +427,23 @@ mod tests {
     #[test]
     fn the_reward_halves_on_schedule_and_ends() {
         let r = record();
-        assert_eq!(r.epoch_reward(0), maya_ledger_math::Amount::from_u64(1_000_000));
-        assert_eq!(r.epoch_reward(9), maya_ledger_math::Amount::from_u64(1_000_000));
-        assert_eq!(r.epoch_reward(10), maya_ledger_math::Amount::from_u64(500_000));
+        assert_eq!(
+            r.epoch_reward(0),
+            maya_ledger_math::Amount::from_u64(1_000_000)
+        );
+        assert_eq!(
+            r.epoch_reward(9),
+            maya_ledger_math::Amount::from_u64(1_000_000)
+        );
+        assert_eq!(
+            r.epoch_reward(10),
+            maya_ledger_math::Amount::from_u64(500_000)
+        );
         assert_eq!(r.epoch_reward(640), maya_ledger_math::Amount::from_u64(0));
-        assert_eq!(r.epoch_reward(u64::MAX), maya_ledger_math::Amount::from_u64(0));
+        assert_eq!(
+            r.epoch_reward(u64::MAX),
+            maya_ledger_math::Amount::from_u64(0)
+        );
     }
 
     #[test]
@@ -445,7 +455,10 @@ mod tests {
                 Some(r.epoch_reward(epoch))
             );
         }
-        assert_eq!(r.miner_budget(0), maya_ledger_math::Amount::from_u64(700_000));
+        assert_eq!(
+            r.miner_budget(0),
+            maya_ledger_math::Amount::from_u64(700_000)
+        );
     }
 
     #[test]

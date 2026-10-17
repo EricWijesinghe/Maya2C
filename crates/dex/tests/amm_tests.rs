@@ -7,10 +7,10 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use maya_amount::Amount;
 use maya_dex::amm::{MINIMUM_LIQUIDITY, Pool};
 use maya_dex::error::DexError;
 use maya_dex::fees::FeeSchedule;
-use maya_amount::Amount;
 use maya_dex::types::{Direction, PRICE_SCALE};
 
 fn a(v: u64) -> Amount {
@@ -328,7 +328,9 @@ fn the_share_price_never_falls_across_deposits_and_redemptions() {
     let mut previous = value(&pool);
 
     for round in 1..50u64 {
-        let deposit = pool.add_liquidity(a(round * 13), a(round * 13)).expect("deposit");
+        let deposit = pool
+            .add_liquidity(a(round * 13), a(round * 13))
+            .expect("deposit");
         pool = deposit.pool;
         let now = value(&pool);
         assert!(

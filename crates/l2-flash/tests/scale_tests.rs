@@ -139,7 +139,11 @@ fn run_transfers(
         let next_seq = channel.current.seq + 1;
 
         let next = channel
-            .propose_transfer(from, primitive_types::U256::from(1), commitment_for_seq(next_seq))
+            .propose_transfer(
+                from,
+                primitive_types::U256::from(1),
+                commitment_for_seq(next_seq),
+            )
             .expect("transfer must fit within the channel balance");
 
         // Both parties sign every state. One signature is a proposal; two are
@@ -200,8 +204,12 @@ fn settle_as_one_closure(transfers: usize) {
     db.apply_block(&block_of(vec![open_tx]), BlockContext::at_height(1))
         .expect("open");
 
-    let channel_id =
-        custom_l1_node::core::payload::derive_channel_id(&alice_addr, &bob_addr, primitive_types::U256::from(100_000), 0);
+    let channel_id = custom_l1_node::core::payload::derive_channel_id(
+        &alice_addr,
+        &bob_addr,
+        primitive_types::U256::from(100_000),
+        0,
+    );
 
     // --- every payment, entirely off chain ---
     let mut channel = Channel::open(
@@ -214,7 +222,10 @@ fn settle_as_one_closure(transfers: usize) {
 
     assert_eq!(channel.current.seq, transfers as u64);
     // Alternating single-unit transfers net to zero over an even count.
-    assert_eq!(channel.current.balance_a, primitive_types::U256::from(100_000));
+    assert_eq!(
+        channel.current.balance_a,
+        primitive_types::U256::from(100_000)
+    );
     assert_eq!(channel.current.balance_b, primitive_types::U256::from(0));
     assert_eq!(
         channel.current.total().expect("total"),
@@ -281,9 +292,15 @@ fn a_channel_carrying_many_transfers_still_conserves_value() {
     run_transfers(&mut channel, &alice, &bob, TOTAL_TRANSFERS + 1);
 
     assert_eq!(channel.current.seq, TOTAL_TRANSFERS as u64 + 1);
-    assert_eq!(channel.current.balance_a, primitive_types::U256::from(50_000 - 1));
+    assert_eq!(
+        channel.current.balance_a,
+        primitive_types::U256::from(50_000 - 1)
+    );
     assert_eq!(channel.current.balance_b, primitive_types::U256::from(1));
-    assert_eq!(channel.current.total().expect("total"), primitive_types::U256::from(50_000));
+    assert_eq!(
+        channel.current.total().expect("total"),
+        primitive_types::U256::from(50_000)
+    );
 }
 
 #[test]
@@ -306,8 +323,12 @@ fn a_revoked_state_from_a_long_channel_is_still_punishable() {
     db.apply_block(&block_of(vec![open_tx]), BlockContext::at_height(1))
         .expect("open");
 
-    let channel_id =
-        custom_l1_node::core::payload::derive_channel_id(&alice_addr, &bob_addr, primitive_types::U256::from(10_000), 0);
+    let channel_id = custom_l1_node::core::payload::derive_channel_id(
+        &alice_addr,
+        &bob_addr,
+        primitive_types::U256::from(10_000),
+        0,
+    );
     let mut channel = Channel::open(
         channel_id,
         public_key_of(&alice),
@@ -468,7 +489,7 @@ fn a_hundred_channels_settle_in_one_transaction() {
         assert_eq!(record.status, ChannelStatus::Closed);
         assert_eq!(
             db.get_account(&address_of(peer)).map(|a| a.balance),
-            Ok(U256::from(channel.current.balance_b))
+            Ok(channel.current.balance_b)
         );
     }
 

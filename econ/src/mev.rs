@@ -19,7 +19,9 @@ fn signed(v: Amount) -> Option<i128> {
 /// `victim_in` quote, front-running with `attack_in` quote. Negative means
 /// the attempt loses money.
 pub fn sandwich_continuous(pool: Pool, victim_in: u64, attack_in: u64) -> Option<i128> {
-    let front = pool.swap_exact_in(Direction::QuoteToBase, a(attack_in)).ok()?;
+    let front = pool
+        .swap_exact_in(Direction::QuoteToBase, a(attack_in))
+        .ok()?;
     let victim = front
         .pool
         .swap_exact_in(Direction::QuoteToBase, a(victim_in))

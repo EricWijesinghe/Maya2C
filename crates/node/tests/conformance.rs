@@ -287,7 +287,11 @@ fn fee_vectors() {
         let n = |k: &str| num(&case[k]);
         match case["fn"].as_str().unwrap() {
             "split" => {
-                let s = maya_fee_market::split(maya_ledger_math::Amount::from_u64(n("base_fee_paid")), maya_ledger_math::Amount::from_u64(0), n("treasury_bps"));
+                let s = maya_fee_market::split(
+                    maya_ledger_math::Amount::from_u64(n("base_fee_paid")),
+                    maya_ledger_math::Amount::from_u64(0),
+                    n("treasury_bps"),
+                );
                 assert_eq!(
                     (s.burned, s.treasury),
                     (

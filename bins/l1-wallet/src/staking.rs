@@ -122,7 +122,15 @@ mod tests {
     #[test]
     fn an_impossible_commission_or_empty_bond_is_refused() {
         let key = generate_signing_key().unwrap();
-        assert!(register(&key, &[0; 32], primitive_types::U256::one(), MAX_COMMISSION_BPS + 1).is_err());
+        assert!(
+            register(
+                &key,
+                &[0; 32],
+                primitive_types::U256::one(),
+                MAX_COMMISSION_BPS + 1
+            )
+            .is_err()
+        );
         assert!(register(&key, &[0; 32], primitive_types::U256::zero(), 0).is_err());
     }
 

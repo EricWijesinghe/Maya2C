@@ -51,7 +51,12 @@ fn node(byte: u8) -> NodeId {
 fn a_transfer_moves_balance_and_advances_the_sequence() {
     let (key_a, pk_a) = keypair();
     let (key_b, pk_b) = keypair();
-    let mut channel = Channel::open([1u8; 32], pk_a.clone(), pk_b.clone(), primitive_types::U256::from(1_000));
+    let mut channel = Channel::open(
+        [1u8; 32],
+        pk_a.clone(),
+        pk_b.clone(),
+        primitive_types::U256::from(1_000),
+    );
 
     let next = channel
         .propose_transfer(Party::A, primitive_types::U256::from(300), [9u8; 32])
@@ -67,7 +72,12 @@ fn a_transfer_moves_balance_and_advances_the_sequence() {
 fn a_transfer_beyond_the_senders_side_is_refused() {
     let (_, pk_a) = keypair();
     let (_, pk_b) = keypair();
-    let channel = Channel::open([1u8; 32], pk_a.clone(), pk_b.clone(), primitive_types::U256::from(1_000));
+    let channel = Channel::open(
+        [1u8; 32],
+        pk_a.clone(),
+        pk_b.clone(),
+        primitive_types::U256::from(1_000),
+    );
 
     // B holds nothing yet, so B cannot send.
     assert_eq!(
@@ -84,7 +94,12 @@ fn a_state_signed_by_only_one_party_is_not_binding() {
     let (key_a, pk_a) = keypair();
     let (_key_b, pk_b) = keypair();
     let impostor = generate_signing_key().expect("keygen");
-    let mut channel = Channel::open([1u8; 32], pk_a.clone(), pk_b.clone(), primitive_types::U256::from(1_000));
+    let mut channel = Channel::open(
+        [1u8; 32],
+        pk_a.clone(),
+        pk_b.clone(),
+        primitive_types::U256::from(1_000),
+    );
 
     let next = channel
         .propose_transfer(Party::A, primitive_types::U256::from(300), [9u8; 32])
@@ -107,7 +122,12 @@ fn a_state_signed_by_only_one_party_is_not_binding() {
 fn a_state_that_does_not_advance_the_sequence_is_refused() {
     let (key_a, pk_a) = keypair();
     let (key_b, pk_b) = keypair();
-    let mut channel = Channel::open([1u8; 32], pk_a.clone(), pk_b.clone(), primitive_types::U256::from(1_000));
+    let mut channel = Channel::open(
+        [1u8; 32],
+        pk_a.clone(),
+        pk_b.clone(),
+        primitive_types::U256::from(1_000),
+    );
 
     let next = channel
         .propose_transfer(Party::A, primitive_types::U256::from(100), [9u8; 32])
@@ -128,7 +148,12 @@ fn a_state_that_does_not_advance_the_sequence_is_refused() {
 fn a_state_that_does_not_conserve_capacity_is_refused() {
     let (_, pk_a) = keypair();
     let (_, pk_b) = keypair();
-    let channel = Channel::open([1u8; 32], pk_a.clone(), pk_b.clone(), primitive_types::U256::from(1_000));
+    let channel = Channel::open(
+        [1u8; 32],
+        pk_a.clone(),
+        pk_b.clone(),
+        primitive_types::U256::from(1_000),
+    );
 
     let inflated = ChannelState {
         channel_id: [1u8; 32],
@@ -152,7 +177,12 @@ fn a_state_that_does_not_conserve_capacity_is_refused() {
 fn advancing_a_state_records_the_revocation_secret() {
     let (key_a, pk_a) = keypair();
     let (key_b, pk_b) = keypair();
-    let mut channel = Channel::open([1u8; 32], pk_a.clone(), pk_b.clone(), primitive_types::U256::from(1_000));
+    let mut channel = Channel::open(
+        [1u8; 32],
+        pk_a.clone(),
+        pk_b.clone(),
+        primitive_types::U256::from(1_000),
+    );
 
     let next = channel
         .propose_transfer(Party::A, primitive_types::U256::from(100), [9u8; 32])
@@ -173,11 +203,22 @@ fn advancing_a_state_records_the_revocation_secret() {
 fn an_htlc_reserves_value_belonging_to_neither_side() {
     let (key_a, pk_a) = keypair();
     let (key_b, pk_b) = keypair();
-    let mut channel = Channel::open([1u8; 32], pk_a.clone(), pk_b.clone(), primitive_types::U256::from(1_000));
+    let mut channel = Channel::open(
+        [1u8; 32],
+        pk_a.clone(),
+        pk_b.clone(),
+        primitive_types::U256::from(1_000),
+    );
 
     let lock = hash_lock(&[5u8; 32]);
     let next = channel
-        .propose_htlc(Party::A, primitive_types::U256::from(250), lock, 100, [9u8; 32])
+        .propose_htlc(
+            Party::A,
+            primitive_types::U256::from(250),
+            lock,
+            100,
+            [9u8; 32],
+        )
         .expect("propose");
     commit(&mut channel, next, &key_a, &key_b, [0u8; 32]).expect("commit");
 
@@ -185,17 +226,31 @@ fn an_htlc_reserves_value_belonging_to_neither_side() {
     assert_eq!(channel.current.balance_b, primitive_types::U256::from(0));
     assert_eq!(channel.current.htlcs.len(), 1);
     // Still conserved — the value is in the HTLC, not gone.
-    assert_eq!(channel.current.total().expect("total"), primitive_types::U256::from(1_000));
+    assert_eq!(
+        channel.current.total().expect("total"),
+        primitive_types::U256::from(1_000)
+    );
 }
 
 #[test]
 fn a_state_with_pending_htlcs_cannot_be_settled() {
     let (key_a, pk_a) = keypair();
     let (key_b, pk_b) = keypair();
-    let mut channel = Channel::open([1u8; 32], pk_a.clone(), pk_b.clone(), primitive_types::U256::from(1_000));
+    let mut channel = Channel::open(
+        [1u8; 32],
+        pk_a.clone(),
+        pk_b.clone(),
+        primitive_types::U256::from(1_000),
+    );
 
     let next = channel
-        .propose_htlc(Party::A, primitive_types::U256::from(250), hash_lock(&[5u8; 32]), 100, [9u8; 32])
+        .propose_htlc(
+            Party::A,
+            primitive_types::U256::from(250),
+            hash_lock(&[5u8; 32]),
+            100,
+            [9u8; 32],
+        )
         .expect("propose");
     commit(&mut channel, next, &key_a, &key_b, [0u8; 32]).expect("commit");
 
@@ -212,11 +267,22 @@ fn a_state_with_pending_htlcs_cannot_be_settled() {
 fn the_correct_preimage_pays_the_receiver() {
     let (key_a, pk_a) = keypair();
     let (key_b, pk_b) = keypair();
-    let mut channel = Channel::open([1u8; 32], pk_a.clone(), pk_b.clone(), primitive_types::U256::from(1_000));
+    let mut channel = Channel::open(
+        [1u8; 32],
+        pk_a.clone(),
+        pk_b.clone(),
+        primitive_types::U256::from(1_000),
+    );
 
     let preimage = [5u8; 32];
     let next = channel
-        .propose_htlc(Party::A, primitive_types::U256::from(250), hash_lock(&preimage), 100, [9u8; 32])
+        .propose_htlc(
+            Party::A,
+            primitive_types::U256::from(250),
+            hash_lock(&preimage),
+            100,
+            [9u8; 32],
+        )
         .expect("propose");
     commit(&mut channel, next, &key_a, &key_b, [0u8; 32]).expect("commit");
 
@@ -234,10 +300,21 @@ fn the_correct_preimage_pays_the_receiver() {
 fn a_wrong_preimage_claims_nothing() {
     let (key_a, pk_a) = keypair();
     let (key_b, pk_b) = keypair();
-    let mut channel = Channel::open([1u8; 32], pk_a.clone(), pk_b.clone(), primitive_types::U256::from(1_000));
+    let mut channel = Channel::open(
+        [1u8; 32],
+        pk_a.clone(),
+        pk_b.clone(),
+        primitive_types::U256::from(1_000),
+    );
 
     let next = channel
-        .propose_htlc(Party::A, primitive_types::U256::from(250), hash_lock(&[5u8; 32]), 100, [9u8; 32])
+        .propose_htlc(
+            Party::A,
+            primitive_types::U256::from(250),
+            hash_lock(&[5u8; 32]),
+            100,
+            [9u8; 32],
+        )
         .expect("propose");
     commit(&mut channel, next, &key_a, &key_b, [0u8; 32]).expect("commit");
 
@@ -251,11 +328,22 @@ fn a_wrong_preimage_claims_nothing() {
 fn an_expired_htlc_cannot_be_claimed_but_can_be_refunded() {
     let (key_a, pk_a) = keypair();
     let (key_b, pk_b) = keypair();
-    let mut channel = Channel::open([1u8; 32], pk_a.clone(), pk_b.clone(), primitive_types::U256::from(1_000));
+    let mut channel = Channel::open(
+        [1u8; 32],
+        pk_a.clone(),
+        pk_b.clone(),
+        primitive_types::U256::from(1_000),
+    );
 
     let preimage = [5u8; 32];
     let next = channel
-        .propose_htlc(Party::A, primitive_types::U256::from(250), hash_lock(&preimage), 100, [9u8; 32])
+        .propose_htlc(
+            Party::A,
+            primitive_types::U256::from(250),
+            hash_lock(&preimage),
+            100,
+            [9u8; 32],
+        )
         .expect("propose");
     commit(&mut channel, next, &key_a, &key_b, [0u8; 32]).expect("commit");
 
@@ -271,17 +359,31 @@ fn an_expired_htlc_cannot_be_claimed_but_can_be_refunded() {
 
     let refunded = channel.refund_htlc(0, 100, [8u8; 32]).expect("refund");
     commit(&mut channel, refunded, &key_a, &key_b, [1u8; 32]).expect("commit");
-    assert_eq!(channel.current.balance_a, primitive_types::U256::from(1_000));
+    assert_eq!(
+        channel.current.balance_a,
+        primitive_types::U256::from(1_000)
+    );
 }
 
 #[test]
 fn an_unexpired_htlc_cannot_be_refunded_early() {
     let (key_a, pk_a) = keypair();
     let (key_b, pk_b) = keypair();
-    let mut channel = Channel::open([1u8; 32], pk_a.clone(), pk_b.clone(), primitive_types::U256::from(1_000));
+    let mut channel = Channel::open(
+        [1u8; 32],
+        pk_a.clone(),
+        pk_b.clone(),
+        primitive_types::U256::from(1_000),
+    );
 
     let next = channel
-        .propose_htlc(Party::A, primitive_types::U256::from(250), hash_lock(&[5u8; 32]), 100, [9u8; 32])
+        .propose_htlc(
+            Party::A,
+            primitive_types::U256::from(250),
+            hash_lock(&[5u8; 32]),
+            100,
+            [9u8; 32],
+        )
         .expect("propose");
     commit(&mut channel, next, &key_a, &key_b, [0u8; 32]).expect("commit");
 
@@ -326,7 +428,12 @@ fn line_graph() -> ChannelGraph {
 fn a_direct_channel_routes_in_one_hop() {
     let graph = line_graph();
     let route = graph
-        .find_route(&node(1), &node(2), primitive_types::U256::from(500), MAX_HOPS)
+        .find_route(
+            &node(1),
+            &node(2),
+            primitive_types::U256::from(500),
+            MAX_HOPS,
+        )
         .expect("route");
 
     assert_eq!(route.hop_count(), 1);
@@ -340,7 +447,12 @@ fn a_direct_channel_routes_in_one_hop() {
 fn a_two_hop_route_charges_the_intermediary() {
     let graph = line_graph();
     let route = graph
-        .find_route(&node(1), &node(3), primitive_types::U256::from(1_000), MAX_HOPS)
+        .find_route(
+            &node(1),
+            &node(3),
+            primitive_types::U256::from(1_000),
+            MAX_HOPS,
+        )
         .expect("route");
 
     assert_eq!(route.hop_count(), 2);
@@ -356,7 +468,12 @@ fn a_two_hop_route_charges_the_intermediary() {
 fn forwarded_amounts_never_increase_along_a_route() {
     let graph = line_graph();
     let route = graph
-        .find_route(&node(1), &node(3), primitive_types::U256::from(1_000), MAX_HOPS)
+        .find_route(
+            &node(1),
+            &node(3),
+            primitive_types::U256::from(1_000),
+            MAX_HOPS,
+        )
         .expect("route");
 
     // An intermediary must never be asked to forward more than it received.
@@ -396,7 +513,12 @@ fn a_route_never_revisits_a_node() {
     );
 
     let route = graph
-        .find_route(&node(1), &node(3), primitive_types::U256::from(500), MAX_HOPS)
+        .find_route(
+            &node(1),
+            &node(3),
+            primitive_types::U256::from(500),
+            MAX_HOPS,
+        )
         .expect("route");
 
     let mut visited = vec![route.hops[0].from];
@@ -420,19 +542,38 @@ fn a_channel_without_the_capacity_is_not_a_route() {
     );
 
     assert!(matches!(
-        graph.find_route(&node(1), &node(2), primitive_types::U256::from(500), MAX_HOPS),
+        graph.find_route(
+            &node(1),
+            &node(2),
+            primitive_types::U256::from(500),
+            MAX_HOPS
+        ),
         Err(FlashError::NoRoute { .. })
     ));
     // The reverse direction has room, which is exactly why capacity is
     // directional rather than a single per-channel number.
-    assert!(graph.find_route(&node(2), &node(1), primitive_types::U256::from(500), MAX_HOPS).is_ok());
+    assert!(
+        graph
+            .find_route(
+                &node(2),
+                &node(1),
+                primitive_types::U256::from(500),
+                MAX_HOPS
+            )
+            .is_ok()
+    );
 }
 
 #[test]
 fn an_unreachable_destination_has_no_route() {
     let graph = line_graph();
     assert!(matches!(
-        graph.find_route(&node(1), &node(9), primitive_types::U256::from(100), MAX_HOPS),
+        graph.find_route(
+            &node(1),
+            &node(9),
+            primitive_types::U256::from(100),
+            MAX_HOPS
+        ),
         Err(FlashError::NoRoute { .. })
     ));
 }
@@ -451,7 +592,12 @@ fn the_sender_pays_no_fee_on_its_own_channel() {
     );
 
     let route = graph
-        .find_route(&node(1), &node(2), primitive_types::U256::from(1_000), MAX_HOPS)
+        .find_route(
+            &node(1),
+            &node(2),
+            primitive_types::U256::from(1_000),
+            MAX_HOPS,
+        )
         .expect("route");
 
     // A node does not pay itself to forward. Fees are what a sender pays
@@ -507,7 +653,12 @@ fn the_cheaper_path_wins_even_when_it_is_longer() {
     );
 
     let route = graph
-        .find_route(&node(1), &node(4), primitive_types::U256::from(1_000), MAX_HOPS)
+        .find_route(
+            &node(1),
+            &node(4),
+            primitive_types::U256::from(1_000),
+            MAX_HOPS,
+        )
         .expect("route");
 
     // Fee, not hop count, is the objective.
@@ -520,7 +671,12 @@ fn graph_capacity_updates_change_routing() {
     let mut graph = line_graph();
     assert!(
         graph
-            .find_route(&node(1), &node(3), primitive_types::U256::from(5_000), MAX_HOPS)
+            .find_route(
+                &node(1),
+                &node(3),
+                primitive_types::U256::from(5_000),
+                MAX_HOPS
+            )
             .is_ok()
     );
 
@@ -528,7 +684,12 @@ fn graph_capacity_updates_change_routing() {
     assert!(graph.set_capacity(&[2u8; 32], &node(2), primitive_types::U256::from(10)));
 
     assert!(matches!(
-        graph.find_route(&node(1), &node(3), primitive_types::U256::from(5_000), MAX_HOPS),
+        graph.find_route(
+            &node(1),
+            &node(3),
+            primitive_types::U256::from(5_000),
+            MAX_HOPS
+        ),
         Err(FlashError::NoRoute { .. })
     ));
 }
@@ -551,7 +712,12 @@ fn the_graph_reports_its_shape() {
 fn a_payment_plan_ladders_expiries_downward() {
     let graph = line_graph();
     let route = graph
-        .find_route(&node(1), &node(3), primitive_types::U256::from(1_000), MAX_HOPS)
+        .find_route(
+            &node(1),
+            &node(3),
+            primitive_types::U256::from(1_000),
+            MAX_HOPS,
+        )
         .expect("route");
 
     let plan = PaymentPlan::build(&route, &[7u8; 32], 500, 40).expect("plan");
@@ -573,7 +739,12 @@ fn a_payment_plan_ladders_expiries_downward() {
 fn every_hop_shares_one_hash_lock() {
     let graph = line_graph();
     let route = graph
-        .find_route(&node(1), &node(3), primitive_types::U256::from(1_000), MAX_HOPS)
+        .find_route(
+            &node(1),
+            &node(3),
+            primitive_types::U256::from(1_000),
+            MAX_HOPS,
+        )
         .expect("route");
 
     let preimage = [7u8; 32];
@@ -591,7 +762,12 @@ fn every_hop_shares_one_hash_lock() {
 fn a_plan_carries_the_routes_fees() {
     let graph = line_graph();
     let route = graph
-        .find_route(&node(1), &node(3), primitive_types::U256::from(1_000), MAX_HOPS)
+        .find_route(
+            &node(1),
+            &node(3),
+            primitive_types::U256::from(1_000),
+            MAX_HOPS,
+        )
         .expect("route");
     let plan = PaymentPlan::build(&route, &[7u8; 32], 500, 40).expect("plan");
 
@@ -608,11 +784,21 @@ fn an_htlc_plan_installs_into_real_channels() {
 
     let graph = line_graph();
     let route = graph
-        .find_route(&node(1), &node(3), primitive_types::U256::from(1_000), MAX_HOPS)
+        .find_route(
+            &node(1),
+            &node(3),
+            primitive_types::U256::from(1_000),
+            MAX_HOPS,
+        )
         .expect("route");
     let plan = PaymentPlan::build(&route, &[7u8; 32], 500, 40).expect("plan");
 
-    let mut channel = Channel::open([1u8; 32], pk_a.clone(), pk_b.clone(), primitive_types::U256::from(10_000));
+    let mut channel = Channel::open(
+        [1u8; 32],
+        pk_a.clone(),
+        pk_b.clone(),
+        primitive_types::U256::from(10_000),
+    );
     let first = &plan.hops[0];
 
     let next = channel
@@ -628,5 +814,8 @@ fn an_htlc_plan_installs_into_real_channels() {
 
     assert_eq!(channel.current.htlcs.len(), 1);
     assert_eq!(channel.current.htlcs[0].amount, first.amount);
-    assert_eq!(channel.current.total().expect("total"), primitive_types::U256::from(10_000));
+    assert_eq!(
+        channel.current.total().expect("total"),
+        primitive_types::U256::from(10_000)
+    );
 }

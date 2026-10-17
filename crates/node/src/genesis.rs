@@ -648,9 +648,9 @@ impl GenesisConfig {
                     allocation.address
                 )));
             }
-            total = total
-                .checked_add(allocation.balance)
-                .ok_or_else(|| NodeError::Decode("total allocation overflows 256 bits".to_string()))?;
+            total = total.checked_add(allocation.balance).ok_or_else(|| {
+                NodeError::Decode("total allocation overflows 256 bits".to_string())
+            })?;
         }
 
         if let Some(treasury) = &self.treasury {
@@ -692,10 +692,7 @@ impl GenesisConfig {
             // Through the 512-bit product: a 256-bit balance times 10 000
             // overflows 256 bits. The quotient is at most 10 000.
             let implied_bps = to_amount(treasury.balance)
-                .mul_div(
-                    Amount::from_u64(u64::from(BPS_DENOMINATOR)),
-                    to_amount(total),
-                )
+                .mul_div(Amount::from_u64(BPS_DENOMINATOR), to_amount(total))
                 .map_or(u64::MAX, Amount::saturating_to_u64);
             if implied_bps != u64::from(treasury.share_bps) {
                 return Err(NodeError::Decode(format!(
@@ -718,9 +715,9 @@ impl GenesisConfig {
         self.validate()?;
         let mut total = U256::zero();
         for allocation in &self.allocations {
-            total = total
-                .checked_add(allocation.balance)
-                .ok_or_else(|| NodeError::Decode("total allocation overflows 256 bits".to_string()))?;
+            total = total.checked_add(allocation.balance).ok_or_else(|| {
+                NodeError::Decode("total allocation overflows 256 bits".to_string())
+            })?;
         }
         if let Some(treasury) = &self.treasury {
             total = total.checked_add(treasury.balance).ok_or_else(|| {

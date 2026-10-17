@@ -213,7 +213,9 @@ pub fn clear_batch(pool: &Pool, intents: &[SwapIntent]) -> Result<BatchOutcome> 
             .cleared
             .iter()
             .zip(active.iter())
-            .filter(|(trade, intent)| trade.amount_out < intent.min_out || trade.amount_out.is_zero())
+            .filter(|(trade, intent)| {
+                trade.amount_out < intent.min_out || trade.amount_out.is_zero()
+            })
             .map(|(trade, _)| trade.id)
             .collect();
 
@@ -282,8 +284,7 @@ fn settle(pool: &Pool, intents: &[SwapIntent]) -> Result<BatchOutcome> {
             .checked_sub(quote_as_base)
             .ok_or(DexError::Overflow)?;
         let swap = pool.swap_exact_in(Direction::BaseToQuote, net)?;
-        let price =
-            mul_div_floor(swap.amount_out, PRICE_SCALE, net).ok_or(DexError::Overflow)?;
+        let price = mul_div_floor(swap.amount_out, PRICE_SCALE, net).ok_or(DexError::Overflow)?;
         (
             price,
             swap.protocol_fee,
@@ -294,8 +295,7 @@ fn settle(pool: &Pool, intents: &[SwapIntent]) -> Result<BatchOutcome> {
         // The batch wants more base than it supplies, so quote reaches the
         // curve. Size the imbalance in quote at spot for symmetry with the
         // branch above.
-        let base_as_quote =
-            mul_div_floor(base_in, spot, PRICE_SCALE).ok_or(DexError::Overflow)?;
+        let base_as_quote = mul_div_floor(base_in, spot, PRICE_SCALE).ok_or(DexError::Overflow)?;
         let net = quote_in.saturating_sub(base_as_quote);
         if net.is_zero() {
             (spot, Amount::ZERO, None, *pool)

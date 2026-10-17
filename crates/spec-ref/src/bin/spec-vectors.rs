@@ -123,7 +123,10 @@ fn stf_case(
 }
 
 fn tx(from: &str, nonce: u64, outputs: &[(&str, u64)]) -> Value {
-    let wide: Vec<(&str, Balance)> = outputs.iter().map(|(to, a)| (*to, Balance::from(*a))).collect();
+    let wide: Vec<(&str, Balance)> = outputs
+        .iter()
+        .map(|(to, a)| (*to, Balance::from(*a)))
+        .collect();
     tx_wide(from, nonce, &wide)
 }
 
@@ -195,7 +198,11 @@ fn state_transitions(k: &BTreeMap<String, Address>) -> Value {
             // ADR-046: outputs are 256-bit, so the sum overflows only past
             // 2^256 - 1; a u64-sized pair no longer overflows.
             &json!([acct("k0", Balance::MAX, 0)]),
-            &json!([tx_wide("k0", 0, &[("k1", Balance::MAX), ("k2", Balance::from(1))])]),
+            &json!([tx_wide(
+                "k0",
+                0,
+                &[("k1", Balance::MAX), ("k2", Balance::from(1))]
+            )]),
         ),
         stf_case(
             k,
@@ -359,7 +366,10 @@ fn pattern(len: usize, seed: u8) -> Vec<u8> {
 
 fn encoding_vectors(k: &BTreeMap<String, Address>) -> Value {
     let signed = Frame {
-        outputs: vec![(k["k1"], Balance::from(42)), (resolve(k, FRESH), Balance::from(7))],
+        outputs: vec![
+            (k["k1"], Balance::from(42)),
+            (resolve(k, FRESH), Balance::from(7)),
+        ],
         public_key: pattern(wire::HYBRID_PK, 3),
         nonce: 9,
         signature: Some(pattern(wire::HYBRID_SIG, 101)),

@@ -319,10 +319,7 @@ impl Worker {
                 &self.key,
                 Purpose::Allowance(commitment_id),
                 TxKind::Transfer,
-                vec![TxOutput {
-                    amount,
-                    recipient,
-                }],
+                vec![TxOutput { amount, recipient }],
             )
             .await
     }
@@ -511,5 +508,8 @@ fn claim_fee(key: &HybridSigningKey, fees: crate::chain::Fees) -> Result<primiti
     // must never be broadcast — it is valid on no chain.
     let size_probe_tag = ChainTag::from_genesis([0; 32]);
     let tx = crate::submit::sign_with_fee(&probe, Vec::new(), 0, key, &size_probe_tag, Some(fees))?;
-    Ok(tx.outputs.last().map_or(primitive_types::U256::zero(), |fee| fee.amount))
+    Ok(tx
+        .outputs
+        .last()
+        .map_or(primitive_types::U256::zero(), |fee| fee.amount))
 }

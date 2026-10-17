@@ -421,7 +421,8 @@ impl RevenueDistribution {
         let asset: Digest = bytes[..DIGEST_BYTES].try_into().expect("sized");
         let round = u64::from_le_bytes(bytes[at..at + 8].try_into().expect("sized"));
         at += 8;
-        let total = maya_amount::Amount::from_le_bytes(bytes[at..at + 32].try_into().expect("sized"));
+        let total =
+            maya_amount::Amount::from_le_bytes(bytes[at..at + 32].try_into().expect("sized"));
         at += 32;
         let holders = u32::from_le_bytes(bytes[at..at + 4].try_into().expect("sized"));
         at += 4;

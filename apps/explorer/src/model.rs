@@ -108,7 +108,9 @@ impl IndexedTx {
                 total_out: tx
                     .outputs
                     .iter()
-                    .fold(primitive_types::U256::zero(), |sum, o| sum.saturating_add(o.amount))
+                    .fold(primitive_types::U256::zero(), |sum, o| {
+                        sum.saturating_add(o.amount)
+                    })
                     .to_string(),
                 signed: tx.signed,
             })

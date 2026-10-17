@@ -159,9 +159,7 @@ impl Staking {
             return Ok(Amount::ZERO);
         };
         let commission = bps_of(reward, v.commission_bps);
-        let rest = reward
-            .checked_sub(commission)
-            .ok_or(StakeError::Overflow)?;
+        let rest = reward.checked_sub(commission).ok_or(StakeError::Overflow)?;
         let total = v.total();
         let mut credited = Amount::ZERO;
         let own = commission

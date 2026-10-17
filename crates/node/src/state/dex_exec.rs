@@ -35,6 +35,7 @@
 
 use std::collections::BTreeMap;
 
+use maya_dex::Amount;
 use maya_dex::amm::Pool;
 use maya_dex::batch::{MAX_BATCH_INTENTS, SwapIntent, clear_batch};
 use maya_dex::book::{Book, Order, OrderId, Side, quote_for_base};
@@ -42,9 +43,8 @@ use maya_dex::error::DexError;
 use maya_dex::fees::FeeSchedule;
 use maya_dex::matching::{MatchLimits, match_book};
 use maya_dex::types::{Direction, PairId};
-use maya_dex::Amount;
-use maya_stateless_core::amount::{to_amount, to_u256};
 use maya_governance::params::ParameterKey;
+use maya_stateless_core::amount::{to_amount, to_u256};
 
 use crate::core::dex_payload::{
     AssetRegistration, AssetTransfer, LiquidityDeposit, LiquidityWithdrawal, OrderPlacement,
@@ -545,7 +545,10 @@ impl StateDB {
         let mut record = self.require_pool(overlay, &deposit.pair)?;
         let delta = record
             .pool
-            .add_liquidity(to_amount(deposit.base_desired), to_amount(deposit.quote_desired))
+            .add_liquidity(
+                to_amount(deposit.base_desired),
+                to_amount(deposit.quote_desired),
+            )
             .map_err(|error| trade_error("deposit", error))?;
 
         // A deposit executes in place, so its bound is an error rather than a
@@ -979,8 +982,10 @@ impl StateDB {
             self.credit_asset(overlay, &asset, &intent.trader, intent.amount_in)?;
         }
 
-        if let (Some(direction), true) = (outcome.protocol_fee_direction, !outcome.protocol_fee.is_zero())
-        {
+        if let (Some(direction), true) = (
+            outcome.protocol_fee_direction,
+            !outcome.protocol_fee.is_zero(),
+        ) {
             let asset = input_asset(&record, direction);
             self.credit_asset(overlay, &asset, &FEE_SINK, outcome.protocol_fee)?;
         }

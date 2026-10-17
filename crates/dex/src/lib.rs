@@ -68,11 +68,11 @@ pub mod types;
 #[cfg(kani)]
 pub mod proofs;
 
-pub use maya_amount::Amount;
 pub use amm::{LiquidityDelta, Pool, SwapOutcome};
 pub use batch::{BatchOutcome, ClearedTrade, SwapIntent, clear_batch};
 pub use book::{Book, Order, OrderId, Side};
 pub use error::DexError;
 pub use fees::FeeSchedule;
 pub use matching::{Fill, MatchLimits, MatchOutcome, match_book};
+pub use maya_amount::Amount;
 pub use types::{AssetId, Direction, PRICE_SCALE, PairId};

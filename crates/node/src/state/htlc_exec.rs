@@ -35,7 +35,6 @@
 use maya_htlc_lattice::{
     ClaimOutcome, Lock, LockRecord, RefundOutcome, Settlement, decide_claim, decide_refund,
 };
-use primitive_types::U256;
 
 use crate::core::htlc_payload::{HtlcClaim, HtlcLock, HtlcRefund, LockId};
 use crate::error::{NodeError, Result};
@@ -82,7 +81,7 @@ impl StateDB {
 
         let mut account = self.load(overlay, sender)?;
         let available = account.balance;
-        let required = U256::from(payload.amount);
+        let required = payload.amount;
         account.balance =
             available
                 .checked_sub(required)

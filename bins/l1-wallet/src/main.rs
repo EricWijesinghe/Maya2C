@@ -17,8 +17,8 @@
 //! environment variable is not persisted to disk by default and is not visible
 //! in `ps` output on modern systems.
 
-use primitive_types::U256;
 use l1_wallet::keystore;
+use primitive_types::U256;
 
 use std::path::{Path, PathBuf};
 

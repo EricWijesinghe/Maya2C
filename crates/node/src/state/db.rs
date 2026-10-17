@@ -857,7 +857,7 @@ impl StateDB {
             let mut recipient = self.load(overlay, &output.recipient)?;
             recipient.balance = recipient
                 .balance
-                .checked_add(U256::from(output.amount))
+                .checked_add(output.amount)
                 .ok_or(NodeError::BalanceOverflow)?;
             overlay.accounts.insert(output.recipient, recipient);
         }

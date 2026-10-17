@@ -299,7 +299,9 @@ mod tests {
     #[test]
     fn a_proposal_with_no_decisive_votes_does_not_pass() {
         // Abstentions can carry a quorum. They cannot carry a decision.
-        let tally = Tally::empty().add(Choice::Abstain, a(1_000)).expect("abstain");
+        let tally = Tally::empty()
+            .add(Choice::Abstain, a(1_000))
+            .expect("abstain");
         assert!(tally.meets_quorum(a(1_000), BPS_DENOMINATOR));
         assert!(!tally.meets_approval(5_001));
         assert!(!tally.passes(a(1_000), BPS_DENOMINATOR, 5_001));

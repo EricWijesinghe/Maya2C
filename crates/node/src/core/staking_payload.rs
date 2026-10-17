@@ -96,11 +96,12 @@ impl StakingAction {
 
     /// Appends the encoding.
     pub fn encode_into(&self, buf: &mut Vec<u8>) {
-        let amount_op = |buf: &mut Vec<u8>, tag: u8, id: &[u8; 32], amount: primitive_types::U256| {
-            buf.push(tag);
-            buf.extend_from_slice(id);
-            crate::core::codec::put_amount(buf, &amount);
-        };
+        let amount_op =
+            |buf: &mut Vec<u8>, tag: u8, id: &[u8; 32], amount: primitive_types::U256| {
+                buf.push(tag);
+                buf.extend_from_slice(id);
+                crate::core::codec::put_amount(buf, &amount);
+            };
         match self {
             Self::Register {
                 key,
@@ -110,7 +111,7 @@ impl StakingAction {
             } => {
                 buf.push(REGISTER);
                 buf.extend_from_slice(key.as_slice());
-                crate::core::codec::put_amount(buf, &bond);
+                crate::core::codec::put_amount(buf, bond);
                 buf.extend_from_slice(&commission_bps.to_le_bytes());
                 buf.extend_from_slice(possession.as_slice());
             }

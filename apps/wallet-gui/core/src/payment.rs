@@ -86,9 +86,10 @@ impl PaymentRequest {
                 match key {
                     "amount" => {
                         // Decimal, explicitly: `U256::from_str` reads hex.
-                        amount = Some(primitive_types::U256::from_dec_str(value).map_err(|_| {
-                            WalletError::Qr(format!("amount '{value}' is not a number"))
-                        })?);
+                        amount =
+                            Some(primitive_types::U256::from_dec_str(value).map_err(|_| {
+                                WalletError::Qr(format!("amount '{value}' is not a number"))
+                            })?);
                     }
                     "label" => label = Some(percent_decode(value)),
                     // Unknown parameters are ignored rather than rejected, so a
@@ -507,17 +508,23 @@ mod optional_amount {
     use primitive_types::U256;
     use serde::{Deserialize, Deserializer, Serializer, de::Error as _};
 
-    pub fn serialize<S: Serializer>(value: &Option<U256>, serializer: S) -> Result<S::Ok, S::Error> {
+    pub fn serialize<S: Serializer>(
+        value: &Option<U256>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
         match value {
             Some(amount) => serializer.serialize_some(&amount.to_string()),
             None => serializer.serialize_none(),
         }
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<U256>, D::Error> {
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<U256>, D::Error> {
         Option::<String>::deserialize(deserializer)?
             .map(|text| {
-                U256::from_dec_str(&text).map_err(|_| D::Error::custom("amount is not a base-10 U256"))
+                U256::from_dec_str(&text)
+                    .map_err(|_| D::Error::custom("amount is not a base-10 U256"))
             })
             .transpose()
     }

@@ -121,7 +121,9 @@ impl Pool {
     /// Whether the pool holds liquidity on both sides.
     #[must_use]
     pub const fn is_funded(&self) -> bool {
-        !self.reserve_base.is_zero() && !self.reserve_quote.is_zero() && !self.total_shares.is_zero()
+        !self.reserve_base.is_zero()
+            && !self.reserve_quote.is_zero()
+            && !self.total_shares.is_zero()
     }
 
     /// Marginal price: quote units per [`PRICE_SCALE`] base units.
@@ -140,12 +142,7 @@ impl Pool {
         if !self.is_funded() {
             return Err(DexError::EmptyPool);
         }
-        mul_div_floor(
-            self.reserve_quote,
-            PRICE_SCALE,
-            self.reserve_base,
-        )
-        .ok_or(DexError::Overflow)
+        mul_div_floor(self.reserve_quote, PRICE_SCALE, self.reserve_base).ok_or(DexError::Overflow)
     }
 
     /// The reserves in `(in, out)` order for `direction`.
@@ -221,12 +218,8 @@ impl Pool {
         }
 
         // Ceiling: an inexact LP fee rounds toward the reserves.
-        let lp_fee = mul_div_ceil(
-            pool_in,
-            small(self.fees.lp_bps),
-            small(FEE_DENOMINATOR),
-        )
-        .ok_or(DexError::Overflow)?;
+        let lp_fee = mul_div_ceil(pool_in, small(self.fees.lp_bps), small(FEE_DENOMINATOR))
+            .ok_or(DexError::Overflow)?;
         let effective_in = pool_in.checked_sub(lp_fee).ok_or(DexError::Overflow)?;
         if effective_in.is_zero() {
             return Err(DexError::ZeroOutput);
@@ -238,12 +231,8 @@ impl Pool {
         let denominator = reserve_in
             .checked_add(effective_in)
             .ok_or(DexError::Overflow)?;
-        let amount_out = mul_div_floor(
-            reserve_out,
-            effective_in,
-            denominator,
-        )
-        .ok_or(DexError::Overflow)?;
+        let amount_out =
+            mul_div_floor(reserve_out, effective_in, denominator).ok_or(DexError::Overflow)?;
         if amount_out.is_zero() {
             return Err(DexError::ZeroOutput);
         }
@@ -301,32 +290,20 @@ impl Pool {
         let remaining_out = reserve_out
             .checked_sub(amount_out)
             .ok_or(DexError::InsufficientLiquidity)?;
-        let effective_in = mul_div_ceil(
-            reserve_in,
-            amount_out,
-            remaining_out,
-        )
-        .ok_or(DexError::Overflow)?;
+        let effective_in =
+            mul_div_ceil(reserve_in, amount_out, remaining_out).ok_or(DexError::Overflow)?;
 
         let lp_divisor = FEE_DENOMINATOR
             .checked_sub(self.fees.lp_bps)
             .ok_or(DexError::FeeTooHigh)?;
-        let pool_in = mul_div_ceil(
-            effective_in,
-            small(FEE_DENOMINATOR),
-            small(lp_divisor),
-        )
-        .ok_or(DexError::Overflow)?;
+        let pool_in = mul_div_ceil(effective_in, small(FEE_DENOMINATOR), small(lp_divisor))
+            .ok_or(DexError::Overflow)?;
 
         let protocol_divisor = FEE_DENOMINATOR
             .checked_sub(self.fees.protocol_bps)
             .ok_or(DexError::FeeTooHigh)?;
-        let mut amount_in = mul_div_ceil(
-            pool_in,
-            small(FEE_DENOMINATOR),
-            small(protocol_divisor),
-        )
-        .ok_or(DexError::Overflow)?;
+        let mut amount_in = mul_div_ceil(pool_in, small(FEE_DENOMINATOR), small(protocol_divisor))
+            .ok_or(DexError::Overflow)?;
 
         // Inverting three ceilings can land a unit short of what the forward
         // path actually delivers, because the forward path floors the output.
@@ -374,7 +351,9 @@ impl Pool {
                     pool,
                 });
             }
-            amount_in = amount_in.checked_add(Amount::ONE).ok_or(DexError::Overflow)?;
+            amount_in = amount_in
+                .checked_add(Amount::ONE)
+                .ok_or(DexError::Overflow)?;
         }
 
         Err(DexError::InvariantViolation)
@@ -400,7 +379,11 @@ impl Pool {
     /// - [`DexError::ZeroOutput`] if a later deposit is too small to mint one
     ///   share, which would otherwise take the assets and give nothing back.
     /// - [`DexError::Overflow`] if the arithmetic leaves 256 bits.
-    pub fn add_liquidity(&self, base_desired: Amount, quote_desired: Amount) -> Result<LiquidityDelta> {
+    pub fn add_liquidity(
+        &self,
+        base_desired: Amount,
+        quote_desired: Amount,
+    ) -> Result<LiquidityDelta> {
         if base_desired.is_zero() || quote_desired.is_zero() {
             return Err(DexError::ZeroAmount);
         }
@@ -411,22 +394,14 @@ impl Pool {
 
         // Ceiling on the amount required, so an inexact ratio is paid by the
         // depositor rather than by the pool.
-        let quote_for_base = mul_div_ceil(
-            base_desired,
-            self.reserve_quote,
-            self.reserve_base,
-        )
-        .ok_or(DexError::Overflow)?;
+        let quote_for_base = mul_div_ceil(base_desired, self.reserve_quote, self.reserve_base)
+            .ok_or(DexError::Overflow)?;
 
         let (base, quote) = if quote_for_base <= quote_desired {
             (base_desired, quote_for_base)
         } else {
-            let base_for_quote = mul_div_ceil(
-                quote_desired,
-                self.reserve_base,
-                self.reserve_quote,
-            )
-            .ok_or(DexError::Overflow)?;
+            let base_for_quote = mul_div_ceil(quote_desired, self.reserve_base, self.reserve_quote)
+                .ok_or(DexError::Overflow)?;
             (base_for_quote, quote_desired)
         };
 
@@ -436,18 +411,10 @@ impl Pool {
 
         // Floor on both sides, then the smaller: the depositor is credited for
         // the side they under-supplied, never for the side they over-supplied.
-        let by_base = mul_div_floor(
-            base,
-            self.total_shares,
-            self.reserve_base,
-        )
-        .ok_or(DexError::Overflow)?;
-        let by_quote = mul_div_floor(
-            quote,
-            self.total_shares,
-            self.reserve_quote,
-        )
-        .ok_or(DexError::Overflow)?;
+        let by_base =
+            mul_div_floor(base, self.total_shares, self.reserve_base).ok_or(DexError::Overflow)?;
+        let by_quote = mul_div_floor(quote, self.total_shares, self.reserve_quote)
+            .ok_or(DexError::Overflow)?;
         let shares = by_base.min(by_quote);
         if shares.is_zero() {
             return Err(DexError::ZeroOutput);
@@ -490,7 +457,10 @@ impl Pool {
         // ever written together. Reaching here with any of the three non-zero
         // means a corrupt record, and seeding on top of it would mint against
         // value that is already there.
-        if !self.reserve_base.is_zero() || !self.reserve_quote.is_zero() || !self.total_shares.is_zero() {
+        if !self.reserve_base.is_zero()
+            || !self.reserve_quote.is_zero()
+            || !self.total_shares.is_zero()
+        {
             return Err(DexError::InvariantViolation);
         }
 
@@ -545,18 +515,10 @@ impl Pool {
             return Err(DexError::InsufficientShares);
         }
 
-        let base = mul_div_floor(
-            self.reserve_base,
-            shares,
-            self.total_shares,
-        )
-        .ok_or(DexError::Overflow)?;
-        let quote = mul_div_floor(
-            self.reserve_quote,
-            shares,
-            self.total_shares,
-        )
-        .ok_or(DexError::Overflow)?;
+        let base = mul_div_floor(self.reserve_base, shares, self.total_shares)
+            .ok_or(DexError::Overflow)?;
+        let quote = mul_div_floor(self.reserve_quote, shares, self.total_shares)
+            .ok_or(DexError::Overflow)?;
 
         if base.is_zero() || quote.is_zero() {
             return Err(DexError::ZeroOutput);
