@@ -45,6 +45,7 @@ export default defineConfig({
         // scripts/check-csp.mjs fails the build if one changes.
         hashes: [
           "sha256-7eCV4jtsr4t4knb3c4FCRPeu7GGZeOUGE3XvWix0XOQ=",
+          "sha256-DM6+zVcqjQZjHZ+l61F0OCurK3I+J8n39PEuPvnjXFs=",
           "sha256-GkZBRnvSuhtx/cvzvukVkX2JJZW+DdPlVr7BX8Tefqo=",
           "sha256-VWo5Wp4aqSj6nSgMpeAp9cKieaoIfwFUAunAVugI5gA=",
           "sha256-f/zAUE74ucc3JYp4r4QQvkJofoQdkOIhHYK+jeZ6eko=",
@@ -149,6 +150,7 @@ export default defineConfig({
         "katex/dist/katex.min.css",
         "./src/components/math/katex-overflow.css",
         "./src/styles/maya.css",
+        "./src/styles/maya-living.css",
       ],
       components: {
         // Our footer (about, contact, copyright) after Starlight's own.
@@ -173,7 +175,9 @@ export default defineConfig({
             { label: "Help run the network (easy)", link: "/guides/help-run" },
             { label: "Join the testnet", link: "/guides/testnet" },
             { label: "Quickstart", link: "/guides/quickstart" },
+            { label: "How a transaction works", link: "/guides/transactions" },
             { label: "Post-quantum signatures", link: "/guides/signatures" },
+            { label: "Consensus and finality", link: "/guides/consensus" },
             { label: "Mining and validators", link: "/guides/mining" },
             { label: "Run a validator", link: "/guides/validators" },
             { label: "Break it", link: "/guides/break-it" },
