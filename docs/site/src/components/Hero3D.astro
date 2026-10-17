@@ -59,6 +59,7 @@ const lattice = nodes.map((p, i) => `${p.x},${p.y} ${nodes[(i + 3) % 12].x},${no
   const pop = document.getElementById("pop") as HTMLElement;
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const MAX = 20;
+  const PHONE_FRAME_MS = 1000 / 30;
   const fmt = (n: number) => n.toLocaleString("en-US");
   const $ = (id: string) => document.getElementById(id);
 
@@ -290,8 +291,10 @@ void main(){
     const data = new Float32Array(MAX * 4);
     let dpr = 1, last = performance.now(), visible = true;
     const resize = () => {
-      dpr = Math.min(window.devicePixelRatio || 1, 1.5);
       W = Math.max(1, canvas.clientWidth); H = Math.max(1, canvas.clientHeight);
+      // Phones get one device pixel per CSS pixel and a 30 fps field: the
+      // ambient aurora is the costly part, and small GPUs are where it hurts.
+      dpr = Math.min(window.devicePixelRatio || 1, W < 760 ? 1 : 1.5);
       const w = Math.floor(W * dpr), h = Math.floor(H * dpr);
       if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; gl.viewport(0, 0, w, h); }
     };
@@ -303,10 +306,13 @@ void main(){
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     };
     resize(); window.addEventListener("resize", resize);
+    // Physics steps every frame so motion stays smooth; only the GPU draw is capped.
+    let lastDraw = 0;
     const loop = (now: number) => {
       if (!visible) return;
       step(Math.min(0.033, (now - last) / 1000)); last = now;
-      draw(now); requestAnimationFrame(loop);
+      if (W >= 760 || now - lastDraw >= PHONE_FRAME_MS) { draw(now); lastDraw = now; }
+      requestAnimationFrame(loop);
     };
     document.addEventListener("visibilitychange", () => { visible = !document.hidden; if (visible) { last = performance.now(); requestAnimationFrame(loop); } });
     new IntersectionObserver(([e]) => { const was = visible; visible = e.isIntersecting && !document.hidden; if (visible && !was) { last = performance.now(); requestAnimationFrame(loop); } }).observe(stage);
