@@ -103,7 +103,7 @@ pub fn Shell(
                 <link rel="shortcut icon" href="/favicon.ico"/>
                 <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png"/>
                 <link rel="manifest" href="/assets/site.webmanifest"/>
-                <meta name="theme-color" content="#ffffff"/>
+                <meta name="theme-color" content="#030716"/>
 
                 <meta property="og:type" content="website"/>
                 <meta property="og:site_name" content="Maya2C Explorer"/>
@@ -150,6 +150,10 @@ pub fn StatsPanel(
 ) -> impl IntoView {
     view! {
         <section class="tiles">
+            <div class="tile">
+                <span class="label">"Hashrate"</span>
+                <span class="value" id="stat-hashrate">{format_hashrate(stats.hashrate)}</span>
+            </div>
             <div class="tile">
                 <span class="label">"Height"</span>
                 <span class="value" id="stat-height">{stats.height.to_string()}</span>
@@ -218,6 +222,69 @@ pub fn BlockTimeChart(
     }
 }
 
+/// The newest blocks as cubes on a slowly turning 3D ribbon. Each cube is
+/// positioned in Rust (`--x`, `--z`, `--d`) so the layout needs no script, and
+/// the live client re-lays the same grid when a new block lands.
+#[component]
+#[allow(clippy::cast_precision_loss)]
+pub fn BlockRibbon(
+    /// Blocks, newest first.
+    blocks: Vec<IndexedBlock>,
+) -> impl IntoView {
+    let count = blocks.len().min(RIBBON_CUBES);
+    let cubes: Vec<_> = blocks
+        .iter()
+        .take(RIBBON_CUBES)
+        .enumerate()
+        .map(|(i, block)| {
+            // Newest sits at the right end; the ribbon arcs toward the viewer
+            // in the middle and falls away at the ends.
+            let slot = count.saturating_sub(1) - i;
+            let (x, z) = ribbon_slot(slot, count);
+            let style = format!("--x:{x:.0}px;--z:{z:.0}px;--d:-{:.2}s", slot as f64 * 1.1);
+            let href = format!("/blocks/{}", block.height);
+            let label = format!("block {} · {}", block.height, utc_time(block.timestamp));
+            view! {
+                <a class="cube" style=style href=href title=label>
+                    <span class="f front">{block.height.to_string()}</span>
+                    <span class="f back"></span>
+                    <span class="f top"></span>
+                    <span class="f bottom"></span>
+                    <span class="f left"></span>
+                    <span class="f right"></span>
+                </a>
+            }
+        })
+        .collect();
+
+    view! {
+        <section class="panel">
+            <h2>"Ledger ribbon"</h2>
+            <div class="ribbon" aria-label="Newest blocks">
+                <div class="stage" id="ribbon">{cubes}</div>
+            </div>
+        </section>
+    }
+}
+
+/// How many cubes the ribbon shows.
+pub const RIBBON_CUBES: usize = 12;
+
+/// Horizontal spacing (px) between ribbon cubes.
+const RIBBON_SPACING: f64 = 72.0;
+
+/// Position of a ribbon slot: `x` from the centre, `z` toward the viewer. The
+/// ribbon bows forward in the middle, so it reads as 3D rather than a row.
+#[must_use]
+#[allow(clippy::cast_precision_loss)]
+pub fn ribbon_slot(slot: usize, count: usize) -> (f64, f64) {
+    let centre = (count.saturating_sub(1)) as f64 / 2.0;
+    let offset = slot as f64 - centre;
+    let x = offset * RIBBON_SPACING;
+    let bow = (1.0 - (offset / (centre.max(1.0) + 0.5)).powi(2)).max(0.0);
+    (x, 60.0 * bow)
+}
+
 /// A table of blocks.
 #[component]
 pub fn BlockTable(
@@ -243,15 +310,17 @@ pub fn BlockTable(
     view! {
         <section class="panel">
             <h2>"Latest blocks"</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>"Height"</th><th>"Id"</th><th>"Txs"</th>
-                        <th>"Time"</th><th>"State root"</th>
-                    </tr>
-                </thead>
-                <tbody id="block-rows">{rows}</tbody>
-            </table>
+            <div class="tablewrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>"Height"</th><th>"Id"</th><th>"Txs"</th>
+                            <th>"Time"</th><th>"State root"</th>
+                        </tr>
+                    </thead>
+                    <tbody id="block-rows">{rows}</tbody>
+                </table>
+            </div>
         </section>
     }
 }
@@ -279,15 +348,17 @@ pub fn TxTable(
         .collect();
 
     view! {
-        <table>
-            <thead>
-                <tr>
-                    <th>"Txid"</th><th>"Height"</th><th>"Sender"</th>
-                    <th>"Nonce"</th><th>"Value"</th>
-                </tr>
-            </thead>
-            <tbody id="tx-rows">{rows}</tbody>
-        </table>
+        <div class="tablewrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>"Txid"</th><th>"Height"</th><th>"Sender"</th>
+                        <th>"Nonce"</th><th>"Value"</th>
+                    </tr>
+                </thead>
+                <tbody id="tx-rows">{rows}</tbody>
+            </table>
+        </div>
     }
 }
 
@@ -300,9 +371,10 @@ pub fn TxTable(
 pub fn dashboard_page(stats: NetworkStats, blocks: Vec<IndexedBlock>) -> String {
     render(view! {
         <Shell title="Dashboard".to_string()>
-            <h1>"maya-testnet-1"</h1>
+            <h1>"maya-testnet-1"<span class="pulse" id="pulse" aria-hidden="true"></span></h1>
             <p class="lead">"Post-quantum layer 1 · DAG-BFT finality · every block below is final"</p>
             <StatsPanel stats=stats/>
+            <BlockRibbon blocks=blocks.clone()/>
             <BlockTimeChart blocks=blocks.clone()/>
             <BlockTable blocks=blocks/>
         </Shell>
@@ -464,69 +536,59 @@ fn styles() -> String {
 }
 
 const STYLES: &str = r#"
-/* maya2c.dev's palette over the design-system tokens, so the explorer reads
-   as the same product as the site it is linked from. */
-:root, [data-theme="command"] { --accent:#22d3ee; --focus:#a78bfa; --on-accent:#04111a; }
-* { box-sizing: border-box; }
-/* The explorer leans into the "living lattice" look: an aurora that drifts and
-   a faint quantum grid behind everything, panels that glow like lit glass, and
-   the chain height breathing as the page's pulse. Every motion is held behind
-   prefers-reduced-motion. */
+/* Living quantum ledger: deep-sea cyan and indigo. Blocks are cubes on a
+   slow 3D ribbon and the finality pulse beats once per block. Every motion is
+   held behind prefers-reduced-motion, which leaves a static ribbon. */
+:root, [data-theme="command"] { --accent:#22d3ee; --focus:#818cf8; --on-accent:#021018; --deep:#030716; }
+* { box-sizing:border-box; }
 body { margin:0; font:14px/1.5 "Inter",ui-sans-serif,system-ui,sans-serif; color:var(--fg);
-       background:var(--bg); min-height:100vh; position:relative; isolation:isolate; }
+       background:var(--deep); min-height:100vh; position:relative; isolation:isolate; }
 body::before { content:""; position:fixed; inset:0; z-index:-2; pointer-events:none;
        background:
-         radial-gradient(60rem 30rem at 12% -8%, rgb(34 211 238 / 0.16), transparent 60%),
-         radial-gradient(52rem 26rem at 92% 2%, rgb(167 139 250 / 0.15), transparent 60%),
-         radial-gradient(46rem 30rem at 50% 115%, rgb(244 114 182 / 0.12), transparent 62%);
+         radial-gradient(60rem 30rem at 12% -8%, rgb(34 211 238 / 0.18), transparent 60%),
+         radial-gradient(52rem 26rem at 92% 2%, rgb(99 102 241 / 0.20), transparent 60%),
+         radial-gradient(46rem 30rem at 50% 115%, rgb(14 116 144 / 0.16), transparent 62%);
        background-size:200% 200%; animation:aurora 24s ease-in-out infinite; }
 body::after { content:""; position:fixed; inset:0; z-index:-1; pointer-events:none; opacity:0.5;
        background-image:
          linear-gradient(rgb(34 211 238 / 0.05) 1px, transparent 1px),
-         linear-gradient(90deg, rgb(167 139 250 / 0.05) 1px, transparent 1px);
+         linear-gradient(90deg, rgb(99 102 241 / 0.06) 1px, transparent 1px);
        background-size:44px 44px;
        -webkit-mask-image:radial-gradient(120% 90% at 50% 0%, #000 35%, transparent 75%);
        mask-image:radial-gradient(120% 90% at 50% 0%, #000 35%, transparent 75%); }
 @keyframes aurora { 0%,100% { background-position:0% 0%; } 50% { background-position:100% 100%; } }
-h1 { background:linear-gradient(100deg,#22d3ee,#a78bfa 45%,#f472b6,#22d3ee);
+h1 { font-size:1.4rem; margin:0 0 1rem; background:linear-gradient(100deg,#67e8f9,#818cf8 50%,#22d3ee);
      background-size:220% auto; -webkit-background-clip:text; background-clip:text; color:transparent;
      animation:sheen 8s linear infinite; }
 @keyframes sheen { to { background-position:220% center; } }
+h2 { font-size:0.95rem; margin:0 0 0.75rem; color:var(--muted);
+     text-transform:uppercase; letter-spacing:0.06em; }
 .lead { color:var(--muted); margin:-0.5rem 0 1.25rem; }
-.tile .value { color:#e0f2fe; }
-.nav { display:flex; gap:1.25rem; align-items:center; padding:0.85rem 1.5rem;
-       border-bottom:1px solid var(--border); background:rgb(8 12 22 / 0.72);
+.nav { display:flex; flex-wrap:wrap; gap:0.6rem 1.25rem; align-items:center; padding:0.8rem 1.25rem;
+       border-bottom:1px solid var(--border); background:rgb(3 7 22 / 0.72);
        backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
        position:sticky; top:0; z-index:5; }
 .nav::after { content:""; position:absolute; left:0; right:0; bottom:-1px; height:1px;
-       background:linear-gradient(90deg, transparent, #22d3ee 30%, #a78bfa 55%, #f472b6 72%, transparent);
-       opacity:0.65; }
+       background:linear-gradient(90deg, transparent, #22d3ee 35%, #818cf8 65%, transparent); opacity:0.7; }
 .nav a { color:var(--muted); text-decoration:none; transition:color .18s ease; }
 .nav a:hover { color:var(--fg); }
 .nav .brand { display:flex; align-items:center; gap:0.55rem; margin-right:0.5rem; }
-/* The emblem is square; the intrinsic size is on the element itself so the nav
-   does not reflow when the image finishes loading. */
-.nav .brand .emblem { height:2.1rem; width:2.1rem; display:block;
-       filter:drop-shadow(0 0 10px rgb(34 211 238 / 0.4)); }
-.nav .brand .word { font-weight:800; font-size:1.2rem; letter-spacing:-0.01em;
-       background:linear-gradient(100deg,#22d3ee,#a78bfa 60%,#f472b6);
-       -webkit-background-clip:text; background-clip:text; color:transparent; }
+/* Square emblem with its size on the element, so the nav never reflows on load. */
+.nav .brand .emblem { height:2rem; width:2rem; display:block;
+       filter:drop-shadow(0 0 10px rgb(34 211 238 / 0.45)); }
+.nav .brand .word { font-weight:800; font-size:1.15rem; letter-spacing:-0.01em;
+       background:linear-gradient(100deg,#22d3ee,#818cf8 70%); -webkit-background-clip:text;
+       background-clip:text; color:transparent; }
 main { max-width:1100px; margin:0 auto; padding:1.5rem; }
-h1 { font-size:1.4rem; margin:0 0 1rem; }
-h2 { font-size:1rem; margin:0 0 0.75rem; color:var(--muted);
-     text-transform:uppercase; letter-spacing:0.06em; }
 .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
          gap:0.75rem; margin-bottom:1.5rem; }
 .tile, .panel { position:relative;
-         background:
-           linear-gradient(160deg, rgb(255 255 255 / 0.055), rgb(255 255 255 / 0.012)),
-           var(--panel);
+         background:linear-gradient(160deg, rgb(129 140 248 / 0.07), rgb(255 255 255 / 0.01)), var(--panel);
          border:1px solid var(--border); border-radius:12px;
-         box-shadow:0 1px 0 rgb(255 255 255 / 0.04) inset, 0 10px 30px -18px rgb(0 0 0 / 0.8); }
-/* A hairline gradient edge that lights up on hover — the "lit glass" cue. */
+         box-shadow:0 1px 0 rgb(255 255 255 / 0.04) inset, 0 10px 30px -18px rgb(0 0 0 / 0.9); }
 .tile::before, .panel::before { content:""; position:absolute; inset:0; border-radius:inherit;
          padding:1px; pointer-events:none;
-         background:linear-gradient(140deg, rgb(34 211 238 / 0.5), transparent 40%, transparent 60%, rgb(167 139 250 / 0.45));
+         background:linear-gradient(140deg, rgb(34 211 238 / 0.55), transparent 40%, transparent 60%, rgb(129 140 248 / 0.5));
          -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
          -webkit-mask-composite:xor; mask-composite:exclude; opacity:0; transition:opacity .25s ease; }
 .tile { padding:0.85rem 1rem; display:flex; flex-direction:column; gap:0.35rem;
@@ -534,24 +596,49 @@ h2 { font-size:1rem; margin:0 0 0.75rem; color:var(--muted);
 .tile:hover { transform:translateY(-2px);
         box-shadow:0 1px 0 rgb(255 255 255 / 0.06) inset, 0 16px 40px -18px rgb(34 211 238 / 0.45); }
 .tile:hover::before, .panel:hover::before { opacity:1; }
-.tile .label { color:var(--muted); font-size:0.75rem; text-transform:uppercase;
-               letter-spacing:0.06em; }
-.tile .value { font-size:1.35rem; font-variant-numeric:tabular-nums; }
-/* The chain height is the page's pulse: a soft breathing glow on the live number. */
+.tile .label { color:var(--muted); font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; }
+.tile .value { font-size:1.3rem; color:#e0f2fe; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
 #stat-height { text-shadow:0 0 18px rgb(34 211 238 / 0.55); animation:pulse 2.6s ease-in-out infinite; }
 @keyframes pulse { 0%,100% { text-shadow:0 0 10px rgb(34 211 238 / 0.35); }
                    50% { text-shadow:0 0 22px rgb(34 211 238 / 0.8); } }
 .panel { padding:1rem; margin-bottom:1.5rem; }
+/* The 3D ribbon: each block is a cube on a shared stage that turns slowly. */
+.ribbon { position:relative; height:190px; perspective:700px; overflow:hidden; margin-bottom:0.5rem; }
+.stage { position:absolute; inset:0; transform-style:preserve-3d; transform:rotateX(-10deg); }
+.cube { position:absolute; left:50%; top:50%; width:44px; height:44px; margin:-22px 0 0 -22px;
+        transform-style:preserve-3d; transform:translate3d(var(--x),0,var(--z)) rotateX(-22deg);
+        animation:turn 16s linear infinite; animation-delay:var(--d); }
+.cube .f { position:absolute; inset:0; display:grid; place-items:center; border:1px solid rgb(103 232 249 / 0.75);
+           background:linear-gradient(150deg, rgb(34 211 238 / 0.34), rgb(99 102 241 / 0.3));
+           box-shadow:0 0 16px rgb(34 211 238 / 0.35) inset, 0 0 12px rgb(34 211 238 / 0.25);
+           font:600 11px ui-monospace,SFMono-Regular,Menlo,monospace; color:#e0f7ff; }
+.cube .front  { transform:translateZ(22px); }
+.cube .back   { transform:rotateY(180deg) translateZ(22px); }
+.cube .top    { transform:rotateX(90deg) translateZ(22px); }
+.cube .bottom { transform:rotateX(-90deg) translateZ(22px); }
+.cube .left   { transform:rotateY(-90deg) translateZ(22px); }
+.cube .right  { transform:rotateY(90deg) translateZ(22px); }
+.cube:hover .f, .cube:focus-visible .f { border-color:#fff; box-shadow:0 0 22px rgb(103 232 249 / 0.9); }
+.cube:focus-visible { outline:none; }
+@keyframes turn { from { transform:translate3d(var(--x),0,var(--z)) rotateX(-22deg) rotateY(0deg); }
+                  to { transform:translate3d(var(--x),0,var(--z)) rotateX(-22deg) rotateY(360deg); } }
+/* The finality pulse: one ring per block, beaten from the live socket. */
+.pulse { position:relative; display:inline-block; width:12px; height:12px; margin-left:0.6rem;
+         vertical-align:middle; border-radius:50%; background:var(--accent); box-shadow:0 0 14px var(--accent); }
+.pulse::after { content:""; position:absolute; inset:-6px; border-radius:50%; border:2px solid var(--accent);
+         animation:ping 2.4s ease-out infinite; }
+.pulse.beat::before { content:""; position:absolute; inset:-2px; border-radius:50%; background:#fff;
+         animation:flash .6s ease-out forwards; }
+@keyframes ping { from { transform:scale(.6); opacity:.9; } to { transform:scale(2.6); opacity:0; } }
+@keyframes flash { from { opacity:.9; } to { opacity:0; } }
+.tablewrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
 table { width:100%; border-collapse:collapse; }
-th,td { text-align:left; padding:0.5rem 0.6rem;
-        border-bottom:1px solid var(--border); }
+th,td { text-align:left; padding:0.5rem 0.6rem; border-bottom:1px solid var(--border); white-space:nowrap; }
 tbody tr { transition:background .15s ease; }
 tbody tr:hover { background:rgb(34 211 238 / 0.05); }
-/* A freshly streamed row flashes in, so the reader sees the chain moving. */
 tbody tr:first-child { animation:rowin .6s ease; }
 @keyframes rowin { from { background:rgb(34 211 238 / 0.18); } to { background:transparent; } }
-th { color:var(--muted); font-size:0.75rem; text-transform:uppercase;
-     letter-spacing:0.06em; font-weight:500; }
+th { color:var(--muted); font-size:0.72rem; text-transform:uppercase; letter-spacing:0.06em; font-weight:500; }
 td a { color:var(--accent); text-decoration:none; }
 td a:hover { text-shadow:0 0 12px rgb(34 211 238 / 0.6); }
 .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:0.85em; }
@@ -560,30 +647,32 @@ td a:hover { text-shadow:0 0 12px rgb(34 211 238 / 0.6); }
 .plain { font-size:1.05rem; margin:0 0 1rem; }
 details.panel summary { cursor:pointer; color:var(--muted); margin-bottom:0.75rem; }
 :focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
-.chart { display:flex; align-items:flex-end; gap:3px; height:120px;
-         padding-top:0.5rem; }
-.bar { flex:1; min-width:2px; background:linear-gradient(180deg,#22d3ee,#a78bfa); opacity:0.85;
+.chart { display:flex; align-items:flex-end; gap:3px; height:120px; padding-top:0.5rem; }
+.bar { flex:1; min-width:2px; background:linear-gradient(180deg,#22d3ee,#6366f1); opacity:0.85;
        border-radius:3px 3px 0 0; box-shadow:0 0 10px rgb(34 211 238 / 0.25);
        transition:opacity .18s ease, box-shadow .18s ease; }
 .bar:hover { opacity:1; box-shadow:0 0 16px rgb(34 211 238 / 0.7); }
-.detail { display:grid; grid-template-columns:150px 1fr; gap:0.4rem 1rem;
-          margin:0; }
+.detail { display:grid; grid-template-columns:150px 1fr; gap:0.4rem 1rem; margin:0; }
 .detail dt { color:var(--muted); }
 .detail dd { margin:0; overflow-wrap:anywhere; }
 .search { display:flex; gap:0.5rem; margin-bottom:1.25rem; }
-.search input { flex:1; padding:0.55rem 0.7rem; background:var(--panel);
-                border:1px solid var(--border); border-radius:8px;
-                color:var(--fg); font-family:ui-monospace,monospace;
+.search input { flex:1; min-width:0; padding:0.55rem 0.7rem; background:var(--panel);
+                border:1px solid var(--border); border-radius:8px; color:var(--fg); font-family:ui-monospace,monospace;
                 transition:border-color .18s ease, box-shadow .18s ease; }
 .search input:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgb(34 211 238 / 0.18); outline:none; }
 .search button { padding:0.55rem 1.1rem; background:var(--accent); color:var(--on-accent);
-                 min-height:var(--touch-target);
-                 border:0; border-radius:8px; font-weight:600; cursor:pointer;
+                 min-height:var(--touch-target); border:0; border-radius:8px; font-weight:600; cursor:pointer;
                  box-shadow:0 0 18px rgb(34 211 238 / 0.35); transition:filter .18s ease; }
 .search button:hover { filter:brightness(1.1); }
-@media (max-width:600px) { .detail { grid-template-columns:1fr; } }
+@media (max-width:600px) {
+  main { padding:1rem; }
+  .detail { grid-template-columns:1fr; }
+  .search { flex-direction:column; }
+  .ribbon { height:170px; }
+}
 @media (prefers-reduced-motion: reduce) {
-  body::before, h1, #stat-height, tbody tr:first-child { animation:none; }
+  body::before, h1, #stat-height, tbody tr:first-child, .cube, .pulse::after, .pulse.beat::before { animation:none; }
+  .cube { transform:translate3d(var(--x),0,var(--z)) rotateX(-22deg); }
   .tile { transition:none; }
 }
 "#;
@@ -640,9 +729,47 @@ const LIVE_SCRIPT: &str = r"
     while (body.children.length > limit) { body.removeChild(body.lastChild); }
   }
 
+  // Mirrors ribbon_slot in ui.rs: the same spacing, bow and delay, so a block
+  // that arrives live sits exactly where a server render would put it.
+  function layoutRibbon(ribbon) {
+    var kids = ribbon.children, count = kids.length, centre = (count - 1) / 2;
+    for (var i = 0; i < count; i++) {
+      var slot = count - 1 - i, off = slot - centre;
+      var bow = Math.max(0, 1 - Math.pow(off / (Math.max(centre, 1) + 0.5), 2));
+      kids[i].style.setProperty('--x', Math.round(off * 72) + 'px');
+      kids[i].style.setProperty('--z', Math.round(60 * bow) + 'px');
+      kids[i].style.setProperty('--d', (-slot * 1.1).toFixed(2) + 's');
+    }
+  }
+  function addCube(ribbon, block) {
+    var a = document.createElement('a');
+    a.className = 'cube';
+    a.href = '/blocks/' + block.height;
+    a.title = 'block ' + block.height + ' · ' + utc(block.timestamp);
+    ['front', 'back', 'top', 'bottom', 'left', 'right'].forEach(function (face) {
+      var s = document.createElement('span');
+      s.className = 'f ' + face;
+      if (face === 'front') s.textContent = block.height;
+      a.appendChild(s);
+    });
+    ribbon.insertBefore(a, ribbon.firstChild);
+    while (ribbon.children.length > 12) { ribbon.removeChild(ribbon.lastChild); }
+    layoutRibbon(ribbon);
+  }
+  function beat() {
+    var pulse = document.getElementById('pulse');
+    if (!pulse) return;
+    pulse.classList.remove('beat');
+    void pulse.offsetWidth;
+    pulse.classList.add('beat');
+  }
+
   connect('/ws/blocks', function (block) {
     var height = document.getElementById('stat-height');
     if (height) height.textContent = block.height;
+    var ribbon = document.getElementById('ribbon');
+    if (ribbon) addCube(ribbon, block);
+    beat();
     prepend('block-rows', [
       { text: block.height, href: '/blocks/' + block.height },
       { text: shorten(block.id), mono: true }, block.tx_count,
@@ -658,3 +785,24 @@ const LIVE_SCRIPT: &str = r"
   });
 })();
 ";
+
+#[cfg(test)]
+mod ribbon_tests {
+    use super::ribbon_slot;
+
+    #[test]
+    fn a_lone_cube_sits_centre_front() {
+        assert_eq!(ribbon_slot(0, 1), (0.0, 60.0));
+    }
+
+    #[test]
+    fn the_ribbon_is_centred_and_bows_toward_the_viewer() {
+        let (left, _) = ribbon_slot(0, 12);
+        let (right, _) = ribbon_slot(11, 12);
+        assert!((left + right).abs() < 1e-9, "ribbon is not centred");
+        let (_, edge_z) = ribbon_slot(0, 12);
+        let (_, mid_z) = ribbon_slot(6, 12);
+        assert!(mid_z > edge_z, "middle should sit nearer the viewer");
+        assert!(edge_z >= 0.0, "depth never goes negative");
+    }
+}

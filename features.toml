@@ -3132,6 +3132,17 @@ tests = ["crates/signer/tests/signer_tests.rs", "crates/node/tests/remote_signer
 note = "Master Prompt 16 §1-2. Keystore backend only (ADR-022). Called by the node with --remote-signer (ADR-033): protection per (round, author) slot, signs the node's exact bytes; `cargo xtask localnet --remote-signer` passes with one validator signing only through it. Channel and protection rule not externally reviewed."
 
 [[subsystem]]
+id = "sealed-validator-keys"
+name = "Validator keys sealed at rest"
+domain = "Cryptography and key management"
+paths = "`crates/signer/src/sealed.rs`, `bins/maya2c-node/src/validator_key.rs`, `bins/l1-wallet/src/staking.rs`"
+tier = "core"
+class = "REAL"
+status = "working"
+tests = ["crate:maya-signer", "crate:maya2c-node", "crate:l1-wallet"]
+note = "ADR-049. Argon2id + ChaCha20-Poly1305 with every cleartext field bound as AAD; production builds refuse plaintext keys. The live testnet keys are not migrated yet; the passphrase file is not yet DPAPI/TPM-protected. Not externally reviewed."
+
+[[subsystem]]
 id = "dos-guard"
 name = "Pre-KEM and admission denial-of-service defences"
 domain = "Kernel, networking and transport"
