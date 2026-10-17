@@ -17,9 +17,8 @@ pub fn short(hash: &str) -> String {
 
 /// Groups digits in threes: `1234567` → `1,234,567`.
 ///
-/// Amounts stay in base units, the way the explorer shows them: the chain has
-/// no ratified display symbol or decimals yet, and a decimal point invented
-/// here would put a number on screen nobody has agreed to.
+/// For counts only (heights, nonces). Amounts go through `show_amount`, which
+/// formats whole coins at 18 decimals; this would drop the decimal point.
 pub fn group_digits(n: impl std::fmt::Display) -> String {
     let digits = n.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
@@ -498,7 +497,7 @@ pub mod wallet {
                     <span class="value">
                         {move || show_amount(&state.account_state.get().balance)}
                     </span>
-                    <span class="unit">"units"</span>
+                    <span class="unit">"coins"</span>
                 </div>
                 <Show when=move || state.network.get().is_none_or(|n| n.is_test_network())>
                     <span class="testnet-tag">"Testnet coins \u{b7} no value"</span>
@@ -859,9 +858,10 @@ pub mod send {
                         let summary = preview.get().expect("checked");
                         let is_signed = signed.get().is_some();
                         // Compared as numbers: the strings would order "9" above "10".
+                        // An unreadable amount counts as large: the warning fails closed.
                         let fee_is_large = match (base_value(&summary.fee), base_value(&summary.amount)) {
                             (Some(fee), Some(amount)) => fee > amount,
-                            _ => false,
+                            _ => true,
                         };
                         view! {
                             <div class="summary">

@@ -86,8 +86,9 @@ impl PaymentRequest {
                 match key {
                     "amount" => {
                         // Strict decimal base units: a QR code is untrusted input.
-                        amount = Some(crate::amount::parse_base_units(value).map_err(|_| {
-                            WalletError::Qr(format!("amount '{value}' is not a number"))
+                        // The text is not echoed back: it is attacker-controlled.
+                        amount = Some(crate::amount::parse_base_units(value).map_err(|e| {
+                            WalletError::Qr(format!("amount is not valid base units: {e}"))
                         })?);
                     }
                     "label" => label = Some(percent_decode(value)),
