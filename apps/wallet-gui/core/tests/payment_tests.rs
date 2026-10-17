@@ -491,20 +491,23 @@ fn fee_tiers_price_the_minimum_then_twice_then_four_times() {
     let key = signing_key();
     let size = transfer_size(&key, &collector(), 0, &CHAIN).expect("size");
     let [economy, standard, priority] = priced_fee_tiers(1, size).expect("priced");
+    let size = primitive_types::U256::from(size);
 
     // Economy is exactly the base fee: accepted now, refused if it rises.
     assert_eq!(economy, size);
     // Standard matches the command-line wallet's default of twice the base fee.
-    assert_eq!(standard, 2 * size);
-    assert_eq!(priority, 4 * size);
+    assert_eq!(standard, size * 2);
+    assert_eq!(priority, size * 4);
 }
 
 #[test]
-fn pricing_that_would_overflow_is_refused() {
-    assert_eq!(
-        priced_fee_tiers(u64::MAX, 2).err(),
-        Some(WalletError::AmountOverflow)
-    );
+fn fee_tiers_do_not_overflow_at_the_widest_u64_inputs() {
+    // (2^64 - 1)^2 overflowed the old u64 tiers. Exact here, and Priority is 4x.
+    let [economy, _, priority] = priced_fee_tiers(u64::MAX, u64::MAX).expect("priced");
+    let expected = primitive_types::U256::from_dec_str("340282366920938463426481119284349108225")
+        .expect("literal");
+    assert_eq!(economy, expected);
+    assert_eq!(priority, expected * 4);
 }
 
 #[test]

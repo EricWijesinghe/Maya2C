@@ -101,6 +101,10 @@ pub enum WalletError {
     /// Arithmetic on amounts overflowed.
     #[error("amount arithmetic overflowed")]
     AmountOverflow,
+
+    /// An amount string was refused at the boundary.
+    #[error("invalid amount: {0}")]
+    Amount(#[from] crate::amount::AmountError),
 }
 
 /// Convenience alias.

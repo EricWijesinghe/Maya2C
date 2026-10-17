@@ -85,11 +85,11 @@ impl PaymentRequest {
                 })?;
                 match key {
                     "amount" => {
-                        // Decimal, explicitly: `U256::from_str` reads hex.
-                        amount =
-                            Some(primitive_types::U256::from_dec_str(value).map_err(|_| {
-                                WalletError::Qr(format!("amount '{value}' is not a number"))
-                            })?);
+                        // Strict decimal base units: a QR code is untrusted input.
+                        // The text is not echoed back: it is attacker-controlled.
+                        amount = Some(crate::amount::parse_base_units(value).map_err(|e| {
+                            WalletError::Qr(format!("amount is not valid base units: {e}"))
+                        })?);
                     }
                     "label" => label = Some(percent_decode(value)),
                     // Unknown parameters are ignored rather than rejected, so a
@@ -395,18 +395,21 @@ pub fn transfer_size(
 ///
 /// Economy is exactly `base_fee x size`: accepted now, refused if the base
 /// fee rises before inclusion. Standard is twice that, the command-line
-/// wallet's default; Priority is four times.
+/// wallet's default; Priority is four times. The base fee is a per-byte rate
+/// (u64, ADR-046); the product is widened to 256 bits before it is multiplied,
+/// so no tier can wrap.
 ///
 /// # Errors
 ///
-/// [`WalletError::AmountOverflow`] if a fee does not fit in a `u64`.
-pub fn priced_fee_tiers(base_fee: u64, size: u64) -> Result<[u64; 3]> {
-    let required = base_fee
-        .checked_mul(size)
+/// [`WalletError::AmountOverflow`] only past 2^256 - 1, which two u64 factors
+/// cannot reach.
+pub fn priced_fee_tiers(base_fee: u64, size: u64) -> Result<[primitive_types::U256; 3]> {
+    let required = primitive_types::U256::from(base_fee)
+        .checked_mul(primitive_types::U256::from(size))
         .ok_or(WalletError::AmountOverflow)?;
     let tier = |factor: u64| {
         required
-            .checked_mul(factor)
+            .checked_mul(primitive_types::U256::from(factor))
             .ok_or(WalletError::AmountOverflow)
     };
     Ok([required, tier(2)?, tier(4)?])
@@ -477,12 +480,12 @@ pub enum FeeTier {
 impl FeeTier {
     /// The fee this tier suggests, in base units.
     #[must_use]
-    pub fn suggested_fee(self) -> u64 {
-        match self {
-            Self::Economy => 1,
+    pub fn suggested_fee(self) -> primitive_types::U256 {
+        primitive_types::U256::from(match self {
+            Self::Economy => 1_u64,
             Self::Standard => 10,
             Self::Priority => 100,
-        }
+        })
     }
 
     /// Every tier, for rendering a selector.
