@@ -2,6 +2,9 @@
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
 import { readFileSync } from "node:fs";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import { unified } from "@astrojs/markdown-remark";
 
 // Emitted by scripts/ingest.mjs, which runs before every build. Generated
 // rather than hand-listed so a new file in docs/ reaches the site without a
@@ -13,6 +16,14 @@ const reference = JSON.parse(
 
 export default defineConfig({
   site: "https://maya2c.dev",
+  // Equations in the "For scientists" tabs. KaTeX renders at build time, so
+  // the page ships HTML and no math script (the CSP allows none from outside).
+  markdown: {
+    processor: unified({
+      remarkPlugins: [remarkMath],
+      rehypePlugins: [rehypeKatex],
+    }),
+  },
   // Content-Security-Policy (incident 2026-10-06): a hijacked edge appended
   // a ClickFix loader to every page. Astro hashes every script and style it
   // emits, so a script added after the build has no hash and browsers refuse
@@ -134,6 +145,8 @@ export default defineConfig({
         "@fontsource-variable/manrope",
         "@fontsource-variable/inter",
         "@fontsource-variable/jetbrains-mono",
+        // KaTeX glyph styles, self-hosted from node_modules (fonts are same-origin).
+        "katex/dist/katex.min.css",
         "./src/styles/maya.css",
       ],
       components: {
