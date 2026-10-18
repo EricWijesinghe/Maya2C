@@ -292,7 +292,11 @@ fn print_usage() {
          attested checkpoint, then follow attested blocks (ADR-038);\n                           \
          repeatable: the reachable peer with the highest tip is used (ADR-043)\n  \
          --validator-key <PATH>  DAG-BFT validator key; without it the node observes\n  \
-         --generate-validator-key <PATH>  write a new validator key, print its public key\n  \
+         --generate-validator-key <PATH>  write a new validator key, print its public key;\n                           \
+         sealed when a passphrase file is set (ADR-049)\n  \
+         --validator-passphrase-file <PATH>  passphrase of a sealed validator key,\n                           \
+         or MAYA2C_VALIDATOR_PASSPHRASE_FILE; never the passphrase itself\n  \
+         --seal-validator-key <IN> <OUT>  encrypt a plaintext validator key into OUT\n  \
          --remote-signer <ADDR>  sign through maya2c-signer, not a key file (ADR-033)\n  \
          --signer-pin <HEX>   the signer's channel public key\n  \
          --validator-pubkey <HEX>  the validator public key the signer holds\n  \
