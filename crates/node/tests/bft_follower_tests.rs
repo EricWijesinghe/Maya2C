@@ -1,20 +1,23 @@
-//! Two validators restarted into attested-follower mode while the chain keeps
-//! advancing, then the chain crosses an epoch boundary (ADR-038, ADR-043).
+//! Restarted validators catch up by certificate replay across an epoch boundary,
+//! and a hostile peer cannot make them accept a shorter or forged history
+//! (ADR-052, which supersedes the checkpoint follower of ADR-038 for this case).
 //!
-//! The 2026-10-18 incident on maya-testnet-1: v2 and v3 restarted with
-//! `--catch-up-from` at tip 64,321. Both imported nothing and followed. The
-//! chain halted at the next epoch boundary, because followers switch epochs
-//! only by importing the boundary block, and a checkpoint needs `n - f`
-//! attesters that followers are not. This test pins that every member keeps
-//! advancing its tip, builds or imports blocks, and agrees across the boundary.
+//! The 2026-10-18 incident on maya-testnet-1: two validators came back behind
+//! and followed. Followers switch epochs only by importing the boundary block,
+//! and a checkpoint needs `n - f` attesters they are not, so the chain halted at
+//! the next epoch boundary. These tests pin that restarted validators replay
+//! their way through, that the chain keeps advancing, and that forged, gapped,
+//! truncated or stalling evidence is refused.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use std::cell::Cell;
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use custom_l1_node::consensus::bft::certsync::{self, CertSource, PAGE_BYTES};
+use custom_l1_node::consensus::bft::attest::Checkpoint;
+use custom_l1_node::consensus::bft::certsync::{self, CertSource, PAGE, PageLimits};
 use custom_l1_node::consensus::bft::store::{CertPage, read_certificate_page};
 use custom_l1_node::consensus::bft::wire::{decode_certificate, encode_certificate};
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
@@ -92,7 +95,6 @@ struct Member {
 
 struct Mesh {
     root: TempDir,
-    // Kept so the directory outlives every chain in `members`.
     config: GenesisConfig,
     setups: Vec<BftSetup>,
     members: Vec<Member>,
@@ -217,25 +219,44 @@ impl Mesh {
         self.members[i].chain = open_chain(&self.config, &state_dir);
     }
 
-    /// Member `from`'s certificate log, as a catch-up source.
+    /// Member `from`'s logs and checkpoints, as a catch-up source.
     fn peer_log(&self, from: usize) -> PeerLog {
+        let driver = self.members[from].driver.as_ref().unwrap();
+        let checkpoints = [driver.closing_checkpoint(), driver.checkpoint()]
+            .into_iter()
+            .flatten()
+            .cloned()
+            .collect();
         PeerLog {
             dir: self.members[from].bft_dir.clone(),
-            epoch: self.members[from].driver.as_ref().unwrap().epoch(),
+            epoch: driver.epoch(),
+            checkpoints,
+            limits: PAGE,
         }
     }
 
     /// Restarts member `i` the way an operator does with `--catch-up-from`:
     /// certificate replay from member `from` (ADR-052), then the engine. No
-    /// checkpoint and no follower mode.
+    /// checkpoint follower and no follower mode.
     fn restart_from_certificates(&mut self, i: usize, from: usize) {
         self.reopen_chain(i);
         let source = self.peer_log(from);
+        self.restart_from(i, &source, PAGE).unwrap();
+    }
+
+    /// Replays member `i` from `source`, with `limits`, and installs its engine.
+    fn restart_from(
+        &mut self,
+        i: usize,
+        source: &impl CertSource,
+        limits: PageLimits,
+    ) -> custom_l1_node::error::Result<()> {
         let setup = &self.setups[i];
         let m = &mut self.members[i];
-        let synced = certsync::sync(&mut m.chain, &source, setup, &m.bft_dir, self.now).unwrap();
+        let synced = certsync::sync(&mut m.chain, source, setup, &m.bft_dir, self.now, limits)?;
         m.driver = Some(synced.driver);
         self.absorb(i, synced.step);
+        Ok(())
     }
 
     /// Runs `ticks` rounds of the clock without the usual stop condition.
@@ -247,7 +268,6 @@ impl Mesh {
         }
     }
 
-    /// Runs until `done`, letting followers catch up from member 0 each step.
     fn run_until(&mut self, done: impl Fn(&Self) -> bool) {
         for _ in 0..800 {
             if done(self) {
@@ -287,16 +307,16 @@ impl Mesh {
 }
 
 #[test]
-fn two_validators_restarted_into_follower_mode_keep_pace_across_an_epoch_boundary() {
+fn two_restarted_validators_replay_their_way_across_an_epoch_boundary() {
     let mut mesh = Mesh::new();
     mesh.run_until(|m| m.height(0) >= 3);
 
-    // Member 2 is down while the chain advances, then restarts as a follower.
+    // Member 2 is down while the chain advances, then restarts by replay.
     mesh.hold_out(2);
     mesh.run_until(|m| m.height(0) >= 9);
     mesh.restart_from_certificates(2, 0);
 
-    // Member 3 does the same while 2 follows: two followers, two builders.
+    // Member 3 does the same while 2 is back: two restarted, two builders.
     mesh.hold_out(3);
     mesh.run_until(|m| m.height(0) >= 15);
     mesh.restart_from_certificates(3, 0);
@@ -327,7 +347,7 @@ fn two_validators_restarted_into_follower_mode_keep_pace_across_an_epoch_boundar
     assert_eq!(mesh.equivocations, 0);
 }
 
-/// Member `i`'s own certificates, counted from its log.
+/// Member `i`'s own certificates in `epoch`, counted from its log.
 fn logged(mesh: &Mesh, i: usize, epoch: u64) -> usize {
     let mut count = 0;
     custom_l1_node::consensus::bft::store::for_each_certificate(
@@ -350,14 +370,14 @@ fn forged_or_insufficient_evidence_is_refused_and_nothing_is_logged() {
     mesh.run_until(|m| m.height(0) >= 9);
     for forgery in [Forgery::BadSignature, Forgery::FewVotes] {
         mesh.reopen_chain(2);
+        assert_eq!(mesh.epoch(0), Some(1), "the peer is in epoch 1");
         let before = logged(&mesh, 2, 1);
         let source = Forging {
             honest: mesh.peer_log(0),
             forgery,
         };
-        let m = &mut mesh.members[2];
-        let setup = &mesh.setups[2];
-        let refused = certsync::sync(&mut m.chain, &source, setup, &m.bft_dir, mesh.now)
+        let refused = mesh
+            .restart_from(2, &source, PAGE)
             .err()
             .expect("forged evidence must be refused");
         assert!(
@@ -396,10 +416,131 @@ fn one_follower_plus_a_crashed_validator_halts_then_recovers_when_the_crashed_on
     assert_eq!(mesh.equivocations, 0);
 }
 
-/// A peer's certificate log as a catch-up source, in process.
+#[test]
+fn a_peer_that_ends_an_epoch_early_is_refused_by_the_attested_end() {
+    let mut mesh = Mesh::new();
+    mesh.run_until(|m| m.height(0) >= 3);
+    mesh.hold_out(2);
+    mesh.run_until(|m| m.height(0) >= 8);
+    mesh.reopen_chain(2);
+    assert!(logged(&mesh, 0, 0) > 1, "the peer must still hold epoch 0");
+    // Serves one certificate of epoch 0, then says the epoch is over.
+    let source = Truncating {
+        honest: mesh.peer_log(0),
+        keep: 1,
+    };
+    let refused = mesh
+        .restart_from(2, &source, PAGE)
+        .err()
+        .expect("a truncated epoch must be refused");
+    assert!(
+        refused.to_string().contains("does not reproduce"),
+        "{refused}"
+    );
+}
+
+#[test]
+fn a_peer_that_skips_a_certificate_is_refused_by_the_attested_end() {
+    let mut mesh = Mesh::new();
+    mesh.run_until(|m| m.height(0) >= 3);
+    mesh.hold_out(2);
+    mesh.run_until(|m| m.height(0) >= 8);
+    mesh.reopen_chain(2);
+    // Member 2 already holds epoch 0 from before its outage, which would hide
+    // a gap. Its epoch-0 certificate log is removed so the fetch must bring
+    // every certificate, and the peer leaves the first one out.
+    std::fs::remove_file(mesh.members[2].bft_dir.join("epoch-0").join("certs.log")).unwrap();
+    // A certificate nothing references leaves the history unchanged, and the
+    // attested end is right to accept that. Skip one that a later certificate
+    // names as a parent: its child then waits forever, and the replay stops.
+    let mut logged_certs = Vec::new();
+    custom_l1_node::consensus::bft::store::for_each_certificate(
+        &mesh.members[0].bft_dir,
+        0,
+        |c| {
+            logged_certs.push(c);
+            Ok(())
+        },
+    )
+    .unwrap();
+    let named: std::collections::HashSet<_> = logged_certs
+        .iter()
+        .flat_map(|c| c.vertex.parents.iter().copied())
+        .collect();
+    let skip = logged_certs
+        .iter()
+        .position(|c| named.contains(&c.digest()))
+        .unwrap_or_else(|| {
+            let rounds: Vec<u64> = logged_certs.iter().map(|c| c.vertex.round).collect();
+            let parents: Vec<usize> = logged_certs.iter().map(|c| c.vertex.parents.len()).collect();
+            panic!("no parent among {} certs: rounds {rounds:?} parents {parents:?} named {}", logged_certs.len(), named.len())
+        });
+    let source = Skipping {
+        honest: mesh.peer_log(0),
+        skip,
+    };
+    let refused = mesh
+        .restart_from(2, &source, PAGE)
+        .err()
+        .expect("a gapped epoch must be refused");
+    assert!(refused.to_string().contains("refused"), "{refused}");
+}
+
+#[test]
+fn a_peer_that_stalls_the_fetch_is_refused_not_looped_on() {
+    let mut mesh = Mesh::new();
+    mesh.run_until(|m| m.height(0) >= 6);
+    mesh.hold_out(2);
+    mesh.run_until(|m| m.height(0) >= 9);
+    mesh.reopen_chain(2);
+    let source = Stalling {
+        honest: mesh.peer_log(0),
+        calls: Cell::new(0),
+    };
+    let refused = mesh
+        .restart_from(2, &source, PAGE)
+        .err()
+        .expect("a stalled fetch must be refused");
+    // A page that repeats its records with an end that does not add up is
+    // refused by the end check, before the no-progress check.
+    assert!(refused.to_string().contains("does not match"), "{refused}");
+}
+
+#[test]
+fn paging_runs_to_the_end_with_tiny_pages_and_stays_idempotent() {
+    let mut mesh = Mesh::new();
+    mesh.run_until(|m| m.height(0) >= 3);
+    mesh.hold_out(2);
+    mesh.run_until(|m| m.height(0) >= 8);
+    mesh.reopen_chain(2);
+    // One record per page (the byte budget admits only the first record), so
+    // every certificate arrives on its own page.
+    let tiny = PageLimits {
+        records: 2,
+        encoded_bytes: 1,
+    };
+    let source = mesh.peer_log(0);
+    mesh.restart_from(2, &source, tiny).unwrap();
+    for epoch in 0..=1 {
+        assert_eq!(logged(&mesh, 2, epoch), logged(&mesh, 0, epoch), "epoch {epoch}");
+    }
+    let (height, tip) = (mesh.height(2), mesh.members[2].chain.tip());
+
+    // A second catch-up from the same peer writes nothing and changes nothing.
+    mesh.reopen_chain(2);
+    let before = logged(&mesh, 2, 1);
+    mesh.restart_from(2, &source, PAGE).unwrap();
+    assert_eq!(logged(&mesh, 2, 1), before, "a repeat wrote certificates");
+    assert_eq!(mesh.height(2), height);
+    assert_eq!(mesh.members[2].chain.tip(), tip);
+}
+
+/// A peer's logs and checkpoints as a catch-up source, in process.
 struct PeerLog {
     dir: PathBuf,
     epoch: u64,
+    checkpoints: Vec<Checkpoint>,
+    limits: PageLimits,
 }
 
 impl CertSource for PeerLog {
@@ -413,7 +554,17 @@ impl CertSource for PeerLog {
         offset: u64,
         max_records: usize,
     ) -> custom_l1_node::error::Result<CertPage> {
-        read_certificate_page(&self.dir, epoch, offset, max_records, PAGE_BYTES)
+        read_certificate_page(
+            &self.dir,
+            epoch,
+            offset,
+            max_records.min(self.limits.records),
+            self.limits.encoded_bytes,
+        )
+    }
+
+    fn checkpoint_of(&self, epoch: u64) -> custom_l1_node::error::Result<Option<Checkpoint>> {
+        Ok(self.checkpoints.iter().find(|c| c.epoch == epoch).cloned())
     }
 }
 
@@ -454,5 +605,116 @@ impl CertSource for Forging {
             *first = encode_certificate(&c);
         }
         Ok(page)
+    }
+
+    fn checkpoint_of(&self, epoch: u64) -> custom_l1_node::error::Result<Option<Checkpoint>> {
+        self.honest.checkpoint_of(epoch)
+    }
+}
+
+/// Serves only the first `keep` records of the first page, then says the epoch
+/// is over. Every page it sends is well formed, so only the attested end can
+/// tell.
+struct Truncating {
+    honest: PeerLog,
+    keep: usize,
+}
+
+impl CertSource for Truncating {
+    fn current_epoch(&self) -> custom_l1_node::error::Result<u64> {
+        self.honest.current_epoch()
+    }
+
+    fn page(
+        &self,
+        epoch: u64,
+        offset: u64,
+        max_records: usize,
+    ) -> custom_l1_node::error::Result<CertPage> {
+        if offset != 0 {
+            return Ok(CertPage {
+                records: Vec::new(),
+                next: offset,
+                done: true,
+            });
+        }
+        let mut page = self.honest.page(epoch, 0, max_records)?;
+        page.records.truncate(self.keep);
+        page.next = page
+            .records
+            .iter()
+            .fold(0_u64, |at, r| at + 8 + u64::try_from(r.len()).unwrap());
+        page.done = true;
+        Ok(page)
+    }
+
+    fn checkpoint_of(&self, epoch: u64) -> custom_l1_node::error::Result<Option<Checkpoint>> {
+        self.honest.checkpoint_of(epoch)
+    }
+}
+
+/// Leaves record `skip` out of the first page and recomputes the page's end, so
+/// the page is internally consistent: only the attested end can tell.
+struct Skipping {
+    honest: PeerLog,
+    skip: usize,
+}
+
+impl CertSource for Skipping {
+    fn current_epoch(&self) -> custom_l1_node::error::Result<u64> {
+        self.honest.current_epoch()
+    }
+
+    fn page(
+        &self,
+        epoch: u64,
+        offset: u64,
+        max_records: usize,
+    ) -> custom_l1_node::error::Result<CertPage> {
+        let mut page = self.honest.page(epoch, offset, max_records)?;
+        if offset == 0 && self.skip < page.records.len() {
+            page.records.remove(self.skip);
+            page.next = page
+                .records
+                .iter()
+                .fold(0_u64, |at, r| at + 8 + u64::try_from(r.len()).unwrap());
+        }
+        Ok(page)
+    }
+
+    fn checkpoint_of(&self, epoch: u64) -> custom_l1_node::error::Result<Option<Checkpoint>> {
+        self.honest.checkpoint_of(epoch)
+    }
+}
+
+/// Returns the same non-empty page forever, claiming it is not the last.
+struct Stalling {
+    honest: PeerLog,
+    calls: Cell<u32>,
+}
+
+impl CertSource for Stalling {
+    fn current_epoch(&self) -> custom_l1_node::error::Result<u64> {
+        self.honest.current_epoch()
+    }
+
+    fn page(
+        &self,
+        epoch: u64,
+        offset: u64,
+        max_records: usize,
+    ) -> custom_l1_node::error::Result<CertPage> {
+        self.calls.set(self.calls.get() + 1);
+        assert!(self.calls.get() < 1_000, "the fetch did not stop");
+        let page = self.honest.page(epoch, offset, max_records)?;
+        Ok(CertPage {
+            records: page.records,
+            next: offset,
+            done: false,
+        })
+    }
+
+    fn checkpoint_of(&self, epoch: u64) -> custom_l1_node::error::Result<Option<Checkpoint>> {
+        self.honest.checkpoint_of(epoch)
     }
 }
