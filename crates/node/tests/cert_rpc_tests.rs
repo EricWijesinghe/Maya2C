@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 
 use custom_l1_node::consensus::bft::attest::{Checkpoint, CheckpointBook};
 use custom_l1_node::consensus::bft::certsync::{
-    self, CertSource, PAGE_ENCODED_BYTES, PageLimits,
+    self, CertSource, PAGE, PAGE_ENCODED_BYTES, PageLimits,
 };
 use custom_l1_node::consensus::bft::store::{CertPage, for_each_certificate};
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
@@ -335,4 +335,72 @@ fn a_restarted_node_catches_up_through_paged_rpc() {
     }
     assert!(net.height(2) >= 6, "the replay reached the first attested end: {}", net.height(2));
     drop(server);
+}
+
+/// A running committee's peer, served over the real RPC with `budget` as the
+/// certificate byte budget. Returns the server (keep it alive) and its URL.
+fn serve_peer(
+    net: &mut Net,
+    runtime: &tokio::runtime::Runtime,
+    budget: custom_l1_node::rpc::limit::RateLimiter,
+) -> (custom_l1_node::rpc::server::RpcServer, String) {
+    let peer = net.members[0].driver.as_ref().unwrap();
+    let mut book = CheckpointBook::default();
+    for checkpoint in [peer.closing_checkpoint(), peer.checkpoint()]
+        .into_iter()
+        .flatten()
+    {
+        book.offer(checkpoint);
+    }
+    let status = peer.status();
+    let state = Arc::new(StateDB::open(&net.root.path().join("budget-state")).unwrap());
+    let context = RpcContext::new(
+        Arc::new(Mutex::new(open_chain(&net.config, Arc::clone(&state)))),
+        Mempool::new(state),
+    )
+    .with_bft_dir(net.members[0].bft_dir.clone())
+    .with_checkpoints(Arc::new(Mutex::new(book)))
+    .with_bft_status(Arc::new(Mutex::new(status)))
+    .with_cert_budget(budget);
+    let server = runtime
+        .block_on(serve("127.0.0.1:0".parse().unwrap(), context))
+        .unwrap();
+    let url = format!("http://{}", server.address);
+    (server, url)
+}
+
+#[test]
+fn a_client_over_its_certificate_byte_budget_is_refused_by_the_server() {
+    let mut net = Net::new();
+    net.run_until(|n| n.height(0) >= 3);
+    net.hold_out(2);
+    net.run_until(|n| n.height(0) >= 8);
+    // One byte of budget: no page of real certificates fits, so the first
+    // page the client asks for is refused with the budget error.
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let (server, url) = serve_peer(
+        &mut net,
+        &runtime,
+        custom_l1_node::rpc::limit::RateLimiter::new(1, 1),
+    );
+    net.reopen(2);
+    let source = RpcBootstrapSource::new(&url, runtime.handle().clone()).unwrap();
+    let refused = net
+        .restart_from(2, &source, PAGE)
+        .err()
+        .expect("a client past its byte budget must be refused");
+    assert!(refused.to_string().contains("byte budget"), "{refused}");
+    drop(server);
+}
+
+#[test]
+fn a_client_holds_one_certificate_page_at_a_time() {
+    let gate = custom_l1_node::rpc::server::CertGate::default();
+    let a: std::net::IpAddr = "10.0.0.1".parse().unwrap();
+    let b: std::net::IpAddr = "10.0.0.2".parse().unwrap();
+    let first = gate.claim(a).expect("the first page is admitted");
+    assert!(gate.claim(a).is_none(), "a second page from the same client waits");
+    assert!(gate.claim(b).is_some(), "another client is not held up");
+    drop(first);
+    assert!(gate.claim(a).is_some(), "released when the page is done");
 }

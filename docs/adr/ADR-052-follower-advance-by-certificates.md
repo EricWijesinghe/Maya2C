@@ -213,6 +213,45 @@ The fixes:
   (`or_insert`), so a restored vote is not overwritten. Refusing a conflicting
   vote in the engine was not re-tested in this change: NOT VERIFIED.
 
+## Re-audit fixes (2026-10-19, second round)
+
+- **Older checkpoint as the attested end.** `CheckpointBook` keeps the newest
+  checkpoint it has seen, and a peer can serve an older valid one. For a finished
+  epoch, the served checkpoint must be the epoch's last block (the last block whose
+  seal names the epoch, `last_height_of`), and the replay must cross the boundary.
+  A replay that stops at the boundary's predecessor is refused. Test:
+  `a_peer_that_serves_an_older_checkpoint_with_a_truncated_log_is_refused` (tries
+  every truncation point).
+- **Head epoch.** A checkpoint newer than the replayed history is not checked
+  against local height until the replay reaches it; the head epoch is not refused
+  for that. A finished epoch is still refused if it stops short. Test:
+  `a_checkpoint_newer_than_the_fetched_logs_does_not_refuse_the_head_epoch`.
+- **Equivocating copy.** A different copy of a logged slot is verified: if valid, it
+  is counted as equivocation evidence (`Synced::equivocations`) and the first copy
+  stays; if invalid, the fetch is refused. Test:
+  `a_valid_equivocating_copy_of_a_logged_slot_is_counted_and_does_not_abort_the_sync`.
+- **Tail scan.** Both logs are cut at the first record that is zero-length, too long,
+  short, or fails to decode, and nothing after it is trusted. Tests:
+  `a_zero_filled_or_garbage_tail_is_cut_and_the_node_still_opens`.
+- **Record size.** `MAX_RECORD_BYTES` is 2 MiB raw; a compile-time check keeps its
+  hex encoding under the RPC response limit. (It was 16 MiB, which hex-encodes past
+  it.)
+- **RPC byte budget.** `get_certificates` charges each page's encoded bytes to a
+  per-client token bucket (`RateLimiter::charge`, 32 MiB/s sustained, 128 MiB burst,
+  `CERT_BYTES_PER_SECOND`/`CERT_BYTE_BURST`), and admits one page at a time per
+  client (`CertGate`). The client address reaches the method through the request's
+  extensions (`ClientAddr`). The byte figures are a first setting: the measured byte
+  size of a mainnet epoch is not yet known. Tests: the byte-budget refusal over the
+  real RPC and the gate.
+- **Defect found by the gate test.** `CertGate::claim` built its claim before the
+  check, and a refused claim's drop locked the mutex the claim still held: a
+  deadlock on the second page from one client. Fixed with an explicit branch.
+- **Default RPC address** is `127.0.0.1:8545` (was `0.0.0.0:8545`). Scripts in this
+  repository pass `--rpc-addr` explicitly; the quickstart says so. A validator other
+  operators catch up from must pass `0.0.0.0:8545` explicitly.
+- **Not done:** the follow-loop spawn was not extracted into a tested function; the
+  byte budget is per client address and does not cap a fleet behind one NAT.
+
 ## Gaps (not covered by this ADR)
 
 - Logs are kept for the current and the previous epoch (`RETAINED_PAST_EPOCHS`).

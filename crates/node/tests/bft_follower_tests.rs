@@ -13,10 +13,12 @@
 
 use std::cell::Cell;
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use custom_l1_node::consensus::bft::attest::Checkpoint;
+use custom_l1_node::consensus::bft::auth::MlDsaAuthenticator;
+use custom_l1_node::consensus::bft::store::for_each_certificate;
 use custom_l1_node::consensus::bft::certsync::{self, CertSource, PAGE, PageLimits};
 use custom_l1_node::consensus::bft::store::{CertPage, read_certificate_page};
 use custom_l1_node::consensus::bft::wire::{decode_certificate, encode_certificate};
@@ -26,7 +28,7 @@ use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
 use custom_l1_node::crypto::keys::{self, SigningKey, VerifyingKey};
 use custom_l1_node::genesis::{Allocation, BftGenesis, GenesisBond, GenesisConfig, StakingGenesis};
 use custom_l1_node::state::db::StateDB;
-use maya_dag_bft::Params;
+use maya_dag_bft::{Authenticator, Certificate, Params, SignContext, SignKind};
 use tempfile::TempDir;
 
 mod common;
@@ -425,16 +427,19 @@ fn a_peer_that_ends_an_epoch_early_is_refused_by_the_attested_end() {
     mesh.reopen_chain(2);
     assert!(logged(&mesh, 0, 0) > 1, "the peer must still hold epoch 0");
     // Serves one certificate of epoch 0, then says the epoch is over.
+    let honest = mesh.peer_log(0);
     let source = Truncating {
-        honest: mesh.peer_log(0),
+        checkpoints: honest.checkpoints.clone(),
+        honest,
         keep: 1,
+        only_epoch: None,
     };
     let refused = mesh
         .restart_from(2, &source, PAGE)
         .err()
         .expect("a truncated epoch must be refused");
     assert!(
-        refused.to_string().contains("does not reproduce"),
+        refused.to_string().contains("refused"),
         "{refused}"
     );
 }
@@ -564,7 +569,7 @@ impl CertSource for PeerLog {
     }
 
     fn checkpoint_of(&self, epoch: u64) -> custom_l1_node::error::Result<Option<Checkpoint>> {
-        Ok(self.checkpoints.iter().find(|c| c.epoch == epoch).cloned())
+        Ok(self.checkpoints.iter().filter(|c| c.epoch == epoch).max_by_key(|c| c.height).cloned())
     }
 }
 
@@ -612,12 +617,15 @@ impl CertSource for Forging {
     }
 }
 
-/// Serves only the first `keep` records of the first page, then says the epoch
-/// is over. Every page it sends is well formed, so only the attested end can
-/// tell.
+/// Serves only the first `keep` records of the first page of `only_epoch` (of
+/// every epoch when `None`), then says the epoch is over. Every page it sends is
+/// well formed, and the checkpoints it offers are its own, so only the attested
+/// end can tell.
 struct Truncating {
     honest: PeerLog,
     keep: usize,
+    only_epoch: Option<u64>,
+    checkpoints: Vec<Checkpoint>,
 }
 
 impl CertSource for Truncating {
@@ -639,6 +647,9 @@ impl CertSource for Truncating {
             });
         }
         let mut page = self.honest.page(epoch, 0, max_records)?;
+        if self.only_epoch.is_some_and(|e| e != epoch) {
+            return Ok(page);
+        }
         page.records.truncate(self.keep);
         page.next = page
             .records
@@ -649,7 +660,7 @@ impl CertSource for Truncating {
     }
 
     fn checkpoint_of(&self, epoch: u64) -> custom_l1_node::error::Result<Option<Checkpoint>> {
-        self.honest.checkpoint_of(epoch)
+        Ok(self.checkpoints.iter().filter(|c| c.epoch == epoch).max_by_key(|c| c.height).cloned())
     }
 }
 
@@ -685,6 +696,210 @@ impl CertSource for Skipping {
     fn checkpoint_of(&self, epoch: u64) -> custom_l1_node::error::Result<Option<Checkpoint>> {
         self.honest.checkpoint_of(epoch)
     }
+}
+
+/// Every certificate in `dir`'s epoch-`epoch` log, in log order.
+fn logged_certs(dir: &Path, epoch: u64) -> Vec<Certificate> {
+    let mut certs = Vec::new();
+    for_each_certificate(dir, epoch, |c| {
+        certs.push(c);
+        Ok(())
+    })
+    .unwrap();
+    certs
+}
+
+/// The encoded copies of one slot in `dir`'s epoch-`epoch` log.
+fn slot_copies(dir: &Path, epoch: u64, slot: (u64, u16)) -> Vec<Vec<u8>> {
+    logged_certs(dir, epoch)
+        .iter()
+        .filter(|c| (c.vertex.round, c.vertex.author) == slot)
+        .map(encode_certificate)
+        .collect()
+}
+
+/// A fresh observer that holds nothing: the node that catches up from scratch.
+fn observer(mesh: &Mesh) -> (TempDir, Chain, BftSetup) {
+    let dir = TempDir::new().unwrap();
+    let state = Arc::new(StateDB::open(&dir.path().join("state")).unwrap());
+    mesh.config.seed_state(&state).unwrap();
+    let chain = common::open_chain(
+        state,
+        mesh.config.genesis_block().unwrap(),
+        ChainConfig::without_pow_verification(),
+    )
+    .unwrap();
+    let setup = BftSetup {
+        epoch: 0,
+        committee: Arc::clone(&mesh.setups[0].committee),
+        signer: None,
+        params: mesh.setups[0].params,
+    };
+    (dir, chain, setup)
+}
+
+/// `c` with a later timestamp and votes re-signed by the real validator keys:
+/// a different vertex for the same slot, every signature valid.
+fn resigned(c: &Certificate, mesh: &Mesh) -> Certificate {
+    let mut alt = c.clone();
+    alt.vertex.timestamp_ms += 1;
+    let digest = alt.digest();
+    let (round, author) = (alt.vertex.round, alt.vertex.author);
+    let committee = Arc::clone(&mesh.setups[0].committee);
+    alt.signatures = alt
+        .votes
+        .iter()
+        .map(|&voter| {
+            MlDsaAuthenticator::validator(validator_key(usize::from(voter)), Arc::clone(&committee))
+                .sign(
+                    SignContext {
+                        kind: SignKind::Vote,
+                        round,
+                        author,
+                    },
+                    &digest,
+                )
+        })
+        .collect();
+    alt
+}
+
+#[test]
+fn a_peer_that_serves_an_older_checkpoint_with_a_truncated_log_is_refused() {
+    let mut mesh = Mesh::new();
+    mesh.run_until(|m| m.height(0) >= 4);
+    let older = mesh.members[0]
+        .driver
+        .as_ref()
+        .unwrap()
+        .checkpoint()
+        .cloned()
+        .expect("a checkpoint by height 4");
+    mesh.run_until(|m| m.height(0) >= 8);
+    let total = logged_certs(&mesh.members[0].bft_dir, 0).len();
+    // Every truncation point, each with the peer's older valid checkpoint.
+    let mut accepted = Vec::new();
+    for keep in 0..=total {
+        let (dir, mut chain, setup) = observer(&mesh);
+        let source = Truncating {
+            honest: mesh.peer_log(0),
+            keep,
+            only_epoch: None,
+            checkpoints: vec![older.clone()],
+        };
+        if let Ok(synced) =
+            certsync::sync(&mut chain, &source, &setup, &dir.path().join("bft"), 0, PAGE)
+        {
+            accepted.push((keep, synced.crossed));
+        }
+    }
+    assert!(
+        accepted.is_empty(),
+        "truncated logs with an older checkpoint were accepted as (keep, crossed): {accepted:?}"
+    );
+}
+
+#[test]
+fn a_checkpoint_newer_than_the_fetched_logs_does_not_refuse_the_head_epoch() {
+    let mut mesh = Mesh::new();
+    mesh.run_until(|m| m.height(0) >= 8);
+    let honest = mesh.peer_log(0);
+    let checkpoints = honest.checkpoints.clone();
+    let head_checkpoint = checkpoints
+        .iter()
+        .filter(|c| c.epoch == 1)
+        .map(|c| c.height)
+        .max()
+        .expect("the head epoch has a checkpoint");
+    let (dir, mut chain, setup) = observer(&mesh);
+    // Epoch 0 whole. Epoch 1, the head, is served for one record only, so the
+    // replay stops short of the checkpoint the peer holds.
+    let source = Truncating {
+        honest,
+        keep: 1,
+        only_epoch: Some(1),
+        checkpoints,
+    };
+    let synced = certsync::sync(&mut chain, &source, &setup, &dir.path().join("bft"), 0, PAGE)
+        .expect("the head epoch may be ahead of the logs fetched so far");
+    assert!(
+        chain.height() < head_checkpoint,
+        "the scenario needs the replay short of the checkpoint ({} vs {head_checkpoint})",
+        chain.height()
+    );
+    assert_eq!(synced.crossed, 1, "the boundary was still crossed");
+}
+
+/// Serves the peer's page with record `index` replaced by `record`, the rest
+/// untouched. The replacement is a valid certificate for the same slot.
+struct Substituting {
+    honest: PeerLog,
+    index: usize,
+    record: Vec<u8>,
+}
+
+impl CertSource for Substituting {
+    fn current_epoch(&self) -> custom_l1_node::error::Result<u64> {
+        self.honest.current_epoch()
+    }
+
+    fn page(
+        &self,
+        epoch: u64,
+        offset: u64,
+        max_records: usize,
+    ) -> custom_l1_node::error::Result<CertPage> {
+        let mut page = self.honest.page(epoch, offset, max_records)?;
+        if epoch == 0 && offset == 0 && self.index < page.records.len() {
+            page.records[self.index] = self.record.clone();
+            page.next = page
+                .records
+                .iter()
+                .fold(0_u64, |at, r| at + 8 + u64::try_from(r.len()).unwrap());
+        }
+        Ok(page)
+    }
+
+    fn checkpoint_of(&self, epoch: u64) -> custom_l1_node::error::Result<Option<Checkpoint>> {
+        self.honest.checkpoint_of(epoch)
+    }
+}
+
+#[test]
+fn a_valid_equivocating_copy_of_a_logged_slot_is_counted_and_does_not_abort_the_sync() {
+    let mut mesh = Mesh::new();
+    mesh.run_until(|m| m.height(0) >= 3);
+    // Member 2 keeps its epoch-0 log from before its outage.
+    mesh.hold_out(2);
+    mesh.run_until(|m| m.height(0) >= 5);
+    mesh.reopen_chain(2);
+    let mine = logged_certs(&mesh.members[2].bft_dir, 0)[0].clone();
+    let slot = (mine.vertex.round, mine.vertex.author);
+    let peer = mesh.peer_log(0);
+    let index = logged_certs(&peer.dir, 0)
+        .iter()
+        .position(|c| (c.vertex.round, c.vertex.author) == slot)
+        .expect("the peer holds the slot");
+    let alt = resigned(&mine, &mesh);
+    assert_ne!(encode_certificate(&alt), encode_certificate(&mine));
+    let before = slot_copies(&mesh.members[2].bft_dir, 0, slot);
+    assert_eq!(before.len(), 1, "one copy of the slot to start with");
+
+    let source = Substituting {
+        honest: peer,
+        index,
+        record: encode_certificate(&alt),
+    };
+    let setup = &mesh.setups[2];
+    let m = &mut mesh.members[2];
+    let synced = certsync::sync(&mut m.chain, &source, setup, &m.bft_dir, 0, PAGE)
+        .expect("an equivocating copy must not abort the sync");
+    assert_eq!(synced.equivocations, 1, "counted as evidence");
+    assert_eq!(
+        slot_copies(&mesh.members[2].bft_dir, 0, slot),
+        before,
+        "the first copy stays in the log"
+    );
 }
 
 /// Returns the same non-empty page forever, claiming it is not the last.

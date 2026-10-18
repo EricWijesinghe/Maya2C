@@ -126,7 +126,7 @@ impl CertSource for PeerLog {
     }
 
     fn checkpoint_of(&self, epoch: u64) -> custom_l1_node::error::Result<Option<Checkpoint>> {
-        Ok(self.checkpoints.iter().find(|c| c.epoch == epoch).cloned())
+        Ok(self.checkpoints.iter().filter(|c| c.epoch == epoch).max_by_key(|c| c.height).cloned())
     }
 }
 
