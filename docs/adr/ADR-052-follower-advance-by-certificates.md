@@ -86,6 +86,28 @@ this ADR it is checked on each follow round, not only at startup. A follower tha
 is within window and whose tip is the previous anchor's block hands over to
 building.
 
+## Measurement (2026-10-18, gate 1 of the implementation)
+
+Harness: `crates/node/tests/cert_replay_measure.rs` (ignored test). An in-process
+committee runs to 3,600 blocks; every distinct certificate is kept; a fresh
+observer then replays them. Debug profile, `cargo test`, one machine.
+
+| n | certs | signatures | verify all (s) | replay to 3,600 (s) | verify + replay (s) |
+|---|---|---|---|---|---|
+| 4 | 28,804 | 86,412 | 18.5 | 32.3 | 50.8 |
+| 7 | 50,407 | 252,035 | 30.9 | 34.9 | 65.8 |
+
+Run times (mesh only, not the gate): n=4 1,074 s, n=7 2,556 s. The replay agreed
+with the committee at every height (`AGREE`).
+
+Memory: not measured in-process (the Windows commit probe was refused by the
+worktree guard). Estimate: an ML-DSA-65 signature is 3,309 bytes (FIPS 204), so
+the signatures of one n=7 epoch alone are about 834 MB; n=4 about 286 MB.
+
+**Gate result: n=7 is over 60 s (65.8 s). Stop.** Under the agreed rule the
+certificate-replay path is not implemented. The header-root alternative is
+written up as ADR-053 (Proposed) for Eric.
+
 ## Gaps (not covered by this ADR)
 
 - **Replay depth.** The engine's ordered set below the resume point is not
