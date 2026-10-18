@@ -26,40 +26,15 @@ fn any_u128_amount() -> Amount {
     Amount([kani::any(), kani::any(), 0, 0])
 }
 
-/// Add and subtract are exact inverses wherever they succeed, and fail
-/// exactly where the true result leaves 0..2^256.
-#[kani::proof]
-#[kani::unwind(5)]
-fn add_and_sub_are_exact_inverses_and_never_wrap() {
-    let a = any_amount();
-    let b = any_amount();
-    match a.checked_add(b) {
-        Some(sum) => {
-            assert!(sum >= a && sum >= b);
-            assert!(sum.checked_sub(b) == Some(a));
-        }
-        None => assert!(Amount::MAX.checked_sub(a).is_some_and(|room| b > room)),
-    }
-    match a.checked_sub(b) {
-        Some(diff) => assert!(diff.checked_add(b) == Some(a)),
-        None => assert!(a < b),
-    }
-}
+// Superseded 2026-10-18: `add_and_sub_are_exact_inverses_and_never_wrap` and
+// `order_is_total_and_matches_subtraction` were still in CBMC after 3 h. The
+// `*_matches_the_u128_model` harnesses below prove the same operations equal
+// to exact 256-bit arithmetic in seconds, which implies both: inverses, no
+// wrap, a total order that agrees with subtraction.
 
-/// The order is total, and agrees with subtraction: `a < b` exactly when
-/// `a − b` borrows. Two independent code paths, so a wrong limb order in one
-/// cannot hide behind the other.
-#[kani::proof]
-#[kani::unwind(5)]
-fn order_is_total_and_matches_subtraction() {
-    let a = any_amount();
-    let b = any_amount();
-    let lt = a < b;
-    let eq = a == b;
-    let gt = a > b;
-    assert!(u8::from(lt) + u8::from(eq) + u8::from(gt) == 1);
-    assert!(lt == a.checked_sub(b).is_none());
-}
+// The multiplication harnesses below did not finish within 20 minutes each
+// on a 24-thread desktop (2026-10-18, cargo-kani 0.67): NOT VERIFIED there.
+// Full-width multiplication stays covered by `tests/property_tests.rs`.
 
 /// For 64-bit factors the product fits a `u128`, so it can be checked
 /// exactly against the compiler's own multiplication; `checked_mul` agrees.
@@ -194,4 +169,65 @@ fn long_division_step_keeps_the_invariant() {
     } else {
         assert!(next == r2);
     }
+}
+
+/// An independent model of an amount as two native `u128` halves. CBMC
+/// reasons about a 128-bit add or compare as one operation, so checking the
+/// four-limb code against this model is cheap at full 256-bit width, where
+/// the property harnesses above did not finish in three hours.
+fn halves(a: Amount) -> (u128, u128) {
+    let lo = u128::from(a.0[0]) | (u128::from(a.0[1]) << 64);
+    let hi = u128::from(a.0[2]) | (u128::from(a.0[3]) << 64);
+    (hi, lo)
+}
+
+#[allow(clippy::cast_possible_truncation)]
+fn from_halves(hi: u128, lo: u128) -> Amount {
+    Amount([lo as u64, (lo >> 64) as u64, hi as u64, (hi >> 64) as u64])
+}
+
+/// `checked_add` is exactly 256-bit addition, for every pair of amounts:
+/// the right sum when it fits, `None` exactly when it does not.
+#[kani::proof]
+// 32: the `Option<Amount>` comparison is a 32-byte memcmp.
+#[kani::unwind(33)]
+fn checked_add_matches_the_u128_model() {
+    let (a, b) = (any_amount(), any_amount());
+    let ((ahi, alo), (bhi, blo)) = (halves(a), halves(b));
+    let (lo, carry) = alo.overflowing_add(blo);
+    let (hi, c1) = ahi.overflowing_add(bhi);
+    let (hi, c2) = hi.overflowing_add(u128::from(carry));
+    let model = if c1 || c2 {
+        None
+    } else {
+        Some(from_halves(hi, lo))
+    };
+    assert!(a.checked_add(b) == model);
+}
+
+/// `checked_sub` is exactly 256-bit subtraction, `None` exactly below zero.
+#[kani::proof]
+// 32: the `Option<Amount>` comparison is a 32-byte memcmp.
+#[kani::unwind(33)]
+fn checked_sub_matches_the_u128_model() {
+    let (a, b) = (any_amount(), any_amount());
+    let ((ahi, alo), (bhi, blo)) = (halves(a), halves(b));
+    let (lo, borrow) = alo.overflowing_sub(blo);
+    let (hi, b1) = ahi.overflowing_sub(bhi);
+    let (hi, b2) = hi.overflowing_sub(u128::from(borrow));
+    let model = if b1 || b2 {
+        None
+    } else {
+        Some(from_halves(hi, lo))
+    };
+    assert!(a.checked_sub(b) == model);
+}
+
+/// The order on amounts is the integer order: most significant half first.
+#[kani::proof]
+// 32: the `Option<Amount>` comparison is a 32-byte memcmp.
+#[kani::unwind(33)]
+fn order_matches_the_u128_model() {
+    let (a, b) = (any_amount(), any_amount());
+    assert!(a.cmp(&b) == halves(a).cmp(&halves(b)));
 }
