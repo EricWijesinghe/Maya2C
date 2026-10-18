@@ -55,7 +55,12 @@ Level 5 costs bytes. Each signature is about 40% larger, which means larger bloc
 - Its own KDF context and transcript domain, so a 1024 session can never share
   keys with a 768 session. Message widths are 1 + 1568 each way.
 - `MlKem1024Policy::Required` exists to drop the 768 fallback later. The default
-  is `Preferred`. It is not yet wired to operator configuration.
+  is `Preferred`. Operators set it with `--mlkem1024 <preferred|off|required>`.
+- **The default stays `preferred` under `--features production`.** `required`
+  would partition the network from every peer that has not upgraded, and no
+  measurement yet shows the share of level-5 sessions. The flip to `required`
+  is an operator decision, made once `pq_sessions_by_protocol` shows the
+  network has moved. It is not a release-cut decision.
 - Each handshake records its exchange (`pq_sessions_by_protocol{protocol=...}`),
   so the share of level-5 sessions is visible.
 - The downgrade is real and is documented in `pq/mod.rs`: forcing 768 needs an
