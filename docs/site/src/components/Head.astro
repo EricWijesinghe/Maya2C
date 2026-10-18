@@ -38,10 +38,20 @@ if (template !== "splash") {
     publisher: { "@id": `${site}/#org` },
   });
 }
+// One 1200x630 card per section, in that section's motif (public/og/, generated once and committed).
+const CARDS: Record<string, string> = { guides: "guides", reference: "reference", experience: "experience", support: "support" };
+const card = parts[0] && CARDS[parts[0]] ? `${site}/og/${CARDS[parts[0]]}.png` : `${site}/og-card.png`;
+const cardAlt = parts[0] && CARDS[parts[0]] ? `${title}: ${CARDS[parts[0]]} card for Maya2C` : "Maya2C: post-quantum layer-1 blockchain";
 const ld = graph.length ? JSON.stringify({ "@context": "https://schema.org", "@graph": graph }) : null;
 ---
 
 <Default />
+{/* Link previews. Set per page here, not in astro.config.mjs, so each section shows its own card. */}
+<meta property="og:image" content={card} />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content={cardAlt} />
+<meta name="twitter:image" content={card} />
 {/* The home hero fetches these at once; opening the connections early saves a round trip. */}
 {parts.length === 0 && (
   <>
