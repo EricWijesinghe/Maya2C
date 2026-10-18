@@ -1793,6 +1793,17 @@ status = "verified"
 tests = ["crate:maya-crypto-pq", "crates/node/tests/dualkem_negotiation_tests.rs", "crates/node/tests/pq_transport_tests.rs"]
 
 [[subsystem]]
+id = "p2p-mlkem-1024"
+name = "P2P transport at ML-KEM-1024 (FIPS 203, NIST level 5), level-3 fallback"
+domain = "Cryptography and key management"
+paths = "`crates/node/src/network/pq`, `crates/crypto-pq/src/kem_suite`"
+tier = "core"
+class = "REAL"
+status = "working"
+tests = ["crates/node/tests/pq_transport_tests.rs", "crates/node/tests/dualkem_negotiation_tests.rs"]
+note = "ADR-051 option 1. /maya/mlkem1024/1.0.0 offered first, /maya/mlkem/1.0.0 kept so 768-only peers connect. MlKem1024Policy::Required is not yet wired to operator configuration. Not externally reviewed; no benchmark claim made."
+
+[[subsystem]]
 id = "ml-dsa-65-fips-204"
 name = "ML-DSA-65 (FIPS 204)"
 domain = "Cryptography and key management"

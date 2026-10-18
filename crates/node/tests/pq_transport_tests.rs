@@ -16,7 +16,9 @@ use custom_l1_node::core::block::BlockHeader;
 use custom_l1_node::core::{Block, Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::signing_key_from_seed;
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
-use custom_l1_node::network::pq::{PROTOCOL, PqUpgrade, ROTATION_INTERVAL_BLOCKS};
+use custom_l1_node::network::pq::{
+    MlKem1024Policy, PROTOCOL, PROTOCOL_1024, PqProtocol, PqUpgrade, ROTATION_INTERVAL_BLOCKS,
+};
 use custom_l1_node::network::{Node, NodeEvent, NodeHandle};
 use custom_l1_node::state::StateDB;
 
@@ -40,6 +42,7 @@ struct TestNode {
     handle: NodeHandle,
     address: Multiaddr,
     epoch: custom_l1_node::network::EpochClock,
+    stats: custom_l1_node::network::SessionStats,
     _dir: TempDir,
 }
 
@@ -52,6 +55,7 @@ async fn spawn_node(rotation_check: Duration) -> TestNode {
     let mut node =
         Node::new_memory_with_rotation(Arc::new(state), rotation_check).expect("build node");
     let epoch = node.epoch_clock();
+    let stats = node.session_stats();
 
     let address = next_memory_address();
     node.listen_on(address.clone()).expect("listen");
@@ -60,6 +64,7 @@ async fn spawn_node(rotation_check: Duration) -> TestNode {
         handle: node.spawn(),
         address,
         epoch,
+        stats,
         _dir: dir,
     }
 }
@@ -166,16 +171,156 @@ async fn a_block_survives_the_encrypted_transport_intact() {
 }
 
 #[test]
-fn the_upgrade_offers_no_alternative_protocol() {
-    // A downgrade needs something to downgrade *to*. Offering exactly one
-    // protocol is what makes multistream-select's failure mode "drop the
-    // connection" rather than "negotiate something weaker".
+fn the_upgrade_offers_only_the_two_ml_kem_protocols() {
+    // Level 5 first, level 3 as the fallback that keeps older peers connecting.
+    // Nothing else is ever offered, so there is no third exchange to downgrade to.
     let offered: Vec<String> = PqUpgrade::new()
         .protocol_info()
         .map(|p| p.as_ref().to_string())
         .collect();
 
-    assert_eq!(offered, vec![PROTOCOL.to_string()]);
+    assert_eq!(
+        offered,
+        vec![PROTOCOL_1024.to_string(), PROTOCOL.to_string()]
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ML-KEM-1024 negotiation (ADR-051 option 1)
+// ---------------------------------------------------------------------------
+
+/// How long a pair is watched before a non-connection is called a refusal.
+const REFUSAL_WINDOW: Duration = Duration::from_secs(3);
+
+/// Spawns a memory-transport node offering the given post-quantum upgrade.
+fn spawn_with_pq(pq: PqUpgrade) -> TestNode {
+    let dir = TempDir::new().expect("temp dir");
+    let state = StateDB::open(dir.path()).expect("open state");
+    common::bind(&state);
+
+    let mut node = Node::new_memory_with_pq(Arc::new(state), pq).expect("build node");
+    let epoch = node.epoch_clock();
+    let stats = node.session_stats();
+
+    let address = next_memory_address();
+    node.listen_on(address.clone()).expect("listen");
+
+    TestNode {
+        handle: node.spawn(),
+        address,
+        epoch,
+        stats,
+        _dir: dir,
+    }
+}
+
+/// Spawns a listener and a dialer, and dials. Returns both for inspection.
+async fn dial_pair(dialer: PqUpgrade, listener: PqUpgrade) -> (TestNode, TestNode) {
+    let server = spawn_with_pq(listener);
+    let client = spawn_with_pq(dialer);
+    // A dial that races the listener's bind fails here and is not retried, so
+    // callers assert on the connection count, not on this result.
+    let _ = client.handle.dial(server.address.clone()).await;
+    (client, server)
+}
+
+async fn peer_count(handle: &NodeHandle) -> usize {
+    handle.connected_peers().await.map(|p| p.len()).unwrap_or(0)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn two_mlkem1024_nodes_negotiate_1024() {
+    let (client, server) = dial_pair(PqUpgrade::new(), PqUpgrade::new()).await;
+
+    assert!(
+        wait_for(TIMEOUT, async || peer_count(&client.handle).await > 0).await,
+        "two level-5 nodes did not connect"
+    );
+    // Both ends of the one connection must record the same exchange, and it
+    // must be the level-5 one.
+    for side in [&client, &server] {
+        let stats = side.stats.clone();
+        assert!(
+            wait_for(TIMEOUT, async || stats.negotiated(PqProtocol::MlKem1024)
+                >= 1)
+            .await,
+            "a side did not record an ML-KEM-1024 session"
+        );
+        assert_eq!(stats.negotiated(PqProtocol::MlKem768), 0);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_mlkem1024_node_falls_back_to_a_768_only_peer() {
+    // The listener is a level-3-only node, standing in for a build from before
+    // ML-KEM-1024 existed. The dialer prefers 1024, must fall back, and connect.
+    let legacy = PqUpgrade::new().with_mlkem1024(MlKem1024Policy::Off);
+    let (client, server) = dial_pair(PqUpgrade::new(), legacy).await;
+
+    assert!(
+        wait_for(TIMEOUT, async || peer_count(&client.handle).await > 0).await,
+        "a level-5 node did not fall back to a level-3 peer"
+    );
+    for side in [&client, &server] {
+        let stats = side.stats.clone();
+        assert!(
+            wait_for(TIMEOUT, async || stats.negotiated(PqProtocol::MlKem768)
+                >= 1)
+            .await,
+            "a side did not record the ML-KEM-768 fallback"
+        );
+        assert_eq!(stats.negotiated(PqProtocol::MlKem1024), 0);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_level3_dialer_still_reaches_a_level5_node() {
+    // The other direction of the same mixed network: the old node dials. Both
+    // ends must record the level-3 exchange, which is what the connection used.
+    let legacy = PqUpgrade::new().with_mlkem1024(MlKem1024Policy::Off);
+    let (client, server) = dial_pair(legacy, PqUpgrade::new()).await;
+
+    assert!(
+        wait_for(TIMEOUT, async || peer_count(&client.handle).await > 0).await,
+        "a level-3 node could not reach a level-5 node"
+    );
+    for side in [&client, &server] {
+        let stats = side.stats.clone();
+        assert!(
+            wait_for(TIMEOUT, async || stats.negotiated(PqProtocol::MlKem768)
+                >= 1)
+            .await,
+            "a side did not record the ML-KEM-768 exchange"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_1024_required_node_refuses_a_768_only_peer() {
+    // Required offers no fallback, so the two sets share nothing. The
+    // connection must not form. A refusal proves nothing unless the same
+    // listener accepts a dialer that can speak, so a level-5 control dials
+    // first and must connect. Then the refusal can only be the policy.
+    let server = spawn_with_pq(PqUpgrade::new().with_mlkem1024(MlKem1024Policy::Off));
+    let control = spawn_with_pq(PqUpgrade::new());
+    let _ = control.handle.dial(server.address.clone()).await;
+    assert!(
+        wait_for(TIMEOUT, async || peer_count(&control.handle).await > 0).await,
+        "positive control failed: a level-5 dialer could not reach the listener"
+    );
+
+    let required = spawn_with_pq(PqUpgrade::new().with_mlkem1024(MlKem1024Policy::Required));
+    let _ = required.handle.dial(server.address.clone()).await;
+    tokio::time::sleep(REFUSAL_WINDOW).await;
+
+    assert_eq!(
+        peer_count(&required.handle).await,
+        0,
+        "level 5 fell back to level 3"
+    );
+    // Only the control's session was negotiated; the refused dial left no trace.
+    assert_eq!(server.stats.negotiated(PqProtocol::MlKem768), 1);
+    assert_eq!(server.stats.negotiated(PqProtocol::MlKem1024), 0);
 }
 
 // ---------------------------------------------------------------------------
