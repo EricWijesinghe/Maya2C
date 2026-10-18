@@ -2973,8 +2973,8 @@ paths = "`crates/dag-bft`, `crates/node/src/consensus/bft/`, `bins/maya2c-node/s
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-dag-bft", "crates/dag-bft/tests/modes_sim.rs", "crates/dag-bft/tests/auth_and_restart.rs", "crates/node/tests/bft_node_tests.rs"]
-note = "ADR-015. All three modes run under maya-sim. Ordering figures only (no signatures, execution or disk) — not TPS. Wired into the node by ADR-027: blocks derived from committed anchors, signed votes, a safety log (bft_node_tests.rs; cargo xtask localnet)."
+tests = ["crate:maya-dag-bft", "crates/dag-bft/tests/modes_sim.rs", "crates/dag-bft/tests/auth_and_restart.rs", "crates/node/tests/bft_node_tests.rs", "crates/node/tests/bft_follower_tests.rs"]
+note = "ADR-015. All three modes run under maya-sim. Ordering figures only (no signatures, execution or disk) — not TPS. Wired into the node by ADR-027: blocks derived from committed anchors, signed votes, a safety log (bft_node_tests.rs; cargo xtask localnet). Catch-up by certificate replay (ADR-052): paged, verified, streamed; release cost 98.5 s for a 3,600-block epoch at n=7 (cert_replay_measure.rs, ignored); cross-epoch and forged-evidence tests in bft_follower_tests.rs."
 
 [[subsystem]]
 id = "vm-execution-tiers"
