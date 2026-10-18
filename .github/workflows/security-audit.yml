@@ -185,11 +185,14 @@ jobs:
       - run: cargo kani -p maya-iot-anchor --output-format terse
 
       # Every balance is a maya-amount. The full crate takes over half an
-      # hour, so CI runs the long-division step proof (seconds); the rest
-      # runs by hand (ADR-048).
+      # hour, so CI runs the long-division step and the u128-model proofs of
+      # add, subtract and order (seconds each); the rest runs by hand (ADR-048).
       - run: >-
           cargo kani -p maya-amount --output-format terse
           --harness long_division_step_keeps_the_invariant
+          --harness checked_add_matches_the_u128_model
+          --harness checked_sub_matches_the_u128_model
+          --harness order_matches_the_u128_model
 
   # ---------------------------------------------------------------------------
   geiger:
