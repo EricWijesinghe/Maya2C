@@ -336,3 +336,10 @@ deliberately left at 64 bits, and why, are tabled in ADR-048.
   - not now: the default account suite.
 - **Funding links are left empty** until Eric creates the accounts; inventing them would be dishonest.
 - **The release SBOM uses cargo-cyclonedx** through the allowed taiki-e action, because the action allow-list does not admit anchore.
+
+## 2026-10-18 — Ticker, council, wallet units (Eric)
+
+- **Ticker MAYA.** Display only: amounts stay 256-bit base units, and 1 MAYA = 10^18 base units (ADR-046). Recorded in `chain/maya2c-testnet.json` and as `TICKER` in the wallet core.
+- **Emergency council 2 of 3 (ADR-050 accepted):** this PC, the MacBook, and an offline backup. It pauses one module for a bounded time and never moves funds.
+- **Wallet send form uses whole coins (#135 merged).** Payment requests and QR codes stay in base units.
+
