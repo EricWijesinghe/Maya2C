@@ -11,7 +11,8 @@
 //! journals and corrupt state.
 
 use primitive_types::U256;
-use std::net::SocketAddr;
+use std::collections::HashSet;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 
 use jsonrpsee::server::{RpcModule, Server, ServerHandle};
@@ -172,6 +173,71 @@ pub struct RpcContext {
     /// The size of one certificate page served (ADR-052). The production
     /// value; tests shrink it to make paging run.
     pub page_limits: crate::consensus::bft::certsync::PageLimits,
+    /// Certificate-page bytes each client may take, weighed per call (ADR-052).
+    pub cert_bytes: Arc<crate::rpc::limit::RateLimiter>,
+    /// The clients with a certificate page in flight: one at a time each.
+    pub cert_gate: Arc<CertGate>,
+}
+
+/// Bytes of certificate pages one client may take per second, sustained.
+/// Chosen so a rejoin is not slowed by it in normal use, and a client that
+/// asks for pages without end is refused. Tune with measured epoch sizes
+/// (ADR-052: the byte size of a mainnet epoch is not yet measured).
+pub const CERT_BYTES_PER_SECOND: u32 = 32 * 1024 * 1024;
+/// Bytes of certificate pages one client may take in a burst.
+pub const CERT_BYTE_BURST: u32 = 128 * 1024 * 1024;
+
+/// The address a request without a known peer is charged to.
+const UNKNOWN_CLIENT: IpAddr = IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED);
+
+/// The connecting client's address, carried into method calls on the request's
+/// extensions.
+#[derive(Debug, Clone, Copy)]
+pub struct ClientAddr(pub IpAddr);
+
+/// Clients with a certificate page in flight. A client may hold one at a time,
+/// so one caller cannot tie up every blocking thread with reads.
+#[derive(Debug, Default)]
+pub struct CertGate {
+    busy: Mutex<HashSet<IpAddr>>,
+}
+
+/// A claim on [`CertGate`]; released on drop.
+#[derive(Debug)]
+pub struct CertClaim<'a> {
+    gate: &'a CertGate,
+    client: IpAddr,
+}
+
+impl CertGate {
+    /// Claims the gate for `client`, or `None` if it already holds one.
+    pub fn claim(&self, client: IpAddr) -> Option<CertClaim<'_>> {
+        let mut busy = self
+            .busy
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // An explicit branch: a claim built and then dropped on the refused
+        // path would lock `busy` again while this guard still holds it.
+        if busy.insert(client) {
+            Some(CertClaim {
+                gate: self,
+                client,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+impl Drop for CertClaim<'_> {
+    fn drop(&mut self) {
+        let mut busy = self
+            .gate
+            .busy
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        busy.remove(&self.client);
+    }
 }
 
 /// Largest JSON-RPC response this node accepts or sends. jsonrpsee's default is
@@ -207,6 +273,11 @@ impl RpcContext {
             bft_status: None,
             bft_dir: None,
             page_limits: crate::consensus::bft::certsync::PAGE,
+            cert_bytes: Arc::new(crate::rpc::limit::RateLimiter::new(
+                CERT_BYTES_PER_SECOND,
+                CERT_BYTE_BURST,
+            )),
+            cert_gate: Arc::new(CertGate::default()),
         }
     }
 
@@ -215,6 +286,16 @@ impl RpcContext {
     pub fn with_bft_dir(self, dir: std::path::PathBuf) -> Self {
         Self {
             bft_dir: Some(dir),
+            ..self
+        }
+    }
+
+    /// The same context, charging certificate pages to `budget` (tests set it
+    /// tiny to see the refusal).
+    #[must_use]
+    pub fn with_cert_budget(self, budget: crate::rpc::limit::RateLimiter) -> Self {
+        Self {
+            cert_bytes: Arc::new(budget),
             ..self
         }
     }
@@ -373,7 +454,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     module
-        .register_blocking_method("get_certificates", |params, ctx, _| {
+        .register_blocking_method("get_certificates", |params, ctx, extensions| {
             // `[epoch, offset, max]`: one bounded page of that epoch's
             // certificate log (ADR-052). The rate limiter gates every method;
             // the page bounds are the server's, whatever the caller asks.
@@ -383,6 +464,17 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 .bft_dir
                 .as_ref()
                 .ok_or_else(|| rejected("this node serves no certificates".to_string()))?;
+            let client = extensions
+                .get::<ClientAddr>()
+                .map_or(UNKNOWN_CLIENT, |c| c.0);
+            // One page in flight per client, and a byte budget per client
+            // (ADR-052). The rate limiter counts calls; this weighs what a call
+            // returns, so a client cannot take unbounded data at one request a
+            // second.
+            let _claim = ctx
+                .cert_gate
+                .claim(client)
+                .ok_or_else(|| rejected("one certificate page at a time per client".to_string()))?;
             let limits = ctx.page_limits;
             let page = crate::consensus::bft::store::read_certificate_page(
                 dir,
@@ -392,6 +484,16 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 limits.encoded_bytes,
             )
             .map_err(internal)?;
+            let bytes: u64 = page
+                .records
+                .iter()
+                .map(|r| u64::try_from(crate::consensus::bft::store::encoded_len(r.len())).unwrap_or(u64::MAX))
+                .sum();
+            if !ctx.cert_bytes.charge(client, bytes) {
+                return Err(rejected(
+                    "certificate byte budget used up for this client; retry later".to_string(),
+                ));
+            }
             Ok::<_, ErrorObjectOwned>(crate::rpc::types::CertPageInfo {
                 records: page.records.iter().map(hex::encode).collect(),
                 next: page.next,
@@ -858,8 +960,11 @@ pub async fn serve_metered(
                 stop.clone(),
                 Arc::clone(&limiter),
             );
-            let service = tower::service_fn(move |request| {
+            let service = tower::service_fn(move |mut request: hyper::Request<hyper::body::Incoming>| {
                 let allowed = limiter.check(remote.ip());
+                // Methods that weigh their cost by client (`get_certificates`)
+                // read the address from the request's extensions.
+                request.extensions_mut().insert(ClientAddr(remote.ip()));
                 let mut inner = builder.clone().build(methods.clone(), stop2.clone());
                 async move {
                     if !allowed {
