@@ -20,7 +20,7 @@ use jsonrpsee::types::ErrorObjectOwned;
 
 use crate::core::{Block, BlockHeader};
 use crate::error::{NodeError, Result};
-use crate::rpc::server::RpcContext;
+use crate::rpc::server::{RPC_RESPONSE_LIMIT, RpcContext};
 use crate::rpc::types::BlockInfo;
 use crate::state_pruner::snapshot::{BootstrapSource, HEADER_BATCH, SnapshotManifest, Snapshots};
 
@@ -208,6 +208,7 @@ impl RpcBootstrapSource {
     pub fn new(url: &str, runtime: tokio::runtime::Handle) -> Result<Self> {
         Ok(Self {
             client: HttpClientBuilder::default()
+                .max_response_size(RPC_RESPONSE_LIMIT)
                 .build(url)
                 .map_err(|e| NodeError::Network(format!("{url}: {e}")))?,
             runtime,
@@ -324,6 +325,13 @@ impl crate::consensus::bft::certsync::CertSource for RpcBootstrapSource {
             next: info.next,
             done: info.done,
         })
+    }
+
+    fn checkpoint_of(
+        &self,
+        epoch: u64,
+    ) -> Result<Option<crate::consensus::bft::attest::Checkpoint>> {
+        crate::consensus::bft::catchup::CheckpointSource::checkpoint_of(self, epoch)
     }
 }
 

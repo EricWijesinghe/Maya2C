@@ -42,6 +42,9 @@ pub struct SafetyStore {
 pub struct Recovered {
     /// Own proposals and votes, oldest first, as the frames that carried them.
     pub safety: Vec<Envelope>,
+    /// Bytes cut from the end of the two logs at open, as a torn write left
+    /// them. Zero after a clean shutdown.
+    pub torn_bytes: u64,
 }
 
 /// Largest record a log or a peer may carry. A certificate is a vertex with
@@ -108,8 +111,66 @@ fn next_record(reader: &mut impl Read) -> Result<Option<Vec<u8>>> {
         .ok()
         .filter(|len| *len <= MAX_RECORD_BYTES)
         .ok_or_else(|| NodeError::Storage("certificate record longer than allowed".into()))?;
-    let mut record = vec![0_u8; len];
-    Ok(read_full(reader, &mut record)?.then_some(record))
+    // Read through `take`: the buffer grows with bytes actually present, so a
+    // length from a peer or a corrupt log cannot allocate ahead of the data.
+    let mut record = Vec::new();
+    let got = reader
+        .take(u64::try_from(len).unwrap_or(u64::MAX))
+        .read_to_end(&mut record)
+        .map_err(|e| NodeError::Storage(format!("read certificate log: {e}")))?;
+    Ok((got == len).then_some(record))
+}
+
+/// Bytes a record takes in a JSON page: its hex, two quotes and a comma.
+#[must_use]
+pub const fn encoded_len(raw: usize) -> usize {
+    raw * 2 + 3
+}
+
+/// Length of the longest prefix of complete records in `path`, and the file's
+/// full length. A crash mid-write leaves a torn tail after that prefix.
+fn complete_prefix(path: &Path) -> Result<(u64, u64)> {
+    let file = match File::open(path) {
+        Ok(file) => file,
+        // A log not written yet is empty, not an error: the first open creates it.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((0, 0)),
+        Err(e) => return Err(io_err("open", path, &e)),
+    };
+    let total = file
+        .metadata()
+        .map_err(|e| io_err("stat", path, &e))?
+        .len();
+    let mut reader = BufReader::new(file);
+    let mut complete = 0_u64;
+    while let Some(record) = next_record(&mut reader)? {
+        complete += 8 + u64::try_from(record.len()).unwrap_or(u64::MAX);
+    }
+    Ok((complete, total))
+}
+
+/// Cuts a torn tail off `path` and makes the cut durable, so the next append
+/// starts on a record boundary. Without this a record written after a crash
+/// is read back as the tail of the torn one and lost (and for `safety.log`, a
+/// vote that was sent can be forgotten). Returns the bytes removed.
+///
+/// # Errors
+///
+/// [`NodeError::Storage`] for I/O, and for a length prefix beyond
+/// [`MAX_RECORD_BYTES`]: that is corruption, not a torn write, and is not
+/// guessed past.
+fn repair_torn_tail(path: &Path) -> Result<u64> {
+    let (complete, total) = complete_prefix(path)?;
+    if complete == total {
+        return Ok(0);
+    }
+    let file = OpenOptions::new()
+        .write(true)
+        .open(path)
+        .map_err(|e| io_err("open", path, &e))?;
+    file.set_len(complete)
+        .map_err(|e| io_err("truncate", path, &e))?;
+    file.sync_all().map_err(|e| io_err("fsync", path, &e))?;
+    Ok(total - complete)
 }
 
 /// Fills `buf`. `false` on a clean or torn end of stream; other failures are
@@ -123,9 +184,15 @@ fn read_full(reader: &mut impl Read, buf: &mut [u8]) -> Result<bool> {
 }
 
 /// The certificate log of `root/epoch-<epoch>`, from byte `offset`, in pages
-/// bounded by `max_records` and about `max_bytes` (one record may exceed
-/// `max_bytes` on its own, never [`MAX_RECORD_BYTES`]). A peer serves this to
-/// a node catching up (ADR-052); nothing is held beyond one page.
+/// bounded by `max_records` and by `max_encoded_bytes` of JSON (see
+/// [`encoded_len`]). A page's first record is always included, so a
+/// certificate larger than the budget still makes progress. A peer serves this
+/// to a node catching up (ADR-052); nothing is held beyond one page.
+///
+/// `offset` must be the start of a record. A value that is not, or lies past
+/// the end, reads garbage or nothing: garbage fails to decode at the client,
+/// and nothing is returned as `done`. The reader allocates only what the file
+/// holds.
 ///
 /// # Errors
 ///
@@ -135,7 +202,7 @@ pub fn read_certificate_page(
     epoch: u64,
     offset: u64,
     max_records: usize,
-    max_bytes: usize,
+    max_encoded_bytes: usize,
 ) -> Result<CertPage> {
     let path = root.join(format!("epoch-{epoch}")).join(CERTS_LOG);
     let mut file = match File::open(&path) {
@@ -163,10 +230,11 @@ pub fn read_certificate_page(
             page.done = true;
             break;
         };
-        if !page.records.is_empty() && bytes + record.len() > max_bytes {
+        let size = encoded_len(record.len());
+        if !page.records.is_empty() && bytes + size > max_encoded_bytes {
             break; // not consumed: the next page starts at `next`
         }
-        bytes += record.len();
+        bytes += size;
         page.next += 8 + u64::try_from(record.len()).unwrap_or(u64::MAX);
         page.records.push(record);
     }
@@ -174,8 +242,8 @@ pub fn read_certificate_page(
 }
 
 /// Visits every certificate of `root/epoch-<epoch>` oldest first, one at a
-/// time. An undecodable record is skipped: a torn or foreign one costs a
-/// re-fetch, and every certificate is re-verified before it counts.
+/// time, and returns how many undecodable records it skipped. A skipped record
+/// costs a re-fetch, and every certificate is re-verified before it counts.
 ///
 /// # Errors
 ///
@@ -184,20 +252,22 @@ pub fn for_each_certificate(
     root: &Path,
     epoch: u64,
     mut visit: impl FnMut(Certificate) -> Result<()>,
-) -> Result<()> {
+) -> Result<u64> {
     let path = root.join(format!("epoch-{epoch}")).join(CERTS_LOG);
     let file = match File::open(&path) {
         Ok(file) => file,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
         Err(e) => return Err(io_err("open", &path, &e)),
     };
     let mut reader = BufReader::new(file);
+    let mut skipped = 0;
     while let Some(record) = next_record(&mut reader)? {
-        if let Ok(c) = decode_certificate(&record) {
-            visit(c)?;
+        match decode_certificate(&record) {
+            Ok(c) => visit(c)?,
+            Err(_) => skipped += 1,
         }
     }
-    Ok(())
+    Ok(skipped)
 }
 
 fn frame(record: &[u8]) -> Vec<u8> {
@@ -263,6 +333,9 @@ impl SafetyStore {
         std::fs::create_dir_all(&dir).map_err(|e| io_err("create", &dir, &e))?;
         let safety_path = dir.join(SAFETY_LOG);
         let certs_path = dir.join(CERTS_LOG);
+        // Before anything reads or appends: a torn tail left by a crash must
+        // not sit in front of the next record (see `repair_torn_tail`).
+        let torn_bytes = repair_torn_tail(&safety_path)? + repair_torn_tail(&certs_path)?;
         let safety = read_records(&safety_path)?
             .iter()
             .map(|r| Envelope::decode(r))
@@ -274,7 +347,13 @@ impl SafetyStore {
             certs: BufWriter::new(open_append(&certs_path)?),
             dir,
         };
-        Ok((store, Recovered { safety }))
+        Ok((
+            store,
+            Recovered {
+                safety,
+                torn_bytes,
+            },
+        ))
     }
 
     /// Appends one of this validator's own proposals or votes and waits for
@@ -357,6 +436,45 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn a_torn_tail_is_cut_so_the_next_record_is_read_back() {
+        let root = dir("torn");
+        {
+            let (mut store, _) = SafetyStore::open(&root, 0).unwrap();
+            store.record_own(&vote(1)).unwrap();
+        }
+        // A crash mid-write in each log: a length prefix and part of a record.
+        for name in [SAFETY_LOG, CERTS_LOG] {
+            let path = root.join("epoch-0").join(name);
+            let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+            file.write_all(&100_u64.to_le_bytes()).unwrap();
+            file.write_all(&[7_u8; 10]).unwrap();
+        }
+        let (mut store, recovered) = SafetyStore::open(&root, 0).unwrap();
+        assert_eq!(recovered.safety, vec![vote(1)]);
+        assert_eq!(recovered.torn_bytes, 2 * 18, "both torn tails are cut");
+        // Without the cut, these appends would read back as the tail of the
+        // torn records and be lost: the vote the node sent after a crash.
+        store.record_own(&vote(2)).unwrap();
+        let cert = Certificate {
+            vertex: Vertex::genesis_in(0, 2),
+            votes: vec![0],
+            signatures: vec![vec![9]],
+        };
+        store.record_certificate(&cert).unwrap();
+        drop(store);
+        let (_, recovered) = SafetyStore::open(&root, 0).unwrap();
+        assert_eq!(recovered.safety, vec![vote(1), vote(2)]);
+        assert_eq!(recovered.torn_bytes, 0);
+        let mut seen = Vec::new();
+        for_each_certificate(&root, 0, |c| {
+            seen.push(c);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(seen, vec![cert]);
     }
 
     #[test]

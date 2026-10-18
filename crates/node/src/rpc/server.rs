@@ -169,6 +169,24 @@ pub struct RpcContext {
     /// The DAG-BFT data directory, for serving certificate pages
     /// (`get_certificates`, ADR-052). Absent on a node that runs no DAG-BFT.
     pub bft_dir: Option<std::path::PathBuf>,
+    /// The size of one certificate page served (ADR-052). The production
+    /// value; tests shrink it to make paging run.
+    pub page_limits: crate::consensus::bft::certsync::PageLimits,
+}
+
+/// Largest JSON-RPC response this node accepts or sends. jsonrpsee's default is
+/// 10 MiB; a certificate page is at most 4 MiB encoded
+/// ([`crate::consensus::bft::certsync::PAGE_ENCODED_BYTES`]), so 16 MiB leaves
+/// room for framing. Set on both ends: the client refuses what the server would
+/// send.
+pub const RPC_RESPONSE_LIMIT: u32 = 16 * 1024 * 1024;
+
+/// The server configuration with [`RPC_RESPONSE_LIMIT`] (jsonrpsee 0.26 takes
+/// the limit through its config, not the builder).
+fn server_config() -> jsonrpsee::server::ServerConfig {
+    jsonrpsee::server::ServerConfig::builder()
+        .max_response_body_size(RPC_RESPONSE_LIMIT)
+        .build()
 }
 
 impl RpcContext {
@@ -188,6 +206,7 @@ impl RpcContext {
             checkpoint: None,
             bft_status: None,
             bft_dir: None,
+            page_limits: crate::consensus::bft::certsync::PAGE,
         }
     }
 
@@ -196,6 +215,15 @@ impl RpcContext {
     pub fn with_bft_dir(self, dir: std::path::PathBuf) -> Self {
         Self {
             bft_dir: Some(dir),
+            ..self
+        }
+    }
+
+    /// The same context, serving pages of `limits` (tests use tiny ones).
+    #[must_use]
+    pub fn with_page_limits(self, limits: crate::consensus::bft::certsync::PageLimits) -> Self {
+        Self {
+            page_limits: limits,
             ..self
         }
     }
@@ -345,7 +373,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     module
-        .register_method("get_certificates", |params, ctx, _| {
+        .register_blocking_method("get_certificates", |params, ctx, _| {
             // `[epoch, offset, max]`: one bounded page of that epoch's
             // certificate log (ADR-052). The rate limiter gates every method;
             // the page bounds are the server's, whatever the caller asks.
@@ -355,13 +383,13 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 .bft_dir
                 .as_ref()
                 .ok_or_else(|| rejected("this node serves no certificates".to_string()))?;
-            let max = max.min(crate::consensus::bft::certsync::PAGE_CERTS);
+            let limits = ctx.page_limits;
             let page = crate::consensus::bft::store::read_certificate_page(
                 dir,
                 epoch,
                 offset,
-                max,
-                crate::consensus::bft::certsync::PAGE_BYTES,
+                max.min(limits.records),
+                limits.encoded_bytes,
             )
             .map_err(internal)?;
             Ok::<_, ErrorObjectOwned>(crate::rpc::types::CertPageInfo {
@@ -754,6 +782,7 @@ pub async fn serve(address: SocketAddr, context: RpcContext) -> crate::error::Re
         build_module(context).map_err(|e| crate::error::NodeError::Network(e.to_string()))?;
 
     let server = Server::builder()
+        .set_config(server_config())
         .build(address)
         .await
         .map_err(|e| crate::error::NodeError::Network(format!("bind {address}: {e}")))?;
@@ -805,6 +834,7 @@ pub async fn serve_metered(
         .local_addr()
         .map_err(|e| crate::error::NodeError::Network(format!("local address: {e}")))?;
     let builder = Server::builder()
+        .set_config(server_config())
         .set_rpc_middleware(middleware)
         .to_service_builder();
     let methods: jsonrpsee::server::Methods = module.into();

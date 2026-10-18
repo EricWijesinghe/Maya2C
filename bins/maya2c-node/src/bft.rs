@@ -325,10 +325,12 @@ pub(super) async fn sync_certificates(
     for url in urls {
         let source = RpcBootstrapSource::new(url, tokio::runtime::Handle::current())?;
         for _ in 0..SYNC_ROUNDS {
-            // Blocking RPC and disk work: off the async workers.
+            // Blocking RPC and disk work, off the async workers. `block_in_place`
+            // needs the multi-thread runtime `main` runs on; on a current-thread
+            // runtime it panics.
             let synced = tokio::task::block_in_place(|| {
                 let mut guard = lock_chain(chain);
-                certsync::sync(&mut guard, &source, setup, &dir, now_ms())
+                certsync::sync(&mut guard, &source, setup, &dir, now_ms(), certsync::PAGE)
             });
             let synced = match synced {
                 Ok(synced) => synced,
@@ -337,6 +339,9 @@ pub(super) async fn sync_certificates(
                     break;
                 }
             };
+            if synced.skipped > 0 {
+                println!("catch-up:    skipped {} undecodable record(s)", synced.skipped);
+            }
             let (height, tip, nonce) = {
                 let c = lock_chain(chain);
                 let nonce = c.get(&c.tip()).map_or(0, |b| b.header.nonce);
