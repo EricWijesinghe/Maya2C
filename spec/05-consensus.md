@@ -30,3 +30,10 @@ comparison of a hash with a target; the proof-of-work hash itself
 DAG construction, the commit rule, finality and fork choice under DAG-BFT
 are specified only by the node's code and `crates/dag-bft`, and have no rule
 IDs yet.
+
+Catch-up by certificate replay (ADR-052) is specified by its ADR and the node,
+with no rule IDs and no conformance vectors yet. Its wire rule: `get_certificates`
+serves at most 256 records per page and about 8 MiB; a client refuses a larger
+page, a page that makes no progress, and any certificate without a quorum
+(`n − f` by the engine's rule) of valid signatures over its digest from the
+epoch's committee. Vectors: NOT YET (gap). Node: `crates/node/src/consensus/bft/certsync.rs`.
