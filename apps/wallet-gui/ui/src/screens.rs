@@ -497,10 +497,10 @@ pub mod wallet {
                     <span class="value">
                         {move || show_amount(&state.account_state.get().balance)}
                     </span>
-                    <span class="unit">"coins"</span>
+                    <span class="unit">{amount::TICKER}</span>
                 </div>
                 <Show when=move || state.network.get().is_none_or(|n| n.is_test_network())>
-                    <span class="testnet-tag">"Testnet coins \u{b7} no value"</span>
+                    <span class="testnet-tag">"Testnet MAYA \u{b7} no value"</span>
                 </Show>
                 <div class="actions">
                     <button
