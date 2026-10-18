@@ -6,7 +6,7 @@
     <input type="range" min="1" max="100" value="7" data-n aria-describedby="quorum-readout" />
   </label>
   <label class="legacy">
-    <input type="checkbox" data-legacy /> Use the retired 2f + 1 rule instead
+    <label class="legacy"><input type="checkbox" data-legacy /> Use the retired 2f + 1 rule instead</label>
   </label>
   <svg viewBox="0 0 320 120" role="img" aria-label="Dots for each validator: the first quorum in blue, the second in orange, their overlap in teal, faulty members ringed." data-svg></svg>
   <p id="quorum-readout" aria-live="polite" data-readout></p>
@@ -82,7 +82,8 @@
 <style>
   .quorum { margin: 1.5rem 0; max-width: 40rem; }
   .quorum label { display: block; margin: 0.4rem 0; }
-  .quorum input[type="range"] { width: 100%; }
+  .quorum input[type="range"] { width: 100%; min-height: 44px; }
+  .quorum .legacy { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 44px; }
   .quorum svg { width: 100%; height: auto; background: var(--sl-color-gray-6, #0e1a20); border-radius: 0.5rem; }
   .quorum circle { stroke: none; }
   .quorum .only-a { fill: var(--sl-color-blue, #3b82f6); }
