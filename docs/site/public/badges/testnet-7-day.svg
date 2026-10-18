@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="220" height="28" viewBox="0 0 220 28" role="img" aria-label="Maya2C badge: testnet node for 7 days">
+  <title>Maya2C badge: testnet node for 7 days</title>
+  <rect width="220" height="28" rx="6" fill="#0a161b"/>
+  <rect x="74" width="146" height="28" rx="6" fill="#1fb5c2"/>
+  <rect x="74" width="8" height="28" fill="#1fb5c2"/>
+  <text x="10" y="18" font-family="Inter, Arial, sans-serif" font-size="12" font-weight="600" fill="#7eeaf0">Maya2C</text>
+  <text x="84" y="18" font-family="Inter, Arial, sans-serif" font-size="12" font-weight="600" fill="#02161a">Testnet node, 7 days</text>
+</svg>
