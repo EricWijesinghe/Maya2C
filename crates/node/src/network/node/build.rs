@@ -191,12 +191,28 @@ impl Node {
         keypair: Keypair,
         dual_kem: DualKemPolicy,
     ) -> Result<Self> {
+        Self::new_tcp_with_identity_and_pq(state, keypair, PqUpgrade::with_policy(dual_kem))
+    }
+
+    /// Builds a TCP node under an explicit post-quantum upgrade.
+    ///
+    /// The production entry point: the binary builds the whole upgrade from its
+    /// flags, so `--dual-kem` and `--mlkem1024` both reach the wire.
+    ///
+    /// # Errors
+    ///
+    /// As [`Node::new_memory`].
+    pub fn new_tcp_with_identity_and_pq(
+        state: Arc<StateDB>,
+        keypair: Keypair,
+        pq: PqUpgrade,
+    ) -> Result<Self> {
         Self::build(
             state,
             keypair,
             TransportKind::Tcp,
             ROTATION_CHECK_INTERVAL,
-            PqUpgrade::with_policy(dual_kem),
+            pq,
             GuardConfig::DEFAULT,
         )
     }
@@ -295,9 +311,10 @@ impl Node {
                             .upgrade(upgrade::Version::V1)
                             .authenticate(noise_config)
                             // Every connection, inbound and outbound, without
-                            // exception. Negotiation failure drops the
-                            // connection rather than falling back: an optional
-                            // post-quantum layer is one an attacker strips.
+                            // exception. A peer that speaks no ML-KEM set is
+                            // refused. The one fallback, ML-KEM-768 for a
+                            // level-5 node, is a documented downgrade (see
+                            // `network::pq` module docs), not a silent one.
                             .apply(pq.clone())
                             .multiplex(yamux::Config::default()),
                     )

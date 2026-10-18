@@ -35,6 +35,7 @@ use custom_l1_node::genesis::GenesisConfig;
 use custom_l1_node::metrics::{Metrics, server as metrics_server};
 use custom_l1_node::network::EpochClock;
 use custom_l1_node::network::pq::dual::DualKemPolicy;
+use custom_l1_node::network::pq::{MlKem1024Policy, PqUpgrade};
 use custom_l1_node::network::{Mempool, Node, NodeHandle, load_or_create_identity};
 use custom_l1_node::rpc::{
     MarketFeed, MarketQuote, MarketState, RpcContext, serve_market, serve_metered,
@@ -161,6 +162,8 @@ struct Args {
     mine: bool,
     threads: usize,
     dual_kem: DualKemPolicy,
+    /// ML-KEM-1024 offer; see `--mlkem1024`.
+    mlkem1024: MlKem1024Policy,
     config: Option<PathBuf>,
     /// Pruning depth; `None` is an archive node, which prunes nothing.
     prune_depth: Option<u64>,
@@ -229,6 +232,10 @@ impl Default for Args {
             // every connection that negotiated it. Opting in is a decision an
             // operator makes; see `docs/pq-transport.md`.
             dual_kem: DualKemPolicy::Disabled,
+            // Level 5 is preferred on every build. It is not made `required`
+            // by default: that would partition a network that has not all
+            // upgraded. See ADR-051.
+            mlkem1024: MlKem1024Policy::Preferred,
             // No path unless asked. An absent file means the compiled
             // defaults, which is what every existing deployment already runs.
             config: None,
@@ -276,6 +283,8 @@ fn print_usage() {
          --sync-from <URL>    peer JSON-RPC endpoint to backfill history from\n  \
          --dual-kem <MODE>    HQC alongside ML-KEM: off (default), preferred,\n  \
          \x20                    or required. See docs/pq-transport.md\n  \
+         --mlkem1024 <MODE>   ML-KEM-1024 (NIST level 5): preferred (default),\n  \
+         \x20                    off (ML-KEM-768 only), or required (1024 only)\n  \
          --prune              prune bodies older than one DAG epoch (30,000 blocks)\n  \
          --prune-depth <N>    prune bodies older than N blocks (implies --prune)\n  \
          --snapshot-depth <N> serve snapshots once N blocks deep, without pruning\n  \
@@ -305,8 +314,28 @@ fn print_usage() {
 }
 
 fn parse_args() -> Result<Args, Box<dyn Error>> {
+    parse_args_from(std::env::args().skip(1))
+}
+
+/// The startup line that states what this node offers on the wire.
+///
+/// Built from the policies rather than a fixed string, so it cannot claim ML-KEM-768
+/// is accepted when `--mlkem1024 required` or `--dual-kem required` has refused it.
+fn pq_offer_line(mlkem1024: MlKem1024Policy, dual_kem: DualKemPolicy) -> String {
+    let level3 = if mlkem1024.offers_768() && !dual_kem.requires() {
+        "ML-KEM-768 accepted"
+    } else {
+        "ML-KEM-768 refused"
+    };
+    format!("post-quantum transport: ML-KEM-1024 {mlkem1024}, {level3}, dual-KEM {dual_kem}")
+}
+
+/// Parses the node's flags from `arguments`, which excludes the program name.
+///
+/// Split from [`parse_args`] so a test can feed it a flag list directly.
+fn parse_args_from(arguments: impl Iterator<Item = String>) -> Result<Args, Box<dyn Error>> {
     let mut args = Args::default();
-    let mut argv = std::env::args().skip(1);
+    let mut argv = arguments;
 
     while let Some(flag) = argv.next() {
         let mut value = || {
@@ -333,6 +362,7 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
                 std::process::exit(0);
             }
             "--dual-kem" => args.dual_kem = value()?.parse()?,
+            "--mlkem1024" => args.mlkem1024 = value()?.parse()?,
             // Embedded mining is a proof-of-work devnet tool; a production
             // build does not accept the flag at all (ADR-016).
             "--mine" if cfg!(feature = "production") => {
@@ -807,15 +837,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // --- P2P ---
     let identity = load_or_create_identity(&args.data_dir)?;
-    let mut p2p =
-        Node::new_tcp_with_identity_and_dual_kem(Arc::clone(&state), identity, args.dual_kem)?;
+    let pq = PqUpgrade::with_policy(args.dual_kem).with_mlkem1024(args.mlkem1024);
+    let mut p2p = Node::new_tcp_with_identity_and_pq(Arc::clone(&state), identity, pq)?;
     // Logged unconditionally, including the default. An operator debugging a
     // connection failure between two nodes needs to know which side offered
     // what, and "the line is absent" is a worse answer than "off".
-    println!(
-        "post-quantum transport: ML-KEM-768, dual-KEM {}",
-        args.dual_kem
-    );
+    println!("{}", pq_offer_line(args.mlkem1024, args.dual_kem));
     let listen: Multiaddr = format!("/ip4/0.0.0.0/tcp/{}", args.p2p_port).parse()?;
     p2p.listen_on(listen)?;
     for ws in &args.ws_listen {
@@ -1065,5 +1092,69 @@ mod tests {
     #[test]
     fn a_testnet_runs_the_pool_without_an_audit() {
         assert!(check_shielded_guard("maya-testnet-1", SHIELDED_ACTIVATION_HEIGHT, false).is_ok());
+    }
+
+    /// The offer list a set of flags produces, as the wire sees it.
+    fn offers_for(flags: &[&str]) -> Vec<String> {
+        use custom_l1_node::network::pq::PqUpgrade;
+        use libp2p::core::UpgradeInfo as _;
+
+        let args = super::parse_args_from(flags.iter().map(|flag| flag.to_string()))
+            .expect("flags parse");
+        PqUpgrade::with_policy(args.dual_kem)
+            .with_mlkem1024(args.mlkem1024)
+            .protocol_info()
+            .map(|protocol| protocol.as_ref().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn the_mlkem1024_flag_reaches_the_offer_list() {
+        use custom_l1_node::network::pq::{PROTOCOL, PROTOCOL_1024};
+
+        assert_eq!(
+            offers_for(&[]),
+            vec![PROTOCOL_1024.to_string(), PROTOCOL.to_string()],
+            "the default must prefer level 5 and keep the fallback"
+        );
+        assert_eq!(
+            offers_for(&["--mlkem1024", "off"]),
+            vec![PROTOCOL.to_string()]
+        );
+        assert_eq!(
+            offers_for(&["--mlkem1024", "required"]),
+            vec![PROTOCOL_1024.to_string()]
+        );
+    }
+
+    #[test]
+    fn the_startup_line_states_the_real_offer() {
+        use super::pq_offer_line;
+        use custom_l1_node::network::pq::MlKem1024Policy::{Off, Preferred, Required};
+        use custom_l1_node::network::pq::dual::DualKemPolicy;
+
+        assert_eq!(
+            pq_offer_line(Preferred, DualKemPolicy::Disabled),
+            "post-quantum transport: ML-KEM-1024 preferred, ML-KEM-768 accepted, dual-KEM off"
+        );
+        assert_eq!(
+            pq_offer_line(Off, DualKemPolicy::Disabled),
+            "post-quantum transport: ML-KEM-1024 off, ML-KEM-768 accepted, dual-KEM off"
+        );
+        assert_eq!(
+            pq_offer_line(Required, DualKemPolicy::Disabled),
+            "post-quantum transport: ML-KEM-1024 required, ML-KEM-768 refused, dual-KEM off"
+        );
+        // Dual-KEM Required suppresses both ML-KEM names, so the line must say
+        // 768 is refused even though the 1024 policy alone would accept it.
+        assert!(pq_offer_line(Preferred, DualKemPolicy::Required).contains("ML-KEM-768 refused"));
+    }
+
+    #[test]
+    fn an_unknown_mlkem1024_mode_is_refused_at_startup() {
+        let refused = super::parse_args_from(
+            ["--mlkem1024", "strict"].into_iter().map(String::from),
+        );
+        assert!(refused.is_err());
     }
 }
