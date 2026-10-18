@@ -14,7 +14,17 @@ state=/var/lib/maya2c; conf=/etc/maya2c; bin=/usr/local/bin
 here=$(cd "$(dirname "$0")" && pwd)
 sandbox() { "$here/setup-node.sh" sandbox 1 "$bucket" "$1"; }
 
-fetch() { aws s3 cp --only-show-errors "s3://$bucket/$1" "$2"; }
+# <bucket> is an S3 bucket on AWS, or a local directory (any other cloud:
+# copy the same release/ and secret/ layout there with scp first).
+if [[ $bucket == /* ]]; then
+    fetch() { cp "$bucket/$1" "$2"; }
+    put() { install -D -m 0644 "$1" "$bucket/$2"; }
+    drop() { shred -u "$bucket/$1"; }
+else
+    fetch() { aws s3 cp --only-show-errors "s3://$bucket/$1" "$2"; }
+    put() { aws s3 cp --only-show-errors "$1" "s3://$bucket/$2"; }
+    drop() { aws s3 rm --only-show-errors "s3://$bucket/$1"; }
+fi
 
 install_binaries() {
     local tmp; tmp=$(mktemp -d)
@@ -29,7 +39,7 @@ install_binaries() {
     if fetch secret/relay.tar.gz "$tmp/relay.tgz" 2>/dev/null; then
         tar -xzf "$tmp/relay.tgz" -C "$state/relay"
         chown -R maya:maya "$state/relay"
-        aws s3 rm --only-show-errors "s3://$bucket/secret/relay.tar.gz"
+        drop secret/relay.tar.gz
     fi
     rm -rf "$tmp"
 }
@@ -80,10 +90,16 @@ services() {
 }
 
 tunnel() {
-    dnf install -y -q "https://github.com/cloudflare/cloudflared/releases/download/$cf_version/cloudflared-linux-aarch64.rpm"
+    local url="https://github.com/cloudflare/cloudflared/releases/download/$cf_version"
+    if command -v dnf >/dev/null; then
+        dnf install -y -q jq "$url/cloudflared-linux-aarch64.rpm"
+    else
+        curl -fsSL -o /tmp/cloudflared.deb "$url/cloudflared-linux-arm64.deb"
+        apt-get install -y -qq jq /tmp/cloudflared.deb && rm /tmp/cloudflared.deb
+    fi
     if [ ! -f "$conf/tunnel.json" ]; then
         (umask 077; fetch secret/tunnel.json "$conf/tunnel.json")
-        aws s3 rm --only-show-errors "s3://$bucket/secret/tunnel.json"
+        drop secret/tunnel.json
     fi
     local id; id=$(jq -r .TunnelID "$conf/tunnel.json")
     cat > "$conf/cloudflared.yml" <<EOF
