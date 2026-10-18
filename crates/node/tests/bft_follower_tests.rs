@@ -14,11 +14,11 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use custom_l1_node::consensus::bft::attest::Checkpoint;
-use custom_l1_node::consensus::bft::catchup::{self, CheckpointSource};
+use custom_l1_node::consensus::bft::certsync::{self, CertSource, PAGE_BYTES};
+use custom_l1_node::consensus::bft::store::{CertPage, read_certificate_page};
+use custom_l1_node::consensus::bft::wire::{decode_certificate, encode_certificate};
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
 use custom_l1_node::consensus::chain::{Chain, ChainConfig};
-use custom_l1_node::core::block::Block;
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
 use custom_l1_node::crypto::keys::{self, SigningKey, VerifyingKey};
 use custom_l1_node::genesis::{Allocation, BftGenesis, GenesisBond, GenesisConfig, StakingGenesis};
@@ -94,36 +94,11 @@ struct Mesh {
     root: TempDir,
     // Kept so the directory outlives every chain in `members`.
     config: GenesisConfig,
-    committee: Arc<[VerifyingKey]>,
     setups: Vec<BftSetup>,
     members: Vec<Member>,
     queue: VecDeque<(usize, Vec<u8>)>,
     now: u64,
     equivocations: usize,
-}
-
-/// A peer as a catch-up source: what the binary's `CheckpointBook` serves
-/// (the newest checkpoint of the current epoch and of the one just ended),
-/// and its own blocks.
-struct Peer<'a> {
-    chain: &'a Chain,
-    checkpoints: Vec<Checkpoint>,
-}
-
-impl CheckpointSource for Peer<'_> {
-    fn checkpoint(&self) -> custom_l1_node::error::Result<Option<Checkpoint>> {
-        Ok(self.checkpoints.iter().max_by_key(|c| c.epoch).cloned())
-    }
-
-    fn checkpoint_of(&self, epoch: u64) -> custom_l1_node::error::Result<Option<Checkpoint>> {
-        Ok(self.checkpoints.iter().find(|c| c.epoch == epoch).cloned())
-    }
-
-    fn block(&self, height: u64) -> custom_l1_node::error::Result<Block> {
-        let state = self.chain.state();
-        let id = state.canonical_id(height)?.expect("peer holds the height");
-        Ok(state.load_block(&id)?.expect("peer holds the body"))
-    }
 }
 
 fn open_chain(config: &GenesisConfig, state_dir: &PathBuf) -> Chain {
@@ -185,7 +160,6 @@ impl Mesh {
         let mut mesh = Self {
             root,
             config,
-            committee,
             setups,
             members,
             queue: VecDeque::new(),
@@ -234,64 +208,43 @@ impl Mesh {
         }
     }
 
-    /// What the binary's follow loop does once a second: each follower imports
-    /// up to the newest checkpoint member `from` serves.
-    fn follow(&mut self, from: usize) {
-        for i in 0..self.members.len() {
-            if i == from
-                || !self.members[i]
-                    .driver
-                    .as_ref()
-                    .is_some_and(BftDriver::is_follower)
-            {
-                continue;
-            }
-            self.catch_up(i, from);
+    /// Reopens member `i`'s chain from its disk, releasing the old handle
+    /// first, as a restart would.
+    fn reopen_chain(&mut self, i: usize) {
+        let scratch = self.root.path().join(format!("scratch-{i}"));
+        self.members[i].chain = open_chain(&self.config, &scratch);
+        let state_dir = self.members[i].state_dir.clone();
+        self.members[i].chain = open_chain(&self.config, &state_dir);
+    }
+
+    /// Member `from`'s certificate log, as a catch-up source.
+    fn peer_log(&self, from: usize) -> PeerLog {
+        PeerLog {
+            dir: self.members[from].bft_dir.clone(),
+            epoch: self.members[from].driver.as_ref().unwrap().epoch(),
         }
     }
 
-    /// As the binary's catch-up: one epoch per round, each checked against the
-    /// committee the node's own state names, until nothing more is imported.
-    fn catch_up(&mut self, lagging: usize, from: usize) -> u64 {
-        let mut imported = 0;
-        loop {
-            let (committee, weights) = BftDriver::staked_committee(&self.members[lagging].chain)
-                .expect("committee in state")
-                .unwrap_or_else(|| (Arc::clone(&self.committee), None));
-            let n = self.catch_up_once(lagging, from, &committee, weights.as_deref());
-            imported += n;
-            if n == 0 {
-                return imported;
-            }
-        }
+    /// Restarts member `i` the way an operator does with `--catch-up-from`:
+    /// certificate replay from member `from` (ADR-052), then the engine. No
+    /// checkpoint and no follower mode.
+    fn restart_from_certificates(&mut self, i: usize, from: usize) {
+        self.reopen_chain(i);
+        let source = self.peer_log(from);
+        let setup = &self.setups[i];
+        let m = &mut self.members[i];
+        let synced = certsync::sync(&mut m.chain, &source, setup, &m.bft_dir, self.now).unwrap();
+        m.driver = Some(synced.driver);
+        self.absorb(i, synced.step);
     }
 
-    fn catch_up_once(
-        &mut self,
-        lagging: usize,
-        from: usize,
-        committee: &[VerifyingKey],
-        weights: Option<&[u64]>,
-    ) -> u64 {
-        let (a, b) = self.members.split_at_mut(from.max(lagging));
-        let (peer, lag) = if from < lagging {
-            (&a[from], &mut b[0])
-        } else {
-            (&b[0], &mut a[lagging])
-        };
-        let checkpoints = peer.driver.as_ref().map_or_else(Vec::new, |d| {
-            [d.closing_checkpoint(), d.checkpoint()]
-                .into_iter()
-                .flatten()
-                .cloned()
-                .collect()
-        });
-        let peer = Peer {
-            chain: &peer.chain,
-            checkpoints,
-        };
-        catchup::catch_up(&mut lag.chain, &peer, committee, weights)
-            .expect("catch-up from a peer's checkpoint")
+    /// Runs `ticks` rounds of the clock without the usual stop condition.
+    fn run_ticks(&mut self, ticks: u32) {
+        for _ in 0..ticks {
+            self.now += 250;
+            self.tick();
+            self.pump(3_000);
+        }
     }
 
     /// Runs until `done`, letting followers catch up from member 0 each step.
@@ -303,29 +256,11 @@ impl Mesh {
             self.now += 250;
             self.tick();
             self.pump(3_000);
-            self.follow(0);
         }
     }
 
     fn hold_out(&mut self, i: usize) {
         self.members[i].driver = None;
-    }
-
-    /// Reopens member `i` from disk and restarts it the way the incident did:
-    /// catch up from `from`, then follow attested blocks.
-    fn restart_following(&mut self, i: usize, from: usize) {
-        // Release the old chain's database lock first, as a restart would.
-        let scratch = self.root.path().join(format!("scratch-{i}"));
-        self.members[i].chain = open_chain(&self.config, &scratch);
-        let state_dir = self.members[i].state_dir.clone();
-        self.members[i].chain = open_chain(&self.config, &state_dir);
-        self.catch_up(i, from);
-        let m = &mut self.members[i];
-        let (mut driver, step) =
-            BftDriver::open(&self.setups[i], &m.bft_dir, &mut m.chain, self.now).unwrap();
-        driver.follow_attested(&m.chain);
-        m.driver = Some(driver);
-        self.absorb(i, step);
     }
 
     fn height(&self, i: usize) -> u64 {
@@ -359,12 +294,12 @@ fn two_validators_restarted_into_follower_mode_keep_pace_across_an_epoch_boundar
     // Member 2 is down while the chain advances, then restarts as a follower.
     mesh.hold_out(2);
     mesh.run_until(|m| m.height(0) >= 9);
-    mesh.restart_following(2, 0);
+    mesh.restart_from_certificates(2, 0);
 
     // Member 3 does the same while 2 follows: two followers, two builders.
     mesh.hold_out(3);
     mesh.run_until(|m| m.height(0) >= 15);
-    mesh.restart_following(3, 0);
+    mesh.restart_from_certificates(3, 0);
 
     let before: Vec<u64> = (0..VALIDATORS).map(|i| mesh.height(i)).collect();
     let target = mesh.height(0) + 12;
@@ -390,4 +325,134 @@ fn two_validators_restarted_into_follower_mode_keep_pace_across_an_epoch_boundar
     }
     mesh.agree();
     assert_eq!(mesh.equivocations, 0);
+}
+
+/// Member `i`'s own certificates, counted from its log.
+fn logged(mesh: &Mesh, i: usize, epoch: u64) -> usize {
+    let mut count = 0;
+    custom_l1_node::consensus::bft::store::for_each_certificate(
+        &mesh.members[i].bft_dir,
+        epoch,
+        |_| {
+            count += 1;
+            Ok(())
+        },
+    )
+    .unwrap();
+    count
+}
+
+#[test]
+fn forged_or_insufficient_evidence_is_refused_and_nothing_is_logged() {
+    let mut mesh = Mesh::new();
+    mesh.run_until(|m| m.height(0) >= 6);
+    mesh.hold_out(2);
+    mesh.run_until(|m| m.height(0) >= 9);
+    for forgery in [Forgery::BadSignature, Forgery::FewVotes] {
+        mesh.reopen_chain(2);
+        let before = logged(&mesh, 2, 1);
+        let source = Forging {
+            honest: mesh.peer_log(0),
+            forgery,
+        };
+        let m = &mut mesh.members[2];
+        let setup = &mesh.setups[2];
+        let refused = certsync::sync(&mut m.chain, &source, setup, &m.bft_dir, mesh.now)
+            .err()
+            .expect("forged evidence must be refused");
+        assert!(
+            refused.to_string().contains("refused"),
+            "{forgery:?}: {refused}"
+        );
+        assert_eq!(logged(&mesh, 2, 1), before, "{forgery:?} reached the log");
+    }
+}
+
+#[test]
+fn one_follower_plus_a_crashed_validator_halts_then_recovers_when_the_crashed_one_returns() {
+    let mut mesh = Mesh::new();
+    mesh.run_until(|m| m.height(0) >= 4);
+    // Member 3 has crashed and member 2 is catching up: two of four voting.
+    mesh.hold_out(3);
+    mesh.hold_out(2);
+    mesh.run_ticks(20);
+    let halted = mesh.height(0);
+    mesh.run_ticks(60);
+    assert_eq!(mesh.height(0), halted, "two of four must not advance the chain");
+
+    // The crashed validator returns: three voting, the quorum is back.
+    mesh.restart_from_certificates(3, 0);
+    mesh.run_until(|m| m.height(0) >= halted + 3);
+    assert!(mesh.height(0) >= halted + 3, "the quorum did not restore progress");
+
+    // The follower catches up by replay and rejoins.
+    mesh.restart_from_certificates(2, 0);
+    let target = mesh.height(0) + 6;
+    mesh.run_until(|m| m.height(0) >= target);
+    for i in 0..VALIDATORS {
+        assert!(mesh.height(i) + 3 >= target, "member {i} at {}", mesh.height(i));
+    }
+    mesh.agree();
+    assert_eq!(mesh.equivocations, 0);
+}
+
+/// A peer's certificate log as a catch-up source, in process.
+struct PeerLog {
+    dir: PathBuf,
+    epoch: u64,
+}
+
+impl CertSource for PeerLog {
+    fn current_epoch(&self) -> custom_l1_node::error::Result<u64> {
+        Ok(self.epoch)
+    }
+
+    fn page(
+        &self,
+        epoch: u64,
+        offset: u64,
+        max_records: usize,
+    ) -> custom_l1_node::error::Result<CertPage> {
+        read_certificate_page(&self.dir, epoch, offset, max_records, PAGE_BYTES)
+    }
+}
+
+/// How a peer lies about the first certificate it serves.
+#[derive(Clone, Copy, Debug)]
+enum Forgery {
+    BadSignature,
+    FewVotes,
+}
+
+/// A peer that forges the first certificate of each page.
+struct Forging {
+    honest: PeerLog,
+    forgery: Forgery,
+}
+
+impl CertSource for Forging {
+    fn current_epoch(&self) -> custom_l1_node::error::Result<u64> {
+        self.honest.current_epoch()
+    }
+
+    fn page(
+        &self,
+        epoch: u64,
+        offset: u64,
+        max_records: usize,
+    ) -> custom_l1_node::error::Result<CertPage> {
+        let mut page = self.honest.page(epoch, offset, max_records)?;
+        if let Some(first) = page.records.first_mut() {
+            let mut c = decode_certificate(first)?;
+            match self.forgery {
+                Forgery::BadSignature => c.signatures[0][0] ^= 0xff,
+                Forgery::FewVotes => {
+                    c.votes.pop();
+                    c.signatures.pop();
+                }
+            }
+            *first = encode_certificate(&c);
+        }
+        Ok(page)
+    }
 }

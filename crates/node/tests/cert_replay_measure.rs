@@ -1,27 +1,33 @@
-//! Measurement for ADR-052: what replaying one epoch of certificates costs.
+//! Measurement for ADR-052: what a node pays to catch up by certificate replay.
 //!
 //! Ignored by default. Run with
-//! `CERT_N=4 CERT_BLOCKS=3600 cargo test -p custom-l1-node --test cert_replay_measure -- --ignored --nocapture`.
+//! `CERT_N=4 CERT_BLOCKS=3600 cargo test -p custom-l1-node --test cert_replay_measure -- --ignored --nocapture`
+//! (add `--release` for the release numbers).
 //!
-//! It runs an in-process committee to `CERT_BLOCKS`, keeps every certificate
-//! that crossed the wire, then times two things on a fresh observer:
-//! verifying the `n - f` signatures of every certificate, and replaying the
-//! certificates through the engine to re-derive the blocks.
+//! It runs an in-process committee to `CERT_BLOCKS`, then a fresh observer
+//! catches up from member 0's logs through the same `certsync::sync` a
+//! restarted node uses: paged fetch, verification of every page, and replay.
+//! It also times a verification-only pass over the same pages, and samples
+//! the process working set during the catch-up to bound its memory growth.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
+use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
-use custom_l1_node::consensus::bft::auth::MlDsaAuthenticator;
+use custom_l1_node::consensus::bft::certsync::{self, CertSource, PAGE_BYTES, PAGE_CERTS};
+use custom_l1_node::consensus::bft::store::{CertPage, read_certificate_page};
+use custom_l1_node::consensus::bft::wire::decode_certificate;
 use custom_l1_node::consensus::bft::{BROADCAST, BftDriver, BftSetup, Envelope, Step};
 use custom_l1_node::consensus::chain::{Chain, ChainConfig};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
 use custom_l1_node::crypto::keys::{self, SigningKey, VerifyingKey};
 use custom_l1_node::genesis::{Allocation, BftGenesis, GenesisBond, GenesisConfig, StakingGenesis};
 use custom_l1_node::state::db::StateDB;
-use maya_dag_bft::{Authenticator, Certificate, Message, Params};
+use maya_dag_bft::{Authenticator, Params};
 use tempfile::TempDir;
 
 mod common;
@@ -97,18 +103,37 @@ fn open_chain(config: &GenesisConfig, dir: &std::path::Path) -> Chain {
     .unwrap()
 }
 
+/// A peer's certificate log as a catch-up source, in process.
+struct PeerLog {
+    dir: PathBuf,
+    epoch: u64,
+}
+
+impl CertSource for PeerLog {
+    fn current_epoch(&self) -> custom_l1_node::error::Result<u64> {
+        Ok(self.epoch)
+    }
+
+    fn page(
+        &self,
+        epoch: u64,
+        offset: u64,
+        max_records: usize,
+    ) -> custom_l1_node::error::Result<CertPage> {
+        read_certificate_page(&self.dir, epoch, offset, max_records, PAGE_BYTES)
+    }
+}
+
 struct Member {
     driver: BftDriver,
     chain: Chain,
 }
 
-/// Runs the committee and keeps each distinct certificate it sees.
+/// The committee, run to a height, with every member's logs on disk.
 struct Run {
-    _root: TempDir,
+    root: TempDir,
     members: Vec<Member>,
     queue: VecDeque<(usize, Vec<u8>)>,
-    certs: Vec<Certificate>,
-    seen: HashSet<(u64, u16)>,
     now: u64,
 }
 
@@ -149,11 +174,9 @@ impl Run {
             members.push(Member { driver, chain });
         }
         let mut run = Self {
-            _root: root,
+            root,
             members,
             queue: VecDeque::new(),
-            certs: Vec::new(),
-            seen: HashSet::new(),
             now: 0,
         };
         for (i, step) in opening {
@@ -167,23 +190,11 @@ impl Run {
             .extend(step.frames.into_iter().map(|f| (from, f)));
     }
 
-    fn capture(&mut self, frame: &[u8]) {
-        let Ok(envelope) = Envelope::decode(frame) else {
-            return;
-        };
-        if let Message::Cert(c) = envelope.message
-            && self.seen.insert((c.vertex.round, c.vertex.author))
-        {
-            self.certs.push(c);
-        }
-    }
-
     fn pump(&mut self, budget: usize) {
         for _ in 0..budget {
             let Some((from, frame)) = self.queue.pop_front() else {
                 return;
             };
-            self.capture(&frame);
             for i in 0..self.members.len() {
                 if i == from {
                     continue;
@@ -215,13 +226,121 @@ impl Run {
     }
 }
 
+/// Process working-set size in bytes, from the OS (Windows `psapi`).
+#[cfg(windows)]
+mod working_set {
+    #[repr(C)]
+    struct Counters {
+        cb: u32,
+        page_fault_count: u32,
+        peak_working_set_size: usize,
+        working_set_size: usize,
+        quota_peak_paged_pool_usage: usize,
+        quota_paged_pool_usage: usize,
+        quota_peak_non_paged_pool_usage: usize,
+        quota_non_paged_pool_usage: usize,
+        pagefile_usage: usize,
+        peak_pagefile_usage: usize,
+    }
+
+    #[link(name = "psapi")]
+    unsafe extern "system" {
+        fn GetProcessMemoryInfo(process: isize, counters: *mut Counters, cb: u32) -> i32;
+    }
+
+    /// The current process's working set, or 0 if the OS refuses.
+    pub fn now() -> usize {
+        let mut counters = Counters {
+            cb: u32::try_from(std::mem::size_of::<Counters>()).unwrap(),
+            page_fault_count: 0,
+            peak_working_set_size: 0,
+            working_set_size: 0,
+            quota_peak_paged_pool_usage: 0,
+            quota_paged_pool_usage: 0,
+            quota_peak_non_paged_pool_usage: 0,
+            quota_non_paged_pool_usage: 0,
+            pagefile_usage: 0,
+            peak_pagefile_usage: 0,
+        };
+        // SAFETY: `counters` is a live, correctly sized PROCESS_MEMORY_COUNTERS
+        // for this call; -1 is the documented pseudo-handle of the current
+        // process, which needs no CloseHandle.
+        let ok = unsafe { GetProcessMemoryInfo(-1, &raw mut counters, counters.cb) };
+        if ok == 0 {
+            return 0;
+        }
+        counters.working_set_size
+    }
+}
+
+#[cfg(not(windows))]
+mod working_set {
+    pub fn now() -> usize {
+        0
+    }
+}
+
+/// Samples the working set on a thread until stopped, keeping the peak.
+struct Sampler {
+    stop: Arc<AtomicBool>,
+    peak: Arc<AtomicUsize>,
+    handle: std::thread::JoinHandle<()>,
+}
+
+impl Sampler {
+    fn start() -> Self {
+        let stop = Arc::new(AtomicBool::new(false));
+        let peak = Arc::new(AtomicUsize::new(working_set::now()));
+        let (s, p) = (Arc::clone(&stop), Arc::clone(&peak));
+        let handle = std::thread::spawn(move || {
+            while !s.load(Ordering::Relaxed) {
+                p.fetch_max(working_set::now(), Ordering::Relaxed);
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        });
+        Self { stop, peak, handle }
+    }
+
+    /// The highest working set seen, in bytes.
+    fn finish(self) -> usize {
+        self.stop.store(true, Ordering::Relaxed);
+        self.handle.join().unwrap();
+        self.peak.load(Ordering::Relaxed)
+    }
+}
+
+/// Every certificate of every epoch `0..=head` in `dir`, verified against
+/// `keys`, with nothing else done: the verification cost on its own.
+fn verify_only(dir: &std::path::Path, head: u64, keys: &Arc<[VerifyingKey]>) -> (usize, usize) {
+    let auth = custom_l1_node::consensus::bft::auth::MlDsaAuthenticator::observer(Arc::clone(keys));
+    let (mut certs, mut sigs) = (0_usize, 0_usize);
+    for epoch in 0..=head {
+        let mut offset = 0_u64;
+        loop {
+            let page = read_certificate_page(dir, epoch, offset, PAGE_CERTS, PAGE_BYTES).unwrap();
+            for record in &page.records {
+                let c = decode_certificate(record).unwrap();
+                let digest = c.digest();
+                for (voter, sig) in c.votes.iter().zip(&c.signatures) {
+                    assert!(auth.verify(*voter, &digest, sig));
+                    sigs += 1;
+                }
+                certs += 1;
+            }
+            offset = page.next;
+            if page.done {
+                break;
+            }
+        }
+    }
+    (certs, sigs)
+}
+
 #[test]
 #[ignore = "measurement for ADR-052; run with --ignored"]
-fn replaying_an_epoch_of_certificates_costs_this_much() {
+fn catching_up_by_replay_costs_this_much() {
     let n = env_usize("CERT_N", 4);
     let blocks = u64::try_from(env_usize("CERT_BLOCKS", 3600)).unwrap();
-    let f = (n - 1) / 3;
-    let quorum = n - f;
     let config = genesis_config(n);
     let committee: Arc<[VerifyingKey]> = config
         .bft
@@ -234,35 +353,29 @@ fn replaying_an_epoch_of_certificates_costs_this_much() {
     let t = Instant::now();
     let mut run = Run::new(n, &config);
     run.run_to(blocks);
+    let head = run.members[0].driver.epoch();
     println!(
-        "RUN n={n} blocks={} certs={} run_secs={:.1}",
+        "RUN n={n} blocks={} epoch={head} run_secs={:.1}",
         run.members[0].chain.height(),
-        run.certs.len(),
         t.elapsed().as_secs_f64()
     );
-    let mut certs = run.certs.clone();
-    certs.sort_by_key(|c| (c.vertex.round, c.vertex.author));
+    // Keep member 0 as the peer and as the reference for agreement; drop the
+    // rest so the baseline below is not theirs.
+    let peer_dir = run.root.path().join("bft-0");
+    let reference = run.members.swap_remove(0);
+    run.members.clear();
+    let want = reference.chain.height();
 
-    // 1. Verify every certificate's signatures, as a follower must.
-    let auth = MlDsaAuthenticator::observer(Arc::clone(&committee));
+    let (certs, sigs) = verify_only(&peer_dir, head, &committee);
     let t = Instant::now();
-    let mut valid_sigs = 0_usize;
-    for c in &certs {
-        let digest = c.digest();
-        assert!(c.votes.len() >= quorum, "insufficient votes in round {}", c.vertex.round);
-        for (voter, sig) in c.votes.iter().zip(&c.signatures) {
-            assert!(auth.verify(*voter, &digest, sig), "bad signature");
-            valid_sigs += 1;
-        }
-    }
+    let _ = verify_only(&peer_dir, head, &committee);
     println!(
-        "VERIFY n={n} certs={} sigs={valid_sigs} verify_secs={:.2}",
-        certs.len(),
+        "VERIFY n={n} certs={certs} sigs={sigs} verify_secs={:.2}",
         t.elapsed().as_secs_f64()
     );
 
-    // 2. Replay them into a fresh observer and time the re-derivation.
     let fresh = TempDir::new().unwrap();
+    let mut chain = open_chain(&config, &fresh.path().join("state"));
     let setup = BftSetup {
         epoch: 0,
         committee: Arc::clone(&committee),
@@ -273,30 +386,43 @@ fn replaying_an_epoch_of_certificates_costs_this_much() {
             ..Params::default()
         },
     };
-    let mut chain = open_chain(&config, &fresh.path().join("state"));
-    let (mut observer, _) = BftDriver::open(&setup, &fresh.path().join("bft"), &mut chain, 0).unwrap();
+    let source = PeerLog {
+        dir: peer_dir,
+        epoch: head,
+    };
+    let base = working_set::now();
+    let sampler = Sampler::start();
     let t = Instant::now();
-    let mut now = 0_u64;
-    for c in certs {
-        let envelope = Envelope {
-            epoch: 0,
-            from: c.vertex.author,
-            to: BROADCAST,
-            message: Message::Cert(c),
-        };
-        observer.on_frame(&mut chain, now, &envelope.encode()).unwrap();
-        now += 1;
-    }
-    observer.on_tick(&mut chain, now).unwrap();
-    let replay_secs = t.elapsed().as_secs_f64();
-    let want = run.members[0].chain.height();
+    let synced = certsync::sync(
+        &mut chain,
+        &source,
+        &setup,
+        &fresh.path().join("bft"),
+        1_000_000,
+    )
+    .unwrap();
+    let catch_up_secs = t.elapsed().as_secs_f64();
+    let peak = sampler.finish();
     println!(
-        "REPLAY n={n} height={} of {want} replay_secs={replay_secs:.2}",
-        chain.height()
+        "CATCHUP n={n} height={} of {want} epochs_crossed={} catch_up_secs={catch_up_secs:.2}",
+        chain.height(),
+        synced.crossed
     );
-    let mine = chain.active_chain().unwrap();
-    let theirs = run.members[0].chain.active_chain().unwrap();
+    println!(
+        "MEMORY n={n} working_set_before_mb={:.1} peak_mb={:.1} growth_mb={:.1}",
+        mb(base),
+        mb(peak),
+        mb(peak.saturating_sub(base))
+    );
     let shared = usize::try_from(chain.height().min(want)).unwrap();
-    assert_eq!(mine[..=shared], theirs[..=shared], "replayed blocks differ");
+    let mine = chain.active_chain().unwrap();
+    let theirs = reference.chain.active_chain().unwrap();
+    assert_eq!(mine[..=shared], theirs[..=shared], "caught-up blocks differ");
     println!("AGREE n={n} shared_blocks={shared}");
+}
+
+fn mb(bytes: usize) -> f64 {
+    #[allow(clippy::cast_precision_loss)]
+    let mb = bytes as f64 / (1024.0 * 1024.0);
+    mb
 }
