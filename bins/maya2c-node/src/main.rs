@@ -834,6 +834,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .refusing_blocks()
             .with_checkpoints(Arc::clone(&checkpoint_slot))
             .with_bft_status(Arc::clone(&status_slot))
+            .with_bft_dir(args.data_dir.join(bft::BFT_DIR))
     } else {
         rpc_context
     };
@@ -951,8 +952,29 @@ async fn main() -> Result<(), Box<dyn Error>> {
             (None, None) => None,
         };
         let setup = bft::setup(committee, signer)?;
-        let (mut driver, opening) = bft::open(&setup, &args.data_dir, &chain)?;
-        if let Some(first) = args.catch_up_from.first() {
+        // Certificate replay first (ADR-052): a node that comes back from a
+        // replay is a full engine, so it takes no follower path below.
+        let replayed = if args.catch_up_from.is_empty() {
+            None
+        } else {
+            match bft::sync_certificates(&args.catch_up_from, &chain, &setup, &args.data_dir).await
+            {
+                Ok((url, driver, opening)) => {
+                    println!("catch-up:    replayed certificates from {url}; inside the engine's window");
+                    Some((driver, opening))
+                }
+                Err(e) => {
+                    eprintln!("catch-up:    certificate replay failed: {e}; falling back to checkpoints");
+                    None
+                }
+            }
+        };
+        let synced = replayed.is_some();
+        let (mut driver, opening) = match replayed {
+            Some(engine) => engine,
+            None => bft::open(&setup, &args.data_dir, &chain)?,
+        };
+        if let Some(first) = args.catch_up_from.first().filter(|_| !synced) {
             let url = bft::catch_up_from_any(&args.catch_up_from, &chain, &mut driver)
                 .await?
                 .unwrap_or_else(|| {

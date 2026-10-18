@@ -18,7 +18,7 @@
 //! fsync.
 
 use std::fs::{File, OpenOptions};
-use std::io::{BufWriter, Read, Write};
+use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use maya_dag_bft::Certificate;
@@ -42,8 +42,22 @@ pub struct SafetyStore {
 pub struct Recovered {
     /// Own proposals and votes, oldest first, as the frames that carried them.
     pub safety: Vec<Envelope>,
-    /// Certificates seen, oldest first.
-    pub certificates: Vec<Certificate>,
+}
+
+/// Largest record a log or a peer may carry. A certificate is a vertex with
+/// its batch and a few signatures, far below this. Larger is corruption, and
+/// refusing it keeps one bad length from allocating the world.
+pub const MAX_RECORD_BYTES: usize = 16 * 1024 * 1024;
+
+/// One page of raw certificate records from a certificate log (ADR-052).
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct CertPage {
+    /// Records as stored: each decodes with `decode_certificate`.
+    pub records: Vec<Vec<u8>>,
+    /// Byte offset of the first record not in this page.
+    pub next: u64,
+    /// No record follows `next`.
+    pub done: bool,
 }
 
 fn io_err(what: &str, path: &Path, e: &std::io::Error) -> NodeError {
@@ -81,6 +95,109 @@ fn read_records(path: &Path) -> Result<Vec<Vec<u8>>> {
         rest = after;
     }
     Ok(records)
+}
+
+/// Reads one `len:u64 frame` record from a stream. `None` at the end, or at
+/// a torn tail as [`read_records`] treats it.
+fn next_record(reader: &mut impl Read) -> Result<Option<Vec<u8>>> {
+    let mut len = [0_u8; 8];
+    if !read_full(reader, &mut len)? {
+        return Ok(None);
+    }
+    let len = usize::try_from(u64::from_le_bytes(len))
+        .ok()
+        .filter(|len| *len <= MAX_RECORD_BYTES)
+        .ok_or_else(|| NodeError::Storage("certificate record longer than allowed".into()))?;
+    let mut record = vec![0_u8; len];
+    Ok(read_full(reader, &mut record)?.then_some(record))
+}
+
+/// Fills `buf`. `false` on a clean or torn end of stream; other failures are
+/// errors.
+fn read_full(reader: &mut impl Read, buf: &mut [u8]) -> Result<bool> {
+    match reader.read_exact(buf) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => Ok(false),
+        Err(e) => Err(NodeError::Storage(format!("read certificate log: {e}"))),
+    }
+}
+
+/// The certificate log of `root/epoch-<epoch>`, from byte `offset`, in pages
+/// bounded by `max_records` and about `max_bytes` (one record may exceed
+/// `max_bytes` on its own, never [`MAX_RECORD_BYTES`]). A peer serves this to
+/// a node catching up (ADR-052); nothing is held beyond one page.
+///
+/// # Errors
+///
+/// [`NodeError::Storage`] if the log cannot be read.
+pub fn read_certificate_page(
+    root: &Path,
+    epoch: u64,
+    offset: u64,
+    max_records: usize,
+    max_bytes: usize,
+) -> Result<CertPage> {
+    let path = root.join(format!("epoch-{epoch}")).join(CERTS_LOG);
+    let mut file = match File::open(&path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(CertPage {
+                records: Vec::new(),
+                next: offset,
+                done: true,
+            });
+        }
+        Err(e) => return Err(io_err("open", &path, &e)),
+    };
+    file.seek(SeekFrom::Start(offset))
+        .map_err(|e| io_err("seek", &path, &e))?;
+    let mut reader = BufReader::new(file);
+    let mut page = CertPage {
+        records: Vec::new(),
+        next: offset,
+        done: false,
+    };
+    let mut bytes = 0_usize;
+    while page.records.len() < max_records {
+        let Some(record) = next_record(&mut reader)? else {
+            page.done = true;
+            break;
+        };
+        if !page.records.is_empty() && bytes + record.len() > max_bytes {
+            break; // not consumed: the next page starts at `next`
+        }
+        bytes += record.len();
+        page.next += 8 + u64::try_from(record.len()).unwrap_or(u64::MAX);
+        page.records.push(record);
+    }
+    Ok(page)
+}
+
+/// Visits every certificate of `root/epoch-<epoch>` oldest first, one at a
+/// time. An undecodable record is skipped: a torn or foreign one costs a
+/// re-fetch, and every certificate is re-verified before it counts.
+///
+/// # Errors
+///
+/// [`NodeError::Storage`] if the log cannot be read, or from `visit`.
+pub fn for_each_certificate(
+    root: &Path,
+    epoch: u64,
+    mut visit: impl FnMut(Certificate) -> Result<()>,
+) -> Result<()> {
+    let path = root.join(format!("epoch-{epoch}")).join(CERTS_LOG);
+    let file = match File::open(&path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(io_err("open", &path, &e)),
+    };
+    let mut reader = BufReader::new(file);
+    while let Some(record) = next_record(&mut reader)? {
+        if let Ok(c) = decode_certificate(&record) {
+            visit(c)?;
+        }
+    }
+    Ok(())
 }
 
 fn frame(record: &[u8]) -> Vec<u8> {
@@ -150,24 +267,14 @@ impl SafetyStore {
             .iter()
             .map(|r| Envelope::decode(r))
             .collect::<Result<Vec<_>>>()?;
-        // Certificates are re-verified on replay, and a torn or foreign one
-        // costs only a re-fetch, so an undecodable record is skipped.
-        let certificates = read_records(&certs_path)?
-            .iter()
-            .filter_map(|r| decode_certificate(r).ok())
-            .collect();
+        // Certificates are not loaded here: a restart streams them with
+        // `for_each_certificate`, so an epoch's worth never sits in memory.
         let store = Self {
             safety: open_append(&safety_path)?,
             certs: BufWriter::new(open_append(&certs_path)?),
             dir,
         };
-        Ok((
-            store,
-            Recovered {
-                safety,
-                certificates,
-            },
-        ))
+        Ok((store, Recovered { safety }))
     }
 
     /// Appends one of this validator's own proposals or votes and waits for
@@ -262,14 +369,23 @@ mod tests {
         };
         {
             let (mut store, recovered) = SafetyStore::open(&root, 0).unwrap();
-            assert!(recovered.safety.is_empty() && recovered.certificates.is_empty());
+            assert!(recovered.safety.is_empty());
             store.record_own(&vote(1)).unwrap();
             store.record_own(&vote(2)).unwrap();
             store.record_certificate(&cert).unwrap();
         }
         let (_, recovered) = SafetyStore::open(&root, 0).unwrap();
         assert_eq!(recovered.safety, vec![vote(1), vote(2)]);
-        assert_eq!(recovered.certificates, vec![cert]);
+        let mut seen = Vec::new();
+        for_each_certificate(&root, 0, |c| {
+            seen.push(c);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(seen, vec![cert.clone()]);
+        let page = read_certificate_page(&root, 0, 0, 8, usize::MAX).unwrap();
+        assert!(page.done);
+        assert_eq!(page.records, vec![encode_certificate(&cert)]);
         // Another epoch is another directory.
         let (_, other) = SafetyStore::open(&root, 1).unwrap();
         assert!(other.safety.is_empty());
