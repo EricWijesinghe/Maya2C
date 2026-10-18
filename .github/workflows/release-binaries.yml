@@ -94,6 +94,30 @@ jobs:
           path: dist/maya2c-${{ matrix.target }}.tar.gz
           if-no-files-found: error
 
+      # The public services the seed host runs (gateway, explorer, status,
+      # chat relay), for the AWS Graviton validators (infra/aws-free).
+      # workflow_dispatch only: the release job publishes every artifact, so a
+      # tag must not build this one.
+      - name: Build public services (aarch64 Linux)
+        if: matrix.target == 'aarch64-unknown-linux-gnu' && github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          cargo build --release --locked --target ${{ matrix.target }} \
+            -p maya-api-gateway -p maya-explorer -p maya-status -p maya-chat
+          name=maya2c-services-${{ matrix.target }}
+          mkdir -p "dist/$name"
+          for b in maya2c-gateway explorer maya-status maya-chat; do
+            cp "target/${{ matrix.target }}/release/$b" "dist/$name/"
+          done
+          (cd dist && tar -czf "$name.tar.gz" "$name")
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: matrix.target == 'aarch64-unknown-linux-gnu' && github.event_name == 'workflow_dispatch'
+        with:
+          name: maya2c-services-${{ matrix.target }}
+          path: dist/maya2c-services-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+
   # Maya Wallet, the desktop app: Tauri installers per OS. Unsigned: without a
   # code-signing certificate Windows SmartScreen and macOS Gatekeeper warn
   # "unknown publisher", and the release notes say so.
