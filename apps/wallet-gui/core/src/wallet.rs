@@ -338,12 +338,12 @@ pub async fn network_status(node_url: &str) -> Result<NetworkStatus> {
     })
 }
 
-/// Reads an account's balance and next nonce from a node.
+/// Reads an account's balance (256-bit base units) and next nonce from a node.
 ///
 /// # Errors
 ///
 /// Returns [`WalletError::Node`] if the node is unreachable.
-pub async fn fetch_account(node_url: &str, address: &str) -> Result<(u64, u64)> {
+pub async fn fetch_account(node_url: &str, address: &str) -> Result<(primitive_types::U256, u64)> {
     let client = HttpClientBuilder::default()
         .build(node_url)
         .map_err(|e| WalletError::Node(format!("connecting to {node_url}: {e}")))?;
@@ -353,10 +353,5 @@ pub async fn fetch_account(node_url: &str, address: &str) -> Result<(u64, u64)> 
         .await
         .map_err(|e| WalletError::Node(e.to_string()))?;
 
-    // The wallet's balance API is still u64 (ADR-046 Priority 2). A balance above
-    // u64::MAX is refused, never truncated.
-    let balance = u64::try_from(info.balance).map_err(|_| {
-        WalletError::Node("balance exceeds u64; wallet not yet widened (ADR-046)".to_string())
-    })?;
-    Ok((balance, info.nonce))
+    Ok((info.balance, info.nonce))
 }
