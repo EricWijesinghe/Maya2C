@@ -117,7 +117,7 @@ pub(super) fn generate(path: &Path, passphrase_flag: Option<&Path>) -> Result<()
     let pass = read_passphrase(passphrase_flag)?;
     if pass.is_none() && cfg!(feature = "production") {
         return Err(format!(
-            "a production build writes sealed keys only: set --validator-passphrase-file              or {PASSPHRASE_FILE_ENV}"
+            "a production build writes sealed keys only: set --validator-passphrase-file or {PASSPHRASE_FILE_ENV}"
         )
         .into());
     }
