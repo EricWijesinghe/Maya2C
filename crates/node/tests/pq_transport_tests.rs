@@ -268,26 +268,46 @@ async fn a_mlkem1024_node_falls_back_to_a_768_only_peer() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_level3_dialer_still_reaches_a_level5_node() {
-    // The other direction of the same mixed network: the old node dials.
+    // The other direction of the same mixed network: the old node dials. Both
+    // ends must record the level-3 exchange, which is what the connection used.
     let legacy = PqUpgrade::new().with_mlkem1024(MlKem1024Policy::Off);
-    let (client, _server) = dial_pair(legacy, PqUpgrade::new()).await;
+    let (client, server) = dial_pair(legacy, PqUpgrade::new()).await;
 
     assert!(
         wait_for(TIMEOUT, async || peer_count(&client.handle).await > 0).await,
         "a level-3 node could not reach a level-5 node"
     );
+    for side in [&client, &server] {
+        let stats = side.stats.clone();
+        assert!(
+            wait_for(TIMEOUT, async || stats.negotiated(PqProtocol::MlKem768) >= 1).await,
+            "a side did not record the ML-KEM-768 exchange"
+        );
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_1024_required_node_refuses_a_768_only_peer() {
     // Required offers no fallback, so the two sets share nothing. The
-    // connection must not form.
-    let required = PqUpgrade::new().with_mlkem1024(MlKem1024Policy::Required);
-    let legacy = PqUpgrade::new().with_mlkem1024(MlKem1024Policy::Off);
-    let (client, _server) = dial_pair(required, legacy).await;
+    // connection must not form. A refusal proves nothing unless the same
+    // listener accepts a dialer that can speak, so a level-5 control dials
+    // first and must connect. Then the refusal can only be the policy.
+    let server = spawn_with_pq(PqUpgrade::new().with_mlkem1024(MlKem1024Policy::Off));
+    let control = spawn_with_pq(PqUpgrade::new());
+    let _ = control.handle.dial(server.address.clone()).await;
+    assert!(
+        wait_for(TIMEOUT, async || peer_count(&control.handle).await > 0).await,
+        "positive control failed: a level-5 dialer could not reach the listener"
+    );
 
+    let required = spawn_with_pq(PqUpgrade::new().with_mlkem1024(MlKem1024Policy::Required));
+    let _ = required.handle.dial(server.address.clone()).await;
     tokio::time::sleep(REFUSAL_WINDOW).await;
-    assert_eq!(peer_count(&client.handle).await, 0, "level 5 fell back to level 3");
+
+    assert_eq!(peer_count(&required.handle).await, 0, "level 5 fell back to level 3");
+    // Only the control's session was negotiated; the refused dial left no trace.
+    assert_eq!(server.stats.negotiated(PqProtocol::MlKem768), 1);
+    assert_eq!(server.stats.negotiated(PqProtocol::MlKem1024), 0);
 }
 
 // ---------------------------------------------------------------------------
