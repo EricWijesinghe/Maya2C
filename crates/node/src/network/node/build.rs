@@ -65,7 +65,7 @@ impl Node {
             Keypair::generate_ed25519(),
             TransportKind::Memory(LatencyDial::new(Duration::ZERO)),
             ROTATION_CHECK_INTERVAL,
-            DualKemPolicy::default(),
+            PqUpgrade::new(),
             GuardConfig::DEFAULT,
         )
     }
@@ -86,7 +86,7 @@ impl Node {
             Keypair::generate_ed25519(),
             TransportKind::Memory(LatencyDial::new(latency)),
             ROTATION_CHECK_INTERVAL,
-            DualKemPolicy::default(),
+            PqUpgrade::new(),
             GuardConfig::DEFAULT,
         )
     }
@@ -111,7 +111,7 @@ impl Node {
             Keypair::generate_ed25519(),
             TransportKind::Memory(dial),
             ROTATION_CHECK_INTERVAL,
-            DualKemPolicy::default(),
+            PqUpgrade::new(),
             GuardConfig::DEFAULT,
         )
     }
@@ -135,7 +135,7 @@ impl Node {
             Keypair::generate_ed25519(),
             TransportKind::Memory(LatencyDial::new(Duration::ZERO)),
             rotation_check,
-            DualKemPolicy::default(),
+            PqUpgrade::new(),
             GuardConfig::DEFAULT,
         )
     }
@@ -151,7 +151,7 @@ impl Node {
             Keypair::generate_ed25519(),
             TransportKind::Tcp,
             ROTATION_CHECK_INTERVAL,
-            DualKemPolicy::default(),
+            PqUpgrade::new(),
             GuardConfig::DEFAULT,
         )
     }
@@ -171,7 +171,7 @@ impl Node {
             keypair,
             TransportKind::Tcp,
             ROTATION_CHECK_INTERVAL,
-            DualKemPolicy::default(),
+            PqUpgrade::new(),
             GuardConfig::DEFAULT,
         )
     }
@@ -191,12 +191,28 @@ impl Node {
         keypair: Keypair,
         dual_kem: DualKemPolicy,
     ) -> Result<Self> {
+        Self::new_tcp_with_identity_and_pq(state, keypair, PqUpgrade::with_policy(dual_kem))
+    }
+
+    /// Builds a TCP node under an explicit post-quantum upgrade.
+    ///
+    /// The production entry point: the binary builds the whole upgrade from its
+    /// flags, so `--dual-kem` and `--mlkem1024` both reach the wire.
+    ///
+    /// # Errors
+    ///
+    /// As [`Node::new_memory`].
+    pub fn new_tcp_with_identity_and_pq(
+        state: Arc<StateDB>,
+        keypair: Keypair,
+        pq: PqUpgrade,
+    ) -> Result<Self> {
         Self::build(
             state,
             keypair,
             TransportKind::Tcp,
             ROTATION_CHECK_INTERVAL,
-            dual_kem,
+            pq,
             GuardConfig::DEFAULT,
         )
     }
@@ -210,12 +226,25 @@ impl Node {
     ///
     /// As [`Node::new_memory`].
     pub fn new_memory_with_dual_kem(state: Arc<StateDB>, dual_kem: DualKemPolicy) -> Result<Self> {
+        Self::new_memory_with_pq(state, PqUpgrade::with_policy(dual_kem))
+    }
+
+    /// Builds a memory-transport node under an explicit post-quantum upgrade.
+    ///
+    /// **Test support.** Lets a test stand up a node that offers a different
+    /// set of ML-KEM parameter sets, such as a level-3-only peer that stands in
+    /// for a node built before ML-KEM-1024 existed.
+    ///
+    /// # Errors
+    ///
+    /// As [`Node::new_memory`].
+    pub fn new_memory_with_pq(state: Arc<StateDB>, pq: PqUpgrade) -> Result<Self> {
         Self::build(
             state,
             Keypair::generate_ed25519(),
             TransportKind::Memory(LatencyDial::new(Duration::ZERO)),
             ROTATION_CHECK_INTERVAL,
-            dual_kem,
+            pq,
             GuardConfig::DEFAULT,
         )
     }
@@ -234,7 +263,7 @@ impl Node {
             Keypair::generate_ed25519(),
             TransportKind::Memory(LatencyDial::new(Duration::ZERO)),
             ROTATION_CHECK_INTERVAL,
-            DualKemPolicy::default(),
+            PqUpgrade::new(),
             guard,
         )
     }
@@ -244,12 +273,13 @@ impl Node {
         keypair: Keypair,
         kind: TransportKind,
         rotation_check: Duration,
-        dual_kem: DualKemPolicy,
+        pq: PqUpgrade,
         guard: GuardConfig,
     ) -> Result<Self> {
         let mempool = Mempool::new(Arc::clone(&state));
         let epoch = EpochClock::new();
         let stats = SessionStats::new();
+        let pq = pq.with_stats(stats.clone());
 
         let builder = libp2p::SwarmBuilder::with_existing_identity(keypair).with_tokio();
 
@@ -281,10 +311,11 @@ impl Node {
                             .upgrade(upgrade::Version::V1)
                             .authenticate(noise_config)
                             // Every connection, inbound and outbound, without
-                            // exception. Negotiation failure drops the
-                            // connection rather than falling back: an optional
-                            // post-quantum layer is one an attacker strips.
-                            .apply(PqUpgrade::with_policy(dual_kem))
+                            // exception. A peer that speaks no ML-KEM set is
+                            // refused. The one fallback, ML-KEM-768 for a
+                            // level-5 node, is a documented downgrade (see
+                            // `network::pq` module docs), not a silent one.
+                            .apply(pq.clone())
                             .multiplex(yamux::Config::default()),
                     )
                 })
@@ -320,7 +351,7 @@ impl Node {
                         ws.or_transport(libp2p::dns::tokio::Transport::system(tcp())?)
                             .upgrade(upgrade::Version::V1)
                             .authenticate(noise_config)
-                            .apply(PqUpgrade::with_policy(dual_kem))
+                            .apply(pq.clone())
                             .multiplex(yamux::Config::default()),
                     )
                 })

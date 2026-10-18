@@ -21,10 +21,21 @@ impl<K> core::fmt::Debug for MlKemKey<K> {
     }
 }
 
-fn random<const N: usize>() -> Result<Zeroizing<[u8; N]>, KemSuiteError> {
-    let mut out = Zeroizing::new([0u8; N]);
-    getrandom::fill(out.as_mut()).map_err(|_| KemSuiteError::Entropy)?;
-    Ok(out)
+/// A fresh keygen seed, filled in place in the backend's array type.
+///
+/// Filled in place rather than in a `[u8; 64]` and then converted, so no
+/// unwrapped copy of the seed is ever made on the stack in this crate.
+fn random_seed() -> Result<Zeroizing<::ml_kem::Seed>, KemSuiteError> {
+    let mut seed = Zeroizing::new(::ml_kem::Seed::default());
+    getrandom::fill(seed.as_mut_slice()).map_err(|_| KemSuiteError::Entropy)?;
+    Ok(seed)
+}
+
+/// A fresh encapsulation randomness `m`, filled in place as [`random_seed`] is.
+fn random_m() -> Result<Zeroizing<::ml_kem::B32>, KemSuiteError> {
+    let mut m = Zeroizing::new(::ml_kem::B32::default());
+    getrandom::fill(m.as_mut_slice()).map_err(|_| KemSuiteError::Entropy)?;
+    Ok(m)
 }
 
 macro_rules! ml_kem_suite {
@@ -41,8 +52,9 @@ macro_rules! ml_kem_suite {
             type DecapsulationKey = MlKemKey<::ml_kem::$module::DecapsulationKey>;
 
             fn generate() -> Result<(Self::DecapsulationKey, Vec<u8>), KemSuiteError> {
-                let seed = random::<64>()?;
-                let dk = ::ml_kem::$module::DecapsulationKey::from_seed((*seed).into());
+                let seed = random_seed()?;
+                // The clone is moved into ml-kem and consumed there; `seed` itself wipes on drop.
+                let dk = ::ml_kem::$module::DecapsulationKey::from_seed((*seed).clone());
                 let ek = dk.encapsulation_key().to_bytes().to_vec();
                 Ok((MlKemKey(dk), ek))
             }
@@ -52,8 +64,9 @@ macro_rules! ml_kem_suite {
                 check_len(ek.len(), $ek, err)?;
                 let key = ::ml_kem::$module::EncapsulationKey::new(ek.try_into().map_err(|_| err)?)
                     .map_err(|_| err)?;
-                let m = random::<32>()?;
-                let (ct, ss) = key.encapsulate_deterministic(&(*m).into());
+                let m = random_m()?;
+                let (ct, ss) = key.encapsulate_deterministic(&m);
+                let ss = Zeroizing::new(ss);
                 Ok((ct.to_vec(), SharedSecret::from_slice(&ss)))
             }
 
@@ -63,7 +76,7 @@ macro_rules! ml_kem_suite {
             ) -> Result<SharedSecret, KemSuiteError> {
                 let err = KemSuiteError::Ciphertext(Self::ID);
                 check_len(ct.len(), $ct, err)?;
-                let ss = key.0.decapsulate(ct.try_into().map_err(|_| err)?);
+                let ss = Zeroizing::new(key.0.decapsulate(ct.try_into().map_err(|_| err)?));
                 Ok(SharedSecret::from_slice(&ss))
             }
         }
