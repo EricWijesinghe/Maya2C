@@ -341,8 +341,7 @@ mod tests {
     async fn an_mlkem1024_handshake_round_trips() {
         let (mut a, mut b) = duplex();
 
-        let responder =
-            tokio::spawn(async move { respond_with::<MlKem1024, _>(&mut a).await });
+        let responder = tokio::spawn(async move { respond_with::<MlKem1024, _>(&mut a).await });
         let initiator = initiate_with::<MlKem1024, _>(&mut b)
             .await
             .expect("initiate");
@@ -370,7 +369,9 @@ mod tests {
         a.write_all(&frame(&encoded)).await.expect("send key");
 
         let mut message = vec![0u8; INITIATOR_MESSAGE_LEN_1024];
-        a.read_exact(&mut message).await.expect("receive ciphertext");
+        a.read_exact(&mut message)
+            .await
+            .expect("receive ciphertext");
         message[1 + 100] ^= 0x01;
 
         let secret = MlKem1024::decapsulate(&decapsulation_key, &message[1..]).expect("decap");
@@ -382,8 +383,7 @@ mod tests {
             *responder_keys.initiator_to_responder
         );
         assert_ne!(
-            *initiator_keys.responder_to_initiator,
-            *responder_keys.responder_to_initiator,
+            *initiator_keys.responder_to_initiator, *responder_keys.responder_to_initiator,
             "the responder-to-initiator key must split too"
         );
     }
@@ -401,8 +401,14 @@ mod tests {
         let at_768 = derive::<MlKem768>(&secret, &encoded, &ciphertext);
         let at_1024 = derive::<MlKem1024>(&secret, &encoded, &ciphertext);
 
-        assert_ne!(*at_768.initiator_to_responder, *at_1024.initiator_to_responder);
-        assert_ne!(*at_768.responder_to_initiator, *at_1024.responder_to_initiator);
+        assert_ne!(
+            *at_768.initiator_to_responder,
+            *at_1024.initiator_to_responder
+        );
+        assert_ne!(
+            *at_768.responder_to_initiator,
+            *at_1024.responder_to_initiator
+        );
     }
 
     /// Master's `derive`, copied verbatim from before `ParameterSet` existed.
@@ -411,9 +417,8 @@ mod tests {
     /// it always did. This is the reference for that claim, so it must not be
     /// "simplified" to call the code under test.
     fn master_derive_768(secret: &[u8; 32], ek: &[u8], ct: &[u8]) -> ([u8; 32], [u8; 32]) {
-        let mut hasher = blake3::Hasher::new_derive_key(
-            "maya2c 2026-01-01 p2p ml-kem-768 session keys v1",
-        );
+        let mut hasher =
+            blake3::Hasher::new_derive_key("maya2c 2026-01-01 p2p ml-kem-768 session keys v1");
         hasher.update(secret);
         hasher.update(b"maya2c.p2p.mlkem768.transcript.v1");
         hasher.update(&[1u8]);
@@ -441,8 +446,7 @@ mod tests {
         assert_eq!(*keys.initiator_to_responder, master_forward);
         assert_eq!(*keys.responder_to_initiator, master_back);
         assert_eq!(
-            master_forward,
-            PINNED_768_INITIATOR_TO_RESPONDER,
+            master_forward, PINNED_768_INITIATOR_TO_RESPONDER,
             "pinned value: {master_forward:02x?}"
         );
         assert_eq!(master_back, PINNED_768_RESPONDER_TO_INITIATOR);

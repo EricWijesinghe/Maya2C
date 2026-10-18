@@ -1099,8 +1099,8 @@ mod tests {
         use custom_l1_node::network::pq::PqUpgrade;
         use libp2p::core::UpgradeInfo as _;
 
-        let args = super::parse_args_from(flags.iter().map(|flag| flag.to_string()))
-            .expect("flags parse");
+        let args =
+            super::parse_args_from(flags.iter().map(|flag| flag.to_string())).expect("flags parse");
         PqUpgrade::with_policy(args.dual_kem)
             .with_mlkem1024(args.mlkem1024)
             .protocol_info()
@@ -1152,9 +1152,8 @@ mod tests {
 
     #[test]
     fn an_unknown_mlkem1024_mode_is_refused_at_startup() {
-        let refused = super::parse_args_from(
-            ["--mlkem1024", "strict"].into_iter().map(String::from),
-        );
+        let refused =
+            super::parse_args_from(["--mlkem1024", "strict"].into_iter().map(String::from));
         assert!(refused.is_err());
     }
 }
