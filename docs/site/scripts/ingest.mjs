@@ -200,6 +200,8 @@ for (const name of (await readdir(AUTHORED_SRC)).sort()) {
  */
 const SEARCH_TITLES = {
   "CRYPTO_WATCH.md": "Post-Quantum Crypto Watch: Standards Tracked | Maya2C",
+  "blockgraph.md": "Blockgraph Research: Batch References | Maya2C",
+  "offsec-sandbox.md": "Offsec Sandbox: Differential Fuzzing | Maya2C",
   "dex.md": "The Native DEX: Batch Auctions, No Mempool Race | Maya2C",
   "fee-market.md": "Fee Market: Base Fee, Fee Split and Supply Bound | Maya2C",
   "GENESIS.md": "Genesis: Rehearsal, Launch and First 90 Days | Maya2C",
