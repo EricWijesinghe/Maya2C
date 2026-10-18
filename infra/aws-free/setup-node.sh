@@ -15,8 +15,17 @@ state=/var/lib/maya2c; conf=/etc/maya2c; bin=/usr/local/bin
 log() { printf '[aws-free v%s] %s\n' "$n" "$*"; }
 
 # IMDSv2 credentials through the AWS CLI that AL2023 ships with.
-fetch() { aws s3 cp --only-show-errors "s3://$bucket/$1" "$2"; }
-put() { aws s3 cp --only-show-errors "$1" "s3://$bucket/$2"; }
+# <bucket> is an S3 bucket on AWS, or a local directory (any other cloud:
+# copy the same release/ and secret/ layout there with scp first).
+if [[ $bucket == /* ]]; then
+    fetch() { cp "$bucket/$1" "$2"; }
+    put() { install -D -m 0644 "$1" "$bucket/$2"; }
+    drop() { shred -u "$bucket/$1"; }
+else
+    fetch() { aws s3 cp --only-show-errors "s3://$bucket/$1" "$2"; }
+    put() { aws s3 cp --only-show-errors "$1" "s3://$bucket/$2"; }
+    drop() { aws s3 rm --only-show-errors "s3://$bucket/$1"; }
+fi
 
 install_binaries() {
     local tmp; tmp=$(mktemp -d)
@@ -27,6 +36,10 @@ install_binaries() {
 }
 
 keys() {
+    # Also done by stack.yaml's user data; repeated so any Linux VM works.
+    id maya >/dev/null 2>&1 || useradd --system --home-dir "$state" --shell /usr/sbin/nologin maya
+    install -d -o maya -g maya -m 0700 "$state"
+    install -d -o root -g root -m 0755 "$conf"
     install_binaries
     if [ -f "$state/validator.key.sealed" ]; then
         log "key already sealed; reusing it"
@@ -45,7 +58,7 @@ keys() {
     install -d -o maya -g maya -m 0700 "$state/data"
     if [ "$n" = 1 ] && [ ! -f "$state/data/node_key" ]; then
         fetch secret/node_key "$state/data/node_key"
-        aws s3 rm --only-show-errors "s3://$bucket/secret/node_key"
+        drop secret/node_key
         chown maya:maya "$state/data/node_key"; chmod 0400 "$state/data/node_key"
     fi
     local peer
