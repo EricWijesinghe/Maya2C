@@ -980,6 +980,8 @@ fn assemble(args: &Args) -> Result<(), Box<dyn Error>> {
 
 #[cfg(test)]
 mod shielded_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::shielded_activation_for;
 
     #[test]
@@ -1034,6 +1036,8 @@ mod shielded_tests {
 
 #[cfg(test)]
 mod mining_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::{Args, committee, launch_config};
     use custom_l1_node::crypto::keys;
     use custom_l1_node::state::mining::{DagProfile, MINING_RESERVE, MiningGenesis};
