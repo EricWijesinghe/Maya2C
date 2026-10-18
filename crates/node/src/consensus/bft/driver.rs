@@ -361,12 +361,23 @@ impl BftDriver {
         // Streamed, one certificate at a time: an epoch's log is never held
         // whole (ADR-052 memory bound).
         let replay_dir = driver.dir.clone();
-        super::store::for_each_certificate(&replay_dir, epoch, |c| {
+        let skipped = super::store::for_each_certificate(&replay_dir, epoch, |c| {
             driver.logged.insert((c.vertex.round, c.vertex.author));
             let from = c.vertex.author;
             let out = driver.engine.handle(now_ms, from, Message::Cert(c));
             driver.absorb(chain, now_ms, out, step)
         })?;
+        if skipped > 0 {
+            step.notices.push(format!(
+                "skipped {skipped} undecodable certificate record(s) in epoch {epoch}"
+            ));
+        }
+        if recovered.torn_bytes > 0 {
+            step.notices.push(format!(
+                "cut {} torn byte(s) from the epoch {epoch} logs",
+                recovered.torn_bytes
+            ));
+        }
         let out = driver.engine.start(now_ms);
         driver.absorb(chain, now_ms, out, step)?;
         Ok(driver)
