@@ -179,7 +179,10 @@ fn the_upgrade_offers_only_the_two_ml_kem_protocols() {
         .map(|p| p.as_ref().to_string())
         .collect();
 
-    assert_eq!(offered, vec![PROTOCOL_1024.to_string(), PROTOCOL.to_string()]);
+    assert_eq!(
+        offered,
+        vec![PROTOCOL_1024.to_string(), PROTOCOL.to_string()]
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -238,7 +241,9 @@ async fn two_mlkem1024_nodes_negotiate_1024() {
     for side in [&client, &server] {
         let stats = side.stats.clone();
         assert!(
-            wait_for(TIMEOUT, async || stats.negotiated(PqProtocol::MlKem1024) >= 1).await,
+            wait_for(TIMEOUT, async || stats.negotiated(PqProtocol::MlKem1024)
+                >= 1)
+            .await,
             "a side did not record an ML-KEM-1024 session"
         );
         assert_eq!(stats.negotiated(PqProtocol::MlKem768), 0);
@@ -259,7 +264,9 @@ async fn a_mlkem1024_node_falls_back_to_a_768_only_peer() {
     for side in [&client, &server] {
         let stats = side.stats.clone();
         assert!(
-            wait_for(TIMEOUT, async || stats.negotiated(PqProtocol::MlKem768) >= 1).await,
+            wait_for(TIMEOUT, async || stats.negotiated(PqProtocol::MlKem768)
+                >= 1)
+            .await,
             "a side did not record the ML-KEM-768 fallback"
         );
         assert_eq!(stats.negotiated(PqProtocol::MlKem1024), 0);
@@ -280,7 +287,9 @@ async fn a_level3_dialer_still_reaches_a_level5_node() {
     for side in [&client, &server] {
         let stats = side.stats.clone();
         assert!(
-            wait_for(TIMEOUT, async || stats.negotiated(PqProtocol::MlKem768) >= 1).await,
+            wait_for(TIMEOUT, async || stats.negotiated(PqProtocol::MlKem768)
+                >= 1)
+            .await,
             "a side did not record the ML-KEM-768 exchange"
         );
     }
@@ -304,7 +313,11 @@ async fn a_1024_required_node_refuses_a_768_only_peer() {
     let _ = required.handle.dial(server.address.clone()).await;
     tokio::time::sleep(REFUSAL_WINDOW).await;
 
-    assert_eq!(peer_count(&required.handle).await, 0, "level 5 fell back to level 3");
+    assert_eq!(
+        peer_count(&required.handle).await,
+        0,
+        "level 5 fell back to level 3"
+    );
     // Only the control's session was negotiated; the refused dial left no trace.
     assert_eq!(server.stats.negotiated(PqProtocol::MlKem768), 1);
     assert_eq!(server.stats.negotiated(PqProtocol::MlKem1024), 0);

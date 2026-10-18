@@ -648,11 +648,21 @@ mod tests {
 
     #[test]
     fn the_mlkem1024_policy_parses_the_operator_names() {
-        assert_eq!("preferred".parse::<MlKem1024Policy>(), Ok(MlKem1024Policy::Preferred));
+        assert_eq!(
+            "preferred".parse::<MlKem1024Policy>(),
+            Ok(MlKem1024Policy::Preferred)
+        );
         assert_eq!("OFF".parse::<MlKem1024Policy>(), Ok(MlKem1024Policy::Off));
-        assert_eq!("Required".parse::<MlKem1024Policy>(), Ok(MlKem1024Policy::Required));
+        assert_eq!(
+            "Required".parse::<MlKem1024Policy>(),
+            Ok(MlKem1024Policy::Required)
+        );
         assert!("strict".parse::<MlKem1024Policy>().is_err());
-        for policy in [MlKem1024Policy::Preferred, MlKem1024Policy::Off, MlKem1024Policy::Required] {
+        for policy in [
+            MlKem1024Policy::Preferred,
+            MlKem1024Policy::Off,
+            MlKem1024Policy::Required,
+        ] {
             assert_eq!(policy.to_string().parse::<MlKem1024Policy>(), Ok(policy));
         }
     }

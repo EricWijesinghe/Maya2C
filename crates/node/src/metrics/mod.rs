@@ -421,9 +421,11 @@ impl Metrics {
     /// Same absolute-value discipline as [`Metrics::set_pq_sessions`]. Called
     /// once per [`crate::network::pq::PqProtocol`] per sample.
     pub fn set_pq_protocol_sessions(&self, protocol: &str, total: u64) {
-        let counter = self.pq_sessions_by_protocol.get_or_create(&PqProtocolLabels {
-            protocol: protocol.to_string(),
-        });
+        let counter = self
+            .pq_sessions_by_protocol
+            .get_or_create(&PqProtocolLabels {
+                protocol: protocol.to_string(),
+            });
         counter.inc_by(total.saturating_sub(counter.get()));
     }
 
