@@ -1,16 +1,32 @@
-# Post-quantum P2P transport (FIPS 203 / ML-KEM-768)
+# Post-quantum P2P transport (FIPS 203 / ML-KEM-1024, with ML-KEM-768 fallback)
 
-Every libp2p connection this node makes carries an ML-KEM-768 key exchange
-layered above its Noise session, and every byte above that layer is sealed with
-ChaCha20-Poly1305 under a key derived from it.
+Every libp2p connection this node makes carries an ML-KEM key exchange layered
+above its Noise session, and every byte above that layer is sealed with
+ChaCha20-Poly1305 under a key derived from it. Level 5 (ML-KEM-1024) is
+preferred; level 3 (ML-KEM-768) is still accepted so mixed-version networks keep
+connecting. ADR-051 option 1.
 
 ```
 TCP / Memory
   └── libp2p-noise   Noise_XX_25519_ChaChaPoly_SHA256   ← unchanged, audited
-        └── /maya/mlkem/1.0.0                           ← this work
-              ML-KEM-768 (FIPS 203) + ChaCha20-Poly1305
+        └── /maya/mlkem1024/1.0.0   preferred, NIST level 5
+            /maya/mlkem/1.0.0       accepted, NIST level 3
+              ML-KEM (FIPS 203) + ChaCha20-Poly1305
                 └── yamux → gossipsub
 ```
+
+Each parameter set has its own KDF context and transcript domain, so a 1024
+session and a 768 session can never derive the same keys.
+
+### Which set a pair of nodes uses
+
+| Dialer | Listener | Negotiated |
+|---|---|---|
+| default | default | `/maya/mlkem1024/1.0.0` |
+| default | 768 only (`MlKem1024Policy::Off`) | `/maya/mlkem/1.0.0` |
+| 1024 `Required` | 768 only | refused (no shared protocol) |
+
+Operators can see the split in `pq_sessions_by_protocol{protocol="mlkem1024"}`.
 
 ---
 
@@ -91,6 +107,9 @@ responder → initiator   [1 byte version][1184 byte encapsulation key]
 initiator → responder   [1 byte version][1088 byte ciphertext]
 ```
 
+ML-KEM-1024 uses the same framing with a 1568-byte key and a 1568-byte
+ciphertext, so each direction is 1 + 1568 bytes.
+
 Both sides then derive directional keys with BLAKE3, over the shared secret
 **and the full transcript**:
 
@@ -130,10 +149,17 @@ refuse to wrap — at `u64::MAX` the connection dies rather than repeating a non
 
 ## No downgrade
 
-The upgrade is not optional. It offers exactly one protocol, so a peer that does
-not speak `/maya/mlkem/1.0.0` fails multistream-select and the connection is
-dropped. There is deliberately no fallback: an optional post-quantum layer is one
-an attacker strips.
+The upgrade is not optional. A peer that speaks neither ML-KEM protocol fails
+multistream-select and the connection is dropped.
+
+There is one fallback, and it is a real downgrade. A level-5 node also offers
+`/maya/mlkem/1.0.0`, so a peer that cannot speak 1024 still connects, at level 3.
+It is kept because a network cannot move to a new protocol in one step. The
+attacker's position is narrower than it sounds: negotiation runs inside the Noise
+session, so the offer list is encrypted and a passive recorder cannot see or
+edit it. Forcing 768 needs an active attacker against a live Noise session,
+which is the same position needed to break the connection outright. Once the
+network has upgraded, `MlKem1024Policy::Required` removes the fallback.
 
 ---
 

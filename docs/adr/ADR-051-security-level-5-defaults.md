@@ -1,6 +1,6 @@
 # ADR-051: Moving to NIST security level 5, where and in what order
 
-**Status:** Proposed, 2026-10-18. Waiting on Eric's decisions (see the end).
+**Status:** Accepted for options 1 and 2 (Eric, 2026-10-18); 3 at mainnet genesis; 4 not now.
 
 ## Context
 
@@ -45,3 +45,20 @@ Level 5 costs bytes. Each signature is about 40% larger, which means larger bloc
 1. Approve 1 and 2.
 2. Approve 3 for mainnet genesis.
 3. Confirm 4 stays opt-in.
+
+## What option 1 shipped (2026-10-18)
+
+- `/maya/mlkem1024/1.0.0` (ML-KEM-1024, `crates/node/src/network/pq/`) is offered
+  first on every default build, with `/maya/mlkem/1.0.0` (ML-KEM-768) second.
+  A 768-only peer still connects; the test `a_mlkem1024_node_falls_back_to_a_768_only_peer`
+  pins that.
+- Its own KDF context and transcript domain, so a 1024 session can never share
+  keys with a 768 session. Message widths are 1 + 1568 each way.
+- `MlKem1024Policy::Required` exists to drop the 768 fallback later. The default
+  is `Preferred`. It is not yet wired to operator configuration.
+- Each handshake records its exchange (`pq_sessions_by_protocol{protocol=...}`),
+  so the share of level-5 sessions is visible.
+- The downgrade is real and is documented in `pq/mod.rs`: forcing 768 needs an
+  active attacker against a live Noise session.
+
+Option 2 (wallet "Maximum security" account) is not part of this change.
