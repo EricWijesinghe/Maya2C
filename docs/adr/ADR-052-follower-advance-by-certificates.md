@@ -152,14 +152,66 @@ Batching the flush per page is the next optimisation; not done here.
   engine quorum rule, one valid signature per vote), `fetch_epoch` (verify each
   page before the next, refuse no-progress and oversized pages), `sync` (one epoch
   at a time, replays, then the next epoch if the state moved on).
-- RPC `get_certificates [epoch, offset, max]`: server caps `max` at 256 and bytes at
-  8 MiB. Gated by the node's existing per-client rate limiter.
+- RPC `get_certificates [epoch, offset, max]`: a blocking method (it reads the
+  disk). The server caps `max` at 256 records and the page at 4 MiB of JSON
+  (`encoded_len`: hex, quotes and comma). Both ends raise jsonrpsee's response
+  limit to 16 MiB, which is at least twice the page, so a full page is never cut.
+  Gated by the node's per-client call rate limiter. A per-IP byte budget is NOT
+  implemented; the limiter still counts calls.
 - Node startup (`bins/maya2c-node`): with `--catch-up-from`, sync from the first
   source that answers, repeat up to 3 times while outside the engine's window. The
   checkpoint path is the fallback when every source refuses.
 - Handover: a replayed node is a full engine from the start, not a follower. The
   live tail is served by gossip, as for any restart. Gate 10 is closed by this path.
   Checkpoint catch-up stays for the fallback case.
+
+## Completeness and why it is safe (2026-10-19, review fixes)
+
+Reviews found three gaps in the first version: a peer's `done` ended an epoch
+early; a peer could skip a record; and a stalled peer could loop the fetch.
+The fixes:
+
+- **Progress and arithmetic.** A page must end where its records end
+  (`next = offset + Σ(8 + len)`), and a page that is not the last must carry
+  records. Each epoch is capped at 65,536 pages, 4,194,304 records and 4 GiB,
+  against about 50,000 certificates for a 3,600-block epoch at n = 7.
+- **Completeness is not `done`.** After replaying an epoch, `attested_end`
+  takes the epoch's final checkpoint (a quorum-signed block, ADR-038), verifies
+  its quorum against the epoch's committee, and requires the replayed history
+  to contain that block id at that height. A finished epoch with no checkpoint
+  on offer is refused, since nothing then says where it ends. The head epoch
+  may have none yet.
+- **Why a gap cannot pass.** The block id covers the header: the seal (epoch,
+  anchor round), the transactions' root and the state root. If the replayed
+  history reproduces the attested id at a height, the committed sequence up to
+  that height is the one the quorum signed. Omitting a certificate changes that
+  sequence only if the certificate contributes transactions, a seal or a state
+  change, and then the id differs and the sync is refused. Omitting one that no
+  later certificate names changes nothing, and the replay correctly accepts it.
+  A certificate that a later one names as a parent leaves that child buffered in
+  the engine, so the replay stops short and the check refuses.
+- **Commit rule, for the argument.** The engine (`crates/dag-bft`) is a
+  certified DAG: a vertex is accepted with a quorum of parents, and an anchor's
+  sub-DAG is committed once the commit rule over later certificates (Bullshark)
+  selects it. Commitment depends on which certificates a node holds, not on when
+  it holds them, so the replayed sequence equals the network's wherever the
+  replay holds the same certificates.
+- **Timing.** `now_ms` reaches the engine only for anchor timeouts and resend
+  intervals (`validator.rs`: `try_advance`, `tick`). Those decide when a node
+  proposes or gives up waiting, not which blocks are committed. Block timestamps
+  come from the vertices (`builder.rs`), not from the clock, so the replay on
+  `now_ms` does not change block content (invariant 9).
+- **Residual risk: the tail.** Blocks above the newest checkpoint are not yet
+  pinned by a quorum. A gapped tail would show up as a peer's checkpoint whose id
+  differs from the node's block at that height. The follow loop asks a peer for
+  its checkpoint about every 30 s (`BUILDER_FOLLOW_EVERY`) and reports a mismatch
+  as an error (`catch-up: ... retrying`); it does not halt the node. Making that
+  a halt is not implemented. Documented here as the open item.
+- **Equivocation at restart.** The safety log is truncated to its last complete
+  record before any append (`repair_torn_tail`), so a vote sent after a crash is
+  readable. `restore_vote` keeps the first digest recorded for a slot
+  (`or_insert`), so a restored vote is not overwritten. Refusing a conflicting
+  vote in the engine was not re-tested in this change: NOT VERIFIED.
 
 ## Gaps (not covered by this ADR)
 

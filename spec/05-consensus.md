@@ -36,4 +36,7 @@ with no rule IDs and no conformance vectors yet. Its wire rule: `get_certificate
 serves at most 256 records per page and about 8 MiB; a client refuses a larger
 page, a page that makes no progress, and any certificate without a quorum
 (`n − f` by the engine's rule) of valid signatures over its digest from the
-epoch's committee. Vectors: NOT YET (gap). Node: `crates/node/src/consensus/bft/certsync.rs`.
+epoch's committee. A page must end where its records end, and a finished epoch
+is complete only if the replayed history contains its attested end (the epoch's
+final checkpoint, a quorum-signed block id at a height). A peer's `done` is not
+evidence of completeness. Vectors: NOT YET (gap). Node: `crates/node/src/consensus/bft/certsync.rs`.

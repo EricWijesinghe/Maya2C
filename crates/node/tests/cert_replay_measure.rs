@@ -18,10 +18,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use custom_l1_node::consensus::bft::certsync::{self, CertSource, PAGE_BYTES, PAGE_CERTS};
+use custom_l1_node::consensus::bft::attest::Checkpoint;
+use custom_l1_node::consensus::bft::certsync::{self, CertSource, PAGE};
 use custom_l1_node::consensus::bft::store::{CertPage, read_certificate_page};
 use custom_l1_node::consensus::bft::wire::decode_certificate;
-use custom_l1_node::consensus::bft::{BROADCAST, BftDriver, BftSetup, Envelope, Step};
+use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
 use custom_l1_node::consensus::chain::{Chain, ChainConfig};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
 use custom_l1_node::crypto::keys::{self, SigningKey, VerifyingKey};
@@ -107,6 +108,7 @@ fn open_chain(config: &GenesisConfig, dir: &std::path::Path) -> Chain {
 struct PeerLog {
     dir: PathBuf,
     epoch: u64,
+    checkpoints: Vec<Checkpoint>,
 }
 
 impl CertSource for PeerLog {
@@ -120,7 +122,11 @@ impl CertSource for PeerLog {
         offset: u64,
         max_records: usize,
     ) -> custom_l1_node::error::Result<CertPage> {
-        read_certificate_page(&self.dir, epoch, offset, max_records, PAGE_BYTES)
+        read_certificate_page(&self.dir, epoch, offset, max_records, PAGE.encoded_bytes)
+    }
+
+    fn checkpoint_of(&self, epoch: u64) -> custom_l1_node::error::Result<Option<Checkpoint>> {
+        Ok(self.checkpoints.iter().find(|c| c.epoch == epoch).cloned())
     }
 }
 
@@ -317,7 +323,7 @@ fn verify_only(dir: &std::path::Path, head: u64, keys: &Arc<[VerifyingKey]>) -> 
     for epoch in 0..=head {
         let mut offset = 0_u64;
         loop {
-            let page = read_certificate_page(dir, epoch, offset, PAGE_CERTS, PAGE_BYTES).unwrap();
+            let page = read_certificate_page(dir, epoch, offset, PAGE.records, PAGE.encoded_bytes).unwrap();
             for record in &page.records {
                 let c = decode_certificate(record).unwrap();
                 let digest = c.digest();
@@ -386,7 +392,13 @@ fn catching_up_by_replay_costs_this_much() {
             ..Params::default()
         },
     };
+    let checkpoints = [reference.driver.closing_checkpoint(), reference.driver.checkpoint()]
+        .into_iter()
+        .flatten()
+        .cloned()
+        .collect();
     let source = PeerLog {
+        checkpoints,
         dir: peer_dir,
         epoch: head,
     };
@@ -399,6 +411,7 @@ fn catching_up_by_replay_costs_this_much() {
         &setup,
         &fresh.path().join("bft"),
         1_000_000,
+        PAGE,
     )
     .unwrap();
     let catch_up_secs = t.elapsed().as_secs_f64();
@@ -408,12 +421,17 @@ fn catching_up_by_replay_costs_this_much() {
         chain.height(),
         synced.crossed
     );
-    println!(
-        "MEMORY n={n} working_set_before_mb={:.1} peak_mb={:.1} growth_mb={:.1}",
-        mb(base),
-        mb(peak),
-        mb(peak.saturating_sub(base))
-    );
+    if base == 0 {
+        // Off Windows there is no psapi reading; a zero would look like a result.
+        println!("MEMORY n={n} not measured (no working-set probe on this platform)");
+    } else {
+        println!(
+            "MEMORY n={n} working_set_before_mb={:.1} peak_mb={:.1} growth_mb={:.1}",
+            mb(base),
+            mb(peak),
+            mb(peak.saturating_sub(base))
+        );
+    }
     let shared = usize::try_from(chain.height().min(want)).unwrap();
     let mine = chain.active_chain().unwrap();
     let theirs = reference.chain.active_chain().unwrap();
