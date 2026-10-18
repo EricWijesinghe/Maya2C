@@ -53,7 +53,8 @@ use futures::{AsyncRead, AsyncWrite};
 use crate::error::NodeError;
 #[cfg(feature = "hqc")]
 use crate::network::pq::dual;
-use crate::network::pq::handshake;
+use crate::network::pq::handshake::{self, ParameterSet};
+use maya_crypto_pq::kem_suite::{MlKem768, MlKem1024};
 
 /// Bytes in a TCP segment on a conventional 1500-byte-MTU path.
 ///
@@ -117,17 +118,52 @@ impl Measurement {
 /// Propagates any handshake failure. A measurement of a failed handshake would
 /// be a number with no meaning, so it is not returned.
 pub async fn measure_single<A, B>(
-    mut a: A,
-    mut b: B,
+    a: A,
+    b: B,
     link_delay: Duration,
 ) -> Result<Measurement, NodeError>
 where
     A: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     B: AsyncRead + AsyncWrite + Unpin,
 {
+    measure_parameter_set::<MlKem768, A, B>(a, b, link_delay, crate::network::pq::PROTOCOL).await
+}
+
+/// Runs one ML-KEM-1024 handshake over the given stream pair and reports its
+/// cost. The same measurement as [`measure_single`] at NIST level 5.
+///
+/// # Errors
+///
+/// As [`measure_single`].
+pub async fn measure_mlkem1024<A, B>(
+    a: A,
+    b: B,
+    link_delay: Duration,
+) -> Result<Measurement, NodeError>
+where
+    A: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    B: AsyncRead + AsyncWrite + Unpin,
+{
+    measure_parameter_set::<MlKem1024, A, B>(a, b, link_delay, crate::network::pq::PROTOCOL_1024)
+        .await
+}
+
+/// Runs one handshake under parameter set `P` and reports its cost.
+async fn measure_parameter_set<P, A, B>(
+    mut a: A,
+    mut b: B,
+    link_delay: Duration,
+    protocol: &'static str,
+) -> Result<Measurement, NodeError>
+where
+    P: ParameterSet,
+    P::DecapsulationKey: Send,
+    A: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    B: AsyncRead + AsyncWrite + Unpin,
+{
     let started = Instant::now();
-    let responder = tokio::spawn(async move { handshake::respond(&mut a).await });
-    let initiator = handshake::initiate(&mut b).await?;
+    let responder = tokio::spawn(async move { handshake::respond_with::<P, _>(&mut a).await });
+    let initiator = handshake::initiate_with::<P, _>(&mut b).await?;
     let responder = responder
         .await
         .map_err(|e| NodeError::PqHandshake(format!("responder task failed: {e}")))??;
@@ -139,8 +175,9 @@ where
     )?;
 
     Ok(Measurement {
-        protocol: crate::network::pq::PROTOCOL,
-        wire_bytes: handshake::RESPONDER_MESSAGE_LEN + handshake::INITIATOR_MESSAGE_LEN,
+        protocol,
+        // One version byte per message, one message per direction.
+        wire_bytes: 1 + P::ENCAPSULATION_KEY_LEN + 1 + P::CIPHERTEXT_LEN,
         elapsed,
         link_delay,
     })

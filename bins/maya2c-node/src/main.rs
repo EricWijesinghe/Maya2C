@@ -447,6 +447,9 @@ async fn metrics_sample_loop(
         }
         metrics.set_mempool_depth(network.mempool().len());
         metrics.set_pq_sessions(pq.established(), pq.rotated(), epoch.current());
+        for protocol in custom_l1_node::network::pq::PqProtocol::ALL {
+            metrics.set_pq_protocol_sessions(protocol.label(), pq.negotiated(protocol));
+        }
 
         let (height, tip, state) = {
             let chain = lock_chain(&chain);
