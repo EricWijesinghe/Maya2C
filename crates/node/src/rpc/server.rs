@@ -166,6 +166,9 @@ pub struct RpcContext {
     /// The engine's status, kept current by the DAG-BFT loop, for
     /// `get_bft_status`.
     pub bft_status: Option<Arc<Mutex<crate::rpc::types::BftStatus>>>,
+    /// The DAG-BFT data directory, for serving certificate pages
+    /// (`get_certificates`, ADR-052). Absent on a node that runs no DAG-BFT.
+    pub bft_dir: Option<std::path::PathBuf>,
 }
 
 impl RpcContext {
@@ -184,6 +187,16 @@ impl RpcContext {
             network: None,
             checkpoint: None,
             bft_status: None,
+            bft_dir: None,
+        }
+    }
+
+    /// The same context, serving certificate pages from `dir` (ADR-052).
+    #[must_use]
+    pub fn with_bft_dir(self, dir: std::path::PathBuf) -> Self {
+        Self {
+            bft_dir: Some(dir),
+            ..self
         }
     }
 
@@ -328,6 +341,34 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 .map(crate::rpc::types::CheckpointInfo::from)
             });
             Ok::<_, ErrorObjectOwned>(held)
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
+    module
+        .register_method("get_certificates", |params, ctx, _| {
+            // `[epoch, offset, max]`: one bounded page of that epoch's
+            // certificate log (ADR-052). The rate limiter gates every method;
+            // the page bounds are the server's, whatever the caller asks.
+            let (epoch, offset, max): (u64, u64, usize) =
+                params.parse().map_err(|e| invalid_params(e.to_string()))?;
+            let dir = ctx
+                .bft_dir
+                .as_ref()
+                .ok_or_else(|| rejected("this node serves no certificates".to_string()))?;
+            let max = max.min(crate::consensus::bft::certsync::PAGE_CERTS);
+            let page = crate::consensus::bft::store::read_certificate_page(
+                dir,
+                epoch,
+                offset,
+                max,
+                crate::consensus::bft::certsync::PAGE_BYTES,
+            )
+            .map_err(internal)?;
+            Ok::<_, ErrorObjectOwned>(crate::rpc::types::CertPageInfo {
+                records: page.records.iter().map(hex::encode).collect(),
+                next: page.next,
+                done: page.done,
+            })
         })
         .map_err(|e| rejected(e.to_string()))?;
 

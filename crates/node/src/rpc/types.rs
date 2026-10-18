@@ -94,6 +94,19 @@ impl ChainInfo {
     }
 }
 
+/// One page of a peer's certificate log, as `get_certificates` serves it
+/// (ADR-052). Each record is hex of the stored certificate bytes; the caller
+/// decodes and verifies every one before it counts.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CertPageInfo {
+    /// Hex records, at most the requested count and about `PAGE_BYTES` in all.
+    pub records: Vec<String>,
+    /// Byte offset to ask from next.
+    pub next: u64,
+    /// No record follows `next`.
+    pub done: bool,
+}
+
 /// What this node's DAG-BFT engine is doing, as `get_bft_status` serves it:
 /// whether consensus is moving, and whether this node takes part.
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]

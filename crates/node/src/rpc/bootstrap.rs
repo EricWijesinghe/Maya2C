@@ -297,6 +297,36 @@ fn unhex(text: &str) -> Result<Vec<u8>> {
     hex::decode(text).map_err(|e| NodeError::Decode(format!("bad hex from peer: {e}")))
 }
 
+impl crate::consensus::bft::certsync::CertSource for RpcBootstrapSource {
+    fn current_epoch(&self) -> Result<u64> {
+        let status: Option<crate::rpc::types::BftStatus> =
+            self.call("get_bft_status", &rpc_params![])?;
+        status
+            .map(|s| s.epoch)
+            .ok_or_else(|| NodeError::Decode("peer runs no DAG-BFT".to_string()))
+    }
+
+    fn page(
+        &self,
+        epoch: u64,
+        offset: u64,
+        max_records: usize,
+    ) -> Result<crate::consensus::bft::store::CertPage> {
+        let info: crate::rpc::types::CertPageInfo =
+            self.call("get_certificates", &rpc_params![epoch, offset, max_records])?;
+        let records = info
+            .records
+            .iter()
+            .map(|r| unhex(r))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(crate::consensus::bft::store::CertPage {
+            records,
+            next: info.next,
+            done: info.done,
+        })
+    }
+}
+
 impl crate::consensus::bft::catchup::CheckpointSource for RpcBootstrapSource {
     fn checkpoint(&self) -> Result<Option<crate::consensus::bft::attest::Checkpoint>> {
         let info: Option<crate::rpc::types::CheckpointInfo> =

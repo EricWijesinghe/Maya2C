@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use custom_l1_node::consensus::Chain;
 use custom_l1_node::consensus::bft::attest::CheckpointBook;
 use custom_l1_node::consensus::bft::catchup::{self, Position};
+use custom_l1_node::consensus::bft::certsync;
 use custom_l1_node::consensus::bft::remote::{DEFAULT_DEADLINE, RemoteSigner, ValidatorKey};
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
 use custom_l1_node::crypto::keys::{self, VerifyingKey};
@@ -65,7 +66,12 @@ const BUILDER_FOLLOW_EVERY: u32 = 30;
 const DROP_REPORT_INTERVAL: Duration = Duration::from_secs(10);
 
 /// Where the per-epoch safety logs live.
-const BFT_DIR: &str = "bft";
+pub(super) const BFT_DIR: &str = "bft";
+
+/// Replays a node may make before it gives up on reaching the engine's
+/// window. Each replay takes the peer's head as of its start, so a peer that
+/// moved on while the logs were fetched needs another round (ADR-052).
+const SYNC_ROUNDS: u32 = 3;
 
 /// Writes this node's channel identity for the remote signer (a 32-byte
 /// seed, hex, 0600, never overwritten) and prints the public key the signer
@@ -296,6 +302,53 @@ pub(super) async fn catch_up_from_any(
         Some(error) => Err(error),
         None => Ok(None),
     }
+}
+
+/// Catches the node up by certificate replay (ADR-052) from the first source
+/// that answers, and repeats while the node is still outside the engine's
+/// window. Returns the source used and the replayed engine with the frames
+/// its opening produced. The engine is a full validator from the start: no
+/// checkpoint and no follower mode.
+///
+/// # Errors
+///
+/// When no source answers, or a source refuses evidence, or the node cannot
+/// reach the window in [`SYNC_ROUNDS`] replays.
+pub(super) async fn sync_certificates(
+    urls: &[String],
+    chain: &Arc<Mutex<Chain>>,
+    setup: &BftSetup,
+    data_dir: &Path,
+) -> Result<(String, BftDriver, Step), Box<dyn Error>> {
+    let dir = data_dir.join(BFT_DIR);
+    let mut last_error = String::from("no source answered");
+    for url in urls {
+        let source = RpcBootstrapSource::new(url, tokio::runtime::Handle::current())?;
+        for _ in 0..SYNC_ROUNDS {
+            // Blocking RPC and disk work: off the async workers.
+            let synced = tokio::task::block_in_place(|| {
+                let mut guard = lock_chain(chain);
+                certsync::sync(&mut guard, &source, setup, &dir, now_ms())
+            });
+            let synced = match synced {
+                Ok(synced) => synced,
+                Err(e) => {
+                    last_error = format!("{url}: {e}");
+                    break;
+                }
+            };
+            let (height, tip, nonce) = {
+                let c = lock_chain(chain);
+                let nonce = c.get(&c.tip()).map_or(0, |b| b.header.nonce);
+                (c.height(), c.tip(), nonce)
+            };
+            if within_engine_window(url, height, tip, nonce).await {
+                return Ok((url.clone(), synced.driver, synced.step));
+            }
+            last_error = format!("{url}: still outside the engine's window after a replay");
+        }
+    }
+    Err(last_error.into())
 }
 
 /// Startup catch-up for a node that was down longer than the engine's
