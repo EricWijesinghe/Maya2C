@@ -20,8 +20,9 @@ use std::sync::Arc;
 
 use maya_dag_bft::{Authenticator, Certificate, Committee};
 
-use super::auth::MlDsaAuthenticator;
 use super::attest::Checkpoint;
+use super::auth::MlDsaAuthenticator;
+use super::builder::unseal;
 use super::store::{CertPage, SafetyStore, for_each_certificate};
 use super::wire::{decode_certificate, encode_certificate};
 use super::{BftDriver, BftSetup};
@@ -138,6 +139,9 @@ pub struct Fetched {
     pub written: usize,
     /// Undecodable records skipped in the local log while reading it.
     pub skipped: u64,
+    /// Valid certificates for a logged slot with different bytes: equivocation
+    /// evidence. Counted, not logged, not used.
+    pub equivocations: usize,
 }
 
 /// The end of one page: the offset after its last record, by the same count
@@ -185,6 +189,7 @@ pub fn fetch_epoch(
     let mut fetched = Fetched {
         written: 0,
         skipped,
+        equivocations: 0,
     };
     let (mut offset, mut pages, mut records, mut bytes) = (0_u64, 0_u64, 0_u64, 0_u64);
     loop {
@@ -214,7 +219,16 @@ pub fn fetch_epoch(
             let digest = blake3::hash(&encode_certificate(&c));
             match have.get(&slot) {
                 Some(logged) if *logged == digest => continue,
-                Some(_) => return Err(refuse("conflicts with a logged certificate")),
+                Some(_) => {
+                    // A different copy of a logged slot must still be valid to
+                    // count. Two valid certificates for one slot are two quorums
+                    // signing two vertices: evidence of equivocation. It is kept
+                    // out of the log and the first copy stays. Forged copies are
+                    // refused, so a peer cannot stall catch-up with one.
+                    verify_certificate(&c, epoch, keys, weights)?;
+                    fetched.equivocations += 1;
+                    continue;
+                }
                 None => {}
             }
             verify_certificate(&c, epoch, keys, weights)?;
@@ -267,16 +281,39 @@ fn attested_end(
     }
     let tag = ChainTag::from_genesis(chain.genesis());
     checkpoint.verify(&tag, keys, weights)?;
+    if checkpoint.height > chain.height() {
+        // Newer than the replayed history: nothing to check it against yet. A
+        // finished epoch must reach its own end, so a short replay is refused.
+        return if epoch < head {
+            Err(refuse("the replayed history stops short of the attested end"))
+        } else {
+            Ok(())
+        };
+    }
     let ids = chain.active_chain()?;
-    let at = usize::try_from(checkpoint.height)
-        .ok()
-        .and_then(|h| ids.get(h));
-    if at != Some(&checkpoint.block) {
+    if ids.get(usize::try_from(checkpoint.height).unwrap_or(usize::MAX)) != Some(&checkpoint.block)
+    {
         return Err(refuse(
             "the replayed history does not reproduce the attested checkpoint",
         ));
     }
+    if epoch < head && last_height_of(chain, &ids, epoch) != Some(checkpoint.height) {
+        // An older checkpoint of a finished epoch proves nothing about its end,
+        // and a peer can serve one (the book keeps the newest it has seen).
+        return Err(refuse(
+            "the attested checkpoint is not the last block of a finished epoch",
+        ));
+    }
     Ok(())
+}
+
+/// The height of the last block whose seal names `epoch`: the epoch's final
+/// block, which is where a finished epoch's checkpoint must sit.
+fn last_height_of(chain: &Chain, ids: &[[u8; 32]], epoch: u64) -> Option<u64> {
+    (0..ids.len()).rev().find_map(|h| {
+        let block = chain.get(&ids[h])?;
+        (unseal(block.header.nonce).0 == epoch).then_some(u64::try_from(h).ok()?)
+    })
 }
 
 /// What [`sync`] leaves behind: the epoch boundaries crossed, and the driver
@@ -286,6 +323,8 @@ pub struct Synced {
     pub crossed: u64,
     /// Undecodable records skipped while reading the local logs.
     pub skipped: u64,
+    /// Valid equivocating copies of logged slots seen while fetching.
+    pub equivocations: usize,
     /// The engine, replayed to the end of the fetched logs.
     pub driver: BftDriver,
     /// What opening the engine produced: frames to send, notices.
@@ -312,7 +351,7 @@ pub fn sync(
     now_ms: u64,
     limits: PageLimits,
 ) -> Result<Synced> {
-    let (mut crossed, mut skipped) = (0, 0);
+    let (mut crossed, mut skipped, mut equivocations) = (0, 0, 0);
     loop {
         let (epoch, (keys, weights)) = current(chain, setup)?;
         let head = source.current_epoch()?;
@@ -320,16 +359,25 @@ pub fn sync(
         if behind {
             let fetched = fetch_epoch(source, epoch, &keys, weights.as_deref(), dir, limits)?;
             skipped += fetched.skipped;
+            equivocations += fetched.equivocations;
         }
         let (driver, step) = BftDriver::open(setup, dir, chain, now_ms)?;
         if behind {
             attested_end(chain, source, epoch, head, &keys, weights.as_deref())?;
         }
         let (after, _) = current(chain, setup)?;
+        // The peer has finished this epoch, so its replay must reach the
+        // boundary. Stopping short is a truncated log, however it was served.
+        if behind && after == epoch && epoch < head {
+            return Err(refuse(
+                "the peer has finished this epoch, but the replay stops before its boundary",
+            ));
+        }
         if !behind || after == epoch || after > head {
             return Ok(Synced {
                 crossed,
                 skipped,
+                equivocations,
                 driver,
                 step,
             });

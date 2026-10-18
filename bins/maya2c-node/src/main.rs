@@ -210,7 +210,7 @@ impl Default for Args {
         Self {
             genesis: PathBuf::from("genesis.json"),
             data_dir: PathBuf::from("./data"),
-            rpc_addr: "0.0.0.0:8545".parse().expect("valid default address"),
+            rpc_addr: "127.0.0.1:8545".parse().expect("valid default address"),
             // Off unless asked for. When enabled the deployment binds it to the
             // pod network only — the exporter publishes peer topology and
             // mempool contents, which are not public data.
@@ -271,7 +271,7 @@ fn print_usage() {
          OPTIONS:\n  \
          --genesis <PATH>     genesis.json path (default genesis.json)\n  \
          --data-dir <PATH>    persistent data directory (default ./data)\n  \
-         --rpc-addr <ADDR>    JSON-RPC listen address (default 0.0.0.0:8545)\n  \
+         --rpc-addr <ADDR>    JSON-RPC listen address (default 127.0.0.1:8545; 0.0.0.0 exposes it)\n  \
   --metrics-addr <ADDR> Prometheus exporter address; off unless set\n  \
   --market-addr <ADDR>  aggregator supply/ticker HTTP address; off unless set\n  \
   --market-feed <PATH>  JSON array of exchange quotes for the ticker endpoints\n  \

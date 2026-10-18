@@ -47,10 +47,17 @@ pub struct Recovered {
     pub torn_bytes: u64,
 }
 
-/// Largest record a log or a peer may carry. A certificate is a vertex with
-/// its batch and a few signatures, far below this. Larger is corruption, and
-/// refusing it keeps one bad length from allocating the world.
-pub const MAX_RECORD_BYTES: usize = 16 * 1024 * 1024;
+/// Largest record a log or a peer may carry, in raw bytes. A certificate is a
+/// vertex with its batch and a few signatures, far below this. Refusing a longer
+/// one keeps one bad length from allocating the world. It is also sized so one
+/// record, hex-encoded, fits the RPC response limit: `encoded_len(this)` must
+/// stay under `RPC_RESPONSE_LIMIT` (checked below).
+pub const MAX_RECORD_BYTES: usize = 2 * 1024 * 1024;
+
+const _: () = assert!(
+    encoded_len(MAX_RECORD_BYTES) < crate::rpc::server::RPC_RESPONSE_LIMIT as usize,
+    "one record must fit in one RPC response"
+);
 
 /// One page of raw certificate records from a certificate log (ADR-052).
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -127,9 +134,12 @@ pub const fn encoded_len(raw: usize) -> usize {
     raw * 2 + 3
 }
 
-/// Length of the longest prefix of complete records in `path`, and the file's
-/// full length. A crash mid-write leaves a torn tail after that prefix.
-fn complete_prefix(path: &Path) -> Result<(u64, u64)> {
+/// Length of the longest prefix of records in `path` that are plausible and
+/// decode with `valid`, and the file's full length. A crash mid-write leaves a
+/// torn tail after that prefix; so does a zero-filled block or garbage from a
+/// failed write. The scan stops at the first record that fails any of these, so
+/// nothing after a bad record is trusted.
+fn complete_prefix(path: &Path, valid: fn(&[u8]) -> bool) -> Result<(u64, u64)> {
     let file = match File::open(path) {
         Ok(file) => file,
         // A log not written yet is empty, not an error: the first open creates it.
@@ -142,10 +152,33 @@ fn complete_prefix(path: &Path) -> Result<(u64, u64)> {
         .len();
     let mut reader = BufReader::new(file);
     let mut complete = 0_u64;
-    while let Some(record) = next_record(&mut reader)? {
+    while let Some(record) = plausible_record(&mut reader)? {
+        if !valid(&record) {
+            break;
+        }
         complete += 8 + u64::try_from(record.len()).unwrap_or(u64::MAX);
     }
     Ok((complete, total))
+}
+
+/// The next record of a log for the tail scan. `None` at the end, at a short
+/// record, and at a zero or over-long length: none of those is a record a
+/// writer produced, so the scan stops there rather than failing the open.
+fn plausible_record(reader: &mut impl Read) -> Result<Option<Vec<u8>>> {
+    let mut len = [0_u8; 8];
+    if !read_full(reader, &mut len)? {
+        return Ok(None);
+    }
+    let len = match usize::try_from(u64::from_le_bytes(len)) {
+        Ok(len) if len > 0 && len <= MAX_RECORD_BYTES => len,
+        _ => return Ok(None),
+    };
+    let mut record = Vec::new();
+    let got = reader
+        .take(u64::try_from(len).unwrap_or(u64::MAX))
+        .read_to_end(&mut record)
+        .map_err(|e| NodeError::Storage(format!("read log: {e}")))?;
+    Ok((got == len).then_some(record))
 }
 
 /// Cuts a torn tail off `path` and makes the cut durable, so the next append
@@ -155,11 +188,10 @@ fn complete_prefix(path: &Path) -> Result<(u64, u64)> {
 ///
 /// # Errors
 ///
-/// [`NodeError::Storage`] for I/O, and for a length prefix beyond
-/// [`MAX_RECORD_BYTES`]: that is corruption, not a torn write, and is not
-/// guessed past.
-fn repair_torn_tail(path: &Path) -> Result<u64> {
-    let (complete, total) = complete_prefix(path)?;
+/// [`NodeError::Storage`] for I/O only. A bad tail is cut, never refused: a
+/// node must be able to restart after a crash that left garbage behind.
+fn repair_torn_tail(path: &Path, valid: fn(&[u8]) -> bool) -> Result<u64> {
+    let (complete, total) = complete_prefix(path, valid)?;
     if complete == total {
         return Ok(0);
     }
@@ -335,7 +367,8 @@ impl SafetyStore {
         let certs_path = dir.join(CERTS_LOG);
         // Before anything reads or appends: a torn tail left by a crash must
         // not sit in front of the next record (see `repair_torn_tail`).
-        let torn_bytes = repair_torn_tail(&safety_path)? + repair_torn_tail(&certs_path)?;
+        let torn_bytes = repair_torn_tail(&safety_path, |r| Envelope::decode(r).is_ok())?
+            + repair_torn_tail(&certs_path, |r| decode_certificate(r).is_ok())?;
         let safety = read_records(&safety_path)?
             .iter()
             .map(|r| Envelope::decode(r))
@@ -475,6 +508,39 @@ mod tests {
         })
         .unwrap();
         assert_eq!(seen, vec![cert]);
+    }
+
+    #[test]
+    fn a_zero_filled_or_garbage_tail_is_cut_and_the_node_still_opens() {
+        let garbage = {
+            let mut bytes = u64::MAX.to_le_bytes().to_vec();
+            bytes.extend([0xAB_u8; 40]);
+            bytes
+        };
+        for (name, tail) in [("zeros", vec![0_u8; 64]), ("garbage", garbage)] {
+            let root = dir(&format!("tail-{name}"));
+            {
+                let (mut store, _) = SafetyStore::open(&root, 0).unwrap();
+                store.record_own(&vote(1)).unwrap();
+            }
+            for log in [SAFETY_LOG, CERTS_LOG] {
+                let path = root.join("epoch-0").join(log);
+                let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+                file.write_all(&tail).unwrap();
+            }
+            let (mut store, recovered) = SafetyStore::open(&root, 0)
+                .unwrap_or_else(|e| panic!("{name} tail stopped the node opening: {e}"));
+            assert_eq!(recovered.safety, vec![vote(1)], "{name}");
+            assert_eq!(
+                recovered.torn_bytes,
+                2 * u64::try_from(tail.len()).unwrap(),
+                "{name}: both tails are cut"
+            );
+            store.record_own(&vote(2)).unwrap();
+            drop(store);
+            let (_, recovered) = SafetyStore::open(&root, 0).unwrap();
+            assert_eq!(recovered.safety, vec![vote(1), vote(2)], "{name}");
+        }
     }
 
     #[test]
