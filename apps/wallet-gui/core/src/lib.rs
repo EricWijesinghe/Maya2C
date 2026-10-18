@@ -38,6 +38,7 @@
 #![warn(missing_docs)]
 
 pub mod airgap;
+pub mod amount;
 pub mod compose;
 pub mod error;
 pub mod hd;
