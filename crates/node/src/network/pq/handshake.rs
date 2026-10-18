@@ -381,6 +381,11 @@ mod tests {
             *initiator_keys.initiator_to_responder,
             *responder_keys.initiator_to_responder
         );
+        assert_ne!(
+            *initiator_keys.responder_to_initiator,
+            *responder_keys.responder_to_initiator,
+            "the responder-to-initiator key must split too"
+        );
     }
 
     #[test]
@@ -399,6 +404,60 @@ mod tests {
         assert_ne!(*at_768.initiator_to_responder, *at_1024.initiator_to_responder);
         assert_ne!(*at_768.responder_to_initiator, *at_1024.responder_to_initiator);
     }
+
+    /// Master's `derive`, copied verbatim from before `ParameterSet` existed.
+    ///
+    /// The wire-compatibility claim is that a 768 session derives the same keys
+    /// it always did. This is the reference for that claim, so it must not be
+    /// "simplified" to call the code under test.
+    fn master_derive_768(secret: &[u8; 32], ek: &[u8], ct: &[u8]) -> ([u8; 32], [u8; 32]) {
+        let mut hasher = blake3::Hasher::new_derive_key(
+            "maya2c 2026-01-01 p2p ml-kem-768 session keys v1",
+        );
+        hasher.update(secret);
+        hasher.update(b"maya2c.p2p.mlkem768.transcript.v1");
+        hasher.update(&[1u8]);
+        hasher.update(ek);
+        hasher.update(ct);
+        let mut okm = [0u8; 64];
+        hasher.finalize_xof().fill(&mut okm);
+        let mut forward = [0u8; 32];
+        let mut back = [0u8; 32];
+        forward.copy_from_slice(&okm[..32]);
+        back.copy_from_slice(&okm[32..]);
+        (forward, back)
+    }
+
+    /// Known-answer: fixed inputs, pinned output, checked against master's code.
+    #[test]
+    fn a_768_session_derives_the_bytes_master_derives() {
+        let secret = [0x11u8; 32];
+        let ek = [0x22u8; 1184];
+        let ct = [0x33u8; 1088];
+
+        let (master_forward, master_back) = master_derive_768(&secret, &ek, &ct);
+        let keys = derive::<MlKem768>(&secret, &ek, &ct);
+
+        assert_eq!(*keys.initiator_to_responder, master_forward);
+        assert_eq!(*keys.responder_to_initiator, master_back);
+        assert_eq!(
+            master_forward,
+            PINNED_768_INITIATOR_TO_RESPONDER,
+            "pinned value: {master_forward:02x?}"
+        );
+        assert_eq!(master_back, PINNED_768_RESPONDER_TO_INITIATOR);
+    }
+
+    const PINNED_768_INITIATOR_TO_RESPONDER: [u8; 32] = [
+        0xee, 0xb1, 0xe8, 0xe3, 0x6f, 0xe4, 0x69, 0x13, 0x2e, 0xa4, 0x26, 0x60, 0x3b, 0x3a, 0x87,
+        0x25, 0x96, 0x09, 0x2d, 0x3d, 0xb3, 0x0a, 0xd1, 0xbd, 0x88, 0x8e, 0xd4, 0xb5, 0xb8, 0xa3,
+        0x21, 0xfb,
+    ];
+    const PINNED_768_RESPONDER_TO_INITIATOR: [u8; 32] = [
+        0x13, 0x09, 0x56, 0x75, 0xa7, 0x96, 0xd4, 0x29, 0x5e, 0x10, 0x4a, 0xfe, 0x73, 0x56, 0x39,
+        0x0a, 0xcc, 0x43, 0x5d, 0x02, 0xef, 0xb0, 0xf0, 0x52, 0xd9, 0x9d, 0x40, 0xc8, 0x7d, 0x94,
+        0xaa, 0xfa,
+    ];
 
     #[tokio::test]
     async fn the_two_directions_get_different_keys() {

@@ -179,16 +179,19 @@ impl PqProtocol {
 
     /// The exchange a negotiated protocol name selects.
     ///
-    /// Anything that is not a known post-quantum name is ML-KEM-768. Negotiation
-    /// only ever returns a name this node offered, so the fallback is reached
-    /// only by a name this build never advertised, and the connection proceeds
-    /// on the single-KEM exchange it always had.
-    #[must_use]
-    pub fn for_protocol_name(name: &str) -> Self {
+    /// # Errors
+    ///
+    /// [`NodeError::PqHandshake`] for a name this build does not know. Mapping
+    /// it to ML-KEM-768 would turn an unknown name into a silent downgrade, so
+    /// the upgrade fails instead.
+    pub fn for_protocol_name(name: &str) -> Result<Self, NodeError> {
         match name {
-            PROTOCOL_1024 => Self::MlKem1024,
-            dual::PROTOCOL => Self::DualKem,
-            _ => Self::MlKem768,
+            PROTOCOL_1024 => Ok(Self::MlKem1024),
+            PROTOCOL => Ok(Self::MlKem768),
+            dual::PROTOCOL => Ok(Self::DualKem),
+            other => Err(NodeError::PqHandshake(format!(
+                "peer negotiated an unknown protocol: {other}"
+            ))),
         }
     }
 }
@@ -231,6 +234,34 @@ pub enum MlKem1024Policy {
     /// Offer ML-KEM-1024 only. No downgrade is possible, and a peer that
     /// speaks only 768 cannot connect.
     Required,
+}
+
+impl core::str::FromStr for MlKem1024Policy {
+    type Err = String;
+
+    /// Parses the operator-facing names `preferred`, `off` and `required`.
+    /// Case is ignored, as for `--dual-kem`.
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.to_ascii_lowercase().as_str() {
+            "preferred" => Ok(Self::Preferred),
+            "off" => Ok(Self::Off),
+            "required" => Ok(Self::Required),
+            other => Err(format!(
+                "unknown ML-KEM-1024 policy '{other}': expected preferred, off, or required"
+            )),
+        }
+    }
+}
+
+impl core::fmt::Display for MlKem1024Policy {
+    /// The operator-facing name, so a log line round-trips through `from_str`.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Self::Preferred => "preferred",
+            Self::Off => "off",
+            Self::Required => "required",
+        })
+    }
 }
 
 impl MlKem1024Policy {
@@ -368,7 +399,7 @@ where
     /// running the wrong exchange on a stream.
     fn upgrade_inbound(self, mut socket: C, protocol: Self::Info) -> Self::Future {
         async move {
-            let kind = PqProtocol::for_protocol_name(protocol.as_ref());
+            let kind = PqProtocol::for_protocol_name(protocol.as_ref())?;
             let keys = respond_for(kind, &mut socket).await?;
             self.stats.record_protocol(kind);
             Ok(PqStream::new(socket, keys, false))
@@ -391,7 +422,7 @@ where
     /// [`PqUpgrade::upgrade_inbound`].
     fn upgrade_outbound(self, mut socket: C, protocol: Self::Info) -> Self::Future {
         async move {
-            let kind = PqProtocol::for_protocol_name(protocol.as_ref());
+            let kind = PqProtocol::for_protocol_name(protocol.as_ref())?;
             let keys = initiate_for(kind, &mut socket).await?;
             self.stats.record_protocol(kind);
             Ok(PqStream::new(socket, keys, true))
@@ -406,9 +437,11 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     match kind {
-        PqProtocol::MlKem1024 => handshake::respond_with::<MlKem1024, _>(socket).await,
-        PqProtocol::MlKem768 => handshake::respond(socket).await,
-        PqProtocol::DualKem => dual_respond(socket).await,
+        // Boxed: the arms' futures are large (ML-KEM-1024 keys are inline), and
+        // an unboxed match would make every connection future that large.
+        PqProtocol::MlKem1024 => Box::pin(handshake::respond_with::<MlKem1024, _>(socket)).await,
+        PqProtocol::MlKem768 => Box::pin(handshake::respond(socket)).await,
+        PqProtocol::DualKem => Box::pin(dual_respond(socket)).await,
     }
 }
 
@@ -418,9 +451,9 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     match kind {
-        PqProtocol::MlKem1024 => handshake::initiate_with::<MlKem1024, _>(socket).await,
-        PqProtocol::MlKem768 => handshake::initiate(socket).await,
-        PqProtocol::DualKem => dual_initiate(socket).await,
+        PqProtocol::MlKem1024 => Box::pin(handshake::initiate_with::<MlKem1024, _>(socket)).await,
+        PqProtocol::MlKem768 => Box::pin(handshake::initiate(socket)).await,
+        PqProtocol::DualKem => Box::pin(dual_initiate(socket)).await,
     }
 }
 
@@ -583,17 +616,45 @@ mod tests {
     #[test]
     fn a_negotiated_name_selects_its_exchange() {
         assert_eq!(
-            PqProtocol::for_protocol_name(PROTOCOL_1024),
+            PqProtocol::for_protocol_name(PROTOCOL_1024).unwrap(),
             PqProtocol::MlKem1024
         );
         assert_eq!(
-            PqProtocol::for_protocol_name(PROTOCOL),
+            PqProtocol::for_protocol_name(PROTOCOL).unwrap(),
             PqProtocol::MlKem768
         );
         assert_eq!(
-            PqProtocol::for_protocol_name(dual::PROTOCOL),
+            PqProtocol::for_protocol_name(dual::PROTOCOL).unwrap(),
             PqProtocol::DualKem
         );
+    }
+
+    #[test]
+    fn an_unknown_name_is_refused_not_downgraded() {
+        // Mapping this to ML-KEM-768 would be a silent downgrade.
+        let error = PqProtocol::for_protocol_name("/maya/mlkem/9.9.9").expect_err("must refuse");
+        assert!(error.to_string().contains("unknown protocol"), "{error}");
+    }
+
+    #[test]
+    fn every_variant_indexes_its_own_counter() {
+        // `record_protocol` and `negotiated` index by discriminant, so ALL must
+        // list the variants in discriminant order or counts land in the wrong slot.
+        for (index, protocol) in PqProtocol::ALL.iter().enumerate() {
+            assert_eq!(*protocol as usize, index);
+        }
+        assert_eq!(PqProtocol::ALL.len(), PqProtocol::COUNT);
+    }
+
+    #[test]
+    fn the_mlkem1024_policy_parses_the_operator_names() {
+        assert_eq!("preferred".parse::<MlKem1024Policy>(), Ok(MlKem1024Policy::Preferred));
+        assert_eq!("OFF".parse::<MlKem1024Policy>(), Ok(MlKem1024Policy::Off));
+        assert_eq!("Required".parse::<MlKem1024Policy>(), Ok(MlKem1024Policy::Required));
+        assert!("strict".parse::<MlKem1024Policy>().is_err());
+        for policy in [MlKem1024Policy::Preferred, MlKem1024Policy::Off, MlKem1024Policy::Required] {
+            assert_eq!(policy.to_string().parse::<MlKem1024Policy>(), Ok(policy));
+        }
     }
 
     #[test]
