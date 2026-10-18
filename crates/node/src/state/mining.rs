@@ -408,6 +408,10 @@ pub fn seen_key(epoch: u64, header: &[u8; 32], nonce: u64) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    // Test scope: unwrapping is how a test reports a failure (Cargo.toml lint
+    // policy). Without this the lib-test target fails `lint_debt.sh`.
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     fn record() -> MiningRecord {
