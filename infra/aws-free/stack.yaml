@@ -1,0 +1,181 @@
+# maya-testnet-1 on AWS credits: four DAG-BFT validators, one per instance,
+# so the chain no longer stops when the owner's PC does. Quorum is n - f = 3,
+# so any one instance can fail or reboot without halting the chain.
+#
+# Graviton (arm64) because it is the cheapest free-plan-eligible shape: a node
+# measured ~90 MB resident on the PC (2026-10-18), so 1 GB is room enough.
+# v1 is a t4g.small because it also hosts the public services the PC seed ran
+# (gateway, bootstrap, explorer, status, chat relay, the tunnel connector).
+#
+# No SSH, no key pair: operators reach the hosts through SSM Session Manager.
+# Validator keys are generated and sealed on each host (setup-node.sh) and
+# never leave it.
+#
+# Region is fixed by the AWS project (new AWS experience): ap-southeast-2.
+AWSTemplateFormatVersion: "2010-09-09"
+Description: maya-testnet-1 validators on AWS (infra/aws-free)
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  SubnetA:
+    Type: AWS::EC2::Subnet::Id
+  SubnetB:
+    Type: AWS::EC2::Subnet::Id
+  SubnetC:
+    Type: AWS::EC2::Subnet::Id
+  ServicesInstanceType:
+    Type: String
+    Default: t4g.small
+  ValidatorInstanceType:
+    Type: String
+    Default: t4g.micro
+  # 20 GB: the BFT store keeps two epochs and bodies are pruned at 3600 deep;
+  # the PC seed's whole data dir was ~1 GB at height 71,457.
+  VolumeGiB:
+    Type: Number
+    Default: 20
+  AmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+
+Resources:
+  # Binaries and the genesis file, uploaded by the operator; the hosts read only.
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+
+  NodeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: read-artifacts
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [s3:GetObject]
+                Resource: !Sub "${ArtifactBucket.Arn}/release/*"
+              # The tunnel credentials go under secret/; v1 deletes them once read.
+              - Effect: Allow
+                Action: [s3:GetObject, s3:DeleteObject]
+                Resource: !Sub "${ArtifactBucket.Arn}/secret/*"
+              # Public outputs only: validator public keys and peer ids.
+              - Effect: Allow
+                Action: [s3:PutObject]
+                Resource: !Sub "${ArtifactBucket.Arn}/public/*"
+
+  NodeProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref NodeRole]
+
+  NodeSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: maya2c validators - libp2p only
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        # libp2p TCP, open so outside validators can dial any of the four.
+        - { IpProtocol: tcp, FromPort: 31100, ToPort: 31100, CidrIp: 0.0.0.0/0 }
+        - { IpProtocol: tcp, FromPort: 31100, ToPort: 31100, CidrIpv6: ::/0 }
+
+  # Node RPC between the four stays inside the group: v1's status page watches
+  # each validator, and RPC is never public (the gateway is, via the tunnel).
+  NodeRpcFromGroup:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref NodeSecurityGroup
+      IpProtocol: tcp
+      FromPort: 8545
+      ToPort: 8545
+      SourceSecurityGroupId: !Ref NodeSecurityGroup
+
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: !Ref AmiId
+        IamInstanceProfile: { Arn: !GetAtt NodeProfile.Arn }
+        SecurityGroupIds: [!Ref NodeSecurityGroup]
+        # IMDSv2 only: no token-less metadata reads from a compromised process.
+        MetadataOptions: { HttpTokens: required, HttpPutResponseHopLimit: 1 }
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs: { VolumeSize: !Ref VolumeGiB, VolumeType: gp3, Encrypted: true, DeleteOnTermination: true }
+        # Burstable credits never throttle a validator mid-epoch: "unlimited"
+        # bills surplus CPU instead (a few cents at this load) rather than
+        # slowing block production to the baseline.
+        CreditSpecification: { CpuCredits: unlimited }
+        UserData:
+          Fn::Base64: |
+            #!/bin/bash
+            set -euo pipefail
+            useradd --system --home-dir /var/lib/maya2c --shell /sbin/nologin maya || true
+            install -d -o maya -g maya -m 0700 /var/lib/maya2c
+            install -d -o root -g root -m 0755 /etc/maya2c
+            # 1 GB hosts: swap is the margin between a memory spike and the
+            # OOM killer taking a validator out of quorum.
+            if [ ! -f /swapfile ]; then
+              dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none
+              chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+              echo '/swapfile none swap defaults 0 0' >> /etc/fstab
+            fi
+            dnf install -y -q jq tar
+
+  V1:
+    Type: AWS::EC2::Instance
+    Properties:
+      LaunchTemplate: { LaunchTemplateId: !Ref LaunchTemplate, Version: !GetAtt LaunchTemplate.LatestVersionNumber }
+      InstanceType: !Ref ServicesInstanceType
+      SubnetId: !Ref SubnetA
+      Tags: [{ Key: Name, Value: maya2c-v1 }]
+  V2:
+    Type: AWS::EC2::Instance
+    Properties:
+      LaunchTemplate: { LaunchTemplateId: !Ref LaunchTemplate, Version: !GetAtt LaunchTemplate.LatestVersionNumber }
+      InstanceType: !Ref ValidatorInstanceType
+      SubnetId: !Ref SubnetB
+      Tags: [{ Key: Name, Value: maya2c-v2 }]
+  V3:
+    Type: AWS::EC2::Instance
+    Properties:
+      LaunchTemplate: { LaunchTemplateId: !Ref LaunchTemplate, Version: !GetAtt LaunchTemplate.LatestVersionNumber }
+      InstanceType: !Ref ValidatorInstanceType
+      SubnetId: !Ref SubnetC
+      Tags: [{ Key: Name, Value: maya2c-v3 }]
+  V4:
+    Type: AWS::EC2::Instance
+    Properties:
+      LaunchTemplate: { LaunchTemplateId: !Ref LaunchTemplate, Version: !GetAtt LaunchTemplate.LatestVersionNumber }
+      InstanceType: !Ref ValidatorInstanceType
+      SubnetId: !Ref SubnetA
+      Tags: [{ Key: Name, Value: maya2c-v4 }]
+
+Outputs:
+  Bucket:
+    Value: !Ref ArtifactBucket
+  Instances:
+    Value: !Join [",", [!Ref V1, !Ref V2, !Ref V3, !Ref V4]]
+  PrivateIps:
+    Value: !Join [",", [!GetAtt V1.PrivateIp, !GetAtt V2.PrivateIp, !GetAtt V3.PrivateIp, !GetAtt V4.PrivateIp]]
+  PublicIps:
+    Value: !Join [",", [!GetAtt V1.PublicIp, !GetAtt V2.PublicIp, !GetAtt V3.PublicIp, !GetAtt V4.PublicIp]]
