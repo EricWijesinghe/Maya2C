@@ -78,13 +78,7 @@ export default defineConfig({
       // Bing Webmaster Tools ownership check for maya2c.dev.
       head: [
         { tag: "meta", attrs: { name: "msvalidate.01", content: "76B55D3E70EB56CB2D46FE438641E2A4" } },
-        // Link previews (Slack, X, Discord, LinkedIn): Starlight emits the
-        // title and description, but no image unless one is named here.
-        { tag: "meta", attrs: { property: "og:image", content: "https://maya2c.dev/og-card.png" } },
-        { tag: "meta", attrs: { property: "og:image:width", content: "1200" } },
-        { tag: "meta", attrs: { property: "og:image:height", content: "630" } },
-        { tag: "meta", attrs: { property: "og:image:alt", content: "Maya2C — post-quantum layer-1 blockchain" } },
-        { tag: "meta", attrs: { name: "twitter:image", content: "https://maya2c.dev/og-card.png" } },
+        // Link-preview images are per section, set in src/components/Head.astro.
         { tag: "meta", attrs: { name: "theme-color", content: "#050b0f" } },
         // Structured data, so search engines know what the site is about:
         // the project, its source, and that the software is free.
@@ -100,7 +94,13 @@ export default defineConfig({
                 name: "Maya2C",
                 url: "https://maya2c.dev/",
                 logo: "https://maya2c.dev/apple-touch-icon.png",
-                sameAs: ["https://github.com/EricWijesinghe/Maya2C"],
+                sameAs: [
+                  "https://github.com/EricWijesinghe/Maya2C",
+                  "https://www.linkedin.com/in/ericwijesinghe",
+                  "https://www.facebook.com/EricWijesinghe2002/",
+                  "https://www.instagram.com/ericwijesinghe2022/",
+                  "https://eric.maya2c.dev",
+                ],
               },
               {
                 "@type": "WebSite",
