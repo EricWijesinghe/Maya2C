@@ -223,8 +223,11 @@ fn create_back_up_add_an_account_lock_and_unlock() {
 
     // Forgotten passphrase: recovery is reachable from Unlock, replaces the
     // stored wallet under a new passphrase, and derives the same address.
-    s.click(&button(&s, "Forgot passphrase? Recover with your recovery phrase"))
-        .unwrap();
+    s.click(&button(
+        &s,
+        "Forgot passphrase? Recover with your recovery phrase",
+    ))
+    .unwrap();
     let fields = s.wait_for("input[type=password]", 2, WAIT).unwrap();
     s.type_text(&fields[0], "a brand new passphrase").unwrap();
     s.type_text(&fields[1], "a brand new passphrase").unwrap();
@@ -234,13 +237,20 @@ fn create_back_up_add_an_account_lock_and_unlock() {
     // phrase is checked, leaving an earlier handle stale (seen 1 run in 5).
     let deadline = std::time::Instant::now() + WAIT;
     while !s.enabled(&button(&s, "Recover wallet")).unwrap_or(false) {
-        assert!(std::time::Instant::now() < deadline, "the phrase never validated");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the phrase never validated"
+        );
         std::thread::sleep(Duration::from_millis(100));
     }
     s.click(&button(&s, "Recover wallet")).unwrap();
     text_when(&s, ".accounts button", 0, |t| t.contains("Account 0"));
     s.click(&action(&s, "Receive")).unwrap();
     let recovered = text_when(&s, ".copy-row code.address", 0, |t| t.trim().len() == 64);
-    assert_eq!(recovered.trim(), address.trim(), "recovery derives the same account");
+    assert_eq!(
+        recovered.trim(),
+        address.trim(),
+        "recovery derives the same account"
+    );
     s.end().unwrap();
 }
