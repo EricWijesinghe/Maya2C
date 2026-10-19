@@ -331,3 +331,22 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
         with:
           command: check advisories bans licenses sources
+
+  # ---------------------------------------------------------------------------
+  # Report-only. `cargo vet` is set up in supply-chain/ but has not yet been
+  # made to block: 1,068 registry crates are exempted rather than audited, so a
+  # gate now would fail every pull request. Flip continue-on-error off once the
+  # exemptions are pruned and new crates are recorded in audits.toml.
+  vet:
+    name: supply chain (cargo vet, report-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # Pinned to the release the local supply-chain/ files were written with.
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2
+        with:
+          tool: cargo-vet@0.10.0
+      - name: Check every dependency is audited or exempted
+        run: cargo vet

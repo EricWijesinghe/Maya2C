@@ -182,6 +182,8 @@ export default defineConfig({
             { label: "Mining and validators", link: "/guides/mining" },
             { label: "Run a validator", link: "/guides/validators" },
             { label: "Break it", link: "/guides/break-it" },
+            { label: "Security Hall of Fame", link: "/guides/security-hall-of-fame" },
+            { label: "Contributors & badges", link: "/guides/contributors" },
             { label: "API reference", link: "/guides/api" },
             { label: "Wallet integration", link: "/guides/wallet" },
             { label: "Compiling a contract", link: "/guides/contracts" },
