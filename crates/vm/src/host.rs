@@ -79,8 +79,8 @@ pub struct OracleValue {
 /// that — a "current price" wants to come from somewhere live. It must not.
 /// Both read committed chain state and nothing else.
 pub trait HostState {
-    /// Balance of `address` in committed state.
-    fn balance_of(&self, address: &Address) -> u64;
+    /// Balance of `address` in committed state, 256-bit (ADR-046).
+    fn balance_of(&self, address: &Address) -> maya_amount::Amount;
 
     /// The account that signed the transaction making this call (ADR-026).
     ///
@@ -157,7 +157,7 @@ pub trait HostState {
 #[derive(Debug, Default, Clone)]
 pub struct MemoryState {
     /// Account balances.
-    pub balances: std::collections::BTreeMap<Address, u64>,
+    pub balances: std::collections::BTreeMap<Address, maya_amount::Amount>,
     /// Contract storage, keyed by contract then key.
     pub storage: std::collections::BTreeMap<(ContractId, Vec<u8>), Vec<u8>>,
     /// Events emitted so far.
@@ -184,6 +184,12 @@ impl MemoryState {
 
     /// Credits an account.
     pub fn set_balance(&mut self, address: Address, balance: u64) {
+        self.balances
+            .insert(address, maya_amount::Amount::from_u64(balance));
+    }
+
+    /// Credits an account with any 256-bit balance.
+    pub fn set_balance_amount(&mut self, address: Address, balance: maya_amount::Amount) {
         self.balances.insert(address, balance);
     }
 
@@ -198,8 +204,11 @@ impl MemoryState {
 }
 
 impl HostState for MemoryState {
-    fn balance_of(&self, address: &Address) -> u64 {
-        self.balances.get(address).copied().unwrap_or(0)
+    fn balance_of(&self, address: &Address) -> maya_amount::Amount {
+        self.balances
+            .get(address)
+            .copied()
+            .unwrap_or(maya_amount::Amount::ZERO)
     }
 
     fn caller(&self) -> Option<Address> {

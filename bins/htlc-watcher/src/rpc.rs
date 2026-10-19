@@ -92,7 +92,11 @@ impl SwapChain for RpcChain {
             .request("get_balance", rpc_params![hex::encode(address)])
             .await
             .map_err(|e| self.failure("get_balance", e))?;
-        Ok(Some((account.balance, account.nonce)))
+        // Still u64 here (ADR-046 Priority 2). Refused above u64::MAX, not truncated.
+        let balance = u64::try_from(account.balance).map_err(|_| {
+            WatcherError::Refused("balance exceeds u64; watcher not yet widened (ADR-046)".into())
+        })?;
+        Ok(Some((balance, account.nonce)))
     }
 
     async fn fees(&self) -> Result<Option<Fees>> {

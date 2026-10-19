@@ -14,6 +14,10 @@
 //! - **Receive** — the account's address and a QR code of its `maya:` URI
 //! - **Sent** — the moment a transfer leaves, with its id
 
+// The core's amount parser and formatter, shared by path: the UI accepts and
+// shows exactly the strings the core and the IPC boundary accept.
+#[path = "../../core/src/amount.rs"]
+mod amount;
 mod bridge;
 mod camera;
 mod receive;

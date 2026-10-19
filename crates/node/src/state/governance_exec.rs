@@ -28,10 +28,13 @@
 //! It cannot reach native code at all. There is no key whose value is a
 //! program.
 
+use maya_governance::Amount;
 use maya_governance::error::GovernanceError;
 use maya_governance::params::{ParameterChange, ParameterKey};
 use maya_governance::proposal::{Proposal, ProposalState};
 use maya_governance::tally::Choice;
+use maya_stateless_core::amount::to_amount;
+use primitive_types::U256;
 
 use crate::consensus::difficulty::work_from_target;
 use crate::core::governance_payload::{
@@ -125,16 +128,16 @@ impl StateDB {
 
     /// One address's total voting weight at `height`.
     ///
-    /// Locked stake plus decayed work credit. Saturating, because a weight
-    /// above `u64::MAX` is already more than the tally accepts and wrapping
-    /// would hand the wrapper either nothing or everything.
+    /// Locked stake plus decayed work credit, 256-bit (ADR-046). Saturating,
+    /// because a weight past 2^256 − 1 is already more than the tally accepts
+    /// and wrapping would hand the wrapper either nothing or everything.
     ///
     /// # Errors
     ///
     /// Returns [`NodeError::Storage`] on a read failure.
-    pub fn voting_power(&self, address: &Address, height: u64) -> Result<u128> {
-        let locked = u128::from(self.stake_lock(address)?.amount);
-        Ok(locked.saturating_add(self.work_credit(address, height)?))
+    pub fn voting_power(&self, address: &Address, height: u64) -> Result<U256> {
+        let locked = self.stake_lock(address)?.amount;
+        Ok(locked.saturating_add(U256::from(self.work_credit(address, height)?)))
     }
 
     // ------------------------------------------------------- overlay access
@@ -208,7 +211,7 @@ impl StateDB {
         context: BlockContext,
     ) -> Result<()> {
         Self::charge_governance_slot(overlay)?;
-        if request.amount == 0 {
+        if request.amount.is_zero() {
             return Err(NodeError::Governance {
                 reason: "a lock of nothing carries no weight".to_string(),
             });
@@ -281,7 +284,7 @@ impl StateDB {
         })?;
 
         let key = lock_key(sender);
-        if remaining == 0 {
+        if remaining.is_zero() {
             // An absent record and a stored zero must not both be reachable, or
             // two states with identical stake would have different roots.
             Self::delete_record(overlay, key);
@@ -391,7 +394,9 @@ impl StateDB {
         // settles, whatever the outcome. Charging only for rejection would make
         // proposing an unpopular change expensive, which is the opposite of
         // what a governance system wants.
-        let deposit = self.parameter(overlay, ParameterKey::GovernanceProposalDeposit)?;
+        // The parameter is a bounded u64 rule (ADR-048); the coin it moves is
+        // 256-bit like every balance.
+        let deposit = U256::from(self.parameter(overlay, ParameterKey::GovernanceProposalDeposit)?);
         self.debit_native(overlay, sender, deposit)?;
 
         Self::put_record(
@@ -435,14 +440,15 @@ impl StateDB {
         let required = record.proposal.lock_required_until();
         let lock = self.lock_through(overlay, sender)?;
         let work = self.work_through(overlay, sender)?.value_at(context.height);
-        if lock.amount > 0 && lock.unlock_height < required {
+        if !lock.amount.is_zero() && lock.unlock_height < required {
             return Err(governance_error(GovernanceError::LockExpiresTooSoon {
                 unlock_height: lock.unlock_height,
                 required,
             }));
         }
 
-        let weight = u128::from(lock.amount).saturating_add(work);
+        // Locked coin is 256-bit (ADR-046); work credit is a u128 count.
+        let weight = to_amount(lock.amount).saturating_add(Amount::from_u128(work));
         record.proposal = record
             .proposal
             .vote(choice, weight, context.height)
@@ -483,11 +489,11 @@ impl StateDB {
     /// return, so a proposal that settles and is later re-visited by the
     /// end-of-block pass cannot pay its author twice.
     fn release_deposit(&self, overlay: &mut Overlay, record: &mut ProposalRecord) -> Result<()> {
-        if record.deposit == 0 {
+        if record.deposit.is_zero() {
             return Ok(());
         }
         let amount = record.deposit;
-        record.deposit = 0;
+        record.deposit = U256::zero();
         self.credit_native(overlay, &record.proposer, amount)
     }
 
@@ -503,7 +509,7 @@ impl StateDB {
         overlay: &mut Overlay,
         context: BlockContext,
     ) -> Result<()> {
-        let eligible = u128::from(self.totals_through(overlay)?.locked);
+        let eligible = to_amount(self.totals_through(overlay)?.locked);
         let quorum_bps = maya_governance::limits::MIN_QUORUM_BPS;
         let approval_bps = maya_governance::limits::MIN_APPROVAL_BPS;
 
@@ -536,7 +542,7 @@ impl StateDB {
             // proposal writes nothing and its state root is unchanged by the
             // pass having run.
             if record.proposal != before
-                || record.deposit == 0 && before.state != record.proposal.state
+                || record.deposit.is_zero() && before.state != record.proposal.state
             {
                 Self::put_record(overlay, key, record.encode());
             }
@@ -579,36 +585,41 @@ impl StateDB {
     /// deposits rather than in an escrow account, so there is no counterparty
     /// to credit — the supply is unchanged and the coin is simply not spendable
     /// while a record accounts for it.
-    fn debit_native(&self, overlay: &mut Overlay, address: &Address, amount: u64) -> Result<()> {
-        if amount == 0 {
+    fn debit_native(&self, overlay: &mut Overlay, address: &Address, amount: U256) -> Result<()> {
+        if amount.is_zero() {
             return Ok(());
         }
         let mut account = match overlay.accounts.get(address) {
             Some(existing) => *existing,
             None => self.get_account(address)?,
         };
-        account.balance = maya_ledger_math::debit(account.balance, amount).ok_or_else(|| {
-            NodeError::InsufficientBalance {
-                address: hex::encode(address),
-                required: amount,
-                available: account.balance,
-            }
-        })?;
+        let required = amount;
+        let available = account.balance;
+        account.balance =
+            available
+                .checked_sub(required)
+                .ok_or_else(|| NodeError::InsufficientBalance {
+                    address: hex::encode(address),
+                    required,
+                    available,
+                })?;
         overlay.accounts.insert(*address, account);
         Ok(())
     }
 
     /// Returns native coin to an account's spendable balance.
-    fn credit_native(&self, overlay: &mut Overlay, address: &Address, amount: u64) -> Result<()> {
-        if amount == 0 {
+    fn credit_native(&self, overlay: &mut Overlay, address: &Address, amount: U256) -> Result<()> {
+        if amount.is_zero() {
             return Ok(());
         }
         let mut account = match overlay.accounts.get(address) {
             Some(existing) => *existing,
             None => self.get_account(address)?,
         };
-        account.balance =
-            maya_ledger_math::credit(account.balance, amount).ok_or(NodeError::BalanceOverflow)?;
+        account.balance = account
+            .balance
+            .checked_add(amount)
+            .ok_or(NodeError::BalanceOverflow)?;
         overlay.accounts.insert(*address, account);
         Ok(())
     }

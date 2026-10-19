@@ -105,7 +105,7 @@ fn signed_transaction(key: &HybridSigningKey) -> Transaction {
     let mut tx = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount: 1_000,
+            amount: primitive_types::U256::from(1_000),
             recipient: [9u8; 32],
         }],
         0,
@@ -514,11 +514,11 @@ fn moving_value_between_outputs_changes_the_signed_payload() {
         vec![],
         vec![
             TxOutput {
-                amount: 100,
+                amount: primitive_types::U256::from(100),
                 recipient: [1u8; 32],
             },
             TxOutput {
-                amount: 200,
+                amount: primitive_types::U256::from(200),
                 recipient: [2u8; 32],
             },
         ],
@@ -528,11 +528,11 @@ fn moving_value_between_outputs_changes_the_signed_payload() {
         vec![],
         vec![
             TxOutput {
-                amount: 200,
+                amount: primitive_types::U256::from(200),
                 recipient: [1u8; 32],
             },
             TxOutput {
-                amount: 100,
+                amount: primitive_types::U256::from(100),
                 recipient: [2u8; 32],
             },
         ],
@@ -558,11 +558,11 @@ fn reordering_outputs_invalidates_an_existing_signature() {
         vec![],
         vec![
             TxOutput {
-                amount: 100,
+                amount: primitive_types::U256::from(100),
                 recipient: [1u8; 32],
             },
             TxOutput {
-                amount: 200,
+                amount: primitive_types::U256::from(200),
                 recipient: [2u8; 32],
             },
         ],

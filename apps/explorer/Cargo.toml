@@ -22,6 +22,8 @@ path = "src/main.rs"
 # Reused rather than redeclared: the node already defines the wire types the
 # explorer displays, so depending on it keeps the two from drifting apart.
 custom-l1-node = { path = "../../crates/node" }
+# ADR-046: money is a U256 (the node's wire amounts, decimal strings).
+primitive-types.workspace = true
 # The shared tokens (Master Prompt 29): one palette for every interface,
 # checked against WCAG AA in its own tests.
 maya-design-system = { path = "../../crates/design-system" }

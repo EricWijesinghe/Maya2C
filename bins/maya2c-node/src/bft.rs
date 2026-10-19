@@ -13,9 +13,10 @@ use std::time::{Duration, Instant};
 use custom_l1_node::consensus::Chain;
 use custom_l1_node::consensus::bft::attest::CheckpointBook;
 use custom_l1_node::consensus::bft::catchup::{self, Position};
+use custom_l1_node::consensus::bft::certsync;
 use custom_l1_node::consensus::bft::remote::{DEFAULT_DEADLINE, RemoteSigner, ValidatorKey};
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
-use custom_l1_node::crypto::keys::{self, SigningKey, VerifyingKey};
+use custom_l1_node::crypto::keys::{self, VerifyingKey};
 use custom_l1_node::genesis::BftGenesis;
 use custom_l1_node::metrics::Metrics;
 use custom_l1_node::network::{Mempool, NodeEvent, NodeHandle};
@@ -65,28 +66,12 @@ const BUILDER_FOLLOW_EVERY: u32 = 30;
 const DROP_REPORT_INTERVAL: Duration = Duration::from_secs(10);
 
 /// Where the per-epoch safety logs live.
-const BFT_DIR: &str = "bft";
+pub(super) const BFT_DIR: &str = "bft";
 
-/// Writes a fresh ML-DSA-65 validator key to `path` (hex, refusing to
-/// overwrite) and prints the public key an operator puts in genesis.
-pub(super) fn generate_validator_key(path: &Path) -> Result<(), Box<dyn Error>> {
-    let key = keys::generate_signing_key()?;
-    let secret = Zeroizing::new(hex::encode(key.to_bytes().as_slice()));
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options
-        .open(path)
-        .map_err(|e| format!("{}: {e} (refusing to overwrite a key)", path.display()))?;
-    std::io::Write::write_all(&mut file, secret.as_bytes())?;
-    file.sync_all()?;
-    println!("{}", hex::encode(key.verifying_key().to_bytes()));
-    Ok(())
-}
+/// Replays a node may make before it gives up on reaching the engine's
+/// window. Each replay takes the peer's head as of its start, so a peer that
+/// moved on while the logs were fetched needs another round (ADR-052).
+const SYNC_ROUNDS: u32 = 3;
 
 /// Writes this node's channel identity for the remote signer (a 32-byte
 /// seed, hex, 0600, never overwritten) and prints the public key the signer
@@ -146,21 +131,6 @@ pub(super) fn remote_signer(
         DEFAULT_DEADLINE,
     )?;
     Ok(ValidatorKey::Remote(Arc::new(remote)))
-}
-
-/// Reads a key written by [`generate_validator_key`].
-pub(super) fn load_validator_key(path: &Path) -> Result<Arc<SigningKey>, Box<dyn Error>> {
-    let text = Zeroizing::new(
-        std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?,
-    );
-    let bytes = Zeroizing::new(hex::decode(text.trim())?);
-    let array: Zeroizing<[u8; keys::SECRET_KEY_LEN]> = Zeroizing::new(
-        bytes
-            .as_slice()
-            .try_into()
-            .map_err(|_| format!("{}: not an ML-DSA-65 secret key", path.display()))?,
-    );
-    Ok(Arc::new(SigningKey::from_bytes(&array)?))
 }
 
 /// Builds the engine setup from genesis and an optional validator key.
@@ -334,6 +304,61 @@ pub(super) async fn catch_up_from_any(
     }
 }
 
+/// Catches the node up by certificate replay (ADR-052) from the first source
+/// that answers, and repeats while the node is still outside the engine's
+/// window. Returns the source used and the replayed engine with the frames
+/// its opening produced. The engine is a full validator from the start: no
+/// checkpoint and no follower mode.
+///
+/// # Errors
+///
+/// When no source answers, or a source refuses evidence, or the node cannot
+/// reach the window in [`SYNC_ROUNDS`] replays.
+pub(super) async fn sync_certificates(
+    urls: &[String],
+    chain: &Arc<Mutex<Chain>>,
+    setup: &BftSetup,
+    data_dir: &Path,
+) -> Result<(String, BftDriver, Step), Box<dyn Error>> {
+    let dir = data_dir.join(BFT_DIR);
+    let mut last_error = String::from("no source answered");
+    for url in urls {
+        let source = RpcBootstrapSource::new(url, tokio::runtime::Handle::current())?;
+        for _ in 0..SYNC_ROUNDS {
+            // Blocking RPC and disk work, off the async workers. `block_in_place`
+            // needs the multi-thread runtime `main` runs on; on a current-thread
+            // runtime it panics.
+            let synced = tokio::task::block_in_place(|| {
+                let mut guard = lock_chain(chain);
+                certsync::sync(&mut guard, &source, setup, &dir, now_ms(), certsync::PAGE)
+            });
+            let synced = match synced {
+                Ok(synced) => synced,
+                Err(e) => {
+                    last_error = format!("{url}: {e}");
+                    break;
+                }
+            };
+            if synced.skipped > 0 {
+                println!(
+                    "catch-up:    skipped {} undecodable record(s)",
+                    synced.skipped
+                );
+            }
+            let (height, tip, nonce) = {
+                let c = lock_chain(chain);
+                let nonce = c.get(&c.tip()).map_or(0, |b| b.header.nonce);
+                (c.height(), c.tip(), nonce)
+            };
+            if within_engine_window(url, height, tip, nonce).await {
+                return Ok((url.clone(), synced.driver, synced.step));
+            }
+            last_error = format!("{url}: still outside the engine's window after a replay");
+        }
+    }
+    Err(last_error.into())
+}
+
 /// Startup catch-up for a node that was down longer than the engine's
 /// window (`--catch-up-from`): imports to the peer's checkpoint, then turns
 /// the driver into an attested follower so it votes and proposes again.
@@ -475,7 +500,7 @@ impl Feed {
         matches!(
             &tx.kind,
             TxKind::Staking(action)
-                if matches!(**action, StakingAction::Register { bond, .. } if bond < self.min_register_bond)
+                if matches!(**action, StakingAction::Register { bond, .. } if bond < primitive_types::U256::from(self.min_register_bond))
         )
     }
 
@@ -768,7 +793,7 @@ mod tests {
     fn register(bond: u64) -> Transaction {
         tx(TxKind::Staking(Box::new(StakingAction::Register {
             key: Box::new([0; PUBLIC_KEY_LEN]),
-            bond,
+            bond: primitive_types::U256::from(bond),
             commission_bps: 0,
             possession: Box::new([0; SIGNATURE_LENGTH]),
         })))
@@ -782,7 +807,7 @@ mod tests {
         // Other staking actions and transfers pass: the floor is about seats.
         let delegate = tx(TxKind::Staking(Box::new(StakingAction::Delegate {
             validator: [1; 32],
-            amount: 1,
+            amount: primitive_types::U256::from(1),
         })));
         assert!(!feed.below_floor(&delegate));
         assert!(!feed.below_floor(&tx(TxKind::Transfer)));

@@ -37,6 +37,7 @@
 //! adapters over an operator-supplied [`MarketFeed`]; with no feed configured
 //! they answer `503` rather than fabricating a quote.
 
+use primitive_types::U256;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -227,7 +228,10 @@ fn json_response<T: serde::Serialize>(value: &T) -> Response<Full<Bytes>> {
 }
 
 /// Answers a supply request, projecting the report through `select`.
-fn supply_response(state: &MarketState, select: fn(&SupplyReport) -> u64) -> Response<Full<Bytes>> {
+fn supply_response(
+    state: &MarketState,
+    select: fn(&SupplyReport) -> U256,
+) -> Response<Full<Bytes>> {
     match state.supply() {
         // A bare decimal with no newline, no JSON, no units suffix. Both
         // aggregators parse the whole body as a number.
@@ -326,7 +330,7 @@ mod tests {
                 .put_account(
                     address,
                     &Account {
-                        balance: *balance,
+                        balance: U256::from(*balance),
                         nonce: 0,
                     },
                 )

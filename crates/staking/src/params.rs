@@ -1,6 +1,8 @@
 //! Staking parameters. Consensus: every node must hold the same values, so
 //! they come from genesis and change only through governance.
 
+use maya_amount::Amount;
+
 /// Basis points denominator.
 pub const BPS: u64 = 10_000;
 
@@ -8,9 +10,9 @@ pub const BPS: u64 = 10_000;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Params {
     /// Least self bond a validator may register or remain active with.
-    pub min_self_bond: u64,
+    pub min_self_bond: Amount,
     /// Least amount one delegation may add.
-    pub min_delegation: u64,
+    pub min_delegation: Amount,
     /// Largest active set. The DAG-BFT engine's committee is a `u16`, and
     /// every validator verifies every other's signatures each round, so this
     /// bounds per-round work, not only governance.
@@ -35,8 +37,8 @@ impl Params {
     /// Devnet and test defaults. Not mainnet values: those come from the
     /// economics work (Master Prompt 18) and genesis.
     pub const DEVNET: Self = Self {
-        min_self_bond: 1_000,
-        min_delegation: 10,
+        min_self_bond: Amount::from_u64(1_000),
+        min_delegation: Amount::from_u64(10),
         max_validators: 100,
         unbonding_epochs: 7,
         double_sign_slash_bps: 5_000,
@@ -54,15 +56,17 @@ impl Params {
             && (self.downtime_threshold_bps as u64) <= BPS
             && (self.max_commission_bps as u64) <= BPS
             && self.max_validators > 0
-            && self.min_self_bond > 0
+            && !self.min_self_bond.is_zero()
     }
 }
 
-/// `amount × bps / 10 000`, rounded down, in `u128` so it cannot overflow.
+/// `amount × bps / 10 000`, rounded down, through a 512-bit product so it
+/// cannot overflow.
 #[must_use]
-pub(crate) fn bps_of(amount: u64, bps: u16) -> u64 {
-    let product = u128::from(amount) * u128::from(bps) / u128::from(BPS);
+pub(crate) fn bps_of(amount: Amount, bps: u16) -> Amount {
     // `bps ≤ BPS` for every caller (checked by `Params::is_valid`), so the
-    // result is at most `amount`.
-    u64::try_from(product).unwrap_or(amount)
+    // result is at most `amount`; the fallback is unreachable.
+    amount
+        .mul_div(Amount::from_u64(u64::from(bps)), Amount::from_u64(BPS))
+        .unwrap_or(amount)
 }

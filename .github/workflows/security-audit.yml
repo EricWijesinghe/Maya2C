@@ -184,6 +184,22 @@ jobs:
       # batch moves the counter forward, equivocation needs real conflict.
       - run: cargo kani -p maya-iot-anchor --output-format terse
 
+      # Every balance is a maya-amount. The full crate takes over half an
+      # hour, so CI runs the long-division step and the u128-model proofs of
+      # add, subtract and order, and the multiplication step and rows
+      # (seconds each); the rest runs by hand (ADR-048).
+      - run: >-
+          cargo kani -p maya-amount --output-format terse
+          --harness long_division_step_keeps_the_invariant
+          --harness checked_add_matches_the_u128_model
+          --harness checked_sub_matches_the_u128_model
+          --harness order_matches_the_u128_model
+          --harness mul_step_fits_u128
+          --harness mul_row_0_adds_exactly
+          --harness mul_row_1_adds_exactly
+          --harness mul_row_2_adds_exactly
+          --harness mul_row_3_adds_exactly
+
   # ---------------------------------------------------------------------------
   geiger:
     name: unsafe accounting
@@ -321,3 +337,22 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
         with:
           command: check advisories bans licenses sources
+
+  # ---------------------------------------------------------------------------
+  # Report-only. `cargo vet` is set up in supply-chain/ but has not yet been
+  # made to block: 1,068 registry crates are exempted rather than audited, so a
+  # gate now would fail every pull request. Flip continue-on-error off once the
+  # exemptions are pruned and new crates are recorded in audits.toml.
+  vet:
+    name: supply chain (cargo vet, report-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # Pinned to the release the local supply-chain/ files were written with.
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2
+        with:
+          tool: cargo-vet@0.10.0
+      - name: Check every dependency is audited or exempted
+        run: cargo vet

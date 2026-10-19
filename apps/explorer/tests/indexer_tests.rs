@@ -65,7 +65,7 @@ impl StubChain {
                     nonce: index as u64,
                     outputs: vec![custom_l1_node::rpc::OutputInfo {
                         recipient: "bb".repeat(32),
-                        amount: 100,
+                        amount: primitive_types::U256::from(100),
                     }],
                     signed: true,
                     suite: None,

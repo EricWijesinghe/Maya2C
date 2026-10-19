@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maya2C Network Live</title>
+<meta name="description" content="maya-testnet-1 as it happens: every connected node, every voting validator, every block, updated each second.">
+<link rel="icon" href="/brand/emblem.png" type="image/png">
+<style>
+  /* Same mission-control palette as the status page: teal over a dark console,
+     bronze for validators. System fonts, no third-party requests. */
+  :root {
+    color-scheme: dark;
+    --void:#04110f; --glass:rgba(12,34,32,.6); --edge:rgba(45,212,191,.16); --text:#e8f6f2; --muted:#8fb3ab;
+    --blue:#2dd4bf; --hi:#9ff0e0; --teal:#2dd4bf; --gold:#d4a06a; --signal:#f5b04a; --ok:#5eead4; --bad:#ff6b7a;
+    --display:"Segoe UI Variable Display","Segoe UI",system-ui,sans-serif; --sans:"Segoe UI",system-ui,sans-serif; --mono:ui-monospace,SFMono-Regular,Consolas,monospace;
+    --spring:cubic-bezier(.34,1.56,.64,1);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: radial-gradient(1200px 700px at 50% -10%, #0c2a27 0%, var(--void) 60%); color: var(--text); font: 400 15px/1.55 var(--sans); min-height: 100vh; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 24px max(16px,3vw) 64px; }
+  header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  header a.brand { color: var(--text); text-decoration: none; font: 300 21px var(--display); display: flex; gap: 10px; align-items: center; }
+  header a.brand img { filter: drop-shadow(0 0 10px rgba(63,210,224,.5)); }
+  header a.brand b { font-weight: 600; }
+  .pill { padding: 7px 14px; border-radius: 999px; background: var(--glass); border: 1px solid var(--edge); font: 400 12.5px var(--mono); color: var(--muted); display: inline-flex; gap: 8px; align-items: center; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 10px var(--ok); animation: beat 1.2s ease-in-out infinite; }
+  .pill.stale .dot { background: var(--signal); box-shadow: 0 0 10px var(--signal); }
+  .pill.down .dot { background: var(--bad); box-shadow: 0 0 10px var(--bad); animation: none; }
+  @keyframes beat { 50% { transform: scale(1.6); opacity: .55; } }
+  nav.links { display: flex; gap: 8px; }
+  nav.links a { color: var(--muted); text-decoration: none; font-size: 13px; padding: 6px 10px; border-radius: 8px; }
+  nav.links a:hover { color: var(--text); background: var(--glass); }
+
+  .stage { position: relative; margin-top: 18px; border-radius: 22px; border: 1px solid var(--edge); background: radial-gradient(closest-side, rgba(45,212,191,.09), transparent 70%), rgba(4,17,15,.6); overflow: hidden; }
+  canvas#sky { display: block; width: 100%; height: min(62vh, 560px); cursor: crosshair; }
+  .legend { position: absolute; left: 14px; bottom: 12px; display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); pointer-events: none; }
+  .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+  .toast-zone { position: absolute; right: 14px; top: 14px; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none; }
+  .toast { background: rgba(10,18,36,.86); border: 1px solid var(--edge); border-left: 3px solid var(--teal); padding: 8px 12px; border-radius: 10px; font-size: 13px; animation: in .5s var(--spring); max-width: 300px; }
+  .toast.left { border-left-color: var(--muted); }
+  .toast.node-down { border-left-color: var(--bad); }
+  .toast.epoch { border-left-color: var(--gold); }
+  @keyframes in { from { transform: translateX(30px); opacity: 0; } }
+  .tip { position: absolute; pointer-events: none; background: rgba(8,14,30,.94); border: 1px solid var(--edge); border-radius: 10px; padding: 8px 11px; font-size: 12.5px; display: none; max-width: 260px; }
+  .tip b { font-family: var(--mono); font-weight: 400; color: var(--hi); }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 16px; }
+  .tile { background: var(--glass); border: 1px solid var(--edge); border-radius: 16px; padding: 14px 16px; position: relative; overflow: hidden; cursor: pointer; transition: transform .25s var(--spring), border-color .2s; }
+  .tile:hover { transform: translateY(-2px); border-color: rgba(63,210,224,.4); }
+  .tile .k { font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .tile .v { font: 300 28px/1.2 var(--display); margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .tile .s { font-size: 12px; color: var(--muted); }
+  .tile.flash { animation: flash .6s ease-out; }
+  @keyframes flash { from { box-shadow: inset 0 0 0 1px var(--teal), 0 0 24px rgba(63,210,224,.35); } }
+  .tile svg { position: absolute; right: 8px; bottom: 6px; width: 46%; height: 34px; opacity: .8; }
+
+  .cols { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 16px; margin-top: 16px; }
+  @media (max-width: 860px) { .cols { grid-template-columns: 1fr; } }
+  .card { background: var(--glass); border: 1px solid var(--edge); border-radius: 18px; padding: 16px; }
+  .card h2 { margin: 0 0 10px; font: 400 16px var(--display); display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .card h2 small { font: 400 12px var(--sans); color: var(--muted); }
+  .rows { display: grid; gap: 8px; }
+  .row { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 10px; border-radius: 12px; background: rgba(255,255,255,.025); cursor: pointer; transition: background .2s; animation: in .45s var(--spring); }
+  .row:hover, .row.sel { background: rgba(63,210,224,.09); }
+  .badge { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font: 600 12px var(--mono); }
+  .badge.val { background: radial-gradient(circle at 35% 30%, #fff3d0, var(--gold) 55%, #6d5527); color: #2b1e05; }
+  .badge.peer { background: radial-gradient(circle at 35% 30%, #c8fbff, var(--teal) 55%, #0b5560); color: #03262b; }
+  .badge.off { background: #2a2f44; color: var(--muted); }
+  .row .main { min-width: 0; }
+  .row .main div:first-child { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .main div:last-child { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .right { text-align: right; font: 400 12.5px var(--mono); color: var(--muted); }
+  .chip { display: inline-block; font: 400 11px var(--mono); padding: 1px 7px; border-radius: 999px; border: 1px solid var(--edge); color: var(--hi); margin-left: 6px; }
+  .chip.ws { color: var(--teal); }
+  .chip.warn { color: var(--signal); }
+  .lag { height: 4px; border-radius: 4px; background: rgba(255,255,255,.07); margin-top: 6px; overflow: hidden; }
+  .lag span { display: block; height: 100%; background: linear-gradient(90deg, var(--ok), var(--teal)); transition: width .6s; }
+  .feed { display: grid; gap: 6px; max-height: 360px; overflow: auto; }
+  .ev { display: grid; grid-template-columns: 64px 12px minmax(0,1fr); gap: 8px; align-items: center; font-size: 13px; animation: in .45s var(--spring); }
+  .ev time { font: 400 11.5px var(--mono); color: var(--muted); }
+  .ev i { width: 8px; height: 8px; border-radius: 50%; background: var(--teal); }
+  .ev.left i { background: var(--muted); } .ev.node-down i { background: var(--bad); } .ev.node-up i { background: var(--ok); } .ev.epoch i { background: var(--gold); }
+  .empty { color: var(--muted); font-size: 13px; padding: 8px 2px; }
+
+  .learn { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 16px; }
+  .learn button { all: unset; cursor: pointer; background: var(--glass); border: 1px solid var(--edge); border-radius: 16px; padding: 14px 16px; transition: border-color .2s, transform .25s var(--spring); }
+  .learn button:hover, .learn button:focus-visible { border-color: rgba(217,185,122,.5); transform: translateY(-2px); }
+  .learn b { display: block; font: 400 15px var(--display); }
+  .learn span { font-size: 13px; color: var(--muted); }
+  .learn p { margin: 8px 0 0; font-size: 13.5px; display: none; }
+  .learn button[aria-expanded="true"] p { display: block; }
+
+  .drawer { position: fixed; right: 16px; bottom: 16px; width: min(380px, calc(100vw - 32px)); background: rgba(8,14,30,.96); border: 1px solid var(--edge); border-radius: 18px; padding: 16px; display: none; z-index: 5; box-shadow: 0 20px 60px rgba(0,0,0,.5); animation: in .4s var(--spring); }
+  .drawer.open { display: block; }
+  .drawer h3 { margin: 0 0 4px; font: 400 17px var(--display); }
+  .drawer .id { font: 400 11.5px var(--mono); color: var(--muted); word-break: break-all; }
+  .drawer dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 12px 0 0; font-size: 13.5px; }
+  .drawer dt { color: var(--muted); }
+  .drawer dd { margin: 0; text-align: right; font-family: var(--mono); font-size: 12.5px; }
+  .drawer .why { margin-top: 12px; font-size: 13.5px; padding: 10px 12px; border-radius: 12px; background: rgba(63,210,224,.07); border: 1px solid rgba(63,210,224,.18); }
+  .drawer button { position: absolute; right: 10px; top: 8px; background: none; border: 0; color: var(--muted); font-size: 20px; cursor: pointer; }
+  footer { margin-top: 26px; font-size: 12.5px; color: var(--muted); }
+  footer a { color: var(--hi); }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="brand" href="https://maya2c.dev/"><img src="/brand/emblem.png" alt="" width="34" height="34"><span><b>Maya2C</b> network, live</span></a>
+    <nav class="links"><a href="/">Uptime</a><a href="https://explorer.maya2c.dev/">Explorer</a><a href="https://maya2c.dev/guides/help-run/">Run a node</a></nav>
+    <span class="pill" id="pill"><span class="dot"></span><span id="pilltext">connecting…</span></span>
+  </header>
+
+  <div class="stage">
+    <canvas id="sky" aria-label="Live map of the network: validators on the inner ring, other nodes orbiting outside"></canvas>
+    <div class="legend"><span><i style="background:var(--gold)"></i>validator, voting</span><span><i style="background:var(--teal)"></i>connected node</span><span><i style="background:#56607e"></i>validator not voting</span><span>pulse = a block finalized</span></div>
+    <div class="toast-zone" id="toasts"></div>
+    <div class="tip" id="tip"></div>
+  </div>
+
+  <div class="tiles" id="tiles">
+    <div class="tile" data-learn="height"><div class="k">Block height</div><div class="v" id="t-height">–</div><div class="s" id="t-height-s">&nbsp;</div><svg id="spark-height" viewBox="0 0 100 30" preserveAspectRatio="none"></svg></div>
+    <div class="tile" data-learn="rate"><div class="k">Blocks / min</div><div class="v" id="t-rate">–</div><div class="s">last 60 s, measured</div></div>
+    <div class="tile" data-learn="voting"><div class="k">Validators voting</div><div class="v" id="t-voting">–</div><div class="s" id="t-voting-s">&nbsp;</div></div>
+    <div class="tile" data-learn="peers"><div class="k">Nodes connected</div><div class="v" id="t-peers">–</div><div class="s" id="t-peers-s">&nbsp;</div><svg id="spark-peers" viewBox="0 0 100 30" preserveAspectRatio="none"></svg></div>
+    <div class="tile" data-learn="round"><div class="k">Consensus round</div><div class="v" id="t-round">–</div><div class="s" id="t-epoch">&nbsp;</div></div>
+    <div class="tile" data-learn="seen"><div class="k">Seen this session</div><div class="v" id="t-seen">–</div><div class="s">distinct nodes, validators included, since this server started</div></div>
+  </div>
+
+  <div class="cols">
+    <div class="card">
+      <h2>Validators <small>each seat votes on every round</small></h2>
+      <div class="rows" id="validators"></div>
+      <h2 style="margin-top:18px">Nodes helping <small id="peers-note">connected to the project's nodes</small></h2>
+      <div class="rows" id="peers"></div>
+    </div>
+    <div class="card">
+      <h2>Happening now <small>newest first</small></h2>
+      <div class="feed" id="feed"><div class="empty">Waiting for the first change…</div></div>
+    </div>
+  </div>
+
+  <div class="learn" id="learn">
+    <button aria-expanded="false"><b>How a validator contributes</b><span>votes, and makes blocks final</span><p>Each validator holds one seat in the committee and signs every DAG round. A block is final once validators holding more than two thirds of the stake have built on it, so with 4 seats the chain keeps going while any 3 are voting. The lag bar shows how many rounds a validator's commits trail the furthest one.</p></button>
+    <button aria-expanded="false"><b>How any node contributes</b><span>relays, and keeps a copy</span><p>A node that is not a validator still receives every block, checks it, passes it on to its peers, and keeps a full copy of the state. More such nodes means blocks spread faster and the chain survives machines going away. "Block latency" is how quickly a node's copy of a new block reached ours.</p></button>
+    <button aria-expanded="false"><b>Via the public relay</b><span>no router setup needed</span><p>Nodes marked <i>via relay</i> connected over WebSocket through p2p.maya2c.dev, which is how a laptop behind a home router joins. Their addresses are never shown here.</p></button>
+    <button aria-expanded="false"><b>What this page cannot see</b><span>honest limits</span><p>It lists what the project's own nodes see. A node connected only to other helpers is not on this map, and a node that stopped answering is shown as not answering, never with old numbers.</p></button>
+  </div>
+
+  <footer>maya-testnet-1, a test network: coins have no value. Updated every second from <code>/api/live</code>. <a href="https://maya2c.dev/guides/help-run/">Add your computer to this map</a>.</footer>
+</div>
+
+<div class="drawer" id="drawer" role="dialog" aria-modal="false"><button aria-label="Close" id="drawer-close">×</button><div id="drawer-body"></div></div>
+
+<script>
+(() => {
+  "use strict";
+  const POLL_MS = 1000, STALE_MS = 4000, MAX_TOASTS = 4, TOAST_MS = 5000;
+  const $ = (id) => document.getElementById(id);
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const fmt = new Intl.NumberFormat("en");
+  const short = (id) => id ? "…" + id.slice(-6) : "?";
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const dur = (s) => s < 60 ? s + " s" : s < 3600 ? Math.floor(s / 60) + " min" : s < 86400 ? (s / 3600).toFixed(1) + " h" : (s / 86400).toFixed(1) + " d";
+
+  // A watched node with a committee seat is a validator; one without (a
+  // helper we also poll, like a test install) belongs with the helpers.
+  const seated = (n) => n.bft && n.bft.validator != null;
+  // Every non-validator: peers the watched nodes report, plus watched nodes
+  // without a seat, which may not appear as anyone's peer yet.
+  function helpers() {
+    const isValidatorPeer = (p) => p.watched_as && seated(view.nodes.find((n) => n.name === p.watched_as) || {});
+    const out = view.peers.filter((p) => !isValidatorPeer(p));
+    for (const n of view.nodes.filter((x) => !seated(x))) {
+      if (!out.some((p) => p.watched_as === n.name)) {
+        out.push({ peer_id: n.peer_id || "watched:" + n.name, watched_as: n.name, transport: "watched", connected_secs: 0, linked_to: [], quarantined: false, block_latency_ms: null, score: null, first_seen_ms: view.at_ms });
+      }
+    }
+    return out;
+  }
+  let view = null, lastOk = 0, lastHeight = null, selected = null, seenEvents = new Set(), firstLoad = true;
+
+  // ---------- the constellation ----------
+  const sky = $("sky"), ctx = sky.getContext("2d");
+  const bodies = new Map(); // id -> {x,y,tx,ty,r,kind,alpha,born,label}
+  const pulses = []; // {from,to,t}
+  let W = 0, H = 0, DPR = 1, angle0 = 0;
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = sky.clientWidth; H = sky.clientHeight;
+    sky.width = W * DPR; sky.height = H * DPR;
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  addEventListener("resize", resize); resize();
+
+  const stars = Array.from({ length: 140 }, () => ({ x: Math.random(), y: Math.random(), r: Math.random() * 1.2 + .2, p: Math.random() * 6.28 }));
+
+  function layout() {
+    if (!view) return;
+    const cx = W / 2, cy = H / 2, R1 = Math.min(W, H) * .22, R2 = Math.min(W, H) * .42;
+    const vals = view.nodes.filter(seated), others = helpers();
+    const want = new Set();
+    vals.forEach((n, i) => {
+      const id = "node:" + n.name;
+      const a = -Math.PI / 2 + (i / Math.max(1, vals.length)) * Math.PI * 2;
+      const tx = vals.length === 1 ? cx : cx + Math.cos(a) * R1, ty = vals.length === 1 ? cy : cy + Math.sin(a) * R1;
+      want.add(id);
+      const b = bodies.get(id) || { x: cx, y: cy, alpha: 0, born: performance.now() };
+      Object.assign(b, { tx, ty, r: 17, kind: n.voting ? "val" : "off", label: n.name, ref: n, peer: n.peer_id });
+      bodies.set(id, b);
+    });
+    others.forEach((p, i) => {
+      const id = "peer:" + p.peer_id;
+      const a = angle0 + (i / Math.max(1, others.length)) * Math.PI * 2;
+      const wob = 1 + .06 * Math.sin(i * 1.7);
+      want.add(id);
+      let b = bodies.get(id);
+      if (!b) {
+        // Fly in from outside the frame, toward its orbit.
+        const ea = Math.random() * Math.PI * 2;
+        b = { x: cx + Math.cos(ea) * Math.max(W, H), y: cy + Math.sin(ea) * Math.max(W, H), alpha: 0, born: performance.now(), fresh: !firstLoad };
+      }
+      Object.assign(b, { tx: cx + Math.cos(a) * R2 * wob, ty: cy + Math.sin(a) * R2 * wob, r: p.quarantined ? 5 : 7, kind: p.quarantined ? "bad" : "peer", label: p.watched_as || short(p.peer_id), ref: p, peer: p.peer_id });
+      bodies.set(id, b);
+    });
+    for (const [id, b] of bodies) if (!want.has(id)) { b.leaving = true; }
+  }
+
+  function color(kind, a) {
+    return kind === "val" ? `rgba(217,185,122,${a})` : kind === "peer" ? `rgba(63,210,224,${a})` : kind === "bad" ? `rgba(255,107,122,${a})` : `rgba(86,96,126,${a})`;
+  }
+
+  function linkedPairs() {
+    if (!view) return [];
+    const byPeer = new Map();
+    for (const n of view.nodes) if (n.peer_id && seated(n)) byPeer.set(n.peer_id, "node:" + n.name);
+    const out = [];
+    for (const p of view.peers) {
+      const a = byPeer.get(p.peer_id) || "peer:" + p.peer_id;
+      for (const name of p.linked_to) {
+        const n = view.nodes.find((x) => x.name === name);
+        const b = n && !seated(n) && n.peer_id ? "peer:" + n.peer_id : "node:" + name;
+        out.push([a, b, p.transport === "websocket"]);
+      }
+    }
+    return out;
+  }
+
+  function frame(now) {
+    ctx.clearRect(0, 0, W, H);
+    for (const s of stars) {
+      const tw = reduced ? .5 : .35 + .35 * Math.sin(now / 900 + s.p);
+      ctx.fillStyle = `rgba(200,215,255,${tw * .5})`;
+      ctx.beginPath(); ctx.arc(s.x * W, s.y * H, s.r, 0, 6.283); ctx.fill();
+    }
+    if (!reduced) angle0 += .00035;
+    layout();
+    // Orbits: the committee's ring and the helpers' ring.
+    const cx = W / 2, cy = H / 2, m = Math.min(W, H);
+    for (const [r, a] of [[m * .22, .10], [m * .42, .06]]) {
+      ctx.strokeStyle = `rgba(179,200,255,${a})`; ctx.lineWidth = 1; ctx.setLineDash([2, 6]);
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, 6.283); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    // The committee mesh: every voting validator to every other, the quorum
+    // that finalizes each block.
+    const voters = view ? view.nodes.filter((n) => n.voting).map((n) => bodies.get("node:" + n.name)).filter(Boolean) : [];
+    const breath = reduced ? .22 : .16 + .08 * Math.sin(now / 700);
+    for (let i = 0; i < voters.length; i++) for (let j = i + 1; j < voters.length; j++) {
+      const A = voters[i], B = voters[j];
+      const g = ctx.createLinearGradient(A.x, A.y, B.x, B.y);
+      g.addColorStop(0, `rgba(217,185,122,${breath * A.alpha})`); g.addColorStop(1, `rgba(217,185,122,${breath * B.alpha})`);
+      ctx.strokeStyle = g; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
+    }
+    // Ease every body toward its place.
+    for (const [id, b] of bodies) {
+      const k = reduced ? 1 : .07;
+      b.x += (b.tx - b.x) * k; b.y += (b.ty - b.y) * k;
+      b.alpha += ((b.leaving ? 0 : 1) - b.alpha) * (reduced ? 1 : .08);
+      if (b.leaving && b.alpha < .02) bodies.delete(id);
+    }
+    // Links.
+    for (const [a, c, ws] of linkedPairs()) {
+      const A = bodies.get(a), B = bodies.get(c);
+      if (!A || !B) continue;
+      const al = Math.min(A.alpha, B.alpha) * .35;
+      ctx.strokeStyle = ws ? `rgba(63,210,224,${al})` : `rgba(179,200,255,${al})`;
+      ctx.setLineDash(ws ? [3, 5] : []);
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    // Block pulses travel along the links.
+    for (let i = pulses.length - 1; i >= 0; i--) {
+      const p = pulses[i]; p.t += reduced ? 1 : .025;
+      const A = bodies.get(p.from), B = bodies.get(p.to);
+      if (!A || !B || p.t >= 1) { pulses.splice(i, 1); continue; }
+      if (p.t < 0) continue; // staggered start
+      const x = A.x + (B.x - A.x) * p.t, y = A.y + (B.y - A.y) * p.t;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, 9);
+      g.addColorStop(0, "rgba(255,243,208,.95)"); g.addColorStop(1, "rgba(217,185,122,0)");
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 9, 0, 6.283); ctx.fill();
+    }
+    // Bodies.
+    for (const [id, b] of bodies) {
+      const age = now - b.born;
+      const glow = b.r * (2.6 + (b.kind === "val" && !reduced ? .5 * Math.sin(now / 500) : 0));
+      const g = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, glow);
+      g.addColorStop(0, color(b.kind, .55 * b.alpha)); g.addColorStop(1, color(b.kind, 0));
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(b.x, b.y, glow, 0, 6.283); ctx.fill();
+      ctx.fillStyle = color(b.kind, b.alpha);
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, 6.283); ctx.fill();
+      if (b.fresh && age < 2500 && !reduced) {
+        const rr = b.r + (age / 2500) * 40;
+        ctx.strokeStyle = color(b.kind, (1 - age / 2500) * .8); ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(b.x, b.y, rr, 0, 6.283); ctx.stroke();
+      }
+      if (selected === id) { ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(b.x, b.y, b.r + 5, 0, 6.283); ctx.stroke(); }
+      if (b.kind === "val" || b.kind === "off" || bodies.size < 30) {
+        ctx.fillStyle = `rgba(238,240,248,${.85 * b.alpha})`;
+        ctx.font = (b.kind === "val" || b.kind === "off" ? "600 12px " : "400 10.5px ") + getComputedStyle(document.body).getPropertyValue("--mono");
+        ctx.textAlign = "center"; ctx.fillText(b.label, b.x, b.y + b.r + 15);
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  function hit(x, y) {
+    let best = null, bd = 400;
+    for (const [id, b] of bodies) { const d = (b.x - x) ** 2 + (b.y - y) ** 2; if (d < bd && d < (b.r + 10) ** 2) { best = id; bd = d; } }
+    return best;
+  }
+  sky.addEventListener("mousemove", (e) => {
+    const r = sky.getBoundingClientRect(), id = hit(e.clientX - r.left, e.clientY - r.top), tip = $("tip");
+    if (!id) { tip.style.display = "none"; sky.style.cursor = "crosshair"; return; }
+    const b = bodies.get(id); sky.style.cursor = "pointer";
+    tip.innerHTML = describeShort(b);
+    tip.style.display = "block";
+    tip.style.left = Math.min(r.width - 270, e.clientX - r.left + 14) + "px";
+    tip.style.top = (e.clientY - r.top + 14) + "px";
+  });
+  sky.addEventListener("mouseleave", () => { $("tip").style.display = "none"; });
+  sky.addEventListener("click", (e) => { const r = sky.getBoundingClientRect(), id = hit(e.clientX - r.left, e.clientY - r.top); if (id) openDrawer(id); });
+
+  function describeShort(b) {
+    const x = b.ref;
+    if (b.kind === "val" || b.kind === "off") {
+      return `<b>${esc(x.name)}</b> · ${x.up ? (x.voting ? "voting, seat " + x.bft.validator : "following") : "not answering"}<br>${x.peers} peers${x.lag_rounds != null ? " · lag " + x.lag_rounds + " rounds" : ""}`;
+    }
+    return `<b>${esc(short(x.peer_id))}</b> · ${x.transport === "websocket" ? "via relay" : x.transport}<br>connected ${dur(x.connected_secs)}${x.block_latency_ms != null ? " · blocks in " + x.block_latency_ms + " ms" : ""}`;
+  }
+
+  // ---------- drawer ----------
+  function openDrawer(id) {
+    selected = id; renderDrawer(); $("drawer").classList.add("open");
+    document.querySelectorAll(".row").forEach((r) => r.classList.toggle("sel", r.dataset.id === id));
+  }
+  $("drawer-close").addEventListener("click", () => { selected = null; $("drawer").classList.remove("open"); document.querySelectorAll(".row.sel").forEach((r) => r.classList.remove("sel")); });
+  function renderDrawer() {
+    if (!selected || !view) return;
+    const body = $("drawer-body");
+    if (selected.startsWith("node:")) {
+      const n = view.nodes.find((x) => "node:" + x.name === selected);
+      if (!n) return;
+      const committee = n.bft ? n.bft.committee : 0;
+      body.innerHTML = `<h3>${esc(n.name)} ${n.voting ? '<span class="chip">voting</span>' : n.up ? '<span class="chip warn">following</span>' : '<span class="chip warn">not answering</span>'}</h3>
+        <div class="id">${esc(n.peer_id || "peer id not reported")}</div>
+        <dl><dt>Committee seat</dt><dd>${n.bft && n.bft.validator != null ? n.bft.validator + " of " + committee : "none"}</dd>
+        <dt>Height</dt><dd>${n.height != null ? fmt.format(n.height) : "–"}</dd>
+        <dt>Committed round</dt><dd>${n.bft ? fmt.format(n.bft.committed_round) : "–"}</dd>
+        <dt>Behind the furthest</dt><dd>${n.lag_rounds != null ? n.lag_rounds + " rounds" : "–"}</dd>
+        <dt>Peers</dt><dd>${n.peers}</dd><dt>Epoch</dt><dd>${n.bft ? n.bft.epoch : "–"}</dd></dl>
+        <div class="why">${n.voting ? `Signs every round as 1 of ${committee} seats. Blocks become final once more than two thirds of the stake has built on them, so this seat's vote counts toward every block.` : n.up ? "Answering, but not voting: it follows the chain and relays blocks." : "Not answering this second. The chain continues while more than two thirds of the stake is still voting."}</div>`;
+    } else {
+      const p = helpers().find((x) => "peer:" + x.peer_id === selected);
+      if (!p) { body.innerHTML = '<h3>Disconnected</h3><div class="why">This node left the network.</div>'; return; }
+      body.innerHTML = `<h3>Node ${esc(short(p.peer_id))} ${p.transport === "websocket" ? '<span class="chip ws">via relay</span>' : '<span class="chip">' + esc(p.transport) + "</span>"}</h3>
+        <div class="id">${esc(p.peer_id)}</div>
+        <dl><dt>Connected for</dt><dd>${dur(p.connected_secs)}</dd>
+        <dt>Linked to</dt><dd>${p.linked_to.map(esc).join(", ")}</dd>
+        <dt>Block latency</dt><dd>${p.block_latency_ms != null ? p.block_latency_ms + " ms" : "not measured yet"}</dd>
+        <dt>Health score</dt><dd>${p.score != null ? p.score.toFixed(2) : "no record"}</dd>
+        <dt>First seen</dt><dd>${new Date(p.first_seen_ms).toLocaleTimeString()}</dd></dl>
+        <div class="why">${p.quarantined ? "Quarantined: one of our nodes is ignoring it for misbehaviour." : `Receives every block, checks it, and passes it on${p.block_latency_ms != null ? `. Its copy of a new block reaches ours in about ${p.block_latency_ms} ms` : ""}. It keeps a full copy of the chain, so the network survives other machines going away.`}</div>`;
+    }
+  }
+
+  // ---------- panels ----------
+  function setTile(id, text) {
+    const el = $(id); if (el.textContent === text) return;
+    el.textContent = text; const t = el.closest(".tile"); if (t && !firstLoad) { t.classList.remove("flash"); void t.offsetWidth; t.classList.add("flash"); }
+  }
+  function spark(id, values) {
+    const el = $(id); if (values.length < 2) { el.innerHTML = ""; return; }
+    const lo = Math.min(...values), hi = Math.max(...values), span = hi - lo || 1;
+    const pts = values.map((v, i) => `${(i / (values.length - 1)) * 100},${28 - ((v - lo) / span) * 26}`).join(" ");
+    el.innerHTML = `<polyline points="${pts}" fill="none" stroke="#3fd2e0" stroke-width="1.6" vector-effect="non-scaling-stroke"/>`;
+  }
+  function renderRows() {
+    const vals = $("validators");
+    vals.innerHTML = view.nodes.filter(seated).map((n) => {
+      const lag = n.lag_rounds == null ? 100 : Math.max(4, 100 - Math.min(100, n.lag_rounds * 10));
+      return `<div class="row${selected === "node:" + n.name ? " sel" : ""}" data-id="node:${esc(n.name)}"><div class="badge ${n.voting ? "val" : "off"}">${esc(n.name.slice(0, 3))}</div>
+        <div class="main"><div>${esc(n.name)} ${n.voting ? '<span class="chip">seat ' + n.bft.validator + "</span>" : n.up ? '<span class="chip warn">following</span>' : '<span class="chip warn">not answering</span>'}</div>
+        <div>${n.peers} peers · ${n.lag_rounds != null ? (n.lag_rounds === 0 ? "at the front" : n.lag_rounds + " rounds behind") : "no consensus status"}</div><div class="lag"><span style="width:${lag}%"></span></div></div>
+        <div class="right">${n.height != null ? fmt.format(n.height) : "–"}</div></div>`;
+    }).join("");
+    const others = helpers();
+    $("peers").innerHTML = others.length ? others.map((p) => `<div class="row${selected === "peer:" + p.peer_id ? " sel" : ""}" data-id="peer:${esc(p.peer_id)}"><div class="badge ${p.quarantined ? "off" : "peer"}">${esc(p.peer_id.slice(-2))}</div>
+        <div class="main"><div>${esc(p.watched_as || short(p.peer_id))}${p.transport === "websocket" ? '<span class="chip ws">via relay</span>' : p.transport === "watched" ? '<span class="chip">watched</span>' : '<span class="chip">' + esc(p.transport) + "</span>"}${p.quarantined ? '<span class="chip warn">quarantined</span>' : ""}</div>
+        <div>${p.linked_to.length ? "linked to " + p.linked_to.map(esc).join(", ") : "polled directly by this page"}${p.block_latency_ms != null ? " · blocks in " + p.block_latency_ms + " ms" : ""}</div></div>
+        <div class="right">${dur(p.connected_secs)}</div></div>`).join("") : '<div class="empty">No other node is connected right now. <a href="https://maya2c.dev/guides/help-run/" style="color:var(--hi)">Be the first on the map.</a></div>';
+    document.querySelectorAll(".row").forEach((r) => r.addEventListener("click", () => openDrawer(r.dataset.id)));
+  }
+  function renderFeed() {
+    const feed = $("feed");
+    if (!view.events.length) return;
+    feed.innerHTML = view.events.map((e) => `<div class="ev ${esc(e.kind)}"><time>${new Date(e.at_ms).toLocaleTimeString()}</time><i></i><span>${esc(e.text)}</span></div>`).join("");
+    for (const e of view.events.slice().reverse()) {
+      const key = e.at_ms + e.text;
+      if (seenEvents.has(key)) continue;
+      seenEvents.add(key);
+      if (!firstLoad) toast(e);
+    }
+  }
+  function toast(e) {
+    const zone = $("toasts"), t = document.createElement("div");
+    t.className = "toast " + e.kind; t.textContent = e.text; zone.prepend(t);
+    while (zone.children.length > MAX_TOASTS) zone.lastChild.remove();
+    setTimeout(() => t.remove(), TOAST_MS);
+  }
+  function render() {
+    const h = view.history, top = h.length ? h[h.length - 1] : null;
+    const height = top ? top.height : 0;
+    setTile("t-height", fmt.format(height));
+    const minAgo = h.filter((s) => s.at_ms >= view.at_ms - 60000);
+    const span = minAgo.length > 1 ? minAgo[minAgo.length - 1].at_ms - minAgo[0].at_ms : 0;
+    // Under 20 s of samples the rate is noise, so it waits.
+    const rate = span >= 20000 ? (minAgo[minAgo.length - 1].height - minAgo[0].height) / ((minAgo[minAgo.length - 1].at_ms - minAgo[0].at_ms) / 60000) : null;
+    setTile("t-rate", rate == null ? "…" : rate.toFixed(0));
+    const voting = view.nodes.filter((n) => n.voting).length, committee = Math.max(0, ...view.nodes.map((n) => (n.bft ? n.bft.committee : 0)));
+    setTile("t-voting", `${voting} / ${committee || view.nodes.length}`);
+    // Seats, not stake: finality needs more than two thirds of the stake
+    // (ADR-040), which this page does not know, so it does not claim it.
+    $("t-voting-s").textContent = "seats signing rounds now";
+    const others = helpers();
+    setTile("t-peers", fmt.format(others.length));
+    $("t-peers-s").textContent = `${others.filter((p) => p.transport === "websocket").length} via the public relay`;
+    const best = view.nodes.filter((n) => n.bft).sort((a, b) => b.bft.committed_round - a.bft.committed_round)[0];
+    setTile("t-round", best ? fmt.format(best.bft.committed_round) : "–");
+    $("t-epoch").textContent = best ? `epoch ${best.bft.epoch}` : " ";
+    setTile("t-seen", fmt.format(view.seen_total));
+    spark("spark-height", h.slice(-120).map((s) => s.height));
+    spark("spark-peers", h.slice(-600).map((s) => s.peers));
+    // A new block: votes run around the committee mesh, then the block
+    // spreads from the seed to every connected node.
+    if (lastHeight != null && height > lastHeight && view.nodes.length) {
+      const hub = "node:" + view.nodes[0].name;
+      const voters = view.nodes.filter((x) => x.voting).map((x) => "node:" + x.name);
+      for (const a of voters) for (const b of voters) if (a !== b) pulses.push({ from: a, to: b, t: -.3 * Math.random() });
+      for (const p of others.slice(0, 40)) pulses.push({ from: hub, to: "peer:" + p.peer_id, t: -.4 * Math.random() });
+      $("t-height-s").textContent = "+" + (height - lastHeight) + " just now";
+    }
+    lastHeight = height;
+    renderRows(); renderFeed(); renderDrawer();
+  }
+
+  // ---------- learn-more bubbles ----------
+  document.querySelectorAll("#learn button").forEach((b) => b.addEventListener("click", () => b.setAttribute("aria-expanded", b.getAttribute("aria-expanded") === "true" ? "false" : "true")));
+  const tileLearn = { height: 0, rate: 0, voting: 0, round: 0, peers: 1, seen: 3 };
+  document.querySelectorAll(".tile").forEach((t) => t.addEventListener("click", () => {
+    const b = document.querySelectorAll("#learn button")[tileLearn[t.dataset.learn] ?? 0];
+    b.setAttribute("aria-expanded", "true"); b.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "center" });
+  }));
+
+  // ---------- polling ----------
+  async function poll() {
+    try {
+      const r = await fetch("/api/live", { cache: "no-store" });
+      if (!r.ok) throw new Error(r.status);
+      const v = await r.json();
+      if (v && v.nodes) { view = v; lastOk = Date.now(); render(); firstLoad = false; }
+    } catch (e) { /* shown by the pill as stale */ }
+    const age = Date.now() - lastOk, pill = $("pill");
+    const anyUp = view && view.nodes.some((n) => n.up);
+    pill.className = "pill" + (!view || age > STALE_MS * 3 ? " down" : age > STALE_MS || !anyUp ? " stale" : "");
+    $("pilltext").textContent = !view ? "connecting…" : `${view.network} · ${age < 1500 ? "live" : "updated " + Math.round(age / 1000) + " s ago"}`;
+    setTimeout(poll, POLL_MS);
+  }
+  poll();
+})();
+</script>
+</body>
+</html>

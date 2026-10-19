@@ -10,7 +10,9 @@
 //! path must be serialized — two concurrent reorgs would interleave undo
 //! journals and corrupt state.
 
-use std::net::SocketAddr;
+use primitive_types::U256;
+use std::collections::HashSet;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 
 use jsonrpsee::server::{RpcModule, Server, ServerHandle};
@@ -80,7 +82,7 @@ fn balance_at_height(
     ctx: &RpcContext,
     address: &[u8; 32],
     height: u64,
-) -> Result<(u64, [u8; 32]), ErrorObjectOwned> {
+) -> Result<(U256, [u8; 32]), ErrorObjectOwned> {
     let (state, tip, tip_id, mut balance) = {
         let chain = ctx.chain();
         let balance = chain
@@ -147,6 +149,9 @@ pub struct RpcContext {
     /// operator wires it: peer addresses are this node's private knowledge,
     /// so bind an RPC that carries them to a local interface.
     pub peers: Option<NodeHandle>,
+    /// The running node, for `get_peers`: connections without addresses,
+    /// so unlike `peers` it may be served on any interface.
+    pub network_view: Option<NodeHandle>,
     /// Whether `submit_block` accepts blocks. False on a DAG-BFT network,
     /// where a block is derived from certificates and a submitted one is only
     /// somebody's claim (`consensus::bft`); the chain there verifies no work,
@@ -162,6 +167,105 @@ pub struct RpcContext {
     /// The engine's status, kept current by the DAG-BFT loop, for
     /// `get_bft_status`.
     pub bft_status: Option<Arc<Mutex<crate::rpc::types::BftStatus>>>,
+    /// The DAG-BFT data directory, for serving certificate pages
+    /// (`get_certificates`, ADR-052). Absent on a node that runs no DAG-BFT.
+    pub bft_dir: Option<std::path::PathBuf>,
+    /// The size of one certificate page served (ADR-052). The production
+    /// value; tests shrink it to make paging run.
+    pub page_limits: crate::consensus::bft::certsync::PageLimits,
+    /// Certificate-page bytes each client may take, weighed per call (ADR-052).
+    pub cert_bytes: Arc<crate::rpc::limit::RateLimiter>,
+    /// The clients with a certificate page in flight: one at a time each.
+    pub cert_gate: Arc<CertGate>,
+}
+
+/// Bytes of certificate pages one client may take per second, sustained.
+/// Chosen so a rejoin is not slowed by it in normal use, and a client that
+/// asks for pages without end is refused. Tune with measured epoch sizes
+/// (ADR-052: the byte size of a mainnet epoch is not yet measured).
+pub const CERT_BYTES_PER_SECOND: u32 = 32 * 1024 * 1024;
+/// Bytes of certificate pages one client may take in a burst.
+pub const CERT_BYTE_BURST: u32 = 128 * 1024 * 1024;
+
+/// The address a request without a known peer is charged to.
+const UNKNOWN_CLIENT: IpAddr = IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED);
+
+/// The connecting client's address, carried into method calls on the request's
+/// extensions.
+#[derive(Debug, Clone, Copy)]
+pub struct ClientAddr(pub IpAddr);
+
+/// Clients with a certificate page in flight. A client may hold one at a time,
+/// so one caller cannot tie up every blocking thread with reads.
+#[derive(Debug, Default)]
+pub struct CertGate {
+    busy: Mutex<HashSet<IpAddr>>,
+}
+
+/// A claim on [`CertGate`]; released on drop.
+#[derive(Debug)]
+pub struct CertClaim<'a> {
+    gate: &'a CertGate,
+    client: IpAddr,
+}
+
+impl CertGate {
+    /// Claims the gate for `client`, or `None` if it already holds one.
+    pub fn claim(&self, client: IpAddr) -> Option<CertClaim<'_>> {
+        let mut busy = self
+            .busy
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // An explicit branch: a claim built and then dropped on the refused
+        // path would lock `busy` again while this guard still holds it.
+        if busy.insert(client) {
+            Some(CertClaim { gate: self, client })
+        } else {
+            None
+        }
+    }
+}
+
+impl Drop for CertClaim<'_> {
+    fn drop(&mut self) {
+        let mut busy = self
+            .gate
+            .busy
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        busy.remove(&self.client);
+    }
+}
+
+/// Largest JSON-RPC response this node accepts or sends. jsonrpsee's default is
+/// 10 MiB; a certificate page is at most 4 MiB encoded
+/// ([`crate::consensus::bft::certsync::PAGE_ENCODED_BYTES`]), so 16 MiB leaves
+/// room for framing. Set on both ends: the client refuses what the server would
+/// send.
+pub const RPC_RESPONSE_LIMIT: u32 = 32 * 1024 * 1024;
+
+const _: () = assert!(
+    RPC_RESPONSE_LIMIT as usize >= 2 * crate::consensus::bft::certsync::PAGE_ENCODED_BYTES,
+    "two full pages must fit one response"
+);
+const _: () = assert!(
+    RPC_RESPONSE_LIMIT as usize >= crate::consensus::bft::store::MAX_ENCODED_RECORD + 1024 * 1024,
+    "one maximal record, hex-encoded, must fit one response with room to spare"
+);
+
+/// The refusal a client gets when its certificate byte budget is spent. Clients
+/// match it to back off and retry (`rpc::bootstrap`).
+pub const BUDGET_EXHAUSTED: &str = "certificate byte budget used up for this client; retry later";
+
+/// The refusal a client gets when it already holds a page in flight.
+pub const PAGE_BUSY: &str = "one certificate page at a time per client";
+
+/// The server configuration with [`RPC_RESPONSE_LIMIT`] (jsonrpsee 0.26 takes
+/// the limit through its config, not the builder).
+fn server_config() -> jsonrpsee::server::ServerConfig {
+    jsonrpsee::server::ServerConfig::builder()
+        .max_response_body_size(RPC_RESPONSE_LIMIT)
+        .build()
 }
 
 impl RpcContext {
@@ -175,10 +279,46 @@ impl RpcContext {
             snapshots: None,
             cold: None,
             peers: None,
+            network_view: None,
             accepts_blocks: true,
             network: None,
             checkpoint: None,
             bft_status: None,
+            bft_dir: None,
+            page_limits: crate::consensus::bft::certsync::PAGE,
+            cert_bytes: Arc::new(crate::rpc::limit::RateLimiter::new(
+                CERT_BYTES_PER_SECOND,
+                CERT_BYTE_BURST,
+            )),
+            cert_gate: Arc::new(CertGate::default()),
+        }
+    }
+
+    /// The same context, serving certificate pages from `dir` (ADR-052).
+    #[must_use]
+    pub fn with_bft_dir(self, dir: std::path::PathBuf) -> Self {
+        Self {
+            bft_dir: Some(dir),
+            ..self
+        }
+    }
+
+    /// The same context, charging certificate pages to `budget` (tests set it
+    /// tiny to see the refusal).
+    #[must_use]
+    pub fn with_cert_budget(self, budget: Arc<crate::rpc::limit::RateLimiter>) -> Self {
+        Self {
+            cert_bytes: budget,
+            ..self
+        }
+    }
+
+    /// The same context, serving pages of `limits` (tests use tiny ones).
+    #[must_use]
+    pub fn with_page_limits(self, limits: crate::consensus::bft::certsync::PageLimits) -> Self {
+        Self {
+            page_limits: limits,
+            ..self
         }
     }
 
@@ -235,6 +375,15 @@ impl RpcContext {
     pub fn refusing_blocks(self) -> Self {
         Self {
             accepts_blocks: false,
+            ..self
+        }
+    }
+
+    /// The same context, answering `get_peers` from `node`.
+    #[must_use]
+    pub fn with_network_view(self, node: NodeHandle) -> Self {
+        Self {
+            network_view: Some(node),
             ..self
         }
     }
@@ -318,6 +467,68 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     module
+        .register_blocking_method("get_certificates", |params, ctx, extensions| {
+            // `[epoch, offset, max]`: one bounded page of that epoch's
+            // certificate log (ADR-052). The rate limiter gates every method;
+            // the page bounds are the server's, whatever the caller asks.
+            let (epoch, offset, max): (u64, u64, usize) =
+                params.parse().map_err(|e| invalid_params(e.to_string()))?;
+            let dir = ctx
+                .bft_dir
+                .as_ref()
+                .ok_or_else(|| rejected("this node serves no certificates".to_string()))?;
+            let client = extensions
+                .get::<ClientAddr>()
+                .map_or(UNKNOWN_CLIENT, |c| c.0);
+            // One page in flight per client, and a byte budget per client
+            // (ADR-052). The rate limiter counts calls; this weighs what a call
+            // returns, so a client cannot take unbounded data at one request a
+            // second.
+            let _claim = ctx
+                .cert_gate
+                .claim(client)
+                .ok_or_else(|| rejected(PAGE_BUSY.to_string()))?;
+            // Reserve the largest page this call can return before the disk read,
+            // so a client past its budget costs no read, then return the unused
+            // part. A page's first record may exceed the budget; the excess is
+            // charged after.
+            let limits = ctx.page_limits;
+            let reserved = u64::try_from(limits.encoded_bytes).unwrap_or(u64::MAX);
+            if !ctx.cert_bytes.charge(client, reserved) {
+                return Err(rejected(BUDGET_EXHAUSTED.to_string()));
+            }
+            let page = crate::consensus::bft::store::read_certificate_page(
+                dir,
+                epoch,
+                offset,
+                max.min(limits.records),
+                limits.encoded_bytes,
+            )
+            .map_err(internal)?;
+            let bytes: u64 = page
+                .records
+                .iter()
+                .map(|r| {
+                    u64::try_from(crate::consensus::bft::store::encoded_len(r.len()))
+                        .unwrap_or(u64::MAX)
+                })
+                .sum();
+            if bytes > reserved {
+                // Over the reservation: charged now. A refusal here is not an
+                // error, the page is already read and is returned.
+                let _ = ctx.cert_bytes.charge(client, bytes - reserved);
+            } else {
+                ctx.cert_bytes.refund(client, reserved - bytes);
+            }
+            Ok::<_, ErrorObjectOwned>(crate::rpc::types::CertPageInfo {
+                records: page.records.iter().map(hex::encode).collect(),
+                next: page.next,
+                done: page.done,
+            })
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
+    module
         .register_method("get_chain_info", |_params, ctx, _| {
             let chain = ctx.chain();
             Ok::<_, ErrorObjectOwned>(ChainInfo {
@@ -336,7 +547,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
             let (balance, id) = balance_at_height(ctx, &address, height)?;
             Ok::<_, ErrorObjectOwned>(serde_json::json!({
                 "address": address_hex,
-                "balance": balance,
+                "balance": balance.to_string(),
                 "height": height,
                 "block_id": hex::encode(id),
             }))
@@ -360,14 +571,14 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 .iter()
                 .map(|(id, w)| {
                     serde_json::json!({
-                        "id": id, "to": hex::encode(w.to), "amount": w.amount,
+                        "id": id, "to": hex::encode(w.to), "amount": w.amount.to_string(),
                         "ready_height": w.ready_height,
                     })
                 })
                 .collect();
             Ok(serde_json::json!({
                 "delay_blocks": config.delay_blocks,
-                "limit": config.limit,
+                "limit": config.limit.to_string(),
                 "guardians": config.guardians.iter().map(hex::encode).collect::<Vec<_>>(),
                 "pending_reconfiguration_height": vault.pending.as_ref().map(|(_, ready)| *ready),
                 "open_requests": vault.open,
@@ -669,6 +880,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     crate::rpc::bootstrap::register(&mut module)?;
+    crate::rpc::peers::register(&mut module)?;
 
     Ok(module)
 }
@@ -682,7 +894,9 @@ pub struct RpcServer {
     pub handle: ServerHandle,
 }
 
-/// Starts the JSON-RPC server on `address`.
+/// Starts the JSON-RPC server on `address`, without metrics or a per-call rate
+/// limit (tests and tools). It shares the path of [`serve_metered`], so every
+/// request carries its client address (`ClientAddr`) for the byte budget.
 ///
 /// Pass port `0` to let the OS assign one and read it back from
 /// [`RpcServer::address`].
@@ -693,21 +907,16 @@ pub struct RpcServer {
 /// the module cannot be built, or a context wired with
 /// [`RpcContext::with_peers`] is asked to listen beyond loopback.
 pub async fn serve(address: SocketAddr, context: RpcContext) -> crate::error::Result<RpcServer> {
-    check_peer_exposure(address, context.peers.is_some())?;
-    let module =
-        build_module(context).map_err(|e| crate::error::NodeError::Network(e.to_string()))?;
-
-    let server = Server::builder()
-        .build(address)
-        .await
-        .map_err(|e| crate::error::NodeError::Network(format!("bind {address}: {e}")))?;
-    let local_address = server
-        .local_addr()
-        .map_err(|e| crate::error::NodeError::Network(format!("local address: {e}")))?;
-    Ok(RpcServer {
-        address: local_address,
-        handle: server.start(module),
-    })
+    // The same path as `serve_metered`, so the client address reaches the methods
+    // that charge by client (`ClientAddr`). Metrics are discarded and per-call
+    // rate limiting is off, which is what tests and tools want.
+    serve_metered(
+        address,
+        context,
+        Arc::new(crate::metrics::Metrics::new()),
+        Arc::new(crate::rpc::limit::RateLimiter::new(0, 0)),
+    )
+    .await
 }
 
 /// [`serve`], recording every call in `metrics` (SLO rpc-availability and
@@ -749,6 +958,7 @@ pub async fn serve_metered(
         .local_addr()
         .map_err(|e| crate::error::NodeError::Network(format!("local address: {e}")))?;
     let builder = Server::builder()
+        .set_config(server_config())
         .set_rpc_middleware(middleware)
         .to_service_builder();
     let methods: jsonrpsee::server::Methods = module.into();
@@ -772,16 +982,20 @@ pub async fn serve_metered(
                 stop.clone(),
                 Arc::clone(&limiter),
             );
-            let service = tower::service_fn(move |request| {
-                let allowed = limiter.check(remote.ip());
-                let mut inner = builder.clone().build(methods.clone(), stop2.clone());
-                async move {
-                    if !allowed {
-                        return Ok(jsonrpsee::server::http::response::too_many_requests());
+            let service =
+                tower::service_fn(move |mut request: hyper::Request<hyper::body::Incoming>| {
+                    let allowed = limiter.check(remote.ip());
+                    // Methods that weigh their cost by client (`get_certificates`)
+                    // read the address from the request's extensions.
+                    request.extensions_mut().insert(ClientAddr(remote.ip()));
+                    let mut inner = builder.clone().build(methods.clone(), stop2.clone());
+                    async move {
+                        if !allowed {
+                            return Ok(jsonrpsee::server::http::response::too_many_requests());
+                        }
+                        tower::Service::call(&mut inner, request).await
                     }
-                    tower::Service::call(&mut inner, request).await
-                }
-            });
+                });
             tokio::spawn(jsonrpsee::server::serve_with_graceful_shutdown(
                 socket,
                 service,
@@ -839,7 +1053,7 @@ fn mining_work(
         target: hex::encode(record.target),
         dag: dag.to_string(),
         dag_epoch,
-        share_reward: record.share_reward(),
+        share_reward: maya_stateless_core::amount::to_u256(record.share_reward()),
         shares: record.shares,
         target_shares: record.target_shares,
         epoch_blocks: record.epoch_blocks,

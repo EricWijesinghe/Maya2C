@@ -91,7 +91,9 @@ impl FakeChain {
                     .map(|output| output.amount)
                     .collect::<Vec<_>>()
             })
-            .fold(0u64, u64::saturating_add)
+            .fold(0u64, |sum, amount| {
+                sum.saturating_add(u64::try_from(amount).unwrap_or(u64::MAX))
+            })
     }
 }
 

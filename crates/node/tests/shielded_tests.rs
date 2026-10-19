@@ -44,7 +44,7 @@ fn open_state(funded: &[(Address, u64)]) -> (StateDB, TempDir) {
         db.put_account(
             address,
             &Account {
-                balance: *balance,
+                balance: primitive_types::U256::from(*balance),
                 nonce: 0,
             },
         )
@@ -82,7 +82,7 @@ fn shielded_tx(joinsplit: ShieldedJoinSplit, nonce: u64, key: &HybridSigningKey)
 }
 
 fn balance(db: &StateDB, address: &Address) -> u64 {
-    db.get_account(address).expect("read").balance
+    u64::try_from(db.get_account(address).expect("read").balance).expect("fits u64")
 }
 
 /// Total transparent value across the accounts a test touches.
@@ -575,7 +575,7 @@ fn a_shielded_transaction_may_not_also_carry_transparent_outputs() {
     let mut tx = Transaction::with_kind(TxKind::Shielded(Box::new(joinsplit)), 1);
     tx.outputs
         .push(custom_l1_node::core::transaction::TxOutput {
-            amount: 1,
+            amount: primitive_types::U256::from(1),
             recipient: [9u8; 32],
         });
     tx.sign(&owner, &common::test_chain()).expect("sign");
@@ -649,7 +649,7 @@ fn a_block_without_joinsplits_leaves_the_pool_untouched() {
     let mut tx = Transaction::new(
         Vec::new(),
         vec![custom_l1_node::core::transaction::TxOutput {
-            amount: 5,
+            amount: primitive_types::U256::from(5),
             recipient,
         }],
         1,

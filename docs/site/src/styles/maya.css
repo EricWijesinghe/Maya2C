@@ -132,7 +132,8 @@ html {
 }
 
 body {
-  background: var(--void);
+  /* The fixed Ambient canvas paints behind every page; html carries the colour. */
+  background: transparent;
   color: var(--text);
   font: 400 17px/1.7 var(--sans);
   font-feature-settings: "cv11", "ss01", "ss03";
@@ -263,6 +264,9 @@ h1#_top {
 
 /* Callouts, quotes, images, rules. */
 .starlight-aside { border-radius: 18px; border-inline-start-width: 4px; background: var(--glass); box-shadow: var(--shadow); backdrop-filter: blur(12px); }
+/* Tabs (OS and audience switches): 44px targets, and a gap wider than the 8px rule. */
+[role="tab"] { min-height: 44px; display: inline-flex; align-items: center; }
+[role="tablist"] { gap: 0.5rem; }
 .starlight-aside__title { font-family: var(--display); font-weight: 700; }
 .sl-markdown-content blockquote { border-inline-start: 3px solid var(--gold); padding: .3em 0 .3em 1.2em; color: var(--lede); font-style: normal; }
 .sl-markdown-content img { border-radius: 18px; }

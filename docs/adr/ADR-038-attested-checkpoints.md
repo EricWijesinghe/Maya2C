@@ -208,6 +208,20 @@ follow, because each was down for longer than the window, still cannot
 rejoin from checkpoints alone. The recovery for that today is a snapshot
 restore (`--bootstrap-from` on an empty data directory).
 
+## Amendment 2026-10-18: followers advance without new checkpoints
+
+The incident of 2026-10-18 (and `bft_follower_tests`) showed that more than
+`f` followers halt the chain at the next epoch boundary: no checkpoint can
+form with fewer than `n - f` builders, and a follower cannot cross an epoch
+without importing the boundary block. Gate 10 was left open for this case.
+
+ADR-052 (Accepted, Eric, 2026-10-18) changes the follower's path: it
+re-derives blocks from certificates whose `n - f` committee signatures it
+verifies itself, instead of importing blocks up to a checkpoint. The
+checkpoint rule above stays for catch-up of a node that is far behind. It
+is not weakened, and no follower attests what it has not derived. The
+mechanism is not implemented yet; until it is, gate 10 stays open.
+
 **Also open, in KNOWN_ISSUES.** Observers follow by polling a peer's RPC,
 never over p2p. Twelve followers on one IP exhaust the public bootstrap
 endpoint's 10-per-second limit.

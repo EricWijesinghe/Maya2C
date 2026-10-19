@@ -21,6 +21,8 @@ path = "src/lib.rs"
 # `LatticeSecret::generate` takes the fill function — so a verifier linking this
 # crate links no randomness source it could be tempted to use.
 [dependencies]
+# Dependency-free and `no_std`: amounts are 256-bit (ADR-046, ADR-048).
+maya-amount = { path = "../amount" }
 sha3.workspace = true
 # Hash locks (`src/lock.rs`). `sha2` is pure Rust like `sha3`; SHA-256 is the
 # hash lock other chains can check.

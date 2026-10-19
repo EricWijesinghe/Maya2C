@@ -21,7 +21,7 @@ const GAS: u64 = 1_000_000_000;
 struct Host(MemoryState);
 
 impl HostState for Host {
-    fn balance_of(&self, a: &Address) -> u64 {
+    fn balance_of(&self, a: &Address) -> maya_vm::Amount {
         self.0.balance_of(a)
     }
     fn block_height(&self) -> u64 {

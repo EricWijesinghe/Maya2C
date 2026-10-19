@@ -6,7 +6,7 @@ head:
   # The tab and search-result title. "Maya2C | Maya2C" said nothing about
   # what the site is to someone searching for it.
   - tag: title
-    content: "Maya2C: Post-Quantum Layer-1 Blockchain with DAG-BFT Finality"
+    content: "Maya2C: Post-Quantum Layer-1 Blockchain, DAG-BFT Finality"
 ---
 
 import StackDiagram from "../../components/StackDiagram.astro";
@@ -22,6 +22,31 @@ import HealthConstellation from "../../components/HealthConstellation.astro";
 {/* Copied to src/content/docs/index.mdx by scripts/ingest.mjs. Edit this file. */}
 
 <Hero3D />
+
+<p class="maya-eyebrow">In plain words</p>
+<h2 class="maya-section-title">A shared notebook that is hard to forge</h2>
+
+<p>Maya2C is a notebook that everyone copies. Each page lists payments. A payment
+is written only if it carries two signatures that check out, and the number on
+it is the next one for that account.</p>
+
+<p>The signatures use two kinds of lock, because one kind might one day be picked
+by a quantum computer. A thief would have to pick both.</p>
+
+<p>Validators take turns proposing pages and sign each other's pages. When enough
+of them agree, the page is sealed and never changes.</p>
+
+<p>Each page below goes deeper, in three layers: plain words first, then the
+engineering, then the mathematics.</p>
+
+<ul class="maya-layers">
+  <li><a href="/guides/transactions/">How a transaction works</a></li>
+  <li><a href="/guides/signatures/">Post-quantum signatures</a></li>
+  <li><a href="/guides/consensus/">Consensus and finality</a></li>
+  <li><a href="/guides/validators/">Run a validator</a></li>
+  <li><a href="/guides/wallet/">Wallets</a></li>
+  <li><a href="/guides/testnet/">Join the testnet</a></li>
+</ul>
 
 <p class="maya-eyebrow">Why it is built this way</p>
 <h2 class="maya-section-title">Security you can check</h2>

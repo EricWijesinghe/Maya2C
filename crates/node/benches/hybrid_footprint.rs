@@ -35,6 +35,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use primitive_types::U256;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -150,7 +151,7 @@ fn signed_block(sender: &HybridSigningKey, recipient: &Address, count: usize) ->
             let mut tx = Transaction::new(
                 vec![],
                 vec![TxOutput {
-                    amount: 1,
+                    amount: primitive_types::U256::from(1),
                     recipient: *recipient,
                 }],
                 nonce as u64,
@@ -209,7 +210,7 @@ fn main() {
             let mut tx = Transaction::new(
                 vec![],
                 vec![TxOutput {
-                    amount: 1,
+                    amount: primitive_types::U256::from(1),
                     recipient: [0u8; 32],
                 }],
                 0,
@@ -224,7 +225,7 @@ fn main() {
             let mut tx = Transaction::new(
                 vec![],
                 vec![TxOutput {
-                    amount: 1,
+                    amount: primitive_types::U256::from(1),
                     recipient: [0u8; 32],
                 }],
                 0,
@@ -272,7 +273,7 @@ fn main() {
     db.put_account(
         &sender.address(),
         &Account {
-            balance: 1_000_000,
+            balance: U256::from(1_000_000u64),
             nonce: 0,
         },
     )

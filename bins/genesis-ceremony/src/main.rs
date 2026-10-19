@@ -51,6 +51,7 @@ use custom_l1_node::genesis::{
 use custom_l1_node::state::mining::{MINING_RESERVE, MiningGenesis};
 
 mod committee;
+mod council;
 
 /// Chain ids that carry real value, so their genesis keeps the pool off.
 ///
@@ -107,6 +108,10 @@ struct Args {
     mining: Option<(MiningGenesis, u64)>,
     mining_file: Option<PathBuf>,
     mining_reserve: Option<u64>,
+    /// ADR-050: the council's public halves, threshold and longest pause.
+    council_dir: Option<PathBuf>,
+    council_threshold: Option<u8>,
+    council_max_pause_blocks: Option<u64>,
 }
 
 impl Default for Args {
@@ -130,6 +135,9 @@ impl Default for Args {
             mining: None,
             mining_file: None,
             mining_reserve: None,
+            council_dir: None,
+            council_threshold: None,
+            council_max_pause_blocks: None,
         }
     }
 }
@@ -141,7 +149,8 @@ fn print_usage() {
          genesis-ceremony contribute --label <NAME> [--out-dir <PATH>]\n  \
          genesis-ceremony assemble --chain-id <ID> --supply <UNITS> \
 --contributions <DIR> [OPTIONS]\n  \
-         genesis-ceremony --chain-id <ID> --supply <UNITS> [OPTIONS]   (single-party)\n\n\
+         genesis-ceremony --chain-id <ID> --supply <UNITS> [OPTIONS]   (single-party)\n  \
+         genesis-ceremony council key|approve|combine ...   (security council, ADR-050)\n\n\
          MODES:\n  \
          contribute   one participant, on their own machine: generates a root key,\n               \
          keeps the secret locally, emits only the public half\n  \
@@ -164,6 +173,10 @@ fn print_usage() {
          bonds (staking) and --mining-reserve\n  \
          --mining-reserve <UNITS>     units the keyless mining reserve starts with;\n                               \
          paid out as block rewards, never minted\n  \
+         --council <DIR>              security council (ADR-050): the *.council.public\n                               \
+         files from `council key`; required on a value-bearing chain\n  \
+         --council-threshold <N>      approvals a pause needs, a strict majority\n  \
+         --council-max-pause-blocks <N>  longest single pause, in blocks\n  \
          --supply <UNITS>             total genesis supply, treasury included\n  \
          --timestamp <UNIX>           genesis timestamp; pin it for a real launch\n  \
          --difficulty-bits <N>        starting difficulty (default 22)\n  \
@@ -216,6 +229,11 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--epoch-blocks" => args.epoch_blocks = value()?.parse()?,
             "--mining" => args.mining_file = Some(PathBuf::from(value()?)),
             "--mining-reserve" => args.mining_reserve = Some(value()?.parse()?),
+            "--council" => args.council_dir = Some(PathBuf::from(value()?)),
+            "--council-threshold" => args.council_threshold = Some(value()?.parse()?),
+            "--council-max-pause-blocks" => {
+                args.council_max_pause_blocks = Some(value()?.parse()?);
+            }
             "-h" | "--help" => {
                 print_usage();
                 std::process::exit(0);
@@ -242,6 +260,11 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
     }
     if args.supply == 0 {
         return Err("--supply is required and must be non-zero".into());
+    }
+    // ADR-050: a value-bearing chain launches with its bounded emergency
+    // brake, or it has none until a hard fork adds one.
+    if is_value_bearing(&args.chain_id) && args.council_dir.is_none() {
+        return Err("a value-bearing chain needs --council <DIR> (ADR-050)".into());
     }
     Ok(args)
 }
@@ -271,6 +294,22 @@ fn read_committee(args: &Args) -> Result<Option<Vec<committee::Member>>, Box<dyn
     let members = committee::read(path)?;
     committee::check_launch_size(is_value_bearing(&args.chain_id), &members)?;
     Ok(Some(members))
+}
+
+/// The genesis security council (ADR-050), from `--council` and its two
+/// parameters; both are required with it, and neither has a default because
+/// they are Eric's to set.
+fn read_council(args: &Args) -> Result<Option<council::Council>, Box<dyn Error>> {
+    let Some(dir) = &args.council_dir else {
+        return Ok(None);
+    };
+    let threshold = args
+        .council_threshold
+        .ok_or("--council needs --council-threshold")?;
+    let max_pause = args
+        .council_max_pause_blocks
+        .ok_or("--council needs --council-max-pause-blocks")?;
+    Ok(Some(council::genesis(dir, threshold, max_pause)?))
 }
 
 /// `--mining` and `--mining-reserve` together, read and checked; both
@@ -309,7 +348,7 @@ fn launch_config(
         bft.mining = Some(mining.clone());
         allocations.push(Allocation {
             address: hex::encode(MINING_RESERVE),
-            balance: *reserve,
+            balance: primitive_types::U256::from(*reserve),
         });
     }
     // A value-bearing chain counts votes by stake (ADR-040 part 2): one seat
@@ -409,7 +448,13 @@ fn split_supply(supply: u64, share_bps: u16) -> Result<(u64, u64), Box<dyn Error
 
 /// Writes `bytes` to `path` with an owner-only mode where the platform has one.
 fn write_secret(path: &Path, bytes: &[u8]) -> Result<(), Box<dyn Error>> {
-    fs::write(path, bytes)?;
+    use std::io::Write as _;
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    // Owner-only from creation, not after: no window with the default mode.
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(path)?.write_all(bytes)?;
 
     // Unix only. Windows inherits the directory ACL, which is why the ceremony
     // directory itself is created fresh rather than reused — an existing
@@ -467,6 +512,10 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    if argv.first().map(String::as_str) == Some("council") {
+        return council::run(&argv[1..]);
+    }
     let args = parse_args()?;
 
     // `contribute` mints no genesis, so it has no chain id and needs none: a
@@ -532,7 +581,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         public_lines.push(format!("  root-{index}  {address}  {balance}"));
         allocations.push(Allocation {
             address: address.clone(),
-            balance,
+            balance: primitive_types::U256::from(balance),
         });
     }
 
@@ -550,7 +599,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
         Some(TreasuryGenesis {
             address,
-            balance: treasury_balance,
+            balance: primitive_types::U256::from(treasury_balance),
             share_bps: args.treasury_share_bps,
         })
     } else {
@@ -559,7 +608,9 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     // --- genesis -----------------------------------------------------------
     let committee = read_committee(&args)?;
-    let config = launch_config(&args, allocations, treasury, committee.as_deref());
+    let mut config = launch_config(&args, allocations, treasury, committee.as_deref());
+    let council = read_council(&args)?;
+    config.security_council = council.as_ref().map(|(c, _)| c.clone());
 
     config.validate()?;
 
@@ -609,7 +660,11 @@ fn run() -> Result<(), Box<dyn Error>> {
         public_lines.join("\n"),
     );
 
-    let sheet = sheet + &consensus_section(committee.as_deref());
+    let sheet = sheet
+        + &consensus_section(committee.as_deref())
+        + &council
+            .as_ref()
+            .map_or_else(String::new, |(c, m)| council::sheet_section(c, m));
     fs::write(args.out_dir.join("COMMITMENT.txt"), &sheet)?;
     print!("{sheet}");
     println!("Wrote {}", genesis_path.display());
@@ -878,7 +933,7 @@ fn assemble(args: &Args) -> Result<(), Box<dyn Error>> {
         ));
         allocations.push(Allocation {
             address: contribution.address.clone(),
-            balance,
+            balance: primitive_types::U256::from(balance),
         });
     }
 
@@ -913,7 +968,7 @@ fn assemble(args: &Args) -> Result<(), Box<dyn Error>> {
 
         Some(TreasuryGenesis {
             address,
-            balance: treasury_balance,
+            balance: primitive_types::U256::from(treasury_balance),
             share_bps: args.treasury_share_bps,
         })
     } else {
@@ -921,7 +976,9 @@ fn assemble(args: &Args) -> Result<(), Box<dyn Error>> {
     };
 
     let committee = read_committee(args)?;
-    let config = launch_config(args, allocations, treasury, committee.as_deref());
+    let mut config = launch_config(args, allocations, treasury, committee.as_deref());
+    let council = read_council(args)?;
+    config.security_council = council.as_ref().map(|(c, _)| c.clone());
 
     config.validate()?;
 
@@ -970,7 +1027,11 @@ fn assemble(args: &Args) -> Result<(), Box<dyn Error>> {
         public_lines.join("\n"),
     );
 
-    let sheet = sheet + &consensus_section(committee.as_deref());
+    let sheet = sheet
+        + &consensus_section(committee.as_deref())
+        + &council
+            .as_ref()
+            .map_or_else(String::new, |(c, m)| council::sheet_section(c, m));
     fs::write(args.out_dir.join("COMMITMENT.txt"), &sheet)?;
     print!("{sheet}");
     println!("Wrote {}", genesis_path.display());
@@ -980,6 +1041,8 @@ fn assemble(args: &Args) -> Result<(), Box<dyn Error>> {
 
 #[cfg(test)]
 mod shielded_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::shielded_activation_for;
 
     #[test]
@@ -1034,6 +1097,8 @@ mod shielded_tests {
 
 #[cfg(test)]
 mod mining_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::{Args, committee, launch_config};
     use custom_l1_node::crypto::keys;
     use custom_l1_node::state::mining::{DagProfile, MINING_RESERVE, MiningGenesis};
@@ -1056,7 +1121,7 @@ mod mining_tests {
 
     fn mining() -> MiningGenesis {
         MiningGenesis {
-            initial_epoch_reward: 1_000_000,
+            initial_epoch_reward: primitive_types::U256::from(1_000_000),
             halving_epochs: 100,
             miner_share_bps: 7_000,
             target_shares: 10,
@@ -1077,10 +1142,9 @@ mod mining_tests {
         let config = launch_config(&args, Vec::new(), None, Some(&members()));
         let reserve = hex::encode(MINING_RESERVE);
         assert!(
-            config
-                .allocations
-                .iter()
-                .any(|a| a.address == reserve && a.balance == 5_000_000)
+            config.allocations.iter().any(
+                |a| a.address == reserve && a.balance == primitive_types::U256::from(5_000_000)
+            )
         );
         assert_eq!(
             config.bft.as_ref().and_then(|b| b.mining.clone()),

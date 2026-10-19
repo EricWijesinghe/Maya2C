@@ -309,6 +309,69 @@ fn an_observer_commits_what_validators_commit_without_signing() {
 }
 
 #[test]
+fn a_vote_restored_from_the_safety_log_refuses_a_conflicting_vertex_for_its_slot() {
+    // Before a crash the validator votes for one vertex of slot (round 1, author
+    // 0). Restored from its safety log, the fresh engine must not vote for a
+    // different vertex in that slot: that second vote is the equivocation the
+    // log exists to prevent. The driver restores votes the same way.
+    let committee = Committee::new(4);
+    let mut before = Validator::with_auth(1, committee.clone(), Params::default(), Mac { me: 1 });
+    before.start(5);
+    let proposal = Vertex {
+        epoch: 0,
+        round: 1,
+        author: 0,
+        timestamp_ms: 7,
+        // A quorum of the genesis certificates, sorted, as a round-1 vertex needs.
+        parents: {
+            let mut parents: Vec<_> = Certificate::genesis(&committee)
+                .iter()
+                .take(3)
+                .map(Certificate::digest)
+                .collect();
+            parents.sort();
+            parents
+        },
+        batch: Vec::new(),
+    };
+    let out = before.handle(
+        10,
+        0,
+        Message::Propose {
+            vertex: proposal.clone(),
+            signature: mac(0, &proposal.digest()),
+        },
+    );
+    let voted = out.sends.iter().find_map(|(_, m)| match m {
+        Message::Vote { digest, round, .. } if *round == 1 => Some(*digest),
+        _ => None,
+    });
+    assert_eq!(voted, Some(proposal.digest()), "votes for the first vertex");
+
+    let mut after = Validator::with_auth(1, committee.clone(), Params::default(), Mac { me: 1 });
+    after.restore_vote(1, 0, proposal.digest());
+    let conflicting = Vertex {
+        timestamp_ms: 8,
+        ..proposal
+    };
+    let out = after.handle(
+        20,
+        0,
+        Message::Propose {
+            vertex: conflicting.clone(),
+            signature: mac(0, &conflicting.digest()),
+        },
+    );
+    assert!(
+        !out.sends.iter().any(|(_, m)| matches!(
+            m,
+            Message::Vote { digest, .. } if *digest == conflicting.digest()
+        )),
+        "a restored validator voted for a second vertex in its slot"
+    );
+}
+
+#[test]
 fn a_certificate_at_the_collection_horizon_is_accepted_without_its_parents() {
     // ADR-038 catch-up resumes the engine with its horizon at the resume
     // round, and joins by accepting certificates there whose parents it

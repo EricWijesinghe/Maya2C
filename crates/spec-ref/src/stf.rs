@@ -3,13 +3,14 @@
 use std::collections::BTreeMap;
 
 use crate::Address;
+use crate::balance::Balance;
 
 /// An account record. An address with no record reads as zero balance, zero
 /// nonce (STF-7).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Account {
-    /// Balance in base units.
-    pub balance: u64,
+    /// Balance in base units: 256 bits (ADR-046).
+    pub balance: Balance,
     /// Transactions sent.
     pub nonce: u64,
 }
@@ -23,8 +24,8 @@ pub struct Transfer {
     pub signature_valid: bool,
     /// Replay counter.
     pub nonce: u64,
-    /// `(recipient, amount)` in order.
-    pub outputs: Vec<(Address, u64)>,
+    /// `(recipient, amount)` in order; amounts are 256-bit (ADR-046).
+    pub outputs: Vec<(Address, Balance)>,
 }
 
 /// Why a block is invalid. The names are the spec's error kinds.
@@ -69,16 +70,17 @@ pub fn apply_transfer(
     if tx.nonce != sender.nonce {
         return Err(Rejection::InvalidNonce); // STF-1
     }
-    let mut total: u64 = 0;
+    let mut total = Balance::default();
     for (_, amount) in &tx.outputs {
         total = total
             .checked_add(*amount)
             .ok_or(Rejection::BalanceOverflow)?; // STF-2
     }
-    if sender.balance < total {
+    // Outputs, their total and balances are all 256-bit (ADR-046).
+    let Some(left) = sender.balance.checked_sub(total) else {
         return Err(Rejection::InsufficientBalance); // STF-3
-    }
-    sender.balance -= total;
+    };
+    sender.balance = left;
     sender.nonce = sender
         .nonce
         .checked_add(1)

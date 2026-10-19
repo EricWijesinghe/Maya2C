@@ -34,8 +34,9 @@ pub struct Account {
 pub struct PaymentRequest {
     /// Hex-encoded recipient.
     pub recipient: String,
-    /// Requested amount, if any.
-    pub amount: Option<u64>,
+    /// Requested amount, if any: a decimal string, as the wallet core sends
+    /// every 256-bit amount (ADR-046).
+    pub amount: Option<String>,
     /// Requester-supplied label. Untrusted text.
     pub label: Option<String>,
 }
@@ -49,12 +50,12 @@ pub struct SignedTransfer {
     pub sender: String,
     /// Hex-encoded recipient.
     pub recipient: String,
-    /// Amount sent.
-    pub amount: u64,
+    /// Amount sent, a decimal string (256-bit, ADR-046).
+    pub amount: String,
     /// Nonce used.
     pub nonce: u64,
-    /// Fee burned.
-    pub fee: u64,
+    /// Fee, a decimal string.
+    pub fee: String,
     /// Raw transaction hex.
     pub raw_hex: String,
 }
@@ -86,12 +87,12 @@ pub struct TransferPreview {
     pub sender: String,
     /// Hex-encoded recipient.
     pub recipient: String,
-    /// Amount to the recipient.
-    pub amount: u64,
-    /// Fee.
-    pub fee: u64,
-    /// Amount plus fee.
-    pub total: u64,
+    /// Amount to the recipient, base units as a decimal string.
+    pub amount: String,
+    /// Fee, base units as a decimal string.
+    pub fee: String,
+    /// Amount plus fee, base units as a decimal string.
+    pub total: String,
     /// Nonce.
     pub nonce: u64,
 }
@@ -101,8 +102,8 @@ pub struct TransferPreview {
 pub struct FeeOption {
     /// Display name.
     pub label: String,
-    /// Suggested fee.
-    pub fee: u64,
+    /// Suggested fee, base units as a decimal string.
+    pub fee: String,
 }
 
 /// The fee presets for the next transfer, and where the fee must go.
@@ -110,8 +111,8 @@ pub struct FeeOption {
 pub struct FeeTerms {
     /// The collector to pay on a fee-market chain; `None` where fees are off.
     pub collector: Option<String>,
-    /// Base fee per byte; 0 where fees are off.
-    pub base_fee: u64,
+    /// Base fee per byte, a decimal string; "0" where fees are off.
+    pub base_fee: String,
     /// Economy, Standard and Priority.
     pub options: Vec<FeeOption>,
     /// The node's genesis id, hex: the one chain a signature is valid on
@@ -122,8 +123,8 @@ pub struct FeeTerms {
 /// A node's view of an account.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct AccountState {
-    /// Spendable balance.
-    pub balance: u64,
+    /// Spendable balance, base units as a decimal string.
+    pub balance: String,
     /// Next required nonce.
     pub nonce: u64,
 }
@@ -273,17 +274,18 @@ pub async fn parse_payment_uri(input: &str) -> Result<PaymentRequest, String> {
 struct TransferArgs<'a> {
     index: u32,
     recipient: &'a str,
-    amount: u64,
-    fee: u64,
+    amount: &'a str,
+    fee: &'a str,
     nonce: u64,
 }
 
-/// Summarises a transfer for confirmation, without signing it.
+/// Summarises a transfer for confirmation, without signing it. `amount` and
+/// `fee` are base-unit decimal strings: the IPC never carries a JS number.
 pub async fn preview_transfer(
     index: u32,
     recipient: &str,
-    amount: u64,
-    fee: u64,
+    amount: &str,
+    fee: &str,
     nonce: u64,
 ) -> Result<TransferPreview, String> {
     call(
@@ -307,8 +309,8 @@ pub async fn preview_transfer(
 pub async fn sign_transfer(
     index: u32,
     recipient: &str,
-    amount: u64,
-    fee: u64,
+    amount: &str,
+    fee: &str,
     nonce: u64,
     terms: &FeeTerms,
 ) -> Result<SignedTransfer, String> {
@@ -317,8 +319,8 @@ pub async fn sign_transfer(
     struct Args<'a> {
         index: u32,
         recipient: &'a str,
-        amount: u64,
-        fee: u64,
+        amount: &'a str,
+        fee: &'a str,
         fee_to: Option<&'a str>,
         nonce: u64,
         genesis: &'a str,
@@ -459,11 +461,11 @@ pub struct ReceiveRequest {
 }
 
 /// Builds the Receive screen's request for account `index`.
-pub async fn receive_request(index: u32, amount: Option<u64>) -> Result<ReceiveRequest, String> {
+pub async fn receive_request(index: u32, amount: Option<String>) -> Result<ReceiveRequest, String> {
     #[derive(Serialize)]
     struct Args {
         index: u32,
-        amount: Option<u64>,
+        amount: Option<String>,
     }
     call("receive_request", &Args { index, amount }).await
 }

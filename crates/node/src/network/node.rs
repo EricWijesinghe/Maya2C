@@ -67,8 +67,11 @@ const GUARD_TICK: Duration = Duration::from_secs(1);
 
 mod build;
 mod guard;
+mod links;
 mod relay;
 mod threat;
+
+pub use links::{PeerLink, Transport};
 
 pub use relay::{RelayConfig, RelayIngress};
 
@@ -190,6 +193,9 @@ enum Command {
     },
     PeerAddresses {
         reply: oneshot::Sender<Vec<(PeerId, IpAddr)>>,
+    },
+    PeerLinks {
+        reply: oneshot::Sender<Vec<(PeerLink, Option<PeerReport>)>>,
     },
     EnforceMitigations {
         peers: HashSet<PeerId>,
@@ -369,6 +375,19 @@ impl NodeHandle {
         Self::await_reply(receiver).await
     }
 
+    /// Every connected peer with how and since when it connected, and its
+    /// health report: what the live network dashboard shows. Carries no
+    /// addresses (`node::links`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Network`] if the node has stopped.
+    pub async fn peer_links(&self) -> Result<Vec<(PeerLink, Option<PeerReport>)>> {
+        let (reply, receiver) = oneshot::channel();
+        self.send(Command::PeerLinks { reply }).await?;
+        Self::await_reply(receiver).await
+    }
+
     /// Refuses exactly the peers `mitigations` name, re-admitting any
     /// convicted before whose indicator has since lifted.
     ///
@@ -477,6 +496,7 @@ impl Node {
             pending_sync: HashMap::new(),
             relay: self.relay,
             addresses: threat::AddressBook::default(),
+            links: links::LinkBook::default(),
             convicted: HashSet::new(),
         };
         tokio::spawn(driver.run(command_rx));
@@ -514,6 +534,8 @@ struct NodeDriver {
     relay: Option<relay::RelayState>,
     /// Where each peer last connected from (`node::threat`).
     addresses: threat::AddressBook,
+    /// Connected peers, for the live dashboard (`node::links`).
+    links: links::LinkBook,
     /// Peers refused for an on-chain conviction (`node::threat`).
     convicted: HashSet<PeerId>,
 }
@@ -637,6 +659,19 @@ impl NodeDriver {
             Command::PeerAddresses { reply } => {
                 let _ = reply.send(self.addresses.snapshot());
             }
+            Command::PeerLinks { reply } => {
+                let now = std::time::Instant::now();
+                let links = self
+                    .links
+                    .snapshot(now)
+                    .into_iter()
+                    .map(|l| {
+                        let report = self.health.report(&l.peer, now);
+                        (l, report)
+                    })
+                    .collect();
+                let _ = reply.send(links);
+            }
             Command::EnforceMitigations { peers } => self.enforce_convictions(peers),
         }
     }
@@ -653,6 +688,8 @@ impl NodeDriver {
                 ..
             } => {
                 self.relay_connected(peer_id, &endpoint);
+                self.links
+                    .opened(peer_id, &endpoint, std::time::Instant::now());
                 if let Some(ip) =
                     crate::network::relay_key::connection_ip(endpoint.get_remote_address())
                 {
@@ -678,6 +715,7 @@ impl NodeDriver {
                 ..
             } => {
                 self.sessions.remove(&connection_id);
+                self.links.closed(peer_id, num_established);
                 self.relay_disconnected(peer_id, num_established);
                 self.emit(NodeEvent::PeerDisconnected(peer_id));
             }

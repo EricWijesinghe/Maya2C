@@ -34,6 +34,7 @@
 //! one. Recomputing it would mean deriving the same rounding twice and being
 //! right both times.
 
+use maya_dex::Amount;
 use maya_dex::amm::Pool;
 use maya_dex::book::{Order, OrderId, SORT_KEY_LEN, Side, sort_key};
 use maya_dex::fees::FeeSchedule;
@@ -62,10 +63,14 @@ const ORDER_COUNT_PREFIX: &[u8] = b"d:cnt:";
 pub(crate) const SEQUENCE_KEY: &[u8] = b"d:seq";
 
 /// Serialized length of a [`PoolRecord`].
-pub const POOL_RECORD_LEN: usize = 32 + 32 + 8 + 8 + 8 + 4 + 4;
+///
+/// Reserves and shares are 256-bit (ADR-046), 32 bytes each.
+pub const POOL_RECORD_LEN: usize = 32 + 32 + 32 + 32 + 32 + 4 + 4;
 
 /// Serialized length of an [`OrderRecord`].
-pub const ORDER_RECORD_LEN: usize = 32 + 32 + 32 + 1 + 8 + 8 + 8 + 8 + 8 + 8;
+///
+/// Price, amount, remaining and escrow are 256-bit (ADR-046), 32 bytes each.
+pub const ORDER_RECORD_LEN: usize = 32 + 32 + 32 + 1 + 32 + 32 + 32 + 8 + 8 + 32;
 
 /// A constant-product pool as it is stored.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -105,9 +110,9 @@ impl PoolRecord {
             base_asset: reader.read_array::<32>()?,
             quote_asset: reader.read_array::<32>()?,
             pool: Pool {
-                reserve_base: reader.read_u64()?,
-                reserve_quote: reader.read_u64()?,
-                total_shares: reader.read_u64()?,
+                reserve_base: read_amount(&mut reader)?,
+                reserve_quote: read_amount(&mut reader)?,
+                total_shares: read_amount(&mut reader)?,
                 fees: FeeSchedule {
                     lp_bps: reader.read_u32()?,
                     protocol_bps: reader.read_u32()?,
@@ -140,7 +145,7 @@ pub struct OrderRecord {
     /// Carried rather than recomputed from `remaining * price`, because
     /// recomputing it means reproducing the placement's rounding exactly, and
     /// a refund that is off by one is a mint or a burn.
-    pub escrow: u64,
+    pub escrow: Amount,
 }
 
 impl OrderRecord {
@@ -181,13 +186,13 @@ impl OrderRecord {
                 id,
                 owner,
                 side,
-                price: reader.read_u64()?,
-                amount: reader.read_u64()?,
-                remaining: reader.read_u64()?,
+                price: read_amount(&mut reader)?,
+                amount: read_amount(&mut reader)?,
+                remaining: read_amount(&mut reader)?,
                 sequence: reader.read_u64()?,
                 expiry: reader.read_u64()?,
             },
-            escrow: reader.read_u64()?,
+            escrow: read_amount(&mut reader)?,
         };
         reader.finish()?;
         Ok(record)
@@ -209,6 +214,11 @@ impl OrderRecord {
             Side::Ask => record.base_asset,
         }
     }
+}
+
+/// Reads a 32-byte little-endian 256-bit amount (ADR-046).
+fn read_amount(reader: &mut ByteReader<'_>) -> Result<Amount> {
+    Ok(Amount::from_le_bytes(reader.read_array::<32>()?))
 }
 
 /// Storage key for an asset record.
@@ -241,7 +251,7 @@ pub fn pool_key(pair: &PairId) -> Vec<u8> {
 
 /// Storage key for a resting order, in price-time priority order.
 #[must_use]
-pub fn order_key(pair: &PairId, side: Side, price: u64, sequence: u64) -> Vec<u8> {
+pub fn order_key(pair: &PairId, side: Side, price: Amount, sequence: u64) -> Vec<u8> {
     let sort = sort_key(side, price, sequence);
     join(
         ORDER_PREFIX,

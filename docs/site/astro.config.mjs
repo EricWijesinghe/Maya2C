@@ -2,6 +2,9 @@
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
 import { readFileSync } from "node:fs";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import { unified } from "@astrojs/markdown-remark";
 
 // Emitted by scripts/ingest.mjs, which runs before every build. Generated
 // rather than hand-listed so a new file in docs/ reaches the site without a
@@ -13,6 +16,14 @@ const reference = JSON.parse(
 
 export default defineConfig({
   site: "https://maya2c.dev",
+  // Equations in the "For scientists" tabs. KaTeX renders at build time, so
+  // the page ships HTML and no math script (the CSP allows none from outside).
+  markdown: {
+    processor: unified({
+      remarkPlugins: [remarkMath],
+      rehypePlugins: [rehypeKatex],
+    }),
+  },
   // Content-Security-Policy (incident 2026-10-06): a hijacked edge appended
   // a ClickFix loader to every page. Astro hashes every script and style it
   // emits, so a script added after the build has no hash and browsers refuse
@@ -34,6 +45,8 @@ export default defineConfig({
         // scripts/check-csp.mjs fails the build if one changes.
         hashes: [
           "sha256-7eCV4jtsr4t4knb3c4FCRPeu7GGZeOUGE3XvWix0XOQ=",
+          // Head.astro: sets data-section and data-motif before first paint. Reviewed 2026-10-18.
+          "sha256-6ZINGwbBwZAoVmAasCd7cTtRBKBuDMifxtzCpxtsf9c=",
           "sha256-GkZBRnvSuhtx/cvzvukVkX2JJZW+DdPlVr7BX8Tefqo=",
           "sha256-VWo5Wp4aqSj6nSgMpeAp9cKieaoIfwFUAunAVugI5gA=",
           "sha256-f/zAUE74ucc3JYp4r4QQvkJofoQdkOIhHYK+jeZ6eko=",
@@ -65,13 +78,7 @@ export default defineConfig({
       // Bing Webmaster Tools ownership check for maya2c.dev.
       head: [
         { tag: "meta", attrs: { name: "msvalidate.01", content: "76B55D3E70EB56CB2D46FE438641E2A4" } },
-        // Link previews (Slack, X, Discord, LinkedIn): Starlight emits the
-        // title and description, but no image unless one is named here.
-        { tag: "meta", attrs: { property: "og:image", content: "https://maya2c.dev/og-card.png" } },
-        { tag: "meta", attrs: { property: "og:image:width", content: "1200" } },
-        { tag: "meta", attrs: { property: "og:image:height", content: "630" } },
-        { tag: "meta", attrs: { property: "og:image:alt", content: "Maya2C — post-quantum layer-1 blockchain" } },
-        { tag: "meta", attrs: { name: "twitter:image", content: "https://maya2c.dev/og-card.png" } },
+        // Link-preview images are per section, set in src/components/Head.astro.
         { tag: "meta", attrs: { name: "theme-color", content: "#050b0f" } },
         // Structured data, so search engines know what the site is about:
         // the project, its source, and that the software is free.
@@ -87,7 +94,13 @@ export default defineConfig({
                 name: "Maya2C",
                 url: "https://maya2c.dev/",
                 logo: "https://maya2c.dev/apple-touch-icon.png",
-                sameAs: ["https://github.com/EricWijesinghe/Maya2C"],
+                sameAs: [
+                  "https://github.com/EricWijesinghe/Maya2C",
+                  "https://www.linkedin.com/in/ericwijesinghe",
+                  "https://www.facebook.com/EricWijesinghe2002/",
+                  "https://www.instagram.com/ericwijesinghe2022/",
+                  "https://eric.maya2c.dev",
+                ],
               },
               {
                 "@type": "WebSite",
@@ -134,7 +147,11 @@ export default defineConfig({
         "@fontsource-variable/manrope",
         "@fontsource-variable/inter",
         "@fontsource-variable/jetbrains-mono",
+        // KaTeX glyph styles, self-hosted from node_modules (fonts are same-origin).
+        "katex/dist/katex.min.css",
+        "./src/components/math/katex-overflow.css",
         "./src/styles/maya.css",
+        "./src/styles/maya-living.css",
       ],
       components: {
         // Our footer (about, contact, copyright) after Starlight's own.
@@ -159,10 +176,14 @@ export default defineConfig({
             { label: "Help run the network (easy)", link: "/guides/help-run" },
             { label: "Join the testnet", link: "/guides/testnet" },
             { label: "Quickstart", link: "/guides/quickstart" },
+            { label: "How a transaction works", link: "/guides/transactions" },
             { label: "Post-quantum signatures", link: "/guides/signatures" },
+            { label: "Consensus and finality", link: "/guides/consensus" },
             { label: "Mining and validators", link: "/guides/mining" },
             { label: "Run a validator", link: "/guides/validators" },
             { label: "Break it", link: "/guides/break-it" },
+            { label: "Security Hall of Fame", link: "/guides/security-hall-of-fame" },
+            { label: "Contributors & badges", link: "/guides/contributors" },
             { label: "API reference", link: "/guides/api" },
             { label: "Wallet integration", link: "/guides/wallet" },
             { label: "Compiling a contract", link: "/guides/contracts" },

@@ -35,8 +35,10 @@ pub const MAX_QR_PIXELS: u32 = 4096;
 pub struct PaymentRequest {
     /// Hex-encoded recipient address.
     pub recipient: String,
-    /// Amount in base units, if the request specifies one.
-    pub amount: Option<u64>,
+    /// Amount in base units, if the request specifies one: 256-bit (ADR-046),
+    /// a decimal string in JSON.
+    #[serde(with = "optional_amount")]
+    pub amount: Option<primitive_types::U256>,
     /// Free-text label supplied by the requester.
     ///
     /// Untrusted and unauthenticated — anyone can put any name here. The UI
@@ -83,8 +85,10 @@ impl PaymentRequest {
                 })?;
                 match key {
                     "amount" => {
-                        amount = Some(value.parse::<u64>().map_err(|_| {
-                            WalletError::Qr(format!("amount '{value}' is not a number"))
+                        // Strict decimal base units: a QR code is untrusted input.
+                        // The text is not echoed back: it is attacker-controlled.
+                        amount = Some(crate::amount::parse_base_units(value).map_err(|e| {
+                            WalletError::Qr(format!("amount is not valid base units: {e}"))
                         })?);
                     }
                     "label" => label = Some(percent_decode(value)),
@@ -272,12 +276,14 @@ pub struct SignedTransfer {
     pub sender: String,
     /// Hex-encoded recipient address.
     pub recipient: String,
-    /// Amount transferred.
-    pub amount: u64,
+    /// Amount transferred, 256-bit (ADR-046), a decimal string in JSON.
+    #[serde(with = "custom_l1_node::state::amount_serde")]
+    pub amount: primitive_types::U256,
     /// Sender nonce used.
     pub nonce: u64,
-    /// Fee attached.
-    pub fee: u64,
+    /// Fee attached, 256-bit, a decimal string in JSON.
+    #[serde(with = "custom_l1_node::state::amount_serde")]
+    pub fee: primitive_types::U256,
     /// The raw transaction, hex encoded, as a node accepts it.
     pub raw_hex: String,
 }
@@ -296,8 +302,8 @@ pub struct SignedTransfer {
 pub fn sign_transfer(
     signing_key: &HybridSigningKey,
     recipient: &str,
-    amount: u64,
-    fee: u64,
+    amount: primitive_types::U256,
+    fee: primitive_types::U256,
     nonce: u64,
     chain: &ChainTag,
 ) -> Result<SignedTransfer> {
@@ -319,8 +325,8 @@ pub fn sign_transfer(
 pub fn sign_transfer_to(
     signing_key: &HybridSigningKey,
     recipient: &str,
-    amount: u64,
-    fee: u64,
+    amount: primitive_types::U256,
+    fee: primitive_types::U256,
     fee_recipient: &str,
     nonce: u64,
     chain: &ChainTag,
@@ -376,8 +382,8 @@ pub fn transfer_size(
     let probe = sign_transfer_to(
         signing_key,
         fee_recipient,
-        1,
-        1,
+        primitive_types::U256::one(),
+        primitive_types::U256::one(),
         fee_recipient,
         nonce,
         chain,
@@ -389,18 +395,21 @@ pub fn transfer_size(
 ///
 /// Economy is exactly `base_fee x size`: accepted now, refused if the base
 /// fee rises before inclusion. Standard is twice that, the command-line
-/// wallet's default; Priority is four times.
+/// wallet's default; Priority is four times. The base fee is a per-byte rate
+/// (u64, ADR-046); the product is widened to 256 bits before it is multiplied,
+/// so no tier can wrap.
 ///
 /// # Errors
 ///
-/// [`WalletError::AmountOverflow`] if a fee does not fit in a `u64`.
-pub fn priced_fee_tiers(base_fee: u64, size: u64) -> Result<[u64; 3]> {
-    let required = base_fee
-        .checked_mul(size)
+/// [`WalletError::AmountOverflow`] only past 2^256 - 1, which two u64 factors
+/// cannot reach.
+pub fn priced_fee_tiers(base_fee: u64, size: u64) -> Result<[primitive_types::U256; 3]> {
+    let required = primitive_types::U256::from(base_fee)
+        .checked_mul(primitive_types::U256::from(size))
         .ok_or(WalletError::AmountOverflow)?;
     let tier = |factor: u64| {
         required
-            .checked_mul(factor)
+            .checked_mul(primitive_types::U256::from(factor))
             .ok_or(WalletError::AmountOverflow)
     };
     Ok([required, tier(2)?, tier(4)?])
@@ -409,8 +418,8 @@ pub fn priced_fee_tiers(base_fee: u64, size: u64) -> Result<[u64; 3]> {
 fn sign_with_fee_to(
     signing_key: &HybridSigningKey,
     recipient: &str,
-    amount: u64,
-    fee: u64,
+    amount: primitive_types::U256,
+    fee: primitive_types::U256,
     fee_recipient: [u8; 32],
     nonce: u64,
     chain: &ChainTag,
@@ -425,7 +434,7 @@ fn sign_with_fee_to(
         amount,
         recipient: recipient_bytes,
     }];
-    if fee > 0 {
+    if !fee.is_zero() {
         outputs.push(TxOutput {
             amount: fee,
             recipient: fee_recipient,
@@ -471,12 +480,12 @@ pub enum FeeTier {
 impl FeeTier {
     /// The fee this tier suggests, in base units.
     #[must_use]
-    pub fn suggested_fee(self) -> u64 {
-        match self {
-            Self::Economy => 1,
+    pub fn suggested_fee(self) -> primitive_types::U256 {
+        primitive_types::U256::from(match self {
+            Self::Economy => 1_u64,
             Self::Standard => 10,
             Self::Priority => 100,
-        }
+        })
     }
 
     /// Every tier, for rendering a selector.
@@ -493,5 +502,33 @@ impl FeeTier {
             Self::Standard => "Standard",
             Self::Priority => "Priority",
         }
+    }
+}
+
+/// `Option<U256>` as an optional decimal string, the wire form every wallet
+/// front end reads exactly (a JSON number rounds past 2^53).
+mod optional_amount {
+    use primitive_types::U256;
+    use serde::{Deserialize, Deserializer, Serializer, de::Error as _};
+
+    pub fn serialize<S: Serializer>(
+        value: &Option<U256>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        match value {
+            Some(amount) => serializer.serialize_some(&amount.to_string()),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<U256>, D::Error> {
+        Option::<String>::deserialize(deserializer)?
+            .map(|text| {
+                U256::from_dec_str(&text)
+                    .map_err(|_| D::Error::custom("amount is not a base-10 U256"))
+            })
+            .transpose()
     }
 }

@@ -20,7 +20,7 @@ use jsonrpsee::types::ErrorObjectOwned;
 
 use crate::core::{Block, BlockHeader};
 use crate::error::{NodeError, Result};
-use crate::rpc::server::RpcContext;
+use crate::rpc::server::{BUDGET_EXHAUSTED, PAGE_BUSY, RPC_RESPONSE_LIMIT, RpcContext};
 use crate::rpc::types::BlockInfo;
 use crate::state_pruner::snapshot::{BootstrapSource, HEADER_BATCH, SnapshotManifest, Snapshots};
 
@@ -208,6 +208,7 @@ impl RpcBootstrapSource {
     pub fn new(url: &str, runtime: tokio::runtime::Handle) -> Result<Self> {
         Ok(Self {
             client: HttpClientBuilder::default()
+                .max_response_size(RPC_RESPONSE_LIMIT)
                 .build(url)
                 .map_err(|e| NodeError::Network(format!("{url}: {e}")))?,
             runtime,
@@ -280,6 +281,14 @@ fn is_transient(e: &jsonrpsee::core::ClientError) -> bool {
     use jsonrpsee::core::ClientError;
     match e {
         ClientError::Transport(_) | ClientError::RequestTimeout => true,
+        // A certificate page refused for the caller's own budget or its one
+        // page in flight: the server answered, and the answer is "later". Back
+        // off with the same schedule as a lost connection.
+        ClientError::Call(err)
+            if err.message() == BUDGET_EXHAUSTED || err.message() == PAGE_BUSY =>
+        {
+            true
+        }
         // JSON-RPC "internal error": the server failed, it did not answer
         // about the data. The public gateway reports any upstream hiccup this
         // way ("upstream node error"); a joining Windows CI node died on one
@@ -295,6 +304,43 @@ const INTERNAL_ERROR_CODE: i32 = -32603;
 
 fn unhex(text: &str) -> Result<Vec<u8>> {
     hex::decode(text).map_err(|e| NodeError::Decode(format!("bad hex from peer: {e}")))
+}
+
+impl crate::consensus::bft::certsync::CertSource for RpcBootstrapSource {
+    fn current_epoch(&self) -> Result<u64> {
+        let status: Option<crate::rpc::types::BftStatus> =
+            self.call("get_bft_status", &rpc_params![])?;
+        status
+            .map(|s| s.epoch)
+            .ok_or_else(|| NodeError::Decode("peer runs no DAG-BFT".to_string()))
+    }
+
+    fn page(
+        &self,
+        epoch: u64,
+        offset: u64,
+        max_records: usize,
+    ) -> Result<crate::consensus::bft::store::CertPage> {
+        let info: crate::rpc::types::CertPageInfo =
+            self.call("get_certificates", &rpc_params![epoch, offset, max_records])?;
+        let records = info
+            .records
+            .iter()
+            .map(|r| unhex(r))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(crate::consensus::bft::store::CertPage {
+            records,
+            next: info.next,
+            done: info.done,
+        })
+    }
+
+    fn checkpoint_of(
+        &self,
+        epoch: u64,
+    ) -> Result<Option<crate::consensus::bft::attest::Checkpoint>> {
+        crate::consensus::bft::catchup::CheckpointSource::checkpoint_of(self, epoch)
+    }
 }
 
 impl crate::consensus::bft::catchup::CheckpointSource for RpcBootstrapSource {

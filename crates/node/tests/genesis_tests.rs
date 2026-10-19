@@ -6,6 +6,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use primitive_types::U256;
 use std::sync::Arc;
 
 use custom_l1_node::consensus::{Chain, ChainConfig};
@@ -17,7 +18,7 @@ use tempfile::TempDir;
 fn allocation(byte: u8, balance: u64) -> Allocation {
     Allocation {
         address: hex::encode([byte; 32]),
-        balance,
+        balance: primitive_types::U256::from(balance),
     }
 }
 
@@ -143,7 +144,7 @@ fn the_shielded_activation_is_bound_into_the_genesis_only_when_named() {
 fn changing_an_allocation_changes_the_genesis_block() {
     let base = config();
     let mut altered = config();
-    altered.allocations[0].balance += 1;
+    altered.allocations[0].balance += primitive_types::U256::from(1);
 
     assert_ne!(
         base.state_root().expect("root"),
@@ -219,7 +220,10 @@ fn an_empty_chain_id_is_rejected() {
 #[test]
 fn an_overflowing_total_allocation_is_rejected() {
     let mut invalid = config();
-    invalid.allocations = vec![allocation(1, u64::MAX), allocation(2, 1)];
+    // ADR-046: allocations are 256-bit; the total overflows past 2^256 - 1.
+    let mut max = allocation(1, 0);
+    max.balance = primitive_types::U256::MAX;
+    invalid.allocations = vec![max, allocation(2, 1)];
     assert!(invalid.validate().is_err());
 }
 
@@ -244,14 +248,14 @@ fn seeding_writes_allocations_and_matches_the_declared_root() {
     assert_eq!(
         state.get_account(&[1u8; 32]),
         Ok(Account {
-            balance: 1_000_000,
+            balance: U256::from(1_000_000),
             nonce: 0
         })
     );
     assert_eq!(
         state.get_account(&[2u8; 32]),
         Ok(Account {
-            balance: 500_000,
+            balance: U256::from(500_000),
             nonce: 0
         })
     );
@@ -268,7 +272,9 @@ fn seeding_is_idempotent_across_restarts() {
 
     assert_eq!(first, second);
     assert_eq!(
-        state.get_account(&[1u8; 32]).map(|a| a.balance),
+        state
+            .get_account(&[1u8; 32])
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
         Ok(1_000_000)
     );
 }

@@ -76,7 +76,11 @@ async fn dev_starts_a_funded_chain_and_redeploys_on_save() {
     let report = run(&options).await.unwrap();
     let funded = saver.await.unwrap();
 
-    assert_eq!(funded, DEV_BALANCE, "every dev account is pre-funded");
+    assert_eq!(
+        funded,
+        DEV_BALANCE.into(),
+        "every dev account is pre-funded"
+    );
     assert_eq!(report.accounts.len(), 3);
     assert_eq!(report.deployments.len(), 2);
     assert_ne!(

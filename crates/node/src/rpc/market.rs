@@ -31,6 +31,7 @@
 //! counted as circulating: they are spendable by whoever holds the notes, and
 //! excluding them would understate supply by the amount most worth hiding.
 
+use primitive_types::U256;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -60,16 +61,20 @@ const NON_CIRCULATING: &[Address] = &[crate::state::shielded::FEE_SINK];
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SupplyReport {
     /// Every unit that exists, including unspendable ones.
-    pub total: u64,
+    #[serde(with = "crate::state::amount_serde")]
+    pub total: U256,
     /// Units that can actually move.
-    pub circulating: u64,
+    #[serde(with = "crate::state::amount_serde")]
+    pub circulating: U256,
     /// Units held inside the shielded pool.
     ///
     /// Included in `circulating`; broken out because it is the figure an
     /// auditor most wants and the one a transparent scan cannot recover.
-    pub shielded: u64,
+    #[serde(with = "crate::state::amount_serde")]
+    pub shielded: U256,
     /// Units held at addresses that can never spend them.
-    pub burned: u64,
+    #[serde(with = "crate::state::amount_serde")]
+    pub burned: U256,
 }
 
 /// Computes supply from committed state.
@@ -83,8 +88,8 @@ pub fn supply(chain: &Arc<Mutex<Chain>>) -> Result<SupplyReport> {
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let state = chain.state();
 
-    let mut transparent: u64 = 0;
-    let mut burned: u64 = 0;
+    let mut transparent = U256::zero();
+    let mut burned = U256::zero();
 
     for (address, account) in state.all_accounts()? {
         transparent = transparent.saturating_add(account.balance);

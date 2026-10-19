@@ -7,9 +7,14 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use maya_amount::Amount;
 use maya_dex::book::{Book, Order, Side, quote_for_base};
 use maya_dex::error::DexError;
 use maya_dex::types::{Direction, NATIVE_ASSET, PRICE_SCALE};
+
+fn a(v: u64) -> Amount {
+    Amount::from_u64(v)
+}
 
 #[test]
 fn direction_tags_round_trip_and_reject_everything_else() {
@@ -78,9 +83,9 @@ fn an_order_is_live_until_its_expiry_passes_or_it_fills_out() {
         id: [1u8; 32],
         owner: [1u8; 32],
         side: Side::Ask,
-        price: PRICE_SCALE as u64,
-        amount: 100,
-        remaining: 100,
+        price: PRICE_SCALE,
+        amount: a(100),
+        remaining: a(100),
         sequence: 1,
         expiry: 10,
     };
@@ -89,13 +94,13 @@ fn an_order_is_live_until_its_expiry_passes_or_it_fills_out() {
     assert!(order.is_live(10), "the expiry height itself is inclusive");
     assert!(!order.is_live(11));
 
-    order.remaining = 0;
+    order.remaining = Amount::ZERO;
     assert!(
         !order.is_live(1),
         "a filled order is not live at any height"
     );
 
-    order.remaining = 100;
+    order.remaining = a(100);
     order.expiry = 0;
     assert!(order.is_live(u64::MAX), "zero is good-till-cancelled");
 }
@@ -105,14 +110,14 @@ fn an_orders_open_quote_follows_its_side() {
     // Three units at one-and-a-half quote each. A bid must escrow enough to
     // cover the whole thing; an ask must not be credited a unit that does not
     // exist.
-    let price = PRICE_SCALE as u64 * 3 / 2;
+    let price = PRICE_SCALE.mul_div(a(3), a(2)).expect("price");
     let bid = Order {
         id: [1u8; 32],
         owner: [1u8; 32],
         side: Side::Bid,
         price,
-        amount: 3,
-        remaining: 3,
+        amount: a(3),
+        remaining: a(3),
         sequence: 1,
         expiry: 0,
     };
@@ -121,17 +126,20 @@ fn an_orders_open_quote_follows_its_side() {
         ..bid
     };
 
-    assert_eq!(bid.open_quote(), Ok(5));
-    assert_eq!(ask.open_quote(), Ok(4));
+    assert_eq!(bid.open_quote(), Ok(a(5)));
+    assert_eq!(ask.open_quote(), Ok(a(4)));
 
-    // An order whose quote leaves `u64` is refused rather than truncated. The
+    // An order whose quote leaves 256 bits is refused rather than truncated. The
     // truncation would be an escrow smaller than the order it is supposed to
     // cover, which is the pool paying for somebody's overflow.
     assert_eq!(
-        quote_for_base(u64::MAX, u64::MAX, Side::Bid),
+        quote_for_base(Amount::MAX, Amount::MAX, Side::Bid),
         Err(DexError::Overflow)
     );
-    assert_eq!(quote_for_base(1, 0, Side::Ask), Err(DexError::ZeroPrice));
+    assert_eq!(
+        quote_for_base(a(1), Amount::ZERO, Side::Ask),
+        Err(DexError::ZeroPrice)
+    );
 }
 
 #[test]
@@ -146,9 +154,9 @@ fn a_books_accessors_agree_with_each_other() {
         id: [1u8; 32],
         owner: [2u8; 32],
         side: Side::Ask,
-        price: PRICE_SCALE as u64,
-        amount: 100,
-        remaining: 100,
+        price: PRICE_SCALE,
+        amount: a(100),
+        remaining: a(100),
         sequence: 1,
         expiry: 0,
     };

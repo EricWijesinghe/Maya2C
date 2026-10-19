@@ -80,3 +80,12 @@ The observation that would make this worth reopening.
 | [040](ADR-040-stake-weighted-committee.md) | Stake-weighted DAG-BFT committees — engine built, node wiring for decision | Proposed |
 | [044](ADR-044-mining-rewards-lane.md) | Block rewards and GPU mining at launch, without letting miners order blocks | Proposed |
 | [045](ADR-045-maya2c-hub.md) | Maya2C Hub: one desktop window for mining and every app | Proposed |
+| [047](ADR-047-single-pc-foundation-set.md) | The foundation validator set runs on one PC, said so publicly (supersedes ADR-042 gate 5) | Accepted |
+| [049](ADR-049-sealed-validator-keys.md) | Validator keys sealed at rest; a production build refuses plaintext | Accepted |
+| [050](ADR-050-owner-control-plane.md) | Owner control plane: full operator control, a bounded 2-of-3 council pause, no backdoor | Accepted |
+| [051](ADR-051-security-level-5-defaults.md) | NIST level 5: ML-KEM-1024 transport and a Maximum wallet option now, ML-DSA-87 validator keys at mainnet genesis | Proposed |
+| [052](ADR-052-follower-advance-by-certificates.md) | A follower advances on certificates the current committee signed (rejoin by certificate replay) | Accepted |
+| [053](ADR-053-ordered-set-root-in-header.md) | Commit each anchor's ordered sub-DAG in the block header | Proposed |
+| [054](ADR-054-reproducible-builds.md) | Reproducible Linux node builds: path remapping, one shared build script, a twice-built CI check | Accepted |
+| [055](ADR-055-quantum-harbor-binding.md) | Quantum Harbor step one: classical-key → PQ-vault binding, anchored on chain; no coins move | Proposed |
+| [056](ADR-056-guardian-recovery-transactions.md) | Guardian recovery as four node transactions with a delay and an owner cancel | Proposed |

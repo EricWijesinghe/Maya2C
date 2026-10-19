@@ -1,0 +1,29 @@
+---
+// The living background on every page: one fixed, full-viewport layer behind
+// the content. Its motif follows the route (html[data-motif], set in
+// Head.astro): constellation lattice on home, aurora on guides, blueprint on
+// reference, circuit on experience and developer pages, sunrise on support.
+// The WebGL field is drawn by src/scripts/ambient.ts; the .fallback layer is
+// the static CSS version of the same motif (maya-living.css), used on phones,
+// with reduced motion, and where WebGL is unavailable.
+---
+
+<div class="ambient" aria-hidden="true">
+  <div class="fallback"></div>
+  <canvas id="ambient-canvas"></canvas>
+</div>
+
+<script>
+  import { startAmbient } from "../scripts/ambient";
+  import { whenIdle } from "../scripts/idle";
+  // After first paint: the page's own content, not the field, is what loads first.
+  whenIdle(startAmbient);
+</script>
+
+<style>
+  .ambient { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
+  .fallback, canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  canvas { display: none; }
+  :global(html.ambient-gl) canvas { display: block; }
+  :global(html.ambient-gl) .fallback { display: none; }
+</style>

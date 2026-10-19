@@ -1,0 +1,151 @@
+<!-- A Merkle tree you can inspect. Pick a leaf to see the sibling hashes that
+     prove it; edit a leaf and the old proof no longer matches the root the
+     reader trusted. Hashes are real SHA-256, computed in the browser. -->
+<figure class="htree" data-htree>
+  <div class="row">
+    <label>Leaves
+      <select data-count>
+        <option value="4">4</option>
+        <option value="8" selected>8</option>
+      </select>
+    </label>
+    <button type="button" data-action="edit">Edit leaf 3</button>
+  </div>
+  <svg viewBox="0 0 360 230" role="group" aria-label="Hash tree. Select a leaf to highlight its proof." data-svg></svg>
+  <p data-readout aria-live="polite"></p>
+</figure>
+
+<script>
+  import { buildLevels, proofFor, rootFromProof, type Step } from "./merkle";
+
+  const NS = "http://www.w3.org/2000/svg";
+  const root = document.querySelector<HTMLElement>("[data-htree]");
+  if (root) mount(root);
+
+  function mount(figure: HTMLElement) {
+    const select = figure.querySelector<HTMLSelectElement>("[data-count]")!;
+    const edit = figure.querySelector<HTMLButtonElement>('[data-action="edit"]')!;
+    const svg = figure.querySelector<SVGSVGElement>("[data-svg]")!;
+    const readout = figure.querySelector<HTMLElement>("[data-readout]")!;
+
+    const original = (i: number) => `tx ${i} amount ${10 + i}`;
+    const tampered = "tx 3 amount 99999";
+    let values: string[] = [];
+    let trustedRoot = "";
+    let trustedLevels: string[][] = [];
+    let selected = 0;
+    let edited = false;
+
+    const short = (h: string) => h.slice(0, 6);
+
+    function shape(x: number, y: number, text: string, cls: string, leaf?: number) {
+      const g = document.createElementNS(NS, "g");
+      g.setAttribute("class", cls);
+      if (leaf !== undefined) g.setAttribute("data-leaf", String(leaf));
+      const r = document.createElementNS(NS, "rect");
+      r.setAttribute("x", String(x - 20));
+      r.setAttribute("y", String(y - 11));
+      r.setAttribute("width", "40");
+      r.setAttribute("height", "22");
+      r.setAttribute("rx", "4");
+      const t = document.createElementNS(NS, "text");
+      t.setAttribute("x", String(x));
+      t.setAttribute("y", String(y + 4));
+      t.setAttribute("text-anchor", "middle");
+      t.textContent = text;
+      g.append(r, t);
+      svg.appendChild(g);
+    }
+
+    function edge(x1: number, y1: number, x2: number, y2: number) {
+      const l = document.createElementNS(NS, "line");
+      l.setAttribute("x1", String(x1));
+      l.setAttribute("y1", String(y1));
+      l.setAttribute("x2", String(x2));
+      l.setAttribute("y2", String(y2));
+      l.setAttribute("class", "edge");
+      svg.appendChild(l);
+    }
+
+    async function render() {
+      const levels = await buildLevels(values);
+      const steps: Step[] = proofFor(levels, selected);
+      // Nodes on the selected leaf's path, as "level:index".
+      const onPath = new Set<string>();
+      let at = selected;
+      for (let level = 0; level < levels.length; level++) {
+        onPath.add(`${level}:${at}`);
+        at = Math.floor(at / 2);
+      }
+      const rowY = (level: number) => 205 - (level * 180) / (levels.length - 1);
+      const xAt = (level: number, i: number) => ((i + 0.5) * 360) / levels[level].length;
+
+      svg.replaceChildren();
+      for (let level = 1; level < levels.length; level++) {
+        for (let i = 0; i < levels[level].length; i++) {
+          edge(xAt(level, i), rowY(level) + 11, xAt(level - 1, 2 * i), rowY(level - 1) - 11);
+          edge(xAt(level, i), rowY(level) + 11, xAt(level - 1, 2 * i + 1), rowY(level - 1) - 11);
+        }
+      }
+      for (let level = 0; level < levels.length; level++) {
+        for (let i = 0; i < levels[level].length; i++) {
+          const siblingHere = steps.some((s) => s.sibling === levels[level][i]);
+          const cls = onPath.has(`${level}:${i}`) ? "on-path" : siblingHere ? "sibling" : "plain";
+          const text = level === 0 ? (edited && i === 3 ? "tx 3 *" : `tx ${i}`) : short(levels[level][i]);
+          shape(xAt(level, i), rowY(level), text, cls, level === 0 ? i : undefined);
+        }
+      }
+
+      const current = levels[levels.length - 1][0];
+      // The proof is checked against the root the reader trusted before any edit.
+      const check = await rootFromProof(values[selected], proofFor(trustedLevels, selected));
+      readout.textContent =
+        `Trusted root ${short(trustedRoot)}, current root ${short(current)}. ` +
+        `Proof for tx ${selected}: ${steps.length} sibling hashes (log2 ${values.length} = ` +
+        `${Math.log2(values.length)}). Checked against the trusted root: ` +
+        (check === trustedRoot ? "included." : "rejected: the leaf no longer matches.");
+    }
+
+    async function reset() {
+      const count = Number(select.value);
+      values = Array.from({ length: count }, (_, i) => original(i));
+      trustedLevels = await buildLevels(values);
+      trustedRoot = trustedLevels[trustedLevels.length - 1][0];
+      edited = false;
+      edit.textContent = "Edit leaf 3";
+      selected = Math.min(selected, count - 1);
+      await render();
+    }
+
+    svg.addEventListener("click", async (event) => {
+      const leaf = (event.target as Element).closest("g[data-leaf]");
+      if (!leaf) return;
+      selected = Number(leaf.getAttribute("data-leaf"));
+      await render();
+    });
+
+    select.addEventListener("change", () => void reset());
+    edit.addEventListener("click", async () => {
+      edited = !edited;
+      values[3] = edited ? tampered : original(3);
+      edit.textContent = edited ? "Restore leaf 3" : "Edit leaf 3";
+      await render();
+    });
+
+    void reset();
+  }
+</script>
+
+<style>
+  .htree { margin: 1.5rem 0; max-width: 40rem; }
+  .htree .row { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.5rem; }
+  .htree button, .htree select { padding: 0.35rem 0.6rem; cursor: pointer; }
+  .htree svg { width: 100%; height: auto; background: var(--sl-color-gray-6, #0e1a20); border-radius: 0.5rem; }
+  .htree g[data-leaf] { cursor: pointer; }
+  .htree rect { fill: var(--sl-color-gray-5, #1b2b33); stroke: var(--sl-color-gray-3, #7b8f99); }
+  .htree text { font: 10px var(--sl-font-mono, monospace); fill: var(--sl-color-white, #f5f7f8); }
+  .htree .on-path rect { fill: var(--sl-color-accent-low, #134e4a); stroke: var(--sl-color-accent-high, #5eead4); stroke-width: 2; }
+  .htree .sibling rect { fill: var(--sl-color-orange-low, #78350f); stroke: var(--sl-color-orange, #d97706); stroke-width: 2; }
+  .htree .edge { stroke: var(--sl-color-gray-3, #7b8f99); stroke-width: 1; }
+  .htree p { font-size: 0.92rem; }
+</style>
