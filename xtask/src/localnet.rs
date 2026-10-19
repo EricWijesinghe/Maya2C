@@ -273,7 +273,7 @@ pub(crate) fn balance(i: u16, address: &str) -> Result<u64> {
     v["balance"]
         .as_str()
         .and_then(|s| s.parse().ok())
-        .ok_or_else(|| format!("node {i}: get_balance carries no balance").into())
+        .ok_or_else(|| format!("node {i}: get_balance carries no balance"))
 }
 
 /// Waits until `check` holds, polling.
