@@ -252,6 +252,44 @@ The fixes:
 - **Not done:** the follow-loop spawn was not extracted into a tested function; the
   byte budget is per client address and does not cap a fleet behind one NAT.
 
+## Final-audit fixes (2026-10-19, third round)
+
+- **The record bound is derived, not guessed.** `MAX_RECORD_BYTES` =
+  `MAX_BATCH_BYTES` (4 MiB, dag-bft `max_batch_bytes`) + `MAX_BATCH_ITEMS` × 8 (the
+  per-item length prefix; 4096 items) + `MAX_COMMITTEE` × (32 + vote entry)
+  (100 validators; the vote entry is the voter id, the length prefix and
+  `SIGNATURE_LENGTH`, 3309 bytes for ML-DSA-65) + 64 KiB slack. The bounds are
+  enforced where the chain's own rules enforce them: genesis refuses
+  `batch_size > MAX_BATCH_ITEMS` and `max_validators > MAX_COMMITTEE`
+  (`GenesisConfig::validate`). `record_certificate` and `record_own` refuse a
+  record above the bound before writing anything.
+- **Damage in the middle is refused, not cut.** The tail scan stops at the first
+  bad record. If any valid record starts after it (every byte offset is tried,
+  read in 1 MiB windows), the open is refused with an operator message. Only a
+  tail with nothing valid after it is truncated. Tests:
+  `damage_between_valid_records_refuses_to_open_so_nothing_is_deleted`,
+  `a_zero_filled_or_garbage_tail_is_cut_and_the_node_still_opens`,
+  `a_torn_tail_is_cut_so_the_next_record_is_read_back`.
+- **A restored vote still refuses an equivocation.** The dag-bft test restores a
+  vote from the safety log and presents a conflicting proposal for its slot; no
+  vote is cast for it (`a_vote_restored_from_the_safety_log_refuses_a_conflicting_vertex_for_its_slot`).
+  The node path restores the same records through `BftDriver::open`.
+- **A refused page is retried.** The budget and busy refusals are transient for the
+  RPC client (`is_transient`), so the existing backoff applies. The test spends the
+  bucket before the first request and requires the sync to succeed after waiting.
+  It was checked fail-first: with the classification disabled it fails.
+- **`serve` attaches the client address.** The unmetered `serve` is now
+  `serve_metered` with metrics discarded and per-call limiting off. Tests had been
+  charging every request to the unspecified address, which hid the budget.
+- **Stagenet needs no change.** `infra/stagenet/gen.sh` passes
+  `--rpc-addr 0.0.0.0:8545` explicitly to every node, and `entrypoint.sh` forwards
+  its arguments unchanged.
+- **Response limit.** `RPC_RESPONSE_LIMIT` is 32 MiB, asserted at compile time to be
+  at least two full pages and at least one maximal record hex-encoded plus 1 MiB.
+- **Not done:** the byte figures are unmeasured; a dag-bft batch is bounded by the
+  genesis `batch_size` only through the new genesis check, so chains built before
+  this change with a larger `batch_size` would need to be re-checked.
+
 ## Gaps (not covered by this ADR)
 
 - Logs are kept for the current and the previous epoch (`RETAINED_PAST_EPOCHS`).
