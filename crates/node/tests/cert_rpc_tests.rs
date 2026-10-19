@@ -422,6 +422,52 @@ fn a_genesis_above_the_record_bounds_is_refused() {
         too_many_validators.validate().is_err(),
         "max_validators above the bound"
     );
+    // Without a staking section the committee is the validator list alone, and
+    // that list is what a quorum certificate is sized by.
+    let mut big_committee = genesis_config();
+    let bft = big_committee.bft.as_mut().unwrap();
+    bft.staking = None;
+    bft.validators = (0..=MAX_COMMITTEE)
+        .map(|i| hex::encode(validator_key(i).verifying_key().to_bytes()))
+        .collect();
+    assert!(
+        big_committee.validate().is_err(),
+        "a committee of MAX_COMMITTEE + 1 without staking"
+    );
+}
+
+#[test]
+fn a_certificate_from_a_full_committee_fits_the_record_bound() {
+    use custom_l1_node::consensus::bft::store::{
+        MAX_BATCH_BYTES, MAX_COMMITTEE, MAX_RECORD_BYTES, SafetyStore,
+    };
+    use custom_l1_node::consensus::bft::wire::encode_certificate;
+    use custom_l1_node::crypto::keys::SIGNATURE_LENGTH;
+    use maya_dag_bft::{Certificate, Vertex};
+
+    // Every member votes and is a parent, and the batch is the largest the
+    // protocol certifies.
+    let members = u16::try_from(MAX_COMMITTEE).unwrap();
+    let mut vertex = Vertex::genesis_in(0, members);
+    vertex.round = 1;
+    vertex.parents = (0..MAX_COMMITTEE)
+        .map(|i| [u8::try_from(i).unwrap(); 32])
+        .collect();
+    vertex.batch = vec![vec![0x5a_u8; MAX_BATCH_BYTES / 4]; 4];
+    let cert = Certificate {
+        vertex,
+        votes: (0..members).collect(),
+        signatures: vec![vec![0x33_u8; SIGNATURE_LENGTH]; MAX_COMMITTEE],
+    };
+    assert!(
+        encode_certificate(&cert).len() <= MAX_RECORD_BYTES,
+        "a full-committee certificate exceeds the record bound"
+    );
+    let root = TempDir::new().unwrap();
+    let (mut store, _) = SafetyStore::open(root.path(), 0).unwrap();
+    store
+        .record_certificate(&cert)
+        .expect("a full-committee certificate is written");
 }
 
 #[test]
@@ -500,12 +546,12 @@ fn a_client_refused_for_its_byte_budget_backs_off_and_succeeds() {
     net.run_until(|n| n.height(0) >= 3);
     net.hold_out(2);
     net.run_until(|n| n.height(0) >= 8);
-    // The bucket refills at 256 KB/s, so a page of about a megabyte cannot be
-    // paid for in the moments between the spend below and the first request: that
-    // request is refused with the budget message, and the client must back off
-    // until the bucket has refilled far enough.
+    // The first request reserves a whole page (4 MiB) before its disk read. The
+    // bucket is spent just before it, so that request is refused with the budget
+    // message, and the client must back off until the bucket holds a page's
+    // worth again: about four seconds at 1 MB/s.
     let burst: u32 = 4 * 1024 * 1024;
-    let budget = Arc::new(RateLimiter::new(256 * 1024, burst));
+    let budget = Arc::new(RateLimiter::new(1_000_000, burst));
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let (server, url) = serve_peer(&mut net, &runtime, Arc::clone(&budget));
     net.reopen(2);
