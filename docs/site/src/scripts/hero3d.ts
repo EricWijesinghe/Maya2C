@@ -14,6 +14,7 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 
 export type Pick =
+  | { kind: "chain"; x: number; y: number }
   | { kind: "block"; height: number; txs: number; x: number; y: number }
   | { kind: "validator"; index: number; of: number; x: number; y: number };
 
@@ -75,10 +76,9 @@ export function mountHero3D(
   const core = new THREE.Group();
   const shell = new THREE.Mesh(new THREE.IcosahedronGeometry(1.05, 1), new THREE.MeshBasicMaterial({ color: TEAL, wireframe: true, transparent: true, opacity: 0.35 }));
   const heart = new THREE.Mesh(new THREE.IcosahedronGeometry(0.55, 3), new THREE.MeshBasicMaterial({ color: ICE }));
-  const ringA = new THREE.Mesh(new THREE.TorusGeometry(1.45, 0.008, 8, 160), new THREE.MeshBasicMaterial({ color: TEAL, transparent: true, opacity: 0.6 }));
-  const ringB = new THREE.Mesh(ringA.geometry, new THREE.MeshBasicMaterial({ color: GOLD, transparent: true, opacity: 0.45 }));
-  ringA.rotation.x = Math.PI / 2.3; ringB.rotation.y = Math.PI / 2.6;
-  core.add(shell, heart, ringA, ringB);
+  core.add(shell, heart);
+  // Tapping the core opens the chain's own numbers.
+  shell.userData = { kind: "chain" };
   // The emblem rides in the core and always faces the viewer.
   if (emblemUrl) {
     const tex = new THREE.TextureLoader().load(emblemUrl);
@@ -127,6 +127,8 @@ export function mountHero3D(
   world.add(chain);
   function relayout() {
     const pts: number[] = [];
+    // History can land after a live block: order by height, not arrival.
+    blocks.sort((a, b) => a.height - b.height);
     blocks.forEach((b, i) => { spiral(blocks.length - 1 - i, b.target); pts.push(b.target.x, b.target.y, b.target.z); });
     chain.geometry.dispose();
     chain.geometry = new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
@@ -146,7 +148,12 @@ export function mountHero3D(
     const mesh = new THREE.Mesh(crystalGeo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95 }));
     mesh.userData = { kind: "block", height, txs };
     const b: Block = { mesh, height, txs, target: new THREE.Vector3(), born: performance.now() };
-    const land = () => { world.add(mesh); blocks.push(b); if (blocks.length > MAX_BLOCKS) world.remove(blocks.shift()!.mesh); relayout(); flare = 1; };
+    const land = () => {
+      if (blocks.some((o) => o.height === height)) return;
+      world.add(mesh); blocks.push(b); relayout();
+      if (blocks.length > MAX_BLOCKS) { world.remove(blocks.shift()!.mesh); relayout(); }
+      flare = 1;
+    };
     if (!animate || reduce || nodes.length === 0) { mesh.position.set(0, 0, 0); land(); mesh.position.copy(b.target); return; }
     // Proposal fans out to the committee, then the votes converge on commit.
     const n = nodes.length, origin = nodes[height % n].position;
@@ -200,7 +207,7 @@ export function mountHero3D(
   const hit = (e: PointerEvent) => {
     const r = canvas.getBoundingClientRect();
     let best: THREE.Object3D | null = null, bestD = REACH;
-    for (const o of [...nodes, ...blocks.map((b) => b.mesh)]) {
+    for (const o of [shell, ...nodes, ...blocks.map((b) => b.mesh)]) {
       o.getWorldPosition(v).project(camera);
       const d = Math.hypot((v.x + 1) / 2 * r.width - (e.clientX - r.left), (1 - v.y) / 2 * r.height - (e.clientY - r.top));
       if (d < bestD && v.z < 1) { best = o; bestD = d; }
@@ -217,7 +224,9 @@ export function mountHero3D(
     const o = hit(e), r = stage.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
     if (!o) { onPick(null); return; }
     const d = o.userData;
-    onPick(d.kind === "block" ? { kind: "block", height: d.height, txs: d.txs, x, y } : { kind: "validator", index: d.index, of: nodes.length, x, y });
+    onPick(d.kind === "chain" ? { kind: "chain", x, y }
+      : d.kind === "block" ? { kind: "block", height: d.height, txs: d.txs, x, y }
+      : { kind: "validator", index: d.index, of: nodes.length, x, y });
   });
 
   let visible = true, last = performance.now();
@@ -226,7 +235,6 @@ export function mountHero3D(
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     controls.update();
     core.rotation.y += dt * 0.25; shell.rotation.x += dt * 0.12;
-    ringA.rotation.z += dt * 0.4; ringB.rotation.z -= dt * 0.3;
     starfield.rotation.y += dt * 0.004;
     flare = Math.max(0, flare - dt * 1.8);
     heart.scale.setScalar(1 + flare * 0.6 + Math.sin(now / 600) * 0.03);

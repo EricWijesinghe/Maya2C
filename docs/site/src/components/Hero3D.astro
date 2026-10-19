@@ -24,7 +24,7 @@ const badge = await getImage({ src: emblem, width: 256, format: "png" });
         <a class="btn primary" href="/experience/">Experience Maya2C</a>
         <a class="btn" href="https://explorer.maya2c.dev/">Watch it finalize</a>
       </div>
-      <p class="hint">Drag to orbit. Tap a validator or a block. Each crystal is a real block.</p>
+      <p class="hint">Drag to orbit. Tap the core, a validator or a block for its numbers.</p>
     </div>
     <dl class="tiles">
       <div class="tile"><dt>Height</dt><dd id="tHeight">—</dd></div>
@@ -100,17 +100,36 @@ const badge = await getImage({ src: emblem, width: 256, format: "png" });
   fetch("https://explorer.maya2c.dev/api/blocks?limit=24")
     .then((r) => r.json())
     .then((blocks: { height: number; tx_count?: number }[]) => {
-      if (height) return;
-      blocks.slice().reverse().forEach((b) => onBlock(b.height, b.tx_count ?? 0, false));
+      // Older than a live block that beat this reply: straight onto the chain.
+      blocks.slice().reverse().forEach((b) => {
+        if (b.height > height) onBlock(b.height, b.tx_count ?? 0, false);
+        else if (scene) scene.addBlock(b.height, b.tx_count ?? 0, false);
+        else early.push({ h: b.height, txs: b.tx_count ?? 0 });
+      });
     })
     .catch(() => { /* empty chain until the first live block */ });
 
   let popTimer = 0;
   function card(p: Pick | null) {
     if (!p) { pop.hidden = true; return; }
-    pop.innerHTML = p.kind === "block"
-      ? `<b>Block ${fmt(p.height)}</b>${p.txs > 0 ? `${fmt(p.txs)} transaction${p.txs === 1 ? "" : "s"}` : "Finalized by DAG-BFT"}<br>Signed ML-DSA-65 + SLH-DSA<br><a href="https://explorer.maya2c.dev/blocks/${p.height}">Open in explorer →</a>`
-      : `<b>Validator ${p.index + 1} of ${p.of}</b>Votes on every block with ML-DSA-65<br>Project-run, one machine (ADR-042)<br><a href="/guides/validators/">Run a validator →</a>`;
+    // Every card is the chain's own numbers; a quorum is n - f, f = floor((n - 1) / 3).
+    const n = committee || 4, quorum = n - Math.floor((n - 1) / 3);
+    const avg = $("tBlock")!.textContent;
+    if (p.kind === "chain") {
+      pop.innerHTML = `<b>maya-testnet-1</b>Height ${fmt(height)} · block every ${avg}<br>${n} validators · ${quorum} must sign to finalize<br>Signatures ML-DSA-65 + SLH-DSA<br><a href="https://status.maya2c.dev/">Uptime and halts →</a>`;
+    } else if (p.kind === "validator") {
+      pop.innerHTML = `<b>Validator ${p.index + 1} of ${n}</b>Signs every block it votes for (ML-DSA-65)<br>Finality needs ${quorum} of ${n}; survives ${n - quorum} down<br>Project-run, one machine (ADR-042)<br><a href="/guides/validators/">Run a validator →</a>`;
+    } else {
+      const h = p.height;
+      pop.innerHTML = `<b>Block ${fmt(h)}</b>loading…`;
+      fetch(`https://explorer.maya2c.dev/api/blocks/${h}`)
+        .then((r) => r.json())
+        .then((b: { id: string; timestamp: number; tx_count?: number; state_root: string }) => {
+          const ago = Math.max(0, Math.round(Date.now() / 1000 - b.timestamp));
+          pop.innerHTML = `<b>Block ${fmt(h)}</b>${fmt(b.tx_count ?? 0)} transactions · ${fmt(ago)} s ago<br>id ${b.id.slice(0, 16)}…<br>state ${b.state_root.slice(0, 16)}…<br><a href="https://explorer.maya2c.dev/blocks/${h}">Open in explorer →</a>`;
+        })
+        .catch(() => { pop.innerHTML = `<b>Block ${fmt(h)}</b>${fmt(p.txs)} transactions<br><a href="https://explorer.maya2c.dev/blocks/${h}">Open in explorer →</a>`; });
+    }
     const sr = stage.getBoundingClientRect();
     pop.style.left = Math.max(8, Math.min(p.x + 18, sr.width - 260)) + "px";
     pop.style.top = Math.max(8, Math.min(p.y + 18, sr.height - 150)) + "px";
