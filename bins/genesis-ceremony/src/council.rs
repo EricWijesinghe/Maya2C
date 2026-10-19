@@ -177,13 +177,19 @@ fn commitment(public: &[u8]) -> String {
 /// A coordinator's directory with a member's sealed secret in it means that
 /// secret left its device. Sealed is not safe: it is one weak passphrase away.
 pub fn load(dir: &Path) -> Res<Vec<Member>> {
+    load_members(dir, true)
+}
+
+/// As [`load`], but a member signing on their own device may keep their own
+/// sealed key beside the public files.
+fn load_members(dir: &Path, refuse_sealed: bool) -> Res<Vec<Member>> {
     let mut members = Vec::new();
     for entry in fs::read_dir(dir)? {
         let path = entry?.path();
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
-        if name.ends_with(SEALED_SUFFIX) {
+        if refuse_sealed && name.ends_with(SEALED_SUFFIX) {
             return Err(format!(
                 "{} contains {name}: a council member's secret left its device. \
                  Make that member a new key on their own device.",
@@ -270,7 +276,7 @@ fn requested_kind(f: &Flags) -> Res<CouncilKind> {
 }
 
 fn approve(f: &Flags) -> Res<()> {
-    let members = load(f.council_dir()?)?;
+    let members = load_members(f.council_dir()?, false)?;
     let key_path = f.key.as_ref().ok_or("--key is required")?;
     let (secret, public) = sealed::open(
         &fs::read_to_string(key_path)?,
@@ -383,7 +389,14 @@ pub fn combine_approvals(
         .ok_or("not a council message")?;
     let mut bytes = body.to_vec();
     bytes.extend_from_slice(&0u64.to_le_bytes());
-    let mut action = CouncilAction::decode(&mut ByteReader::new(&bytes))?;
+    let mut reader = ByteReader::new(&bytes);
+    let mut action = CouncilAction::decode(&mut reader)?;
+    reader.finish()?;
+    // What the chain will rebuild and check must be what was signed;
+    // otherwise the transaction would only fail on chain.
+    if action.signing_message() != message {
+        return Err("the approved message is not a canonical council action".into());
+    }
     action.approvals = signed;
     Ok(action)
 }
@@ -491,6 +504,22 @@ mod tests {
         assert!(combine_approvals(&council, vec![a0(), approval(&ms[0].0, 1, PAUSE)]).is_err());
         let resume = CouncilKind::Resume { module: 1 };
         assert!(combine_approvals(&council, vec![a0(), approval(&ms[1].0, 1, resume)]).is_err());
+    }
+
+    #[test]
+    fn a_message_with_trailing_bytes_is_refused() {
+        let (k, m) = member(0);
+        let (k1, m1) = member(1);
+        let council = vec![m, m1];
+        let mut msg = CouncilAction {
+            kind: PAUSE,
+            nonce: 7,
+            approvals: vec![],
+        }
+        .signing_message();
+        msg.push(0);
+        let sign = |k: &SigningKey, i| (i, msg.clone(), Box::new(k.sign(&msg).unwrap()));
+        assert!(combine_approvals(&council, vec![sign(&k, 0), sign(&k1, 1)]).is_err());
     }
 
     #[test]

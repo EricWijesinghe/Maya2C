@@ -15,7 +15,7 @@ machines. No secret key ever leaves the machine it was made on.
 
 ## Each council member, on their own device (ADR-050)
 
-Three devices by default: this PC, the MacBook, and an offline backup.
+Three devices by default: this PC, the MacBook, and an offline backup. Make new council keys for every chain: an approval does not yet name its chain (ADR-050, review finding).
 
 - Put a long random passphrase in a file on another drive than the key, and a
   paper copy somewhere safe. Never type it on a command line.

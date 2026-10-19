@@ -448,7 +448,13 @@ fn split_supply(supply: u64, share_bps: u16) -> Result<(u64, u64), Box<dyn Error
 
 /// Writes `bytes` to `path` with an owner-only mode where the platform has one.
 fn write_secret(path: &Path, bytes: &[u8]) -> Result<(), Box<dyn Error>> {
-    fs::write(path, bytes)?;
+    use std::io::Write as _;
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    // Owner-only from creation, not after: no window with the default mode.
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(path)?.write_all(bytes)?;
 
     // Unix only. Windows inherits the directory ACL, which is why the ceremony
     // directory itself is created fresh rather than reused — an existing
