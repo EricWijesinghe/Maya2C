@@ -16,6 +16,13 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # leptos 0.8.22 pulls server_fn_macro_default 0.8.5, which does not
+      # compile (E0277, two syn versions in the graph; PR #154, 2026-10-19).
+      # Drop this once a later 0.8.x builds.
+      - dependency-name: "leptos*"
+        versions: ["0.8.22"]
+      - dependency-name: "server_fn*"
+        versions: ["0.8.5"]
     groups:
       rust-minor-and-patch:
         update-types: [minor, patch]
