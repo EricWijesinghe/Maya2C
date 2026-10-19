@@ -20,6 +20,9 @@ hex.workspace = true
 blake3.workspace = true
 # Reads the `--mining` parameters file (ADR-044).
 serde_json.workspace = true
+# Council keys are sealed with the validator-key format (ADR-049, ADR-050).
+maya-signer = { path = "../../crates/signer" }
+zeroize.workspace = true
 
 [[bin]]
 name = "genesis-ceremony"

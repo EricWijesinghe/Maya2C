@@ -24,6 +24,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
+use custom_l1_node::core::council_payload::CouncilAction;
 use custom_l1_node::core::staking_payload::StakingAction;
 use custom_l1_node::core::{ChainTag, Transaction, TxKind, TxOutput};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
@@ -135,6 +136,18 @@ enum Command {
         /// Amount to delegate, in base units (decimal, up to 2^256 - 1).
         #[arg(long, value_parser = parse_amount)]
         amount: U256,
+
+        #[command(flatten)]
+        tx: TxOptions,
+    },
+
+    /// Carry a security-council action (ADR-050) from this wallet. The
+    /// authority is the approvals inside it, never this wallet: the file is
+    /// what `genesis-ceremony council combine` wrote.
+    CouncilAction {
+        /// Hex file from `genesis-ceremony council combine`.
+        #[arg(long)]
+        action: PathBuf,
 
         #[command(flatten)]
         tx: TxOptions,
@@ -353,6 +366,32 @@ async fn command_delegate(
     Ok(())
 }
 
+async fn command_council_action(
+    path: &Path,
+    rpc_url: &str,
+    action: &Path,
+    opts: &TxOptions,
+) -> Result<()> {
+    let text =
+        std::fs::read_to_string(action).with_context(|| format!("reading {}", action.display()))?;
+    let bytes = hex::decode(text.trim()).context("the council action file is not hex")?;
+    let mut reader = custom_l1_node::core::codec::ByteReader::new(&bytes);
+    let decoded = CouncilAction::decode(&mut reader).context("not a council action")?;
+    reader
+        .finish()
+        .context("trailing bytes after the council action")?;
+    let key = load_key(path)?;
+    let summary = format!("{:?} nonce {}", decoded.kind, decoded.nonce);
+    let payload = Payload {
+        kind: TxKind::Council(Box::new(decoded)),
+        outputs: vec![],
+    };
+    if submit(&key, rpc_url, payload, opts).await? {
+        println!("council:  {summary}");
+    }
+    Ok(())
+}
+
 /// What a transaction does, before nonce, fee and signature.
 struct Payload {
     kind: TxKind,
@@ -507,6 +546,15 @@ async fn main() -> Result<()> {
                 &cli.rpc_url,
                 &validator,
                 amount,
+                &tx,
+            ))
+            .await
+        }
+        Command::CouncilAction { action, tx } => {
+            Box::pin(command_council_action(
+                &cli.keystore,
+                &cli.rpc_url,
+                &action,
                 &tx,
             ))
             .await
