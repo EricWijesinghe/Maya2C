@@ -120,6 +120,22 @@ impl RateLimiter {
         self.take_at(address, bytes as f64, Instant::now())
     }
 
+    /// Returns `bytes` to `address`'s bucket, up to its burst: the unused part of
+    /// a reservation made with [`RateLimiter::charge`] before the work.
+    #[allow(clippy::cast_precision_loss)]
+    pub fn refund(&self, address: IpAddr, bytes: u64) {
+        if !self.is_enabled() {
+            return;
+        }
+        let mut buckets = match self.buckets.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if let Some(bucket) = buckets.get_mut(&address) {
+            bucket.tokens = (bucket.tokens + bytes as f64).min(self.burst);
+        }
+    }
+
     /// Takes `cost` tokens from `address`'s bucket at `now`.
     #[must_use]
     pub fn take_at(&self, address: IpAddr, cost: f64, now: Instant) -> bool {

@@ -611,6 +611,14 @@ impl GenesisConfig {
         // The certificate-log bound (consensus/bft/store.rs) is derived from these
         // limits. A genesis above them could produce a record the log refuses.
         if let Some(bft) = &self.bft {
+            // The committee is the genesis list, with or without a staking section,
+            // and a quorum certificate carries one signature per member.
+            if bft.validators.len() > crate::consensus::bft::store::MAX_COMMITTEE {
+                return Err(NodeError::Decode(format!(
+                    "bft.validators must number at most {}",
+                    crate::consensus::bft::store::MAX_COMMITTEE
+                )));
+            }
             if bft.batch_size == 0 || bft.batch_size > crate::consensus::bft::store::MAX_BATCH_ITEMS
             {
                 return Err(NodeError::Decode(format!(

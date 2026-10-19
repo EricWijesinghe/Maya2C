@@ -279,19 +279,26 @@ fn plausible_record(reader: &mut impl Read) -> Result<Option<Vec<u8>>> {
 ///
 /// # Errors
 ///
-/// [`NodeError::Storage`] for I/O, and for damage in the middle of the log: a
-/// bad record with a valid one after it. A torn tail (nothing valid after the
-/// first bad record) is cut, so a node restarts after a crash.
-fn repair_torn_tail(path: &Path, valid: fn(&[u8]) -> bool) -> Result<u64> {
+/// [`NodeError::Storage`] for I/O, and, when `refuse_later`, for damage in the
+/// middle of the log: a bad record with a valid one after it. A torn tail
+/// (nothing valid after the first bad record) is cut, so a node restarts after
+/// a crash.
+///
+/// `refuse_later` is for `safety.log` only. It is written with `sync_data`, so
+/// damage in the middle of it is not a crash artefact, and cutting it would
+/// forget votes. `certs.log` is only flushed: after power loss its filesystem
+/// can leave a zero hole with valid records after it. Those certificates are
+/// re-fetchable from peers, so that log is cut at the first bad record.
+fn repair_torn_tail(path: &Path, valid: fn(&[u8]) -> bool, refuse_later: bool) -> Result<u64> {
     let (complete, total) = complete_prefix(path, valid)?;
     if complete == total {
         return Ok(0);
     }
     // The first bad record is at `complete`. A torn write leaves nothing valid
-    // after it. If anything valid follows, the damage is in the middle of the
-    // log, and cutting here would delete those records: that is how a node
-    // forgets its own votes. Refuse, and leave the decision to an operator.
-    if any_valid_record_after(path, complete + 1, total, valid)? {
+    // after it. If anything valid follows in `safety.log`, the damage is in the
+    // middle of the log, and cutting here would delete those votes. Refuse, and
+    // leave the decision to an operator.
+    if refuse_later && any_valid_record_after(path, complete + 1, total, valid)? {
         return Err(NodeError::Storage(format!(
             "{} is corrupt at byte {complete}, with valid records after it: refusing to open \
              so they are not deleted. Inspect the file and restore it, or move it aside after \
@@ -471,8 +478,8 @@ impl SafetyStore {
         let certs_path = dir.join(CERTS_LOG);
         // Before anything reads or appends: a torn tail left by a crash must
         // not sit in front of the next record (see `repair_torn_tail`).
-        let torn_bytes = repair_torn_tail(&safety_path, |r| Envelope::decode(r).is_ok())?
-            + repair_torn_tail(&certs_path, |r| decode_certificate(r).is_ok())?;
+        let torn_bytes = repair_torn_tail(&safety_path, |r| Envelope::decode(r).is_ok(), true)?
+            + repair_torn_tail(&certs_path, |r| decode_certificate(r).is_ok(), false)?;
         let safety = read_records(&safety_path)?
             .iter()
             .map(|r| Envelope::decode(r))
@@ -654,6 +661,66 @@ mod tests {
             std::fs::metadata(&path).unwrap().len(),
             before + 40 + u64::try_from(later.len()).unwrap()
         );
+    }
+
+    #[test]
+    fn a_zero_hole_with_valid_records_after_it_is_cut_in_certs_log_and_refused_in_safety_log() {
+        // Power loss can leave a zero hole with valid records after it. Certs are
+        // re-fetchable, so certs.log is cut and the node opens. Votes are not, so
+        // safety.log refuses.
+        let cert = |author: u16| Certificate {
+            vertex: {
+                let mut v = Vertex::genesis_in(0, 2);
+                v.author = author;
+                v
+            },
+            votes: vec![0],
+            signatures: vec![vec![9]],
+        };
+        let hole = [0_u8; 64];
+
+        let certs = dir("zero-hole-certs");
+        {
+            let (mut store, _) = SafetyStore::open(&certs, 0).unwrap();
+            store.record_certificate(&cert(0)).unwrap();
+        }
+        let path = certs.join("epoch-0").join(CERTS_LOG);
+        let later = frame(&encode_certificate(&cert(1)));
+        {
+            let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+            file.write_all(&hole).unwrap();
+            file.write_all(&later).unwrap();
+        }
+        let (_, recovered) =
+            SafetyStore::open(&certs, 0).expect("a zero hole in certs.log must not stop the node");
+        assert_eq!(
+            recovered.torn_bytes,
+            u64::try_from(hole.len() + later.len()).unwrap(),
+            "the hole and what follows it are cut"
+        );
+        let mut seen = Vec::new();
+        for_each_certificate(&certs, 0, |c| {
+            seen.push(c);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(seen, vec![cert(0)], "only the record before the hole is kept");
+
+        let safety = dir("zero-hole-safety");
+        {
+            let (mut store, _) = SafetyStore::open(&safety, 0).unwrap();
+            store.record_own(&vote(1)).unwrap();
+        }
+        let path = safety.join("epoch-0").join(SAFETY_LOG);
+        {
+            let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+            file.write_all(&hole).unwrap();
+            file.write_all(&frame(&vote(2).encode())).unwrap();
+        }
+        let err = SafetyStore::open(&safety, 0)
+            .err()
+            .expect("a zero hole with a vote after it must refuse to open");
+        assert!(err.to_string().contains("refusing to open"), "{err}");
     }
 
     #[test]
