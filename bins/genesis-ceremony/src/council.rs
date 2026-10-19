@@ -4,9 +4,9 @@
 //! ```text
 //! genesis-ceremony council key      --label pc --passphrase-file F [--out-dir D]
 //! genesis-ceremony council approve  --key pc.council.sealed --passphrase-file F
-//!                                   --council D --nonce N
+//!                                   --council D --genesis G --nonce N
 //!                                   (--pause MODULE --blocks N | --resume MODULE)
-//! genesis-ceremony council combine  --council D APPROVAL...
+//! genesis-ceremony council combine  --council D --genesis G APPROVAL...
 //! ```
 //!
 //! `key` writes the secret only sealed (ADR-049: Argon2id + ChaCha20-Poly1305)
@@ -20,12 +20,13 @@ use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use custom_l1_node::core::ChainTag;
 use custom_l1_node::core::codec::ByteReader;
 use custom_l1_node::core::council_payload::{COUNCIL_DOMAIN, CouncilAction, CouncilKind};
 use custom_l1_node::crypto::keys::{
     self, PUBLIC_KEY_LEN, SECRET_KEY_LEN, SIGNATURE_LENGTH, SigningKey, VerifyingKey,
 };
-use custom_l1_node::genesis::CouncilGenesis;
+use custom_l1_node::genesis::{CouncilGenesis, GenesisConfig};
 use custom_l1_node::state::invariant_guard::Module;
 use maya_signer::sealed;
 
@@ -73,6 +74,7 @@ struct Flags {
     pause: Option<String>,
     blocks: Option<u64>,
     resume: Option<String>,
+    genesis: Option<PathBuf>,
     files: Vec<PathBuf>,
 }
 
@@ -97,6 +99,7 @@ impl Flags {
                 "--pause" => f.pause = Some(value()?),
                 "--blocks" => f.blocks = Some(value()?.parse()?),
                 "--resume" => f.resume = Some(value()?),
+                "--genesis" => f.genesis = Some(value()?.into()),
                 other if other.starts_with("--") => {
                     return Err(format!("unknown flag {other}").into());
                 }
@@ -114,6 +117,18 @@ impl Flags {
             .as_ref()
             .ok_or("--passphrase-file is required")?;
         Ok(sealed::read_passphrase_file(path)?)
+    }
+
+    /// The chain an approval is for (ADR-036 tag): every approval names it,
+    /// so a council key shared by two chains cannot carry one's approvals to
+    /// the other.
+    fn chain(&self) -> Res<ChainTag> {
+        let path = self
+            .genesis
+            .as_ref()
+            .ok_or("--genesis <genesis.json> is required: approvals name their chain")?;
+        let config = GenesisConfig::from_json(&fs::read_to_string(path)?)?;
+        Ok(ChainTag::from_genesis(config.genesis_block()?.header.id()))
     }
 
     fn council_dir(&self) -> Res<&Path> {
@@ -302,7 +317,7 @@ fn approve(f: &Flags) -> Res<()> {
             .ok_or("--nonce is required: the council's current nonce")?,
         approvals: Vec::new(),
     };
-    let message = action.signing_message();
+    let message = action.signing_message(&f.chain()?);
     let text = format!(
         "{APPROVAL_HEADER}\nmember {index}\naction {}\nsignature {}\n",
         hex::encode(&message),
@@ -351,6 +366,7 @@ fn read_approval(path: &Path) -> Res<(u8, Vec<u8>, Box<[u8; SIGNATURE_LENGTH]>)>
 /// majority must remain, because a chain with fewer will refuse it anyway.
 pub fn combine_approvals(
     members: &[Member],
+    chain: &ChainTag,
     approvals: Vec<(u8, Vec<u8>, Box<[u8; SIGNATURE_LENGTH]>)>,
 ) -> Res<CouncilAction> {
     let message = approvals
@@ -382,11 +398,13 @@ pub fn combine_approvals(
         )
         .into());
     }
-    // The message is the domain and the action without its approvals; with
-    // a zero approval count appended it decodes as an action.
+    // The message is the domain, the chain tag and the action without its
+    // approvals; with a zero approval count appended it decodes as an action.
     let body = message
         .strip_prefix(COUNCIL_DOMAIN)
-        .ok_or("not a council message")?;
+        .ok_or("not a council message (or one from before the v2 domain)")?
+        .strip_prefix(chain.as_bytes().as_slice())
+        .ok_or("these approvals are for another chain")?;
     let mut bytes = body.to_vec();
     bytes.extend_from_slice(&0u64.to_le_bytes());
     let mut reader = ByteReader::new(&bytes);
@@ -394,7 +412,7 @@ pub fn combine_approvals(
     reader.finish()?;
     // What the chain will rebuild and check must be what was signed;
     // otherwise the transaction would only fail on chain.
-    if action.signing_message() != message {
+    if action.signing_message(chain) != message {
         return Err("the approved message is not a canonical council action".into());
     }
     action.approvals = signed;
@@ -408,7 +426,7 @@ fn combine(f: &Flags) -> Res<()> {
         .iter()
         .map(|p| read_approval(p))
         .collect::<Res<Vec<_>>>()?;
-    let action = combine_approvals(&members, approvals)?;
+    let action = combine_approvals(&members, &f.chain()?, approvals)?;
     let mut encoded = Vec::new();
     action.encode_into(&mut encoded);
     let out = f
@@ -450,10 +468,12 @@ mod tests {
             nonce: 7,
             approvals: vec![],
         }
-        .signing_message();
+        .signing_message(&TEST_CHAIN);
         let sig = k.sign(&msg).unwrap();
         (i, msg, Box::new(sig))
     }
+
+    const TEST_CHAIN: ChainTag = ChainTag::from_genesis([0x42; 32]);
 
     const PAUSE: CouncilKind = CouncilKind::Pause {
         module: 1,
@@ -472,6 +492,7 @@ mod tests {
             .collect();
         let action = combine_approvals(
             &council,
+            &TEST_CHAIN,
             vec![approval(&ms[0].0, 0, PAUSE), approval(&ms[2].0, 2, PAUSE)],
         )
         .unwrap();
@@ -498,12 +519,26 @@ mod tests {
             })
             .collect();
         let a0 = || approval(&ms[0].0, 0, PAUSE);
-        assert!(combine_approvals(&council, vec![a0()]).is_err());
-        assert!(combine_approvals(&council, vec![a0(), a0()]).is_err());
+        assert!(combine_approvals(&council, &TEST_CHAIN, vec![a0()]).is_err());
+        assert!(combine_approvals(&council, &TEST_CHAIN, vec![a0(), a0()]).is_err());
         // Member 0's key claiming to be member 1.
-        assert!(combine_approvals(&council, vec![a0(), approval(&ms[0].0, 1, PAUSE)]).is_err());
+        assert!(
+            combine_approvals(
+                &council,
+                &TEST_CHAIN,
+                vec![a0(), approval(&ms[0].0, 1, PAUSE)]
+            )
+            .is_err()
+        );
         let resume = CouncilKind::Resume { module: 1 };
-        assert!(combine_approvals(&council, vec![a0(), approval(&ms[1].0, 1, resume)]).is_err());
+        assert!(
+            combine_approvals(
+                &council,
+                &TEST_CHAIN,
+                vec![a0(), approval(&ms[1].0, 1, resume)]
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -516,10 +551,26 @@ mod tests {
             nonce: 7,
             approvals: vec![],
         }
-        .signing_message();
+        .signing_message(&TEST_CHAIN);
         msg.push(0);
         let sign = |k: &SigningKey, i| (i, msg.clone(), Box::new(k.sign(&msg).unwrap()));
-        assert!(combine_approvals(&council, vec![sign(&k, 0), sign(&k1, 1)]).is_err());
+        assert!(combine_approvals(&council, &TEST_CHAIN, vec![sign(&k, 0), sign(&k1, 1)]).is_err());
+    }
+
+    #[test]
+    fn approvals_for_another_chain_do_not_combine() {
+        let ms: Vec<_> = (0..3).map(member).collect();
+        let council: Vec<Member> = ms
+            .iter()
+            .map(|(_, m)| Member {
+                label: m.label.clone(),
+                key: m.key,
+            })
+            .collect();
+        let a = [approval(&ms[0].0, 0, PAUSE), approval(&ms[1].0, 1, PAUSE)];
+        let elsewhere = ChainTag::from_genesis([0x43; 32]);
+        assert!(combine_approvals(&council, &elsewhere, a.to_vec()).is_err());
+        assert!(combine_approvals(&council, &TEST_CHAIN, a.to_vec()).is_ok());
     }
 
     #[test]

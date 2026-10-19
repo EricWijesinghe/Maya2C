@@ -1,6 +1,11 @@
 # ADR-055: Quantum Harbor, step one: a signed, timestamped binding from a classical key to a PQ vault
 
-**Status:** Proposed (for Eric). Nothing is built until accepted.
+**Status:** Accepted 2026-10-19 (Eric: "all decisions are approved, take the best recommended"), with the answers below. Built after the mainnet launch gates (band P5).
+
+**Answers:**
+1. After the launch gates, not before: it is a differentiator, not a gate.
+2. The anchor: an `AnchorAttestation` root published under a project DID. No new transaction kind, so no consensus change.
+3. `k256` goes into `quantum-harbor` only, after its audit history is checked and it gets a `cargo vet` entry.
 
 ## Context
 
