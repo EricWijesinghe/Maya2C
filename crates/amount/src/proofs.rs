@@ -14,6 +14,12 @@
 //! `r < d` and adds one exact quotient bit, which by induction is the whole
 //! division. The loop around the step is covered by the proptest suite
 //! (`tests/property_tests.rs`).
+//!
+//! Multiplication is proved the same way, at full width: each
+//! multiply-accumulate step fits a `u128` (`mul_step_fits_u128`) and each of
+//! the four rows adds its products exactly (`mul_row_*_adds_exactly`), so by
+//! induction `mul_wide` is the schoolbook product. Trusted: the compiler's
+//! 64 × 64 → 128-bit multiply, one line per product in `mul_row_into`.
 
 use crate::wide::{REM_LIMBS, lt, shl1_or, sub};
 use crate::{Amount, Wide};
@@ -32,9 +38,11 @@ fn any_u128_amount() -> Amount {
 // to exact 256-bit arithmetic in seconds, which implies both: inverses, no
 // wrap, a total order that agrees with subtraction.
 
-// The multiplication harnesses below did not finish within 20 minutes each
-// on a 24-thread desktop (2026-10-18, cargo-kani 0.67): NOT VERIFIED there.
-// Full-width multiplication stays covered by `tests/property_tests.rs`.
+// The next two multiplication harnesses (64-bit factors against `u128`,
+// 128-bit commutativity) did not finish within 20 minutes each on a 24-thread
+// desktop (2026-10-18, cargo-kani 0.67). Full-width multiplication is proved
+// instead by `mul_step_fits_u128` and `mul_row_*_adds_exactly` at the end of
+// this file (2026-10-19), given the compiler's 64 × 64 multiply.
 
 /// For 64-bit factors the product fits a `u128`, so it can be checked
 /// exactly against the compiler's own multiplication; `checked_mul` agrees.
@@ -230,4 +238,95 @@ fn checked_sub_matches_the_u128_model() {
 fn order_matches_the_u128_model() {
     let (a, b) = (any_amount(), any_amount());
     assert!(a.cmp(&b) == halves(a).cmp(&halves(b)));
+}
+
+// Multiplication, split the way the long division is: what CBMC cannot do in
+// one piece is prove a multiplier circuit equal to another one. These
+// harnesses leave the 64 × 64 → 128-bit products to the compiler's `u128`
+// multiply and prove everything `mul_wide` does around them, at full width.
+
+/// Every multiply-accumulate step of `mul_wide` fits a `u128`, for every
+/// limb, accumulator and carry: `a·b + o + c ≤ (2⁶⁴−1)² + 2(2⁶⁴−1) = 2¹²⁸−1`.
+/// Kani's overflow check on the expression is the proof; the carry it leaves
+/// therefore fits a limb.
+#[kani::proof]
+fn mul_step_fits_u128() {
+    let (a, b, o, c): (u64, u64, u64, u64) = (kani::any(), kani::any(), kani::any(), kani::any());
+    let cur = u128::from(a) * u128::from(b) + u128::from(o) + u128::from(c);
+    assert!(cur >> 64 <= u128::from(u64::MAX));
+}
+
+/// `acc + v·2^(64·k)` over eight limbs, written apart from `wide.rs`, and
+/// whether it carried out of the top.
+fn add_u128_at(acc: [u64; 8], v: u128, k: usize) -> ([u64; 8], bool) {
+    let mut out = acc;
+    #[allow(clippy::cast_possible_truncation)]
+    let parts = [v as u64, (v >> 64) as u64];
+    let mut carry = 0u128;
+    for (n, limb) in out.iter_mut().enumerate().skip(k) {
+        let add = if n - k < 2 { parts[n - k] } else { 0 };
+        let s = u128::from(*limb) + u128::from(add) + carry;
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            *limb = s as u64;
+        }
+        carry = s >> 64;
+    }
+    (out, carry != 0)
+}
+
+/// The carry chain of one row of `mul_wide`, for **every** accumulator it can
+/// meet, every limb `i` and every four products a 64 × 64 multiply can give
+/// (each at most `(2⁶⁴−1)²`): `add_products_at` is exactly
+/// `out + Σ p_j·2^(64(i+j))`, nothing lost off the top, and no step
+/// overflows (Kani's overflow checks).
+///
+/// Before row `i`, rows `0..i` have written limbs up to `i+3` only, so limbs
+/// `i+4..` are zero: the precondition, which the exact sum keeps for row
+/// `i+1`. By induction from zero, `mul_wide(a, b) = Σ_i Σ_j a_i·b_j·2^(64(i+j))`,
+/// the definition of the product. What is taken as given is the compiler's
+/// `u128` multiply in `mul_row_into`, one line per product.
+///
+/// Superseded (2026-10-19, cargo-kani 0.67): harnesses with the multipliers
+/// inside, for the whole product (20 min) and one row (10 min), did not
+/// finish.
+fn row_step(i: usize) {
+    let mut out: [u64; 8] = kani::any();
+    for limb in &mut out[i + 4..] {
+        *limb = 0;
+    }
+    let max = u128::from(u64::MAX) * u128::from(u64::MAX);
+    let products: [u128; 4] = kani::any();
+    let mut sum = out;
+    for (j, p) in products.iter().enumerate() {
+        kani::assume(*p <= max);
+        let (next, carried) = add_u128_at(sum, *p, i + j);
+        assert!(!carried);
+        sum = next;
+    }
+    assert!(crate::add_products_at(out, i, products) == sum);
+}
+// Eight-limb loops need 9; the 64-byte array `==` is a memcmp, which needs 65.
+#[kani::proof]
+#[kani::unwind(65)]
+fn mul_row_0_adds_exactly() {
+    row_step(0);
+}
+
+#[kani::proof]
+#[kani::unwind(65)]
+fn mul_row_1_adds_exactly() {
+    row_step(1);
+}
+
+#[kani::proof]
+#[kani::unwind(65)]
+fn mul_row_2_adds_exactly() {
+    row_step(2);
+}
+
+#[kani::proof]
+#[kani::unwind(65)]
+fn mul_row_3_adds_exactly() {
+    row_step(3);
 }
