@@ -286,6 +286,20 @@ The fixes:
   its arguments unchanged.
 - **Response limit.** `RPC_RESPONSE_LIMIT` is 32 MiB, asserted at compile time to be
   at least two full pages and at least one maximal record hex-encoded plus 1 MiB.
+- **Who refuses, who cuts.** Only `safety.log` refuses on damage with a valid record
+  after it. It is written with `sync_data`, so such damage is not a crash artefact,
+  and cutting would forget votes. `certs.log` is only flushed: power loss can leave
+  a zero hole with valid records after it. Certificates are re-fetchable, so that
+  log is cut at the first bad record. Tests:
+  `a_zero_hole_with_valid_records_after_it_is_cut_in_certs_log_and_refused_in_safety_log`.
+- **Committee bound without staking.** `validators.len() <= MAX_COMMITTEE` is checked
+  whether or not a staking section exists, because the quorum certificate is sized by
+  the validator list. Test: `a_genesis_above_the_record_bounds_is_refused`.
+  `a_certificate_from_a_full_committee_fits_the_record_bound` writes a certificate with
+  every member voting and a maximal batch.
+- **Budget reservation.** `get_certificates` reserves a whole page from the byte bucket
+  before reading the disk and refunds the unused part (`RateLimiter::refund`). A client
+  past its budget costs no disk read.
 - **Not done:** the byte figures are unmeasured; a dag-bft batch is bounded by the
   genesis `batch_size` only through the new genesis check, so chains built before
   this change with a larger `batch_size` would need to be re-checked.
