@@ -29,10 +29,10 @@ fn mutate_typed(mut tx: Transaction, rng: &mut Rng) -> Vec<u8> {
     match rng.next_u32() % 6 {
         0 => {
             if let Some(output) = pick_mut(&mut tx.outputs, rng) {
-                output.amount = boundary_u64(rng);
+                output.amount = boundary_u64(rng).into();
             } else {
                 tx.outputs.push(TxOutput {
-                    amount: boundary_u64(rng),
+                    amount: boundary_u64(rng).into(),
                     recipient: [rng_byte(rng); 32],
                 });
             }
@@ -44,7 +44,7 @@ fn mutate_typed(mut tx: Transaction, rng: &mut Rng) -> Vec<u8> {
             let count = (rng.next_u32() % 4096) as usize;
             tx.outputs = (0..count)
                 .map(|i| TxOutput {
-                    amount: boundary_u64(rng),
+                    amount: boundary_u64(rng).into(),
                     recipient: [i as u8; 32],
                 })
                 .collect();
@@ -105,7 +105,7 @@ pub fn seeds() -> Vec<Vec<u8>> {
     let unsigned = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount: 1_000,
+            amount: 1_000u64.into(),
             recipient: [7u8; 32],
         }],
         0,
@@ -115,7 +115,7 @@ pub fn seeds() -> Vec<Vec<u8>> {
         let mut signed = Transaction::new(
             vec![],
             vec![TxOutput {
-                amount: 500,
+                amount: 500u64.into(),
                 recipient: [9u8; 32],
             }],
             1,

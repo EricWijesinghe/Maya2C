@@ -197,7 +197,7 @@ fn fresh_state(accounts: &[(Address, u64)]) -> (StateDB, TempDir) {
             .put_account(
                 address,
                 &Account {
-                    balance: *balance,
+                    balance: (*balance).into(),
                     nonce: 0,
                 },
             )
@@ -225,7 +225,7 @@ fn block_of(transactions: Vec<Transaction>) -> Block {
 fn signed(kind: TxKind, nonce: u64, key: &HybridSigningKey) -> Transaction {
     let mut tx = Transaction::with_kind(kind, nonce);
     tx.outputs.push(TxOutput {
-        amount: 0,
+        amount: 0u64.into(),
         recipient: [0u8; 32],
     });
     let _ = tx.sign(key, &crate::SANDBOX_CHAIN);
