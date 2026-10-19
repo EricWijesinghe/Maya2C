@@ -103,3 +103,15 @@ needs. It reads as a profile or a linker bug and is neither.
 `CARGO_BUILD_PIPELINING=false` does not help. The remedy is to let one scope
 finish before starting another; `cargo clean` if it is already wedged. See
 `reports/02-layout.md` §1.
+
+## Reproducible release builds (ADR-054)
+
+The Linux node in a release is built by `scripts/repro_build.sh <target>`, which maps the checkout and `CARGO_HOME` to fixed paths. To check a release yourself on Ubuntu 24.04 with the toolchain from `rust-toolchain.toml` and `clang mold` installed:
+
+```bash
+git checkout node-vX.Y.Z
+bash scripts/repro_build.sh x86_64-unknown-linux-gnu   # prints the SHA-256
+grep maya2c-node SHA256SUMS                             # from the release page
+```
+
+The release archive hashes the `.tar.gz`, so compare against the binary inside it (`sha256sum maya2c-node`). `reproducible-build.yml` proves two builds agree on every lockfile or toolchain change and weekly. Windows and macOS binaries are not reproducible yet.
