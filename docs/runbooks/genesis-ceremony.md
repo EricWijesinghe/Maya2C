@@ -13,6 +13,16 @@ machines. No secret key ever leaves the machine it was made on.
 3. `l1-wallet --keystore <path> generate`: the operator address that will hold
    the bond. Send the address.
 
+## Each council member, on their own device (ADR-050)
+
+Three devices by default: this PC, the MacBook, and an offline backup. Make new council keys for every chain: an approval does not yet name its chain (ADR-050, review finding).
+
+- Put a long random passphrase in a file on another drive than the key, and a
+  paper copy somewhere safe. Never type it on a command line.
+- `genesis-ceremony council key --label <pc|mac|paper> --passphrase-file <file>
+  --out-dir <fresh dir>`: writes `<label>.council.sealed` (keep it) and
+  `<label>.council.public` (send it). Note the `commitment` it prints.
+
 ## Coordinator
 
 4. Collect every `*.public` into one directory. Write `validators.txt`, one
@@ -21,8 +31,11 @@ machines. No secret key ever leaves the machine it was made on.
 5. ```
    genesis-ceremony assemble --chain-id <id> --supply <units> \
        --contributions <dir> --validators validators.txt \
-       --timestamp <launch unix time> --out-dir coord
+       --timestamp <launch unix time> --out-dir coord        --council <dir of *.council.public> --council-threshold 2        --council-max-pause-blocks <Eric's number>
    ```
+   A value-bearing chain id refuses to assemble without `--council`, and the
+   tool refuses a council directory that holds a `.council.sealed` file.
+   Each member checks the commitment beside their label on the sheet.
 6. Publish `validators.txt`, the `*.public` files and the exact command line.
 
 ## Everyone checks
@@ -62,3 +75,29 @@ machines. No secret key ever leaves the machine it was made on.
   before redials got through.
 - After the fix, three simultaneous-start trials: every node at height ≥ 3 in
   4 s, 0 failed connections.
+
+## Using the brake (ADR-050)
+
+A pause needs two of the three council devices. Nonce: the council's current
+nonce (0 for the first action; it goes up by one after every action).
+
+1. On each of two member devices:
+   `genesis-ceremony council approve --key <label>.council.sealed
+   --passphrase-file <file> --council <dir of the three .public files>
+   --nonce <n> --pause <module> --blocks <n>` (or `--resume <module>`).
+   It writes `<label>.approval`: a signature, no secret. Modules are named as
+   in `invariant_guard::Module`: `dex`, `vm`, `oracle`, and so on.
+2. On any machine: `genesis-ceremony council combine --council <dir>
+   a.approval b.approval`. It checks every signature and refuses one approval,
+   a repeat, a forgery or two approvals for different actions. It writes
+   `council-action.hex`.
+3. From any funded wallet: `l1-wallet council-action --action
+   council-action.hex`. The wallet only pays the fee; the chain checks the
+   approvals.
+
+Rehearsed 2026-10-19 with the tool on one machine: three keys, a genesis with
+the 2-of-3 council, two approvals, combine (13,292-character action), wrong
+passphrase refused, one approval refused, sealed key in the council
+directory refused. The on-chain effect is covered by
+`crates/node/tests/council_pause_tests.rs`. Submitting a combined file to a
+live node is NOT VERIFIED yet: the testnet has no council (ADR-050 question 4).

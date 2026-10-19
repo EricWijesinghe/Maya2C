@@ -3731,9 +3731,11 @@ dependencies = [
  "blake3",
  "custom-l1-node",
  "hex",
+ "maya-signer",
  "maya-zk-stark",
  "primitive-types",
  "serde_json",
+ "zeroize",
 ]
 
 [[package]]
