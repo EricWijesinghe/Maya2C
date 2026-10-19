@@ -15,7 +15,7 @@ machines. No secret key ever leaves the machine it was made on.
 
 ## Each council member, on their own device (ADR-050)
 
-Three devices by default: this PC, the MacBook, and an offline backup. Make new council keys for every chain: an approval does not yet name its chain (ADR-050, review finding).
+Three devices by default: this PC, the MacBook, and an offline backup. Every approval names its chain (`--genesis`), so approvals for one chain never count on another (ADR-050). Still, give each chain its own keys.
 
 - Put a long random passphrase in a file on another drive than the key, and a
   paper copy somewhere safe. Never type it on a command line.
@@ -83,11 +83,11 @@ nonce (0 for the first action; it goes up by one after every action).
 
 1. On each of two member devices:
    `genesis-ceremony council approve --key <label>.council.sealed
-   --passphrase-file <file> --council <dir of the three .public files>
+   --passphrase-file <file> --council <dir of the three .public files> --genesis genesis.json
    --nonce <n> --pause <module> --blocks <n>` (or `--resume <module>`).
    It writes `<label>.approval`: a signature, no secret. Modules are named as
    in `invariant_guard::Module`: `dex`, `vm`, `oracle`, and so on.
-2. On any machine: `genesis-ceremony council combine --council <dir>
+2. On any machine: `genesis-ceremony council combine --council <dir> --genesis genesis.json
    a.approval b.approval`. It checks every signature and refuses one approval,
    a repeat, a forgery or two approvals for different actions. It writes
    `council-action.hex`.
