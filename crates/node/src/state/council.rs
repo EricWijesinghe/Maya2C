@@ -112,7 +112,7 @@ impl StateDB {
         if action.nonce != council.nonce {
             return refuse(format!("nonce {} is not {}", action.nonce, council.nonce));
         }
-        let message = action.signing_message();
+        let message = action.signing_message(self.get_chain_tag()?);
         let mut approved = std::collections::BTreeSet::new();
         for (member, sig) in &action.approvals {
             let Some(key) = council.members.get(usize::from(*member)) else {

@@ -10,14 +10,19 @@
 //! Authority is the approvals, never the sender: any account may carry a
 //! council action, and it lands only with `threshold` distinct members'
 //! ML-DSA-65 signatures over [`CouncilAction::signing_message`], which binds
-//! the council's current nonce so an approval cannot be replayed.
+//! the council's current nonce so an approval cannot be replayed, and the
+//! chain's genesis (ADR-036 tag) so it cannot be replayed on another chain
+//! whose council shares a key (ADR-050 review finding, 2026-10-19).
 
 use crate::core::codec::ByteReader;
 use crate::crypto::SIGNATURE_LENGTH;
 use crate::error::{NodeError, Result};
 
 /// Domain of the council's signatures.
-pub const COUNCIL_DOMAIN: &[u8] = b"maya2c/security-council/v1";
+///
+/// v2 since 2026-10-19: the message gained the chain tag. A new domain, not
+/// only a longer message, so no v1 approval can be read as a v2 one.
+pub const COUNCIL_DOMAIN: &[u8] = b"maya2c/security-council/v2";
 
 /// Most approvals one action may carry: well above any sane council.
 pub const MAX_APPROVALS: usize = 32;
@@ -69,10 +74,12 @@ impl CouncilAction {
         buf.extend_from_slice(&self.nonce.to_le_bytes());
     }
 
-    /// What every approving member signs.
+    /// What every approving member signs: domain, the chain's tag, then the
+    /// action and nonce.
     #[must_use]
-    pub fn signing_message(&self) -> Vec<u8> {
+    pub fn signing_message(&self, chain: &crate::core::ChainTag) -> Vec<u8> {
         let mut m = COUNCIL_DOMAIN.to_vec();
+        m.extend_from_slice(chain.as_bytes());
         self.encode_kind(&mut m);
         m
     }
@@ -149,7 +156,11 @@ mod tests {
             r.finish().unwrap();
             let mut later = a.clone();
             later.nonce = 8;
-            assert_ne!(a.signing_message(), later.signing_message());
+            let chain = crate::core::ChainTag::from_genesis([1; 32]);
+            assert_ne!(a.signing_message(&chain), later.signing_message(&chain));
+            // The same action on another chain is another message.
+            let other = crate::core::ChainTag::from_genesis([2; 32]);
+            assert_ne!(a.signing_message(&chain), a.signing_message(&other));
         }
     }
 }
