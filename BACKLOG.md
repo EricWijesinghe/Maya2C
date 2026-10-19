@@ -46,11 +46,6 @@ band; move an item to PROGRESS.md when it starts.
 
 ## P2 — make claimed-working features verified
 
-- **Flaky: `identity_tests::no_committed_record_holds_a_claim_preimage`.**
-  It searches records for the 4 bytes `22 00 00 00` (age 34 as u32); random
-  key bytes can contain them, so it fails rarely (PR #114 CI, 2026-10-12).
-  Search for a value whose encoding cannot occur by chance, or for the
-  claim's full field-element encoding.
 - **Joining nodes dial private addresses learned from the DHT.** A helper's
   node behind only the wss bootnode tried 172.25.x, 192.168.64.x and 10.1.x
   (WSL, the stagenet containers, attacknet on the seed's PC), all refused, and
