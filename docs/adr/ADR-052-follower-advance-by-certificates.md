@@ -1,0 +1,339 @@
+# ADR-052: A follower advances on certificates the current committee signed
+
+**Status:** Accepted (Eric, 2026-10-18; whole-epoch replay confirmed by the
+coordinator, 2026-10-18). Implemented: see "Results" and "Built". Mainnet gate 10
+(`docs/mainnet-v1-plan.md`) is closed for the case of more than `f` followers
+that can replay the current or previous epoch.
+**Date:** 2026-10-18
+**Amends:** ADR-038 (section "Amendment 2026-10-18").
+
+## Context
+
+ADR-038 lets a node that is more than the engine window behind import blocks only
+up to a quorum-attested checkpoint. A checkpoint needs `n - f` attesters, and
+followers do not attest, because a follower cannot verify a block above the last
+checkpoint. So when more than `f` validators follow at once, the builders are
+fewer than `n - f`, no checkpoint forms, and the followers never move.
+
+The 2026-10-18 incident and `bft_follower_tests` show the result. With four
+validators and two followers, the builders stop at height 12, the epoch-2
+boundary. The followers stay at height 9 in epoch 1, because they switch epoch
+only by importing the boundary block, and they drop epoch-2 frames. The chain
+halts. Measured: builders height 12 epoch 2; followers height 9 epoch 1,
+`follower: true`.
+
+## Decision
+
+A follower advances by **re-deriving blocks from certificates it verifies
+itself**, not by importing a peer's blocks on a peer's word.
+
+1. **Certificates carry the evidence.** A `Certificate` is a vertex with `n - f`
+   signatures from the committee of its epoch. The committee is computed from
+   the follower's own executed state at the epoch boundary (`staked_committee`),
+   as builders do. A certificate whose signatures do not reach `n - f` valid
+   members of that committee is refused.
+2. **Replay, not import.** A follower asks peers for the certificates of its
+   epoch after its tip's seal round, from each peer's `certs.log`. It feeds them
+   to its own engine. The engine orders them and derives the blocks through the
+   same `build_block` and `Chain::insert_block` path as a builder, so
+   `insert_block` checks the state root (invariant 24).
+3. **Handover.** When the engine's committed round is within the engine window of
+   the network's (the rule in "What within window means"), the follower clears
+   `follower` and builds, as it does today.
+4. **Epoch boundaries.** The follower switches epoch when its own executed state
+   names the next committee, exactly as `on_tick` does now. No new rule.
+
+## Threat model
+
+- **Forged commit evidence.** A forged certificate needs `n - f` valid signatures.
+  With at most `f` Byzantine members, a forger needs at least `n - 2f` honest
+  signatures on a different vertex for the same slot. Honest validators sign once
+  per slot (`safety.log`, fsync'd before send), so that cannot happen for a slot
+  the honest set has already signed. A forged certificate is refused by the
+  engine's own verification, before any block is derived from it.
+- **Equivocating minority.** Up to `f` validators may sign two vertices for a slot.
+  Each equivocation is evidence (already recorded), and the engine orders by
+  certificates, so a replayed equivocation yields no block the honest set would not
+  have derived. The `2f + 1` attestation rule stays for checkpoints.
+- **Peer withholding blocks or certificates.** A withholding peer stalls the
+  follower; it cannot make the follower accept a wrong block. The follower asks
+  every configured source, and when none answers it keeps retrying. This is a
+  liveness loss for the follower only.
+- **Peer lying about its tip.** Only orders the attempts (ADR-043). Trust is never
+  placed in the tip.
+
+Why this is safe: every block the follower adds is derived locally from
+certificates that carry `n - f` committee signatures, and its state root is
+re-executed. A single peer can delay progress but cannot supply content. Followers
+never attest what they have not derived, so the ADR-038 objection (one peer's
+chain reaching quorum through followers) does not apply.
+
+## Liveness argument
+
+With `n - f` builders up, the chain makes progress and the builders hold the
+epoch's certificates in `certs.log`. A follower that asks any one honest peer
+that holds the epoch's log receives the certificates it needs and replays them.
+The only case that fails is one where no honest peer still holds the epoch's
+log. Logs are kept for the current and previous epoch (`store.rs`
+`prune_epochs_before`), so this holds for a node at most one epoch behind. A
+node further behind still needs a snapshot, as ADR-043 says.
+
+## What "within window" means
+
+Within window: the follower's committed round is within `GC_DEPTH / 2` rounds of
+the peer's tip round, in the same epoch, and the follower's tip is an ancestor of
+the peer's chain. That is the test `within_engine_window` applies today. Under
+this ADR it is checked on each follow round, not only at startup. A follower that
+is within window and whose tip is the previous anchor's block hands over to
+building.
+
+## Measurement (2026-10-18, gate 1 of the implementation)
+
+Harness: `crates/node/tests/cert_replay_measure.rs` (ignored test). An in-process
+committee runs to 3,600 blocks; every distinct certificate is kept; a fresh
+observer then replays them. Debug profile, `cargo test`, one machine.
+
+| n | certs | signatures | verify all (s) | replay to 3,600 (s) | verify + replay (s) |
+|---|---|---|---|---|---|
+| 4 | 28,804 | 86,412 | 18.5 | 32.3 | 50.8 |
+| 7 | 50,407 | 252,035 | 30.9 | 34.9 | 65.8 |
+
+Run times (mesh only, not the gate): n=4 1,074 s, n=7 2,556 s. The replay agreed
+with the committee at every height (`AGREE`).
+
+Memory: not measured in-process (the Windows commit probe was refused by the
+worktree guard). Estimate: an ML-DSA-65 signature is 3,309 bytes (FIPS 204), so
+the signatures of one n=7 epoch alone are about 834 MB; n=4 about 286 MB.
+
+**Gate result: n=7 is over 60 s (65.8 s). Stop.** Under the agreed rule the
+certificate-replay path is not implemented. The header-root alternative is
+written up as ADR-053 (Proposed) for Eric.
+
+## Decision record (2026-10-18)
+
+Eric approved a protocol fix before mainnet. The coordinator decided, within that
+approval: **whole-epoch certificate replay** is the mechanism. The 60 s gate used
+earlier was an arbitrary threshold and is withdrawn. 50.8 s (n=4) and 65.8 s
+(n=7), debug build, is accepted for a one-time rejoin. It is far better than an
+unbounded halt, and mainnet launches with n=4. ADR-053 stays Proposed, a future
+optimisation, and is not implemented.
+
+## Results (release build, 2026-10-19)
+
+Epoch of 3,600 blocks, one machine, `cargo test --release` of
+`cert_replay_measure.rs` (ignored test). Catch-up is `certsync::sync`: paged
+fetch from member 0's log, verification of every page before the next, the
+per-certificate log write, and the replay.
+
+| n | certs | signatures | verify pass alone (s) | catch-up total (s) | working set before (MB) | peak (MB) | growth (MB) |
+|---|---|---|---|---|---|---|---|
+| 4 | 28,804 | 86,412 | 22.7 | 47.7 | 32.0 | 37.0 | 4.9 |
+| 7 | 50,407 | 252,035 | 35.0 | 98.5 | 76.4 | 78.9 | 2.5 |
+
+The working set is the whole test process, which still holds the reference
+committee's chain (member 0), so the absolute peak includes it. The growth
+during catch-up is the number that bounds the catch-up. Memory is measured
+with `GetProcessMemoryInfo` (psapi FFI, no new dependency). Debug (earlier):
+n=4 50.8 s, n=7 65.8 s. The release build is not faster for verification
+(22.7 s against 18.5 s in debug), so the release gain is not visible in this
+measurement. Not investigated.
+
+**Known cost to fix:** the catch-up flushes the log after every certificate.
+Batching the flush per page is the next optimisation; not done here.
+
+## Built
+
+- Store (`consensus/bft/store.rs`): `read_certificate_page` returns a bounded page
+  of raw records from a byte offset; `for_each_certificate` streams a log.
+  `SafetyStore::open` no longer loads the epoch's certificates.
+- Engine restart (`driver.rs`): the replay streams the log through the engine,
+  so an epoch's signatures are never all in memory at once.
+- Certificate sync (`consensus/bft/certsync.rs`): `verify_certificate` (epoch,
+  engine quorum rule, one valid signature per vote), `fetch_epoch` (verify each
+  page before the next, refuse no-progress and oversized pages), `sync` (one epoch
+  at a time, replays, then the next epoch if the state moved on).
+- RPC `get_certificates [epoch, offset, max]`: a blocking method (it reads the
+  disk). The server caps `max` at 256 records and the page at 4 MiB of JSON
+  (`encoded_len`: hex, quotes and comma). Both ends raise jsonrpsee's response
+  limit to 16 MiB, which is at least twice the page, so a full page is never cut.
+  Gated by the node's per-client call rate limiter. A per-IP byte budget is NOT
+  implemented; the limiter still counts calls.
+- Node startup (`bins/maya2c-node`): with `--catch-up-from`, sync from the first
+  source that answers, repeat up to 3 times while outside the engine's window. The
+  checkpoint path is the fallback when every source refuses.
+- Handover: a replayed node is a full engine from the start, not a follower. The
+  live tail is served by gossip, as for any restart. Gate 10 is closed by this path.
+  Checkpoint catch-up stays for the fallback case.
+
+## Completeness and why it is safe (2026-10-19, review fixes)
+
+Reviews found three gaps in the first version: a peer's `done` ended an epoch
+early; a peer could skip a record; and a stalled peer could loop the fetch.
+The fixes:
+
+- **Progress and arithmetic.** A page must end where its records end
+  (`next = offset + Σ(8 + len)`), and a page that is not the last must carry
+  records. Each epoch is capped at 65,536 pages, 4,194,304 records and 4 GiB,
+  against about 50,000 certificates for a 3,600-block epoch at n = 7.
+- **Completeness is not `done`.** After replaying an epoch, `attested_end`
+  takes the epoch's final checkpoint (a quorum-signed block, ADR-038), verifies
+  its quorum against the epoch's committee, and requires the replayed history
+  to contain that block id at that height. A finished epoch with no checkpoint
+  on offer is refused, since nothing then says where it ends. The head epoch
+  may have none yet.
+- **Why a gap cannot pass.** The block id covers the header: the seal (epoch,
+  anchor round), the transactions' root and the state root. If the replayed
+  history reproduces the attested id at a height, the committed sequence up to
+  that height is the one the quorum signed. Omitting a certificate changes that
+  sequence only if the certificate contributes transactions, a seal or a state
+  change, and then the id differs and the sync is refused. Omitting one that no
+  later certificate names changes nothing, and the replay correctly accepts it.
+  A certificate that a later one names as a parent leaves that child buffered in
+  the engine, so the replay stops short and the check refuses.
+- **Commit rule, for the argument.** The engine (`crates/dag-bft`) is a
+  certified DAG: a vertex is accepted with a quorum of parents, and an anchor's
+  sub-DAG is committed once the commit rule over later certificates (Bullshark)
+  selects it. Commitment depends on which certificates a node holds, not on when
+  it holds them, so the replayed sequence equals the network's wherever the
+  replay holds the same certificates.
+- **Timing.** `now_ms` reaches the engine only for anchor timeouts and resend
+  intervals (`validator.rs`: `try_advance`, `tick`). Those decide when a node
+  proposes or gives up waiting, not which blocks are committed. Block timestamps
+  come from the vertices (`builder.rs`), not from the clock, so the replay on
+  `now_ms` does not change block content (invariant 9).
+- **Residual risk: the tail.** Blocks above the newest checkpoint are not yet
+  pinned by a quorum. A gapped tail would show up as a peer's checkpoint whose id
+  differs from the node's block at that height. The follow loop asks a peer for
+  its checkpoint about every 30 s (`BUILDER_FOLLOW_EVERY`) and reports a mismatch
+  as an error (`catch-up: ... retrying`); it does not halt the node. Making that
+  a halt is not implemented. Documented here as the open item.
+- **Equivocation at restart.** The safety log is truncated to its last complete
+  record before any append (`repair_torn_tail`), so a vote sent after a crash is
+  readable. `restore_vote` keeps the first digest recorded for a slot
+  (`or_insert`), so a restored vote is not overwritten. Refusing a conflicting
+  vote in the engine was not re-tested in this change: NOT VERIFIED.
+
+## Re-audit fixes (2026-10-19, second round)
+
+- **Older checkpoint as the attested end.** `CheckpointBook` keeps the newest
+  checkpoint it has seen, and a peer can serve an older valid one. For a finished
+  epoch, the served checkpoint must be the epoch's last block (the last block whose
+  seal names the epoch, `last_height_of`), and the replay must cross the boundary.
+  A replay that stops at the boundary's predecessor is refused. Test:
+  `a_peer_that_serves_an_older_checkpoint_with_a_truncated_log_is_refused` (tries
+  every truncation point).
+- **Head epoch.** A checkpoint newer than the replayed history is not checked
+  against local height until the replay reaches it; the head epoch is not refused
+  for that. A finished epoch is still refused if it stops short. Test:
+  `a_checkpoint_newer_than_the_fetched_logs_does_not_refuse_the_head_epoch`.
+- **Equivocating copy.** A different copy of a logged slot is verified: if valid, it
+  is counted as equivocation evidence (`Synced::equivocations`) and the first copy
+  stays; if invalid, the fetch is refused. Test:
+  `a_valid_equivocating_copy_of_a_logged_slot_is_counted_and_does_not_abort_the_sync`.
+- **Tail scan.** Both logs are cut at the first record that is zero-length, too long,
+  short, or fails to decode, and nothing after it is trusted. Tests:
+  `a_zero_filled_or_garbage_tail_is_cut_and_the_node_still_opens`.
+- **Record size.** `MAX_RECORD_BYTES` is 2 MiB raw; a compile-time check keeps its
+  hex encoding under the RPC response limit. (It was 16 MiB, which hex-encodes past
+  it.)
+- **RPC byte budget.** `get_certificates` charges each page's encoded bytes to a
+  per-client token bucket (`RateLimiter::charge`, 32 MiB/s sustained, 128 MiB burst,
+  `CERT_BYTES_PER_SECOND`/`CERT_BYTE_BURST`), and admits one page at a time per
+  client (`CertGate`). The client address reaches the method through the request's
+  extensions (`ClientAddr`). The byte figures are a first setting: the measured byte
+  size of a mainnet epoch is not yet known. Tests: the byte-budget refusal over the
+  real RPC and the gate.
+- **Defect found by the gate test.** `CertGate::claim` built its claim before the
+  check, and a refused claim's drop locked the mutex the claim still held: a
+  deadlock on the second page from one client. Fixed with an explicit branch.
+- **Default RPC address** is `127.0.0.1:8545` (was `0.0.0.0:8545`). Scripts in this
+  repository pass `--rpc-addr` explicitly; the quickstart says so. A validator other
+  operators catch up from must pass `0.0.0.0:8545` explicitly.
+- **Not done:** the follow-loop spawn was not extracted into a tested function; the
+  byte budget is per client address and does not cap a fleet behind one NAT.
+
+## Final-audit fixes (2026-10-19, third round)
+
+- **The record bound is derived, not guessed.** `MAX_RECORD_BYTES` =
+  `MAX_BATCH_BYTES` (4 MiB, dag-bft `max_batch_bytes`) + `MAX_BATCH_ITEMS` × 8 (the
+  per-item length prefix; 4096 items) + `MAX_COMMITTEE` × (32 + vote entry)
+  (100 validators; the vote entry is the voter id, the length prefix and
+  `SIGNATURE_LENGTH`, 3309 bytes for ML-DSA-65) + 64 KiB slack. The bounds are
+  enforced where the chain's own rules enforce them: genesis refuses
+  `batch_size > MAX_BATCH_ITEMS` and `max_validators > MAX_COMMITTEE`
+  (`GenesisConfig::validate`). `record_certificate` and `record_own` refuse a
+  record above the bound before writing anything.
+- **Damage in the middle is refused, not cut.** The tail scan stops at the first
+  bad record. If any valid record starts after it (every byte offset is tried,
+  read in 1 MiB windows), the open is refused with an operator message. Only a
+  tail with nothing valid after it is truncated. Tests:
+  `damage_between_valid_records_refuses_to_open_so_nothing_is_deleted`,
+  `a_zero_filled_or_garbage_tail_is_cut_and_the_node_still_opens`,
+  `a_torn_tail_is_cut_so_the_next_record_is_read_back`.
+- **A restored vote still refuses an equivocation.** The dag-bft test restores a
+  vote from the safety log and presents a conflicting proposal for its slot; no
+  vote is cast for it (`a_vote_restored_from_the_safety_log_refuses_a_conflicting_vertex_for_its_slot`).
+  The node path restores the same records through `BftDriver::open`.
+- **A refused page is retried.** The budget and busy refusals are transient for the
+  RPC client (`is_transient`), so the existing backoff applies. The test spends the
+  bucket before the first request and requires the sync to succeed after waiting.
+  It was checked fail-first: with the classification disabled it fails.
+- **`serve` attaches the client address.** The unmetered `serve` is now
+  `serve_metered` with metrics discarded and per-call limiting off. Tests had been
+  charging every request to the unspecified address, which hid the budget.
+- **Stagenet needs no change.** `infra/stagenet/gen.sh` passes
+  `--rpc-addr 0.0.0.0:8545` explicitly to every node, and `entrypoint.sh` forwards
+  its arguments unchanged.
+- **Response limit.** `RPC_RESPONSE_LIMIT` is 32 MiB, asserted at compile time to be
+  at least two full pages and at least one maximal record hex-encoded plus 1 MiB.
+- **Who refuses, who cuts.** Only `safety.log` refuses on damage with a valid record
+  after it. It is written with `sync_data`, so such damage is not a crash artefact,
+  and cutting would forget votes. `certs.log` is only flushed: power loss can leave
+  a zero hole with valid records after it. Certificates are re-fetchable, so that
+  log is cut at the first bad record. Tests:
+  `a_zero_hole_with_valid_records_after_it_is_cut_in_certs_log_and_refused_in_safety_log`.
+- **Committee bound without staking.** `validators.len() <= MAX_COMMITTEE` is checked
+  whether or not a staking section exists, because the quorum certificate is sized by
+  the validator list. Test: `a_genesis_above_the_record_bounds_is_refused`.
+  `a_certificate_from_a_full_committee_fits_the_record_bound` writes a certificate with
+  every member voting and a maximal batch.
+- **Budget reservation.** `get_certificates` reserves a whole page from the byte bucket
+  before reading the disk and refunds the unused part (`RateLimiter::refund`). A client
+  past its budget costs no disk read.
+- **Not done:** the byte figures are unmeasured; a dag-bft batch is bounded by the
+  genesis `batch_size` only through the new genesis check, so chains built before
+  this change with a larger `batch_size` would need to be re-checked.
+
+## Gaps (not covered by this ADR)
+
+- Logs are kept for the current and the previous epoch (`RETAINED_PAST_EPOCHS`).
+  A node more than one epoch behind cannot replay and still needs a snapshot.
+- Spec vectors for the RPC: NOT YET (`spec/05-consensus.md` documents the wire
+  rules without rule IDs, so `spec-coverage --strict` stays green).
+
+- **Replay depth.** The engine's ordered set below the resume point is not
+  stored. Replay therefore starts at the epoch's first certificate: O(epoch length).
+  Measured in "Results" for a 3,600-block epoch.
+- **Certificate serving.** Done as the paged RPC `get_certificates` (see "Built").
+- **Safest alternative (ADR-053, Proposed, not implemented).** If replay cost is too high, put the ordered-set root
+  into the block header, so the attested checkpoint alone fixes the set. That is a
+  consensus format change: it needs a spec update, conformance vectors
+  (`cargo xtask spec-coverage`), and a new ADR. It is not part of this ADR.
+
+## Interaction with gate 10
+
+Gate 10 is "more than `f` validators each genuinely need to follow". This ADR
+removes the checkpoint requirement for that case. Gate 10 stays open until the
+replay path is implemented and `bft_follower_tests` passes with two followers
+and a crashed validator (expected to halt, then recover once the crashed one
+returns).
+
+## Consequences
+
+- New RPC and a certificate replay path in the node. Consensus-adjacent: rust-reviewer
+  and security-reviewer passes before merge (Standing Order 4).
+- Deterministic only: no wall-clock time and no `HashMap` iteration in any decision.
+  Retry timing is a liveness choice in the node loop, not a consensus rule.
+- The operating rule (restart one validator at a time, `chain-health.ps1`) stays
+  until this ships. It keeps `f` followers at most, which is the case the existing
+  protocol already handles.

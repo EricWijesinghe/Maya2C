@@ -94,6 +94,12 @@ a second terminal in the same directory (set the password there too).
 Keep `--rpc-addr` on `127.0.0.1`. The node's RPC has no authentication; the
 public face of a real network is the API gateway, not this port.
 
+The default is `127.0.0.1:8545` (it was `0.0.0.0:8545` before 2026-10-19). A
+validator that other operators catch up from (`--catch-up-from`) serves
+certificate pages on this port, so it must be given `--rpc-addr 0.0.0.0:8545`
+explicitly, and its firewall must allow only the peers it expects. Scripts that
+relied on the old default must pass the flag.
+
 ## 5. Send a transaction
 
 ```bash
