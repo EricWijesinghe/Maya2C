@@ -1,22 +1,41 @@
 ---
 // The homepage hero: one block finalizing, drawn from the same model the
 // renderer uses (src/scripts/propagation-model.ts). The emblem stays in the
-// header only. The static poster is the final frame of that model, so phones
-// and reduced-motion visitors see the same scene without WebGL.
+// header only. The static poster is the model frozen mid-sweep, so phones and
+// reduced-motion visitors see the wave travelling, not the end state.
 //
 // The numbers in the chip and tiles are the chain's own: the tip height from
 // get_chain_info, the tip's header timestamp from get_block_by_height, and the
 // committee from get_bft_status. The scene's counts (validators, quorum) are
 // illustrative and the caption does not present them as chain parameters.
-import { buildModel, PHASES, RADIUS } from "../scripts/propagation-model.ts";
+import { buildModel, PHASES, phaseAt, project as projectRaw, frontRadius, liftAt, nodeLevel, beamAt, cameraPosition, ringAt } from "../scripts/propagation-model.ts";
 
 const M = buildModel();
-const VB = RADIUS + 0.4;
-const y = (v: number) => +(-v).toFixed(3); // screen y points up
-const edgeLines = M.edges.map(([a, b]) => ({
-  x1: +M.points[a][0].toFixed(3), y1: y(M.points[a][1]), x2: +M.points[b][0].toFixed(3), y2: y(M.points[b][1]),
-}));
-const core = M.points[M.core];
+const POSTER_T = 2.3; // mid-sweep: the crest is about halfway across the field
+const cam = cameraPosition(M, POSTER_T);
+const POSTER_PHASE = phaseAt(M, POSTER_T); // the caption on the still frame matches the sweep it shows
+// SVG y grows downward; the model projects y up.
+const project = (p: readonly [number, number, number], c: readonly [number, number, number]): [number, number] => { const q = projectRaw(p, c); return [q[0], -q[1]]; };
+const pts = M.points.map((p, i) => project([p[0], p[1] + liftAt(M, i, POSTER_T), p[2]], cam));
+const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+const pad = 0.4;
+const [x0, x1] = [Math.min(...xs) - pad, Math.max(...xs) + pad];
+const [y0, y1] = [Math.min(...ys) - pad, Math.max(...ys) + pad];
+const f = (v: number) => +v.toFixed(3);
+const isVal = new Set(M.validators);
+const core = pts[M.core];
+const ring = ringAt(M, POSTER_T);
+const ringPts = Array.from({ length: 96 }, (_, k) => {
+  const a = (k / 96) * Math.PI * 2;
+  return project([M.points[M.core][0] + Math.cos(a) * ring.r, 0, M.points[M.core][2] + Math.sin(a) * ring.r], cam);
+}).map((p) => `${f(p[0])},${f(p[1])}`).join(" ");
+const beams = M.validators.flatMap((v, k) => [0, 1].map((kind) => {
+  const b = beamAt(M, k, kind as 0 | 1, POSTER_T);
+  if (b.p <= 0) return null;
+  const a = pts[v], c = core;
+  const h = [a[0] + (c[0] - a[0]) * b.p, a[1] + (c[1] - a[1]) * b.p];
+  return { x1: f(a[0]), y1: f(a[1]), x2: f(h[0]), y2: f(h[1]), kind, alpha: b.alpha };
+})).filter(Boolean) as { x1: number; y1: number; x2: number; y2: number; kind: number; alpha: number }[];
 ---
 
 <section class="stage not-content" aria-label="How one Maya2C block finalizes">
@@ -39,28 +58,27 @@ const core = M.points[M.core];
   </div>
 
   <figure class="scene">
-    <svg class="poster" viewBox={`${-VB} ${-VB} ${VB * 2} ${VB * 2}`} aria-hidden="true" focusable="false">
+    <svg class="poster" viewBox={`${f(x0)} ${f(y0)} ${f(x1 - x0)} ${f(y1 - y0)}`} aria-hidden="true" focusable="false">
       <defs>
         <radialGradient id="pcore"><stop offset="0" stop-color="#fff3d6" /><stop offset="0.4" stop-color="#7eeaf0" stop-opacity="0.5" /><stop offset="1" stop-color="#7eeaf0" stop-opacity="0" /></radialGradient>
       </defs>
-      {edgeLines.map((e) => <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} stroke="#7eeaf0" stroke-opacity="0.22" stroke-width="0.012" />)}
-      {M.validators.map((v) => (
-        <>
-          <line x1={+M.points[v][0].toFixed(3)} y1={y(M.points[v][1])} x2={+core[0].toFixed(3)} y2={y(core[1])} stroke="#2fd9e6" stroke-opacity="0.7" stroke-width="0.012" />
-          <line x1={+M.points[v][0].toFixed(3)} y1={y(M.points[v][1])} x2={+core[0].toFixed(3)} y2={y(core[1])} stroke="#e6b260" stroke-opacity="0.55" stroke-width="0.012" stroke-dasharray="0.05 0.05" />
-        </>
+      <path d={M.edges.map(([a, b]) => `M${f(pts[a][0])} ${f(pts[a][1])}L${f(pts[b][0])} ${f(pts[b][1])}`).join("")} fill="none" stroke="#7eeaf0" stroke-opacity="0.3" stroke-width="0.02" />
+      <polyline points={ringPts} fill="none" stroke="#fff3d6" stroke-opacity={f(0.18 * ring.a)} stroke-width="0.16" />
+      <polyline points={ringPts} fill="none" stroke="#fff3d6" stroke-opacity={f(0.7 * ring.a)} stroke-width="0.035" />
+      {beams.map((bm) => (
+        <line x1={bm.x1} y1={bm.y1} x2={bm.x2} y2={bm.y2} stroke={bm.kind === 0 ? "#2fd9e6" : "#e6b260"} stroke-opacity={f(0.85 * bm.alpha)} stroke-width="0.035" />
       ))}
-      {M.points.map((p, i) => (
-        <circle cx={+p[0].toFixed(3)} cy={y(p[1])} r={M.validators.includes(i) ? 0.07 : 0.036} fill={M.validators.includes(i) ? "#e6b260" : "#7eeaf0"} />
+      {M.points.map((_, i) => (
+        <circle cx={f(pts[i][0])} cy={f(pts[i][1])} r={isVal.has(i) ? 0.085 : 0.045} fill={isVal.has(i) ? "#e6b260" : "#7eeaf0"} fill-opacity={f(0.2 + 0.8 * nodeLevel(M, i, POSTER_T))} />
       ))}
-      <circle cx={+core[0].toFixed(3)} cy={y(core[1])} r="0.5" fill="url(#pcore)" />
-      <circle cx={+core[0].toFixed(3)} cy={y(core[1])} r="0.11" fill="#fff3d6" />
+      <circle cx={f(core[0])} cy={f(core[1])} r="0.6" fill="url(#pcore)" />
+      <circle cx={f(core[0])} cy={f(core[1])} r="0.13" fill="#fff3d6" />
     </svg>
     <canvas id="field" aria-hidden="true"></canvas>
     <figcaption class="caption" id="caption">
       {PHASES.map((p, i) => (
         <>
-          <span data-phase={i}>{p}</span>
+          <span data-phase={i} class:list={[i === POSTER_PHASE && "on", i < POSTER_PHASE && "done"]}>{p}</span>
           {i < PHASES.length - 1 && <span class="arrow" aria-hidden="true"> → </span>}
         </>
       ))}
@@ -89,8 +107,6 @@ const core = M.points[M.core];
         .then(({ startPropagation }) => startPropagation(canvas, onPhase))
         .catch(() => { /* no WebGL: the poster stays */ });
     });
-  } else {
-    onPhase(3);
   }
 
   // Chain facts, read from the public gateway. A failed read keeps the last value.
@@ -133,8 +149,10 @@ const core = M.points[M.core];
   /* Desktop: copy left, the scene fills the right side. Phones: the poster
      sits above the copy, in normal flow. */
   .stage { position: relative; width: 100vw; margin: 0 0 0 calc(50% - 50vw); min-height: calc(100svh - var(--sl-nav-height, 64px)); overflow: hidden; border-radius: 0 0 var(--r-l) var(--r-l); background: var(--void); }
-  .scene { position: absolute; top: 0; right: 0; bottom: 0; width: 60%; margin: 0; pointer-events: none; }
-  .poster { position: absolute; left: 50%; top: 44%; width: min(100%, 68vh); height: auto; aspect-ratio: 1; transform: translate(-50%, -50%); }
+  .scene { position: absolute; inset: 0; width: 100%; margin: 0; pointer-events: none; }
+  /* The field fades out under the copy so the headline stays readable. */
+  .scene { -webkit-mask-image: linear-gradient(90deg, transparent 18%, #000 48%); mask-image: linear-gradient(90deg, transparent 18%, #000 48%); }
+  .poster { position: absolute; left: 71%; top: 46%; width: min(100%, 68vh); height: auto; aspect-ratio: 1; transform: translate(-50%, -50%); }
   #field { position: absolute; inset: 0; width: 100%; height: 100%; display: none; }
   .scene.gl #field { display: block; }
   .scene.gl .poster { display: none; }
@@ -166,10 +184,12 @@ const core = M.points[M.core];
     .stage { min-height: 0; display: flex; flex-direction: column; }
     .scene { order: -1; }
     .scene { position: relative; width: 100%; height: auto; padding: 56px 16px 0; }
+    .scene { -webkit-mask-image: none; mask-image: none; }
     .poster { position: relative; left: auto; top: auto; transform: none; width: min(100%, 360px); margin: 0 auto; display: block; }
     .caption { position: static; display: block; white-space: normal; text-align: center; margin: 14px 16px 0; font-size: 12px; }
     .copy { max-width: none; }
-    .chip { white-space: normal; border-radius: var(--r-m); line-height: 1.5; }
+    .chip { display: block; white-space: normal; border-radius: var(--r-m); line-height: 1.6; padding: 10px 14px; }
+    .chip .dot { display: inline-block; vertical-align: middle; margin-right: 8px; }
     .ui { padding-top: 24px; }
   }
   @media (prefers-reduced-motion: reduce) {
