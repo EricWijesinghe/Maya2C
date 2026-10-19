@@ -131,7 +131,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable
         with:
           # Matches `rust-version` across the workspace. Edition 2024 needs
           # 1.85; the code also uses `u64::is_multiple_of` (1.87) and
@@ -142,7 +142,7 @@ jobs:
       # manylinux this needs a toolchain the default image does not have, which
       # is why cibuildwheel drives the Linux build inside a container.
       - name: Build wheels
-        uses: pypa/cibuildwheel@e090b81e30c4d855ea63bf4b6e59204c09a101ae # v4.2
+        uses: pypa/cibuildwheel@b3395e271a35f73dad77f21802abe9b986dfe299 # v4.3.1
         with:
           package-dir: sdk-ffi
         env:

@@ -51,7 +51,7 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq clang mold
 
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master, pinned 2026-09-29
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, pinned 2026-09-29
         with:
           toolchain: nightly-2026-07-15
           targets: ${{ matrix.target }}
@@ -123,7 +123,7 @@ jobs:
           sudo apt-get install -y -qq clang mold libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev libdbus-1-dev patchelf
 
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master, pinned 2026-09-29
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, pinned 2026-09-29
         with:
           toolchain: nightly-2026-07-15
           targets: wasm32-unknown-unknown
@@ -206,7 +206,7 @@ jobs:
           sudo apt-get install -y -qq clang mold libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev libdbus-1-dev patchelf
 
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master, pinned 2026-09-29
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, pinned 2026-09-29
         with:
           toolchain: nightly-2026-07-15
 
@@ -308,7 +308,7 @@ jobs:
       # without trusting this page. CycloneDX from Cargo.lock via
       # `cargo cyclonedx`: the action allow-list admits taiki-e, not anchore.
       # Before Checksums, so the SBOM is summed too.
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master, pinned 2026-09-29
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, pinned 2026-09-29
         with:
           toolchain: nightly-2026-07-15
       - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2, pinned 2026-09-29
