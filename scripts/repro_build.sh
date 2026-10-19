@@ -16,6 +16,9 @@ set -euo pipefail
 
 target=${1:?usage: repro_build.sh <target-triple>}
 src=$(pwd -P)
+# Created if new: a fresh CARGO_HOME is how the CI check proves its path
+# does not leak into the binary.
+mkdir -p "${CARGO_HOME:-$HOME/.cargo}"
 cargo_home=$(cd "${CARGO_HOME:-$HOME/.cargo}" && pwd -P)
 
 # --config arrays are appended to .cargo/config.toml's, so the mold link-arg
