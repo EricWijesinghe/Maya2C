@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 
 use custom_l1_node::consensus::bft::attest::{Checkpoint, CheckpointBook};
 use custom_l1_node::consensus::bft::certsync::{
-    self, CertSource, PAGE, PAGE_ENCODED_BYTES, PageLimits,
+    self, CertSource, PAGE, PAGE_CERTS, PAGE_ENCODED_BYTES, PageLimits,
 };
 use custom_l1_node::consensus::bft::store::{CertPage, for_each_certificate};
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
@@ -342,7 +342,7 @@ fn a_restarted_node_catches_up_through_paged_rpc() {
 fn serve_peer(
     net: &mut Net,
     runtime: &tokio::runtime::Runtime,
-    budget: custom_l1_node::rpc::limit::RateLimiter,
+    budget: Arc<custom_l1_node::rpc::limit::RateLimiter>,
 ) -> (custom_l1_node::rpc::server::RpcServer, String) {
     let peer = net.members[0].driver.as_ref().unwrap();
     let mut book = CheckpointBook::default();
@@ -381,16 +381,47 @@ fn a_client_over_its_certificate_byte_budget_is_refused_by_the_server() {
     let (server, url) = serve_peer(
         &mut net,
         &runtime,
-        custom_l1_node::rpc::limit::RateLimiter::new(1, 1),
+        Arc::new(custom_l1_node::rpc::limit::RateLimiter::new(1, 1)),
     );
-    net.reopen(2);
-    let source = RpcBootstrapSource::new(&url, runtime.handle().clone()).unwrap();
-    let refused = net
-        .restart_from(2, &source, PAGE)
-        .err()
-        .expect("a client past its byte budget must be refused");
+    // A raw call, not the catch-up client: that client backs off and retries a
+    // budget refusal, which would take minutes here. The server's answer is what
+    // is under test.
+    use jsonrpsee::core::client::ClientT;
+    let client = jsonrpsee::http_client::HttpClientBuilder::default()
+        .build(&url)
+        .unwrap();
+    let refused = runtime
+        .block_on(client.request::<serde_json::Value, _>(
+            "get_certificates",
+            jsonrpsee::rpc_params![0_u64, 0_u64, 256_usize],
+        ))
+        .expect_err("a client past its byte budget must be refused");
     assert!(refused.to_string().contains("byte budget"), "{refused}");
     drop(server);
+}
+
+#[test]
+fn a_genesis_above_the_record_bounds_is_refused() {
+    use custom_l1_node::consensus::bft::store::{MAX_BATCH_ITEMS, MAX_COMMITTEE};
+    // The record bound is derived from these two limits, so a genesis above them
+    // could declare a legal-looking chain whose certificates the log refuses.
+    assert!(genesis_config().validate().is_ok());
+    let mut too_many_items = genesis_config();
+    too_many_items.bft.as_mut().unwrap().batch_size = MAX_BATCH_ITEMS + 1;
+    assert!(too_many_items.validate().is_err(), "batch_size above the bound");
+    let mut too_many_validators = genesis_config();
+    too_many_validators
+        .bft
+        .as_mut()
+        .unwrap()
+        .staking
+        .as_mut()
+        .unwrap()
+        .max_validators = u16::try_from(MAX_COMMITTEE + 1).unwrap();
+    assert!(
+        too_many_validators.validate().is_err(),
+        "max_validators above the bound"
+    );
 }
 
 #[test]
@@ -403,4 +434,91 @@ fn a_client_holds_one_certificate_page_at_a_time() {
     assert!(gate.claim(b).is_some(), "another client is not held up");
     drop(first);
     assert!(gate.claim(a).is_some(), "released when the page is done");
+}
+
+#[test]
+fn a_max_size_batch_certificate_round_trips_through_the_log_and_the_rpc() {
+    use custom_l1_node::consensus::bft::store::{MAX_BATCH_BYTES, SafetyStore};
+    use custom_l1_node::consensus::bft::wire::encode_certificate;
+    use custom_l1_node::crypto::keys::SIGNATURE_LENGTH;
+    use maya_dag_bft::{Certificate, Vertex};
+
+    // The largest batch the protocol certifies: four items of a quarter of the
+    // payload bound each. Votes from a four-validator committee.
+    let root = TempDir::new().unwrap();
+    let mut vertex = Vertex::genesis_in(0, 4);
+    vertex.round = 1;
+    vertex.batch = vec![vec![0x5a_u8; MAX_BATCH_BYTES / 4]; 4];
+    let cert = Certificate {
+        vertex,
+        votes: vec![0, 1, 2],
+        signatures: vec![vec![0x33_u8; SIGNATURE_LENGTH]; 3],
+    };
+    {
+        let (mut store, _) = SafetyStore::open(root.path(), 0).unwrap();
+        store
+            .record_certificate(&cert)
+            .expect("a legal certificate is written");
+    }
+    // Reopen: nothing is cut, and the certificate reads back from the log.
+    let (_, recovered) = SafetyStore::open(root.path(), 0).unwrap();
+    assert_eq!(recovered.torn_bytes, 0, "a legal record was cut");
+    let mut seen = Vec::new();
+    for_each_certificate(root.path(), 0, |c| {
+        seen.push(c);
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(seen, vec![cert.clone()]);
+
+    // Served by the RPC and fetched through it.
+    let state = Arc::new(StateDB::open(&root.path().join("state")).unwrap());
+    let context = RpcContext::new(
+        Arc::new(Mutex::new(open_chain(&genesis_config(), Arc::clone(&state)))),
+        Mempool::new(state),
+    )
+    .with_bft_dir(root.path().to_path_buf());
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let server = runtime
+        .block_on(serve("127.0.0.1:0".parse().unwrap(), context))
+        .unwrap();
+    let source = RpcBootstrapSource::new(
+        &format!("http://{}", server.address),
+        runtime.handle().clone(),
+    )
+    .unwrap();
+    let page = source.page(0, 0, PAGE_CERTS).unwrap();
+    assert!(page.done, "one record is the whole epoch");
+    assert_eq!(page.records, vec![encode_certificate(&cert)]);
+    drop(server);
+}
+
+#[test]
+fn a_client_refused_for_its_byte_budget_backs_off_and_succeeds() {
+    use custom_l1_node::rpc::limit::RateLimiter;
+    let mut net = Net::new();
+    net.run_until(|n| n.height(0) >= 3);
+    net.hold_out(2);
+    net.run_until(|n| n.height(0) >= 8);
+    // The bucket refills at 256 KB/s, so a page of about a megabyte cannot be
+    // paid for in the moments between the spend below and the first request: that
+    // request is refused with the budget message, and the client must back off
+    // until the bucket has refilled far enough.
+    let burst: u32 = 4 * 1024 * 1024;
+    let budget = Arc::new(RateLimiter::new(256 * 1024, burst));
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let (server, url) = serve_peer(&mut net, &runtime, Arc::clone(&budget));
+    net.reopen(2);
+    assert!(budget.charge(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), u64::from(burst)));
+    let source = RpcBootstrapSource::new(&url, runtime.handle().clone()).unwrap();
+    net.restart_from(2, &source, PAGE)
+        .expect("a refused page is retried after backing off, not fatal");
+    for epoch in 0..=1 {
+        assert_eq!(
+            logged(&net.members[2].bft_dir, epoch),
+            logged(&net.members[0].bft_dir, epoch),
+            "epoch {epoch}: every page arrived"
+        );
+    }
+    drop(server);
 }
