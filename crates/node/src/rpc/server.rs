@@ -245,7 +245,25 @@ impl Drop for CertClaim<'_> {
 /// ([`crate::consensus::bft::certsync::PAGE_ENCODED_BYTES`]), so 16 MiB leaves
 /// room for framing. Set on both ends: the client refuses what the server would
 /// send.
-pub const RPC_RESPONSE_LIMIT: u32 = 16 * 1024 * 1024;
+pub const RPC_RESPONSE_LIMIT: u32 = 32 * 1024 * 1024;
+
+const _: () = assert!(
+    RPC_RESPONSE_LIMIT as usize >= 2 * crate::consensus::bft::certsync::PAGE_ENCODED_BYTES,
+    "two full pages must fit one response"
+);
+const _: () = assert!(
+    RPC_RESPONSE_LIMIT as usize
+        >= crate::consensus::bft::store::MAX_ENCODED_RECORD + 1024 * 1024,
+    "one maximal record, hex-encoded, must fit one response with room to spare"
+);
+
+/// The refusal a client gets when its certificate byte budget is spent. Clients
+/// match it to back off and retry (`rpc::bootstrap`).
+pub const BUDGET_EXHAUSTED: &str =
+    "certificate byte budget used up for this client; retry later";
+
+/// The refusal a client gets when it already holds a page in flight.
+pub const PAGE_BUSY: &str = "one certificate page at a time per client";
 
 /// The server configuration with [`RPC_RESPONSE_LIMIT`] (jsonrpsee 0.26 takes
 /// the limit through its config, not the builder).
@@ -293,9 +311,9 @@ impl RpcContext {
     /// The same context, charging certificate pages to `budget` (tests set it
     /// tiny to see the refusal).
     #[must_use]
-    pub fn with_cert_budget(self, budget: crate::rpc::limit::RateLimiter) -> Self {
+    pub fn with_cert_budget(self, budget: Arc<crate::rpc::limit::RateLimiter>) -> Self {
         Self {
-            cert_bytes: Arc::new(budget),
+            cert_bytes: budget,
             ..self
         }
     }
@@ -474,7 +492,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
             let _claim = ctx
                 .cert_gate
                 .claim(client)
-                .ok_or_else(|| rejected("one certificate page at a time per client".to_string()))?;
+                .ok_or_else(|| rejected(PAGE_BUSY.to_string()))?;
             let limits = ctx.page_limits;
             let page = crate::consensus::bft::store::read_certificate_page(
                 dir,
@@ -491,7 +509,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 .sum();
             if !ctx.cert_bytes.charge(client, bytes) {
                 return Err(rejected(
-                    "certificate byte budget used up for this client; retry later".to_string(),
+                    BUDGET_EXHAUSTED.to_string(),
                 ));
             }
             Ok::<_, ErrorObjectOwned>(crate::rpc::types::CertPageInfo {
@@ -868,7 +886,9 @@ pub struct RpcServer {
     pub handle: ServerHandle,
 }
 
-/// Starts the JSON-RPC server on `address`.
+/// Starts the JSON-RPC server on `address`, without metrics or a per-call rate
+/// limit (tests and tools). It shares the path of [`serve_metered`], so every
+/// request carries its client address (`ClientAddr`) for the byte budget.
 ///
 /// Pass port `0` to let the OS assign one and read it back from
 /// [`RpcServer::address`].
@@ -879,22 +899,16 @@ pub struct RpcServer {
 /// the module cannot be built, or a context wired with
 /// [`RpcContext::with_peers`] is asked to listen beyond loopback.
 pub async fn serve(address: SocketAddr, context: RpcContext) -> crate::error::Result<RpcServer> {
-    check_peer_exposure(address, context.peers.is_some())?;
-    let module =
-        build_module(context).map_err(|e| crate::error::NodeError::Network(e.to_string()))?;
-
-    let server = Server::builder()
-        .set_config(server_config())
-        .build(address)
-        .await
-        .map_err(|e| crate::error::NodeError::Network(format!("bind {address}: {e}")))?;
-    let local_address = server
-        .local_addr()
-        .map_err(|e| crate::error::NodeError::Network(format!("local address: {e}")))?;
-    Ok(RpcServer {
-        address: local_address,
-        handle: server.start(module),
-    })
+    // The same path as `serve_metered`, so the client address reaches the methods
+    // that charge by client (`ClientAddr`). Metrics are discarded and per-call
+    // rate limiting is off, which is what tests and tools want.
+    serve_metered(
+        address,
+        context,
+        Arc::new(crate::metrics::Metrics::new()),
+        Arc::new(crate::rpc::limit::RateLimiter::new(0, 0)),
+    )
+    .await
 }
 
 /// [`serve`], recording every call in `metrics` (SLO rpc-availability and

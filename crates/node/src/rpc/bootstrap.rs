@@ -20,7 +20,7 @@ use jsonrpsee::types::ErrorObjectOwned;
 
 use crate::core::{Block, BlockHeader};
 use crate::error::{NodeError, Result};
-use crate::rpc::server::{RPC_RESPONSE_LIMIT, RpcContext};
+use crate::rpc::server::{BUDGET_EXHAUSTED, PAGE_BUSY, RPC_RESPONSE_LIMIT, RpcContext};
 use crate::rpc::types::BlockInfo;
 use crate::state_pruner::snapshot::{BootstrapSource, HEADER_BATCH, SnapshotManifest, Snapshots};
 
@@ -281,6 +281,12 @@ fn is_transient(e: &jsonrpsee::core::ClientError) -> bool {
     use jsonrpsee::core::ClientError;
     match e {
         ClientError::Transport(_) | ClientError::RequestTimeout => true,
+        // A certificate page refused for the caller's own budget or its one
+        // page in flight: the server answered, and the answer is "later". Back
+        // off with the same schedule as a lost connection.
+        ClientError::Call(err) if err.message() == BUDGET_EXHAUSTED || err.message() == PAGE_BUSY => {
+            true
+        }
         // JSON-RPC "internal error": the server failed, it did not answer
         // about the data. The public gateway reports any upstream hiccup this
         // way ("upstream node error"); a joining Windows CI node died on one
