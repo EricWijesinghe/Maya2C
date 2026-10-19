@@ -126,7 +126,12 @@ impl CertSource for PeerLog {
     }
 
     fn checkpoint_of(&self, epoch: u64) -> custom_l1_node::error::Result<Option<Checkpoint>> {
-        Ok(self.checkpoints.iter().filter(|c| c.epoch == epoch).max_by_key(|c| c.height).cloned())
+        Ok(self
+            .checkpoints
+            .iter()
+            .filter(|c| c.epoch == epoch)
+            .max_by_key(|c| c.height)
+            .cloned())
     }
 }
 
@@ -169,13 +174,9 @@ impl Run {
             };
             let dir = root.path().join(format!("state-{i}"));
             let mut chain = open_chain(config, &dir);
-            let (driver, step) = BftDriver::open(
-                &setup,
-                &root.path().join(format!("bft-{i}")),
-                &mut chain,
-                0,
-            )
-            .unwrap();
+            let (driver, step) =
+                BftDriver::open(&setup, &root.path().join(format!("bft-{i}")), &mut chain, 0)
+                    .unwrap();
             opening.push((i, step));
             members.push(Member { driver, chain });
         }
@@ -323,7 +324,8 @@ fn verify_only(dir: &std::path::Path, head: u64, keys: &Arc<[VerifyingKey]>) -> 
     for epoch in 0..=head {
         let mut offset = 0_u64;
         loop {
-            let page = read_certificate_page(dir, epoch, offset, PAGE.records, PAGE.encoded_bytes).unwrap();
+            let page = read_certificate_page(dir, epoch, offset, PAGE.records, PAGE.encoded_bytes)
+                .unwrap();
             for record in &page.records {
                 let c = decode_certificate(record).unwrap();
                 let digest = c.digest();
@@ -392,11 +394,14 @@ fn catching_up_by_replay_costs_this_much() {
             ..Params::default()
         },
     };
-    let checkpoints = [reference.driver.closing_checkpoint(), reference.driver.checkpoint()]
-        .into_iter()
-        .flatten()
-        .cloned()
-        .collect();
+    let checkpoints = [
+        reference.driver.closing_checkpoint(),
+        reference.driver.checkpoint(),
+    ]
+    .into_iter()
+    .flatten()
+    .cloned()
+    .collect();
     let source = PeerLog {
         checkpoints,
         dir: peer_dir,
@@ -435,7 +440,11 @@ fn catching_up_by_replay_costs_this_much() {
     let shared = usize::try_from(chain.height().min(want)).unwrap();
     let mine = chain.active_chain().unwrap();
     let theirs = reference.chain.active_chain().unwrap();
-    assert_eq!(mine[..=shared], theirs[..=shared], "caught-up blocks differ");
+    assert_eq!(
+        mine[..=shared],
+        theirs[..=shared],
+        "caught-up blocks differ"
+    );
     println!("AGREE n={n} shared_blocks={shared}");
 }
 

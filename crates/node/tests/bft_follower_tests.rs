@@ -18,8 +18,8 @@ use std::sync::Arc;
 
 use custom_l1_node::consensus::bft::attest::Checkpoint;
 use custom_l1_node::consensus::bft::auth::MlDsaAuthenticator;
-use custom_l1_node::consensus::bft::store::for_each_certificate;
 use custom_l1_node::consensus::bft::certsync::{self, CertSource, PAGE, PageLimits};
+use custom_l1_node::consensus::bft::store::for_each_certificate;
 use custom_l1_node::consensus::bft::store::{CertPage, read_certificate_page};
 use custom_l1_node::consensus::bft::wire::{decode_certificate, encode_certificate};
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
@@ -400,19 +400,30 @@ fn one_follower_plus_a_crashed_validator_halts_then_recovers_when_the_crashed_on
     mesh.run_ticks(20);
     let halted = mesh.height(0);
     mesh.run_ticks(60);
-    assert_eq!(mesh.height(0), halted, "two of four must not advance the chain");
+    assert_eq!(
+        mesh.height(0),
+        halted,
+        "two of four must not advance the chain"
+    );
 
     // The crashed validator returns: three voting, the quorum is back.
     mesh.restart_from_certificates(3, 0);
     mesh.run_until(|m| m.height(0) >= halted + 3);
-    assert!(mesh.height(0) >= halted + 3, "the quorum did not restore progress");
+    assert!(
+        mesh.height(0) >= halted + 3,
+        "the quorum did not restore progress"
+    );
 
     // The follower catches up by replay and rejoins.
     mesh.restart_from_certificates(2, 0);
     let target = mesh.height(0) + 6;
     mesh.run_until(|m| m.height(0) >= target);
     for i in 0..VALIDATORS {
-        assert!(mesh.height(i) + 3 >= target, "member {i} at {}", mesh.height(i));
+        assert!(
+            mesh.height(i) + 3 >= target,
+            "member {i} at {}",
+            mesh.height(i)
+        );
     }
     mesh.agree();
     assert_eq!(mesh.equivocations, 0);
@@ -438,10 +449,7 @@ fn a_peer_that_ends_an_epoch_early_is_refused_by_the_attested_end() {
         .restart_from(2, &source, PAGE)
         .err()
         .expect("a truncated epoch must be refused");
-    assert!(
-        refused.to_string().contains("refused"),
-        "{refused}"
-    );
+    assert!(refused.to_string().contains("refused"), "{refused}");
 }
 
 #[test]
@@ -459,14 +467,10 @@ fn a_peer_that_skips_a_certificate_is_refused_by_the_attested_end() {
     // attested end is right to accept that. Skip one that a later certificate
     // names as a parent: its child then waits forever, and the replay stops.
     let mut logged_certs = Vec::new();
-    custom_l1_node::consensus::bft::store::for_each_certificate(
-        &mesh.members[0].bft_dir,
-        0,
-        |c| {
-            logged_certs.push(c);
-            Ok(())
-        },
-    )
+    custom_l1_node::consensus::bft::store::for_each_certificate(&mesh.members[0].bft_dir, 0, |c| {
+        logged_certs.push(c);
+        Ok(())
+    })
     .unwrap();
     let named: std::collections::HashSet<_> = logged_certs
         .iter()
@@ -477,8 +481,15 @@ fn a_peer_that_skips_a_certificate_is_refused_by_the_attested_end() {
         .position(|c| named.contains(&c.digest()))
         .unwrap_or_else(|| {
             let rounds: Vec<u64> = logged_certs.iter().map(|c| c.vertex.round).collect();
-            let parents: Vec<usize> = logged_certs.iter().map(|c| c.vertex.parents.len()).collect();
-            panic!("no parent among {} certs: rounds {rounds:?} parents {parents:?} named {}", logged_certs.len(), named.len())
+            let parents: Vec<usize> = logged_certs
+                .iter()
+                .map(|c| c.vertex.parents.len())
+                .collect();
+            panic!(
+                "no parent among {} certs: rounds {rounds:?} parents {parents:?} named {}",
+                logged_certs.len(),
+                named.len()
+            )
         });
     let source = Skipping {
         honest: mesh.peer_log(0),
@@ -527,7 +538,11 @@ fn paging_runs_to_the_end_with_tiny_pages_and_stays_idempotent() {
     let source = mesh.peer_log(0);
     mesh.restart_from(2, &source, tiny).unwrap();
     for epoch in 0..=1 {
-        assert_eq!(logged(&mesh, 2, epoch), logged(&mesh, 0, epoch), "epoch {epoch}");
+        assert_eq!(
+            logged(&mesh, 2, epoch),
+            logged(&mesh, 0, epoch),
+            "epoch {epoch}"
+        );
     }
     let (height, tip) = (mesh.height(2), mesh.members[2].chain.tip());
 
@@ -569,7 +584,12 @@ impl CertSource for PeerLog {
     }
 
     fn checkpoint_of(&self, epoch: u64) -> custom_l1_node::error::Result<Option<Checkpoint>> {
-        Ok(self.checkpoints.iter().filter(|c| c.epoch == epoch).max_by_key(|c| c.height).cloned())
+        Ok(self
+            .checkpoints
+            .iter()
+            .filter(|c| c.epoch == epoch)
+            .max_by_key(|c| c.height)
+            .cloned())
     }
 }
 
@@ -660,7 +680,12 @@ impl CertSource for Truncating {
     }
 
     fn checkpoint_of(&self, epoch: u64) -> custom_l1_node::error::Result<Option<Checkpoint>> {
-        Ok(self.checkpoints.iter().filter(|c| c.epoch == epoch).max_by_key(|c| c.height).cloned())
+        Ok(self
+            .checkpoints
+            .iter()
+            .filter(|c| c.epoch == epoch)
+            .max_by_key(|c| c.height)
+            .cloned())
     }
 }
 
@@ -787,9 +812,14 @@ fn a_peer_that_serves_an_older_checkpoint_with_a_truncated_log_is_refused() {
             only_epoch: None,
             checkpoints: vec![older.clone()],
         };
-        if let Ok(synced) =
-            certsync::sync(&mut chain, &source, &setup, &dir.path().join("bft"), 0, PAGE)
-        {
+        if let Ok(synced) = certsync::sync(
+            &mut chain,
+            &source,
+            &setup,
+            &dir.path().join("bft"),
+            0,
+            PAGE,
+        ) {
             accepted.push((keep, synced.crossed));
         }
     }
@@ -820,8 +850,15 @@ fn a_checkpoint_newer_than_the_fetched_logs_does_not_refuse_the_head_epoch() {
         only_epoch: Some(1),
         checkpoints,
     };
-    let synced = certsync::sync(&mut chain, &source, &setup, &dir.path().join("bft"), 0, PAGE)
-        .expect("the head epoch may be ahead of the logs fetched so far");
+    let synced = certsync::sync(
+        &mut chain,
+        &source,
+        &setup,
+        &dir.path().join("bft"),
+        0,
+        PAGE,
+    )
+    .expect("the head epoch may be ahead of the logs fetched so far");
     assert!(
         chain.height() < head_checkpoint,
         "the scenario needs the replay short of the checkpoint ({} vs {head_checkpoint})",

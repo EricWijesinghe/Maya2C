@@ -74,10 +74,8 @@ const VOTE_ENTRY: usize = 2 + 8 + crate::crypto::keys::SIGNATURE_LENGTH;
 /// refused at write time and is never truncated on reopen). Each batch item
 /// carries an 8-byte length prefix, each parent a 32-byte digest, and each vote
 /// one `VOTE_ENTRY`.
-pub const MAX_RECORD_BYTES: usize = MAX_BATCH_BYTES
-    + MAX_BATCH_ITEMS * 8
-    + MAX_COMMITTEE * (32 + VOTE_ENTRY)
-    + RECORD_SLACK;
+pub const MAX_RECORD_BYTES: usize =
+    MAX_BATCH_BYTES + MAX_BATCH_ITEMS * 8 + MAX_COMMITTEE * (32 + VOTE_ENTRY) + RECORD_SLACK;
 
 /// The largest record, hex-encoded, must fit one RPC response with room for the
 /// rest of a page (checked against the response limit in `rpc::server`).
@@ -170,10 +168,7 @@ fn complete_prefix(path: &Path, valid: fn(&[u8]) -> bool) -> Result<(u64, u64)> 
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((0, 0)),
         Err(e) => return Err(io_err("open", path, &e)),
     };
-    let total = file
-        .metadata()
-        .map_err(|e| io_err("stat", path, &e))?
-        .len();
+    let total = file.metadata().map_err(|e| io_err("stat", path, &e))?.len();
     let mut reader = BufReader::new(file);
     let mut complete = 0_u64;
     while let Some(record) = plausible_record(&mut reader)? {
@@ -205,7 +200,8 @@ fn any_valid_record_after(
     let mut base = from;
     while base + 8 <= total {
         let want = usize::try_from((total - base).min(window.len() as u64)).unwrap_or(window.len());
-        file.seek(SeekFrom::Start(base)).map_err(|e| io("seek", e))?;
+        file.seek(SeekFrom::Start(base))
+            .map_err(|e| io("seek", e))?;
         let got = read_up_to(&mut file, &mut window[..want]).map_err(|e| io("read", e))?;
         // Positions with a whole length prefix in this window.
         for i in 0..got.saturating_sub(7) {
@@ -223,7 +219,8 @@ fn any_valid_record_after(
                 continue; // a partial record is not a valid one
             }
             let mut body = vec![0_u8; len];
-            file.seek(SeekFrom::Start(body_at)).map_err(|e| io("seek", e))?;
+            file.seek(SeekFrom::Start(body_at))
+                .map_err(|e| io("seek", e))?;
             file.read_exact(&mut body).map_err(|e| io("read", e))?;
             if valid(&body) {
                 return Ok(true);
@@ -491,13 +488,7 @@ impl SafetyStore {
             certs: BufWriter::new(open_append(&certs_path)?),
             dir,
         };
-        Ok((
-            store,
-            Recovered {
-                safety,
-                torn_bytes,
-            },
-        ))
+        Ok((store, Recovered { safety, torn_bytes }))
     }
 
     /// Appends one of this validator's own proposals or votes and waits for
@@ -704,7 +695,11 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        assert_eq!(seen, vec![cert(0)], "only the record before the hole is kept");
+        assert_eq!(
+            seen,
+            vec![cert(0)],
+            "only the record before the hole is kept"
+        );
 
         let safety = dir("zero-hole-safety");
         {
@@ -734,10 +729,15 @@ mod tests {
             votes: vec![0],
             signatures: vec![vec![9]],
         };
-        assert!(store.record_certificate(&cert).is_err(), "written past the bound");
+        assert!(
+            store.record_certificate(&cert).is_err(),
+            "written past the bound"
+        );
         drop(store);
         assert_eq!(
-            std::fs::metadata(root.join("epoch-0").join(CERTS_LOG)).unwrap().len(),
+            std::fs::metadata(root.join("epoch-0").join(CERTS_LOG))
+                .unwrap()
+                .len(),
             0,
             "a refused record left bytes behind"
         );

@@ -960,11 +960,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
             match bft::sync_certificates(&args.catch_up_from, &chain, &setup, &args.data_dir).await
             {
                 Ok((url, driver, opening)) => {
-                    println!("catch-up:    replayed certificates from {url}; inside the engine's window");
+                    println!(
+                        "catch-up:    replayed certificates from {url}; inside the engine's window"
+                    );
                     Some((url, driver, opening))
                 }
                 Err(e) => {
-                    eprintln!("catch-up:    certificate replay failed: {e}; falling back to checkpoints");
+                    eprintln!(
+                        "catch-up:    certificate replay failed: {e}; falling back to checkpoints"
+                    );
                     None
                 }
             }
@@ -980,7 +984,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 None => bft::catch_up_from_any(&args.catch_up_from, &chain, &mut driver)
                     .await?
                     .unwrap_or_else(|| {
-                        println!("catch-up:    no source reachable; starting as an ordinary restart");
+                        println!(
+                            "catch-up:    no source reachable; starting as an ordinary restart"
+                        );
                         first.clone()
                     }),
             };

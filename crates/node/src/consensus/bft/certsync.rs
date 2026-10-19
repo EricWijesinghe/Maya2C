@@ -252,8 +252,8 @@ fn current(chain: &Chain, setup: &BftSetup) -> Result<(u64, EpochKeys)> {
         .state()
         .committed_staking()?
         .map_or(setup.epoch, |record| record.staking.epoch);
-    let (keys, weights) = BftDriver::staked_committee(chain)?
-        .unwrap_or_else(|| (Arc::clone(&setup.committee), None));
+    let (keys, weights) =
+        BftDriver::staked_committee(chain)?.unwrap_or_else(|| (Arc::clone(&setup.committee), None));
     Ok((epoch, (keys, weights)))
 }
 
@@ -285,7 +285,9 @@ fn attested_end(
         // Newer than the replayed history: nothing to check it against yet. A
         // finished epoch must reach its own end, so a short replay is refused.
         return if epoch < head {
-            Err(refuse("the replayed history stops short of the attested end"))
+            Err(refuse(
+                "the replayed history stops short of the attested end",
+            ))
         } else {
             Ok(())
         };
