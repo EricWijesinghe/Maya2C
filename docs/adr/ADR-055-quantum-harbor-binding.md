@@ -41,4 +41,4 @@ Why it matters: if Bitcoin or Ethereum ever adopt a migration rule for exposed c
 
 1. Build it now (P5, after the launch gates), or after mainnet?
 2. The anchor: an `AnchorAttestation` root (needs a DID), or a new small "data anchor" transaction kind (a consensus change with its own ADR).
-3. Add `k256` (RustCrypto, audited 2020 by NCC Group per its README; to be re-checked) to `quantum-harbor` only.
+3. Add `k256` (RustCrypto; its audit history to be checked before adding) to `quantum-harbor` only.
