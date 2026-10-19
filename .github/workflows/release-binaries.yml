@@ -62,9 +62,15 @@ jobs:
 
       - name: Build
         shell: bash
+        # Linux node: the reproducible build (ADR-054), so anyone can rebuild
+        # it and compare against SHA256SUMS. Windows and macOS are not yet.
         run: |
-          cargo build --release --locked --target ${{ matrix.target }} \
-            -p maya2c-node --no-default-features --features production
+          if [ "$RUNNER_OS" = Linux ]; then
+            bash scripts/repro_build.sh ${{ matrix.target }}
+          else
+            cargo build --release --locked --target ${{ matrix.target }} \
+              -p maya2c-node --no-default-features --features production
+          fi
           cargo build --release --locked --target ${{ matrix.target }} \
             -p l1-wallet -p maya2c-peerid
 
