@@ -216,9 +216,11 @@ impl Net {
     /// Reopens member `i`'s chain from disk, releasing the old handle first.
     fn reopen(&mut self, i: usize) {
         let scratch = self.root.path().join(format!("scratch-{i}"));
-        self.members[i].chain = open_chain(&self.config, Arc::new(StateDB::open(&scratch).unwrap()));
+        self.members[i].chain =
+            open_chain(&self.config, Arc::new(StateDB::open(&scratch).unwrap()));
         let state_dir = self.members[i].state_dir.clone();
-        self.members[i].chain = open_chain(&self.config, Arc::new(StateDB::open(&state_dir).unwrap()));
+        self.members[i].chain =
+            open_chain(&self.config, Arc::new(StateDB::open(&state_dir).unwrap()));
     }
 
     fn restart_from(
@@ -333,7 +335,11 @@ fn a_restarted_node_catches_up_through_paged_rpc() {
         );
         assert_eq!(mine, theirs, "epoch {epoch}: every page arrived");
     }
-    assert!(net.height(2) >= 6, "the replay reached the first attested end: {}", net.height(2));
+    assert!(
+        net.height(2) >= 6,
+        "the replay reached the first attested end: {}",
+        net.height(2)
+    );
     drop(server);
 }
 
@@ -408,7 +414,10 @@ fn a_genesis_above_the_record_bounds_is_refused() {
     assert!(genesis_config().validate().is_ok());
     let mut too_many_items = genesis_config();
     too_many_items.bft.as_mut().unwrap().batch_size = MAX_BATCH_ITEMS + 1;
-    assert!(too_many_items.validate().is_err(), "batch_size above the bound");
+    assert!(
+        too_many_items.validate().is_err(),
+        "batch_size above the bound"
+    );
     let mut too_many_validators = genesis_config();
     too_many_validators
         .bft
@@ -476,7 +485,10 @@ fn a_client_holds_one_certificate_page_at_a_time() {
     let a: std::net::IpAddr = "10.0.0.1".parse().unwrap();
     let b: std::net::IpAddr = "10.0.0.2".parse().unwrap();
     let first = gate.claim(a).expect("the first page is admitted");
-    assert!(gate.claim(a).is_none(), "a second page from the same client waits");
+    assert!(
+        gate.claim(a).is_none(),
+        "a second page from the same client waits"
+    );
     assert!(gate.claim(b).is_some(), "another client is not held up");
     drop(first);
     assert!(gate.claim(a).is_some(), "released when the page is done");
@@ -520,7 +532,10 @@ fn a_max_size_batch_certificate_round_trips_through_the_log_and_the_rpc() {
     // Served by the RPC and fetched through it.
     let state = Arc::new(StateDB::open(&root.path().join("state")).unwrap());
     let context = RpcContext::new(
-        Arc::new(Mutex::new(open_chain(&genesis_config(), Arc::clone(&state)))),
+        Arc::new(Mutex::new(open_chain(
+            &genesis_config(),
+            Arc::clone(&state),
+        ))),
         Mempool::new(state),
     )
     .with_bft_dir(root.path().to_path_buf());
@@ -555,7 +570,10 @@ fn a_client_refused_for_its_byte_budget_backs_off_and_succeeds() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let (server, url) = serve_peer(&mut net, &runtime, Arc::clone(&budget));
     net.reopen(2);
-    assert!(budget.charge(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), u64::from(burst)));
+    assert!(budget.charge(
+        std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+        u64::from(burst)
+    ));
     let source = RpcBootstrapSource::new(&url, runtime.handle().clone()).unwrap();
     net.restart_from(2, &source, PAGE)
         .expect("a refused page is retried after backing off, not fatal");

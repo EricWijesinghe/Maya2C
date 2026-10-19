@@ -219,10 +219,7 @@ impl CertGate {
         // An explicit branch: a claim built and then dropped on the refused
         // path would lock `busy` again while this guard still holds it.
         if busy.insert(client) {
-            Some(CertClaim {
-                gate: self,
-                client,
-            })
+            Some(CertClaim { gate: self, client })
         } else {
             None
         }
@@ -252,15 +249,13 @@ const _: () = assert!(
     "two full pages must fit one response"
 );
 const _: () = assert!(
-    RPC_RESPONSE_LIMIT as usize
-        >= crate::consensus::bft::store::MAX_ENCODED_RECORD + 1024 * 1024,
+    RPC_RESPONSE_LIMIT as usize >= crate::consensus::bft::store::MAX_ENCODED_RECORD + 1024 * 1024,
     "one maximal record, hex-encoded, must fit one response with room to spare"
 );
 
 /// The refusal a client gets when its certificate byte budget is spent. Clients
 /// match it to back off and retry (`rpc::bootstrap`).
-pub const BUDGET_EXHAUSTED: &str =
-    "certificate byte budget used up for this client; retry later";
+pub const BUDGET_EXHAUSTED: &str = "certificate byte budget used up for this client; retry later";
 
 /// The refusal a client gets when it already holds a page in flight.
 pub const PAGE_BUSY: &str = "one certificate page at a time per client";
@@ -987,19 +982,20 @@ pub async fn serve_metered(
                 stop.clone(),
                 Arc::clone(&limiter),
             );
-            let service = tower::service_fn(move |mut request: hyper::Request<hyper::body::Incoming>| {
-                let allowed = limiter.check(remote.ip());
-                // Methods that weigh their cost by client (`get_certificates`)
-                // read the address from the request's extensions.
-                request.extensions_mut().insert(ClientAddr(remote.ip()));
-                let mut inner = builder.clone().build(methods.clone(), stop2.clone());
-                async move {
-                    if !allowed {
-                        return Ok(jsonrpsee::server::http::response::too_many_requests());
+            let service =
+                tower::service_fn(move |mut request: hyper::Request<hyper::body::Incoming>| {
+                    let allowed = limiter.check(remote.ip());
+                    // Methods that weigh their cost by client (`get_certificates`)
+                    // read the address from the request's extensions.
+                    request.extensions_mut().insert(ClientAddr(remote.ip()));
+                    let mut inner = builder.clone().build(methods.clone(), stop2.clone());
+                    async move {
+                        if !allowed {
+                            return Ok(jsonrpsee::server::http::response::too_many_requests());
+                        }
+                        tower::Service::call(&mut inner, request).await
                     }
-                    tower::Service::call(&mut inner, request).await
-                }
-            });
+                });
             tokio::spawn(jsonrpsee::server::serve_with_graceful_shutdown(
                 socket,
                 service,

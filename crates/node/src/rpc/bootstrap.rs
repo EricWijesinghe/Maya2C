@@ -284,7 +284,9 @@ fn is_transient(e: &jsonrpsee::core::ClientError) -> bool {
         // A certificate page refused for the caller's own budget or its one
         // page in flight: the server answered, and the answer is "later". Back
         // off with the same schedule as a lost connection.
-        ClientError::Call(err) if err.message() == BUDGET_EXHAUSTED || err.message() == PAGE_BUSY => {
+        ClientError::Call(err)
+            if err.message() == BUDGET_EXHAUSTED || err.message() == PAGE_BUSY =>
+        {
             true
         }
         // JSON-RPC "internal error": the server failed, it did not answer

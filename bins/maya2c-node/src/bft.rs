@@ -340,7 +340,10 @@ pub(super) async fn sync_certificates(
                 }
             };
             if synced.skipped > 0 {
-                println!("catch-up:    skipped {} undecodable record(s)", synced.skipped);
+                println!(
+                    "catch-up:    skipped {} undecodable record(s)",
+                    synced.skipped
+                );
             }
             let (height, tip, nonce) = {
                 let c = lock_chain(chain);
