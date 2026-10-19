@@ -230,13 +230,14 @@ fn create_back_up_add_an_account_lock_and_unlock() {
     s.type_text(&fields[1], "a brand new passphrase").unwrap();
     s.type_text(&s.wait_for("textarea", 1, WAIT).unwrap()[0], &phrase)
         .unwrap();
-    let recover = button(&s, "Recover wallet");
+    // Looked up again each time: the view may redraw the button while the
+    // phrase is checked, leaving an earlier handle stale (seen 1 run in 5).
     let deadline = std::time::Instant::now() + WAIT;
-    while !s.enabled(&recover).unwrap() {
+    while !s.enabled(&button(&s, "Recover wallet")).unwrap_or(false) {
         assert!(std::time::Instant::now() < deadline, "the phrase never validated");
         std::thread::sleep(Duration::from_millis(100));
     }
-    s.click(&recover).unwrap();
+    s.click(&button(&s, "Recover wallet")).unwrap();
     text_when(&s, ".accounts button", 0, |t| t.contains("Account 0"));
     s.click(&action(&s, "Receive")).unwrap();
     let recovered = text_when(&s, ".copy-row code.address", 0, |t| t.trim().len() == 64);
