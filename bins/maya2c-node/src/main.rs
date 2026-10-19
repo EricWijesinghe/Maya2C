@@ -952,6 +952,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
             (None, None) => None,
         };
         let setup = bft::setup(committee, signer)?;
+        // A snapshot lands outside the engine's window, so without catch-up
+        // the node sits at the snapshot height and says nothing (found in the
+        // 2026-10-19 recovery drill).
+        if args.bootstrap_from.is_some() && args.catch_up_from.is_empty() {
+            eprintln!(
+                "warning: --bootstrap-from without --catch-up-from: this DAG-BFT node \
+                 will stay at the snapshot height; add --catch-up-from <the same URL>"
+            );
+        }
         // Certificate replay first (ADR-052): a node that comes back from a
         // replay is a full engine, so it takes no follower path below.
         let replayed = if args.catch_up_from.is_empty() {
