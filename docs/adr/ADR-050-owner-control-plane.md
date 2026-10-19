@@ -77,3 +77,9 @@ Still to settle before the genesis ceremony:
 - `max_pause_blocks`;
 - where the offline key lives;
 - whether the testnet gets a council (that needs a re-genesis, so not before the 7-day run ends).
+
+## Review finding, 2026-10-19: council approvals are not bound to a chain
+
+`CouncilAction::signing_message` (`crates/node/src/core/council_payload.rs`) signs the domain, the action and the council nonce, but no chain id or genesis hash. A member key used on two chains (testnet and mainnet) makes two approvals at nonce `n` on one a valid action at nonce `n` on the other. A pause stays bounded by `max_pause_blocks`, so the harm is limited, but it is still a replay.
+
+**Until fixed: every chain gets new council keys** (`genesis-ceremony council key` once per chain; the runbook says so). The fix, adding the genesis block id to the signed message, changes signed bytes, so it is a consensus change: spec, vectors and a decision. It must land before mainnet genesis; no chain has a council today, so it costs nothing to make now. **For Eric.**
