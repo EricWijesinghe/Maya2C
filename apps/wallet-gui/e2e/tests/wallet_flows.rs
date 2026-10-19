@@ -154,6 +154,16 @@ fn create_back_up_add_an_account_lock_and_unlock() {
     drop(appeared);
     let words = s.wait_for("ol.phrase li", 24, WAIT).unwrap();
     assert_eq!(words.len(), 24, "a 24-word recovery phrase");
+    // Each item is <span class="index">n</span>word; kept for the recovery below.
+    let phrase = s
+        .execute(
+            "return [...document.querySelectorAll('ol.phrase li')]\
+             .map(li => li.lastChild.textContent.trim()).join(' ')",
+        )
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .to_string();
     let proceed = button(&s, "Continue");
     assert!(
         !s.enabled(&proceed).unwrap(),
@@ -166,6 +176,9 @@ fn create_back_up_add_an_account_lock_and_unlock() {
     // Wallet: one account, then a second.
     let first = text_when(&s, ".accounts button", 0, |t| t.contains("Account 0"));
     assert!(first.contains("Account 0"), "{first}");
+    s.click(&action(&s, "Receive")).unwrap();
+    let address = text_when(&s, ".copy-row code.address", 0, |t| t.trim().len() == 64);
+    s.click(&button(&s, "Back")).unwrap();
     s.click(&button(&s, "Add account")).unwrap();
     let second = text_when(&s, ".accounts button", 1, |t| t.contains("Account 1"));
     assert!(second.contains("Account 1"), "{second}");
@@ -207,5 +220,26 @@ fn create_back_up_add_an_account_lock_and_unlock() {
         0,
         "the phrase is never shown again"
     );
+
+    // Forgotten passphrase: recovery is reachable from Unlock, replaces the
+    // stored wallet under a new passphrase, and derives the same address.
+    s.click(&button(&s, "Forgot passphrase? Recover with your recovery phrase"))
+        .unwrap();
+    let fields = s.wait_for("input[type=password]", 2, WAIT).unwrap();
+    s.type_text(&fields[0], "a brand new passphrase").unwrap();
+    s.type_text(&fields[1], "a brand new passphrase").unwrap();
+    s.type_text(&s.wait_for("textarea", 1, WAIT).unwrap()[0], &phrase)
+        .unwrap();
+    let recover = button(&s, "Recover wallet");
+    let deadline = std::time::Instant::now() + WAIT;
+    while !s.enabled(&recover).unwrap() {
+        assert!(std::time::Instant::now() < deadline, "the phrase never validated");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    s.click(&recover).unwrap();
+    text_when(&s, ".accounts button", 0, |t| t.contains("Account 0"));
+    s.click(&action(&s, "Receive")).unwrap();
+    let recovered = text_when(&s, ".copy-row code.address", 0, |t| t.trim().len() == 64);
+    assert_eq!(recovered.trim(), address.trim(), "recovery derives the same account");
     s.end().unwrap();
 }

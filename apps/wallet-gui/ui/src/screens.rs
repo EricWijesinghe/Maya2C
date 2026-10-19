@@ -66,14 +66,14 @@ pub fn base_value(base: &str) -> Option<primitive_types::U256> {
 pub mod setup {
     use super::*;
 
-    /// Create-or-recover screen.
+    /// Create-or-recover screen; `from_unlock` opens it on the phrase form.
     #[component]
-    pub fn Setup() -> impl IntoView {
+    pub fn Setup(#[prop(optional)] from_unlock: bool) -> impl IntoView {
         let state = expect_context::<AppState>();
         let passphrase = RwSignal::new(String::new());
         let confirm = RwSignal::new(String::new());
         let phrase = RwSignal::new(String::new());
-        let recovering = RwSignal::new(false);
+        let recovering = RwSignal::new(from_unlock);
         let busy = RwSignal::new(false);
 
         // Validated live, so a mistyped word is caught while it is still easy
@@ -209,6 +209,17 @@ pub mod setup {
                         "I already have a recovery phrase"
                     }}
                 </button>
+                <Show when=move || from_unlock>
+                    <button
+                        class="ghost wide"
+                        on:click=move |_| {
+                            state.clear();
+                            state.screen.set(Screen::Unlock);
+                        }
+                    >
+                        "Back to unlock"
+                    </button>
+                </Show>
             </section>
         }
     }
@@ -324,6 +335,17 @@ pub mod unlock {
                 <p class="muted small">
                     "Unlocking runs a memory-hard key derivation, so it takes a moment."
                 </p>
+                // Without this, a stored wallet hides recovery entirely: Setup
+                // is shown only when no wallet exists.
+                <button
+                    class="ghost wide"
+                    on:click=move |_| {
+                        state.clear();
+                        state.screen.set(Screen::Recover);
+                    }
+                >
+                    "Forgot passphrase? Recover with your recovery phrase"
+                </button>
             </section>
         }
     }
