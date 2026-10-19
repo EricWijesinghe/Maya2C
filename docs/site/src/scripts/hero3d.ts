@@ -44,7 +44,7 @@ export function mountHero3D(
   canvas: HTMLCanvasElement,
   stage: HTMLElement,
   onPick: (p: Pick | null) => void,
-  emblemUrl?: string,
+  emblem?: HTMLElement,
 ): Hero3D {
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
@@ -72,31 +72,35 @@ export function mountHero3D(
   const starfield = new THREE.Points(starGeo, starMat);
   scene.add(starfield);
 
-  // The core: a lattice shell around a light that flares on every commit.
+  // Soft light for glows: one radial texture shared by every halo.
+  const glowTex = (() => {
+    const c = document.createElement("canvas"); c.width = c.height = 64;
+    const g = c.getContext("2d")!, r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    r.addColorStop(0, "rgba(255,255,255,1)"); r.addColorStop(0.2, "rgba(191,246,250,0.55)"); r.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = r; g.fillRect(0, 0, 64, 64);
+    return new THREE.CanvasTexture(c);
+  })();
+  const halo = (color: THREE.Color, size: number, opacity: number) => {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending }));
+    s.scale.setScalar(size);
+    return s;
+  };
+
+  // The core: a breathing light. The emblem itself is an HTML image pinned
+  // over it (crisp at any size, never washed out by the glow).
   const core = new THREE.Group();
-  const shell = new THREE.Mesh(new THREE.IcosahedronGeometry(1.05, 1), new THREE.MeshBasicMaterial({ color: TEAL, wireframe: true, transparent: true, opacity: 0.35 }));
-  const heart = new THREE.Mesh(new THREE.IcosahedronGeometry(0.55, 3), new THREE.MeshBasicMaterial({ color: ICE }));
-  core.add(shell, heart);
+  const heart = halo(TEAL, 2.6, 0.5);
+  const shell = new THREE.Mesh(new THREE.SphereGeometry(0.75, 16, 16), new THREE.MeshBasicMaterial({ visible: false }));
   // Tapping the core opens the chain's own numbers.
   shell.userData = { kind: "chain" };
-  // The emblem rides in the core and always faces the viewer.
-  if (emblemUrl) {
-    const tex = new THREE.TextureLoader().load(emblemUrl);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    // Drawn last and over the heart, so the glow frames it instead of bleaching it.
-    const badge = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: false, toneMapped: false }));
-    badge.scale.setScalar(1.3);
-    badge.renderOrder = 10;
-    world.add(badge);
-    (heart.material as THREE.MeshBasicMaterial).color.copy(TEAL).multiplyScalar(0.55);
-  }
+  core.add(heart, shell);
   world.add(core);
 
   // Validators and the links between them.
   const nodes: THREE.Mesh[] = [];
   const links = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: TEAL, transparent: true, opacity: 0.22 }));
   world.add(links);
-  const nodeGeo = new THREE.IcosahedronGeometry(0.2, 2);
+  const nodeGeo = new THREE.SphereGeometry(0.075, 20, 20);
   const nodePos = (i: number, n: number, out = new THREE.Vector3()) => {
     const a = (i / n) * Math.PI * 2;
     return out.set(Math.cos(a) * RING, Math.sin(a * 2) * 0.35, Math.sin(a) * RING);
@@ -108,7 +112,8 @@ export function mountHero3D(
     nodes.length = 0;
     const pts: number[] = [];
     for (let i = 0; i < n; i++) {
-      const m = new THREE.Mesh(nodeGeo, new THREE.MeshBasicMaterial({ color: TEAL }));
+      const m = new THREE.Mesh(nodeGeo, new THREE.MeshBasicMaterial({ color: ICE }));
+      m.add(halo(TEAL, 0.9, 0.55));
       nodePos(i, n, m.position);
       m.userData = { kind: "validator", index: i };
       nodes.push(m); world.add(m);
@@ -122,7 +127,8 @@ export function mountHero3D(
 
   // The chain: crystals on the spiral, joined in height order.
   const blocks: Block[] = [];
-  const crystalGeo = new THREE.OctahedronGeometry(0.17, 0);
+  const crystalGeo = new THREE.OctahedronGeometry(0.1, 0);
+  const crystalEdges = new THREE.EdgesGeometry(crystalGeo);
   const chain = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: TEAL, transparent: true, opacity: 0.35 }));
   world.add(chain);
   function relayout() {
@@ -135,9 +141,10 @@ export function mountHero3D(
   }
 
   const pulses: Pulse[] = [];
-  const pulseGeo = new THREE.SphereGeometry(0.06, 10, 10);
+  const pulseGeo = new THREE.SphereGeometry(0.025, 8, 8);
   function pulse(from: THREE.Vector3, to: THREE.Vector3, color: THREE.Color, delay: number, dur: number, done?: () => void) {
     const mesh = new THREE.Mesh(pulseGeo, new THREE.MeshBasicMaterial({ color }));
+    mesh.add(halo(color, 0.45, 0.9));
     mesh.visible = false; world.add(mesh);
     pulses.push({ mesh, from: from.clone(), to: to.clone(), t0: performance.now() + delay, dur, done });
   }
@@ -145,7 +152,8 @@ export function mountHero3D(
   let flare = 0;
   function addBlock(height: number, txs: number, animate: boolean) {
     const color = txs > 0 ? GOLD : ICE;
-    const mesh = new THREE.Mesh(crystalGeo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95 }));
+    const mesh = new THREE.Mesh(crystalGeo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.28, depthWrite: false }));
+    mesh.add(new THREE.LineSegments(crystalEdges, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.95 })));
     mesh.userData = { kind: "block", height, txs };
     const b: Block = { mesh, height, txs, target: new THREE.Vector3(), born: performance.now() };
     const land = () => {
@@ -183,14 +191,14 @@ export function mountHero3D(
     // Wide: the scene sits right of the words; phones: above them. It orbits
     // its own centre and is shifted on screen by the view offset, so turning
     // it never swings it across the headline.
-    world.scale.setScalar(phone ? 0.7 : 1);
+    world.scale.setScalar(phone ? 0.62 : 0.82);
     controls.target.set(0, 0, 0);
-    if (phone) camera.setViewOffset(w, h, 0, h * 0.24, w, h);
-    else camera.setViewOffset(w, h, -w * 0.25, 0, w, h);
+    if (phone) camera.setViewOffset(w, h, 0, h * 0.26, w, h);
+    else camera.setViewOffset(w, h, -w * 0.25, h * 0.07, w, h);
     if (!phone && !composer) {
       composer = new EffectComposer(renderer);
       composer.addPass(new RenderPass(scene, camera));
-      composer.addPass(new UnrealBloomPass(new THREE.Vector2(w, h), 0.95, 0.55, 0.12));
+      composer.addPass(new UnrealBloomPass(new THREE.Vector2(w, h), 0.55, 0.4, 0.2));
       composer.addPass(new OutputPass());
     }
     composer?.setSize(w, h);
@@ -234,14 +242,19 @@ export function mountHero3D(
     if (!visible) return;
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     controls.update();
-    core.rotation.y += dt * 0.25; shell.rotation.x += dt * 0.12;
+    // Breathing: the whole scene rises and falls on one slow rhythm.
+    const breath = 0.5 + 0.5 * Math.sin(now / 1900);
+    (links.material as THREE.LineBasicMaterial).opacity = 0.1 + 0.14 * breath;
+    (chain.material as THREE.LineBasicMaterial).opacity = 0.2 + 0.18 * breath;
+    (heart.material as THREE.SpriteMaterial).opacity = 0.35 + 0.25 * breath + flare * 0.4;
+    nodes.forEach((m, i) => m.scale.setScalar(1 + 0.18 * Math.sin(now / 900 + i * 1.3)));
     starfield.rotation.y += dt * 0.004;
     flare = Math.max(0, flare - dt * 1.8);
-    heart.scale.setScalar(1 + flare * 0.6 + Math.sin(now / 600) * 0.03);
+    heart.scale.setScalar(2.6 * (1 + flare * 0.5 + breath * 0.08));
     nodes.forEach((m) => (m.material as THREE.MeshBasicMaterial).color.lerp(TEAL, dt * 2.5));
     blocks.forEach((b) => {
       b.mesh.position.lerp(b.target, 1 - Math.pow(0.02, dt));
-      b.mesh.rotation.x += dt * 0.7; b.mesh.rotation.y += dt * 0.9;
+      b.mesh.rotation.x += dt * 0.35; b.mesh.rotation.y += dt * 0.5;
     });
     for (let i = pulses.length - 1; i >= 0; i--) {
       const p = pulses[i], t = (now - p.t0) / p.dur;
@@ -249,6 +262,10 @@ export function mountHero3D(
       p.mesh.visible = true;
       p.mesh.position.lerpVectors(p.from, p.to, Math.min(1, t)).y += Math.sin(Math.min(1, t) * Math.PI) * 0.35;
       if (t >= 1) { world.remove(p.mesh); (p.mesh.material as THREE.Material).dispose(); pulses.splice(i, 1); p.done?.(); }
+    }
+    if (emblem) {
+      v.set(0, 0, 0).applyMatrix4(world.matrixWorld).project(camera);
+      emblem.style.transform = `translate(${((v.x + 1) / 2) * canvas.clientWidth}px, ${((1 - v.y) / 2) * canvas.clientHeight}px) translate(-50%, -50%) scale(${world.scale.x * (1 + flare * 0.06)})`;
     }
     if (composer && !light()) composer.render(); else renderer.render(scene, camera);
     requestAnimationFrame(loop);

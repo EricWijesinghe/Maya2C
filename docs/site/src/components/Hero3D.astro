@@ -13,7 +13,8 @@ const badge = await getImage({ src: emblem, width: 256, format: "png" });
 
 <section class="stage not-content" aria-label="Maya2C, live">
   <div class="poster" aria-hidden="true"></div>
-  <canvas id="field" data-emblem={badge.src} aria-label="The validator committee and the live chain in 3D. Drag to orbit; tap a validator or a block for details."></canvas>
+  <img id="core-emblem" src={badge.src} width="128" height="128" alt="" aria-hidden="true" />
+  <canvas id="field" aria-label="The validator committee and the live chain in 3D. Drag to orbit; tap a validator or a block for details."></canvas>
   <div class="card-pop" id="pop" hidden role="status"></div>
   <div class="ui">
     <div class="copy">
@@ -143,7 +144,7 @@ const badge = await getImage({ src: emblem, width: 256, format: "png" });
   whenIdle(async () => {
     try {
       const { mountHero3D } = await import("../scripts/hero3d");
-      scene = mountHero3D(canvas, stage, card, canvas.dataset.emblem);
+      scene = mountHero3D(canvas, stage, card, document.getElementById("core-emblem") ?? undefined);
       stage.classList.add("gl");
       if (committee) scene.setValidators(committee);
       early.splice(0).forEach((b) => scene!.addBlock(b.h, b.txs, false));
@@ -158,6 +159,9 @@ const badge = await getImage({ src: emblem, width: 256, format: "png" });
     radial-gradient(22rem 22rem at 72% 45%, rgba(201, 168, 106,.30), transparent 70%),
     radial-gradient(14rem 14rem at 64% 60%, rgba(63,210,224,.22), transparent 70%), var(--void); }
   .stage.gl .poster { display: none; }
+  /* Pinned over the 3D core by hero3d.ts each frame; shown once the scene runs. */
+  #core-emblem { position: absolute; left: 0; top: 0; z-index: 1; width: clamp(88px, 9vw, 128px); height: auto; pointer-events: none; opacity: 0; transition: opacity .8s var(--glide); filter: drop-shadow(0 0 18px rgba(63, 210, 224, .45)); }
+  .stage.gl #core-emblem { opacity: 1; }
   #field { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: pan-y; cursor: grab; }
   .ui { position: relative; z-index: 2; max-width: 1180px; margin-inline: auto; padding: clamp(40px, 8vh, 96px) max(16px, 4vw) 32px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 40px; min-height: inherit; align-content: space-between; pointer-events: none; }
   .ui a, .ui button { pointer-events: auto; }
