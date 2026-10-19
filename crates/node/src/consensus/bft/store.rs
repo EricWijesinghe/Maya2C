@@ -47,17 +47,41 @@ pub struct Recovered {
     pub torn_bytes: u64,
 }
 
-/// Largest record a log or a peer may carry, in raw bytes. A certificate is a
-/// vertex with its batch and a few signatures, far below this. Refusing a longer
-/// one keeps one bad length from allocating the world. It is also sized so one
-/// record, hex-encoded, fits the RPC response limit: `encoded_len(this)` must
-/// stay under `RPC_RESPONSE_LIMIT` (checked below).
-pub const MAX_RECORD_BYTES: usize = 2 * 1024 * 1024;
+/// Most payload bytes in one vertex's batch. Honest validators refuse a
+/// proposal above `dag-bft` `Params::max_batch_bytes` (4 MiB by default), so
+/// this is the bound a certified vertex can reach.
+pub const MAX_BATCH_BYTES: usize = 4 * 1024 * 1024;
 
-const _: () = assert!(
-    encoded_len(MAX_RECORD_BYTES) < crate::rpc::server::RPC_RESPONSE_LIMIT as usize,
-    "one record must fit in one RPC response"
-);
+/// Most items in one vertex's batch. Honest validators refuse a proposal with
+/// more than `Params::batch_size` items, so genesis must not set `batch_size`
+/// above this (checked in genesis validation).
+pub const MAX_BATCH_ITEMS: usize = 4096;
+
+/// Most validators in a committee. Genesis must not set `max_validators` above
+/// this (checked in genesis validation).
+pub const MAX_COMMITTEE: usize = 100;
+
+/// Header, length prefixes and framing beyond the parts above.
+const RECORD_SLACK: usize = 64 * 1024;
+
+/// Bytes of one vote's entry in a certificate: voter id, signature length
+/// prefix, and the signature.
+const VOTE_ENTRY: usize = 2 + 8 + crate::crypto::keys::SIGNATURE_LENGTH;
+
+/// Largest record a log or a peer may carry, in raw bytes: the largest
+/// certificate or proposal the protocol can produce. It is derived from the
+/// constants above, so a legal record always fits (a record longer than this is
+/// refused at write time and is never truncated on reopen). Each batch item
+/// carries an 8-byte length prefix, each parent a 32-byte digest, and each vote
+/// one `VOTE_ENTRY`.
+pub const MAX_RECORD_BYTES: usize = MAX_BATCH_BYTES
+    + MAX_BATCH_ITEMS * 8
+    + MAX_COMMITTEE * (32 + VOTE_ENTRY)
+    + RECORD_SLACK;
+
+/// The largest record, hex-encoded, must fit one RPC response with room for the
+/// rest of a page (checked against the response limit in `rpc::server`).
+pub const MAX_ENCODED_RECORD: usize = encoded_len(MAX_RECORD_BYTES);
 
 /// One page of raw certificate records from a certificate log (ADR-052).
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -161,6 +185,73 @@ fn complete_prefix(path: &Path, valid: fn(&[u8]) -> bool) -> Result<(u64, u64)> 
     Ok((complete, total))
 }
 
+/// Whether any valid record starts in `from..total`. After damage the framing of
+/// the rest is unknown, so every byte offset is tried: a candidate is a
+/// plausible length whose body lies within the file and decodes with `valid`.
+/// Read in windows, so memory is one window however large the log.
+fn any_valid_record_after(
+    path: &Path,
+    from: u64,
+    total: u64,
+    valid: fn(&[u8]) -> bool,
+) -> Result<bool> {
+    const WINDOW: usize = 1 << 20;
+    let io = |what: &str, e: std::io::Error| io_err(what, path, &e);
+    if from.saturating_add(8) > total {
+        return Ok(false);
+    }
+    let mut file = File::open(path).map_err(|e| io("open", e))?;
+    let mut window = vec![0_u8; WINDOW + 8];
+    let mut base = from;
+    while base + 8 <= total {
+        let want = usize::try_from((total - base).min(window.len() as u64)).unwrap_or(window.len());
+        file.seek(SeekFrom::Start(base)).map_err(|e| io("seek", e))?;
+        let got = read_up_to(&mut file, &mut window[..want]).map_err(|e| io("read", e))?;
+        // Positions with a whole length prefix in this window.
+        for i in 0..got.saturating_sub(7) {
+            let Ok(prefix) = <[u8; 8]>::try_from(&window[i..i + 8]) else {
+                continue;
+            };
+            let Ok(len) = usize::try_from(u64::from_le_bytes(prefix)) else {
+                continue;
+            };
+            if len == 0 || len > MAX_RECORD_BYTES {
+                continue;
+            }
+            let body_at = base + i as u64 + 8;
+            if body_at + len as u64 > total {
+                continue; // a partial record is not a valid one
+            }
+            let mut body = vec![0_u8; len];
+            file.seek(SeekFrom::Start(body_at)).map_err(|e| io("seek", e))?;
+            file.read_exact(&mut body).map_err(|e| io("read", e))?;
+            if valid(&body) {
+                return Ok(true);
+            }
+        }
+        if base + got as u64 >= total {
+            break;
+        }
+        // Keep the last seven bytes: a length prefix may straddle two windows.
+        base += got.saturating_sub(7).max(1) as u64;
+    }
+    Ok(false)
+}
+
+/// Reads into `buf` until it is full or the file ends, returning the count.
+fn read_up_to(file: &mut File, buf: &mut [u8]) -> std::io::Result<usize> {
+    let mut got = 0;
+    while got < buf.len() {
+        match file.read(&mut buf[got..]) {
+            Ok(0) => break,
+            Ok(n) => got += n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(got)
+}
+
 /// The next record of a log for the tail scan. `None` at the end, at a short
 /// record, and at a zero or over-long length: none of those is a record a
 /// writer produced, so the scan stops there rather than failing the open.
@@ -188,12 +279,25 @@ fn plausible_record(reader: &mut impl Read) -> Result<Option<Vec<u8>>> {
 ///
 /// # Errors
 ///
-/// [`NodeError::Storage`] for I/O only. A bad tail is cut, never refused: a
-/// node must be able to restart after a crash that left garbage behind.
+/// [`NodeError::Storage`] for I/O, and for damage in the middle of the log: a
+/// bad record with a valid one after it. A torn tail (nothing valid after the
+/// first bad record) is cut, so a node restarts after a crash.
 fn repair_torn_tail(path: &Path, valid: fn(&[u8]) -> bool) -> Result<u64> {
     let (complete, total) = complete_prefix(path, valid)?;
     if complete == total {
         return Ok(0);
+    }
+    // The first bad record is at `complete`. A torn write leaves nothing valid
+    // after it. If anything valid follows, the damage is in the middle of the
+    // log, and cutting here would delete those records: that is how a node
+    // forgets its own votes. Refuse, and leave the decision to an operator.
+    if any_valid_record_after(path, complete + 1, total, valid)? {
+        return Err(NodeError::Storage(format!(
+            "{} is corrupt at byte {complete}, with valid records after it: refusing to open \
+             so they are not deleted. Inspect the file and restore it, or move it aside after \
+             checking that no vote in it is lost.",
+            path.display()
+        )));
     }
     let file = OpenOptions::new()
         .write(true)
@@ -398,8 +502,10 @@ impl SafetyStore {
     /// then not send the frame.
     pub fn record_own(&mut self, envelope: &Envelope) -> Result<()> {
         let path = self.dir.join(SAFETY_LOG);
+        let bytes = envelope.encode();
+        check_record_size(&bytes, "own message")?;
         self.safety
-            .write_all(&frame(&envelope.encode()))
+            .write_all(&frame(&bytes))
             .and_then(|()| self.safety.sync_data())
             .map_err(|e| io_err("append", &path, &e))
     }
@@ -411,11 +517,25 @@ impl SafetyStore {
     /// [`NodeError::Storage`] if the write fails.
     pub fn record_certificate(&mut self, c: &Certificate) -> Result<()> {
         let path = self.dir.join(CERTS_LOG);
+        let bytes = encode_certificate(c);
+        check_record_size(&bytes, "certificate")?;
         self.certs
-            .write_all(&frame(&encode_certificate(c)))
+            .write_all(&frame(&bytes))
             .and_then(|()| self.certs.flush())
             .map_err(|e| io_err("append", &path, &e))
     }
+}
+
+/// Refuses a record no reader will accept, before anything is written. A record
+/// the log later refuses would be cut on reopen with everything after it.
+fn check_record_size(bytes: &[u8], what: &str) -> Result<()> {
+    if bytes.len() > MAX_RECORD_BYTES {
+        return Err(NodeError::Storage(format!(
+            "{what} is {} bytes, above the {MAX_RECORD_BYTES} the log accepts",
+            bytes.len()
+        )));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -473,7 +593,7 @@ mod tests {
 
     #[test]
     fn a_torn_tail_is_cut_so_the_next_record_is_read_back() {
-        let root = dir("torn");
+        let root = dir("cut-and-read-back");
         {
             let (mut store, _) = SafetyStore::open(&root, 0).unwrap();
             store.record_own(&vote(1)).unwrap();
@@ -508,6 +628,52 @@ mod tests {
         })
         .unwrap();
         assert_eq!(seen, vec![cert]);
+    }
+
+    #[test]
+    fn damage_between_valid_records_refuses_to_open_so_nothing_is_deleted() {
+        let root = dir("middle");
+        {
+            let (mut store, _) = SafetyStore::open(&root, 0).unwrap();
+            store.record_own(&vote(1)).unwrap();
+        }
+        let path = root.join("epoch-0").join(SAFETY_LOG);
+        let before = std::fs::metadata(&path).unwrap().len();
+        let later = frame(&vote(2).encode());
+        {
+            let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+            file.write_all(&[0xAB_u8; 40]).unwrap();
+            file.write_all(&later).unwrap();
+        }
+        let err = SafetyStore::open(&root, 0)
+            .err()
+            .expect("damage with a valid record after it must refuse to open");
+        assert!(err.to_string().contains("refusing to open"), "{err}");
+        // Nothing was cut: the vote after the damage is still in the file.
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().len(),
+            before + 40 + u64::try_from(later.len()).unwrap()
+        );
+    }
+
+    #[test]
+    fn a_record_above_the_log_bound_is_refused_at_write_time() {
+        let root = dir("oversize");
+        let (mut store, _) = SafetyStore::open(&root, 0).unwrap();
+        let mut too_big = Vertex::genesis_in(0, 2);
+        too_big.batch = vec![vec![1_u8; MAX_RECORD_BYTES]];
+        let cert = Certificate {
+            vertex: too_big,
+            votes: vec![0],
+            signatures: vec![vec![9]],
+        };
+        assert!(store.record_certificate(&cert).is_err(), "written past the bound");
+        drop(store);
+        assert_eq!(
+            std::fs::metadata(root.join("epoch-0").join(CERTS_LOG)).unwrap().len(),
+            0,
+            "a refused record left bytes behind"
+        );
     }
 
     #[test]
