@@ -75,8 +75,11 @@ From Master Prompt 11, with how each is enforced *today*:
 - Consensus-critical changes need a spec update, conformance vectors
   (`cargo xtask spec-coverage`), an ADR if behaviour changes, and two human
   reviewers (a note; not enforced).
-- No new core dependency without a `cargo vet` entry — **`cargo vet` is not set
-  up**; `cargo deny` is the only supply-chain gate.
+- No new core dependency without a `cargo vet` entry — **`cargo vet` is set up
+  in report-only mode**: `supply-chain/` with public imports (Mozilla, Google,
+  Bytecode Alliance, ZcashFoundation), 1,068 registry crates still exempted
+  (2026-10-19), job `vet` in `security-audit.yml` with `continue-on-error`.
+  `cargo deny` is the only blocking supply-chain gate.
 - CI fails on a >5% regression of tracked benchmarks — `scripts/bench_gate.py`,
   gated on a `BENCH_RUNNER` that does not exist, so it never runs.
 - Secrets never enter the repo, logs or chat; anything that costs money or

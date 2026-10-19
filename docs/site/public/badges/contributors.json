@@ -1,0 +1,23 @@
+{
+  "schema": "maya2c-contributors-v1",
+  "updated": "2026-10-19",
+  "note": "Maintainer-edited. An entry is added only after a claim is checked against the criteria on /guides/contributors/. No cash, no token.",
+  "badges": {
+    "testnet-7-day": {
+      "label": "Testnet node, 7 days",
+      "image": "/badges/testnet-7-day.svg",
+      "criteria": "Ran a validator or full node on maya-testnet-1 for at least 7 consecutive days."
+    },
+    "security-finder": {
+      "label": "Security finder",
+      "image": "/badges/security-finder.svg",
+      "criteria": "Reported a valid vulnerability privately under SECURITY.md, with the reporter's consent to be named."
+    },
+    "merged-pr": {
+      "label": "Merged PR",
+      "image": "/badges/merged-pr.svg",
+      "criteria": "Had at least one pull request merged into master."
+    }
+  },
+  "contributors": []
+}
