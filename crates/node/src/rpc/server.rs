@@ -493,7 +493,15 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 .cert_gate
                 .claim(client)
                 .ok_or_else(|| rejected(PAGE_BUSY.to_string()))?;
+            // Reserve the largest page this call can return before the disk read,
+            // so a client past its budget costs no read, then return the unused
+            // part. A page's first record may exceed the budget; the excess is
+            // charged after.
             let limits = ctx.page_limits;
+            let reserved = u64::try_from(limits.encoded_bytes).unwrap_or(u64::MAX);
+            if !ctx.cert_bytes.charge(client, reserved) {
+                return Err(rejected(BUDGET_EXHAUSTED.to_string()));
+            }
             let page = crate::consensus::bft::store::read_certificate_page(
                 dir,
                 epoch,
@@ -505,12 +513,17 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
             let bytes: u64 = page
                 .records
                 .iter()
-                .map(|r| u64::try_from(crate::consensus::bft::store::encoded_len(r.len())).unwrap_or(u64::MAX))
+                .map(|r| {
+                    u64::try_from(crate::consensus::bft::store::encoded_len(r.len()))
+                        .unwrap_or(u64::MAX)
+                })
                 .sum();
-            if !ctx.cert_bytes.charge(client, bytes) {
-                return Err(rejected(
-                    BUDGET_EXHAUSTED.to_string(),
-                ));
+            if bytes > reserved {
+                // Over the reservation: charged now. A refusal here is not an
+                // error, the page is already read and is returned.
+                let _ = ctx.cert_bytes.charge(client, bytes - reserved);
+            } else {
+                ctx.cert_bytes.refund(client, reserved - bytes);
             }
             Ok::<_, ErrorObjectOwned>(crate::rpc::types::CertPageInfo {
                 records: page.records.iter().map(hex::encode).collect(),
