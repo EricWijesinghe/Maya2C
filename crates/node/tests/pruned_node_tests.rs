@@ -10,6 +10,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use primitive_types::U256;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
@@ -87,7 +88,7 @@ fn transfer(key: &HybridSigningKey, amount: u64, nonce: u64) -> Transaction {
     let mut tx = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount,
+            amount: primitive_types::U256::from(amount),
             recipient: [0x42; 32],
         }],
         nonce,
@@ -114,7 +115,7 @@ impl ArchiveNode {
             .put_account(
                 &key.address(),
                 &Account {
-                    balance: 1_000_000_000,
+                    balance: U256::from(1_000_000_000),
                     nonce: 0,
                 },
             )
@@ -436,7 +437,7 @@ fn a_database_that_is_not_empty_is_refused() {
         .put_account(
             &[1; 32],
             &Account {
-                balance: 1,
+                balance: U256::from(1),
                 nonce: 0,
             },
         )

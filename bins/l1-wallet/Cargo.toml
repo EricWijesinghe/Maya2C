@@ -21,7 +21,11 @@ name = "l1-wallet"
 path = "src/main.rs"
 
 [dependencies]
+# Amounts are 256-bit (ADR-046), the node's U256.
+primitive-types.workspace = true
 custom-l1-node = { path = "../../crates/node" }
+# Opens a validator key sealed by `maya2c-node --seal-validator-key`.
+maya-signer = { path = "../../crates/signer" }
 clap = { workspace = true, features = ["derive", "env"] }
 jsonrpsee = { workspace = true, features = ["http-client"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

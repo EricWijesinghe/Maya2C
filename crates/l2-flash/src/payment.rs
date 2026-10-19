@@ -29,7 +29,7 @@ pub struct Payment {
     /// Node receiving it.
     pub to: NodeId,
     /// Value locked on this hop.
-    pub amount: u64,
+    pub amount: primitive_types::U256,
     /// Shared hash lock.
     pub hash_lock: HashLock,
     /// Expiry for this hop.
@@ -44,9 +44,9 @@ pub struct PaymentPlan {
     /// Hash every hop is locked to.
     pub hash_lock: HashLock,
     /// Value the sender commits.
-    pub total_amount: u64,
+    pub total_amount: primitive_types::U256,
     /// Value the recipient receives.
-    pub delivered: u64,
+    pub delivered: primitive_types::U256,
     /// Expiry of the first hop, the longest in the ladder.
     pub max_expiry: u64,
 }

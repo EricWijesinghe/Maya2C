@@ -12,6 +12,17 @@ use crate::error::{NodeError, Result};
 /// out-of-memory abort before a single element is read.
 pub const MAX_COLLECTION_LEN: u64 = 65_536;
 
+/// Encoded width of an amount on the wire: a little-endian `U256` (ADR-046).
+pub const AMOUNT_BYTES: usize = 32;
+
+/// Appends `amount` as [`AMOUNT_BYTES`] little-endian bytes, the encoding
+/// [`ByteReader::read_amount`] reads back.
+pub fn put_amount(buf: &mut Vec<u8>, amount: &primitive_types::U256) {
+    let mut bytes = [0u8; AMOUNT_BYTES];
+    amount.to_little_endian(&mut bytes);
+    buf.extend_from_slice(&bytes);
+}
+
 /// Sequential reader over a byte slice that range-checks every access.
 pub struct ByteReader<'a> {
     bytes: &'a [u8],
@@ -71,6 +82,20 @@ impl<'a> ByteReader<'a> {
         let mut buf = [0u8; 8];
         buf.copy_from_slice(self.take(8)?);
         Ok(u64::from_le_bytes(buf))
+    }
+
+    /// Reads a 32-byte little-endian amount (ADR-046: every amount is 256-bit).
+    ///
+    /// Every 32 bytes are some amount, so there is no non-canonical encoding
+    /// to refuse; only a short read fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Decode`] if fewer than 32 bytes remain.
+    pub fn read_amount(&mut self) -> Result<primitive_types::U256> {
+        Ok(primitive_types::U256::from_little_endian(
+            self.take(AMOUNT_BYTES)?,
+        ))
     }
 
     /// Reads `len` bytes as a borrowed slice.

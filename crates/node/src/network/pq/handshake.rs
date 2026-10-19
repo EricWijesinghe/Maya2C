@@ -1,4 +1,9 @@
-//! The ML-KEM-768 key exchange, run inside an established Noise session.
+//! The ML-KEM key exchange, run inside an established Noise session.
+//!
+//! Two parameter sets share this one exchange: ML-KEM-1024 (NIST level 5,
+//! `/maya/mlkem1024/1.0.0`, preferred) and ML-KEM-768 (NIST level 3,
+//! `/maya/mlkem/1.0.0`, still accepted so older peers connect). See
+//! [`ParameterSet`] for what differs between them.
 //!
 //! ## The exchange
 //!
@@ -7,14 +12,15 @@
 //! about:
 //!
 //! ```text
-//! responder → initiator   [1 byte version][1184 byte encapsulation key]
-//! initiator → responder   [1 byte version][1088 byte ciphertext]
+//! responder → initiator   [1 byte version][encapsulation key]
+//! initiator → responder   [1 byte version][ciphertext]
 //! ```
 //!
-//! The responder generates a keypair, sends the public half, and decapsulates
-//! what comes back. The initiator encapsulates to it. Both then hold the same
-//! 32-byte secret — or, if anything was tampered with, two different secrets
-//! and a connection that fails on its first frame.
+//! For ML-KEM-768 the key is 1184 bytes and the ciphertext 1088. For ML-KEM-1024
+//! both are 1568. The responder generates a keypair, sends the public half, and
+//! decapsulates what comes back. The initiator encapsulates to it. Both then
+//! hold the same 32-byte secret, or, if anything was tampered with, two
+//! different secrets and a connection that fails on its first frame.
 //!
 //! ## Why this is safe to keep so small
 //!
@@ -39,43 +45,71 @@
 //! key from the same encapsulation. Hashing the transcript makes each session's
 //! key a function of the exact bytes that session exchanged.
 //!
+//! ## Two parameter sets, two key spaces
+//!
+//! Each [`ParameterSet`] carries its own KDF context and transcript domain. A
+//! 768 session and a 1024 session therefore derive from different labels even
+//! if their shared-secret bytes were ever equal, so the two can never share a
+//! key. Negotiation picks the set; these labels make the choice bind the keys.
+//!
 //! ## Implicit rejection, and why nothing branches on it
 //!
 //! ML-KEM decapsulation never fails. On a forged or corrupted ciphertext FIPS
 //! 203 returns a pseudorandom value derived from the ciphertext and a per-key
 //! rejection seed, rather than an error. There is deliberately no check here
-//! that decapsulation "succeeded", because it always does — a mismatch shows up
+//! that decapsulation "succeeded", because it always does. A mismatch shows up
 //! as the two sides deriving different keys, and the first encrypted frame
 //! failing to authenticate.
 
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use maya_crypto_pq::kem::{self, CIPHERTEXT_LEN, ENCAPSULATION_KEY_LEN};
+use maya_crypto_pq::kem_suite::{KemSuite, KemSuiteError, MlKem768, MlKem1024, SHARED_SECRET_LEN};
 use zeroize::Zeroizing;
 
 use crate::error::NodeError;
 
-/// Wire version of the exchange.
+/// Wire version of the exchange, shared by both parameter sets.
 ///
 /// Consensus-adjacent in the sense that both peers must agree, but unlike a
 /// transaction format this can be renegotiated: a node that refuses version 1
-/// simply fails to connect, and the network can be upgraded peer by peer.
+/// simply fails to connect, and the network can be upgraded peer by peer. The
+/// two parameter sets are told apart by protocol name, not by this byte.
 pub const VERSION: u8 = 1;
 
-/// Bytes the responder sends.
-pub const RESPONDER_MESSAGE_LEN: usize = 1 + ENCAPSULATION_KEY_LEN;
+/// Bytes the ML-KEM-768 responder sends: version, then the 1184-byte key.
+pub const RESPONDER_MESSAGE_LEN: usize = 1 + <MlKem768 as KemSuite>::ENCAPSULATION_KEY_LEN;
 
-/// Bytes the initiator sends.
-pub const INITIATOR_MESSAGE_LEN: usize = 1 + CIPHERTEXT_LEN;
+/// Bytes the ML-KEM-768 initiator sends: version, then the 1088-byte ciphertext.
+pub const INITIATOR_MESSAGE_LEN: usize = 1 + <MlKem768 as KemSuite>::CIPHERTEXT_LEN;
 
-/// Domain separator for the key derivation.
+/// Bytes the ML-KEM-1024 responder sends: version, then the 1568-byte key.
+pub const RESPONDER_MESSAGE_LEN_1024: usize = 1 + <MlKem1024 as KemSuite>::ENCAPSULATION_KEY_LEN;
+
+/// Bytes the ML-KEM-1024 initiator sends: version, then the 1568-byte ciphertext.
+pub const INITIATOR_MESSAGE_LEN_1024: usize = 1 + <MlKem1024 as KemSuite>::CIPHERTEXT_LEN;
+
+/// One ML-KEM parameter set, as the handshake uses it.
 ///
-/// BLAKE3's `derive_key` takes a context string that is required to be globally
-/// unique and hard-coded — not user input, not a variable. This is that string.
-const KDF_CONTEXT: &str = "maya2c 2026-01-01 p2p ml-kem-768 session keys v1";
+/// The exchange is identical for every set. What differs is the key sizes,
+/// which come from [`KemSuite`], and the labels the session key is derived
+/// under. Those labels are hard-coded per set: BLAKE3's `derive_key` requires a
+/// globally unique, non-variable context, and a shared label would let the two
+/// sets collide.
+pub trait ParameterSet: KemSuite {
+    /// BLAKE3 `derive_key` context for this set.
+    const KDF_CONTEXT: &'static str;
+    /// Domain separator prefixed to the transcript for this set.
+    const TRANSCRIPT_DOMAIN: &'static [u8];
+}
 
-/// Domain separator prefixed to the transcript, so the transcript hash cannot
-/// collide with any other hash the node computes.
-const TRANSCRIPT_DOMAIN: &[u8] = b"maya2c.p2p.mlkem768.transcript.v1";
+impl ParameterSet for MlKem768 {
+    const KDF_CONTEXT: &'static str = "maya2c 2026-01-01 p2p ml-kem-768 session keys v1";
+    const TRANSCRIPT_DOMAIN: &'static [u8] = b"maya2c.p2p.mlkem768.transcript.v1";
+}
+
+impl ParameterSet for MlKem1024 {
+    const KDF_CONTEXT: &'static str = "maya2c 2026-10-18 p2p ml-kem-1024 session keys v1";
+    const TRANSCRIPT_DOMAIN: &'static [u8] = b"maya2c.p2p.mlkem1024.transcript.v1";
+}
 
 /// Directional session keys.
 ///
@@ -97,7 +131,7 @@ impl core::fmt::Debug for SessionKeys {
     }
 }
 
-/// Runs the responder half: generate, send, decapsulate.
+/// Runs the ML-KEM-768 responder half: generate, send, decapsulate.
 ///
 /// The listener side of a connection. Matches libp2p's inbound upgrade.
 ///
@@ -109,30 +143,10 @@ pub async fn respond<S>(stream: &mut S) -> Result<SessionKeys, NodeError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    let (decapsulation_key, encapsulation_key) = kem::generate_keypair();
-    let encoded = encapsulation_key.to_bytes();
-
-    let mut outbound = [0u8; RESPONDER_MESSAGE_LEN];
-    outbound[0] = VERSION;
-    outbound[1..].copy_from_slice(&encoded);
-    write_all(stream, &outbound).await?;
-
-    let mut inbound = [0u8; INITIATOR_MESSAGE_LEN];
-    read_exact(stream, &mut inbound).await?;
-    check_version(inbound[0])?;
-
-    let mut ciphertext = [0u8; CIPHERTEXT_LEN];
-    ciphertext.copy_from_slice(&inbound[1..]);
-
-    // No error branch: see the module docs on implicit rejection. A forged
-    // ciphertext yields a different secret here, not a failure, and the
-    // mismatch surfaces when the first frame fails to authenticate.
-    let secret = decapsulation_key.decapsulate(&ciphertext);
-
-    Ok(derive(&secret, &encoded, &ciphertext))
+    respond_with::<MlKem768, S>(stream).await
 }
 
-/// Runs the initiator half: receive, encapsulate, send.
+/// Runs the ML-KEM-768 initiator half: receive, encapsulate, send.
 ///
 /// The dialer side of a connection. Matches libp2p's outbound upgrade.
 ///
@@ -144,38 +158,71 @@ pub async fn initiate<S>(stream: &mut S) -> Result<SessionKeys, NodeError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    let mut inbound = [0u8; RESPONDER_MESSAGE_LEN];
+    initiate_with::<MlKem768, S>(stream).await
+}
+
+/// Runs the responder half under parameter set `P`.
+///
+/// # Errors
+///
+/// As [`respond`], plus [`NodeError::PqHandshake`] if local key generation
+/// fails for lack of entropy.
+pub async fn respond_with<P, S>(stream: &mut S) -> Result<SessionKeys, NodeError>
+where
+    P: ParameterSet,
+    P::DecapsulationKey: Send,
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let (decapsulation_key, encoded) = P::generate().map_err(kem_error)?;
+    write_all(stream, &frame(&encoded)).await?;
+
+    let mut inbound = vec![0u8; 1 + P::CIPHERTEXT_LEN];
     read_exact(stream, &mut inbound).await?;
     check_version(inbound[0])?;
+    let ciphertext = &inbound[1..];
 
-    let mut encoded = [0u8; ENCAPSULATION_KEY_LEN];
-    encoded.copy_from_slice(&inbound[1..]);
+    // No error branch: see the module docs on implicit rejection. A forged
+    // ciphertext yields a different secret here, not a failure, and the
+    // mismatch surfaces when the first frame fails to authenticate.
+    let secret = P::decapsulate(&decapsulation_key, ciphertext).map_err(kem_error)?;
+    Ok(derive::<P>(secret.as_bytes(), &encoded, ciphertext))
+}
+
+/// Runs the initiator half under parameter set `P`.
+///
+/// # Errors
+///
+/// As [`initiate`], for the key size of `P`.
+pub async fn initiate_with<P, S>(stream: &mut S) -> Result<SessionKeys, NodeError>
+where
+    P: ParameterSet,
+    P::DecapsulationKey: Send,
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let mut inbound = vec![0u8; 1 + P::ENCAPSULATION_KEY_LEN];
+    read_exact(stream, &mut inbound).await?;
+    check_version(inbound[0])?;
+    let encoded = &inbound[1..];
 
     // This *can* fail, unlike decapsulation: FIPS 203 requires the modulus
     // check on a received encapsulation key, and a peer can send anything.
-    let encapsulation_key = kem::EncapsulationKey::from_bytes(&encoded).map_err(|e| {
+    let (ciphertext, secret) = P::encapsulate(encoded).map_err(|e| {
         NodeError::PqHandshake(format!("peer sent an unusable encapsulation key: {e}"))
     })?;
 
-    let (ciphertext, secret) = encapsulation_key.encapsulate();
-
-    let mut outbound = [0u8; INITIATOR_MESSAGE_LEN];
-    outbound[0] = VERSION;
-    outbound[1..].copy_from_slice(&ciphertext);
-    write_all(stream, &outbound).await?;
-
-    Ok(derive(&secret, &encoded, &ciphertext))
+    write_all(stream, &frame(&ciphertext)).await?;
+    Ok(derive::<P>(secret.as_bytes(), encoded, &ciphertext))
 }
 
 /// Derives directional keys from the shared secret and the full transcript.
-fn derive(
-    secret: &kem::SharedSecret,
-    encapsulation_key: &[u8; ENCAPSULATION_KEY_LEN],
-    ciphertext: &[u8; CIPHERTEXT_LEN],
+fn derive<P: ParameterSet>(
+    secret: &[u8; SHARED_SECRET_LEN],
+    encapsulation_key: &[u8],
+    ciphertext: &[u8],
 ) -> SessionKeys {
-    let mut hasher = blake3::Hasher::new_derive_key(KDF_CONTEXT);
-    hasher.update(secret.as_bytes());
-    hasher.update(TRANSCRIPT_DOMAIN);
+    let mut hasher = blake3::Hasher::new_derive_key(P::KDF_CONTEXT);
+    hasher.update(secret);
+    hasher.update(P::TRANSCRIPT_DOMAIN);
     hasher.update(&[VERSION]);
     hasher.update(encapsulation_key);
     hasher.update(ciphertext);
@@ -197,19 +244,26 @@ fn derive(
     }
 }
 
-/// [`derive`], exposed for the dual-KEM combiner's tests.
+/// [`derive`] under the ML-KEM-768 label, exposed for the dual-KEM combiner's tests.
 ///
-/// The dual path asserts that its own derivation differs from this one — the
+/// The dual path asserts that its own derivation differs from this one, the
 /// property that keeps a dual session and an ML-KEM-only session from sharing
-/// keys when they share an ML-KEM transcript. Checking that needs both
-/// derivations in one place, and `derive` is otherwise private for good reason.
+/// keys when they share an ML-KEM transcript.
 #[cfg(test)]
 pub fn derive_for_test(
-    secret: &kem::SharedSecret,
-    encapsulation_key: &[u8; ENCAPSULATION_KEY_LEN],
-    ciphertext: &[u8; CIPHERTEXT_LEN],
+    secret: &maya_crypto_pq::kem::SharedSecret,
+    encapsulation_key: &[u8; maya_crypto_pq::kem::ENCAPSULATION_KEY_LEN],
+    ciphertext: &[u8; maya_crypto_pq::kem::CIPHERTEXT_LEN],
 ) -> SessionKeys {
-    derive(secret, encapsulation_key, ciphertext)
+    derive::<MlKem768>(secret.as_bytes(), encapsulation_key, ciphertext)
+}
+
+/// Prefixes a message body with the wire version.
+fn frame(body: &[u8]) -> Vec<u8> {
+    let mut message = Vec::with_capacity(1 + body.len());
+    message.push(VERSION);
+    message.extend_from_slice(body);
+    message
 }
 
 fn check_version(version: u8) -> Result<(), NodeError> {
@@ -220,6 +274,10 @@ fn check_version(version: u8) -> Result<(), NodeError> {
             "peer offered ML-KEM handshake version {version}, this node speaks {VERSION}"
         )))
     }
+}
+
+fn kem_error(error: KemSuiteError) -> NodeError {
+    NodeError::PqHandshake(format!("ML-KEM: {error}"))
 }
 
 async fn read_exact<S>(stream: &mut S, buf: &mut [u8]) -> Result<(), NodeError>
@@ -278,6 +336,132 @@ mod tests {
             *responder.responder_to_initiator
         );
     }
+
+    #[tokio::test]
+    async fn an_mlkem1024_handshake_round_trips() {
+        let (mut a, mut b) = duplex();
+
+        let responder = tokio::spawn(async move { respond_with::<MlKem1024, _>(&mut a).await });
+        let initiator = initiate_with::<MlKem1024, _>(&mut b)
+            .await
+            .expect("initiate");
+        let responder = responder.await.expect("join").expect("respond");
+
+        assert_eq!(
+            *initiator.initiator_to_responder,
+            *responder.initiator_to_responder
+        );
+        assert_eq!(
+            *initiator.responder_to_initiator,
+            *responder.responder_to_initiator
+        );
+    }
+
+    #[tokio::test]
+    async fn a_tampered_mlkem1024_ciphertext_splits_the_keys() {
+        // Drives the responder by hand so the ciphertext can be altered in
+        // flight. Implicit rejection means no error is raised; the proof of
+        // tampering is that the two sides no longer hold the same keys.
+        let (mut a, mut b) = duplex();
+        let initiator = tokio::spawn(async move { initiate_with::<MlKem1024, _>(&mut b).await });
+
+        let (decapsulation_key, encoded) = MlKem1024::generate().expect("keygen");
+        a.write_all(&frame(&encoded)).await.expect("send key");
+
+        let mut message = vec![0u8; INITIATOR_MESSAGE_LEN_1024];
+        a.read_exact(&mut message)
+            .await
+            .expect("receive ciphertext");
+        message[1 + 100] ^= 0x01;
+
+        let secret = MlKem1024::decapsulate(&decapsulation_key, &message[1..]).expect("decap");
+        let responder_keys = derive::<MlKem1024>(secret.as_bytes(), &encoded, &message[1..]);
+        let initiator_keys = initiator.await.expect("join").expect("initiate");
+
+        assert_ne!(
+            *initiator_keys.initiator_to_responder,
+            *responder_keys.initiator_to_responder
+        );
+        assert_ne!(
+            *initiator_keys.responder_to_initiator, *responder_keys.responder_to_initiator,
+            "the responder-to-initiator key must split too"
+        );
+    }
+
+    #[test]
+    fn the_kdf_labels_differ_between_the_parameter_sets() {
+        // Same shared-secret bytes, same transcript bytes, different sets:
+        // the labels alone must separate the keys.
+        assert_ne!(MlKem768::KDF_CONTEXT, MlKem1024::KDF_CONTEXT);
+        assert_ne!(MlKem768::TRANSCRIPT_DOMAIN, MlKem1024::TRANSCRIPT_DOMAIN);
+
+        let secret = [7u8; SHARED_SECRET_LEN];
+        let encoded = [9u8; 1568];
+        let ciphertext = [5u8; 1568];
+        let at_768 = derive::<MlKem768>(&secret, &encoded, &ciphertext);
+        let at_1024 = derive::<MlKem1024>(&secret, &encoded, &ciphertext);
+
+        assert_ne!(
+            *at_768.initiator_to_responder,
+            *at_1024.initiator_to_responder
+        );
+        assert_ne!(
+            *at_768.responder_to_initiator,
+            *at_1024.responder_to_initiator
+        );
+    }
+
+    /// Master's `derive`, copied verbatim from before `ParameterSet` existed.
+    ///
+    /// The wire-compatibility claim is that a 768 session derives the same keys
+    /// it always did. This is the reference for that claim, so it must not be
+    /// "simplified" to call the code under test.
+    fn master_derive_768(secret: &[u8; 32], ek: &[u8], ct: &[u8]) -> ([u8; 32], [u8; 32]) {
+        let mut hasher =
+            blake3::Hasher::new_derive_key("maya2c 2026-01-01 p2p ml-kem-768 session keys v1");
+        hasher.update(secret);
+        hasher.update(b"maya2c.p2p.mlkem768.transcript.v1");
+        hasher.update(&[1u8]);
+        hasher.update(ek);
+        hasher.update(ct);
+        let mut okm = [0u8; 64];
+        hasher.finalize_xof().fill(&mut okm);
+        let mut forward = [0u8; 32];
+        let mut back = [0u8; 32];
+        forward.copy_from_slice(&okm[..32]);
+        back.copy_from_slice(&okm[32..]);
+        (forward, back)
+    }
+
+    /// Known-answer: fixed inputs, pinned output, checked against master's code.
+    #[test]
+    fn a_768_session_derives_the_bytes_master_derives() {
+        let secret = [0x11u8; 32];
+        let ek = [0x22u8; 1184];
+        let ct = [0x33u8; 1088];
+
+        let (master_forward, master_back) = master_derive_768(&secret, &ek, &ct);
+        let keys = derive::<MlKem768>(&secret, &ek, &ct);
+
+        assert_eq!(*keys.initiator_to_responder, master_forward);
+        assert_eq!(*keys.responder_to_initiator, master_back);
+        assert_eq!(
+            master_forward, PINNED_768_INITIATOR_TO_RESPONDER,
+            "pinned value: {master_forward:02x?}"
+        );
+        assert_eq!(master_back, PINNED_768_RESPONDER_TO_INITIATOR);
+    }
+
+    const PINNED_768_INITIATOR_TO_RESPONDER: [u8; 32] = [
+        0xee, 0xb1, 0xe8, 0xe3, 0x6f, 0xe4, 0x69, 0x13, 0x2e, 0xa4, 0x26, 0x60, 0x3b, 0x3a, 0x87,
+        0x25, 0x96, 0x09, 0x2d, 0x3d, 0xb3, 0x0a, 0xd1, 0xbd, 0x88, 0x8e, 0xd4, 0xb5, 0xb8, 0xa3,
+        0x21, 0xfb,
+    ];
+    const PINNED_768_RESPONDER_TO_INITIATOR: [u8; 32] = [
+        0x13, 0x09, 0x56, 0x75, 0xa7, 0x96, 0xd4, 0x29, 0x5e, 0x10, 0x4a, 0xfe, 0x73, 0x56, 0x39,
+        0x0a, 0xcc, 0x43, 0x5d, 0x02, 0xef, 0xb0, 0xf0, 0x52, 0xd9, 0x9d, 0x40, 0xc8, 0x7d, 0x94,
+        0xaa, 0xfa,
+    ];
 
     #[tokio::test]
     async fn the_two_directions_get_different_keys() {
@@ -346,6 +530,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_malformed_mlkem1024_key_is_refused() {
+        let mut stream = Cursor::new({
+            let mut message = vec![0xffu8; RESPONDER_MESSAGE_LEN_1024];
+            message[0] = VERSION;
+            message
+        });
+
+        let error = initiate_with::<MlKem1024, _>(&mut stream)
+            .await
+            .expect_err("must refuse");
+        assert!(
+            error.to_string().contains("unusable encapsulation key"),
+            "unhelpful error: {error}"
+        );
+    }
+
+    #[tokio::test]
     async fn a_truncated_handshake_is_an_error_not_a_hang() {
         let mut stream = Cursor::new(vec![VERSION, 0x00, 0x00]);
         let error = initiate(&mut stream).await.expect_err("must fail");
@@ -357,7 +558,13 @@ mod tests {
 
     #[test]
     fn the_message_widths_are_what_the_framing_assumes() {
-        assert_eq!(RESPONDER_MESSAGE_LEN, 1185);
-        assert_eq!(INITIATOR_MESSAGE_LEN, 1089);
+        assert_eq!(RESPONDER_MESSAGE_LEN, 1 + 1184);
+        assert_eq!(INITIATOR_MESSAGE_LEN, 1 + 1088);
+    }
+
+    #[test]
+    fn the_mlkem1024_message_widths_are_one_plus_1568_each() {
+        assert_eq!(RESPONDER_MESSAGE_LEN_1024, 1 + 1568);
+        assert_eq!(INITIATOR_MESSAGE_LEN_1024, 1 + 1568);
     }
 }

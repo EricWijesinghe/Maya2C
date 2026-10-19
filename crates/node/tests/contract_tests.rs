@@ -60,7 +60,7 @@ fn open_state(funded: &[(Address, u64)]) -> (StateDB, TempDir) {
         db.put_account(
             address,
             &Account {
-                balance: *balance,
+                balance: primitive_types::U256::from(*balance),
                 nonce: 0,
             },
         )
@@ -290,7 +290,7 @@ fn a_failed_call_aborts_the_whole_block() {
     let mut transfer = Transaction::new(
         vec![],
         vec![custom_l1_node::core::TxOutput {
-            amount: 100,
+            amount: primitive_types::U256::from(100),
             recipient: [3u8; 32],
         }],
         0,
@@ -314,10 +314,15 @@ fn a_failed_call_aborts_the_whole_block() {
     // Block atomicity holds across the VM boundary: the unrelated transfer is
     // discarded too.
     assert_eq!(
-        db.get_account(&address_of(&other)).map(|a| a.balance),
+        db.get_account(&address_of(&other))
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
         Ok(500)
     );
-    assert_eq!(db.get_account(&[3u8; 32]).map(|a| a.balance), Ok(0));
+    assert_eq!(
+        db.get_account(&[3u8; 32])
+            .map(|a| u64::try_from(a.balance).expect("fits u64")),
+        Ok(0)
+    );
 }
 
 #[test]
@@ -423,7 +428,7 @@ fn a_contract_call_may_not_also_carry_transfer_outputs() {
         1,
     );
     tx.outputs.push(custom_l1_node::core::TxOutput {
-        amount: 10,
+        amount: primitive_types::U256::from(10),
         recipient: [4u8; 32],
     });
     tx.sign(&caller, &common::test_chain()).expect("sign");

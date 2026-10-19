@@ -27,6 +27,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
+use primitive_types::U256;
 use std::hint::black_box;
 
 use custom_l1_node::core::block::{Block, BlockHeader};
@@ -57,7 +58,7 @@ fn signing_message() -> Vec<u8> {
     Transaction::new(
         vec![],
         vec![TxOutput {
-            amount: 1_000,
+            amount: primitive_types::U256::from(1_000),
             recipient: [7u8; 32],
         }],
         0,
@@ -206,7 +207,7 @@ fn signed_block(sender: &HybridSigningKey, recipient: &Address, count: usize) ->
             let mut tx = Transaction::new(
                 vec![],
                 vec![TxOutput {
-                    amount: 1,
+                    amount: primitive_types::U256::from(1),
                     recipient: *recipient,
                 }],
                 nonce as u64,
@@ -246,7 +247,7 @@ fn bench_block_execution(c: &mut Criterion) {
                 db.put_account(
                     &sender.address(),
                     &Account {
-                        balance: 1_000_000,
+                        balance: U256::from(1_000_000u64),
                         nonce: 0,
                     },
                 )

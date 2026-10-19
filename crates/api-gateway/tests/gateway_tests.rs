@@ -48,7 +48,7 @@ impl NodeClient for MockNode {
         }
         // Deterministic from the address, so a test can tell one from another.
         Ok(Balance {
-            balance: u64::from(address.as_bytes()[0]),
+            balance: (u64::from(address.as_bytes()[0])).to_string(),
             nonce: 7,
         })
     }
@@ -64,8 +64,8 @@ impl NodeClient for MockNode {
     async fn get_supply(&self) -> Result<Supply, GatewayError> {
         self.calls.fetch_add(1, Ordering::Relaxed);
         Ok(Supply {
-            circulating: 21_000,
-            total: 42_000,
+            circulating: (21_000).to_string(),
+            total: (42_000).to_string(),
         })
     }
 
@@ -203,8 +203,9 @@ async fn supply_is_served() {
     let (status, body) = get(app_with(node), "/v1/supply").await;
 
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["circulating"], 21_000);
-    assert_eq!(body["total"], 42_000);
+    // Exact decimal strings (ADR-046): a JSON number rounds past 2^53.
+    assert_eq!(body["circulating"], "21000");
+    assert_eq!(body["total"], "42000");
 }
 
 // ---------------------------------------------------------------------------
@@ -331,7 +332,7 @@ async fn a_graphql_query_is_served() {
     .await;
 
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["data"]["supply"]["circulating"], 21_000);
+    assert_eq!(body["data"]["supply"]["circulating"], "21000");
 }
 
 #[tokio::test]

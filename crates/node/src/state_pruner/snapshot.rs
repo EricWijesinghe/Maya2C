@@ -556,7 +556,7 @@ mod tests {
             .put_account(
                 &[1; 32],
                 &Account {
-                    balance: 9,
+                    balance: primitive_types::U256::from(9),
                     nonce: 0,
                 },
             )

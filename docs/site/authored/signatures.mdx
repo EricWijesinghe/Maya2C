@@ -1,0 +1,316 @@
+---
+title: Post-quantum signatures
+description: How Maya2C signs with two post-quantum schemes at once, ML-DSA-65 (lattices) and SLH-DSA (hashes), what the math says, and how to sign from Python.
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+import LatticeDrag from "../../../components/math/LatticeDrag.astro";
+import HashTree from "../../../components/math/HashTree.astro";
+import AttackCost from "../../../components/math/AttackCost.astro";
+
+## In plain words
+
+A signature is how you prove a message came from you. Think of a wax seal
+that only you can press.
+
+Today's seals are built on math that is very hard for normal computers. A
+future quantum computer might pick some of those locks. So Maya2C puts
+**two different kinds of lock** on every transaction. Each lock comes from a
+different kind of puzzle. A thief would have to pick both, and the puzzles
+are different enough that picking one does not help with the other.
+
+- The first lock is a **lattice** puzzle: finding a secret short arrow in a
+  grid with a million directions.
+- The second lock is a **hash** puzzle: a fingerprint machine where the only
+  way to fake a fingerprint is to try an enormous number of guesses.
+
+:::caution[Not audited]
+Maya2C's signatures are tested in this repository. **No independent
+security audit has taken place.** Use them for evaluation and testnet work.
+:::
+
+<Tabs>
+<TabItem label="For engineers">
+
+## What you get
+
+A **hybrid signature**: ML-DSA-65 (NIST FIPS 204, lattice-based) *and*
+SLH-DSA-SHA2-128s (NIST FIPS 205, hash-based), both over the same message. A
+verifier accepts only if **both** verify.
+
+| | Size |
+|---|---|
+| Public key (32 + 1952 bytes) | 1,984 bytes |
+| Signature (3,309 + 7,856 bytes) | 11,165 bytes |
+| Address: `blake3("custom-l1-node.address.v3" ‖ ml_dsa_pk ‖ slh_dsa_pk)` | 32 bytes |
+
+The address commits to **both** public keys, so neither half can be swapped
+for a key an attacker picked. The reasoning is in
+[docs/hybrid-signatures.md](/reference/hybrid-signatures/).
+
+### Where the code is
+
+| Piece | Path |
+|---|---|
+| SLH-DSA-SHA2-128s wrapper (the only crate that instantiates `slh-dsa`) | `crates/crypto-pq/src/lib.rs` |
+| ML-DSA-65 key and `HybridSignature`, `HybridPublicKey`, v3 address | `crates/node/src/crypto/keys.rs`, `crates/node/src/crypto/hybrid.rs` |
+| Both-must-verify rule at block execution | `crates/node/src/state/db.rs` (`stage_transaction`) |
+| Same rule, earlier, in the mempool | `crates/node/src/network/mempool.rs` |
+| Dual-signing and address-binding tests | `crates/node/tests/hybrid_tests.rs` |
+
+### Data flow for one signature
+
+```text
+message m
+   │
+   ├─► ML-DSA-65 sign ──► σ_ML  (3,309 B)
+   │
+   └─► SLH-DSA-SHA2-128s sign ──► σ_SLH  (7,856 B)
+
+wire:    tx body ‖ pk_ML ‖ pk_SLH ‖ σ_ML ‖ σ_SLH
+
+verify:  ML-DSA verify(pk_ML, m, σ_ML)   AND
+         SLH-DSA verify(pk_SLH, m, σ_SLH)
+         AND  blake3(domain ‖ pk_ML ‖ pk_SLH) == sender address
+```
+
+Both halves sign `TX_DOMAIN ‖ chain_tag ‖ body`, so a signature cannot be
+moved to another chain (ADR-036) or re-attached to a different key pair.
+
+### Python: sign and verify
+
+The bindings are generated with UniFFI from `sdks/sdk-ffi` and load a compiled
+Rust library. **Not published to PyPI yet**, so build from source:
+
+```bash
+git clone https://github.com/EricWijesinghe/Maya2C
+cd Maya2C
+cargo build -p maya-sdk-ffi --release
+```
+
+Copy the library next to `bindings/python/maya_sdk_ffi.py`:
+`libmaya_sdk_ffi.so` (Linux), `libmaya_sdk_ffi.dylib` (macOS) or
+`maya_sdk_ffi.dll` (Windows), from `target/release/`.
+
+```python
+from maya_sdk_ffi import SigningKey, verify, address_from_public_key
+
+key = SigningKey.generate()
+print("address:   ", key.address())
+print("public key:", len(key.public_key()), "bytes")
+
+message = b"invoice 2026-0042: pay 1,200.00 EUR"
+signature = key.sign(message)
+print("signature: ", len(signature), "bytes")
+
+verify(key.public_key(), message, signature)          # raises on failure
+print("verified:   yes")
+
+try:
+    verify(key.public_key(), b"invoice 2026-0042: pay 9,200.00 EUR", signature)
+except Exception as error:
+    print("tampered:   rejected ->", type(error).__name__)
+```
+
+Output from a real run (2026-09-29):
+
+```text
+address:    efd70367be6299b044f01da60263382a146abf988d8363659e0f045aa020a316
+public key: 1984 bytes
+signature:  11165 bytes
+verified:   yes
+tampered:   rejected -> VerificationFailed
+```
+
+On the same run, signing averaged **103 ms** and verifying **0.4 ms** (mean of
+20; release build; Windows 11, Intel Core Ultra 9 275HX; the Python call
+included). Signing is slow because of the hash-based half. Budget for it
+where you sign in bulk; verifying is cheap.
+
+- `SigningKey.generate()` draws a fresh key from the OS random source.
+- `SigningKey.from_seed(seed)` derives one from exactly 32 bytes. Guard that
+  seed as you would the key.
+- **The secret key cannot be exported.** Inside the Rust object it is zeroised
+  on drop; once copied into Python it could not be wiped.
+- **Signing is deterministic.** The same key and message give the same
+  signature, which is required on-chain because a transaction id hashes its
+  signature.
+
+### Other languages
+
+| | Status |
+|---|---|
+| Rust | `crypto::hybrid` in `crates/node` is the reference. It links RocksDB; a standalone signing crate is planned. |
+| Browser / JavaScript | `sdks/sdk-wasm` and `sdks/sdk-js` (`maya2c.js`), with parity tests against the node. |
+| Kotlin, Swift | Bindings are generated in `sdks/sdk-ffi/bindings/` but **have never been compiled or tested**. Do not ship them. |
+| Go | `maya2c.dev/sdk` is a chain client; it signs through the `l1-wallet` binary. |
+
+### Why `s` and not `f`
+
+FIPS 205 offers "small" and "fast" SLH-DSA variants. Measured in
+[docs/hybrid-signatures.md](/reference/hybrid-signatures/):
+
+| | SHA2-128s | SHA2-128f |
+|---|---|---|
+| signature | 7,856 B | 17,088 B |
+| sign | about 196 ms | about 9 ms |
+| verify | about 0.22 ms | about 0.56 ms |
+
+Signing happens once per transaction. Verification happens on every node, for
+every transaction, forever. So the chain takes the small, slower-to-sign set.
+
+</TabItem>
+<TabItem label="For scientists">
+
+## Lattices: the first lock
+
+Let $q = 8\,380\,417$ and let $R_q = \mathbb{Z}_q[X]/(X^{256}+1)$ be the ring of
+degree-255 polynomials with coefficients mod $q$. ML-DSA works in $R_q^{k\times\ell}$.
+
+**Module-LWE (MLWE).** Given a random matrix $A$ and $t = A s_1 + s_2$ with
+small secrets $s_1 \in S_\eta^{\ell}$, $s_2 \in S_\eta^{k}$, the pair $(A, t)$
+looks uniform to any efficient adversary.
+
+**Module-SIS (MSIS).** Find $z \neq 0$ with $\|z\|_\infty \le \beta$ and
+$A z = 0$ in $R_q^k$.
+
+FIPS 204 bases ML-DSA's unforgeability on the hardness of these two problems
+(in the quantum random-oracle model, per the Dilithium security analysis). Try the
+intuition yourself: the arrow hunt below is MSIS in two dimensions.
+
+<LatticeDrag />
+
+In two dimensions a short vector is easy to find: Gauss reduction (the widget's
+"short basis" button) solves it in a few steps. In $n = 256 \cdot k$ dimensions
+the best known algorithms cost exponentially in the block size $\beta$. In the
+repository's own estimate, classical BKZ sieving costs about $2^{0.292\beta}$
+operations ([docs/lattice-pow.md](/reference/lattice-pow/)).
+
+### ML-DSA-65 parameters (FIPS 204)
+
+| Symbol | Meaning | Value |
+|---|---|---|
+| $(k,\ell)$ | module rank | $(6,5)$ |
+| $\eta$ | secret coefficient bound | $4$ |
+| $\tau$ | number of $\pm 1$ in challenge $c$ | $49$ |
+| $\beta = \tau\eta$ | rejection bound | $196$ |
+| $\gamma_1$ | masking range | $2^{19}$ |
+| $\gamma_2$ | rounding range | $(q-1)/32 = 261\,888$ |
+| $d$ | dropped bits in $t$ | $13$ |
+| $\omega$ | max hint weight | $55$ |
+| category | NIST security category | $3$ |
+
+The sizes follow from the parameters. Public key: $32 + 256\cdot k\cdot(23-d)/8 = 32 + 1920 = 1952$ bytes.
+Signature: $\lambda/4 + 256\cdot\ell\cdot 20/8 + \omega + k = 48 + 3200 + 61 = 3309$ bytes.
+
+### Signing and verification in outline
+
+$$
+\begin{aligned}
+&\text{sign: } y \leftarrow U(-\gamma_1, \gamma_1)^{\ell};\quad w = Ay;\quad \tilde c = H(\mu, \mathrm{HighBits}(w));\quad z = y + c\,s_1,\ c = \mathrm{SampleInBall}(\tilde c) \\
+&\text{abort and retry if } \|z\|_\infty \ge \gamma_1 - \beta \text{ or the low bits leak } s_2 \\
+&\text{verify: } \|z\|_\infty < \gamma_1 - \beta \text{ and } \tilde c = H\!\left(\mu,\ \mathrm{UseHint}(h, Az - c\,t_1 2^{d})\right)
+\end{aligned}
+$$
+
+The rejection step is what makes $z$ independent of $s_1$: the signature is
+simulatable, so it leaks nothing about the key.
+
+### ML-KEM-768 (transport)
+
+The peer links use ML-KEM-768 (FIPS 203): $n = 256$, $q = 3329$, $k = 3$,
+$\eta_1 = \eta_2 = 2$, $(d_u, d_v) = (10, 4)$, encapsulation key 1184 bytes,
+ciphertext 1088 bytes, shared secret 32 bytes. See
+[docs/pq-transport.md](/reference/pq-transport/).
+
+## Hashes: the second lock
+
+SLH-DSA-SHA2-128s (FIPS 205 parameter set): $n = 16$, $h = 63$, $d = 7$, $h' = h/d = 9$,
+$a = 12$, $k = 14$, $w = 16$. Security category 1.
+
+Its security needs only the properties of the hash: one-wayness and
+second-preimage resistance, with SHA-2 as the instantiation.
+
+**Building blocks.**
+
+- **WOTS+** signs one digest with $\ell = \ell_1 + \ell_2$ hash chains of length
+  $w$, where $\ell_1 = \lceil 8n/\log_2 w \rceil = 32$ and
+  $\ell_2 = \lfloor \log_2(\ell_1(w-1))/\log_2 w \rfloor + 1 = 3$, so $\ell = 35$.
+- **XMSS**: a Merkle tree of $2^{h'} = 512$ WOTS+ public keys.
+- **Hypertree**: $d = 7$ XMSS layers, so $h = 63$ bits of address space.
+- **FORS**: a few-time signature over $k = 14$ trees of height $a = 12$, which
+  picks the leaf for the message.
+
+The signature size is an exact count:
+
+$$
+|\sigma| = \underbrace{n}_{R} + \underbrace{k(1+a)\,n}_{\text{FORS}} + \underbrace{(h + d\,\ell)\,n}_{\text{hypertree}}
+= 16 + 2\,912 + 4\,928 = 7\,856\ \text{bytes}.
+$$
+
+The public key is $2n = 32$ bytes.
+
+Explore the tree structure below. Edit one leaf and the old proof no longer
+matches the trusted root. A WOTS+ tree is the same shape.
+
+<HashTree />
+
+## The hybrid: why both locks must open
+
+Write $\mathrm{V}_{\mathrm{ML}}$ and $\mathrm{V}_{\mathrm{SLH}}$ for the two verifiers. The hybrid accepts
+exactly when
+
+$$
+\mathrm{V}_{\text{hyb}}(m, \sigma) = \mathrm{V}_{\mathrm{ML}}(m, \sigma_{\mathrm{ML}}) \wedge \mathrm{V}_{\mathrm{SLH}}(m, \sigma_{\mathrm{SLH}}).
+$$
+
+A forger who produces an accepted hybrid signature has produced a valid forgery
+under *each* scheme, on the same message and against the same bound key pair.
+Each reduction $\mathcal{B}_i$ simply outputs its component. So
+
+$$
+\mathrm{Adv}^{\text{EUF-CMA}}_{\text{hyb}}(\mathcal{A}) \;\le\; \min\left\{\mathrm{Adv}_{\mathrm{ML}}(\mathcal{B}_1),\ \mathrm{Adv}_{\mathrm{SLH}}(\mathcal{B}_2)\right\}.
+$$
+
+Read it as: the hybrid is at least as hard to forge as the **stronger** of the
+two. The cost of a forgery is at least the larger of the two costs, under the
+assumption that the two problems are independent.
+
+The bound only holds if the forger cannot pick the second key. That is the
+address binding: $\mathrm{address} = H(\text{ML pk} \,\|\, \text{SLH pk})$, which
+is the reason the design is a hard fork rather than an extra optional field.
+
+## Attack cost against the size parameter
+
+The curves below are formulas, not measurements. Brute force and Grover act on
+a secret of $s$ bits; sieving acts on a lattice of block size $\beta = s$; Shor
+acts on an $s$-bit modulus.
+
+<AttackCost />
+
+| Attack | Cost (log2 of operations) | Source |
+|---|---|---|
+| Brute force, $s$-bit secret | $s$ | exhaustive search |
+| Grover, $s$-bit secret | $\approx s/2 + \log_2(\pi/4)$ | Grover (1996): $\tfrac{\pi}{4}\sqrt{N}$ iterations |
+| BKZ sieving, classical | $0.292\,\beta$ | [docs/lattice-pow.md](/reference/lattice-pow/) |
+| BKZ sieving, quantum | $0.265\,\beta$ | literature value (Laarhoven, Mosca, van de Pol 2015); not measured here |
+| Shor, $s$-bit modulus | polynomial, about $s^3$ gates | Shor (1994, 1997) |
+
+Shor's algorithm is why RSA and elliptic curves are called broken by a quantum
+computer. It is not a threat to lattices or hashes, whose best known quantum
+attacks stay exponential. Hashes lose only a square root, which is why
+SLH-DSA uses a 128-bit output at category 1.
+
+## Status and limits
+
+- Tested in this repository. **No independent audit** of the cryptography.
+- `fips204` 0.4 (ML-DSA-65) and RustCrypto `slh-dsa` pinned at `0.2.0-rc.5`
+  (a release candidate) are the implementations.
+- Parameters are those of FIPS 204 and FIPS 205. The concrete security
+  estimates above are the designers' categories, not a measurement by this
+  project.
+- For certified cryptography, use a FIPS 140-3 validated module. A sound
+  design and a validated one are different claims.
+
+</TabItem>
+</Tabs>

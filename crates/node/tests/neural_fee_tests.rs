@@ -41,7 +41,7 @@ fn transfer(seed: u8, recipients: &[[u8; 32]]) -> Transaction {
     let outputs = recipients
         .iter()
         .map(|recipient| TxOutput {
-            amount: 1,
+            amount: primitive_types::U256::from(1),
             recipient: *recipient,
         })
         .collect();

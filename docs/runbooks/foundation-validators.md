@@ -1,5 +1,11 @@
 # Foundation validators: four machines, one operator (ADR-042, gate 5)
 
+> **Superseded for launch by [ADR-047](../adr/ADR-047-single-pc-foundation-set.md)
+> (2026-10-12):** mainnet launches with all four foundation validators on
+> Eric's PC, hardened by `infra/foundation-pc/harden-host.ps1`. The
+> four-machine layout below stays the target, and replaces the single-PC
+> set without a new genesis once machines or money arrive.
+
 Rehearsed on maya-testnet-1 first. The mainnet genesis ceremony repeats
 the same steps with mainnet keys.
 

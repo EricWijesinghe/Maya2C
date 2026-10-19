@@ -30,6 +30,7 @@ Since the phase B move ([ADR-001](adr/ADR-001-workspace-layout.md)):
 |---|---|
 | `crates/node` | Node daemon: consensus, chain, p2p, RPC, metrics. The workspace's root package until 2026-09-20; now an ordinary member |
 | `crates/ledger-math` | All `u64` credit/debit/nonce math. Kani-verifiable — keep RocksDB out |
+| `crates/amount` | `maya-amount`: 256-bit `Amount` and 512-bit `Wide` for the Kani crates (ADR-046/048). `no_std`, zero dependencies; a dependency here lands in every proof of `fee-market`, `dex` and `ledger-math` |
 | `crates/crypto-pq` | SLH-DSA instantiation. Must stay the monomorphizing crate |
 | `crates/zk-stark` | Plonky3 STARKs, no setup: shielded joinsplits, credential disclosure, sanctions non-membership (ADR-008) |
 | `crates/vm` | Wasm contract execution |

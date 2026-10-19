@@ -177,10 +177,15 @@ impl Treasury {
         // Through the model-checked crate, not a fold with `+`. This is the sum
         // that the balance check and the spend cap are both compared against,
         // so an overflow here would defeat both at once.
-        let total = maya_ledger_math::total_outputs(entries.iter().map(|entry| entry.amount))
-            .ok_or_else(|| {
-                PoolError::Treasury("payout outputs overflow a u64 in total".to_string())
-            })?;
+        // Pool payouts are u64 per entry; the proved fold sums them at 256 bits
+        // (ADR-046) and the total must still fit the pool's u64 accounting.
+        let total = maya_ledger_math::total_outputs(
+            entries
+                .iter()
+                .map(|entry| maya_ledger_math::Amount::from_u64(entry.amount)),
+        )
+        .and_then(maya_ledger_math::Amount::to_u64)
+        .ok_or_else(|| PoolError::Treasury("payout outputs overflow a u64 in total".to_string()))?;
 
         if total > config.max_batch_value {
             return Err(PoolError::Treasury(format!(
@@ -200,7 +205,7 @@ impl Treasury {
         let outputs: Vec<TxOutput> = entries
             .iter()
             .map(|entry| TxOutput {
-                amount: entry.amount,
+                amount: primitive_types::U256::from(entry.amount),
                 recipient: entry.miner,
             })
             .collect();

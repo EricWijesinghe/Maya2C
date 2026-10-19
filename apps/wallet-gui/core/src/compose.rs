@@ -157,7 +157,7 @@ pub fn compose_swap(
     nonce: u64,
     chain: &ChainTag,
 ) -> Result<Transaction> {
-    if request.amount_in == 0 {
+    if request.amount_in == primitive_types::U256::from(0) {
         return Err(WalletError::AmountOverflow);
     }
 

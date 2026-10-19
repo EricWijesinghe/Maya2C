@@ -26,6 +26,8 @@ path = "src/bin/pool.rs"
 # shares against its own copy of the proof-of-work rule is a pool that pays for
 # work the chain would reject.
 custom-l1-node = { path = "../../crates/node" }
+# ADR-046: money is a U256 (the node's wire amounts).
+primitive-types.workspace = true
 maya-stratum-v2 = { path = "../../crates/stratum-v2" }
 # Every credit, debit, and treasury nonce bump. Model-checked, and the reason
 # no balance in this crate is touched with a bare `+` or `-`.

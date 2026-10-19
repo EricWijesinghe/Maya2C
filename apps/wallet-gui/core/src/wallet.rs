@@ -138,7 +138,7 @@ impl Wallet {
         &mut self,
         index: u32,
         recipient: &str,
-        amount: u64,
+        amount: primitive_types::U256,
         terms: &SignTerms<'_>,
     ) -> Result<SignedTransfer> {
         let path = DerivationPath::account(0, index);
@@ -276,8 +276,8 @@ pub async fn fee_quote(node_url: &str) -> Result<FeeQuote> {
 /// used offline: the fee and where it goes, the nonce, and the chain.
 #[derive(Clone, Copy, Debug)]
 pub struct SignTerms<'a> {
-    /// The fee, in base units.
-    pub fee: u64,
+    /// The fee, in base units: 256-bit like every amount (ADR-046).
+    pub fee: primitive_types::U256,
     /// The fee collector from [`fee_quote`] on a fee-market chain; `None`
     /// burns the fee, which only a chain without fees accepts.
     pub fee_to: Option<&'a str>,
@@ -338,12 +338,12 @@ pub async fn network_status(node_url: &str) -> Result<NetworkStatus> {
     })
 }
 
-/// Reads an account's balance and next nonce from a node.
+/// Reads an account's balance (256-bit base units) and next nonce from a node.
 ///
 /// # Errors
 ///
 /// Returns [`WalletError::Node`] if the node is unreachable.
-pub async fn fetch_account(node_url: &str, address: &str) -> Result<(u64, u64)> {
+pub async fn fetch_account(node_url: &str, address: &str) -> Result<(primitive_types::U256, u64)> {
     let client = HttpClientBuilder::default()
         .build(node_url)
         .map_err(|e| WalletError::Node(format!("connecting to {node_url}: {e}")))?;

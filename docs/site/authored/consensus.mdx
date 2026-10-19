@@ -1,0 +1,238 @@
+---
+title: Consensus and finality (DAG-BFT)
+description: How validators agree on one transaction order, why a committed block is final, and the quorum math that keeps it safe (ADR-027, ADR-039).
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+import QuorumOverlap from "../../../components/math/QuorumOverlap.astro";
+
+## In plain words
+
+Picture a group of friends keeping the shared notebook. Each friend writes a
+page of new notes and asks the others to **sign** it. A page counts only when
+enough friends have signed it.
+
+The group is set up so that any two "enough" groups must share at least one
+friend who never cheats. So two groups can never approve two different pages
+for the same slot.
+
+Friends take turns as **page leader**. When the group has agreed enough about
+the leader's page, that page is **sealed**. A sealed page never changes, and
+its notes are copied into the next page of the notebook.
+
+Some friends might be asleep, or a bad friend might lie. The rule is built so
+that the group still agrees as long as only a small share of friends misbehave.
+
+<Tabs>
+<TabItem label="For engineers">
+
+## What runs
+
+Maya2C runs a **certified DAG** with the **Bullshark commit rule**, a design
+recorded in ADR-015 and wired into the node by ADR-027. The engine is
+`crates/dag-bft`. The node runs it behind an ML-DSA-65 `Authenticator`, over a
+gossip transport.
+
+One rule shapes everything else: **a block is derived, never proposed.** Each
+committed anchor's causal history becomes exactly one block, and every node
+builds that block itself from the same certificates. A node never imports a
+block from gossip, from `--sync-from`, or from `submit_block`. A block a node
+did not derive is only a claim; the certificates are the proof.
+
+```text
+round 4   ◆ anchor (author B)        ← even round: one anchor, round robin
+           ▲   ▲   ▲                    f+1 certificates from round 5 that
+round 3   A3  B3  C3  D3                reference it commit it directly
+           ▲   ▲   ▲   ▲
+round 2   A2  B2  C2  D2  ◆ anchor (author A, round 2)
+           ▲   ▲   ▲   ▲
+round 1   A1  B1  C1  D1
+
+each vertex  = payload + references to ≥ n − f certificates of round r−1
+each cert    = vertex digest + signatures from ≥ n − f validators
+```
+
+### Steps
+
+1. **Propose.** Each validator, every round, proposes one vertex: its payload
+   (transactions) and references to at least a quorum of certificates from the
+   previous round (`crates/dag-bft/src/vertex.rs`).
+2. **Vote.** Each validator signs at most one vertex per (author, round). The
+   vote signature is ML-DSA-65 over `VOTE_DOMAIN` (`crates/dag-bft/src/auth.rs`).
+3. **Certify.** A vertex with a quorum of votes is a certificate.
+4. **Commit.** On each even round the leader is chosen round robin. An anchor
+   is committed **directly** when at least `f + 1` certificates of the next
+   round reference it (`crates/dag-bft/src/commit.rs`, `Committer`). Earlier
+   uncommitted anchors that it reaches are committed first, oldest first.
+5. **Order.** Each anchor's not-yet-ordered causal history is emitted sorted by
+   `(round, author)`. The order is a function of the DAG alone: no clock and no
+   hash-map iteration in it.
+6. **Derive the block.** `consensus::bft::builder` turns each committed
+   `SubDag` into one block. The block's filter then drops duplicate and
+   non-executable transactions in the same order on every node
+   (ADR-027, decision 2).
+
+### Quorum table
+
+`Committee::quorum()` is `W − f`, where `W` is total weight and
+`f = (W − 1) / 3` rounded down (`crates/dag-bft/src/vertex.rs`). Equal weights
+give `n − f`. Committees have been equal-weight so far. ADR-040 makes them
+stake-weighted from a new genesis, and maya-testnet-1 stays on equal weights.
+
+| n | f | quorum n − f | shared members, worst case | safe? |
+|---|---|---|---|---|
+| 4 | 1 | 3 | 2 | yes |
+| 6 | 1 | 5 | 4 | yes (the retired 2f + 1 gave 3, and 0 shared) |
+| 100 | 33 | 67 | 34 | yes |
+
+The slider below shows any two quorums for any `n`, with the worst case drawn.
+
+<QuorumOverlap />
+
+### Where things are in the node
+
+| Piece | Path |
+|---|---|
+| Engine, committee, quorum | `crates/dag-bft/src/{vertex,validator,commit,dag}.rs` |
+| Signature authenticator | `crates/dag-bft/src/auth.rs`; node side in `crates/node` |
+| Block derivation | `consensus::bft::builder` (node) |
+| Checkpoints for rejoining (ADR-038) | `--catch-up-from`, attested blocks |
+| Garbage collection | `GC_DEPTH = 50` rounds of certificates in memory |
+
+### Running as a validator
+
+These flags come from `print_usage` in `bins/maya2c-node/src/main.rs`:
+
+```bash
+# Make a validator key; the printed public key is what you register.
+maya2c-node --generate-validator-key validator.key
+
+# Run as a validator. Without --validator-key the node only observes.
+maya2c-node --genesis genesis.json --data-dir data \
+    --validator-key validator.key \
+    --bootnode /dns4/p2p.maya2c.dev/tcp/443/wss/p2p/<peer id>
+
+# Rejoin after a long outage through a peer's attested checkpoint (ADR-038).
+# Repeatable: give a peer's JSON-RPC URL; the reachable peer with the
+# highest tip is used (ADR-043).
+maya2c-node --genesis genesis.json --data-dir data --validator-key validator.key \
+    --catch-up-from https://rpc.maya2c.dev/rpc
+```
+
+Other DAG-BFT flags: `--min-register-bond <N>` (refuse to propose registrations
+below a bond, ADR-039), and `--snapshot-interval` (validators default to 3,600
+blocks, ADR-043). Operators: [run a validator](/guides/validators/).
+
+### Epochs, slashing and committee changes
+
+The committee is recomputed at each epoch boundary, every 3,600 blocks
+([validator guide](/guides/validators/)). A registration becomes a member at the
+first boundary after it is final. The validator guide states the penalties:
+1% of bond and two epochs jailed for downtime below half of one's anchor
+slots; 50% and key retirement for double signing. The chain-side rules are in
+`crates/staking`.
+
+### What finality means here
+
+- **Deterministic, not probabilistic.** Once an anchor is committed, the honest
+  nodes commit the same anchor sequence. A block derived from it is never
+  reorganised, because no node derives a competing one from honest votes.
+- **The assumption is the fault bound.** Safety needs at most `f` Byzantine
+  validators among `n`. Liveness needs partial synchrony: the `n − f` honest
+  validators must eventually exchange messages in time.
+- **No latency figure is quoted here.** The repository does not yet contain a
+  finalized-throughput or finality-latency benchmark; `CLAUDE.md` records that
+  none has been run. Read live figures from the [status page](https://status.maya2c.dev/).
+
+### Work-based fork choice is a devnet path
+
+`crates/dag-bft/src/nakamoto.rs` holds the proof-of-work fork choice used by the
+`--mine` devnet. It is probabilistic, and the launch network does not use it.
+See [mining and validators](/guides/mining/).
+
+</TabItem>
+<TabItem label="For scientists">
+
+## Quorum algebra
+
+Let $n$ be the committee size (or total weight $W$), and let
+
+$$
+f = \left\lfloor \frac{n-1}{3} \right\rfloor, \qquad q = n - f.
+$$
+
+Two quorums $Q_1, Q_2$ with $|Q_i| = q$ satisfy
+
+$$
+|Q_1 \cap Q_2| \;\ge\; 2q - n = 2(n-f) - n = n - 2f.
+$$
+
+**Safety.** The overlap contains at least one honest validator when $n - 2f \ge f + 1$,
+which is $n \ge 3f + 1$. The definition of $f$ gives $3f \le n - 1$, so the condition holds
+for every $n$. ADR-039 checks this exhaustively for $n$ from 1 to 1,000
+(`any_two_quorums_share_an_honest_validator_at_every_size`).
+
+**Liveness.** Up to $f$ validators may never answer, so the honest set has
+$n - f = q$ members, enough to form a quorum alone.
+
+**Why the old rule was wrong.** The retired threshold $2f+1$ equals $q$ only when
+$n = 3f + 1$. At $n = 6$, $f = 1$, it gives $q = 3$ and $|Q_1 \cap Q_2| \ge 0$.
+Two disjoint halves can then certify two different vertices for one slot.
+
+| $n$ | $f$ | $2f+1$ | $n-f$ | shared, $2q - n$ | safe for $2f+1$? | safe for $n-f$? |
+|---|---|---|---|---|---|---|
+| 2 | 0 | 1 | 2 | 2 (old: 0) | no | yes |
+| 5 | 1 | 3 | 4 | 3 (old: 1) | no | yes |
+| 6 | 1 | 3 | 5 | 4 (old: 0) | no | yes |
+
+### The safety argument, one step
+
+Two certificates for the same (author, round) need votes from two quorums. Their
+overlap has $\ge f+1$ members, so one of them is honest. An honest validator
+signs at most one vertex per slot. So the two vertices are the same. Non-equivocation
+does the rest; the quorum sizes are what make the overlap non-empty of honest
+members.
+
+### Commit rule
+
+An anchor with $\ge f+1$ certifying references is committed directly. At least one
+of those $f+1$ members is honest, so the anchor was genuinely certified. If an
+honest node commits an anchor $A$ directly, every later committed anchor reaches
+$A$ through certificates, because a quorum of the next round references it. So every
+honest node commits the same anchor sequence, and derives the same blocks.
+
+### Probability: where it applies
+
+For the **DAG-BFT launch path** the argument is deterministic: finality follows
+from the fault bound, with no probability involved.
+
+The **proof-of-work devnet** is different. In the usual simplification of Nakamoto's race analysis (2008), an attacker
+with hash-power share $q < p$ who must overtake a chain $z$ blocks ahead
+succeeds with probability
+
+$$
+q_z = \left(\frac{q}{p}\right)^{z}.
+$$
+
+This is a standard external result, quoted here for contrast. It is not used for
+finality on the launch network.
+
+### Committee sampling and capture
+
+Committees here are not sampled at random; they are the top validators by stake
+(ADR-028, ADR-040). The residual risk is not a probability but a **threshold**:
+an adversary who controls more than $f$ seats halts the chain or forks it.
+ADR-039 records how cheap that is at equal weights and why stake weighting is the
+fix. No probability model of capture is in the repository, and this page does not
+invent one.
+
+## Status
+
+- The DAG-BFT engine is implemented and tested in `crates/dag-bft`; the node runs
+  it. Weighted committees: specified in ADR-040, active from a new genesis.
+- Committee-capture mitigation and a recovery path are **open items** for
+  mainnet (ADR-039, options 1 to 3).
+- Not audited.
+
+</TabItem>
+</Tabs>

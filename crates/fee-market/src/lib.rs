@@ -15,7 +15,7 @@
 //! | base fee tracks "block gas saturation" | no block gas; fuel meters contract calls only | the base fee tracks serialized **bytes** ([`base_fee`]) |
 //! | tip to the "`PoUW` miner/validator" | no coinbase, no validators; `PoUW` is a dark research branch | a one-per-block [`FeeClaim`], the shape `WorkClaim` already has |
 //! | burn "from total supply" | a burn credits the unspendable fee sink: `total` is conserved, `circulating` falls | [`Supply::after_burn`] moves `circulating` only |
-//! | a hard supply cap | nothing mints, so a cap is currently vacuous | [`MAX_SUPPLY`] exists anyway, for the day something does |
+//! | a hard supply cap | the cap is 2²⁵⁶ − 1, the width of a balance (ADR-046); emission, not the cap, limits real supply | [`MAX_SUPPLY`] is [`Amount::MAX`] |
 //!
 //! # Why dependency-free
 //!
@@ -46,6 +46,7 @@ pub use config::{ConfigError, FeeConfig};
 pub use execute::{
     BlockFeeOutcome, Charge, FeeClaim, FeeError, ParentFees, TxFee, apply_block_fees,
 };
+pub use maya_amount::Amount;
 pub use model::{Feature, Features, Model, weights_v1::MODEL_V1};
 pub use rule::{FeeRule, neural_next_base_fee, next_base_fee_by_rule};
 pub use split::{FeeSplit, split};

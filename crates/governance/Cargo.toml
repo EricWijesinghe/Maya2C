@@ -22,6 +22,8 @@ description = "Proposal lifecycle, vote tallying, and the bounds a proposal may 
 # The visible consequence: nothing here hashes or stores. Proposal identifiers
 # are derived in `custom-l1-node` and arrive as opaque bytes.
 [dependencies]
+# Dependency-free and `no_std`: Kani's graph stays first-party (ADR-048).
+maya-amount = { path = "../amount" }
 
 [lints]
 workspace = true

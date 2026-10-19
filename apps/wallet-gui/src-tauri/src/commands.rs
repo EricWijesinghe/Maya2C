@@ -77,12 +77,12 @@ pub struct TransferPreview {
     pub sender: String,
     /// Hex-encoded recipient.
     pub recipient: String,
-    /// Amount to the recipient.
-    pub amount: u64,
-    /// Fee, burned.
-    pub fee: u64,
-    /// Amount plus fee.
-    pub total: u64,
+    /// Amount to the recipient, base units as a decimal string.
+    pub amount: String,
+    /// Fee, burned, base units as a decimal string.
+    pub fee: String,
+    /// Amount plus fee, base units as a decimal string.
+    pub total: String,
     /// Nonce that will be used.
     pub nonce: u64,
 }
@@ -92,8 +92,8 @@ pub struct TransferPreview {
 pub struct FeeOption {
     /// Display name.
     pub label: String,
-    /// Suggested fee.
-    pub fee: u64,
+    /// Suggested fee, base units as a decimal string.
+    pub fee: String,
 }
 
 /// The fee presets for the next transfer, and where the fee must go.
@@ -101,8 +101,8 @@ pub struct FeeOption {
 pub struct FeeTerms {
     /// The collector to pay on a fee-market chain; `None` where fees are off.
     pub collector: Option<String>,
-    /// Base fee per byte; 0 where fees are off.
-    pub base_fee: u64,
+    /// Base fee per byte, a decimal string; "0" where fees are off.
+    pub base_fee: String,
     /// Economy, Standard and Priority.
     pub options: Vec<FeeOption>,
     /// The node's genesis id, hex: what `sign_transfer` signs for (ADR-036).
@@ -274,12 +274,14 @@ pub fn parse_payment_uri(input: String) -> Result<PaymentRequest, String> {
 pub fn preview_transfer(
     index: u32,
     recipient: String,
-    amount: u64,
-    fee: u64,
+    amount: String,
+    fee: String,
     nonce: u64,
     session: tauri::State<'_, Session>,
 ) -> Result<TransferPreview, String> {
     let recipient = payment::normalize_address(&recipient).map_err(|e| e.to_string())?;
+    let amount = parse_amount_arg("amount", &amount)?;
+    let fee = parse_amount_arg("fee", &fee)?;
     let total = amount
         .checked_add(fee)
         .ok_or_else(|| "amount and fee overflow".to_string())?;
@@ -289,12 +291,18 @@ pub fn preview_transfer(
         Ok(TransferPreview {
             sender: account.address,
             recipient: recipient.clone(),
-            amount,
-            fee,
-            total,
+            amount: amount.to_string(),
+            fee: fee.to_string(),
+            total: total.to_string(),
             nonce,
         })
     })
+}
+
+/// Parses an amount argument from the frontend: plain base-unit digits only.
+/// The name goes into the error so the user sees which field was refused.
+fn parse_amount_arg(name: &str, text: &str) -> Result<primitive_types::U256, String> {
+    maya_wallet_core::amount::parse_base_units(text).map_err(|e| format!("{name}: {e}"))
 }
 
 /// Signs a transfer. No network access.
@@ -307,16 +315,17 @@ pub fn preview_transfer(
 pub fn sign_transfer(
     index: u32,
     recipient: String,
-    amount: u64,
-    fee: u64,
+    amount: String,
+    fee: String,
     fee_to: Option<String>,
     nonce: u64,
     genesis: String,
     session: tauri::State<'_, Session>,
 ) -> Result<SignedTransfer, String> {
     let chain = parse_genesis(&genesis)?;
+    let amount = parse_amount_arg("amount", &amount)?;
     let terms = SignTerms {
-        fee,
+        fee: parse_amount_arg("fee", &fee)?,
         fee_to: fee_to.as_deref(),
         nonce,
         chain: &chain,
@@ -379,7 +388,10 @@ pub async fn fetch_account(node_url: String, address: String) -> Result<AccountS
     let (balance, nonce) = wallet::fetch_account(&node_url, &address)
         .await
         .map_err(|e| e.to_string())?;
-    Ok(AccountState { balance, nonce })
+    Ok(AccountState {
+        balance: balance.to_string(),
+        nonce,
+    })
 }
 
 /// The network the wallet is talking to: its name, genesis and tip height.
@@ -407,9 +419,12 @@ pub struct ReceiveRequest {
 #[tauri::command]
 pub fn receive_request(
     index: u32,
-    amount: Option<u64>,
+    amount: Option<String>,
     session: tauri::State<'_, Session>,
 ) -> Result<ReceiveRequest, String> {
+    let amount = amount
+        .map(|text| parse_amount_arg("amount", &text))
+        .transpose()?;
     let address = session.with(|wallet| {
         wallet
             .account(index)
@@ -431,8 +446,8 @@ pub fn receive_request(
 /// A node's view of an account.
 #[derive(Serialize, Deserialize)]
 pub struct AccountState {
-    /// Spendable balance.
-    pub balance: u64,
+    /// Spendable balance, base units as a decimal string.
+    pub balance: String,
     /// Nonce the next transaction must carry.
     pub nonce: u64,
 }
@@ -461,13 +476,13 @@ pub async fn fee_options(
     if !quote.active {
         return Ok(FeeTerms {
             collector: None,
-            base_fee: 0,
+            base_fee: "0".to_string(),
             genesis,
             options: tiers
                 .iter()
                 .map(|tier| FeeOption {
                     label: tier.label().to_string(),
-                    fee: tier.suggested_fee(),
+                    fee: tier.suggested_fee().to_string(),
                 })
                 .collect(),
         });
@@ -480,15 +495,42 @@ pub async fn fee_options(
     let fees = payment::priced_fee_tiers(quote.base_fee, size).map_err(|e| e.to_string())?;
     Ok(FeeTerms {
         collector: Some(quote.collector),
-        base_fee: quote.base_fee,
+        base_fee: quote.base_fee.to_string(),
         genesis,
         options: tiers
             .iter()
             .zip(fees)
             .map(|(tier, fee)| FeeOption {
                 label: tier.label().to_string(),
-                fee,
+                fee: fee.to_string(),
             })
             .collect(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_amount_arg;
+    use primitive_types::U256;
+
+    #[test]
+    fn ipc_amounts_above_u64_arrive_exactly() {
+        let max = U256::MAX.to_string();
+        assert_eq!(parse_amount_arg("amount", &max), Ok(U256::MAX));
+        assert_eq!(
+            parse_amount_arg("amount", "18446744073709551616"),
+            Ok(U256::from(u64::MAX) + 1)
+        );
+    }
+
+    #[test]
+    fn malformed_ipc_amounts_are_refused_naming_the_field() {
+        for text in ["", "-1", "+1", "1e18", "1.5", "0x10", "1,000"] {
+            let error = parse_amount_arg("fee", text).expect_err(text);
+            assert!(error.starts_with("fee: "), "{error}");
+        }
+        let two_pow_256 =
+            "115792089237316195423570985008687907853269984665640564039457584007913129639936";
+        assert!(parse_amount_arg("amount", two_pow_256).is_err());
+    }
 }

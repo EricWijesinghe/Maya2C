@@ -2,9 +2,11 @@
 // A 3D map of the project's health, drawn from /health.json (emitted by
 // scripts/gen-health.mjs from features.toml and the launch gates). Each point
 // is one subsystem, placed in a shell by tier (core inner, extended, frontier
-// outer) and coloured by status. The headline numbers are the reality ledger,
-// counted live at build; the test figure carries its own as-of date. No WebGL
-// or reduced motion: the numbers and a status legend still render.
+// outer) and coloured by status. Hover or arrow-key across a point to name it;
+// click (or Enter) to pin its detail. Without WebGL the same subsystems are a
+// keyboard-reachable grid of dots, so nothing is lost to the missing canvas.
+// The headline numbers are the reality ledger, counted live at build; the test
+// figure carries its own as-of date.
 ---
 
 <section class="health" aria-label="Project health">
@@ -20,9 +22,11 @@
   </div>
 
   <div class="stage" id="health-3d">
-    <canvas id="health-canvas" aria-hidden="true"></canvas>
+    <canvas id="health-canvas" tabindex="0" role="img" aria-label="Subsystem map. Move between subsystems with the arrow keys, open one with Enter, close with Escape."></canvas>
     <div class="tip" id="health-tip" hidden></div>
   </div>
+  <ul class="flat-grid" id="health-flat" aria-label="Subsystems by status" hidden></ul>
+  <div class="detail" id="health-detail" aria-live="polite" hidden></div>
 
   <ul class="legend" aria-hidden="true">
     <li><i class="d verified"></i>verified</li>
@@ -36,16 +40,16 @@
 </section>
 
 <script>
-  import {
-    AdditiveBlending, BufferGeometry, Clock, Color, Float32BufferAttribute,
-    PerspectiveCamera, Points, PointsMaterial, Raycaster, Scene, Vector2,
-    WebGLRenderer,
-  } from "three";
+  // three.js loads when this section nears the viewport, so the rest of the
+  // page never downloads it.
+  type Sub = { name: string; domain: string; tier: string; class: string; status: string };
 
   const STATUS = {
     verified: "#22d3ee", working: "#a78bfa", planned: "#64748b", stub: "#f59e0b",
   } as Record<string, string>;
   const TIER_R = { core: 1.15, extended: 1.95, frontier: 2.75 } as Record<string, number>;
+  // The register itself: every subsystem is one entry in this file.
+  const REGISTER = "https://github.com/EricWijesinghe/Maya2C/blob/master/features.toml";
 
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -63,6 +67,36 @@
       if (k < 1) requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
+  }
+
+  // Built with DOM calls, not innerHTML: names come from the build's data.
+  function fillDetail(el: HTMLElement, x: Sub) {
+    const title = document.createElement("b");
+    title.textContent = x.name;
+    const meta = document.createElement("span");
+    meta.textContent = `${x.status} · ${x.tier} · ${x.class}`;
+    const domain = document.createElement("span");
+    domain.textContent = x.domain;
+    const more = document.createElement("a");
+    more.href = REGISTER; more.target = "_blank"; more.rel = "noopener";
+    more.textContent = "Learn more in the register →";
+    el.replaceChildren(title, meta, domain, more);
+    el.hidden = false;
+  }
+
+  function buildFlatGrid(list: HTMLElement, subs: Sub[], pin: (i: number) => void) {
+    subs.forEach((x, i) => {
+      const li = document.createElement("li");
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = `dot ${x.status}`;
+      b.title = x.name;
+      b.setAttribute("aria-label", `${x.name}, ${x.status}, ${x.tier}`);
+      b.addEventListener("click", () => pin(i));
+      li.append(b);
+      list.append(li);
+    });
+    list.hidden = false;
   }
 
   (async () => {
@@ -86,13 +120,35 @@
     const gen = document.getElementById("health-generated");
     if (gen) gen.textContent = `Ledger counted live from features.toml at build · ${new Date(h.generated).toISOString().slice(0, 10)}`;
 
+    const subs = h.subsystems as Sub[];
+    const detail = document.getElementById("health-detail") as HTMLElement;
     const host = document.getElementById("health-3d");
     const canvas = document.getElementById("health-canvas") as HTMLCanvasElement;
-    if (!host || !canvas || !webgl()) { host?.classList.add("flat"); return; }
+    const flat = document.getElementById("health-flat") as HTMLElement;
+
+    const flatFallback = () => {
+      host?.setAttribute("hidden", "");
+      if (flat) buildFlatGrid(flat, subs, (i) => fillDetail(detail, subs[i]));
+    };
+    if (!host || !canvas) { flatFallback(); return; }
+
+    await new Promise<void>((resolve) => {
+      const io = new IntersectionObserver((entries) => {
+        if (entries.some((en) => en.isIntersecting)) { io.disconnect(); resolve(); }
+      }, { rootMargin: "400px 0px" });
+      io.observe(host);
+    });
+    // The probe creates a throwaway WebGL context (~80 ms on the main thread), so
+    // it runs only once the map is near the viewport, not on page load.
+    if (!webgl()) { flatFallback(); return; }
+    const {
+      AdditiveBlending, BufferGeometry, Clock, Color, Float32BufferAttribute,
+      PerspectiveCamera, Points, PointsMaterial, Raycaster, Scene, Vector2, Vector3,
+      WebGLRenderer,
+    } = await import("three");
 
     // Build the point cloud: one point per subsystem, shell by tier, colour by
     // status, a stable pseudo-random spread so the map is the same every load.
-    const subs = h.subsystems as { name: string; tier: string; status: string }[];
     const pos = new Float32Array(subs.length * 3);
     const col = new Float32Array(subs.length * 3);
     const golden = Math.PI * (3 - Math.sqrt(5));
@@ -132,28 +188,58 @@
     resize();
     window.addEventListener("resize", resize);
 
-    // Hover: raycast to the nearest point and name it.
+    // Selection is shared by hover, arrow keys and taps. The tip follows the
+    // selected point in screen space, so it stays put when the cloud turns.
     const ray = new Raycaster();
     (ray.params.Points as any).threshold = 0.14;
     const ndc = new Vector2();
+    const anchor = new Vector3();
     const tip = document.getElementById("health-tip") as HTMLElement;
-    let hoverIndex = -1;
+    let selected = -1;
+    const select = (i: number) => {
+      selected = i;
+      if (i < 0) { tip.hidden = true; return; }
+      const x = subs[i];
+      tip.replaceChildren();
+      const b = document.createElement("b"); b.textContent = x.name;
+      const sp = document.createElement("span"); sp.textContent = `${x.status} · ${x.tier}`;
+      tip.append(b, sp);
+      tip.hidden = false;
+    };
+    const pin = (i: number) => { select(i); fillDetail(detail, subs[i]); };
+
     canvas.addEventListener("pointermove", (e) => {
       const rect = canvas.getBoundingClientRect();
       ndc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
       ray.setFromCamera(ndc, camera);
       const hit = ray.intersectObject(cloud)[0];
-      hoverIndex = hit ? (hit.index ?? -1) : -1;
-      if (hoverIndex >= 0) {
-        const x = subs[hoverIndex];
-        tip.innerHTML = `<b>${x.name}</b><span>${x.status} · ${x.tier}</span>`;
-        tip.style.left = `${e.clientX - rect.left}px`;
-        tip.style.top = `${e.clientY - rect.top}px`;
-        tip.hidden = false;
-      } else { tip.hidden = true; }
+      const next = hit ? (hit.index ?? -1) : -1;
+      if (next !== selected) select(next);
     });
-    canvas.addEventListener("pointerleave", () => { tip.hidden = true; });
+    canvas.addEventListener("pointerleave", () => select(-1));
+
+    // A click pins the detail; a drag (rotating the map) does not.
+    let downAt: { x: number; y: number } | null = null;
+    canvas.addEventListener("pointerdown", (e) => { downAt = { x: e.clientX, y: e.clientY }; });
+    canvas.addEventListener("pointerup", (e) => {
+      const moved = downAt ? Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) : 99;
+      if (moved < 6 && selected >= 0) pin(selected);
+      downAt = null;
+    });
+
+    canvas.addEventListener("keydown", (e) => {
+      const step: Record<string, number> = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
+      if (e.key in step) {
+        e.preventDefault();
+        select((((selected < 0 ? -1 : selected) + step[e.key]) + subs.length) % subs.length);
+      } else if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        if (selected >= 0) pin(selected);
+      } else if (e.key === "Escape") {
+        detail.hidden = true; select(-1);
+      }
+    });
 
     const pointer = { x: 0, y: 0 };
     host.addEventListener("pointermove", (e) => {
@@ -165,12 +251,21 @@
     let visible = true;
     new IntersectionObserver(([en]) => (visible = en.isIntersecting)).observe(host);
     const clock = new Clock();
+    const placeTip = () => {
+      if (selected < 0) return;
+      anchor.set(pos[selected * 3], pos[selected * 3 + 1], pos[selected * 3 + 2])
+        .applyMatrix4(cloud.matrixWorld).project(camera);
+      const rect = canvas.getBoundingClientRect();
+      tip.style.left = `${((anchor.x + 1) / 2) * rect.width}px`;
+      tip.style.top = `${((1 - anchor.y) / 2) * rect.height}px`;
+    };
     const draw = () => {
       const t = clock.getElapsedTime();
       if (!reduce) { cloud.rotation.y = t * 0.12; cloud.rotation.x = Math.sin(t * 0.25) * 0.12; }
       scene.rotation.y += (pointer.x * 0.4 - scene.rotation.y) * 0.05;
       scene.rotation.x += (pointer.y * 0.3 - scene.rotation.x) * 0.05;
       renderer.render(scene, camera);
+      placeTip();
     };
     const frame = () => { requestAnimationFrame(frame); if (visible && !document.hidden) draw(); };
     draw(); frame();
@@ -191,13 +286,34 @@
   .stage { position: relative; height: clamp(22rem, 46vw, 30rem); border-radius: 1.1rem; overflow: hidden;
     border: 1px solid var(--sl-color-hairline);
     background: radial-gradient(60% 60% at 50% 40%, rgb(34 211 238 / 0.08), transparent 70%), rgb(5 8 14 / 0.5); }
-  .stage canvas { width: 100%; height: 100%; display: block; }
-  .stage.flat { display: none; }
+  .stage canvas { width: 100%; height: 100%; display: block; cursor: grab; }
+  .stage canvas:focus-visible { outline: 2px solid #22d3ee; outline-offset: -2px; }
+  .stage[hidden] { display: none; }
   .tip { position: absolute; transform: translate(-50%, -140%); pointer-events: none; white-space: nowrap;
     background: rgb(8 12 22 / 0.92); border: 1px solid var(--sl-color-hairline); border-radius: 0.5rem;
     padding: 0.35rem 0.6rem; font-size: 0.8rem; z-index: 2; backdrop-filter: blur(6px); }
-  .tip b { display: block; color: var(--sl-color-white); }
-  .tip span { color: var(--sl-color-gray-3); text-transform: capitalize; font-size: 0.72rem; }
+  .tip :global(b) { display: block; color: var(--sl-color-white); }
+  .tip :global(span) { color: var(--sl-color-gray-3); text-transform: capitalize; font-size: 0.72rem; }
+
+  .flat-grid { display: flex; flex-wrap: wrap; gap: 0.45rem; list-style: none; padding: 1rem; margin: 0;
+    border-radius: 1.1rem; border: 1px solid var(--sl-color-hairline); background: rgb(5 8 14 / 0.5); }
+  /* Children are built in the script, so they carry no scope attribute: :global. */
+  .flat-grid[hidden] { display: none; }
+  .flat-grid :global(li) { display: block; list-style: none; }
+  .flat-grid :global(li::before), .flat-grid :global(li::marker) { content: none; }
+  .flat-grid :global(button) { width: 1.1rem; height: 1.1rem; border-radius: 50%; border: 0; padding: 0; cursor: pointer; }
+  .flat-grid :global(button:focus-visible) { outline: 2px solid #22d3ee; outline-offset: 2px; }
+  .flat-grid :global(.dot.verified) { background: #22d3ee; }
+  .flat-grid :global(.dot.working) { background: #a78bfa; }
+  .flat-grid :global(.dot.planned) { background: #64748b; }
+
+  .detail { margin-top: 0.9rem; padding: 0.9rem 1.1rem; border-radius: 0.9rem; display: flex; flex-direction: column; gap: 0.2rem;
+    border: 1px solid var(--sl-color-hairline); background: rgb(5 8 14 / 0.6); }
+  .detail[hidden] { display: none; }
+  .detail :global(b) { color: var(--sl-color-white); font-size: 1rem; }
+  .detail :global(span) { color: var(--sl-color-gray-3); font-size: 0.8rem; text-transform: capitalize; }
+  .detail :global(a) { margin-top: 0.4rem; color: var(--sl-color-text-accent); font-size: 0.85rem; }
+  .detail :global(a:focus-visible) { outline: 2px solid #22d3ee; outline-offset: 2px; }
 
   .legend { display: flex; flex-wrap: wrap; gap: 0.5rem 1.1rem; list-style: none; padding: 0; margin: 0.9rem 0 0.3rem;
     font-size: 0.8rem; color: var(--sl-color-gray-3); }

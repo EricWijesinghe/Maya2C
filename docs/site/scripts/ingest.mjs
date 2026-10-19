@@ -22,7 +22,7 @@
 // Starlight expects: it renders the title itself from frontmatter, and leaving
 // the H1 in place produces the heading twice.
 
-import { existsSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,7 +32,9 @@ const DOCS = join(here, "..", "..");
 const OUT = join(here, "..", "src", "content", "docs");
 const REPO = join(DOCS, "..");
 const REPO_URL = "https://github.com/EricWijesinghe/Maya2C/blob/master";
-const RAW_URL = "https://raw.githubusercontent.com/EricWijesinghe/Maya2C/master";
+// Images the docs embed are copied here and served from this site. A GitHub
+// raw URL would be blocked by the CSP img-src ('self' and data: only).
+const PUBLIC_REPO = join(here, "..", "public", "repo-assets");
 
 /**
  * Relative links whose target does not exist. A dead link fails the build:
@@ -146,7 +148,7 @@ function rewriteLinks(body, name) {
 /**
  * Raw HTML images (`<img src="../logo-assets/...">`) bypass the markdown
  * rewrite above, and on the site the relative path points nowhere. Serve
- * them from the repository's raw files instead, and check they exist.
+ * them from a copy in this site's public/repo-assets/, and check they exist.
  */
 function rewriteImages(body, name) {
   return body.replace(/src="(?![a-z][a-z0-9+.-]*:|\/)([^"]+)"/gi, (match, target) => {
@@ -156,7 +158,10 @@ function rewriteImages(body, name) {
       return match;
     }
     const repoPath = relative(REPO, onDisk).split(sep).join("/");
-    return `src="${RAW_URL}/${repoPath}"`;
+    const dest = join(PUBLIC_REPO, repoPath);
+    mkdirSync(dirname(dest), { recursive: true });
+    copyFileSync(onDisk, dest);
+    return `src="/repo-assets/${repoPath}"`;
   });
 }
 
@@ -195,6 +200,8 @@ for (const name of (await readdir(AUTHORED_SRC)).sort()) {
  */
 const SEARCH_TITLES = {
   "CRYPTO_WATCH.md": "Post-Quantum Crypto Watch: Standards Tracked | Maya2C",
+  "blockgraph.md": "Blockgraph Research: Batch References | Maya2C",
+  "offsec-sandbox.md": "Offsec Sandbox: Differential Fuzzing | Maya2C",
   "dex.md": "The Native DEX: Batch Auctions, No Mempool Race | Maya2C",
   "fee-market.md": "Fee Market: Base Fee, Fee Split and Supply Bound | Maya2C",
   "GENESIS.md": "Genesis: Rehearsal, Launch and First 90 Days | Maya2C",

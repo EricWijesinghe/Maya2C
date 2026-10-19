@@ -98,7 +98,7 @@ const tag = (i: number) => `0x${(i + 1).toString(16).padStart(2, "0").toUpperCas
   .status::after { bottom: 12px; right: 12px; border-left: 0; border-top: 0; border-radius: 0 0 8px 0; }
 
   .head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
-  .kicker { margin: 0; display: flex; align-items: center; gap: 10px; font: 600 12px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+  .kicker { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font: 600 12px/1.5 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
   .led { width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); animation: blink 2.4s steps(1) infinite; }
   @keyframes blink { 50% { opacity: .25; } }
   .readout { margin: 12px 0 0; font: 700 clamp(22px, 3vw, 32px)/1.1 var(--mono); letter-spacing: .02em; color: var(--text); font-variant-numeric: tabular-nums; }

@@ -1,0 +1,163 @@
+---
+title: Join the testnet
+description: Make a wallet, take free test coins, and send a post-quantum-signed transaction on maya-testnet-1, with current network facts and limits.
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+## In plain words
+
+**maya-testnet-1** is a practice notebook. Everyone can write in it, and the
+coins in it are **play money**. Nothing you do here is worth anything.
+
+It is practice for the real thing, so you can see how it feels: make a wallet, get
+some play coins, send them to a friend, and watch the notebook record it. Every
+note is signed with two different post-quantum locks, and the notebook checks
+both.
+
+:::caution[Test coins only]
+Testnet coins have **no value** and cannot be bought or sold. Anyone offering to
+sell you Maya2C coins is not selling anything this project issued. The network may
+be reset, and the software has not had an independent security audit. Do not use
+it to protect anything that matters.
+:::
+
+<Tabs>
+<TabItem label="For engineers">
+
+## 1. Get a wallet
+
+**Command line**, from the release that ships `l1-wallet`:
+
+```bash
+l1-wallet --keystore my.key generate      # encrypts the new key with your password
+l1-wallet --keystore my.key address       # prints your 64-hex-character address
+```
+
+The keystore is encrypted with Argon2id and ChaCha20-Poly1305 (see
+[wallet integration](/guides/wallet/)). Check release downloads against
+`SHA256SUMS` on the same release page. The desktop installers are not code-signed
+yet, so Windows and macOS warn about an unknown publisher.
+
+## 2. Take free test coins
+
+<form id="faucet-form" class="faucet-form">
+  <label for="faucet-address">Your address</label>
+  <input id="faucet-address" name="address" autocomplete="off" spellcheck="false"
+         placeholder="64 hex characters" required />
+  <button type="submit">Send me test coins</button>
+  <p id="faucet-result" role="status" aria-live="polite"></p>
+</form>
+<script src="/faucet.js" defer></script>
+
+{/* Braces inside a <style> body are MDX expressions, so the CSS is a string. */}
+<style>{`
+  .faucet-form { display: grid; gap: 0.5rem; max-width: 42rem; }
+  .faucet-form input { font-family: var(--sl-font-mono); padding: 0.5rem; }
+  .faucet-form button { justify-self: start; padding: 0.5rem 1rem; cursor: pointer; }
+  .faucet-form [data-state="error"] { color: var(--sl-color-red); }
+`}</style>
+
+The faucet limits requests **per address and per IP** over a 24-hour window
+(`apps/faucet/src/limit.rs`). Its code defaults are 1,000 base units per grant
+(`MAYA_FAUCET_DISPENSE`) and 1,000,000 base units per day (`MAYA_FAUCET_DAILY_CAP`,
+`apps/faucet/src/main.rs`). The operator sets the live values, so check the
+[status page](https://status.maya2c.dev/) for current figures.
+
+The same request from a terminal:
+
+```bash
+curl -X POST https://faucet.maya2c.dev/request \
+  -H 'content-type: application/json' \
+  -d '{"address":"<your address>"}'
+```
+
+A `429` response says which limit was hit: `rate_limited_ip` or
+`rate_limited_address`. Back off, and wait for the window.
+
+## 3. Send a transaction
+
+```bash
+l1-wallet --keystore my.key --rpc-url https://rpc.maya2c.dev/rpc balance
+
+l1-wallet --keystore my.key --rpc-url https://rpc.maya2c.dev/rpc \
+    send --to <recipient address> --amount 100
+```
+
+Each transfer is about 13 KB, because it carries two post-quantum signatures, and
+the fee is charged per byte. The fee rule and the minimum are in
+[how a transaction works](/guides/transactions/).
+
+## Network facts
+
+| | |
+|---|---|
+| Chain id | `maya-testnet-1` (from `docs/site/public/testnet/genesis.json`) |
+| Genesis file SHA-256 | `dd9bb356c94b7699e6e8d2595681faee48be435b02dc927677cbf833e55edd5d` |
+| Public API | `https://rpc.maya2c.dev`: JSON-RPC at `/rpc`, REST at `/v1/…` ([API reference](/guides/api/)) |
+| Faucet | `https://faucet.maya2c.dev` |
+| Bootnode | `/dns4/p2p.maya2c.dev/tcp/443/wss/p2p/<peer id>`, WebSocket over TLS |
+| Consensus | DAG-BFT: see [consensus and finality](/guides/consensus/) |
+
+The genesis state root and block hash in the first release notes
+(`docs/releases/node-v0.1.0-testnet.1.md`) belong to the **earlier** chain. The
+network has been re-genesised since, so do not compare against them.
+
+To run a node against the network, see [run a validator](/guides/validators/).
+Starting a non-validator node uses the same `maya2c-node` flags without
+`--validator-key`.
+
+## Honest limits, today
+
+- **Four validators, run by the project.** The committee is not yet independent.
+  Open registration is reviewed, for the reason in
+  [run a validator](/guides/validators/).
+- **Resets happen.** Earlier chains halted or were restarted: a difficulty-retarget bug that
+  saturated total work and halted the chain was fixed in ADR-035, and ADR-036 made every signature commit
+  to the genesis, so a transfer for this testnet cannot be replayed elsewhere. ADR-046
+  changed amounts to 256 bits. Balances from one chain do not exist on the next.
+- **Mining pays nothing today.** See [mining and validators](/guides/mining/).
+
+</TabItem>
+<TabItem label="For scientists">
+
+## What a testnet can and cannot show
+
+A testnet produces **observations**. It does not produce a security proof.
+
+- **Liveness** is observable: the fraction of rounds that commit an anchor, over
+  a window $T$, is $\hat{\lambda} = \#\{\text{committed anchors in } T\} / \#\{\text{anchor slots in } T\}$.
+  A figure is only meaningful with its window, its commit and its hardware.
+- **Safety** is not observable by watching a single chain. It rests on the quorum
+  argument in [consensus](/guides/consensus/): two honest nodes that disagree on
+  a committed block would contradict $q = n - f$ and $n - 2f \ge f + 1$.
+- **The halting condition** from [run a validator](/guides/validators/) predicts
+  when a testnet stops. With $m$ online seats and $k$ absent, it halts when
+  $k > \lfloor (m+k-1)/3 \rfloor$. A testnet with four seats tolerates one absent
+  seat and no more.
+
+## What a claim needs
+
+The repository's standing orders require that every performance figure carry
+its commit, hardware, OS, kernel and the exact command. A testnet figure follows
+the same rule. There is no `cargo xtask bench` yet, so measured figures are
+recorded by hand in the reports, and the status page is the live record.
+
+Interval estimates for $\hat{\lambda}$ need a model of arrivals. For a binomial
+count of $X$ successes in $N$ slots, the normal approximation gives
+
+$$
+\hat{\lambda} \pm z_{1-\alpha/2}\sqrt{\frac{\hat{\lambda}(1-\hat{\lambda})}{N}}.
+$$
+
+The approximation is poor for small $N$ or $\hat{\lambda}$ near 0 or 1. A short run
+on a small committee is an anecdote, and this page treats it as one.
+
+## Status
+
+- Practice network, play money, no audit.
+- Open validator registration: not yet.
+- Stake-weighted committees: specified (ADR-040), for a new genesis.
+
+</TabItem>
+</Tabs>

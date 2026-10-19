@@ -23,6 +23,7 @@ use std::io::{BufReader, BufWriter, Read, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use maya_stateless_core::{AccountState, Blake3, Key, PartialTree, apply_transfer, sparse};
+use primitive_types::U256;
 
 const TRANSITIONS: usize = 10_000;
 const TRANSFERS_PER_BLOCK: usize = 100;
@@ -83,13 +84,13 @@ fn write_chain(file: &mut impl Write) -> [u8; 32] {
             (
                 key(index),
                 AccountState {
-                    balance: 1_000_000,
+                    balance: U256::from(1_000_000u64),
                     nonce: 0,
                 },
             )
         })
         .collect();
-    let leaves = |state: &BTreeMap<Key, AccountState>| -> Vec<([u8; 32], [u8; 16])> {
+    let leaves = |state: &BTreeMap<Key, AccountState>| -> Vec<([u8; 32], [u8; 40])> {
         state.iter().map(|(k, v)| (*k, v.encode())).collect()
     };
     let genesis = sparse::root(&Blake3, &leaves(&state)).expect("root");
@@ -123,10 +124,10 @@ fn write_chain(file: &mut impl Write) -> [u8; 32] {
         let mut body = Vec::with_capacity(transfers.len() * TRANSFER_BYTES);
         for transfer in &transfers {
             let sender = state.entry(transfer.sender).or_default();
-            sender.balance -= transfer.amount;
+            sender.balance -= U256::from(transfer.amount);
             let nonce = sender.nonce;
             sender.nonce += 1;
-            state.entry(transfer.recipient).or_default().balance += transfer.amount;
+            state.entry(transfer.recipient).or_default().balance += U256::from(transfer.amount);
             body.extend_from_slice(&transfer.sender);
             body.extend_from_slice(&nonce.to_le_bytes());
             body.extend_from_slice(&transfer.recipient);
@@ -184,7 +185,7 @@ fn validate(reader: &mut impl Read, genesis: [u8; 32]) -> usize {
                 &mut tree,
                 sender.try_into().expect("key"),
                 u64::from_le_bytes(nonce.try_into().expect("nonce")),
-                [(recipient, amount)],
+                [(recipient, primitive_types::U256::from(amount))],
             )
             .expect("valid transfer");
             applied += 1;

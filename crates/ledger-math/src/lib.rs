@@ -20,7 +20,7 @@
 //! # What is proved, and what is not
 //!
 //! Every scalar function here has an *unbounded* proof: the harness quantifies
-//! over all `u64` inputs, and CBMC discharges it without a loop bound.
+//! over all inputs (every `u64`, or every 256-bit `Amount`), and CBMC discharges it without a loop bound.
 //!
 //! [`total_outputs`] is the exception. It folds over a sequence, so its harness
 //! carries a `#[kani::unwind]` bound and an accompanying `kani::assume` on the
@@ -49,13 +49,16 @@
 #[cfg(kani)]
 pub mod proofs;
 
+pub use maya_amount::Amount;
+
 /// Adds `amount` into `balance`.
 ///
-/// Returns `None` exactly when the sum would exceed [`u64::MAX`]. Total supply
-/// is a `u64`, so a credit that would wrap is a credit that would mint value
-/// out of nothing — the caller must reject the transaction, never truncate.
+/// Returns `None` exactly when the sum would exceed [`Amount::MAX`]. Total
+/// supply is at most 2²⁵⁶ − 1 (ADR-046), so a credit that would wrap is a credit
+/// that would mint value out of nothing — the caller must reject the
+/// transaction, never truncate.
 #[must_use]
-pub const fn credit(balance: u64, amount: u64) -> Option<u64> {
+pub const fn credit(balance: Amount, amount: Amount) -> Option<Amount> {
     balance.checked_add(amount)
 }
 
@@ -63,11 +66,11 @@ pub const fn credit(balance: u64, amount: u64) -> Option<u64> {
 ///
 /// Returns `None` exactly when `amount > balance`. Callers generally check
 /// sufficiency first and could use plain subtraction; they should not. A
-/// wrapping debit turns an overdraft into a balance near [`u64::MAX`], which is
-/// the single worst failure mode a ledger has, and it costs nothing to make it
-/// unrepresentable rather than merely unreachable.
+/// wrapping debit turns an overdraft into a balance near [`Amount::MAX`], which
+/// is the single worst failure mode a ledger has, and it costs nothing to make
+/// it unrepresentable rather than merely unreachable.
 #[must_use]
-pub const fn debit(balance: u64, amount: u64) -> Option<u64> {
+pub const fn debit(balance: Amount, amount: Amount) -> Option<Amount> {
     balance.checked_sub(amount)
 }
 
@@ -76,7 +79,7 @@ pub const fn debit(balance: u64, amount: u64) -> Option<u64> {
 /// Returns `None` at [`u64::MAX`]. Unreachable in practice — it would take
 /// 2^64 transactions from one account — but a nonce that wrapped would make
 /// every transaction that account ever sent replayable, so it is checked rather
-/// than assumed.
+/// than assumed. A nonce counts transactions, not value, so it stays a `u64`.
 #[must_use]
 pub const fn advance_nonce(nonce: u64) -> Option<u64> {
     nonce.checked_add(1)
@@ -85,13 +88,13 @@ pub const fn advance_nonce(nonce: u64) -> Option<u64> {
 /// Sums the amounts a transaction's outputs assign.
 ///
 /// Returns `None` if the running total would wrap at any point, *not* only if
-/// the final total would. The distinction matters: `[u64::MAX, 1, u64::MAX]`
-/// has no representable sum, and an implementation that wrapped through the
-/// middle and happened to land somewhere small would report a total the
-/// transaction does not actually move.
+/// the final total would. The distinction matters: `[MAX, 1, MAX]` has no
+/// representable sum, and an implementation that wrapped through the middle and
+/// happened to land somewhere small would report a total the transaction does
+/// not actually move.
 #[must_use]
-pub fn total_outputs(amounts: impl IntoIterator<Item = u64>) -> Option<u64> {
-    let mut total: u64 = 0;
+pub fn total_outputs(amounts: impl IntoIterator<Item = Amount>) -> Option<Amount> {
+    let mut total = Amount::ZERO;
     for amount in amounts {
         total = total.checked_add(amount)?;
     }
@@ -147,12 +150,12 @@ pub fn total_outputs(amounts: impl IntoIterator<Item = u64>) -> Option<u64> {
 ///
 /// Returns `None` when `payouts` or `order` is not the same length as
 /// `weights`, when the weights sum to zero — there is nothing to be in
-/// proportion to — or when they overflow a `u64`.
+/// proportion to — or when they overflow an [`Amount`].
 #[must_use]
 pub fn distribute(
-    total: u64,
-    weights: &[u64],
-    payouts: &mut [u64],
+    total: Amount,
+    weights: &[Amount],
+    payouts: &mut [Amount],
     order: &mut [u32],
 ) -> Option<()> {
     if payouts.len() != weights.len() || order.len() != weights.len() {
@@ -165,31 +168,35 @@ pub fn distribute(
         // Nothing to distribute to. A caller with a zero total and no holders
         // is consistent; one with a non-zero total is trying to pay nobody, and
         // the value would vanish.
-        return (total == 0).then_some(());
+        return total.is_zero().then_some(());
     }
 
     let total_weight = total_outputs(weights.iter().copied())?;
-    if total_weight == 0 {
+    if total_weight.is_zero() {
         return None;
     }
 
-    let spare = floor_shares(total, weights, total_weight, payouts);
+    let spare = floor_shares(total, weights, total_weight, payouts)?;
     if spare == 0 {
         return Some(());
     }
 
-    for (index, slot) in order.iter_mut().enumerate() {
-        *slot = index as u32;
+    for (index, slot) in (0u32..).zip(order.iter_mut()) {
+        *slot = index;
     }
 
     // Rank by remainder, then by index. Descending on the remainder so the
     // largest come first; ascending on the index so a tie resolves the same way
-    // on every node, which is the whole reason the index is in the key.
-    let total_wide = u128::from(total);
-    let weight_wide = u128::from(total_weight);
-    let remainder = |index: u32| -> u128 {
-        let weight = u128::from(weights[index as usize]);
-        (total_wide * weight) % weight_wide
+    // on every node, which is the whole reason the index is in the key. The
+    // remainder is `total * weight mod total_weight`, taken through the 512-bit
+    // product so it is exact. The division cannot fail (a non-zero divisor and
+    // a quotient at most `total`), so a failure ranks as zero rather than
+    // panicking inside block execution.
+    let remainder = |index: u32| -> Amount {
+        total
+            .mul_wide(weights[index as usize])
+            .checked_div_rem(total_weight)
+            .map_or(Amount::ZERO, |(_, rem)| rem)
     };
     order.sort_unstable_by(|left, right| {
         remainder(*right)
@@ -205,29 +212,27 @@ pub fn distribute(
 ///
 /// The first half of [`distribute`]. `total_weight` is the sum of `weights`,
 /// non-zero, and `payouts` is as long as `weights` — `distribute` checks all
-/// three.
+/// three, so `None` here is unreachable from it; it is propagated rather than
+/// unwrapped.
 pub(crate) fn floor_shares(
-    total: u64,
-    weights: &[u64],
-    total_weight: u64,
-    payouts: &mut [u64],
-) -> usize {
-    // u128 throughout: `total * weight` reaches 2^128 for two u64 operands, and
-    // a product that wrapped would produce a share nobody is owed.
-    let total_wide = u128::from(total);
-    let weight_wide = u128::from(total_weight);
-
-    let mut assigned: u128 = 0;
+    total: Amount,
+    weights: &[Amount],
+    total_weight: Amount,
+    payouts: &mut [Amount],
+) -> Option<usize> {
+    let mut assigned = Amount::ZERO;
     for (payout, weight) in payouts.iter_mut().zip(weights) {
-        // At most `total`, since `weight <= total_weight`, so it fits a u64.
-        let floor = total_wide * u128::from(*weight) / weight_wide;
-        *payout = floor as u64;
-        assigned += floor;
+        // `total * weight` needs 512 bits; the quotient is at most `total`,
+        // since `weight <= total_weight`, so it fits back in an Amount.
+        let floor = total.mul_div(*weight, total_weight)?;
+        *payout = floor;
+        assigned = assigned.checked_add(floor)?;
     }
 
     // Each floor drops less than one unit, so the gap is below the holder
     // count, which `distribute` has already bounded by u32.
-    (total_wide - assigned) as usize
+    let gap = total.checked_sub(assigned)?.to_u64()?;
+    usize::try_from(gap).ok()
 }
 
 /// Pays one extra base unit to each of the first `spare` holders in `order`.
@@ -236,12 +241,12 @@ pub(crate) fn floor_shares(
 /// sort guarantees that, since it only permutes the identity), this adds
 /// exactly `spare` in total and at most one unit to any holder, which is what
 /// the proofs of this function state.
-pub(crate) fn place_spare(payouts: &mut [u64], order: &[u32], spare: usize) -> Option<()> {
+pub(crate) fn place_spare(payouts: &mut [Amount], order: &[u32], spare: usize) -> Option<()> {
     for index in order.iter().take(spare) {
-        // A holder cannot be paid past u64 by one extra base unit unless their
-        // floor was already u64::MAX, which needs a total that large.
+        // A holder cannot be paid past the ceiling by one extra base unit
+        // unless their floor was already MAX, which needs a total that large.
         let slot = payouts.get_mut(*index as usize)?;
-        *slot = slot.checked_add(1)?;
+        *slot = slot.checked_add(Amount::ONE)?;
     }
     Some(())
 }
@@ -254,7 +259,7 @@ pub(crate) fn place_spare(payouts: &mut [u64], order: &[u32], spare: usize) -> O
 /// `credit` at the call site would read as though a balance were being paid
 /// into, which is not what happens.
 #[must_use]
-pub const fn combined_balance(balance_a: u64, balance_b: u64) -> Option<u64> {
+pub const fn combined_balance(balance_a: Amount, balance_b: Amount) -> Option<Amount> {
     balance_a.checked_add(balance_b)
 }
 
@@ -267,14 +272,14 @@ pub const fn combined_balance(balance_a: u64, balance_b: u64) -> Option<u64> {
 /// one signal that a soundness break had occurred.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SettleError {
-    /// `public_out + fee`, or `held + public_in`, would exceed [`u64::MAX`].
+    /// `public_out + fee`, or `held + public_in`, would exceed [`Amount::MAX`].
     Overflow,
     /// More value left the pool than it held.
     Underflow {
         /// Pool balance after crediting `public_in`.
-        held: u64,
+        held: Amount,
         /// Total leaving the pool: `public_out + fee`.
-        withdrawn: u64,
+        withdrawn: Amount,
     },
 }
 
@@ -289,11 +294,11 @@ pub enum SettleError {
 /// [`SettleError::Overflow`] if either sum would wrap, and
 /// [`SettleError::Underflow`] if the withdrawal exceeds what the pool holds.
 pub const fn settle_pool(
-    held: u64,
-    public_in: u64,
-    public_out: u64,
-    fee: u64,
-) -> Result<u64, SettleError> {
+    held: Amount,
+    public_in: Amount,
+    public_out: Amount,
+    fee: Amount,
+) -> Result<Amount, SettleError> {
     // `match` rather than `let ... else` throughout: this is a `const fn`, and
     // the narrower construct is the one guaranteed to stay const-evaluable.
     let withdrawn = match public_out.checked_add(fee) {
@@ -318,18 +323,30 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
+    fn a(value: u64) -> Amount {
+        Amount::from_u64(value)
+    }
+
     #[test]
     fn credit_reports_the_ceiling() {
-        assert_eq!(credit(1, 2), Some(3));
-        assert_eq!(credit(u64::MAX, 0), Some(u64::MAX));
-        assert_eq!(credit(u64::MAX, 1), None);
+        assert_eq!(credit(a(1), a(2)), Some(a(3)));
+        assert_eq!(credit(Amount::MAX, Amount::ZERO), Some(Amount::MAX));
+        assert_eq!(credit(Amount::MAX, Amount::ONE), None);
+    }
+
+    #[test]
+    fn credit_carries_past_u64() {
+        // The ceiling that ADR-046 removed: a u64 balance stopped here.
+        let expected = Amount::from_u128(u128::from(u64::MAX) + 1);
+        assert_eq!(credit(a(u64::MAX), Amount::ONE), Some(expected));
     }
 
     #[test]
     fn debit_reports_an_overdraft() {
-        assert_eq!(debit(3, 2), Some(1));
-        assert_eq!(debit(3, 3), Some(0));
-        assert_eq!(debit(3, 4), None);
+        assert_eq!(debit(a(3), a(2)), Some(a(1)));
+        assert_eq!(debit(a(3), a(3)), Some(Amount::ZERO));
+        assert_eq!(debit(a(3), a(4)), None);
+        assert_eq!(debit(Amount::ZERO, Amount::MAX), None);
     }
 
     #[test]
@@ -340,38 +357,47 @@ mod tests {
 
     #[test]
     fn total_outputs_of_nothing_is_zero() {
-        assert_eq!(total_outputs([]), Some(0));
+        assert_eq!(total_outputs([]), Some(Amount::ZERO));
     }
 
     #[test]
     fn total_outputs_rejects_a_wrap_through_the_middle() {
         // The sum of these three is not representable. An implementation that
-        // wrapped on the second addition would report `Some(u64::MAX)` here.
-        assert_eq!(total_outputs([u64::MAX, 1, u64::MAX]), None);
+        // wrapped on the second addition would report `Some(MAX)` here.
+        assert_eq!(total_outputs([Amount::MAX, Amount::ONE, Amount::MAX]), None);
     }
 
     #[test]
     fn total_outputs_sums_the_ordinary_case() {
-        assert_eq!(total_outputs([1, 2, 3]), Some(6));
+        assert_eq!(total_outputs([a(1), a(2), a(3)]), Some(a(6)));
     }
 
     #[test]
     fn settle_pool_moves_value_both_ways() {
-        assert_eq!(settle_pool(100, 50, 30, 5), Ok(115));
-        assert_eq!(settle_pool(0, 100, 0, 0), Ok(100));
+        assert_eq!(settle_pool(a(100), a(50), a(30), a(5)), Ok(a(115)));
+        assert_eq!(
+            settle_pool(Amount::ZERO, a(100), Amount::ZERO, Amount::ZERO),
+            Ok(a(100))
+        );
     }
 
     #[test]
     fn settle_pool_separates_underflow_from_overflow() {
         assert_eq!(
-            settle_pool(10, 0, 20, 0),
+            settle_pool(a(10), Amount::ZERO, a(20), Amount::ZERO),
             Err(SettleError::Underflow {
-                held: 10,
-                withdrawn: 20
+                held: a(10),
+                withdrawn: a(20)
             })
         );
-        assert_eq!(settle_pool(0, 0, u64::MAX, 1), Err(SettleError::Overflow));
-        assert_eq!(settle_pool(u64::MAX, 1, 0, 0), Err(SettleError::Overflow));
+        assert_eq!(
+            settle_pool(Amount::ZERO, Amount::ZERO, Amount::MAX, Amount::ONE),
+            Err(SettleError::Overflow)
+        );
+        assert_eq!(
+            settle_pool(Amount::MAX, Amount::ONE, Amount::ZERO, Amount::ZERO),
+            Err(SettleError::Overflow)
+        );
     }
 
     #[test]
@@ -380,10 +406,10 @@ mod tests {
         // is the number that makes the failure legible: it is what the pool
         // actually had when the withdrawal was attempted.
         assert_eq!(
-            settle_pool(10, 5, 20, 0),
+            settle_pool(a(10), a(5), a(20), Amount::ZERO),
             Err(SettleError::Underflow {
-                held: 15,
-                withdrawn: 20
+                held: a(15),
+                withdrawn: a(20)
             })
         );
     }
@@ -394,12 +420,24 @@ mod distribution_tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
+    fn amounts(values: &[u64]) -> Vec<Amount> {
+        values.iter().copied().map(Amount::from_u64).collect()
+    }
+
+    fn sum(values: &[Amount]) -> Amount {
+        total_outputs(values.iter().copied()).expect("sum fits")
+    }
+
     /// Runs a distribution and returns the payouts.
-    fn split(total: u64, weights: &[u64]) -> Vec<u64> {
-        let mut payouts = vec![0u64; weights.len()];
+    fn split(total: Amount, weights: &[Amount]) -> Vec<Amount> {
+        let mut payouts = vec![Amount::ZERO; weights.len()];
         let mut order = vec![0u32; weights.len()];
         distribute(total, weights, &mut payouts, &mut order).expect("distribute");
         payouts
+    }
+
+    fn split_u64(total: u64, weights: &[u64]) -> Vec<Amount> {
+        split(Amount::from_u64(total), &amounts(weights))
     }
 
     #[test]
@@ -415,10 +453,10 @@ mod distribution_tests {
                 vec![1_000_000, 1, 1],
                 vec![3; 97],
             ] {
-                let payouts = split(total, &weights);
+                let payouts = split_u64(total, &weights);
                 assert_eq!(
-                    payouts.iter().sum::<u64>(),
-                    total,
+                    sum(&payouts),
+                    Amount::from_u64(total),
                     "total {total} across {weights:?}"
                 );
             }
@@ -427,8 +465,8 @@ mod distribution_tests {
 
     #[test]
     fn an_exact_division_leaves_no_remainder_to_place() {
-        assert_eq!(split(100, &[1, 1, 1, 1]), vec![25, 25, 25, 25]);
-        assert_eq!(split(90, &[1, 2]), vec![30, 60]);
+        assert_eq!(split_u64(100, &[1, 1, 1, 1]), amounts(&[25, 25, 25, 25]));
+        assert_eq!(split_u64(90, &[1, 2]), amounts(&[30, 60]));
     }
 
     #[test]
@@ -436,15 +474,15 @@ mod distribution_tests {
         // 10 across weights 1,1,1: each is 3.333, so three floors of 3 and one
         // spare unit. Every remainder is equal, so the tie-break decides — and
         // it must decide the same way every time.
-        assert_eq!(split(10, &[1, 1, 1]), vec![4, 3, 3]);
+        assert_eq!(split_u64(10, &[1, 1, 1]), amounts(&[4, 3, 3]));
 
         // 7 across 1,1,1,1: floors of 1 each, three spare. Again all tied.
-        assert_eq!(split(7, &[1, 1, 1, 1]), vec![2, 2, 2, 1]);
+        assert_eq!(split_u64(7, &[1, 1, 1, 1]), amounts(&[2, 2, 2, 1]));
 
         // 10 across 1,1,4: floors are 1, 1, 6 — eight of ten placed, so *two*
         // spares, and every remainder is 4, so the two lowest indices take
         // them. Counting the spares wrong is easy and the sum catches it.
-        assert_eq!(split(10, &[1, 1, 4]), vec![2, 2, 6]);
+        assert_eq!(split_u64(10, &[1, 1, 4]), amounts(&[2, 2, 6]));
     }
 
     #[test]
@@ -452,12 +490,12 @@ mod distribution_tests {
         // What largest-remainder buys over rounding down and keeping the dust.
         let weights: Vec<u64> = (1..=200u64).collect();
         let total = 1_000_003u64;
-        let payouts = split(total, &weights);
+        let payouts = split_u64(total, &weights);
         let total_weight: u128 = weights.iter().map(|w| u128::from(*w)).sum();
 
         for (payout, weight) in payouts.iter().zip(&weights) {
             let exact = u128::from(total) * u128::from(*weight) / total_weight;
-            let paid = u128::from(*payout);
+            let paid = payout.to_u128().expect("small");
             assert!(
                 paid == exact || paid == exact + 1,
                 "paid {paid} where the exact share is {exact}"
@@ -472,21 +510,21 @@ mod distribution_tests {
         // here is identical, so every remainder is identical, and only the
         // index can decide.
         let weights = vec![5u64; 64];
-        let first = split(1_000, &weights);
+        let first = split_u64(1_000, &weights);
         for _ in 0..20 {
-            assert_eq!(split(1_000, &weights), first);
+            assert_eq!(split_u64(1_000, &weights), first);
         }
         // The spare units went to the lowest indices, in order.
         let spare = 1_000 % 64;
         for (index, payout) in first.iter().enumerate() {
-            let expected = 1_000 / 64 + u64::from(index < spare as usize);
-            assert_eq!(*payout, expected, "holder {index}");
+            let expected = 1_000 / 64 + u64::from(index < spare);
+            assert_eq!(*payout, Amount::from_u64(expected), "holder {index}");
         }
     }
 
     #[test]
     fn a_holder_with_no_weight_is_paid_nothing() {
-        assert_eq!(split(100, &[0, 1, 0, 1]), vec![0, 50, 0, 50]);
+        assert_eq!(split_u64(100, &[0, 1, 0, 1]), amounts(&[0, 50, 0, 50]));
     }
 
     #[test]
@@ -496,8 +534,8 @@ mod distribution_tests {
         // not only at the scale a hand-written case reaches.
         let weights: Vec<u64> = (0..10_000u64).map(|index| index % 97 + 1).collect();
         let total = 123_456_789u64;
-        let payouts = split(total, &weights);
-        assert_eq!(payouts.iter().sum::<u64>(), total);
+        let payouts = split_u64(total, &weights);
+        assert_eq!(sum(&payouts), Amount::from_u64(total));
         assert_eq!(payouts.len(), 10_000);
     }
 
@@ -507,7 +545,7 @@ mod distribution_tests {
     ///
     /// Exhaustive over that domain, and through the whole of `distribute`,
     /// sort included. A Kani harness over the same domain did not finish in
-    /// fifteen minutes: the solver has to decide a symbolic 128-bit division per
+    /// fifteen minutes: the solver has to decide a symbolic division per
     /// holder. Enumeration decides the same finite set of cases in well under a
     /// second. Placement of the spare is proved at every magnitude in
     /// `proofs.rs`.
@@ -519,7 +557,7 @@ mod distribution_tests {
             for a in 0..=MAX_WEIGHT {
                 for b in 0..=MAX_WEIGHT {
                     for c in 0..=MAX_WEIGHT {
-                        check_exact_and_fair(total, &[a, b, c]);
+                        check_exact_and_fair_u64(total, &[a, b, c]);
                     }
                 }
             }
@@ -527,7 +565,7 @@ mod distribution_tests {
     }
 
     /// The same two properties at the edges of `u64`, where `total * weight`
-    /// needs all 128 bits and a narrower product would wrap.
+    /// needs 128 bits.
     #[test]
     fn large_distributions_are_exact_and_fair() {
         const TOTALS: [u64; 5] = [u64::MAX, u64::MAX - 1, 1 << 63, (1 << 63) - 1, 3];
@@ -536,31 +574,74 @@ mod distribution_tests {
             for a in WEIGHTS {
                 for b in WEIGHTS {
                     for c in WEIGHTS {
-                        check_exact_and_fair(total, &[a, b, c]);
+                        check_exact_and_fair_u64(total, &[a, b, c]);
                     }
                 }
             }
         }
-        // Weights whose sum is exactly u64::MAX, the largest a caller can pass.
-        check_exact_and_fair(u64::MAX, &[u64::MAX - 1, 1]);
-        check_exact_and_fair(u64::MAX, &[u64::MAX / 2, u64::MAX / 2 + 1]);
+        check_exact_and_fair_u64(u64::MAX, &[u64::MAX - 1, 1]);
+        check_exact_and_fair_u64(u64::MAX, &[u64::MAX / 2, u64::MAX / 2 + 1]);
     }
 
-    fn check_exact_and_fair(total: u64, weights: &[u64]) {
-        let total_weight: u64 = weights.iter().sum();
-        let mut payouts = vec![0u64; weights.len()];
+    /// At the 256-bit ceiling, where `total * weight` needs all 512 bits of
+    /// the wide product and a 256-bit one would wrap. Fairness is checked by
+    /// reconstruction: `floor * total_weight + rem == total * weight`.
+    #[test]
+    fn distributions_at_the_256_bit_ceiling_are_exact() {
+        let half = Amount::MAX.checked_div(Amount::from_u64(2)).expect("half");
+        let cases: [(Amount, Vec<Amount>); 4] = [
+            (
+                Amount::MAX,
+                vec![half, half.checked_add(Amount::ONE).expect("fits")],
+            ),
+            (
+                Amount::MAX,
+                vec![
+                    Amount::MAX.checked_sub(Amount::ONE).expect("fits"),
+                    Amount::ONE,
+                ],
+            ),
+            (Amount::MAX, amounts(&[1, 1, 1])),
+            (
+                half,
+                vec![half, Amount::from_u64(7), Amount::from_u64(u64::MAX)],
+            ),
+        ];
+        for (total, weights) in cases {
+            let payouts = split(total, &weights);
+            assert_eq!(sum(&payouts), total, "{weights:?}");
+            let total_weight = sum(&weights);
+            for (payout, weight) in payouts.iter().zip(&weights) {
+                let floor = total.mul_div(*weight, total_weight).expect("floor");
+                assert!(
+                    *payout == floor || Some(*payout) == floor.checked_add(Amount::ONE),
+                    "paid {payout}, floor {floor}"
+                );
+            }
+        }
+    }
+
+    fn check_exact_and_fair_u64(total: u64, weights: &[u64]) {
+        let total_weight: u128 = weights.iter().map(|w| u128::from(*w)).sum();
+        let weights_wide = amounts(weights);
+        let mut payouts = vec![Amount::ZERO; weights.len()];
         let mut order = vec![0u32; weights.len()];
-        let placed = distribute(total, weights, &mut payouts, &mut order);
+        let placed = distribute(
+            Amount::from_u64(total),
+            &weights_wide,
+            &mut payouts,
+            &mut order,
+        );
         if total_weight == 0 {
             assert!(placed.is_none(), "zero weight must refuse");
             return;
         }
         assert!(placed.is_some(), "{total} over {weights:?}");
-        let placed: u128 = payouts.iter().map(|payout| u128::from(*payout)).sum();
-        assert_eq!(placed, u128::from(total), "{weights:?}");
+        assert_eq!(sum(&payouts), Amount::from_u64(total), "{weights:?}");
         for (payout, weight) in payouts.iter().zip(weights) {
-            let exact = u128::from(total) * u128::from(*weight) / u128::from(total_weight);
-            let payout = u128::from(*payout);
+            // u128 is exact here: total and weight are both u64.
+            let exact = u128::from(total) * u128::from(*weight) / total_weight;
+            let payout = payout.to_u128().expect("at most total");
             assert!(
                 payout == exact || payout == exact + 1,
                 "{total} over {weights:?}: paid {payout}, exact share {exact}"
@@ -570,46 +651,55 @@ mod distribution_tests {
 
     #[test]
     fn a_distribution_with_no_holders_moves_nothing_and_refuses_a_total() {
-        let mut payouts: Vec<u64> = Vec::new();
+        let mut payouts: Vec<Amount> = Vec::new();
         let mut order: Vec<u32> = Vec::new();
-        assert!(distribute(0, &[], &mut payouts, &mut order).is_some());
+        assert!(distribute(Amount::ZERO, &[], &mut payouts, &mut order).is_some());
         // Paying a non-zero total to nobody would make the value vanish.
-        assert!(distribute(1, &[], &mut payouts, &mut order).is_none());
+        assert!(distribute(Amount::ONE, &[], &mut payouts, &mut order).is_none());
     }
 
     #[test]
     fn weights_that_sum_to_zero_are_refused() {
         // There is nothing to be in proportion to, and dividing by the total
         // weight would be a division by zero.
-        let mut payouts = vec![0u64; 3];
+        let mut payouts = vec![Amount::ZERO; 3];
         let mut order = vec![0u32; 3];
-        assert!(distribute(10, &[0, 0, 0], &mut payouts, &mut order).is_none());
+        assert!(
+            distribute(
+                Amount::from_u64(10),
+                &amounts(&[0, 0, 0]),
+                &mut payouts,
+                &mut order
+            )
+            .is_none()
+        );
     }
 
     #[test]
     fn mismatched_buffers_are_refused_rather_than_truncating() {
-        let mut short = vec![0u64; 2];
+        let weights = amounts(&[1, 1, 1]);
+        let mut short = vec![Amount::ZERO; 2];
         let mut order = vec![0u32; 3];
-        assert!(distribute(10, &[1, 1, 1], &mut short, &mut order).is_none());
+        assert!(distribute(Amount::from_u64(10), &weights, &mut short, &mut order).is_none());
 
-        let mut payouts = vec![0u64; 3];
+        let mut payouts = vec![Amount::ZERO; 3];
         let mut short_order = vec![0u32; 2];
-        assert!(distribute(10, &[1, 1, 1], &mut payouts, &mut short_order).is_none());
+        assert!(
+            distribute(
+                Amount::from_u64(10),
+                &weights,
+                &mut payouts,
+                &mut short_order
+            )
+            .is_none()
+        );
     }
 
     #[test]
-    fn weights_that_overflow_a_u64_are_refused() {
-        let mut payouts = vec![0u64; 2];
+    fn weights_that_overflow_an_amount_are_refused() {
+        let mut payouts = vec![Amount::ZERO; 2];
         let mut order = vec![0u32; 2];
-        assert!(distribute(10, &[u64::MAX, 1], &mut payouts, &mut order).is_none());
-    }
-
-    #[test]
-    fn a_total_at_the_top_of_the_range_does_not_wrap() {
-        // `total * weight` reaches 2^128 for two u64 operands, and a product
-        // that wrapped would produce a share nobody is owed.
-        let weights = vec![u64::MAX / 4, u64::MAX / 4];
-        let payouts = split(u64::MAX, &weights);
-        assert_eq!(payouts.iter().sum::<u64>(), u64::MAX);
+        let weights = [Amount::MAX, Amount::ONE];
+        assert!(distribute(Amount::from_u64(10), &weights, &mut payouts, &mut order).is_none());
     }
 }

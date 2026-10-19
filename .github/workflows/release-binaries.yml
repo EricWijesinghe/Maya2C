@@ -62,9 +62,15 @@ jobs:
 
       - name: Build
         shell: bash
+        # Linux node: the reproducible build (ADR-054), so anyone can rebuild
+        # it and compare against SHA256SUMS. Windows and macOS are not yet.
         run: |
-          cargo build --release --locked --target ${{ matrix.target }} \
-            -p maya2c-node --no-default-features --features production
+          if [ "$RUNNER_OS" = Linux ]; then
+            bash scripts/repro_build.sh ${{ matrix.target }}
+          else
+            cargo build --release --locked --target ${{ matrix.target }} \
+              -p maya2c-node --no-default-features --features production
+          fi
           cargo build --release --locked --target ${{ matrix.target }} \
             -p l1-wallet -p maya2c-peerid
 
@@ -264,6 +270,8 @@ jobs:
     permissions:
       contents: write
       actions: write   # starts site.yml for the update manifests
+      id-token: write      # signs the provenance attestation (Sigstore OIDC)
+      attestations: write  # stores it where `gh attestation verify` finds it
     steps:
       # First, for the release notes (docs/releases/<tag>.md): a checkout
       # cleans the workspace, so it must come before the artifacts.
@@ -295,12 +303,35 @@ jobs:
           done
           find . -mindepth 1 -type d -empty -delete
           ls -la
+      # A software bill of materials for the source tree the binaries were
+      # built from, so a user can check which dependency versions shipped
+      # without trusting this page. CycloneDX from Cargo.lock via
+      # `cargo cyclonedx`: the action allow-list admits taiki-e, not anchore.
+      # Before Checksums, so the SBOM is summed too.
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master, pinned 2026-09-29
+        with:
+          toolchain: nightly-2026-07-15
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2, pinned 2026-09-29
+        with:
+          tool: cargo-cyclonedx@0.5.9
+      - name: SBOM
+        run: |
+          cargo cyclonedx --format json --spec-version 1.5
+          find . -name '*.cdx.json' -not -path './dist/*' -not -path './target/*' -print0             | tar --null -czf dist/maya2c-sbom-cyclonedx.tar.gz --files-from -
+          tar -tzf dist/maya2c-sbom-cyclonedx.tar.gz | wc -l
       - name: Checksums
         run: |
           cd dist
           # Installer names contain spaces ("Maya Wallet_0.1.0_x64-setup.exe").
           find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\0' \
             | sort -z | xargs -0 sha256sum | tee SHA256SUMS
+      # Signed SLSA build provenance for every file in SHA256SUMS: proves a
+      # download was built by this workflow from this commit. Verify with
+      # `gh attestation verify <file> --repo EricWijesinghe/Maya2C`.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: dist/SHA256SUMS
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}

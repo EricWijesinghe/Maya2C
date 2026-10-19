@@ -34,6 +34,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use primitive_types::U256;
 use std::panic::{self, AssertUnwindSafe};
 
 use custom_l1_node::core::{Block, BlockHeader, Transaction, TxInput, TxOutput};
@@ -69,7 +70,7 @@ fn seed(rng: &mut ChaCha20Rng, key: &HybridSigningKey) -> Vec<u8> {
     let mut tx = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount: boundary_u64(rng),
+            amount: primitive_types::U256::from(boundary_u64(rng)),
             recipient: [(rng.next_u32() & 0xff) as u8; 32],
         }],
         rng.next_u64(),
@@ -94,7 +95,7 @@ fn mutate(bytes: &[u8], rng: &mut ChaCha20Rng) -> Vec<u8> {
     match rng.next_u32() % 5 {
         0 => {
             if let Some(o) = tx.outputs.first_mut() {
-                o.amount = boundary_u64(rng);
+                o.amount = primitive_types::U256::from(boundary_u64(rng));
             }
         }
         1 => tx.nonce = boundary_u64(rng),
@@ -102,7 +103,7 @@ fn mutate(bytes: &[u8], rng: &mut ChaCha20Rng) -> Vec<u8> {
             let n = (rng.next_u32() % 2048) as usize;
             tx.outputs = (0..n)
                 .map(|i| TxOutput {
-                    amount: boundary_u64(rng),
+                    amount: primitive_types::U256::from(boundary_u64(rng)),
                     recipient: [i as u8; 32],
                 })
                 .collect();
@@ -141,7 +142,7 @@ fn fresh_state(owner: &Address) -> (StateDB, TempDir) {
         .put_account(
             owner,
             &Account {
-                balance: 1_000_000,
+                balance: U256::from(1_000_000),
                 nonce: 0,
             },
         )

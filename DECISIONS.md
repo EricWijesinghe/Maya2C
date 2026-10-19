@@ -274,6 +274,20 @@ one by one and dismissed with reasons (757 test fixtures, 105 false
 positives, including the two zero-nonce seals — safe, fresh ML-KEM secret per
 seal); the three real JS findings were fixed.
 
+## 2026-10-12 — Foundation validator set on one PC (ADR-047)
+
+Eric chose the "PC launch" on 2026-10-11 and confirmed on 2026-10-12 that it
+should be recorded and gate 5 closed on it. ADR-047 supersedes ADR-042's
+four-machine gate 5: four project-run validators on Eric's PC, the same
+sentence about it everywhere it is described, and the host's own failure
+modes closed first (`infra/foundation-pc/harden-host.ps1`). Investigating
+it found that the watchdog task ran only in Eric's interactive session, so
+after an unattended restart no validator would start until he logged in.
+`-Apply` re-registers it to run at boot (S4U), and `-SelfTest` proves it runs
+in session 0. Residual risks, written into the ADR: no machine independence;
+the PC is on the Insider Dev channel, which cannot be left without
+reinstalling; and the reboot drill waits for gate 3's soak, because a
+deliberate restart would reset the soak clock.
 ## 2026-10-12 — Helpers join with one line; the installers restart and recover by themselves
 
 Eric: friends want to help and are not technical, so their comfort comes
@@ -301,4 +315,31 @@ No sticker server: a pack travels from the person who has it, on request,
 and only packs they made or installed are ever sent. Formats: Lottie (.json,
 Telegram .tgs), WebM, WebP, PNG/APNG, GIF, SVG (drawn only as <img>). The
 built-in pack is original art; no third-party pack ships with the app.
+
+## 2026-10-13 — Every amount is 256-bit (ADR-046 amendment)
+
+Balances were widened to U256 but transaction amounts stayed u64, which at 18
+decimals caps a transaction at ~18.4 coins. Eric: "Widen every amount to
+256-bit" (option 1 of two; option 2 was 9 decimals). Wire-format change under
+invariant 31: spec, vectors and spec-ref follow. The proved crates share one
+dependency-free 256-bit type, `maya-amount` (ADR-048), rather than five copies.
+Done 2026-10-13 (`feat/u256-supply`): every value path is 256-bit; the values
+deliberately left at 64 bits, and why, are tabled in ADR-048.
+
+## 2026-10-18 — Overnight run decisions
+
+- **Validator keys sealed at rest (ADR-049).** This is a new format instead of reusing the 32-byte-seed keystore, because node keys are expanded ML-DSA-65 secrets. A production build refuses plaintext; devnets warn so the live testnet survives the upgrade.
+- **No backdoor (ADR-050, proposed).** "Full control" for Eric means operator control plus the existing bounded council pause at 2-of-3. It never means a master key over anyone's funds. Claude holds no keys.
+- **Level 5 ordered by cost (ADR-051, proposed):**
+  - now: transport ML-KEM-1024 and an opt-in wallet suite;
+  - at mainnet genesis: validator keys at ML-DSA-87;
+  - not now: the default account suite.
+- **Funding links are left empty** until Eric creates the accounts; inventing them would be dishonest.
+- **The release SBOM uses cargo-cyclonedx** through the allowed taiki-e action, because the action allow-list does not admit anchore.
+
+## 2026-10-18 — Ticker, council, wallet units (Eric)
+
+- **Ticker MAYA.** Display only: amounts stay 256-bit base units, and 1 MAYA = 10^18 base units (ADR-046). Recorded in `chain/maya2c-testnet.json` and as `TICKER` in the wallet core.
+- **Emergency council 2 of 3 (ADR-050 accepted):** this PC, the MacBook, and an offline backup. It pauses one module for a bounded time and never moves funds.
+- **Wallet send form uses whole coins (#135 merged).** Payment requests and QR codes stay in base units.
 

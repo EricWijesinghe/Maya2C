@@ -45,11 +45,11 @@ fn fixture() -> String {
         }],
         vec![
             TxOutput {
-                amount: 1_250_000,
+                amount: primitive_types::U256::from(1_250_000),
                 recipient: [0x33; 32],
             },
             TxOutput {
-                amount: 40_000,
+                amount: primitive_types::U256::from(40_000),
                 recipient: [0x44; 32],
             },
         ],

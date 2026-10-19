@@ -47,6 +47,8 @@
 //! [breaker](super::breaker) exists for the other case: a block that is valid
 //! and suspicious.
 
+use maya_dex::Amount;
+use maya_stateless_core::amount::to_u256;
 use std::collections::BTreeMap;
 
 use maya_dex::amm::MINIMUM_LIQUIDITY;
@@ -54,6 +56,8 @@ use maya_dex::types::NATIVE_ASSET;
 
 use crate::error::{NodeError, Result};
 use crate::governance::{LOCK_PREFIX, LockRecord, PROPOSAL_PREFIX, ProposalRecord};
+use primitive_types::U256;
+
 use crate::state::asset::{AssetId, AssetRecord, decode_balance};
 use crate::state::channel::{ChannelRecord, ChannelStatus};
 use crate::state::db::{Overlay, StateDB};
@@ -63,29 +67,63 @@ use crate::state::dex::{
 };
 use crate::state::htlc::{LOCK_PREFIX as HTLC_LOCK_PREFIX, decode as htlc_decode};
 
-/// A signed running total per asset.
+/// Per-asset gains and losses, both unsigned.
 ///
-/// Holdings add, issuance subtracts, and every entry must end at zero. One map
-/// rather than two compared afterwards: an asset that appears on only one side
-/// is then a non-zero entry rather than a lookup somebody has to remember to
-/// do in both directions.
-type Ledger = BTreeMap<AssetId, i128>;
+/// Holdings that rise are gains, holdings that fall are losses, and every asset
+/// must end with equal sides. Two unsigned totals rather than one signed total:
+/// a signed `U256` difference cannot be represented, and an unsigned pair makes
+/// the equation exact without a wrap. Both sides are checked on every add, so
+/// a flow that would overflow `U256` is itself a violation, never a silent
+/// truncation. An asset that appears on only one side is then unequal sides
+/// rather than a lookup somebody has to remember to do in both directions.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Flow {
+    gained: U256,
+    lost: U256,
+}
 
-fn shift(ledger: &mut Ledger, asset: AssetId, delta: i128) {
-    if delta != 0 {
-        *ledger.entry(asset).or_insert(0) += delta;
+type Ledger = BTreeMap<AssetId, Flow>;
+
+fn flow_overflow(asset: &AssetId) -> NodeError {
+    NodeError::InvariantViolation(format!(
+        "conservation: asset {} flow overflows a 256-bit amount",
+        hex::encode(asset)
+    ))
+}
+
+/// Records `amount` of `asset` rising in holdings.
+fn gain(ledger: &mut Ledger, asset: AssetId, amount: U256) -> Result<()> {
+    let flow = ledger.entry(asset).or_default();
+    flow.gained = flow
+        .gained
+        .checked_add(amount)
+        .ok_or_else(|| flow_overflow(&asset))?;
+    Ok(())
+}
+
+/// Records `amount` of `asset` falling in holdings.
+fn loss(ledger: &mut Ledger, asset: AssetId, amount: U256) -> Result<()> {
+    let flow = ledger.entry(asset).or_default();
+    flow.lost = flow
+        .lost
+        .checked_add(amount)
+        .ok_or_else(|| flow_overflow(&asset))?;
+    Ok(())
+}
+
+/// Records a holding moving from `old` to `new`, on whichever side it falls.
+fn moved(ledger: &mut Ledger, asset: AssetId, new: U256, old: U256) -> Result<()> {
+    if new >= old {
+        gain(ledger, asset, new - old)
+    } else {
+        loss(ledger, asset, old - new)
     }
 }
 
-/// `new - old`, as a signed difference that cannot overflow.
-fn diff(new: u64, old: u64) -> i128 {
-    i128::from(new) - i128::from(old)
-}
-
 /// The value a channel is still holding: nothing, once it has paid out.
-fn escrowed(record: &ChannelRecord) -> u64 {
+fn escrowed(record: &ChannelRecord) -> U256 {
     match record.status {
-        ChannelStatus::Closed => 0,
+        ChannelStatus::Closed => U256::zero(),
         ChannelStatus::Open | ChannelStatus::Disputed => record.capacity,
     }
 }
@@ -132,11 +170,20 @@ impl StateDB {
         self.fold_native(overlay, &mut ledger)?;
         self.fold_records(overlay, &mut ledger)?;
 
-        match ledger.iter().find(|(_, net)| **net != 0) {
-            Some((asset, net)) => Err(NodeError::InvariantViolation(format!(
-                "asset {} is out by {net} units: holdings moved by that much more than supply",
-                hex::encode(asset)
-            ))),
+        match ledger.iter().find(|(_, flow)| flow.gained != flow.lost) {
+            Some((asset, flow)) => {
+                // Positive discrepancy prints unsigned; only a shortfall is
+                // marked, so "out by 300" / "out by -300" keep their meaning.
+                let (sign, out_by) = if flow.gained > flow.lost {
+                    ("", flow.gained - flow.lost)
+                } else {
+                    ("-", flow.lost - flow.gained)
+                };
+                Err(NodeError::InvariantViolation(format!(
+                    "asset {} is out by {sign}{out_by} units: holdings moved by that much more than supply",
+                    hex::encode(asset)
+                )))
+            }
             None => Ok(()),
         }
     }
@@ -145,28 +192,20 @@ impl StateDB {
     fn fold_native(&self, overlay: &Overlay, ledger: &mut Ledger) -> Result<()> {
         for (address, account) in &overlay.accounts {
             let committed = self.get_account(address)?;
-            shift(
-                ledger,
-                NATIVE_ASSET,
-                diff(account.balance, committed.balance),
-            );
+            moved(ledger, NATIVE_ASSET, account.balance, committed.balance)?;
         }
 
         for (id, record) in &overlay.channels {
             let previous = match self.get_channel(id)? {
                 Some(committed) => escrowed(&committed),
-                None => 0,
+                None => U256::zero(),
             };
-            shift(ledger, NATIVE_ASSET, diff(escrowed(record), previous));
+            moved(ledger, NATIVE_ASSET, escrowed(record), previous)?;
         }
 
         if let Some(pool) = &overlay.shielded {
             let committed = self.stored_pool()?;
-            shift(
-                ledger,
-                NATIVE_ASSET,
-                diff(pool.balance(), committed.balance()),
-            );
+            moved(ledger, NATIVE_ASSET, pool.balance(), committed.balance())?;
         }
 
         Ok(())
@@ -229,8 +268,7 @@ impl StateDB {
                     hex::encode(key)
                 ))
             })?;
-        shift(ledger, asset, diff(balance(staged)?, balance(previous)?));
-        Ok(())
+        moved(ledger, asset, balance(staged)?, balance(previous)?)
     }
 
     /// `d:ord:<pair><side><sort key>`: one resting order's escrow.
@@ -245,7 +283,9 @@ impl StateDB {
         previous: Option<&[u8]>,
         ledger: &mut Ledger,
     ) -> Result<()> {
-        for (bytes, sign) in [(staged, 1i128), (previous, -1i128)] {
+        // Staged escrow is held (a gain for the escrow asset); previous escrow
+        // was released by this block (a loss).
+        for (bytes, is_staged) in [(staged, true), (previous, false)] {
             let Some(bytes) = bytes else { continue };
             let order = OrderRecord::decode(bytes)?;
             let Some(pool) = self.record(overlay, &pool_key(&order.pair))? else {
@@ -258,11 +298,12 @@ impl StateDB {
                 )));
             };
             let pool = PoolRecord::decode(&pool)?;
-            shift(
-                ledger,
-                order.escrow_asset(&pool),
-                sign * i128::from(order.escrow),
-            );
+            let (asset, amount) = (order.escrow_asset(&pool), to_u256(order.escrow));
+            if is_staged {
+                gain(ledger, asset, amount)?;
+            } else {
+                loss(ledger, asset, amount)?;
+            }
         }
         Ok(())
     }
@@ -280,11 +321,11 @@ fn fold_pool(
     let previous = previous.map(PoolRecord::decode).transpose()?;
 
     let reserves = |record: Option<&PoolRecord>| {
-        record.map_or((0, 0, 0), |record| {
+        record.map_or((U256::zero(), U256::zero(), U256::zero()), |record| {
             (
-                record.pool.reserve_base,
-                record.pool.reserve_quote,
-                holdable_shares(record.pool.total_shares),
+                to_u256(record.pool.reserve_base),
+                to_u256(record.pool.reserve_quote),
+                to_u256(holdable_shares(record.pool.total_shares)),
             )
         })
     };
@@ -301,16 +342,11 @@ fn fold_pool(
         return Ok(());
     };
 
-    shift(ledger, base_asset, diff(new_base, old_base));
-    shift(ledger, quote_asset, diff(new_quote, old_quote));
+    moved(ledger, base_asset, new_base, old_base)?;
+    moved(ledger, quote_asset, new_quote, old_quote)?;
     // Shares are the pool's own issuance, so they enter with the opposite sign
-    // to the balances that hold them.
-    shift(
-        ledger,
-        derive_lp_asset(&pair),
-        -diff(new_shares, old_shares),
-    );
-    Ok(())
+    // to the balances that hold them: a rise in issued shares is a loss here.
+    moved(ledger, derive_lp_asset(&pair), old_shares, new_shares)
 }
 
 /// The share supply somebody can actually hold.
@@ -325,7 +361,7 @@ fn fold_pool(
 /// Saturating rather than checked because a pool that exists has at least this
 /// many shares — `Pool::seed` refuses a first deposit that cannot cover them —
 /// and a pool that does not exist has zero, which is the answer either way.
-fn holdable_shares(total: u64) -> u64 {
+fn holdable_shares(total: Amount) -> Amount {
     total.saturating_sub(MINIMUM_LIQUIDITY)
 }
 
@@ -337,30 +373,25 @@ fn fold_asset(
     ledger: &mut Ledger,
 ) -> Result<()> {
     let asset = id_after(key, ASSET_PREFIX)?;
-    let supply = |bytes: Option<&[u8]>| -> Result<u64> {
+    let supply = |bytes: Option<&[u8]>| -> Result<U256> {
         Ok(match bytes {
             Some(bytes) => AssetRecord::decode(bytes)?.total_supply,
-            None => 0,
+            None => U256::zero(),
         })
     };
-    shift(ledger, asset, -diff(supply(staged)?, supply(previous)?));
-    Ok(())
+    // Issuance is the opposite sign to holdings: a supply that rises is a loss.
+    moved(ledger, asset, supply(previous)?, supply(staged)?)
 }
 
 /// `g:lock:<address>`: native coin held as voting weight.
 fn fold_lock(staged: Option<&[u8]>, previous: Option<&[u8]>, ledger: &mut Ledger) -> Result<()> {
-    let amount = |bytes: Option<&[u8]>| -> Result<u64> {
+    let amount = |bytes: Option<&[u8]>| -> Result<U256> {
         Ok(match bytes {
             Some(bytes) => LockRecord::decode(bytes)?.amount,
-            None => 0,
+            None => U256::zero(),
         })
     };
-    shift(
-        ledger,
-        NATIVE_ASSET,
-        diff(amount(staged)?, amount(previous)?),
-    );
-    Ok(())
+    moved(ledger, NATIVE_ASSET, amount(staged)?, amount(previous)?)
 }
 
 /// `g:prop:<id>`: a proposal's anti-spam deposit, held until it settles.
@@ -369,18 +400,13 @@ fn fold_proposal(
     previous: Option<&[u8]>,
     ledger: &mut Ledger,
 ) -> Result<()> {
-    let deposit = |bytes: Option<&[u8]>| -> Result<u64> {
+    let deposit = |bytes: Option<&[u8]>| -> Result<U256> {
         Ok(match bytes {
             Some(bytes) => ProposalRecord::decode(bytes)?.deposit,
-            None => 0,
+            None => U256::zero(),
         })
     };
-    shift(
-        ledger,
-        NATIVE_ASSET,
-        diff(deposit(staged)?, deposit(previous)?),
-    );
-    Ok(())
+    moved(ledger, NATIVE_ASSET, deposit(staged)?, deposit(previous)?)
 }
 
 /// `h:lk:<id>`: native coin escrowed by a lattice HTLC until it settles.
@@ -389,18 +415,13 @@ fn fold_htlc_lock(
     previous: Option<&[u8]>,
     ledger: &mut Ledger,
 ) -> Result<()> {
-    let escrowed = |bytes: Option<&[u8]>| -> Result<u64> {
+    let escrowed = |bytes: Option<&[u8]>| -> Result<U256> {
         Ok(match bytes {
-            Some(bytes) => htlc_decode(bytes)?.escrowed(),
-            None => 0,
+            Some(bytes) => to_u256(htlc_decode(bytes)?.escrowed()),
+            None => U256::zero(),
         })
     };
-    shift(
-        ledger,
-        NATIVE_ASSET,
-        diff(escrowed(staged)?, escrowed(previous)?),
-    );
-    Ok(())
+    moved(ledger, NATIVE_ASSET, escrowed(staged)?, escrowed(previous)?)
 }
 
 /// `q:w:`: native coin escrowed by an open vault withdrawal (ADR-030).
@@ -409,44 +430,41 @@ fn fold_vault_withdrawal(
     previous: Option<&[u8]>,
     ledger: &mut Ledger,
 ) -> Result<()> {
-    let escrowed = |bytes: Option<&[u8]>| -> Result<u64> {
+    let escrowed = |bytes: Option<&[u8]>| -> Result<U256> {
         Ok(match bytes {
             Some(bytes) => crate::state::vault::Withdrawal::decode(bytes)?.escrowed(),
-            None => 0,
+            None => U256::zero(),
         })
     };
-    shift(
-        ledger,
-        NATIVE_ASSET,
-        diff(escrowed(staged)?, escrowed(previous)?),
-    );
-    Ok(())
+    moved(ledger, NATIVE_ASSET, escrowed(staged)?, escrowed(previous)?)
 }
 
 /// `k:state`: native coin held by staking — bonds, delegations and funds
 /// waiting out the unbonding delay (ADR-028). One record, so the delta is
 /// the difference of two totals.
 fn fold_staking(staged: Option<&[u8]>, previous: Option<&[u8]>, ledger: &mut Ledger) -> Result<()> {
-    let held = |bytes: Option<&[u8]>| -> Result<i128> {
+    let held = |bytes: Option<&[u8]>| -> Result<U256> {
         Ok(match bytes {
-            Some(bytes) => i128::try_from(
+            // An unrepresentable total is itself a conservation failure.
+            Some(bytes) => to_u256(
                 crate::state::staking::StakingRecord::decode(bytes)?
                     .staking
-                    .held(),
-            )
-            .map_err(|_| NodeError::InvariantViolation("staking holds more than i128".into()))?,
-            None => 0,
+                    .held()
+                    .ok_or_else(|| {
+                        NodeError::InvariantViolation("staking holds past 2^256 - 1".into())
+                    })?,
+            ),
+            None => U256::zero(),
         })
     };
-    shift(ledger, NATIVE_ASSET, held(staged)? - held(previous)?);
-    Ok(())
+    moved(ledger, NATIVE_ASSET, held(staged)?, held(previous)?)
 }
 
 /// An absent balance record is a zero balance, not a missing one.
-fn balance(bytes: Option<&[u8]>) -> Result<u64> {
+fn balance(bytes: Option<&[u8]>) -> Result<U256> {
     match bytes {
         Some(bytes) => decode_balance(bytes),
-        None => Ok(0),
+        None => Ok(U256::zero()),
     }
 }
 
@@ -479,7 +497,10 @@ mod tests {
     }
 
     fn account(balance: u64) -> Account {
-        Account { balance, nonce: 0 }
+        Account {
+            balance: U256::from(balance),
+            nonce: 0,
+        }
     }
 
     fn pool_record(base: u64, quote: u64, shares: u64) -> PoolRecord {
@@ -487,9 +508,9 @@ mod tests {
             base_asset: NATIVE_ASSET,
             quote_asset: QUOTE,
             pool: Pool {
-                reserve_base: base,
-                reserve_quote: quote,
-                total_shares: shares,
+                reserve_base: maya_ledger_math::Amount::from_u64(base),
+                reserve_quote: maya_ledger_math::Amount::from_u64(quote),
+                total_shares: maya_ledger_math::Amount::from_u64(shares),
                 fees: FeeSchedule {
                     lp_bps: 30,
                     protocol_bps: 0,
@@ -555,9 +576,10 @@ mod tests {
 
         let mut overlay = Overlay::default();
         overlay.accounts.insert(ALICE, account(400));
-        overlay
-            .channels
-            .insert([9u8; 32], ChannelRecord::new(ALICE, BOB, 600, 10));
+        overlay.channels.insert(
+            [9u8; 32],
+            ChannelRecord::new(ALICE, BOB, primitive_types::U256::from(600), 10),
+        );
         db.check_value_conservation(&overlay).expect("conserved");
     }
 
@@ -568,16 +590,17 @@ mod tests {
 
         let mut overlay = Overlay::default();
         overlay.accounts.insert(ALICE, account(400));
-        overlay
-            .channels
-            .insert([9u8; 32], ChannelRecord::new(ALICE, BOB, 900, 10));
+        overlay.channels.insert(
+            [9u8; 32],
+            ChannelRecord::new(ALICE, BOB, primitive_types::U256::from(900), 10),
+        );
         assert!(violation(&db, &overlay).contains("out by 300"));
     }
 
     #[test]
     fn a_closed_channel_pays_out_exactly_what_it_escrowed() {
         let (db, _dir) = open();
-        let mut open_channel = ChannelRecord::new(ALICE, BOB, 600, 10);
+        let mut open_channel = ChannelRecord::new(ALICE, BOB, primitive_types::U256::from(600), 10);
         db.put_channel(&[9u8; 32], &open_channel).expect("escrow");
         db.put_account(&ALICE, &account(0)).expect("fund");
 
@@ -592,7 +615,7 @@ mod tests {
     #[test]
     fn a_closed_channel_paying_out_more_than_it_escrowed_is_refused() {
         let (db, _dir) = open();
-        let mut open_channel = ChannelRecord::new(ALICE, BOB, 600, 10);
+        let mut open_channel = ChannelRecord::new(ALICE, BOB, primitive_types::U256::from(600), 10);
         db.put_channel(&[9u8; 32], &open_channel).expect("escrow");
 
         open_channel.status = ChannelStatus::Closed;
@@ -630,8 +653,11 @@ mod tests {
         db.raw_put(&pool_key(&PAIR), &pool_record(1_000, 2_000, 2_000).encode())
             .expect("seed pool");
         db.put_account(&ALICE, &account(500)).expect("fund");
-        db.raw_put(&balance_key(&QUOTE, &ALICE), &encode_balance(1_000))
-            .expect("seed balance");
+        db.raw_put(
+            &balance_key(&QUOTE, &ALICE),
+            &encode_balance(U256::from(1_000)),
+        )
+        .expect("seed balance");
 
         // Half the reserves added, so half again the shares: 2,000 -> 3,000
         // issued, of which 1,000 are the locked `MINIMUM_LIQUIDITY` on each
@@ -647,14 +673,14 @@ mod tests {
         StateDB::put_record(
             &mut overlay,
             balance_key(&QUOTE, &ALICE),
-            encode_balance(0).to_vec(),
+            encode_balance(U256::from(0)).to_vec(),
         );
         // The shares the pool issued have to land somewhere, or the pool has
         // issued value nobody holds.
         StateDB::put_record(
             &mut overlay,
             balance_key(&derive_lp_asset(&PAIR), &ALICE),
-            encode_balance(1_000).to_vec(),
+            encode_balance(U256::from(1_000)).to_vec(),
         );
         db.check_value_conservation(&overlay).expect("conserved");
     }
@@ -669,8 +695,11 @@ mod tests {
         // "simplifies" that subtraction away.
         let (db, _dir) = open();
         db.put_account(&ALICE, &account(1_000)).expect("fund");
-        db.raw_put(&balance_key(&QUOTE, &ALICE), &encode_balance(2_000))
-            .expect("seed balance");
+        db.raw_put(
+            &balance_key(&QUOTE, &ALICE),
+            &encode_balance(U256::from(2_000)),
+        )
+        .expect("seed balance");
 
         let mut overlay = Overlay::default();
         StateDB::put_record(
@@ -682,13 +711,13 @@ mod tests {
         StateDB::put_record(
             &mut overlay,
             balance_key(&QUOTE, &ALICE),
-            encode_balance(0).to_vec(),
+            encode_balance(U256::from(0)).to_vec(),
         );
         // 2,000 issued, 1,000 locked, so 1,000 reach the depositor.
         StateDB::put_record(
             &mut overlay,
             balance_key(&derive_lp_asset(&PAIR), &ALICE),
-            encode_balance(1_000).to_vec(),
+            encode_balance(U256::from(1_000)).to_vec(),
         );
         db.check_value_conservation(&overlay).expect("conserved");
     }
@@ -701,8 +730,11 @@ mod tests {
         // notices: it would start passing.
         let (db, _dir) = open();
         db.put_account(&ALICE, &account(1_000)).expect("fund");
-        db.raw_put(&balance_key(&QUOTE, &ALICE), &encode_balance(2_000))
-            .expect("seed balance");
+        db.raw_put(
+            &balance_key(&QUOTE, &ALICE),
+            &encode_balance(U256::from(2_000)),
+        )
+        .expect("seed balance");
 
         let mut overlay = Overlay::default();
         StateDB::put_record(
@@ -714,12 +746,12 @@ mod tests {
         StateDB::put_record(
             &mut overlay,
             balance_key(&QUOTE, &ALICE),
-            encode_balance(0).to_vec(),
+            encode_balance(U256::from(0)).to_vec(),
         );
         StateDB::put_record(
             &mut overlay,
             balance_key(&derive_lp_asset(&PAIR), &ALICE),
-            encode_balance(2_000).to_vec(),
+            encode_balance(U256::from(2_000)).to_vec(),
         );
         assert!(violation(&db, &overlay).contains("out by 1000"));
     }
@@ -733,7 +765,7 @@ mod tests {
         StateDB::put_record(
             &mut overlay,
             balance_key(&lp, &ALICE),
-            encode_balance(50).to_vec(),
+            encode_balance(U256::from(50)).to_vec(),
         );
         assert!(violation(&db, &overlay).contains(&hex::encode(lp)));
     }
@@ -744,7 +776,7 @@ mod tests {
         let asset = [5u8; 32];
         let record = AssetRecord {
             creator: ALICE,
-            total_supply: 1_000,
+            total_supply: U256::from(1_000),
             symbol: *b"USD\0\0\0\0\0",
         };
 
@@ -757,7 +789,7 @@ mod tests {
         StateDB::put_record(
             &mut overlay,
             balance_key(&asset, &ALICE),
-            encode_balance(1_000).to_vec(),
+            encode_balance(U256::from(1_000)).to_vec(),
         );
         db.check_value_conservation(&overlay).expect("conserved");
     }
@@ -801,7 +833,7 @@ mod tests {
             &mut overlay,
             crate::governance::lock_key(&ALICE),
             LockRecord {
-                amount: 300,
+                amount: primitive_types::U256::from(300),
                 unlock_height: 100,
             }
             .encode()
@@ -820,7 +852,7 @@ mod tests {
             &mut overlay,
             crate::governance::lock_key(&ALICE),
             LockRecord {
-                amount: 300,
+                amount: primitive_types::U256::from(300),
                 unlock_height: 100,
             }
             .encode()

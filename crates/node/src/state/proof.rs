@@ -42,7 +42,7 @@
 
 use crate::core::codec::ByteReader;
 use crate::error::{NodeError, Result};
-use crate::state::account::{Account, Address};
+use crate::state::account::{ACCOUNT_LEN, Account, Address};
 use crate::state::merkle::{HASH_LEN, PathStep, account_leaf, verify_path};
 
 /// A subsystem that folds into the state root above the accounts tree.
@@ -307,7 +307,7 @@ impl AccountProof {
     /// Encodes the proof.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(32 + 16 + 8 + self.path.len() * 33 + 8);
+        let mut buf = Vec::with_capacity(32 + ACCOUNT_LEN + 8 + self.path.len() * 33 + 8);
         buf.extend_from_slice(&self.address);
         buf.extend_from_slice(&self.account.encode());
 
@@ -334,7 +334,7 @@ impl AccountProof {
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let mut reader = ByteReader::new(bytes);
         let address = reader.read_array::<32>()?;
-        let account = Account::decode(&reader.read_array::<16>()?)?;
+        let account = Account::decode(&reader.read_array::<ACCOUNT_LEN>()?)?;
 
         let path_len = reader.read_collection_len(33)?;
         let mut path = Vec::with_capacity(path_len);
@@ -394,7 +394,7 @@ mod tests {
         AccountProof {
             address: [1u8; 32],
             account: Account {
-                balance: 500,
+                balance: primitive_types::U256::from(500),
                 nonce: 3,
             },
             path: vec![PathStep {
@@ -492,7 +492,7 @@ mod tests {
         // against the root it had before it moved.
         let mut tampered = proof(vec![]);
         let honest = tampered.compute_root().expect("root");
-        tampered.account.balance += 1;
+        tampered.account.balance += primitive_types::U256::one();
         assert_ne!(tampered.compute_root().expect("root"), honest);
     }
 
@@ -510,7 +510,7 @@ mod tests {
         // Outside {0, 1} would give one proof two encodings, and a proof with
         // two encodings has two identifiers.
         let mut encoded = proof(vec![]).encode();
-        let side_index = 32 + 16 + 8 + HASH_LEN;
+        let side_index = 32 + ACCOUNT_LEN + 8 + HASH_LEN;
         encoded[side_index] = 2;
         assert!(AccountProof::decode(&encoded).is_err());
     }

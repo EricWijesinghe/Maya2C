@@ -12,8 +12,9 @@ use crate::ui::short_hash;
 
 /// Groups digits in threes so large base-unit amounts stay readable.
 #[must_use]
-pub fn group_digits(n: i64) -> String {
-    let digits = n.unsigned_abs().to_string();
+pub fn group_digits(n: impl std::fmt::Display) -> String {
+    let text = n.to_string();
+    let digits = text.trim_start_matches('-');
     let mut out = String::new();
     for (i, c) in digits.chars().enumerate() {
         if i > 0 && (digits.len() - i).is_multiple_of(3) {
@@ -21,7 +22,11 @@ pub fn group_digits(n: i64) -> String {
         }
         out.push(c);
     }
-    if n < 0 { format!("-{out}") } else { out }
+    if text.starts_with('-') {
+        format!("-{out}")
+    } else {
+        out
+    }
 }
 
 /// One sentence describing `tx`.
@@ -39,7 +44,7 @@ pub fn describe(tx: &IndexedTx) -> String {
     format!(
         "{} sent {} base units to {recipients} in block {}.{signature}",
         short_hash(&tx.sender),
-        group_digits(tx.total_out),
+        group_digits(&tx.total_out),
         tx.height,
     )
 }
@@ -49,6 +54,7 @@ mod tests {
     use super::*;
 
     fn tx(outputs: i32, total: i64, signed: bool) -> IndexedTx {
+        let total = total.to_string();
         IndexedTx {
             txid: "ab".repeat(32),
             height: 1_204,

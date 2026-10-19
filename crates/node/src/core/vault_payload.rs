@@ -1,8 +1,8 @@
 //! Vault actions (ADR-030; Master Prompts 22 and 28).
 //!
 //! ```text
-//! action = 0 delay:u64 limit:u64 n:u64 guardian[32]*n    configure
-//!        | 1 to[32] amount:u64                           request
+//! action = 0 delay:u64 limit:u256 n:u64 guardian[32]*n   configure
+//!        | 1 to[32] amount:u256                           request
 //!        | 2 owner[32] id:u64                            execute
 //!        | 3 owner[32] id:u64                            cancel
 //! ```
@@ -30,7 +30,7 @@ pub struct VaultConfig {
     /// Blocks a withdrawal (or a reconfiguration) waits.
     pub delay_blocks: u64,
     /// The most a plain transfer may move out at once, fees aside.
-    pub limit: u64,
+    pub limit: primitive_types::U256,
     /// Accounts that may cancel.
     pub guardians: Vec<[u8; 32]>,
 }
@@ -39,7 +39,7 @@ impl VaultConfig {
     /// Appends the encoding.
     pub fn encode_into(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&self.delay_blocks.to_le_bytes());
-        buf.extend_from_slice(&self.limit.to_le_bytes());
+        crate::core::codec::put_amount(buf, &self.limit);
         buf.extend_from_slice(&(self.guardians.len() as u64).to_le_bytes());
         for g in &self.guardians {
             buf.extend_from_slice(g);
@@ -53,7 +53,7 @@ impl VaultConfig {
     /// [`NodeError::Decode`] for more than [`MAX_GUARDIANS`] or truncation.
     pub fn decode(r: &mut ByteReader<'_>) -> Result<Self> {
         let delay_blocks = r.read_u64()?;
-        let limit = r.read_u64()?;
+        let limit = r.read_amount()?;
         let n = r.read_collection_len(32)?;
         if n > MAX_GUARDIANS {
             return Err(NodeError::Decode(format!("{n} vault guardians")));
@@ -77,7 +77,7 @@ pub enum VaultAction {
         /// Recipient.
         to: [u8; 32],
         /// Amount.
-        amount: u64,
+        amount: primitive_types::U256,
     },
     /// Pay a matured request.
     Execute {
@@ -106,7 +106,7 @@ impl VaultAction {
             Self::Request { to, amount } => {
                 buf.push(REQUEST);
                 buf.extend_from_slice(to);
-                buf.extend_from_slice(&amount.to_le_bytes());
+                crate::core::codec::put_amount(buf, amount);
             }
             Self::Execute { owner, id } | Self::Cancel { owner, id } => {
                 buf.push(if matches!(self, Self::Execute { .. }) {
@@ -130,7 +130,7 @@ impl VaultAction {
             CONFIGURE => Ok(Self::Configure(VaultConfig::decode(r)?)),
             REQUEST => Ok(Self::Request {
                 to: r.read_array()?,
-                amount: r.read_u64()?,
+                amount: r.read_amount()?,
             }),
             EXECUTE => Ok(Self::Execute {
                 owner: r.read_array()?,
@@ -155,12 +155,12 @@ mod tests {
         for a in [
             VaultAction::Configure(VaultConfig {
                 delay_blocks: 10,
-                limit: 500,
+                limit: primitive_types::U256::from(500u64),
                 guardians: vec![[1; 32], [2; 32]],
             }),
             VaultAction::Request {
                 to: [3; 32],
-                amount: 9_000,
+                amount: primitive_types::U256::from(9_000),
             },
             VaultAction::Execute {
                 owner: [4; 32],
@@ -180,7 +180,7 @@ mod tests {
         let mut too_many = Vec::new();
         VaultAction::Configure(VaultConfig {
             delay_blocks: 1,
-            limit: 0,
+            limit: primitive_types::U256::zero(),
             guardians: vec![[0; 32]; MAX_GUARDIANS + 1],
         })
         .encode_into(&mut too_many);

@@ -18,11 +18,13 @@
 //! in `ps` output on modern systems.
 
 use l1_wallet::keystore;
+use primitive_types::U256;
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
+use custom_l1_node::core::council_payload::CouncilAction;
 use custom_l1_node::core::staking_payload::StakingAction;
 use custom_l1_node::core::{ChainTag, Transaction, TxKind, TxOutput};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
@@ -86,9 +88,9 @@ enum Command {
         #[arg(long)]
         to: String,
 
-        /// Amount to transfer, in base units.
-        #[arg(long)]
-        amount: u64,
+        /// Amount to transfer, in base units (decimal, up to 2^256 - 1).
+        #[arg(long, value_parser = parse_amount)]
+        amount: U256,
 
         /// Sender nonce. Fetched from the node when omitted.
         #[arg(long)]
@@ -97,8 +99,8 @@ enum Command {
         /// Fee paid to the collector. Defaults to twice the base fee on the
         /// transaction's size, the excess being the validators' tip, where
         /// the chain charges fees; nothing where it does not.
-        #[arg(long)]
-        fee: Option<u64>,
+        #[arg(long, value_parser = parse_amount)]
+        fee: Option<U256>,
 
         /// Sign and print the raw transaction hex instead of broadcasting it,
         /// for a different client (an SDK, a gateway) to submit.
@@ -113,9 +115,9 @@ enum Command {
         #[arg(long)]
         validator_key: PathBuf,
 
-        /// Self bond, in base units.
-        #[arg(long)]
-        bond: u64,
+        /// Self bond, in base units (decimal, up to 2^256 - 1).
+        #[arg(long, value_parser = parse_amount)]
+        bond: U256,
 
         /// Commission on delegators' rewards, in basis points (500 = 5 %).
         #[arg(long, default_value_t = 0)]
@@ -131,9 +133,21 @@ enum Command {
         #[arg(long)]
         validator: String,
 
-        /// Amount to delegate, in base units.
+        /// Amount to delegate, in base units (decimal, up to 2^256 - 1).
+        #[arg(long, value_parser = parse_amount)]
+        amount: U256,
+
+        #[command(flatten)]
+        tx: TxOptions,
+    },
+
+    /// Carry a security-council action (ADR-050) from this wallet. The
+    /// authority is the approvals inside it, never this wallet: the file is
+    /// what `genesis-ceremony council combine` wrote.
+    CouncilAction {
+        /// Hex file from `genesis-ceremony council combine`.
         #[arg(long)]
-        amount: u64,
+        action: PathBuf,
 
         #[command(flatten)]
         tx: TxOptions,
@@ -148,8 +162,8 @@ struct TxOptions {
     nonce: Option<u64>,
 
     /// Fee paid to the collector; defaults as for `send`.
-    #[arg(long)]
-    fee: Option<u64>,
+    #[arg(long, value_parser = parse_amount)]
+    fee: Option<U256>,
 
     /// Sign and print the raw transaction hex instead of broadcasting it.
     #[arg(long)]
@@ -283,9 +297,9 @@ async fn command_send(
     path: &Path,
     rpc_url: &str,
     to: &str,
-    amount: u64,
+    amount: U256,
     nonce: Option<u64>,
-    fee: Option<u64>,
+    fee: Option<U256>,
     broadcast: bool,
 ) -> Result<()> {
     let recipient = decode_address(to)?;
@@ -310,7 +324,7 @@ async fn command_register_validator(
     path: &Path,
     rpc_url: &str,
     validator_key: &Path,
-    bond: u64,
+    bond: U256,
     commission_bps: u16,
     opts: &TxOptions,
 ) -> Result<()> {
@@ -336,7 +350,7 @@ async fn command_delegate(
     path: &Path,
     rpc_url: &str,
     validator: &str,
-    amount: u64,
+    amount: U256,
     opts: &TxOptions,
 ) -> Result<()> {
     let validator = l1_wallet::staking::parse_validator_id(validator)?;
@@ -348,6 +362,32 @@ async fn command_delegate(
     if submit(&key, rpc_url, payload, opts).await? {
         println!("validator: {}", hex::encode(validator));
         println!("amount:   {amount}");
+    }
+    Ok(())
+}
+
+async fn command_council_action(
+    path: &Path,
+    rpc_url: &str,
+    action: &Path,
+    opts: &TxOptions,
+) -> Result<()> {
+    let text =
+        std::fs::read_to_string(action).with_context(|| format!("reading {}", action.display()))?;
+    let bytes = hex::decode(text.trim()).context("the council action file is not hex")?;
+    let mut reader = custom_l1_node::core::codec::ByteReader::new(&bytes);
+    let decoded = CouncilAction::decode(&mut reader).context("not a council action")?;
+    reader
+        .finish()
+        .context("trailing bytes after the council action")?;
+    let key = load_key(path)?;
+    let summary = format!("{:?} nonce {}", decoded.kind, decoded.nonce);
+    let payload = Payload {
+        kind: TxKind::Council(Box::new(decoded)),
+        outputs: vec![],
+    };
+    if submit(&key, rpc_url, payload, opts).await? {
+        println!("council:  {summary}");
     }
     Ok(())
 }
@@ -413,7 +453,7 @@ async fn with_fee(
     key: &HybridSigningKey,
     payload: &Payload,
     nonce: u64,
-    fee: Option<u64>,
+    fee: Option<U256>,
     chain: &ChainTag,
 ) -> Result<Vec<TxOutput>> {
     let mut outputs = payload.outputs.clone();
@@ -423,17 +463,29 @@ async fn with_fee(
     };
     let collector = decode_address(&info.collector)?;
     outputs.push(TxOutput {
-        amount: 0,
+        amount: U256::zero(),
         recipient: collector,
     });
     let amount = if let Some(fee) = fee {
         fee
     } else {
+        // base_fee × size is below 2^128; doubled, still exact in 256 bits.
         let mut probe = Transaction::new(vec![], outputs.clone(), nonce);
         probe.kind = payload.kind.clone();
         probe.sign(key, chain).context("signing the fee probe")?;
         let size = u64::try_from(probe.to_bytes().len())?;
-        info.base_fee.saturating_mul(size).saturating_mul(2)
+        let quoted = U256::from(info.base_fee) * U256::from(size) * U256::from(2u8);
+        // The quote comes from the node and is signed without a prompt, so a
+        // hostile node could name a fee that empties the account into its own
+        // collector. Above the old u64 ceiling it is refused: such a fee must
+        // be chosen deliberately with --fee.
+        if quoted > U256::from(u64::MAX) {
+            bail!(
+                "the node quoted a fee of {quoted} base units; refusing to pay it \
+                 automatically (pass --fee to choose a fee yourself)"
+            );
+        }
+        quoted
     };
     if let Some(last) = outputs.last_mut() {
         last.amount = amount;
@@ -498,5 +550,20 @@ async fn main() -> Result<()> {
             ))
             .await
         }
+        Command::CouncilAction { action, tx } => {
+            Box::pin(command_council_action(
+                &cli.keystore,
+                &cli.rpc_url,
+                &action,
+                &tx,
+            ))
+            .await
+        }
     }
+}
+
+/// A decimal amount in base units. `U256::from_str` reads hex, so the CLI
+/// parses decimal explicitly: `--amount 10` must mean ten, not sixteen.
+fn parse_amount(text: &str) -> std::result::Result<U256, String> {
+    U256::from_dec_str(text).map_err(|_| format!("{text:?} is not a decimal amount below 2^256"))
 }

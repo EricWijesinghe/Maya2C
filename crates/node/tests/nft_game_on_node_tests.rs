@@ -13,6 +13,7 @@ use custom_l1_node::core::{Block, BlockHeader, Transaction, TxKind};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::state::{Account, BlockContext, StateDB};
+use primitive_types::U256;
 use tempfile::TempDir;
 
 mod common;
@@ -80,7 +81,7 @@ fn only_the_signing_owner_moves_a_token_through_the_node() {
         db.put_account(
             &k.address(),
             &Account {
-                balance: 1_000_000,
+                balance: U256::from(1_000_000),
                 nonce: 0,
             },
         )

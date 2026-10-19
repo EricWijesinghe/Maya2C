@@ -14,7 +14,7 @@ import maya2c "maya2c.dev/sdk"
 
 client := maya2c.NewClient("http://127.0.0.1:8545")
 wallet := maya2c.NewWallet("l1-wallet", "wallet.key", password, client)
-txid, err := wallet.Transfer(recipient, 1_000)
+txid, err := wallet.Transfer(recipient, big.NewInt(1_000)) // amounts are 256-bit (ADR-046)
 ```
 
 - `Client` — JSON-RPC: balances, the account at the tip (read with the tip's

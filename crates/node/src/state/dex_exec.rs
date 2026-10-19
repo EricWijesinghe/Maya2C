@@ -35,6 +35,7 @@
 
 use std::collections::BTreeMap;
 
+use maya_dex::Amount;
 use maya_dex::amm::Pool;
 use maya_dex::batch::{MAX_BATCH_INTENTS, SwapIntent, clear_batch};
 use maya_dex::book::{Book, Order, OrderId, Side, quote_for_base};
@@ -43,12 +44,15 @@ use maya_dex::fees::FeeSchedule;
 use maya_dex::matching::{MatchLimits, match_book};
 use maya_dex::types::{Direction, PairId};
 use maya_governance::params::ParameterKey;
+use maya_stateless_core::amount::{to_amount, to_u256};
 
 use crate::core::dex_payload::{
     AssetRegistration, AssetTransfer, LiquidityDeposit, LiquidityWithdrawal, OrderPlacement,
     PoolCreation, SwapRequest, SwapRoute,
 };
 use crate::error::{NodeError, Result};
+use primitive_types::U256;
+
 use crate::state::account::Address;
 use crate::state::asset::{
     AssetId, AssetRecord, decode_balance, derive_asset_id, encode_balance, is_native,
@@ -106,6 +110,43 @@ pub const MAX_ORDERS_PER_BOOK: u64 = 4_096;
 /// Governed by [`ParameterKey::DexMaxFillsPerBlock`]; this is its default.
 pub const MAX_FILLS_PER_BLOCK: usize = 1_024;
 
+/// Stored width of a dex counter: a little-endian `u64`, unchanged by ADR-046
+/// because a sequence number or order count is not a monetary amount.
+/// A 256-bit amount in either of the node's two types (ADR-048).
+trait Units {
+    fn units(self) -> U256;
+}
+
+impl Units for U256 {
+    fn units(self) -> U256 {
+        self
+    }
+}
+
+impl Units for Amount {
+    fn units(self) -> U256 {
+        to_u256(self)
+    }
+}
+
+fn encode_counter(value: u64) -> Vec<u8> {
+    value.to_le_bytes().to_vec()
+}
+
+/// Decodes a dex counter written by [`encode_counter`].
+///
+/// # Errors
+///
+/// Returns [`NodeError::InvalidLength`] if the record is not eight bytes.
+fn decode_counter(bytes: &[u8]) -> Result<u64> {
+    let raw: [u8; 8] = bytes.try_into().map_err(|_| NodeError::InvalidLength {
+        what: "dex counter",
+        expected: 8,
+        actual: bytes.len(),
+    })?;
+    Ok(u64::from_le_bytes(raw))
+}
+
 impl StateDB {
     // ---------------------------------------------------------------- reads
 
@@ -157,13 +198,13 @@ impl StateDB {
     /// # Errors
     ///
     /// Returns [`NodeError::Storage`] on a read failure.
-    pub fn asset_balance(&self, asset: &AssetId, address: &Address) -> Result<u64> {
+    pub fn asset_balance(&self, asset: &AssetId, address: &Address) -> Result<U256> {
         if is_native(asset) {
             return Ok(self.get_account(address)?.balance);
         }
         match self.raw_get(&balance_key(asset, address))? {
             Some(bytes) => decode_balance(&bytes),
-            None => Ok(0),
+            None => Ok(U256::zero()),
         }
     }
 
@@ -175,7 +216,7 @@ impl StateDB {
         overlay: &Overlay,
         asset: &AssetId,
         address: &Address,
-    ) -> Result<u64> {
+    ) -> Result<U256> {
         if is_native(asset) {
             return Ok(match overlay.accounts.get(address) {
                 Some(account) => account.balance,
@@ -184,6 +225,15 @@ impl StateDB {
         }
         match self.record(overlay, &balance_key(asset, address))? {
             Some(bytes) => decode_balance(&bytes),
+            None => Ok(U256::zero()),
+        }
+    }
+
+    /// Reads a dex counter (sequence, resting-order count). Counters are not
+    /// monetary, so they keep their 8-byte `u64` encoding (ADR-046).
+    fn load_counter(&self, overlay: &Overlay, key: &[u8]) -> Result<u64> {
+        match self.record(overlay, key)? {
+            Some(bytes) => decode_counter(&bytes),
             None => Ok(0),
         }
     }
@@ -194,7 +244,7 @@ impl StateDB {
         overlay: &mut Overlay,
         asset: &AssetId,
         address: &Address,
-        amount: u64,
+        amount: U256,
     ) -> Result<()> {
         if is_native(asset) {
             let mut account = match overlay.accounts.get(address) {
@@ -207,7 +257,7 @@ impl StateDB {
         }
 
         let key = balance_key(asset, address);
-        if amount == 0 {
+        if amount.is_zero() {
             // An absent key and a stored zero must not both be reachable, or
             // two states with identical balances would have different roots.
             Self::delete_record(overlay, key);
@@ -218,42 +268,50 @@ impl StateDB {
     }
 
     /// Credits `amount` of `asset` to `address`.
+    ///
+    /// Takes the node's `U256` or the DEX's `Amount`: both are 256-bit
+    /// (ADR-046), and the conversion is the exact byte copy of ADR-048.
     fn credit_asset(
         &self,
         overlay: &mut Overlay,
         asset: &AssetId,
         address: &Address,
-        amount: u64,
+        amount: impl Units,
     ) -> Result<()> {
-        if amount == 0 {
+        let amount = amount.units();
+        if amount.is_zero() {
             return Ok(());
         }
         let balance = self.load_asset_balance(overlay, asset, address)?;
-        let updated =
-            maya_ledger_math::credit(balance, amount).ok_or(NodeError::BalanceOverflow)?;
+        let updated = balance
+            .checked_add(amount)
+            .ok_or(NodeError::BalanceOverflow)?;
         self.store_balance(overlay, asset, address, updated)
     }
 
-    /// Debits `amount` of `asset` from `address`.
+    /// Debits `amount` of `asset` from `address`, in either 256-bit type as
+    /// [`Self::credit_asset`] takes.
     fn debit_asset(
         &self,
         overlay: &mut Overlay,
         asset: &AssetId,
         address: &Address,
-        amount: u64,
+        amount: impl Units,
     ) -> Result<()> {
-        if amount == 0 {
+        let amount = amount.units();
+        if amount.is_zero() {
             return Ok(());
         }
         let balance = self.load_asset_balance(overlay, asset, address)?;
-        let updated = maya_ledger_math::debit(balance, amount).ok_or_else(|| {
-            NodeError::InsufficientAssetBalance {
-                asset: hex::encode(asset),
-                address: hex::encode(address),
-                required: amount,
-                available: balance,
-            }
-        })?;
+        let updated =
+            balance
+                .checked_sub(amount)
+                .ok_or_else(|| NodeError::InsufficientAssetBalance {
+                    asset: hex::encode(asset),
+                    address: hex::encode(address),
+                    required: amount,
+                    available: balance,
+                })?;
         self.store_balance(overlay, asset, address, updated)
     }
 
@@ -308,26 +366,16 @@ impl StateDB {
     /// upon, and one counter is one number to get right; a counter per book
     /// would be a hundred.
     fn next_sequence(&self, overlay: &mut Overlay) -> Result<u64> {
-        let current = match self.record(overlay, SEQUENCE_KEY)? {
-            Some(bytes) => decode_balance(&bytes)?,
-            None => 0,
-        };
+        let current = self.load_counter(overlay, SEQUENCE_KEY)?;
         let next = current.checked_add(1).ok_or(NodeError::BalanceOverflow)?;
-        Self::put_record(
-            overlay,
-            SEQUENCE_KEY.to_vec(),
-            encode_balance(next).to_vec(),
-        );
+        Self::put_record(overlay, SEQUENCE_KEY.to_vec(), encode_counter(next));
         Ok(current)
     }
 
     /// Adjusts a book's resting order count.
     fn adjust_order_count(&self, overlay: &mut Overlay, pair: &PairId, delta: i64) -> Result<u64> {
         let key = order_count_key(pair);
-        let current = match self.record(overlay, &key)? {
-            Some(bytes) => decode_balance(&bytes)?,
-            None => 0,
-        };
+        let current = self.load_counter(overlay, &key)?;
         let updated = if delta >= 0 {
             current
                 .checked_add(delta.unsigned_abs())
@@ -342,7 +390,7 @@ impl StateDB {
         if updated == 0 {
             Self::delete_record(overlay, key);
         } else {
-            Self::put_record(overlay, key, encode_balance(updated).to_vec());
+            Self::put_record(overlay, key, encode_counter(updated));
         }
         Ok(updated)
     }
@@ -372,7 +420,7 @@ impl StateDB {
         registration: &AssetRegistration,
     ) -> Result<()> {
         validate_symbol(&registration.symbol)?;
-        if registration.total_supply == 0 {
+        if registration.total_supply.is_zero() {
             return Err(NodeError::InvalidAssetSymbol {
                 reason: "an asset with no supply would be a name and nothing else".to_string(),
             });
@@ -402,12 +450,12 @@ impl StateDB {
         if is_native(&transfer.asset) {
             return Err(NodeError::NativeAssetTransfer);
         }
-        if transfer.amount == 0 {
+        if transfer.amount.is_zero() {
             return Err(NodeError::InsufficientAssetBalance {
                 asset: hex::encode(transfer.asset),
                 address: hex::encode(sender),
-                required: 1,
-                available: 0,
+                required: U256::one(),
+                available: U256::zero(),
             });
         }
         if !self.asset_exists(overlay, &transfer.asset)? {
@@ -463,7 +511,7 @@ impl StateDB {
         }
 
         let delta = Pool::empty(fees)
-            .add_liquidity(base_amount, quote_amount)
+            .add_liquidity(to_amount(base_amount), to_amount(quote_amount))
             .map_err(|error| trade_error("pool creation", error))?;
 
         self.debit_asset(overlay, &base_asset, sender, delta.base)?;
@@ -497,17 +545,20 @@ impl StateDB {
         let mut record = self.require_pool(overlay, &deposit.pair)?;
         let delta = record
             .pool
-            .add_liquidity(deposit.base_desired, deposit.quote_desired)
+            .add_liquidity(
+                to_amount(deposit.base_desired),
+                to_amount(deposit.quote_desired),
+            )
             .map_err(|error| trade_error("deposit", error))?;
 
         // A deposit executes in place, so its bound is an error rather than a
         // no-op: there is no later settlement stage at which it could be
         // dropped, and the alternative is taking the assets anyway.
-        if delta.shares < deposit.min_shares {
+        if to_u256(delta.shares) < deposit.min_shares {
             return Err(NodeError::SlippageExceeded {
                 what: "liquidity shares",
                 expected: deposit.min_shares,
-                actual: delta.shares,
+                actual: to_u256(delta.shares),
             });
         }
 
@@ -535,21 +586,21 @@ impl StateDB {
         let mut record = self.require_pool(overlay, &withdrawal.pair)?;
         let delta = record
             .pool
-            .remove_liquidity(withdrawal.shares)
+            .remove_liquidity(to_amount(withdrawal.shares))
             .map_err(|error| trade_error("withdrawal", error))?;
 
-        if delta.base < withdrawal.min_base {
+        if to_u256(delta.base) < withdrawal.min_base {
             return Err(NodeError::SlippageExceeded {
                 what: "base withdrawn",
                 expected: withdrawal.min_base,
-                actual: delta.base,
+                actual: to_u256(delta.base),
             });
         }
-        if delta.quote < withdrawal.min_quote {
+        if to_u256(delta.quote) < withdrawal.min_quote {
             return Err(NodeError::SlippageExceeded {
                 what: "quote withdrawn",
                 expected: withdrawal.min_quote,
-                actual: delta.quote,
+                actual: to_u256(delta.quote),
             });
         }
 
@@ -590,7 +641,7 @@ impl StateDB {
         let direction = Direction::from_tag(request.direction).ok_or_else(|| {
             NodeError::Decode(format!("unknown swap direction {}", request.direction))
         })?;
-        if request.amount_in == 0 {
+        if request.amount_in.is_zero() {
             return Err(NodeError::Trade {
                 operation: "swap",
                 reason: DexError::ZeroAmount.to_string(),
@@ -610,8 +661,8 @@ impl StateDB {
             id: derive_intent_id(sender, nonce),
             trader: *sender,
             direction,
-            amount_in: request.amount_in,
-            min_out: request.min_out,
+            amount_in: to_amount(request.amount_in),
+            min_out: to_amount(request.min_out),
         });
         overlay.touched_pairs.insert(request.pair);
 
@@ -636,7 +687,7 @@ impl StateDB {
         context: BlockContext,
     ) -> Result<()> {
         Self::check_deadline(route.deadline, context)?;
-        if route.amount_in == 0 {
+        if route.amount_in.is_zero() {
             return Err(NodeError::Trade {
                 operation: "route",
                 reason: DexError::ZeroAmount.to_string(),
@@ -646,13 +697,13 @@ impl StateDB {
         // Computed against copies. Nothing below writes until every leg has
         // succeeded and the bound has been met.
         let mut pools: Vec<(PairId, PoolRecord)> = Vec::with_capacity(route.legs.len());
-        let mut fees: Vec<(AssetId, u64)> = Vec::new();
+        let mut fees: Vec<(AssetId, Amount)> = Vec::new();
         // What the route ends up holding after the leg just executed, and what
         // it started from. The second is not derivable from the first once the
         // path has moved on, and the sender is debited in it.
         let mut current_asset: Option<AssetId> = None;
         let mut route_input: Option<AssetId> = None;
-        let mut amount = route.amount_in;
+        let mut amount = to_amount(route.amount_in);
 
         for (index, leg) in route.legs.iter().enumerate() {
             let direction = Direction::from_tag(leg.direction).ok_or_else(|| {
@@ -685,7 +736,7 @@ impl StateDB {
                 Err(_) => return Ok(()),
             };
 
-            if outcome.protocol_fee > 0 {
+            if !outcome.protocol_fee.is_zero() {
                 fees.push((input, outcome.protocol_fee));
             }
             record.pool = outcome.pool;
@@ -698,7 +749,7 @@ impl StateDB {
             }
         }
 
-        if amount < route.min_out {
+        if amount < to_amount(route.min_out) {
             // Lost the race. Nothing has been written, and nothing will be.
             return Ok(());
         }
@@ -744,13 +795,13 @@ impl StateDB {
     ) -> Result<()> {
         let side = Side::from_tag(placement.side)
             .ok_or_else(|| NodeError::Decode(format!("unknown order side {}", placement.side)))?;
-        if placement.price == 0 {
+        if placement.price.is_zero() {
             return Err(NodeError::Trade {
                 operation: "order placement",
                 reason: DexError::ZeroPrice.to_string(),
             });
         }
-        if placement.amount == 0 {
+        if placement.amount.is_zero() {
             return Err(NodeError::Trade {
                 operation: "order placement",
                 reason: DexError::ZeroAmount.to_string(),
@@ -784,15 +835,16 @@ impl StateDB {
         // A bid escrows quote, rounded up; an ask escrows the base it is
         // selling. Rounding up is what guarantees the escrow can cover every
         // fill the order can produce.
+        let (price, amount) = (to_amount(placement.price), to_amount(placement.amount));
         let (escrow_asset, escrow) = match side {
             Side::Bid => (
                 record.quote_asset,
-                quote_for_base(placement.amount, placement.price, Side::Bid)
+                quote_for_base(amount, price, Side::Bid)
                     .map_err(|error| trade_error("order placement", error))?,
             ),
-            Side::Ask => (record.base_asset, placement.amount),
+            Side::Ask => (record.base_asset, amount),
         };
-        if escrow == 0 {
+        if escrow.is_zero() {
             return Err(NodeError::Trade {
                 operation: "order placement",
                 reason: "order is too small to escrow anything".to_string(),
@@ -807,16 +859,16 @@ impl StateDB {
                 id,
                 owner: *sender,
                 side,
-                price: placement.price,
-                amount: placement.amount,
-                remaining: placement.amount,
+                price,
+                amount,
+                remaining: amount,
                 sequence,
                 expiry: placement.expiry,
             },
             escrow,
         };
 
-        let key = order_key(&placement.pair, side, placement.price, sequence);
+        let key = order_key(&placement.pair, side, price, sequence);
         Self::put_record(overlay, order_index_key(&id), key.clone());
         Self::put_record(overlay, key, order.encode());
         overlay.touched_pairs.insert(placement.pair);
@@ -930,8 +982,10 @@ impl StateDB {
             self.credit_asset(overlay, &asset, &intent.trader, intent.amount_in)?;
         }
 
-        if let (Some(direction), true) = (outcome.protocol_fee_direction, outcome.protocol_fee > 0)
-        {
+        if let (Some(direction), true) = (
+            outcome.protocol_fee_direction,
+            !outcome.protocol_fee.is_zero(),
+        ) {
             let asset = input_asset(&record, direction);
             self.credit_asset(overlay, &asset, &FEE_SINK, outcome.protocol_fee)?;
         }

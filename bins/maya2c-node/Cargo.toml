@@ -11,6 +11,8 @@ description = "The validating node daemon: consensus, chain, peer-to-peer, RPC, 
 # and uses nothing that is not part of that library's public surface — which is
 # what made the split possible without widening the API.
 [dependencies]
+# Amounts are 256-bit (ADR-046), the node's U256.
+primitive-types.workspace = true
 custom-l1-node = { path = "../../crates/node", default-features = false }
 maya-archive = { path = "../../crates/archive" }
 maya-zk-stark = { path = "../../crates/zk-stark" }
@@ -21,10 +23,13 @@ libp2p.workspace = true
 tokio.workspace = true
 hex.workspace = true
 # The remote signer's channel (ADR-033): the node's channel identity and
-# the pinned handshake. The key it signs with never enters this process.
+# the pinned handshake, and `sealed` for a local validator key at rest.
 maya-signer = { path = "../../crates/signer" }
 maya-crypto-pq = { path = "../../crates/crypto-pq" }
 serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [features]
 # Devnet default: the node's default features (the HQC dual-KEM handshake).

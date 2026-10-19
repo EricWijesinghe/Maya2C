@@ -19,6 +19,8 @@ description = "SPV light client: header-chain fork choice and state-proof verifi
 # on the crate, but nothing here opens a database. A light client that had to
 # carry the full node's storage would not be light.
 custom-l1-node = { path = "../node" }
+# ADR-046: a verified balance is a U256.
+primitive-types.workspace = true
 hex.workspace = true
 thiserror.workspace = true
 
