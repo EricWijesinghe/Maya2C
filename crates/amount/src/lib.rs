@@ -164,22 +164,7 @@ impl Amount {
         let mut out = [0u64; 2 * LIMBS];
         let mut i = 0;
         while i < LIMBS {
-            let mut carry: u128 = 0;
-            let mut j = 0;
-            while j < LIMBS {
-                // a*b + out + carry < 2^128: (2^64-1)^2 + 2(2^64-1) = 2^128-1.
-                let cur = (self.0[i] as u128) * (other.0[j] as u128) + out[i + j] as u128 + carry;
-                #[allow(clippy::cast_possible_truncation)]
-                {
-                    out[i + j] = cur as u64;
-                }
-                carry = cur >> 64;
-                j += 1;
-            }
-            #[allow(clippy::cast_possible_truncation)]
-            {
-                out[i + LIMBS] = carry as u64;
-            }
+            out = mul_row_into(out, i, self.0[i], other);
             i += 1;
         }
         Wide(out)
@@ -341,3 +326,48 @@ extern crate std;
 
 #[cfg(test)]
 mod tests;
+
+/// Row `i` of the schoolbook product: adds `x × other` into `out` at limb
+/// `i`. The four 64 × 64 products come first and the carries after, so
+/// `proofs.rs` can prove the carry chain on its own: CBMC did not finish a
+/// harness with the multipliers inside (20 minutes for the whole product, 10
+/// for one row).
+pub(crate) const fn mul_row_into(
+    out: [u64; 2 * LIMBS],
+    i: usize,
+    x: u64,
+    other: Amount,
+) -> [u64; 2 * LIMBS] {
+    let mut products = [0u128; LIMBS];
+    let mut j = 0;
+    while j < LIMBS {
+        products[j] = (x as u128) * (other.0[j] as u128);
+        j += 1;
+    }
+    add_products_at(out, i, products)
+}
+
+/// `out + Σ products[j]·2^(64(i+j))`, for products of two limbs.
+pub(crate) const fn add_products_at(
+    mut out: [u64; 2 * LIMBS],
+    i: usize,
+    products: [u128; LIMBS],
+) -> [u64; 2 * LIMBS] {
+    let mut carry: u128 = 0;
+    let mut j = 0;
+    while j < LIMBS {
+        // p + out + carry < 2^128: (2^64-1)^2 + 2(2^64-1) = 2^128-1.
+        let cur = products[j] + out[i + j] as u128 + carry;
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            out[i + j] = cur as u64;
+        }
+        carry = cur >> 64;
+        j += 1;
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    {
+        out[i + LIMBS] = carry as u64;
+    }
+    out
+}

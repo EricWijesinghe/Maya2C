@@ -186,13 +186,19 @@ jobs:
 
       # Every balance is a maya-amount. The full crate takes over half an
       # hour, so CI runs the long-division step and the u128-model proofs of
-      # add, subtract and order (seconds each); the rest runs by hand (ADR-048).
+      # add, subtract and order, and the multiplication step and rows
+      # (seconds each); the rest runs by hand (ADR-048).
       - run: >-
           cargo kani -p maya-amount --output-format terse
           --harness long_division_step_keeps_the_invariant
           --harness checked_add_matches_the_u128_model
           --harness checked_sub_matches_the_u128_model
           --harness order_matches_the_u128_model
+          --harness mul_step_fits_u128
+          --harness mul_row_0_adds_exactly
+          --harness mul_row_1_adds_exactly
+          --harness mul_row_2_adds_exactly
+          --harness mul_row_3_adds_exactly
 
   # ---------------------------------------------------------------------------
   geiger:
