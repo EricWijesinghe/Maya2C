@@ -643,9 +643,9 @@ mod tests {
             file.write_all(&[0xAB_u8; 40]).unwrap();
             file.write_all(&later).unwrap();
         }
-        let err = SafetyStore::open(&root, 0)
-            .err()
-            .expect("damage with a valid record after it must refuse to open");
+        let Err(err) = SafetyStore::open(&root, 0) else {
+            panic!("damage with a valid record after it must refuse to open");
+        };
         assert!(err.to_string().contains("refusing to open"), "{err}");
         // Nothing was cut: the vote after the damage is still in the file.
         assert_eq!(
@@ -712,9 +712,9 @@ mod tests {
             file.write_all(&hole).unwrap();
             file.write_all(&frame(&vote(2).encode())).unwrap();
         }
-        let err = SafetyStore::open(&safety, 0)
-            .err()
-            .expect("a zero hole with a vote after it must refuse to open");
+        let Err(err) = SafetyStore::open(&safety, 0) else {
+            panic!("a zero hole with a vote after it must refuse to open");
+        };
         assert!(err.to_string().contains("refusing to open"), "{err}");
     }
 

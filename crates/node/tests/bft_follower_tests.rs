@@ -378,10 +378,9 @@ fn forged_or_insufficient_evidence_is_refused_and_nothing_is_logged() {
             honest: mesh.peer_log(0),
             forgery,
         };
-        let refused = mesh
-            .restart_from(2, &source, PAGE)
-            .err()
-            .expect("forged evidence must be refused");
+        let Err(refused) = mesh.restart_from(2, &source, PAGE) else {
+            panic!("forged evidence must be refused");
+        };
         assert!(
             refused.to_string().contains("refused"),
             "{forgery:?}: {refused}"
@@ -445,10 +444,9 @@ fn a_peer_that_ends_an_epoch_early_is_refused_by_the_attested_end() {
         keep: 1,
         only_epoch: None,
     };
-    let refused = mesh
-        .restart_from(2, &source, PAGE)
-        .err()
-        .expect("a truncated epoch must be refused");
+    let Err(refused) = mesh.restart_from(2, &source, PAGE) else {
+        panic!("a truncated epoch must be refused");
+    };
     assert!(refused.to_string().contains("refused"), "{refused}");
 }
 
@@ -495,10 +493,9 @@ fn a_peer_that_skips_a_certificate_is_refused_by_the_attested_end() {
         honest: mesh.peer_log(0),
         skip,
     };
-    let refused = mesh
-        .restart_from(2, &source, PAGE)
-        .err()
-        .expect("a gapped epoch must be refused");
+    let Err(refused) = mesh.restart_from(2, &source, PAGE) else {
+        panic!("a gapped epoch must be refused");
+    };
     assert!(refused.to_string().contains("refused"), "{refused}");
 }
 
@@ -513,10 +510,9 @@ fn a_peer_that_stalls_the_fetch_is_refused_not_looped_on() {
         honest: mesh.peer_log(0),
         calls: Cell::new(0),
     };
-    let refused = mesh
-        .restart_from(2, &source, PAGE)
-        .err()
-        .expect("a stalled fetch must be refused");
+    let Err(refused) = mesh.restart_from(2, &source, PAGE) else {
+        panic!("a stalled fetch must be refused");
+    };
     // A page that repeats its records with an end that does not add up is
     // refused by the end check, before the no-progress check.
     assert!(refused.to_string().contains("does not match"), "{refused}");
@@ -746,7 +742,7 @@ fn slot_copies(dir: &Path, epoch: u64, slot: (u64, u16)) -> Vec<Vec<u8>> {
 /// A fresh observer that holds nothing: the node that catches up from scratch.
 fn observer(mesh: &Mesh) -> (TempDir, Chain, BftSetup) {
     let dir = TempDir::new().unwrap();
-    let state = Arc::new(StateDB::open(&dir.path().join("state")).unwrap());
+    let state = Arc::new(StateDB::open(dir.path().join("state")).unwrap());
     mesh.config.seed_state(&state).unwrap();
     let chain = common::open_chain(
         state,

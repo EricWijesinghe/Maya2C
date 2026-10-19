@@ -292,7 +292,7 @@ fn a_restarted_node_catches_up_through_paged_rpc() {
         book.offer(checkpoint);
     }
     let status = peer.status();
-    let state = Arc::new(StateDB::open(&net.root.path().join("context-state")).unwrap());
+    let state = Arc::new(StateDB::open(net.root.path().join("context-state")).unwrap());
     let context = RpcContext::new(
         Arc::new(Mutex::new(open_chain(&net.config, Arc::clone(&state)))),
         Mempool::new(state),
@@ -359,7 +359,7 @@ fn serve_peer(
         book.offer(checkpoint);
     }
     let status = peer.status();
-    let state = Arc::new(StateDB::open(&net.root.path().join("budget-state")).unwrap());
+    let state = Arc::new(StateDB::open(net.root.path().join("budget-state")).unwrap());
     let context = RpcContext::new(
         Arc::new(Mutex::new(open_chain(&net.config, Arc::clone(&state)))),
         Mempool::new(state),
@@ -530,7 +530,7 @@ fn a_max_size_batch_certificate_round_trips_through_the_log_and_the_rpc() {
     assert_eq!(seen, vec![cert.clone()]);
 
     // Served by the RPC and fetched through it.
-    let state = Arc::new(StateDB::open(&root.path().join("state")).unwrap());
+    let state = Arc::new(StateDB::open(root.path().join("state")).unwrap());
     let context = RpcContext::new(
         Arc::new(Mutex::new(open_chain(
             &genesis_config(),
