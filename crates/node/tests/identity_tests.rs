@@ -398,7 +398,11 @@ fn no_committed_record_holds_a_claim_preimage() {
 
     // A real claim, committed the way an issuer would.
     let subject = field_from_bytes(&[0x5a; 32]);
-    let age: u32 = 34;
+    // Four distinct non-zero bytes, not a realistic age: 34 encodes as
+    // 22 00 00 00, and zero runs are common enough in structured key bytes
+    // that the scan below matched by chance (CI 2026-10-12 and 2026-10-19).
+    // A false alarm proves nothing; this value cannot plausibly occur.
+    let age: u32 = 0x5a3c_17e9;
     let blinding = [F::new(987_654_321); 8];
     let leaf = credential_leaf(&subject, 7, age, &blinding);
     let leaves: Vec<Digest> = (0..8u32)
