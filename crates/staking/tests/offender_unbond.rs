@@ -55,12 +55,22 @@ fn a_fully_unbonded_offender_is_still_slashed_and_the_rest_is_conserved() {
         .slash_double_sign(OFFENDER)
         .expect("evidence against a validator with funds still unbonding must land");
     effects.extend(slash);
-    effects.extend(epochs(&mut s, u64::from(Params::DEVNET.unbonding_epochs) + 1));
+    effects.extend(epochs(
+        &mut s,
+        u64::from(Params::DEVNET.unbonding_epochs) + 1,
+    ));
 
     let (burned, credited) = totals(&effects);
     let cut = u128::from(Params::DEVNET.double_sign_slash_bps) * u128::from(BOND) / 10_000;
-    assert_eq!(burned, cut, "the slash takes its share of the unbonding funds");
-    assert_eq!(credited, u128::from(BOND) - cut, "the rest is released, no more");
+    assert_eq!(
+        burned, cut,
+        "the slash takes its share of the unbonding funds"
+    );
+    assert_eq!(
+        credited,
+        u128::from(BOND) - cut,
+        "the rest is released, no more"
+    );
 }
 
 #[test]
@@ -84,4 +94,49 @@ fn an_honest_full_exit_is_released_in_full() {
     s.unbond(OPERATOR, OFFENDER, amount(BOND)).unwrap();
     let effects = epochs(&mut s, u64::from(Params::DEVNET.unbonding_epochs) + 1);
     assert_eq!(totals(&effects), (0, u128::from(BOND)));
+}
+
+#[test]
+fn a_zero_amount_unbond_does_not_keep_an_emptied_record_alive() {
+    let mut s = registered();
+    s.unbond(OPERATOR, OFFENDER, amount(BOND)).unwrap();
+    // Re-pushing empty entries must not extend the record's life past the real funds.
+    for _ in 0..3 {
+        s.unbond(OPERATOR, OFFENDER, Amount::ZERO).unwrap();
+        epochs(&mut s, 2);
+    }
+    epochs(&mut s, u64::from(Params::DEVNET.unbonding_epochs) + 1);
+    s.register(OPERATOR, OFFENDER, amount(BOND), 0)
+        .expect("only unbonding funds pin a record, not empty entries");
+}
+
+#[test]
+fn nobody_can_delegate_into_an_emptied_record_to_pin_it() {
+    let mut s = registered();
+    s.unbond(OPERATOR, OFFENDER, amount(BOND)).unwrap();
+    epochs(&mut s, 1);
+    assert_eq!(
+        s.delegate([0xBB; 32], OFFENDER, amount(BOND)).unwrap_err(),
+        StakeError::UnknownValidator
+    );
+}
+
+#[test]
+fn a_delegators_unbonding_funds_are_cut_when_the_validator_is_slashed_after_exit() {
+    let mut s = registered();
+    let delegator = [0xBB; 32];
+    s.delegate(delegator, OFFENDER, amount(BOND)).unwrap();
+    s.undelegate(delegator, OFFENDER, amount(BOND)).unwrap();
+    s.unbond(OPERATOR, OFFENDER, amount(BOND)).unwrap();
+    let mut effects = epochs(&mut s, 1);
+    effects.extend(s.slash_double_sign(OFFENDER).unwrap());
+    effects.extend(epochs(
+        &mut s,
+        u64::from(Params::DEVNET.unbonding_epochs) + 1,
+    ));
+    let cut = u128::from(Params::DEVNET.double_sign_slash_bps) * u128::from(BOND) / 10_000;
+    let (burned, credited) = totals(&effects);
+    // Both the operator's and the delegator's unbonding funds lose the same share.
+    assert_eq!(burned, 2 * cut);
+    assert_eq!(credited, 2 * (u128::from(BOND) - cut));
 }

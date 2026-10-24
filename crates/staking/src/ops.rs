@@ -103,7 +103,8 @@ impl Staking {
     ///
     /// # Errors
     ///
-    /// Below the minimum delegation, unknown or tombstoned validator, overflow.
+    /// Below the minimum delegation, unknown (or emptied) or tombstoned validator,
+    /// overflow.
     pub fn delegate(
         &mut self,
         delegator: Address,
@@ -119,6 +120,11 @@ impl Staking {
             .ok_or(StakeError::UnknownValidator)?;
         if v.status == Status::Tombstoned {
             return Err(StakeError::Tombstoned);
+        }
+        // An emptied record that only lingers for its unbonding funds is as good
+        // as gone: delegating into it would pin it (and its id) for nothing.
+        if v.total().is_zero() {
+            return Err(StakeError::UnknownValidator);
         }
         let delegated = v
             .delegated
