@@ -50,3 +50,13 @@ VM (0 restarts, no OOM kills): the forward ran out of file handles
   master's node cannot open the deployed testnet's data, so it is untested.
 - This is not independent decentralization (ADR-042): one VM plus one PC, run
   by one person.
+
+## Addendum 2026-10-25: wipes wait for a later epoch
+The topology review (`reports/security/2026-10-25-hybrid-topology-threat-model.md`,
+finding 3) noted that the watchdog's wipe starts a node with an empty safety log,
+which ADR-043 allows only when the network is in a later epoch than the node's
+last signed one, and the script never checked. `start-pc-validators.ps1` now
+defers any wipe unless the network epoch (Oracle, else a local peer) is greater
+than the node's newest `bft/epoch-N` directory, and treats an unknown network
+epoch as unsafe. A deferred wipe costs time (the peer restarts without wiping
+and catches up); a wrong one risks a double sign.

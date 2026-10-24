@@ -33,6 +33,27 @@ function Get-Sources([int]$self) {
     if (-not $urls) { $urls = @('http://127.0.0.1:18601') }
     return $urls
 }
+# ADR-043: a wiped node restarts with an empty safety log, which is safe only
+# when the network is in a later epoch than the last one the node signed in.
+# Unknown network epoch counts as unsafe: a missed wipe costs time, a wrong
+# one can double-sign.
+function Get-NetEpoch {
+    foreach ($u in @('http://127.0.0.1:18601', 'http://127.0.0.1:8545', 'http://127.0.0.1:18702')) {
+        try {
+            $r = Invoke-RestMethod $u -Method Post -ContentType 'application/json' -TimeoutSec 3 `
+                -Body '{"jsonrpc":"2.0","id":1,"method":"get_bft_status","params":[]}'
+            if ($null -ne $r.result.epoch) { return [int]$r.result.epoch }
+        } catch { }
+    }
+    return $null
+}
+function Test-WipeSafe([string]$dir) {
+    $net = Get-NetEpoch
+    if ($null -eq $net) { return $false }
+    $last = Get-ChildItem (Join-Path $dir 'data\bft') -Directory -Filter 'epoch-*' -ErrorAction SilentlyContinue |
+        ForEach-Object { [int]($_.Name -replace '^epoch-', '') } | Sort-Object -Descending | Select-Object -First 1
+    return ($null -eq $last) -or ($net -gt $last)
+}
 for ($i = 1; $i -le 4; $i++) {
     $dir = Join-Path $root "pc$i"
     # Self-heal (the laptop sleeps and moves): Oracle keeps only 8 epochs of
@@ -71,6 +92,10 @@ for ($i = 1; $i -le 4; $i++) {
             if (((Get-Date) - [datetime](Get-Content $mark -Raw)).TotalMinutes -lt 45) { continue }
             $wipe = $true
         }
+        if ($wipe -and -not (Test-WipeSafe $dir)) {
+            Write-Output "$(Get-Date -Format s) pc$i wipe deferred: network epoch not past the node's last"
+            $wipe = $false
+        }
         Get-CimInstance Win32_Process -Filter "Name = 'maya2c-node.exe'" |
             Where-Object { $_.CommandLine -like "*$dir\data*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
         Start-Sleep -Seconds 3
@@ -79,6 +104,10 @@ for ($i = 1; $i -le 4; $i++) {
         $newest = Get-ChildItem (Join-Path $dir 'data\archive') -File -ErrorAction SilentlyContinue |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
         $wipe = $newest -and (((Get-Date) - $newest.LastWriteTime).TotalHours -gt 8)
+        if ($wipe -and -not (Test-WipeSafe $dir)) {
+            Write-Output "$(Get-Date -Format s) pc$i wipe deferred: network epoch not past the node's last"
+            $wipe = $false
+        }
     }
     if ($wipe) {
         $stale = Join-Path $dir 'data-stale'
