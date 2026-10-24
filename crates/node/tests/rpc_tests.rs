@@ -315,6 +315,19 @@ async fn get_block_by_height_reports_a_missing_height() {
     assert!(result.is_err(), "height beyond the tip must not resolve");
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn get_validators_is_null_on_a_chain_without_staking() {
+    let node = start_node(&[], false).await;
+
+    let info: Option<serde_json::Value> = node
+        .client
+        .request("get_validators", rpc_params![])
+        .await
+        .expect("get_validators");
+
+    assert!(info.is_none(), "{info:?}");
+}
+
 // ---------------------------------------------------------------------------
 // get_mining_candidate + submit_block
 // ---------------------------------------------------------------------------
