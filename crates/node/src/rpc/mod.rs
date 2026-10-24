@@ -9,6 +9,7 @@
 //! | `vault_get` | `[address_hex]` | the vault's policy and requests, or `null` (ADR-030) |
 //! | `send_raw_transaction` | `[tx_hex]` | [`types::SubmitTransactionResult`] |
 //! | `get_block_by_height` | `[height]` | [`types::BlockInfo`] |
+//! | `get_validators` | `[]` | [`validators::ValidatorsInfo`], or `null` without staking |
 //! | `get_mining_candidate` | `[]` | [`types::MiningCandidate`] |
 //! | `submit_block` | `[block_hex]` | [`types::SubmitBlockResult`] |
 //! | `get_supply` | `[]` | [`market::SupplyReport`] |
@@ -33,6 +34,7 @@ pub mod metered;
 pub mod peers;
 pub mod server;
 pub mod types;
+pub mod validators;
 
 pub use market::{MarketFeed, MarketQuote, SupplyReport};
 pub use market_http::{MarketServer, MarketState, serve as serve_market};

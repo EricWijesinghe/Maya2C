@@ -715,6 +715,17 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     module
+        .register_method("get_validators", |_params, ctx, _| {
+            let chain = ctx.chain();
+            let record = chain
+                .state()
+                .committed_staking()
+                .map_err(|e| rejected(e.to_string()))?;
+            Ok::<_, ErrorObjectOwned>(record.as_ref().map(super::validators::validators_info))
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
+    module
         .register_method("get_mining_candidate", |_params, ctx, _| {
             let chain = ctx.chain();
 
