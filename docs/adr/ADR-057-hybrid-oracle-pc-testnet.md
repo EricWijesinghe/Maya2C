@@ -22,11 +22,19 @@ VM (0 restarts, no OOM kills): the forward ran out of file handles
    `--catch-up-from` and `--bootstrap-from`.
 3. **The status page follows Oracle (18601), not a PC peer**, so a lagging peer
    cannot read as a chain halt.
-4. **The watchdog heals PC peers** (`start-pc-validators.ps1`): a peer with no
-   committed round for 45 min, or stopped with data older than 8 h (Oracle
-   keeps 8 epochs, about 14 h), is moved aside (node key kept) and restored from
-   a snapshot; a peer that is in sync but only following for 10 min is
-   restarted, up to 3 times, then wiped.
+4. **The watchdog heals PC peers** (`start-pc-validators.ps1`):
+   - Catch-up is latency-bound: a few blocks in flight, each a round trip, so
+     it runs at roughly 5 blocks/s over the 0.7 s SSH link and is silent
+     until it finishes. A peer therefore catches up from a *voting peer on
+     this PC* (about 0.2 s per call) and from Oracle only when none is
+     voting. Snapshots (`--bootstrap-from`) always come from Oracle: a peer
+     that was itself just restored holds none.
+   - A peer with no committed round for 45 min, or stopped with data older
+     than 8 h (Oracle keeps 8 epochs, about 14 h), is moved aside (node key
+     kept) and restored from a snapshot.
+   - A peer in sync but only following for 10 min is restarted, up to 3
+     times, then wiped. A restart at the tip makes it vote again.
+   - Peers start one at a time, each waited for up to 3 min.
 5. **Oracle runs a liveness timer** (`oracle-watch.sh`): v1 is restarted when
    its committed round is flat for 3 checks.
 
@@ -36,7 +44,9 @@ VM (0 restarts, no OOM kills): the forward ran out of file handles
 - A PC that sleeps past the jail threshold gets its peers jailed (2 epochs,
   1% bond slash) and, past 14 h, needs a snapshot restore. Gate 8
   (`docs/mainnet-v1-plan.md`) is the real fix.
-- Peers started together can hang after catch-up; the watchdog now starts them
-  one at a time. The cause is not found (2026-10-24).
+- The "hang" of 2026-10-23/24 was slow, silent catch-up through the SSH link,
+  made worse by the 45-minute wipe discarding its progress. The node prints no
+  progress while it catches up; a patch is on `fix/catch-up-progress`, but
+  master's node cannot open the deployed testnet's data, so it is untested.
 - This is not independent decentralization (ADR-042): one VM plus one PC, run
   by one person.

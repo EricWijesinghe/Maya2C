@@ -16,6 +16,23 @@ $running = Get-CimInstance Win32_Process -Filter "Name = 'maya2c-node.exe'" | Fo
 # validator (18601 forward, used at start only): a validator that fell behind
 # does not rejoin the DAG by gossip alone.
 $ws = '--ws-listen /ip4/127.0.0.1/tcp/31101/ws '
+# Catch-up is latency-bound (a few blocks in flight, each a round trip), so a
+# node hours behind needs an hour through the 0.7 s SSH link but minutes from
+# a voting peer on this PC. Prefer those; Oracle is the fallback.
+function Get-Sources([int]$self) {
+    $urls = @()
+    foreach ($j in 1..4) {
+        if ($j -eq $self) { continue }
+        $u = 'http://127.0.0.1:' + $(if ($j -eq 1) { 8545 } else { 18700 + $j })
+        try {
+            $r = Invoke-RestMethod $u -Method Post -ContentType 'application/json' -TimeoutSec 2 `
+                -Body '{"jsonrpc":"2.0","id":1,"method":"get_bft_status","params":[]}'
+            if ($r.result.committed_round -gt 0 -and -not $r.result.follower) { $urls += $u }
+        } catch { }
+    }
+    if (-not $urls) { $urls = @('http://127.0.0.1:18601') }
+    return $urls
+}
 for ($i = 1; $i -le 4; $i++) {
     $dir = Join-Path $root "pc$i"
     # Self-heal (the laptop sleeps and moves): Oracle keeps only 8 epochs of
@@ -77,10 +94,11 @@ for ($i = 1; $i -le 4; $i++) {
     for ($j = 1; $j -le 4; $j++) {
         if ($j -ne $i) { $boot += "--bootnode /ip4/127.0.0.1/tcp/$(31400 + $j)/p2p/$(Get-Content (Join-Path $root "pc$j\peer.id") -Raw)" }
     }
+    $src = Get-Sources $i
     $args = "--genesis `"$root\genesis.json`" --data-dir `"$dir\data`" --rpc-addr 127.0.0.1:$(if ($i -eq 1) { 8545 } else { 18700 + $i }) --p2p-port $(31400 + $i) " +
         "--validator-key `"$dir\validator.key.sealed`" --validator-passphrase-file E:\Maya2C-secrets\pc$i.passphrase " +
         "--min-register-bond 1000000000 --snapshot-interval 3600 --snapshot-depth 3600 --prune-depth 3600 " +
-        "--catch-up-from http://127.0.0.1:18601 " + $(if (-not (Test-Path (Join-Path $dir 'data/archive'))) { "--bootstrap-from http://127.0.0.1:18601 " }) + $(if ($i -eq 1) { $ws }) + ($boot -join ' ')
+        (($src | ForEach-Object { "--catch-up-from $_ " }) -join '') + $(if (-not (Test-Path (Join-Path $dir 'data/archive'))) { "--bootstrap-from http://127.0.0.1:18601 " }) + $(if ($i -eq 1) { $ws }) + ($boot -join ' ')
     $line = "`"$exe`" $args >> `"$dir\node.log`" 2>&1"
     Start-Process -FilePath 'cmd.exe' -ArgumentList "/c `"$line`"" -WorkingDirectory $dir -WindowStyle Hidden
     Write-Output "$(Get-Date -Format s) pc$i started"
