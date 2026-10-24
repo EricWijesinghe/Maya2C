@@ -36,3 +36,15 @@ in 17.6 s, 7 blocks). Against the first run (294.3 and 449.7) that is +27% and
 -24% on a machine shared with the live testnet: **single runs vary by about
 +/-25%**, so only differences of several times, not tens of percent, are
 supported by this data. Repeat on an idle machine before quoting a figure.
+
+## Ceiling probe: 6000 senders x 2 (12,000 transfers)
+444.9/s (12,000 finalized and visible on the replica in 27.0 s over 13 blocks,
+about 920 per block; submitting took 1.0 s). Together with the 3000 x 2 runs
+(449.7 and 341.9) that is a plateau of roughly 350 to 450 per second on this
+shared machine: about 2.2 ms per transfer end to end across four validators
+that all verify and execute every transfer.
+It is **not** signature cost: recorded hybrid verification is ~0.21 ms
+(`reports/crypto-bench.md`). What the remaining time is (state commit, execution,
+gossip of 13 KB transactions to three peers, CPU shared with eight other
+validators) has not been profiled. That is the next measurement; no number here
+supports a claim about where the limit is.
