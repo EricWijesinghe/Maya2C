@@ -411,7 +411,7 @@ impl NodeDriver {
                 relay.pending.insert(id, offer);
             }
             Err(error) => {
-                let _ = self.events.send(NodeEvent::RelayFailure(error.to_string()));
+                self.events.emit(NodeEvent::RelayFailure(error.to_string()));
             }
         }
     }
@@ -484,7 +484,7 @@ impl NodeDriver {
         if !relay.install(peer, keys, theirs.port) {
             return None;
         }
-        let _ = self.events.send(NodeEvent::RelayKeyEstablished(peer));
+        self.events.emit(NodeEvent::RelayKeyEstablished(peer));
         Some(ours)
     }
 
@@ -511,7 +511,7 @@ impl NodeDriver {
         }
         let keys = relay_key::keys(&ours, &theirs, &local, &peer, Role::Requester);
         if relay.install(peer, keys, theirs.port) {
-            let _ = self.events.send(NodeEvent::RelayKeyEstablished(peer));
+            self.events.emit(NodeEvent::RelayKeyEstablished(peer));
         }
     }
 
@@ -543,7 +543,7 @@ impl NodeDriver {
         let events = self.events.clone();
         tokio::task::spawn_blocking(move || {
             if let Err(message) = send_block(&socket, &targets, block_id, &body) {
-                let _ = events.send(NodeEvent::RelayFailure(message));
+                events.emit(NodeEvent::RelayFailure(message));
             }
         });
         count
@@ -572,9 +572,8 @@ impl NodeDriver {
                 relay.blocked.insert(peer, (ip, until));
             }
             Err(error) => {
-                let _ = self
-                    .events
-                    .send(NodeEvent::RelayFailure(format!("block {ip}: {error}")));
+                self.events
+                    .emit(NodeEvent::RelayFailure(format!("block {ip}: {error}")));
             }
         }
     }
@@ -594,9 +593,8 @@ impl NodeDriver {
         if let Some(xdp) = relay.xdp.as_mut()
             && let Err(error) = xdp.unblock(ip)
         {
-            let _ = self
-                .events
-                .send(NodeEvent::RelayFailure(format!("unblock {ip}: {error}")));
+            self.events
+                .emit(NodeEvent::RelayFailure(format!("unblock {ip}: {error}")));
         }
     }
 }
