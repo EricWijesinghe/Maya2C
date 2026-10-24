@@ -27,8 +27,8 @@ use custom_l1_node::state::db::StateDB;
 use custom_l1_node::state_pruner::archive::{Archiver, prune_round};
 use custom_l1_node::state_pruner::cold::ColdBlocks;
 use custom_l1_node::state_pruner::snapshot::{
-    BootstrapSource, CHUNK_ENTRIES, SnapshotManifest, Snapshots, bootstrap_pruned, chunk_hash,
-    decode_chunk, encode_chunk,
+    BootstrapSource, CHUNK_ENTRIES, SnapshotManifest, Snapshots, TrustedBlock, bootstrap_pruned,
+    bootstrap_pruned_anchored, chunk_hash, decode_chunk, encode_chunk,
 };
 use custom_l1_node::state_pruner::{ArchivePolicy, PruneConfig};
 use maya_archive::{ArchiveError, ArchiveStore, LocalDirStore, Locator};
@@ -642,4 +642,80 @@ fn restarting_a_pruned_node_keeps_its_horizon_and_receipts() {
         *counts.entry(key[..4].to_vec()).or_insert(0) += 1;
     }
     assert!(!counts.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// the trusted block (weak-subjectivity anchor)
+// ---------------------------------------------------------------------------
+
+fn trusted(archive: &ArchiveNode, height: u64) -> TrustedBlock {
+    let id = archive
+        .chain
+        .state()
+        .canonical_id(height)
+        .expect("read")
+        .expect("block exists");
+    TrustedBlock { height, id }
+}
+
+#[test]
+fn a_bootstrap_whose_chain_contains_the_trusted_block_proceeds() {
+    let archive = archive_node(70);
+    let (state, _dir) = empty_state();
+    let anchor = trusted(&archive, 60);
+    let pruned = bootstrap_pruned_anchored(
+        state,
+        genesis(),
+        config(),
+        &Source::honest(&archive),
+        K,
+        Some(anchor),
+    )
+    .expect("the source serves the chain the operator trusts");
+    assert_eq!(pruned.tip(), archive.chain.tip());
+}
+
+#[test]
+fn a_chain_that_lacks_the_trusted_block_is_refused_and_leaves_nothing_behind() {
+    let archive = archive_node(70);
+    // Another chain's block, or a forged chain: right height, wrong id.
+    let mut wrong = trusted(&archive, 60);
+    wrong.id[0] ^= 0xFF;
+    let (state, _dir) = empty_state();
+    let result = bootstrap_pruned_anchored(
+        Arc::clone(&state),
+        genesis(),
+        config(),
+        &Source::honest(&archive),
+        K,
+        Some(wrong),
+    );
+    assert!(
+        matches!(&result, Err(NodeError::Network(m)) if m.contains("trusted block")),
+        "{:?}",
+        result.as_ref().err()
+    );
+    assert!(
+        state.chain_meta().expect("meta").is_none(),
+        "a refused bootstrap is purged, so a retry starts clean"
+    );
+}
+
+#[test]
+fn a_trusted_block_above_the_sources_tip_is_refused() {
+    let archive = archive_node(70);
+    let mut ahead = trusted(&archive, 70);
+    ahead.height = 500;
+    let (state, _dir) = empty_state();
+    assert!(matches!(
+        bootstrap_pruned_anchored(
+            state,
+            genesis(),
+            config(),
+            &Source::honest(&archive),
+            K,
+            Some(ahead)
+        ),
+        Err(NodeError::Network(_))
+    ));
 }

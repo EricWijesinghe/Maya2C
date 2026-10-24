@@ -332,13 +332,51 @@ pub fn bootstrap_pruned(
     source: &dyn BootstrapSource,
     min_depth: u64,
 ) -> Result<Chain> {
+    bootstrap_pruned_anchored(state, genesis, config, source, min_depth, None)
+}
+
+/// A block the operator vouches for, learned from somewhere other than the
+/// bootstrap source (a second node, an explorer, a person).
+///
+/// Why it exists: a bootstrap checks that the source's headers link and meet
+/// the proof-of-work target, and that the snapshot reproduces a header's state
+/// root. On a DAG-BFT chain the target is near zero, so nothing in that costs
+/// a lying source anything: it can serve a self-consistent chain that no
+/// committee ever signed. Checking one block id against an independent source
+/// is the weak-subjectivity checkpoint proof-of-stake chains use for the same
+/// reason; it turns "trust the source for everything" into "trust the source
+/// for nothing the operator already knows".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TrustedBlock {
+    /// Height of the block.
+    pub height: u64,
+    /// Its id (the header hash).
+    pub id: [u8; 32],
+}
+
+/// As [`bootstrap_pruned`], additionally refusing a source whose best chain
+/// does not contain `anchor` (when given).
+///
+/// # Errors
+///
+/// As [`bootstrap_pruned`]; plus [`NodeError::Network`] when the trusted block
+/// is above the source's tip or is not the source's block at that height. The
+/// database is purged in that case, like any failed bootstrap.
+pub fn bootstrap_pruned_anchored(
+    state: Arc<StateDB>,
+    genesis: Block,
+    config: ChainConfig,
+    source: &dyn BootstrapSource,
+    min_depth: u64,
+    anchor: Option<TrustedBlock>,
+) -> Result<Chain> {
     if !state.scan_prefix(b"")?.is_empty() {
         return Err(NodeError::Storage(
             "a pruned bootstrap needs an empty database".to_string(),
         ));
     }
     let chain = Chain::open(Arc::clone(&state), genesis, config)?;
-    match bootstrap_into(chain, &state, source, min_depth) {
+    match bootstrap_into(chain, &state, source, min_depth, anchor) {
         Ok(chain) => Ok(chain),
         Err(error) => {
             // The database was empty when this started, so wiping it is exact:
@@ -356,9 +394,22 @@ fn bootstrap_into(
     state: &StateDB,
     source: &dyn BootstrapSource,
     min_depth: u64,
+    anchor: Option<TrustedBlock>,
 ) -> Result<Chain> {
     let tip = source.tip_height()?;
     let ids = sync_headers(&mut chain, source, tip)?;
+    if let Some(trusted) = anchor {
+        let theirs = usize::try_from(trusted.height)
+            .ok()
+            .and_then(|h| ids.get(h));
+        if theirs != Some(&trusted.id) {
+            return Err(NodeError::Network(format!(
+                "the source's chain does not contain the trusted block {} at height {}                  (its tip is {tip}): refusing to bootstrap from it",
+                hex::encode(trusted.id),
+                trusted.height
+            )));
+        }
+    }
 
     let manifest = source.snapshot_manifest()?;
     let height = manifest.height;
