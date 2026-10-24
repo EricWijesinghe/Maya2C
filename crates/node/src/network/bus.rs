@@ -10,10 +10,17 @@
 //! vote out of the buffer; the flood is still free to lag the subscribers that
 //! only want transaction events, which can afford it.
 //!
-//! The frame buffer is not free: a gossip message may be 8 MiB
-//! (`MAX_GOSSIP_MESSAGE_BYTES`), so the worst case is that size times the
-//! capacity. Real frames are far smaller; a peer sending maximum-size frames
-//! is rate-limited and scored like any other (`PeerHealth`).
+//! The frame buffer is bounded in slots, not in bytes: a gossip message may be
+//! 8 MiB (`MAX_GOSSIP_MESSAGE_BYTES`), so the worst case is that size times the
+//! capacity, held until the slowest receiver passes it. Real frames are far
+//! smaller, and this has not been measured against a peer that sends junk
+//! frames of maximum size past the first-byte check in `gossiped_bft`. Follow-up:
+//! cap frames at the real maximum (batch size x transaction size) there, or
+//! bound this channel by bytes.
+//!
+//! Also open: the BFT loop can still lag under a flood of *frames* (it verifies
+//! them under the chain lock); the loop counts the loss and relies on the
+//! engine to re-gossip.
 
 use std::sync::Arc;
 
@@ -53,8 +60,9 @@ impl Bus {
         let _ = self.events.send(event);
     }
 
-    /// As [`Bus::emit`], for a DAG-BFT frame that arrived on the consensus
-    /// topic. Decoded and verified by `consensus::bft::BftDriver`, not here.
+    /// As [`Bus::emit`] (a send failure only means nobody is subscribed), for a
+    /// DAG-BFT frame that arrived on the consensus topic. Decoded and verified
+    /// by `consensus::bft::BftDriver`, not here.
     pub(super) fn emit_frame(&self, frame: Arc<Vec<u8>>) {
         let _ = self.frames.send(frame);
     }
