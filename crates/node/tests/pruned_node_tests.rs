@@ -216,6 +216,11 @@ struct Source<'a> {
     bodies: Mutex<Vec<u64>>,
     tamper: Option<Tamper>,
     wrong_block: bool,
+    /// Serves the tip's slot with a copy of the header below it: every parent
+    /// is known, the count is right, and the sequence is not a chain by height.
+    dup_tip_header: bool,
+    /// Serves the body of the next height in place of this one.
+    swap_body_at: Option<u64>,
 }
 
 impl<'a> Source<'a> {
@@ -225,6 +230,8 @@ impl<'a> Source<'a> {
             bodies: Mutex::default(),
             tamper: None,
             wrong_block: false,
+            dup_tip_header: false,
+            swap_body_at: None,
         }
     }
 
@@ -261,7 +268,17 @@ impl BootstrapSource for Source<'_> {
     }
 
     fn headers(&self, from: u64, to: u64) -> Result<Vec<BlockHeader>> {
-        (from..=to).map(|h| Ok(self.node.block(h).header)).collect()
+        let tip = self.node.chain.height();
+        (from..=to)
+            .map(|h| {
+                let served = if self.dup_tip_header && h == tip {
+                    h - 1
+                } else {
+                    h
+                };
+                Ok(self.node.block(served).header)
+            })
+            .collect()
     }
 
     fn snapshot_manifest(&self) -> Result<SnapshotManifest> {
@@ -274,7 +291,12 @@ impl BootstrapSource for Source<'_> {
 
     fn block(&self, height: u64) -> Result<Block> {
         self.bodies.lock().expect("lock").push(height);
-        Ok(self.node.block(height))
+        let served = if self.swap_body_at == Some(height) {
+            height + 1
+        } else {
+            height
+        };
+        Ok(self.node.block(served))
     }
 }
 
@@ -718,4 +740,58 @@ fn a_trusted_block_above_the_sources_tip_is_refused() {
         ),
         Err(NodeError::Network(_))
     ));
+}
+
+#[test]
+fn headers_that_do_not_chain_by_height_are_refused() {
+    let archive = archive_node(70);
+    let mut source = Source::honest(&archive);
+    source.dup_tip_header = true;
+    let (state, _dir) = empty_state();
+    let result = bootstrap_pruned(Arc::clone(&state), genesis(), config(), &source, K);
+    assert!(
+        matches!(&result, Err(NodeError::Network(m)) if m.contains("do not chain")),
+        "{:?}",
+        result.as_ref().err()
+    );
+    assert!(state.chain_meta().expect("meta").is_none());
+}
+
+#[test]
+fn a_trusted_block_below_the_snapshot_or_at_genesis_is_refused() {
+    let archive = archive_node(70);
+    // The snapshot is at 50 (K = 20 below tip 70). A trusted block at 40 is a
+    // real block of the real chain, but the snapshot's header is not below it,
+    // so it says nothing about the chain the snapshot sits on.
+    for (height, why) in [(40, "below the snapshot"), (0, "genesis")] {
+        let (state, _dir) = empty_state();
+        let result = bootstrap_pruned_anchored(
+            state,
+            genesis(),
+            config(),
+            &Source::honest(&archive),
+            K,
+            Some(trusted(&archive, height)),
+        );
+        assert!(
+            matches!(&result, Err(NodeError::Network(m)) if m.contains("trusted block")),
+            "{why}: {:?}",
+            result.as_ref().err()
+        );
+    }
+}
+
+#[test]
+fn a_body_above_the_snapshot_that_is_not_on_the_verified_chain_is_refused() {
+    let archive = archive_node(70);
+    let mut source = Source::honest(&archive);
+    source.swap_body_at = Some(55); // above the snapshot at 50
+    let (state, _dir) = empty_state();
+    let result = bootstrap_pruned(Arc::clone(&state), genesis(), config(), &source, K);
+    assert!(
+        matches!(&result, Err(NodeError::Network(m)) if m.contains("header chain names")),
+        "{:?}",
+        result.as_ref().err()
+    );
+    assert!(state.chain_meta().expect("meta").is_none());
 }

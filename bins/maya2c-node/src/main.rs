@@ -441,6 +441,11 @@ fn parse_args_from(arguments: impl Iterator<Item = String>) -> Result<Args, Box<
         command.run(args.validator_passphrase_file.as_deref())?;
         std::process::exit(0);
     }
+    // An anchor nothing uses is worse than none: the operator believes the
+    // bootstrap is checked when it is not (ADR-060 review).
+    if args.trusted_block.is_some() && args.bootstrap_from.is_none() {
+        return Err("--trusted-block only means something with --bootstrap-from".into());
+    }
     Ok(args)
 }
 
@@ -1130,6 +1135,22 @@ async fn redial_bootnodes(network: custom_l1_node::network::NodeHandle, bootnode
 mod tests {
     use super::{check_shielded_guard, parse_trusted_block};
     use custom_l1_node::state::context::{SHIELDED_ACTIVATION_HEIGHT, SHIELDED_NEVER};
+
+    #[test]
+    fn a_trusted_block_without_a_bootstrap_is_refused_not_ignored() {
+        let id = "ab".repeat(32);
+        let args = |extra: &[&str]| {
+            let mut v: Vec<String> = ["--genesis", "g.json", "--trusted-block"]
+                .iter()
+                .map(ToString::to_string)
+                .collect();
+            v.push(format!("7:{id}"));
+            v.extend(extra.iter().map(ToString::to_string));
+            super::parse_args_from(v.into_iter())
+        };
+        assert!(args(&[]).is_err());
+        assert!(args(&["--bootstrap-from", "http://127.0.0.1:1"]).is_ok());
+    }
 
     #[test]
     fn a_trusted_block_is_height_colon_a_32_byte_id() {
