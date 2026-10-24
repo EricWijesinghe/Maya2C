@@ -70,6 +70,15 @@ ignore = [
     # (`tests/fuel_calibration_tests.rs`) and an activation height.
     { id = "RUSTSEC-2026-0315", reason = "call_ref and exceptions cannot validate in the consensus VM; pinned by vm_tests" },
     { id = "RUSTSEC-2026-0316", reason = "component model compiled out of the consensus VM; pinned by vm_tests" },
+    # 2026-10-25: 48.0.6 -> 48.0.7 is a consensus-VM bump (hard fork), so it rides
+    # the next re-genesis with fuel calibration re-run, not a lockfile update.
+    { id = "RUSTSEC-2026-0378", reason = "component model streams; component model compiled out of the consensus VM. Fixed in 48.0.7, scheduled with the next re-genesis" },
+    # 2026-10-25: crypto-bigint 0.5.5 timing leak. Reached only via elliptic-curve 0.13 -> k256,
+    # used for secp256k1 *recovery* (revm ecrecover precompile, quantum-harbor), i.e. public
+    # signatures, never a secret scalar. Fix needs crypto-bigint >=0.7.6, which elliptic-curve 0.13
+    # cannot take. Revisit when k256/elliptic-curve 0.14 is stable; no Maya2C signing uses k256.
+    { id = "RUSTSEC-2026-0387", reason = "k256 used for public-signature recovery only; no secret scalar reaches crypto-bigint; fix needs elliptic-curve 0.14" },
+    { id = "RUSTSEC-2026-0379", reason = "aarch64 Cranelift br_table only; validators run x86_64. Must be fixed (48.0.7) before any aarch64 validator or the Pulley/native tier on ARM" },
 ]
 # `unmaintained` is a real signal but not a vulnerability, and it fires on
 # transitive crates nobody here can act on. Surfaced, not fatal.
