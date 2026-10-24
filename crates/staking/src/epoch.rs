@@ -61,8 +61,13 @@ impl Staking {
         // A record with funds still unbonding stays, even at zero stake: evidence
         // against it must still find it to slash those funds, and its id must not
         // be registrable again while they wait (self-review 2026-10-25, finding 1).
-        let unbonding: BTreeSet<ValidatorId> =
-            self.unbonding.iter().map(|u| u.validator).collect();
+        // Empty entries (`unbond(0)` is accepted) must not pin one forever.
+        let unbonding: BTreeSet<ValidatorId> = self
+            .unbonding
+            .iter()
+            .filter(|u| !u.amount.is_zero())
+            .map(|u| u.validator)
+            .collect();
         self.validators.retain(|id, v| {
             v.status == Status::Tombstoned || !v.total().is_zero() || unbonding.contains(id)
         });
