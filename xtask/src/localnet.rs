@@ -230,6 +230,11 @@ fn start_with(work: &Path, i: u16, remote: Option<&Remote>) -> Result<Child> {
             "--p2p-port",
             &p2p_port(i).to_string(),
         ]);
+    // `cargo xtask bench-tps` writes one to lift the per-address RPC limit.
+    let config = work.join("node.toml");
+    if config.exists() {
+        cmd.arg("--config").arg(&config);
+    }
     match remote {
         Some(r) if i == VALIDATORS - 1 => {
             cmd.args(["--remote-signer", &r.addr, "--signer-pin", &r.pin])

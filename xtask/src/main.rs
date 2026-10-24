@@ -14,6 +14,7 @@
 //! Run as `cargo xtask <command>` (the alias is in `.cargo/config.toml`).
 
 mod attacknet;
+mod bench_tps;
 mod claims_check;
 mod coverage;
 mod devnet;
@@ -63,6 +64,7 @@ fn main() -> ExitCode {
         "guides-check" => guides_check::run(rest),
         "pgo" => pgo::run(rest),
         "hub-bundle" => hub_bundle::run(rest),
+        "bench-tps" => bench_tps::bench_tps(rest),
         "localnet" => localnet::localnet(rest),
         "mining-localnet" => mining_localnet::mining_localnet(rest),
         "attacknet" => attacknet::attacknet(rest),
@@ -136,6 +138,7 @@ cargo xtask <command>
   attacknet [--rounds N] [--weighted] [--beyond-retention]  Seven validators as processes, attacked:
                             crashes, a stolen key, wire garbage, RPC floods,
                             a long outage; checks no fork and recovery
+  bench-tps [--senders N] [--txs N]  Finalized transfers/s on the 4-validator localnet
   localnet [--remote-signer]  Four maya2c-node validators as processes over
                         libp2p on 127.0.0.1: one chain, a transfer on all,
                         liveness with one killed, and its catch-up.
