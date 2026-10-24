@@ -357,6 +357,17 @@ impl Mempool {
         self.read_pool().is_empty()
     }
 
+    /// Applies `pick` to every pooled transaction under one read lock and keeps
+    /// what it returns, without cloning the transactions themselves. A pooled
+    /// transaction is ~13 KB, so [`Mempool::snapshot`] every few milliseconds on a
+    /// busy pool copies tens of megabytes to look at a hash.
+    pub fn scan<T>(&self, mut pick: impl FnMut(&TxHash, &Transaction) -> Option<T>) -> Vec<T> {
+        self.read_pool()
+            .iter()
+            .filter_map(|(hash, tx)| pick(hash, tx))
+            .collect()
+    }
+
     /// Snapshot of all pooled transactions.
     #[must_use]
     pub fn snapshot(&self) -> Vec<Transaction> {
