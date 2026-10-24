@@ -478,7 +478,9 @@ pub(super) struct Feed {
     /// a stopgap against cheap committee capture while one operator
     /// proposes every block. Zero proposes everything.
     min_register_bond: u64,
-    first_seen: BTreeMap<[u8; 32], Instant>,
+    /// When each pooled transaction was first seen, and its sender (hashing a
+    /// public key per transaction per tick under the pool's read lock is not free).
+    first_seen: BTreeMap<[u8; 32], (Instant, [u8; 32])>,
     /// RPC-submitted transactions already gossiped, so the validator whose
     /// share one is hears of it without waiting out the grace period.
     gossiped: std::collections::BTreeSet<[u8; 32]>,
@@ -532,11 +534,15 @@ impl Feed {
                     refused.push(*id);
                     return None;
                 }
-                Some((tx.sender(), tx.nonce, *id))
+                let sender = self
+                    .first_seen
+                    .get(id)
+                    .map_or_else(|| tx.sender(), |(_, cached)| *cached);
+                Some((sender, tx.nonce, *id))
             });
             pending.sort_unstable();
             for (sender, _, id) in pending {
-                let seen = *self.first_seen.entry(id).or_insert(now);
+                let (seen, _) = *self.first_seen.entry(id).or_insert((now, sender));
                 let mine = proposer_of(&sender, self.committee) == usize::from(me);
                 if (mine || now.duration_since(seen) >= SHARE_GRACE)
                     && let Some(tx) = pool.get(&id)
@@ -567,10 +573,13 @@ impl Feed {
     /// would ever learn of them, and a transaction outside its share would
     /// wait out [`SHARE_GRACE`] (measured: 3.7 s against 0.75 s in-share).
     fn unannounced(&mut self, rpc_pool: &Mempool) -> Vec<custom_l1_node::core::Transaction> {
-        let fresh = rpc_pool.scan(|id, _| (!self.gossiped.contains(id)).then_some(*id));
+        let mut fresh = rpc_pool
+            .scan(|id, tx| (!self.gossiped.contains(id)).then(|| (tx.sender(), tx.nonce, *id)));
+        // Nonce order, so peers receive a sender's chain in the order it executes.
+        fresh.sort_unstable();
         fresh
             .into_iter()
-            .filter_map(|id| {
+            .filter_map(|(_, _, id)| {
                 self.gossiped.insert(id);
                 rpc_pool.get(&id)
             })
