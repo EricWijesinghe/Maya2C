@@ -57,8 +57,7 @@ pub(super) async fn open_or_bootstrap(
         let anchor = args.trusted_block;
         match anchor {
             Some(a) => println!(
-                "bootstrap:   the source's chain must contain block {} at height {}",
-                hex::encode(a.id),
+                "bootstrap:   the source's chain must contain the pinned block at height {}",
                 a.height
             ),
             None => println!(
