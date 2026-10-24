@@ -48,3 +48,18 @@ It is **not** signature cost: recorded hybrid verification is ~0.21 ms
 gossip of 13 KB transactions to three peers, CPU shared with eight other
 validators) has not been profiled. That is the next measurement; no number here
 supports a claim about where the limit is.
+
+## Where the CPU goes (one sampled run, 3000 x 2, 524.8/s)
+CPU use of the four bench validators during the 11.4 s burst, sampled every 2 s
+(`Get-Process` total processor time, matched by command line): **210 to 340% of
+a core each** (peak 341, 334, 336, 335), against about 10% while signing. So the
+nodes are multi-threaded and CPU-bound in aggregate, not stuck on one thread.
+Order of magnitude: ~4 nodes x ~3 cores x 11.4 s over 6,000 transfers is about
+5.5 ms of CPU per transfer per node, against ~0.21 ms to verify its signature
+once. The rest is not accounted for by this data: repeated verification (mempool
+admission, vertex batches, block execution), execution and state commit, hashing
+13 KB transactions, gossip encoding. A sampling profiler is the next step; until
+then this supports only "CPU-bound, with a gap far larger than one signature
+check", not any claim about which part. (This run also gave 524.8/s, higher than
+the 342-450 range of the earlier runs: the run-to-run spread on a shared machine
+is wider than the earlier +/-25%.)
