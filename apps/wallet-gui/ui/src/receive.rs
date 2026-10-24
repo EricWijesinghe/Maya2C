@@ -8,6 +8,7 @@
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 
+use crate::amount;
 use crate::bridge;
 use crate::screens::{short, show_amount, typed_amount};
 use crate::{AppState, Screen};
@@ -144,7 +145,7 @@ pub fn Sent(sent: SentTransfer) -> impl IntoView {
             <h1>"Sent"</h1>
             <p class="sent-amount">
                 {show_amount(&sent.amount)}
-                <span class="unit">" coins"</span>
+                <span class="unit">{format!(" {}", amount::TICKER)}</span>
             </p>
             <p class="lede">{format!("to {}", short(&sent.recipient))}</p>
             <p class="hint">

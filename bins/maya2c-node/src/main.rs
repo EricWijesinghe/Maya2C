@@ -210,7 +210,7 @@ impl Default for Args {
         Self {
             genesis: PathBuf::from("genesis.json"),
             data_dir: PathBuf::from("./data"),
-            rpc_addr: "0.0.0.0:8545".parse().expect("valid default address"),
+            rpc_addr: "127.0.0.1:8545".parse().expect("valid default address"),
             // Off unless asked for. When enabled the deployment binds it to the
             // pod network only — the exporter publishes peer topology and
             // mempool contents, which are not public data.
@@ -271,7 +271,7 @@ fn print_usage() {
          OPTIONS:\n  \
          --genesis <PATH>     genesis.json path (default genesis.json)\n  \
          --data-dir <PATH>    persistent data directory (default ./data)\n  \
-         --rpc-addr <ADDR>    JSON-RPC listen address (default 0.0.0.0:8545)\n  \
+         --rpc-addr <ADDR>    JSON-RPC listen address (default 127.0.0.1:8545; 0.0.0.0 exposes it)\n  \
   --metrics-addr <ADDR> Prometheus exporter address; off unless set\n  \
   --market-addr <ADDR>  aggregator supply/ticker HTTP address; off unless set\n  \
   --market-feed <PATH>  JSON array of exchange quotes for the ticker endpoints\n  \
@@ -834,6 +834,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .refusing_blocks()
             .with_checkpoints(Arc::clone(&checkpoint_slot))
             .with_bft_status(Arc::clone(&status_slot))
+            .with_bft_dir(args.data_dir.join(bft::BFT_DIR))
     } else {
         rpc_context
     };
@@ -951,17 +952,57 @@ async fn main() -> Result<(), Box<dyn Error>> {
             (None, None) => None,
         };
         let setup = bft::setup(committee, signer)?;
-        let (mut driver, opening) = bft::open(&setup, &args.data_dir, &chain)?;
+        // A snapshot lands outside the engine's window, so without catch-up
+        // the node sits at the snapshot height and says nothing (found in the
+        // 2026-10-19 recovery drill).
+        if args.bootstrap_from.is_some() && args.catch_up_from.is_empty() {
+            eprintln!(
+                "warning: --bootstrap-from without --catch-up-from: this DAG-BFT node \
+                 will stay at the snapshot height; add --catch-up-from <the same URL>"
+            );
+        }
+        // Certificate replay first (ADR-052): a node that comes back from a
+        // replay is a full engine, so it takes no follower path below.
+        let replayed = if args.catch_up_from.is_empty() {
+            None
+        } else {
+            match bft::sync_certificates(&args.catch_up_from, &chain, &setup, &args.data_dir).await
+            {
+                Ok((url, driver, opening)) => {
+                    println!(
+                        "catch-up:    replayed certificates from {url}; inside the engine's window"
+                    );
+                    Some((url, driver, opening))
+                }
+                Err(e) => {
+                    eprintln!(
+                        "catch-up:    certificate replay failed: {e}; falling back to checkpoints"
+                    );
+                    None
+                }
+            }
+        };
+        let synced = replayed.as_ref().map(|(url, _, _)| url.clone());
+        let (mut driver, opening) = match replayed {
+            Some((_, driver, opening)) => (driver, opening),
+            None => bft::open(&setup, &args.data_dir, &chain)?,
+        };
         if let Some(first) = args.catch_up_from.first() {
-            let url = bft::catch_up_from_any(&args.catch_up_from, &chain, &mut driver)
-                .await?
-                .unwrap_or_else(|| {
-                    println!("catch-up:    no source reachable; starting as an ordinary restart");
-                    first.clone()
-                });
-            // Always, even for a node level with the network: if its engine
-            // then fails to rejoin, imported blocks are what rescue it (the
-            // driver turns follower when it is overtaken).
+            let url = match synced {
+                Some(url) => url,
+                None => bft::catch_up_from_any(&args.catch_up_from, &chain, &mut driver)
+                    .await?
+                    .unwrap_or_else(|| {
+                        println!(
+                            "catch-up:    no source reachable; starting as an ordinary restart"
+                        );
+                        first.clone()
+                    }),
+            };
+            // Always, including after a replay: a replayed node can still be
+            // overtaken (its peer moved on, or its engine stalls), and the
+            // checkpoint import this loop does is what rescues it (driver
+            // `overtaken`, ADR-038).
             tokio::spawn(bft::follow_loop(
                 url,
                 Arc::clone(&chain),

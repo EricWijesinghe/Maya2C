@@ -22,6 +22,7 @@ use custom_l1_node::core::{Block, BlockHeader, Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
 use custom_l1_node::crypto::target_from_leading_zero_bits;
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
+use primitive_types::U256;
 use tempfile::TempDir;
 
 use crate::Surface;
@@ -197,7 +198,7 @@ fn fresh_state(accounts: &[(Address, u64)]) -> (StateDB, TempDir) {
             .put_account(
                 address,
                 &Account {
-                    balance: *balance,
+                    balance: U256::from(*balance),
                     nonce: 0,
                 },
             )
@@ -225,7 +226,7 @@ fn block_of(transactions: Vec<Transaction>) -> Block {
 fn signed(kind: TxKind, nonce: u64, key: &HybridSigningKey) -> Transaction {
     let mut tx = Transaction::with_kind(kind, nonce);
     tx.outputs.push(TxOutput {
-        amount: 0,
+        amount: U256::zero(),
         recipient: [0u8; 32],
     });
     let _ = tx.sign(key, &crate::SANDBOX_CHAIN);
@@ -243,7 +244,7 @@ mod tests {
         let tx = Transaction::new(
             vec![],
             vec![TxOutput {
-                amount: 1,
+                amount: U256::one(),
                 recipient: [0; 32],
             }],
             0,
@@ -270,7 +271,7 @@ mod tests {
         let mut tx = Transaction::new(
             vec![],
             vec![TxOutput {
-                amount: 1,
+                amount: U256::one(),
                 recipient: [7u8; 32],
             }],
             0,

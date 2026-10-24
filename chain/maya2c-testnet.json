@@ -1,13 +1,13 @@
 {
-  "_status": "No public network exists. This file is the shape a wallet or aggregator listing needs, filled with what is true today: a testnet chain id and no public endpoints.",
-  "chain_id": "maya-testnet",
+  "_status": "Public testnet maya-testnet-1 (testnet coins have no value). Mainnet does not exist yet.",
+  "chain_id": "maya-testnet-1",
   "name": "Maya2C Testnet",
   "native_currency": {
     "name": "Maya2C",
-    "symbol": null,
-    "decimals": null,
-    "_decimals": "No decimals constant exists: every amount is in base units (crates/node/src/rpc/market.rs). A listing must not invent one; this is a decision to write down before launch.",
-    "_symbol": "No ticker symbol is defined anywhere in the tree ('MAYA' appears only as a test pair name in crates/node/src/rpc/market.rs). Choosing one is a launch decision."
+    "symbol": "MAYA",
+    "decimals": 18,
+    "_symbol": "MAYA, chosen by Eric Wijesinghe on 2026-10-18 (DECISIONS.md).",
+    "_decimals": "18, ADR-046. Amounts on the wire are 256-bit base units; 1 MAYA = 10^18 base units."
   },
   "address": {
     "encoding": "hex",
@@ -16,8 +16,12 @@
   },
   "signature_scheme": "hybrid ML-DSA-65 + SLH-DSA-SHA2-128s (FIPS 204 + FIPS 205)",
   "security_label": "post-quantum",
-  "rpc": [],
-  "explorers": [],
+  "rpc": [
+    "https://rpc.maya2c.dev/rpc"
+  ],
+  "explorers": [
+    "https://explorer.maya2c.dev"
+  ],
   "genesis": "infra/k8s/base/configmap.yaml",
   "icons": {
     "png": "apps/dashboard/assets/logo.png"

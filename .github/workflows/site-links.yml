@@ -43,7 +43,8 @@ jobs:
           workingDirectory: docs/site
           # --root-dir resolves the site's absolute links (/experience/) to
           # dist/. Retries ride out a tunnel blip on the PC-hosted services;
-          # a link that is down on every retry is down.
+          # a link that is down on every retry is down. LinkedIn answers every
+          # crawler with HTTP 999, so a check of it only ever says "bot".
           args: >-
             --root-dir ${{ github.workspace }}/docs/site/dist
             --max-retries 3
@@ -52,6 +53,7 @@ jobs:
             --accept 200..=299,403,429
             --exclude-path dist/pagefind
             --exclude-path dist/404.html
+            --exclude '^https://www\.linkedin\.com/'
             --no-progress
             "dist/**/*.html"
           fail: true

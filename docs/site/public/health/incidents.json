@@ -1,0 +1,19 @@
+{
+  "note": "Halts recorded by hand from the incident log. The public gateway has no halt-history method, so a halt missing from this file is not detected by /health/. Full uptime history: https://status.maya2c.dev/",
+  "incidents": [
+    {
+      "id": "2026-10-18-rejoin",
+      "kind": "halt",
+      "start_utc": "2026-10-18T06:16:48Z",
+      "end_utc": "2026-10-18T12:06:46Z",
+      "start_kst": "2026-10-18 15:16:48 KST",
+      "end_kst": "2026-10-18 21:06:46 KST",
+      "cause": "Two validators restarted together could not rejoin. Fix in progress: PR #145.",
+      "links": [
+        { "label": "PR #145", "href": "https://github.com/EricWijesinghe/Maya2C/pull/145" },
+        { "label": "ADR-043: rejoin after any outage", "href": "https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-043-rejoin-after-any-outage.md" },
+        { "label": "Uptime history", "href": "https://status.maya2c.dev/" }
+      ]
+    }
+  ]
+}
