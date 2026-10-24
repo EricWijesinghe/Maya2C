@@ -19,7 +19,7 @@ use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
 use custom_l1_node::crypto::keys::{self, VerifyingKey};
 use custom_l1_node::genesis::BftGenesis;
 use custom_l1_node::metrics::Metrics;
-use custom_l1_node::network::{Mempool, NodeEvent, NodeHandle};
+use custom_l1_node::network::{Mempool, NodeHandle};
 use custom_l1_node::rpc::bootstrap::RpcBootstrapSource;
 use maya_dag_bft::Params;
 use tokio::sync::broadcast::error::RecvError;
@@ -652,7 +652,7 @@ pub(super) async fn bft_loop(
         checkpoint,
         status,
     } = reporting;
-    let mut events = network.subscribe();
+    let mut events = network.subscribe_frames();
     let mut ticker = tokio::time::interval(TICK);
     let gossip_pool = network.mempool().clone();
     let pools = [&gossip_pool, &rpc_pool];
@@ -661,7 +661,7 @@ pub(super) async fn bft_loop(
     loop {
         let step = tokio::select! {
             event = events.recv() => match event {
-                Ok(NodeEvent::BftFrame(frame)) => {
+                Ok(frame) => {
                     let mut guard = lock_chain(&chain);
                     driver.on_frame(&mut guard, now_ms(), &frame)
                 }
@@ -669,7 +669,6 @@ pub(super) async fn bft_loop(
                     dropped.add(lost);
                     continue;
                 }
-                Ok(_) => continue,
                 Err(RecvError::Closed) => return,
             },
             _ = ticker.tick() => {
