@@ -336,3 +336,24 @@ deliberately left at 64 bits, and why, are tabled in ADR-048.
   - not now: the default account suite.
 - **Funding links are left empty** until Eric creates the accounts; inventing them would be dishonest.
 - **The release SBOM uses cargo-cyclonedx** through the allowed taiki-e action, because the action allow-list does not admit anchore.
+
+## 2026-10-18 — Ticker, council, wallet units (Eric)
+
+- **Ticker MAYA.** Display only: amounts stay 256-bit base units, and 1 MAYA = 10^18 base units (ADR-046). Recorded in `chain/maya2c-testnet.json` and as `TICKER` in the wallet core.
+- **Emergency council 2 of 3 (ADR-050 accepted):** this PC, the MacBook, and an offline backup. It pauses one module for a bounded time and never moves funds.
+- **Wallet send form uses whole coins (#135 merged).** Payment requests and QR codes stay in base units.
+
+
+## 2026-10-19 — "All decisions are approved, take the best recommended" (Eric)
+
+- **Council approvals are bound to their chain (ADR-050 finding resolved).** The signed message gains the genesis tag and the domain moves to `security-council/v2`. No live chain had a council, so nothing on chain changes.
+- **Council settings:**
+  - `max_pause_blocks` is 6 hours of blocks, computed at the ceremony from the mainnet block time;
+  - the third key is kept offline, as the sealed file plus a paper passphrase in two places.
+- **ADR-055 (Quantum Harbor binding) accepted.** It is built after the launch gates, with an `AnchorAttestation` anchor, so there is no new transaction kind. `k256` goes into `quantum-harbor` only, after an audit check.
+- **ADR-056 (guardian recovery) accepted.** It goes on the testnet first, behind an activation height. The default delay is 7 days, with a minimum of one epoch. Vaults stay separate.
+- **The soak clock resets: the new earliest pass is 2026-10-26 21:28 KST.**
+  - What happened: the PC went to battery at 18:19:04 KST, and a forced suspend at 18:42 stopped every node.
+  - Measured on chain: no block was produced between 18:42:40 and 21:28:31 KST (2 h 45 min 51 s, before height 129,307).
+  - A 7-day soak with a 2 h 46 min stop is not a 7-day soak.
+  - Fix: battery standby and hibernate are now set to "never". The PC still needs to stay on mains power; only Eric can do that.

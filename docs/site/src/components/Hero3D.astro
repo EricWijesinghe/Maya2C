@@ -1,37 +1,20 @@
 ---
-// The homepage hero (art direction "Living Light", 2026-10-04): one glass
-// bubble per real finalized block, from the explorer's WebSocket. Bubbles
-// merge, drift and answer the pointer; tap one to open its block. Nothing is
-// simulated: if the stream drops, no bubble is born and the chip says so.
-// WebGL draws the thin-film bubbles; without it, or with reduced motion,
-// the still poster behind the canvas stays.
-//
-// The emblem sits where the bubbles gather. Two lattice rings and twelve nodes
-// turn slowly around it (CSS, no JS), and it drifts up and fades as the page
-// scrolls. All of it is decoration; the bubbles carry the data.
-import { Picture } from "astro:assets";
+// The homepage hero (2026-10-20): the validator committee in 3D around the
+// Maya2C core, and every real finalized block, from the explorer's WebSocket,
+// as a crystal on a spiral chain (src/scripts/hero3d.ts). Drag to orbit; tap a
+// validator or a block for its card. Nothing is simulated: if the stream
+// drops, no crystal is born and the chip says so. Without WebGL, the still
+// poster behind the canvas stays.
+import { getImage } from "astro:assets";
 import emblem from "../assets/emblem.png";
 
-const RX = 92, RY = 36;
-const nodes = Array.from({ length: 12 }, (_, i) => {
-  const a = (i / 12) * Math.PI * 2;
-  return { x: +(Math.cos(a) * RX).toFixed(2), y: +(Math.sin(a) * RY).toFixed(2) };
-});
-const lattice = nodes.map((p, i) => `${p.x},${p.y} ${nodes[(i + 3) % 12].x},${nodes[(i + 3) % 12].y}`);
+const badge = await getImage({ src: emblem, width: 256, format: "png" });
 ---
 
 <section class="stage not-content" aria-label="Maya2C, live">
   <div class="poster" aria-hidden="true"></div>
-  <canvas id="field" aria-label="Live bubbles, one per finalized block. Drag them, or tap one to open its block."></canvas>
-  <div class="core" aria-hidden="true">
-    <svg class="lattice" viewBox="-110 -110 220 220" focusable="false">
-      <ellipse class="ring r1" cx="0" cy="0" rx={RX} ry={RY} />
-      <ellipse class="ring r2" cx="0" cy="0" rx={RY + 40} ry={RX - 4} />
-      {lattice.map((seg) => <polyline class="link" points={seg} />)}
-      {nodes.map((p, i) => <circle class="node" cx={p.x} cy={p.y} r="2.6" style={`--d:${(i * 0.37).toFixed(2)}s`} />)}
-    </svg>
-    <Picture src={emblem} formats={["avif", "webp"]} widths={[192, 384]} sizes="(max-width: 759px) 46vw, 300px" width={192} height={192} alt="" class="emblem" loading="eager" />
-  </div>
+  <img id="core-emblem" src={badge.src} width="128" height="128" alt="" aria-hidden="true" />
+  <canvas id="field" aria-label="The validator committee and the live chain in 3D. Drag to orbit; tap a validator or a block for details."></canvas>
   <div class="card-pop" id="pop" hidden role="status"></div>
   <div class="ui">
     <div class="copy">
@@ -42,11 +25,11 @@ const lattice = nodes.map((p, i) => `${p.x},${p.y} ${nodes[(i + 3) % 12].x},${no
         <a class="btn primary" href="/experience/">Experience Maya2C</a>
         <a class="btn" href="https://explorer.maya2c.dev/">Watch it finalize</a>
       </div>
-      <p class="hint">Drag the bubbles. Tap one to open its block.</p>
+      <p class="hint">Drag to orbit. Tap the core, a validator or a block for its numbers.</p>
     </div>
     <dl class="tiles">
       <div class="tile"><dt>Height</dt><dd id="tHeight">—</dd></div>
-      <div class="tile"><dt>Block time</dt><dd>1.1 s</dd></div>
+      <div class="tile"><dt>Block time</dt><dd id="tBlock">—</dd></div>
       <div class="tile"><dt>Signature</dt><dd>ML-DSA-65</dd></div>
       <div class="tile"><dt>Validators</dt><dd><span id="tValidators">—</span><a class="note" id="tValNote" href="/guides/validators/">project-run</a></dd></div>
     </dl>
@@ -55,61 +38,27 @@ const lattice = nodes.map((p, i) => `${p.x},${p.y} ${nodes[(i + 3) % 12].x},${no
 
 <script>
   import { whenIdle } from "../scripts/idle";
-  import { linkAsync } from "../scripts/gl";
+  import type { Hero3D, Pick } from "../scripts/hero3d";
   const canvas = document.getElementById("field") as HTMLCanvasElement;
   const stage = canvas.parentElement as HTMLElement;
   const pop = document.getElementById("pop") as HTMLElement;
-  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const MAX = 20;
-  const PHONE_FRAME_MS = 1000 / 30;
   const fmt = (n: number) => n.toLocaleString("en-US");
   const $ = (id: string) => document.getElementById(id);
 
-  // Scroll reaction for the emblem: one value, 0 at the top to 1 after a
-  // screenful. Written once per frame, and not at all under reduced motion.
-  if (!reduce) {
-    let frame = 0;
-    const onScroll = () => {
-      if (frame) return;
-      frame = requestAnimationFrame(() => {
-        frame = 0;
-        stage.style.setProperty("--scroll", Math.min(1, window.scrollY / Math.max(1, window.innerHeight)).toFixed(3));
-      });
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-  }
+  // Blocks that arrive before the scene loads wait here, so none is lost.
+  let scene: Hero3D | null = null;
+  const early: { h: number; txs: number }[] = [];
+  let height = 0, lastBlockAt = 0, live = false, committee = 0;
+  const gaps: number[] = [];
 
-  type Ball = { x: number; y: number; vx: number; vy: number; r: number; vr: number; rt: number; hue: number; h: number; leaving: boolean };
-  const balls: Ball[] = [];
-  let W = 1, H = 1, height = 0, lastBlockAt = 0, live = false;
+  function show(h: number) { $("hHeight")!.textContent = fmt(h); $("tHeight")!.textContent = fmt(h); }
 
-  // Phones: the cluster sits above the headline; wider: right of it.
-  const home = () => (W < 760 ? { x: W * 0.55, y: H * 0.2 } : { x: W * 0.74, y: H * 0.46 });
-
-  function spawn(h: number, o: Partial<Ball> = {}) {
-    const c = home();
-    const base = Math.min(W, H) * (W < 760 ? 0.068 : 0.05);
-    balls.push({
-      x: o.x ?? c.x + (Math.random() - 0.5) * 120, y: o.y ?? (W < 760 ? -40 : H * 0.98),
-      vx: o.vx ?? (Math.random() - 0.5) * 40, vy: o.vy ?? (W < 760 ? 160 : -220),
-      r: 0, vr: 0, rt: o.rt ?? base * (0.7 + Math.random() * 0.6),
-      hue: o.hue ?? 0, h, leaving: false,
-    });
-    if (balls.filter((b) => !b.leaving).length > MAX - 2) {
-      const old = balls.find((b) => !b.leaving);
-      if (old) { old.leaving = true; old.rt = 0; old.vy -= 60; }
-    }
-    while (balls.length > MAX) balls.shift();
-  }
-
-  // One bubble per real block. Gold when the block carries transactions:
-  // every DAG-BFT block comes from a committed anchor, so gold-for-anchor
-  // would colour them all and say nothing.
-  function onBlock(h: number, txs = 0) {
+  function onBlock(h: number, txs = 0, animate = true) {
     if (!h || h <= height) return;
-    height = h; lastBlockAt = performance.now();
-    $("hHeight")!.textContent = fmt(h); $("tHeight")!.textContent = fmt(h);
-    spawn(h, { hue: txs > 0 ? 1 : 0 });
+    // Measured, never quoted: the mean gap between the last live blocks.
+    if (animate && lastBlockAt) { gaps.push(performance.now() - lastBlockAt); if (gaps.length > 20) gaps.shift(); $("tBlock")!.textContent = (gaps.reduce((a, b) => a + b, 0) / gaps.length / 1000).toFixed(1) + " s"; }
+    height = h; lastBlockAt = performance.now(); show(h);
+    if (scene) scene.addBlock(h, txs, animate); else early.push({ h, txs });
   }
   setInterval(() => {
     $("hAgo")!.textContent = live && lastBlockAt ? ((performance.now() - lastBlockAt) / 1000).toFixed(1) : "—";
@@ -123,10 +72,12 @@ const lattice = nodes.map((p, i) => `${p.x},${p.y} ${nodes[(i + 3) % 12].x},${no
       });
       const { result } = await r.json();
       if (!result) return;
-      $("tValidators")!.textContent = fmt(result.committee);
+      committee = result.committee;
+      $("tValidators")!.textContent = fmt(committee);
+      scene?.setValidators(committee);
       // Every validator today is run by the project (ADR-042): say so, and
       // never let a bigger number read as independent operators.
-      $("tValNote")!.textContent = result.committee > 1 ? "project-run · one machine" : "project-run";
+      $("tValNote")!.textContent = committee > 1 ? "project-run · one machine" : "project-run";
     } catch { /* gateway unreachable: tiles keep their last real values */ }
   }
   status(); setInterval(status, 3000);
@@ -145,184 +96,60 @@ const lattice = nodes.map((p, i) => `${p.x},${p.y} ${nodes[(i + 3) % 12].x},${no
   }
   stream();
 
-  // Open on the last few real blocks, so the field is never empty and
-  // never invented: the explorer lists them newest first.
-  fetch("https://explorer.maya2c.dev/api/blocks?limit=14")
+  // Open on the last real blocks, so the chain is never empty and never
+  // invented: the explorer lists them newest first.
+  fetch("https://explorer.maya2c.dev/api/blocks?limit=24")
     .then((r) => r.json())
     .then((blocks: { height: number; tx_count?: number }[]) => {
-      if (height) return;
-      const c = home();
-      blocks.slice().reverse().forEach((b, i) => {
-        const a = (i / blocks.length) * Math.PI * 2;
-        const ring = Math.min(W, H) * 0.16;
-        spawn(b.height, { x: c.x + Math.cos(a) * ring, y: c.y + Math.sin(a) * ring * 0.8, vx: 0, vy: 0, hue: (b.tx_count ?? 0) > 0 ? 1 : 0 });
+      // Older than a live block that beat this reply: straight onto the chain.
+      blocks.slice().reverse().forEach((b) => {
+        if (b.height > height) onBlock(b.height, b.tx_count ?? 0, false);
+        else if (scene) scene.addBlock(b.height, b.tx_count ?? 0, false);
+        else early.push({ h: b.height, txs: b.tx_count ?? 0 });
       });
-      height = Math.max(height, ...blocks.map((b) => b.height));
-      $("hHeight")!.textContent = fmt(height); $("tHeight")!.textContent = fmt(height);
     })
-    .catch(() => { /* empty field until the first live block */ });
-
-  // Pointer: repel on hover, spring-follow on drag, pop on tap.
-  const ptr = { x: -9999, y: -9999, down: false, grab: null as Ball | null, moved: 0, sx: 0, sy: 0 };
-  const local = (e: PointerEvent) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
-  const hit = (p: { x: number; y: number }) => balls.find((b) => !b.leaving && Math.hypot(b.x - p.x, b.y - p.y) < b.r * 1.1) ?? null;
-  canvas.addEventListener("pointerdown", (e) => {
-    const p = local(e); ptr.down = true; ptr.moved = 0; ptr.sx = p.x; ptr.sy = p.y; ptr.grab = hit(p);
-    if (ptr.grab) canvas.setPointerCapture(e.pointerId);
-  });
-  canvas.addEventListener("pointermove", (e) => {
-    const p = local(e); ptr.x = p.x; ptr.y = p.y;
-    if (ptr.down) ptr.moved = Math.max(ptr.moved, Math.hypot(p.x - ptr.sx, p.y - ptr.sy));
-  });
-  canvas.addEventListener("pointerup", (e) => { if (ptr.grab && ptr.moved < 6) popBall(ptr.grab, local(e)); ptr.down = false; ptr.grab = null; });
-  canvas.addEventListener("pointerleave", () => { if (!ptr.down) { ptr.x = -9999; ptr.y = -9999; } });
+    .catch(() => { /* empty chain until the first live block */ });
 
   let popTimer = 0;
-  function popBall(b: Ball, p: { x: number; y: number }) {
-    b.leaving = true;
-    const r0 = Math.max(16, b.r * 0.42);
-    b.rt = 0;
-    for (let i = 0; i < 3; i++) {
-      const a = (i / 3) * Math.PI * 2 + Math.random();
-      spawn(b.h, { x: b.x, y: b.y, vx: Math.cos(a) * 420, vy: Math.sin(a) * 420, rt: r0, hue: b.hue });
+  function card(p: Pick | null) {
+    if (!p) { pop.hidden = true; return; }
+    // Every card is the chain's own numbers; a quorum is n - f, f = floor((n - 1) / 3).
+    const n = committee || 4, quorum = n - Math.floor((n - 1) / 3);
+    const avg = $("tBlock")!.textContent;
+    if (p.kind === "chain") {
+      pop.innerHTML = `<b>maya-testnet-1</b>Height ${fmt(height)} · block every ${avg}<br>${n} validators · ${quorum} must sign to finalize<br>Signatures ML-DSA-65 + SLH-DSA<br><a href="https://status.maya2c.dev/">Uptime and halts →</a>`;
+    } else if (p.kind === "validator") {
+      pop.innerHTML = `<b>Validator ${p.index + 1} of ${n}</b>Signs every block it votes for (ML-DSA-65)<br>Finality needs ${quorum} of ${n}; survives ${n - quorum} down<br>Project-run, one machine (ADR-042)<br><a href="/guides/validators/">Run a validator →</a>`;
+    } else {
+      const h = p.height;
+      pop.innerHTML = `<b>Block ${fmt(h)}</b>loading…`;
+      fetch(`https://explorer.maya2c.dev/api/blocks/${h}`)
+        .then((r) => r.json())
+        .then((b: { id: string; timestamp: number; tx_count?: number; state_root: string }) => {
+          const ago = Math.max(0, Math.round(Date.now() / 1000 - b.timestamp));
+          pop.innerHTML = `<b>Block ${fmt(h)}</b>${fmt(b.tx_count ?? 0)} transactions · ${fmt(ago)} s ago<br>id ${b.id.slice(0, 16)}…<br>state ${b.state_root.slice(0, 16)}…<br><a href="https://explorer.maya2c.dev/blocks/${h}">Open in explorer →</a>`;
+        })
+        .catch(() => { pop.innerHTML = `<b>Block ${fmt(h)}</b>${fmt(p.txs)} transactions<br><a href="https://explorer.maya2c.dev/blocks/${h}">Open in explorer →</a>`; });
     }
-    pop.innerHTML = `<b>Block ${fmt(b.h)}</b>${b.hue > 0.5 ? "Carries transactions" : "Finalized by DAG-BFT"}<br>Signed ML-DSA-65 + SLH-DSA<br><a href="https://explorer.maya2c.dev/blocks/${b.h}">Open in explorer →</a>`;
     const sr = stage.getBoundingClientRect();
-    pop.style.left = Math.min(p.x + 18, sr.width - 260) + "px";
-    pop.style.top = Math.min(p.y + 18, sr.height - 150) + "px";
+    pop.style.left = Math.max(8, Math.min(p.x + 18, sr.width - 260)) + "px";
+    pop.style.top = Math.max(8, Math.min(p.y + 18, sr.height - 150)) + "px";
     pop.hidden = false;
     clearTimeout(popTimer);
-    popTimer = window.setTimeout(() => { pop.hidden = true; }, 4000);
+    popTimer = window.setTimeout(() => { pop.hidden = true; }, 6000);
   }
 
-  function step(dt: number) {
-    const c = home();
-    for (let i = 0; i < balls.length; i++) {
-      const b = balls[i];
-      b.vr += ((b.rt - b.r) * 120 - b.vr * 12) * dt;
-      b.r = Math.max(0, b.r + b.vr * dt);
-      let ax = 0, ay = 0;
-      if (b.leaving) ay -= W < 760 ? 260 : 90;
-      else { ax += (c.x - b.x) * 1.1; ay += (c.y - b.y) * 1.1; ax += Math.sin(performance.now() / 1700 + i) * 18; }
-      for (let j = 0; j < balls.length; j++) {
-        if (i === j) continue;
-        const o = balls[j], dx = b.x - o.x, dy = b.y - o.y, d = Math.hypot(dx, dy) || 1, want = (b.r + o.r) * 1.35;
-        if (d < want) { const f = (want - d) * 14; ax += (dx / d) * f; ay += (dy / d) * f; }
-      }
-      const pd = Math.hypot(b.x - ptr.x, b.y - ptr.y);
-      if (ptr.grab === b) { ax += (ptr.x - b.x) * 60 - b.vx * 9; ay += (ptr.y - b.y) * 60 - b.vy * 9; }
-      else if (pd < 160 && pd > 0) { const f = (160 - pd) * 9; ax += ((b.x - ptr.x) / pd) * f; ay += ((b.y - ptr.y) / pd) * f; }
-      const damp = Math.pow(0.82, dt * 6);
-      b.vx = (b.vx + ax * dt) * damp; b.vy = (b.vy + ay * dt) * damp;
-      // Phones: the words sit below a third of the hero; bubbles stay above.
-      if (W < 760 && !b.leaving) { const floor = H * 0.36 - b.r; if (b.y > floor) b.vy -= (b.y - floor) * 40 * dt; }
-      b.x += b.vx * dt; b.y += b.vy * dt;
-    }
-    for (let i = balls.length - 1; i >= 0; i--) if (balls[i].leaving && balls[i].r < 0.5) balls.splice(i, 1);
-  }
-
-  const FS = `precision highp float;
-uniform vec2 uRes; uniform float uT; uniform float uDpr; uniform float uLight; uniform vec4 uB[${MAX}];
-float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
-vec3 film(float t){ return vec3(0.50,0.62,0.63) + vec3(0.36,0.30,0.26) * cos(6.28318 * (t + vec3(0.10,0.0,-0.08))); }
-void main(){
-  vec2 p = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y) / uDpr;
-  float f = 0.0; vec2 g = vec2(0.0); float hue = 0.0; float ws = 0.0;
-  for (int i = 0; i < ${MAX}; i++){
-    vec4 b = uB[i]; if (b.z < 0.5) continue;
-    vec2 d = p - b.xy; float R2 = 4.0 * b.z * b.z; float q = dot(d, d) / R2;
-    if (q >= 1.0) continue;
-    float t = 1.0 - q; float w = t * t * t / 0.421875;
-    f += w; g += -6.0 * t * t * d / (R2 * 0.421875); hue += w * b.w; ws += w;
-  }
-  hue = ws > 0.0 ? hue / ws : 0.0;
-  float aa = length(g) * 1.2 + 1e-4;
-  float inside = smoothstep(-aa, aa, f - 1.0);
-  vec2 gg = g / max(f, 1.0);
-  vec3 n = normalize(vec3(-gg * 30.0, 1.0));
-  float fres = pow(1.0 - n.z, 1.6);
-  float rim = exp(-(f - 1.0) * 4.0) * inside;
-  vec3 L = normalize(vec3(-0.5, -0.6, 0.7));
-  float spec = pow(max(dot(reflect(-L, n), vec3(0.0, 0.0, 1.0)), 0.0), 40.0);
-  vec3 tint = mix(film(0.35 + 0.55 * n.x + 0.4 * n.y + uT * 0.04), vec3(0.92, 0.74, 0.44), smoothstep(0.2, 0.8, hue));
-  vec2 uv = gl_FragCoord.xy / uRes;
-  // Aurora: slow light fields behind the bubbles. Decoration, not data.
-  vec2 a1 = vec2(0.70 + 0.10 * sin(uT * 0.11), 0.55 + 0.08 * cos(uT * 0.13));
-  vec2 a2 = vec2(0.25 + 0.12 * cos(uT * 0.07), 0.80 + 0.06 * sin(uT * 0.09));
-  vec2 a3 = vec2(0.90 + 0.06 * sin(uT * 0.05), 0.15 + 0.10 * cos(uT * 0.08));
-  float asp = uRes.x / uRes.y; vec2 k = vec2(asp, 1.0);
-  vec3 c1 = vec3(0.12, 0.71, 0.76), c2 = vec3(0.45, 0.86, 0.90), c3 = vec3(0.85, 0.69, 0.42);
-  float w1 = exp(-length((uv - a1) * k) * 2.4), w2 = exp(-length((uv - a2) * k) * 2.8), w3 = exp(-length((uv - a3) * k) * 3.2);
-  vec3 bgD = vec3(0.020, 0.024, 0.051) + c1 * 0.16 * w1 + c2 * 0.09 * w2 + c3 * 0.10 * w3;
-  vec3 bgL = mix(mix(mix(vec3(0.980, 0.984, 0.992), c1, 0.20 * w1), c2, 0.14 * w2), c3, 0.14 * w3);
-  vec3 bg = mix(bgD, bgL, uLight);
-  vec3 bodyD = bg * 1.3 + tint * (0.10 + fres * 0.95) + tint * rim * 0.55 + vec3(1.0) * spec * 0.9;
-  // On paper, light cannot be added: the film darkens toward its tint instead.
-  vec3 ink = tint * vec3(0.50, 0.72, 0.76);
-  vec3 bodyL = mix(bg, ink, clamp(0.08 + fres * 0.85 + rim * 0.45, 0.0, 0.92)) + vec3(1.0) * spec * 0.6;
-  vec3 col = mix(bg, mix(bodyD, bodyL, uLight), inside);
-  float halo = exp(-abs(f - 1.0) * 3.0) * (1.0 - inside) * smoothstep(0.0, 0.6, f);
-  col += mix(tint * 0.22, (ink - bg) * 0.18, uLight) * halo;
-  col += (hash(gl_FragCoord.xy + fract(uT) * 37.0) - 0.5) * 0.02;
-  gl_FragColor = vec4(col, 1.0);
-}`;
-
-  // The context is created here, not at script evaluation: nothing is spent on
-  // the field until the page has painted and gone idle (see whenIdle below).
-  // The link is polled, not waited on (see linkAsync). A shader that fails to
-  // link never reaches mountField, so the poster stays.
-  function start() {
-    const gl = (() => { try { return canvas.getContext("webgl", { antialias: false }); } catch { return null; } })();
-    if (!gl) return;
-    linkAsync(gl, "attribute vec2 p; void main(){ gl_Position = vec4(p, 0.0, 1.0); }", FS, (prog) => mountField(gl, prog));
-  }
-
-  function mountField(gl: WebGLRenderingContext, prog: WebGLProgram) {
-    stage.classList.add("gl");
-    gl.useProgram(prog);
-    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
-    const loc = gl.getAttribLocation(prog, "p");
-    gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-    const u = (n: string) => gl.getUniformLocation(prog, n);
-    const uRes = u("uRes"), uT = u("uT"), uDpr = u("uDpr"), uB = u("uB"), uLight = u("uLight");
-    // Follows the theme switch live: Starlight sets data-theme on <html>.
-    let light = 0;
-    const theme = () => { light = document.documentElement.dataset.theme === "light" ? 1 : 0; };
-    theme(); new MutationObserver(theme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-    const data = new Float32Array(MAX * 4);
-    let dpr = 1, last = performance.now(), visible = true;
-    const resize = () => {
-      W = Math.max(1, canvas.clientWidth); H = Math.max(1, canvas.clientHeight);
-      // Phones get one device pixel per CSS pixel and a 30 fps field: the
-      // ambient aurora is the costly part, and small GPUs are where it hurts.
-      dpr = Math.min(window.devicePixelRatio || 1, W < 760 ? 1 : 1.5);
-      const w = Math.floor(W * dpr), h = Math.floor(H * dpr);
-      if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; gl.viewport(0, 0, w, h); }
-    };
-    const draw = (now: number) => {
-      data.fill(0);
-      balls.forEach((b, i) => { if (i < MAX) data.set([b.x, b.y, b.r, b.hue], i * 4); });
-      gl.uniform2f(uRes, canvas.width, canvas.height); gl.uniform1f(uT, now / 1000);
-      gl.uniform1f(uDpr, dpr); gl.uniform1f(uLight, light); gl.uniform4fv(uB, data);
-      gl.drawArrays(gl.TRIANGLES, 0, 3);
-    };
-    resize(); window.addEventListener("resize", resize);
-    // Physics steps every frame so motion stays smooth; only the GPU draw is capped.
-    let lastDraw = 0;
-    const loop = (now: number) => {
-      if (!visible) return;
-      step(Math.min(0.033, (now - last) / 1000)); last = now;
-      if (W >= 760 || now - lastDraw >= PHONE_FRAME_MS) { draw(now); lastDraw = now; }
-      requestAnimationFrame(loop);
-    };
-    document.addEventListener("visibilitychange", () => { visible = !document.hidden; if (visible) { last = performance.now(); requestAnimationFrame(loop); } });
-    new IntersectionObserver(([e]) => { const was = visible; visible = e.isIntersecting && !document.hidden; if (visible && !was) { last = performance.now(); requestAnimationFrame(loop); } }).observe(stage);
-    requestAnimationFrame(loop);
-  }
-  // Phones keep the poster: the field is the costly part, and the bubbles
-  // (the data) keep running in the DOM either way.
-  if (!reduce && window.innerWidth >= 760) whenIdle(start);
+  // three.js loads only once the page has painted and gone idle; until then,
+  // and without WebGL, the poster stays.
+  whenIdle(async () => {
+    try {
+      const { mountHero3D } = await import("../scripts/hero3d");
+      scene = mountHero3D(canvas, stage, card, document.getElementById("core-emblem") ?? undefined);
+      stage.classList.add("gl");
+      if (committee) scene.setValidators(committee);
+      early.splice(0).forEach((b) => scene!.addBlock(b.h, b.txs, false));
+    } catch { /* no WebGL: the poster stays */ }
+  });
 </script>
 
 <style>
@@ -332,6 +159,9 @@ void main(){
     radial-gradient(22rem 22rem at 72% 45%, rgba(201, 168, 106,.30), transparent 70%),
     radial-gradient(14rem 14rem at 64% 60%, rgba(63,210,224,.22), transparent 70%), var(--void); }
   .stage.gl .poster { display: none; }
+  /* Pinned over the 3D core by hero3d.ts each frame; shown once the scene runs. */
+  #core-emblem { position: absolute; left: 0; top: 0; z-index: 1; width: clamp(88px, 9vw, 128px); height: auto; pointer-events: none; opacity: 0; transition: opacity .8s var(--glide); filter: drop-shadow(0 0 18px rgba(63, 210, 224, .45)); }
+  .stage.gl #core-emblem { opacity: 1; }
   #field { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: pan-y; cursor: grab; }
   .ui { position: relative; z-index: 2; max-width: 1180px; margin-inline: auto; padding: clamp(40px, 8vh, 96px) max(16px, 4vw) 32px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 40px; min-height: inherit; align-content: space-between; pointer-events: none; }
   .ui a, .ui button { pointer-events: auto; }
@@ -358,26 +188,6 @@ void main(){
   .card-pop[hidden] { display: block !important; opacity: 0; transform: scale(.6); pointer-events: none; }
   .card-pop :global(b) { display: block; font: 300 22px/1.2 var(--display); color: var(--text); margin-bottom: 4px; }
   .card-pop :global(a) { color: var(--accent-text); font-weight: 600; }
-  .core { position: absolute; z-index: 1; left: 74%; top: 46%; width: min(30vmin, 320px); aspect-ratio: 1; pointer-events: none;
-    transform: translate(-50%, calc(-50% - var(--scroll, 0) * 70px)) scale(calc(1 - var(--scroll, 0) * 0.14));
-    opacity: calc(1 - var(--scroll, 0) * 0.7); transition: opacity .2s linear; }
-  .core .lattice { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-  .lattice .ring { fill: none; stroke: var(--cherenkov); stroke-opacity: .42; stroke-width: .6; transform-box: view-box; transform-origin: 50% 50%; }
-  .lattice .ring.r1 { animation: orbit 58s linear infinite; }
-  .lattice .ring.r2 { stroke: var(--iris-a); stroke-opacity: .30; animation: orbit 86s linear infinite reverse; }
-  .lattice .link { fill: none; stroke: #7eeaf0; stroke-opacity: .16; stroke-width: .4; }
-  .lattice .node { fill: #7eeaf0; animation: pulse 3.6s ease-in-out var(--d) infinite; }
-  .core :global(.emblem) { position: absolute; inset: 22%; width: 56%; height: 56%; border-radius: 50%;
-    filter: drop-shadow(0 0 22px rgba(126, 234, 240, .55)); }
-  @keyframes orbit { to { transform: rotate(360deg); } }
-  @keyframes pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
-  @media (max-width: 759px) {
-    .core { left: 55%; top: 20%; width: min(46vw, 200px); }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .lattice .ring, .lattice .node { animation: none; }
-    .core { transform: translate(-50%, -50%); opacity: 1; }
-  }
   /* The hero is the page title; Starlight's own h1 would repeat "Maya2C". */
   :global(main h1#_top) { display: none; }
   @media (prefers-reduced-motion: reduce) { .stage.live .dot { animation: none; } .btn { transition: none; } }

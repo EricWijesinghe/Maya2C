@@ -108,6 +108,37 @@ impl RateLimiter {
     /// configured rate — is not observable through real time anyway.
     #[must_use]
     pub fn check_at(&self, address: IpAddr, now: Instant) -> bool {
+        self.take_at(address, 1.0, now)
+    }
+
+    /// Takes `bytes` from `address`'s bucket, for a call that is weighed by what
+    /// it returns (ADR-052 certificate pages). Refused, and nothing taken, if the
+    /// bucket holds fewer. A cost above the burst can never be paid.
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
+    pub fn charge(&self, address: IpAddr, bytes: u64) -> bool {
+        self.take_at(address, bytes as f64, Instant::now())
+    }
+
+    /// Returns `bytes` to `address`'s bucket, up to its burst: the unused part of
+    /// a reservation made with [`RateLimiter::charge`] before the work.
+    #[allow(clippy::cast_precision_loss)]
+    pub fn refund(&self, address: IpAddr, bytes: u64) {
+        if !self.is_enabled() {
+            return;
+        }
+        let mut buckets = match self.buckets.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if let Some(bucket) = buckets.get_mut(&address) {
+            bucket.tokens = (bucket.tokens + bytes as f64).min(self.burst);
+        }
+    }
+
+    /// Takes `cost` tokens from `address`'s bucket at `now`.
+    #[must_use]
+    pub fn take_at(&self, address: IpAddr, cost: f64, now: Instant) -> bool {
         if !self.is_enabled() {
             return true;
         }
@@ -134,8 +165,8 @@ impl RateLimiter {
         bucket.tokens = (bucket.tokens + elapsed * self.rate).min(self.burst);
         bucket.updated = now;
 
-        if bucket.tokens >= 1.0 {
-            bucket.tokens -= 1.0;
+        if bucket.tokens >= cost {
+            bucket.tokens -= cost;
             true
         } else {
             false

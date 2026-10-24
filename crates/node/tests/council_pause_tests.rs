@@ -80,7 +80,7 @@ fn council(kind: CouncilKind, nonce: u64, signers: &[u8], sender_nonce: u64) -> 
         nonce,
         approvals: vec![],
     };
-    let message = action.signing_message();
+    let message = action.signing_message(&common::test_chain());
     action.approvals = signers
         .iter()
         .map(|i| (*i, Box::new(member(*i).sign(&message).unwrap())))
@@ -240,4 +240,31 @@ fn a_pause_expires_without_anyone_acting() {
     mine(&mut c, vec![]).unwrap();
     mine(&mut c, vec![]).unwrap();
     mine(&mut c, vec![lock(1)]).expect("the pause expired after its three blocks");
+}
+
+/// ADR-050 review finding (2026-10-19): a quorum's approvals for another
+/// chain, same council keys, same nonce, are refused here; the same action
+/// signed for this chain lands.
+#[test]
+fn approvals_signed_for_another_chain_are_refused() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir);
+    let kind = CouncilKind::Pause {
+        module: Module::Governance.tag(),
+        blocks: 3,
+    };
+    let mut action = CouncilAction {
+        kind,
+        nonce: 0,
+        approvals: vec![],
+    };
+    let elsewhere = custom_l1_node::core::ChainTag::from_genesis([0xEE; 32]);
+    let message = action.signing_message(&elsewhere);
+    action.approvals = [0u8, 1]
+        .iter()
+        .map(|i| (*i, Box::new(member(*i).sign(&message).unwrap())))
+        .collect();
+    let replayed = signed(TxKind::Council(Box::new(action)), vec![], 0);
+    assert!(mine(&mut c, vec![replayed]).is_err());
+    mine(&mut c, vec![council(kind, 0, &[0, 1], 0)]).unwrap();
 }

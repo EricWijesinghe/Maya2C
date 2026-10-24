@@ -51,7 +51,7 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq clang mold
 
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master, pinned 2026-09-29
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, pinned 2026-09-29
         with:
           toolchain: nightly-2026-07-15
           targets: ${{ matrix.target }}
@@ -62,9 +62,15 @@ jobs:
 
       - name: Build
         shell: bash
+        # Linux node: the reproducible build (ADR-054), so anyone can rebuild
+        # it and compare against SHA256SUMS. Windows and macOS are not yet.
         run: |
-          cargo build --release --locked --target ${{ matrix.target }} \
-            -p maya2c-node --no-default-features --features production
+          if [ "$RUNNER_OS" = Linux ]; then
+            bash scripts/repro_build.sh ${{ matrix.target }}
+          else
+            cargo build --release --locked --target ${{ matrix.target }} \
+              -p maya2c-node --no-default-features --features production
+          fi
           cargo build --release --locked --target ${{ matrix.target }} \
             -p l1-wallet -p maya2c-peerid
 
@@ -75,7 +81,10 @@ jobs:
           dir=target/${{ matrix.target }}/release
           "$dir/maya2c-node${{ matrix.exe }}" --help | head -1
           "$dir/l1-wallet${{ matrix.exe }}" --version
-          "$dir/maya2c-node${{ matrix.exe }}" --generate-validator-key "$RUNNER_TEMP/v.key" | wc -c
+          # A production build writes sealed keys only (ADR-049).
+          head -c 32 /dev/urandom | base64 > "$RUNNER_TEMP/v.pass"
+          "$dir/maya2c-node${{ matrix.exe }}" --validator-passphrase-file "$RUNNER_TEMP/v.pass" \
+            --generate-validator-key "$RUNNER_TEMP/v.key" | wc -c
 
       - name: Package
         shell: bash
@@ -117,7 +126,7 @@ jobs:
           sudo apt-get install -y -qq clang mold libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev libdbus-1-dev patchelf
 
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master, pinned 2026-09-29
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, pinned 2026-09-29
         with:
           toolchain: nightly-2026-07-15
           targets: wasm32-unknown-unknown
@@ -200,7 +209,7 @@ jobs:
           sudo apt-get install -y -qq clang mold libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev libdbus-1-dev patchelf
 
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master, pinned 2026-09-29
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, pinned 2026-09-29
         with:
           toolchain: nightly-2026-07-15
 
@@ -302,7 +311,7 @@ jobs:
       # without trusting this page. CycloneDX from Cargo.lock via
       # `cargo cyclonedx`: the action allow-list admits taiki-e, not anchore.
       # Before Checksums, so the SBOM is summed too.
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master, pinned 2026-09-29
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, pinned 2026-09-29
         with:
           toolchain: nightly-2026-07-15
       - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2, pinned 2026-09-29
