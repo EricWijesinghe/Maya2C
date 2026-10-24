@@ -233,7 +233,7 @@ Maya2C is built in the open by one maintainer. Here is how to help:
 | 💬 **Talk** | [Discussions](https://github.com/EricWijesinghe/Maya2C/discussions) |
 | ☕ **Donate** | Donation links are coming soon. None are live yet. |
 
-Security reports go privately, never in public issues: see [SECURITY.md](SECURITY.md).
+Security reports go privately, never in public issues: see [SECURITY.md](SECURITY.md) for scope, response targets and safe harbour. Reporters are named in the [Security Hall of Fame](https://maya2c.dev/guides/security-hall-of-fame/). There are no cash rewards yet. Contributor badges are described on [Contributors & badges](https://maya2c.dev/guides/contributors/).
 
 ## Documentation
 

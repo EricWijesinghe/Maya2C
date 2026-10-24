@@ -10,6 +10,9 @@ use thiserror::Error;
 /// Decimal places in one whole coin (ADR-046).
 pub const DECIMALS: usize = 18;
 
+/// The coin's ticker, chosen by the owner on 2026-10-18 (DECISIONS.md).
+pub const TICKER: &str = "MAYA";
+
 /// Why a string is not an amount. IPC is a trust boundary, so every rejection
 /// is deliberate: a lenient parse would accept a sign, an exponent or a rounded
 /// value the user never typed.

@@ -1,0 +1,157 @@
+---
+// Live health of maya-testnet-1, from the public gateway. What the gateway does
+// not expose is said on the page, not filled in. Halts come from
+// public/health/incidents.json, which is committed by hand: the gateway has no
+// halt-history method.
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+---
+
+<StarlightPage frontmatter={{ title: "Live health", description: "Is maya-testnet-1 finalizing now, how long since its last halt, and what the public gateway does and does not show.", template: "splash" }}>
+  <section class="hl" aria-label="Live health">
+    <header class="hl-head">
+      <p class="hl-kicker">maya-testnet-1 · live</p>
+      <h2 class="hl-title">No-halt streak</h2>
+      <p id="streak" class="streak" aria-live="off">—</p>
+      <p class="hl-sub">Counted from the tip block's header timestamp back to the last recorded halt. Not from your clock.</p>
+      <svg class="streak-bar" id="streakBar" viewBox="0 0 600 40" role="img" aria-label="Streak since the last halt, as a bar">
+        <rect x="0" y="14" width="600" height="12" rx="6" class="track" />
+        <rect x="0" y="14" width="0" height="12" rx="6" class="fill" id="streakFill" />
+      </svg>
+      <p class="hl-sub" id="streakFrom">Last halt ended: loading…</p>
+    </header>
+
+    <section class="hl-block" aria-labelledby="gw">
+      <h2 id="gw">What the gateway shows</h2>
+      <dl class="hl-tiles">
+        <div><dt>Height</dt><dd id="gHeight">—</dd></div>
+        <div><dt>Tip age</dt><dd id="gAge">—</dd></div>
+        <div><dt>Epoch</dt><dd id="gEpoch">—</dd></div>
+        <div><dt>Round</dt><dd id="gRound">—</dd></div>
+        <div><dt>Committed round</dt><dd id="gCommitted">—</dd></div>
+        <div><dt>Committee</dt><dd id="gCommittee">—</dd></div>
+      </dl>
+      <p class="hl-note">This is the one node the gateway answers from (<code>get_bft_status</code>, <code>get_chain_info</code>). It is not a list of validators.</p>
+      <div class="hl-gap" role="note">
+        <strong>Per-validator state is not public.</strong>
+        <span><code>get_peers</code> returns <em>method not available through the gateway</em>, checked 2026-10-19. Until a public method exists, this page shows no validator list.</span>
+      </div>
+    </section>
+
+    <section class="hl-block" aria-labelledby="tl">
+      <h2 id="tl">Incident timeline</h2>
+      <svg id="dayAxis" class="day" viewBox="0 0 600 84" role="img" aria-label="Halt on 2026-10-18, KST day from 00:00 to 24:00"></svg>
+      <ol class="hl-incidents" id="incidents"></ol>
+      <p class="hl-note">Only halts recorded in <a href="/health/incidents.json">incidents.json</a> appear here. Full uptime history: <a href="https://status.maya2c.dev/">status.maya2c.dev</a>.</p>
+    </section>
+  </section>
+
+  <script>
+    const RPC = "https://rpc.maya2c.dev/rpc";
+    type Incident = { id: string; start_utc: string; end_utc: string; start_kst: string; end_kst: string; cause: string; links: { label: string; href: string }[] };
+    const $ = (id: string) => document.getElementById(id) as HTMLElement;
+    const fmt = (n: number) => n.toLocaleString("en-US");
+    const DAY = 86400;
+
+    async function rpc<T>(method: string, params: unknown[] = []): Promise<T | null> {
+      try {
+        const r = await fetch(RPC, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
+        const j = await r.json();
+        return j.result ?? null;
+      } catch { return null; }
+    }
+    const dur = (s: number) => `${Math.floor(s / DAY)} d ${Math.floor((s % DAY) / 3600)} h ${Math.floor((s % 3600) / 60)} min ${Math.floor(s % 60)} s`;
+    const unix = (iso: string) => Math.floor(Date.parse(iso) / 1000);
+
+    function renderIncidents(list: Incident[]) {
+      $("incidents").innerHTML = list.map((i) => `
+        <li class="inc">
+          <h3>Halt · ${i.start_kst} to ${i.end_kst}</h3>
+          <p>Lasted ${dur(unix(i.end_utc) - unix(i.start_utc))}.</p>
+          <p>Cause: ${i.cause}</p>
+          <p class="links">${i.links.map((l) => `<a href="${l.href}">${l.label}</a>`).join(" · ")}</p>
+        </li>`).join("");
+      // Day axis for the first incident's KST day: 00:00 to 24:00 KST.
+      const first = list[0];
+      if (!first) return;
+      const dayStart = unix(first.start_utc) - ((unix(first.start_utc) + 9 * 3600) % DAY);
+      const x = (t: number) => (((t - dayStart) / DAY) * 600).toFixed(1);
+      $("dayAxis").innerHTML = `
+        <line x1="0" y1="30" x2="600" y2="30" class="axis" />
+        ${[0, 6, 12, 18, 24].map((h) => `<text x="${(h / 24) * 600}" y="72" class="tick" text-anchor="${h === 0 ? "start" : h === 24 ? "end" : "middle"}">${String(h).padStart(2, "0")}:00</text>`).join("")}
+        <rect x="${x(unix(first.start_utc))}" y="18" width="${(((unix(first.end_utc) - unix(first.start_utc)) / DAY) * 600).toFixed(1)}" height="24" rx="4" class="halt" />
+        <text x="${x(unix(first.start_utc))}" y="12" class="label">halt ${first.start_kst.slice(11, 19)} to ${first.end_kst.slice(11, 19)} KST</text>`;
+    }
+
+    let lastEnd = 0;
+    function tickStreak(tipTs: number) {
+      const nowTs = tipTs + (Date.now() / 1000 - tipTs0);
+      const streak = Math.max(0, nowTs - lastEnd);
+      $("streak").textContent = dur(Math.floor(streak));
+      const span = Math.max(streak, DAY); // the bar is the streak's share of one day, or all of it once past a day
+      $("streakFill").setAttribute("width", (Math.min(1, streak / span) * 600).toFixed(1));
+    }
+    let tipTs0 = 0;
+
+    async function load() {
+      const incidents: { incidents: Incident[] } | null = await fetch("/health/incidents.json").then((r) => r.json()).catch(() => null);
+      const list = incidents?.incidents ?? [];
+      renderIncidents(list);
+      lastEnd = list.length ? unix(list[list.length - 1].end_utc) : 0;
+      $("streakFrom").textContent = list.length ? `Last recorded halt ended ${list[list.length - 1].end_kst}.` : "No halts recorded.";
+
+      const info = await rpc<{ height: number; chain_id: string }>("get_chain_info");
+      const bft = await rpc<{ epoch: number; round: number; committed_round: number; committee: number; follower: boolean; validator: number }>("get_bft_status");
+      if (info) {
+        $("gHeight").textContent = fmt(info.height);
+        const block = await rpc<{ header: { timestamp: number } }>("get_block_by_height", [info.height]);
+        if (block?.header?.timestamp) {
+          tipTs0 = Date.now() / 1000;
+          const tip = block.header.timestamp;
+          $("gAge").textContent = `${Math.max(0, Math.round(tipTs0 - tip))} s`;
+          tickStreak(tip);
+          setInterval(() => { tickStreak(tip); $("gAge").textContent = `${Math.max(0, Math.round(Date.now() / 1000 - tip))} s`; }, 1000);
+        }
+      }
+      if (bft) {
+        $("gEpoch").textContent = fmt(bft.epoch);
+        $("gRound").textContent = fmt(bft.round);
+        $("gCommitted").textContent = fmt(bft.committed_round);
+        $("gCommittee").textContent = fmt(bft.committee);
+      }
+      if (!info) $("streak").textContent = "gateway unreachable";
+    }
+    load();
+  </script>
+
+  <style>
+    .hl { max-width: 980px; margin: 0 auto; display: grid; gap: 48px; padding: 8px 0 64px; color: var(--text); }
+    .hl-kicker { font: 500 12px/1 var(--mono); color: var(--cherenkov-hi); letter-spacing: .08em; text-transform: uppercase; margin: 0; }
+    .hl .hl-title { font: 700 clamp(32px, 4vw, 48px)/1.1 var(--display); margin: 10px 0 0; }
+    .streak { font: 300 clamp(28px, 4.2vw, 52px)/1.1 var(--display); font-variant-numeric: tabular-nums; margin: 18px 0 8px; color: var(--text); }
+    .hl-sub, .hl-note { font: 400 14px/1.5 var(--sans); color: var(--muted); margin: 6px 0; }
+    .streak-bar { width: 100%; height: 40px; margin-top: 14px; }
+    .streak-bar .track { fill: var(--glass); stroke: var(--glass-edge); }
+    .streak-bar .fill { fill: var(--cherenkov); transition: width 1s linear; }
+    .hl-block { background: var(--glass); border: 1px solid var(--glass-edge); border-radius: var(--r-l); padding: clamp(20px, 3vw, 32px); backdrop-filter: blur(16px); }
+    .hl-block h2 { font: 650 22px/1.2 var(--display); margin: 0 0 16px; }
+    .hl-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 0; }
+    .hl-tiles div { padding: 14px 16px; border-radius: var(--r-m); border: 1px solid var(--glass-edge); background: var(--deep); }
+    .hl-tiles dt { font: 500 11px/1 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+    .hl-tiles dd { margin: 8px 0 0; font: 300 24px/1 var(--display); font-variant-numeric: tabular-nums; }
+    .hl-gap { display: grid; gap: 4px; margin-top: 16px; padding: 14px 16px; border-left: 3px solid var(--signal); background: var(--deep); border-radius: var(--r-s); font: 400 14px/1.5 var(--sans); }
+    .hl-gap strong { color: var(--text); }
+    .hl-gap span { color: var(--lede); }
+    .hl code { font: 500 12.5px var(--mono); color: var(--cherenkov-hi); }
+    .day { width: 100%; height: auto; margin-bottom: 18px; }
+    .day .axis { stroke: var(--glass-edge); stroke-width: 2; }
+    .day .halt { fill: var(--signal); }
+    .day .tick { font: 500 11px var(--mono); fill: var(--muted); }
+    .day .label { font: 500 12px var(--mono); fill: var(--text); }
+    .hl-incidents { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
+    .inc { padding: 16px 18px; border-radius: var(--r-m); border: 1px solid var(--glass-edge); background: var(--deep); }
+    .inc h3 { font: 650 16px/1.3 var(--display); margin: 0 0 6px; }
+    .inc p { margin: 4px 0; font: 400 14px/1.5 var(--sans); color: var(--lede); }
+    .inc .links a { color: var(--cherenkov-hi); }
+    @media (prefers-reduced-motion: reduce) { .streak-bar .fill { transition: none; } }
+  </style>
+</StarlightPage>

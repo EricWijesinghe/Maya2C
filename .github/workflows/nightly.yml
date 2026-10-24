@@ -37,7 +37,7 @@ jobs:
       # without mold fails at the first build script.
       - name: Install mold
         run: sudo apt-get update -qq && sudo apt-get install -y -qq mold clang
-      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: nightly-2026-07-15
           targets: wasm32-unknown-unknown,thumbv8m.main-none-eabihf,riscv32imc-unknown-none-elf
@@ -74,9 +74,35 @@ jobs:
   # Fuzzing. The decoders of untrusted input, from a persisted corpus.
   # ---------------------------------------------------------------------
   fuzz:
-    name: fuzz decoders
+    name: fuzz / ${{ matrix.target }}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 45
+    strategy:
+      # One runner per target, so each gets its full budget. The list is
+      # static because a matrix cannot be read from `cargo fuzz list`; add a
+      # target here when a fuzz_targets/*.rs file is added there.
+      fail-fast: false
+      # 16 targets x 10 minutes is 160 minutes of fuzzing. Eight at a time
+      # keeps the whole sweep near 40 minutes of wall clock.
+      max-parallel: 8
+      matrix:
+        target:
+          - tx_decode
+          - header_decode
+          - block_decode
+          - block_sync_response
+          - payload_decode
+          - account_decode
+          - sv2_frame_decode
+          - car_decode
+          - iso20022_decode
+          - htlc_lattice_decode
+          - stateless_witness_decode
+          - radio_frame_decode
+          - did_decode
+          - xdp_relay_decode
+          - iot_anchor_decode
+          - threat_evidence_decode
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Free runner disk
@@ -87,7 +113,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang libclang-dev llvm-dev libssl-dev pkg-config mold
-      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: nightly-2026-07-15
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
@@ -98,16 +124,32 @@ jobs:
         with:
           tool: cargo-fuzz
 
-      # Each target for a bounded time rather than one target for a long one:
-      # a new crash is far likelier in a decoder nobody has fuzzed this week.
-      - name: Run each decoder
+      # Ten minutes a target, each on its own runner. Persisted corpus is read
+      # from fuzz/corpus; new inputs stay on the runner, and a crash is
+      # uploaded below rather than lost with it.
+      - name: Fuzz ${{ matrix.target }}
         working-directory: fuzz
+        # The host target, stated: cargo-fuzz picked musl, which this
+        # toolchain does not have (E0463 on every target, 2026-10-18).
         run: |
-          for t in $(cargo fuzz list); do
-            echo "::group::$t"
-            cargo fuzz run "$t" -- -max_total_time=120 -rss_limit_mb=4096
-            echo "::endgroup::"
-          done
+          cargo fuzz run --target x86_64-unknown-linux-gnu ${{ matrix.target }} \
+            -- \
+            -max_total_time=600 \
+            -max_len=65536 \
+            -rss_limit_mb=4096 \
+            -timeout=5 \
+            -print_final_stats=1
+
+      # Only on failure: a crash, OOM or timeout is the finding. The reproducer
+      # is kept 90 days so it can be replayed locally with `cargo fuzz run`.
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts/
+          if-no-files-found: ignore
+          retention-days: 90
 
   # ---------------------------------------------------------------------
   # Formal verification. Kani on the dependency-free arithmetic crates -
@@ -123,7 +165,7 @@ jobs:
       # without mold fails at the first build script.
       - name: Install mold
         run: sudo apt-get update -qq && sudo apt-get install -y -qq mold clang
-      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: nightly-2026-07-15
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
@@ -161,7 +203,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang libclang-dev llvm-dev libssl-dev pkg-config mold
-      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: nightly-2026-07-15
           components: llvm-tools
@@ -199,7 +241,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang libclang-dev llvm-dev libssl-dev pkg-config mold
-      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: nightly-2026-07-15
           components: clippy
@@ -231,7 +273,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang libclang-dev llvm-dev libssl-dev pkg-config mold
-      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: nightly-2026-07-15
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
@@ -270,7 +312,7 @@ jobs:
       # without mold fails at the first build script.
       - name: Install mold
         run: sudo apt-get update -qq && sudo apt-get install -y -qq mold clang
-      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: nightly-2026-07-15
       - name: Tracked benchmarks

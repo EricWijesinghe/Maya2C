@@ -37,6 +37,9 @@ const NETWORK_POLL: std::time::Duration = std::time::Duration::from_secs(5);
 pub enum Screen {
     /// First run: create or recover.
     Setup,
+    /// Recover from a phrase over a stored wallet (forgotten passphrase,
+    /// or a reinstall that found the old wallet).
+    Recover,
     /// One-time display of a new recovery phrase.
     Backup(String),
     /// Unlock a stored wallet.
@@ -187,6 +190,9 @@ fn App() -> impl IntoView {
                 // through `view!` rather than called as plain functions.
                 {move || match state.screen.get() {
                     Screen::Setup => view! { <screens::setup::Setup/> }.into_any(),
+                    Screen::Recover => {
+                        view! { <screens::setup::Setup from_unlock=true/> }.into_any()
+                    }
                     Screen::Backup(phrase) => {
                         view! { <screens::backup::Backup phrase=phrase/> }.into_any()
                     }

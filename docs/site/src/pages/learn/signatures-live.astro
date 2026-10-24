@@ -1,0 +1,144 @@
+---
+// Walks one transaction's two signatures, step by step. Every size here is a
+// parameter from FIPS 204 (ML-DSA-65) or FIPS 205 (SLH-DSA-SHA2-128s), and
+// the repo constants in crates/crypto-pq/src/suite/ match them. No signature
+// bytes are shown: the gateway has no transaction method, and no testnet
+// transaction was captured for this page.
+//
+// Nothing here verifies a signature. Verification runs in the node.
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+
+// ML-DSA-65 (FIPS 204, Table 2): k = 6 rows, l = 5 columns, 256 coefficients per polynomial.
+const mlPk = { rho: 32, t1: 6 * 256 * 10 / 8 }; // t1 coefficients are 10 bits
+const mlSig = { ctilde: 48, z: 5 * 256 * 20 / 8, hints: 61 }; // z coefficients are 20 bits; hints = omega + k
+const mlTotal = mlSig.ctilde + mlSig.z + mlSig.hints;
+
+// SLH-DSA-SHA2-128s (FIPS 205, Table 1 and 2): n = 16, h = 63 in d = 7 layers of h' = 9,
+// FORS with k = 14 trees of height a = 12, Winternitz w = 16, len = 35 chains.
+const n = 16;
+const fors = 14 * (12 + 1) * n; // 14 trees: a secret leaf and a 12-node path each
+const layer = (9 + 35) * n; // per layer: 9 authentication nodes and one WOTS+ signature (35 chains)
+const slhSig = { r: n, fors, layers: 7, layer, total: n + fors + 7 * layer };
+const slhPk = 2 * n;
+---
+
+<StarlightPage frontmatter={{ title: "Signatures, step by step", description: "One Maya2C transaction carries an ML-DSA-65 and an SLH-DSA signature. This page walks through each check, with the real parameter sizes from FIPS 204 and FIPS 205.", template: "splash" }}>
+  <section class="sg" aria-label="Signature walkthrough">
+    <header class="sg-head">
+      <p class="sg-kicker">maya-testnet-1 · signatures</p>
+      <h2 class="sg-title">Two locks on every transaction</h2>
+      <p class="sg-sub">A transaction is written only if both signatures check out. This walks through each check, with the real sizes.</p>
+    </header>
+
+    <form class="sg-lookup" id="lookup" aria-describedby="lookup-note">
+      <label for="txh">Transaction hash</label>
+      <div class="sg-row">
+        <input id="txh" name="txh" type="text" inputmode="text" autocomplete="off" spellcheck="false" placeholder="paste a transaction hash" />
+        <button type="submit" class="btn">Look up</button>
+      </div>
+      <p class="sg-note" id="lookup-note" role="status">The public gateway has no transaction lookup method (its public methods are listed in crates/node/src/rpc/server.rs). So a hash cannot be fetched here. The walkthrough below uses the parameters for any transaction.</p>
+    </form>
+
+    <nav class="sg-steps" aria-label="Steps">
+      <button type="button" data-step="0" aria-current="step">1 · Message</button>
+      <button type="button" data-step="1">2 · ML-DSA-65</button>
+      <button type="button" data-step="2">3 · SLH-DSA</button>
+      <button type="button" data-step="3">4 · Both checks</button>
+    </nav>
+
+    <article class="sg-panel" data-panel="0">
+      <h2>The message</h2>
+      <p>The signatures cover the transaction's signing bytes. Both algorithms sign the same message. Nothing is signed twice over different data.</p>
+      <p class="sg-note">The SLH-DSA signer uses the deterministic variant with an empty FIPS 205 context (<code>crates/crypto-pq/src/sig.rs</code>, around line 203).</p>
+    </article>
+
+    <article class="sg-panel" data-panel="1" hidden>
+      <h2>ML-DSA-65 · lattice</h2>
+      <p>A lattice signature is a vector of polynomials. Each polynomial has 256 coefficients.</p>
+      <div class="bars" role="img" aria-label={`Public key ${mlPk.rho + mlPk.t1} bytes, signature ${mlTotal} bytes`}>
+        <p class="bar-label">Public key · {mlPk.rho + mlPk.t1} bytes</p>
+        <div class="bar"><span style={`flex:${mlPk.rho}`} class="seg a">ρ {mlPk.rho}</span><span style={`flex:${mlPk.t1}`} class="seg b">t₁ · 6 polynomials, 10 bits each · {mlPk.t1}</span></div>
+        <p class="bar-label">Signature · {mlTotal} bytes</p>
+        <div class="bar"><span style={`flex:${mlSig.ctilde}`} class="seg a">c̃ {mlSig.ctilde}</span><span style={`flex:${mlSig.z}`} class="seg b">z · 5 polynomials, 20 bits each · {mlSig.z}</span><span style={`flex:${mlSig.hints}`} class="seg c">h {mlSig.hints}</span></div>
+      </div>
+      <p class="sg-note">FIPS 204, Table 2: ML-DSA-65 public key 1,952 bytes, signature 3,309 bytes. The repo constant is <code>ML_DSA_65_SIGNATURE_LEN</code> (3309).</p>
+    </article>
+
+    <article class="sg-panel" data-panel="2" hidden>
+      <h2>SLH-DSA-SHA2-128s · hash tree</h2>
+      <p>No lattice here: the signature is built from hashes alone. A few-time signature (FORS) is wrapped by a hypertree of seven layers. Each layer is a tree of height 9, so the whole tree has height 63.</p>
+      <div class="tree" role="img" aria-label="Seven hypertree layers of height 9, above 14 FORS trees of 4096 leaves each">
+        <div class="fors"><span>FORS · 14 trees · 2<sup>12</sup> leaves each</span></div>
+        {Array.from({ length: 7 }, (_, i) => <div class="layer"><span>layer {i + 1} · height 9</span></div>)}
+      </div>
+      <div class="bar" aria-hidden="true">
+        <span style={`flex:${slhSig.r}`} class="seg a">R {slhSig.r}</span>
+        <span style={`flex:${slhSig.fors}`} class="seg b">FORS {slhSig.fors}</span>
+        <span style={`flex:${slhSig.layers * slhSig.layer}`} class="seg c">7 layers × {slhSig.layer}</span>
+      </div>
+      <p class="sg-note">Signature {slhSig.total} bytes = R {slhSig.r} + FORS {slhSig.fors} + 7 × {slhSig.layer}. Public key {slhPk} bytes. FIPS 205, Table 2 gives 7,856 bytes; <code>SHA2_128S_SIGNATURE_LEN</code> is 7856 in the repo.</p>
+    </article>
+
+    <article class="sg-panel" data-panel="3" hidden>
+      <h2>Both checks must pass</h2>
+      <p>A transaction is accepted only when the ML-DSA-65 check and the SLH-DSA check both pass. If either fails, the transaction is not written.</p>
+      <ul class="sg-checks">
+        <li><strong>ML-DSA-65</strong> verifies against its public key, in the node.</li>
+        <li><strong>SLH-DSA-SHA2-128s</strong> verifies against its public key, in the node.</li>
+      </ul>
+      <p class="sg-note"><strong>Not done on this page:</strong> no client-side verification. Nothing in this page checks a signature, and no cryptography runs in the browser. The implementations are tested against NIST known-answer vectors in <code>crates/crypto-pq/tests/acvp_tests.rs</code>.</p>
+    </article>
+
+    <p class="sg-foot"><a href="/guides/signatures/">The guide to signatures</a> · <a href="/reference/hybrid-signatures/">Hybrid signatures</a> · <a href="/health/">Live health</a></p>
+  </section>
+
+  <script>
+    const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>(".sg-steps button"));
+    const panels = Array.from(document.querySelectorAll<HTMLElement>(".sg-panel"));
+    function show(i: number) {
+      panels.forEach((p, k) => { p.hidden = k !== i; });
+      buttons.forEach((b, k) => { if (k === i) b.setAttribute("aria-current", "step"); else b.removeAttribute("aria-current"); });
+    }
+    buttons.forEach((b) => b.addEventListener("click", () => show(Number(b.dataset.step))));
+    const form = document.getElementById("lookup") as HTMLFormElement;
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      // The gateway cannot return a transaction by hash, so the form says so
+      // and shows the parameter walkthrough instead of inventing a result.
+      show(0);
+    });
+  </script>
+
+  <style>
+    .sg { max-width: 920px; margin: 0 auto; display: grid; gap: 28px; padding: 8px 0 64px; color: var(--text); }
+    .sg-kicker { font: 500 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--gold); margin: 0; }
+    .sg .sg-title { font: 700 clamp(32px, 4vw, 46px)/1.1 var(--display); margin: 10px 0 0; }
+    .sg-sub, .sg-note { font: 400 14px/1.55 var(--sans); color: var(--muted); margin: 8px 0 0; }
+    .sg code { font: 500 12.5px var(--mono); color: var(--gold); }
+    .sg-lookup { display: grid; gap: 8px; padding: 18px; border: 1px solid var(--glass-edge); border-radius: var(--r-m); background: var(--glass); }
+    .sg-lookup label { font: 600 14px var(--sans); }
+    .sg-row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .sg-row input { flex: 1 1 260px; font: 400 14px var(--mono); padding: 12px 14px; border-radius: var(--r-s); border: 1px solid var(--glass-edge); background: var(--deep); color: var(--text); }
+    .sg-row .btn { font: 600 14px var(--sans); padding: 12px 18px; border-radius: var(--r-pill); border: 1px solid var(--glass-edge); background: var(--deep); color: var(--text); cursor: pointer; }
+    .sg-steps { display: flex; gap: 8px; flex-wrap: wrap; }
+    .sg-steps button { font: 600 13px var(--sans); padding: 10px 14px; border-radius: var(--r-pill); border: 1px solid var(--glass-edge); background: var(--glass); color: var(--muted); cursor: pointer; }
+    .sg-steps button[aria-current="step"] { color: var(--text); border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); }
+    .sg-panel { padding: clamp(20px, 3vw, 30px); border-radius: var(--r-l); border: 1px solid var(--glass-edge); background: var(--glass); }
+    .sg-panel h2 { font: 650 22px/1.2 var(--display); margin: 0 0 12px; }
+    .sg-panel p { font: 400 15px/1.6 var(--sans); color: var(--lede); margin: 8px 0; }
+    .bars { display: grid; gap: 8px; margin: 18px 0; }
+    .bar-label { font: 500 12px var(--mono); color: var(--muted); margin: 6px 0 0 !important; }
+    .bar { display: flex; width: 100%; min-height: 40px; border-radius: var(--r-s); overflow: hidden; border: 1px solid var(--glass-edge); }
+    .seg { display: flex; align-items: center; justify-content: center; padding: 0 6px; font: 500 11.5px/1.2 var(--mono); color: #02161a; text-align: center; min-width: 0; overflow: hidden; white-space: nowrap; }
+    .seg.a { background: #7eeaf0; }
+    .seg.b { background: #2fb9c3; }
+    .seg.c { background: #d9b97a; }
+    .tree { display: grid; gap: 6px; margin: 18px 0; max-width: 520px; }
+    .tree > div { padding: 10px 14px; border-radius: var(--r-s); border: 1px solid var(--glass-edge); background: var(--deep); font: 500 12.5px var(--mono); color: var(--text); }
+    .tree .fors { background: rgba(217, 185, 122, .18); }
+    .tree .layer { margin-left: 24px; background: rgba(47, 185, 195, .12); }
+    .sg-checks { margin: 12px 0; padding-left: 20px; font: 400 15px/1.7 var(--sans); color: var(--lede); }
+    .sg-foot { font: 500 13px var(--sans); color: var(--muted); }
+    .sg-foot a { color: var(--cherenkov-hi); }
+  </style>
+</StarlightPage>
