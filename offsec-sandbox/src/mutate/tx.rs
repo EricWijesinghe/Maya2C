@@ -9,10 +9,23 @@
 
 use custom_l1_node::core::{Transaction, TxInput, TxOutput};
 use custom_l1_node::crypto::hybrid::signing_key_from_seed;
+use primitive_types::U256;
 use rand_core::RngCore;
 
 use super::bytes::{self, boundary_u64};
 use crate::Rng;
+
+/// An amount at a 256-bit edge, or a 64-bit one: the old `u64` edges still
+/// matter (fees, nonces sit next to amounts), and the new ones are where the
+/// sum of outputs can wrap a 256-bit counter.
+fn boundary_amount(rng: &mut Rng) -> U256 {
+    match rng.next_u32() % 4 {
+        0 => U256::MAX,
+        1 => U256::MAX - U256::one(),
+        2 => U256::one() << 255,
+        _ => U256::from(boundary_u64(rng)),
+    }
+}
 
 /// Mutates one transaction input.
 #[must_use]
@@ -29,10 +42,10 @@ fn mutate_typed(mut tx: Transaction, rng: &mut Rng) -> Vec<u8> {
     match rng.next_u32() % 6 {
         0 => {
             if let Some(output) = pick_mut(&mut tx.outputs, rng) {
-                output.amount = boundary_u64(rng);
+                output.amount = boundary_amount(rng);
             } else {
                 tx.outputs.push(TxOutput {
-                    amount: boundary_u64(rng),
+                    amount: boundary_amount(rng),
                     recipient: [rng_byte(rng); 32],
                 });
             }
@@ -44,7 +57,7 @@ fn mutate_typed(mut tx: Transaction, rng: &mut Rng) -> Vec<u8> {
             let count = (rng.next_u32() % 4096) as usize;
             tx.outputs = (0..count)
                 .map(|i| TxOutput {
-                    amount: boundary_u64(rng),
+                    amount: boundary_amount(rng),
                     recipient: [i as u8; 32],
                 })
                 .collect();
@@ -105,7 +118,7 @@ pub fn seeds() -> Vec<Vec<u8>> {
     let unsigned = Transaction::new(
         vec![],
         vec![TxOutput {
-            amount: 1_000,
+            amount: U256::from(1_000u64),
             recipient: [7u8; 32],
         }],
         0,
@@ -115,7 +128,7 @@ pub fn seeds() -> Vec<Vec<u8>> {
         let mut signed = Transaction::new(
             vec![],
             vec![TxOutput {
-                amount: 500,
+                amount: U256::from(500u64),
                 recipient: [9u8; 32],
             }],
             1,

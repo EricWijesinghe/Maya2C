@@ -1,6 +1,6 @@
 # ADR-050: The owner's control plane — kill switches without a backdoor
 
-**Status:** Proposed, 2026-10-18. Waiting on Eric's decisions (see the end).
+**Status:** Accepted, 2026-10-18 (Eric): a 2-of-3 council at mainnet genesis.
 
 ## Context
 
@@ -69,3 +69,19 @@ Claude works through the repository, pull requests and commands that Eric's sess
 3. Where the third, offline key lives.
 4. Whether the testnet gets a council now, which needs a re-genesis and resets the 7-day soak, or only mainnet does.
 
+## Decision recorded (2026-10-18)
+
+Eric chose **2 of 3**: this PC, the MacBook, and an offline paper/USB backup.
+
+Still to settle before the genesis ceremony:
+- `max_pause_blocks`;
+- where the offline key lives;
+- whether the testnet gets a council (that needs a re-genesis, so not before the 7-day run ends).
+
+## Review finding, 2026-10-19: council approvals are not bound to a chain
+
+`CouncilAction::signing_message` (`crates/node/src/core/council_payload.rs`) signs the domain, the action and the council nonce, but no chain id or genesis hash. A member key used on two chains (testnet and mainnet) makes two approvals at nonce `n` on one a valid action at nonce `n` on the other. A pause stays bounded by `max_pause_blocks`, so the harm is limited, but it is still a replay.
+
+**Resolved 2026-10-19 (Eric: "all decisions are approved, take the best recommended").** The signed message is now `maya2c/security-council/v2 ‖ chain tag ‖ action ‖ nonce`, where the chain tag is the genesis block id (ADR-036). The domain moved to `v2` so no earlier approval can be read as a new one. `council approve` and `council combine` take `--genesis`. Covered by `approvals_signed_for_another_chain_are_refused` (`crates/node/tests/council_pause_tests.rs`) and `approvals_for_another_chain_do_not_combine` (ceremony). No live chain had a council, so no state changes.
+
+**Settings decided the same day, by the same approval:** `max_pause_blocks` is 6 hours of blocks, computed from the mainnet block time at the ceremony. The third council key is kept offline, as the sealed file plus a paper copy of its passphrase in two places, never on a networked machine.

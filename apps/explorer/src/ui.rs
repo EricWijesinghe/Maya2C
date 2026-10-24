@@ -675,6 +675,52 @@ details.panel summary { cursor:pointer; color:var(--muted); margin-bottom:0.75re
   .cube { transform:translate3d(var(--x),0,var(--z)) rotateX(-22deg); }
   .tile { transition:none; }
 }
+/* Site palette (maya2c.dev): abyss background, signal teal, bronze-gold, verified
+   green. Flat panels, no neon or gradient text; the ribbon is a flat wave of
+   chips (no spin, only a slow sine bob). Overrides the living-ledger rules above. */
+:root, [data-theme="command"] { --accent:#1fb5c2; --focus:#e6b260; --on-accent:#08100f; --deep:#050b0f;
+  --panel:rgba(14,30,36,0.62); --border:rgba(150,226,232,0.13); --fg:#edf3f2; --muted:#93a4aa; }
+body::before { animation:none; background:
+  radial-gradient(50rem 28rem at 8% -5%, rgb(31 181 194 / 0.28), transparent 62%),
+  radial-gradient(44rem 26rem at 95% 5%, rgb(69 224 160 / 0.14), transparent 62%),
+  radial-gradient(46rem 26rem at 75% 105%, rgb(230 178 96 / 0.18), transparent 62%),
+  radial-gradient(40rem 24rem at 0% 90%, rgb(126 234 240 / 0.12), transparent 62%); }
+body::after { opacity:0.6; background-image:radial-gradient(rgb(255 255 255 / 0.09) 1px, transparent 1px);
+  background-size:22px 22px; -webkit-mask-image:linear-gradient(#000 20%, transparent 85%); mask-image:linear-gradient(#000 20%, transparent 85%); }
+.nav::after, .tile::before, .panel::before, .pulse::after { display:none; }
+h1 { background:none; color:var(--fg); animation:none; font-weight:650; letter-spacing:-0.01em; }
+.nav { background:#0d1216; backdrop-filter:none; -webkit-backdrop-filter:none; }
+.nav .brand .emblem { filter:none; }
+.nav .brand .word { background:none; color:var(--fg); -webkit-text-fill-color:currentColor; }
+.tile, .panel { background:var(--panel); border:1px solid var(--border); border-radius:6px; box-shadow:none; }
+.tile { border-top:3px solid hsl(calc(186 - var(--n,0) * 18) 62% 56%); }
+.tile:nth-child(1){--n:0} .tile:nth-child(2){--n:1} .tile:nth-child(3){--n:2} .tile:nth-child(4){--n:3}
+.tile:nth-child(5){--n:4} .tile:nth-child(6){--n:5} .tile:nth-child(7){--n:6} .tile:nth-child(8){--n:7}
+.tile:hover, .panel:hover { transform:none; box-shadow:none; border-color:#33424d; }
+.tile .value { color:#fff; font-weight:650; }
+.panel h2 { color:var(--fg); }
+.panel h2::before { content:""; display:inline-block; width:3px; height:0.9em; margin-right:0.5rem;
+  vertical-align:-0.1em; border-radius:2px; background:linear-gradient(#1fb5c2,#e6b260); }
+.bar { background:var(--accent); opacity:0.8; border-radius:2px 2px 0 0; box-shadow:none; }
+.bar:hover { opacity:1; box-shadow:none; background:var(--focus); }
+.pulse { box-shadow:none; width:8px; height:8px; }
+.search input { border-radius:4px; } .search input:focus { box-shadow:none; }
+.search button { border-radius:4px; box-shadow:none; }
+.ribbon { perspective:none; background:linear-gradient(90deg, transparent, rgb(31 181 194 / 0.08), transparent); border-radius:6px; }
+.ribbon::before { content:""; position:absolute; left:4%; right:4%; top:50%; height:2px; opacity:0.5;
+  background:linear-gradient(90deg, #1fb5c2, #7eeaf0 35%, #45e0a0 60%, #e6b260); }
+.stage { transform:none; }
+.cube { width:48px; height:34px; margin:-17px 0 0 -24px; transform:translateX(var(--x));
+  animation:bob 6s ease-in-out infinite; animation-delay:var(--d); }
+.cube .f:not(.front) { display:none; }
+.cube .front { transform:none; border-radius:7px; font-size:11px; color:#fff; box-shadow:none;
+  border:1px solid hsl(var(--h,186) 70% 72% / 0.8);
+  background:linear-gradient(160deg, hsl(var(--h,186) 62% 48%), hsl(var(--h,186) 60% 30%)); }
+.cube:nth-child(6n+1){--h:186} .cube:nth-child(6n+2){--h:170} .cube:nth-child(6n+3){--h:152}
+.cube:nth-child(6n+4){--h:90} .cube:nth-child(6n+5){--h:45} .cube:nth-child(6n){--h:36}
+.cube:last-child .front { border-color:#fff; }
+@keyframes bob { 0%,100% { transform:translate(var(--x),-9px); } 50% { transform:translate(var(--x),9px); } }
+@media (prefers-reduced-motion: reduce) { .cube { animation:none; } }
 "#;
 
 /// Live-update client.
