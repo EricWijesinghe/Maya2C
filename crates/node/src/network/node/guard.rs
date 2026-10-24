@@ -76,7 +76,7 @@ impl NodeDriver {
         {
             return Verdict::Ignore;
         }
-        self.emit(NodeEvent::BftFrame(std::sync::Arc::new(data.to_vec())));
+        self.events.emit_frame(std::sync::Arc::new(data.to_vec()));
         Verdict::Accept
     }
 
