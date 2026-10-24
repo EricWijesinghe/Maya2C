@@ -41,7 +41,7 @@ maya-contract-safety = { path = "../contract-safety" }
 # The module cache key. Already in the tree through `archive`, `identity`
 # and `rwa`; the cache needs a digest, not anything algebraic.
 blake3 = "1"
-wasmtime = { version = "=48.0.6", default-features = false, features = [
+wasmtime = { version = "=48.0.7", default-features = false, features = [
     "cranelift",
     # The Pulley interpreter tier (`src/tier.rs`). Without it wasmtime can
     # compile *to* Pulley but refuses to run the bytecode on a native host.
