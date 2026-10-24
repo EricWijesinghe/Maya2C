@@ -255,7 +255,21 @@ fn sync_headers(
                 headers.len()
             )));
         }
-        ids.extend(chain.import_headers(&headers)?);
+        let imported = chain.import_headers(&headers)?;
+        // import_headers only needs each parent to be known, so a source could
+        // repeat or skip headers and still hand back the right count. Heights
+        // are positions in this vector, so it has to be a chain by position.
+        let mut parent = *ids.last().unwrap_or(&[0; 32]);
+        for (offset, (header, id)) in headers.iter().zip(&imported).enumerate() {
+            if header.prev_hash != parent {
+                return Err(NodeError::Network(format!(
+                    "headers do not chain: the header served for height {} does not extend                      the one before it",
+                    from + offset as u64
+                )));
+            }
+            parent = *id;
+        }
+        ids.extend(imported);
         from = to + 1;
     }
     Ok(ids)
@@ -399,12 +413,15 @@ fn bootstrap_into(
     let tip = source.tip_height()?;
     let ids = sync_headers(&mut chain, source, tip)?;
     if let Some(trusted) = anchor {
+        // Height 0 is the genesis this node already has: it proves nothing
+        // about the source.
         let theirs = usize::try_from(trusted.height)
             .ok()
+            .filter(|h| *h > 0)
             .and_then(|h| ids.get(h));
         if theirs != Some(&trusted.id) {
             return Err(NodeError::Network(format!(
-                "the source's chain does not contain the trusted block {} at height {}                  (its tip is {tip}): refusing to bootstrap from it",
+                "the source's chain does not contain the trusted block {} at height {}                  (its tip is {tip}; height 0 and heights above the tip never match):                  refusing to bootstrap from it",
                 hex::encode(trusted.id),
                 trusted.height
             )));
@@ -416,6 +433,17 @@ fn bootstrap_into(
     if height == 0 || height.saturating_add(min_depth) > tip {
         return Err(NodeError::Network(format!(
             "snapshot at height {height} is not {min_depth} blocks below tip {tip}"
+        )));
+    }
+    // Block ids commit to their ancestors, so the anchor vouches only for the
+    // chain up to its own height. A snapshot above it sits on headers the
+    // anchor says nothing about.
+    if let Some(trusted) = anchor
+        && trusted.height < height
+    {
+        return Err(NodeError::Network(format!(
+            "the trusted block is at height {}, below the snapshot at {height}: it cannot              vouch for the chain the snapshot sits on (give a newer trusted block)",
+            trusted.height
         )));
     }
     let snapshot_id = ids[height as usize];
@@ -435,7 +463,20 @@ fn bootstrap_into(
     chain.adopt_snapshot(&ids[..=height as usize])?;
     // Fetched a window at a time with several requests in flight, inserted
     // strictly in order: every body is still fully validated.
+    let mut next = height + 1;
     super::prefetch::for_each_prefetched(height + 1, tip, &|h| source.block(h), |block| {
+        // Each body must extend the header chain already verified, so a source
+        // cannot swap in a different fork above the snapshot; the tip's own id
+        // is checked once (computing an id costs a proof-of-work hash).
+        let verified_parent = ids[next as usize - 1];
+        if block.header.prev_hash != verified_parent
+            || (next == tip && block.header.id() != ids[next as usize])
+        {
+            return Err(NodeError::Network(format!(
+                "the body served for height {next} is not the block its header chain names"
+            )));
+        }
+        next += 1;
         chain.insert_block(block).map(|_| ())
     })?;
     Ok(chain)
