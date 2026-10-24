@@ -28,3 +28,11 @@ Not shown: an idle machine, WAN latency, separate machines, contract calls or
 mixed loads, sustained runs, 21+ validators, and whether any other part of the
 node limits at higher load. 449.7/s is one point on one shared machine, not a
 ceiling and not a network figure. Single runs: repeat before quoting.
+
+## Second run, after the review follow-up (sender cache, sorted unannounced)
+Same machine, same settings, different binary (`perf/feed-nonce-order` tip):
+64 x 60: **374.1/s** (3,840 in 10.3 s, 7 blocks); 3000 x 2: **341.9/s** (6,000
+in 17.6 s, 7 blocks). Against the first run (294.3 and 449.7) that is +27% and
+-24% on a machine shared with the live testnet: **single runs vary by about
++/-25%**, so only differences of several times, not tens of percent, are
+supported by this data. Repeat on an idle machine before quoting a figure.
