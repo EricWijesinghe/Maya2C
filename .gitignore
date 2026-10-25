@@ -115,3 +115,14 @@ __pycache__/
 
 # Generated at build by docs/site/scripts/gen-updates.mjs.
 docs/site/public/updates/
+
+# Skill packs and per-tool skill links created by the `skills` installer.
+# Local tooling, not part of the node; the installer recreates one folder per
+# agent tool, so ignore the lot rather than list them.
+/.agents/
+/skills-lock.json
+/.posit/
+/.tabnine/
+
+# Worktree health file the docs site rewrites on every build.
+docs/site/public/health.json
