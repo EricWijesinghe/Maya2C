@@ -249,6 +249,44 @@ fn read_counts(r: &mut ByteReader<'_>) -> Result<BTreeMap<[u8; 32], u64>> {
         .collect()
 }
 
+/// Reads the pending sections. Keys must be strictly ascending (one canonical
+/// encoding per map), entries non-zero, and each entry no larger than the
+/// stake it belongs to, so a corrupt record cannot make stake look larger.
+fn decode_pending(r: &mut ByteReader<'_>, staking: &mut Staking) -> Result<()> {
+    let refused = || NodeError::Decode("staking pending stake out of order or range".into());
+    let n = r.read_collection_len(32 + 32)?;
+    let mut prev: Option<[u8; 32]> = None;
+    for _ in 0..n {
+        let id: [u8; 32] = r.read_array()?;
+        if prev.is_some_and(|p| p >= id) {
+            return Err(refused());
+        }
+        prev = Some(id);
+        let amount = read_amount(r)?;
+        let bond = staking.validators.get(&id).map(|v| v.self_bond);
+        if amount.is_zero() || bond.is_none_or(|b| amount > b) {
+            return Err(refused());
+        }
+        staking.pending_self.insert(id, amount);
+    }
+    let n = r.read_collection_len(32 + 32 + 32)?;
+    let mut prev: Option<([u8; 32], [u8; 32])> = None;
+    for _ in 0..n {
+        let key: ([u8; 32], [u8; 32]) = (r.read_array()?, r.read_array()?);
+        if prev.is_some_and(|p| p >= key) {
+            return Err(refused());
+        }
+        prev = Some(key);
+        let amount = read_amount(r)?;
+        let held = staking.delegations.get(&key).copied();
+        if amount.is_zero() || held.is_none_or(|h| amount > h) {
+            return Err(refused());
+        }
+        staking.pending_delegations.insert(key, amount);
+    }
+    Ok(())
+}
+
 impl StakingRecord {
     /// Encodes the record. Canonical: every map is written in key order.
     #[must_use]
@@ -351,18 +389,7 @@ impl StakingRecord {
         staking.retired = (0..n)
             .map(|_| r.read_array())
             .collect::<Result<BTreeSet<_>>>()?;
-        let n = r.read_collection_len(32 + 32)?;
-        for _ in 0..n {
-            let id: [u8; 32] = r.read_array()?;
-            staking.pending_self.insert(id, read_amount(&mut r)?);
-        }
-        let n = r.read_collection_len(32 + 32 + 32)?;
-        for _ in 0..n {
-            let key = (r.read_array()?, r.read_array()?);
-            staking
-                .pending_delegations
-                .insert(key, read_amount(&mut r)?);
-        }
+        decode_pending(&mut r, &mut staking)?;
         let record = Self {
             staking,
             epoch_blocks: r.read_u64()?,
@@ -431,5 +458,119 @@ mod tests {
     fn a_validator_id_is_the_hash_of_its_key_not_the_key() {
         assert_ne!(validator_id(&[1; 1952]), validator_id(&[2; 1952]));
         assert_eq!(validator_id(&[1; 1952]).len(), 32);
+    }
+}
+
+#[cfg(test)]
+mod pending_tests {
+    use super::*;
+
+    /// A valid record with no pending stake, cut before its trailing
+    /// sections, so each test can append its own pending sections.
+    fn prefix() -> Vec<u8> {
+        let mut staking = Staking::new(Params::DEVNET).unwrap();
+        staking
+            .register([1; 32], [8; 32], Amount::from_u64(5_000), 0)
+            .unwrap();
+        staking
+            .register([2; 32], [9; 32], Amount::from_u64(5_000), 0)
+            .unwrap();
+        staking
+            .delegate([3; 32], [9; 32], Amount::from_u64(400))
+            .unwrap();
+        staking.pending_self.clear();
+        staking.pending_delegations.clear();
+        let record = StakingRecord {
+            staking,
+            epoch_blocks: 600,
+            last_round: 0,
+            expected: BTreeMap::new(),
+            authored: BTreeMap::new(),
+        };
+        let bytes = record.encode();
+        // Pending counts (16), epoch_blocks, last_round, two empty count maps.
+        bytes[..bytes.len() - 48].to_vec()
+    }
+
+    fn with_pending(
+        prefix: &[u8],
+        self_pending: &[([u8; 32], u64)],
+        delegated_pending: &[(([u8; 32], [u8; 32]), u64)],
+    ) -> Vec<u8> {
+        let mut out = prefix.to_vec();
+        put_u64(&mut out, self_pending.len() as u64);
+        for (id, amount) in self_pending {
+            out.extend_from_slice(id);
+            put_amount(&mut out, Amount::from_u64(*amount));
+        }
+        put_u64(&mut out, delegated_pending.len() as u64);
+        for ((d, v), amount) in delegated_pending {
+            out.extend_from_slice(d);
+            out.extend_from_slice(v);
+            put_amount(&mut out, Amount::from_u64(*amount));
+        }
+        put_u64(&mut out, 600);
+        put_u64(&mut out, 0);
+        put_u64(&mut out, 0);
+        put_u64(&mut out, 0);
+        out
+    }
+
+    #[test]
+    fn a_pending_self_section_decodes_and_round_trips() {
+        let bytes = with_pending(&prefix(), &[([9; 32], 300)], &[]);
+        let record = StakingRecord::decode(&bytes).unwrap();
+        assert_eq!(
+            record.staking.pending_self.get(&[9; 32]),
+            Some(&Amount::from_u64(300))
+        );
+        assert_eq!(record.encode(), bytes);
+    }
+
+    #[test]
+    fn a_pending_delegation_section_decodes_and_round_trips() {
+        let bytes = with_pending(&prefix(), &[], &[(([3; 32], [9; 32]), 150)]);
+        let record = StakingRecord::decode(&bytes).unwrap();
+        assert_eq!(record.encode(), bytes);
+    }
+
+    #[test]
+    fn out_of_order_pending_keys_are_refused() {
+        let bytes = with_pending(&prefix(), &[([9; 32], 300), ([8; 32], 300)], &[]);
+        assert!(StakingRecord::decode(&bytes).is_err());
+    }
+
+    #[test]
+    fn duplicate_pending_keys_are_refused() {
+        let bytes = with_pending(&prefix(), &[([8; 32], 300), ([8; 32], 300)], &[]);
+        assert!(StakingRecord::decode(&bytes).is_err());
+    }
+
+    #[test]
+    fn pending_above_the_bond_is_refused() {
+        let bytes = with_pending(&prefix(), &[([8; 32], 5_001)], &[]);
+        assert!(StakingRecord::decode(&bytes).is_err());
+        let at_bond = with_pending(&prefix(), &[([8; 32], 5_000)], &[]);
+        assert!(StakingRecord::decode(&at_bond).is_ok());
+    }
+
+    #[test]
+    fn pending_above_the_delegation_is_refused() {
+        let bytes = with_pending(&prefix(), &[], &[(([3; 32], [9; 32]), 401)]);
+        assert!(StakingRecord::decode(&bytes).is_err());
+    }
+
+    #[test]
+    fn pending_for_an_unknown_validator_or_delegation_is_refused() {
+        let unknown_validator = with_pending(&prefix(), &[([7; 32], 1)], &[]);
+        assert!(StakingRecord::decode(&unknown_validator).is_err());
+        let unknown_delegation = with_pending(&prefix(), &[], &[(([4; 32], [9; 32]), 1)]);
+        assert!(StakingRecord::decode(&unknown_delegation).is_err());
+    }
+
+    #[test]
+    fn zero_pending_entries_are_refused() {
+        let bytes = with_pending(&prefix(), &[([8; 32], 0)], &[]);
+        assert!(StakingRecord::decode(&bytes).is_err());
     }
 }

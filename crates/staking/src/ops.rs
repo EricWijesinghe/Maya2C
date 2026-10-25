@@ -244,6 +244,19 @@ impl Staking {
             }
         }
         self.delegations.retain(|_, a| !a.is_zero());
+        // Pending stake is cut at the same rate, so what it earns is unchanged.
+        if let Some(p) = self.pending_self.get_mut(&id) {
+            let cut = bps_of(*p, bps);
+            *p = p.checked_sub(cut).ok_or(StakeError::Overflow)?;
+        }
+        for ((_, validator), p) in &mut self.pending_delegations {
+            if *validator == id {
+                let cut = bps_of(*p, bps);
+                *p = p.checked_sub(cut).ok_or(StakeError::Overflow)?;
+            }
+        }
+        self.pending_self.retain(|_, a| !a.is_zero());
+        self.pending_delegations.retain(|_, a| !a.is_zero());
         Ok(burned)
     }
 
@@ -278,6 +291,10 @@ fn add_pending<K: Ord>(
     key: K,
     amount: Amount,
 ) -> Result<(), StakeError> {
+    // Zero is never stored: the record encoding refuses zero entries.
+    if amount.is_zero() {
+        return Ok(());
+    }
     let entry = map.entry(key).or_insert(Amount::ZERO);
     *entry = entry.checked_add(amount).ok_or(StakeError::Overflow)?;
     Ok(())
@@ -292,5 +309,31 @@ fn drain_pending<K: Ord + Copy>(map: &mut BTreeMap<K, Amount>, key: K, amount: A
         map.remove(&key);
     } else {
         map.insert(key, pending);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::params::Params;
+
+    fn id(n: u8) -> ValidatorId {
+        [n; 32]
+    }
+
+    #[test]
+    fn a_slash_cuts_pending_stake_by_the_same_rate_as_earned() {
+        let mut s = Staking::new(Params::DEVNET).unwrap();
+        s.register([1; 32], id(9), Amount::from_u64(1_000), 0)
+            .unwrap();
+        // Settle the registration so the first 1_000 counts as earned.
+        s.end_epoch(&crate::Participation::default(), Amount::ZERO)
+            .unwrap();
+        s.bond_more([1; 32], id(9), Amount::from_u64(1_000))
+            .unwrap();
+        s.slash(id(9), 5_000).unwrap();
+        let bond = s.validators[&id(9)].self_bond;
+        let pending = s.pending_self[&id(9)];
+        assert_eq!(bond.saturating_sub(pending), Amount::from_u64(500));
     }
 }

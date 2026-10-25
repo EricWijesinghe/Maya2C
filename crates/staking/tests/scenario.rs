@@ -367,3 +367,37 @@ fn bond_added_in_the_boundary_block_earns_from_the_next_epoch() {
     assert!(out.effects.contains(&Effect::Credit(account(1), a(3_000))));
     assert!(out.effects.contains(&Effect::Credit(account(2), a(1_000))));
 }
+
+#[test]
+fn unbond_takes_pending_stake_before_earned_stake() {
+    let mut s = Staking::new(Params::DEVNET).unwrap();
+    s.register(account(1), id(1), a(1_000), 0).unwrap();
+    s.register(account(2), id(2), a(1_000), 0).unwrap();
+    s.end_epoch(&Participation::default(), Amount::ZERO)
+        .unwrap();
+    // 1_000 earned + 1_000 pending on operator 1; withdraw 500.
+    s.bond_more(account(1), id(1), a(1_000)).unwrap();
+    s.unbond(account(1), id(1), a(500)).unwrap();
+    // Earned left: 1_500 - 500 pending = 1_000, equal to operator 2's bond.
+    let out = s.end_epoch(&Participation::default(), a(2_000)).unwrap();
+    assert!(out.effects.contains(&Effect::Credit(account(1), a(1_000))));
+    assert!(out.effects.contains(&Effect::Credit(account(2), a(1_000))));
+}
+
+#[test]
+fn undelegate_takes_pending_stake_before_earned_stake() {
+    let mut s = Staking::new(Params::DEVNET).unwrap();
+    s.register(account(1), id(1), a(1_000), 0).unwrap();
+    s.register(account(2), id(2), a(1_000), 0).unwrap();
+    s.end_epoch(&Participation::default(), Amount::ZERO)
+        .unwrap();
+    // Delegator 3 holds 1_000 earned, then adds 1_000 pending; withdraws 500.
+    s.delegate(account(3), id(1), a(1_000)).unwrap();
+    s.end_epoch(&Participation::default(), Amount::ZERO)
+        .unwrap();
+    s.delegate(account(3), id(1), a(1_000)).unwrap();
+    s.undelegate(account(3), id(1), a(500)).unwrap();
+    // Delegator 3 earns 1_000 (1_500 held, 500 of it pending).
+    let out = s.end_epoch(&Participation::default(), a(3_000)).unwrap();
+    assert!(out.effects.contains(&Effect::Credit(account(3), a(1_000))));
+}

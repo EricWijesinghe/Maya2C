@@ -929,6 +929,9 @@ impl GenesisConfig {
             active.push(id);
         }
         state.active.clone_from(&active);
+        // Genesis bonds are eligible for epoch 0's rewards, not pending.
+        state.pending_self.clear();
+        state.pending_delegations.clear();
         let weights = crate::state::staking::stake_weights(&state, &active);
         let record = StakingRecord {
             staking: state,
@@ -1158,4 +1161,56 @@ pub fn decode_address(value: &str) -> Result<Address> {
             bytes.len()
         ))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::staking::{STATE_KEY, StakingRecord};
+    use maya_staking::{Effect, Participation};
+
+    #[test]
+    fn genesis_stake_earns_at_the_first_epoch_boundary() {
+        let validator = crate::crypto::keys::signing_key_from_seed(&[0x61; 32]).unwrap();
+        let config = GenesisConfig {
+            chain_id: "genesis-earn".to_string(),
+            timestamp: 1_000_000,
+            difficulty_bits: 0,
+            pow_limit_bits: 0,
+            allocations: Vec::new(),
+            oracle: None,
+            sealed: None,
+            treasury: None,
+            protocol_upgrades: Vec::new(),
+            security_council: None,
+            shielded_activation_height: None,
+            bft: Some(BftGenesis {
+                validators: vec![hex::encode(validator.verifying_key().to_bytes())],
+                anchor_timeout_ms: 1_000,
+                batch_size: 100,
+                round_interval_ms: 500,
+                staking: Some(StakingGenesis::with_bonds(
+                    600,
+                    vec![GenesisBond {
+                        operator: hex::encode([0x0a; 32]),
+                        bond: U256::from(10_000),
+                        commission_bps: 0,
+                    }],
+                )),
+                fees: None,
+                mining: None,
+            }),
+        };
+        let records = config.staking_records().unwrap();
+        let bytes = records.get(STATE_KEY).unwrap().clone();
+        let mut record = StakingRecord::decode(&bytes).unwrap();
+        assert_eq!(record.encode(), bytes);
+        let pool = to_amount(U256::from(1_000));
+        let out = record
+            .staking
+            .end_epoch(&Participation::default(), pool)
+            .unwrap();
+        assert!(out.effects.contains(&Effect::Credit([0x0a; 32], pool)));
+        assert!(!out.effects.iter().any(|e| matches!(e, Effect::Burn(_))));
+    }
 }
