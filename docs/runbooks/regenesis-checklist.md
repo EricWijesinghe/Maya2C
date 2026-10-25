@@ -45,7 +45,11 @@ genesis-ceremony --chain-id <ID> --supply <UNITS> \
   --timestamp <UNIX> --difficulty-bits <N> --out-dir out
 ```
 
-Amounts are base units, 18 decimals. `validators.txt` lines are `label key
+Amounts are base units, 18 decimals. **The chain's total supply is
+`--supply` + `--mining-reserve` + the sum of the bonds**, not `--supply` alone
+(found 2026-10-26: a 21M `--supply` plus a 20M reserve gave 41M). For a 21M-coin
+cap, pick `--supply` as the small root allocation and set `--mining-reserve` =
+cap - supply - bonds. Check the printed `total supply` line before signing. `validators.txt` lines are `label key
 operator bond`; the bonds are the disclosed validator-bond allocation, not a
 premine. Then `cargo xtask genesis-check out/genesis.json`, commit the file,
 and have Eric sign it (`genesis/<chain>.json.sig`). **APPROVED: sign genesis.**
