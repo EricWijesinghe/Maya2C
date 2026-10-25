@@ -134,6 +134,7 @@ pub fn Shell(
                     <a href="/blocks">"Blocks"</a>
                     <a href="/tx">"Transactions"</a>
                     <a href="/account">"Accounts"</a>
+                    <a href="/validators">"Validators"</a>
                 </nav>
                 <main>{children()}</main>
                 <script>{LIVE_SCRIPT}</script>
@@ -513,6 +514,73 @@ pub fn account_page(
     })
 }
 
+/// The validator set: who is in this epoch's committee, who is jailed and
+/// until when. `error` explains a missing answer (node without the RPC).
+#[must_use]
+pub fn validators_page(
+    info: Option<custom_l1_node::rpc::validators::ValidatorsInfo>,
+    error: Option<String>,
+) -> String {
+    let message = match error {
+        Some(text) => view! { <p class="error">{text}</p> }.into_any(),
+        None => view! { <span></span> }.into_any(),
+    };
+    let body = match info {
+        None => view! { <span></span> }.into_any(),
+        Some(info) => {
+            let summary = format!(
+                "Epoch {} · committee of {} · {} registered",
+                info.epoch, info.committee, info.total
+            );
+            let rows: Vec<_> = info
+                .validators
+                .iter()
+                .map(|v| {
+                    let standing = match v.jailed_until {
+                        Some(epoch) => format!("jailed, eligible again at epoch {epoch}"),
+                        None => v.status.clone(),
+                    };
+                    let seat = if v.in_committee { "committee" } else { "-" };
+                    view! {
+                        <tr>
+                            <td>{seat}</td>
+                            <td class="mono">{short_hash(&v.id)}</td>
+                            <td>{standing}</td>
+                            <td>{v.self_bond.clone()}</td>
+                            <td>{v.delegated.clone()}</td>
+                            <td>{format!("{}%", f64::from(v.commission_bps) / 100.0)}</td>
+                        </tr>
+                    }
+                })
+                .collect();
+            view! {
+                <section class="panel">
+                    <h2>{summary}</h2>
+                    <div class="tablewrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>"Seat"</th><th>"Validator"</th><th>"Standing"</th>
+                                    <th>"Self bond"</th><th>"Delegated"</th><th>"Commission"</th>
+                                </tr>
+                            </thead>
+                            <tbody>{rows}</tbody>
+                        </table>
+                    </div>
+                </section>
+            }
+            .into_any()
+        }
+    };
+    render(view! {
+        <Shell title="Validators".to_string()>
+            <h1>"Validators"</h1>
+            {message}
+            {body}
+        </Shell>
+    })
+}
+
 /// A 404 page.
 #[must_use]
 pub fn not_found_page(what: String) -> String {
@@ -850,5 +918,56 @@ mod ribbon_tests {
         let (_, mid_z) = ribbon_slot(6, 12);
         assert!(mid_z > edge_z, "middle should sit nearer the viewer");
         assert!(edge_z >= 0.0, "depth never goes negative");
+    }
+}
+
+#[cfg(test)]
+mod validators_page_tests {
+    use custom_l1_node::rpc::validators::{ValidatorInfo, ValidatorsInfo};
+
+    use super::validators_page;
+
+    fn row(id: u8, status: &str, until: Option<u64>, in_committee: bool) -> ValidatorInfo {
+        ValidatorInfo {
+            id: hex::encode([id; 32]),
+            operator: hex::encode([0xAA; 32]),
+            self_bond: "100000000".into(),
+            delegated: "0".into(),
+            commission_bps: 500,
+            status: status.into(),
+            jailed_until: until,
+            in_committee,
+        }
+    }
+
+    #[test]
+    fn a_jail_is_explained_with_its_end_epoch() {
+        let html = validators_page(
+            Some(ValidatorsInfo {
+                epoch: 65,
+                epoch_blocks: 3600,
+                committee: 1,
+                total: 2,
+                validators: vec![
+                    row(1, "bonded", None, true),
+                    row(2, "jailed", Some(67), false),
+                ],
+            }),
+            None,
+        );
+        assert!(html.contains("Epoch 65"), "{html}");
+        assert!(html.contains("jailed, eligible again at epoch 67"));
+        assert!(html.contains("committee of 1"));
+        assert!(html.contains("5%"));
+    }
+
+    #[test]
+    fn a_node_without_the_rpc_gets_an_explanation_not_an_empty_page() {
+        let html = validators_page(
+            None,
+            Some("This node does not serve get_validators.".into()),
+        );
+        assert!(html.contains("does not serve get_validators"));
+        assert!(!html.contains("<table"));
     }
 }
