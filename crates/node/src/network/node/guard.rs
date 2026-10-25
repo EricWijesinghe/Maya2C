@@ -24,6 +24,13 @@ use crate::network::peer_health::{
 use crate::network::sync::{self, BlockRequest, BlockResponse, MAX_BLOCKS_PER_REQUEST};
 use crate::network::topics::{bft_topic, blocks_topic, txs_topic};
 
+/// Largest DAG-BFT frame worth buffering: a proposal carries at most
+/// `MAX_BATCH_BYTES` (4 MiB) of payload plus its signature and parents, so
+/// anything bigger is not from an honest validator. Gossip itself allows 8 MiB,
+/// and the frame channel holds hundreds of frames, so without this bound a
+/// flood of maximum-size junk could pin gigabytes before the engine looks.
+pub(crate) const MAX_BFT_FRAME_BYTES: usize = 5 * 1024 * 1024;
+
 impl NodeDriver {
     /// Validates one gossiped message and tells gossipsub what to do with it.
     ///
@@ -68,6 +75,9 @@ impl NodeDriver {
     /// whoever runs consensus. Signatures are the engine's to check; the gossip
     /// layer only refuses what cannot be a frame (`consensus::bft` module note).
     fn gossiped_bft(&mut self, data: &[u8]) -> Verdict {
+        if data.len() > MAX_BFT_FRAME_BYTES {
+            return Verdict::Ignore;
+        }
         // Engine frames, or block attestations (ADR-038), which carry their
         // own first byte so neither can parse as the other.
         let first = data.first().copied();
@@ -264,4 +274,16 @@ fn unix_now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_secs())
+}
+
+#[cfg(test)]
+mod bft_frame_bound_tests {
+    use super::MAX_BFT_FRAME_BYTES;
+    use crate::consensus::bft::store::MAX_BATCH_BYTES;
+
+    #[test]
+    fn the_bound_leaves_room_for_a_full_batch_and_stays_under_the_gossip_limit() {
+        assert!(MAX_BFT_FRAME_BYTES > MAX_BATCH_BYTES);
+        assert!(MAX_BFT_FRAME_BYTES < crate::network::behaviour::MAX_GOSSIP_MESSAGE_BYTES);
+    }
 }
