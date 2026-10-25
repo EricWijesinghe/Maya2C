@@ -71,7 +71,11 @@ for ($i = 1; $i -le 4; $i++) {
             $r = Invoke-RestMethod "http://127.0.0.1:$port" -Method Post -ContentType 'application/json' -TimeoutSec 5 `
                 -Body '{"jsonrpc":"2.0","id":1,"method":"get_bft_status","params":[]}'
             $ok = $r.result.committed_round -gt 0
-            $follower = [bool]$r.result.follower
+            # A node whose epoch trails the network's is as good as a follower:
+            # after a disk-full (os error 112) pc1/pc2 sat 6 epochs behind with
+            # an RPC that still reported a round and follower=false (2026-10-25).
+            $net = Get-NetEpoch
+            $follower = [bool]$r.result.follower -or (($null -ne $net) -and ([int]$r.result.epoch -lt $net))
         } catch { }
         $fmark = Join-Path $dir 'follower.since'
         if ($ok -and -not $follower) {
