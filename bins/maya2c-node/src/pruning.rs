@@ -33,6 +33,16 @@ const PRUNE_POLL: Duration = Duration::from_secs(60);
 /// being replaced.
 const SNAPSHOTS_KEPT: usize = 2;
 
+/// ADR-060: a bootstrap without a pinned block trusts its source for which
+/// chain it joins. A production (mainnet) build refuses that outright.
+fn require_anchor(production: bool, anchored: bool) -> Result<(), Box<dyn Error>> {
+    if production && !anchored {
+        return Err("a production build bootstraps only with --trusted-block HEIGHT:HEX                     (ADR-060): without it the source alone decides which chain this node starts on"
+            .into());
+    }
+    Ok(())
+}
+
 /// Opens the stored chain, or bootstraps a pruned node into an empty database.
 ///
 /// Genesis allocations are seeded only into a **fresh** database. Seeding an
@@ -55,6 +65,7 @@ pub(super) async fn open_or_bootstrap(
         let depth = args.prune_depth.unwrap_or(PRUNE_DEPTH);
         println!("bootstrap:   pruned, from {url}, snapshot at least {depth} blocks deep");
         let anchor = args.trusted_block;
+        require_anchor(cfg!(feature = "production"), anchor.is_some())?;
         match anchor {
             Some(_) => println!("bootstrap:   the source's chain must contain the pinned block"),
             None => println!(
@@ -262,5 +273,17 @@ mod tests {
             ..Args::default()
         };
         assert_eq!(snapshot_interval(&asked), Some(100));
+    }
+}
+
+#[cfg(test)]
+mod anchor_tests {
+    use super::require_anchor;
+
+    #[test]
+    fn production_refuses_an_unanchored_bootstrap_and_testnet_allows_it() {
+        assert!(require_anchor(true, false).is_err());
+        assert!(require_anchor(true, true).is_ok());
+        assert!(require_anchor(false, false).is_ok());
     }
 }
