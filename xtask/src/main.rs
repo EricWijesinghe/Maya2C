@@ -21,6 +21,7 @@ mod devnet;
 mod disk;
 mod eco_metrics;
 mod evidence;
+mod genesis_check;
 mod go_no_go;
 mod guides_check;
 mod hub_bundle;
@@ -57,6 +58,7 @@ fn main() -> ExitCode {
         "spec-coverage" => spec_coverage::run(rest),
         "slo-check" => slo_check::run(rest),
         "go-no-go" => go_no_go::run(rest),
+        "genesis-check" => genesis_check::run(rest),
         "eco-metrics" => eco_metrics::run(rest),
         "claims-check" => claims_check::run(rest),
         "mesh-check" => mesh_check::run(rest),
@@ -112,6 +114,8 @@ cargo xtask <command>
                         metric, a dashboard panel, an alert or a runbook.
   go-no-go              Compute every mainnet launch gate from evidence:
                         PASS (with its evidence), FAIL, or NEEDS HUMAN.
+  genesis-check FILE    Mainnet genesis policy: >=7 validators, no operator above
+                        20% of stake, stake-weighted, real difficulty.
   eco-metrics           Ecosystem metrics computable from this repository
                         (active developers, retention, contracts), with a
                         named gap for each one that needs chain data.
