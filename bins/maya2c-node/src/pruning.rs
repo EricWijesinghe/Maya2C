@@ -56,10 +56,7 @@ pub(super) async fn open_or_bootstrap(
         println!("bootstrap:   pruned, from {url}, snapshot at least {depth} blocks deep");
         let anchor = args.trusted_block;
         match anchor {
-            Some(a) => println!(
-                "bootstrap:   the source's chain must contain the pinned block at height {}",
-                a.height
-            ),
+            Some(_) => println!("bootstrap:   the source's chain must contain the pinned block"),
             None => println!(
                 "bootstrap:   no --trusted-block: the source alone decides which chain this node starts on"
             ),
