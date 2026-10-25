@@ -123,6 +123,3 @@ docs/site/public/updates/
 /skills-lock.json
 /.posit/
 /.tabnine/
-
-# Worktree health file the docs site rewrites on every build.
-docs/site/public/health.json
