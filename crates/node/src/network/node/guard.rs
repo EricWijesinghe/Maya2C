@@ -276,14 +276,9 @@ fn unix_now() -> u64 {
         .map_or(0, |elapsed| elapsed.as_secs())
 }
 
-#[cfg(test)]
-mod bft_frame_bound_tests {
-    use super::MAX_BFT_FRAME_BYTES;
-    use crate::consensus::bft::store::MAX_BATCH_BYTES;
-
-    #[test]
-    fn the_bound_leaves_room_for_a_full_batch_and_stays_under_the_gossip_limit() {
-        assert!(MAX_BFT_FRAME_BYTES > MAX_BATCH_BYTES);
-        assert!(MAX_BFT_FRAME_BYTES < crate::network::behaviour::MAX_GOSSIP_MESSAGE_BYTES);
-    }
-}
+// Checked at compile time: the bound must hold a full batch and sit under the
+// gossip limit, or the guard would drop honest proposals or protect nothing.
+const _: () = {
+    assert!(MAX_BFT_FRAME_BYTES > crate::consensus::bft::store::MAX_BATCH_BYTES);
+    assert!(MAX_BFT_FRAME_BYTES < crate::network::behaviour::MAX_GOSSIP_MESSAGE_BYTES);
+};
