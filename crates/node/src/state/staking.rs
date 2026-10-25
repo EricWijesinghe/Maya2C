@@ -492,10 +492,13 @@ mod pending_tests {
         bytes[..bytes.len() - 48].to_vec()
     }
 
+    /// `((delegator, validator), amount)`.
+    type PendingDelegation = (([u8; 32], [u8; 32]), u64);
+
     fn with_pending(
         prefix: &[u8],
         self_pending: &[([u8; 32], u64)],
-        delegated_pending: &[(([u8; 32], [u8; 32]), u64)],
+        delegated_pending: &[PendingDelegation],
     ) -> Vec<u8> {
         let mut out = prefix.to_vec();
         put_u64(&mut out, self_pending.len() as u64);
