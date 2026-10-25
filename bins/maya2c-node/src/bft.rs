@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 use std::error::Error;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -41,6 +41,8 @@ pub(super) struct Reporting {
     pub(super) metrics: Arc<Metrics>,
     pub(super) checkpoint: Arc<Mutex<CheckpointBook>>,
     pub(super) status: Arc<Mutex<custom_l1_node::rpc::types::BftStatus>>,
+    /// Where witnessed equivocation evidence is kept for an operator to file.
+    pub(super) evidence_dir: PathBuf,
 }
 
 /// Puts the driver's checkpoints where `get_checkpoint` reads them: this
@@ -598,7 +600,13 @@ fn proposer_of(sender: &[u8; 32], committee: usize) -> usize {
 }
 
 /// Publishes, prunes the pools, and reports what `step` did.
-async fn act(step: Step, network: &NodeHandle, pools: &[&Mempool], feed: &mut Feed) {
+async fn act(
+    step: Step,
+    network: &NodeHandle,
+    pools: &[&Mempool],
+    feed: &mut Feed,
+    evidence_dir: &Path,
+) {
     for frame in step.frames {
         if let Err(error) = network.publish_bft(frame).await {
             // With no peer in the mesh yet every publish fails; a validator
@@ -634,10 +642,29 @@ async fn act(step: Step, network: &NodeHandle, pools: &[&Mempool], feed: &mut Fe
         eprintln!("bft: {notice}");
     }
     for evidence in &step.equivocations {
-        eprintln!(
-            "bft: validator {} equivocated in round {} — evidence held for slashing",
-            evidence.first.author, evidence.first.round
-        );
+        // A validator process holds no account key, so it cannot file the
+        // report itself; it keeps the pair for `l1-wallet report-equivocation`.
+        let path = evidence_dir.join(custom_l1_node::consensus::bft::evidence::file_name(
+            evidence,
+        ));
+        let saved = std::fs::create_dir_all(evidence_dir).and_then(|()| {
+            std::fs::write(
+                &path,
+                custom_l1_node::consensus::bft::evidence::to_text(evidence),
+            )
+        });
+        match saved {
+            Ok(()) => eprintln!(
+                "bft: validator {} equivocated in round {} — evidence saved to {}",
+                evidence.first.author,
+                evidence.first.round,
+                path.display()
+            ),
+            Err(error) => eprintln!(
+                "bft: validator {} equivocated in round {} — evidence NOT saved: {error}",
+                evidence.first.author, evidence.first.round
+            ),
+        }
     }
 }
 
@@ -682,13 +709,14 @@ pub(super) async fn bft_loop(
         metrics,
         checkpoint,
         status,
+        evidence_dir,
     } = reporting;
     let mut events = network.subscribe_frames();
     let mut ticker = tokio::time::interval(TICK);
     let gossip_pool = network.mempool().clone();
     let pools = [&gossip_pool, &rpc_pool];
     let mut dropped = Dropped::default();
-    act(opening, &network, &pools, &mut feed).await;
+    act(opening, &network, &pools, &mut feed, &evidence_dir).await;
     loop {
         let step = tokio::select! {
             event = events.recv() => match event {
@@ -728,7 +756,7 @@ pub(super) async fn bft_loop(
                     #[allow(clippy::cast_precision_loss)]
                     metrics.observe_finality(now.saturating_sub(*anchor) as f64 / 1_000.0);
                 }
-                act(step, &network, &pools, &mut feed).await;
+                act(step, &network, &pools, &mut feed, &evidence_dir).await;
             }
             // A storage fault here means a vote could not be made durable, so
             // it was not sent. Carry on: the next tick retries, and a disk

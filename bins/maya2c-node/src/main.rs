@@ -1053,6 +1053,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 metrics: Arc::clone(&metrics),
                 checkpoint: checkpoint_slot,
                 status: status_slot,
+                evidence_dir: args.data_dir.join("evidence"),
             },
         ));
     } else {
