@@ -17,7 +17,7 @@ use custom_l1_node::rpc::bootstrap::{RpcBootstrapSource, SnapshotService};
 use custom_l1_node::state::StateDB;
 use custom_l1_node::state_pruner::archive::{Archiver, prune_round};
 use custom_l1_node::state_pruner::cold::ColdBlocks;
-use custom_l1_node::state_pruner::snapshot::{Snapshots, bootstrap_pruned};
+use custom_l1_node::state_pruner::snapshot::{Snapshots, bootstrap_pruned_anchored};
 use custom_l1_node::state_pruner::{ArchivePolicy, PRUNE_DEPTH, PruneConfig};
 use maya_archive::arweave::ArweaveGateway;
 use maya_archive::kubo::KuboStore;
@@ -54,12 +54,19 @@ pub(super) async fn open_or_bootstrap(
     if fresh && let Some(url) = &args.bootstrap_from {
         let depth = args.prune_depth.unwrap_or(PRUNE_DEPTH);
         println!("bootstrap:   pruned, from {url}, snapshot at least {depth} blocks deep");
+        let anchor = args.trusted_block;
+        match anchor {
+            Some(_) => println!("bootstrap:   the source's chain must contain the pinned block"),
+            None => println!(
+                "bootstrap:   no --trusted-block: the source alone decides which chain this node starts on"
+            ),
+        }
         let source = RpcBootstrapSource::new(url, tokio::runtime::Handle::current())?;
         let state = Arc::clone(state);
         // Blocking: the source waits on the runtime for every call, which is
         // only allowed off the runtime's own threads.
         let chain = tokio::task::spawn_blocking(move || {
-            bootstrap_pruned(state, genesis, chain_config, &source, depth)
+            bootstrap_pruned_anchored(state, genesis, chain_config, &source, depth, anchor)
         })
         .await??;
         return Ok(chain);

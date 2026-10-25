@@ -122,6 +122,22 @@ fn check_shielded_guard(
     Ok(())
 }
 
+/// `HEIGHT:HEX` (64 hex characters) for `--trusted-block`.
+fn parse_trusted_block(
+    text: &str,
+) -> Result<custom_l1_node::state_pruner::snapshot::TrustedBlock, Box<dyn Error>> {
+    let (height, id) = text
+        .split_once(':')
+        .ok_or("--trusted-block takes HEIGHT:HEX, e.g. 234463:ab12...")?;
+    let id: [u8; 32] = hex::decode(id.trim_start_matches("0x"))?
+        .try_into()
+        .map_err(|_| "--trusted-block: the block id is 32 bytes (64 hex characters)")?;
+    Ok(custom_l1_node::state_pruner::snapshot::TrustedBlock {
+        height: height.parse()?,
+        id,
+    })
+}
+
 /// The consensus mode a genesis file selects (ADR-015 §5: the mode is a
 /// genesis parameter, never a per-host setting). A `bft` committee means
 /// `dag-bft`; its absence means the proof-of-work devnet mode.
@@ -181,6 +197,10 @@ struct Args {
     snapshot_interval: Option<u64>,
     /// Bootstrap a pruned node from this peer's JSON-RPC endpoint.
     bootstrap_from: Option<String>,
+    /// With `--bootstrap-from`: a block the operator trusts, `HEIGHT:HEX`,
+    /// learned from somewhere other than the bootstrap peer. Refuses a peer
+    /// whose chain does not contain it.
+    trusted_block: Option<custom_l1_node::state_pruner::snapshot::TrustedBlock>,
     /// DAG-BFT: catch up through this peer's attested checkpoint and follow
     /// attested blocks (ADR-038), for a node that was down too long to rejoin.
     catch_up_from: Vec<String>,
@@ -250,6 +270,7 @@ impl Default for Args {
             arweave_gateway: None,
             snapshot_interval: None,
             bootstrap_from: None,
+            trusted_block: None,
             catch_up_from: Vec::new(),
             min_register_bond: 0,
             validator_key: None,
@@ -384,6 +405,7 @@ fn parse_args_from(arguments: impl Iterator<Item = String>) -> Result<Args, Box<
             "--arweave-gateway" => args.arweave_gateway = Some(value()?),
             "--snapshot-interval" => args.snapshot_interval = Some(value()?.parse()?),
             "--bootstrap-from" => args.bootstrap_from = Some(value()?),
+            "--trusted-block" => args.trusted_block = Some(parse_trusted_block(&value()?)?),
             "--catch-up-from" => args.catch_up_from.push(value()?),
             "--min-register-bond" => args.min_register_bond = value()?.parse()?,
             "--validator-key" => args.validator_key = Some(PathBuf::from(value()?)),
@@ -418,6 +440,11 @@ fn parse_args_from(arguments: impl Iterator<Item = String>) -> Result<Args, Box<
     if let Some(command) = args.key_command.take() {
         command.run(args.validator_passphrase_file.as_deref())?;
         std::process::exit(0);
+    }
+    // An anchor nothing uses is worse than none: the operator believes the
+    // bootstrap is checked when it is not (ADR-060 review).
+    if args.trusted_block.is_some() && args.bootstrap_from.is_none() {
+        return Err("--trusted-block only means something with --bootstrap-from".into());
     }
     Ok(args)
 }
@@ -1106,8 +1133,36 @@ async fn redial_bootnodes(network: custom_l1_node::network::NodeHandle, bootnode
 
 #[cfg(test)]
 mod tests {
-    use super::check_shielded_guard;
+    use super::{check_shielded_guard, parse_trusted_block};
     use custom_l1_node::state::context::{SHIELDED_ACTIVATION_HEIGHT, SHIELDED_NEVER};
+
+    #[test]
+    fn a_trusted_block_without_a_bootstrap_is_refused_not_ignored() {
+        let id = "ab".repeat(32);
+        let args = |extra: &[&str]| {
+            let mut v: Vec<String> = ["--genesis", "g.json", "--trusted-block"]
+                .iter()
+                .map(ToString::to_string)
+                .collect();
+            v.push(format!("7:{id}"));
+            v.extend(extra.iter().map(ToString::to_string));
+            super::parse_args_from(v.into_iter())
+        };
+        assert!(args(&[]).is_err());
+        assert!(args(&["--bootstrap-from", "http://127.0.0.1:1"]).is_ok());
+    }
+
+    #[test]
+    fn a_trusted_block_is_height_colon_a_32_byte_id() {
+        let id = "ab".repeat(32);
+        let parsed = parse_trusted_block(&format!("234463:{id}")).unwrap();
+        assert_eq!(parsed.height, 234_463);
+        assert_eq!(parsed.id, [0xAB; 32]);
+        assert!(parse_trusted_block(&format!("7:0x{id}")).is_ok());
+        for bad in ["", "7", "7:", "x:00", &format!("7:{}", "ab".repeat(31))] {
+            assert!(parse_trusted_block(bad).is_err(), "{bad}");
+        }
+    }
 
     #[test]
     fn mainnet_with_the_pool_off_starts_on_an_unaudited_circuit() {
