@@ -36,7 +36,7 @@ use crate::error::{Result, VmError};
 ///
 /// Asserted by a test. If the dependency moves, that test fails and the change
 /// is surfaced as the consensus event it is.
-pub const WASMTIME_VERSION: &str = "48.0.6";
+pub const WASMTIME_VERSION: &str = "48.0.7";
 
 /// WebAssembly page size in bytes.
 pub const PAGE_SIZE: usize = 64 * 1024;
