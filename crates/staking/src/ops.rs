@@ -1,5 +1,6 @@
 //! Operations a transaction or evidence can perform between epochs.
 
+use alloc::collections::BTreeMap;
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -43,6 +44,7 @@ impl Staking {
                 status: Status::Bonded,
             },
         );
+        self.pending_self.insert(id, bond);
         Ok(vec![Effect::Debit(operator, bond)])
     }
 
@@ -62,6 +64,7 @@ impl Staking {
             .self_bond
             .checked_add(amount)
             .ok_or(StakeError::Overflow)?;
+        add_pending(&mut self.pending_self, id, amount)?;
         Ok(vec![Effect::Debit(operator, amount)])
     }
 
@@ -90,6 +93,7 @@ impl Staking {
             return Err(StakeError::BelowMinimum);
         }
         v.self_bond = rest;
+        drain_pending(&mut self.pending_self, id, amount);
         self.unbonding.push(Unbonding {
             owner: operator,
             validator: id,
@@ -131,6 +135,7 @@ impl Staking {
         let new_entry = entry.checked_add(amount).ok_or(StakeError::Overflow)?;
         *entry = new_entry;
         v.delegated = delegated;
+        add_pending(&mut self.pending_delegations, (delegator, id), amount)?;
         Ok(vec![Effect::Debit(delegator, amount)])
     }
 
@@ -167,6 +172,7 @@ impl Staking {
         } else {
             self.delegations.insert(key, rest);
         }
+        drain_pending(&mut self.pending_delegations, key, amount);
         self.unbonding.push(Unbonding {
             owner: delegator,
             validator: id,
@@ -263,5 +269,28 @@ impl Staking {
             return Err(StakeError::Tombstoned);
         }
         Ok(v)
+    }
+}
+
+/// Records stake added this epoch; it earns nothing until the next boundary.
+fn add_pending<K: Ord>(
+    map: &mut BTreeMap<K, Amount>,
+    key: K,
+    amount: Amount,
+) -> Result<(), StakeError> {
+    let entry = map.entry(key).or_insert(Amount::ZERO);
+    *entry = entry.checked_add(amount).ok_or(StakeError::Overflow)?;
+    Ok(())
+}
+
+/// Unbonding takes pending stake first, so what is left is the earned part.
+fn drain_pending<K: Ord + Copy>(map: &mut BTreeMap<K, Amount>, key: K, amount: Amount) {
+    let Some(pending) = map.get(&key).map(|p| p.saturating_sub(amount)) else {
+        return;
+    };
+    if pending.is_zero() {
+        map.remove(&key);
+    } else {
+        map.insert(key, pending);
     }
 }

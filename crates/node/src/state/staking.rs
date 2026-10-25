@@ -20,9 +20,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use maya_staking::{Amount, Params, Staking, Status, Unbonding, ValidatorRecord};
 
-/// Staking record format. 2 since ADR-046 widened every amount to 256 bits; a
-/// version-1 record is refused, not reinterpreted.
-const RECORD_VERSION: u8 = 2;
+/// Staking record format. 2 since ADR-046 widened every amount to 256 bits; 3
+/// adds the stake added this epoch (earns from the next). A version-1 or -2
+/// record is refused, not reinterpreted.
+const RECORD_VERSION: u8 = 3;
 
 use crate::core::codec::ByteReader;
 use crate::error::{NodeError, Result};
@@ -284,6 +285,17 @@ impl StakingRecord {
         for id in &s.retired {
             out.extend_from_slice(id);
         }
+        put_u64(&mut out, s.pending_self.len() as u64);
+        for (id, amount) in &s.pending_self {
+            out.extend_from_slice(id);
+            put_amount(&mut out, *amount);
+        }
+        put_u64(&mut out, s.pending_delegations.len() as u64);
+        for ((d, v), amount) in &s.pending_delegations {
+            out.extend_from_slice(d);
+            out.extend_from_slice(v);
+            put_amount(&mut out, *amount);
+        }
         put_u64(&mut out, self.epoch_blocks);
         put_u64(&mut out, self.last_round);
         put_counts(&mut out, &self.expected);
@@ -339,6 +351,18 @@ impl StakingRecord {
         staking.retired = (0..n)
             .map(|_| r.read_array())
             .collect::<Result<BTreeSet<_>>>()?;
+        let n = r.read_collection_len(32 + 32)?;
+        for _ in 0..n {
+            let id: [u8; 32] = r.read_array()?;
+            staking.pending_self.insert(id, read_amount(&mut r)?);
+        }
+        let n = r.read_collection_len(32 + 32 + 32)?;
+        for _ in 0..n {
+            let key = (r.read_array()?, r.read_array()?);
+            staking
+                .pending_delegations
+                .insert(key, read_amount(&mut r)?);
+        }
         let record = Self {
             staking,
             epoch_blocks: r.read_u64()?,
@@ -398,6 +422,7 @@ mod tests {
         let bytes = record.encode();
         let back = StakingRecord::decode(&bytes).unwrap();
         assert_eq!(back, record);
+        assert!(!back.staking.pending_delegations.is_empty());
         assert_eq!(back.encode(), bytes);
         assert!(StakingRecord::decode(&bytes[..bytes.len() - 1]).is_err());
     }
