@@ -316,6 +316,19 @@ async fn get_block_by_height_reports_a_missing_height() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn get_validators_is_null_on_a_chain_without_staking() {
+    let node = start_node(&[], false).await;
+
+    let info: Option<serde_json::Value> = node
+        .client
+        .request("get_validators", rpc_params![])
+        .await
+        .expect("get_validators");
+
+    assert!(info.is_none(), "{info:?}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_range_stops_at_the_tip_and_matches_the_single_block_answer() {
     let node = start_node(&[], false).await;
 
