@@ -137,16 +137,20 @@ fn a_signature_over_another_message_or_by_another_member_fails() {
 }
 
 #[test]
-fn a_garbage_extra_approval_is_refused_even_above_threshold() {
+fn a_spare_approval_is_refused_because_it_gives_one_spend_two_encodings() {
+    // Approvals are outside the transaction id. With a spare signature a relay
+    // could strip it and change the signed bytes under a fixed id; exactly the
+    // threshold leaves nothing to strip.
     let c = committee(3);
-    let mut approvals = approve(&c, &[0, 1, 2], MESSAGE);
-    let mut junk = approve(&c, &[3], MESSAGE).remove(0);
-    junk.signature[0] ^= 1;
-    approvals.push(junk);
-    assert!(matches!(
-        c.policy.verify(MESSAGE, &approvals),
-        Err(MultisigError::Suite { index: 3, .. })
-    ));
+    let spare = approve(&c, &[0, 1, 2, 3], MESSAGE);
+    assert_eq!(
+        c.policy.verify(MESSAGE, &spare),
+        Err(MultisigError::AboveThreshold {
+            received: 4,
+            threshold: 3
+        })
+    );
+    assert_eq!(c.policy.verify(MESSAGE, &spare[..3]), Ok(()));
 }
 
 #[test]
