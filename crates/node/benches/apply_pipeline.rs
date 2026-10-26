@@ -81,6 +81,7 @@ fn proc_field(file: &str, key: &str) -> Option<u64> {
 
 fn block_of(transactions: Vec<Transaction>) -> Block {
     let header = BlockHeader {
+        version: 0,
         prev_hash: [0u8; 32],
         state_root: [0u8; 32],
         timestamp: 1_756_252_800,

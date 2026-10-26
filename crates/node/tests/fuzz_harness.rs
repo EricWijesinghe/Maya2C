@@ -153,6 +153,7 @@ fn fresh_state(owner: &Address) -> (StateDB, TempDir) {
 fn block_of(tx: Transaction) -> Block {
     Block::new(
         BlockHeader {
+            version: 0,
             prev_hash: [0u8; 32],
             state_root: [0u8; 32],
             timestamp: 1,

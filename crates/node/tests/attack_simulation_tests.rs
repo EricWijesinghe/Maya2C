@@ -68,6 +68,7 @@ fn transfer(from: &HybridSigningKey, to: Address, amount: u64, nonce: u64) -> Tr
 fn genesis() -> Block {
     Block::new(
         BlockHeader {
+            version: 0,
             prev_hash: [0u8; 32],
             state_root: [0u8; 32],
             timestamp: 1_000_000,
@@ -88,6 +89,7 @@ fn child_of(
     let target = chain.next_target(&parent).expect("next target");
     let mut block = Block::new(
         BlockHeader {
+            version: 0,
             prev_hash: parent,
             state_root: [0u8; 32],
             timestamp,

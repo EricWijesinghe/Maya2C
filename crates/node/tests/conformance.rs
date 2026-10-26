@@ -139,6 +139,7 @@ fn kind(e: &NodeError) -> &'static str {
 
 fn block_of(transactions: Vec<Transaction>) -> Block {
     let header = BlockHeader {
+        version: 0,
         prev_hash: [0; 32],
         state_root: [0; 32],
         timestamp: 1_756_252_800,
@@ -346,6 +347,7 @@ fn fee_vectors() {
 fn header_of(h: &Value) -> BlockHeader {
     let arr = |k: &str| -> [u8; 32] { unhex(h[k].as_str().unwrap()).try_into().unwrap() };
     BlockHeader {
+        version: u8::try_from(h["version"].as_u64().unwrap()).unwrap(),
         prev_hash: arr("prev_hash"),
         state_root: arr("state_root"),
         timestamp: num(&h["timestamp"]),

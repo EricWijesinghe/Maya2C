@@ -26,6 +26,7 @@ const GENESIS_TIME: u64 = 1_790_000_000;
 fn genesis() -> Block {
     Block::new(
         BlockHeader {
+            version: 0,
             prev_hash: [0; 32],
             state_root: [0; 32],
             timestamp: GENESIS_TIME,

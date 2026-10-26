@@ -215,6 +215,7 @@ mod tests {
     /// apart their timestamps or heights.
     fn candidate(height: u64, timestamp: u64) -> MiningCandidate {
         let header = BlockHeader {
+            version: 0,
             prev_hash: [height as u8; 32],
             state_root: [2u8; 32],
             timestamp,

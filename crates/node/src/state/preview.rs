@@ -153,6 +153,7 @@ mod tests {
     fn block(nonce: u64, root: u8, txs: Vec<Transaction>) -> Block {
         Block::new(
             BlockHeader {
+                version: 0,
                 prev_hash: [1; 32],
                 state_root: [root; 32],
                 timestamp: 1_790_000_000,

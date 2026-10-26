@@ -278,6 +278,163 @@
       ]
     },
     {
+      "expect": {
+        "result": "ok"
+      },
+      "fn": "header_version",
+      "id": "header-version-zero",
+      "rules": [
+        "CON-10"
+      ],
+      "version": 0
+    },
+    {
+      "expect": {
+        "error": "UnsupportedHeaderVersion",
+        "result": "error"
+      },
+      "fn": "header_version",
+      "id": "header-version-one-is-invalid",
+      "rules": [
+        "CON-10"
+      ],
+      "version": 1
+    },
+    {
+      "expect": {
+        "error": "UnsupportedHeaderVersion",
+        "result": "error"
+      },
+      "fn": "header_version",
+      "id": "header-version-max-is-invalid",
+      "rules": [
+        "CON-10"
+      ],
+      "version": 255
+    },
+    {
+      "expect": {
+        "median": "1135",
+        "result": "ok"
+      },
+      "fn": "median_time",
+      "id": "median-uses-only-the-last-eleven",
+      "recent": [
+        "1000",
+        "1015",
+        "1030",
+        "1045",
+        "1060",
+        "1075",
+        "1090",
+        "1105",
+        "1120",
+        "1135",
+        "1150",
+        "1165",
+        "1180",
+        "1195",
+        "1210"
+      ],
+      "rules": [
+        "CON-11"
+      ]
+    },
+    {
+      "expect": {
+        "median": "30",
+        "result": "ok"
+      },
+      "fn": "median_time",
+      "id": "median-of-an-unsorted-short-history",
+      "recent": [
+        "50",
+        "10",
+        "40",
+        "20",
+        "30"
+      ],
+      "rules": [
+        "CON-11"
+      ]
+    },
+    {
+      "expect": {
+        "median": "777",
+        "result": "ok"
+      },
+      "fn": "median_time",
+      "id": "median-of-a-single-block-is-that-block",
+      "recent": [
+        "777"
+      ],
+      "rules": [
+        "CON-11"
+      ]
+    },
+    {
+      "expect": {
+        "median": "1075",
+        "result": "ok"
+      },
+      "fn": "median_time",
+      "id": "one-far-future-block-does-not-move-the-median",
+      "recent": [
+        "1000",
+        "1015",
+        "1030",
+        "1045",
+        "1060",
+        "1075",
+        "1090",
+        "1105",
+        "1120",
+        "1135",
+        "9000000000"
+      ],
+      "rules": [
+        "CON-11"
+      ]
+    },
+    {
+      "expect": {
+        "result": "ok"
+      },
+      "fn": "timestamp_rule",
+      "id": "timestamp-after-median",
+      "median": "1099",
+      "rules": [
+        "CON-11"
+      ],
+      "timestamp": "1100"
+    },
+    {
+      "expect": {
+        "error": "TimestampNotAfterMedian",
+        "result": "error"
+      },
+      "fn": "timestamp_rule",
+      "id": "timestamp-equal-to-median-is-invalid",
+      "median": "1099",
+      "rules": [
+        "CON-11"
+      ],
+      "timestamp": "1099"
+    },
+    {
+      "expect": {
+        "error": "TimestampNotAfterMedian",
+        "result": "error"
+      },
+      "fn": "timestamp_rule",
+      "id": "timestamp-before-median-is-invalid",
+      "median": "1099",
+      "rules": [
+        "CON-11"
+      ],
+      "timestamp": "900"
+    },
+    {
       "call": "verify",
       "expect": {
         "result": "ok"

@@ -203,6 +203,7 @@ impl Harness {
 /// Pushes a work template whose parent distinguishes it from the last.
 fn push_job(state: &PoolState, salt: u8) -> u32 {
     let header = BlockHeader {
+        version: 0,
         prev_hash: [salt; 32],
         state_root: [salt.wrapping_add(1); 32],
         timestamp: 1_700_000_000,

@@ -57,6 +57,7 @@ impl Chain {
         self.height += 1;
         let block = Block::new(
             BlockHeader {
+                version: 0,
                 prev_hash: [0; 32],
                 state_root: [0; 32],
                 timestamp: 1_790_000_000 + self.height,

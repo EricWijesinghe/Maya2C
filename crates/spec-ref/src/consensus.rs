@@ -37,6 +37,31 @@ fn to_be(limbs: &Limbs) -> [u8; 32] {
     out
 }
 
+/// CON-11: blocks the median is taken over.
+pub const MEDIAN_TIME_SPAN: usize = 11;
+
+/// CON-10: the only header version defined is 0.
+#[must_use]
+pub const fn header_version_ok(version: u8) -> bool {
+    version == 0
+}
+
+/// CON-11: the median of the most recent `MEDIAN_TIME_SPAN` timestamps,
+/// `recent` ordered oldest first. The upper middle for an even count.
+#[must_use]
+pub fn median_time_past(recent: &[u64]) -> u64 {
+    let start = recent.len().saturating_sub(MEDIAN_TIME_SPAN);
+    let mut window = recent[start..].to_vec();
+    window.sort_unstable();
+    window.get(window.len() / 2).copied().unwrap_or(0)
+}
+
+/// CON-11: a timestamp must be later than the median.
+#[must_use]
+pub const fn timestamp_ok(timestamp: u64, median: u64) -> bool {
+    timestamp > median
+}
+
 /// CON-9: under DAG-BFT a block's difficulty target is its parent's, so every
 /// block carries the genesis target. There is no retarget and no activation
 /// pin.
