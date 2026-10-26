@@ -421,5 +421,9 @@ fn a_failed_vault_transfer_does_not_spend_the_window_for_the_next_one() {
         )
         .unwrap();
 
-    assert_eq!(kept, vec![good], "only the transfer with the right nonce is kept");
+    assert_eq!(
+        kept,
+        vec![good],
+        "only the transfer with the right nonce is kept"
+    );
 }
