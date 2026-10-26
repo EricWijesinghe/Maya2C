@@ -39,6 +39,7 @@ pub mod builder;
 pub mod catchup;
 pub mod certsync;
 pub mod driver;
+pub mod evidence;
 pub mod remote;
 pub mod store;
 pub mod wire;

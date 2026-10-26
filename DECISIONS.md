@@ -357,3 +357,16 @@ deliberately left at 64 bits, and why, are tabled in ADR-048.
   - Measured on chain: no block was produced between 18:42:40 and 21:28:31 KST (2 h 45 min 51 s, before height 129,307).
   - A 7-day soak with a 2 h 46 min stop is not a 7-day soak.
   - Fix: battery standby and hibernate are now set to "never". The PC still needs to stay on mains power; only Eric can do that.
+
+## 2026-10-25 — Launch without an external audit (Eric)
+
+- **Decision (Eric):** no external audit, no waiting on the four-week gates. Code and build are finished this week; real-world use is the point. "Nothing is perfect."
+- **Gates waived by the owner, not passed** (`cargo xtask go-no-go` keeps printing them as FAIL; that is correct):
+  - external audit, zero open critical/high;
+  - attacknet of four weeks or more (a self-run attacknet of about a week is planned instead);
+  - incentivized testnet meeting SLOs for four weeks;
+  - external validators across providers and countries (the launch set is hosts Eric controls, four if a host is found, otherwise three);
+  - genesis frozen in a signed file is **not** waived: it is Eric's step at genesis.
+- **What the launch must say publicly:** pre-audit, self-run reviews only, validators run by one operator; never "audited" or "independent" (claims-check, CLAUDE.md order 10).
+- **Kept regardless:** the 20% per-operator cap and 7-or-more validators (`cargo xtask genesis-check`), `--trusted-block` on bootstrap, ADR-044 block rewards, ADR-050 council, ADR-051 option 3 keys, wasmtime bump.
+- **Still needs `APPROVED` from Eric:** each deploy, the re-genesis, key ceremonies, hosts that cost money, and mainnet genesis itself.

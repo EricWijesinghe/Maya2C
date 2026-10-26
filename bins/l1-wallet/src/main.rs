@@ -141,6 +141,18 @@ enum Command {
         tx: TxOptions,
     },
 
+    /// File double-sign evidence a validator saved under its data dir
+    /// (`evidence/equivocation-*.hex`). Anyone may file it; the chain checks
+    /// both signatures and slashes the offender.
+    ReportEquivocation {
+        /// The evidence file.
+        #[arg(long)]
+        evidence: PathBuf,
+
+        #[command(flatten)]
+        tx: TxOptions,
+    },
+
     /// Carry a security-council action (ADR-050) from this wallet. The
     /// authority is the approvals inside it, never this wallet: the file is
     /// what `genesis-ceremony council combine` wrote.
@@ -366,6 +378,24 @@ async fn command_delegate(
     Ok(())
 }
 
+async fn command_report_equivocation(
+    path: &Path,
+    rpc_url: &str,
+    evidence: &Path,
+    opts: &TxOptions,
+) -> Result<()> {
+    let text = std::fs::read_to_string(evidence)
+        .with_context(|| format!("reading {}", evidence.display()))?;
+    let action = custom_l1_node::consensus::bft::evidence::from_text(&text)?;
+    let key = load_key(path)?;
+    let payload = Payload {
+        kind: TxKind::Staking(Box::new(action)),
+        outputs: vec![],
+    };
+    submit(&key, rpc_url, payload, opts).await?;
+    Ok(())
+}
+
 async fn command_council_action(
     path: &Path,
     rpc_url: &str,
@@ -546,6 +576,15 @@ async fn main() -> Result<()> {
                 &cli.rpc_url,
                 &validator,
                 amount,
+                &tx,
+            ))
+            .await
+        }
+        Command::ReportEquivocation { evidence, tx } => {
+            Box::pin(command_report_equivocation(
+                &cli.keystore,
+                &cli.rpc_url,
+                &evidence,
                 &tx,
             ))
             .await
