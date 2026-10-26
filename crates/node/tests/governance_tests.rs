@@ -501,10 +501,21 @@ fn work_credit_held_by_those_who_stay_home_counts_in_the_quorum_denominator() {
     // is held by miners who did not vote (audit H-2).
     let fixture = fixture();
     fixture
-        .act(0, TxKind::ClaimWork(WorkClaim { beneficiary: fixture.address(0) }), 1)
+        .act(
+            0,
+            TxKind::ClaimWork(WorkClaim {
+                beneficiary: fixture.address(0),
+            }),
+            1,
+        )
         .expect("claim");
-    let credit = u64::try_from(fixture.db.work_credit(&fixture.address(0), 1).expect("credit"))
-        .expect("small");
+    let credit = u64::try_from(
+        fixture
+            .db
+            .work_credit(&fixture.address(0), 1)
+            .expect("credit"),
+    )
+    .expect("small");
     assert!(credit > 0);
 
     // Exactly the 10% quorum of the locked stake alone.
@@ -512,7 +523,13 @@ fn work_credit_held_by_those_who_stay_home_counts_in_the_quorum_denominator() {
     // A second miner earns twenty times as much and never votes.
     for height in 3..23 {
         fixture
-            .act(2, TxKind::ClaimWork(WorkClaim { beneficiary: fixture.address(2) }), height)
+            .act(
+                2,
+                TxKind::ClaimWork(WorkClaim {
+                    beneficiary: fixture.address(2),
+                }),
+                height,
+            )
             .expect("claim");
     }
 
