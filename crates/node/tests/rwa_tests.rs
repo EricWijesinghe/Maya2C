@@ -82,8 +82,11 @@ fn apply(db: &StateDB, kinds: Vec<(TxKind, u64)>, key: &HybridSigningKey, height
             .map(|(kind, nonce)| signed(kind, nonce, key))
             .collect(),
     );
-    db.apply_block(&block, BlockContext::at_height(height))
-        .expect("apply");
+    db.apply_block(
+        &block,
+        BlockContext::at_height(height).with_dvp_activation(0),
+    )
+    .expect("apply");
 }
 
 fn try_apply(
@@ -95,7 +98,7 @@ fn try_apply(
 ) -> Result<(), NodeError> {
     db.apply_block(
         &block_of(vec![signed(kind, nonce, key)]),
-        BlockContext::at_height(height),
+        BlockContext::at_height(height).with_dvp_activation(0),
     )
     .map(|_| ())
 }
@@ -250,6 +253,61 @@ fn a_dvp_that_cannot_settle_leaves_the_block_valid() {
         9,
     )
     .expect("an unknown asset voided the block");
+}
+
+#[test]
+fn swaps_are_off_until_the_seller_can_consent() {
+    // The audit's exploit (2026-10-26): the buyer signs, the seller is a field
+    // in the payload, and nothing asks the seller. With the default context the
+    // swap must be a no-op, so a stranger cannot take the issuer's units.
+    let issuer = generate_signing_key().expect("keygen");
+    let thief = generate_signing_key().expect("keygen");
+    let fixture = fixture(&[(issuer.address(), 1_000), (thief.address(), 5_000)]);
+    apply(&fixture.db, vec![(issue(None, 1_000), 0)], &issuer, 1);
+    let asset = asset_of(&issuer.address());
+    let before = fixture.db.stored_cap_table_page(&asset, 0).expect("page");
+
+    fixture
+        .db
+        .apply_block(
+            &block_of(vec![signed(
+                dvp(asset, issuer.address(), 1_000, 0),
+                0,
+                &thief,
+            )]),
+            BlockContext::at_height(2),
+        )
+        .expect("a swap that is off must not void the block");
+
+    let page = fixture.db.stored_cap_table_page(&asset, 0).expect("page");
+    assert_eq!(page, before, "units moved without the seller signing");
+    assert_eq!(page.units_of(&thief.address()), 0);
+    assert_eq!(balance(&fixture.db, &issuer.address()), 1_000);
+}
+
+#[test]
+fn a_swap_with_oneself_moves_nothing() {
+    // Both legs load the same account and the second write overwrote the first,
+    // crediting the price with no debit. The guard refused the block; the swap
+    // itself must now be a no-op so it cannot empty one.
+    let issuer = generate_signing_key().expect("keygen");
+    let fixture = fixture(&[(issuer.address(), 1_000)]);
+    apply(&fixture.db, vec![(issue(None, 1_000), 0)], &issuer, 1);
+    let asset = asset_of(&issuer.address());
+    let before = balance(&fixture.db, &issuer.address());
+
+    try_apply(
+        &fixture.db,
+        dvp(asset, issuer.address(), 100, 500),
+        1,
+        &issuer,
+        2,
+    )
+    .expect("a self-swap voided the block");
+
+    assert_eq!(balance(&fixture.db, &issuer.address()), before);
+    let page = fixture.db.stored_cap_table_page(&asset, 0).expect("page");
+    assert_eq!(page.units_of(&issuer.address()), 1_000);
 }
 
 // ---------------------------------------------------------------------------
