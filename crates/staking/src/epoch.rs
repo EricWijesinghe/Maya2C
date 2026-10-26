@@ -1,6 +1,6 @@
 //! The epoch boundary: downtime, rewards, releases, and the next committee.
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
 use maya_amount::Amount;
@@ -60,8 +60,19 @@ impl Staking {
         self.pending_delegations.clear();
         self.epoch = self.epoch.checked_add(1).ok_or(StakeError::Overflow)?;
         self.release(&mut out);
-        self.validators
-            .retain(|_, v| v.status == Status::Tombstoned || !v.total().is_zero());
+        // A record with funds still unbonding stays, even at zero stake: evidence
+        // against it must still find it to slash those funds, and its id must not
+        // be registrable again while they wait (self-review 2026-10-25, finding 1).
+        // Empty entries (`unbond(0)` is accepted) must not pin one forever.
+        let unbonding: BTreeSet<ValidatorId> = self
+            .unbonding
+            .iter()
+            .filter(|u| !u.amount.is_zero())
+            .map(|u| u.validator)
+            .collect();
+        self.validators.retain(|id, v| {
+            v.status == Status::Tombstoned || !v.total().is_zero() || unbonding.contains(id)
+        });
         let max = usize::from(self.params.max_validators);
         self.active = self.ranked().into_iter().take(max).map(|s| s.id).collect();
         out.active.clone_from(&self.active);
