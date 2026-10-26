@@ -1016,6 +1016,17 @@ impl StateDB {
             });
         }
 
+        // Channel records, by the same rule. They were written by the block and
+        // missing here, so a reorg gave the escrow back to the account and left
+        // the channel open: invariants 8 and 25.
+        for id in overlay.channels.keys() {
+            let key = channel_key(id);
+            records.push(RecordUndo {
+                previous: self.db.get(&key).map_err(storage_err)?,
+                key,
+            });
+        }
+
         Ok(UndoRecord {
             entries,
             shielded,
