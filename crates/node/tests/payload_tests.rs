@@ -479,6 +479,60 @@ fn a_maximum_batch_round_trips() {
     assert_eq!(decoded.kind, TxKind::SettleBatch(closures));
 }
 
+#[test]
+fn a_maximum_batch_survives_being_carried_in_a_block() {
+    // Audit 2026-10-26: a block read each transaction frame through the
+    // 65,536-element collection cap, so a legal full batch (about 1.3 MB) or
+    // 100 KB of contract code decoded alone and then made a block no peer could
+    // read. Mempool admission has no size check, so a miner could build one.
+    use custom_l1_node::core::{Block, BlockHeader};
+    use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
+
+    let closures: Vec<ChannelClosure> = (0..MAX_BATCH_CLOSURES as u64)
+        .map(|i| closure(i, 1_000 - i, i))
+        .collect();
+    let tx = Transaction::with_kind(TxKind::SettleBatch(closures), 0);
+    assert!(tx.to_bytes().len() > 65_536, "the case must exceed the old cap");
+
+    let block = Block::new(
+        BlockHeader {
+            prev_hash: [0u8; 32],
+            state_root: [0u8; 32],
+            timestamp: 1_789_200_000,
+            nonce: 0,
+            difficulty_target: target_from_leading_zero_bits(0),
+            tx_root: [0; 32],
+        },
+        vec![tx],
+    );
+    let decoded = Block::from_bytes(&block.to_bytes()).expect("a legal block must decode");
+    assert_eq!(decoded.transactions.len(), 1);
+}
+
+#[test]
+fn contract_code_up_to_its_declared_maximum_decodes() {
+    use custom_l1_node::core::payload::{ContractDeploy, MAX_CONTRACT_CODE};
+
+    for size in [100_000, MAX_CONTRACT_CODE] {
+        let tx = Transaction::with_kind(
+            TxKind::DeployContract(ContractDeploy {
+                code: vec![0xab; size],
+            }),
+            0,
+        );
+        let back = Transaction::from_bytes(&tx.to_bytes())
+            .unwrap_or_else(|e| panic!("{size} bytes of code: {e}"));
+        assert_eq!(back.kind, tx.kind);
+    }
+    let over = Transaction::with_kind(
+        TxKind::DeployContract(ContractDeploy {
+            code: vec![0; MAX_CONTRACT_CODE + 1],
+        }),
+        0,
+    );
+    assert!(Transaction::from_bytes(&over.to_bytes()).is_err());
+}
+
 // ---------------------------------------------------------------------------
 // trading payloads
 // ---------------------------------------------------------------------------
