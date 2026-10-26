@@ -320,6 +320,7 @@ fn drain_pending<K: Ord + Copy>(map: &mut BTreeMap<K, Amount>, key: K, amount: A
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
     use super::*;
     use crate::params::Params;
 

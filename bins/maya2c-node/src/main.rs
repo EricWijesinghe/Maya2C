@@ -1134,6 +1134,7 @@ async fn redial_bootnodes(network: custom_l1_node::network::NodeHandle, bootnode
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
     use super::{check_shielded_guard, parse_trusted_block};
     use custom_l1_node::state::context::{SHIELDED_ACTIVATION_HEIGHT, SHIELDED_NEVER};
 
