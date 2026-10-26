@@ -362,6 +362,24 @@ impl crate::consensus::bft::catchup::CheckpointSource for RpcBootstrapSource {
     fn block(&self, height: u64) -> Result<Block> {
         BootstrapSource::block(self, height)
     }
+
+    fn blocks(&self, from: u64, to: u64) -> Result<Vec<Block>> {
+        let batch: Result<Vec<BlockInfo>> = self.call(
+            "get_blocks_by_height_range",
+            &rpc_params![from, to - from + 1],
+        );
+        match batch {
+            Ok(infos) => infos
+                .iter()
+                .map(|i| Block::from_bytes(&unhex(&i.raw)?))
+                .collect(),
+            // A peer from before the method existed: ask block by block.
+            Err(e) if e.to_string().contains("Method not found") => (from..=to)
+                .map(|h| BootstrapSource::block(self, h))
+                .collect(),
+            Err(e) => Err(e),
+        }
+    }
 }
 
 impl BootstrapSource for RpcBootstrapSource {

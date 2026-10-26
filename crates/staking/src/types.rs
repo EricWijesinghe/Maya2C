@@ -116,6 +116,11 @@ pub struct Staking {
     pub active: Vec<ValidatorId>,
     /// Ids that can never register again.
     pub retired: BTreeSet<ValidatorId>,
+    /// Self bond added in the current epoch. Earns nothing until the next
+    /// boundary, so bonding in the boundary block buys no share of it.
+    pub pending_self: BTreeMap<ValidatorId, Amount>,
+    /// Delegations added in the current epoch, same rule as `pending_self`.
+    pub pending_delegations: BTreeMap<(Address, ValidatorId), Amount>,
 }
 
 /// One validator's stake as seen by selection and metrics.
@@ -145,6 +150,8 @@ impl Staking {
             unbonding: Vec::new(),
             active: Vec::new(),
             retired: BTreeSet::new(),
+            pending_self: BTreeMap::new(),
+            pending_delegations: BTreeMap::new(),
         })
     }
 

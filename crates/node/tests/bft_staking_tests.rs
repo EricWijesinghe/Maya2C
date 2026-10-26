@@ -417,25 +417,12 @@ fn incident_rehearsal_a_stolen_key_is_detected_slashed_and_replaced() {
 
     // Response: whoever saw it files the evidence — here, the operator.
     let evidence = mesh.equivocations[0].clone();
-    let frame_of = |v: &Vertex, sig: &[u8]| {
-        Envelope {
-            epoch: v.epoch,
-            from: v.author,
-            to: BROADCAST,
-            message: Message::Propose {
-                vertex: v.clone(),
-                signature: sig.to_vec(),
-            },
-        }
-        .encode()
-    };
-    mesh.submit(&staking_tx(
-        StakingAction::ReportEquivocation {
-            first: frame_of(&evidence.first, &evidence.first_signature),
-            second: frame_of(&evidence.second, &evidence.second_signature),
-        },
-        0,
-    ));
+    // Through the file an operator would hand to `l1-wallet report-equivocation`.
+    let filed = custom_l1_node::consensus::bft::evidence::from_text(
+        &custom_l1_node::consensus::bft::evidence::to_text(&evidence),
+    )
+    .unwrap();
+    mesh.submit(&staking_tx(filed, 0));
     let offender = validator_id(&validator_key(2).verifying_key().to_bytes());
     let retired = |m: &Mesh| {
         m.members.iter().all(|x| {

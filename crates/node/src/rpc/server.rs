@@ -42,6 +42,44 @@ const NOT_FOUND: i32 = -32_001;
 /// one call walk further before failing.
 const MAX_BALANCE_REWIND: u64 = crate::state_pruner::PRUNE_DEPTH;
 
+/// The block at `height` as the RPC reports it: from the canonical index, or
+/// fetched back from the archive when pruned here. Shared by
+/// `get_block_by_height` and `get_blocks_by_height_range`.
+fn block_info_at(ctx: &RpcContext, height: u64) -> Result<BlockInfo, ErrorObjectOwned> {
+    let chain = ctx.chain();
+    let state = chain.state();
+
+    // The canonical index, not a walk from the tip: one read instead of
+    // one per block of history.
+    let id = state
+        .canonical_id(height)
+        .map_err(|e| rejected(e.to_string()))?
+        .ok_or_else(|| not_found(format!("no block at height {height}")))?;
+    let block = match state.load_block(&id).map_err(|e| rejected(e.to_string()))? {
+        Some(block) => block,
+        // Pruned here: fetched back from the archive and verified
+        // against the header this node kept, or refused.
+        None => ctx
+            .cold
+            .as_ref()
+            .ok_or_else(|| not_found(format!("height {height} is pruned on this node")))?
+            .fetch(state, height)
+            .map_err(|e| {
+                // The detail names stores and CIDs: the operator's log,
+                // not a public caller's business.
+                eprintln!("rpc: cold fetch of height {height} failed: {e}");
+                not_found(format!(
+                    "height {height} is pruned and no archived copy verified"
+                ))
+            })?,
+    };
+
+    Ok(BlockInfo::new(height, &block))
+}
+
+/// Most blocks `get_blocks_by_height_range` returns in one answer.
+const MAX_RANGE_BLOCKS: u64 = 32;
+
 fn invalid_params(message: impl Into<String>) -> ErrorObjectOwned {
     ErrorObjectOwned::owned(INVALID_PARAMS, message.into(), None::<()>)
 }
@@ -682,35 +720,43 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
     module
         .register_method("get_block_by_height", |params, ctx, _| {
             let height: u64 = params.one().map_err(|e| invalid_params(e.to_string()))?;
+            block_info_at(ctx, height)
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
+    // Catch-up is bound by round trips: a node hours behind asks for thousands
+    // of blocks, and one request per block ran at ~5 blocks/s over a 0.7 s link.
+    // Stops at the first height this node lacks, so a short answer means "that
+    // is all I have", which the caller treats as an error, never a gap.
+    module
+        .register_method("get_blocks_by_height_range", |params, ctx, _| {
+            let (from, count): (u64, u64) =
+                params.parse().map_err(|e| invalid_params(e.to_string()))?;
+            if count == 0 || count > MAX_RANGE_BLOCKS {
+                return Err(invalid_params(format!(
+                    "count must be 1..={MAX_RANGE_BLOCKS}"
+                )));
+            }
+            let mut out = Vec::new();
+            for height in from..from.saturating_add(count) {
+                match block_info_at(ctx, height) {
+                    Ok(info) => out.push(info),
+                    Err(_) if !out.is_empty() => break,
+                    Err(e) => return Err(e),
+                }
+            }
+            Ok::<_, ErrorObjectOwned>(out)
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
+    module
+        .register_method("get_validators", |_params, ctx, _| {
             let chain = ctx.chain();
-            let state = chain.state();
-
-            // The canonical index, not a walk from the tip: one read instead of
-            // one per block of history.
-            let id = state
-                .canonical_id(height)
-                .map_err(|e| rejected(e.to_string()))?
-                .ok_or_else(|| not_found(format!("no block at height {height}")))?;
-            let block = match state.load_block(&id).map_err(|e| rejected(e.to_string()))? {
-                Some(block) => block,
-                // Pruned here: fetched back from the archive and verified
-                // against the header this node kept, or refused.
-                None => ctx
-                    .cold
-                    .as_ref()
-                    .ok_or_else(|| not_found(format!("height {height} is pruned on this node")))?
-                    .fetch(state, height)
-                    .map_err(|e| {
-                        // The detail names stores and CIDs: the operator's log,
-                        // not a public caller's business.
-                        eprintln!("rpc: cold fetch of height {height} failed: {e}");
-                        not_found(format!(
-                            "height {height} is pruned and no archived copy verified"
-                        ))
-                    })?,
-            };
-
-            Ok::<_, ErrorObjectOwned>(BlockInfo::new(height, &block))
+            let record = chain
+                .state()
+                .committed_staking()
+                .map_err(|e| rejected(e.to_string()))?;
+            Ok::<_, ErrorObjectOwned>(record.as_ref().map(super::validators::validators_info))
         })
         .map_err(|e| rejected(e.to_string()))?;
 

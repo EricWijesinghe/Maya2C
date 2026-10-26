@@ -98,3 +98,20 @@ committee governance must then repair.
   joins the committee at the boundary (largest stake first) on every node;
   evidence tombstones a genesis validator and burns half its bond; the chain
   keeps finalizing with each new committee.
+
+## Addendum 2026-10-26: stake added in an epoch earns from the next
+
+**Reward eligibility.** Self bond and delegations added during epoch E
+(`register`, `bond_more`, `delegate`) are held in `pending_self` /
+`pending_delegations` and earn nothing for E. `end_epoch` pays on the earned
+stake only, then clears the pending maps, so that stake earns from E+1.
+`unbond` and `undelegate` take pending stake first. `slash` cuts pending at
+the same rate as earned stake. Committee ranking and vote weight still use
+total stake, including pending.
+
+**Record version 2 -> 3.** The staking record now encodes the two pending
+maps. This is a hard fork of the state encoding. Version 2 records are refused,
+not migrated. It rides the pre-mainnet re-genesis: any network still on
+version 2 (the testnet included) is re-genesised with this binary, not
+upgraded in place. Genesis clears pending after the bond
+registrations, so genesis bonds earn from epoch 0.
