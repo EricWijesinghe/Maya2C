@@ -11,7 +11,7 @@
 //! change the Merkle state root and make the reverted state disagree with the
 //! chain it is supposed to match.
 
-use crate::core::codec::ByteReader;
+use crate::core::codec::{ByteReader, MAX_RECORD_BYTES};
 use crate::error::Result;
 use crate::state::account::{ACCOUNT_LEN, Account, Address};
 
@@ -148,7 +148,7 @@ impl UndoRecord {
         let shielded = match reader.read_u8()? {
             0 => None,
             1 => {
-                let length = reader.read_collection_len(1)?;
+                let length = reader.read_byte_len(MAX_RECORD_BYTES)?;
                 Some(reader.read_slice(length)?.to_vec())
             }
             other => {
@@ -172,12 +172,12 @@ impl UndoRecord {
             let count = reader.read_collection_len(9)?;
             records.reserve(count);
             for _ in 0..count {
-                let key_length = reader.read_collection_len(1)?;
+                let key_length = reader.read_byte_len(MAX_RECORD_BYTES)?;
                 let key = reader.read_slice(key_length)?.to_vec();
                 let previous = match reader.read_u8()? {
                     0 => None,
                     1 => {
-                        let length = reader.read_collection_len(1)?;
+                        let length = reader.read_byte_len(MAX_RECORD_BYTES)?;
                         Some(reader.read_slice(length)?.to_vec())
                     }
                     other => {
@@ -197,5 +197,25 @@ impl UndoRecord {
             nullifiers,
             records,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_previous_value_past_the_old_collection_cap_reads_back() {
+        // The staking record is one value and passes 65,536 bytes on a busy
+        // chain. A journal the encoder wrote must always decode, or a reorg
+        // that needs it stalls the node.
+        let record = UndoRecord {
+            records: vec![RecordUndo {
+                key: b"stk".to_vec(),
+                previous: Some(vec![0xcd; 200_000]),
+            }],
+            ..UndoRecord::default()
+        };
+        assert_eq!(UndoRecord::decode(&record.encode()), Ok(record));
     }
 }

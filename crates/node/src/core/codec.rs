@@ -6,6 +6,13 @@
 
 use crate::error::{NodeError, Result};
 
+/// Longest single stored record any decoder accepts: a snapshot value, an
+/// undo-journal entry, a witness tree. The staking record is one such value and
+/// grows with every validator and delegation, so this is deliberately far above
+/// anything honest and far below memory trouble. A decoder of local state must
+/// read back everything its encoder wrote, which the 65,536 count cap could not.
+pub const MAX_RECORD_BYTES: usize = 16 * 1024 * 1024;
+
 /// Upper bound on any length-prefixed collection decoded from the wire.
 ///
 /// Without this, a peer could send a 2^64 element count and force an
@@ -118,6 +125,25 @@ impl<'a> ByteReader<'a> {
         Ok(buf)
     }
 
+    /// Reads the length of a byte string, rejecting anything above `max`.
+    ///
+    /// For blobs (contract code, ciphertext, a transaction frame) whose
+    /// ceiling is its own, not the element-count ceiling of
+    /// [`MAX_COLLECTION_LEN`]. Reusing that one capped every blob at 65,536
+    /// bytes whatever its declared maximum said. The caller's `read_slice`
+    /// still checks the bytes are there before anything is allocated.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Decode`] if the length is absent or above `max`.
+    pub fn read_byte_len(&mut self, max: usize) -> Result<usize> {
+        let len = self.read_u64()?;
+        usize::try_from(len)
+            .ok()
+            .filter(|&len| len <= max)
+            .ok_or_else(|| NodeError::Decode(format!("byte length {len} exceeds maximum {max}")))
+    }
+
     /// Reads a collection length, rejecting counts above
     /// [`MAX_COLLECTION_LEN`] and any count that cannot be backed by the
     /// remaining input.
@@ -188,5 +214,24 @@ impl<'a> ByteReader<'a> {
             )));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_byte_length_is_bounded_by_its_own_maximum_not_the_collection_cap() {
+        let at_max = 100_000u64.to_le_bytes();
+        assert_eq!(ByteReader::new(&at_max).read_byte_len(100_000), Ok(100_000));
+        let over = 100_001u64.to_le_bytes();
+        assert!(ByteReader::new(&over).read_byte_len(100_000).is_err());
+        let huge = u64::MAX.to_le_bytes();
+        assert!(
+            ByteReader::new(&huge)
+                .read_byte_len(usize::MAX - 1)
+                .is_err()
+        );
     }
 }

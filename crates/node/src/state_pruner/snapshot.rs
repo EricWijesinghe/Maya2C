@@ -39,7 +39,7 @@ use std::sync::Arc;
 use rocksdb::WriteBatch;
 
 use crate::consensus::{Chain, ChainConfig};
-use crate::core::codec::ByteReader;
+use crate::core::codec::{ByteReader, MAX_RECORD_BYTES};
 use crate::core::{Block, BlockHeader};
 use crate::error::{NodeError, Result};
 use crate::state::commitments::{committed_prefixes, is_committed};
@@ -47,6 +47,14 @@ use crate::state::db::StateDB;
 
 /// Entries per snapshot chunk.
 pub const CHUNK_ENTRIES: usize = 4_096;
+
+/// Longest key a chunk entry may carry.
+const MAX_ENTRY_KEY: usize = 64 * 1024;
+
+/// Longest value a chunk entry may carry. The old 65,536 ceiling (the
+/// collection-count cap, reused by mistake) made a busy chain's snapshot export
+/// something it could not import.
+const MAX_ENTRY_VALUE: usize = MAX_RECORD_BYTES;
 
 /// Headers asked for per request during bootstrap.
 pub const HEADER_BATCH: u64 = 2_000;
@@ -133,9 +141,9 @@ pub fn decode_chunk(bytes: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
     let count = reader.read_collection_len(16)?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
-        let key_len = reader.read_collection_len(1)?;
+        let key_len = reader.read_byte_len(MAX_ENTRY_KEY)?;
         let key = reader.read_slice(key_len)?.to_vec();
-        let value_len = reader.read_collection_len(1)?;
+        let value_len = reader.read_byte_len(MAX_ENTRY_VALUE)?;
         let value = reader.read_slice(value_len)?.to_vec();
         entries.push((key, value));
     }
@@ -705,5 +713,12 @@ mod tests {
         let entries = vec![(b"acct:a".to_vec(), vec![1, 2]), (b"d:x".to_vec(), vec![])];
         assert_eq!(decode_chunk(&encode_chunk(&entries)), Ok(entries));
         assert!(decode_chunk(&[0xff; 9]).is_err());
+    }
+
+    #[test]
+    fn a_value_past_the_old_collection_cap_still_round_trips() {
+        // The staking record is one value; a busy chain's passes 65,536 bytes.
+        let entries = vec![(b"stk".to_vec(), vec![0xaa; 200_000])];
+        assert_eq!(decode_chunk(&encode_chunk(&entries)), Ok(entries));
     }
 }
