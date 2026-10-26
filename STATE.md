@@ -1,24 +1,34 @@
 # State
 
 ## Handover
-- **2026-10-26/27 — freeze fixes merged, uncovered areas audited, TPS measured.**
-  - **Done:**
-    - #196, #170, #198 and eight dependabot PRs merged; master passes
-      `cargo check --workspace --all-targets`, 3386 tests (4 stale-path
-      failures cleared by a rebuild), coverage gate, CI-flag clippy;
-    - audit of DEX/oracle/governance/identity/RWA, PoW, zeroize, reorg/prune:
-      seven fixes in #200, wire-cap bug in #201, latency-sim race in #199;
-    - `bench-tps`: 502.2 finalized transfers/s at `23a158f4`, one run, one
-      machine (`reports/bench/tps-1793027291.md`).
-  - **Unfinished:** #199, #200, #201 await CI and merge; H-1 (DEX dust halts a
-    pair) is an ignored failing test; H-2 (governance quorum denominator),
-    timestamp steering and the retarget off-by-one are unfixed;
-    PoW-under-the-chain-lock is unfixed; Hub GUI, chat outbox and the #135 wallet
-    check are not started; no live-history scan for over-approved multisig spends.
-  - **Eric decides:** ADR-062, ADR-063, H-1 fix (cancel dust and/or minimum
-    notional), H-2 policy, coin ticker, `halving_epochs`.
-  - **Do first:** watch CI on #199/#200/#201 and merge; then Eric answers the
-    decisions above so they can land before the re-genesis.
+- **2026-10-27 — Eric's four audit decisions implemented; clear signing; dev CLI in the release.**
+  - **Decided by Eric (all four "recommended"):** H-1 cancel dust + refuse worthless
+    orders (ADR-064); H-2 quorum counts work credit; ADR-063 header version byte +
+    median-time rule; ADR-062 both state-layout changes, built behind measurement.
+    Recorded in DECISIONS.md. The ticker is already MAYA (2026-10-18).
+  - **Merged this session:** #196, #170, #198, #203 (zstd 0.14.3, cleared four RustSec
+    advisories that had turned `cargo-deny` red on master) and every dependabot PR.
+  - **Open PRs (all waiting on CI, branches updated to master):**
+    - #199 latency-sim race; #200 audit fixes; #201 BFT vertex payload cap = 4 MiB;
+      #202 docs (this handover, decisions, ADRs 062/063 accepted, regenesis checklist,
+      testnet.5 release-notes DRAFT, two bench reports);
+    - #204 H-2 governance quorum + work-credit decay bug found on the way;
+    - #205 H-1 DEX dust (ADR-064);
+    - #206 ADR-063 header v1 (145 bytes), CON-10/CON-11, spec + TS verifier agree;
+    - #207 `core::describe`: a sentence for all 56 transaction kinds, RPC + `l1-wallet`;
+    - #208 `submit_block` checks proof of work outside the chain lock;
+    - #209 `maya2c` developer CLI shipped in the release; `maya2c dev` seals its key.
+  - **Merge order:** #199 before #200 (the old latency flake fails #200's nextest);
+    otherwise independent. #206 changes every block id and header literal: merge it
+    last, expect conflicts in `chain.rs` with #208.
+  - **Not done / needs Eric:** ADR-062 (not started: measure first); ADR-065 (bridge
+    routes, Proposed); `halving_epochs`; explorer index has no kind column; GUI wallet
+    and Ledger app still show less than `describe`; no live-history multisig scan
+    (only matters if old history is replayed); Hub GUI, chat outbox/receipts, wallet
+    send-screen check (#135) not started. Nothing was deployed, tagged, restarted or
+    re-genesised.
+  - **Measured:** finalized TPS 502.2/s at `23a158f4`, one run, one machine
+    (`reports/bench/tps-1793027291.md`); full workspace 3389/3389 on the ADR-063 branch.
   - **Reports:** `reports/sessions/2026-10-26-merge-audit-bench.md`,
     `reports/sessions/2026-10-26-audit-findings.md`.
 - **2026-10-18 overnight: 12 PRs merged.**
