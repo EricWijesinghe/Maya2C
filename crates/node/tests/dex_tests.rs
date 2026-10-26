@@ -768,6 +768,23 @@ fn placing_an_order_takes_its_escrow_and_cancelling_returns_it() {
 }
 
 #[test]
+fn an_order_worth_less_than_one_quote_unit_is_refused_at_placement() {
+    // Price 1 is a billionth of a quote unit per base unit, so one base unit
+    // is worth a zero quote: an order no trade could ever pay for, which would
+    // otherwise rest at the front of the book and sit in every pass's way.
+    let mut market = market();
+    let dust = TxKind::PlaceOrder(OrderPlacement {
+        pair: market.pair,
+        side: Side::Ask.tag(),
+        price: primitive_types::U256::one(),
+        amount: primitive_types::U256::one(),
+        expiry: 0,
+    });
+
+    assert!(market.apply(vec![dust], 2).is_err());
+}
+
+#[test]
 fn nobody_but_an_orders_owner_can_cancel_it() {
     let mut market = market();
     let order_id = custom_l1_node::state::dex::derive_order_id(&market.maker_address, market.nonce);

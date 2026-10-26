@@ -136,6 +136,9 @@ pub struct MatchOutcome {
     /// Orders dropped for having passed their expiry. Their escrow is the
     /// caller's to refund.
     pub expired: Vec<Order>,
+    /// Orders cancelled because the trade that would consume them rounds to
+    /// zero quote. Their escrow is the caller's to refund, as for `expired`.
+    pub dust: Vec<Order>,
     /// The book afterwards.
     pub book: Book,
     /// Whether the pass stopped on its work ceiling with the book still
@@ -165,11 +168,14 @@ pub fn match_book(book: &Book, fees: FeeSchedule, limits: MatchLimits) -> Result
     let expired = working.reap_expired(limits.height);
 
     let mut fills = Vec::new();
+    let mut dust = Vec::new();
     let mut protocol_fees = Amount::ZERO;
     let mut limit_reached = false;
 
     loop {
-        if fills.len() as u64 >= u64::from(limits.max_fills) {
+        // A cancelled dust order is work too: counted, so a book full of them
+        // cannot make one pass unbounded.
+        if (fills.len() + dust.len()) as u64 >= u64::from(limits.max_fills) {
             // Only a *crossed* book left behind counts as hitting the limit. A
             // pass that used its last permitted fill to clear the last cross
             // finished; saying otherwise would have the caller schedule work
@@ -207,11 +213,22 @@ pub fn match_book(book: &Book, fees: FeeSchedule, limits: MatchLimits) -> Result
         let quote = quote_for_base(base, price, Side::Ask)?;
         if quote.is_zero() {
             // The two orders cross, but the trade is smaller than one quote
-            // unit. Filling it would move base for nothing. Nothing further
-            // can be done with this pair of orders at this price, and looping
-            // would spin, so the pass stops here with the book still crossed.
-            limit_reached = true;
-            break;
+            // unit. Filling it would move base for nothing, and stopping the
+            // pass here would let one such order, resting at the front of its
+            // side, freeze every order behind it. The side that would be
+            // consumed whole by this trade is the dust: it is cancelled (the
+            // caller refunds its escrow) and matching goes on. When both sides
+            // would be consumed whole, both go. The other side, with base still
+            // left, keeps its place.
+            let (bid_id, ask_id) = (bid.id, ask.id);
+            let (bid_whole, ask_whole) = (bid.remaining == base, ask.remaining == base);
+            if bid_whole {
+                dust.extend(working.remove(&bid_id));
+            }
+            if ask_whole {
+                dust.extend(working.remove(&ask_id));
+            }
+            continue;
         }
 
         // The taker's fee comes out of the asset the taker receives.
@@ -253,6 +270,7 @@ pub fn match_book(book: &Book, fees: FeeSchedule, limits: MatchLimits) -> Result
     Ok(MatchOutcome {
         fills,
         expired,
+        dust,
         book: working,
         limit_reached,
         protocol_fees,

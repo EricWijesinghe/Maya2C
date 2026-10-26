@@ -296,7 +296,10 @@ fn a_cross_too_small_to_move_a_quote_unit_does_not_trade_base_for_nothing() {
     let outcome = match_book(&book, FREE, MatchLimits::at(1)).expect("match");
 
     assert!(outcome.fills.is_empty());
-    assert_eq!(outcome.book.len(), 2);
+    // Both sides would be consumed whole by the zero-quote trade, so both are
+    // cancelled for the caller to refund rather than left to block the book.
+    assert_eq!(outcome.dust.len(), 2);
+    assert!(outcome.book.is_empty());
 }
 
 #[test]
@@ -351,4 +354,44 @@ fn every_fill_conserves_value_between_the_two_parties_and_the_sink() {
         assert_eq!(base_accounted, fill.base);
         assert_eq!(quote_accounted, fill.quote);
     }
+}
+
+#[test]
+fn a_small_bid_against_a_cheap_resting_ask_is_the_one_cancelled() {
+    // The older ask is the maker, so the trade is priced at 1: one base unit
+    // for a zero quote. The bid is the side the trade would consume whole, so
+    // it is cancelled for refund; the ask, with base left, keeps its place.
+    let book = book_of(&[
+        order(1, Side::Ask, a(1), 100, 1),
+        order(2, Side::Bid, price(20), 1, 2),
+    ]);
+
+    let outcome = match_book(&book, FREE, MatchLimits::at(1)).expect("match");
+
+    assert!(outcome.fills.is_empty());
+    assert_eq!(outcome.dust.len(), 1);
+    assert_eq!(outcome.dust[0].id, [2; 32]);
+    assert_eq!(outcome.book.len(), 1);
+    assert_eq!(outcome.book.best(Side::Ask).expect("ask").remaining, a(100));
+}
+
+#[test]
+fn cancelling_dust_counts_against_the_work_ceiling() {
+    // Ten dust asks in front of one honest cross, with room for only three
+    // units of work: the pass must stop on its ceiling, not walk the book.
+    let mut orders = Vec::new();
+    for i in 0..10u8 {
+        orders.push(order(i + 1, Side::Ask, a(1), 1, u64::from(i) + 1));
+    }
+    orders.push(order(50, Side::Bid, price(20), 1_000, 20));
+    let book = book_of(&orders);
+    let limits = MatchLimits {
+        max_fills: 3,
+        height: 1,
+    };
+
+    let outcome = match_book(&book, FREE, limits).expect("match");
+
+    assert_eq!(outcome.dust.len(), 3);
+    assert!(outcome.limit_reached, "the book is still crossed");
 }
