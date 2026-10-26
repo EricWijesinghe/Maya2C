@@ -2600,8 +2600,9 @@ domain = "Security and macro engines"
 paths = "`crates/node/src/state/rwa_exec.rs`"
 tier = "extended"
 class = "RESEARCH"
-status = "working"
+status = "stub"
 tests = ["crates/node/tests/rwa_tests.rs"]
+note = "ADR-061. Off (DVP_ACTIVATION_HEIGHT = u64::MAX): the seller named in the payload never signs, so anyone could take any holder's units. Needs a seller-signed offer before an activation height is written."
 
 [[subsystem]]
 id = "jurisdictional-transfer-rules"
