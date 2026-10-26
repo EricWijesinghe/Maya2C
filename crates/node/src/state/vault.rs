@@ -181,7 +181,7 @@ impl Withdrawal {
     }
 }
 
-fn record_key(owner: &Address) -> Vec<u8> {
+pub(crate) fn record_key(owner: &Address) -> Vec<u8> {
     [RECORD_PREFIX, owner.as_slice()].concat()
 }
 

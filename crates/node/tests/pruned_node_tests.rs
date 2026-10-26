@@ -380,6 +380,27 @@ fn a_pruned_node_bootstraps_without_a_single_body_below_the_snapshot() {
 // 2. a lying snapshot
 // ---------------------------------------------------------------------------
 
+#[test]
+fn a_pruned_node_refuses_imported_headers_at_or_below_its_horizon() {
+    // `insert_block` refuses a block there before spending anything on it;
+    // `import_headers` must apply the same rule or it keeps header records the
+    // chain can never build on.
+    let archive = archive_node(70);
+    let source = Source::honest(&archive);
+    let (state, _dir) = empty_state();
+    let mut pruned =
+        bootstrap_pruned(Arc::clone(&state), genesis(), config(), &source, K).expect("bootstrap");
+    assert_eq!(pruned.prune_horizon(), 50);
+
+    for height in [40, 50] {
+        let refusal = pruned.import_headers(&[archive.block(height).header]);
+        assert!(
+            matches!(refusal, Err(custom_l1_node::error::NodeError::BelowPruneHorizon { .. })),
+            "height {height}: {refusal:?}"
+        );
+    }
+}
+
 fn refuses(tamper: Tamper) {
     let archive = archive_node(70);
     let mut source = Source::honest(&archive);

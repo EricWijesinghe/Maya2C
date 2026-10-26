@@ -57,8 +57,14 @@ pub(crate) fn preview_key(block: &Block) -> [u8; 32] {
     header.state_root = [0; 32];
     let mut hasher = blake3::Hasher::new_derive_key("maya2c preview key v1");
     hasher.update(&header.id());
+    // The wire bytes, not the txid: a multisig txid deliberately omits its
+    // approvals, so two quorums of one spend share an id, and a preview kept
+    // for one must not stand in for a block carrying another (or a forged)
+    // witness. The kept overlay skips signature verification.
     for tx in &block.transactions {
-        hasher.update(&tx.txid());
+        let bytes = tx.to_bytes();
+        hasher.update(&(bytes.len() as u64).to_le_bytes());
+        hasher.update(&bytes);
     }
     *hasher.finalize().as_bytes()
 }
@@ -189,6 +195,57 @@ mod tests {
             preview_key(&base),
             preview_key(&block(7, 0, vec![])),
             "the transactions"
+        );
+    }
+
+    #[test]
+    fn two_quorums_of_one_multisig_spend_do_not_share_a_preview() {
+        use crate::core::ChainTag;
+        use crate::core::multisig_tx::MultisigAuth;
+        use maya_crypto_pq::multisig::{Approval, MultisigPolicy, PolicyKey};
+        use maya_crypto_pq::suite::{MasterSeed, MlDsa87, SignatureSuite};
+
+        let chain = ChainTag::from_genesis([42; 32]);
+        let keys: Vec<_> = (1..=5u8)
+            .map(|i| MlDsa87::signing_key_from_seed(&MasterSeed::from_bytes([i; 32])))
+            .collect();
+        let listed = keys
+            .iter()
+            .map(|k| PolicyKey {
+                suite: MlDsa87::ID,
+                public_key: MlDsa87::public_key(k),
+            })
+            .collect();
+        let policy = MultisigPolicy::new(3, listed).expect("3-of-5");
+        let signed_by = |signers: &[u8]| {
+            let mut tx = Transaction::new(
+                vec![],
+                vec![TxOutput {
+                    amount: primitive_types::U256::from(40),
+                    recipient: [9; 32],
+                }],
+                3,
+            );
+            tx.multisig = Some(Box::new(MultisigAuth::unsigned(policy.clone())));
+            let message = tx.signing_bytes(&chain);
+            let approvals = signers
+                .iter()
+                .map(|&i| Approval {
+                    index: i,
+                    signature: MlDsa87::sign(&keys[usize::from(i)], &message).expect("sign"),
+                })
+                .collect();
+            tx.multisig = Some(Box::new(
+                MultisigAuth::new(policy.clone(), approvals).expect("shape"),
+            ));
+            tx
+        };
+        let (a, b) = (signed_by(&[0, 1, 2]), signed_by(&[2, 3, 4]));
+        assert_eq!(a.txid(), b.txid(), "premise: the id ignores approvals");
+        assert_ne!(
+            preview_key(&block(7, 0, vec![a])),
+            preview_key(&block(7, 0, vec![b])),
+            "different witnesses are different executions to verify"
         );
     }
 
