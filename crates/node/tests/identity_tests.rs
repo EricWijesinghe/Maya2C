@@ -384,7 +384,10 @@ fn a_revocation_index_past_the_last_page_is_refused_not_wrapped() {
         "credential 0 must not be revoked by an out-of-range index"
     );
     assert!(
-        fixture.db.is_credential_revoked(&did, beyond).expect("read"),
+        fixture
+            .db
+            .is_credential_revoked(&did, beyond)
+            .expect("read"),
         "an index no page can hold reads as revoked, never as live"
     );
 }

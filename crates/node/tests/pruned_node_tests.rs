@@ -395,7 +395,10 @@ fn a_pruned_node_refuses_imported_headers_at_or_below_its_horizon() {
     for height in [40, 50] {
         let refusal = pruned.import_headers(&[archive.block(height).header]);
         assert!(
-            matches!(refusal, Err(custom_l1_node::error::NodeError::BelowPruneHorizon { .. })),
+            matches!(
+                refusal,
+                Err(custom_l1_node::error::NodeError::BelowPruneHorizon { .. })
+            ),
             "height {height}: {refusal:?}"
         );
     }
