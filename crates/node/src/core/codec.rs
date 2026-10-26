@@ -6,6 +6,13 @@
 
 use crate::error::{NodeError, Result};
 
+/// Longest single stored record any decoder accepts: a snapshot value, an
+/// undo-journal entry, a witness tree. The staking record is one such value and
+/// grows with every validator and delegation, so this is deliberately far above
+/// anything honest and far below memory trouble. A decoder of local state must
+/// read back everything its encoder wrote, which the 65,536 count cap could not.
+pub const MAX_RECORD_BYTES: usize = 16 * 1024 * 1024;
+
 /// Upper bound on any length-prefixed collection decoded from the wire.
 ///
 /// Without this, a peer could send a 2^64 element count and force an

@@ -39,7 +39,7 @@ use std::sync::Arc;
 use rocksdb::WriteBatch;
 
 use crate::consensus::{Chain, ChainConfig};
-use crate::core::codec::ByteReader;
+use crate::core::codec::{ByteReader, MAX_RECORD_BYTES};
 use crate::core::{Block, BlockHeader};
 use crate::error::{NodeError, Result};
 use crate::state::commitments::{committed_prefixes, is_committed};
@@ -51,11 +51,10 @@ pub const CHUNK_ENTRIES: usize = 4_096;
 /// Longest key a chunk entry may carry.
 const MAX_ENTRY_KEY: usize = 64 * 1024;
 
-/// Longest value a chunk entry may carry. The staking record is one value that
-/// grows with every validator and delegation, so the old 65,536 ceiling (the
+/// Longest value a chunk entry may carry. The old 65,536 ceiling (the
 /// collection-count cap, reused by mistake) made a busy chain's snapshot export
 /// something it could not import.
-const MAX_ENTRY_VALUE: usize = 64 * 1024 * 1024;
+const MAX_ENTRY_VALUE: usize = MAX_RECORD_BYTES;
 
 /// Headers asked for per request during bootstrap.
 pub const HEADER_BATCH: u64 = 2_000;
