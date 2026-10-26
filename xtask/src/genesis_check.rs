@@ -101,6 +101,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
     use super::*;
 
     fn genesis(difficulty: u32, weighted: bool, bonds: &[(&str, u128)]) -> String {
