@@ -492,7 +492,10 @@ fn a_maximum_batch_survives_being_carried_in_a_block() {
         .map(|i| closure(i, 1_000 - i, i))
         .collect();
     let tx = Transaction::with_kind(TxKind::SettleBatch(closures), 0);
-    assert!(tx.to_bytes().len() > 65_536, "the case must exceed the old cap");
+    assert!(
+        tx.to_bytes().len() > 65_536,
+        "the case must exceed the old cap"
+    );
 
     let block = Block::new(
         BlockHeader {
