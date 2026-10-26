@@ -463,6 +463,7 @@ mod tests {
 
 #[cfg(test)]
 mod pending_tests {
+    #![allow(clippy::unwrap_used)]
     use super::*;
 
     /// A valid record with no pending stake, cut before its trailing

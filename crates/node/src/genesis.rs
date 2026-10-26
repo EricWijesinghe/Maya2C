@@ -1165,6 +1165,7 @@ pub fn decode_address(value: &str) -> Result<Address> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
     use super::*;
     use crate::state::staking::{STATE_KEY, StakingRecord};
     use maya_staking::{Effect, Participation};
