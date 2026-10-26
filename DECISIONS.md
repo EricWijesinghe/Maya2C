@@ -403,3 +403,19 @@ deliberately left at 64 bits, and why, are tabled in ADR-048.
 - **Not decided:** `halving_epochs` (needs a measured block rate on a network; the localnet
   benchmark is not one). The ticker is already MAYA (2026-10-18).
 
+## 2026-10-27 — Implementation choices made while building the four decisions (Claude)
+
+- **ADR-063 median rule is scoped to retargeting chains.** The existing clock-drift test
+  showed it pushes DAG-BFT block times ahead of the clock when blocks come faster than
+  about 6 a second, and a fixed-target chain has nothing to steer. The retarget measures
+  between median times, which is what stops one extreme timestamp.
+- **The header version byte is appended** (145 bytes) so `NONCE_RANGE` and the GPU kernels
+  do not change.
+- **H-2:** the work-credit clock now advances by whole half-lives; before, any record
+  credited more often than every 5,760 blocks never decayed, which a chain-wide aggregate
+  would have made permanent.
+- **H-1:** the placement floor is "worth at least one quote unit" (what the arithmetic needs),
+  not an economic minimum.
+- **Proposed, not decided:** ADR-065, which cross-chain routes reach consensus (recommendation:
+  swaps first, then Bitcoin inbound at activation height `u64::MAX`).
+
