@@ -50,6 +50,7 @@ fn chain(genesis: BlockHeader) -> HeaderChain {
 
 fn header(prev: [u8; 32], state_root: [u8; 32], zero_bits: u32) -> BlockHeader {
     BlockHeader {
+        version: 0,
         prev_hash: prev,
         state_root,
         timestamp: 1_756_252_800,

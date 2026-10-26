@@ -2,7 +2,7 @@
 //!
 //! # What a new pruned node downloads
 //!
-//! 1. **Every header**, genesis to tip. 144 bytes each, fully validated: the
+//! 1. **Every header**, genesis to tip. 145 bytes each, fully validated: the
 //!    exact retarget rule, proof of work, cumulative work.
 //! 2. **The state at a height `H` at least K below the tip**, as a snapshot:
 //!    every key/value under a committed prefix, in chunks.

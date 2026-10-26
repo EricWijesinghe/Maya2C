@@ -200,7 +200,7 @@ pub fn epoch_seed(epoch: u64) -> [u8; 32] {
 
 /// The 32 bytes a search runs against: the header with its nonce zeroed.
 ///
-/// The header layout is the node's: 144 bytes with the nonce at 72..80. A miner
+/// The header layout is the node's: 145 bytes (a trailing version byte, ADR-063) with the nonce at 72..80. A miner
 /// receiving raw header bytes from a pool calls this once per job.
 ///
 /// # Panics

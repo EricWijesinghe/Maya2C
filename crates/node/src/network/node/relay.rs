@@ -633,6 +633,7 @@ mod tests {
     #[test]
     fn a_body_is_identified_by_its_own_header_and_garbage_by_nothing() {
         let header = BlockHeader {
+            version: 0,
             prev_hash: [1; 32],
             state_root: [2; 32],
             timestamp: 3,

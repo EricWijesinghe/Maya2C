@@ -18,8 +18,22 @@ const POW_SEED_CONTEXT: &str = "custom-l1-node 2026-08-31 dag pow seed v1";
 /// account leaf from the state tree, which shares the internal-node rule.
 const TX_LEAF_CONTEXT: &str = "custom-l1-node tx leaf v1";
 
-/// Serialized length of a [`BlockHeader`]: 32 + 32 + 8 + 8 + 32 + 32.
-pub const HEADER_LEN: usize = 144;
+/// Serialized length of a [`BlockHeader`]: 32 + 32 + 8 + 8 + 32 + 32 + 1.
+pub const HEADER_LEN: usize = 145;
+
+/// Header layout version a node of this build produces and accepts (ADR-063).
+///
+/// Zero today. It is reserved so a later header can be told apart by its own
+/// bytes rather than guessed from its length, and any other value is refused
+/// until a build that understands it exists.
+pub const HEADER_VERSION: u8 = 0;
+
+/// Byte the header version occupies in a serialized header.
+///
+/// Appended last, after every pre-existing field, for the reason `tx_root` was:
+/// [`NONCE_RANGE`] and [`TX_ROOT_RANGE`] did not move, so a GPU kernel that
+/// rewrites the nonce in place needed no change.
+pub const VERSION_OFFSET: usize = 144;
 
 /// Byte range the transaction root occupies in a serialized header.
 ///
@@ -58,6 +72,9 @@ pub struct BlockHeader {
     /// keeps the value it arrived with, so that `Chain::insert_block` can refuse
     /// a body that disagrees.
     pub tx_root: [u8; HASH_LEN],
+    /// Header layout version (ADR-063). [`HEADER_VERSION`] today; a header with
+    /// any other value is refused.
+    pub version: u8,
 }
 
 impl BlockHeader {
@@ -74,6 +91,7 @@ impl BlockHeader {
         buf[NONCE_RANGE].copy_from_slice(&self.nonce.to_le_bytes());
         buf[80..112].copy_from_slice(&self.difficulty_target);
         buf[TX_ROOT_RANGE].copy_from_slice(&self.tx_root);
+        buf[VERSION_OFFSET] = self.version;
         buf
     }
 
@@ -81,14 +99,24 @@ impl BlockHeader {
     /// them. Shared by [`BlockHeader::from_bytes`] and [`Block::from_bytes`] so
     /// the layout is written down once.
     fn read_from(reader: &mut ByteReader<'_>) -> Result<Self> {
-        Ok(Self {
+        let header = Self {
             prev_hash: reader.read_array::<HASH_LEN>()?,
             state_root: reader.read_array::<HASH_LEN>()?,
             timestamp: reader.read_u64()?,
             nonce: reader.read_u64()?,
             difficulty_target: reader.read_array::<HASH_LEN>()?,
             tx_root: reader.read_array::<HASH_LEN>()?,
-        })
+            version: reader.read_u8()?,
+        };
+        // Strict: a header of a layout this build does not know is not read as
+        // if it were one it does (ADR-063).
+        if header.version != HEADER_VERSION {
+            return Err(crate::error::NodeError::Decode(format!(
+                "unsupported header version {}",
+                header.version
+            )));
+        }
+        Ok(header)
     }
 
     /// Decodes a header from its canonical serialization.
