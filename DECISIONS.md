@@ -386,3 +386,20 @@ deliberately left at 64 bits, and why, are tabled in ADR-048.
   base fee saturating at `u64::MAX` (a ceiling by design), `HybridSigningKey` zeroize
   (both upstream key types are `ZeroizeOnDrop`, now pinned at compile time).
 - **Dismissed with reason:** 7 CodeQL "hard-coded nonce" alerts, all in test files.
+
+## 2026-10-27 — Audit decisions (Eric, all four "recommended")
+
+- **H-1, DEX dust:** the matcher cancels and refunds the fully-consumed order on a zero-quote
+  cross and keeps matching, and placement refuses orders below a minimum notional.
+  Needs spec, conformance vectors, an ADR; the ignored test
+  `a_resting_dust_order_does_not_freeze_the_honest_orders_behind_it` becomes the gate.
+- **H-2, governance:** `eligible` includes total work credit, so turnout cannot exceed 100%
+  and the denominator matches the vote weights.
+- **ADR-063 accepted:** header version byte and median-time timestamp rule, plus a clamp on
+  the retarget span input. Header 144 to 145 bytes; miner kernel, `NONCE_RANGE`, every block id,
+  spec and vectors change. Free before genesis.
+- **ADR-062 accepted:** sparse accounts tree and per-validator/per-delegation staking, built
+  behind measurement; only what the numbers justify ships.
+- **Not decided:** `halving_epochs` (needs a measured block rate on a network; the localnet
+  benchmark is not one). The ticker is already MAYA (2026-10-18).
+
