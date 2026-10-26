@@ -15,7 +15,7 @@ number is measured and reproduced by someone outside the project. None is.**
 | New-user time to first transfer | minutes, from nothing | not researched | not measured (no study) | no |
 | Bridge trust | parties that must be honest for a cross-chain transfer | Ronin: 5 of 9 keys ([Halborn](https://www.halborn.com/blog/post/explained-the-ronin-hack-march-2022)) | no bridge; Bitcoin SPV verifies headers with PoW, but nothing moves value | no |
 | Exploit losses | value lost per value secured | $3.4B stolen in 2025, all chains ([Chainalysis](https://www.chainalysis.com/blog/crypto-hacking-stolen-funds-2026/)) | no value secured | not measurable |
-| Developer time to a tested contract | minutes | not researched | cold build 4 m 54 s; no template/deploy path (`reports/17-integrations.md`) | no |
+| Developer time to a tested contract | minutes | not researched | from source 7 m 14 s (Linux) and 9 m 45 s (Windows); about 3 s to a deployed contract with prebuilt binaries (`reports/17-integrations.md` §7). The release workflow now packages `maya2c` beside the node (2026-10-27); nothing is published, so a download has not been measured | no |
 
 The honest summary: Maya2C **ties** the best existing post-quantum chain on
 quantum readiness, is **worse** on node cost because of PQ signature size,
