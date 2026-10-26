@@ -370,3 +370,19 @@ deliberately left at 64 bits, and why, are tabled in ADR-048.
 - **What the launch must say publicly:** pre-audit, self-run reviews only, validators run by one operator; never "audited" or "independent" (claims-check, CLAUDE.md order 10).
 - **Kept regardless:** the 20% per-operator cap and 7-or-more validators (`cargo xtask genesis-check`), `--trusted-block` on bootstrap, ADR-044 block rewards, ADR-050 council, ADR-051 option 3 keys, wasmtime bump.
 - **Still needs `APPROVED` from Eric:** each deploy, the re-genesis, key ceremonies, hosts that cost money, and mainnet genesis itself.
+
+## 2026-10-26 — Audit findings: what was fixed, what waits (Claude, for Eric)
+
+- **Fixed without a policy question:** identity revocation index wrap, vault window leak in
+  block selection, storage errors in selection, preview key and multisig approvals,
+  `import_headers` refusals, DEX escrow `checked_sub`, BFT vertex payload cap (#200, #201).
+  All change what a node accepts or selects, so they ship with the re-genesis.
+- **Held for Eric (each changes consensus bytes):** DEX zero-quote dust (H-1; recommended:
+  cancel the fully-consumed dust order and refuse placements under a minimum notional),
+  governance quorum denominator (H-2), timestamp steering of the retarget (ADR-063 does not
+  close it), retarget window off by one.
+- **Reviewed, no change:** undo-journal optional section (local storage), snapshot chunk
+  decode (allocates only what its input holds), empty-committee fallback (ADR-028 design),
+  base fee saturating at `u64::MAX` (a ceiling by design), `HybridSigningKey` zeroize
+  (both upstream key types are `ZeroizeOnDrop`, now pinned at compile time).
+- **Dismissed with reason:** 7 CodeQL "hard-coded nonce" alerts, all in test files.

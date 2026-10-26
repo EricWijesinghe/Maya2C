@@ -1,6 +1,26 @@
 # State
 
 ## Handover
+- **2026-10-26/27 — freeze fixes merged, uncovered areas audited, TPS measured.**
+  - **Done:**
+    - #196, #170, #198 and eight dependabot PRs merged; master passes
+      `cargo check --workspace --all-targets`, 3386 tests (4 stale-path
+      failures cleared by a rebuild), coverage gate, CI-flag clippy;
+    - audit of DEX/oracle/governance/identity/RWA, PoW, zeroize, reorg/prune:
+      seven fixes in #200, wire-cap bug in #201, latency-sim race in #199;
+    - `bench-tps`: 502.2 finalized transfers/s at `23a158f4`, one run, one
+      machine (`reports/bench/tps-1793027291.md`).
+  - **Unfinished:** #199, #200, #201 await CI and merge; H-1 (DEX dust halts a
+    pair) is an ignored failing test; H-2 (governance quorum denominator),
+    timestamp steering and the retarget off-by-one are unfixed;
+    PoW-under-the-chain-lock is unfixed; Hub GUI, chat outbox and the #135 wallet
+    check are not started; no live-history scan for over-approved multisig spends.
+  - **Eric decides:** ADR-062, ADR-063, H-1 fix (cancel dust and/or minimum
+    notional), H-2 policy, coin ticker, `halving_epochs`.
+  - **Do first:** watch CI on #199/#200/#201 and merge; then Eric answers the
+    decisions above so they can land before the re-genesis.
+  - **Reports:** `reports/sessions/2026-10-26-merge-audit-bench.md`,
+    `reports/sessions/2026-10-26-audit-findings.md`.
 - **2026-10-18 overnight: 12 PRs merged.**
   - **Merged:**
     - sealed validator keys (#131, ADR-049);
