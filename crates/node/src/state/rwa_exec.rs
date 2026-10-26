@@ -80,6 +80,8 @@ pub enum DvpOutcome {
     NotEligible,
     /// The asset does not exist.
     UnknownAsset,
+    /// The buyer and the seller are one account, so there is nothing to swap.
+    SelfTrade,
     /// The cap table page could not take another holder.
     PageFull,
 }
@@ -226,6 +228,11 @@ impl StateDB {
         let Some(token) = self.rwa_token(overlay, asset)? else {
             return Ok(DvpOutcome::UnknownAsset);
         };
+        // Both legs would load the same account and the second write would
+        // overwrite the first: the price would be credited and never debited.
+        if buyer == seller {
+            return Ok(DvpOutcome::SelfTrade);
+        }
         if !self.rwa_eligible(overlay, &token, buyer, height)? {
             return Ok(DvpOutcome::NotEligible);
         }

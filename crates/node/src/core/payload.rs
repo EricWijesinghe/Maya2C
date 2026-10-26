@@ -897,12 +897,7 @@ impl TxKind {
             }
             TAG_FINALIZE => Ok(Self::FinalizeDispute(reader.read_array::<32>()?)),
             TAG_DEPLOY => {
-                let length = reader.read_collection_len(1)?;
-                if length > MAX_CONTRACT_CODE {
-                    return Err(NodeError::Decode(format!(
-                        "contract code of {length} bytes exceeds the maximum {MAX_CONTRACT_CODE}"
-                    )));
-                }
+                let length = reader.read_byte_len(MAX_CONTRACT_CODE)?;
                 Ok(Self::DeployContract(ContractDeploy {
                     code: reader.read_slice(length)?.to_vec(),
                 }))
@@ -910,12 +905,7 @@ impl TxKind {
             TAG_CALL => {
                 let contract = reader.read_array::<32>()?;
                 let gas_limit = reader.read_u64()?;
-                let length = reader.read_collection_len(1)?;
-                if length > MAX_CALL_INPUT {
-                    return Err(NodeError::Decode(format!(
-                        "call input of {length} bytes exceeds the maximum {MAX_CALL_INPUT}"
-                    )));
-                }
+                let length = reader.read_byte_len(MAX_CALL_INPUT)?;
                 Ok(Self::CallContract(ContractCall {
                     contract,
                     gas_limit,

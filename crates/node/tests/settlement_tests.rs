@@ -818,3 +818,55 @@ fn channels_are_committed_to_the_state_root() {
     // could not verify.
     assert_ne!(before, after);
 }
+
+// ---------------------------------------------------------------------------
+// reorg
+// ---------------------------------------------------------------------------
+
+#[test]
+fn reverting_a_block_that_opened_a_channel_removes_it_and_returns_the_escrow() {
+    // Invariants 8 and 25 for channel records. They were written by the block
+    // but missing from its undo journal, so a reorg restored the account and
+    // left the escrow behind: the funding came back and the channel stayed open.
+    let alice = generate_signing_key().expect("keygen");
+    let bob = generate_signing_key().expect("keygen");
+    let alice_addr = address_of(&alice);
+    let f = fixture(&[(alice_addr, 10_000)]);
+    let root_before = f.db.state_root().expect("root");
+
+    let tx = signed_tx(
+        TxKind::OpenChannel(ChannelOpen {
+            counterparty: address_of(&bob),
+            funding: primitive_types::U256::from(4_000),
+            dispute_window: 50,
+        }),
+        0,
+        &alice,
+    );
+    let mut block = block_of(vec![tx]);
+    block.header.state_root =
+        f.db.preview_root(&block, BlockContext::at_height(1))
+            .expect("preview");
+    let block_id = [0x5c; 32];
+    f.db.apply_block_journaled(&block, &block_id, BlockContext::at_height(1))
+        .expect("open channel");
+    let id = derive_channel_id(
+        &alice_addr,
+        &address_of(&bob),
+        primitive_types::U256::from(4_000),
+        0,
+    );
+    assert!(f.db.get_channel(&id).expect("read").is_some());
+
+    f.db.revert_block(&block_id).expect("revert");
+
+    assert!(
+        f.db.get_channel(&id).expect("read").is_none(),
+        "the abandoned branch's channel survived the reorg"
+    );
+    assert_eq!(
+        f.db.get_account(&alice_addr).map(|a| a.balance),
+        Ok(primitive_types::U256::from(10_000))
+    );
+    assert_eq!(f.db.state_root().expect("root"), root_before);
+}
