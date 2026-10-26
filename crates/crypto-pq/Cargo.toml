@@ -43,7 +43,7 @@ slh-dsa = { version = "=0.2.0-rc.5", features = ["zeroize"] }
 # last release predates FIPS 203 and whose shared-secret derivation, encodings
 # and key format the standard changed. It is not ML-KEM and must not be labelled
 # as such. Pure Rust, for the same static-musl reason as the rest of this crate.
-ml-kem = { version = "=0.3.2", features = ["getrandom", "zeroize"] }
+ml-kem = { version = "=0.3.3", features = ["getrandom", "zeroize"] }
 # HQC-192 (draft FIPS 207), the transport's second key encapsulation.
 #
 # RustCrypto, the same organisation as `ml-kem` above, and pure Rust for the
