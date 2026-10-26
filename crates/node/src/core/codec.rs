@@ -221,6 +221,10 @@ mod tests {
         let over = 100_001u64.to_le_bytes();
         assert!(ByteReader::new(&over).read_byte_len(100_000).is_err());
         let huge = u64::MAX.to_le_bytes();
-        assert!(ByteReader::new(&huge).read_byte_len(usize::MAX - 1).is_err());
+        assert!(
+            ByteReader::new(&huge)
+                .read_byte_len(usize::MAX - 1)
+                .is_err()
+        );
     }
 }
