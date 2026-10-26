@@ -250,6 +250,7 @@ impl StateDB {
                     .locked
                     .checked_add(request.amount)
                     .ok_or(NodeError::BalanceOverflow)?,
+                ..totals
             }
             .encode()
             .to_vec(),
@@ -307,6 +308,7 @@ impl StateDB {
             TOTALS_KEY.to_vec(),
             Totals {
                 locked: totals.locked.saturating_sub(request.amount),
+                ..totals
             }
             .encode()
             .to_vec(),
@@ -341,6 +343,19 @@ impl StateDB {
             overlay,
             work_key(&claim.beneficiary),
             record.encode().to_vec(),
+        );
+
+        // The same credit joins the aggregate quorum is measured against.
+        let totals = self.totals_through(overlay)?;
+        Self::put_record(
+            overlay,
+            TOTALS_KEY.to_vec(),
+            Totals {
+                work: totals.work.credited(work, context.height),
+                ..totals
+            }
+            .encode()
+            .to_vec(),
         );
         Ok(())
     }
@@ -509,7 +524,14 @@ impl StateDB {
         overlay: &mut Overlay,
         context: BlockContext,
     ) -> Result<()> {
-        let eligible = to_amount(self.totals_through(overlay)?.locked);
+        // Everyone who can cast a vote: locked stake and decayed work credit,
+        // the same two terms a ballot's weight is made of.
+        let totals = self.totals_through(overlay)?;
+        let eligible = to_amount(
+            totals
+                .locked
+                .saturating_add(U256::from(totals.work.value_at(context.height))),
+        );
         let quorum_bps = maya_governance::limits::MIN_QUORUM_BPS;
         let approval_bps = maya_governance::limits::MIN_APPROVAL_BPS;
 
