@@ -11,6 +11,7 @@ use primitive_types::U256;
 
 use crate::core::codec::{ByteReader, put_amount};
 use crate::error::{NodeError, Result};
+use crate::governance::work::{WORK_RECORD_LEN, WorkRecord};
 use crate::state::account::Address;
 
 /// Encoded size of a [`LockRecord`].
@@ -21,7 +22,7 @@ pub const LOCK_RECORD_LEN: usize = 32 + 8;
 /// Encoded size of a [`Totals`] record.
 ///
 /// One 256-bit amount (ADR-046).
-pub const TOTALS_LEN: usize = 32;
+pub const TOTALS_LEN: usize = 32 + crate::governance::work::WORK_RECORD_LEN;
 
 /// One address's locked stake.
 ///
@@ -78,6 +79,16 @@ pub struct Totals {
     /// alongside them. Counting it by scanning would be a walk of every locker
     /// on every proposal that closed.
     pub locked: U256,
+    /// Work credit across every address, decayed by the same halving rule as
+    /// each address's own.
+    ///
+    /// Quorum is measured against the electorate that can cast a vote, and
+    /// work credit casts votes, so the denominator must hold it too. One
+    /// aggregate record, because summing per-address decayed credit would walk
+    /// every miner on every proposal that closed. It floors once rather than
+    /// once per address, so it is never below the sum of the parts and turnout
+    /// from work cannot exceed it by rounding.
+    pub work: WorkRecord,
 }
 
 impl Totals {
@@ -85,7 +96,8 @@ impl Totals {
     #[must_use]
     pub fn encode(&self) -> [u8; TOTALS_LEN] {
         let mut buf = [0u8; TOTALS_LEN];
-        self.locked.to_little_endian(&mut buf);
+        self.locked.to_little_endian(&mut buf[..32]);
+        buf[32..].copy_from_slice(&self.work.encode());
         buf
     }
 
@@ -98,6 +110,7 @@ impl Totals {
         let mut reader = ByteReader::new(bytes);
         let record = Self {
             locked: reader.read_amount()?,
+            work: WorkRecord::decode(reader.read_slice(WORK_RECORD_LEN)?)?,
         };
         reader.finish()?;
         Ok(record)
