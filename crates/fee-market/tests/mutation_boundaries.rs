@@ -67,7 +67,8 @@ fn a_fee_of_exactly_the_base_fee_is_accepted_and_one_less_is_not() {
     let size = 1_000;
     let exact = TxFee {
         size_bytes: size,
-        max_fee: c.initial_base_fee
+        max_fee: c
+            .initial_base_fee
             .checked_mul(maya_amount::Amount::from_u64(size))
             .unwrap(),
         max_tip: maya_amount::Amount::ZERO,
@@ -83,15 +84,36 @@ fn a_fee_of_exactly_the_base_fee_is_accepted_and_one_less_is_not() {
 #[test]
 fn a_zero_target_or_denominator_means_no_change() {
     assert_eq!(
-        neural_next_base_fee(Amount::from_u64(100), 5_000, 0, 8, Amount::from_u64(1), UNIT_GAIN_BPS),
+        neural_next_base_fee(
+            Amount::from_u64(100),
+            5_000,
+            0,
+            8,
+            Amount::from_u64(1),
+            UNIT_GAIN_BPS
+        ),
         Amount::from_u64(100)
     );
     assert_eq!(
-        neural_next_base_fee(Amount::from_u64(100), 5_000, 1_000, 0, Amount::from_u64(1), UNIT_GAIN_BPS),
+        neural_next_base_fee(
+            Amount::from_u64(100),
+            5_000,
+            1_000,
+            0,
+            Amount::from_u64(1),
+            UNIT_GAIN_BPS
+        ),
         Amount::from_u64(100)
     );
     assert_eq!(
-        neural_next_base_fee(Amount::from_u64(0), 5_000, 1_000, 0, Amount::from_u64(7), UNIT_GAIN_BPS),
+        neural_next_base_fee(
+            Amount::from_u64(0),
+            5_000,
+            1_000,
+            0,
+            Amount::from_u64(7),
+            UNIT_GAIN_BPS
+        ),
         Amount::from_u64(7),
         "the floor still holds"
     );

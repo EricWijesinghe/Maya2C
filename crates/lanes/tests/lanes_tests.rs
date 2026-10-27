@@ -114,5 +114,9 @@ fn a_hot_app_raises_only_its_own_local_fee() {
         fees.price(1),
         fees.price(2)
     );
-    assert_eq!(fees.local[&2], Amount::from_u64(1), "the quiet app stays at the floor");
+    assert_eq!(
+        fees.local[&2],
+        Amount::from_u64(1),
+        "the quiet app stays at the floor"
+    );
 }

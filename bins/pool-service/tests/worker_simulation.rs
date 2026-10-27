@@ -135,6 +135,7 @@ fn miner_address(index: usize) -> Address {
 fn config() -> PoolConfig {
     PoolConfig {
         reward_per_block: primitive_types::U256::from(REWARD),
+        max_batch_value: primitive_types::U256::MAX,
         // No fee: the split is being checked to the unit, and a fee would only
         // add a rounding step between the reward and the assertion.
         fee_rate: 0.0,

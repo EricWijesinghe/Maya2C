@@ -136,7 +136,14 @@ fn register<S: ResourceState + Send + 'static>(linker: &mut Linker<CallContext<S
         .func_wrap(
             RESOURCE_MODULE,
             "transfer",
-            |mut caller: Caller<'_, CallContext<S>>, from: i32, to: i32, kind: i32, a0: i64, a1: i64, a2: i64, a3: i64| {
+            |mut caller: Caller<'_, CallContext<S>>,
+             from: i32,
+             to: i32,
+             kind: i32,
+             a0: i64,
+             a1: i64,
+             a2: i64,
+             a3: i64| {
                 apply(&mut caller, [a0, a1, a2, a3], |rt, actor, n| {
                     rt.transfer(actor, id(from), id(to), id(kind), n)
                 })
@@ -147,7 +154,13 @@ fn register<S: ResourceState + Send + 'static>(linker: &mut Linker<CallContext<S
         .func_wrap(
             RESOURCE_MODULE,
             "mint",
-            |mut caller: Caller<'_, CallContext<S>>, kind: i32, to: i32, a0: i64, a1: i64, a2: i64, a3: i64| {
+            |mut caller: Caller<'_, CallContext<S>>,
+             kind: i32,
+             to: i32,
+             a0: i64,
+             a1: i64,
+             a2: i64,
+             a3: i64| {
                 apply(&mut caller, [a0, a1, a2, a3], |rt, actor, n| {
                     rt.mint(actor, id(kind), id(to), n)
                 })
@@ -158,7 +171,13 @@ fn register<S: ResourceState + Send + 'static>(linker: &mut Linker<CallContext<S
         .func_wrap(
             RESOURCE_MODULE,
             "burn",
-            |mut caller: Caller<'_, CallContext<S>>, kind: i32, from: i32, a0: i64, a1: i64, a2: i64, a3: i64| {
+            |mut caller: Caller<'_, CallContext<S>>,
+             kind: i32,
+             from: i32,
+             a0: i64,
+             a1: i64,
+             a2: i64,
+             a3: i64| {
                 apply(&mut caller, [a0, a1, a2, a3], |rt, actor, n| {
                     rt.burn(actor, id(kind), id(from), n)
                 })

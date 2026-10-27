@@ -125,7 +125,10 @@ fn a_consumer_that_cannot_pay_and_an_unknown_sla_are_refused() {
             available: U256::from(5)
         })
     );
-    assert_eq!(market.tick(99, U256::from(1)), Err(BarterError::UnknownSla(99)));
+    assert_eq!(
+        market.tick(99, U256::from(1)),
+        Err(BarterError::UnknownSla(99))
+    );
     assert!(matches!(
         market.open(Sla {
             provider: b,

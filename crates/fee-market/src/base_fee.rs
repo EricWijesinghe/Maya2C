@@ -152,9 +152,20 @@ mod tests {
     #[test]
     fn extreme_inputs_saturate_rather_than_panic_or_wrap() {
         // Saturates at the 256-bit ceiling, not at u64::MAX.
-        assert_eq!(next_base_fee(Amount::MAX, u64::MAX, 1, DENOM, a(1)), Amount::MAX);
+        assert_eq!(
+            next_base_fee(Amount::MAX, u64::MAX, 1, DENOM, a(1)),
+            Amount::MAX
+        );
         assert_eq!(next_base_fee(a(0), u64::MAX, 1, DENOM, a(1)), a(1));
-        assert_eq!(next_base_fee(a(5), 10, 0, DENOM, a(1)), a(5), "zero target is a constant");
-        assert_eq!(next_base_fee(a(5), 10, TARGET, 0, a(1)), a(5), "zero denominator is a constant");
+        assert_eq!(
+            next_base_fee(a(5), 10, 0, DENOM, a(1)),
+            a(5),
+            "zero target is a constant"
+        );
+        assert_eq!(
+            next_base_fee(a(5), 10, TARGET, 0, a(1)),
+            a(5),
+            "zero denominator is a constant"
+        );
     }
 }

@@ -302,7 +302,8 @@ impl StateDB {
 
         let registry = self.require_registry(overlay)?;
         let mut seen: BTreeSet<Address> = BTreeSet::new();
-        let mut values: Vec<primitive_types::U256> = Vec::with_capacity(submission.observations.len());
+        let mut values: Vec<primitive_types::U256> =
+            Vec::with_capacity(submission.observations.len());
 
         for observation in &submission.observations {
             let address = address_of(&observation.public_key);

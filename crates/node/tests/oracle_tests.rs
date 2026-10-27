@@ -213,7 +213,8 @@ impl Fixture {
             .enumerate()
             .map(|(index, value)| {
                 let authority = &self.authorities[index];
-                let message = observation_bytes(&feed_id, round, U256::from(*value), observed_height);
+                let message =
+                    observation_bytes(&feed_id, round, U256::from(*value), observed_height);
                 FeedObservation {
                     value: U256::from(*value),
                     public_key: Box::new(authority.signing.public_key()),
@@ -451,7 +452,11 @@ fn a_quorum_of_observations_stores_their_median() {
         .expect("submit");
 
     let record = fixture.db.feed(&feed_id).expect("read").expect("feed");
-    assert_eq!(record.value, U256::from(101), "the median, not the first or the mean");
+    assert_eq!(
+        record.value,
+        U256::from(101),
+        "the median, not the first or the mean"
+    );
     assert_eq!(record.round, 1);
     assert_eq!(record.observations, 3);
     assert_eq!(

@@ -7,7 +7,6 @@
 //! RustCrypto `ml-dsa`, and both must be the same FIPS 204 function of the
 //! same seed. If they ever diverge, this fails before any chain does.
 
-use maya_dex::Amount;
 use custom_l1_node::core::transaction::Transaction;
 use custom_l1_node::crypto::hybrid;
 use custom_l1_node::crypto::suites;
@@ -18,6 +17,7 @@ use maya_crypto_pq::envelope::SignedEnvelope;
 use maya_crypto_pq::suite::{
     HybridMlDsa65SlhDsa128s, MasterSeed, MlDsa87, SignatureSuite, SuiteId,
 };
+use maya_dex::Amount;
 use maya_governance::params::ParameterKey;
 
 mod common;
@@ -218,11 +218,23 @@ fn governance_default_suite_is_ml_dsa_87_and_is_checked_by_the_node() {
     assert!(suites::default_suite(&hole).is_err());
     assert!(suites::policy(&table).is_ok());
     // The same hole is refused at proposal and execution time.
-    assert!(suites::check_parameter(ParameterKey::DefaultSignatureSuite, Amount::from_u64(0x12)).is_err());
-    assert!(suites::check_parameter(ParameterKey::DefaultSignatureSuite, Amount::from_u64(0x21)).is_ok());
-    assert!(suites::check_parameter(ParameterKey::DexProtocolFeeBps, Amount::from_u64(0x12)).is_ok());
+    assert!(
+        suites::check_parameter(ParameterKey::DefaultSignatureSuite, Amount::from_u64(0x12))
+            .is_err()
+    );
+    assert!(
+        suites::check_parameter(ParameterKey::DefaultSignatureSuite, Amount::from_u64(0x21))
+            .is_ok()
+    );
+    assert!(
+        suites::check_parameter(ParameterKey::DexProtocolFeeBps, Amount::from_u64(0x12)).is_ok()
+    );
     // The governance range itself excludes Ed25519.
-    assert!(ParameterKey::DefaultSignatureSuite.check(Amount::from_u64(0x01)).is_err());
+    assert!(
+        ParameterKey::DefaultSignatureSuite
+            .check(Amount::from_u64(0x01))
+            .is_err()
+    );
 }
 
 #[test]

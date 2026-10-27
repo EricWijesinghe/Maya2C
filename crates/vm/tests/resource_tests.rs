@@ -134,7 +134,9 @@ fn another_holders_units_need_their_capability_and_only_up_to_the_allowance() {
 
 #[test]
 fn minting_and_burning_need_the_kinds_capability() {
-    let mint = format!("(call $mint (i32.const {TOKEN}) (i32.const {ALICE}) (i64.const 7) (i64.const 0) (i64.const 0) (i64.const 0))");
+    let mint = format!(
+        "(call $mint (i32.const {TOKEN}) (i32.const {ALICE}) (i64.const 7) (i64.const 0) (i64.const 0) (i64.const 0))"
+    );
     let (h, out) = run(&mint, host());
     assert_eq!(out, Err(VmError::Resource(Fault::NoCapability)));
     assert_eq!(h.rt.state.supply[&TOKEN], Amount::from_u64(2_000));
@@ -155,7 +157,9 @@ fn minting_and_burning_need_the_kinds_capability() {
         (h.rt.state.supply[&TOKEN], balances(&h).1),
         (Amount::from_u64(2_007), 7)
     );
-    let burn = format!("(call $burn (i32.const {TOKEN}) (i32.const {ALICE}) (i64.const 7) (i64.const 0) (i64.const 0) (i64.const 0))");
+    let burn = format!(
+        "(call $burn (i32.const {TOKEN}) (i32.const {ALICE}) (i64.const 7) (i64.const 0) (i64.const 0) (i64.const 0))"
+    );
     let (h, out) = run(&burn, h);
     assert!(out.is_ok(), "{out:?}");
     assert_eq!(

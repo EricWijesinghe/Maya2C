@@ -35,7 +35,10 @@ fn context() -> Context {
     Context {
         contacts,
         verified,
-        balances: vec![(NATIVE, Amount::from_u64(1_000_000)), (addr(0x70, 0), Amount::from_u64(5_000))],
+        balances: vec![
+            (NATIVE, Amount::from_u64(1_000_000)),
+            (addr(0x70, 0), Amount::from_u64(5_000)),
+        ],
     }
 }
 

@@ -123,7 +123,8 @@ pub fn split(window: &WindowSlice, reward: Amount) -> Result<Vec<PayoutEntry>> {
 
         let amount = Amount::try_from(quotient).map_err(|_| {
             PoolError::Treasury(
-                "a single miner's credit exceeded the reward, which means the                  window denominator is wrong"
+                "a single miner's credit exceeded the reward, which means the \
+                 window denominator is wrong"
                     .to_string(),
             )
         })?;

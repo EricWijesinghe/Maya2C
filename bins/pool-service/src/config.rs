@@ -161,9 +161,12 @@ impl Default for PoolConfig {
             fee_address: [0u8; 32],
             pplns_factor: DEFAULT_PPLNS_FACTOR,
             confirmations: DEFAULT_CONFIRMATIONS,
-            min_payout: U256::from(1_000u64),
+            // 0.01 coin at 18 decimals: below that a payout is dust whose
+            // output costs more than it carries.
+            min_payout: U256::exp10(16),
             max_outputs_per_batch: DEFAULT_MAX_OUTPUTS_PER_BATCH,
-            max_batch_value: U256::MAX,
+            // Unset: an operator must choose the custody bound (validate).
+            max_batch_value: U256::zero(),
             share_interval: DEFAULT_SHARE_INTERVAL,
             min_target_bits: 16,
             max_target_bits: 48,
@@ -218,7 +221,10 @@ impl PoolConfig {
         }
 
         if self.max_batch_value.is_zero() {
-            return bad("max_batch_value is zero, so every batch would be refused".to_string());
+            return bad(
+                "max_batch_value is unset. It bounds what one batch signed by the hot \n                 treasury key can move; set it (base units) with --max-batch-value"
+                    .to_string(),
+            );
         }
 
         if self.share_interval.is_zero() {
@@ -257,7 +263,7 @@ impl PoolConfig {
         // spare unit with the miners, which is the direction to be wrong in.
         // The rate goes through integer parts-per-million because an f64 cannot
         // hold a 256-bit reward; `validate` keeps it in `[0, 1)`.
-        let ppm = U256::from((self.fee_rate * FEE_PPM_SCALE as f64) as u64);
+        let ppm = U256::from((self.fee_rate * FEE_PPM_SCALE as f64).round() as u64);
         let fee = reward.full_mul(ppm) / U512::from(FEE_PPM_SCALE);
         reward.saturating_sub(U256::try_from(fee).unwrap_or(U256::MAX))
     }
@@ -271,6 +277,7 @@ mod tests {
     fn valid() -> PoolConfig {
         PoolConfig {
             reward_per_block: primitive_types::U256::from(1_000_000),
+            max_batch_value: primitive_types::U256::MAX,
             ..PoolConfig::default()
         }
     }
@@ -294,6 +301,17 @@ mod tests {
         let reward = primitive_types::U256::from(50u64) * coin;
         assert_eq!(config.miner_share(reward), reward - coin);
         assert!(config.miner_share(primitive_types::U256::MAX) < primitive_types::U256::MAX);
+    }
+
+    #[test]
+    fn a_missing_batch_cap_is_refused() {
+        // The cap bounds what a stolen hot treasury key can move in one batch;
+        // an operator who forgets it must hear so at start-up.
+        let config = PoolConfig {
+            max_batch_value: U256::zero(),
+            ..valid()
+        };
+        assert!(config.validate().is_err());
     }
 
     #[test]

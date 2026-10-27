@@ -1,4 +1,3 @@
-use maya_amount::Amount;
 use super::audit::{FindingKind, audit};
 use super::migration::{
     Account, EnvelopeAuthorizer, MigrationError, MigrationState, claim_message, key_commitment,
@@ -7,6 +6,7 @@ use super::migration::{
 use super::*;
 use crate::envelope::SignedEnvelope;
 use crate::suite::{MasterSeed, MlDsa65, MlDsa87, SignatureSuite, SlhDsaSha2_128s};
+use maya_amount::Amount;
 
 const H: u64 = 1_000;
 

@@ -9,7 +9,7 @@
 //! so the network sees the states its own choices would lead to rather than
 //! only the states the linear rule visits.
 
-use maya_fee_market::{Features};
+use maya_fee_market::Features;
 
 use crate::rng::SplitMix64;
 use crate::simulator::{Market, TARGET_BYTES, features};
@@ -40,7 +40,6 @@ fn neural_step(fee: u64, size: u64, target: u64, denominator: u64, floor: u64, g
     )
     .saturating_to_u64()
 }
-
 
 /// EIP-1559's denominator, as in `FeeConfig::TESTING`.
 pub const DENOMINATOR: u64 = 8;

@@ -21,7 +21,6 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use primitive_types::U256;
 use custom_l1_node::core::dex_payload::{
     AssetRegistration, AssetTransfer, LiquidityDeposit, LiquidityWithdrawal, MAX_ROUTE_LEGS,
     OrderPlacement, PoolCreation, ROUTE_LEG_SIZE, RouteLeg, SwapRequest, SwapRoute,
@@ -45,6 +44,7 @@ use custom_l1_node::crypto::hybrid::{
 use custom_l1_node::crypto::keys::{
     PUBLIC_KEY_LEN as ML_DSA_PUBLIC_KEY_LEN, SIGNATURE_LENGTH as ML_DSA_SIGNATURE_LENGTH,
 };
+use primitive_types::U256;
 
 mod common;
 

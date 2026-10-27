@@ -174,7 +174,8 @@ fn write_guest(
 
 /// Shared body of `oracle_read` (8-byte price) and `oracle_read_u256`
 /// (32-byte price). Returns the byte count written, -1 for an unknown feed or a
-/// bad pointer, -2 for a stale feed.
+/// bad pointer, -2 for a stale feed, -3 when the 8-byte call cannot hold the
+/// price.
 fn read_oracle<S: HostState + Send + 'static>(
     caller: &mut Caller<'_, CallContext<S>>,
     feed_ptr: i32,
@@ -222,7 +223,12 @@ fn read_oracle<S: HostState + Send + 'static>(
     let (bytes, written): (Vec<u8>, i32) = if wide {
         (feed.value.to_le_bytes().to_vec(), 32)
     } else {
-        (feed.value.saturating_to_u64().to_le_bytes().to_vec(), 8)
+        // Refused, not clamped: a contract pricing collateral at a saturated
+        // u64::MAX would liquidate against a number nobody reported.
+        let Some(narrow) = feed.value.to_u64() else {
+            return -3;
+        };
+        (narrow.to_le_bytes().to_vec(), 8)
     };
     if let Err(error) = write_guest(&memory, caller, out_ptr as u32, &bytes) {
         caller.data_mut().fail(error);
@@ -885,7 +891,9 @@ fn register_host_functions<S: HostState + Send + 'static>(
              feed_ptr: i32,
              max_age_blocks: i64,
              out_ptr: i32|
-             -> i32 { read_oracle(&mut caller, feed_ptr, max_age_blocks, out_ptr, false) },
+             -> i32 {
+                read_oracle(&mut caller, feed_ptr, max_age_blocks, out_ptr, false)
+            },
         )
         .map_err(wrap)?;
 
@@ -903,7 +911,9 @@ fn register_host_functions<S: HostState + Send + 'static>(
              feed_ptr: i32,
              max_age_blocks: i64,
              out_ptr: i32|
-             -> i32 { read_oracle(&mut caller, feed_ptr, max_age_blocks, out_ptr, true) },
+             -> i32 {
+                read_oracle(&mut caller, feed_ptr, max_age_blocks, out_ptr, true)
+            },
         )
         .map_err(wrap)?;
 

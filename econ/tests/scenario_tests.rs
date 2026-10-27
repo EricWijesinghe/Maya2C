@@ -28,7 +28,9 @@ fn every_scenario_runs_and_never_reaches_the_simulators_ceiling() {
             s.name
         );
         assert!(
-            r.days.iter().all(|d| d.base_fee >= p.fees.min_base_fee.saturating_to_u64()),
+            r.days
+                .iter()
+                .all(|d| d.base_fee >= p.fees.min_base_fee.saturating_to_u64()),
             "{}",
             s.name
         );

@@ -297,6 +297,7 @@ mod tests {
         Arc::new(PoolState::new(
             PoolConfig {
                 reward_per_block: primitive_types::U256::from(1_000),
+                max_batch_value: primitive_types::U256::MAX,
                 fee_rate: 0.02,
                 ..PoolConfig::default()
             },

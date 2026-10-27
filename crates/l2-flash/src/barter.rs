@@ -214,7 +214,6 @@ impl Market {
             .checked_add(left)
             .ok_or(BarterError::Overflow)?;
         self.credit(self.slas[id].provider, left)
-
     }
 
     /// Collateral still held across open SLAs.
@@ -247,7 +246,11 @@ impl Market {
                     who,
                     Delta {
                         negative: loss > gain,
-                        magnitude: if loss > gain { loss - gain } else { gain - loss },
+                        magnitude: if loss > gain {
+                            loss - gain
+                        } else {
+                            gain - loss
+                        },
                     },
                 ));
             }

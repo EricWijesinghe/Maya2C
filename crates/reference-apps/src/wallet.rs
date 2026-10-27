@@ -71,7 +71,9 @@ impl Wallet {
             account: self.id,
             nonce: self.nonce,
             action,
-            fee: FeeSpec::Native { max_fee: Amount::from_u64(MAX_FEE) },
+            fee: FeeSpec::Native {
+                max_fee: Amount::from_u64(MAX_FEE),
+            },
             signatures: vec![],
         };
         self.nonce += 1;

@@ -39,9 +39,9 @@
 //! faster than EIP-1559 when demand collapses. A rival producer pushing fees
 //! *up* is bounded by the doubled rise.
 
-use maya_amount::Amount;
 use crate::model::{Features, MAX_GAIN_BPS, Model, UNIT_GAIN_BPS};
 use crate::next_base_fee;
+use maya_amount::Amount;
 
 /// Which base-fee rule a block uses.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -144,8 +144,21 @@ mod tests {
         for size in SIZES {
             for parent in PARENTS {
                 assert_eq!(
-                    neural_next_base_fee(Amount::from_u64(parent), size, TARGET, DENOM, Amount::from_u64(1), UNIT_GAIN_BPS),
-                    next_base_fee(Amount::from_u64(parent), size, TARGET, DENOM, Amount::from_u64(1)),
+                    neural_next_base_fee(
+                        Amount::from_u64(parent),
+                        size,
+                        TARGET,
+                        DENOM,
+                        Amount::from_u64(1),
+                        UNIT_GAIN_BPS
+                    ),
+                    next_base_fee(
+                        Amount::from_u64(parent),
+                        size,
+                        TARGET,
+                        DENOM,
+                        Amount::from_u64(1)
+                    ),
                     "parent {parent} size {size}"
                 );
             }
@@ -157,8 +170,21 @@ mod tests {
         for size in SIZES {
             for parent in PARENTS {
                 for gain in [0, 1, 5_000, UNIT_GAIN_BPS, 15_000, MAX_GAIN_BPS, u64::MAX] {
-                    let neural = neural_next_base_fee(Amount::from_u64(parent), size, TARGET, DENOM, Amount::from_u64(1), gain);
-                    let linear = next_base_fee(Amount::from_u64(parent), size, TARGET, DENOM, Amount::from_u64(1));
+                    let neural = neural_next_base_fee(
+                        Amount::from_u64(parent),
+                        size,
+                        TARGET,
+                        DENOM,
+                        Amount::from_u64(1),
+                        gain,
+                    );
+                    let linear = next_base_fee(
+                        Amount::from_u64(parent),
+                        size,
+                        TARGET,
+                        DENOM,
+                        Amount::from_u64(1),
+                    );
                     assert!(neural >= linear, "parent {parent} size {size} gain {gain}");
                 }
             }
@@ -169,22 +195,59 @@ mod tests {
     fn a_zero_gain_cannot_slow_a_rise_it_can_only_hold_a_fall() {
         // Over target: clamped up to the linear step, never down to one unit.
         assert_eq!(
-            neural_next_base_fee(Amount::from_u64(1_000), 1_800_000, TARGET, DENOM, Amount::from_u64(1), 0),
-            next_base_fee(Amount::from_u64(1_000), 1_800_000, TARGET, DENOM, Amount::from_u64(1))
+            neural_next_base_fee(
+                Amount::from_u64(1_000),
+                1_800_000,
+                TARGET,
+                DENOM,
+                Amount::from_u64(1),
+                0
+            ),
+            next_base_fee(
+                Amount::from_u64(1_000),
+                1_800_000,
+                TARGET,
+                DENOM,
+                Amount::from_u64(1)
+            )
         );
         // Under target: the fee holds.
-        assert_eq!(neural_next_base_fee(Amount::from_u64(1_000), 0, TARGET, DENOM, Amount::from_u64(1), 0), Amount::from_u64(1_000));
+        assert_eq!(
+            neural_next_base_fee(
+                Amount::from_u64(1_000),
+                0,
+                TARGET,
+                DENOM,
+                Amount::from_u64(1),
+                0
+            ),
+            Amount::from_u64(1_000)
+        );
     }
 
     #[test]
     fn the_largest_gain_doubles_a_rise_and_no_more() {
         // Half over target: the linear step is 8,000 / 16 = 500.
         assert_eq!(
-            neural_next_base_fee(Amount::from_u64(8_000), 1_500_000, TARGET, DENOM, Amount::from_u64(1), MAX_GAIN_BPS),
+            neural_next_base_fee(
+                Amount::from_u64(8_000),
+                1_500_000,
+                TARGET,
+                DENOM,
+                Amount::from_u64(1),
+                MAX_GAIN_BPS
+            ),
             Amount::from_u64(9_000)
         );
         assert_eq!(
-            neural_next_base_fee(Amount::from_u64(8_000), 1_500_000, TARGET, DENOM, Amount::from_u64(1), u64::MAX),
+            neural_next_base_fee(
+                Amount::from_u64(8_000),
+                1_500_000,
+                TARGET,
+                DENOM,
+                Amount::from_u64(1),
+                u64::MAX
+            ),
             Amount::from_u64(9_000)
         );
     }
@@ -192,8 +255,21 @@ mod tests {
     #[test]
     fn a_gain_above_one_cannot_speed_a_fall() {
         assert_eq!(
-            neural_next_base_fee(Amount::from_u64(8_000), 500_000, TARGET, DENOM, Amount::from_u64(1), MAX_GAIN_BPS),
-            next_base_fee(Amount::from_u64(8_000), 500_000, TARGET, DENOM, Amount::from_u64(1))
+            neural_next_base_fee(
+                Amount::from_u64(8_000),
+                500_000,
+                TARGET,
+                DENOM,
+                Amount::from_u64(1),
+                MAX_GAIN_BPS
+            ),
+            next_base_fee(
+                Amount::from_u64(8_000),
+                500_000,
+                TARGET,
+                DENOM,
+                Amount::from_u64(1)
+            )
         );
     }
 
@@ -204,7 +280,14 @@ mod tests {
         let up = neural_next_base_fee(fee, u64::MAX, 1, 8, Amount::from_u64(1), MAX_GAIN_BPS);
         assert!(up > fee);
         assert_eq!(
-            neural_next_base_fee(Amount::MAX, u64::MAX, 1, 8, Amount::from_u64(1), MAX_GAIN_BPS),
+            neural_next_base_fee(
+                Amount::MAX,
+                u64::MAX,
+                1,
+                8,
+                Amount::from_u64(1),
+                MAX_GAIN_BPS
+            ),
             Amount::MAX
         );
     }
@@ -213,8 +296,22 @@ mod tests {
     fn the_rule_enum_dispatches() {
         let features = Features::new([0; crate::model::INPUTS]);
         assert_eq!(
-            next_base_fee_by_rule(FeeRule::Linear, Amount::from_u64(100), 2_000_000, TARGET, DENOM, Amount::from_u64(1), &features),
-            next_base_fee(Amount::from_u64(100), 2_000_000, TARGET, DENOM, Amount::from_u64(1))
+            next_base_fee_by_rule(
+                FeeRule::Linear,
+                Amount::from_u64(100),
+                2_000_000,
+                TARGET,
+                DENOM,
+                Amount::from_u64(1),
+                &features
+            ),
+            next_base_fee(
+                Amount::from_u64(100),
+                2_000_000,
+                TARGET,
+                DENOM,
+                Amount::from_u64(1)
+            )
         );
         assert_eq!(
             next_base_fee_by_rule(

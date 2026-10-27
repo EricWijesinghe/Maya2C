@@ -29,7 +29,9 @@ fn op(account: AccountId, nonce: u64, action: Action) -> Op {
         account,
         nonce,
         action,
-        fee: FeeSpec::Native { max_fee: Amount::from_u64(1_000) },
+        fee: FeeSpec::Native {
+            max_fee: Amount::from_u64(1_000),
+        },
         signatures: vec![],
     }
 }
@@ -61,7 +63,14 @@ fn setup() -> (Registry, AccountId, (Sk, Vec<u8>), AccountId) {
 fn a_transfer_carries_a_key_hash_not_a_public_key() {
     let (mut r, a, (sk, pk), b) = setup();
     let o = signed(
-        op(a, 0, Action::Transfer { to: b, amount: Amount::from_u64(10) }),
+        op(
+            a,
+            0,
+            Action::Transfer {
+                to: b,
+                amount: Amount::from_u64(10),
+            },
+        ),
         &[(&sk, &pk)],
     );
     let with_key = o.encoded_len() + pk.len();
@@ -87,15 +96,36 @@ fn rotation_keeps_the_address_rejects_the_old_key_and_accepts_the_new_one() {
         suite: SuiteId::MlDsa65,
         public_key: new_pk.clone(),
     };
-    r.apply(&signed(op(a, 0, rotate), &[(&old_sk, &old_pk)]), 1, Amount::from_u64(10))
-        .unwrap();
+    r.apply(
+        &signed(op(a, 0, rotate), &[(&old_sk, &old_pk)]),
+        1,
+        Amount::from_u64(10),
+    )
+    .unwrap();
     let stale = signed(
-        op(a, 1, Action::Transfer { to: b, amount: Amount::from_u64(5) }),
+        op(
+            a,
+            1,
+            Action::Transfer {
+                to: b,
+                amount: Amount::from_u64(5),
+            },
+        ),
         &[(&old_sk, &old_pk)],
     );
-    assert_eq!(r.apply(&stale, 2, Amount::from_u64(10)), Err(AccountError::UnknownKey));
+    assert_eq!(
+        r.apply(&stale, 2, Amount::from_u64(10)),
+        Err(AccountError::UnknownKey)
+    );
     let fresh = signed(
-        op(a, 1, Action::Transfer { to: b, amount: Amount::from_u64(5) }),
+        op(
+            a,
+            1,
+            Action::Transfer {
+                to: b,
+                amount: Amount::from_u64(5),
+            },
+        ),
         &[(&new_sk, &new_pk)],
     );
     r.apply(&fresh, 2, Amount::from_u64(10)).unwrap();
@@ -126,12 +156,29 @@ fn multi_key_accounts_need_their_threshold() {
     .unwrap();
     r.set_threshold(&a, 2);
     let one = signed(
-        op(a, 1, Action::Transfer { to: b, amount: Amount::from_u64(1) }),
+        op(
+            a,
+            1,
+            Action::Transfer {
+                to: b,
+                amount: Amount::from_u64(1),
+            },
+        ),
         &[(&sk1, &pk1)],
     );
-    assert_eq!(r.apply(&one, 2, Amount::from_u64(10)), Err(AccountError::BelowThreshold));
+    assert_eq!(
+        r.apply(&one, 2, Amount::from_u64(10)),
+        Err(AccountError::BelowThreshold)
+    );
     let two = signed(
-        op(a, 1, Action::Transfer { to: b, amount: Amount::from_u64(1) }),
+        op(
+            a,
+            1,
+            Action::Transfer {
+                to: b,
+                amount: Amount::from_u64(1),
+            },
+        ),
         &[(&sk1, &pk1), (&sk2, &pk2)],
     );
     r.apply(&two, 2, Amount::from_u64(10)).unwrap();
@@ -140,11 +187,21 @@ fn multi_key_accounts_need_their_threshold() {
 #[test]
 fn validation_cost_is_bounded_before_any_signature_is_verified() {
     let (mut r, a, _, b) = setup();
-    let mut o = op(a, 0, Action::Transfer { to: b, amount: Amount::from_u64(1) });
+    let mut o = op(
+        a,
+        0,
+        Action::Transfer {
+            to: b,
+            amount: Amount::from_u64(1),
+        },
+    );
     o.signatures = (0..=MAX_SIGNATURES as u8)
         .map(|i| ([i; 32], vec![0u8; 3_309]))
         .collect();
-    assert_eq!(r.apply(&o, 1, Amount::from_u64(10)), Err(AccountError::ValidationBudget));
+    assert_eq!(
+        r.apply(&o, 1, Amount::from_u64(10)),
+        Err(AccountError::ValidationBudget)
+    );
     // Three SLH-DSA-256f keys cost more than the budget even though the
     // count is fine: refused before the (slow) verification runs.
     let (osk, opk) = key(1);
@@ -173,9 +230,19 @@ fn validation_cost_is_bounded_before_any_signature_is_verified() {
         .unwrap();
         nonce += 1;
     }
-    let mut heavy = op(a, nonce, Action::Transfer { to: b, amount: Amount::from_u64(1) });
+    let mut heavy = op(
+        a,
+        nonce,
+        Action::Transfer {
+            to: b,
+            amount: Amount::from_u64(1),
+        },
+    );
     heavy.signatures = hashes.into_iter().map(|h| (h, vec![0u8; 49_856])).collect();
-    assert_eq!(r.apply(&heavy, 1, Amount::from_u64(0)), Err(AccountError::ValidationBudget));
+    assert_eq!(
+        r.apply(&heavy, 1, Amount::from_u64(0)),
+        Err(AccountError::ValidationBudget)
+    );
 }
 
 #[test]
@@ -196,13 +263,30 @@ fn policies_limit_spending_and_recipients() {
     )
     .unwrap();
     let to_c = signed(
-        op(a, 1, Action::Transfer { to: c, amount: Amount::from_u64(1) }),
+        op(
+            a,
+            1,
+            Action::Transfer {
+                to: c,
+                amount: Amount::from_u64(1),
+            },
+        ),
         &[(&sk, &pk)],
     );
-    assert!(matches!(r.apply(&to_c, 2, Amount::from_u64(0)), Err(AccountError::Policy(_))));
+    assert!(matches!(
+        r.apply(&to_c, 2, Amount::from_u64(0)),
+        Err(AccountError::Policy(_))
+    ));
     r.apply(
         &signed(
-            op(a, 1, Action::Transfer { to: b, amount: Amount::from_u64(600) }),
+            op(
+                a,
+                1,
+                Action::Transfer {
+                    to: b,
+                    amount: Amount::from_u64(600),
+                },
+            ),
             &[(&sk, &pk)],
         ),
         2,
@@ -210,7 +294,14 @@ fn policies_limit_spending_and_recipients() {
     )
     .unwrap();
     let over = signed(
-        op(a, 2, Action::Transfer { to: b, amount: Amount::from_u64(1) }),
+        op(
+            a,
+            2,
+            Action::Transfer {
+                to: b,
+                amount: Amount::from_u64(1),
+            },
+        ),
         &[(&sk, &pk)],
     );
     assert_eq!(
@@ -220,7 +311,14 @@ fn policies_limit_spending_and_recipients() {
     // Next day the limits reset.
     r.apply(
         &signed(
-            op(a, 2, Action::Transfer { to: b, amount: Amount::from_u64(600) }),
+            op(
+                a,
+                2,
+                Action::Transfer {
+                    to: b,
+                    amount: Amount::from_u64(600),
+                },
+            ),
             &[(&sk, &pk)],
         ),
         43_200 + 1,
@@ -257,7 +355,14 @@ fn session_keys_are_scoped_and_expire() {
     .unwrap();
     r.apply(
         &signed(
-            op(a, 1, Action::Transfer { to: b, amount: Amount::from_u64(50) }),
+            op(
+                a,
+                1,
+                Action::Transfer {
+                    to: b,
+                    amount: Amount::from_u64(50),
+                },
+            ),
             &[(&ssk, &spk)],
         ),
         10,
@@ -265,20 +370,43 @@ fn session_keys_are_scoped_and_expire() {
     )
     .unwrap();
     let too_much = signed(
-        op(a, 2, Action::Transfer { to: b, amount: Amount::from_u64(51) }),
+        op(
+            a,
+            2,
+            Action::Transfer {
+                to: b,
+                amount: Amount::from_u64(51),
+            },
+        ),
         &[(&ssk, &spk)],
     );
-    assert_eq!(r.apply(&too_much, 10, Amount::from_u64(0)), Err(AccountError::OutOfScope));
+    assert_eq!(
+        r.apply(&too_much, 10, Amount::from_u64(0)),
+        Err(AccountError::OutOfScope)
+    );
     let admin = signed(
         op(a, 2, Action::SetPolicy(Policy::default())),
         &[(&ssk, &spk)],
     );
-    assert_eq!(r.apply(&admin, 10, Amount::from_u64(0)), Err(AccountError::OutOfScope));
+    assert_eq!(
+        r.apply(&admin, 10, Amount::from_u64(0)),
+        Err(AccountError::OutOfScope)
+    );
     let late = signed(
-        op(a, 2, Action::Transfer { to: b, amount: Amount::from_u64(1) }),
+        op(
+            a,
+            2,
+            Action::Transfer {
+                to: b,
+                amount: Amount::from_u64(1),
+            },
+        ),
         &[(&ssk, &spk)],
     );
-    assert_eq!(r.apply(&late, 101, Amount::from_u64(0)), Err(AccountError::OutOfScope));
+    assert_eq!(
+        r.apply(&late, 101, Amount::from_u64(0)),
+        Err(AccountError::OutOfScope)
+    );
 }
 
 #[test]
@@ -336,7 +464,11 @@ fn vault_transfers_wait_and_guardians_can_cancel_them() {
         Amount::from_u64(0),
     )
     .unwrap();
-    assert_eq!(r.get(&b).unwrap().balance, Amount::from_u64(0), "held, not sent");
+    assert_eq!(
+        r.get(&b).unwrap().balance,
+        Amount::from_u64(0),
+        "held, not sent"
+    );
     let early = signed(op(a, 3, Action::ReleasePending { id: 0 }), &[(&sk, &pk)]);
     assert_eq!(
         r.apply(&early, 50, Amount::from_u64(0)),
@@ -404,10 +536,18 @@ fn guardians_recover_an_account_after_the_delay_and_the_owner_can_cancel() {
         suite: SuiteId::MlDsa65,
         public_key: npk.clone(),
     };
-    r.apply(&signed(op(g1, 0, approve()), &[(&g1sk, &g1pk)]), 10, Amount::from_u64(0))
-        .unwrap();
-    r.apply(&signed(op(g2, 0, approve()), &[(&g2sk, &g2pk)]), 11, Amount::from_u64(0))
-        .unwrap();
+    r.apply(
+        &signed(op(g1, 0, approve()), &[(&g1sk, &g1pk)]),
+        10,
+        Amount::from_u64(0),
+    )
+    .unwrap();
+    r.apply(
+        &signed(op(g2, 0, approve()), &[(&g2sk, &g2pk)]),
+        11,
+        Amount::from_u64(0),
+    )
+    .unwrap();
     let too_soon = signed(
         op(g1, 1, Action::FinalizeRecovery { target: a }),
         &[(&g1sk, &g1pk)],
@@ -432,10 +572,18 @@ fn guardians_recover_an_account_after_the_delay_and_the_owner_can_cancel() {
         Err(AccountError::Recovery("no recovery in progress"))
     );
     // The owner really loses the key: guardians approve again and it completes.
-    r.apply(&signed(op(g1, 1, approve()), &[(&g1sk, &g1pk)]), 600, Amount::from_u64(0))
-        .unwrap();
-    r.apply(&signed(op(g2, 1, approve()), &[(&g2sk, &g2pk)]), 601, Amount::from_u64(0))
-        .unwrap();
+    r.apply(
+        &signed(op(g1, 1, approve()), &[(&g1sk, &g1pk)]),
+        600,
+        Amount::from_u64(0),
+    )
+    .unwrap();
+    r.apply(
+        &signed(op(g2, 1, approve()), &[(&g2sk, &g2pk)]),
+        601,
+        Amount::from_u64(0),
+    )
+    .unwrap();
     r.apply(
         &signed(
             op(g1, 2, Action::FinalizeRecovery { target: a }),
@@ -446,13 +594,30 @@ fn guardians_recover_an_account_after_the_delay_and_the_owner_can_cancel() {
     )
     .unwrap();
     let old = signed(
-        op(a, 2, Action::Transfer { to: b, amount: Amount::from_u64(1) }),
+        op(
+            a,
+            2,
+            Action::Transfer {
+                to: b,
+                amount: Amount::from_u64(1),
+            },
+        ),
         &[(&sk, &pk)],
     );
-    assert_eq!(r.apply(&old, 702, Amount::from_u64(0)), Err(AccountError::UnknownKey));
+    assert_eq!(
+        r.apply(&old, 702, Amount::from_u64(0)),
+        Err(AccountError::UnknownKey)
+    );
     r.apply(
         &signed(
-            op(a, 2, Action::Transfer { to: b, amount: Amount::from_u64(1) }),
+            op(
+                a,
+                2,
+                Action::Transfer {
+                    to: b,
+                    amount: Amount::from_u64(1),
+                },
+            ),
             &[(&nsk, &npk)],
         ),
         702,
@@ -465,11 +630,21 @@ fn guardians_recover_an_account_after_the_delay_and_the_owner_can_cancel() {
 fn fees_never_exceed_the_quote_and_sponsors_enforce_their_caps() {
     let (mut r, a, (sk, pk), b) = setup();
     let over = signed(
-        op(a, 0, Action::Transfer { to: b, amount: Amount::from_u64(1) }),
+        op(
+            a,
+            0,
+            Action::Transfer {
+                to: b,
+                amount: Amount::from_u64(1),
+            },
+        ),
         &[(&sk, &pk)],
     );
     let before = r.get(&a).unwrap().clone();
-    assert_eq!(r.apply(&over, 1, Amount::from_u64(1_001)), Err(AccountError::FeeAboveMaximum));
+    assert_eq!(
+        r.apply(&over, 1, Amount::from_u64(1_001)),
+        Err(AccountError::FeeAboveMaximum)
+    );
     assert_eq!(r.get(&a).unwrap(), &before, "a refused op changes nothing");
     // Token fee: price 1 native = 2 token units, 5% margin.
     r.prices.insert(
@@ -480,12 +655,20 @@ fn fees_never_exceed_the_quote_and_sponsors_enforce_their_caps() {
         },
     );
     r.token_balances.insert((a, 7), Amount::from_u64(1_000));
-    let mut t = op(a, 0, Action::Transfer { to: b, amount: Amount::from_u64(1) });
+    let mut t = op(
+        a,
+        0,
+        Action::Transfer {
+            to: b,
+            amount: Amount::from_u64(1),
+        },
+    );
     t.fee = FeeSpec::Token {
         token: 7,
         max_amount: Amount::from_u64(300),
     };
-    r.apply(&signed(t, &[(&sk, &pk)]), 1, Amount::from_u64(100)).unwrap();
+    r.apply(&signed(t, &[(&sk, &pk)]), 1, Amount::from_u64(100))
+        .unwrap();
     assert_eq!(
         r.token_balances[&(a, 7)],
         Amount::from_u64(1_000 - 210),
@@ -504,7 +687,14 @@ fn fees_never_exceed_the_quote_and_sponsors_enforce_their_caps() {
         },
     );
     let sponsored = |n| {
-        let mut s = op(a, n, Action::Transfer { to: b, amount: Amount::from_u64(1) });
+        let mut s = op(
+            a,
+            n,
+            Action::Transfer {
+                to: b,
+                amount: Amount::from_u64(1),
+            },
+        );
         s.fee = FeeSpec::Sponsored { paymaster: pmid };
         signed(s, &[(&sk, &pk)])
     };
@@ -521,9 +711,19 @@ fn fees_never_exceed_the_quote_and_sponsors_enforce_their_caps() {
 fn a_replayed_op_is_refused() {
     let (mut r, a, (sk, pk), b) = setup();
     let o = signed(
-        op(a, 0, Action::Transfer { to: b, amount: Amount::from_u64(1) }),
+        op(
+            a,
+            0,
+            Action::Transfer {
+                to: b,
+                amount: Amount::from_u64(1),
+            },
+        ),
         &[(&sk, &pk)],
     );
     r.apply(&o, 1, Amount::from_u64(0)).unwrap();
-    assert_eq!(r.apply(&o, 2, Amount::from_u64(0)), Err(AccountError::BadNonce));
+    assert_eq!(
+        r.apply(&o, 2, Amount::from_u64(0)),
+        Err(AccountError::BadNonce)
+    );
 }

@@ -48,7 +48,11 @@ pub struct Vault {
 impl Vault {
     /// A vault run by `issuer`, admitting against the given KYC roots.
     #[must_use]
-    pub fn new(issuer: Account, kyc_roots: (Digest, Digest), limits: BTreeMap<u32, Amount>) -> Self {
+    pub fn new(
+        issuer: Account,
+        kyc_roots: (Digest, Digest),
+        limits: BTreeMap<u32, Amount>,
+    ) -> Self {
         Self {
             issuer,
             kyc_roots,

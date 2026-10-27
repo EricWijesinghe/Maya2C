@@ -330,7 +330,13 @@ fn fee_vectors() -> Value {
         ("zero-denominator", 100, 5_000, 1_000, 0, 1, &["FEE-2"]),
     ];
     for (id, parent, size, target, denom, floor, rules) in steps {
-        let next = fees::next_base_fee(Balance::from(parent), size, target, denom, Balance::from(floor));
+        let next = fees::next_base_fee(
+            Balance::from(parent),
+            size,
+            target,
+            denom,
+            Balance::from(floor),
+        );
         cases.push(json!({"id": id, "rules": rules, "fn": "next_base_fee", "parent_base_fee": parent.to_string(), "parent_size": size.to_string(), "target": target.to_string(), "denominator": denom.to_string(), "floor": floor.to_string(), "expect": next.to_string()}));
     }
     // FEE-3 at the 256-bit width (ADR-066): a fee past u64 keeps rising exactly,

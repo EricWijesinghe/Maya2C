@@ -203,7 +203,10 @@ impl ParameterTable {
             ParameterKey::from_tag(tag).map_err(|error| NodeError::Governance {
                 reason: error.to_string(),
             })?;
-            values.insert(tag, maya_dex::Amount::from_le_bytes(reader.read_array::<32>()?));
+            values.insert(
+                tag,
+                maya_dex::Amount::from_le_bytes(reader.read_array::<32>()?),
+            );
         }
         reader.finish()?;
         Ok(Self { values })
@@ -212,7 +215,7 @@ impl ParameterTable {
     /// Hashes the table into a Merkle leaf.
     #[must_use]
     pub fn leaf(&self) -> [u8; 32] {
-        let mut hasher = blake3::Hasher::new_derive_key("maya-governance parameters leaf v1");
+        let mut hasher = blake3::Hasher::new_derive_key("maya-governance parameters leaf v2");
         hasher.update(&self.encode());
         *hasher.finalize().as_bytes()
     }
@@ -293,7 +296,10 @@ impl ProposalRecord {
         let mut changes = Vec::with_capacity(count);
         for _ in 0..count {
             let tag = u16::from(reader.read_u8()?) | (u16::from(reader.read_u8()?) << 8);
-            changes.push((tag, maya_dex::Amount::from_le_bytes(reader.read_array::<32>()?)));
+            changes.push((
+                tag,
+                maya_dex::Amount::from_le_bytes(reader.read_array::<32>()?),
+            ));
         }
         reader.finish()?;
 
@@ -312,7 +318,7 @@ impl ProposalRecord {
     /// Hashes the record into a Merkle leaf.
     #[must_use]
     pub fn leaf(&self, id: &[u8; 32]) -> [u8; 32] {
-        let mut hasher = blake3::Hasher::new_derive_key("maya-governance proposal leaf v1");
+        let mut hasher = blake3::Hasher::new_derive_key("maya-governance proposal leaf v2");
         hasher.update(id);
         hasher.update(&self.encode());
         *hasher.finalize().as_bytes()
@@ -343,8 +349,14 @@ mod tests {
         let before = ParameterTable::new();
         let after = before.with(ParameterKey::DexProtocolFeeBps, Amount::from_u64(25));
 
-        assert_eq!(before.get(ParameterKey::DexProtocolFeeBps), Amount::from_u64(0));
-        assert_eq!(after.get(ParameterKey::DexProtocolFeeBps), Amount::from_u64(25));
+        assert_eq!(
+            before.get(ParameterKey::DexProtocolFeeBps),
+            Amount::from_u64(0)
+        );
+        assert_eq!(
+            after.get(ParameterKey::DexProtocolFeeBps),
+            Amount::from_u64(25)
+        );
     }
 
     #[test]

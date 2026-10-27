@@ -118,8 +118,8 @@ fn parse_address(value: &str) -> Result<Address, Box<dyn Error>> {
 /// A base-unit amount in decimal. `U256::from_str` would read hex, so a
 /// `--min-payout 1000` would silently mean 4,096.
 fn parse_amount(value: &str) -> Result<primitive_types::U256, Box<dyn Error>> {
-    primitive_types::U256::from_dec_str(value)
-        .map_err(|_| format!("{value} is not a base-10 amount in base units").into())
+    custom_l1_node::state::amount_serde::parse_decimal(value)
+        .ok_or_else(|| format!("{value:?} is not a base-10 amount in base units").into())
 }
 
 fn parse_args() -> Result<Args, Box<dyn Error>> {

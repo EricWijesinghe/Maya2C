@@ -98,13 +98,19 @@ impl State {
     /// Balance of `holder` in `kind`.
     #[must_use]
     pub fn balance(&self, holder: Id, kind: Kind) -> Amount {
-        self.balances.get(&(holder, kind)).copied().unwrap_or_default()
+        self.balances
+            .get(&(holder, kind))
+            .copied()
+            .unwrap_or_default()
     }
 
     /// A contract counter.
     #[must_use]
     pub fn counter(&self, contract: Id, name: &'static str) -> Amount {
-        self.counters.get(&(contract, name)).copied().unwrap_or_default()
+        self.counters
+            .get(&(contract, name))
+            .copied()
+            .unwrap_or_default()
     }
 }
 
@@ -189,7 +195,10 @@ impl Runtime {
                     && c.remaining >= amount
             })
             .ok_or(Fault::NoCapability)?;
-        cap.remaining = cap.remaining.checked_sub(amount).ok_or(Fault::NoCapability)?;
+        cap.remaining = cap
+            .remaining
+            .checked_sub(amount)
+            .ok_or(Fault::NoCapability)?;
         Ok(())
     }
 

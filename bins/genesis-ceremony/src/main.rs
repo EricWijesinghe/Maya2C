@@ -217,8 +217,10 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--contributions" => args.contributions = PathBuf::from(value()?),
             "--treasury-public" => args.treasury_public = Some(PathBuf::from(value()?)),
             "--chain-id" => args.chain_id = value()?,
-            "--supply" => args.supply = primitive_types::U256::from_dec_str(&value()?)
-                .map_err(|e| format!("--supply: {e:?}"))?,
+            "--supply" => {
+                args.supply = primitive_types::U256::from_dec_str(&value()?)
+                    .map_err(|e| format!("--supply: {e:?}"))?
+            }
             "--timestamp" => args.timestamp = Some(value()?.parse()?),
             "--difficulty-bits" => args.difficulty_bits = value()?.parse()?,
             "--pow-limit-bits" => args.pow_limit_bits = Some(value()?.parse()?),
