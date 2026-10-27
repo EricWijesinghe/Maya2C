@@ -68,8 +68,8 @@ async fn run() -> Result<(), String> {
     let listen: SocketAddr = env_or("MAYA_FAUCET_LISTEN", "127.0.0.1:8080")
         .parse()
         .map_err(|e| format!("MAYA_FAUCET_LISTEN is not an address: {e}"))?;
-    let dispense = parse_env("MAYA_FAUCET_DISPENSE", 1_000)?;
-    let daily_cap = parse_env("MAYA_FAUCET_DAILY_CAP", 1_000_000)?;
+    let dispense = parse_amount_env("MAYA_FAUCET_DISPENSE", 1_000)?;
+    let daily_cap = parse_amount_env("MAYA_FAUCET_DAILY_CAP", 1_000_000)?;
     let trust_proxy = env_or("MAYA_FAUCET_TRUST_PROXY", "false") == "true";
 
     let key = load_key()?;
@@ -102,8 +102,8 @@ async fn run() -> Result<(), String> {
         chain_id = faucet.chain_id(),
         address = %hex::encode(dispenser.address()),
         next_nonce = dispenser.next_nonce(),
-        dispense,
-        daily_cap,
+        %dispense,
+        %daily_cap,
         trust_proxy,
         "faucet ready"
     );
@@ -207,11 +207,11 @@ fn env_or(name: &str, default: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| default.to_string())
 }
 
-fn parse_env(name: &str, default: u64) -> Result<u64, String> {
+/// A base-unit amount in decimal; `U256::from_str` would read hex.
+fn parse_amount_env(name: &str, default: u64) -> Result<primitive_types::U256, String> {
     match std::env::var(name) {
-        Ok(value) => value
-            .parse()
-            .map_err(|e| format!("{name} is not a number: {e}")),
-        Err(_) => Ok(default),
+        Ok(value) => primitive_types::U256::from_dec_str(&value)
+            .map_err(|_| format!("{name} is not a base-10 amount in base units")),
+        Err(_) => Ok(primitive_types::U256::from(default)),
     }
 }
