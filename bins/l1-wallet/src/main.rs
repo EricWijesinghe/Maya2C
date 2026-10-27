@@ -518,12 +518,17 @@ async fn with_fee(
     let amount = if let Some(fee) = fee {
         fee
     } else {
-        // base_fee × size is below 2^128; doubled, still exact in 256 bits.
+        // Checked: a base fee near 2^256 must not wrap into a small, signable fee.
         let mut probe = Transaction::new(vec![], outputs.clone(), nonce);
         probe.kind = payload.kind.clone();
         probe.sign(key, chain).context("signing the fee probe")?;
         let size = u64::try_from(probe.to_bytes().len())?;
-        let quoted = U256::from(info.base_fee) * U256::from(size) * U256::from(2u8);
+        let base_fee = U256::from_dec_str(&info.base_fee)
+            .map_err(|_| anyhow::anyhow!("the node sent a bad base_fee {:?}", info.base_fee))?;
+        let quoted = base_fee
+            .checked_mul(U256::from(size))
+            .and_then(|f| f.checked_mul(U256::from(2u8)))
+            .ok_or_else(|| anyhow::anyhow!("the node quoted a fee past 2^256 - 1"))?;
         // The quote comes from the node and is signed without a prompt, so a
         // hostile node could name a fee that empties the account into its own
         // collector. Above the old u64 ceiling it is refused: such a fee must

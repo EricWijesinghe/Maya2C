@@ -21,6 +21,7 @@
 //! `k:fee` exists only where genesis configures fees. Without it nothing here
 //! runs and no root moves.
 
+use maya_dex::Amount;
 use crate::core::codec::ByteReader;
 use crate::error::{NodeError, Result};
 use crate::state::account::Address;
@@ -39,9 +40,9 @@ pub const FEE_COLLECTOR: Address = [
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FeeRecord {
     /// Current base fee, per serialized byte.
-    pub base_fee: u64,
+    pub base_fee: Amount,
     /// Floor for the base fee.
-    pub min_base_fee: u64,
+    pub min_base_fee: Amount,
     /// Block size, in bytes, the base fee steers toward.
     pub target_block_bytes: u64,
     /// The base fee moves by at most `1 / change_denominator` per block.
@@ -52,15 +53,14 @@ impl FeeRecord {
     /// Encodes the record.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
-        let mut out = vec![1u8];
-        for v in [
-            self.base_fee,
-            self.min_base_fee,
-            self.target_block_bytes,
-            self.change_denominator,
-        ] {
-            out.extend_from_slice(&v.to_le_bytes());
-        }
+        // Version 2: the two fees are 32-byte amounts (ADR-066). Version 1
+        // carried them as u64, so an old record fails to decode rather than
+        // being misread.
+        let mut out = vec![2u8];
+        out.extend_from_slice(&self.base_fee.to_le_bytes());
+        out.extend_from_slice(&self.min_base_fee.to_le_bytes());
+        out.extend_from_slice(&self.target_block_bytes.to_le_bytes());
+        out.extend_from_slice(&self.change_denominator.to_le_bytes());
         out
     }
 
@@ -71,12 +71,12 @@ impl FeeRecord {
     /// [`NodeError::Decode`] on a wrong version or length.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let mut r = ByteReader::new(bytes);
-        if r.read_u8()? != 1 {
+        if r.read_u8()? != 2 {
             return Err(NodeError::Decode("fee record version".to_string()));
         }
         let record = Self {
-            base_fee: r.read_u64()?,
-            min_base_fee: r.read_u64()?,
+            base_fee: Amount::from_le_bytes(r.read_array::<32>()?),
+            min_base_fee: Amount::from_le_bytes(r.read_array::<32>()?),
             target_block_bytes: r.read_u64()?,
             change_denominator: r.read_u64()?,
         };
@@ -86,8 +86,12 @@ impl FeeRecord {
 
     /// What a transaction of `size` bytes must pay at this base fee.
     #[must_use]
-    pub fn required(&self, size: usize) -> u128 {
-        u128::from(self.base_fee) * size as u128
+    pub fn required(&self, size: usize) -> Amount {
+        // A fee near 2^256 times a size can overflow; nobody can pay that, so it
+        // saturates to a requirement no balance meets rather than wrapping.
+        self.base_fee
+            .checked_mul(Amount::from_u128(size as u128))
+            .unwrap_or(Amount::MAX)
     }
 
     /// The record after a block of `block_bytes`.
@@ -113,8 +117,8 @@ mod tests {
 
     fn record() -> FeeRecord {
         FeeRecord {
-            base_fee: 10,
-            min_base_fee: 1,
+            base_fee: Amount::from_u64(10),
+            min_base_fee: Amount::from_u64(1),
             target_block_bytes: 1_000,
             change_denominator: 8,
         }
@@ -127,13 +131,13 @@ mod tests {
 
     #[test]
     fn the_base_fee_rises_over_target_falls_under_and_keeps_its_floor() {
-        assert!(record().next(2_000).base_fee > 10);
-        assert!(record().next(0).base_fee < 10);
+        assert!(record().next(2_000).base_fee > Amount::from_u64(10));
+        assert!(record().next(0).base_fee < Amount::from_u64(10));
         let floor = FeeRecord {
-            base_fee: 1,
+            base_fee: Amount::from_u64(1),
             ..record()
         };
-        assert_eq!(floor.next(0).base_fee, 1);
+        assert_eq!(floor.next(0).base_fee, Amount::from_u64(1));
     }
 
     #[test]

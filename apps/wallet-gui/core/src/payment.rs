@@ -401,10 +401,12 @@ pub fn transfer_size(
 ///
 /// # Errors
 ///
-/// [`WalletError::AmountOverflow`] only past 2^256 - 1, which two u64 factors
-/// cannot reach.
-pub fn priced_fee_tiers(base_fee: u64, size: u64) -> Result<[primitive_types::U256; 3]> {
-    let required = primitive_types::U256::from(base_fee)
+/// [`WalletError::AmountOverflow`] if a tier passes 2^256 - 1.
+pub fn priced_fee_tiers(
+    base_fee: primitive_types::U256,
+    size: u64,
+) -> Result<[primitive_types::U256; 3]> {
+    let required = base_fee
         .checked_mul(primitive_types::U256::from(size))
         .ok_or(WalletError::AmountOverflow)?;
     let tier = |factor: u64| {

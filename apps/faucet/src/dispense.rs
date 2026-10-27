@@ -50,7 +50,7 @@ pub struct Fees {
     /// Where fees are paid.
     pub collector: [u8; 32],
     /// Base units per byte of the signed transaction.
-    pub base_fee: u64,
+    pub base_fee: primitive_types::U256,
 }
 
 /// The faucet pays twice the base fee, as the wallet does by default, so a
@@ -159,9 +159,14 @@ impl NodeDispenser {
         {
             return Ok(None);
         }
+        // A decimal string (ADR-066: 256-bit); a plain number from an older node.
         let base_fee = info
             .get("base_fee")
-            .and_then(serde_json::Value::as_u64)
+            .and_then(|v| match v {
+                serde_json::Value::String(s) => primitive_types::U256::from_dec_str(s).ok(),
+                serde_json::Value::Number(n) => n.as_u64().map(primitive_types::U256::from),
+                _ => None,
+            })
             .ok_or_else(|| DispenseError::Node("fee info has no base_fee".to_string()))?;
         let collector = info
             .get("collector")
@@ -248,13 +253,13 @@ fn sign_transfer(
         let size = u64::try_from(probe.to_bytes().len()).unwrap_or(u64::MAX);
         let fee = fees
             .base_fee
-            .checked_mul(size)
-            .and_then(|f| f.checked_mul(FEE_HEADROOM))
+            .checked_mul(primitive_types::U256::from(size))
+            .and_then(|f| f.checked_mul(primitive_types::U256::from(FEE_HEADROOM)))
             .ok_or(DispenseError::Underfunded)?;
         // Checked, because a wrapped total would sign a transfer nobody intended.
-        amount.checked_add(fee).ok_or(DispenseError::Underfunded)?;
+        primitive_types::U256::from(amount).checked_add(fee).ok_or(DispenseError::Underfunded)?;
         if let Some(last) = outputs.last_mut() {
-            last.amount = primitive_types::U256::from(fee);
+            last.amount = fee;
         }
     }
 
@@ -275,7 +280,7 @@ mod tests {
 
     const FEES: Fees = Fees {
         collector: [0xC0; 32],
-        base_fee: 3,
+        base_fee: primitive_types::U256([3, 0, 0, 0]),
     };
 
     #[test]
@@ -293,7 +298,7 @@ mod tests {
         let size = u64::try_from(bytes.len()).unwrap();
         assert_eq!(
             tx.outputs[1].amount,
-            primitive_types::U256::from(FEES.base_fee * size * FEE_HEADROOM)
+            FEES.base_fee * primitive_types::U256::from(size) * primitive_types::U256::from(FEE_HEADROOM)
         );
     }
 
@@ -322,13 +327,17 @@ mod tests {
     }
 
     #[test]
-    fn an_amount_that_would_wrap_with_the_fee_is_refused() {
-        // Not reachable through the HTTP layer, which caps the dispense — but
-        // the check belongs where the addition is, not where today's callers
-        // happen to be.
+    fn a_fee_that_would_wrap_is_refused() {
+        // A base fee at 2^256 - 1 times any size overflows 256 bits; it must be
+        // refused where the product is taken, never wrapped into a small fee
+        // the faucet would sign.
         let key = generate_signing_key().expect("keygen");
+        let hostile = Fees {
+            base_fee: primitive_types::U256::MAX,
+            ..FEES
+        };
         assert!(matches!(
-            sign_transfer(&key, &[1u8; 32], u64::MAX, Some(FEES), 0, &CHAIN),
+            sign_transfer(&key, &[1u8; 32], 1, Some(hostile), 0, &CHAIN),
             Err(DispenseError::Underfunded)
         ));
     }

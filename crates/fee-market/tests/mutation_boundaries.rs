@@ -9,6 +9,7 @@
 
 #![allow(clippy::unwrap_used)]
 
+use maya_amount::Amount;
 use maya_fee_market::limits::{MAX_TARGET_BLOCK_BYTES, MAX_TREASURY_BPS, MIN_TARGET_BLOCK_BYTES};
 use maya_fee_market::model::{
     FEATURE_FRAC_BITS, FEATURE_LIMIT, FEATURE_ONE, INPUTS, MAX_GAIN_BPS, UNIT_GAIN_BPS,
@@ -66,7 +67,9 @@ fn a_fee_of_exactly_the_base_fee_is_accepted_and_one_less_is_not() {
     let size = 1_000;
     let exact = TxFee {
         size_bytes: size,
-        max_fee: maya_amount::Amount::from_u64(c.initial_base_fee * size),
+        max_fee: c.initial_base_fee
+            .checked_mul(maya_amount::Amount::from_u64(size))
+            .unwrap(),
         max_tip: maya_amount::Amount::ZERO,
     };
     assert!(apply_block_fees(&c, 1, None, &[exact], &claim).is_ok());
@@ -80,16 +83,16 @@ fn a_fee_of_exactly_the_base_fee_is_accepted_and_one_less_is_not() {
 #[test]
 fn a_zero_target_or_denominator_means_no_change() {
     assert_eq!(
-        neural_next_base_fee(100, 5_000, 0, 8, 1, UNIT_GAIN_BPS),
-        100
+        neural_next_base_fee(Amount::from_u64(100), 5_000, 0, 8, Amount::from_u64(1), UNIT_GAIN_BPS),
+        Amount::from_u64(100)
     );
     assert_eq!(
-        neural_next_base_fee(100, 5_000, 1_000, 0, 1, UNIT_GAIN_BPS),
-        100
+        neural_next_base_fee(Amount::from_u64(100), 5_000, 1_000, 0, Amount::from_u64(1), UNIT_GAIN_BPS),
+        Amount::from_u64(100)
     );
     assert_eq!(
-        neural_next_base_fee(0, 5_000, 1_000, 0, 7, UNIT_GAIN_BPS),
-        7,
+        neural_next_base_fee(Amount::from_u64(0), 5_000, 1_000, 0, Amount::from_u64(7), UNIT_GAIN_BPS),
+        Amount::from_u64(7),
         "the floor still holds"
     );
 }
