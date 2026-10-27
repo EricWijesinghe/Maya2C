@@ -137,6 +137,10 @@ pub fn Shell(
                 </nav>
                 <main>{children()}</main>
                 <script>{LIVE_SCRIPT}</script>
+                // The HUD look (/assets/hud.js, which loads hud.css) can change
+                // without a rebuild. Deferred, so first paint still needs only
+                // this document; without it the inline theme above stands.
+                <script src="/assets/hud.js" defer></script>
             </body>
         </html>
     }
