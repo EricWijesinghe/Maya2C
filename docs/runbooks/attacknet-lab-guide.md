@@ -41,8 +41,8 @@ cd D:\Maya2C
 # Build all required binaries
 cargo build --release -p maya2c-node -p maya-api-gateway -p attacknet-controller
 
-# Build attacknet adversary (if implemented)
-cargo build --release -p attacknet-adversary 2>&1 || Write-Warning "Adversary not yet implemented"
+# The in-tree attacker is `cargo xtask attacknet` (seven validators as processes);
+# a separate adversary binary does not exist yet.
 ```
 
 ### 3. Provision the Lab
