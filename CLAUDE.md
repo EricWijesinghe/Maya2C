@@ -128,6 +128,8 @@ invocation is a defect. Search, editing and output wrappers: global `CLAUDE.md`.
 
 ## Workspace Map
 
+Directory-by-directory guide and file-placement rules: [docs/REPO-MAP.md](docs/REPO-MAP.md), [docs/HYGIENE.md](docs/HYGIENE.md).
+
 87 members plus eleven tracked crates deliberately outside the workspace
 (different architecture, or a dependency graph kept away from the node's).
 Seven of the eleven cannot be built for the host, so "the workspace builds" is
