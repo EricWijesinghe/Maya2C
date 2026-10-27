@@ -19,7 +19,11 @@ Every quantity of value — balance, supply, fee, allowance, escrow, limit, pric
 `maya_amount::Amount` (or the node's `U256`) end to end. Only the UI formats it down for
 display. Conversions never clamp: a value that does not fit is an error, not `MAX`.
 
-Applied in this change: genesis ceremony supply and treasury split; `contract-safety`;
+Also applied: the base fee (`fee-market`, `FeeRecord`, genesis fee fields, `get_fee_info`
+as a decimal string), oracle prices (`oracle_read_u256` added; `oracle_read` kept and
+clamping), and governance parameter values.
+
+Applied first: genesis ceremony supply and treasury split; `contract-safety`;
 the `maya_res` VM imports (an amount is four `i64` limbs, least significant first — WASM has
 nothing wider); `treasury` and vesting; `smart-account`; `lanes`; `interop` routes and
 intents; `clear-sign`; the `crypto-pq` migration; `l2-flash` barter; the permissioned-finance
@@ -31,10 +35,9 @@ CBDC vault; and the `reference-apps` and MCP server that sit on top.
 - Heights, nonces, epochs, byte counts, basis points and ppm ratios.
 - MPC darkpool shares and SPDZ values: elements of a 64-bit field. Widening them is a
   protocol change, not a type change. `MAX_ORDER_SIZE` documents the bound.
-- Shielded pool `public_in`/`public_out`/`fee`: STARK public inputs; a circuit change.
-  Shielded transfers are off for mainnet v1.
-- Base fee per byte (`fee-market`, `FeeRecord`), the oracle value and governance parameter
-  values: planned next; each changes the wire format.
+- Shielded pool and private contract state: their real ceiling is 2^58 (two 29-bit limbs
+  over a 31-bit field), narrower than the `u64` wire fields suggest. Widening is a circuit
+  redesign: see [ADR-067](ADR-067-shielded-and-private-amounts-256-bit.md).
 - Legacy `get_balance` (VM `env`): kept for already-deployed contracts; `get_balance_u256`
   gives the exact value.
 
