@@ -71,6 +71,11 @@ fn signed(kind: TxKind, nonce: u64, key: &HybridSigningKey) -> Transaction {
     tx
 }
 
+/// 1,000 coins at 18 decimals: more than any deposit these tests pay.
+fn deposit_headroom() -> primitive_types::U256 {
+    primitive_types::U256::exp10(21)
+}
+
 fn fixture() -> Fixture {
     let dir = TempDir::new().expect("temp dir");
     let db = StateDB::open(dir.path()).expect("open");
@@ -84,7 +89,8 @@ fn fixture() -> Fixture {
         db.put_account(
             &holder.address(),
             &Account {
-                balance: primitive_types::U256::from(BALANCE),
+                // Plus headroom for the proposal deposit, which is whole coins.
+                balance: primitive_types::U256::from(BALANCE) + deposit_headroom(),
                 nonce: 0,
             },
         )
@@ -214,7 +220,7 @@ fn locking_stake_moves_it_out_of_the_spendable_balance() {
         .expect("account");
     assert_eq!(
         account.balance,
-        primitive_types::U256::from(BALANCE - 1_000)
+        primitive_types::U256::from(BALANCE - 1_000) + deposit_headroom()
     );
     assert_eq!(
         fixture
@@ -266,7 +272,7 @@ fn stake_cannot_be_withdrawn_before_its_height() {
             .get_account(&fixture.address(0))
             .expect("account")
             .balance,
-        primitive_types::U256::from(BALANCE)
+        primitive_types::U256::from(BALANCE) + deposit_headroom()
     );
 }
 
