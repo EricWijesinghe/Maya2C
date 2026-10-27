@@ -368,6 +368,32 @@ fn a_revocation_index_lands_on_the_right_page() {
 }
 
 #[test]
+fn a_revocation_index_past_the_last_page_is_refused_not_wrapped() {
+    // 1 << 44 is page 2^32 and would truncate to page 0, bit 0: revoking a
+    // different credential than the one named, and aliasing it for verifiers.
+    let issuer = generate_signing_key().expect("keygen");
+    let fixture = fixture(&[(issuer.address(), 10_000)]);
+    let did = Did::from_address(issuer.address());
+    let beyond = (u64::from(u32::MAX) + 1) * BITS_PER_PAGE as u64;
+
+    apply(&fixture.db, vec![(register(device_key(1)), 0)], &issuer, 1);
+    let revoke = TxKind::SetRevocationBit(SetRevocationBit { index: beyond });
+    assert!(try_apply(&fixture.db, revoke, 1, &issuer, 2).is_err());
+
+    assert!(
+        !fixture.db.is_credential_revoked(&did, 0).expect("read"),
+        "credential 0 must not be revoked by an out-of-range index"
+    );
+    assert!(
+        fixture
+            .db
+            .is_credential_revoked(&did, beyond)
+            .expect("read"),
+        "an index no page can hold reads as revoked, never as live"
+    );
+}
+
+#[test]
 fn an_issuer_with_no_document_cannot_attest() {
     // An attestation from a subject nobody can resolve is one whose signature
     // no verifier can check: storage that proves nothing.

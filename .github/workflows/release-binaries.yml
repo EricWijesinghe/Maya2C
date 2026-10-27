@@ -1,6 +1,7 @@
 # Prebuilt binaries for people who do not want a Rust toolchain:
 # maya2c-node (production features, the same build the testnet seed runs),
-# l1-wallet and maya2c-peerid, for Linux x86_64 and aarch64, Windows and macOS;
+# l1-wallet, maya2c-peerid and maya2c (the developer CLI: `maya2c dev` starts a
+# local chain from the node binary beside it), for Linux x86_64 and aarch64, Windows and macOS;
 # and the Maya Wallet desktop installers for Windows, macOS and Linux.
 #
 # Two modes, and only one of them publishes anything:
@@ -72,7 +73,7 @@ jobs:
               -p maya2c-node --no-default-features --features production
           fi
           cargo build --release --locked --target ${{ matrix.target }} \
-            -p l1-wallet -p maya2c-peerid
+            -p l1-wallet -p maya2c-peerid -p maya2c-cli
 
       # A binary that does not start is worse than no binary.
       - name: Smoke test
@@ -81,6 +82,7 @@ jobs:
           dir=target/${{ matrix.target }}/release
           "$dir/maya2c-node${{ matrix.exe }}" --help | head -1
           "$dir/l1-wallet${{ matrix.exe }}" --version
+          "$dir/maya2c${{ matrix.exe }}" --version
           # A production build writes sealed keys only (ADR-049).
           head -c 32 /dev/urandom | base64 > "$RUNNER_TEMP/v.pass"
           "$dir/maya2c-node${{ matrix.exe }}" --validator-passphrase-file "$RUNNER_TEMP/v.pass" \
@@ -91,7 +93,7 @@ jobs:
         run: |
           name=maya2c-${{ matrix.target }}
           mkdir -p "dist/$name"
-          for b in maya2c-node l1-wallet maya2c-peerid; do
+          for b in maya2c-node l1-wallet maya2c-peerid maya2c; do
             cp "target/${{ matrix.target }}/release/$b${{ matrix.exe }}" "dist/$name/"
           done
           cp LICENSE* README.md "dist/$name/" 2>/dev/null || true

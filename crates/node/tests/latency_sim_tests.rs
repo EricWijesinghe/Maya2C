@@ -70,6 +70,9 @@ const BASE_TIMEOUT: Duration = Duration::from_secs(30);
 
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
+/// How long one published block gets to cross the line before the next attempt.
+const RETRY_WINDOW: Duration = Duration::from_secs(2);
+
 /// Allocates unique memory-transport addresses across the whole test binary.
 static NEXT_MEMORY_PORT: AtomicU64 = AtomicU64::new(90_000);
 
@@ -103,7 +106,7 @@ async fn spawn_node(latency: Duration) -> SimNode {
 }
 
 /// A signed block, so what propagates is the real thing rather than a stub.
-fn signed_block(key: &HybridSigningKey) -> Block {
+fn signed_block(key: &HybridSigningKey, nonce: u64) -> Block {
     let mut tx = Transaction::new(
         vec![],
         vec![TxOutput {
@@ -120,7 +123,7 @@ fn signed_block(key: &HybridSigningKey) -> Block {
             prev_hash: [0u8; 32],
             state_root: [0u8; 32],
             timestamp: 1_756_252_800,
-            nonce: 0,
+            nonce,
             difficulty_target: target_from_leading_zero_bits(0),
             tx_root: [0; 32],
         },
@@ -189,8 +192,6 @@ async fn connected_line(latency: Duration) -> Vec<SimNode> {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_block_propagates_across_the_line_at_every_latency() {
     let key = signing_key_from_seed(&[1u8; 32]).expect("derive");
-    let block = signed_block(&key);
-    let expected = block.to_bytes();
 
     for latency in LATENCY_SWEEP {
         let nodes = connected_line(latency).await;
@@ -200,55 +201,52 @@ async fn a_block_propagates_across_the_line_at_every_latency() {
         let mut receivers: Vec<_> = nodes.iter().map(|n| n.handle.subscribe()).collect();
 
         let timeout = BASE_TIMEOUT + latency * 40;
+        let deadline = Instant::now() + timeout;
 
-        // Retry until the gossipsub mesh has a subscriber, rather than sleeping
-        // a guessed interval. Mesh formation is itself several round trips —
-        // subscriptions propagate on the heartbeat — so any fixed settle time
-        // is either too short at high latency or wasted at low. Publishing is
-        // the operation that tells us the mesh is ready, so use it as the
-        // signal instead of trying to predict it.
+        // One publish proves only that the first hop has a subscriber. Mesh
+        // links further down form on the heartbeat, and gossipsub drops an
+        // identical message it has already seen, so a block sent before node
+        // 2 subscribed to node 1 is gone for good. Publish a distinct block per
+        // attempt until every node has seen one. Node 0 is the publisher and
+        // does not receive its own gossip.
+        let mut sent: Vec<Vec<u8>> = Vec::new();
+        let mut seen = [false; NODES];
+        seen[0] = true;
         let publisher = nodes[0].handle.clone();
-        let payload = block.clone();
-        let published = wait_for(timeout, async || {
-            publisher.publish_block(&payload).await.is_ok()
-        })
-        .await;
 
-        assert!(
-            published,
-            "the gossip mesh never accepted a publish at {latency:?} latency \
-             within {timeout:?}"
-        );
+        while !seen.iter().all(|s| *s) && Instant::now() < deadline {
+            let block = signed_block(&key, sent.len() as u64);
+            sent.push(block.to_bytes());
+            // No subscriber yet is an expected, retried state, not a failure.
+            let _ = publisher.publish_block(&block).await;
 
-        // Node 0 is the publisher and does not receive its own gossip, so the
-        // interesting assertion is on 1..n — and especially on the last, which
-        // is three relays away.
-        for (index, receiver) in receivers.iter_mut().enumerate().skip(1) {
-            let deadline = tokio::time::Instant::now() + timeout;
-            let mut seen = false;
-
-            while tokio::time::Instant::now() < deadline {
-                match tokio::time::timeout_at(deadline, receiver.recv()).await {
-                    Ok(Ok(NodeEvent::BlockReceived {
-                        block: received, ..
-                    })) => {
-                        assert_eq!(
-                            received.to_bytes(),
-                            expected,
-                            "node {index} received a corrupted block at {latency:?}"
-                        );
-                        seen = true;
-                        break;
+            let window_end = Instant::now() + RETRY_WINDOW + latency * HOPS * 4;
+            while !seen.iter().all(|s| *s) && Instant::now() < window_end {
+                for (index, receiver) in receivers.iter_mut().enumerate().skip(1) {
+                    while let Ok(event) = receiver.try_recv() {
+                        if let NodeEvent::BlockReceived {
+                            block: received, ..
+                        } = event
+                        {
+                            assert!(
+                                sent.contains(&received.to_bytes()),
+                                "node {index} received a corrupted block at {latency:?}"
+                            );
+                            seen[index] = true;
+                        }
                     }
-                    Ok(Ok(_)) => continue,
-                    Ok(Err(_)) | Err(_) => break,
                 }
+                tokio::time::sleep(POLL_INTERVAL).await;
             }
+        }
 
+        // The last node is three relays away, so it is the one that proves
+        // mesh propagation rather than direct delivery.
+        for (index, seen) in seen.iter().enumerate() {
             assert!(
                 seen,
-                "node {index} never received the block at {latency:?} latency \
-                 ({HOPS} hops, {timeout:?} budget)"
+                "node {index} never received a block at {latency:?} latency                  ({HOPS} hops, {timeout:?} budget, {} published)",
+                sent.len()
             );
         }
     }

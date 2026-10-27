@@ -808,8 +808,13 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
             // every other connection.
             let context = ctx.clone();
             let result = tokio::task::spawn_blocking(move || {
+                // Work is checked with no lock held: a request with a wrong
+                // nonce costs the sender nothing, and under the lock it would
+                // hold every other reader of the chain for the whole pass.
+                let check = context.chain().pow_check(&block)?;
+                let proof = check.run(&block.header)?;
                 let mut chain = context.chain();
-                let outcome = chain.insert_block(block)?;
+                let outcome = chain.insert_block_prechecked(block, proof)?;
                 Ok::<_, crate::error::NodeError>((outcome, chain.tip(), chain.height()))
             })
             .await
