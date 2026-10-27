@@ -81,7 +81,11 @@ pub trait Dispenser: Send + Sync + 'static {
     /// # Errors
     ///
     /// [`DispenseError`] if signing or submission failed.
-    async fn send(&self, recipient: &[u8; 32], amount: u64) -> Result<String, DispenseError>;
+    async fn send(
+        &self,
+        recipient: &[u8; 32],
+        amount: primitive_types::U256,
+    ) -> Result<String, DispenseError>;
 }
 
 /// A [`Dispenser`] that signs with a hot key and submits over JSON-RPC.
@@ -193,7 +197,11 @@ async fn read_chain_tag(client: &HttpClient) -> Result<ChainTag, DispenseError> 
 
 #[async_trait]
 impl Dispenser for NodeDispenser {
-    async fn send(&self, recipient: &[u8; 32], amount: u64) -> Result<String, DispenseError> {
+    async fn send(
+        &self,
+        recipient: &[u8; 32],
+        amount: primitive_types::U256,
+    ) -> Result<String, DispenseError> {
         let fees = self.fees().await?;
         let raw = sign_transfer(
             &self.key,
@@ -232,7 +240,7 @@ impl Dispenser for NodeDispenser {
 fn sign_transfer(
     key: &HybridSigningKey,
     recipient: &[u8; 32],
-    amount: u64,
+    amount: primitive_types::U256,
     fees: Option<Fees>,
     nonce: u64,
     chain: &ChainTag,
@@ -257,7 +265,7 @@ fn sign_transfer(
             .and_then(|f| f.checked_mul(primitive_types::U256::from(FEE_HEADROOM)))
             .ok_or(DispenseError::Underfunded)?;
         // Checked, because a wrapped total would sign a transfer nobody intended.
-        primitive_types::U256::from(amount).checked_add(fee).ok_or(DispenseError::Underfunded)?;
+        amount.checked_add(fee).ok_or(DispenseError::Underfunded)?;
         if let Some(last) = outputs.last_mut() {
             last.amount = fee;
         }
@@ -286,7 +294,15 @@ mod tests {
     #[test]
     fn a_signed_transfer_pays_the_collector_for_its_own_size() {
         let key = generate_signing_key().expect("keygen");
-        let raw = sign_transfer(&key, &[7u8; 32], 100, Some(FEES), 0, &CHAIN).expect("signed");
+        let raw = sign_transfer(
+            &key,
+            &[7u8; 32],
+            primitive_types::U256::from(100),
+            Some(FEES),
+            0,
+            &CHAIN,
+        )
+        .expect("signed");
 
         let bytes = hex::decode(&raw).expect("the faucet emits valid hex");
         let tx = Transaction::from_bytes(&bytes).expect("a node must be able to parse it");
@@ -298,14 +314,24 @@ mod tests {
         let size = u64::try_from(bytes.len()).unwrap();
         assert_eq!(
             tx.outputs[1].amount,
-            FEES.base_fee * primitive_types::U256::from(size) * primitive_types::U256::from(FEE_HEADROOM)
+            FEES.base_fee
+                * primitive_types::U256::from(size)
+                * primitive_types::U256::from(FEE_HEADROOM)
         );
     }
 
     #[test]
     fn a_chain_without_fees_gets_no_fee_output() {
         let key = generate_signing_key().expect("keygen");
-        let raw = sign_transfer(&key, &[7u8; 32], 100, None, 0, &CHAIN).expect("signed");
+        let raw = sign_transfer(
+            &key,
+            &[7u8; 32],
+            primitive_types::U256::from(100),
+            None,
+            0,
+            &CHAIN,
+        )
+        .expect("signed");
         let tx = Transaction::from_bytes(&hex::decode(&raw).unwrap()).unwrap();
         assert_eq!(tx.outputs.len(), 1);
     }
@@ -314,7 +340,15 @@ mod tests {
     fn a_signed_transfer_verifies() {
         // The faucet's signature must satisfy the same check a block applies.
         let key = generate_signing_key().expect("keygen");
-        let raw = sign_transfer(&key, &[3u8; 32], 500, Some(FEES), 9, &CHAIN).expect("signed");
+        let raw = sign_transfer(
+            &key,
+            &[3u8; 32],
+            primitive_types::U256::from(500),
+            Some(FEES),
+            9,
+            &CHAIN,
+        )
+        .expect("signed");
         let bytes = hex::decode(&raw).expect("hex");
         let tx = Transaction::from_bytes(&bytes).expect("parse");
 
@@ -337,7 +371,14 @@ mod tests {
             ..FEES
         };
         assert!(matches!(
-            sign_transfer(&key, &[1u8; 32], 1, Some(hostile), 0, &CHAIN),
+            sign_transfer(
+                &key,
+                &[1u8; 32],
+                primitive_types::U256::from(1),
+                Some(hostile),
+                0,
+                &CHAIN
+            ),
             Err(DispenseError::Underfunded)
         ));
     }
