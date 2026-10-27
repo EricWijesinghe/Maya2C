@@ -11,11 +11,11 @@ number is measured and reproduced by someone outside the project. None is.**
 | Quantum readiness | share of value behind PQ signatures from genesis | QRL: 100 % since 2018 ([QRL docs](https://docs.theqrl.org/what-is-qrl/)) | 100 % hybrid from genesis | **ties QRL; not a lead** |
 | Node cost | disk for a full node | Ethereum ~1–1.3 TB execution client in 2026 after history expiry ([7BlockLabs](https://www.7blocklabs.com/blog/ethereum-full-node-disk-size-2026-ethereum-full-node-storage-requirements-2026-and-ethereum-full-node-size-2026)) | 3.4 TB/month at 100 TPS of PQ bodies, unpruned (`docs/NODE_TYPES.md`) | **no: worse** |
 | Liveness | longest halt in the last 24 months | Solana ~5 h, Feb 2024 ([Helius](https://www.helius.dev/blog/solana-outages-complete-history)) | no public network | not measurable |
-| Blind signing | share of transactions a wallet renders in plain language | not researched | transfers only (Ledger app fields) | no |
+| Blind signing | share of transactions a wallet renders in plain language | not researched | every transaction kind has a sentence and a full-address detail list (`core::describe`, an exhaustive match: 56 of 56 kinds), shown by the node RPC and by `l1-wallet` before it signs; the GUI wallet and the Ledger app still show transfers only | no (2026-10-27: CLI and RPC only) |
 | New-user time to first transfer | minutes, from nothing | not researched | not measured (no study) | no |
 | Bridge trust | parties that must be honest for a cross-chain transfer | Ronin: 5 of 9 keys ([Halborn](https://www.halborn.com/blog/post/explained-the-ronin-hack-march-2022)) | no bridge; Bitcoin SPV verifies headers with PoW, but nothing moves value | no |
 | Exploit losses | value lost per value secured | $3.4B stolen in 2025, all chains ([Chainalysis](https://www.chainalysis.com/blog/crypto-hacking-stolen-funds-2026/)) | no value secured | not measurable |
-| Developer time to a tested contract | minutes | not researched | cold build 4 m 54 s; no template/deploy path (`reports/17-integrations.md`) | no |
+| Developer time to a tested contract | minutes | not researched | from source 7 m 14 s (Linux) and 9 m 45 s (Windows); about 3 s to a deployed contract with prebuilt binaries (`reports/17-integrations.md` §7). The release workflow now packages `maya2c` beside the node (2026-10-27); nothing is published, so a download has not been measured | no |
 
 The honest summary: Maya2C **ties** the best existing post-quantum chain on
 quantum readiness, is **worse** on node cost because of PQ signature size,

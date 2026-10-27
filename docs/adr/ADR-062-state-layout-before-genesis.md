@@ -1,6 +1,6 @@
 # ADR-062: Choose the accounts tree and the staking record layout before genesis
 
-Status: Proposed (2026-10-26). Needs Eric's decision. Both are state-root format changes: cheap before the mainnet genesis, a hard fork after it.
+Status: Accepted (2026-10-27, Eric: both, measure first). Staking (b) and accounts (b) are built behind measurement (`cargo xtask bench-tps` before and after, and block-apply time against account count); what ships in the re-genesis is what the numbers justify. Originally Proposed 2026-10-26.
 
 ## Context
 The freeze-readiness optimisation review (2026-10-26) found two costs that grow
