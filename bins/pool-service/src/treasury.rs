@@ -156,7 +156,7 @@ impl Treasury {
         &self,
         entries: &[PayoutEntry],
         nonce: u64,
-        balance: u64,
+        balance: primitive_types::U256,
         config: &PoolConfig,
         chain_tag: &ChainTag,
     ) -> Result<Transaction> {
@@ -177,15 +177,15 @@ impl Treasury {
         // Through the model-checked crate, not a fold with `+`. This is the sum
         // that the balance check and the spend cap are both compared against,
         // so an overflow here would defeat both at once.
-        // Pool payouts are u64 per entry; the proved fold sums them at 256 bits
-        // (ADR-046) and the total must still fit the pool's u64 accounting.
-        let total = maya_ledger_math::total_outputs(
-            entries
-                .iter()
-                .map(|entry| maya_ledger_math::Amount::from_u64(entry.amount)),
-        )
-        .and_then(maya_ledger_math::Amount::to_u64)
-        .ok_or_else(|| PoolError::Treasury("payout outputs overflow a u64 in total".to_string()))?;
+        let total = maya_ledger_math::total_outputs(entries.iter().map(|entry| {
+            let mut bytes = [0u8; 32];
+            entry.amount.to_little_endian(&mut bytes);
+            maya_ledger_math::Amount::from_le_bytes(bytes)
+        }))
+        .map(|sum| primitive_types::U256::from_little_endian(&sum.to_le_bytes()))
+        .ok_or_else(|| {
+            PoolError::Treasury("payout outputs overflow 256 bits in total".to_string())
+        })?;
 
         if total > config.max_batch_value {
             return Err(PoolError::Treasury(format!(
@@ -205,7 +205,7 @@ impl Treasury {
         let outputs: Vec<TxOutput> = entries
             .iter()
             .map(|entry| TxOutput {
-                amount: primitive_types::U256::from(entry.amount),
+                amount: entry.amount,
                 recipient: entry.miner,
             })
             .collect();
@@ -226,7 +226,7 @@ mod tests {
 
     fn config() -> PoolConfig {
         PoolConfig {
-            reward_per_block: 1_000,
+            reward_per_block: primitive_types::U256::from(1_000),
             ..PoolConfig::default()
         }
     }
@@ -245,7 +245,7 @@ mod tests {
             .enumerate()
             .map(|(index, amount)| PayoutEntry {
                 miner: [index as u8; 32],
-                amount: *amount,
+                amount: primitive_types::U256::from(*amount),
             })
             .collect()
     }
@@ -255,7 +255,13 @@ mod tests {
         let treasury = treasury();
         let tag = test_tag();
         let transaction = treasury
-            .sign_payout(&entries(&[10, 20, 30]), 7, 1_000, &config(), &tag)
+            .sign_payout(
+                &entries(&[10, 20, 30]),
+                7,
+                primitive_types::U256::from(1_000),
+                &config(),
+                &tag,
+            )
             .unwrap();
 
         assert_eq!(transaction.outputs.len(), 3);
@@ -270,7 +276,13 @@ mod tests {
         // still holding the nonce slot on disk.
         let treasury = treasury();
         assert!(matches!(
-            treasury.sign_payout(&entries(&[500, 600]), 0, 1_000, &config(), &test_tag()),
+            treasury.sign_payout(
+                &entries(&[500, 600]),
+                0,
+                primitive_types::U256::from(1_000),
+                &config(),
+                &test_tag()
+            ),
             Err(PoolError::Treasury(_))
         ));
     }
@@ -278,13 +290,19 @@ mod tests {
     #[test]
     fn a_batch_over_the_custody_cap_is_refused() {
         let config = PoolConfig {
-            max_batch_value: 100,
+            max_batch_value: primitive_types::U256::from(100),
             ..config()
         };
         let treasury = treasury();
 
         assert!(matches!(
-            treasury.sign_payout(&entries(&[60, 60]), 0, u64::MAX, &config, &test_tag()),
+            treasury.sign_payout(
+                &entries(&[60, 60]),
+                0,
+                primitive_types::U256::from(u64::MAX),
+                &config,
+                &test_tag()
+            ),
             Err(PoolError::Treasury(_))
         ));
     }
@@ -293,7 +311,13 @@ mod tests {
     fn an_empty_batch_is_refused() {
         let treasury = treasury();
         assert!(matches!(
-            treasury.sign_payout(&[], 0, 1_000, &config(), &test_tag()),
+            treasury.sign_payout(
+                &[],
+                0,
+                primitive_types::U256::from(1_000),
+                &config(),
+                &test_tag()
+            ),
             Err(PoolError::Treasury(_))
         ));
     }
@@ -307,7 +331,7 @@ mod tests {
             treasury.sign_payout(
                 &entries(&[u64::MAX, 1]),
                 0,
-                u64::MAX,
+                primitive_types::U256::from(u64::MAX),
                 &config(),
                 &test_tag()
             ),
@@ -324,7 +348,13 @@ mod tests {
         let treasury = treasury();
 
         assert!(matches!(
-            treasury.sign_payout(&entries(&[1, 1, 1]), 0, 1_000, &config, &test_tag()),
+            treasury.sign_payout(
+                &entries(&[1, 1, 1]),
+                0,
+                primitive_types::U256::from(1_000),
+                &config,
+                &test_tag()
+            ),
             Err(PoolError::Treasury(_))
         ));
     }

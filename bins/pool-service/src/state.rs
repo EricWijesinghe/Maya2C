@@ -224,8 +224,8 @@ impl PoolState {
         self.metrics.set_hashrate(hashrate);
         self.metrics.set_reported_power_milliwatts(power);
 
-        let mut unpaid = 0u64;
-        let mut immature = 0u64;
+        let mut unpaid = primitive_types::U256::zero();
+        let mut immature = primitive_types::U256::zero();
         for (_, balance) in self.ledger.balances()? {
             unpaid = unpaid.saturating_add(balance.unpaid);
             immature = immature.saturating_add(balance.immature);
@@ -261,7 +261,7 @@ mod tests {
     fn state() -> PoolState {
         PoolState::new(
             PoolConfig {
-                reward_per_block: 1_000,
+                reward_per_block: primitive_types::U256::from(1_000),
                 ..PoolConfig::default()
             },
             Arc::new(MemoryLedger::new()),

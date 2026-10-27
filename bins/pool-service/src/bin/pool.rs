@@ -115,6 +115,13 @@ fn parse_address(value: &str) -> Result<Address, Box<dyn Error>> {
         .map_err(|_| "an address is 32 bytes of hex".into())
 }
 
+/// A base-unit amount in decimal. `U256::from_str` would read hex, so a
+/// `--min-payout 1000` would silently mean 4,096.
+fn parse_amount(value: &str) -> Result<primitive_types::U256, Box<dyn Error>> {
+    primitive_types::U256::from_dec_str(value)
+        .map_err(|_| format!("{value} is not a base-10 amount in base units").into())
+}
+
 fn parse_args() -> Result<Args, Box<dyn Error>> {
     let mut args = Args::default();
     let mut argv = std::env::args().skip(1);
@@ -131,13 +138,13 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--node-rpc" => args.config.node_rpc = value()?,
             "--data-dir" => args.config.data_dir = PathBuf::from(value()?),
             "--treasury" => args.config.treasury_keystore = PathBuf::from(value()?),
-            "--reward-per-block" => args.config.reward_per_block = value()?.parse()?,
+            "--reward-per-block" => args.config.reward_per_block = parse_amount(&value()?)?,
             "--fee-rate" => args.config.fee_rate = value()?.parse()?,
             "--fee-address" => args.config.fee_address = parse_address(&value()?)?,
             "--pplns-factor" => args.config.pplns_factor = value()?.parse()?,
             "--confirmations" => args.config.confirmations = value()?.parse()?,
-            "--min-payout" => args.config.min_payout = value()?.parse()?,
-            "--max-batch-value" => args.config.max_batch_value = value()?.parse()?,
+            "--min-payout" => args.config.min_payout = parse_amount(&value()?)?,
+            "--max-batch-value" => args.config.max_batch_value = parse_amount(&value()?)?,
             "--validators" => args.validators = value()?.parse()?,
             "--help" | "-h" => {
                 print_usage();

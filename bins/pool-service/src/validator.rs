@@ -403,7 +403,7 @@ mod tests {
     fn state_with_job(network_bits: u32) -> Arc<PoolState> {
         let state = Arc::new(PoolState::new(
             PoolConfig {
-                reward_per_block: 1_000,
+                reward_per_block: primitive_types::U256::from(1_000),
                 ..PoolConfig::default()
             },
             Arc::new(MemoryLedger::new()),

@@ -134,8 +134,8 @@ fn build_status(state: &PoolState) -> crate::error::Result<PoolStatus> {
         }
     };
 
-    let mut unpaid = 0u64;
-    let mut immature = 0u64;
+    let mut unpaid = primitive_types::U256::zero();
+    let mut immature = primitive_types::U256::zero();
     for (_, balance) in state.ledger.balances()? {
         unpaid = unpaid.saturating_add(balance.unpaid);
         immature = immature.saturating_add(balance.immature);
@@ -296,7 +296,7 @@ mod tests {
     fn state() -> Arc<PoolState> {
         Arc::new(PoolState::new(
             PoolConfig {
-                reward_per_block: 1_000,
+                reward_per_block: primitive_types::U256::from(1_000),
                 fee_rate: 0.02,
                 ..PoolConfig::default()
             },
@@ -344,7 +344,7 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
 
         let json: serde_json::Value = serde_json::from_str(&body).unwrap();
-        assert_eq!(json["reward_per_block"], 980, "1000 less a 2% fee");
+        assert_eq!(json["reward_per_block"], "980", "1000 less a 2% fee");
         assert_eq!(json["fee_rate"], 0.02);
     }
 
@@ -372,14 +372,14 @@ mod tests {
                     id: "block-a".to_string(),
                     height: 10,
                     sequence: 0,
-                    reward: 1_000,
+                    reward: primitive_types::U256::from(1_000),
                     finder: ALICE,
                     found_at_millis: 0,
                     state: BlockState::Immature,
                 },
                 &[PayoutEntry {
                     miner: ALICE,
-                    amount: 1_000,
+                    amount: primitive_types::U256::from(1_000),
                 }],
             )
             .unwrap();
