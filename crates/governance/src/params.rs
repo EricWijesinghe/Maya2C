@@ -46,6 +46,7 @@
 //! between those two moments could tighten a range, and a value that was legal
 //! when proposed must not become law after it stopped being legal.
 
+use maya_amount::Amount;
 use crate::error::{GovernanceError, Result};
 
 /// A rule that governance may change.
@@ -103,17 +104,17 @@ pub const ALL_KEYS: &[ParameterKey] = &[
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Bounds {
     /// Smallest permissible value.
-    pub min: u64,
+    pub min: Amount,
     /// Largest permissible value.
-    pub max: u64,
+    pub max: Amount,
     /// Value in force before any proposal has changed it.
-    pub default: u64,
+    pub default: Amount,
 }
 
 impl Bounds {
     /// Whether `value` is within the range.
     #[must_use]
-    pub const fn contains(&self, value: u64) -> bool {
+    pub fn contains(&self, value: Amount) -> bool {
         value >= self.min && value <= self.max
     }
 }
@@ -177,33 +178,33 @@ impl ParameterKey {
             // paid from the LP rate; the protocol's cut comes out of the same
             // trade, so an unbounded one is an unbounded tax on every swap.
             Self::DexProtocolFeeBps => Bounds {
-                min: 0,
-                max: 200,
-                default: 0,
+                min: Amount::from_u64(0),
+                max: Amount::from_u64(200),
+                default: Amount::from_u64(0),
             },
             // Below 64 the matcher cannot clear an ordinary crossed book in one
             // block and the backlog never drains; above 4096 one block's
             // matching pass is work every node redoes at roughly 0.75 µs a
             // fill, which is three milliseconds of validation for one block.
             Self::DexMaxFillsPerBlock => Bounds {
-                min: 64,
-                max: 4_096,
-                default: 1_024,
+                min: Amount::from_u64(64),
+                max: Amount::from_u64(4_096),
+                default: Amount::from_u64(1_024),
             },
             // The count is what every node pays for in storage and in book
             // reconstruction, and escrow does not bound it.
             Self::DexMaxOrdersPerBook => Bounds {
-                min: 256,
-                max: 65_536,
-                default: 4_096,
+                min: Amount::from_u64(256),
+                max: Amount::from_u64(65_536),
+                default: Amount::from_u64(4_096),
             },
             // Each submission costs up to a quorum of post-quantum signature
             // verifications at ~286 µs apiece. Thirty-two full-quorum
             // submissions would be nearly two hundred milliseconds.
             Self::OracleMaxFeedSubmissionsPerBlock => Bounds {
-                min: 1,
-                max: 32,
-                default: 8,
+                min: Amount::from_u64(1),
+                max: Amount::from_u64(32),
+                default: Amount::from_u64(8),
             },
             // A joinsplit carries a ~0.4 MB STARK. The ceiling is what an
             // 8 MiB gossip frame holds beside the rest of a block, and zero
@@ -212,40 +213,40 @@ impl ParameterKey {
             // cap directly, and these bounds only keep a proposal from
             // recording a value the node would not honour.
             Self::ShieldedMaxPerBlock => Bounds {
-                min: 1,
-                max: 16,
-                default: 16,
+                min: Amount::from_u64(1),
+                max: Amount::from_u64(16),
+                default: Amount::from_u64(16),
             },
             // 1 MiB to 64 MiB of contract memory. The upper end is what a node
             // must be able to allocate for one call; the lower end is what a
             // non-trivial contract needs to exist at all.
             Self::VmMaxMemoryPages => Bounds {
-                min: 16,
-                max: 1_024,
-                default: 256,
+                min: Amount::from_u64(16),
+                max: Amount::from_u64(1_024),
+                default: Amount::from_u64(256),
             },
             // Code is stored on chain verbatim and every node keeps it forever,
             // so this is a storage decision as much as a validation one.
             Self::VmMaxModuleBytes => Bounds {
-                min: 64 * 1024,
-                max: 2 * 1024 * 1024,
-                default: 512 * 1024,
+                min: Amount::from_u64(64 * 1024),
+                max: Amount::from_u64(2 * 1024 * 1024),
+                default: Amount::from_u64(512 * 1024),
             },
             // A halting bound, not a price. Too low and no useful contract
             // completes; too high and one call can occupy a validator for
             // longer than a block.
             Self::VmDefaultGasLimit => Bounds {
-                min: 100_000,
-                max: 1_000_000_000,
-                default: 10_000_000,
+                min: Amount::from_u64(100_000),
+                max: Amount::from_u64(1_000_000_000),
+                default: Amount::from_u64(10_000_000),
             },
             // Anti-spam, not a barrier. The deposit is returned unless the
             // proposal is withdrawn, so the ceiling exists to stop governance
             // pricing out its own participants.
             Self::GovernanceProposalDeposit => Bounds {
-                min: 0,
-                max: 1_000_000_000,
-                default: 10_000,
+                min: Amount::from_u64(0),
+                max: Amount::from_u64(1_000_000_000),
+                default: Amount::from_u64(10_000),
             },
             // A registry byte, not a quantity: the range spans the
             // post-quantum ids (0x10 ML-DSA-65 .. 0x30 the hybrid) and so
@@ -255,9 +256,9 @@ impl ParameterKey {
             // no dependencies and cannot know the registry. ML-DSA-87 (0x11)
             // is the brief's mainnet default.
             Self::DefaultSignatureSuite => Bounds {
-                min: 0x10,
-                max: 0x30,
-                default: 0x11,
+                min: Amount::from_u64(0x10),
+                max: Amount::from_u64(0x30),
+                default: Amount::from_u64(0x11),
             },
         }
     }
@@ -286,7 +287,7 @@ impl ParameterKey {
     /// Returns [`GovernanceError::ParameterOutOfRange`] with the range, so the
     /// rejection says what would have been acceptable rather than only that
     /// this was not.
-    pub const fn check(self, value: u64) -> Result<()> {
+    pub fn check(self, value: Amount) -> Result<()> {
         let bounds = self.bounds();
         if bounds.contains(value) {
             Ok(())
@@ -306,8 +307,9 @@ impl ParameterKey {
 pub struct ParameterChange {
     /// Which rule.
     pub key: ParameterKey,
-    /// What it becomes.
-    pub value: u64,
+    /// What it becomes: 256-bit (ADR-066), so a money parameter such as the
+    /// proposal deposit is never capped by its type.
+    pub value: Amount,
 }
 
 impl ParameterChange {
@@ -316,7 +318,7 @@ impl ParameterChange {
     /// # Errors
     ///
     /// As [`ParameterKey::check`].
-    pub const fn validate(&self) -> Result<()> {
+    pub fn validate(&self) -> Result<()> {
         self.key.check(self.value)
     }
 }
@@ -397,15 +399,17 @@ mod tests {
 
         assert!(key.check(bounds.max).is_ok());
         assert!(key.check(bounds.min).is_ok());
-        assert!(key.check(bounds.max + 1).is_err());
+        assert!(key
+            .check(bounds.max.checked_add(Amount::from_u64(1)).unwrap())
+            .is_err());
 
         // The rejection carries the range, so it says what would have been
         // acceptable rather than only that this was not.
         assert_eq!(
-            key.check(u64::MAX),
+            key.check(Amount::MAX),
             Err(GovernanceError::ParameterOutOfRange {
                 key,
-                value: u64::MAX,
+                value: Amount::MAX,
                 min: bounds.min,
                 max: bounds.max,
             })
@@ -418,9 +422,9 @@ mod tests {
         // the protocol's cut comes out of the same trade. An unbounded one is
         // an unbounded tax on every swap, and it is exactly the change a
         // captured governance would make.
-        assert!(ParameterKey::DexProtocolFeeBps.check(200).is_ok());
-        assert!(ParameterKey::DexProtocolFeeBps.check(201).is_err());
-        assert!(ParameterKey::DexProtocolFeeBps.check(10_000).is_err());
+        assert!(ParameterKey::DexProtocolFeeBps.check(Amount::from_u64(200)).is_ok());
+        assert!(ParameterKey::DexProtocolFeeBps.check(Amount::from_u64(201)).is_err());
+        assert!(ParameterKey::DexProtocolFeeBps.check(Amount::from_u64(10_000)).is_err());
     }
 
     #[test]
@@ -435,7 +439,7 @@ mod tests {
             ParameterKey::DexMaxOrdersPerBook,
             ParameterKey::VmMaxMemoryPages,
         ] {
-            assert!(key.check(0).is_err(), "{} may be set to zero", key.label());
+            assert!(key.check(Amount::from_u64(0)).is_err(), "{} may be set to zero", key.label());
         }
     }
 }

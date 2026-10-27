@@ -322,7 +322,7 @@ impl StateDB {
     /// governance decision reaches every pool rather than only the ones
     /// created after it.
     fn priced(&self, overlay: &Overlay, record: &PoolRecord) -> Result<PoolRecord> {
-        let protocol_bps = u32::try_from(self.parameter(overlay, ParameterKey::DexProtocolFeeBps)?)
+        let protocol_bps = u32::try_from(self.parameter_u64(overlay, ParameterKey::DexProtocolFeeBps)?)
             .unwrap_or(u32::MAX);
 
         let fees = FeeSchedule::new(record.pool.fees.lp_bps, protocol_bps)
@@ -823,7 +823,7 @@ impl StateDB {
             });
         }
 
-        let ceiling = self.parameter(overlay, ParameterKey::DexMaxOrdersPerBook)?;
+        let ceiling = self.parameter_u64(overlay, ParameterKey::DexMaxOrdersPerBook)?;
         let count = self.adjust_order_count(overlay, &placement.pair, 1)?;
         if count > ceiling {
             return Err(NodeError::Trade {
@@ -1020,7 +1020,7 @@ impl StateDB {
                 .map_err(|error| trade_error("book reconstruction", error))?;
         }
 
-        let ceiling = usize::try_from(self.parameter(overlay, ParameterKey::DexMaxFillsPerBlock)?)
+        let ceiling = usize::try_from(self.parameter_u64(overlay, ParameterKey::DexMaxFillsPerBlock)?)
             .unwrap_or(usize::MAX);
         let budget = ceiling.saturating_sub(overlay.fills);
         if budget == 0 {

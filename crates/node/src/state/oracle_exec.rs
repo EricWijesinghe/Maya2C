@@ -195,7 +195,7 @@ impl StateDB {
             feeds.insert(
                 feed_id,
                 OracleValue {
-                    value: record.value,
+                    value: maya_stateless_core::amount::to_amount(record.value),
                     updated_height: record.updated_height,
                     round: record.round,
                     observations: record.observations,
@@ -270,7 +270,7 @@ impl StateDB {
         context: BlockContext,
     ) -> Result<()> {
         let ceiling = usize::try_from(
-            self.parameter(overlay, ParameterKey::OracleMaxFeedSubmissionsPerBlock)?,
+            self.parameter_u64(overlay, ParameterKey::OracleMaxFeedSubmissionsPerBlock)?,
         )
         .unwrap_or(usize::MAX);
         if overlay.feed_submissions >= ceiling {
@@ -302,7 +302,7 @@ impl StateDB {
 
         let registry = self.require_registry(overlay)?;
         let mut seen: BTreeSet<Address> = BTreeSet::new();
-        let mut values: Vec<u64> = Vec::with_capacity(submission.observations.len());
+        let mut values: Vec<primitive_types::U256> = Vec::with_capacity(submission.observations.len());
 
         for observation in &submission.observations {
             let address = address_of(&observation.public_key);

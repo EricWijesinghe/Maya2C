@@ -155,8 +155,14 @@ impl StateDB {
     /// Every governed call site goes through this rather than a `const`, which
     /// is what makes the rule a fact about chain state at a height rather than
     /// about the binary.
-    pub(crate) fn parameter(&self, overlay: &Overlay, key: ParameterKey) -> Result<u64> {
+    pub(crate) fn parameter(&self, overlay: &Overlay, key: ParameterKey) -> Result<maya_dex::Amount> {
         Ok(self.parameters_through(overlay)?.get(key))
+    }
+
+    /// A count-like parameter (a per-block ceiling, a basis-point rate) as `u64`.
+    /// Their governance bounds are far below `u64::MAX`, so this never clamps.
+    pub(crate) fn parameter_u64(&self, overlay: &Overlay, key: ParameterKey) -> Result<u64> {
+        Ok(self.parameter(overlay, key)?.saturating_to_u64())
     }
 
     fn totals_through(&self, overlay: &Overlay) -> Result<Totals> {
@@ -411,7 +417,9 @@ impl StateDB {
         // what a governance system wants.
         // The parameter is a bounded u64 rule (ADR-048); the coin it moves is
         // 256-bit like every balance.
-        let deposit = U256::from(self.parameter(overlay, ParameterKey::GovernanceProposalDeposit)?);
+        let deposit = maya_stateless_core::amount::to_u256(
+            self.parameter(overlay, ParameterKey::GovernanceProposalDeposit)?,
+        );
         self.debit_native(overlay, sender, deposit)?;
 
         Self::put_record(
