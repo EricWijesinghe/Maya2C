@@ -428,6 +428,18 @@ struct Payload {
     outputs: Vec<TxOutput>,
 }
 
+/// Prints what `tx` will do, in full, before anything is signed.
+fn print_description(tx: &Transaction) {
+    let described = custom_l1_node::core::describe::describe(tx);
+    println!("signing:  {}", described.summary);
+    for (label, value) in &described.details {
+        println!("          {label}: {value}");
+    }
+    if described.review == custom_l1_node::core::describe::Review::Careful {
+        println!("          check every line above; this moves value or changes control");
+    }
+}
+
 /// Signs `payload` with the wallet key and broadcasts it, or prints it raw.
 /// Returns whether it was broadcast.
 async fn submit(
@@ -449,6 +461,13 @@ async fn submit(
     // ADR-036: the signature commits to this node's genesis, so the
     // transaction is worthless on any other Maya2C chain.
     let chain = client.get_chain_info().await?;
+    // Said before the key signs, from the payload as the user asked for it (the
+    // fee output is added below and is not a recipient). The same words every
+    // wallet shows (`core::describe`).
+    let mut intent = Transaction::new(vec![], payload.outputs.clone(), nonce);
+    intent.kind = payload.kind.clone();
+    print_description(&intent);
+
     let outputs = with_fee(&client, key, &payload, nonce, opts.fee, &chain).await?;
     let mut tx = Transaction::new(vec![], outputs, nonce);
     tx.kind = payload.kind;

@@ -494,6 +494,54 @@ fn a_proposal_that_misses_quorum_is_rejected_and_changes_nothing() {
 }
 
 #[test]
+fn work_credit_held_by_those_who_stay_home_counts_in_the_quorum_denominator() {
+    // Vote weight is locked stake plus work credit, so the electorate quorum is
+    // measured against must be both. Measured against locked stake alone, one
+    // miner's small credit meets quorum on a chain where a great deal more work
+    // is held by miners who did not vote (audit H-2).
+    let fixture = fixture();
+    fixture
+        .act(
+            0,
+            TxKind::ClaimWork(WorkClaim {
+                beneficiary: fixture.address(0),
+            }),
+            1,
+        )
+        .expect("claim");
+    let credit = u64::try_from(
+        fixture
+            .db
+            .work_credit(&fixture.address(0), 1)
+            .expect("credit"),
+    )
+    .expect("small");
+    assert!(credit > 0);
+
+    // Exactly the 10% quorum of the locked stake alone.
+    fixture.lock(1, credit * 10, 200_000, 2);
+    // A second miner earns twenty times as much and never votes.
+    for height in 3..23 {
+        fixture
+            .act(
+                2,
+                TxKind::ClaimWork(WorkClaim {
+                    beneficiary: fixture.address(2),
+                }),
+                height,
+            )
+            .expect("claim");
+    }
+
+    let (id, executable) = fixture.propose(ParameterKey::DexProtocolFeeBps, 25, 23);
+    fixture.vote(0, id, Choice::For, 24).expect("vote");
+
+    fixture.apply(vec![], executable).expect("settle");
+    assert_eq!(fixture.state_of(&id), ProposalState::Rejected);
+    assert_eq!(fixture.parameter(ParameterKey::DexProtocolFeeBps), 0);
+}
+
+#[test]
 fn a_proposal_voted_down_is_rejected_and_changes_nothing() {
     let fixture = fixture();
     fixture.lock(0, 3_000_000, 200_000, 1);

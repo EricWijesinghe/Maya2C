@@ -70,6 +70,9 @@ impl StubChain {
                     signed: true,
                     suite: None,
                     multisig: None,
+                    kind: "transfer".to_owned(),
+                    summary: String::new(),
+                    careful: true,
                 })
                 .collect(),
             raw: String::new(),
