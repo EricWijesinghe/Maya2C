@@ -16,6 +16,12 @@ against a live server on its own.
 | ML-DSA-87 validator keys (ADR-051 option 3) | key type is fixed in genesis | not built yet |
 | 20% per-operator cap, 7+ validators | policy | `cargo xtask genesis-check FILE` |
 | `--trusted-block` required (production build) | bootstrap safety | #188 |
+| Multisig spends need exactly `m` approvals (#196) | a block that used to be valid (spare approvals) is now refused | `multisig_tests`; live history not checked (step 1.4) |
+| Transaction size 4 MiB (`MAX_TX_BYTES`), blob lengths via `read_byte_len`, vertex payload cap = `MAX_TX_BYTES` (#196, #201) | block/vertex/snapshot/undo decoding changes; mixed versions disagree on a large vertex | `wire` tests, `bft_node_tests` |
+| SettleDvp gated off, `dvp_activation` (ADR-061) | DvP was a stub the seller could not consent to | `features.toml` stub |
+| Channels in the undo journal (#196) | reorg across a channel op | undo tests |
+| Audit fixes (#200): identity revocation index, vault selection, preview key, `import_headers` refusals, DEX escrow `checked_sub` | selection and acceptance rules | `reports/sessions/2026-10-26-audit-findings.md` |
+| **Undecided, would also need this genesis:** ADR-062 (sparse accounts tree, per-key staking), ADR-063 (header version byte, timestamp bound), DEX dust rule (H-1), governance quorum denominator (H-2), retarget window (audit 7) | each changes consensus bytes | audit report; Eric decides |
 
 ## 1. Before anything (no approval needed)
 
@@ -23,7 +29,11 @@ against a live server on its own.
 2. `cargo xtask release-check` passes.
 3. `cargo xtask go-no-go`: every FAIL is either fixed or listed as waived in
    DECISIONS.md (2026-10-25).
-4. The chain-id is new. A reused id with new rules makes two chains look the
+4. **Multisig history (not checked yet):** scan the live chain for a multisig
+   spend carrying more approvals than its policy's `m`. #196 makes such a block
+   invalid; it does not matter on a re-genesised chain, but it matters if anyone
+   ever replays or imports the old history.
+5. The chain-id is new. A reused id with new rules makes two chains look the
    same to a wallet.
 
 ## 2. Keys (Eric present; Claude never holds a key)
