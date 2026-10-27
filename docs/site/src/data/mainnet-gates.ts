@@ -10,6 +10,8 @@ export interface MainnetGate {
   state: MainnetGateState;
   evidence: string;
   href: string;
+  /** Measured live in the visitor's browser instead of fixed at build time. */
+  live?: "soak";
 }
 
 const repo = "https://github.com/EricWijesinghe/Maya2C/blob/master";
@@ -19,7 +21,7 @@ export const asOf = "2026-10-11";
 export const mainnetGates: MainnetGate[] = [
   { n: 1, name: "Replay protection", line: "A signature commits to its chain: a testnet transfer cannot replay on mainnet", state: "met", evidence: "ADR-036", href: `${repo}/docs/adr/ADR-036-chain-bound-signatures.md` },
   { n: 2, name: "Shielded pool off", line: "Mainnet starts without shielded transfers; the guard refuses a genesis that enables them", state: "met", evidence: "ADR-037", href: `${repo}/docs/adr/ADR-037-mainnet-shielded-off.md` },
-  { n: 3, name: "7 days, no halt", line: "The public testnet must run a week without stopping; the clock restarted 2026-10-10 19:25 KST", state: "running", evidence: "status page", href: "https://status.maya2c.dev/" },
+  { n: 3, name: "7 days, no halt", line: "The public testnet must run a week without stopping. This gate turns met by itself when the live status page reports seven days with no halt", state: "running", evidence: "status page", href: "https://status.maya2c.dev/", live: "soak" },
   { n: 4, name: "Separate validators", line: "Four validators on separate machines, run by separate people", state: "waiting", evidence: "needs machines and operators", href: "/guides/validators/" },
   { n: 5, name: "Genesis ceremony", line: "Rehearsed and reproduced byte-identical; the real one needs gate 4", state: "waiting", evidence: "ceremony runbook", href: `${repo}/docs/runbooks/genesis-ceremony.md` },
   { n: 6, name: "Economics", line: "Fees only at launch: no emission, the base fee is burned", state: "met", evidence: "ADR-029", href: "/reference/fee-market/" },

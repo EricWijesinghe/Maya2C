@@ -38,7 +38,7 @@ const word = { met: "met", running: "in progress", waiting: "waiting" } as const
       {gates.map((g, i) => {
         const [x, y] = label(i);
         return (
-          <g class={`seg ${g.state}`} data-i={i} tabindex="0" role="button"
+          <g class={`seg ${g.state}`} data-i={i} data-live={g.live} tabindex="0" role="button"
              aria-label={`Gate ${g.n}, ${g.name}: ${word[g.state]}`}>
             <path d={arc(i)} />
             <text x={x} y={y} dy="0.35em">{g.n}</text>
@@ -52,10 +52,11 @@ const word = { met: "met", running: "in progress", waiting: "waiting" } as const
 
   <ol class="cards">
     {gates.map((g, i) => (
-      <li class={`card ${g.state}`} data-i={i}>
-        <p class="tag"><span class="pip" aria-hidden="true"></span>Gate {g.n} · {word[g.state]}</p>
+      <li class={`card ${g.state}`} data-i={i} data-live={g.live}>
+        <p class="tag"><span class="pip" aria-hidden="true"></span>Gate {g.n} · <span class="word">{word[g.state]}</span></p>
         <h3>{g.name}</h3>
         <p class="line">{g.line}</p>
+        {g.live && <p class="live" aria-live="polite"></p>}
         <a href={g.href}>Evidence: {g.evidence} →</a>
       </li>
     ))}
@@ -68,6 +69,52 @@ const word = { met: "met", running: "in progress", waiting: "waiting" } as const
 </section>
 
 <script>
+  // Gate 3 is a measurement, not an opinion: the status service already counts
+  // seconds since the last halt (apps/status `streak_seconds`) and sends CORS
+  // headers. When that reads seven days with no halt in progress, this page
+  // lights the gate by itself, in every visitor's browser, with no rebuild.
+  // Any failure leaves the build-time state untouched: it can only add
+  // information, never claim a pass it did not read.
+  const STATUS = "https://status.maya2c.dev/api/status";
+  const SOAK_SECONDS = 7 * 24 * 60 * 60;
+
+  function setState(el: Element, to: "met" | "running", words: string) {
+    el.classList.remove("met", "running", "waiting");
+    el.classList.add(to);
+    const w = el.querySelector(".word");
+    if (w) w.textContent = words;
+  }
+
+  async function watchSoak(wrap: HTMLElement, segs: SVGGElement[], cards: HTMLElement[]) {
+    const i = segs.findIndex((s) => s.dataset.live === "soak");
+    if (i < 0) return;
+    const note = cards[i].querySelector<HTMLElement>(".live");
+    try {
+      const r = await fetch(STATUS, { cache: "no-store" });
+      if (!r.ok) throw new Error(String(r.status));
+      const s = await r.json();
+      if (typeof s.streak_seconds !== "number" || typeof s.halted_now !== "boolean") return;
+      const days = s.streak_seconds / 86400;
+      const done = !s.halted_now && s.streak_seconds >= SOAK_SECONDS;
+      if (note) {
+        note.textContent = s.halted_now
+          ? "Live: the chain is halted right now."
+          : `Live: ${days.toFixed(1)} of 7 days without a halt.`;
+      }
+      if (done) {
+        setState(segs[i], "met", "met");
+        setState(cards[i], "met", "met");
+        segs[i].setAttribute("aria-label", "Gate 3, 7 days, no halt: met");
+        const count = wrap.querySelectorAll(".seg.met").length;
+        const big = wrap.querySelector(".big");
+        if (big?.firstChild) big.firstChild.nodeValue = String(count);
+        wrap.setAttribute("aria-label", `Mainnet gates: ${count} of ${segs.length} met`);
+      }
+    } catch {
+      /* unreachable status: keep the static state */
+    }
+  }
+
   document.querySelectorAll<HTMLElement>(".dial-wrap").forEach((wrap) => {
     const segs = [...wrap.querySelectorAll<SVGGElement>(".seg")];
     const cards = [...wrap.querySelectorAll<HTMLElement>(".card")];
@@ -79,6 +126,7 @@ const word = { met: "met", running: "in progress", waiting: "waiting" } as const
     const first = Math.max(0, segs.findIndex((s) => !s.classList.contains("met")));
     wrap.classList.add("js");
     pick(first);
+    watchSoak(wrap, segs, cards);
     segs.forEach((s, i) => {
       s.addEventListener("click", () => pick(i));
       s.addEventListener("keydown", (e) => {
@@ -122,6 +170,8 @@ const word = { met: "met", running: "in progress", waiting: "waiting" } as const
   .js .card { animation: rise .45s var(--glide); }
   .card h3 { margin: .2rem 0 .4rem; font: 800 1.45rem/1.2 var(--display); color: var(--text); }
   .card .line { margin: 0 0 .8rem; color: var(--lede); }
+  .live { margin: -.3rem 0 .8rem; font: 600 .85rem var(--mono); color: var(--cherenkov-hi); }
+  .live:empty { display: none; }
   .card a { color: var(--accent-text); font-weight: 600; text-decoration: none; }
   .card a:hover { text-decoration: underline; }
   .tag { margin: 0; font: 600 .78rem var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: .5rem; }
