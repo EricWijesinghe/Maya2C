@@ -155,7 +155,11 @@ impl StateDB {
     /// Every governed call site goes through this rather than a `const`, which
     /// is what makes the rule a fact about chain state at a height rather than
     /// about the binary.
-    pub(crate) fn parameter(&self, overlay: &Overlay, key: ParameterKey) -> Result<maya_dex::Amount> {
+    pub(crate) fn parameter(
+        &self,
+        overlay: &Overlay,
+        key: ParameterKey,
+    ) -> Result<maya_dex::Amount> {
         Ok(self.parameters_through(overlay)?.get(key))
     }
 

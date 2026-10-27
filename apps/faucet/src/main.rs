@@ -210,8 +210,8 @@ fn env_or(name: &str, default: &str) -> String {
 /// A base-unit amount in decimal; `U256::from_str` would read hex.
 fn parse_amount_env(name: &str, default: u64) -> Result<primitive_types::U256, String> {
     match std::env::var(name) {
-        Ok(value) => primitive_types::U256::from_dec_str(&value)
-            .map_err(|_| format!("{name} is not a base-10 amount in base units")),
+        Ok(value) => custom_l1_node::state::amount_serde::parse_decimal(&value)
+            .ok_or_else(|| format!("{name} is not a base-10 amount in base units")),
         Err(_) => Ok(primitive_types::U256::from(default)),
     }
 }

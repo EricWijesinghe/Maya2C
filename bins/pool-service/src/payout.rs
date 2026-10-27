@@ -473,6 +473,7 @@ mod tests {
     fn config() -> PoolConfig {
         PoolConfig {
             reward_per_block: primitive_types::U256::from(1_000),
+            max_batch_value: primitive_types::U256::MAX,
             fee_rate: 0.0,
             confirmations: 3,
             min_payout: primitive_types::U256::from(10),

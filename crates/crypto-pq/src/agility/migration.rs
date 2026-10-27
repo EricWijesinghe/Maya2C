@@ -230,8 +230,16 @@ impl MigrationState {
         // shortcut: saturates past 2^256 - 1; every balance comes from one ledger
         // whose total fits that width, so conservation never reaches the clamp.
         let sum = |a: Amount, b: Amount| a.saturating_add(b);
-        let live = self.accounts.values().map(|a| a.balance).fold(Amount::default(), sum);
-        let vaulted = self.vault.values().map(|v| v.balance).fold(Amount::default(), sum);
+        let live = self
+            .accounts
+            .values()
+            .map(|a| a.balance)
+            .fold(Amount::default(), sum);
+        let vaulted = self
+            .vault
+            .values()
+            .map(|v| v.balance)
+            .fold(Amount::default(), sum);
         live.saturating_add(vaulted)
     }
 

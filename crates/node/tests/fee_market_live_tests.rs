@@ -141,7 +141,10 @@ fn the_base_fee_falls_on_empty_blocks_and_never_below_its_floor() {
         let block = c.candidate_block(1_000_000 + h, Vec::new()).unwrap();
         c.insert_block(block).unwrap();
         let now = c.state().committed_fees().unwrap().unwrap().base_fee;
-        assert!(now <= last && now >= Amount::from_u64(1), "base fee {now} after {last}");
+        assert!(
+            now <= last && now >= Amount::from_u64(1),
+            "base fee {now} after {last}"
+        );
         last = now;
     }
     assert!(

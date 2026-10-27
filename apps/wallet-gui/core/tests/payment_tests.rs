@@ -490,7 +490,8 @@ fn the_priced_size_is_the_size_of_the_transaction_actually_signed() {
 fn fee_tiers_price_the_minimum_then_twice_then_four_times() {
     let key = signing_key();
     let size = transfer_size(&key, &collector(), 0, &CHAIN).expect("size");
-    let [economy, standard, priority] = priced_fee_tiers(primitive_types::U256::one(), size).expect("priced");
+    let [economy, standard, priority] =
+        priced_fee_tiers(primitive_types::U256::one(), size).expect("priced");
     let size = primitive_types::U256::from(size);
 
     // Economy is exactly the base fee: accepted now, refused if it rises.
@@ -503,7 +504,8 @@ fn fee_tiers_price_the_minimum_then_twice_then_four_times() {
 #[test]
 fn fee_tiers_do_not_overflow_at_the_widest_u64_inputs() {
     // (2^64 - 1)^2 overflowed the old u64 tiers. Exact here, and Priority is 4x.
-    let [economy, _, priority] = priced_fee_tiers(primitive_types::U256::from(u64::MAX), u64::MAX).expect("priced");
+    let [economy, _, priority] =
+        priced_fee_tiers(primitive_types::U256::from(u64::MAX), u64::MAX).expect("priced");
     let expected = primitive_types::U256::from_dec_str("340282366920938463426481119284349108225")
         .expect("literal");
     assert_eq!(economy, expected);

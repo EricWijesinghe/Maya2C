@@ -32,7 +32,11 @@ const DEFAULT_RUNS: usize = 5;
 fn address(index: usize) -> [u8; 32] {
     let mut a = [0u8; 32];
     a[..8].copy_from_slice(&(index as u64).to_le_bytes());
-    a[8..16].copy_from_slice(&(index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15).to_le_bytes());
+    a[8..16].copy_from_slice(
+        &(index as u64)
+            .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+            .to_le_bytes(),
+    );
     a
 }
 

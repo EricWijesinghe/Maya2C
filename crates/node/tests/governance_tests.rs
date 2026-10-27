@@ -135,7 +135,11 @@ impl Fixture {
     }
 
     fn parameter(&self, key: ParameterKey) -> u64 {
-        self.db.parameters().expect("parameters").get(key).saturating_to_u64()
+        self.db
+            .parameters()
+            .expect("parameters")
+            .get(key)
+            .saturating_to_u64()
     }
 
     fn state_of(&self, id: &[u8; 32]) -> ProposalState {
@@ -361,7 +365,10 @@ fn a_proposal_below_the_timelock_floor_is_refused() {
             TxKind::Propose(Box::new(ProposalSubmission {
                 voting_blocks: MIN_VOTING_BLOCKS,
                 timelock_blocks: MIN_TIMELOCK_BLOCKS - 1,
-                changes: vec![(ParameterKey::DexProtocolFeeBps.tag(), maya_dex::Amount::from_u64(10))],
+                changes: vec![(
+                    ParameterKey::DexProtocolFeeBps.tag(),
+                    maya_dex::Amount::from_u64(10),
+                )],
             })),
             1,
         )
@@ -409,7 +416,10 @@ fn a_proposal_outside_a_parameters_hard_range_is_refused() {
                     timelock_blocks: MIN_TIMELOCK_BLOCKS,
                     changes: vec![(
                         ParameterKey::DexProtocolFeeBps.tag(),
-                        bounds.max.checked_add(maya_dex::Amount::from_u64(1)).unwrap(),
+                        bounds
+                            .max
+                            .checked_add(maya_dex::Amount::from_u64(1))
+                            .unwrap(),
                     )],
                 })),
                 1,
@@ -690,7 +700,13 @@ fn a_governed_ceiling_is_read_from_state_rather_than_from_the_binary() {
     fixture.lock(1, 4_000_000, 200_000, 2);
 
     let default = fixture.parameter(ParameterKey::DexMaxOrdersPerBook);
-    assert_eq!(default, ParameterKey::DexMaxOrdersPerBook.bounds().default.saturating_to_u64());
+    assert_eq!(
+        default,
+        ParameterKey::DexMaxOrdersPerBook
+            .bounds()
+            .default
+            .saturating_to_u64()
+    );
 
     let (id, executable) = fixture.propose(ParameterKey::DexMaxOrdersPerBook, 512, 3);
     fixture.vote(0, id, Choice::For, 10).expect("vote");

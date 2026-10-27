@@ -33,9 +33,25 @@ fn payments_the_till_charges_only_the_merchant_within_scope() {
         max_per_payment: 500,
         expires_at: 1_000,
     };
-    authorise_till(&mut r, &mut alice, &till, &checkout, Amount::from_u64(1_200), 1).unwrap();
+    authorise_till(
+        &mut r,
+        &mut alice,
+        &till,
+        &checkout,
+        Amount::from_u64(1_200),
+        1,
+    )
+    .unwrap();
 
-    let receipt = charge(&mut r, &mut alice, &till, shop.id, Amount::from_u64(450), 10).unwrap();
+    let receipt = charge(
+        &mut r,
+        &mut alice,
+        &till,
+        shop.id,
+        Amount::from_u64(450),
+        10,
+    )
+    .unwrap();
     println!("receipt: {receipt}");
     assert!(
         receipt.contains("450 base units of the native coin"),
@@ -43,21 +59,57 @@ fn payments_the_till_charges_only_the_merchant_within_scope() {
     );
     assert_eq!(r.get(&shop.id).unwrap().balance, Amount::from_u64(450));
 
-    let wrong = charge(&mut r, &mut alice, &till, thief.id, Amount::from_u64(10), 11);
+    let wrong = charge(
+        &mut r,
+        &mut alice,
+        &till,
+        thief.id,
+        Amount::from_u64(10),
+        11,
+    );
     assert_eq!(
         wrong,
         Err(AccountError::OutOfScope),
         "a stolen till key cannot pay anyone else"
     );
-    let big = charge(&mut r, &mut alice, &till, shop.id, Amount::from_u64(501), 12);
+    let big = charge(
+        &mut r,
+        &mut alice,
+        &till,
+        shop.id,
+        Amount::from_u64(501),
+        12,
+    );
     assert_eq!(big, Err(AccountError::OutOfScope), "nor overcharge");
-    charge(&mut r, &mut alice, &till, shop.id, Amount::from_u64(500), 13).unwrap();
-    let over_day = charge(&mut r, &mut alice, &till, shop.id, Amount::from_u64(300), 14);
+    charge(
+        &mut r,
+        &mut alice,
+        &till,
+        shop.id,
+        Amount::from_u64(500),
+        13,
+    )
+    .unwrap();
+    let over_day = charge(
+        &mut r,
+        &mut alice,
+        &till,
+        shop.id,
+        Amount::from_u64(300),
+        14,
+    );
     assert!(
         matches!(over_day, Err(AccountError::Policy(_))),
         "the daily limit still binds: {over_day:?}"
     );
-    let late = charge(&mut r, &mut alice, &till, shop.id, Amount::from_u64(1), 1_001);
+    let late = charge(
+        &mut r,
+        &mut alice,
+        &till,
+        shop.id,
+        Amount::from_u64(1),
+        1_001,
+    );
     assert_eq!(
         late,
         Err(AccountError::OutOfScope),
@@ -156,8 +208,21 @@ const RULES: Rules = Rules {
 
 #[test]
 fn dao_a_passed_grant_pays_after_the_timelock_and_the_epoch_limit_binds() {
-    let mut t = Treasury::new(Amount::from_u64(100_000), 10_000, Amount::from_u64(30_000), 1);
-    let mut g = dao::propose(&mut t, &RULES, [7; 32], Amount::from_u64(20_000), "audit grant", 10).unwrap();
+    let mut t = Treasury::new(
+        Amount::from_u64(100_000),
+        10_000,
+        Amount::from_u64(30_000),
+        1,
+    );
+    let mut g = dao::propose(
+        &mut t,
+        &RULES,
+        [7; 32],
+        Amount::from_u64(20_000),
+        "audit grant",
+        10,
+    )
+    .unwrap();
     dao::vote(&mut g, Choice::For, Amount::from_u64(300), 20).unwrap();
     dao::vote(&mut g, Choice::Against, Amount::from_u64(100), 21).unwrap();
     assert!(matches!(
@@ -169,7 +234,15 @@ fn dao_a_passed_grant_pays_after_the_timelock_and_the_epoch_limit_binds() {
     dao::execute(&mut t, &mut g, &RULES, 1_450).unwrap();
     assert_eq!(t.balance, Amount::from_u64(80_000));
 
-    let mut second = dao::propose(&mut t, &RULES, [8; 32], Amount::from_u64(20_000), "second", 1_460).unwrap();
+    let mut second = dao::propose(
+        &mut t,
+        &RULES,
+        [8; 32],
+        Amount::from_u64(20_000),
+        "second",
+        1_460,
+    )
+    .unwrap();
     dao::vote(&mut second, Choice::For, Amount::from_u64(900), 1_470).unwrap();
     assert_eq!(
         dao::execute(&mut t, &mut second, &RULES, 2_900),
@@ -177,7 +250,15 @@ fn dao_a_passed_grant_pays_after_the_timelock_and_the_epoch_limit_binds() {
         "a captured vote still cannot exceed the epoch limit"
     );
 
-    let mut failed = dao::propose(&mut t, &RULES, [9; 32], Amount::from_u64(1), "no quorum", 3_000).unwrap();
+    let mut failed = dao::propose(
+        &mut t,
+        &RULES,
+        [9; 32],
+        Amount::from_u64(1),
+        "no quorum",
+        3_000,
+    )
+    .unwrap();
     dao::vote(&mut failed, Choice::For, Amount::from_u64(50), 3_010).unwrap();
     assert_eq!(
         dao::execute(&mut t, &mut failed, &RULES, 4_500),
@@ -218,8 +299,21 @@ fn vault_holds_a_large_withdrawal_guardians_cancel_theft_and_the_auditor_reads_o
     assert_eq!(open(&env, &auditor).unwrap(), b"payroll 09");
 
     // A thief with the key tries to empty it: held, and a guardian cancels.
-    vault::withdraw(&mut r, &mut owner, payee.id, Amount::from_u64(900_000), b"?", &auditor.ek, 20).unwrap();
-    assert_eq!(r.get(&payee.id).unwrap().balance, Amount::from_u64(5_000), "held, not sent");
+    vault::withdraw(
+        &mut r,
+        &mut owner,
+        payee.id,
+        Amount::from_u64(900_000),
+        b"?",
+        &auditor.ek,
+        20,
+    )
+    .unwrap();
+    assert_eq!(
+        r.get(&payee.id).unwrap().balance,
+        Amount::from_u64(5_000),
+        "held, not sent"
+    );
     r.guardian_cancel(&owner.id, 0, &[guardian.id]).unwrap();
     assert_eq!(
         r.get(&owner.id).unwrap().balance,

@@ -46,8 +46,8 @@
 //! between those two moments could tighten a range, and a value that was legal
 //! when proposed must not become law after it stopped being legal.
 
-use maya_amount::Amount;
 use crate::error::{GovernanceError, Result};
+use maya_amount::Amount;
 
 /// A rule that governance may change.
 ///
@@ -399,9 +399,10 @@ mod tests {
 
         assert!(key.check(bounds.max).is_ok());
         assert!(key.check(bounds.min).is_ok());
-        assert!(key
-            .check(bounds.max.checked_add(Amount::from_u64(1)).unwrap())
-            .is_err());
+        assert!(
+            key.check(bounds.max.checked_add(Amount::from_u64(1)).unwrap())
+                .is_err()
+        );
 
         // The rejection carries the range, so it says what would have been
         // acceptable rather than only that this was not.
@@ -422,9 +423,21 @@ mod tests {
         // the protocol's cut comes out of the same trade. An unbounded one is
         // an unbounded tax on every swap, and it is exactly the change a
         // captured governance would make.
-        assert!(ParameterKey::DexProtocolFeeBps.check(Amount::from_u64(200)).is_ok());
-        assert!(ParameterKey::DexProtocolFeeBps.check(Amount::from_u64(201)).is_err());
-        assert!(ParameterKey::DexProtocolFeeBps.check(Amount::from_u64(10_000)).is_err());
+        assert!(
+            ParameterKey::DexProtocolFeeBps
+                .check(Amount::from_u64(200))
+                .is_ok()
+        );
+        assert!(
+            ParameterKey::DexProtocolFeeBps
+                .check(Amount::from_u64(201))
+                .is_err()
+        );
+        assert!(
+            ParameterKey::DexProtocolFeeBps
+                .check(Amount::from_u64(10_000))
+                .is_err()
+        );
     }
 
     #[test]
@@ -439,7 +452,11 @@ mod tests {
             ParameterKey::DexMaxOrdersPerBook,
             ParameterKey::VmMaxMemoryPages,
         ] {
-            assert!(key.check(Amount::from_u64(0)).is_err(), "{} may be set to zero", key.label());
+            assert!(
+                key.check(Amount::from_u64(0)).is_err(),
+                "{} may be set to zero",
+                key.label()
+            );
         }
     }
 }

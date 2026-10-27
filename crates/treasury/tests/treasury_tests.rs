@@ -17,7 +17,11 @@ fn nothing_vests_before_the_cliff_then_release_is_linear_and_capped() {
     );
     assert_eq!(g.vested(100 + 2 * YEAR), Amount::from_u64(600));
     assert_eq!(g.vested(100 + 4 * YEAR), Amount::from_u64(1_200));
-    assert_eq!(g.vested(u64::MAX), Amount::from_u64(1_200), "never above the total");
+    assert_eq!(
+        g.vested(u64::MAX),
+        Amount::from_u64(1_200),
+        "never above the total"
+    );
     assert_eq!(
         Grant::new(Amount::from_u64(1), 0, 10, 5, false),
         Err(VestingError::BadSchedule)
@@ -28,7 +32,10 @@ fn nothing_vests_before_the_cliff_then_release_is_linear_and_capped() {
 fn claims_never_exceed_what_has_vested() {
     let mut g = Grant::new(Amount::from_u64(1_000), 0, 0, 1_000, false).unwrap();
     g.claim(Amount::from_u64(250), 250).unwrap();
-    assert_eq!(g.claim(Amount::from_u64(1), 250), Err(VestingError::NotVested));
+    assert_eq!(
+        g.claim(Amount::from_u64(1), 250),
+        Err(VestingError::NotVested)
+    );
     g.claim(Amount::from_u64(250), 500).unwrap();
     assert_eq!(g.claimable(500), Amount::from_u64(0));
 }
@@ -41,7 +48,11 @@ fn early_termination_freezes_vesting_and_returns_the_rest() {
         Amount::from_u64(600),
         "unvested share returns to the treasury"
     );
-    assert_eq!(g.vested(900), Amount::from_u64(400), "vesting stopped at termination");
+    assert_eq!(
+        g.vested(900),
+        Amount::from_u64(400),
+        "vesting stopped at termination"
+    );
     g.claim(Amount::from_u64(400), 900).unwrap();
     assert_eq!(g.terminate(950), Err(VestingError::AlreadyClosed));
     // Terminated before the cliff: nothing vests, everything returns.
@@ -67,7 +78,12 @@ fn clawback_only_where_the_grant_allowed_it() {
 #[test]
 fn spends_need_every_stage_in_order_and_respect_the_epoch_limit() {
     let mut t = Treasury::new(Amount::from_u64(10_000), 1_000, Amount::from_u64(3_000), 3);
-    let a = t.propose([1; 32], Amount::from_u64(2_000), "second-client grant, milestone 1", 10);
+    let a = t.propose(
+        [1; 32],
+        Amount::from_u64(2_000),
+        "second-client grant, milestone 1",
+        10,
+    );
     assert_eq!(
         t.approve(a, 1, 11),
         Err(SpendError::OutOfOrder),
@@ -112,7 +128,12 @@ fn a_grant_beyond_u128_vests_exactly() {
     let total = Amount([0, 0, 0, 0]).saturating_add(Amount::MAX.shr(56));
     let mut g = Grant::new(total, 0, 0, 1_000, false).unwrap();
     assert_eq!(g.vested(1_000), total);
-    assert_eq!(g.vested(500), total.mul_div(Amount::from_u64(1), Amount::from_u64(2)).unwrap());
+    assert_eq!(
+        g.vested(500),
+        total
+            .mul_div(Amount::from_u64(1), Amount::from_u64(2))
+            .unwrap()
+    );
     g.claim(g.claimable(500), 500).unwrap();
     assert_eq!(g.claimable(1_000), total.saturating_sub(g.claimed));
 }

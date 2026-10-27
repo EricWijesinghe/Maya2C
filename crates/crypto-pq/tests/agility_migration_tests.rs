@@ -105,9 +105,19 @@ fn run_transfers(state: &mut MigrationState, policy: &SuitePolicy, height: u64) 
         let from_i = ACCOUNTS + (k + offset) % ACTIVE_ACCOUNTS;
         let to_i = ACCOUNTS + (k * 7 + 1 + offset) % ACTIVE_ACCOUNTS;
         let (from, to) = (address(from_i), address(to_i));
-        let auth = tag(&old_key(from_i), &transfer_message(&from, &to, Amount::from_u64(1)));
+        let auth = tag(
+            &old_key(from_i),
+            &transfer_message(&from, &to, Amount::from_u64(1)),
+        );
         state
-            .transfer(policy, height, (&from, &to), Amount::from_u64(1), &auth, &SimAuthorizer)
+            .transfer(
+                policy,
+                height,
+                (&from, &to),
+                Amount::from_u64(1),
+                &auth,
+                &SimAuthorizer,
+            )
             .unwrap_or_else(|e| panic!("transfer failed at height {height}: {e}"));
     }
 }

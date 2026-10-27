@@ -21,10 +21,10 @@
 //! `k:fee` exists only where genesis configures fees. Without it nothing here
 //! runs and no root moves.
 
-use maya_dex::Amount;
 use crate::core::codec::ByteReader;
 use crate::error::{NodeError, Result};
 use crate::state::account::Address;
+use maya_dex::Amount;
 
 /// The fee state record. Under the staking layer's prefix: fees and staking
 /// are one economic subsystem, and one more layer would buy nothing.
@@ -114,6 +114,18 @@ impl FeeRecord {
 mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
+
+    #[test]
+    fn a_version_1_record_is_refused_not_misread() {
+        // The pre-ADR-066 layout: version 1, two u64 fees, two u64 parameters.
+        // A node built after the change must refuse old state (and so refuse to
+        // open the old testnet's database) rather than read it differently.
+        let mut v1 = vec![1u8];
+        for value in [10u64, 1, 1_000_000, 8] {
+            v1.extend_from_slice(&value.to_le_bytes());
+        }
+        assert!(matches!(FeeRecord::decode(&v1), Err(NodeError::Decode(_))));
+    }
 
     fn record() -> FeeRecord {
         FeeRecord {

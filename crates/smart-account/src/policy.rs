@@ -1,7 +1,7 @@
 //! Built-in policy modules: evaluated by the chain, not by app code.
 
-use maya_amount::Amount;
 use crate::AccountId;
+use maya_amount::Amount;
 
 /// Blocks in one policy "day" (2 s blocks).
 pub const BLOCKS_PER_DAY: u64 = 43_200;

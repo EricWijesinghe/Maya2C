@@ -112,7 +112,11 @@ impl Paymaster {
         if !self.sponsored.is_empty() && !self.sponsored.contains(account) {
             return false;
         }
-        let spent = self.spent.get(&(*account, day)).copied().unwrap_or_default();
+        let spent = self
+            .spent
+            .get(&(*account, day))
+            .copied()
+            .unwrap_or_default();
         let Some(next) = spent.checked_add(fee) else {
             return false;
         };

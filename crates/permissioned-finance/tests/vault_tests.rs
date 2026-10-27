@@ -130,7 +130,9 @@ fn fifty_thousand_compliant_settlements_conserve_supply() {
         vault
             .admit(account(i), tier, &kyc.prove(i, tier).unwrap())
             .unwrap();
-        vault.issue(ISSUER, account(i), Amount::from_u64(1_000_000)).unwrap();
+        vault
+            .issue(ISSUER, account(i), Amount::from_u64(1_000_000))
+            .unwrap();
     }
     let supply = vault.supply();
 
@@ -140,7 +142,9 @@ fn fifty_thousand_compliant_settlements_conserve_supply() {
         let to = (from + 1 + (n / 7 % 3) as usize) % ACCOUNTS;
         // Within every tier's limit, so every one must settle.
         let amount = n % 997 + 1;
-        vault.settle(account(from), account(to), Amount::from_u64(amount)).unwrap();
+        vault
+            .settle(account(from), account(to), Amount::from_u64(amount))
+            .unwrap();
     }
     let elapsed = started.elapsed();
     assert_eq!(vault.supply(), supply);
@@ -172,11 +176,15 @@ fn limits_freezes_and_the_issuer_are_enforced() {
         vault.issue(ISSUER, outsider, Amount::from_u64(5)),
         Err(VaultError::NotAdmitted(outsider))
     );
-    vault.issue(ISSUER, account(1), Amount::from_u64(5_000)).unwrap();
+    vault
+        .issue(ISSUER, account(1), Amount::from_u64(5_000))
+        .unwrap();
 
     assert_eq!(
         vault.settle(account(1), account(0), Amount::from_u64(1_001)),
-        Err(VaultError::OverLimit { limit: Amount::from_u64(1_000) })
+        Err(VaultError::OverLimit {
+            limit: Amount::from_u64(1_000)
+        })
     );
     assert_eq!(
         vault.settle(account(1), outsider, Amount::from_u64(10)),
@@ -192,7 +200,9 @@ fn limits_freezes_and_the_issuer_are_enforced() {
         Err(VaultError::NotIssuer)
     );
     vault.set_frozen(ISSUER, account(0), false).unwrap();
-    vault.settle(account(1), account(0), Amount::from_u64(1_000)).unwrap();
+    vault
+        .settle(account(1), account(0), Amount::from_u64(1_000))
+        .unwrap();
     assert_eq!(
         vault.settle(account(0), account(1), Amount::from_u64(1_001)),
         Err(VaultError::Insufficient)
