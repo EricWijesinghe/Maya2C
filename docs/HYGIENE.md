@@ -11,7 +11,7 @@ Map of what lives where: [REPO-MAP.md](REPO-MAP.md).
    listed in REPO-MAP, and files that tools read by fixed path.
 2. **No new root files** without a line in REPO-MAP.md in the same change.
 3. **A new top-level directory** needs an ADR line and a REPO-MAP row.
-4. **Plans live in `docs/plans/`**; when finished, the outcome moves to
+4. **Plans live in `.claude/plans/`** (not `docs/`: `cargo xtask guides-check` scans every command in `docs/`, and a plan names things that do not exist yet); when finished, the outcome moves to
    `PROGRESS.md`/an ADR and the plan is deleted or marked `Superseded`.
 5. **Status is stated once.** `features.toml` for "works", `STATE.md` for
    "now". Other docs link; they do not restate counts.
@@ -36,7 +36,7 @@ Map of what lives where: [REPO-MAP.md](REPO-MAP.md).
 | `.mcp.json.bak-*`, `deploy.sh`, root `genesis.json` deleted | stale backup; legacy compose launcher (image `custom-l1-node`, no compose file at root, referenced by nothing); a 130 B dev-output stub |
 | `skills/` (115 AWS skill symlinks) deleted; `/skills/`, `/genesis.json`, `/offsec-sandbox/target/` ignored | installer output; 1.8 GiB nested build dir |
 | monitoring configs → `infra/monitoring/`; `ATTACKNET_LAB_GUIDE.md` → `docs/runbooks/attacknet-lab-guide.md`; `deploy-production.sh` → `scripts/` (now `cd`s to the repo root) | root holds only manifests and status docs; references updated in `scripts/attacknet-lab.ps1`, `LAUNCH.md`, infra comments. `bash -n` passes; the script was **not** run (Standing Order 6) |
-| `NextGen_Update.md`, `OPTIMIZATION_PLAN.md` → `docs/plans/`; `run-claude*` → `scripts/dev/`; `Prompts/` → `docs/master-prompts/` | one home per kind of file |
+| `NextGen_Update.md`, `OPTIMIZATION_PLAN.md` → `.claude/plans/` (first put in `docs/plans/`, which CI rejected: their stale crate names failed `guides-check`); `run-claude*` → `scripts/dev/`; `Prompts/` → `docs/master-prompts/` | one home per kind of file |
 | `docs/REPO-MAP.md`, this file; linked from README, CLAUDE.md, docs/README | single crawl entry point |
 
 Historical `reports/` still mention the old paths (`./deploy-production.sh`);
