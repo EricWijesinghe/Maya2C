@@ -52,3 +52,24 @@ they are evidence and are not rewritten.
 | Unmerged branches `fix/ci-red-2026-10-19`, `feat/ceremony-u256-v2`, `feat/site-alive` | commits not on master; decide merge or drop |
 | `dist/` (249 MiB, ignored) | keep only the latest release artifacts |
 | ~25 sibling directories `D:\Maya2C-*` outside the repo (attacknet-*, testnet, validators, peers, drill, incident, nemotron-quarantine, skills-backup …) | runtime state of the testnet/lab; some are live. Inventory and retire per directory — never in bulk |
+
+### Inventory: sibling directories `D:\Maya2C-*` (read-only, 2026-10-27)
+
+Outside the repo, so git neither tracks nor protects them. Sizes were **not
+measured** (MISSING). "Newest" is the newest direct child's modified time.
+Nothing here was deleted; retire one directory at a time, after checking that
+no process or script uses it.
+
+| Directory | Newest | State | Note |
+|---|---|---|---|
+| `Maya2C-testnet` | 10-23 | **LIVE** | gateway, bootstrap, faucet, chat relay, explorer, status, cloudflared run from `bin\` |
+| `Maya2C-validators` | 10-25 | **LIVE** | four `maya2c-node` processes (`pc1`–`pc4`) |
+| `Maya2C-incident` | 10-27 | active | incident evidence |
+| `Maya2C-ops`, `-peers`, `-eric-site`, `-drill` | 10-19…10-20 | recent | ops logs, PC peers, personal site, DR drill |
+| `Maya2C-wt`, `-wt-s27`, `-wt-site`, `-wt-hygiene` | 10-19…10-27 | worktrees | `-wt/attacknet-daily` is the scheduled runner; `-wt-hygiene` is this change |
+| `Maya2C-attacknet`, `-attacknet-bootnode`, `-attacknet-v1`…`-v4` | 10-09…10-10 | dormant | lab state; the controller's default paths point here (`bins/attacknet-controller/src/config.rs`) |
+| `Maya2C-attacknet-adversary`, `-control`, `-gateway`, `-genesis` | 10-09 | dormant | one child each |
+| `Maya2C-rehearsal-20261010`, `-targets`, `-updates` | 10-10…10-13 | dormant | one-off rehearsals |
+| `Maya2C-nemotron-quarantine` | 10-10 | dormant | broken lab scripts quarantined on purpose (see memory); keep until Eric decides |
+| `Maya2C-launch`, `-profile` | 09-29, 10-18 | dormant | |
+| `Maya2C-skills-backup` | 10-18 | junk candidate | backup taken before the AWS skills symlinks were removed from the repo |
