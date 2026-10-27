@@ -419,3 +419,11 @@ deliberately left at 64 bits, and why, are tabled in ADR-048.
 - **Proposed, not decided:** ADR-065, which cross-chain routes reach consensus (recommendation:
   swaps first, then Bitcoin inbound at activation height `u64::MAX`).
 
+
+## 2026-10-27 — Eric's second round (Claude recorded)
+
+- **ADR-062:** build now, one PR at a time. Per-validator staking split first, with a
+  `bench-tps` before/after; the sparse tree only if block-apply time at 300k accounts justifies it.
+- **ADR-065 accepted:** swaps first; Bitcoin inbound written but inactive (activation height `u64::MAX`).
+- **Retarget off-by-one (audit 7):** fix before re-genesis, with spec, vectors and an ADR note.
+- **Next gap:** `core::describe` in the GUI wallet and the explorer (kind column).
