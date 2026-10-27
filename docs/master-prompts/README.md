@@ -1,6 +1,6 @@
 # Master Prompts 1–30: coverage ledger
 
-The thirty briefs live in `Prompts/` (three files, 1–10, 11–20, 21–30). This
+The thirty briefs live in `docs/master-prompts/` (three files, 1–10, 11–20, 21–30). This
 file records, for each one, whether its **DONE WHEN** is met and the largest
 gap. It is the answer to "is prompt N finished", and it is deliberately
 separate from `features.toml`.

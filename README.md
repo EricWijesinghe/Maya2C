@@ -237,7 +237,7 @@ Security reports go privately, never in public issues: see [SECURITY.md](SECURIT
 
 ## Documentation
 
-[docs/README.md](docs/README.md) indexes the full set. Start with:
+[docs/README.md](docs/README.md) indexes the full set; [docs/REPO-MAP.md](docs/REPO-MAP.md) says where every directory lives. Start with:
 
 - [mainnet-readiness.md](docs/mainnet-readiness.md): why mainnet is blocked
 - [launch-checklist.md](docs/launch-checklist.md): what remains before a value-bearing launch

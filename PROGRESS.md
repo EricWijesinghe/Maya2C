@@ -147,10 +147,10 @@ crates rather than duplicating them (D1).
 
 ---
 
-## Master Prompts 1–30 (`Prompts/`) — merged to `master` 2026-09-28
+## Master Prompts 1–30 (`docs/master-prompts/`) — merged to `master` 2026-09-28
 
 A different numbering from the sections above: the thirty briefs in
-`Prompts/`, executed in order. Per-prompt DONE WHEN verdicts are in
+`docs/master-prompts/`, executed in order. Per-prompt DONE WHEN verdicts are in
 [docs/master-prompts/README.md](docs/master-prompts/README.md); each prompt's
 evidence is `reports/NN-*.md`. Ticked = its report exists with real output,
 not that every DONE WHEN criterion is met.

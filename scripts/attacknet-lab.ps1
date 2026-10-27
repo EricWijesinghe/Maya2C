@@ -158,7 +158,7 @@ function Start-Lab {
     if (Get-Command docker -ErrorAction SilentlyContinue) {
         Write-Host "Starting monitoring stack..." -ForegroundColor Cyan
         Set-Location $REPO_DIR
-        docker-compose -f docker-compose.monitoring.yml up -d
+        docker-compose -f infra/monitoring/docker-compose.monitoring.yml up -d
     }
 
     Write-Host "Lab started successfully!" -ForegroundColor Green
@@ -189,7 +189,7 @@ function Stop-Lab {
     # Stop monitoring stack
     if (Get-Command docker -ErrorAction SilentlyContinue) {
         Set-Location $REPO_DIR
-        docker-compose -f docker-compose.monitoring.yml down
+        docker-compose -f infra/monitoring/docker-compose.monitoring.yml down
     }
 
     Write-Host "Lab stopped" -ForegroundColor Green
@@ -205,7 +205,7 @@ function Emergency-Down {
 
     if (Get-Command docker -ErrorAction SilentlyContinue) {
         Set-Location $REPO_DIR
-        docker-compose -f docker-compose.monitoring.yml down -v
+        docker-compose -f infra/monitoring/docker-compose.monitoring.yml down -v
     }
 
     Write-Host "Emergency termination complete" -ForegroundColor Red
