@@ -6017,6 +6017,9 @@ dependencies = [
 [[package]]
 name = "maya-clear-sign"
 version = "0.1.0"
+dependencies = [
+ "maya-amount",
+]
 
 [[package]]
 name = "maya-confidential-ai"
@@ -6032,6 +6035,9 @@ dependencies = [
 [[package]]
 name = "maya-contract-safety"
 version = "0.1.0"
+dependencies = [
+ "maya-amount",
+]
 
 [[package]]
 name = "maya-crypto-pq"
@@ -6043,6 +6049,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hex",
  "hqc-kem",
+ "maya-amount",
  "maya-build-guard",
  "maya-crypto-pq",
  "ml-dsa",
@@ -6324,6 +6331,7 @@ name = "maya-interop"
 version = "0.1.0"
 dependencies = [
  "blst",
+ "maya-amount",
  "serde_json",
  "sha2 0.10.9",
  "sha3 0.11.0",
@@ -6352,6 +6360,9 @@ dependencies = [
 [[package]]
 name = "maya-lanes"
 version = "0.1.0"
+dependencies = [
+ "maya-amount",
+]
 
 [[package]]
 name = "maya-lattice-pow"
@@ -6453,6 +6464,7 @@ name = "maya-permissioned-finance"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "maya-amount",
  "maya-zk-stark",
  "rand_chacha 0.3.1",
  "rand_core 0.6.4",
@@ -6534,6 +6546,7 @@ dependencies = [
 name = "maya-reference-apps"
 version = "0.1.0"
 dependencies = [
+ "maya-amount",
  "maya-clear-sign",
  "maya-crypto-pq",
  "maya-design-system",
@@ -6604,6 +6617,7 @@ name = "maya-smart-account"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "maya-amount",
  "maya-crypto-pq",
 ]
 
@@ -6747,6 +6761,9 @@ version = "0.1.0"
 [[package]]
 name = "maya-treasury"
 version = "0.1.0"
+dependencies = [
+ "maya-amount",
+]
 
 [[package]]
 name = "maya-vm"
@@ -6908,6 +6925,7 @@ version = "0.1.0"
 dependencies = [
  "custom-l1-node",
  "hex",
+ "maya-amount",
  "maya-clear-sign",
  "serde_json",
 ]

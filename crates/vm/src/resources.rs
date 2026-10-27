@@ -5,11 +5,17 @@
 //!
 //! ```text
 //! maya_res.self() -> i32                                 this contract's id
-//! maya_res.balance(holder: i32, kind: i32) -> i64
-//! maya_res.transfer(from: i32, to: i32, kind: i32, amount: i64)
-//! maya_res.mint(kind: i32, to: i32, amount: i64)
-//! maya_res.burn(kind: i32, from: i32, amount: i64)
+//! maya_res.balance(holder: i32, kind: i32) -> (i64, i64, i64, i64)
+//! maya_res.transfer(from: i32, to: i32, kind: i32, amount: 4 x i64)
+//! maya_res.mint(kind: i32, to: i32, amount: 4 x i64)
+//! maya_res.burn(kind: i32, from: i32, amount: 4 x i64)
 //! ```
+//!
+//! An amount is 256 bits, passed as four `i64` limbs, least significant
+//! first, each read as the raw bits of a `u64`. WASM has no integer wider
+//! than 64 bits, and a single `i64` would cap a contract token at 2⁶³−1 units
+//! while the ledger holds 2²⁵⁶−1: a number the chain can hold must be a
+//! number a contract can move. There is no clamp anywhere on this path.
 //!
 //! The contract acts as itself: moving someone else's units needs their Move
 //! capability, minting and burning need the kind's capability. A broken rule
@@ -25,6 +31,7 @@
 //! import (`host_surface_tests`), so [`Runtime::call`]'s re-entry refusal is
 //! exercised by `crates/contract-safety` alone.
 
+use maya_amount::Amount;
 use maya_contract_safety::{Fault, Id, Runtime};
 use wasmtime::{Caller, Linker};
 
@@ -67,21 +74,27 @@ fn charge<S: HostState>(caller: &mut Caller<'_, CallContext<S>>) -> wasmtime::Re
 /// Charges, checks the amount, and applies `op`; a fault traps the guest.
 fn apply<S: ResourceState>(
     caller: &mut Caller<'_, CallContext<S>>,
-    amount: i64,
-    op: impl FnOnce(&mut Runtime, Id, u128) -> core::result::Result<(), Fault>,
+    limbs: [i64; 4],
+    op: impl FnOnce(&mut Runtime, Id, Amount) -> core::result::Result<(), Fault>,
 ) -> wasmtime::Result<()> {
     charge(caller)?;
-    let Ok(amount) = u128::try_from(amount) else {
-        return Err(refuse(
-            caller,
-            VmError::InvalidHostCall(format!("negative amount {amount}")),
-        ));
-    };
+    let amount = Amount(limbs.map(limb));
     let actor = caller.data().state.actor();
     match op(caller.data_mut().state.resources(), actor, amount) {
         Ok(()) => Ok(()),
         Err(fault) => Err(refuse(caller, VmError::Resource(fault))),
     }
+}
+
+// Limbs cross the boundary as i64 and are the raw bits of a u64.
+#[allow(clippy::cast_sign_loss)]
+const fn limb(value: i64) -> u64 {
+    value as u64
+}
+
+#[allow(clippy::cast_possible_wrap)]
+const fn wasm_limb(value: u64) -> i64 {
+    value as i64
 }
 
 // Ids and kinds cross the boundary as i32 and are reinterpreted as u32.
@@ -114,7 +127,8 @@ fn register<S: ResourceState + Send + 'static>(linker: &mut Linker<CallContext<S
                     .resources()
                     .state
                     .balance(id(holder), id(kind));
-                i64::try_from(held).unwrap_or(i64::MAX)
+                let [a, b, c, d] = held.0.map(wasm_limb);
+                (a, b, c, d)
             },
         )
         .map_err(wrap)?;
@@ -122,8 +136,8 @@ fn register<S: ResourceState + Send + 'static>(linker: &mut Linker<CallContext<S
         .func_wrap(
             RESOURCE_MODULE,
             "transfer",
-            |mut caller: Caller<'_, CallContext<S>>, from: i32, to: i32, kind: i32, amount: i64| {
-                apply(&mut caller, amount, |rt, actor, n| {
+            |mut caller: Caller<'_, CallContext<S>>, from: i32, to: i32, kind: i32, a0: i64, a1: i64, a2: i64, a3: i64| {
+                apply(&mut caller, [a0, a1, a2, a3], |rt, actor, n| {
                     rt.transfer(actor, id(from), id(to), id(kind), n)
                 })
             },
@@ -133,8 +147,8 @@ fn register<S: ResourceState + Send + 'static>(linker: &mut Linker<CallContext<S
         .func_wrap(
             RESOURCE_MODULE,
             "mint",
-            |mut caller: Caller<'_, CallContext<S>>, kind: i32, to: i32, amount: i64| {
-                apply(&mut caller, amount, |rt, actor, n| {
+            |mut caller: Caller<'_, CallContext<S>>, kind: i32, to: i32, a0: i64, a1: i64, a2: i64, a3: i64| {
+                apply(&mut caller, [a0, a1, a2, a3], |rt, actor, n| {
                     rt.mint(actor, id(kind), id(to), n)
                 })
             },
@@ -144,8 +158,8 @@ fn register<S: ResourceState + Send + 'static>(linker: &mut Linker<CallContext<S
         .func_wrap(
             RESOURCE_MODULE,
             "burn",
-            |mut caller: Caller<'_, CallContext<S>>, kind: i32, from: i32, amount: i64| {
-                apply(&mut caller, amount, |rt, actor, n| {
+            |mut caller: Caller<'_, CallContext<S>>, kind: i32, from: i32, a0: i64, a1: i64, a2: i64, a3: i64| {
+                apply(&mut caller, [a0, a1, a2, a3], |rt, actor, n| {
                     rt.burn(actor, id(kind), id(from), n)
                 })
             },

@@ -28,6 +28,8 @@
 //! runs that with 1,000,000 accounts.
 
 use std::collections::BTreeMap;
+
+use maya_amount::Amount;
 use std::ops::Bound;
 
 use super::{SuitePolicy, SuiteStatus};
@@ -86,7 +88,7 @@ pub struct Account {
     /// Commitment to its current key.
     pub key: KeyCommitment,
     /// Its balance.
-    pub balance: u128,
+    pub balance: Amount,
     /// A registered upgraded key, `(suite, commitment)`.
     pub recovery: Option<(SuiteId, KeyCommitment)>,
 }
@@ -95,7 +97,7 @@ pub struct Account {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VaultEntry {
     /// The swept balance.
-    pub balance: u128,
+    pub balance: Amount,
     /// The suite it was held under.
     pub from_suite: SuiteId,
     /// The only key that can open it; `None` means locked.
@@ -131,6 +133,9 @@ pub enum MigrationError {
     /// The balance is too small.
     #[error("insufficient balance")]
     InsufficientBalance,
+    /// The receiver's balance would pass 2^256 - 1.
+    #[error("receiving balance would overflow")]
+    BalanceOverflow,
     /// The vault entry has no registered recovery key.
     #[error("vault entry is locked: no recovery key was registered")]
     Locked,
@@ -177,7 +182,7 @@ pub fn claim_message(address: &Address) -> Vec<u8> {
 
 /// The message a sender signs to transfer.
 #[must_use]
-pub fn transfer_message(from: &Address, to: &Address, amount: u128) -> Vec<u8> {
+pub fn transfer_message(from: &Address, to: &Address, amount: Amount) -> Vec<u8> {
     message(TRANSFER_DOMAIN, from, &[to, &amount.to_le_bytes()])
 }
 
@@ -221,10 +226,13 @@ impl MigrationState {
 
     /// Every balance, live and vaulted. Conserved by every operation.
     #[must_use]
-    pub fn total_supply(&self) -> u128 {
-        let live: u128 = self.accounts.values().map(|a| a.balance).sum();
-        let vaulted: u128 = self.vault.values().map(|v| v.balance).sum();
-        live + vaulted
+    pub fn total_supply(&self) -> Amount {
+        // shortcut: saturates past 2^256 - 1; every balance comes from one ledger
+        // whose total fits that width, so conservation never reaches the clamp.
+        let sum = |a: Amount, b: Amount| a.saturating_add(b);
+        let live = self.accounts.values().map(|a| a.balance).fold(Amount::default(), sum);
+        let vaulted = self.vault.values().map(|v| v.balance).fold(Amount::default(), sum);
+        live.saturating_add(vaulted)
     }
 
     fn authorized_signer(
@@ -318,7 +326,7 @@ impl MigrationState {
         policy: &SuitePolicy,
         height: u64,
         (from, to): (&Address, &Address),
-        amount: u128,
+        amount: Amount,
         authorization: &[u8],
         auth: &impl Authorizer,
     ) -> Result<(), MigrationError> {
@@ -342,10 +350,14 @@ impl MigrationState {
                 ..sender
             },
         );
+        let credited = receiver
+            .balance
+            .checked_add(amount)
+            .ok_or(MigrationError::BalanceOverflow)?;
         self.accounts.insert(
             *to,
             Account {
-                balance: receiver.balance.saturating_add(amount),
+                balance: credited,
                 ..receiver
             },
         );

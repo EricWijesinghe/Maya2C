@@ -96,7 +96,7 @@ struct Args {
     difficulty_bits: u32,
     pow_limit_bits: Option<u32>,
     roots: usize,
-    supply: u64,
+    supply: primitive_types::U256,
     treasury_share_bps: u16,
     out_dir: PathBuf,
     force: bool,
@@ -126,7 +126,7 @@ impl Default for Args {
             difficulty_bits: 22,
             pow_limit_bits: None,
             roots: DEFAULT_ROOTS,
-            supply: 0,
+            supply: primitive_types::U256::zero(),
             treasury_share_bps: 0,
             out_dir: PathBuf::from("./ceremony"),
             force: false,
@@ -217,7 +217,8 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--contributions" => args.contributions = PathBuf::from(value()?),
             "--treasury-public" => args.treasury_public = Some(PathBuf::from(value()?)),
             "--chain-id" => args.chain_id = value()?,
-            "--supply" => args.supply = value()?.parse()?,
+            "--supply" => args.supply = primitive_types::U256::from_dec_str(&value()?)
+                .map_err(|e| format!("--supply: {e:?}"))?,
             "--timestamp" => args.timestamp = Some(value()?.parse()?),
             "--difficulty-bits" => args.difficulty_bits = value()?.parse()?,
             "--pow-limit-bits" => args.pow_limit_bits = Some(value()?.parse()?),
@@ -258,7 +259,7 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
     if args.chain_id.is_empty() {
         return Err("--chain-id is required".into());
     }
-    if args.supply == 0 {
+    if args.supply.is_zero() {
         return Err("--supply is required and must be non-zero".into());
     }
     // ADR-050: a value-bearing chain launches with its bounded emergency
@@ -419,7 +420,11 @@ fn shielded_line(config: &GenesisConfig) -> &'static str {
 /// Returns a message if the split does not land exactly on `share_bps`.
 /// Rejecting rather than rounding: a treasury off by a rounding step is a
 /// treasury whose declared share is a lie, and the file is immutable.
-fn split_supply(supply: u64, share_bps: u16) -> Result<(u64, u64), Box<dyn Error>> {
+fn split_supply(
+    supply: primitive_types::U256,
+    share_bps: u16,
+) -> Result<(primitive_types::U256, primitive_types::U256), Box<dyn Error>> {
+    use primitive_types::U256;
     if share_bps > MAX_TREASURY_SHARE_BPS {
         return Err(format!(
             "treasury share of {share_bps} bps exceeds the {MAX_TREASURY_SHARE_BPS} bps ceiling"
@@ -427,11 +432,18 @@ fn split_supply(supply: u64, share_bps: u16) -> Result<(u64, u64), Box<dyn Error
         .into());
     }
 
-    let treasury = (u128::from(supply) * u128::from(share_bps)) / u128::from(BPS_DENOMINATOR);
-    let treasury = u64::try_from(treasury).map_err(|_| "treasury balance overflows u64")?;
+    // Checked: a supply near 2^256 times the bps would wrap, and a wrapped
+    // treasury is a treasury whose declared share is a lie.
+    let treasury = supply
+        .checked_mul(U256::from(share_bps))
+        .ok_or("treasury calculation overflows 256 bits")?
+        / U256::from(BPS_DENOMINATOR);
 
-    let implied = (u128::from(treasury) * u128::from(BPS_DENOMINATOR)) / u128::from(supply);
-    if implied != u128::from(share_bps) {
+    let implied = treasury
+        .checked_mul(U256::from(BPS_DENOMINATOR))
+        .ok_or("treasury calculation overflows 256 bits")?
+        / supply;
+    if implied != U256::from(share_bps) {
         return Err(format!(
             "a supply of {supply} cannot be split exactly at {share_bps} bps \
              (nearest is {implied} bps); choose a supply divisible by \
@@ -548,8 +560,9 @@ fn run() -> Result<(), Box<dyn Error>> {
     // Each root gets an equal share of what the treasury did not take. Equal,
     // not weighted: an unequal split at genesis is a governance decision, and
     // a ceremony binary is the wrong place to encode one silently.
-    let per_root = distributable / args.roots as u64;
-    let dust = distributable - per_root * args.roots as u64;
+    let roots = primitive_types::U256::from(args.roots);
+    let per_root = distributable / roots;
+    let dust = distributable - per_root * roots;
 
     let mut allocations = Vec::with_capacity(args.roots);
     let mut public_lines = Vec::with_capacity(args.roots);
@@ -910,7 +923,7 @@ fn assemble(args: &Args) -> Result<(), Box<dyn Error>> {
     // Equal shares, as in the single-party path: an unequal split is a
     // governance decision and a ceremony binary is the wrong place to encode
     // one silently.
-    let count = contributions.len() as u64;
+    let count = primitive_types::U256::from(contributions.len());
     let per_root = distributable / count;
     let dust = distributable - per_root * count;
 

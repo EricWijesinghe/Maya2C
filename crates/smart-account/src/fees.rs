@@ -9,6 +9,7 @@
 //! - **Sponsored**: an app's paymaster pays, within its own per-account daily
 //!   cap and total budget — the abuse protection.
 
+use maya_amount::Amount;
 use std::collections::BTreeMap;
 
 use crate::AccountId;
@@ -22,14 +23,14 @@ pub enum FeeSpec {
     /// Native token, at most `max_fee`.
     Native {
         /// Ceiling.
-        max_fee: u64,
+        max_fee: Amount,
     },
     /// An approved token, at most `max_amount` of it.
     Token {
         /// Token id.
         token: u32,
         /// Ceiling in token units.
-        max_amount: u64,
+        max_amount: Amount,
     },
     /// Paid by a paymaster account.
     Sponsored {
@@ -58,25 +59,37 @@ impl FeeSpec {
     }
 }
 
+/// `ceil(a * b / c)` without overflow in the product; `None` past `Amount::MAX` or for `c == 0`.
+fn mul_div_ceil(a: Amount, b: Amount, c: Amount) -> Option<Amount> {
+    let floor = a.mul_div(b, c)?;
+    if floor.mul_wide(c) == a.mul_wide(b) {
+        Some(floor)
+    } else {
+        floor.checked_add(Amount::from_u64(1))
+    }
+}
+
 /// An oracle price: native units per token unit, as a ratio.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TokenPrice {
     /// Numerator (native units).
-    pub native: u64,
+    pub native: Amount,
     /// Denominator (token units).
-    pub token: u64,
+    pub token: Amount,
 }
 
 impl TokenPrice {
     /// Token units needed to cover `native_fee`, rounded up, plus the margin.
-    pub fn token_cost(&self, native_fee: u64) -> Option<u64> {
-        if self.native == 0 {
+    pub fn token_cost(&self, native_fee: Amount) -> Option<Amount> {
+        if self.native.is_zero() {
             return None;
         }
-        let base =
-            (u128::from(native_fee) * u128::from(self.token)).div_ceil(u128::from(self.native));
-        let with_margin = (base * u128::from(10_000 + TOKEN_MARGIN_BPS)).div_ceil(10_000);
-        u64::try_from(with_margin).ok()
+        let base = mul_div_ceil(native_fee, self.token, self.native)?;
+        mul_div_ceil(
+            base,
+            Amount::from_u64(10_000 + TOKEN_MARGIN_BPS),
+            Amount::from_u64(10_000),
+        )
     }
 }
 
@@ -86,27 +99,27 @@ pub struct Paymaster {
     /// Accounts it sponsors (empty = anyone).
     pub sponsored: Vec<AccountId>,
     /// Most it pays for one account per policy day.
-    pub per_account_daily: u64,
+    pub per_account_daily: Amount,
     /// Budget left, native units.
-    pub budget: u64,
+    pub budget: Amount,
     /// `(account, day)` → spent.
-    pub spent: BTreeMap<(AccountId, u64), u64>,
+    pub spent: BTreeMap<(AccountId, u64), Amount>,
 }
 
 impl Paymaster {
     /// Charges `fee` for `account` on `day`, or refuses.
-    pub fn charge(&mut self, account: &AccountId, day: u64, fee: u64) -> bool {
+    pub fn charge(&mut self, account: &AccountId, day: u64, fee: Amount) -> bool {
         if !self.sponsored.is_empty() && !self.sponsored.contains(account) {
             return false;
         }
-        let spent = self.spent.get(&(*account, day)).copied().unwrap_or(0);
+        let spent = self.spent.get(&(*account, day)).copied().unwrap_or_default();
         let Some(next) = spent.checked_add(fee) else {
             return false;
         };
         if next > self.per_account_daily || fee > self.budget {
             return false;
         }
-        self.budget -= fee;
+        self.budget = self.budget.saturating_sub(fee);
         self.spent.insert((*account, day), next);
         true
     }

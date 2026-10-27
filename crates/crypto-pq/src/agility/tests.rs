@@ -1,3 +1,4 @@
+use maya_amount::Amount;
 use super::audit::{FindingKind, audit};
 use super::migration::{
     Account, EnvelopeAuthorizer, MigrationError, MigrationState, claim_message, key_commitment,
@@ -138,7 +139,7 @@ fn state_with(address: [u8; 32], old: &Holder<MlDsa65>, balance: u128) -> Migrat
             Account {
                 suite,
                 key,
-                balance,
+                balance: Amount::from_u128(balance),
                 recovery: None,
             },
         )
@@ -188,13 +189,13 @@ fn a_straggler_is_vaulted_at_sunset_and_only_the_recovery_key_opens_it() {
         .expect("commit");
 
     let sunset = H + MIN_EMERGENCY_WINDOW;
-    let transfer = old.authorize(&transfer_message(&addr, &addr, 1));
+    let transfer = old.authorize(&transfer_message(&addr, &addr, Amount::from_u64(1)));
     assert_eq!(
         state.transfer(
             &policy,
             sunset,
             (&addr, &addr),
-            1,
+            Amount::from_u64(1),
             &transfer,
             &EnvelopeAuthorizer
         ),
@@ -203,7 +204,7 @@ fn a_straggler_is_vaulted_at_sunset_and_only_the_recovery_key_opens_it() {
 
     let report = state.sweep_step(&policy, sunset, 10);
     assert_eq!((report.swept, report.pass_complete), (1, true));
-    assert_eq!(state.total_supply(), 900);
+    assert_eq!(state.total_supply(), Amount::from_u64(900));
 
     let by_old = old.authorize(&claim_message(&addr));
     assert_eq!(
@@ -218,7 +219,7 @@ fn a_straggler_is_vaulted_at_sunset_and_only_the_recovery_key_opens_it() {
     let account = state.account(&addr).expect("restored");
     assert_eq!(
         (account.suite, account.balance),
-        (SuiteId::SlhDsaSha2_128s, 900)
+        (SuiteId::SlhDsaSha2_128s, Amount::from_u64(900))
     );
 }
 
@@ -239,7 +240,7 @@ fn an_account_with_no_recovery_key_stays_locked() {
         ),
         Err(MigrationError::Locked)
     );
-    assert_eq!(state.total_supply(), 7);
+    assert_eq!(state.total_supply(), Amount::from_u64(7));
 }
 
 #[test]

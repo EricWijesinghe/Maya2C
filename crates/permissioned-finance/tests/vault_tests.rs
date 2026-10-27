@@ -8,6 +8,7 @@
     clippy::cast_precision_loss
 )]
 
+use maya_amount::Amount;
 use std::collections::BTreeMap;
 
 use maya_permissioned_finance::Account;
@@ -85,8 +86,8 @@ fn account(i: usize) -> Account {
     a
 }
 
-fn limits() -> BTreeMap<u32, u64> {
-    BTreeMap::from([(1, 1_000), (2, 100_000)])
+fn limits() -> BTreeMap<u32, Amount> {
+    BTreeMap::from([(1, Amount::from_u64(1_000)), (2, Amount::from_u64(100_000))])
 }
 
 #[test]
@@ -129,7 +130,7 @@ fn fifty_thousand_compliant_settlements_conserve_supply() {
         vault
             .admit(account(i), tier, &kyc.prove(i, tier).unwrap())
             .unwrap();
-        vault.issue(ISSUER, account(i), 1_000_000).unwrap();
+        vault.issue(ISSUER, account(i), Amount::from_u64(1_000_000)).unwrap();
     }
     let supply = vault.supply();
 
@@ -139,11 +140,11 @@ fn fifty_thousand_compliant_settlements_conserve_supply() {
         let to = (from + 1 + (n / 7 % 3) as usize) % ACCOUNTS;
         // Within every tier's limit, so every one must settle.
         let amount = n % 997 + 1;
-        vault.settle(account(from), account(to), amount).unwrap();
+        vault.settle(account(from), account(to), Amount::from_u64(amount)).unwrap();
     }
     let elapsed = started.elapsed();
     assert_eq!(vault.supply(), supply);
-    assert_eq!(vault.held(), u128::from(supply));
+    assert_eq!(vault.held(), supply);
     println!(
         "{SETTLEMENTS} settlements in {:.1} ms ({:.0}/s)",
         elapsed.as_secs_f64() * 1e3,
@@ -164,26 +165,26 @@ fn limits_freezes_and_the_issuer_are_enforced() {
     let outsider = [0x77; 32];
 
     assert_eq!(
-        vault.issue(account(0), account(0), 5),
+        vault.issue(account(0), account(0), Amount::from_u64(5)),
         Err(VaultError::NotIssuer)
     );
     assert_eq!(
-        vault.issue(ISSUER, outsider, 5),
+        vault.issue(ISSUER, outsider, Amount::from_u64(5)),
         Err(VaultError::NotAdmitted(outsider))
     );
-    vault.issue(ISSUER, account(1), 5_000).unwrap();
+    vault.issue(ISSUER, account(1), Amount::from_u64(5_000)).unwrap();
 
     assert_eq!(
-        vault.settle(account(1), account(0), 1_001),
-        Err(VaultError::OverLimit { limit: 1_000 })
+        vault.settle(account(1), account(0), Amount::from_u64(1_001)),
+        Err(VaultError::OverLimit { limit: Amount::from_u64(1_000) })
     );
     assert_eq!(
-        vault.settle(account(1), outsider, 10),
+        vault.settle(account(1), outsider, Amount::from_u64(10)),
         Err(VaultError::NotAdmitted(outsider))
     );
     vault.set_frozen(ISSUER, account(0), true).unwrap();
     assert_eq!(
-        vault.settle(account(1), account(0), 10),
+        vault.settle(account(1), account(0), Amount::from_u64(10)),
         Err(VaultError::Frozen(account(0)))
     );
     assert_eq!(
@@ -191,13 +192,13 @@ fn limits_freezes_and_the_issuer_are_enforced() {
         Err(VaultError::NotIssuer)
     );
     vault.set_frozen(ISSUER, account(0), false).unwrap();
-    vault.settle(account(1), account(0), 1_000).unwrap();
+    vault.settle(account(1), account(0), Amount::from_u64(1_000)).unwrap();
     assert_eq!(
-        vault.settle(account(0), account(1), 1_001),
+        vault.settle(account(0), account(1), Amount::from_u64(1_001)),
         Err(VaultError::Insufficient)
     );
     assert_eq!(
         (vault.balance(&account(0)), vault.balance(&account(1))),
-        (1_000, 4_000)
+        (Amount::from_u64(1_000), Amount::from_u64(4_000))
     );
 }

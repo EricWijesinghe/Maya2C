@@ -14,6 +14,7 @@
 //! Plus the onboarding check: before moving Bitcoin in, it says whether the
 //! source output already exposes its public key to a quantum attacker.
 
+use maya_amount::Amount;
 use maya_crypto_pq::kem::EncapsulationKey;
 use maya_privacy::{Envelope, seal};
 use maya_quantum_harbor::{Exposure, bitcoin_exposure, explain};
@@ -33,7 +34,7 @@ pub struct VaultRules {
     /// Guardians needed to recover or cancel.
     pub threshold: usize,
     /// Withdrawals above this wait.
-    pub delay_above: u64,
+    pub delay_above: Amount,
     /// How long they wait, and how long a recovery's veto window lasts.
     pub delay_blocks: u64,
 }
@@ -54,13 +55,13 @@ pub fn configure(
         threshold: rules.threshold,
         delay_blocks: rules.delay_blocks,
     }));
-    registry.apply(&guardians, height, 0)?;
+    registry.apply(&guardians, height, Amount::from_u64(0))?;
     let policy = owner.signed(Action::SetPolicy(Policy {
         delay_above: rules.delay_above,
         delay_blocks: rules.delay_blocks,
         ..Policy::default()
     }));
-    registry.apply(&policy, height, 0)
+    registry.apply(&policy, height, Amount::from_u64(0))
 }
 
 /// Withdraws, sealing `memo` for the auditor. A large withdrawal is held
@@ -73,13 +74,13 @@ pub fn withdraw(
     registry: &mut Registry,
     owner: &mut Wallet,
     to: AccountId,
-    amount: u64,
+    amount: Amount,
     memo: &[u8],
     auditor: &EncapsulationKey,
     height: u64,
 ) -> Result<Envelope, AccountError> {
-    let op = owner.signed(Action::Transfer { to, amount });
-    if let Err(e) = registry.apply(&op, height, 0) {
+    let op = owner.signed(Action::Transfer { to, amount: amount });
+    if let Err(e) = registry.apply(&op, height, Amount::from_u64(0)) {
         owner.refused();
         return Err(e);
     }
