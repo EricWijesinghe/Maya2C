@@ -49,6 +49,9 @@
 use crate::error::{GovernanceError, Result};
 use maya_amount::Amount;
 
+/// One coin in base units: 18 decimals (ADR-046).
+const COIN: u128 = 1_000_000_000_000_000_000;
+
 /// A rule that governance may change.
 ///
 /// The tags are consensus and must never be renumbered. A key this build does
@@ -242,11 +245,13 @@ impl ParameterKey {
             },
             // Anti-spam, not a barrier. The deposit is returned unless the
             // proposal is withdrawn, so the ceiling exists to stop governance
-            // pricing out its own participants.
+            // pricing out its own participants. In whole coins at 18 decimals
+            // (decided 2026-10-28): the u64-era 1e4 base units was 1e-14 coin,
+            // and its 1e9 ceiling meant governance could never make spam cost.
             Self::GovernanceProposalDeposit => Bounds {
-                min: Amount::from_u64(0),
-                max: Amount::from_u64(1_000_000_000),
-                default: Amount::from_u64(10_000),
+                min: Amount::from_u128(COIN),
+                max: Amount::from_u128(100_000 * COIN),
+                default: Amount::from_u128(10 * COIN),
             },
             // A registry byte, not a quantity: the range spans the
             // post-quantum ids (0x10 ML-DSA-65 .. 0x30 the hybrid) and so
