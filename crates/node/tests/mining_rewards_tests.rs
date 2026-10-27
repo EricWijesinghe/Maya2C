@@ -86,8 +86,8 @@ fn config(mining: Option<MiningGenesis>) -> GenesisConfig {
                 }],
             )),
             fees: Some(FeesGenesis {
-                initial_base_fee: 1,
-                min_base_fee: 1,
+                initial_base_fee: primitive_types::U256::one(),
+                min_base_fee: primitive_types::U256::one(),
                 target_block_bytes: 100_000,
                 change_denominator: 8,
             }),

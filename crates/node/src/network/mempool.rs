@@ -157,7 +157,7 @@ impl Mempool {
             return self.validate_share(tx, share);
         }
         if let Some(fees) = self.state.committed_fees()? {
-            let required = U256::from(fees.required(tx.to_bytes().len()));
+            let required = maya_stateless_core::amount::to_u256(fees.required(tx.to_bytes().len()));
             let offered = tx
                 .outputs
                 .iter()

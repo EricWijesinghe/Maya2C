@@ -28,7 +28,7 @@ fn every_scenario_runs_and_never_reaches_the_simulators_ceiling() {
             s.name
         );
         assert!(
-            r.days.iter().all(|d| d.base_fee >= p.fees.min_base_fee),
+            r.days.iter().all(|d| d.base_fee >= p.fees.min_base_fee.saturating_to_u64()),
             "{}",
             s.name
         );
@@ -98,7 +98,7 @@ fn the_fee_quote_is_never_exceeded() {
         5,
         f.target_block_bytes,
         f.change_denominator,
-        f.min_base_fee,
+        f.min_base_fee.saturating_to_u64(),
         500,
     );
     assert_eq!(a.violations, 0);

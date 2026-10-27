@@ -22,8 +22,9 @@ use crate::state::Account;
 pub struct FeeInfo {
     /// Whether this chain charges fees at all.
     pub active: bool,
-    /// Base fee per serialized byte for the next block.
-    pub base_fee: u64,
+    /// Base fee per serialized byte for the next block, as a decimal string
+    /// (ADR-066: 256-bit).
+    pub base_fee: String,
     /// Hex address a transaction pays its fee to, as an ordinary output.
     pub collector: String,
 }
