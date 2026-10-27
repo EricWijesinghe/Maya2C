@@ -62,7 +62,7 @@ fn bench_vrf(c: &mut Criterion) {
 
 fn bench_feed(c: &mut Criterion) {
     let key = generate_signing_key().expect("key");
-    let message = observation_bytes(&[1u8; 32], 1, 100, 1);
+    let message = observation_bytes(&[1u8; 32], 1, primitive_types::U256::from(100), 1);
     let signature = key.sign(&message).expect("sign");
     let verifying = HybridVerifyingKey::from_public_key(&key.public_key()).expect("key");
 
@@ -110,7 +110,7 @@ fn report_sizes(c: &mut Criterion) {
 
     // A single trivial measurement, so the group is not empty.
     c.bench_function("observation_bytes", |b| {
-        b.iter(|| black_box(observation_bytes(black_box(&[1u8; 32]), 1, 100, 1)));
+        b.iter(|| black_box(observation_bytes(black_box(&[1u8; 32]), 1, primitive_types::U256::from(100), 1)));
     });
 }
 
