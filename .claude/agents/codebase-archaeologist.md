@@ -1,5 +1,6 @@
 ---
 name: codebase-archaeologist
+model: sonnet
 description: "Read-only drift audit: CLAUDE.md invariants and docs/architecture-vision.md status tags against the code and tests said to back them; dead code and half-finished migrations left across AI sessions."
 tools: Read, Grep, Glob, Bash, mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__get_symbols_overview
 # upstream: msitarzewski/agency-agents@ad9264e309bd specialized/specialized-codebase-archaeologist.md (MIT)
