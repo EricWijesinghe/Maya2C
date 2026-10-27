@@ -5,6 +5,7 @@
 #![allow(clippy::unwrap_used)]
 
 use l2_flash::barter::{BarterError, Market, Resource, Sla};
+use primitive_types::U256;
 
 const DEVICES: u32 = 10_000;
 const TICKS: u64 = 100;
@@ -29,9 +30,9 @@ fn resource(i: u32) -> Resource {
 fn ten_thousand_devices_barter_and_settle_in_one_batch() {
     let mut market = Market::default();
     for i in 0..DEVICES {
-        market.fund(device(i), FUNDS);
+        market.fund(device(i), U256::from(FUNDS)).unwrap();
     }
-    let total = u64::from(DEVICES) * FUNDS;
+    let total = U256::from(u64::from(DEVICES) * FUNDS);
     // A ring: each device serves the next one.
     let slas: Vec<usize> = (0..DEVICES)
         .map(|i| {
@@ -40,11 +41,11 @@ fn ten_thousand_devices_barter_and_settle_in_one_batch() {
                     provider: device(i),
                     consumer: device((i + 1) % DEVICES),
                     resource: resource(i),
-                    price_per_unit: 2 + u64::from(i % 5),
-                    committed_per_tick: 10,
+                    price_per_unit: U256::from(2 + u64::from(i % 5)),
+                    committed_per_tick: U256::from(10),
                     floor_bps: 9_000,
-                    slash_per_breach: 50,
-                    collateral: 1_000,
+                    slash_per_breach: U256::from(50),
+                    collateral: U256::from(1_000),
                 })
                 .unwrap()
         })
@@ -59,7 +60,7 @@ fn ten_thousand_devices_barter_and_settle_in_one_batch() {
             seed ^= seed << 13;
             seed ^= seed >> 7;
             seed ^= seed << 17;
-            let delivered = if seed.is_multiple_of(100) { 5 } else { 10 };
+            let delivered = U256::from(if seed.is_multiple_of(100) { 5 } else { 10 });
             breaches += u64::from(market.tick(*id, delivered).unwrap());
         }
     }
@@ -77,22 +78,24 @@ fn ten_thousand_devices_barter_and_settle_in_one_batch() {
 
     // Value is conserved: balances plus collateral in escrow equal what was funded.
     let held = market.collateral_held();
-    let balances: u64 = (0..DEVICES).map(|i| market.balance(&device(i))).sum();
+    let balances = (0..DEVICES).fold(U256::zero(), |sum, i| sum + market.balance(&device(i)));
     assert_eq!(balances + held, total);
     for id in slas {
         market.close(id).unwrap();
     }
-    assert_eq!(market.collateral_held(), 0);
+    assert_eq!(market.collateral_held(), U256::zero());
     let returned = market.settle().unwrap();
     assert_eq!(
-        returned.deltas.iter().map(|(_, d)| *d).sum::<i128>(),
-        i128::from(held),
+        returned
+            .deltas
+            .iter()
+            .filter(|(_, d)| !d.negative)
+            .fold(U256::zero(), |sum, (_, d)| sum + d.magnitude),
+        held,
         "closing returns exactly the escrow"
     );
     assert_eq!(
-        (0..DEVICES)
-            .map(|i| market.balance(&device(i)))
-            .sum::<u64>(),
+        (0..DEVICES).fold(U256::zero(), |sum, i| sum + market.balance(&device(i))),
         total
     );
 }
@@ -101,38 +104,38 @@ fn ten_thousand_devices_barter_and_settle_in_one_batch() {
 fn a_consumer_that_cannot_pay_and_an_unknown_sla_are_refused() {
     let mut market = Market::default();
     let (a, b) = (device(1), device(2));
-    market.fund(a, 1_000);
-    market.fund(b, 5);
+    market.fund(a, U256::from(1_000)).unwrap();
+    market.fund(b, U256::from(5)).unwrap();
     let id = market
         .open(Sla {
             provider: a,
             consumer: b,
             resource: Resource::Power,
-            price_per_unit: 3,
-            committed_per_tick: 2,
+            price_per_unit: U256::from(3),
+            committed_per_tick: U256::from(2),
             floor_bps: 10_000,
-            slash_per_breach: 10,
-            collateral: 100,
+            slash_per_breach: U256::from(10),
+            collateral: U256::from(100),
         })
         .unwrap();
-    assert!(matches!(
-        market.tick(id, 2),
+    assert_eq!(
+        market.tick(id, U256::from(2)),
         Err(BarterError::Insufficient {
-            required: 6,
-            available: 5
+            required: U256::from(6),
+            available: U256::from(5)
         })
-    ));
-    assert_eq!(market.tick(99, 1), Err(BarterError::UnknownSla(99)));
+    );
+    assert_eq!(market.tick(99, U256::from(1)), Err(BarterError::UnknownSla(99)));
     assert!(matches!(
         market.open(Sla {
             provider: b,
             consumer: a,
             resource: Resource::Compute,
-            price_per_unit: 1,
-            committed_per_tick: 1,
+            price_per_unit: U256::from(1),
+            committed_per_tick: U256::from(1),
             floor_bps: 0,
-            slash_per_breach: 0,
-            collateral: 6
+            slash_per_breach: U256::from(0),
+            collateral: U256::from(6)
         }),
         Err(BarterError::Insufficient { .. })
     ));

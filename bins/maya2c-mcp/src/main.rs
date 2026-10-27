@@ -14,6 +14,7 @@
 //!
 //! `maya2c-mcp --rpc 127.0.0.1:8545`
 
+use maya_amount::Amount;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 
@@ -57,11 +58,19 @@ fn addr(v: &Value) -> Result<[u8; 32], String> {
         .map_err(|_| "address must be 32 bytes".to_string())
 }
 
-fn amount(v: &Value) -> Result<u128, String> {
-    v.as_str()
-        .ok_or("amounts are decimal strings")?
-        .parse()
-        .map_err(|e| format!("{e}"))
+/// A decimal string of digits, up to 2^256 - 1: the ledger's width (ADR-046).
+fn amount(v: &Value) -> Result<Amount, String> {
+    let text = v.as_str().ok_or("amounts are decimal strings")?;
+    if text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()) {
+        return Err("an amount is a non-empty string of decimal digits".into());
+    }
+    let ten = Amount::from_u64(10);
+    text.bytes()
+        .try_fold(Amount::default(), |acc, b| {
+            acc.checked_mul(ten)?
+                .checked_add(Amount::from_u64(u64::from(b - b'0')))
+        })
+        .ok_or_else(|| "amount exceeds 2^256 - 1".to_string())
 }
 
 /// `{"type": "transfer", "token": hex, "to": hex, "amount": "decimal"}` and the like.

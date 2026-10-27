@@ -24,6 +24,8 @@
 
 use std::collections::BTreeMap;
 
+use maya_amount::Amount;
+
 /// A contract or account identifier.
 pub type Id = u32;
 /// A resource type (a token, an NFT class).
@@ -52,7 +54,7 @@ pub struct Capability {
     /// What it permits.
     pub right: Right,
     /// Remaining allowance.
-    pub remaining: u128,
+    pub remaining: Amount,
 }
 
 /// Why an operation failed. Any failure inside a call reverts the call.
@@ -85,24 +87,24 @@ pub type InvariantFn = fn(&State) -> bool;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct State {
     /// Balance of `(holder, kind)`.
-    pub balances: BTreeMap<(Id, Kind), u128>,
+    pub balances: BTreeMap<(Id, Kind), Amount>,
     /// Total supply per kind.
-    pub supply: BTreeMap<Kind, u128>,
+    pub supply: BTreeMap<Kind, Amount>,
     /// Contract-defined counters (e.g. "total deposits").
-    pub counters: BTreeMap<(Id, &'static str), u128>,
+    pub counters: BTreeMap<(Id, &'static str), Amount>,
 }
 
 impl State {
     /// Balance of `holder` in `kind`.
     #[must_use]
-    pub fn balance(&self, holder: Id, kind: Kind) -> u128 {
-        self.balances.get(&(holder, kind)).copied().unwrap_or(0)
+    pub fn balance(&self, holder: Id, kind: Kind) -> Amount {
+        self.balances.get(&(holder, kind)).copied().unwrap_or_default()
     }
 
     /// A contract counter.
     #[must_use]
-    pub fn counter(&self, contract: Id, name: &'static str) -> u128 {
-        self.counters.get(&(contract, name)).copied().unwrap_or(0)
+    pub fn counter(&self, contract: Id, name: &'static str) -> Amount {
+        self.counters.get(&(contract, name)).copied().unwrap_or_default()
     }
 }
 
@@ -112,7 +114,7 @@ pub struct RateLimit {
     /// Resource type limited.
     pub kind: Kind,
     /// Units per window.
-    pub max: u128,
+    pub max: Amount,
     /// Window length, blocks.
     pub window: u64,
 }
@@ -127,7 +129,7 @@ pub struct Pending {
     /// Kind.
     pub kind: Kind,
     /// Amount.
-    pub amount: u128,
+    pub amount: Amount,
 }
 
 /// The runtime.
@@ -139,7 +141,7 @@ pub struct Runtime {
     reentrant: BTreeMap<(Id, &'static str), bool>,
     invariants: BTreeMap<Id, Vec<(&'static str, InvariantFn)>>,
     limits: BTreeMap<Id, RateLimit>,
-    outflow: BTreeMap<Id, (u64, u128)>,
+    outflow: BTreeMap<Id, (u64, Amount)>,
     /// Outflows held for guardian review.
     pub pending: Vec<Pending>,
     stack: Vec<Id>,
@@ -174,7 +176,7 @@ impl Runtime {
         holder: Id,
         kind: Kind,
         right: Right,
-        amount: u128,
+        amount: Amount,
     ) -> Result<(), Fault> {
         let cap = self
             .caps
@@ -187,11 +189,11 @@ impl Runtime {
                     && c.remaining >= amount
             })
             .ok_or(Fault::NoCapability)?;
-        cap.remaining -= amount;
+        cap.remaining = cap.remaining.checked_sub(amount).ok_or(Fault::NoCapability)?;
         Ok(())
     }
 
-    fn check_rate(&mut self, from: Id, to: Id, kind: Kind, amount: u128) -> Result<(), Fault> {
+    fn check_rate(&mut self, from: Id, to: Id, kind: Kind, amount: Amount) -> Result<(), Fault> {
         let Some(limit) = self.limits.get(&from).copied() else {
             return Ok(());
         };
@@ -201,7 +203,7 @@ impl Runtime {
         let window = self.height / limit.window.max(1);
         let used = match self.outflow.get(&from) {
             Some((w, u)) if *w == window => *u,
-            _ => 0,
+            _ => Amount::default(),
         };
         if used.saturating_add(amount) > limit.max {
             self.pending.push(Pending {
@@ -214,7 +216,8 @@ impl Runtime {
                 pending: self.pending.len() - 1,
             });
         }
-        self.outflow.insert(from, (window, used + amount));
+        self.outflow
+            .insert(from, (window, used.saturating_add(amount)));
         Ok(())
     }
 
@@ -231,22 +234,20 @@ impl Runtime {
         from: Id,
         to: Id,
         kind: Kind,
-        amount: u128,
+        amount: Amount,
     ) -> Result<(), Fault> {
         if actor != from {
             self.use_cap(from, actor, kind, Right::Move, amount)?;
         }
         let have = self.state.balance(from, kind);
-        if have < amount {
-            return Err(Fault::Insufficient);
-        }
+        let left = have.checked_sub(amount).ok_or(Fault::Insufficient)?;
         let dest = self
             .state
             .balance(to, kind)
             .checked_add(amount)
             .ok_or(Fault::Overflow)?;
         self.check_rate(from, to, kind, amount)?;
-        self.state.balances.insert((from, kind), have - amount);
+        self.state.balances.insert((from, kind), left);
         self.state.balances.insert((to, kind), dest);
         Ok(())
     }
@@ -256,14 +257,14 @@ impl Runtime {
     /// # Errors
     ///
     /// [`Fault::NoCapability`] or [`Fault::Overflow`].
-    pub fn mint(&mut self, actor: Id, kind: Kind, to: Id, amount: u128) -> Result<(), Fault> {
+    pub fn mint(&mut self, actor: Id, kind: Kind, to: Id, amount: Amount) -> Result<(), Fault> {
         self.use_cap(0, actor, kind, Right::Mint, amount)?;
         let s = self
             .state
             .supply
             .get(&kind)
             .copied()
-            .unwrap_or(0)
+            .unwrap_or_default()
             .checked_add(amount)
             .ok_or(Fault::Overflow)?;
         let b = self
@@ -281,20 +282,25 @@ impl Runtime {
     /// # Errors
     ///
     /// [`Fault::NoCapability`] or [`Fault::Insufficient`].
-    pub fn burn(&mut self, actor: Id, kind: Kind, from: Id, amount: u128) -> Result<(), Fault> {
+    pub fn burn(&mut self, actor: Id, kind: Kind, from: Id, amount: Amount) -> Result<(), Fault> {
         self.use_cap(0, actor, kind, Right::Burn, amount)?;
         let have = self.state.balance(from, kind);
-        if have < amount {
-            return Err(Fault::Insufficient);
-        }
-        self.state.balances.insert((from, kind), have - amount);
-        let s = self.state.supply.get(&kind).copied().unwrap_or(0) - amount;
+        let left = have.checked_sub(amount).ok_or(Fault::Insufficient)?;
+        self.state.balances.insert((from, kind), left);
+        let s = self
+            .state
+            .supply
+            .get(&kind)
+            .copied()
+            .unwrap_or_default()
+            .checked_sub(amount)
+            .ok_or(Fault::Insufficient)?;
         self.state.supply.insert(kind, s);
         Ok(())
     }
 
     /// Sets a contract counter (a contract's own bookkeeping).
-    pub fn set_counter(&mut self, contract: Id, name: &'static str, value: u128) {
+    pub fn set_counter(&mut self, contract: Id, name: &'static str, value: Amount) {
         self.state.counters.insert((contract, name), value);
     }
 

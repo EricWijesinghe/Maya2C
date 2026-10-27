@@ -16,6 +16,7 @@
     clippy::too_many_lines
 )]
 
+use maya_amount::Amount;
 use std::collections::BTreeSet;
 
 use maya_clear_sign::{Address, Context, Effect, UNLIMITED, Warning, render, review};
@@ -34,7 +35,7 @@ fn context() -> Context {
     Context {
         contacts,
         verified,
-        balances: vec![(NATIVE, 1_000_000), (addr(0x70, 0), 5_000)],
+        balances: vec![(NATIVE, Amount::from_u64(1_000_000)), (addr(0x70, 0), Amount::from_u64(5_000))],
     }
 }
 
@@ -59,12 +60,12 @@ fn malicious(i: u8) -> Vec<(&'static str, Vec<Effect>, Vec<Effect>, Warning)> {
             vec![Effect::Approve {
                 token,
                 spender: thief,
-                amount: 10,
+                amount: Amount::from_u64(10),
             }],
             vec![Effect::Approve {
                 token,
                 spender: thief,
-                amount: UNLIMITED + u128::from(i),
+                amount: UNLIMITED.saturating_add(Amount::from_u64(u64::from(i))),
             }],
             Warning::UnlimitedApproval,
         ),
@@ -99,12 +100,12 @@ fn malicious(i: u8) -> Vec<(&'static str, Vec<Effect>, Vec<Effect>, Warning)> {
             vec![Effect::Permit {
                 token,
                 spender: thief,
-                amount: 100 + u128::from(i),
+                amount: Amount::from_u128(100 + u128::from(i)),
             }],
             vec![Effect::Permit {
                 token,
                 spender: thief,
-                amount: 100 + u128::from(i),
+                amount: Amount::from_u128(100 + u128::from(i)),
             }],
             Warning::PermitSignature,
         ),
@@ -113,12 +114,12 @@ fn malicious(i: u8) -> Vec<(&'static str, Vec<Effect>, Vec<Effect>, Warning)> {
             vec![Effect::Transfer {
                 token: NATIVE,
                 to: poison(i % 20),
-                amount: 1_000,
+                amount: Amount::from_u64(1_000),
             }],
             vec![Effect::Transfer {
                 token: NATIVE,
                 to: poison(i % 20),
-                amount: 1_000,
+                amount: Amount::from_u64(1_000),
             }],
             Warning::LookAlikeRecipient,
         ),
@@ -127,12 +128,12 @@ fn malicious(i: u8) -> Vec<(&'static str, Vec<Effect>, Vec<Effect>, Warning)> {
             vec![Effect::Transfer {
                 token: NATIVE,
                 to: thief,
-                amount: 900_000 + 5_000 * u128::from(i),
+                amount: Amount::from_u128(900_000 + 5_000 * u128::from(i)),
             }],
             vec![Effect::Transfer {
                 token: NATIVE,
                 to: thief,
-                amount: 900_000 + 5_000 * u128::from(i),
+                amount: Amount::from_u128(900_000 + 5_000 * u128::from(i)),
             }],
             Warning::DrainsBalance,
         ),
@@ -141,12 +142,12 @@ fn malicious(i: u8) -> Vec<(&'static str, Vec<Effect>, Vec<Effect>, Warning)> {
             vec![Effect::Transfer {
                 token: NATIVE,
                 to: addr(0xC0, i % 20),
-                amount: 10,
+                amount: Amount::from_u64(10),
             }],
             vec![Effect::Transfer {
                 token: NATIVE,
                 to: thief,
-                amount: 10,
+                amount: Amount::from_u64(10),
             }],
             Warning::ClaimMismatch,
         ),
@@ -158,7 +159,7 @@ fn malicious(i: u8) -> Vec<(&'static str, Vec<Effect>, Vec<Effect>, Warning)> {
                 Effect::Approve {
                     token,
                     spender: addr(0xE0, i % 20),
-                    amount: 50,
+                    amount: Amount::from_u64(50),
                 },
             ],
             Warning::ClaimMismatch,
@@ -168,7 +169,7 @@ fn malicious(i: u8) -> Vec<(&'static str, Vec<Effect>, Vec<Effect>, Warning)> {
             vec![Effect::Transfer {
                 token: NATIVE,
                 to: addr(0xC0, i % 20),
-                amount: 0,
+                amount: Amount::from_u64(0),
             }],
             vec![Effect::Upgrade {
                 contract: addr(0x5A, i),
@@ -204,7 +205,7 @@ fn fake_airdrop(i: u8) -> (&'static str, Vec<Effect>, Vec<Effect>, Warning) {
             Effect::Transfer {
                 token: addr(0x70, 0),
                 to: thief,
-                amount: 4_800,
+                amount: Amount::from_u64(4_800),
             },
         ],
         Warning::ClaimMismatch,
@@ -248,12 +249,12 @@ fn ordinary_transactions_are_measured_for_false_alarms() {
         benign.push(vec![Effect::Transfer {
             token: NATIVE,
             to,
-            amount: 1_000 + u128::from(i),
+            amount: Amount::from_u128(1_000 + u128::from(i)),
         }]);
         benign.push(vec![Effect::Approve {
             token: addr(0x70, 0),
             spender: addr(0xE0, i % 20),
-            amount: 100,
+            amount: Amount::from_u64(100),
         }]);
         benign.push(vec![Effect::Call {
             contract: addr(0xE0, i % 20),
@@ -267,7 +268,7 @@ fn ordinary_transactions_are_measured_for_false_alarms() {
             Effect::Transfer {
                 token: NATIVE,
                 to: addr(0xE0, i % 20),
-                amount: 500,
+                amount: Amount::from_u64(500),
             },
         ]);
     }
