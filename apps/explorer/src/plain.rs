@@ -32,6 +32,10 @@ pub fn group_digits(n: impl std::fmt::Display) -> String {
 /// One sentence describing `tx`.
 #[must_use]
 pub fn describe(tx: &IndexedTx) -> String {
+    // The node's own sentence is exactly what a wallet showed before signing.
+    if !tx.summary.is_empty() {
+        return tx.summary.clone();
+    }
     let recipients = match tx.output_count {
         1 => "1 recipient".to_string(),
         n => format!("{n} recipients"),
@@ -63,6 +67,9 @@ mod tests {
             output_count: outputs,
             total_out: total,
             signed,
+            kind: String::new(),
+            summary: String::new(),
+            careful: false,
         }
     }
 
@@ -76,6 +83,13 @@ mod tests {
             describe(&tx(1, 7, false)),
             "5ad1a05a…a0beef sent 7 base units to 1 recipient in block 1204. No signature is attached."
         );
+    }
+
+    #[test]
+    fn the_nodes_own_sentence_wins_over_the_generic_one() {
+        let mut with = tx(1, 5, true);
+        with.summary = "Vote against proposal 7".to_string();
+        assert_eq!(describe(&with), "Vote against proposal 7");
     }
 
     #[test]
