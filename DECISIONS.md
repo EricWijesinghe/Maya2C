@@ -370,3 +370,60 @@ deliberately left at 64 bits, and why, are tabled in ADR-048.
 - **What the launch must say publicly:** pre-audit, self-run reviews only, validators run by one operator; never "audited" or "independent" (claims-check, CLAUDE.md order 10).
 - **Kept regardless:** the 20% per-operator cap and 7-or-more validators (`cargo xtask genesis-check`), `--trusted-block` on bootstrap, ADR-044 block rewards, ADR-050 council, ADR-051 option 3 keys, wasmtime bump.
 - **Still needs `APPROVED` from Eric:** each deploy, the re-genesis, key ceremonies, hosts that cost money, and mainnet genesis itself.
+
+## 2026-10-26 — Audit findings: what was fixed, what waits (Claude, for Eric)
+
+- **Fixed without a policy question:** identity revocation index wrap, vault window leak in
+  block selection, storage errors in selection, preview key and multisig approvals,
+  `import_headers` refusals, DEX escrow `checked_sub`, BFT vertex payload cap (#200, #201).
+  All change what a node accepts or selects, so they ship with the re-genesis.
+- **Held for Eric (each changes consensus bytes):** DEX zero-quote dust (H-1; recommended:
+  cancel the fully-consumed dust order and refuse placements under a minimum notional),
+  governance quorum denominator (H-2), timestamp steering of the retarget (ADR-063 does not
+  close it), retarget window off by one.
+- **Reviewed, no change:** undo-journal optional section (local storage), snapshot chunk
+  decode (allocates only what its input holds), empty-committee fallback (ADR-028 design),
+  base fee saturating at `u64::MAX` (a ceiling by design), `HybridSigningKey` zeroize
+  (both upstream key types are `ZeroizeOnDrop`, now pinned at compile time).
+- **Dismissed with reason:** 7 CodeQL "hard-coded nonce" alerts, all in test files.
+
+## 2026-10-27 — Audit decisions (Eric, all four "recommended")
+
+- **H-1, DEX dust:** the matcher cancels and refunds the fully-consumed order on a zero-quote
+  cross and keeps matching, and placement refuses orders below a minimum notional.
+  Needs spec, conformance vectors, an ADR; the ignored test
+  `a_resting_dust_order_does_not_freeze_the_honest_orders_behind_it` becomes the gate.
+- **H-2, governance:** `eligible` includes total work credit, so turnout cannot exceed 100%
+  and the denominator matches the vote weights.
+- **ADR-063 accepted:** header version byte and median-time timestamp rule, plus a clamp on
+  the retarget span input. Header 144 to 145 bytes; miner kernel, `NONCE_RANGE`, every block id,
+  spec and vectors change. Free before genesis.
+- **ADR-062 accepted:** sparse accounts tree and per-validator/per-delegation staking, built
+  behind measurement; only what the numbers justify ships.
+- **Not decided:** `halving_epochs` (needs a measured block rate on a network; the localnet
+  benchmark is not one). The ticker is already MAYA (2026-10-18).
+
+## 2026-10-27 — Implementation choices made while building the four decisions (Claude)
+
+- **ADR-063 median rule is scoped to retargeting chains.** The existing clock-drift test
+  showed it pushes DAG-BFT block times ahead of the clock when blocks come faster than
+  about 6 a second, and a fixed-target chain has nothing to steer. The retarget measures
+  between median times, which is what stops one extreme timestamp.
+- **The header version byte is appended** (145 bytes) so `NONCE_RANGE` and the GPU kernels
+  do not change.
+- **H-2:** the work-credit clock now advances by whole half-lives; before, any record
+  credited more often than every 5,760 blocks never decayed, which a chain-wide aggregate
+  would have made permanent.
+- **H-1:** the placement floor is "worth at least one quote unit" (what the arithmetic needs),
+  not an economic minimum.
+- **Proposed, not decided:** ADR-065, which cross-chain routes reach consensus (recommendation:
+  swaps first, then Bitcoin inbound at activation height `u64::MAX`).
+
+
+## 2026-10-27 — Eric's second round (Claude recorded)
+
+- **ADR-062:** build now, one PR at a time. Per-validator staking split first, with a
+  `bench-tps` before/after; the sparse tree only if block-apply time at 300k accounts justifies it.
+- **ADR-065 accepted:** swaps first; Bitcoin inbound written but inactive (activation height `u64::MAX`).
+- **Retarget off-by-one (audit 7):** fix before re-genesis, with spec, vectors and an ADR note.
+- **Next gap:** `core::describe` in the GUI wallet and the explorer (kind column).

@@ -159,7 +159,8 @@ impl Chain {
     /// # Errors
     ///
     /// Returns [`NodeError::Network`] for an unknown parent, a wrong target, or
-    /// insufficient work, having recorded the headers before it.
+    /// insufficient work, having recorded the headers before it;
+    /// [`NodeError::BelowPruneHorizon`] for a header at or below the horizon.
     pub fn import_headers(&mut self, headers: &[BlockHeader]) -> Result<Vec<BlockId>> {
         let mut ids = Vec::with_capacity(headers.len());
         for header in headers {
@@ -168,6 +169,15 @@ impl Chain {
             let height = parent.height + 1;
             let parent_work = parent.total_work;
 
+            // The refusals `insert_block` applies before it spends anything on
+            // a block, so a header cannot slip past what its body would not.
+            crate::upgrade::refuse_unsupported(self.config.unsupported_upgrade, height)?;
+            if super::below_prune_horizon(height, self.prune_horizon) {
+                return Err(NodeError::BelowPruneHorizon {
+                    height,
+                    horizon: self.prune_horizon,
+                });
+            }
             if !self.config.fixed_target {
                 let median = self.median_time_past(&parent_id)?;
                 if !super::timestamp_after_median(header.timestamp, median) {

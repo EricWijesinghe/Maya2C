@@ -1079,9 +1079,7 @@ impl StateDB {
     ) -> Result<Vec<Transaction>> {
         self.get_chain_tag()?;
         let mut overlay = Overlay::new();
-        if self.mark_sparse_accounts(&mut overlay, context).is_err() {
-            return Ok(Vec::new());
-        }
+        self.mark_sparse_accounts(&mut overlay, context)?;
         overlay.difficulty_target = difficulty_target;
         let policy = crate::crypto::suites::verification_policy();
         self.prewarm_verification(&transactions, context.height, &policy)?;
@@ -1092,18 +1090,19 @@ impl StateDB {
                 // accounts and the fee tallies, so those are saved and put
                 // back on failure instead of copying the whole overlay: the
                 // copy made building a 900-transaction block quadratic.
-                if self.stage_transfer_or_undo(&mut overlay, &tx, context, &policy) {
+                if self.stage_transfer_or_undo(&mut overlay, &tx, context, &policy)? {
                     kept.push(tx);
                 }
                 continue;
             }
             let mut trial = overlay.clone();
-            if self
-                .stage_transaction(&mut trial, &tx, context, &policy)
-                .is_ok()
-            {
-                overlay = trial;
-                kept.push(tx);
+            match self.stage_transaction(&mut trial, &tx, context, &policy) {
+                Ok(()) => {
+                    overlay = trial;
+                    kept.push(tx);
+                }
+                Err(e @ NodeError::Storage(_)) => return Err(e),
+                Err(_) => {}
             }
         }
         Ok(kept)
@@ -1148,14 +1147,16 @@ impl StateDB {
     }
 
     /// Stages a plain transfer, restoring exactly what it could have written
-    /// if it fails. Returns whether it was kept.
+    /// if it fails. Returns whether it was kept; a storage failure is an error,
+    /// not a reason to drop the transaction, or this node would build a block
+    /// its peers' state does not match.
     fn stage_transfer_or_undo(
         &self,
         overlay: &mut Overlay,
         tx: &Transaction,
         context: BlockContext,
         policy: &SuitePolicy,
-    ) -> bool {
+    ) -> Result<bool> {
         let touched: Vec<Address> = std::iter::once(tx.sender())
             .chain(tx.outputs.iter().map(|o| o.recipient))
             .collect();
@@ -1164,9 +1165,19 @@ impl StateDB {
             .map(|a| (*a, overlay.accounts.get(a).copied()))
             .collect();
         let fees = (overlay.fee_burn, overlay.fee_bytes);
-        if self.stage_transaction(overlay, tx, context, policy).is_ok() {
-            return true;
-        }
+        // A vault sender's window is charged before the nonce is checked, so a
+        // transfer that then fails would leave its spend behind and starve the
+        // valid transfer after it.
+        let vault_key = crate::state::vault::record_key(&tx.sender());
+        let vault_saved = overlay.records.get(&vault_key).cloned();
+        let failure = match self.stage_transaction(overlay, tx, context, policy) {
+            Ok(()) => return Ok(true),
+            Err(e) => e,
+        };
+        match vault_saved {
+            Some(previous) => overlay.records.insert(vault_key, previous),
+            None => overlay.records.remove(&vault_key),
+        };
         for (address, previous) in saved.into_iter().rev() {
             match previous {
                 Some(account) => overlay.accounts.insert(address, account),
@@ -1174,7 +1185,10 @@ impl StateDB {
             };
         }
         (overlay.fee_burn, overlay.fee_bytes) = fees;
-        false
+        match failure {
+            NodeError::Storage(_) => Err(failure),
+            _ => Ok(false),
+        }
     }
 
     /// The state root `block` would produce, without writing anything.

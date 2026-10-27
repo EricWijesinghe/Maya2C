@@ -31,7 +31,7 @@
 //! `tests/identity_tests.rs` checks committed state for preimages rather than
 //! trusting that reading.
 
-use maya_identity::attestation::{BITS_PER_PAGE, CryptographicAttestation};
+use maya_identity::attestation::CryptographicAttestation;
 use maya_identity::did::Did;
 use maya_identity::document::{DidDocument, ServiceEndpoint, VerificationMethod};
 
@@ -41,7 +41,7 @@ use crate::core::identity_payload::{
 use crate::error::{NodeError, Result};
 use crate::state::account::Address;
 use crate::state::db::{Overlay, StateDB};
-use crate::state::identity::{attestation_key, did_key, revocation_key};
+use crate::state::identity::{attestation_key, did_key, revocation_key, revocation_slot};
 
 impl StateDB {
     /// Registers `did:maya2c:<sender>`.
@@ -187,8 +187,12 @@ impl StateDB {
         let issuer = Did::from_address(*sender);
         self.require_document(overlay, &issuer)?;
 
-        let page_index = (payload.index / BITS_PER_PAGE as u64) as u32;
-        let within = (payload.index % BITS_PER_PAGE as u64) as usize;
+        let (page_index, within) = revocation_slot(payload.index).ok_or_else(|| {
+            NodeError::Decode(format!(
+                "identity: credential {} is past the last revocation page",
+                payload.index
+            ))
+        })?;
         let mut page = self.revocation_page(overlay, &issuer, page_index)?;
         if page.is_revoked(within) {
             return Err(NodeError::Decode(format!(
