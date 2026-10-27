@@ -355,7 +355,7 @@ mod tests {
 
     fn config() -> PoolConfig {
         PoolConfig {
-            reward_per_block: 1_000,
+            reward_per_block: primitive_types::U256::from(1_000),
             ..PoolConfig::default()
         }
     }
