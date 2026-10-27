@@ -168,13 +168,24 @@ impl StateDB {
     /// As `did_document`, which is `pub(crate)` and so named here rather than
     /// linked.
     pub fn is_credential_revoked(&self, issuer: &Did, index: u64) -> Result<bool> {
-        let page = (index / maya_identity::attestation::BITS_PER_PAGE as u64) as u32;
-        let within = (index % maya_identity::attestation::BITS_PER_PAGE as u64) as usize;
+        // An index no page can hold fails closed, as `RevocationPage::is_revoked` does.
+        let Some((page, within)) = revocation_slot(index) else {
+            return Ok(true);
+        };
         match self.raw_get(&revocation_key(issuer, page))? {
             Some(bytes) => Ok(decode(&bytes, RevocationPage::decode)?.is_revoked(within)),
             None => Ok(false),
         }
     }
+}
+
+/// The page and bit that hold credential `index`, or `None` when the page
+/// number does not fit the `u32` the storage key carries. A plain `as u32`
+/// would wrap such an index onto a low page and revoke a different credential.
+pub(crate) fn revocation_slot(index: u64) -> Option<(u32, usize)> {
+    let bits = maya_identity::attestation::BITS_PER_PAGE as u64;
+    let page = u32::try_from(index / bits).ok()?;
+    Some((page, (index % bits) as usize))
 }
 
 /// Turns an identity crate decode failure into a node error.
