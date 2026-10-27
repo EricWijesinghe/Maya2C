@@ -341,6 +341,7 @@ pub fn TxTable(
                     <td class="mono"><a href=href>{short_hash(&tx.txid)}</a></td>
                     <td>{tx.height.to_string()}</td>
                     <td class="mono">{short_hash(&tx.sender)}</td>
+                    <td>{kind_label(tx)}</td>
                     <td>{tx.nonce.to_string()}</td>
                     <td>{tx.total_out.to_string()}</td>
                 </tr>
@@ -354,7 +355,7 @@ pub fn TxTable(
                 <thead>
                     <tr>
                         <th>"Txid"</th><th>"Height"</th><th>"Sender"</th>
-                        <th>"Nonce"</th><th>"Value"</th>
+                        <th>"Kind"</th><th>"Nonce"</th><th>"Value"</th>
                     </tr>
                 </thead>
                 <tbody id="tx-rows">{rows}</tbody>
@@ -391,6 +392,16 @@ pub fn blocks_page(blocks: Vec<IndexedBlock>) -> String {
             <BlockTable blocks=blocks/>
         </Shell>
     })
+}
+
+/// The kind column: the transaction kind, marked when signing it needs care.
+/// Blank for a row indexed from a node that predates `core::describe`.
+fn kind_label(tx: &IndexedTx) -> String {
+    match (tx.kind.is_empty(), tx.careful) {
+        (true, _) => "-".to_string(),
+        (false, true) => format!("{} (check first)", tx.kind),
+        (false, false) => tx.kind.clone(),
+    }
 }
 
 /// A single block with its transactions.
@@ -432,6 +443,7 @@ pub fn transaction_page(transaction: Option<IndexedTx>, query: String) -> String
                     <dd class="mono">
                         <a href=format!("/account?address={}", tx.sender)>{tx.sender.clone()}</a>
                     </dd>
+                    <dt>"Kind"</dt><dd>{kind_label(&tx)}</dd>
                     <dt>"Nonce"</dt><dd>{tx.nonce.to_string()}</dd>
                     <dt>"Outputs"</dt><dd>{tx.output_count.to_string()}</dd>
                     <dt>"Value"</dt><dd>{tx.total_out.to_string()}</dd>

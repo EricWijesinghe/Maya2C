@@ -71,6 +71,12 @@ CREATE INDEX IF NOT EXISTS transactions_sender_idx ON transactions (sender, heig
 -- ADR-046: a table created before amounts were 256-bit held a BIGINT. A no-op
 -- once the column is already TEXT.
 ALTER TABLE transactions ALTER COLUMN total_out TYPE TEXT USING total_out::text;
+
+-- core::describe columns. Additive with defaults, so an index built before them
+-- keeps working and old rows read as an unknown kind until re-indexed.
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT '';
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS summary TEXT NOT NULL DEFAULT '';
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS careful BOOLEAN NOT NULL DEFAULT FALSE;
 ";
 
 /// A PostgreSQL-backed index.
@@ -138,6 +144,9 @@ fn tx_from_row(row: &sqlx::postgres::PgRow) -> Result<IndexedTx> {
         output_count: row.try_get("output_count")?,
         total_out: row.try_get("total_out")?,
         signed: row.try_get("signed")?,
+        kind: row.try_get("kind")?,
+        summary: row.try_get("summary")?,
+        careful: row.try_get("careful")?,
     })
 }
 
@@ -183,8 +192,9 @@ impl BlockStore for PostgresStore {
         for (position, transaction) in transactions.iter().enumerate() {
             sqlx::query(
                 "INSERT INTO transactions
-                   (txid, height, sender, nonce, output_count, total_out, signed, position)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                   (txid, height, sender, nonce, output_count, total_out, signed, position,
+                    kind, summary, careful)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                  ON CONFLICT (txid) DO UPDATE SET
                    height = EXCLUDED.height,
                    sender = EXCLUDED.sender,
@@ -192,7 +202,10 @@ impl BlockStore for PostgresStore {
                    output_count = EXCLUDED.output_count,
                    total_out = EXCLUDED.total_out,
                    signed = EXCLUDED.signed,
-                   position = EXCLUDED.position",
+                   position = EXCLUDED.position,
+                   kind = EXCLUDED.kind,
+                   summary = EXCLUDED.summary,
+                   careful = EXCLUDED.careful",
             )
             .bind(&transaction.txid)
             .bind(transaction.height)
@@ -202,6 +215,9 @@ impl BlockStore for PostgresStore {
             .bind(&transaction.total_out)
             .bind(transaction.signed)
             .bind(position as i32)
+            .bind(&transaction.kind)
+            .bind(&transaction.summary)
+            .bind(transaction.careful)
             .execute(&mut *tx)
             .await?;
         }
