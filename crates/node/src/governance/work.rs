@@ -101,13 +101,25 @@ impl WorkRecord {
     #[must_use]
     pub const fn credited(&self, work: u128, height: u64) -> Self {
         let aged = self.value_at(height);
+        // The clock moves forward by whole half-lives only. Moving it to
+        // `height` threw away the part of a half-life already served, so a
+        // record credited more often than every half-life never decayed at
+        // all, and the chain-wide aggregate (credited on every claim) never
+        // did. A height below the record's own is a reorg in flight and
+        // resets it, as `value_at` reads it.
+        let last_height = match height.checked_sub(self.last_height) {
+            Some(elapsed) if elapsed / WORK_HALF_LIFE_BLOCKS <= MAX_HALVINGS => {
+                self.last_height + (elapsed / WORK_HALF_LIFE_BLOCKS) * WORK_HALF_LIFE_BLOCKS
+            }
+            _ => height,
+        };
         Self {
             // Saturating: a credit at `u128::MAX` is already more voting weight
             // than the tally will accept, and wrapping it would hand the
             // wrapper a weight of nearly zero — or, worse, a weight of nearly
             // everything.
             credit: aged.saturating_add(work),
-            last_height: height,
+            last_height,
         }
     }
 
@@ -201,6 +213,26 @@ mod tests {
 
         assert_eq!(updated.credit, 1_500, "500 aged plus 1000 new");
         assert_eq!(updated.last_height, WORK_HALF_LIFE_BLOCKS);
+    }
+
+    #[test]
+    fn a_record_credited_every_block_still_decays() {
+        // Crediting at an interval shorter than a half-life must not reset the
+        // clock: with one unit per block for four half-lives, an all-time sum
+        // is 4 * H, and a decaying one settles under one half-life's worth.
+        let mut record = WorkRecord::default();
+        for height in 1..=4 * WORK_HALF_LIFE_BLOCKS {
+            record = record.credited(1, height);
+        }
+        let held = record.value_at(4 * WORK_HALF_LIFE_BLOCKS);
+        assert!(
+            held < 2 * u128::from(WORK_HALF_LIFE_BLOCKS),
+            "{held} is not bounded by decay"
+        );
+        assert!(
+            held > u128::from(WORK_HALF_LIFE_BLOCKS) / 2,
+            "{held} decayed too much"
+        );
     }
 
     #[test]

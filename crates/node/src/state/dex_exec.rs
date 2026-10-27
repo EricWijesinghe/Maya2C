@@ -1070,11 +1070,18 @@ impl StateDB {
             // The bid's escrow paid the quote; the ask's paid the base. Both
             // are decremented by exactly what left them, so what remains is
             // exact rather than recomputed.
+            // Checked, not saturating: escrow is placed at the ceiling of what
+            // a fill can take, so an underflow means the book and the escrow
+            // disagree, and clamping to zero would hide value created.
             if let Some(record) = working.get_mut(&fill.bid_id) {
-                record.escrow = record.escrow.saturating_sub(fill.quote);
+                record.escrow = record.escrow.checked_sub(fill.quote).ok_or_else(|| {
+                    NodeError::InvariantViolation("dex: bid escrow below a fill's quote".into())
+                })?;
             }
             if let Some(record) = working.get_mut(&fill.ask_id) {
-                record.escrow = record.escrow.saturating_sub(fill.base);
+                record.escrow = record.escrow.checked_sub(fill.base).ok_or_else(|| {
+                    NodeError::InvariantViolation("dex: ask escrow below a fill's base".into())
+                })?;
             }
         }
 
