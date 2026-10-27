@@ -427,3 +427,19 @@ deliberately left at 64 bits, and why, are tabled in ADR-048.
 - **ADR-065 accepted:** swaps first; Bitcoin inbound written but inactive (activation height `u64::MAX`).
 - **Retarget off-by-one (audit 7):** fix before re-genesis, with spec, vectors and an ADR note.
 - **Next gap:** `core::describe` in the GUI wallet and the explorer (kind column).
+
+## 2026-10-27 — Third round: live-testnet freeze, release hold, halving (Eric; Claude recorded)
+
+- **Live testnet is not touched** until its 7-day run finishes. No re-genesis, restart, deploy,
+  or tag before then. Local work (tests, agents, benches, PRs) is unrestricted.
+- **After the 7 days:** update the site/status/explorer with the result as proof, then
+  attacknet, self pre-audit, mainnet. No further postponement of that order.
+- **node-v0.1.0-testnet.5:** tag held for the re-genesis batch.
+- **Explorer/status redeploy:** only after the 7-day finish.
+- **`halving_epochs` delegated to Claude; decided: 35,064.** An epoch is 3,600 blocks
+  (`DEFAULT_EPOCH_BLOCKS`). Cadence is set by genesis `round_interval_ms`, not emergent;
+  `reports/18-economics.md` measured 0.96–1.03 blocks/s at 500 ms rounds on a devnet, so one epoch
+  is about 1 hour and 35,064 epochs is about 4 years (4 × 365.25 × 24). It is the ADR-044 shape
+  (about 4 years, computed from the measured rate). This is a devnet rate: if the mainnet
+  `round_interval_ms` differs, recompute before the genesis freeze. It is Bitcoin's interval
+  and is not claimed to be better than any chain's.
