@@ -109,15 +109,15 @@ fn slip10_vector_2_full_chain() {
 fn a_non_hardened_path_is_rejected() {
     // SLIP-0010 over ed25519 defines hardened derivation only. Silently
     // hardening the index would produce keys nobody else derives.
-    let error = DerivationPath::parse("m/44'/7331'/0'/0/0'").expect_err("must reject");
+    let error = DerivationPath::parse("m/44'/2992'/0'/0/0'").expect_err("must reject");
     assert!(matches!(error, WalletError::InvalidPath(_)));
     assert!(error.to_string().contains("hardened"));
 }
 
 #[test]
 fn a_hardened_path_round_trips() {
-    let path = DerivationPath::parse("m/44'/7331'/0'/0'/5'").expect("parse");
-    assert_eq!(path.to_string(), "m/44'/7331'/0'/0'/5'");
+    let path = DerivationPath::parse("m/44'/2992'/0'/0'/5'").expect("parse");
+    assert_eq!(path.to_string(), "m/44'/2992'/0'/0'/5'");
     assert_eq!(path.indices().len(), 5);
     assert!(path.indices().iter().all(|index| *index >= HARDENED));
 }
@@ -125,8 +125,8 @@ fn a_hardened_path_round_trips() {
 #[test]
 fn an_h_suffix_is_accepted_as_hardened() {
     // Both notations appear in the wild.
-    let with_tick = DerivationPath::parse("m/44'/7331'/0'").expect("parse");
-    let with_h = DerivationPath::parse("m/44h/7331h/0h").expect("parse");
+    let with_tick = DerivationPath::parse("m/44'/2992'/0'").expect("parse");
+    let with_h = DerivationPath::parse("m/44h/2992h/0h").expect("parse");
     assert_eq!(with_tick, with_h);
 }
 
@@ -144,11 +144,11 @@ fn malformed_paths_are_rejected() {
 fn the_account_path_matches_the_documented_layout() {
     assert_eq!(
         DerivationPath::account(0, 0).to_string(),
-        "m/44'/7331'/0'/0'/0'"
+        "m/44'/2992'/0'/0'/0'"
     );
     assert_eq!(
         DerivationPath::account(2, 7).to_string(),
-        "m/44'/7331'/2'/0'/7'"
+        "m/44'/2992'/2'/0'/7'"
     );
 }
 
