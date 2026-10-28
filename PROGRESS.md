@@ -216,7 +216,9 @@ Rules in CLAUDE.md, "Operating Protocol"; state in [STATE.md](STATE.md).
 - [x] Gate 3, 7 days without a halt: 661,357 s, blocks 0 → 393,812, `halts []`; testnet
       stopped on purpose 2026-10-28 07:36 UTC — `reports/sessions/2026-10-28-testnet-stopped.md`
 - [x] No second public soak (Eric, 2026-10-28: "we validate for 7 days and we continue, no repeat"); the frozen mining build is proven on local multi-validator networks instead
-- [ ] Self-run pre-audit, 2026-10-29: 10 findings, S-001 to S-010 in `docs/audit/FINDINGS.md`. S-001, S-002, S-003 and S-006 are fixed on `fix/preaudit-staking`; S-005 is a doc correction. S-004, S-007 and S-008 are fixed on `fix/preaudit-chaintag`. Self-run, not an audit.
+- [ ] Self-run pre-audit, 2026-10-29: 10 findings, S-001 to S-010 in `docs/audit/FINDINGS.md`. S-001, S-002, S-003 and S-006 are fixed on `fix/preaudit-staking`; S-005 is a doc correction. S-004 fixed in #236; S-007/S-008 documented as mainnet runbook parameters. Self-run, not an audit. S-003 byte bound still open.
+- [x] Self-run attacknet, 7 validators, commit f6ffa5d2: crash f / f+1, stolen key, garbage, RPC flood, long outage, beyond-retention snapshot rejoin (643 ms); no fork through height 602 — `reports/attacknet/2026-10-28-1.md`. Self-run, not independent.
+- [x] Mainnet build merged 2026-10-29: forever mining ADR-068 (#221), ML-DSA-87 validator keys (#222), 24 decimals (#230), chain-tagged votes (#236); freeze candidate on master
 
 ## How to resume
 
