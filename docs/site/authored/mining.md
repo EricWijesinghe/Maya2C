@@ -16,7 +16,7 @@ on a misunderstanding.
 
 | | Today |
 |---|---|
-| GPU mining for rewards | Built: a miner's shares (`WorkClaim`) are paid **70% of each epoch's issuance**, split by share count; the other 30% goes to validators. Paid out of a genesis reserve, never minted, capped at 21,000,000. No premine. **Mainnet has not launched**, so mining earns nothing yet. |
+| GPU mining for rewards | Built: a miner's shares (`WorkClaim`) are paid **70% of each epoch's issuance**, split by share count; the other 30% goes to validators. Paid out of a reserve allocated at genesis, never minted, capped at 21,000,000; issuance ends when the reserve is empty. No premine. A tail reward funded to the last height ([ADR-068](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-068-forever-mining.md)) is proposed and not on master yet. **Mainnet has not launched**, so mining earns nothing yet. |
 | Maya2C Hub | The desktop miner app, with the GPU miner inside, for Windows, macOS and Linux. Installers are attached to each release. They are not code-signed yet, so Windows and macOS warn "unknown publisher". |
 | DAG-BFT validators | Works: blocks, finality, transfers, fees and staking bonds at genesis. This is the consensus ([ADR-016](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-016-launch-scope.md)). |
 | Joining the validator set after genesis | Built and tested: a registration with a bond enters the committee at the next staking epoch (`crates/node/tests/bft_staking_tests.rs`). |
