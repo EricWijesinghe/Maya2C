@@ -1138,6 +1138,7 @@ mod mining_tests {
         MiningGenesis {
             initial_epoch_reward: primitive_types::U256::from(1_000_000),
             halving_epochs: 100,
+            tail_epoch_reward: primitive_types::U256::zero(),
             miner_share_bps: 7_000,
             target_shares: 10,
             max_shares_per_block: 2,
