@@ -4,8 +4,11 @@
 //! the report itself: that is a transaction, signed by an account that pays
 //! the fee, and a validator process holds no account key. So it writes the pair
 //! here, and an operator files it with `l1-wallet report-equivocation`.
-//! Evidence is admissible only until the offender's funds stop being slashable
-//! (`staking_exec`), so the file must outlive a restart.
+//! Evidence is admissible for `unbonding_epochs + 1` epochs after the offence,
+//! while the chain still holds that epoch's committee record (`staking_exec`
+//! prunes older ones), whether or not the offender is still bonded. That is
+//! the usual evidence age limit (Cosmos ties it to the unbonding period
+//! too), so file promptly. The file must outlive a restart.
 
 use maya_dag_bft::{Equivocation, Message};
 

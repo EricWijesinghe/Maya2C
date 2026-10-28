@@ -70,6 +70,14 @@ jobs:
       - name: Threshold Raccoon (threshold-lattice)
         run: cargo test -p maya-custody-mpc --features threshold-lattice
 
+      # The PR run checks 192 schedules per committee; the indirect-commit bug
+      # it exists to catch took ~6,000 random cases to reach, so the deep
+      # search runs here. The two hand-built DAGs pin that case on every PR.
+      - name: DAG-BFT adversarial schedules (deep)
+        env:
+          MAYA_SCHEDULE_CASES: "10000"
+        run: cargo test -p maya-dag-bft --release --test adversarial_schedules
+
   # ---------------------------------------------------------------------
   # Fuzzing. The decoders of untrusted input, from a persisted corpus.
   # ---------------------------------------------------------------------

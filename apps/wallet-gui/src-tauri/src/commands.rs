@@ -468,10 +468,19 @@ pub async fn fee_options(
     let quote = wallet::fee_quote(&node_url)
         .await
         .map_err(|e| e.to_string())?;
-    let chain = wallet::chain_info(&node_url)
+    // The genesis the transfer will be signed for, refused when the node
+    // claims to be mainnet without the pinned genesis (networks.rs).
+    let status = wallet::network_status(&node_url)
         .await
         .map_err(|e| e.to_string())?;
-    let genesis = chain.to_string();
+    if status.class == maya_wallet_core::networks::NetworkClass::Impostor {
+        return Err(format!(
+            "this node says it is mainnet, but its genesis ({}) is not the mainnet genesis; not signing for it",
+            status.fingerprint
+        ));
+    }
+    let chain = parse_genesis(&status.genesis)?;
+    let genesis = status.genesis;
     let tiers = FeeTier::all();
     if !quote.active {
         return Ok(FeeTerms {
