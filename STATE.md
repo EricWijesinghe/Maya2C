@@ -1,6 +1,14 @@
 # State
 
 ## Handover
+- **2026-10-29 — mainnet build merged; attacknet PASS; freeze candidate on master.**
+  - **Done:** #221 forever mining, #222 ML-DSA-87 validator keys, #230 24 decimals (api-gateway
+    COIN_DECIMALS=24 agrees with wallet), #236 chain-tagged votes (S-004), #226 status
+    stopped mode, #233 ADR-069 feature program, #237 (peer) staking pre-audit fixes. Self-run
+    attacknet PASS (`reports/attacknet/2026-10-28-1.md`).
+  - **Unfinished:** S-003 byte-bounded BFT channel (peer); #239/#240 FINDINGS rows.
+  - **Do first:** freeze 11-03; local multi-validator proving 11-04→11-08 on master HEAD;
+    then ask Eric for `APPROVED: sign genesis` and mainnet launch.
 - **2026-10-28 — 7-day soak passed; testnet stopped on purpose.** maya-testnet-1:
   661,357 s (7 d 15 h 42 min), height 393,812, `halts []`, then stopped at 07:36 UTC on
   Eric's instruction (PIDs + systemd units; watchdog task and VM watch timer disabled; data
