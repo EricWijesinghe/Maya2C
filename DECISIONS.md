@@ -468,3 +468,13 @@ governance knob over emission.
 Eric chose "Build it now" for the re-genesis. Separate type from transaction keys, `ml-dsa`
 backend (invariant 4), context `maya2c validator v1`, spec CRY-4. Council keys stay
 ML-DSA-65 for now. Every validator key must be regenerated for the re-genesis.
+
+## 2026-10-28 — ADR-062a/b move to after mainnet (Claude, under Eric's delegation)
+
+Mainnet deadline ~2026-11-28. Measured state-root cost is 0.88 ms at 1k accounts and 6.82 ms
+at 10k (`reports/bench/state-root-scaling-23a158f4.md`); a launch chain sits at the low end.
+The sparse accounts tree is already an activation-height switch (`sl:accounts-sparse`,
+`state/stateless.rs`), so ADR-062a (incremental sparse root) lands later as a scheduled
+upgrade without a re-genesis, and ADR-062b (per-validator staking records) the same way.
+Building either now would put a new state format into the freeze week for no launch-time
+gain. Revisit when accounts pass ~50k or block time is threatened (measure, then decide).
