@@ -16,6 +16,8 @@ inherits the thing it describes.
 
 | Document | What it settles |
 |---|---|
+| [REPO-MAP.md](REPO-MAP.md) | Every top-level directory, and which file is the authority for which question |
+| [HYGIENE.md](HYGIENE.md) | Where files go, what counts as junk, and the cleanup ledger |
 | [architecture-vision.md](architecture-vision.md) | The full target architecture, and which of it is shipped, which is dark, and which was never written |
 | [trajectory.md](trajectory.md) | The 160-prompt build order, where the sessions are in it, and where the plan disagrees with the tree |
 | [mainnet-readiness.md](mainnet-readiness.md) | Why mainnet is blocked, and what lifting the block would require |
@@ -81,7 +83,7 @@ inherits the thing it describes.
 
 | Document | What it settles |
 |---|---|
-| [master-prompts/README.md](master-prompts/README.md) | For each of the thirty briefs in `Prompts/`: whether its DONE WHEN is met, and the largest gap |
+| [master-prompts/README.md](master-prompts/README.md) | For each of the thirty briefs in `docs/master-prompts/`: whether its DONE WHEN is met, and the largest gap |
 | [NODE_TYPES.md](NODE_TYPES.md) | Measured resource requirements per node type, and what was not measured |
 | [SECOND_CLIENT.md](SECOND_CLIENT.md), [CRYPTO_WATCH.md](CRYPTO_WATCH.md) | Why a spec with an independent verifier comes first, and what cryptanalysis would trigger a migration |
 | [ECONOMIC_SECURITY.md](ECONOMIC_SECURITY.md) | Cost-of-attack tables from the economic scenarios |
