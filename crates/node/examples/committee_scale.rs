@@ -72,6 +72,8 @@ fn measure(n: u16) -> (f64, f64) {
                 MlDsaAuthenticator::validator(
                     Arc::clone(&signers[usize::from(i)]),
                     Arc::clone(&committee),
+                    // A local measurement: any tag every engine shares.
+                    custom_l1_node::core::ChainTag([0; 32]),
                 ),
             )
         })
