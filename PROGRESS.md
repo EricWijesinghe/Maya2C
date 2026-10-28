@@ -216,6 +216,7 @@ Rules in CLAUDE.md, "Operating Protocol"; state in [STATE.md](STATE.md).
 - [x] Gate 3, 7 days without a halt: 661,357 s, blocks 0 → 393,812, `halts []`; testnet
       stopped on purpose 2026-10-28 07:36 UTC — `reports/sessions/2026-10-28-testnet-stopped.md`
 - [x] No second public soak (Eric, 2026-10-28: "we validate for 7 days and we continue, no repeat"); the frozen mining build is proven on local multi-validator networks instead
+- [ ] Self-run pre-audit, 2026-10-29: 10 findings, S-001 to S-010 in `docs/audit/FINDINGS.md`. S-001, S-002, S-003 and S-006 are fixed on `fix/preaudit-staking`; S-005 is a doc correction. S-004, S-007 and S-008 are fixed on `fix/preaudit-chaintag`. Self-run, not an audit.
 
 ## How to resume
 

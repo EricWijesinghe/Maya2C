@@ -417,7 +417,10 @@ fn undelegations_cannot_grow_the_unbonding_queue_for_free() {
         s.undelegate(account(2), id(1), a(1)),
         Err(StakeError::BelowMinimum)
     );
-    assert_eq!(s.unbond(account(1), id(1), Amount::ZERO), Err(StakeError::BelowMinimum));
+    assert_eq!(
+        s.unbond(account(1), id(1), Amount::ZERO),
+        Err(StakeError::BelowMinimum)
+    );
     // Undelegations releasing in the same epoch fold into one row.
     for _ in 0..50 {
         s.undelegate(account(2), id(1), a(10)).unwrap();
