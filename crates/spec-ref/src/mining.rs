@@ -19,7 +19,7 @@ fn ceiling() -> Balance {
 /// MINE-1: `max(⌊initial / 2^⌊epoch / halving⌋⌋, tail)`.
 #[must_use]
 pub fn epoch_reward(initial: Balance, tail: Balance, halving_epochs: u64, epoch: u64) -> Balance {
-    initial.shr(epoch / halving_epochs.max(1)).max(tail)
+    initial.shr_bits(epoch / halving_epochs.max(1)).max(tail)
 }
 
 /// MINE-2: the miners' part `⌊reward × min(bps, 10000) / 10000⌋` and the
@@ -47,7 +47,7 @@ pub fn lifetime_emission(
     let mut start = 0u128;
     let mut halvings = 0u64;
     while start < epochs {
-        let halved = initial.shr(halvings);
+        let halved = initial.shr_bits(halvings);
         let left = epochs - start;
         if halved <= tail {
             total = total.checked_add(tail.checked_mul_count(left)?)?;
@@ -68,17 +68,30 @@ mod tests {
 
     #[test]
     fn the_sum_matches_an_epoch_by_epoch_count() {
-        let (initial, tail, h, blocks) = (Balance::from(1_000_000), Balance::from(100_000), 10, u64::MAX / 50);
+        let (initial, tail, h, blocks) = (
+            Balance::from(1_000_000),
+            Balance::from(100_000),
+            10,
+            u64::MAX / 50,
+        );
         let last = u64::MAX / blocks;
-        let brute = (0..=last).fold(Balance::from(0), |s, e| s.checked_add(epoch_reward(initial, tail, h, e)).unwrap());
+        let brute = (0..=last).fold(Balance::from(0), |s, e| {
+            s.checked_add(epoch_reward(initial, tail, h, e)).unwrap()
+        });
         assert_eq!(lifetime_emission(initial, tail, h, blocks), Some(brute));
     }
 
     #[test]
     fn shifting_and_counting_are_exact_at_the_edges() {
-        assert_eq!(Balance::MAX.shr(256), Balance::from(0));
-        assert_eq!(Balance::MAX.shr(255), Balance::from(1));
-        assert_eq!(Balance::from(1).checked_mul_count(1 << 64).unwrap().shr(64), Balance::from(1));
+        assert_eq!(Balance::MAX.shr_bits(256), Balance::from(0));
+        assert_eq!(Balance::MAX.shr_bits(255), Balance::from(1));
+        assert_eq!(
+            Balance::from(1)
+                .checked_mul_count(1 << 64)
+                .unwrap()
+                .shr_bits(64),
+            Balance::from(1)
+        );
         assert_eq!(Balance::MAX.checked_mul_count(2), None);
     }
 }
