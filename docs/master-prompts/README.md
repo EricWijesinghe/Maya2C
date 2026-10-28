@@ -5,6 +5,9 @@ file records, for each one, whether its **DONE WHEN** is met and the largest
 gap. It is the answer to "is prompt N finished", and it is deliberately
 separate from `features.toml`.
 
+**The Omega direction brief** (2026-10-28) and its status map against the
+tree: [`omega.md`](omega.md).
+
 **The handover** — the release build, its evidence, and what only the owner
 can do next — is [`reports/31-handover.md`](../../reports/31-handover.md).
 

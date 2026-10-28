@@ -136,6 +136,9 @@ how mainnet will work.
 - **Downtime is slashed.** A validator that commits fewer than half of the anchor
   slots it led in an epoch loses 1% of its bond and is jailed for two epochs.
 - **Double signing is slashed hard.** 50% of the bond, and the key is retired.
+  Evidence can be filed for `unbonding_epochs + 1` epochs after the offence.
+- **Undelegating takes the whole stake or leaves at least the minimum.** A
+  zero or dust undelegation is refused.
 - **Your node votes on every round.** Its signatures are ML-DSA-65, the NIST
   post-quantum standard, like every other signature on the chain.
 
