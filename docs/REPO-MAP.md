@@ -66,7 +66,6 @@ that is a defect — fix this page in the same change ([HYGIENE.md](HYGIENE.md))
 |---|---|
 | `docs/` | design docs, indexed by `docs/README.md` |
 | `docs/adr/` | architecture decision records, `ADR-001`…, never renumbered |
-| `docs/plans/` | working plans (NextGen update, optimization) — plans, not status |
 | `docs/runbooks/`, `docs/migration/`, `docs/releases/` | operations, upgrades, release notes |
 | `docs/master-prompts/` | the original thirty briefs (three files) and the DONE WHEN verdicts |
 | `docs/runbooks/` | includes `attacknet-lab-guide.md` |
@@ -79,7 +78,7 @@ that is a defect — fix this page in the same change ([HYGIENE.md](HYGIENE.md))
 
 | Path | Contents | Tracked |
 |---|---|---|
-| `.claude/` | agents, commands, hooks, settings; `plans/` and `skills/` | partly |
+| `.claude/` | agents, commands, hooks, settings; `plans/` (working plans: NextGen update, optimization) and `skills/` | partly |
 | `.agents/`, `.serena/`, `.idea/`, `.posit/`, `.tabnine/`, `.config/` | local tool state | ignored or tool-owned |
 | `.mcp.json` | MCP server list (see `docs/environment.md`) | yes |
 
