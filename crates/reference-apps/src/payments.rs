@@ -44,7 +44,7 @@ pub fn authorise_till(
     height: u64,
 ) -> Result<(), AccountError> {
     let policy = customer.signed(Action::SetPolicy(Policy {
-        daily_limit: daily_limit,
+        daily_limit,
         ..Policy::default()
     }));
     registry.apply(&policy, height, Amount::from_u64(0))?;
@@ -75,7 +75,7 @@ pub fn charge(
     amount: Amount,
     height: u64,
 ) -> Result<String, AccountError> {
-    let op = till.sign(customer.op(Action::Transfer { to, amount: amount }));
+    let op = till.sign(customer.op(Action::Transfer { to, amount }));
     if let Err(e) = registry.apply(&op, height, Amount::from_u64(0)) {
         customer.refused();
         return Err(e);
