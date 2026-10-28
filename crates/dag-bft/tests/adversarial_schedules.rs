@@ -711,7 +711,7 @@ fn only_inserted_certificates_are_reported_for_persistence() {
     for c in r1.iter().chain(&r2[..3]) {
         let out = node.handle(0, 0, Message::Cert(c.clone()));
         assert_eq!(
-            out.inserted,
+            digests(&out.inserted),
             vec![c.digest()],
             "a held parent inserts at once"
         );
@@ -720,7 +720,7 @@ fn only_inserted_certificates_are_reported_for_persistence() {
     assert!(
         waiting.inserted.is_empty(),
         "buffered, not inserted: {:?}",
-        waiting.inserted
+        digests(&waiting.inserted)
     );
     assert!(
         node.handle(0, 1, Message::Cert(child.clone()))
@@ -730,7 +730,7 @@ fn only_inserted_certificates_are_reported_for_persistence() {
     );
     let unblocked = node.handle(0, 0, Message::Cert(r2[3].clone()));
     assert_eq!(
-        unblocked.inserted,
+        digests(&unblocked.inserted),
         vec![r2[3].digest(), child.digest()],
         "parent, then the child it unblocked"
     );

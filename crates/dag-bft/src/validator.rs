@@ -70,11 +70,13 @@ pub struct Output {
     pub sub_dags: Vec<SubDag>,
     /// Conflicting signed proposals seen, for the staking module.
     pub equivocations: Vec<Equivocation>,
-    /// Digests of certificates this step verified and inserted into the DAG,
-    /// own ones included: the only certificates a node may persist. A
-    /// certificate that arrives is not one of these until its signatures
-    /// check and its parents are held, which may be several steps later.
-    pub inserted: Vec<Digest>,
+    /// Certificates this step verified and inserted into the DAG, own ones
+    /// included: the only certificates a node may persist. A certificate
+    /// that arrives is not one of these until its signatures check and its
+    /// parents are held, which may be several steps later. Carried whole,
+    /// not by digest: the same step may commit and collect it below the
+    /// horizon before the caller could look it up.
+    pub inserted: Vec<Certificate>,
 }
 
 /// Engine parameters.
@@ -533,7 +535,7 @@ impl<A: Authenticator> Validator<A> {
             self.pending = None;
         }
         if self.dag.insert_digested(c, digest) {
-            out.inserted.push(digest);
+            self.report_inserted(&digest, out);
         }
         self.drain_buffer(out);
     }
@@ -584,6 +586,14 @@ impl<A: Authenticator> Validator<A> {
             }))
     }
 
+    /// Copies a certificate just inserted into `out.inserted`, while the DAG
+    /// still holds it.
+    fn report_inserted(&self, digest: &Digest, out: &mut Output) {
+        if let Some(c) = self.dag.by_digest(digest) {
+            out.inserted.push(c.clone());
+        }
+    }
+
     /// Inserts buffered certificates whose parents have arrived.
     fn drain_buffer(&mut self, out: &mut Output) {
         loop {
@@ -601,7 +611,7 @@ impl<A: Authenticator> Validator<A> {
                     && self.has_parent_quorum(&c.vertex)
                     && self.dag.insert_digested(c, d)
                 {
-                    out.inserted.push(d);
+                    self.report_inserted(&d, out);
                 }
             }
         }
