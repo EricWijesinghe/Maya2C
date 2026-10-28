@@ -673,10 +673,8 @@ impl BftDriver {
     ) -> Result<()> {
         // Before any send: an own certificate is on disk before a peer can
         // build on it.
-        for digest in &out.inserted {
-            if let Some(c) = self.engine.dag().by_digest(digest).cloned() {
-                self.log_certificate(&c)?;
-            }
+        for c in &out.inserted {
+            self.log_certificate(c)?;
         }
         for (dest, message) in out.sends {
             let to = match dest {
