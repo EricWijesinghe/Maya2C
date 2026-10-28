@@ -170,9 +170,11 @@ impl StateDB {
         sender: &Address,
         action: &StakingAction,
     ) -> Result<()> {
-        let mut record = self
-            .staking_record(overlay)?
+        let stored = self
+            .record(overlay, STATE_KEY)?
             .ok_or_else(|| NodeError::Network("staking is not active on this chain".to_string()))?;
+        let previous_len = stored.len();
+        let mut record = StakingRecord::decode(&stored)?;
         let s = &mut record.staking;
         let effects = match action {
             StakingAction::Register {
@@ -208,7 +210,11 @@ impl StateDB {
             }
         };
         let encoded = record.encode();
-        if encoded.len() > MAX_STAKING_RECORD_BYTES {
+        // Only growth past the cap is refused, and never a slash: otherwise a
+        // record filled to the cap would block the unbonds and evidence that
+        // shrink it. A slash adds one tombstone at most, well inside the margin.
+        let is_slash = matches!(action, StakingAction::ReportEquivocation { .. });
+        if !is_slash && encoded.len() > MAX_STAKING_RECORD_BYTES && encoded.len() > previous_len {
             return Err(NodeError::Network(format!(
                 "staking refused: the record would be {} bytes, above {MAX_STAKING_RECORD_BYTES}",
                 encoded.len()
