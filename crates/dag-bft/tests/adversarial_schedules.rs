@@ -739,3 +739,46 @@ fn only_inserted_certificates_are_reported_for_persistence() {
         "a held certificate is not reported twice"
     );
 }
+
+#[test]
+fn fetch_replies_are_budgeted_per_member() {
+    // Pre-audit S-002 (self-run): every `Fetch` drew a whole certificate.
+    let committee = Committee::new(N);
+    let genesis = Certificate::genesis(&committee);
+    let r1: Vec<_> = (0..N).map(|a| cert(1, a, &digests(&genesis))).collect();
+    let params = Params {
+        resend_interval_ms: 500,
+        ..Params::default()
+    };
+    let mut node = Validator::new(2, committee, params);
+    for c in &r1 {
+        node.handle(1_000, 0, Message::Cert(c.clone()));
+    }
+    let wanted = r1[0].digest();
+    let replies = |out: Output| {
+        out.sends
+            .iter()
+            .filter(|(_, m)| matches!(m, Message::Cert(_)))
+            .count()
+    };
+    let budget = 4 * usize::from(N);
+    let answered: usize = (0..1_000)
+        .map(|_| replies(node.handle(1_100, 1, Message::Fetch(wanted))))
+        .sum();
+    assert_eq!(answered, budget, "inside one interval");
+    assert_eq!(
+        replies(node.handle(1_100, 3, Message::Fetch(wanted))),
+        1,
+        "another member keeps its own budget"
+    );
+    assert_eq!(
+        replies(node.handle(1_100, N, Message::Fetch(wanted))),
+        0,
+        "not a member"
+    );
+    assert_eq!(
+        replies(node.handle(1_600, 1, Message::Fetch(wanted))),
+        1,
+        "next interval"
+    );
+}
