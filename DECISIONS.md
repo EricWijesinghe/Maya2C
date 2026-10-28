@@ -498,3 +498,11 @@ refuses or clamps. Bare `*` on amounts appears only on constants (`10 * COIN`) a
 - LOW-7: protocol floor unchanged (1 unit); mainnet genesis sets min_base_fee ≥ 10^6 (runbook).
 - INFO-8: no protocol supply cap; genesis is the cap; with the tail, total > 21M by design
   (runbook).
+## 2026-10-28 — No second public soak; the next public genesis is mainnet (Eric)
+
+Relayed through session maya2c-9a, Eric's words: "we validate for 7 days and we continue, no
+repeat". Overrides ADR-044's requirement that gate 3 run again on the mining build. The
+frozen build is proven on local multi-validator networks (attacknet, rejoin drills, Hub
+mining E2E, self pre-audit) from 11-04 to 11-08; mainnet 11-09 → 11-14, each step with its
+own APPROVED. Risk stated once: the mining lane has never run on a public, multi-machine
+network before mainnet.

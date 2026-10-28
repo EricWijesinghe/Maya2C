@@ -596,7 +596,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         public_lines.push(format!("  root-{index}  {address}  {balance}"));
         allocations.push(Allocation {
             address: address.clone(),
-            balance: primitive_types::U256::from(balance),
+            balance,
         });
     }
 
@@ -614,7 +614,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
         Some(TreasuryGenesis {
             address,
-            balance: primitive_types::U256::from(treasury_balance),
+            balance: treasury_balance,
             share_bps: args.treasury_share_bps,
         })
     } else {
@@ -948,7 +948,7 @@ fn assemble(args: &Args) -> Result<(), Box<dyn Error>> {
         ));
         allocations.push(Allocation {
             address: contribution.address.clone(),
-            balance: primitive_types::U256::from(balance),
+            balance,
         });
     }
 
@@ -983,7 +983,7 @@ fn assemble(args: &Args) -> Result<(), Box<dyn Error>> {
 
         Some(TreasuryGenesis {
             address,
-            balance: primitive_types::U256::from(treasury_balance),
+            balance: treasury_balance,
             share_bps: args.treasury_share_bps,
         })
     } else {

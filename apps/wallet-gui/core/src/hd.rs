@@ -47,10 +47,12 @@ pub const HARDENED: u32 = 0x8000_0000;
 
 /// SLIP-44 coin type used for `Maya2C` accounts.
 ///
-/// 931 is the registered Terra/other space; this chain has no assignment, so
-/// the value is arbitrary but must stay fixed — changing it silently moves
-/// every derived account.
-pub const COIN_TYPE: u32 = 7331;
+/// Was 7331 until 2026-10-29, which SLIP-44 assigns to KLYNTAR: a wallet
+/// supporting both would derive one key path for two chains. 2992 was free
+/// in SLIP-44 that day with no pending request; the registration PR claims
+/// it. Fixed from mainnet on — changing it silently moves every derived
+/// account.
+pub const COIN_TYPE: u32 = 2992;
 
 /// Number of words in a generated mnemonic.
 ///
@@ -101,7 +103,7 @@ impl DerivationPath {
         }
     }
 
-    /// Parses a path such as `m/44'/7331'/0'/0'/0'`.
+    /// Parses a path such as `m/44'/2992'/0'/0'/0'`.
     ///
     /// # Errors
     ///

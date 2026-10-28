@@ -446,9 +446,10 @@ impl BftDriver {
         if envelope.epoch != self.epoch || !addressed || Some(envelope.from) == self.id {
             return Ok(step);
         }
-        if let Message::Cert(c) = &envelope.message {
-            self.log_certificate(c)?;
-        }
+        // Not logged here: a frame's certificate is unverified until the
+        // engine has checked its signatures and parents. `absorb` logs what
+        // the engine inserted, so a forged certificate never takes a slot
+        // in certs.log ahead of the real one.
         let out = self.engine.handle(now_ms, envelope.from, envelope.message);
         self.absorb(chain, now_ms, out, &mut step)?;
         Ok(step)
@@ -677,6 +678,11 @@ impl BftDriver {
         out: Output,
         step: &mut Step,
     ) -> Result<()> {
+        // Before any send: an own certificate is on disk before a peer can
+        // build on it.
+        for c in &out.inserted {
+            self.log_certificate(c)?;
+        }
         for (dest, message) in out.sends {
             let to = match dest {
                 Dest::All => BROADCAST,
@@ -692,11 +698,7 @@ impl BftDriver {
                 Message::Propose { .. } | Message::Vote { .. } => {
                     self.store.record_own(&envelope)?;
                 }
-                Message::Cert(c) => {
-                    let c = c.clone();
-                    self.log_certificate(&c)?;
-                }
-                Message::Fetch(_) => {}
+                Message::Cert(_) | Message::Fetch(_) => {}
             }
             step.frames.push(envelope.encode());
         }
