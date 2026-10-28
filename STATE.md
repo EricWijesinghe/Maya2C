@@ -1,6 +1,12 @@
 # State
 
 ## Handover
+- **2026-10-28 — 7-day soak passed; testnet stopped on purpose.** maya-testnet-1:
+  661,357 s (7 d 15 h 42 min), height 393,812, `halts []`, then stopped at 07:36 UTC on
+  Eric's instruction (PIDs + systemd units; watchdog task and VM watch timer disabled; data
+  kept). Proof: `reports/sessions/2026-10-28-testnet-stopped.md`. **Do first:** merge #220
+  (site), #218 (u256), #221 (forever mining); then ML-DSA-87 keys and the re-genesis
+  (`APPROVED: re-genesis`). Restart = re-enable the task and units, not before re-genesis.
 - **2026-10-28 — gate 3 met (7 days, no halt); master CI green; u256 PR #218 open.**
   - **Done:** #217 merged (CI red: rustfmt, Python SDK u256, Node pin). Soak evidence in
     `reports/sessions/2026-10-28-soak-complete.md`. #218: every amount 256-bit, incl. pool

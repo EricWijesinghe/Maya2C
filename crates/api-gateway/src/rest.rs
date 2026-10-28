@@ -59,7 +59,7 @@ pub struct TransactionAccepted {
 /// as a function nobody can find.
 #[derive(OpenApi)]
 #[openapi(
-    paths(health, account, block, supply, fees, chain_info, submit, submit_sealed, jsonrpc::handle),
+    paths(health, account, block, supply, circulating_coins, total_coins, fees, chain_info, submit, submit_sealed, jsonrpc::handle),
     components(schemas(
         RawTransaction,
         TransactionAccepted,
@@ -90,6 +90,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/v1/accounts/{address}", get(account))
         .route("/v1/blocks/{height}", get(block))
         .route("/v1/supply", get(supply))
+        .route("/v1/supply/circulating", get(circulating_coins))
+        .route("/v1/supply/total", get(total_coins))
         .route("/v1/fees", get(fees))
         .route("/v1/chain", get(chain_info))
         .route("/v1/transactions", post(submit))
@@ -198,6 +200,41 @@ async fn block(
 )]
 async fn supply(State(state): State<Arc<AppState>>) -> Result<Json<Supply>, GatewayError> {
     Ok(Json(state.node.get_supply().await?))
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/supply/circulating",
+    tag = "chain",
+    responses(
+        (status = 200, description = "Circulating supply in whole coins, a bare number as text (CoinGecko, CoinMarketCap)", body = String, content_type = "text/plain"),
+        (status = 502, description = "The node could not be reached"),
+    ),
+)]
+/// `/v1/supply/circulating`: whole coins as a bare number, for listing sites.
+async fn circulating_coins(State(state): State<Arc<AppState>>) -> Result<String, GatewayError> {
+    let supply = state.node.get_supply().await?;
+    as_coins(&supply.circulating)
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/supply/total",
+    tag = "chain",
+    responses(
+        (status = 200, description = "Total supply in whole coins, a bare number as text (CoinGecko, CoinMarketCap)", body = String, content_type = "text/plain"),
+        (status = 502, description = "The node could not be reached"),
+    ),
+)]
+/// `/v1/supply/total`: whole coins as a bare number, for listing sites.
+async fn total_coins(State(state): State<Arc<AppState>>) -> Result<String, GatewayError> {
+    let supply = state.node.get_supply().await?;
+    as_coins(&supply.total)
+}
+
+fn as_coins(units: &str) -> Result<String, GatewayError> {
+    crate::coins::base_units_to_coins(units, crate::coins::COIN_DECIMALS)
+        .ok_or_else(|| GatewayError::Upstream(format!("supply is not a decimal: {units:?}")))
 }
 
 #[utoipa::path(

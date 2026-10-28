@@ -5,7 +5,7 @@
 use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 
-use maya_crypto_pq::suite::{MasterSeed, SuiteId, validator, verify};
+use maya_crypto_pq::suite::{MasterSeed, validator};
 use maya_signer::backend::{BackendError, KeystoreBackend, SignerBackend, kms, pkcs11};
 use maya_signer::channel::{self, ChannelError, Identity};
 use maya_signer::keystore::{self, KeystoreError};

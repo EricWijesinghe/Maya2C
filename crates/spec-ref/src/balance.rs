@@ -47,7 +47,7 @@ impl Balance {
 
     /// `⌊self / 2^n⌋`; zero once every bit is gone (MINE-1).
     #[must_use]
-    pub fn shr(self, n: u64) -> Self {
+    pub fn shr_bits(self, n: u64) -> Self {
         if n >= 256 {
             return Self::default();
         }
@@ -133,9 +133,9 @@ impl Balance {
     pub(crate) fn mul_div_small(self, mul: u64, div: u128) -> Option<Self> {
         let mut product = [0u64; 5];
         let mut carry: u128 = 0;
-        for i in 0..4 {
-            let wide = u128::from(self.0[i]) * u128::from(mul) + carry;
-            product[i] = wide as u64; // low half; the high half carries
+        for (out, limb) in product.iter_mut().zip(self.0) {
+            let wide = u128::from(limb) * u128::from(mul) + carry;
+            *out = wide as u64; // low half; the high half carries
             carry = wide >> 64;
         }
         product[4] = carry as u64;
