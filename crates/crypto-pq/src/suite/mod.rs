@@ -23,11 +23,13 @@ mod ed25519;
 mod hybrid;
 mod ml_dsa;
 mod slh_dsa;
+pub mod validator;
 
 pub use ed25519::Ed25519;
 pub use hybrid::{HybridMlDsa65SlhDsa128s, HybridSigningKey};
 pub use ml_dsa::{MlDsa65, MlDsa87};
 pub use slh_dsa::{SlhDsaSha2_128s, SlhDsaShake256f};
+pub use validator::ValidatorSigningKey;
 
 use secrecy::{ExposeSecret as _, ExposeSecretMut as _, SecretBox};
 use zeroize::{ZeroizeOnDrop, Zeroizing};

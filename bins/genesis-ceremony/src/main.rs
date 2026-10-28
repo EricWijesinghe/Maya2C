@@ -1115,7 +1115,7 @@ mod mining_tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use super::{Args, committee, launch_config};
-    use custom_l1_node::crypto::keys;
+    use custom_l1_node::crypto::validator_keys as keys;
     use custom_l1_node::state::mining::{DagProfile, MINING_RESERVE, MiningGenesis};
 
     fn members() -> Vec<committee::Member> {

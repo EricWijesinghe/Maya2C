@@ -182,7 +182,7 @@ impl CouncilGenesis {
 /// The genesis committee of a DAG-BFT network.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BftGenesis {
-    /// Hex ML-DSA-65 verifying keys, in committee order: index `i` here is
+    /// Hex ML-DSA-87 validator verifying keys, in committee order: index `i` here is
     /// validator id `i` in every vertex and vote. Order is consensus.
     pub validators: Vec<String>,
     /// How long a validator waits for a round's anchor before advancing
@@ -343,7 +343,7 @@ impl StakingGenesis {
 }
 
 impl BftGenesis {
-    /// A committee of `validators` (hex ML-DSA-65 keys, in committee order)
+    /// A committee of `validators` (hex ML-DSA-87 validator keys, in committee order)
     /// with the default round timing, no staking and no fee market: what a
     /// tool that mints a genesis starts from before choosing those.
     #[must_use]
@@ -375,9 +375,11 @@ impl BftGenesis {
     ///
     /// # Errors
     ///
-    /// [`NodeError::Decode`] for an empty committee, a malformed key, or the
+    /// [`NodeError::Decode`] for an empty committee, a key of the wrong length
+    /// (any 2,592 bytes decode under FIPS 204; one nobody holds verifies
+    /// nothing, and registration needs a proof of possession), or the
     /// same key twice (one operator holding two votes).
-    pub fn verifying_keys(&self) -> Result<Vec<crate::crypto::keys::VerifyingKey>> {
+    pub fn verifying_keys(&self) -> Result<Vec<crate::crypto::validator_keys::VerifyingKey>> {
         if self.validators.is_empty() {
             return Err(NodeError::Decode("bft.validators must not be empty".into()));
         }
@@ -389,7 +391,7 @@ impl BftGenesis {
         for (i, encoded) in self.validators.iter().enumerate() {
             let bytes = hex::decode(encoded)
                 .map_err(|e| NodeError::Decode(format!("bft.validators[{i}]: {e}")))?;
-            let array: [u8; crate::crypto::keys::PUBLIC_KEY_LEN] = bytes
+            let array: [u8; crate::crypto::validator_keys::PUBLIC_KEY_LEN] = bytes
                 .as_slice()
                 .try_into()
                 .map_err(|_| NodeError::Decode(format!("bft.validators[{i}]: wrong key length")))?;
@@ -398,7 +400,9 @@ impl BftGenesis {
                     "bft.validators[{i}] duplicates an earlier key"
                 )));
             }
-            keys.push(crate::crypto::keys::VerifyingKey::from_bytes(&array)?);
+            keys.push(crate::crypto::validator_keys::VerifyingKey::from_bytes(
+                &array,
+            )?);
         }
         Ok(keys)
     }
@@ -1185,7 +1189,7 @@ mod tests {
 
     #[test]
     fn genesis_stake_earns_at_the_first_epoch_boundary() {
-        let validator = crate::crypto::keys::signing_key_from_seed(&[0x61; 32]).unwrap();
+        let validator = crate::crypto::validator_keys::signing_key_from_seed(&[0x61; 32]).unwrap();
         let config = GenesisConfig {
             chain_id: "genesis-earn".to_string(),
             timestamp: 1_000_000,

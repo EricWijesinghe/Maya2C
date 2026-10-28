@@ -20,8 +20,8 @@ use std::path::Path;
 
 use custom_l1_node::genesis::{BftGenesis, FeesGenesis, GenesisBond, StakingGenesis};
 
-/// Hex characters in an ML-DSA-65 public key (1,952 bytes).
-const VALIDATOR_KEY_HEX: usize = 2 * 1_952;
+/// Hex characters in an ML-DSA-87 validator public key (ADR-051 option 3).
+const VALIDATOR_KEY_HEX: usize = 2 * custom_l1_node::crypto::validator_keys::PUBLIC_KEY_LEN;
 /// Hex characters in an address.
 const ADDRESS_HEX: usize = 64;
 /// Fewest validators a launch committee may have: DAG-BFT tolerates `f`

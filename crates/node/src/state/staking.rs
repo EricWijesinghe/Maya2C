@@ -3,7 +3,7 @@
 //! | key | value |
 //! |---|---|
 //! | `k:state` | [`StakingRecord`]: the `maya-staking` state plus the node's slot counts |
-//! | `k:key:<id>` | the validator's 1,952-byte ML-DSA-65 verifying key |
+//! | `k:key:<id>` | the validator's 2,592-byte ML-DSA-87 verifying key |
 //! | `k:cmt:<epoch be>` | that epoch's committee, ids in committee order |
 //!
 //! One record for the whole staking state is a deliberate v1 choice: every

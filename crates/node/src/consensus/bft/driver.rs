@@ -30,7 +30,7 @@ use super::store::SafetyStore;
 use super::wire::{BROADCAST, Envelope};
 use crate::consensus::{BlockId, Chain, InsertOutcome};
 use crate::core::{ChainTag, Transaction};
-use crate::crypto::keys::VerifyingKey;
+use crate::crypto::validator_keys::VerifyingKey;
 use crate::error::{NodeError, Result};
 
 /// Everything a node needs to run one epoch of DAG-BFT.

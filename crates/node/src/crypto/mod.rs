@@ -13,6 +13,7 @@ pub mod keys;
 pub mod lattice;
 pub mod pow;
 pub mod suites;
+pub mod validator_keys;
 
 pub use argon_blake::{HASH_LEN, argon_blake_hash};
 pub use dag::{

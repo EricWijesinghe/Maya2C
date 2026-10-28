@@ -30,7 +30,7 @@ pub const WIRE_VERSION: u8 = 1;
 /// `to` for a broadcast.
 pub const BROADCAST: u16 = u16::MAX;
 
-/// Most bytes one signature may claim. ML-DSA-65's is 3,309; the bound only
+/// Most bytes one signature may claim. An ML-DSA-87 validator signature is 4,627; the bound only
 /// has to stop a length prefix from asking for gigabytes.
 const MAX_SIGNATURE_BYTES: usize = 8 * 1024;
 

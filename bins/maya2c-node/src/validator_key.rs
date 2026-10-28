@@ -13,7 +13,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use custom_l1_node::crypto::keys::{self, SigningKey};
+use custom_l1_node::crypto::validator_keys::{self as keys, SigningKey};
 use maya_signer::sealed;
 use zeroize::Zeroizing;
 
@@ -111,7 +111,7 @@ fn write_key(
     Ok(())
 }
 
-/// Writes a fresh ML-DSA-65 validator key to `path` and prints the public key
+/// Writes a fresh ML-DSA-87 validator key to `path` and prints the public key
 /// an operator puts in genesis. Sealed when a passphrase file is configured.
 pub(super) fn generate(path: &Path, passphrase_flag: Option<&Path>) -> Result<(), Box<dyn Error>> {
     let pass = read_passphrase(passphrase_flag)?;
@@ -176,7 +176,7 @@ fn from_bytes(bytes: &[u8], path: &Path) -> Result<SigningKey, Box<dyn Error>> {
     let array: Zeroizing<[u8; keys::SECRET_KEY_LEN]> = Zeroizing::new(
         bytes
             .try_into()
-            .map_err(|_| format!("{}: not an ML-DSA-65 secret key", path.display()))?,
+            .map_err(|_| format!("{}: not an ML-DSA-87 validator seed (32 bytes; keys from older builds must be regenerated)", path.display()))?,
     );
     Ok(SigningKey::from_bytes(&array)?)
 }

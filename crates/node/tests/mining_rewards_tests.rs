@@ -19,8 +19,8 @@ use custom_l1_node::crypto::dag::Params;
 use custom_l1_node::crypto::dag::hashimoto::hashimoto_light;
 use custom_l1_node::crypto::dag::registry::{CacheRegistry, DagConfig};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
-use custom_l1_node::crypto::keys;
 use custom_l1_node::crypto::pow::meets_target;
+use custom_l1_node::crypto::validator_keys as keys;
 use custom_l1_node::error::NodeError;
 use custom_l1_node::genesis::{
     Allocation, BftGenesis, FeesGenesis, GenesisBond, GenesisConfig, StakingGenesis,

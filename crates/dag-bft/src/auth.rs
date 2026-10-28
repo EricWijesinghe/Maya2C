@@ -2,7 +2,7 @@
 //!
 //! The engine stays sans-IO *and* sans-crypto-library: it asks an
 //! [`Authenticator`] to sign a vertex digest and to check someone else's
-//! signature over one. The node implements it with ML-DSA-65 keys taken from
+//! signature over one. The node implements it with ML-DSA-87 validator keys (ADR-051 option 3) taken from
 //! genesis and the staking set; the simulator uses [`Unauthenticated`], which
 //! signs nothing and believes everything, and says so.
 //!
