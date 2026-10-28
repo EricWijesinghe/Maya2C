@@ -1,21 +1,25 @@
 ---
 title: Mining, validators and rewards
-description: What mining does on Maya2C today, why the launch network is run by validators, and what is not built yet.
+description: How GPU miners earn on Maya2C, why validators order the blocks, and what is built today.
 ---
 
-Short version: **you can mine a local proof-of-work chain today, but it pays
-nothing and it is not how the public network will run.** The launch network is
-secured by validators, not miners. This page says exactly what works and what
-does not, so nobody spends electricity on a misunderstanding.
+Short version: **miners earn the coin; validators order the blocks.** Mining
+on Maya2C is a reward lane, not the consensus
+([ADR-044](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-044-mining-rewards-lane.md)).
+A miner submits proof-of-work shares and is paid from a fixed reserve. It never
+proposes, orders or finalizes a block, so no amount of hash power can rewrite
+or stall the chain. That is what lets anyone mine without making the network
+weaker. This page says exactly what works today, so nobody spends electricity
+on a misunderstanding.
 
 ## Where things stand
 
 | | Today |
 |---|---|
-| Proof-of-work mining (ArgonBlake) | Works on a **local devnet**. Blocks are empty and there is no block reward. Disabled in the production build. |
-| DAG-BFT validators | Works: blocks, finality, transfers, fees and staking bonds at genesis. This is the launch consensus ([ADR-016](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-016-launch-scope.md)). |
-| Block reward / coin issuance | **None.** No coin is minted after genesis. The base fee is burned; validators are paid from transaction tips each staking epoch ([ADR-029](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-029-fee-market-live.md)). |
-| Joining the validator set after genesis | Built and tested: a registration with a bond enters the committee at the next staking epoch (`crates/node/tests/bft_staking_tests.rs`). Not usable publicly until a public testnet exists. |
+| GPU mining for rewards | Built: a miner's shares (`WorkClaim`) are paid **70% of each epoch's issuance**, split by share count; the other 30% goes to validators. Paid out of a genesis reserve, never minted, capped at 21,000,000. No premine. **Mainnet has not launched**, so mining earns nothing yet. |
+| Maya2C Hub | The desktop miner app, with the GPU miner inside, for Windows, macOS and Linux. Installers are attached to each release. They are not code-signed yet, so Windows and macOS warn "unknown publisher". |
+| DAG-BFT validators | Works: blocks, finality, transfers, fees and staking bonds at genesis. This is the consensus ([ADR-016](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-016-launch-scope.md)). |
+| Joining the validator set after genesis | Built and tested: a registration with a bond enters the committee at the next staking epoch (`crates/node/tests/bft_staking_tests.rs`). |
 
 ## Mining a local proof-of-work chain
 
