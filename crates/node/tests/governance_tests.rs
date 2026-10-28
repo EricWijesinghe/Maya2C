@@ -148,6 +148,13 @@ impl Fixture {
             .saturating_to_u64()
     }
 
+    /// A parameter at full width: the deposit is 10 coins, 10^25 base units at
+    /// 24 decimals, past `u64`.
+    fn parameter_wide(&self, key: ParameterKey) -> primitive_types::U256 {
+        let amount = self.db.parameters().expect("parameters").get(key);
+        primitive_types::U256::from_little_endian(&amount.to_le_bytes())
+    }
+
     fn state_of(&self, id: &[u8; 32]) -> ProposalState {
         self.db
             .proposal(id)
@@ -582,7 +589,7 @@ fn the_proposers_deposit_returns_when_the_proposal_settles() {
     let fixture = fixture();
     fixture.lock(0, 3_000_000, 200_000, 1);
 
-    let deposit = fixture.parameter(ParameterKey::GovernanceProposalDeposit);
+    let deposit = fixture.parameter_wide(ParameterKey::GovernanceProposalDeposit);
     let before = fixture
         .db
         .get_account(&fixture.address(0))
