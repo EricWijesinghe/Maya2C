@@ -8,7 +8,7 @@
 /// Decimal places of one coin. Must equal
 /// `apps/wallet-gui/core/src/amount.rs::DECIMALS`; the gateway test
 /// `coin_decimals_match_the_wallet` fails when the two differ.
-pub const COIN_DECIMALS: usize = 18;
+pub const COIN_DECIMALS: usize = 24;
 
 /// Formats a base-unit decimal string as whole coins, trailing zeros trimmed.
 ///
