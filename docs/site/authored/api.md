@@ -36,6 +36,8 @@ is live. `gateway.example.com` below stands for whichever gateway you use.
 | `GET` | `/v1/accounts/{address}` | Balance and next nonce |
 | `GET` | `/v1/blocks/{height}` | A block |
 | `GET` | `/v1/supply` | Circulating and total supply |
+| `GET` | `/v1/supply/circulating` | Circulating supply in whole coins, plain text (for listing sites) |
+| `GET` | `/v1/supply/total` | Total supply in whole coins, plain text |
 | `GET` | `/v1/fees` | Fee terms: `active`, `base_fee` per byte, and the `collector` the fee is paid to |
 | `POST` | `/v1/transactions` | Submit a signed transaction |
 | `POST` | `/v1/sealed` | Submit a sealed (encrypted-mempool) transaction |
