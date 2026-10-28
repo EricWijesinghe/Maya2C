@@ -14,7 +14,7 @@ use std::sync::Arc;
 use custom_l1_node::consensus::chain::{Chain, ChainConfig};
 use custom_l1_node::core::transaction::{Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
-use custom_l1_node::crypto::keys;
+use custom_l1_node::crypto::validator_keys as keys;
 use custom_l1_node::error::NodeError;
 use custom_l1_node::genesis::{Allocation, BftGenesis, FeesGenesis, GenesisConfig};
 use custom_l1_node::state::db::StateDB;

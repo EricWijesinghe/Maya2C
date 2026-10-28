@@ -19,7 +19,7 @@ use custom_l1_node::consensus::bft::store::{CertPage, for_each_certificate};
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
 use custom_l1_node::consensus::chain::{Chain, ChainConfig};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
-use custom_l1_node::crypto::keys::{self, SigningKey, VerifyingKey};
+use custom_l1_node::crypto::validator_keys::{self as keys, SigningKey, VerifyingKey};
 use custom_l1_node::genesis::{Allocation, BftGenesis, GenesisBond, GenesisConfig, StakingGenesis};
 use custom_l1_node::network::Mempool;
 use custom_l1_node::rpc::bootstrap::RpcBootstrapSource;
@@ -451,7 +451,7 @@ fn a_certificate_from_a_full_committee_fits_the_record_bound() {
         MAX_BATCH_BYTES, MAX_COMMITTEE, MAX_RECORD_BYTES, SafetyStore,
     };
     use custom_l1_node::consensus::bft::wire::encode_certificate;
-    use custom_l1_node::crypto::keys::SIGNATURE_LENGTH;
+    use custom_l1_node::crypto::validator_keys::SIGNATURE_LENGTH;
     use maya_dag_bft::{Certificate, Vertex};
 
     // Every member votes and is a parent, and the batch is the largest the
@@ -498,7 +498,7 @@ fn a_client_holds_one_certificate_page_at_a_time() {
 fn a_max_size_batch_certificate_round_trips_through_the_log_and_the_rpc() {
     use custom_l1_node::consensus::bft::store::{MAX_BATCH_BYTES, SafetyStore};
     use custom_l1_node::consensus::bft::wire::encode_certificate;
-    use custom_l1_node::crypto::keys::SIGNATURE_LENGTH;
+    use custom_l1_node::crypto::validator_keys::SIGNATURE_LENGTH;
     use maya_dag_bft::{Certificate, Vertex};
 
     // The largest batch the protocol certifies: four items of a quarter of the

@@ -25,7 +25,7 @@ use custom_l1_node::core::payload::TxKind;
 use custom_l1_node::core::staking_payload::StakingAction;
 use custom_l1_node::core::transaction::Transaction;
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
-use custom_l1_node::crypto::keys::{self, SigningKey, VerifyingKey};
+use custom_l1_node::crypto::validator_keys::{self as keys, SigningKey, VerifyingKey};
 use custom_l1_node::genesis::{Allocation, BftGenesis, GenesisBond, GenesisConfig, StakingGenesis};
 use custom_l1_node::state::db::StateDB;
 use custom_l1_node::state::staking::validator_id;

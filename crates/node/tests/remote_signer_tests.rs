@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use custom_l1_node::consensus::bft::auth::MlDsaAuthenticator;
 use custom_l1_node::consensus::bft::remote::{RemoteSigner, ValidatorKey};
-use custom_l1_node::crypto::keys::VerifyingKey;
+use custom_l1_node::crypto::validator_keys::VerifyingKey;
 use maya_crypto_pq::suite::MasterSeed;
 use maya_dag_bft::{Authenticator, SignContext, SignKind};
 use maya_signer::backend::{KeystoreBackend, SignerBackend};

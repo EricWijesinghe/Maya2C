@@ -1,12 +1,12 @@
-//! ML-DSA-65 behind the engine's [`Authenticator`].
+//! ML-DSA-87 validator keys (CRY-4) behind the engine's [`Authenticator`].
 
 use std::sync::Arc;
 
 use maya_dag_bft::{Authenticator, Digest, SignContext, ValidatorId};
 
 use super::remote::ValidatorKey;
-use crate::crypto::SIGNATURE_LENGTH;
-use crate::crypto::keys::VerifyingKey;
+use crate::crypto::validator_keys::SIGNATURE_LENGTH;
+use crate::crypto::validator_keys::VerifyingKey;
 
 use maya_dag_bft::VOTE_DOMAIN;
 
@@ -95,7 +95,7 @@ impl Authenticator for MlDsaAuthenticator {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
-    use crate::crypto::keys::{SigningKey, signing_key_from_seed};
+    use crate::crypto::validator_keys::{SigningKey, signing_key_from_seed};
 
     const CTX: SignContext = SignContext {
         kind: maya_dag_bft::SignKind::Vote,

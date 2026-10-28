@@ -23,7 +23,7 @@ use std::time::Instant;
 
 use custom_l1_node::consensus::bft::auth::MlDsaAuthenticator;
 use custom_l1_node::consensus::bft::{BROADCAST, Envelope};
-use custom_l1_node::crypto::keys::{self, VerifyingKey};
+use custom_l1_node::crypto::validator_keys::{self as keys, VerifyingKey};
 use maya_dag_bft::{Committee, Dest, Output, Params, Validator};
 
 const ROUNDS: u64 = 8;
