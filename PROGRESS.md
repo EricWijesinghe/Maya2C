@@ -202,6 +202,12 @@ Rules in CLAUDE.md, "Operating Protocol"; state in [STATE.md](STATE.md).
 - [ ] macOS/iOS builds (after Eric's MacBook)
 ---
 
+## Mainnet v1 gates (`docs/mainnet-v1-plan.md`)
+
+- [x] Gate 3, 7 days without a halt: 661,357 s, blocks 0 → 393,812, `halts []`; testnet
+      stopped on purpose 2026-10-28 07:36 UTC — `reports/sessions/2026-10-28-testnet-stopped.md`
+- [ ] Gate 3 again on the mining build (ADR-044), overlapping the attacknet
+
 ## How to resume
 
 1. `cargo xtask coverage` — the ledger, and whether every claim is still backed.
