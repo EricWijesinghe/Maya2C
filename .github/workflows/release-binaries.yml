@@ -268,9 +268,64 @@ jobs:
             apps/chat-gui/src-tauri/target/release/bundle/appimage/*.AppImage.sig
           if-no-files-found: error
 
+  # Maya2C Hub (apps/hub, ADR-045): the miner's desktop app, with
+  # maya2c-gpu-miner shipped inside the installer as a Tauri sidecar, so a
+  # miner installs one thing and presses Start. `cargo xtask hub-bundle`
+  # builds the miner, names it for the target triple, and bundles; the
+  # same command a developer runs locally (apps/hub/README.md). Unsigned,
+  # like the wallet's, until a code-signing certificate exists.
+  hub:
+    name: hub ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-14, ubuntu-24.04]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # WebKitGTK for Tauri; clang for RocksDB, which the miner links
+      # through the node crate.
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang mold libwebkit2gtk-4.1-dev             libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf
+
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, pinned 2026-09-29
+        with:
+          toolchain: nightly-2026-07-15
+
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2, pinned 2026-09-29
+        with:
+          tool: tauri-cli
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: |
+            . -> target
+            apps/hub/src-tauri -> target
+          key: hub-${{ matrix.os }}
+
+      - name: Build installer with the miner inside
+        run: cargo xtask hub-bundle
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: maya2c-hub-${{ matrix.os }}
+          path: |
+            apps/hub/src-tauri/target/release/bundle/msi/*.msi
+            apps/hub/src-tauri/target/release/bundle/nsis/*.exe
+            apps/hub/src-tauri/target/release/bundle/dmg/*.dmg
+            apps/hub/src-tauri/target/release/bundle/deb/*.deb
+            apps/hub/src-tauri/target/release/bundle/rpm/*.rpm
+            apps/hub/src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+
   release:
     if: startsWith(github.ref, 'refs/tags/node-v')
-    needs: [build, wallet, chat]
+    needs: [build, wallet, chat, hub]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
