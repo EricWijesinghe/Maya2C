@@ -71,9 +71,9 @@ fn signed(kind: TxKind, nonce: u64, key: &HybridSigningKey) -> Transaction {
     tx
 }
 
-/// 1,000 coins at 18 decimals: more than any deposit these tests pay.
+/// 1,000 coins at 24 decimals: more than any deposit these tests pay.
 fn deposit_headroom() -> primitive_types::U256 {
-    primitive_types::U256::exp10(21)
+    primitive_types::U256::exp10(27)
 }
 
 fn fixture() -> Fixture {
