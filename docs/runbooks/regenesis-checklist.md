@@ -89,3 +89,18 @@ hosts, each under one third of stake. State which one this launch is.
 Until mainnet carries real value, rollback is "start the archived data dir on
 the old binary". After that there is no rollback; a bad genesis is a new
 chain-id.
+
+## Pre-audit LOW-7 and INFO-8 (2026-10-29)
+
+- **Fee floor:** the protocol minimum `MIN_BASE_FEE_FLOOR` is 1 base unit. At 24 decimals that
+  is 10^6 times cheaper per byte than 1 unit was at 18. The mainnet genesis sets
+  `bft.fees.min_base_fee` to at least `1000000` (the 18-decimal equivalent of 1 unit); the
+  constant stays 1 so test genesis files keep working.
+- **Supply:** there is no protocol-wide cap. Total supply is exactly what genesis allocates:
+  `--supply` + `--mining-reserve` + bonds, printed as `total supply` before signing. With a tail
+  (ADR-068), the reserve must hold the lifetime emission, so the total is far above 21M coins
+  by design; 21M is the halving schedule's main issuance, and the rest is released only by the
+  tail. Check both printed lines before `APPROVED: sign genesis`.
+- **Remote signer database (HIGH-4 review):** votes are now bound to the chain, so a signer's
+  slashing-protection database must be per chain. Start mainnet with a fresh signer database;
+  reusing a testnet one makes the signer refuse mainnet votes as conflicts (safe, but no votes).

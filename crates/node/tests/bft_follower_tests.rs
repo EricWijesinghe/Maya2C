@@ -11,6 +11,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use custom_l1_node::core::ChainTag;
 use std::cell::Cell;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -821,15 +822,19 @@ fn resigned(c: &Certificate, mesh: &Mesh) -> Certificate {
         .votes
         .iter()
         .map(|&voter| {
-            MlDsaAuthenticator::validator(validator_key(usize::from(voter)), Arc::clone(&committee))
-                .sign(
-                    SignContext {
-                        kind: SignKind::Vote,
-                        round,
-                        author,
-                    },
-                    &digest,
-                )
+            MlDsaAuthenticator::validator(
+                validator_key(usize::from(voter)),
+                Arc::clone(&committee),
+                ChainTag::from_genesis(mesh.members[0].chain.genesis()),
+            )
+            .sign(
+                SignContext {
+                    kind: SignKind::Vote,
+                    round,
+                    author,
+                },
+                &digest,
+            )
         })
         .collect();
     alt

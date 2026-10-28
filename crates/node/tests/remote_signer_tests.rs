@@ -2,6 +2,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use custom_l1_node::core::ChainTag;
 use std::net::TcpListener;
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -20,6 +21,9 @@ use maya_signer::service::{Request, Service};
 mod common;
 
 const DEADLINE: Duration = Duration::from_secs(5);
+
+/// The chain every vote in these tests is bound to (HIGH-4).
+const TAG: ChainTag = ChainTag([0x5a; 32]);
 
 fn seed(b: u8) -> MasterSeed {
     MasterSeed::from_bytes([b; 32])
@@ -82,8 +86,9 @@ fn a_remote_signature_verifies_under_the_nodes_unchanged_verifier() {
     let auth = MlDsaAuthenticator::validator(
         ValidatorKey::Remote(Arc::new(remote)),
         Arc::clone(&committee),
+        TAG,
     );
-    let observer = MlDsaAuthenticator::observer(committee);
+    let observer = MlDsaAuthenticator::observer(committee, TAG);
 
     let digest = [5u8; 32];
     let sig = auth.sign(vote(3, 0), &digest);
@@ -109,7 +114,8 @@ fn the_signers_refusal_is_a_missing_vote_and_other_authors_still_sign() {
     let (addr, public, pin, _signer) = spawn_signer(&dir, &node);
     let committee: Arc<[VerifyingKey]> = vec![public.clone()].into();
     let remote = RemoteSigner::connect(addr, node, pin, public, DEADLINE).unwrap();
-    let auth = MlDsaAuthenticator::validator(ValidatorKey::Remote(Arc::new(remote)), committee);
+    let auth =
+        MlDsaAuthenticator::validator(ValidatorKey::Remote(Arc::new(remote)), committee, TAG);
 
     assert!(!auth.sign(vote(4, 2), &[1; 32]).is_empty());
     // A conflicting vote for the same (round, author): refused, so empty.
@@ -141,8 +147,11 @@ fn a_signer_holding_another_key_costs_votes_not_garbage() {
     )
     .unwrap();
     let remote = RemoteSigner::connect(addr, node, pin, claimed.clone(), DEADLINE).unwrap();
-    let auth =
-        MlDsaAuthenticator::validator(ValidatorKey::Remote(Arc::new(remote)), vec![claimed].into());
+    let auth = MlDsaAuthenticator::validator(
+        ValidatorKey::Remote(Arc::new(remote)),
+        vec![claimed].into(),
+        TAG,
+    );
     assert!(auth.sign(vote(1, 0), &[9; 32]).is_empty());
 }
 
