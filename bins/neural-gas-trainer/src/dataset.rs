@@ -14,20 +14,8 @@ use maya_fee_market::Features;
 use crate::rng::SplitMix64;
 use crate::simulator::{Market, TARGET_BYTES, features};
 
-/// The fee rules on this trainer's `u64` fee track. The rules are 256-bit; the
+/// The neural rule on this trainer's `u64` fee track. The rule is 256-bit; the
 /// simulated market's fee is not, and clamps to `u64` here. SIM / training only.
-fn linear_step(fee: u64, size: u64, target: u64, denominator: u64, floor: u64) -> u64 {
-    use maya_fee_market::Amount;
-    maya_fee_market::next_base_fee(
-        Amount::from_u64(fee),
-        size,
-        target,
-        denominator,
-        Amount::from_u64(floor),
-    )
-    .saturating_to_u64()
-}
-
 fn neural_step(fee: u64, size: u64, target: u64, denominator: u64, floor: u64, gain: u64) -> u64 {
     use maya_fee_market::Amount;
     maya_fee_market::neural_next_base_fee(
