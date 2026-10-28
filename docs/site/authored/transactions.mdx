@@ -172,15 +172,15 @@ tab a security property, not a style choice.
 ## Amounts: 256-bit, checked
 
 Amounts are unsigned 256-bit integers in base units. [ADR-046](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-046-universe-scale-supply.md) sets
-18 decimals as a convention, so one coin is $10^{18}$ base units.
+the decimals convention; [ADR-068](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-068-forever-mining.md) raised it to 24, so one coin is $10^{24}$ base units.
 [ADR-048](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-048-maya-amount.md)
 implements the arithmetic in the dependency-free crate `crates/amount`.
 
 | Quantity | Value |
 |---|---|
 | Largest amount $2^{256} - 1$ | $\approx 1.158 \times 10^{77}$ base units |
-| In coins at 18 decimals | $\approx 1.158 \times 10^{59}$ |
-| Largest `u64` at 18 decimals | $2^{64} - 1 \approx 1.845 \times 10^{19}$ base units, about 18 coins |
+| In coins at 24 decimals | $\approx 1.158 \times 10^{53}$ |
+| Largest `u64` at 24 decimals | $2^{64} - 1 \approx 1.845 \times 10^{19}$ base units, about 0.0000184 coins |
 
 Representation: $\mathtt{Amount} = [u64; 4]$, little-endian limbs.
 Operations are total: `checked_add` returns $\bot$ rather than wrapping, and
