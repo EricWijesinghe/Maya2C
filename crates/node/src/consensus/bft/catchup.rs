@@ -12,7 +12,7 @@
 
 use crate::consensus::{Chain, InsertOutcome};
 use crate::core::{Block, ChainTag};
-use crate::crypto::keys::VerifyingKey;
+use crate::crypto::validator_keys::VerifyingKey;
 use crate::error::{NodeError, Result};
 
 use super::attest::Checkpoint;
@@ -263,7 +263,7 @@ mod tests {
 
     use super::*;
     use crate::consensus::bft::attest::Attestation;
-    use crate::crypto::keys::{SigningKey, signing_key_from_seed};
+    use crate::crypto::validator_keys::{SigningKey, signing_key_from_seed};
 
     const TAG: ChainTag = ChainTag::from_genesis([7; 32]);
 

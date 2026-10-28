@@ -25,7 +25,7 @@ use custom_l1_node::consensus::bft::wire::{decode_certificate, encode_certificat
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
 use custom_l1_node::consensus::chain::{Chain, ChainConfig};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
-use custom_l1_node::crypto::keys::{self, SigningKey, VerifyingKey};
+use custom_l1_node::crypto::validator_keys::{self as keys, SigningKey, VerifyingKey};
 use custom_l1_node::genesis::{Allocation, BftGenesis, GenesisBond, GenesisConfig, StakingGenesis};
 use custom_l1_node::state::db::StateDB;
 use maya_dag_bft::{Authenticator, Certificate, Params, SignContext, SignKind};

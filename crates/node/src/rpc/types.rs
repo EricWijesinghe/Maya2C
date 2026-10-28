@@ -139,7 +139,7 @@ pub struct CheckpointInfo {
     pub height: u64,
     /// Hex block id.
     pub block: String,
-    /// `(committee index, hex ML-DSA-65 signature)`, ordered by index.
+    /// `(committee index, hex ML-DSA-87 validator signature)`, ordered by index.
     pub signatures: Vec<(u16, String)>,
 }
 

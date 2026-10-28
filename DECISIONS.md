@@ -462,3 +462,9 @@ Eric: "OK I approve the chart keep the ecosystem upgradable and continute". Reco
 
 "Upgradable": parameters change by protocol upgrade at an activation height, not by a live
 governance knob over emission.
+
+## 2026-10-28 — Validator keys are ML-DSA-87 (ADR-051 option 3, built)
+
+Eric chose "Build it now" for the re-genesis. Separate type from transaction keys, `ml-dsa`
+backend (invariant 4), context `maya2c validator v1`, spec CRY-4. Council keys stay
+ML-DSA-65 for now. Every validator key must be regenerated for the re-genesis.
