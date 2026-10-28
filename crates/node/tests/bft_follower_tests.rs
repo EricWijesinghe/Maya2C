@@ -21,7 +21,9 @@ use custom_l1_node::consensus::bft::auth::MlDsaAuthenticator;
 use custom_l1_node::consensus::bft::certsync::{self, CertSource, PAGE, PageLimits};
 use custom_l1_node::consensus::bft::store::for_each_certificate;
 use custom_l1_node::consensus::bft::store::{CertPage, read_certificate_page};
-use custom_l1_node::consensus::bft::wire::{BROADCAST, Envelope, decode_certificate, encode_certificate};
+use custom_l1_node::consensus::bft::wire::{
+    BROADCAST, Envelope, decode_certificate, encode_certificate,
+};
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
 use custom_l1_node::consensus::chain::{Chain, ChainConfig};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
@@ -386,7 +388,9 @@ fn a_forged_certificate_frame_never_reaches_the_log() {
     forged.vertex.round += 1_000;
     forged.vertex.author = 1;
     for s in &mut forged.signatures {
-        s.iter_mut().for_each(|b| *b ^= 0xA5);
+        for b in s.iter_mut() {
+            *b ^= 0xA5;
+        }
     }
     let slot = (forged.vertex.round, forged.vertex.author);
     let frame = Envelope {
@@ -400,7 +404,11 @@ fn a_forged_certificate_frame_never_reaches_the_log() {
     let driver = m.driver.as_mut().expect("member 2 runs");
     driver.on_frame(&mut m.chain, mesh.now, &frame).unwrap();
     for_each_certificate(&mesh.members[2].bft_dir, epoch, |c| {
-        assert_ne!((c.vertex.round, c.vertex.author), slot, "the forgery was logged");
+        assert_ne!(
+            (c.vertex.round, c.vertex.author),
+            slot,
+            "the forgery was logged"
+        );
         Ok(())
     })
     .unwrap();
