@@ -21,11 +21,12 @@ const gh = async (path) => {
   catch { return null; }
 };
 const week = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
-const [ci, merged, open, release] = await Promise.all([
+const [ci, merged, open, release, recent] = await Promise.all([
   gh("actions/workflows/ci.yml/runs?branch=master&per_page=1&status=completed"),
   gh(`search/issues?q=repo:${repo}+is:pr+is:merged+merged:>=${week}&per_page=1`),
   gh("pulls?state=open&per_page=100"),
   gh("releases?per_page=1"),
+  gh(`search/issues?q=repo:${repo}+is:pr+is:merged+-label:dependencies&sort=updated&order=desc&per_page=8`),
 ]);
 const run = ci?.workflow_runs?.[0];
 const progress = {
@@ -37,6 +38,8 @@ const progress = {
   master_ci: run ? { conclusion: run.conclusion, at: run.updated_at, url: run.html_url } : null,
   merged_last_7_days: merged?.total_count ?? null,
   open_prs: Array.isArray(open) ? open.length : null,
+  // What's new: the newest merged changes, by their own titles.
+  recent: (recent?.items ?? []).map((i) => ({ title: i.title, url: i.html_url, at: i.closed_at })),
   latest_release: release?.[0] ? { tag: release[0].tag_name, at: release[0].published_at } : null,
 };
 writeFileSync(new URL("../public/progress.json", import.meta.url), JSON.stringify(progress) + "\n");
