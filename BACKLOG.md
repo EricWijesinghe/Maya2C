@@ -109,6 +109,8 @@ band; move an item to PROGRESS.md when it starts.
 
 ## P4 — adoption-critical
 
+- [ ] **Eric 2026-10-28, starts once everything is at zero errors** (CI green, suites passing, mainnet stack merged): the biggest GUI/UI upgrade, with fully deployable, signed applications on every platform: wallet, chat, hub/miner, explorer, site. Windows, Linux, Android now; macOS/iOS after the MacBook. Never flagged by OS, antivirus or stores.
+
 - MP23: move the safe-contract resource rules from opt-in imports onto the
   consensus import surface (needs an ADR and invariant work).
 - MP24: guest traps mapped to source lines (needs a backtrace out of the
