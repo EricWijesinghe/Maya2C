@@ -149,7 +149,7 @@ pub enum ApduError {
         /// The ceiling.
         limit: usize,
     },
-    /// A derivation path that is not `m/44'/7331'/a'/0'/i'`.
+    /// A derivation path that is not `m/44'/2992'/a'/0'/i'`.
     BadDerivationPath,
 }
 

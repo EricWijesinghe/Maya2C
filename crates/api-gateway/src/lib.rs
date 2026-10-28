@@ -35,6 +35,7 @@
 #![deny(missing_docs)]
 
 pub mod allowlist;
+pub mod coins;
 pub mod error;
 pub mod graphql;
 pub mod jsonrpc;
