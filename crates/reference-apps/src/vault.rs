@@ -79,7 +79,7 @@ pub fn withdraw(
     auditor: &EncapsulationKey,
     height: u64,
 ) -> Result<Envelope, AccountError> {
-    let op = owner.signed(Action::Transfer { to, amount: amount });
+    let op = owner.signed(Action::Transfer { to, amount });
     if let Err(e) = registry.apply(&op, height, Amount::from_u64(0)) {
         owner.refused();
         return Err(e);

@@ -462,3 +462,11 @@ Eric: "OK I approve the chart keep the ecosystem upgradable and continute". Reco
 
 "Upgradable": parameters change by protocol upgrade at an activation height, not by a live
 governance knob over emission.
+## 2026-10-28 — No second public soak; the next public genesis is mainnet (Eric)
+
+Relayed through session maya2c-9a, Eric's words: "we validate for 7 days and we continue, no
+repeat". Overrides ADR-044's requirement that gate 3 run again on the mining build. The
+frozen build is proven on local multi-validator networks (attacknet, rejoin drills, Hub
+mining E2E, self pre-audit) from 11-04 to 11-08; mainnet 11-09 → 11-14, each step with its
+own APPROVED. Risk stated once: the mining lane has never run on a public, multi-machine
+network before mainnet.
