@@ -547,8 +547,30 @@ async fn with_fee(
     Ok(outputs)
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+/// Stack for the thread that runs every command. ML-DSA keys and 256-bit
+/// amounts are large stack values, and `generate` overflowed Windows' 1 MiB
+/// main thread in a debug build (attacknet setup, 2026-10-29), as
+/// `genesis-ceremony` did before it. 16 MiB costs nothing on a CLI.
+const WALLET_STACK_BYTES: usize = 16 * 1024 * 1024;
+
+fn main() -> Result<()> {
+    std::thread::Builder::new()
+        .name("l1-wallet".to_string())
+        .stack_size(WALLET_STACK_BYTES)
+        .spawn(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .thread_stack_size(WALLET_STACK_BYTES)
+                .build()
+                .context("starting the async runtime")?
+                .block_on(run())
+        })
+        .context("spawning the wallet thread")?
+        .join()
+        .map_err(|_| anyhow::anyhow!("the wallet thread panicked"))?
+}
+
+async fn run() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {

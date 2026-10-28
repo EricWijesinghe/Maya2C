@@ -157,6 +157,11 @@ pub struct Validator<A = Unauthenticated> {
     /// ancestors, for `resend_interval_ms`: a peer replaying one certificate
     /// gets at most one round of fetches per interval out of this node.
     last_refetch_ms: u64,
+    /// Fetch replies sent to each member in the current `resend_interval_ms`
+    /// window: (window start, replies). A reply can be a whole certificate,
+    /// so an unanswered budget is an amplifier for anyone who can send a
+    /// 33-byte `Fetch`.
+    fetch_replies: BTreeMap<ValidatorId, (u64, u32)>,
 }
 
 impl Validator<Unauthenticated> {
@@ -189,6 +194,7 @@ impl<A: Authenticator> Validator<A> {
             last_proposed_ms: 0,
             last_resend_ms: 0,
             last_refetch_ms: 0,
+            fetch_replies: BTreeMap::new(),
         }
     }
 
@@ -323,14 +329,39 @@ impl<A: Authenticator> Validator<A> {
                 signature,
             } => self.on_vote(digest, round, voter, signature, &mut out),
             Message::Cert(c) => self.on_cert(now_ms, from, c, &mut out),
-            Message::Fetch(d) => {
-                if let Some(c) = self.dag.by_digest(&d).or_else(|| self.buffer.get(&d)) {
-                    out.sends.push((Dest::To(from), Message::Cert(c.clone())));
-                }
-            }
+            Message::Fetch(d) => self.on_fetch(now_ms, from, d, &mut out),
         }
         self.progress(now_ms, &mut out);
         out
+    }
+
+    /// Answers a fetch, at most [`Self::fetch_budget`] times per member per
+    /// `resend_interval_ms`. An honest node asks for at most twice the
+    /// committee per gap it finds (`fetch_missing`), so twice that again is
+    /// room for a retry; past it the fetch is dropped and asked again later.
+    fn on_fetch(&mut self, now_ms: u64, from: ValidatorId, d: Digest, out: &mut Output) {
+        if from >= self.committee.size() {
+            return;
+        }
+        let Some(c) = self.dag.by_digest(&d).or_else(|| self.buffer.get(&d)) else {
+            return;
+        };
+        let budget = self.fetch_budget();
+        let interval = self.params.resend_interval_ms;
+        let (start, sent) = self.fetch_replies.entry(from).or_insert((now_ms, 0));
+        if now_ms.saturating_sub(*start) >= interval {
+            *start = now_ms;
+            *sent = 0;
+        }
+        if *sent >= budget {
+            return;
+        }
+        *sent += 1;
+        out.sends.push((Dest::To(from), Message::Cert(c.clone())));
+    }
+
+    fn fetch_budget(&self) -> u32 {
+        4 * u32::from(self.committee.size())
     }
 
     /// Periodic work: re-broadcast what may have been lost, and advance past
