@@ -316,6 +316,10 @@ pub struct NetworkStatus {
     pub genesis: String,
     /// The node's tip height.
     pub height: u64,
+    /// What the genesis says the network is; never the name alone.
+    pub class: crate::networks::NetworkClass,
+    /// The genesis id's two ends, for comparing with the published one.
+    pub fingerprint: String,
 }
 
 /// Reads the network's name, genesis and tip height in one call.
@@ -332,6 +336,8 @@ pub async fn network_status(node_url: &str) -> Result<NetworkStatus> {
         .await
         .map_err(|e| WalletError::Node(e.to_string()))?;
     Ok(NetworkStatus {
+        class: crate::networks::classify(info.chain_id.as_deref(), &info.genesis),
+        fingerprint: crate::networks::fingerprint(&info.genesis),
         network: info.chain_id,
         genesis: info.genesis,
         height: info.height,
