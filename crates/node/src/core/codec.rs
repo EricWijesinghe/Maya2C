@@ -175,6 +175,32 @@ impl<'a> ByteReader<'a> {
         Ok(count as usize)
     }
 
+    /// Reads a collection length in a record this node wrote itself.
+    ///
+    /// No [`MAX_COLLECTION_LEN`]: that cap guards the wire, and a stored
+    /// record whose encoder wrote 65,537 entries must still decode, or every
+    /// block that touches it fails to apply on every node (the staking record
+    /// did exactly that). The count must still be backed by the remaining
+    /// input, which [`MAX_RECORD_BYTES`] bounds, so nothing is reserved that
+    /// the bytes do not hold.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Decode`] if the count is absent or exceeds what
+    /// the remaining bytes could contain.
+    pub fn read_record_len(&mut self, element_size: usize) -> Result<usize> {
+        let count = self.read_u64()?;
+        let remaining = self.bytes.len().saturating_sub(self.position);
+        usize::try_from(count)
+            .ok()
+            .filter(|&n| n.saturating_mul(element_size.max(1)) <= remaining)
+            .ok_or_else(|| {
+                NodeError::Decode(format!(
+                    "record collection of {count} elements of {element_size} bytes, {remaining} remain"
+                ))
+            })
+    }
+
     /// Bytes not yet consumed.
     ///
     /// For the one case where a section's *presence* is signalled by there

@@ -16,6 +16,7 @@ use maya_staking::{Effect, Participation};
 use crate::consensus::bft::auth::MlDsaAuthenticator;
 use crate::consensus::bft::{Envelope, unseal};
 use crate::core::block::BlockHeader;
+use crate::core::codec::MAX_RECORD_BYTES;
 use crate::core::staking_payload::StakingAction;
 use crate::crypto::PUBLIC_KEY_LEN;
 use crate::crypto::keys::VerifyingKey;
@@ -32,6 +33,12 @@ use crate::state::staking::{
 /// Most anchor slots one block may account for. A gap this long means the
 /// chain made no progress for hours; the cap only bounds a loop.
 const MAX_SLOTS_PER_BLOCK: u64 = 1_000_000;
+
+/// Largest staking record a transaction may leave behind. Every block rewrites
+/// the record and journals the old one, and the journal refuses a previous
+/// value above [`MAX_RECORD_BYTES`]; half of that leaves the per-block counts
+/// room to grow. Above it the transaction is refused, never the block.
+const MAX_STAKING_RECORD_BYTES: usize = MAX_RECORD_BYTES / 2;
 
 fn stake_err(e: maya_staking::StakeError) -> NodeError {
     NodeError::Network(format!("staking refused: {e:?}"))
@@ -200,10 +207,15 @@ impl StateDB {
                 s.slash_double_sign(id).map_err(stake_err)?
             }
         };
+        let encoded = record.encode();
+        if encoded.len() > MAX_STAKING_RECORD_BYTES {
+            return Err(NodeError::Network(format!(
+                "staking refused: the record would be {} bytes, above {MAX_STAKING_RECORD_BYTES}",
+                encoded.len()
+            )));
+        }
         self.apply_effects(overlay, Some(sender), &effects)?;
-        overlay
-            .records
-            .insert(STATE_KEY.to_vec(), Some(record.encode()));
+        overlay.records.insert(STATE_KEY.to_vec(), Some(encoded));
         Ok(())
     }
 
