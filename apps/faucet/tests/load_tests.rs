@@ -73,8 +73,8 @@ fn grant_request(peer: &str, address: &str) -> Request<Body> {
 fn app(daily_cap: u64, dispenser: Arc<RecordingDispenser>) -> axum::Router {
     let faucet = Faucet::new(
         "maya-genesis-rc1",
-        DISPENSE,
-        daily_cap,
+        primitive_types::U256::from(DISPENSE),
+        primitive_types::U256::from(daily_cap),
         std::time::SystemTime::now(),
     )
     .expect("a testnet chain");
@@ -122,7 +122,7 @@ async fn one_ip_racing_a_thousand_requests_still_gets_one_grant() {
             .count(),
         CONCURRENCY - 1
     );
-    assert_eq!(dispenser.total(), DISPENSE);
+    assert_eq!(dispenser.total(), primitive_types::U256::from(DISPENSE));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
@@ -143,7 +143,7 @@ async fn one_address_racing_a_thousand_ips_still_gets_one_grant() {
         1,
         "one address, one grant"
     );
-    assert_eq!(dispenser.total(), DISPENSE);
+    assert_eq!(dispenser.total(), primitive_types::U256::from(DISPENSE));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
@@ -176,7 +176,7 @@ async fn no_more_than_the_daily_cap_leaves_under_concurrent_load() {
     );
     assert_eq!(
         dispenser.total(),
-        DAILY_CAP,
+        primitive_types::U256::from(DAILY_CAP),
         "the ledger the operator tops up must match the ledger the faucet reports"
     );
 
@@ -211,7 +211,11 @@ async fn a_flood_of_refusals_costs_the_faucet_no_budget() {
         .collect();
 
     fire(app.clone(), requests).await;
-    assert_eq!(dispenser.total(), DISPENSE, "one grant, nothing else spent");
+    assert_eq!(
+        dispenser.total(),
+        primitive_types::U256::from(DISPENSE),
+        "one grant, nothing else spent"
+    );
 
     // And nine other users can still be funded, which is what "the flood cost
     // nothing" has to mean.

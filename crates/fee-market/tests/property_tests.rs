@@ -102,8 +102,8 @@ proptest! {
         let mut config = FeeConfig::TESTING;
         config.treasury_bps = treasury_bps;
         config.target_block_bytes = target_block_bytes;
-        config.initial_base_fee = initial_base_fee;
-        config.min_base_fee = min_base_fee;
+        config.initial_base_fee = Amount::from_u64(initial_base_fee);
+        config.min_base_fee = Amount::from_u64(min_base_fee);
         config.change_denominator = change_denominator;
 
         let result = config.validate();
@@ -129,19 +129,19 @@ proptest! {
         change_denom in 1u64..1000u64,
     ) {
         // neural_next_base_fee(parent_base_fee, parent_size, target, denominator, floor, gain_bps)
-        let fee = neural_next_base_fee(base_fee, parent_size, target, change_denom, 1, UNIT_GAIN_BPS);
-        let linear_fee = next_base_fee(base_fee, parent_size, target, change_denom, 1);
+        let fee = neural_next_base_fee(Amount::from_u64(base_fee), parent_size, target, change_denom, Amount::from_u64(1), UNIT_GAIN_BPS);
+        let linear_fee = next_base_fee(Amount::from_u64(base_fee), parent_size, target, change_denom, Amount::from_u64(1));
 
         // The neural fee should be between linear and 2x linear (for rising)
         // For falling, it should be between 0 and linear
         if parent_size > target {
             // Rising: fee should be >= linear and <= 2*linear
             prop_assert!(fee >= linear_fee, "fee {} < linear {}", fee, linear_fee);
-            prop_assert!(fee <= linear_fee * 2, "fee {} > 2*linear {}", fee, linear_fee);
+            prop_assert!(fee <= linear_fee.saturating_add(linear_fee), "fee {} > 2*linear {}", fee, linear_fee);
         } else if parent_size < target {
             // Falling: fee should be >= floor and <= linear
             prop_assert!(fee <= linear_fee, "fee {} > linear {}", fee, linear_fee);
-            prop_assert!(fee >= 1, "fee {} < floor 1", fee);
+            prop_assert!(fee >= Amount::from_u64(1), "fee {} < floor 1", fee);
         }
     }
 
@@ -176,7 +176,7 @@ proptest! {
     ) {
         let config = FeeConfig::TESTING;
         let config = FeeConfig {
-            initial_base_fee: base_fee,
+            initial_base_fee: Amount::from_u64(base_fee),
             ..config
         };
 

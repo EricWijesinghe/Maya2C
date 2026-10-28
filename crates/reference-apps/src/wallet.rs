@@ -1,6 +1,7 @@
 //! The minimal wallet every app shares: one ML-DSA-65 key, its account, and
 //! a nonce counter.
 
+use maya_amount::Amount;
 use maya_crypto_pq::suite::{MasterSeed, MlDsa65, SignatureSuite, SuiteId};
 use maya_smart_account::fees::FeeSpec;
 use maya_smart_account::op::{Action, Op};
@@ -57,7 +58,7 @@ impl Key {
 impl Wallet {
     /// Creates the account in `registry` with `balance`.
     #[must_use]
-    pub fn open(registry: &mut Registry, seed: [u8; 32], height: u64, balance: u64) -> Self {
+    pub fn open(registry: &mut Registry, seed: [u8; 32], height: u64, balance: Amount) -> Self {
         let key = Key::from_seed(seed);
         let id = registry.create(SuiteId::MlDsa65, &key.pk, height, balance);
         Self { key, id, nonce: 0 }
@@ -70,7 +71,9 @@ impl Wallet {
             account: self.id,
             nonce: self.nonce,
             action,
-            fee: FeeSpec::Native { max_fee: MAX_FEE },
+            fee: FeeSpec::Native {
+                max_fee: Amount::from_u64(MAX_FEE),
+            },
             signatures: vec![],
         };
         self.nonce += 1;

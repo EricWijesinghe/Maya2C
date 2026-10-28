@@ -217,10 +217,13 @@ pub struct BftGenesis {
 /// Genesis fee-market parameters, checked against `maya-fee-market`'s limits.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FeesGenesis {
-    /// Base fee at block 1, per serialized byte.
-    pub initial_base_fee: u64,
+    /// Base fee at block 1, per serialized byte: 256-bit (ADR-066), a JSON
+    /// number or a decimal string.
+    #[serde(with = "crate::state::amount_serde::lenient")]
+    pub initial_base_fee: U256,
     /// Floor for the base fee.
-    pub min_base_fee: u64,
+    #[serde(with = "crate::state::amount_serde::lenient")]
+    pub min_base_fee: U256,
     /// Block size the base fee steers toward, in bytes.
     pub target_block_bytes: u64,
     /// The base fee moves by at most `1 / change_denominator` per block.
@@ -238,18 +241,18 @@ impl FeesGenesis {
         let config = maya_fee_market::FeeConfig {
             activation_height: 1,
             target_block_bytes: self.target_block_bytes,
-            min_base_fee: self.min_base_fee,
+            min_base_fee: to_amount(self.min_base_fee),
             change_denominator: self.change_denominator,
             treasury_bps: 0,
-            initial_base_fee: self.initial_base_fee,
+            initial_base_fee: to_amount(self.initial_base_fee),
             neural_activation_height: u64::MAX,
         };
         config
             .validate()
             .map_err(|e| NodeError::Decode(format!("bft.fees: {e:?}")))?;
         Ok(crate::state::fees::FeeRecord {
-            base_fee: self.initial_base_fee,
-            min_base_fee: self.min_base_fee,
+            base_fee: to_amount(self.initial_base_fee),
+            min_base_fee: to_amount(self.min_base_fee),
             target_block_bytes: self.target_block_bytes,
             change_denominator: self.change_denominator,
         })
@@ -1027,14 +1030,12 @@ impl GenesisConfig {
         h.update(&bft.round_interval_ms.to_le_bytes());
         if let Some(fees) = &bft.fees {
             h.update(b"fees");
-            for v in [
-                fees.initial_base_fee,
-                fees.min_base_fee,
-                fees.target_block_bytes,
-                fees.change_denominator,
-            ] {
-                h.update(&v.to_le_bytes());
-            }
+            // The two fees are 256-bit like every amount (ADR-066); the rest are
+            // counts. Fixed-width, so no length prefix is needed.
+            h.update(&amount_bytes(fees.initial_base_fee));
+            h.update(&amount_bytes(fees.min_base_fee));
+            h.update(&fees.target_block_bytes.to_le_bytes());
+            h.update(&fees.change_denominator.to_le_bytes());
         }
         if let Some(staking) = &bft.staking {
             h.update(b"staking");

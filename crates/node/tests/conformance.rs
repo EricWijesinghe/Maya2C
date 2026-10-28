@@ -302,19 +302,26 @@ fn fee_vectors() {
                 );
             }
             "next_base_fee" => {
+                // 256-bit decimal strings: FEE-3 saturates at 2^256 - 1.
+                let wide = |v: &Value| {
+                    maya_stateless_core::amount::to_amount(
+                        primitive_types::U256::from_dec_str(v.as_str().expect("decimal string"))
+                            .expect("fits 256 bits"),
+                    )
+                };
                 let got = maya_fee_market::next_base_fee(
-                    n("parent_base_fee"),
+                    wide(&case["parent_base_fee"]),
                     n("parent_size"),
                     n("target"),
                     n("denominator"),
-                    n("floor"),
+                    wide(&case["floor"]),
                 );
-                assert_eq!(got, num(&case["expect"]), "{id}");
+                assert_eq!(got, wide(&case["expect"]), "{id}");
             }
             "admit" => {
                 let c = maya_fee_market::FeeConfig::TESTING;
                 assert_eq!(
-                    n("base_fee"),
+                    maya_ledger_math::Amount::from_u64(n("base_fee")),
                     c.initial_base_fee,
                     "{id}: vectors assume the testing config's initial base fee"
                 );

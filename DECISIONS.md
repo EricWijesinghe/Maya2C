@@ -428,6 +428,24 @@ deliberately left at 64 bits, and why, are tabled in ADR-048.
 - **Retarget off-by-one (audit 7):** fix before re-genesis, with spec, vectors and an ADR note.
 - **Next gap:** `core::describe` in the GUI wallet and the explorer (kind column).
 
+## 2026-10-28 — Supply, capacity and the governance deposit (Claude decided, Eric delegated)
+
+- **Supply stays 21M coins at 18 decimals (2026-10-26 stands).** Capacity is already the
+  maximum (U256, 2^256 base units, the EVM width), and 18 decimals is Ethereum's divisibility
+  and 10^10 times Bitcoin's. A supply at the ceiling would make each coin worthless and
+  overflow on the first reward. Eric's aim, "no numberwise disadvantage, and value", is met
+  by maximum capacity plus a scarce supply.
+- **Governance proposal deposit: default 10 coins, bounds 1 to 100,000 coins**
+  (`crates/governance/src/params.rs`). The u64-era bounds were 1e-14 coin by default and
+  1e-9 at most, so spam proposals were free and governance could not change that. It is
+  refunded unless the proposal is withdrawn. Eric did not follow the question and asked
+  Claude to pick; he can veto it before genesis.
+- **ADR-062: both halves (Claude, under Eric's "enterprise grade" delegation).** Note that
+  the existing sparse tree also rebuilds O(N) per block (docs/stateless.md, "Root cost"),
+  so 062a means an *incremental* sparse root, pinned by an incremental == full-rebuild
+  property test.
+- **Mainnet moves to about 2026-11-20** (Eric accepted). Re-genesis soak runs in parallel
+  with the self-run attacknet and pre-audit, not before them.
 ## 2026-10-28 — No second public soak; the next public genesis is mainnet (Eric)
 
 Relayed through session maya2c-9a, Eric's words: "we validate for 7 days and we continue, no

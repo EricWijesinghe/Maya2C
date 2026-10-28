@@ -214,17 +214,23 @@ fn padding_a_full_block_cannot_lower_the_fee() {
     for size in [TARGET + 1, TARGET * 3 / 2, 2 * TARGET] {
         for previous in [0, TARGET, 2 * TARGET] {
             let f = Features::new(features(&block, size, previous).values);
-            for parent in [1, 8, 1_000, 1_000_000] {
+            for parent in [1u64, 8, 1_000, 1_000_000].map(maya_dex::Amount::from_u64) {
                 let next = next_base_fee_by_rule(
                     FeeRule::Neural(&MODEL_V1),
                     parent,
                     size,
                     TARGET,
                     8,
-                    1,
+                    maya_dex::Amount::from_u64(1),
                     &f,
                 );
-                let linear = maya_fee_market::next_base_fee(parent, size, TARGET, 8, 1);
+                let linear = maya_fee_market::next_base_fee(
+                    parent,
+                    size,
+                    TARGET,
+                    8,
+                    maya_dex::Amount::from_u64(1),
+                );
                 assert!(next > parent, "size {size} parent {parent}: {next}");
                 // The padding bought the producer nothing: never below EIP-1559.
                 assert!(

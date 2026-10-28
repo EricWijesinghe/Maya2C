@@ -8,6 +8,8 @@
 //! not a relayer's. Anyone may submit the proof, so censoring relayers cannot
 //! block settlement.
 
+use maya_amount::Amount;
+
 /// Verifies a delivery proof for an intent: a light client of the
 /// destination chain.
 pub trait DeliveryVerifier {
@@ -24,9 +26,9 @@ pub struct Intent {
     /// Recipient on the destination chain.
     pub recipient: Vec<u8>,
     /// Amount to deliver.
-    pub amount: u128,
+    pub amount: Amount,
     /// Escrowed payment to the solver (amount + fee).
-    pub escrow: u128,
+    pub escrow: Amount,
     /// Last height a proof is accepted.
     pub deadline: u64,
 }
@@ -84,7 +86,7 @@ impl Escrow {
         proof: &[u8],
         verifier: &impl DeliveryVerifier,
         height: u64,
-    ) -> Result<u128, IntentError> {
+    ) -> Result<Amount, IntentError> {
         if self.state != State::Open {
             return Err(IntentError::Closed);
         }
@@ -103,7 +105,7 @@ impl Escrow {
     /// # Errors
     ///
     /// [`IntentError`] if closed or not yet expired.
-    pub fn refund(&mut self, height: u64) -> Result<u128, IntentError> {
+    pub fn refund(&mut self, height: u64) -> Result<Amount, IntentError> {
         if self.state != State::Open {
             return Err(IntentError::Closed);
         }
