@@ -442,11 +442,24 @@ fn mining_vectors() {
                 let mut r = record("reward", "reward", "miner_bps", 600);
                 r.halving_epochs = 1;
                 r.miner_share_bps = num(&case["miner_bps"]).min(10_000);
-                assert_eq!(r.miner_budget(0), to_amount(amount(&case["expect"]["miners"])), "{id}");
-                assert_eq!(r.validator_reward(0), to_amount(amount(&case["expect"]["committee"])), "{id}");
+                assert_eq!(
+                    r.miner_budget(0),
+                    to_amount(amount(&case["expect"]["miners"])),
+                    "{id}"
+                );
+                assert_eq!(
+                    r.validator_reward(0),
+                    to_amount(amount(&case["expect"]["committee"])),
+                    "{id}"
+                );
             }
             "lifetime_emission" => {
-                let r = record("initial", "tail", "halving_epochs", num(&case["epoch_blocks"]));
+                let r = record(
+                    "initial",
+                    "tail",
+                    "halving_epochs",
+                    num(&case["epoch_blocks"]),
+                );
                 let expect = (case["expect"]["result"] == "ok")
                     .then(|| to_amount(amount(&case["expect"]["total"])));
                 assert_eq!(r.lifetime_emission(), expect, "{id}");

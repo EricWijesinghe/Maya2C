@@ -612,14 +612,52 @@ fn header_vectors(k: &BTreeMap<String, Address>) -> Value {
 
 fn mining_vectors() -> Value {
     let mut cases = Vec::new();
-    let big = Balance::MAX.checked_sub(Balance::from(0)).unwrap_or(Balance::MAX);
+    let big = Balance::MAX
+        .checked_sub(Balance::from(0))
+        .unwrap_or(Balance::MAX);
     for (id, initial, tail, h, epoch) in [
-        ("halving-epoch-0", Balance::from(1_000_000), Balance::from(0), 10u64, 0u64),
-        ("halving-last-of-era", Balance::from(1_000_000), Balance::from(0), 10, 9),
-        ("halving-once", Balance::from(1_000_000), Balance::from(0), 10, 10),
-        ("halving-to-zero", Balance::from(1_000_000), Balance::from(0), 10, 640),
-        ("tail-floor", Balance::from(1_000_000), Balance::from(100_000), 10, 40),
-        ("tail-forever", Balance::from(1_000_000), Balance::from(100_000), 10, u64::MAX),
+        (
+            "halving-epoch-0",
+            Balance::from(1_000_000),
+            Balance::from(0),
+            10u64,
+            0u64,
+        ),
+        (
+            "halving-last-of-era",
+            Balance::from(1_000_000),
+            Balance::from(0),
+            10,
+            9,
+        ),
+        (
+            "halving-once",
+            Balance::from(1_000_000),
+            Balance::from(0),
+            10,
+            10,
+        ),
+        (
+            "halving-to-zero",
+            Balance::from(1_000_000),
+            Balance::from(0),
+            10,
+            640,
+        ),
+        (
+            "tail-floor",
+            Balance::from(1_000_000),
+            Balance::from(100_000),
+            10,
+            40,
+        ),
+        (
+            "tail-forever",
+            Balance::from(1_000_000),
+            Balance::from(100_000),
+            10,
+            u64::MAX,
+        ),
         ("max-reward-256-halvings", big, Balance::from(0), 1, 256),
     ] {
         let expect = mining::epoch_reward(initial, tail, h, epoch);
@@ -636,11 +674,47 @@ fn mining_vectors() -> Value {
         cases.push(json!({"id": id, "rules": ["MINE-2"], "fn": "split", "reward": reward.to_string(), "miner_bps": bps.to_string(), "expect": {"miners": miners.to_string(), "committee": committee.to_string()}}));
     }
     for (id, initial, tail, h, blocks) in [
-        ("lifetime-no-tail", Balance::from(1_000_000), Balance::from(0), 10u64, u64::MAX / 50),
-        ("lifetime-tail", Balance::from(1_000_000), Balance::from(100_000), 10, u64::MAX / 50),
-        ("lifetime-era-cut-short", Balance::from(1_000_000), Balance::from(1), 1_000, u64::MAX / 50),
-        ("lifetime-testnet-shape", Balance::from(1_000_000), Balance::from(24), 4_380, 3_600),
-        ("lifetime-at-ceiling", Balance::from(1).checked_mul_count(1 << 64).and_then(|b| b.checked_mul_count(1 << 64)).unwrap_or(Balance::MAX), Balance::from(1).checked_mul_count(1 << 64).and_then(|b| b.checked_mul_count(1 << 64)).unwrap_or(Balance::MAX), 1, 1),
+        (
+            "lifetime-no-tail",
+            Balance::from(1_000_000),
+            Balance::from(0),
+            10u64,
+            u64::MAX / 50,
+        ),
+        (
+            "lifetime-tail",
+            Balance::from(1_000_000),
+            Balance::from(100_000),
+            10,
+            u64::MAX / 50,
+        ),
+        (
+            "lifetime-era-cut-short",
+            Balance::from(1_000_000),
+            Balance::from(1),
+            1_000,
+            u64::MAX / 50,
+        ),
+        (
+            "lifetime-testnet-shape",
+            Balance::from(1_000_000),
+            Balance::from(24),
+            4_380,
+            3_600,
+        ),
+        (
+            "lifetime-at-ceiling",
+            Balance::from(1)
+                .checked_mul_count(1 << 64)
+                .and_then(|b| b.checked_mul_count(1 << 64))
+                .unwrap_or(Balance::MAX),
+            Balance::from(1)
+                .checked_mul_count(1 << 64)
+                .and_then(|b| b.checked_mul_count(1 << 64))
+                .unwrap_or(Balance::MAX),
+            1,
+            1,
+        ),
     ] {
         let expect = match mining::lifetime_emission(initial, tail, h, blocks) {
             Some(total) => json!({"result": "ok", "total": total.to_string()}),

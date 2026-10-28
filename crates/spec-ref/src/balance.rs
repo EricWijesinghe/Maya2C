@@ -47,7 +47,7 @@ impl Balance {
 
     /// `⌊self / 2^n⌋`; zero once every bit is gone (MINE-1).
     #[must_use]
-    pub fn shr(self, n: u64) -> Self {
+    pub fn shr_bits(self, n: u64) -> Self {
         if n >= 256 {
             return Self::default();
         }
