@@ -892,21 +892,33 @@ impl GenesisConfig {
             }
             // Rewards are transfers out of the reserve. An unfunded reserve
             // would be a mining chain that silently pays nothing.
-            let reserve = hex::encode(crate::state::mining::MINING_RESERVE);
-            let funded = self
-                .allocations
-                .iter()
-                .filter(|a| a.address.eq_ignore_ascii_case(&reserve))
-                .fold(U256::zero(), |sum, a| sum.saturating_add(a.balance));
+            // Decoded, so a `0x`-prefixed reserve entry is counted too.
+            let mut funded = U256::zero();
+            for allocation in &self.allocations {
+                if decode_address(&allocation.address)? == crate::state::mining::MINING_RESERVE {
+                    funded = funded.saturating_add(allocation.balance);
+                }
+            }
             if funded < mining.initial_epoch_reward {
                 return Err(NodeError::Decode(
                     "bft.mining: the mining reserve holds less than one epoch's reward".into(),
                 ));
             }
-            records.insert(
-                crate::state::mining::MINING_KEY.to_vec(),
-                mining.record(staking.epoch_blocks)?.encode(),
-            );
+            let record = mining.record(staking.epoch_blocks)?;
+            // A tail is a promise that mining never ends. Funding every epoch a
+            // u64 height reaches keeps it without ever minting.
+            if !mining.tail_epoch_reward.is_zero() {
+                let lifetime = record.lifetime_emission().ok_or_else(|| {
+                    NodeError::Decode("bft.mining: lifetime emission at or above 2^192".into())
+                })?;
+                if funded < maya_stateless_core::amount::to_u256(lifetime) {
+                    return Err(NodeError::Decode(format!(
+                        "bft.mining: the reserve must hold the lifetime emission, {}",
+                        maya_stateless_core::amount::to_u256(lifetime)
+                    )));
+                }
+            }
+            records.insert(crate::state::mining::MINING_KEY.to_vec(), record.encode());
         }
         if staking.bonds.len() != bft.validators.len() {
             return Err(NodeError::Decode(

@@ -446,6 +446,22 @@ deliberately left at 64 bits, and why, are tabled in ADR-048.
   property test.
 - **Mainnet moves to about 2026-11-20** (Eric accepted). Re-genesis soak runs in parallel
   with the self-run attacknet and pre-audit, not before them.
+
+## 2026-10-28 — Forever mining, 24 decimals, fee burn, 512-bit math (Eric approved)
+
+Eric: "OK I approve the chart keep the ecosystem upgradable and continute". Recorded in
+[ADR-068](docs/adr/ADR-068-forever-mining.md):
+
+1. A tail reward: the halvings stop at a floor paid every epoch to the last `u64` height.
+   Genesis funds the reserve with the exact lifetime emission (no mint, ever); ceiling 2^192.
+   **Built** (`state/mining.rs`, `genesis.rs`). Tail size: default proposal 0.5% of 21M a
+   year, set in the genesis file at the re-genesis.
+2. 24 decimals instead of 18. Not built yet.
+3. Fee burn: already 100% of the base fee (ADR-029); more than the approved 50%, so unchanged.
+4. 512-bit intermediates for amount × amount: audit of remaining sites not done yet.
+
+"Upgradable": parameters change by protocol upgrade at an activation height, not by a live
+governance knob over emission.
 ## 2026-10-28 — No second public soak; the next public genesis is mainnet (Eric)
 
 Relayed through session maya2c-9a, Eric's words: "we validate for 7 days and we continue, no
