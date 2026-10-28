@@ -478,3 +478,13 @@ The sparse accounts tree is already an activation-height switch (`sl:accounts-sp
 upgrade without a re-genesis, and ADR-062b (per-validator staking records) the same way.
 Building either now would put a new state format into the freeze week for no launch-time
 gain. Revisit when accounts pass ~50k or block time is threatened (measure, then decide).
+
+## 2026-10-28 — ADR-068 step 4: 512-bit product audit, clean
+
+`rg` over node state/consensus, dex, fee-market, governance, ledger-math, staking and amount
+for every multiplication of amounts. Every amount × amount product is a 512-bit
+`mul_wide`/`mul_div`/`full_mul` (dex AMM invariant and share checks, governance tally,
+ledger-math splits, fee-market step, invariant-guard anomaly) or a checked/saturating op that
+refuses or clamps. Bare `*` on amounts appears only on constants (`10 * COIN`) and in
+`staking/concentration.rs`, whose inputs are shifted into the `u64` range before `× BPS`
+(fits `u128`). No change needed.
