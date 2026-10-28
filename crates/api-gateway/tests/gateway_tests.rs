@@ -212,8 +212,8 @@ async fn supply_is_served() {
 async fn listing_sites_get_whole_coins_as_plain_text() {
     // CoinGecko and CoinMarketCap read one bare number of whole coins.
     for (uri, expected) in [
-        ("/v1/supply/circulating", "0.000000000000021"),
-        ("/v1/supply/total", "0.000000000000042"),
+        ("/v1/supply/circulating", "0.000000000000000000021"),
+        ("/v1/supply/total", "0.000000000000000000042"),
     ] {
         let response = app_with(Arc::new(MockNode::default()))
             .oneshot(

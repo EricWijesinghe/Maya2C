@@ -1,6 +1,6 @@
 //! Exact text forms of 256-bit amounts: parse and format, no floats.
 //!
-//! An amount is a count of base units (18 decimals, ADR-046). Every text form
+//! An amount is a count of base units (24 decimals, ADR-068). Every text form
 //! here is an exact rendering or a strict parse of that integer. The UI shares
 //! this file by path (`#[path]`) so both sides reject the same strings.
 
@@ -8,7 +8,7 @@ use primitive_types::U256;
 use thiserror::Error;
 
 /// Decimal places in one whole coin (ADR-046).
-pub const DECIMALS: usize = 18;
+pub const DECIMALS: usize = 24;
 
 /// The coin's ticker, chosen by the owner on 2026-10-18 (DECISIONS.md).
 pub const TICKER: &str = "MAYA";
@@ -162,10 +162,13 @@ mod tests {
         // 2^64 whole coins: the balance the old u64 wallet refused to show.
         assert_eq!(
             format_display(u64_max_plus_one() * U256::exp10(DECIMALS)),
-            "18,446,744,073,709,551,616.000000000000000000"
+            "18,446,744,073,709,551,616.000000000000000000000000"
         );
-        // 2^64 base units is 18.446744073709551616 coins.
-        assert_eq!(format_display(u64_max_plus_one()), "18.446744073709551616");
+        // 2^64 base units is 0.000018446744073709551616 coins at 24 decimals.
+        assert_eq!(
+            format_display(u64_max_plus_one()),
+            "0.000018446744073709551616"
+        );
     }
 
     #[test]
@@ -190,15 +193,15 @@ mod tests {
     fn display_of_max_is_exact_and_grouped() {
         assert_eq!(
             format_display(U256::MAX),
-            "115,792,089,237,316,195,423,570,985,008,687,907,853,269,984,665,640,564,039,457.584007913129639935"
+            "115,792,089,237,316,195,423,570,985,008,687,907,853,269,984,665,640,564.039457584007913129639935"
         );
     }
 
     #[test]
     fn whole_coin_parses_without_rounding() {
-        assert_eq!(parse_display("1.5"), Ok(U256::exp10(18) * 3 / 2));
-        assert_eq!(parse_display("0.000000000000000001"), Ok(U256::one()));
-        assert_eq!(parse_display("7"), Ok(U256::exp10(18) * 7));
+        assert_eq!(parse_display("1.5"), Ok(U256::exp10(DECIMALS) * 3 / 2));
+        assert_eq!(parse_display("0.000000000000000000000001"), Ok(U256::one()));
+        assert_eq!(parse_display("7"), Ok(U256::exp10(DECIMALS) * 7));
     }
 
     #[test]
@@ -218,7 +221,7 @@ mod tests {
         assert_eq!(parse_display(".5"), Err(AmountError::NotDecimal));
         assert_eq!(parse_display("1.2.3"), Err(AmountError::NotDecimal));
         assert_eq!(
-            parse_display("0.0000000000000000001"),
+            parse_display("0.0000000000000000000000001"),
             Err(AmountError::TooManyDecimals)
         );
     }

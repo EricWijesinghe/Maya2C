@@ -161,9 +161,9 @@ impl Default for PoolConfig {
             fee_address: [0u8; 32],
             pplns_factor: DEFAULT_PPLNS_FACTOR,
             confirmations: DEFAULT_CONFIRMATIONS,
-            // 0.01 coin at 18 decimals: below that a payout is dust whose
+            // 0.01 coin at 24 decimals: below that a payout is dust whose
             // output costs more than it carries.
-            min_payout: U256::exp10(16),
+            min_payout: U256::exp10(22),
             max_outputs_per_batch: DEFAULT_MAX_OUTPUTS_PER_BATCH,
             // Unset: an operator must choose the custody bound (validate).
             max_batch_value: U256::zero(),
@@ -291,13 +291,13 @@ mod tests {
     }
 
     #[test]
-    fn the_fee_is_exact_at_eighteen_decimals() {
+    fn the_fee_is_exact_at_twenty_four_decimals() {
         // 2% of 50 coins is 1 coin exactly; an f64 product would round it.
         let config = PoolConfig {
             fee_rate: 0.02,
             ..valid()
         };
-        let coin = primitive_types::U256::exp10(18);
+        let coin = primitive_types::U256::exp10(24);
         let reward = primitive_types::U256::from(50u64) * coin;
         assert_eq!(config.miner_share(reward), reward - coin);
         assert!(config.miner_share(primitive_types::U256::MAX) < primitive_types::U256::MAX);
