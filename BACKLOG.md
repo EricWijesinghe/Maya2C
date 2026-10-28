@@ -119,6 +119,19 @@ band; move an item to PROGRESS.md when it starts.
 
 ## P5 — differentiators
 
+Eric 2026-10-29: build all of these after mainnet (each needs a dated `docs/prior-art/` search before any "first" claim, and an ADR):
+- [ ] **Decentralization-aware rewards**: per-epoch Nakamoto coefficient / Gini from `staking/concentration.rs`; rewards tilt toward small validators and miners when control concentrates.
+- [ ] **Cryptographic sunset schedule**: a suite deprecation announces a height, a migration window, wallet warnings and an automatic move to the successor suite (`crypto-pq/agility`, invariant 29).
+- [ ] **Post-quantum time-locked messages and payments**: unreadable and unspendable until a future height, ML-KEM sealed (sealed mempool / threshold encryption). Prior art: drand tlock (not PQ, not native).
+- [ ] **AI-work mining**: miners earn for verified AI inference via the ADR-044 WorkClaim kind. Prior art: Bittensor, Gensyn.
+- [ ] **Offline payments**: PQ-signed transfers carried by Bluetooth, LoRa or satellite and settled when a relay is online (chat DTN design).
+- [ ] **Quantum Harbor safe-deposit**: BTC/ETH holders commit a PQ proof of ownership now, claimable if their keys are broken later (`quantum-harbor`).
+- [ ] **Duress keys** (Scam Shield): a registered panic key; a transfer signed with it sends a decoy amount, locks the real balance 72 h and alerts guardians.
+- [ ] **Safety-window payments** (Scam Shield): opt-in protected transfers, spendable after a window, recallable with guardian-approved fraud proof; `threat-intel` flags known scam addresses.
+- [ ] **On-chain AI judge**: contracts name an open model by hash; disputes resolved by deterministic integer inference every validator reproduces (builds on fee-market `MODEL_V1`).
+- [ ] **Living inheritance**: owner heartbeat; missed check-ins, then a guardian veto window, then transfer to heirs.
+- [ ] **Phone-mined first fees**: a zero-balance user's visible, opt-in proof of work counts as a mining share that pays its first fees (ADR-044 share lane; no hidden mining).
+
 - MP25: zero-knowledge light client (research-sized).
 - MP28: outside-asset route into PQ vaults (depends on MP25); archive task
   sealing.
