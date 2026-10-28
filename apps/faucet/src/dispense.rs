@@ -246,7 +246,7 @@ fn sign_transfer(
     chain: &ChainTag,
 ) -> Result<String, DispenseError> {
     let mut outputs = vec![TxOutput {
-        amount: primitive_types::U256::from(amount),
+        amount,
         recipient: *recipient,
     }];
     if let Some(fees) = fees {
