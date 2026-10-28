@@ -402,3 +402,62 @@ fn header_vectors() {
         }
     }
 }
+
+/// The node's mining schedule against `spec/tests/mining.json` (MINE-1 .. 3).
+#[test]
+fn mining_vectors() {
+    use custom_l1_node::state::mining::{DagProfile, MiningGenesis};
+    let doc = load("mining.json");
+    for case in doc["cases"].as_array().unwrap() {
+        let id = case["id"].as_str().unwrap();
+        let record = |reward: &str, tail: &str, h: &str, blocks: u64| {
+            let mut r = MiningGenesis {
+                initial_epoch_reward: primitive_types::U256::from(1_000_000),
+                halving_epochs: num(&case[h]),
+                tail_epoch_reward: primitive_types::U256::zero(),
+                miner_share_bps: 7_000,
+                target_shares: 1,
+                max_shares_per_block: 1,
+                initial_target: "0f".repeat(32),
+                dag: DagProfile::Testing,
+            }
+            .record(blocks)
+            .unwrap();
+            // Set the amounts directly: the vectors include schedules that
+            // genesis validation (the 2^192 ceiling) refuses.
+            r.initial_epoch_reward = to_amount(amount(&case[reward]));
+            r.tail_epoch_reward = to_amount(amount(&case[tail]));
+            r
+        };
+        match case["fn"].as_str().unwrap() {
+            "epoch_reward" => {
+                let r = record("initial", "tail", "halving_epochs", 600);
+                assert_eq!(
+                    r.epoch_reward(num(&case["epoch"])),
+                    to_amount(amount(&case["expect"])),
+                    "{id}"
+                );
+            }
+            "split" => {
+                let mut r = record("reward", "reward", "miner_bps", 600);
+                r.halving_epochs = 1;
+                r.miner_share_bps = num(&case["miner_bps"]).min(10_000);
+                assert_eq!(r.miner_budget(0), to_amount(amount(&case["expect"]["miners"])), "{id}");
+                assert_eq!(r.validator_reward(0), to_amount(amount(&case["expect"]["committee"])), "{id}");
+            }
+            "lifetime_emission" => {
+                let r = record("initial", "tail", "halving_epochs", num(&case["epoch_blocks"]));
+                let expect = (case["expect"]["result"] == "ok")
+                    .then(|| to_amount(amount(&case["expect"]["total"])));
+                assert_eq!(r.lifetime_emission(), expect, "{id}");
+            }
+            other => panic!("{id}: unknown fn {other}"),
+        }
+    }
+}
+
+fn to_amount(v: primitive_types::U256) -> maya_ledger_math::Amount {
+    let mut bytes = [0u8; 32];
+    v.to_little_endian(&mut bytes);
+    maya_ledger_math::Amount::from_le_bytes(bytes)
+}

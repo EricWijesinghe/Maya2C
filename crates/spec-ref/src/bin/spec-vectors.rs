@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use maya_spec_ref::balance::Balance;
 use maya_spec_ref::stf::{Account, Transfer, apply_block};
 use maya_spec_ref::wire::{self, Frame};
-use maya_spec_ref::{Address, consensus, fees, header, root};
+use maya_spec_ref::{Address, consensus, fees, header, mining, root};
 use serde_json::{Value, json};
 
 fn hex(bytes: &[u8]) -> String {
@@ -610,6 +610,47 @@ fn header_vectors(k: &BTreeMap<String, Address>) -> Value {
     json!({"format": 1, "u64": "decimal strings", "spec": "spec/05-consensus.md", "generator": "maya-spec-ref spec-vectors", "cases": cases})
 }
 
+fn mining_vectors() -> Value {
+    let mut cases = Vec::new();
+    let big = Balance::MAX.checked_sub(Balance::from(0)).unwrap_or(Balance::MAX);
+    for (id, initial, tail, h, epoch) in [
+        ("halving-epoch-0", Balance::from(1_000_000), Balance::from(0), 10u64, 0u64),
+        ("halving-last-of-era", Balance::from(1_000_000), Balance::from(0), 10, 9),
+        ("halving-once", Balance::from(1_000_000), Balance::from(0), 10, 10),
+        ("halving-to-zero", Balance::from(1_000_000), Balance::from(0), 10, 640),
+        ("tail-floor", Balance::from(1_000_000), Balance::from(100_000), 10, 40),
+        ("tail-forever", Balance::from(1_000_000), Balance::from(100_000), 10, u64::MAX),
+        ("max-reward-256-halvings", big, Balance::from(0), 1, 256),
+    ] {
+        let expect = mining::epoch_reward(initial, tail, h, epoch);
+        cases.push(json!({"id": id, "rules": ["MINE-1"], "fn": "epoch_reward", "initial": initial.to_string(), "tail": tail.to_string(), "halving_epochs": h.to_string(), "epoch": epoch.to_string(), "expect": expect.to_string()}));
+    }
+    for (id, reward, bps) in [
+        ("split-70", Balance::from(1_000_000), 7_000u64),
+        ("split-rounds-down", Balance::from(7), 7_000),
+        ("split-all-miners", Balance::from(9), 10_000),
+        ("split-bps-clamped", Balance::from(9), 20_000),
+        ("split-max", Balance::MAX, 7_000),
+    ] {
+        let (miners, committee) = mining::split(reward, bps);
+        cases.push(json!({"id": id, "rules": ["MINE-2"], "fn": "split", "reward": reward.to_string(), "miner_bps": bps.to_string(), "expect": {"miners": miners.to_string(), "committee": committee.to_string()}}));
+    }
+    for (id, initial, tail, h, blocks) in [
+        ("lifetime-no-tail", Balance::from(1_000_000), Balance::from(0), 10u64, u64::MAX / 50),
+        ("lifetime-tail", Balance::from(1_000_000), Balance::from(100_000), 10, u64::MAX / 50),
+        ("lifetime-era-cut-short", Balance::from(1_000_000), Balance::from(1), 1_000, u64::MAX / 50),
+        ("lifetime-testnet-shape", Balance::from(1_000_000), Balance::from(24), 4_380, 3_600),
+        ("lifetime-at-ceiling", Balance::from(1).checked_mul_count(1 << 64).and_then(|b| b.checked_mul_count(1 << 64)).unwrap_or(Balance::MAX), Balance::from(1).checked_mul_count(1 << 64).and_then(|b| b.checked_mul_count(1 << 64)).unwrap_or(Balance::MAX), 1, 1),
+    ] {
+        let expect = match mining::lifetime_emission(initial, tail, h, blocks) {
+            Some(total) => json!({"result": "ok", "total": total.to_string()}),
+            None => json!({"result": "error", "error": "AboveCeiling"}),
+        };
+        cases.push(json!({"id": id, "rules": ["MINE-3"], "fn": "lifetime_emission", "initial": initial.to_string(), "tail": tail.to_string(), "halving_epochs": h.to_string(), "epoch_blocks": blocks.to_string(), "expect": expect}));
+    }
+    json!({"format": 1, "u64": "decimal strings", "spec": "spec/09-mining.md", "generator": "maya-spec-ref spec-vectors", "cases": cases})
+}
+
 fn main() {
     let check = std::env::args().any(|a| a == "--check");
     let k = keys();
@@ -619,6 +660,7 @@ fn main() {
         ("encoding.json", encoding_vectors(&k)),
         ("headers.json", header_vectors(&k)),
         ("consensus.json", consensus_vectors()),
+        ("mining.json", mining_vectors()),
     ];
     let mut stale = Vec::new();
     for (name, doc) in outputs {
