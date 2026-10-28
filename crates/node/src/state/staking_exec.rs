@@ -255,7 +255,7 @@ impl StateDB {
             second: b,
             second_signature: sb,
         };
-        if !evidence.is_valid(&MlDsaAuthenticator::observer(keys)) {
+        if !evidence.is_valid(&MlDsaAuthenticator::observer(keys, *self.get_chain_tag()?)) {
             return Err(NodeError::SignatureVerification);
         }
         committee

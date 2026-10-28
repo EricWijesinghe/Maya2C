@@ -107,6 +107,7 @@ pub fn verify_certificate(
     epoch: u64,
     keys: &Arc<[VerifyingKey]>,
     weights: Option<&[u64]>,
+    tag: ChainTag,
 ) -> Result<()> {
     if c.vertex.epoch != epoch {
         return Err(refuse("another epoch"));
@@ -122,7 +123,7 @@ pub fn verify_certificate(
     if !c.is_well_formed(&committee) {
         return Err(refuse("insufficient evidence"));
     }
-    let auth = MlDsaAuthenticator::observer(Arc::clone(keys));
+    let auth = MlDsaAuthenticator::observer(Arc::clone(keys), tag);
     let digest = c.digest();
     for (voter, signature) in c.votes.iter().zip(&c.signatures) {
         if !auth.verify(*voter, &digest, signature) {
@@ -173,6 +174,7 @@ pub fn fetch_epoch(
     weights: Option<&[u64]>,
     dir: &Path,
     limits: PageLimits,
+    tag: ChainTag,
 ) -> Result<Fetched> {
     // Each logged slot with the digest of its encoded bytes: a peer's copy of
     // a logged slot is skipped only if it is byte-identical, and otherwise
@@ -225,13 +227,13 @@ pub fn fetch_epoch(
                     // signing two vertices: evidence of equivocation. It is kept
                     // out of the log and the first copy stays. Forged copies are
                     // refused, so a peer cannot stall catch-up with one.
-                    verify_certificate(&c, epoch, keys, weights)?;
+                    verify_certificate(&c, epoch, keys, weights, tag)?;
                     fetched.equivocations += 1;
                     continue;
                 }
                 None => {}
             }
-            verify_certificate(&c, epoch, keys, weights)?;
+            verify_certificate(&c, epoch, keys, weights, tag)?;
             store.record_certificate(&c)?;
             have.insert(slot, digest);
             fetched.written += 1;
@@ -359,7 +361,15 @@ pub fn sync(
         let head = source.current_epoch()?;
         let behind = epoch <= head;
         if behind {
-            let fetched = fetch_epoch(source, epoch, &keys, weights.as_deref(), dir, limits)?;
+            let fetched = fetch_epoch(
+                source,
+                epoch,
+                &keys,
+                weights.as_deref(),
+                dir,
+                limits,
+                ChainTag::from_genesis(chain.genesis()),
+            )?;
             skipped += fetched.skipped;
             equivocations += fetched.equivocations;
         }

@@ -488,6 +488,16 @@ ledger-math splits, fee-market step, invariant-guard anomaly) or a checked/satur
 refuses or clamps. Bare `*` on amounts appears only on constants (`10 * COIN`) and in
 `staking/concentration.rs`, whose inputs are shifted into the `u64` range before `× BPS`
 (fits `u128`). No change needed.
+
+## 2026-10-29 — Pre-audit HIGH-4, LOW-7, INFO-8 (self-run audit by maya2c-9a)
+
+- HIGH-4 fixed: every DAG-BFT vote signs `VOTE_DOMAIN ‖ H("maya2c dag-bft vote chain v1",
+  chain_tag ‖ digest)`, so a validator key reused across chains cannot have votes or
+  equivocations counted on another. Remote signers sign the bound digest unchanged. Wire
+  change, pre-genesis.
+- LOW-7: protocol floor unchanged (1 unit); mainnet genesis sets min_base_fee ≥ 10^6 (runbook).
+- INFO-8: no protocol supply cap; genesis is the cap; with the tail, total > 21M by design
+  (runbook).
 ## 2026-10-28 — No second public soak; the next public genesis is mainnet (Eric)
 
 Relayed through session maya2c-9a, Eric's words: "we validate for 7 days and we continue, no
