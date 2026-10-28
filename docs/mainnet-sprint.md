@@ -12,12 +12,22 @@ logs, 10 halt recovery). Open: 4 separate validators, 5 ceremony,
 
 ## Calendar
 
-| Week | Dates | Done when |
+Eric, 2026-10-28, second message: **no second 7-day soak, and no public
+testnet restart for each upgrade.** Gate 3 passed once (7 d 15 h, zero
+halts) and stands. Everything after it is proven by CI, the adversarial
+schedule checker, local multi-validator networks and the attacknet on this
+machine: hours, not weeks. The public network that starts next is mainnet.
+
+| Phase | Dates | Done when |
 |---|---|---|
-| 1 | 10-28 to 11-04 | Every consensus-format change merged, then **code freeze**: #223, the certs.log fix, #218, #221, #222, #205, #206, 24 decimals, the 512-bit product audit, the MINE-* spec rules |
-| 2 | 11-05 to 11-11 | Re-genesis on the mining build (`APPROVED: re-genesis`); Hub mines end to end against it; attacknet running |
-| 3 | 11-12 to 11-18 | Second 7-day soak on the mining build, alongside the attacknet; self pre-audit and its fixes |
-| 4 | 11-19 to 11-28 | Genesis ceremony (`APPROVED: sign genesis`), tagged release built by CI, launch (`APPROVED: mainnet`) |
+| Merge | 10-28 to 11-03 | Every consensus-format change merged, then **code freeze**: #223, #228, #218, #221, #222, #205, #206, 24 decimals, the 512-bit product audit, the MINE-* spec rules |
+| Prove | 11-04 to 11-08 | On a local multi-validator network of the frozen build: attacknet, Hub mining end to end, restart and rejoin drills, self pre-audit and its fixes. No public testnet |
+| Launch | 11-09 to 11-14 | Genesis ceremony (`APPROVED: sign genesis`), CI-built tagged release with provenance, launch (`APPROVED: mainnet`) |
+
+What this gives up, stated once: the frozen build will not have run for
+days on a public network before mainnet. What stands in for that is above,
+plus launching with the project's own validator set, which can halt and
+recover by the tested runbook (gate 10).
 
 ADR-062a/b (incremental root, per-validator staking records) are deferred
 past launch: the measured root cost is under 7 ms at 10k accounts, and the
