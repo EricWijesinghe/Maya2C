@@ -101,3 +101,6 @@ chain-id.
   (ADR-068), the reserve must hold the lifetime emission, so the total is far above 21M coins
   by design; 21M is the halving schedule's main issuance, and the rest is released only by the
   tail. Check both printed lines before `APPROVED: sign genesis`.
+- **Remote signer database (HIGH-4 review):** votes are now bound to the chain, so a signer's
+  slashing-protection database must be per chain. Start mainnet with a fresh signer database;
+  reusing a testnet one makes the signer refuse mainnet votes as conflicts (safe, but no votes).
