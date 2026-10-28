@@ -28,7 +28,7 @@ use super::wire::{decode_certificate, encode_certificate};
 use super::{BftDriver, BftSetup};
 use crate::consensus::chain::Chain;
 use crate::core::ChainTag;
-use crate::crypto::keys::VerifyingKey;
+use crate::crypto::validator_keys::VerifyingKey;
 use crate::error::{NodeError, Result};
 
 /// Most certificates in one page.

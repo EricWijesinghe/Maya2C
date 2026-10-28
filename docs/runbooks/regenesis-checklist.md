@@ -13,7 +13,7 @@ against a live server on its own.
 | Security council 2-of-3 (ADR-050) | the old genesis has none | `genesis-ceremony council ...` |
 | wasmtime 48.0.7 | consensus-VM bump, a hard fork | #190, vm tests |
 | Staking record v3, stake added in an epoch earns from the next | state format change | PR for `fix/reward-sniping` |
-| ML-DSA-87 validator keys (ADR-051 option 3) | key type is fixed in genesis | not built yet |
+| ML-DSA-87 validator keys (ADR-051 option 3) | key type is fixed in genesis | built (feat/validator-mldsa87, spec CRY-4); every key must be regenerated with the new binary |
 | 20% per-operator cap, 7+ validators | policy | `cargo xtask genesis-check FILE` |
 | `--trusted-block` required (production build) | bootstrap safety | #188 |
 | Multisig spends need exactly `m` approvals (#196) | a block that used to be valid (spare approvals) is now refused | `multisig_tests`; live history not checked (step 1.4) |
