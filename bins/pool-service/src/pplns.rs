@@ -282,9 +282,9 @@ mod tests {
 
     #[test]
     fn a_reward_above_u64_splits_to_the_unit() {
-        // 50 coins at 18 decimals is 5e19 base units, past u64::MAX (~1.8e19).
+        // 50 coins at 24 decimals is 5e25 base units, far past u64::MAX (~1.8e19).
         // The old u64 split refused it; ADR-046 money must split exactly.
-        let reward = Amount::from(50u64) * Amount::exp10(18) + Amount::from(7u64);
+        let reward = Amount::from(50u64) * Amount::exp10(24) + Amount::from(7u64);
         let slice = window(&[(ALICE, "rig", 3), (BOB, "rig", 5), (CAROL, "rig", 11)]);
         let entries = split(&slice, reward).unwrap();
         let total = entries.iter().fold(Amount::zero(), |sum, e| sum + e.amount);

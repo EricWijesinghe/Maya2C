@@ -33,7 +33,8 @@ a reserve that cannot run dry.
 4. **Decimals: 24** (amends ADR-046 decision 2, which chose 18 for interop). Decimals are a
    display convention: the chain stores base units and fixes none. The change is in wallets,
    SDKs, explorers, the governance `COIN` and genesis amounts. 21M coins × 10^24 ≈ 2^104.
-   Built as its own step; until then, everything is 18.
+   Built 2026-10-28 (branch feat/decimals-24): governance `COIN`, wallet `DECIMALS`, pool
+   defaults, Hub display, docs. The Hub had assumed 10^8 per coin; fixed with it.
 5. **Fee burn: unchanged.** The base fee is already burned in full (ADR-029, `state/fees.rs`)
    and tips pay validators. That burns more than the 50% Eric approved, so nothing changes.
 6. **512-bit intermediates.** Every amount × amount product in consensus goes through a

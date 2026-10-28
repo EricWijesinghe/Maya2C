@@ -45,6 +45,48 @@ impl Balance {
         (!borrow).then_some(Self(out))
     }
 
+    /// `⌊self / 2^n⌋`; zero once every bit is gone (MINE-1).
+    #[must_use]
+    pub fn shr_bits(self, n: u64) -> Self {
+        if n >= 256 {
+            return Self::default();
+        }
+        let (limbs, bits) = (usize::try_from(n / 64).unwrap_or(4), n % 64);
+        let mut out = [0u64; 4];
+        for (i, slot) in out.iter_mut().enumerate() {
+            let Some(&low) = self.0.get(i + limbs) else {
+                break;
+            };
+            let high = self.0.get(i + limbs + 1).copied().unwrap_or(0);
+            *slot = if bits == 0 {
+                low
+            } else {
+                (low >> bits) | (high << (64 - bits))
+            };
+        }
+        Self(out)
+    }
+
+    /// `self × count` for a count up to 2^64, or `None` past [`Balance::MAX`]
+    /// (MINE-3: a reward times a number of epochs).
+    #[must_use]
+    pub fn checked_mul_count(self, count: u128) -> Option<Self> {
+        let low = u64::try_from(count & u128::from(u64::MAX)).unwrap_or(u64::MAX);
+        let mut out = self.mul_div_small(low, 1)?;
+        match count >> 64 {
+            0 => {}
+            1 => {
+                // self × 2^64: one limb up, refused if the top limb would fall off.
+                if self.0[3] != 0 {
+                    return None;
+                }
+                out = out.checked_add(Self([0, self.0[0], self.0[1], self.0[2]]))?;
+            }
+            _ => return None,
+        }
+        Some(out)
+    }
+
     /// ROOT-1's 32-byte little-endian encoding.
     #[must_use]
     pub fn to_le_bytes(self) -> [u8; 32] {

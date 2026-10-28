@@ -55,7 +55,7 @@ genesis-ceremony --chain-id <ID> --supply <UNITS> \
   --timestamp <UNIX> --difficulty-bits <N> --out-dir out
 ```
 
-Amounts are base units, 18 decimals. **The chain's total supply is
+Amounts are base units, 24 decimals (ADR-068): one coin is 10^24. **The chain's total supply is
 `--supply` + `--mining-reserve` + the sum of the bonds**, not `--supply` alone
 (found 2026-10-26: a 21M `--supply` plus a 20M reserve gave 41M). For a 21M-coin
 cap, pick `--supply` as the small root allocation and set `--mining-reserve` =
