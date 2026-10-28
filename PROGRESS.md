@@ -200,6 +200,15 @@ Rules in CLAUDE.md, "Operating Protocol"; state in [STATE.md](STATE.md).
 - [ ] Measure the block rate to set `halving_epochs`; mainnet-dataset GPU rate
 - [ ] Release signing (Windows code-signing, Android keystore — Eric's keys)
 - [ ] macOS/iOS builds (after Eric's MacBook)
+## Omega brief (2026-10-28, `docs/master-prompts/omega.md`)
+
+- [x] Brief saved with a status map and its conflicts with recorded decisions
+- [x] A1: DAG-BFT adversarial schedule checker, three engine mutations caught (`crates/dag-bft/tests/adversarial_schedules.rs`, 2026-10-28)
+- [ ] A2: machine-checked DAG-BFT safety model (TLA+/Quint)
+- [ ] B: crypto migration end-to-end to verified
+- [ ] C: smart accounts v1 (after mainnet)
+- [ ] D: recursive STARK chain proof (after mainnet)
+
 ---
 
 ## Mainnet v1 gates (`docs/mainnet-v1-plan.md`)
