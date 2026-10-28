@@ -694,3 +694,48 @@ fn replaying_a_buffered_certificate_is_throttled() {
         "retry once the interval passes"
     );
 }
+
+/// What a node may persist (`Output::inserted`): a certificate waiting for a
+/// parent is not inserted, and is reported in the step that finally inserts
+/// it, alongside the parent that unblocked it. The node's certificate log
+/// writes exactly these, so an unverified frame never reaches the disk.
+#[test]
+fn only_inserted_certificates_are_reported_for_persistence() {
+    let committee = Committee::new(N);
+    let genesis = Certificate::genesis(&committee);
+    let r1: Vec<_> = (0..N).map(|a| cert(1, a, &digests(&genesis))).collect();
+    let r2: Vec<_> = (0..N).map(|a| cert(2, a, &digests(&r1))).collect();
+    let child = cert(3, 0, &digests([&r2[0], &r2[1], &r2[3]]));
+
+    let mut node = Validator::new(2, committee, Params::default());
+    for c in r1.iter().chain(&r2[..3]) {
+        let out = node.handle(0, 0, Message::Cert(c.clone()));
+        assert_eq!(
+            digests(&out.inserted),
+            vec![c.digest()],
+            "a held parent inserts at once"
+        );
+    }
+    let waiting = node.handle(0, 0, Message::Cert(child.clone()));
+    assert!(
+        waiting.inserted.is_empty(),
+        "buffered, not inserted: {:?}",
+        digests(&waiting.inserted)
+    );
+    assert!(
+        node.handle(0, 1, Message::Cert(child.clone()))
+            .inserted
+            .is_empty(),
+        "re-delivery while waiting"
+    );
+    let unblocked = node.handle(0, 0, Message::Cert(r2[3].clone()));
+    assert_eq!(
+        digests(&unblocked.inserted),
+        vec![r2[3].digest(), child.digest()],
+        "parent, then the child it unblocked"
+    );
+    assert!(
+        node.handle(0, 0, Message::Cert(child)).inserted.is_empty(),
+        "a held certificate is not reported twice"
+    );
+}

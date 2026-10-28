@@ -70,6 +70,13 @@ pub struct Output {
     pub sub_dags: Vec<SubDag>,
     /// Conflicting signed proposals seen, for the staking module.
     pub equivocations: Vec<Equivocation>,
+    /// Certificates this step verified and inserted into the DAG, own ones
+    /// included: the only certificates a node may persist. A certificate
+    /// that arrives is not one of these until its signatures check and its
+    /// parents are held, which may be several steps later. Carried whole,
+    /// not by digest: the same step may commit and collect it below the
+    /// horizon before the caller could look it up.
+    pub inserted: Vec<Certificate>,
 }
 
 /// Engine parameters.
@@ -527,8 +534,10 @@ impl<A: Authenticator> Validator<A> {
         if self.pending.is_some() && self.pending_digest == Some(digest) {
             self.pending = None;
         }
-        self.dag.insert_digested(c, digest);
-        self.drain_buffer();
+        if self.dag.insert_digested(c, digest) {
+            self.report_inserted(&digest, out);
+        }
+        self.drain_buffer(out);
     }
 
     /// Fetches from `from` the ancestors buffered certificate `digest` waits
@@ -577,8 +586,16 @@ impl<A: Authenticator> Validator<A> {
             }))
     }
 
+    /// Copies a certificate just inserted into `out.inserted`, while the DAG
+    /// still holds it.
+    fn report_inserted(&self, digest: &Digest, out: &mut Output) {
+        if let Some(c) = self.dag.by_digest(digest) {
+            out.inserted.push(c.clone());
+        }
+    }
+
     /// Inserts buffered certificates whose parents have arrived.
-    fn drain_buffer(&mut self) {
+    fn drain_buffer(&mut self, out: &mut Output) {
         loop {
             let ready: Vec<Digest> = self
                 .buffer
@@ -592,8 +609,9 @@ impl<A: Authenticator> Validator<A> {
             for d in ready {
                 if let Some(c) = self.buffer.remove(&d)
                     && self.has_parent_quorum(&c.vertex)
+                    && self.dag.insert_digested(c, d)
                 {
-                    self.dag.insert_digested(c, d);
+                    self.report_inserted(&d, out);
                 }
             }
         }
