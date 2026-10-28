@@ -7,6 +7,17 @@
   kept). Proof: `reports/sessions/2026-10-28-testnet-stopped.md`. **Do first:** merge #220
   (site), #218 (u256), #221 (forever mining); then ML-DSA-87 keys and the re-genesis
   (`APPROVED: re-genesis`). Restart = re-enable the task and units, not before re-genesis.
+- **2026-10-28 — gate 3 met (7 days, no halt); master CI green; u256 PR #218 open.**
+  - **Done:** #217 merged (CI red: rustfmt, Python SDK u256, Node pin). Soak evidence in
+    `reports/sessions/2026-10-28-soak-complete.md`. #218: every amount 256-bit, incl. pool
+    + faucet, review fixes, governance deposit 10 coins.
+  - **Decided (DECISIONS.md 2026-10-28):** 21M supply kept; deposit 10 (1..100k) coins;
+    ADR-062 both halves; ML-DSA-87 validator keys for the re-genesis; free 4th host
+    (to discuss); mainnet ~11-20; soak overlaps attacknet + pre-audit.
+  - **Do first:** merge #210 when green, rebase #218 if needed, then merge #218; then #205,
+    then #206 (last). Then ADR-062a: an incremental sparse root (subtree-digest cache to
+    depth 16, keys as RocksDB ranges, property test incremental == full rebuild).
+  - **Report:** `reports/sessions/2026-10-28-soak-done-u256-pr.md`.
 - **2026-10-27 — Eric's four audit decisions implemented; clear signing; dev CLI in the release.**
   - **Decided by Eric (all four "recommended"):** H-1 cancel dust + refuse worthless
     orders (ADR-064); H-2 quorum counts work credit; ADR-063 header version byte +

@@ -82,6 +82,36 @@ impl Balance {
         (carry == 0).then_some(Self(out))
     }
 
+    /// `floor(self × mul / div)`, or `None` if the quotient passes [`Balance::MAX`].
+    ///
+    /// The product is held in 320 bits and divided bit by bit, so nothing is
+    /// clamped on the way. Written independently of `maya-amount`'s
+    /// `mul_div`, which is what it is checked against. `div` must be non-zero.
+    #[must_use]
+    pub(crate) fn mul_div_small(self, mul: u64, div: u128) -> Option<Self> {
+        let mut product = [0u64; 5];
+        let mut carry: u128 = 0;
+        for (out, limb) in product.iter_mut().zip(self.0) {
+            let wide = u128::from(limb) * u128::from(mul) + carry;
+            *out = wide as u64; // low half; the high half carries
+            carry = wide >> 64;
+        }
+        product[4] = carry as u64;
+
+        let mut quotient = [0u64; 5];
+        let mut rem: u128 = 0;
+        for bit in (0..320usize).rev() {
+            let (limb, shift) = (bit / 64, bit % 64);
+            let top = rem >> 127; // the bit shifted out of a 128-bit remainder
+            rem = (rem << 1) | u128::from((product[limb] >> shift) & 1);
+            if top == 1 || rem >= div {
+                rem = rem.wrapping_sub(div);
+                quotient[limb] |= 1u64 << shift;
+            }
+        }
+        (quotient[4] == 0).then_some(Self([quotient[0], quotient[1], quotient[2], quotient[3]]))
+    }
+
     /// `(self / divisor, self % divisor)` for a small divisor.
     fn div_small(self, divisor: u64) -> (Self, u64) {
         let mut out = [0u64; 4];

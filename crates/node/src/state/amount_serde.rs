@@ -8,6 +8,18 @@
 use primitive_types::U256;
 use serde::{Deserialize, Deserializer, Serializer, de::Error as _};
 
+/// Parses a base-10 amount: one or more ASCII digits, at most `U256::MAX`.
+///
+/// `U256::from_dec_str` alone accepts `""` as zero, so an empty config value
+/// or JSON string would silently become a zero amount.
+#[must_use]
+pub fn parse_decimal(text: &str) -> Option<U256> {
+    if text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    U256::from_dec_str(text).ok()
+}
+
 /// Serializes `value` as its base-10 representation.
 ///
 /// # Errors
@@ -25,7 +37,7 @@ pub fn serialize<S: Serializer>(value: &U256, serializer: S) -> Result<S::Ok, S:
 /// `U256::MAX`.
 pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<U256, D::Error> {
     let text = String::deserialize(deserializer)?;
-    U256::from_dec_str(&text).map_err(|_| D::Error::custom("amount is not a base-10 U256"))
+    parse_decimal(&text).ok_or_else(|| D::Error::custom("amount is not a base-10 U256"))
 }
 
 /// The same, but reads a JSON number as well as a string: for hand-written
@@ -53,8 +65,27 @@ pub mod lenient {
     pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<U256, D::Error> {
         match Raw::deserialize(deserializer)? {
             Raw::Number(value) => Ok(U256::from(value)),
-            Raw::Text(text) => U256::from_dec_str(&text)
-                .map_err(|_| D::Error::custom("amount is not a base-10 U256")),
+            Raw::Text(text) => super::parse_decimal(&text)
+                .ok_or_else(|| D::Error::custom("amount is not a base-10 U256")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_plain_decimal_digits_parse() {
+        for refused in ["", "+1", "-1", "0x10", " 1", "1 ", "1e3", "1_000"] {
+            assert_eq!(parse_decimal(refused), None, "{refused:?} was accepted");
+        }
+        assert_eq!(parse_decimal("0"), Some(U256::zero()));
+        assert_eq!(parse_decimal(&U256::MAX.to_string()), Some(U256::MAX));
+        assert_eq!(
+            parse_decimal(&format!("{}0", U256::MAX)),
+            None,
+            "past U256::MAX"
+        );
     }
 }

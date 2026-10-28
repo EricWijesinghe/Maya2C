@@ -15,6 +15,7 @@
 use std::time::Duration;
 
 use custom_l1_node::state::Address;
+use primitive_types::U256;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{PoolError, Result};
@@ -246,15 +247,18 @@ pub struct MinerAccount {
     /// Address, hex.
     pub address: String,
     /// Credits earned from blocks that have matured but not yet been paid.
-    pub unpaid: u64,
+    #[serde(with = "custom_l1_node::state::amount_serde::lenient")]
+    pub unpaid: U256,
     /// Credits from blocks that are found but not yet confirmed.
     ///
     /// Separate from `unpaid` because these can still be taken away: a block
     /// that is orphaned earns nothing, and showing the two as one number would
     /// make a reversal look like theft.
-    pub immature: u64,
+    #[serde(with = "custom_l1_node::state::amount_serde::lenient")]
+    pub immature: U256,
     /// Total ever paid.
-    pub paid: u64,
+    #[serde(with = "custom_l1_node::state::amount_serde::lenient")]
+    pub paid: U256,
     /// Rigs seen for this miner.
     pub workers: Vec<WorkerStats>,
 }
@@ -289,7 +293,8 @@ pub struct PayoutEntry {
     /// Recipient.
     pub miner: Address,
     /// Amount, in base units.
-    pub amount: u64,
+    #[serde(with = "custom_l1_node::state::amount_serde::lenient")]
+    pub amount: U256,
 }
 
 /// A batch of payouts, and its progress on chain.
@@ -325,10 +330,10 @@ impl PayoutBatch {
     /// Saturating rather than wrapping: this feeds the treasury's spend cap,
     /// and a wrapped total would compare as small.
     #[must_use]
-    pub fn total(&self) -> u64 {
+    pub fn total(&self) -> U256 {
         self.entries
             .iter()
-            .fold(0u64, |sum, entry| sum.saturating_add(entry.amount))
+            .fold(U256::zero(), |sum, entry| sum.saturating_add(entry.amount))
     }
 }
 
@@ -437,11 +442,11 @@ mod tests {
             entries: vec![
                 PayoutEntry {
                     miner: [0u8; 32],
-                    amount: u64::MAX,
+                    amount: primitive_types::U256::MAX,
                 },
                 PayoutEntry {
                     miner: [1u8; 32],
-                    amount: 10,
+                    amount: primitive_types::U256::from(10),
                 },
             ],
             signed_tx: Vec::new(),
@@ -453,6 +458,6 @@ mod tests {
 
         // A wrapped total would compare as small against the spend cap, which
         // is the one comparison that must never be fooled.
-        assert_eq!(batch.total(), u64::MAX);
+        assert_eq!(batch.total(), primitive_types::U256::MAX);
     }
 }

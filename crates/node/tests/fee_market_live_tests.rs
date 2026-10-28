@@ -7,6 +7,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use maya_dex::Amount;
+use primitive_types::U256;
 use std::sync::Arc;
 
 use custom_l1_node::consensus::chain::{Chain, ChainConfig};
@@ -54,8 +56,8 @@ fn chain(dir: &TempDir) -> Chain {
             mining: None,
             staking: None,
             fees: Some(FeesGenesis {
-                initial_base_fee: BASE_FEE,
-                min_base_fee: 1,
+                initial_base_fee: U256::from(BASE_FEE),
+                min_base_fee: U256::from(1),
                 target_block_bytes: 100_000,
                 change_denominator: 8,
             }),
@@ -134,16 +136,19 @@ fn the_base_fee_falls_on_empty_blocks_and_never_below_its_floor() {
     let dir = TempDir::new().unwrap();
     let mut c = chain(&dir);
     let mut last = c.state().committed_fees().unwrap().unwrap().base_fee;
-    assert_eq!(last, BASE_FEE);
+    assert_eq!(last, Amount::from_u64(BASE_FEE));
     for h in 1..=20u64 {
         let block = c.candidate_block(1_000_000 + h, Vec::new()).unwrap();
         c.insert_block(block).unwrap();
         let now = c.state().committed_fees().unwrap().unwrap().base_fee;
-        assert!(now <= last && now >= 1, "base fee {now} after {last}");
+        assert!(
+            now <= last && now >= Amount::from_u64(1),
+            "base fee {now} after {last}"
+        );
         last = now;
     }
     assert!(
-        last < BASE_FEE / 2,
+        last < Amount::from_u64(BASE_FEE / 2),
         "twenty empty blocks left the base fee at {last}"
     );
 }

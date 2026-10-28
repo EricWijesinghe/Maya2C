@@ -132,19 +132,6 @@
     },
     {
       "denominator": "8",
-      "expect": "18446744073709551615",
-      "floor": "1",
-      "fn": "next_base_fee",
-      "id": "saturate-high",
-      "parent_base_fee": "18446744073709551615",
-      "parent_size": "2000000",
-      "rules": [
-        "FEE-3"
-      ],
-      "target": "1000000"
-    },
-    {
-      "denominator": "8",
       "expect": "5",
       "floor": "5",
       "fn": "next_base_fee",
@@ -181,6 +168,32 @@
         "FEE-2"
       ],
       "target": "1000"
+    },
+    {
+      "denominator": "8",
+      "expect": "20752587082923245566",
+      "floor": "1",
+      "fn": "next_base_fee",
+      "id": "rises-past-u64",
+      "parent_base_fee": "18446744073709551615",
+      "parent_size": "2000000",
+      "rules": [
+        "FEE-3"
+      ],
+      "target": "1000000"
+    },
+    {
+      "denominator": "8",
+      "expect": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+      "floor": "1",
+      "fn": "next_base_fee",
+      "id": "saturate-high",
+      "parent_base_fee": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+      "parent_size": "2000000",
+      "rules": [
+        "FEE-3"
+      ],
+      "target": "1000000"
     },
     {
       "base_fee": "10",

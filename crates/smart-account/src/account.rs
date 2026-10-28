@@ -1,5 +1,6 @@
 //! Accounts, the key registry, and op validation and execution.
 
+use maya_amount::Amount;
 use std::collections::{BTreeMap, BTreeSet};
 
 use maya_crypto_pq::suite::{SuiteId, verify};
@@ -54,7 +55,7 @@ pub struct Pending {
     /// Recipient.
     pub to: AccountId,
     /// Amount (already reserved from the balance).
-    pub amount: u64,
+    pub amount: Amount,
     /// First height it may be released.
     pub release_at: u64,
 }
@@ -65,7 +66,7 @@ pub struct Account {
     /// Stable address.
     pub id: AccountId,
     /// Native balance.
-    pub balance: u64,
+    pub balance: Amount,
     /// Next expected nonce.
     pub nonce: u64,
     /// Keys.
@@ -81,9 +82,9 @@ pub struct Account {
     /// Delayed transfers by id.
     pub pending: BTreeMap<u64, Pending>,
     /// Spent per policy day.
-    pub spent: BTreeMap<u64, u64>,
+    pub spent: BTreeMap<u64, Amount>,
     /// Spent per (recipient, day).
-    pub spent_to: BTreeMap<(AccountId, u64), u64>,
+    pub spent_to: BTreeMap<(AccountId, u64), Amount>,
 }
 
 /// Why an op was refused. A refused op changes nothing.
@@ -136,9 +137,9 @@ pub struct Registry {
     /// Oracle prices of approved fee tokens.
     pub prices: BTreeMap<u32, TokenPrice>,
     /// Token balances used for fees.
-    pub token_balances: BTreeMap<(AccountId, u32), u64>,
+    pub token_balances: BTreeMap<(AccountId, u32), Amount>,
     /// Fees collected (native).
-    pub fees_collected: u64,
+    pub fees_collected: Amount,
     next_pending: u64,
 }
 
@@ -155,7 +156,7 @@ impl Registry {
         suite: SuiteId,
         public_key: &[u8],
         salt: u64,
-        balance: u64,
+        balance: Amount,
     ) -> AccountId {
         let hash = key_hash(suite, public_key);
         let mut h = blake3::Hasher::new_derive_key("maya2c/smart-account/id/v1");
@@ -256,7 +257,7 @@ impl Registry {
         Ok(Authority::Owner)
     }
 
-    fn charge_fee(&mut self, op: &Op, fee_due: u64, height: u64) -> Result<(), AccountError> {
+    fn charge_fee(&mut self, op: &Op, fee_due: Amount, height: u64) -> Result<(), AccountError> {
         let day = height / BLOCKS_PER_DAY;
         match &op.fee {
             FeeSpec::Native { max_fee } => {
@@ -278,7 +279,7 @@ impl Registry {
                 if cost > *max_amount {
                     return Err(AccountError::FeeAboveMaximum);
                 }
-                let bal = self.token_balances.entry((op.account, *token)).or_insert(0);
+                let bal = self.token_balances.entry((op.account, *token)).or_default();
                 *bal = bal.checked_sub(cost).ok_or(AccountError::Insufficient)?;
             }
             FeeSpec::Sponsored { paymaster } => {
@@ -291,14 +292,14 @@ impl Registry {
                 }
             }
         }
-        self.fees_collected += fee_due;
+        self.fees_collected = self.fees_collected.saturating_add(fee_due);
         Ok(())
     }
 
     /// Validates and applies `op` at `height`, charging `fee_due` (from the
     /// fee market) against the op's quoted maximum. All-or-nothing: on any
     /// error the registry is unchanged.
-    pub fn apply(&mut self, op: &Op, height: u64, fee_due: u64) -> Result<(), AccountError> {
+    pub fn apply(&mut self, op: &Op, height: u64, fee_due: Amount) -> Result<(), AccountError> {
         let authority = self.authorise(op, height)?;
         let snapshot = self.clone();
         let result = self
@@ -420,7 +421,7 @@ impl Registry {
         &mut self,
         from: &AccountId,
         to: &AccountId,
-        amount: u64,
+        amount: Amount,
         height: u64,
     ) -> Result<(), AccountError> {
         if !self.accounts.contains_key(to) {
@@ -436,18 +437,18 @@ impl Registry {
             .spent
             .get(&day)
             .copied()
-            .unwrap_or(0)
+            .unwrap_or_default()
             .saturating_add(amount);
-        if p.daily_limit > 0 && spent > p.daily_limit {
+        if !p.daily_limit.is_zero() && spent > p.daily_limit {
             return Err(AccountError::Policy("daily limit"));
         }
         let spent_to = a
             .spent_to
             .get(&(*to, day))
             .copied()
-            .unwrap_or(0)
+            .unwrap_or_default()
             .saturating_add(amount);
-        if p.per_recipient_daily > 0 && spent_to > p.per_recipient_daily {
+        if !p.per_recipient_daily.is_zero() && spent_to > p.per_recipient_daily {
             return Err(AccountError::Policy("per-recipient daily limit"));
         }
         a.balance = a
@@ -456,7 +457,7 @@ impl Registry {
             .ok_or(AccountError::Insufficient)?;
         a.spent.insert(day, spent);
         a.spent_to.insert((*to, day), spent_to);
-        if p.delay_above > 0 && amount > p.delay_above {
+        if !p.delay_above.is_zero() && amount > p.delay_above {
             let release_at = height + p.delay_blocks;
             let id = self.next_pending;
             self.next_pending += 1;
@@ -484,7 +485,7 @@ impl Registry {
             .pending
             .remove(&id)
             .ok_or(AccountError::Pending("no such pending transfer"))?;
-        a.balance += p.amount;
+        a.balance = a.balance.saturating_add(p.amount);
         Ok(())
     }
 

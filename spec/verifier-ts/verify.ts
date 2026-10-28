@@ -176,7 +176,7 @@ function fees(): number {
         const gap = size > t ? size - t : t - size;
         const delta = (p * gap) / t / d;
         next = size > t ? p + (delta > 1n ? delta : 1n) : p > delta ? p - delta : 0n;
-        if (next > U64_MAX) next = U64_MAX;
+        if (next > U256_MAX) next = U256_MAX; // FEE-3 saturates at 2^256 − 1 (ADR-066)
         if (next < floor) next = floor;
       }
       check(next === BigInt(c.expect), `${c.id}: got ${next}`);

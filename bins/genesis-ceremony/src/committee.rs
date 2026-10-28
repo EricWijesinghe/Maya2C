@@ -36,8 +36,8 @@ pub const DEFAULT_EPOCH_BLOCKS: u64 = 3_600;
 /// target, at most 1/8 change per block), so a launch starts from parameters
 /// that have been exercised rather than untested ones.
 const LAUNCH_FEES: FeesGenesis = FeesGenesis {
-    initial_base_fee: 1,
-    min_base_fee: 1,
+    initial_base_fee: primitive_types::U256([1, 0, 0, 0]),
+    min_base_fee: primitive_types::U256([1, 0, 0, 0]),
     target_block_bytes: 2_621_440,
     change_denominator: 8,
 };

@@ -15,6 +15,8 @@
 //! and from then on they are read from state, never from these constants
 //! (invariant 17).
 
+use maya_amount::Amount;
+
 use crate::limits::{
     MAX_CHANGE_DENOMINATOR, MAX_TARGET_BLOCK_BYTES, MAX_TREASURY_BPS, MIN_BASE_FEE_FLOOR,
     MIN_CHANGE_DENOMINATOR, MIN_TARGET_BLOCK_BYTES,
@@ -28,13 +30,13 @@ pub struct FeeConfig {
     /// The block size, in serialized bytes, the base fee steers towards.
     pub target_block_bytes: u64,
     /// The base fee's lowest value, per byte.
-    pub min_base_fee: u64,
+    pub min_base_fee: Amount,
     /// The base fee moves by at most `1 / change_denominator` per block.
     pub change_denominator: u64,
     /// The treasury's share of each base fee, in basis points; the rest burns.
     pub treasury_bps: u64,
     /// The base fee at the activation height, before any adjustment.
-    pub initial_base_fee: u64,
+    pub initial_base_fee: Amount,
     /// First height at which the base fee follows [`crate::FeeRule::Neural`]
     /// with [`crate::MODEL_V1`] instead of the linear step. A second switch,
     /// `u64::MAX` in every shipped configuration — see `docs/neural-gas.md`.
@@ -47,7 +49,7 @@ pub enum ConfigError {
     /// The change denominator is outside its bounds.
     ChangeRate(u64),
     /// The base fee floor is below the minimum.
-    Floor(u64),
+    Floor(Amount),
     /// The block-size target is outside its bounds.
     Target(u64),
     /// The treasury share is above its ceiling.
@@ -68,10 +70,10 @@ impl FeeConfig {
     pub const TESTING: Self = Self {
         activation_height: 1,
         target_block_bytes: 1024 * 1024,
-        min_base_fee: 1,
+        min_base_fee: Amount::from_u64(1),
         change_denominator: 8,
         treasury_bps: 2_000,
-        initial_base_fee: 10,
+        initial_base_fee: Amount::from_u64(10),
         neural_activation_height: u64::MAX,
     };
 
@@ -156,11 +158,11 @@ mod tests {
             ),
             (
                 FeeConfig {
-                    min_base_fee: 0,
-                    initial_base_fee: 0,
+                    min_base_fee: Amount::from_u64(0),
+                    initial_base_fee: Amount::from_u64(0),
                     ..base
                 },
-                ConfigError::Floor(0),
+                ConfigError::Floor(Amount::from_u64(0)),
             ),
             (
                 FeeConfig {
@@ -178,7 +180,7 @@ mod tests {
             ),
             (
                 FeeConfig {
-                    initial_base_fee: 0,
+                    initial_base_fee: Amount::from_u64(0),
                     ..base
                 },
                 ConfigError::InitialBelowFloor,

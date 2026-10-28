@@ -38,9 +38,11 @@ pub struct PoolStatus {
     /// Sum of rig-reported power draw. Unverifiable.
     pub reported_power_milliwatts: u64,
     /// Credits owed from confirmed blocks, across every miner.
-    pub unpaid: u64,
+    #[serde(with = "custom_l1_node::state::amount_serde")]
+    pub unpaid: primitive_types::U256,
     /// Credits from blocks that could still be orphaned.
-    pub immature: u64,
+    #[serde(with = "custom_l1_node::state::amount_serde")]
+    pub immature: primitive_types::U256,
     /// Payout batches not yet confirmed or failed.
     pub open_batches: usize,
     /// Job the pool is currently handing out, if any.
@@ -52,14 +54,16 @@ pub struct PoolStatus {
     /// Operator fee, as a fraction.
     pub fee_rate: f64,
     /// Smallest balance the pool will pay.
-    pub min_payout: u64,
+    #[serde(with = "custom_l1_node::state::amount_serde")]
+    pub min_payout: primitive_types::U256,
     /// Value a found block distributes to miners, after the fee.
     ///
     /// Exposed because it is the number a miner needs in order to check the
     /// pool's arithmetic, and because on this chain it is operator policy
     /// rather than a consensus constant — there is no block reward to infer it
     /// from.
-    pub reward_per_block: u64,
+    #[serde(with = "custom_l1_node::state::amount_serde")]
+    pub reward_per_block: primitive_types::U256,
 }
 
 /// One miner's account with the pool.
@@ -185,16 +189,19 @@ mod tests {
         let view = miner_view(
             [1u8; 32],
             MinerBalance {
-                unpaid: 1,
-                immature: 2,
-                paid: 3,
+                unpaid: primitive_types::U256::from(1),
+                immature: primitive_types::U256::from(2),
+                paid: primitive_types::U256::from(3),
             },
             Vec::new(),
         );
         let json = serde_json::to_value(&view).unwrap();
 
-        assert_eq!(json["balance"]["unpaid"], 1);
-        assert_eq!(json["balance"]["immature"], 2);
-        assert_eq!(json["balance"]["paid"], 3);
+        assert_eq!(
+            json["balance"]["unpaid"], "1",
+            "amounts are decimal strings (ADR-046)"
+        );
+        assert_eq!(json["balance"]["immature"], "2");
+        assert_eq!(json["balance"]["paid"], "3");
     }
 }
