@@ -14,6 +14,7 @@
     clippy::cast_possible_truncation
 )]
 
+use custom_l1_node::core::ChainTag;
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -264,8 +265,8 @@ fn register(i: usize, bond: u64, nonce: u64) -> Transaction {
     )
 }
 
-fn double_proposal(i: usize, committee: &Arc<[VerifyingKey]>) -> StakingAction {
-    let auth = MlDsaAuthenticator::validator(validator_key(i), Arc::clone(committee));
+fn double_proposal(i: usize, committee: &Arc<[VerifyingKey]>, tag: ChainTag) -> StakingAction {
+    let auth = MlDsaAuthenticator::validator(validator_key(i), Arc::clone(committee), tag);
     let frame = |stamp: u64| {
         let vertex = Vertex {
             epoch: 0,
@@ -330,7 +331,8 @@ fn a_registration_joins_the_committee_and_evidence_removes_an_equivocator() {
 
     // Evidence that genesis validator 3 signed two epoch-0 vertices for one slot.
     let keys0: Arc<[VerifyingKey]> = genesis().bft.unwrap().verifying_keys().unwrap().into();
-    mesh.submit(&staking_tx(double_proposal(3, &keys0), 1));
+    let tag = ChainTag::from_genesis(mesh.members[0].chain.genesis());
+    mesh.submit(&staking_tx(double_proposal(3, &keys0, tag), 1));
     mesh.run_until(|m| m.all_in_epoch(2));
     assert!(mesh.all_in_epoch(2));
     mesh.agree();
@@ -380,7 +382,11 @@ fn incident_rehearsal_a_stolen_key_is_detected_slashed_and_replaced() {
 
     // The thief's conflicting proposal for validator 2's current round.
     let round = mesh.members[2].driver.round().max(1);
-    let thief = MlDsaAuthenticator::validator(validator_key(2), Arc::clone(&keys0));
+    let thief = MlDsaAuthenticator::validator(
+        validator_key(2),
+        Arc::clone(&keys0),
+        ChainTag::from_genesis(mesh.members[0].chain.genesis()),
+    );
     let forged = Vertex {
         epoch: 0,
         round,
@@ -541,7 +547,8 @@ fn a_weighted_node_restarts_after_a_mid_epoch_tombstone_and_keeps_weights() {
     mesh.run_until(|m| m.all_in_epoch(1));
     assert!(mesh.all_in_epoch(1), "no epoch boundary reached");
     let keys0: Arc<[VerifyingKey]> = genesis().bft.unwrap().verifying_keys().unwrap().into();
-    mesh.submit(&staking_tx(double_proposal(3, &keys0), 0));
+    let tag = ChainTag::from_genesis(mesh.members[0].chain.genesis());
+    mesh.submit(&staking_tx(double_proposal(3, &keys0, tag), 0));
     let offender = validator_id(&validator_key(3).verifying_key().to_bytes());
     mesh.run_until(|m| !m.committee(0).contains(&offender));
     assert!(!mesh.committee(0).contains(&offender), "no tombstone");

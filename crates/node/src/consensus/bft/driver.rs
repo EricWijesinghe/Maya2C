@@ -304,12 +304,19 @@ impl BftDriver {
                 id,
                 engine_committee,
                 engine_params,
-                MlDsaAuthenticator::validator(key.clone(), Arc::clone(committee)),
+                MlDsaAuthenticator::validator(
+                    key.clone(),
+                    Arc::clone(committee),
+                    ChainTag::from_genesis(chain.genesis()),
+                ),
             ),
             _ => Validator::observer(
                 engine_committee,
                 engine_params,
-                MlDsaAuthenticator::observer(Arc::clone(committee)),
+                MlDsaAuthenticator::observer(
+                    Arc::clone(committee),
+                    ChainTag::from_genesis(chain.genesis()),
+                ),
             ),
         };
         let (store, recovered) = SafetyStore::open(&dir, epoch)?;
