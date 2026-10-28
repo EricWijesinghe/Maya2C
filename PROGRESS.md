@@ -206,7 +206,7 @@ Rules in CLAUDE.md, "Operating Protocol"; state in [STATE.md](STATE.md).
 
 - [x] Gate 3, 7 days without a halt: 661,357 s, blocks 0 → 393,812, `halts []`; testnet
       stopped on purpose 2026-10-28 07:36 UTC — `reports/sessions/2026-10-28-testnet-stopped.md`
-- [ ] Gate 3 again on the mining build (ADR-044), overlapping the attacknet
+- [x] No second public soak (Eric, 2026-10-28: "we validate for 7 days and we continue, no repeat"); the frozen mining build is proven on local multi-validator networks instead
 
 ## How to resume
 

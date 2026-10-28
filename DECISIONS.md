@@ -427,3 +427,12 @@ deliberately left at 64 bits, and why, are tabled in ADR-048.
 - **ADR-065 accepted:** swaps first; Bitcoin inbound written but inactive (activation height `u64::MAX`).
 - **Retarget off-by-one (audit 7):** fix before re-genesis, with spec, vectors and an ADR note.
 - **Next gap:** `core::describe` in the GUI wallet and the explorer (kind column).
+
+## 2026-10-28 — No second public soak; the next public genesis is mainnet (Eric)
+
+Relayed through session maya2c-9a, Eric's words: "we validate for 7 days and we continue, no
+repeat". Overrides ADR-044's requirement that gate 3 run again on the mining build. The
+frozen build is proven on local multi-validator networks (attacknet, rejoin drills, Hub
+mining E2E, self pre-audit) from 11-04 to 11-08; mainnet 11-09 → 11-14, each step with its
+own APPROVED. Risk stated once: the mining lane has never run on a public, multi-machine
+network before mainnet.
