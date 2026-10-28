@@ -21,14 +21,16 @@ use custom_l1_node::consensus::bft::auth::MlDsaAuthenticator;
 use custom_l1_node::consensus::bft::certsync::{self, CertSource, PAGE, PageLimits};
 use custom_l1_node::consensus::bft::store::for_each_certificate;
 use custom_l1_node::consensus::bft::store::{CertPage, read_certificate_page};
-use custom_l1_node::consensus::bft::wire::{decode_certificate, encode_certificate};
+use custom_l1_node::consensus::bft::wire::{
+    BROADCAST, Envelope, decode_certificate, encode_certificate,
+};
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
 use custom_l1_node::consensus::chain::{Chain, ChainConfig};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
 use custom_l1_node::crypto::validator_keys::{self as keys, SigningKey, VerifyingKey};
 use custom_l1_node::genesis::{Allocation, BftGenesis, GenesisBond, GenesisConfig, StakingGenesis};
 use custom_l1_node::state::db::StateDB;
-use maya_dag_bft::{Authenticator, Certificate, Params, SignContext, SignKind};
+use maya_dag_bft::{Authenticator, Certificate, Message, Params, SignContext, SignKind};
 use tempfile::TempDir;
 
 mod common;
@@ -362,6 +364,54 @@ fn logged(mesh: &Mesh, i: usize, epoch: u64) -> usize {
     )
     .unwrap();
     count
+}
+
+/// A certificate frame reached certs.log before the engine had checked a
+/// single signature (security review, 2026-10-28): the first frame for a
+/// (round, author) slot took the slot's log entry, so a forgery could keep
+/// the real certificate out of the restart log, and a peer could grow the
+/// log at will. The log now holds only what the engine verified and inserted.
+#[test]
+fn a_forged_certificate_frame_never_reaches_the_log() {
+    let mut mesh = Mesh::new();
+    mesh.run_until(|m| m.height(0) >= 3);
+    let epoch = mesh.epoch(2).expect("member 2 runs");
+    let mut real = None;
+    for_each_certificate(&mesh.members[0].bft_dir, epoch, |c| {
+        real.get_or_insert(c);
+        Ok(())
+    })
+    .unwrap();
+    let mut forged = real.expect("member 0 logged a certificate");
+    // A slot far ahead, so nothing honest ever fills it, with signatures of
+    // the right count and the wrong bytes.
+    forged.vertex.round += 1_000;
+    forged.vertex.author = 1;
+    for s in &mut forged.signatures {
+        for b in s.iter_mut() {
+            *b ^= 0xA5;
+        }
+    }
+    let slot = (forged.vertex.round, forged.vertex.author);
+    let frame = Envelope {
+        epoch,
+        from: 1,
+        to: BROADCAST,
+        message: Message::Cert(forged),
+    }
+    .encode();
+    let m = &mut mesh.members[2];
+    let driver = m.driver.as_mut().expect("member 2 runs");
+    driver.on_frame(&mut m.chain, mesh.now, &frame).unwrap();
+    for_each_certificate(&mesh.members[2].bft_dir, epoch, |c| {
+        assert_ne!(
+            (c.vertex.round, c.vertex.author),
+            slot,
+            "the forgery was logged"
+        );
+        Ok(())
+    })
+    .unwrap();
 }
 
 #[test]
