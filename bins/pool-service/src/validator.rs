@@ -413,6 +413,7 @@ mod tests {
         ));
 
         let header = BlockHeader {
+            version: 0,
             prev_hash: [5u8; 32],
             state_root: [6u8; 32],
             timestamp: 1_700_000_000,

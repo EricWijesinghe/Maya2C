@@ -78,6 +78,7 @@ fn open_state() -> (Arc<StateDB>, TempDir) {
 fn genesis() -> Block {
     Block::new(
         BlockHeader {
+            version: 0,
             prev_hash: [0u8; 32],
             state_root: [0u8; 32],
             timestamp: 1_000_000,
@@ -105,6 +106,7 @@ fn chain_with_activation(state: Arc<StateDB>, activation: u64) -> Chain {
 fn candidate(chain: &Chain, timestamp: u64) -> BlockHeader {
     let tip = chain.tip();
     BlockHeader {
+        version: 0,
         prev_hash: tip,
         state_root: [0u8; 32],
         timestamp,
@@ -343,6 +345,7 @@ fn the_same_header_hashes_differently_either_side_of_a_boundary() {
     let length = Params::TESTING.epoch_length;
 
     let header = BlockHeader {
+        version: 0,
         prev_hash: [7u8; 32],
         state_root: [9u8; 32],
         timestamp: 1_700_000_000,
@@ -364,6 +367,7 @@ fn the_rule_below_the_activation_height_is_argonblake() {
     });
 
     let header = BlockHeader {
+        version: 0,
         prev_hash: [1u8; 32],
         state_root: [2u8; 32],
         timestamp: 1_700_000_000,

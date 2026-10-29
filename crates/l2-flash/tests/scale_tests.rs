@@ -97,6 +97,7 @@ fn open_state(funded: &[(Address, u64)]) -> (StateDB, TempDir) {
 fn block_of(transactions: Vec<Transaction>) -> Block {
     Block::new(
         BlockHeader {
+            version: 0,
             prev_hash: [0u8; 32],
             state_root: [0u8; 32],
             timestamp: 1_756_252_800,

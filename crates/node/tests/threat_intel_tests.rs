@@ -189,6 +189,7 @@ fn author_of(peer: &PeerId) -> Author {
 fn block_of(transactions: Vec<Transaction>) -> Block {
     Block::new(
         BlockHeader {
+            version: 0,
             prev_hash: [0; 32],
             state_root: [0; 32],
             timestamp: 1_789_300_000,

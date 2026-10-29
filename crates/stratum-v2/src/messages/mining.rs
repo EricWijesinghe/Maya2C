@@ -3,7 +3,7 @@
 //! ## What changed from the specification, and why
 //!
 //! Stratum V2's mining messages are shaped around a Bitcoin header. `Maya2C`'s is
-//! 144 bytes of `prev_hash ‖ state_root ‖ timestamp ‖ nonce ‖ difficulty_target
+//! 145 bytes of `prev_hash ‖ state_root ‖ timestamp ‖ nonce ‖ difficulty_target
 //! ‖ tx_root` (`src/core/block.rs`) — no version field, no compact `nbits`, and
 //! no coinbase to hide an extranonce in. Four adaptations follow.
 //! Message numbering still matches SV2 slot for slot, so the correspondence
@@ -283,7 +283,7 @@ impl SetNonceRange {
 /// A new job: the header fields the pool controls per template.
 ///
 /// Together with the channel's most recent [`SetNewPrevHash`], this is
-/// everything needed to build the 144-byte header except the nonce.
+/// everything needed to build the 145-byte header except the nonce.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NewMiningJob {
     /// Channel this job is for.

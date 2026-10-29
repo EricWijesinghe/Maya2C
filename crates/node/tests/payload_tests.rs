@@ -500,6 +500,7 @@ fn a_maximum_batch_survives_being_carried_in_a_block() {
 
     let block = Block::new(
         BlockHeader {
+            version: 0,
             prev_hash: [0u8; 32],
             state_root: [0u8; 32],
             timestamp: 1_789_200_000,

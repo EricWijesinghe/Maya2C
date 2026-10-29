@@ -16,7 +16,7 @@ here is an estimate without a source.
 | Vote certificate, n = 100 | 216.5 KiB; 7.95 ms verify on 4 cores | `certificate` bench |
 | RPC reads, one node | 21,231 req/s (16 clients), p99 1.6 ms | `maya2c-rpc-load`, mixed reads |
 | Snapshot sync, 100M accounts | 4.80 GB; joiner verify 2.4 s CPU | `state-sync-sim` (virtual network) |
-| Header | 144 B | `spec/05-consensus.md` CON-1 |
+| Header | 145 B | `spec/05-consensus.md` CON-1 |
 
 Disk growth per month for transaction bodies, **derived**
 (13,215 B × TPS × 2,592,000 s):
@@ -35,7 +35,7 @@ Disk growth per month for transaction bodies, **derived**
 | **Full node** | state, blocks since the prune horizon | every transaction | 2 cores, 4 GiB, 100 Mbit/s | 4 cores, 8 GiB |
 | **Archive node** | every block, signature and journal forever | every transaction | full node + 3.4 TB/month at 100 TPS | object storage behind it |
 | **RPC node** | a full node's state | as a full node | full node sizing; ~21k simple reads/s per node process on 4 vCPU | several behind the gateway; heavy history on the indexer |
-| **Light client** | headers only: 144 B each (0.83 MB/day at 15 s blocks) | headers, PoW, Merkle proofs; trusts no server | a phone or a browser tab | — |
+| **Light client** | headers only: 145 B each (0.84 MB/day at 15 s blocks) | headers, PoW, Merkle proofs; trusts no server | a phone or a browser tab | — |
 | **Compute worker** | — | — | deferred (not built) | — |
 
 How the validator row is derived at 100 TPS:

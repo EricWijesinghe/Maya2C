@@ -1079,6 +1079,7 @@ impl GenesisConfig {
     pub fn genesis_block(&self) -> Result<Block> {
         Ok(Block::new(
             BlockHeader {
+                version: 0,
                 prev_hash: self.chain_id_commitment(),
                 state_root: self.state_root()?,
                 timestamp: self.timestamp,

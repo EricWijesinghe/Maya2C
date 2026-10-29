@@ -154,6 +154,7 @@ fn forged(forger: &HybridSigningKey, victim: &HybridSigningKey, nonce: u64) -> T
 
 fn empty_block(nonce: u64, timestamp: u64) -> Block {
     let header = BlockHeader {
+        version: 0,
         prev_hash: [0; 32],
         state_root: [0; 32],
         timestamp,

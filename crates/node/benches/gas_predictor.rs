@@ -59,6 +59,7 @@ fn keys() -> Vec<HybridSigningKey> {
 
 fn header() -> BlockHeader {
     BlockHeader {
+        version: 0,
         prev_hash: [0u8; 32],
         state_root: [0u8; 32],
         timestamp: 1_789_200_000,
