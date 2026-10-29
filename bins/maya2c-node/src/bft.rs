@@ -70,6 +70,67 @@ const DROP_REPORT_INTERVAL: Duration = Duration::from_secs(10);
 /// Where the per-epoch safety logs live.
 pub(super) const BFT_DIR: &str = "bft";
 
+/// Rounds of the follow loop a follower may import nothing while its source
+/// is ahead before it asks the BFT loop to replay certificates instead.
+const STUCK_ROUNDS: u32 = 10;
+
+/// How the follow loop rescues a follower that checkpoints cannot move
+/// (attacknet 2026-10-30, attack 7). A follower imports only to a checkpoint,
+/// and only builders attest. With more than f seats following, no checkpoint
+/// of the epoch ever forms, so followers waited on signatures that only they
+/// could have added, and the chain halted once one more member went down.
+/// The epoch's certificates need no checkpoint: each carries a quorum of
+/// signatures, and certsync accepts the head epoch without an attested end.
+/// So the BFT loop replays them, swaps in the replayed engine, and that engine
+/// builds and attests again.
+///
+/// This relies on a peer still holding the head epoch's certificate log.
+/// `store::RETAINED_PAST_EPOCHS` keeps the current epoch plus one; lowering
+/// it would not remove the head epoch, but do not make it drop the current one.
+pub(super) struct Rescue {
+    /// Source URLs from the follow loop, one per stuck spell.
+    pub(super) requests: Option<tokio::sync::mpsc::Receiver<String>>,
+    pub(super) setup: BftSetup,
+    pub(super) data_dir: PathBuf,
+}
+
+/// Replays `url`'s certificate logs into this node's own (ADR-052) and
+/// returns the replayed engine. Blocking RPC and disk work, so off the async
+/// workers; the chain is locked for the replay, as at startup.
+fn replay_certificates(
+    url: &str,
+    chain: &Arc<Mutex<Chain>>,
+    setup: &BftSetup,
+    data_dir: &Path,
+    epoch: u64,
+) -> Result<certsync::Synced, Box<dyn Error>> {
+    use custom_l1_node::consensus::bft::certsync::CertSource as _;
+    let source = RpcBootstrapSource::new(url, tokio::runtime::Handle::current())?;
+    // Only within the source's head epoch, which needs no checkpoint. Behind
+    // that, finished epochs need their attested ends, and the checkpoint path
+    // is still the way forward.
+    let head = tokio::task::block_in_place(|| source.current_epoch())?;
+    if head != epoch {
+        return Err(format!("the source is in epoch {head}, this node in {epoch}").into());
+    }
+    let dir = data_dir.join(BFT_DIR);
+    Ok(tokio::task::block_in_place(|| {
+        let mut guard = lock_chain(chain);
+        certsync::sync(&mut guard, &source, setup, &dir, now_ms(), certsync::PAGE)
+    })?)
+}
+
+/// The tip height `url` reports, or `None` when it does not answer in time.
+async fn source_height(url: &str) -> Option<u64> {
+    let source = RpcBootstrapSource::new(url, tokio::runtime::Handle::current()).ok()?;
+    let probe = tokio::task::spawn_blocking(move || source.probe_tip_height().ok());
+    tokio::time::timeout(PROBE_TIMEOUT, probe)
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .flatten()
+}
+
 /// Replays a node may make before it gives up on reaching the engine's
 /// window. Each replay takes the peer's head as of its start, so a peer that
 /// moved on while the logs were fetched needs another round (ADR-052).
@@ -419,11 +480,13 @@ pub(super) async fn follow_loop(
     chain: Arc<Mutex<Chain>>,
     genesis_committee: Arc<[VerifyingKey]>,
     status: Arc<Mutex<custom_l1_node::rpc::types::BftStatus>>,
+    rescue: tokio::sync::mpsc::Sender<String>,
 ) {
     let mut ticker = tokio::time::interval(FOLLOW_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut last_error: Option<String> = None;
     let mut idle: u32 = 0;
+    let mut stuck: u32 = 0;
     loop {
         ticker.tick().await;
         // Every second only while following. A builder derives its own
@@ -445,10 +508,43 @@ pub(super) async fn follow_loop(
         // The committee is re-read each round inside `catch_up_once`: the loop
         // outlives the epoch it started in, and a checkpoint is only valid
         // against its own epoch's committee.
-        match catch_up_once(&url, &chain, (&genesis_committee, None)).await {
-            Ok(_) => last_error = None,
+        // Text, not the boxed error: the error is not `Send`, and the stuck
+        // branch awaits a probe.
+        let round = catch_up_once(&url, &chain, (&genesis_committee, None))
+            .await
+            .map_err(|e| e.to_string());
+        match round {
+            Ok(0) if following => {
+                last_error = None;
+                let ours = lock_chain(&chain).height();
+                match source_height(&url).await {
+                    Some(theirs) if theirs > ours => {
+                        stuck += 1;
+                        if stuck == 1 {
+                            eprintln!(
+                                "catch-up: no checkable checkpoint from {url}; {} behind",
+                                theirs - ours
+                            );
+                        }
+                        if stuck >= STUCK_ROUNDS {
+                            stuck = 0;
+                            eprintln!(
+                                "catch-up: still {} behind after {STUCK_ROUNDS} rounds; replaying certificates from {url}",
+                                theirs - ours
+                            );
+                            // Full means a replay is already queued.
+                            let _ = rescue.try_send(url.clone());
+                        }
+                    }
+                    _ => stuck = 0,
+                }
+            }
+            Ok(_) => {
+                last_error = None;
+                stuck = 0;
+            }
             Err(e) => {
-                let message = e.to_string();
+                let message = e;
                 // Once per distinct failure, not once a second.
                 if last_error.as_deref() != Some(message.as_str()) {
                     eprintln!("catch-up: {message}; retrying");
@@ -700,6 +796,7 @@ pub(super) async fn bft_loop(
     opening: Step,
     mut feed: Feed,
     reporting: Reporting,
+    rescue: Rescue,
 ) {
     let Reporting {
         metrics,
@@ -707,6 +804,12 @@ pub(super) async fn bft_loop(
         status,
         evidence_dir,
     } = reporting;
+    let Rescue {
+        requests,
+        setup,
+        data_dir,
+    } = rescue;
+    let mut requests = requests;
     let mut events = network.subscribe_frames();
     let mut ticker = tokio::time::interval(TICK);
     let gossip_pool = network.mempool().clone();
@@ -725,6 +828,30 @@ pub(super) async fn bft_loop(
                     continue;
                 }
                 Err(RecvError::Closed) => return,
+            },
+            Some(url) = async {
+                match requests.as_mut() {
+                    Some(rx) => rx.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                if !driver.is_follower() {
+                    continue;
+                }
+                match replay_certificates(&url, &chain, &setup, &data_dir, driver.epoch()) {
+                    Ok(synced) => {
+                        driver = synced.driver;
+                        println!(
+                            "catch-up:    replayed certificates from {url}; building again at height {}",
+                            lock_chain(&chain).height()
+                        );
+                        Ok(synced.step)
+                    }
+                    Err(e) => {
+                        eprintln!("catch-up: certificate replay from {url} failed: {e}; still following");
+                        continue;
+                    }
+                }
             },
             _ = ticker.tick() => {
                 for tx in feed.unannounced(&rpc_pool) {

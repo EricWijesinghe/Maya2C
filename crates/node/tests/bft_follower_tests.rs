@@ -1021,3 +1021,69 @@ impl CertSource for Stalling {
         self.honest.checkpoint_of(epoch)
     }
 }
+
+/// Attacknet 2026-10-30, attack 7: more than f seats following. Followers
+/// vote but only builders attest, so no checkpoint of the epoch forms, and a
+/// follower imports only to a checkpoint: it waits forever on signatures that
+/// only it could have added. Replaying the head epoch's certificates, which
+/// need no checkpoint, brings it back to building (`bft::Rescue`).
+#[test]
+fn followers_past_f_get_no_checkpoint_until_a_certificate_replay_rescues_them() {
+    let mut mesh = Mesh::new();
+    // Just past a boundary, so the stuck spell stays inside one epoch.
+    mesh.run_until(|m| m.height(0) >= EPOCH_BLOCKS + 1);
+    let stuck_at = mesh.height(0);
+    let epoch = mesh.epoch(0).unwrap();
+    for i in [2, 3] {
+        let m = &mut mesh.members[i];
+        m.driver.as_mut().unwrap().follow_attested(&m.chain);
+    }
+    let attested = |m: &Mesh| {
+        m.members[0]
+            .driver
+            .as_ref()
+            .unwrap()
+            .checkpoint()
+            .map(|c| c.height)
+    };
+    let checkpoint_before = attested(&mesh);
+    mesh.run_until(|m| m.height(0) >= stuck_at + 3);
+    assert_eq!(
+        mesh.epoch(0),
+        Some(epoch),
+        "the test left the epoch it meant to stay in"
+    );
+    assert!(
+        mesh.height(0) > stuck_at,
+        "two builders and four voters stopped the chain"
+    );
+    for i in [2, 3] {
+        assert_eq!(
+            mesh.height(i),
+            stuck_at,
+            "follower {i} moved without a checkpoint"
+        );
+    }
+    assert!(
+        attested(&mesh) <= Some(stuck_at).max(checkpoint_before),
+        "a checkpoint formed with only two of four attesting"
+    );
+
+    // The rescue: each follower replays the head epoch from a builder.
+    for i in [2, 3] {
+        let source = mesh.peer_log(0);
+        mesh.restart_from(i, &source, PAGE).unwrap();
+        assert!(!mesh.members[i].driver.as_ref().unwrap().is_follower());
+    }
+    let target = mesh.height(0) + EPOCH_BLOCKS;
+    mesh.run_until(|m| (0..VALIDATORS).all(|i| m.height(i) >= target));
+    for i in 0..VALIDATORS {
+        assert!(mesh.height(i) >= target, "member {i} at {}", mesh.height(i));
+    }
+    assert!(
+        attested(&mesh) > Some(stuck_at + 3),
+        "checkpoints did not come back once the followers built again"
+    );
+    mesh.agree();
+    assert_eq!(mesh.equivocations, 0);
+}
