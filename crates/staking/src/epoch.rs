@@ -8,6 +8,10 @@ use maya_amount::Amount;
 use crate::params::{BPS, bps_of};
 use crate::types::{Address, Effect, StakeError, Staking, Status, ValidatorId};
 
+/// Fewest eligible validators downtime jailing may leave: four seats is the
+/// smallest committee that survives one fault (n = 3f + 1, f = 1).
+pub const MIN_COMMITTEE: usize = 4;
+
 /// How much each active validator took part in the ending epoch.
 ///
 /// The node counts *anchor slots*: every even round names a leader, and the
@@ -54,8 +58,8 @@ impl Staking {
         reward_pool: Amount,
     ) -> Result<EpochOutcome, StakeError> {
         let mut out = EpochOutcome::default();
-        let jailed = self.punish_downtime(participation, &mut out)?;
-        self.pay_rewards(&jailed, reward_pool, &mut out)?;
+        let unpaid = self.punish_downtime(participation, &mut out)?;
+        self.pay_rewards(&unpaid, reward_pool, &mut out)?;
         self.pending_self.clear();
         self.pending_delegations.clear();
         self.epoch = self.epoch.checked_add(1).ok_or(StakeError::Overflow)?;
@@ -85,23 +89,44 @@ impl Staking {
         out: &mut EpochOutcome,
     ) -> Result<Vec<ValidatorId>, StakeError> {
         let mut jailed = Vec::new();
+        let mut unpaid = Vec::new();
         let threshold = u128::from(self.params.downtime_threshold_bps);
         let until = self
             .epoch
             .checked_add(1 + self.params.jail_epochs)
             .ok_or(StakeError::Overflow)?;
+        // (id, authored, expected) of every validator down this epoch.
+        let mut down: Vec<(ValidatorId, u64, u64)> = Vec::new();
         for id in self.active.clone() {
             let authored = p.authored.get(&id).copied().unwrap_or(0);
             let expected = p.expected.get(&id).copied().unwrap_or(p.rounds);
             // authored / expected < threshold / BPS, in integers. No slots, no
             // judgement: a validator cannot miss what it was never given.
-            let down = expected > 0
-                && u128::from(authored) * u128::from(BPS) < threshold * u128::from(expected);
-            if !down {
-                continue;
+            if expected > 0
+                && u128::from(authored) * u128::from(BPS) < threshold * u128::from(expected)
+            {
+                down.push((id, authored, expected));
             }
+        }
+        // Pre-audit S-033: jailing may not shrink the eligible set below
+        // MIN_COMMITTEE. A halted chain reaches no epoch boundary, so a jailed
+        // validator could never return, and a committee jailed down to three
+        // seats halts for good on one more failure. Kept members are seated and
+        // can restart; every down validator is still slashed. The worst
+        // participation is jailed first, ties by id.
+        down.sort_by(|a, b| {
+            (u128::from(a.1) * u128::from(b.2))
+                .cmp(&(u128::from(b.1) * u128::from(a.2)))
+                .then(a.0.cmp(&b.0))
+        });
+        let allowed = self.ranked().len().saturating_sub(MIN_COMMITTEE);
+        for (n, (id, _, _)) in down.into_iter().enumerate() {
             let burned = self.slash(id, self.params.downtime_slash_bps)?;
             out.effects.push(Effect::Burn(burned));
+            unpaid.push(id);
+            if n >= allowed {
+                continue;
+            }
             if let Some(v) = self.validators.get_mut(&id)
                 && v.status != Status::Tombstoned
             {
@@ -109,8 +134,9 @@ impl Staking {
             }
             jailed.push(id);
         }
-        out.jailed.clone_from(&jailed);
-        Ok(jailed)
+        out.jailed = jailed;
+        // Rewards skip every down validator, jailed or kept by the floor.
+        Ok(unpaid)
     }
 
     fn pay_rewards(

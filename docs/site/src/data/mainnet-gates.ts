@@ -24,7 +24,7 @@ export const mainnetGates: MainnetGate[] = [
   { n: 5, name: "Genesis ceremony", line: "Rehearsed and reproduced byte-identical; the real one needs gate 4", state: "waiting", evidence: "ceremony runbook", href: `${repo}/docs/runbooks/genesis-ceremony.md` },
   { n: 6, name: "Economics", line: "GPU-mined block rewards, no premine (ADR-044). Approved 2026-10-28, being built: a reward that never ends and part of every fee burned", state: "running", evidence: "ADR-044", href: `${repo}/docs/adr/ADR-044-mining-rewards-lane.md` },
   { n: 7, name: "CI and release", line: "Every check green, gate 1 and 2 reviews clean, binaries built from a tag", state: "running", evidence: "CI", href: "https://github.com/EricWijesinghe/Maya2C/actions" },
-  { n: 8, name: "Validator rejoins", line: "A validator down for any length of time comes back on its own", state: "met", evidence: "attacknet attack 7", href: `${repo}/reports/attacknet/2026-10-10-6.md` },
+  { n: 8, name: "Validator rejoins", line: "A validator down for any length of time comes back on its own", state: "running", evidence: "attacknet attack 7", href: `${repo}/reports/attacknet/2026-10-10-6.md` },
   { n: 9, name: "Logs stay bounded", line: "Consensus logs pruned each epoch: 286 MB per validator, was 3.1 GB", state: "met", evidence: "measured on the testnet", href: `${repo}/docs/mainnet-v1-plan.md` },
-  { n: 10, name: "Halt recovery", line: "No cheap committee capture, and a tested way back from a halt", state: "met", evidence: "attacknet + runbook", href: `${repo}/docs/runbooks/chain-halt.md` },
+  { n: 10, name: "Halt recovery", line: "No cheap committee capture, and a tested way back from a halt (the way back is still being built)", state: "running", evidence: "attacknet + runbook", href: `${repo}/docs/runbooks/chain-halt.md` },
 ];
