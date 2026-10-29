@@ -851,6 +851,19 @@ impl StateDB {
                 reason: "order is too small to escrow anything".to_string(),
             });
         }
+        // The whole order, filled, must be worth at least one quote unit. A
+        // smaller one can only ever produce a zero-quote trade, which the
+        // matcher cancels; refusing it here keeps it from resting at all.
+        // This is the floor the arithmetic itself requires, not an economic
+        // minimum; that, if wanted, is a governed parameter.
+        let notional = quote_for_base(amount, price, Side::Ask)
+            .map_err(|error| trade_error("order placement", error))?;
+        if notional.is_zero() {
+            return Err(NodeError::Trade {
+                operation: "order placement",
+                reason: "order is worth less than one quote unit".to_string(),
+            });
+        }
         self.debit_asset(overlay, &escrow_asset, sender, escrow)?;
 
         let sequence = self.next_sequence(overlay)?;

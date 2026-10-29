@@ -108,6 +108,15 @@ Only the protocol's rate applies to a book trade, and only to the taker. The LP
 rate pays providers for the use of pooled capital, and a book trade uses none —
 the counterparty is another trader.
 
+### Dust
+
+A trade can round to a zero quote: one base unit at a price below one quote unit
+per base unit. The matcher does not trade it. It cancels the side the trade would
+consume whole, returns it in `MatchOutcome::dust` for the node to refund, and
+carries on, so one such order at the front of a side cannot freeze the pair.
+Placement refuses an order whose whole value is already zero quote. Decision and
+reasoning: [ADR-064](adr/ADR-064-dex-dust-orders.md).
+
 ### Escrow
 
 A resting order holds its own assets: a bid escrows quote (rounded **up**, so it
