@@ -12,7 +12,7 @@
 
 use crate::consensus::{Chain, InsertOutcome};
 use crate::core::{Block, ChainTag};
-use crate::crypto::keys::VerifyingKey;
+use crate::crypto::validator_keys::VerifyingKey;
 use crate::error::{NodeError, Result};
 
 use super::attest::Checkpoint;
@@ -43,7 +43,30 @@ pub trait CheckpointSource: Sync {
     ///
     /// Any failure reaching the source.
     fn block(&self, height: u64) -> Result<Block>;
+
+    /// The active-chain blocks `from..=to`, in order, at most
+    /// [`BLOCKS_PER_REQUEST`] of them. Catch-up is bound by round trips, not
+    /// bandwidth, so a source that can answer a range in one request should
+    /// (the RPC source does); the default asks one by one, which is what a
+    /// peer without the batch method gets. Fewer blocks than asked is an
+    /// error to [`fetch`], never a gap it skips.
+    ///
+    /// # Errors
+    ///
+    /// Any failure reaching the source.
+    fn blocks(&self, from: u64, to: u64) -> Result<Vec<Block>> {
+        (from..=to).map(|h| self.block(h)).collect()
+    }
 }
+
+/// Blocks asked for in one request. A peer hours behind needs thousands, and
+/// at ~0.7 s a round trip one at a time ran at about 5 blocks/s (measured
+/// 2026-10-24); 32 per request keeps a response far under the RPC body limit.
+pub const BLOCKS_PER_REQUEST: u64 = 32;
+
+/// Chunks fetched before the caller links them: bounds memory, and keeps
+/// [`crate::state_pruner::prefetch::PREFETCH_WORKERS`] busy.
+const CHUNK_WINDOW: u64 = 16;
 
 /// Where this node's chain stands, read under the chain lock so the slow
 /// part — fetching from a peer — can run without it.
@@ -163,12 +186,34 @@ pub fn fetch(
     let mut parent = from.tip;
     let mut height = from.height;
     let mut blocks = Vec::new();
-    // Fetched with several requests in flight, linked strictly in order.
-    crate::state_pruner::prefetch::for_each_prefetched(
-        from.height + 1,
-        checkpoint.height,
-        &|h| source.block(h),
-        |block| {
+    // Fetched in chunks with several requests in flight, linked strictly in
+    // order: a source that answers out of order or lies gains nothing.
+    let first = from.height + 1;
+    let last = checkpoint.height;
+    let chunks = (last - first) / BLOCKS_PER_REQUEST + 1;
+    let range = |i: u64| {
+        let lo = first + i * BLOCKS_PER_REQUEST;
+        (lo, last.min(lo + BLOCKS_PER_REQUEST - 1))
+    };
+    for start in (0..chunks).step_by(usize::try_from(CHUNK_WINDOW).unwrap_or(1)) {
+        let end = (start + CHUNK_WINDOW - 1).min(chunks - 1);
+        let window = crate::state_pruner::prefetch::fetch_ordered(
+            start,
+            end,
+            crate::state_pruner::prefetch::PREFETCH_WORKERS,
+            &|i| {
+                let (lo, hi) = range(i);
+                let got = source.blocks(lo, hi)?;
+                if got.len() as u64 != hi - lo + 1 {
+                    return Err(NodeError::Network(format!(
+                        "catch-up: asked for blocks {lo}..={hi}, the peer sent {}",
+                        got.len()
+                    )));
+                }
+                Ok(got)
+            },
+        )?;
+        for block in window.into_iter().flatten() {
             height += 1;
             if block.header.prev_hash != parent {
                 return Err(NodeError::Decode(format!(
@@ -177,9 +222,8 @@ pub fn fetch(
             }
             parent = block.header.id();
             blocks.push(block);
-            Ok(())
-        },
-    )?;
+        }
+    }
     if parent != checkpoint.block {
         return Err(NodeError::Decode(
             "catch-up: the blocks do not lead to the attested block".to_string(),
@@ -219,7 +263,7 @@ mod tests {
 
     use super::*;
     use crate::consensus::bft::attest::Attestation;
-    use crate::crypto::keys::{SigningKey, signing_key_from_seed};
+    use crate::crypto::validator_keys::{SigningKey, signing_key_from_seed};
 
     const TAG: ChainTag = ChainTag::from_genesis([7; 32]);
 
@@ -308,6 +352,106 @@ mod tests {
                 .is_empty()
         );
         assert!(source.asked.lock().expect("lock").is_empty());
+    }
+
+    /// Serves a chain of `len` linked blocks and counts the requests.
+    struct Chained {
+        blocks: Vec<Block>,
+        newest: Checkpoint,
+        requests: std::sync::atomic::AtomicUsize,
+        batches: bool,
+    }
+
+    impl CheckpointSource for Chained {
+        fn checkpoint(&self) -> Result<Option<Checkpoint>> {
+            Ok(Some(self.newest.clone()))
+        }
+        fn checkpoint_of(&self, _: u64) -> Result<Option<Checkpoint>> {
+            Ok(None)
+        }
+        fn block(&self, height: u64) -> Result<Block> {
+            self.requests
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(self.blocks[usize::try_from(height - 1).unwrap()].clone())
+        }
+        fn blocks(&self, from: u64, to: u64) -> Result<Vec<Block>> {
+            if !self.batches {
+                return (from..=to).map(|h| self.block(h)).collect();
+            }
+            self.requests
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let end = usize::try_from(to).unwrap().min(self.blocks.len());
+            Ok(self.blocks[usize::try_from(from - 1).unwrap()..end].to_vec())
+        }
+    }
+
+    /// `len` blocks linked from `[0; 32]`, and a checkpoint on the last.
+    fn chained(len: u64, batches: bool) -> (Chained, Vec<VerifyingKey>) {
+        let (signing, committee) = keys();
+        let mut parent = [0; 32];
+        let mut blocks = Vec::new();
+        for h in 1..=len {
+            let block = Block::new(
+                crate::core::BlockHeader {
+                    prev_hash: parent,
+                    state_root: [0; 32],
+                    timestamp: h,
+                    nonce: 0,
+                    difficulty_target: [0xff; 32],
+                    tx_root: [0; 32],
+                },
+                Vec::new(),
+            );
+            parent = block.header.id();
+            blocks.push(block);
+        }
+        let mut newest = checkpoint(&signing, 1, len);
+        newest.block = parent;
+        // A checkpoint signs (epoch, height, block): re-sign over the real id.
+        newest.signatures = (0..3u16)
+            .map(|v| {
+                let a =
+                    Attestation::sign(&signing[usize::from(v)], v, &TAG, 1, len, parent).unwrap();
+                (v, a.signature)
+            })
+            .collect();
+        let source = Chained {
+            blocks,
+            newest,
+            requests: std::sync::atomic::AtomicUsize::new(0),
+            batches,
+        };
+        (source, committee)
+    }
+
+    #[test]
+    fn many_blocks_arrive_in_a_few_requests_and_in_order() {
+        let (source, committee) = chained(100, true);
+        let got = fetch(at(0, 1), &source, &committee, None).unwrap();
+        assert_eq!(got.len(), 100);
+        let requests = source.requests.load(std::sync::atomic::Ordering::SeqCst);
+        // 100 blocks at BLOCKS_PER_REQUEST each; one request per block is the
+        // latency-bound path that made a peer hours behind take an hour.
+        assert_eq!(requests, 100usize.div_ceil(BLOCKS_PER_REQUEST as usize));
+    }
+
+    #[test]
+    fn a_source_without_batches_still_catches_up_block_by_block() {
+        let (source, committee) = chained(40, false);
+        let got = fetch(at(0, 1), &source, &committee, None).unwrap();
+        assert_eq!(got.len(), 40);
+        assert_eq!(
+            source.requests.load(std::sync::atomic::Ordering::SeqCst),
+            40
+        );
+    }
+
+    #[test]
+    fn a_short_batch_is_an_error_not_a_silent_gap() {
+        let (mut source, committee) = chained(40, true);
+        source.blocks.truncate(39); // claims 40, serves 39
+        let err = fetch(at(0, 1), &source, &committee, None);
+        assert!(err.is_err());
     }
 
     #[test]

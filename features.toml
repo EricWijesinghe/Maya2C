@@ -2600,8 +2600,9 @@ domain = "Security and macro engines"
 paths = "`crates/node/src/state/rwa_exec.rs`"
 tier = "extended"
 class = "RESEARCH"
-status = "working"
+status = "stub"
 tests = ["crates/node/tests/rwa_tests.rs"]
+note = "ADR-061. Off (DVP_ACTIVATION_HEIGHT = u64::MAX): the seller named in the payload never signs, so anyone could take any holder's units. Needs a seller-signed offer before an activation height is written."
 
 [[subsystem]]
 id = "jurisdictional-transfer-rules"
@@ -2973,8 +2974,8 @@ paths = "`crates/dag-bft`, `crates/node/src/consensus/bft/`, `bins/maya2c-node/s
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-dag-bft", "crates/dag-bft/tests/modes_sim.rs", "crates/dag-bft/tests/auth_and_restart.rs", "crates/node/tests/bft_node_tests.rs", "crates/node/tests/bft_follower_tests.rs"]
-note = "ADR-015. All three modes run under maya-sim. Ordering figures only (no signatures, execution or disk) — not TPS. Wired into the node by ADR-027: blocks derived from committed anchors, signed votes, a safety log (bft_node_tests.rs; cargo xtask localnet). Catch-up by certificate replay (ADR-052): paged, verified, streamed; release cost 98.5 s for a 3,600-block epoch at n=7 (cert_replay_measure.rs, ignored); cross-epoch and forged-evidence tests in bft_follower_tests.rs."
+tests = ["crate:maya-dag-bft", "crates/dag-bft/tests/modes_sim.rs", "crates/dag-bft/tests/auth_and_restart.rs", "crates/dag-bft/tests/adversarial_schedules.rs", "crates/node/tests/bft_node_tests.rs", "crates/node/tests/bft_follower_tests.rs"]
+note = "ADR-015. All three modes run under maya-sim. Ordering figures only (no signatures, execution or disk) — not TPS. Wired into the node by ADR-027: blocks derived from committed anchors, signed votes, a safety log (bft_node_tests.rs; cargo xtask localnet). Catch-up by certificate replay (ADR-052): paged, verified, streamed; release cost 98.5 s for a 3,600-block epoch at n=7 (cert_replay_measure.rs, ignored); cross-epoch and forged-evidence tests in bft_follower_tests.rs. Adversarial schedules (adversarial_schedules.rs): the real engine against a network that reorders, drops and duplicates, and a Byzantine seat that equivocates and certifies any quorum it harvests; agreement, certificate uniqueness and post-GST liveness checked, three engine mutations shown caught (2026-10-28). Bounded random search, not a proof."
 
 [[subsystem]]
 id = "vm-execution-tiers"
@@ -3305,6 +3306,7 @@ tier = "core"
 class = "REAL"
 status = "verified"
 tests = ["crate:maya-staking", "crates/staking/tests/scenario.rs", "crates/node/tests/bft_staking_tests.rs"]
+note = "Self-run pre-audit 2026-10-29 (S-001, S-006): records decode past the wire count cap, dust undelegations refused, same-epoch unbonding merged, and growth past 8 MiB refused per transaction, never for evidence. Not an external audit."
 
 [[subsystem]]
 id = "security-council-pause"

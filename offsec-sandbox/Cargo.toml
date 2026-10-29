@@ -38,6 +38,8 @@ arbitrary = "1"
 # block and compares the roots. Same crate the node's own tests use.
 tempfile = "3"
 hex = "0.4"
+# Amounts are 256-bit (ADR-046); the same version the node uses.
+primitive-types = { version = "0.12.2", default-features = false }
 
 # The coverage-guided engine. Off by default: the base crate — mutators, the
 # oracle, triage — is plain safe Rust that builds and tests without it, and the

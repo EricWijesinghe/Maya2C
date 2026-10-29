@@ -30,7 +30,9 @@
 //! forever; without the height a stale observation is indistinguishable from a
 //! fresh one; and without the domain separator it is a transaction signature.
 
-use crate::core::codec::ByteReader;
+use primitive_types::U256;
+
+use crate::core::codec::{ByteReader, put_amount};
 use crate::error::{NodeError, Result};
 
 /// Fixed-point scale for every price: nine decimal places.
@@ -47,7 +49,7 @@ pub const FEED_SCALE: u64 = 1_000_000_000;
 pub const FEED_NAME_LEN: usize = 16;
 
 /// Encoded size of a [`FeedRecord`].
-pub const FEED_RECORD_LEN: usize = FEED_NAME_LEN + 8 + 8 + 8 + 1;
+pub const FEED_RECORD_LEN: usize = FEED_NAME_LEN + 32 + 8 + 8 + 1;
 
 /// Domain separator for what an authority signs.
 ///
@@ -63,8 +65,9 @@ const FEED_ID_DOMAIN: &str = "maya-oracle feed id v1";
 pub struct FeedRecord {
     /// Human-readable name, such as `MAYA/USD`, zero-padded.
     pub name: [u8; FEED_NAME_LEN],
-    /// The agreed price, in units of `1 / FEED_SCALE`.
-    pub value: u64,
+    /// The agreed price, in units of `1 / FEED_SCALE`: 256-bit (ADR-066), so a
+    /// price is never clamped to what a 64-bit field could hold.
+    pub value: U256,
     /// Round this value came from. Strictly increasing.
     pub round: u64,
     /// Height at which the chain accepted it.
@@ -102,7 +105,7 @@ impl FeedRecord {
     pub fn encode(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(FEED_RECORD_LEN);
         buf.extend_from_slice(&self.name);
-        buf.extend_from_slice(&self.value.to_le_bytes());
+        put_amount(&mut buf, &self.value);
         buf.extend_from_slice(&self.round.to_le_bytes());
         buf.extend_from_slice(&self.updated_height.to_le_bytes());
         buf.push(self.observations);
@@ -119,7 +122,7 @@ impl FeedRecord {
         let mut reader = ByteReader::new(bytes);
         let record = Self {
             name: reader.read_array::<FEED_NAME_LEN>()?,
-            value: reader.read_u64()?,
+            value: reader.read_amount()?,
             round: reader.read_u64()?,
             updated_height: reader.read_u64()?,
             observations: reader.read_u8()?,
@@ -205,14 +208,14 @@ pub fn derive_feed_id(name: &[u8; FEED_NAME_LEN]) -> [u8; 32] {
 pub fn observation_bytes(
     feed_id: &[u8; 32],
     round: u64,
-    value: u64,
+    value: U256,
     observed_height: u64,
 ) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(OBSERVATION_DOMAIN.len() + 32 + 24);
+    let mut buf = Vec::with_capacity(OBSERVATION_DOMAIN.len() + 32 + 48);
     buf.extend_from_slice(OBSERVATION_DOMAIN);
     buf.extend_from_slice(feed_id);
     buf.extend_from_slice(&round.to_le_bytes());
-    buf.extend_from_slice(&value.to_le_bytes());
+    put_amount(&mut buf, &value);
     buf.extend_from_slice(&observed_height.to_le_bytes());
     buf
 }
@@ -224,7 +227,7 @@ pub fn observation_bytes(
 ///
 /// Returns `None` for an empty set.
 #[must_use]
-pub fn median(values: &[u64]) -> Option<u64> {
+pub fn median<T: Ord + Copy>(values: &[T]) -> Option<T> {
     if values.is_empty() {
         return None;
     }
@@ -273,7 +276,7 @@ mod tests {
 
     #[test]
     fn an_empty_set_has_no_median() {
-        assert_eq!(median(&[]), None);
+        assert_eq!(median::<u64>(&[]), None);
     }
 
     #[test]
@@ -302,11 +305,11 @@ mod tests {
 
     #[test]
     fn changing_any_signed_field_changes_the_bytes_that_were_signed() {
-        let base = observation_bytes(&[1u8; 32], 1, 100, 10);
-        assert_ne!(base, observation_bytes(&[2u8; 32], 1, 100, 10));
-        assert_ne!(base, observation_bytes(&[1u8; 32], 2, 100, 10));
-        assert_ne!(base, observation_bytes(&[1u8; 32], 1, 101, 10));
-        assert_ne!(base, observation_bytes(&[1u8; 32], 1, 100, 11));
+        let base = observation_bytes(&[1u8; 32], 1, U256::from(100), 10);
+        assert_ne!(base, observation_bytes(&[2u8; 32], 1, U256::from(100), 10));
+        assert_ne!(base, observation_bytes(&[1u8; 32], 2, U256::from(100), 10));
+        assert_ne!(base, observation_bytes(&[1u8; 32], 1, U256::from(101), 10));
+        assert_ne!(base, observation_bytes(&[1u8; 32], 1, U256::from(100), 11));
     }
 
     #[test]

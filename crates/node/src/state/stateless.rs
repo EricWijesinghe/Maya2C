@@ -44,7 +44,7 @@ use std::collections::BTreeMap;
 
 use maya_stateless_core::{Blake3, PartialTree, apply_transfer, sparse};
 
-use crate::core::codec::ByteReader;
+use crate::core::codec::{ByteReader, MAX_RECORD_BYTES};
 use crate::core::payload::TxKind;
 use crate::core::{Block, Transaction};
 use crate::error::{NodeError, Result};
@@ -105,7 +105,7 @@ impl StateWitness {
     /// layer, layers out of fold order or repeated, or trailing bytes.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let mut reader = ByteReader::new(bytes);
-        let tree_len = reader.read_collection_len(1)?;
+        let tree_len = reader.read_byte_len(MAX_RECORD_BYTES)?;
         let accounts = PartialTree::decode(&Blake3, reader.read_slice(tree_len)?)
             .map_err(|defect| NodeError::Decode(defect.to_string()))?;
 

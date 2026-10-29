@@ -352,3 +352,23 @@ fn every_fill_conserves_value_between_the_two_parties_and_the_sink() {
         assert_eq!(quote_accounted, fill.quote);
     }
 }
+
+#[test]
+#[ignore = "H-1 (2026-10-26 audit): fails today; the fix is a policy choice awaiting Eric, see reports/sessions/2026-10-26-audit-findings.md"]
+fn a_resting_dust_order_does_not_freeze_the_honest_orders_behind_it() {
+    // The dust ask is the best ask (lowest price) and the oldest order, so it is
+    // the maker and sets the price: one base unit at price 1 is a zero quote,
+    // and the pass stops. The honest pair behind it crosses and never trades.
+    let book = book_of(&[
+        order(1, Side::Ask, a(1), 1, 1),
+        order(2, Side::Ask, price(10), 100, 2),
+        order(3, Side::Bid, price(20), 100, 3),
+    ]);
+
+    let outcome = match_book(&book, FREE, MatchLimits::at(1)).expect("match");
+
+    assert!(
+        !outcome.fills.is_empty(),
+        "the honest ask and bid cross and must trade despite the dust order"
+    );
+}

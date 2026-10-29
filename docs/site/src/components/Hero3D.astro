@@ -1,168 +1,176 @@
 ---
-// The homepage hero: one block finalizing, drawn from the same model the
-// renderer uses (src/scripts/propagation-model.ts). The emblem stays in the
-// header only. The static poster is the model frozen mid-sweep, so phones and
-// reduced-motion visitors see the wave travelling, not the end state.
-//
-// The numbers in the chip and tiles are the chain's own: the tip height from
-// get_chain_info, the tip's header timestamp from get_block_by_height, and the
-// committee from get_bft_status. The scene's counts (validators, quorum) are
-// illustrative and the caption does not present them as chain parameters.
-import { buildModel, PHASES, phaseAt, project as projectRaw, frontRadius, liftAt, nodeLevel, beamAt, cameraPosition, ringAt } from "../scripts/propagation-model.ts";
+// The homepage hero (2026-10-20): the validator committee in 3D around the
+// Maya2C core, and every real finalized block, from the explorer's WebSocket,
+// as a crystal on a spiral chain (src/scripts/hero3d.ts). Drag to orbit; tap a
+// validator or a block for its card. Nothing is simulated: if the stream
+// drops, no crystal is born and the chip says so. Without WebGL, the still
+// poster behind the canvas stays.
+import { getImage } from "astro:assets";
+import emblem from "../assets/emblem.png";
 
-const M = buildModel();
-const POSTER_T = 2.3; // mid-sweep: the crest is about halfway across the field
-const cam = cameraPosition(M, POSTER_T);
-const POSTER_PHASE = phaseAt(M, POSTER_T); // the caption on the still frame matches the sweep it shows
-// SVG y grows downward; the model projects y up.
-const project = (p: readonly [number, number, number], c: readonly [number, number, number]): [number, number] => { const q = projectRaw(p, c); return [q[0], -q[1]]; };
-const pts = M.points.map((p, i) => project([p[0], p[1] + liftAt(M, i, POSTER_T), p[2]], cam));
-const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
-const pad = 0.4;
-const [x0, x1] = [Math.min(...xs) - pad, Math.max(...xs) + pad];
-const [y0, y1] = [Math.min(...ys) - pad, Math.max(...ys) + pad];
-const f = (v: number) => +v.toFixed(3);
-const isVal = new Set(M.validators);
-const core = pts[M.core];
-const ring = ringAt(M, POSTER_T);
-const ringPts = Array.from({ length: 96 }, (_, k) => {
-  const a = (k / 96) * Math.PI * 2;
-  return project([M.points[M.core][0] + Math.cos(a) * ring.r, 0, M.points[M.core][2] + Math.sin(a) * ring.r], cam);
-}).map((p) => `${f(p[0])},${f(p[1])}`).join(" ");
-const beams = M.validators.flatMap((v, k) => [0, 1].map((kind) => {
-  const b = beamAt(M, k, kind as 0 | 1, POSTER_T);
-  if (b.p <= 0) return null;
-  const a = pts[v], c = core;
-  const h = [a[0] + (c[0] - a[0]) * b.p, a[1] + (c[1] - a[1]) * b.p];
-  return { x1: f(a[0]), y1: f(a[1]), x2: f(h[0]), y2: f(h[1]), kind, alpha: b.alpha };
-})).filter(Boolean) as { x1: number; y1: number; x2: number; y2: number; kind: number; alpha: number }[];
+const badge = await getImage({ src: emblem, width: 256, format: "png" });
 ---
 
-<section class="stage not-content" aria-label="How one Maya2C block finalizes">
+<section class="stage not-content" aria-label="Maya2C, live">
+  <div class="poster" aria-hidden="true"></div>
+  <img id="core-emblem" src={badge.src} width="128" height="128" alt="" aria-hidden="true" />
+  <canvas id="field" aria-label="The validator committee and the live chain in 3D. Drag to orbit; tap a validator or a block for details."></canvas>
+  <div class="card-pop" id="pop" hidden role="status"></div>
   <div class="ui">
     <div class="copy">
-      <p class="chip"><span class="dot" aria-hidden="true"></span>maya-testnet-1 · <b id="chip-state">connecting…</b> · height <b id="hHeight">—</b> · tip <b id="hAgo">—</b> s old</p>
+      <p class="chip"><span class="dot" aria-hidden="true"></span>maya-testnet-1 · <b id="chip-state">connecting…</b> · block <b id="hHeight">—</b> · <b id="hAgo">—</b> s ago</p>
       <h1>The ledger for the <span>post-quantum</span> century.</h1>
       <p class="lede">Every transaction carries two NIST post-quantum signatures. Every claim links to the test that proves it.</p>
       <div class="cta">
         <a class="btn primary" href="/experience/">Experience Maya2C</a>
-        <a class="btn" href="/health/">Live health</a>
+        <a class="btn" href="https://explorer.maya2c.dev/">Watch it finalize</a>
       </div>
+      <p class="hint">Drag to orbit. Tap the core, a validator or a block for its numbers.</p>
     </div>
     <dl class="tiles">
       <div class="tile"><dt>Height</dt><dd id="tHeight">—</dd></div>
-      <div class="tile"><dt>Tip age</dt><dd id="tAge">—</dd></div>
-      <div class="tile"><dt>Signatures</dt><dd>ML-DSA-65 + SLH-DSA</dd></div>
+      <div class="tile"><dt>Block time</dt><dd id="tBlock">—</dd></div>
+      <div class="tile"><dt>Signature</dt><dd>ML-DSA-65</dd></div>
       <div class="tile"><dt>Validators</dt><dd><span id="tValidators">—</span><a class="note" id="tValNote" href="/guides/validators/">project-run</a></dd></div>
     </dl>
   </div>
-
-  <figure class="scene">
-    <svg class="poster" viewBox={`${f(x0)} ${f(y0)} ${f(x1 - x0)} ${f(y1 - y0)}`} aria-hidden="true" focusable="false">
-      <defs>
-        <radialGradient id="pcore"><stop offset="0" stop-color="#fff3d6" /><stop offset="0.4" stop-color="#7eeaf0" stop-opacity="0.5" /><stop offset="1" stop-color="#7eeaf0" stop-opacity="0" /></radialGradient>
-      </defs>
-      <path d={M.edges.map(([a, b]) => `M${f(pts[a][0])} ${f(pts[a][1])}L${f(pts[b][0])} ${f(pts[b][1])}`).join("")} fill="none" stroke="#7eeaf0" stroke-opacity="0.3" stroke-width="0.02" />
-      <polyline points={ringPts} fill="none" stroke="#fff3d6" stroke-opacity={f(0.18 * ring.a)} stroke-width="0.16" />
-      <polyline points={ringPts} fill="none" stroke="#fff3d6" stroke-opacity={f(0.7 * ring.a)} stroke-width="0.035" />
-      {beams.map((bm) => (
-        <line x1={bm.x1} y1={bm.y1} x2={bm.x2} y2={bm.y2} stroke={bm.kind === 0 ? "#2fd9e6" : "#e6b260"} stroke-opacity={f(0.85 * bm.alpha)} stroke-width="0.035" />
-      ))}
-      {M.points.map((_, i) => (
-        <circle cx={f(pts[i][0])} cy={f(pts[i][1])} r={isVal.has(i) ? 0.085 : 0.045} fill={isVal.has(i) ? "#e6b260" : "#7eeaf0"} fill-opacity={f(0.2 + 0.8 * nodeLevel(M, i, POSTER_T))} />
-      ))}
-      <circle cx={f(core[0])} cy={f(core[1])} r="0.6" fill="url(#pcore)" />
-      <circle cx={f(core[0])} cy={f(core[1])} r="0.13" fill="#fff3d6" />
-    </svg>
-    <canvas id="field" aria-hidden="true"></canvas>
-    <figcaption class="caption" id="caption">
-      {PHASES.map((p, i) => (
-        <>
-          <span data-phase={i} class:list={[i === POSTER_PHASE && "on", i < POSTER_PHASE && "done"]}>{p}</span>
-          {i < PHASES.length - 1 && <span class="arrow" aria-hidden="true"> → </span>}
-        </>
-      ))}
-    </figcaption>
-  </figure>
 </section>
 
 <script>
   import { whenIdle } from "../scripts/idle";
-  const RPC = "https://rpc.maya2c.dev/rpc";
-  const $ = (id: string) => document.getElementById(id) as HTMLElement;
-  const fmt = (n: number) => n.toLocaleString("en-US");
+  import type { Hero3D, Pick } from "../scripts/hero3d";
   const canvas = document.getElementById("field") as HTMLCanvasElement;
-  const spans = Array.from(document.querySelectorAll<HTMLElement>("#caption [data-phase]"));
+  const stage = canvas.parentElement as HTMLElement;
+  const pop = document.getElementById("pop") as HTMLElement;
+  const fmt = (n: number) => n.toLocaleString("en-US");
+  const $ = (id: string) => document.getElementById(id);
 
-  // Only the poster shows on phones and for reduced motion. Three is imported
-  // lazily, so those visitors never download it.
-  const phones = window.matchMedia("(max-width: 759px)");
-  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)");
-  function onPhase(i: number) {
-    spans.forEach((el, k) => { el.classList.toggle("on", k === i); el.classList.toggle("done", k < i); });
-  }
-  if (!phones.matches && !reduce.matches) {
-    whenIdle(() => {
-      import("../scripts/propagation")
-        .then(({ startPropagation }) => startPropagation(canvas, onPhase))
-        .catch(() => { /* no WebGL: the poster stays */ });
-    });
-  }
+  // Blocks that arrive before the scene loads wait here, so none is lost.
+  let scene: Hero3D | null = null;
+  const early: { h: number; txs: number }[] = [];
+  let height = 0, lastBlockAt = 0, live = false, committee = 0;
+  const gaps: number[] = [];
 
-  // Chain facts, read from the public gateway. A failed read keeps the last value.
-  async function rpc<T>(method: string, params: unknown[] = []): Promise<T | null> {
+  function show(h: number) { $("hHeight")!.textContent = fmt(h); $("tHeight")!.textContent = fmt(h); }
+
+  function onBlock(h: number, txs = 0, animate = true) {
+    if (!h || h <= height) return;
+    // Measured, never quoted: the mean gap between the last live blocks.
+    if (animate && lastBlockAt) { gaps.push(performance.now() - lastBlockAt); if (gaps.length > 20) gaps.shift(); $("tBlock")!.textContent = (gaps.reduce((a, b) => a + b, 0) / gaps.length / 1000).toFixed(1) + " s"; }
+    height = h; lastBlockAt = performance.now(); show(h);
+    if (scene) scene.addBlock(h, txs, animate); else early.push({ h, txs });
+  }
+  setInterval(() => {
+    $("hAgo")!.textContent = live && lastBlockAt ? ((performance.now() - lastBlockAt) / 1000).toFixed(1) : "—";
+  }, 100);
+
+  async function status() {
     try {
-      const r = await fetch(RPC, {
+      const r = await fetch("https://rpc.maya2c.dev/rpc", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "get_bft_status", params: [] }),
       });
       const { result } = await r.json();
-      return result ?? null;
-    } catch { return null; }
+      if (!result) return;
+      committee = result.committee;
+      $("tValidators")!.textContent = fmt(committee);
+      scene?.setValidators(committee);
+      // Every validator today is run by the project (ADR-042): say so, and
+      // never let a bigger number read as independent operators.
+      $("tValNote")!.textContent = committee > 1 ? "project-run · one machine" : "project-run";
+    } catch { /* gateway unreachable: tiles keep their last real values */ }
+  }
+  status(); setInterval(status, 3000);
+
+  // No simulated activity, ever: a dropped stream births nothing and says so.
+  let retry = 1000;
+  function stream() {
+    const ws = new WebSocket("wss://explorer.maya2c.dev/ws/blocks");
+    ws.onopen = () => { live = true; retry = 1000; $("chip-state")!.textContent = "live"; stage.classList.add("live"); };
+    ws.onmessage = (ev) => { try { const b = JSON.parse(ev.data); onBlock(b.height, b.tx_count ?? 0); } catch { /* skip */ } };
+    ws.onclose = () => {
+      live = false; stage.classList.remove("live"); $("chip-state")!.textContent = "reconnecting…";
+      setTimeout(stream, retry); retry = Math.min(retry * 2, 30000);
+    };
+    ws.onerror = () => ws.close();
+  }
+  stream();
+
+  // Open on the last real blocks, so the chain is never empty and never
+  // invented: the explorer lists them newest first.
+  fetch("https://explorer.maya2c.dev/api/blocks?limit=24")
+    .then((r) => r.json())
+    .then((blocks: { height: number; tx_count?: number }[]) => {
+      // Older than a live block that beat this reply: straight onto the chain.
+      blocks.slice().reverse().forEach((b) => {
+        if (b.height > height) onBlock(b.height, b.tx_count ?? 0, false);
+        else if (scene) scene.addBlock(b.height, b.tx_count ?? 0, false);
+        else early.push({ h: b.height, txs: b.tx_count ?? 0 });
+      });
+    })
+    .catch(() => { /* empty chain until the first live block */ });
+
+  let popTimer = 0;
+  function card(p: Pick | null) {
+    if (!p) { pop.hidden = true; return; }
+    // Every card is the chain's own numbers; a quorum is n - f, f = floor((n - 1) / 3).
+    const n = committee || 4, quorum = n - Math.floor((n - 1) / 3);
+    const avg = $("tBlock")!.textContent;
+    if (p.kind === "chain") {
+      pop.innerHTML = `<b>maya-testnet-1</b>Height ${fmt(height)} · block every ${avg}<br>${n} validators · ${quorum} must sign to finalize<br>Signatures ML-DSA-65 + SLH-DSA<br><a href="https://status.maya2c.dev/">Uptime and halts →</a>`;
+    } else if (p.kind === "validator") {
+      pop.innerHTML = `<b>Validator ${p.index + 1} of ${n}</b>Signs every block it votes for (ML-DSA-65)<br>Finality needs ${quorum} of ${n}; survives ${n - quorum} down<br>Project-run, one machine (ADR-042)<br><a href="/guides/validators/">Run a validator →</a>`;
+    } else {
+      const h = p.height;
+      pop.innerHTML = `<b>Block ${fmt(h)}</b>loading…`;
+      fetch(`https://explorer.maya2c.dev/api/blocks/${h}`)
+        .then((r) => r.json())
+        .then((b: { id: string; timestamp: number; tx_count?: number; state_root: string }) => {
+          const ago = Math.max(0, Math.round(Date.now() / 1000 - b.timestamp));
+          pop.innerHTML = `<b>Block ${fmt(h)}</b>${fmt(b.tx_count ?? 0)} transactions · ${fmt(ago)} s ago<br>id ${b.id.slice(0, 16)}…<br>state ${b.state_root.slice(0, 16)}…<br><a href="https://explorer.maya2c.dev/blocks/${h}">Open in explorer →</a>`;
+        })
+        .catch(() => { pop.innerHTML = `<b>Block ${fmt(h)}</b>${fmt(p.txs)} transactions<br><a href="https://explorer.maya2c.dev/blocks/${h}">Open in explorer →</a>`; });
+    }
+    const sr = stage.getBoundingClientRect();
+    pop.style.left = Math.max(8, Math.min(p.x + 18, sr.width - 260)) + "px";
+    pop.style.top = Math.max(8, Math.min(p.y + 18, sr.height - 150)) + "px";
+    pop.hidden = false;
+    clearTimeout(popTimer);
+    popTimer = window.setTimeout(() => { pop.hidden = true; }, 6000);
   }
 
-  let height = 0;
-  let tipTs = 0;
-  async function poll() {
-    const info = await rpc<{ height: number }>("get_chain_info");
-    if (!info) { $("chip-state").textContent = "gateway unreachable"; return; }
-    $("chip-state").textContent = "live";
-    if (info.height !== height) {
-      height = info.height;
-      $("hHeight").textContent = fmt(height); $("tHeight").textContent = fmt(height);
-      const b = await rpc<{ header: { timestamp: number } }>("get_block_by_height", [height]);
-      if (b?.header?.timestamp) tipTs = b.header.timestamp;
-    }
-    const bft = await rpc<{ committee: number }>("get_bft_status");
-    if (bft) $("tValidators").textContent = fmt(bft.committee);
-  }
-  function tick() {
-    $("hAgo").textContent = tipTs ? Math.max(0, Math.round(Date.now() / 1000 - tipTs)).toString() : "—";
-    $("tAge").textContent = tipTs ? `${Math.max(0, Math.round(Date.now() / 1000 - tipTs))} s` : "—";
-  }
-  poll();
-  setInterval(poll, 4000);
-  setInterval(tick, 1000);
+  // three.js loads only once the page has painted and gone idle; until then,
+  // and without WebGL, the poster stays.
+  whenIdle(async () => {
+    try {
+      const { mountHero3D } = await import("../scripts/hero3d");
+      scene = mountHero3D(canvas, stage, card, document.getElementById("core-emblem") ?? undefined);
+      stage.classList.add("gl");
+      if (committee) scene.setValidators(committee);
+      early.splice(0).forEach((b) => scene!.addBlock(b.h, b.txs, false));
+    } catch { /* no WebGL: the poster stays */ }
+  });
 </script>
 
 <style>
-  /* Desktop: copy left, the scene fills the right side. Phones: the poster
-     sits above the copy, in normal flow. */
+  /* Full-bleed: the hero spans the window, whatever column Starlight puts it in. */
   .stage { position: relative; width: 100vw; margin: 0 0 0 calc(50% - 50vw); min-height: calc(100svh - var(--sl-nav-height, 64px)); overflow: hidden; border-radius: 0 0 var(--r-l) var(--r-l); background: var(--void); }
-  .scene { position: absolute; inset: 0; width: 100%; margin: 0; pointer-events: none; }
-  /* The field fades out under the copy so the headline stays readable. */
-  .scene { -webkit-mask-image: linear-gradient(90deg, transparent 18%, #000 48%); mask-image: linear-gradient(90deg, transparent 18%, #000 48%); }
-  .poster { position: absolute; left: 71%; top: 46%; width: min(100%, 68vh); height: auto; aspect-ratio: 1; transform: translate(-50%, -50%); }
-  #field { position: absolute; inset: 0; width: 100%; height: 100%; display: none; }
-  .scene.gl #field { display: block; }
-  .scene.gl .poster { display: none; }
+  .poster { position: absolute; inset: 0; background:
+    radial-gradient(22rem 22rem at 72% 45%, rgba(201, 168, 106,.30), transparent 70%),
+    radial-gradient(14rem 14rem at 64% 60%, rgba(63,210,224,.22), transparent 70%), var(--void); }
+  .stage.gl .poster { display: none; }
+  /* Pinned over the 3D core by hero3d.ts each frame; shown once the scene runs. */
+  #core-emblem { position: absolute; left: 0; top: 0; z-index: 1; width: clamp(88px, 9vw, 128px); height: auto; pointer-events: none; opacity: 0; transition: opacity .8s var(--glide); filter: drop-shadow(0 0 18px rgba(63, 210, 224, .45)); }
+  .stage.gl #core-emblem { opacity: 1; }
+  #field { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: pan-y; cursor: grab; }
   .ui { position: relative; z-index: 2; max-width: 1180px; margin-inline: auto; padding: clamp(40px, 8vh, 96px) max(16px, 4vw) 32px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 40px; min-height: inherit; align-content: space-between; pointer-events: none; }
   .ui a, .ui button { pointer-events: auto; }
-  .copy { max-width: min(600px, 46vw); min-width: 0; }
+  .copy { max-width: min(680px, 52vw); min-width: 0; }
   .chip { white-space: nowrap; max-width: 100%; overflow: hidden; display: inline-flex; align-items: center; gap: 10px; margin: 0; padding: 8px 14px 8px 10px; border-radius: var(--r-pill); background: var(--glass); border: 1px solid var(--glass-edge); backdrop-filter: blur(14px); font: 500 12.5px/1 var(--mono); color: var(--muted); }
   .chip b { display: inline !important; margin: 0 !important; color: var(--text); font-weight: 500; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
-  .stage .chip .dot { background: var(--signal); }
+  .stage.live .dot { background: var(--signal); animation: beat 1.1s var(--glide) infinite; }
+  @keyframes beat { 0% { box-shadow: 0 0 0 0 rgba(255,181,71,.55); } 100% { box-shadow: 0 0 0 12px rgba(255,181,71,0); } }
   h1 { font: 760 clamp(42px, 6vw, 84px)/1.02 var(--display); letter-spacing: -0.04em; margin: 24px 0 20px; color: var(--text); text-wrap: balance; }
   h1 span { white-space: nowrap; font-weight: 300; background: var(--title-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
   .lede { max-width: 46ch; color: var(--lede); font-size: clamp(16px, 1.5vw, 19px); margin: 0; }
@@ -170,30 +178,31 @@ const beams = M.validators.flatMap((v, k) => [0, 1].map((kind) => {
   .btn { font: 600 15px/1 var(--sans); padding: 16px 24px; border-radius: var(--r-pill); color: var(--text); text-decoration: none; background: var(--glass); border: 1px solid var(--glass-edge); backdrop-filter: blur(14px); transition: transform .45s var(--spring), box-shadow .45s var(--glide); }
   .btn:hover { transform: translateY(-2px) scale(1.03); color: var(--text); }
   .btn.primary { background: linear-gradient(120deg, var(--cherenkov), var(--iris-a)); border-color: transparent; color: #fff; box-shadow: 0 14px 40px -12px rgba(31, 181, 194,.75); }
-  .caption { position: absolute; right: 5%; top: 96px; max-width: 46vw; margin: 0; white-space: nowrap; font: 500 13px/1.4 var(--mono); color: var(--muted); letter-spacing: .02em; }
-  .caption [data-phase] { transition: color .9s var(--glide); color: var(--muted); }
-  .caption [data-phase].done { color: var(--lede); }
-  .caption [data-phase].on { color: var(--text); text-shadow: 0 0 18px rgba(126, 234, 240, .55); }
-  .tiles { display: flex; gap: 12px; flex-wrap: wrap; margin: 0; max-width: min(600px, 46vw); }
+  .hint { margin: 16px 0 0; font: 400 12.5px/1.4 var(--mono); color: var(--muted); }
+  .tiles { display: flex; gap: 12px; flex-wrap: wrap; margin: 0; }
   .tile { flex: 1 1 150px; min-width: 0; padding: 16px 20px; border-radius: var(--r-m); background: var(--glass); border: 1px solid var(--glass-edge); backdrop-filter: blur(16px); }
   .tile dt { font: 500 11.5px/1 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
   .tile dd { margin: 10px 0 0; font: 300 26px/1 var(--display); font-variant-numeric: tabular-nums; color: var(--text); }
   .tile .note { font: 500 12px var(--sans); color: var(--signal); margin-left: 8px; text-decoration: none; }
-
-  @media (max-width: 759px) {
-    .stage { min-height: 0; display: flex; flex-direction: column; }
-    .scene { order: -1; }
-    .scene { position: relative; width: 100%; height: auto; padding: 56px 16px 0; }
-    .scene { -webkit-mask-image: none; mask-image: none; }
-    .poster { position: relative; left: auto; top: auto; transform: none; width: min(100%, 360px); margin: 0 auto; display: block; }
-    .caption { position: static; display: block; white-space: normal; text-align: center; margin: 14px 16px 0; font-size: 12px; }
-    .copy { max-width: none; }
-    .chip { display: block; white-space: normal; border-radius: var(--r-m); line-height: 1.6; padding: 10px 14px; }
-    .chip .dot { display: inline-block; vertical-align: middle; margin-right: 8px; }
-    .ui { padding-top: 24px; }
+  .card-pop { position: absolute; z-index: 3; min-width: 230px; padding: 16px 18px; border-radius: var(--r-m); background: var(--pop-bg); border: 1px solid var(--glass-edge); backdrop-filter: blur(18px); box-shadow: var(--shadow); font: 400 13px/1.55 var(--mono); color: var(--muted); transition: opacity .35s var(--glide), transform .5s var(--spring); }
+  .card-pop[hidden] { display: block !important; opacity: 0; transform: scale(.6); pointer-events: none; }
+  .card-pop :global(b) { display: block; font: 300 22px/1.2 var(--display); color: var(--text); margin-bottom: 4px; }
+  .card-pop :global(a) { color: var(--accent-text); font-weight: 600; }
+  /* The hero is the page title; Starlight's own h1 would repeat "Maya2C". */
+  :global(main h1#_top) { display: none; }
+  @media (prefers-reduced-motion: reduce) { .stage.live .dot { animation: none; } .btn { transition: none; } }
+  /* The live chip outgrows one line below desktop widths (the layout audit
+     caught it clipped at 768 px): let it wrap from there, not only on phones. */
+  @media (max-width: 1023px) {
+    .chip { white-space: normal; flex-wrap: wrap; row-gap: 4px; }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .caption [data-phase] { transition: none; }
-    .btn { transition: none; }
+  @media (max-width: 759px) {
+    /* Bubbles above, words below: nothing sits on top of the headline. */
+    .ui { padding-top: 34svh; gap: 28px; }
+    .copy { max-width: none; }
+    .chip { white-space: normal; flex-wrap: wrap; row-gap: 4px; }
+    h1 { font-size: clamp(38px, 11vw, 56px); margin: 18px 0 14px; }
+    .btn { padding: 14px 20px; }
+    .tile { flex-basis: calc(50% - 6px); }
   }
 </style>

@@ -147,10 +147,10 @@ crates rather than duplicating them (D1).
 
 ---
 
-## Master Prompts 1–30 (`Prompts/`) — merged to `master` 2026-09-28
+## Master Prompts 1–30 (`docs/master-prompts/`) — merged to `master` 2026-09-28
 
 A different numbering from the sections above: the thirty briefs in
-`Prompts/`, executed in order. Per-prompt DONE WHEN verdicts are in
+`docs/master-prompts/`, executed in order. Per-prompt DONE WHEN verdicts are in
 [docs/master-prompts/README.md](docs/master-prompts/README.md); each prompt's
 evidence is `reports/NN-*.md`. Ticked = its report exists with real output,
 not that every DONE WHEN criterion is met.
@@ -200,7 +200,25 @@ Rules in CLAUDE.md, "Operating Protocol"; state in [STATE.md](STATE.md).
 - [ ] Measure the block rate to set `halving_epochs`; mainnet-dataset GPU rate
 - [ ] Release signing (Windows code-signing, Android keystore — Eric's keys)
 - [ ] macOS/iOS builds (after Eric's MacBook)
+## Omega brief (2026-10-28, `docs/master-prompts/omega.md`)
+
+- [x] Brief saved with a status map and its conflicts with recorded decisions
+- [x] A1: DAG-BFT adversarial schedule checker, three engine mutations caught (`crates/dag-bft/tests/adversarial_schedules.rs`, 2026-10-28)
+- [ ] A2: machine-checked DAG-BFT safety model (TLA+/Quint)
+- [ ] B: crypto migration end-to-end to verified
+- [ ] C: smart accounts v1 (after mainnet)
+- [ ] D: recursive STARK chain proof (after mainnet)
+
 ---
+
+## Mainnet v1 gates (`docs/mainnet-v1-plan.md`)
+
+- [x] Gate 3, 7 days without a halt: 661,357 s, blocks 0 → 393,812, `halts []`; testnet
+      stopped on purpose 2026-10-28 07:36 UTC — `reports/sessions/2026-10-28-testnet-stopped.md`
+- [x] No second public soak (Eric, 2026-10-28: "we validate for 7 days and we continue, no repeat"); the frozen mining build is proven on local multi-validator networks instead
+- [ ] Self-run pre-audit, 2026-10-29: 10 findings, S-001 to S-010 in `docs/audit/FINDINGS.md`. S-001, S-002, S-003 and S-006 are fixed on `fix/preaudit-staking`; S-005 is a doc correction. S-004 fixed in #236; S-007/S-008 documented as mainnet runbook parameters. Self-run, not an audit. S-003 byte bound still open.
+- [x] Self-run attacknet, 7 validators, commit f6ffa5d2: crash f / f+1, stolen key, garbage, RPC flood, long outage, beyond-retention snapshot rejoin (643 ms); no fork through height 602 — `reports/attacknet/2026-10-28-1.md`. Self-run, not independent.
+- [x] Mainnet build merged 2026-10-29: forever mining ADR-068 (#221), ML-DSA-87 validator keys (#222), 24 decimals (#230), chain-tagged votes (#236); freeze candidate on master
 
 ## How to resume
 

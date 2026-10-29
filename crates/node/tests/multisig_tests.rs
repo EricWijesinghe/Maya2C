@@ -238,7 +238,7 @@ fn hostile_frames_are_refused_before_any_signature_is_read() {
 
 #[test]
 fn every_quorum_of_one_spend_has_one_txid() {
-    // Two different quorums, and a superset, authorize the same spend. If the
+    // Two different quorums authorize the same spend, and a superset has the same id. If the
     // txid hashed approvals, anyone holding a spare one could re-encode a
     // broadcast transaction under a new id and orphan its children.
     let keys = members();
@@ -246,9 +246,15 @@ fn every_quorum_of_one_spend_has_one_txid() {
     let a = approve(draft(policy(&keys)), &keys, &[0, 1, 2]);
     let b = approve(draft(policy(&keys)), &keys, &[2, 3, 4]);
     let all = approve(draft(policy(&keys)), &keys, &[0, 1, 2, 3, 4]);
-    for tx in [&a, &b, &all] {
+    for tx in [&a, &b] {
         assert_eq!(tx.verify_at(AT, &genesis, &CHAIN), Ok(()));
     }
+    // The superset has the same id but is not a valid encoding: a spare
+    // approval would let a relay strip it and change the bytes under that id.
+    assert!(
+        all.verify_at(AT, &genesis, &CHAIN).is_err(),
+        "a spare approval must be refused"
+    );
     assert_ne!(
         a.to_bytes(),
         b.to_bytes(),

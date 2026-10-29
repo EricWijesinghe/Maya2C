@@ -250,6 +250,9 @@ impl StateDB {
                 self.issue_rwa(overlay, &sender, &payload.label, payload.total_units, rule)
                     .map(|_| ())
             }
+            // Off until ADR-061: the seller never signs. A no-op, not an error,
+            // so a swap that cannot run cannot void a block (invariant 7).
+            TxKind::SettleDvp(_) if !context.dvp_active() => Ok(()),
             TxKind::SettleDvp(payload) => self
                 .settle_dvp(
                     overlay,

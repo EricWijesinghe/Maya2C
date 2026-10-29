@@ -142,7 +142,7 @@ jobs:
       # manylinux this needs a toolchain the default image does not have, which
       # is why cibuildwheel drives the Linux build inside a container.
       - name: Build wheels
-        uses: pypa/cibuildwheel@b3395e271a35f73dad77f21802abe9b986dfe299 # v4.3.1
+        uses: pypa/cibuildwheel@b9e566a2b284570af229f6c2a33673410d0389a3 # v4.3.4
         with:
           package-dir: sdk-ffi
         env:
@@ -187,4 +187,4 @@ jobs:
       # one would mostly generate bug reports about somebody else's compiler.
       - name: Publish
         if: github.event_name == 'push' || inputs.dry_run == false
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1

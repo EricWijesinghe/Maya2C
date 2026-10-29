@@ -17,6 +17,8 @@
 
 use std::collections::BTreeMap;
 
+use maya_amount::Amount;
+
 use maya_lanes::{Fees, Params, Tx, build};
 
 struct Rng(u64);
@@ -31,18 +33,22 @@ impl Rng {
 }
 
 struct Outcome {
-    before_fee: u64,
-    after_fee: u64,
+    before_fee: Amount,
+    after_fee: Amount,
     p99_latency: u64,
     dropped: usize,
     viral_included: usize,
 }
 
-fn percentile(v: &mut [u64], p: usize) -> u64 {
+fn double(a: Amount) -> Amount {
+    a.saturating_add(a)
+}
+
+fn percentile<T: Copy + Ord + Default>(v: &mut [T], p: usize) -> T {
     v.sort_unstable();
     v.get(v.len().saturating_sub(1).min(v.len() * p / 100))
         .copied()
-        .unwrap_or(0)
+        .unwrap_or_default()
 }
 
 fn run(params: Params) -> Outcome {
@@ -59,13 +65,16 @@ fn run(params: Params) -> Outcome {
                 let m = 2 + rng.next() % top;
                 pool.push(Tx {
                     app,
-                    max_fee: fees.price(app).saturating_mul(m),
+                    max_fee: fees
+                        .price(app)
+                        .checked_mul(Amount::from_u64(m))
+                        .unwrap_or(Amount::MAX),
                     lane: None,
                     arrived: h,
                 });
             }
         }
-        let prices: BTreeMap<u32, u64> = (0..10).map(|a| (a, fees.price(a))).collect();
+        let prices: BTreeMap<u32, Amount> = (0..10).map(|a| (a, fees.price(a))).collect();
         let block = build(&mut pool, &[], &fees);
         let mut usage = BTreeMap::new();
         for tx in &block {
@@ -104,7 +113,7 @@ fn a_viral_app_raises_its_own_fees_not_everyone_elses() {
         app_target: 10,
         global_target: 150,
         denom: 8,
-        floor: 1,
+        floor: Amount::from_u64(1),
         app_cap: 80,
     });
     let local = run(Params {
@@ -112,7 +121,7 @@ fn a_viral_app_raises_its_own_fees_not_everyone_elses() {
         app_target: 10,
         global_target: 160,
         denom: 8,
-        floor: 1,
+        floor: Amount::from_u64(1),
         app_cap: 80,
     });
     let global = run(Params {
@@ -120,7 +129,7 @@ fn a_viral_app_raises_its_own_fees_not_everyone_elses() {
         app_target: u64::MAX / 4,
         global_target: 160,
         denom: 8,
-        floor: 1,
+        floor: Amount::from_u64(1),
         app_cap: 200,
     });
     for (name, o) in [
@@ -135,14 +144,14 @@ fn a_viral_app_raises_its_own_fees_not_everyone_elses() {
             "[SIM] {name}: other apps' median fee {} -> {} ({:.1}x), p99 inclusion {} blocks; {} viral txs included; {} txs dropped after 30 blocks",
             o.before_fee,
             o.after_fee,
-            o.after_fee as f64 / o.before_fee.max(1) as f64,
+            o.after_fee.saturating_to_u64() as f64 / o.before_fee.saturating_to_u64().max(1) as f64,
             o.p99_latency,
             o.viral_included,
             o.dropped
         );
     }
     assert!(
-        tight.after_fee > 2 * tight.before_fee,
+        tight.after_fee > double(tight.before_fee),
         "the tight configuration is expected to breach the SLO"
     );
     assert!(
@@ -150,11 +159,11 @@ fn a_viral_app_raises_its_own_fees_not_everyone_elses() {
         "other apps must be included within 2 blocks"
     );
     assert!(
-        local.after_fee <= 2 * local.before_fee,
+        local.after_fee <= double(local.before_fee),
         "other apps' fees must stay within 2x"
     );
     assert!(
-        global.after_fee > 2 * global.before_fee || global.p99_latency > 2,
+        global.after_fee > double(global.before_fee) || global.p99_latency > 2,
         "the control must show the problem the design solves"
     );
 }

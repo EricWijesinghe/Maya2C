@@ -27,8 +27,8 @@ use custom_l1_node::state::db::StateDB;
 use custom_l1_node::state_pruner::archive::{Archiver, prune_round};
 use custom_l1_node::state_pruner::cold::ColdBlocks;
 use custom_l1_node::state_pruner::snapshot::{
-    BootstrapSource, CHUNK_ENTRIES, SnapshotManifest, Snapshots, bootstrap_pruned, chunk_hash,
-    decode_chunk, encode_chunk,
+    BootstrapSource, CHUNK_ENTRIES, SnapshotManifest, Snapshots, TrustedBlock, bootstrap_pruned,
+    bootstrap_pruned_anchored, chunk_hash, decode_chunk, encode_chunk,
 };
 use custom_l1_node::state_pruner::{ArchivePolicy, PruneConfig};
 use maya_archive::{ArchiveError, ArchiveStore, LocalDirStore, Locator};
@@ -216,6 +216,11 @@ struct Source<'a> {
     bodies: Mutex<Vec<u64>>,
     tamper: Option<Tamper>,
     wrong_block: bool,
+    /// Serves the tip's slot with a copy of the header below it: every parent
+    /// is known, the count is right, and the sequence is not a chain by height.
+    dup_tip_header: bool,
+    /// Serves the body of the next height in place of this one.
+    swap_body_at: Option<u64>,
 }
 
 impl<'a> Source<'a> {
@@ -225,6 +230,8 @@ impl<'a> Source<'a> {
             bodies: Mutex::default(),
             tamper: None,
             wrong_block: false,
+            dup_tip_header: false,
+            swap_body_at: None,
         }
     }
 
@@ -261,7 +268,17 @@ impl BootstrapSource for Source<'_> {
     }
 
     fn headers(&self, from: u64, to: u64) -> Result<Vec<BlockHeader>> {
-        (from..=to).map(|h| Ok(self.node.block(h).header)).collect()
+        let tip = self.node.chain.height();
+        (from..=to)
+            .map(|h| {
+                let served = if self.dup_tip_header && h == tip {
+                    h - 1
+                } else {
+                    h
+                };
+                Ok(self.node.block(served).header)
+            })
+            .collect()
     }
 
     fn snapshot_manifest(&self) -> Result<SnapshotManifest> {
@@ -274,7 +291,12 @@ impl BootstrapSource for Source<'_> {
 
     fn block(&self, height: u64) -> Result<Block> {
         self.bodies.lock().expect("lock").push(height);
-        Ok(self.node.block(height))
+        let served = if self.swap_body_at == Some(height) {
+            height + 1
+        } else {
+            height
+        };
+        Ok(self.node.block(served))
     }
 }
 
@@ -357,6 +379,30 @@ fn a_pruned_node_bootstraps_without_a_single_body_below_the_snapshot() {
 // ---------------------------------------------------------------------------
 // 2. a lying snapshot
 // ---------------------------------------------------------------------------
+
+#[test]
+fn a_pruned_node_refuses_imported_headers_at_or_below_its_horizon() {
+    // `insert_block` refuses a block there before spending anything on it;
+    // `import_headers` must apply the same rule or it keeps header records the
+    // chain can never build on.
+    let archive = archive_node(70);
+    let source = Source::honest(&archive);
+    let (state, _dir) = empty_state();
+    let mut pruned =
+        bootstrap_pruned(Arc::clone(&state), genesis(), config(), &source, K).expect("bootstrap");
+    assert_eq!(pruned.prune_horizon(), 50);
+
+    for height in [40, 50] {
+        let refusal = pruned.import_headers(&[archive.block(height).header]);
+        assert!(
+            matches!(
+                refusal,
+                Err(custom_l1_node::error::NodeError::BelowPruneHorizon { .. })
+            ),
+            "height {height}: {refusal:?}"
+        );
+    }
+}
 
 fn refuses(tamper: Tamper) {
     let archive = archive_node(70);
@@ -642,4 +688,134 @@ fn restarting_a_pruned_node_keeps_its_horizon_and_receipts() {
         *counts.entry(key[..4].to_vec()).or_insert(0) += 1;
     }
     assert!(!counts.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// the trusted block (weak-subjectivity anchor)
+// ---------------------------------------------------------------------------
+
+fn trusted(archive: &ArchiveNode, height: u64) -> TrustedBlock {
+    let id = archive
+        .chain
+        .state()
+        .canonical_id(height)
+        .expect("read")
+        .expect("block exists");
+    TrustedBlock { height, id }
+}
+
+#[test]
+fn a_bootstrap_whose_chain_contains_the_trusted_block_proceeds() {
+    let archive = archive_node(70);
+    let (state, _dir) = empty_state();
+    let anchor = trusted(&archive, 60);
+    let pruned = bootstrap_pruned_anchored(
+        state,
+        genesis(),
+        config(),
+        &Source::honest(&archive),
+        K,
+        Some(anchor),
+    )
+    .expect("the source serves the chain the operator trusts");
+    assert_eq!(pruned.tip(), archive.chain.tip());
+}
+
+#[test]
+fn a_chain_that_lacks_the_trusted_block_is_refused_and_leaves_nothing_behind() {
+    let archive = archive_node(70);
+    // Another chain's block, or a forged chain: right height, wrong id.
+    let mut wrong = trusted(&archive, 60);
+    wrong.id[0] ^= 0xFF;
+    let (state, _dir) = empty_state();
+    let result = bootstrap_pruned_anchored(
+        Arc::clone(&state),
+        genesis(),
+        config(),
+        &Source::honest(&archive),
+        K,
+        Some(wrong),
+    );
+    assert!(
+        matches!(&result, Err(NodeError::Network(m)) if m.contains("trusted block")),
+        "{:?}",
+        result.as_ref().err()
+    );
+    assert!(
+        state.chain_meta().expect("meta").is_none(),
+        "a refused bootstrap is purged, so a retry starts clean"
+    );
+}
+
+#[test]
+fn a_trusted_block_above_the_sources_tip_is_refused() {
+    let archive = archive_node(70);
+    let mut ahead = trusted(&archive, 70);
+    ahead.height = 500;
+    let (state, _dir) = empty_state();
+    assert!(matches!(
+        bootstrap_pruned_anchored(
+            state,
+            genesis(),
+            config(),
+            &Source::honest(&archive),
+            K,
+            Some(ahead)
+        ),
+        Err(NodeError::Network(_))
+    ));
+}
+
+#[test]
+fn headers_that_do_not_chain_by_height_are_refused() {
+    let archive = archive_node(70);
+    let mut source = Source::honest(&archive);
+    source.dup_tip_header = true;
+    let (state, _dir) = empty_state();
+    let result = bootstrap_pruned(Arc::clone(&state), genesis(), config(), &source, K);
+    assert!(
+        matches!(&result, Err(NodeError::Network(m)) if m.contains("do not chain")),
+        "{:?}",
+        result.as_ref().err()
+    );
+    assert!(state.chain_meta().expect("meta").is_none());
+}
+
+#[test]
+fn a_trusted_block_below_the_snapshot_or_at_genesis_is_refused() {
+    let archive = archive_node(70);
+    // The snapshot is at 50 (K = 20 below tip 70). A trusted block at 40 is a
+    // real block of the real chain, but the snapshot's header is not below it,
+    // so it says nothing about the chain the snapshot sits on.
+    for (height, why) in [(40, "below the snapshot"), (0, "genesis")] {
+        let (state, _dir) = empty_state();
+        let result = bootstrap_pruned_anchored(
+            state,
+            genesis(),
+            config(),
+            &Source::honest(&archive),
+            K,
+            Some(trusted(&archive, height)),
+        );
+        assert!(
+            matches!(&result, Err(NodeError::Network(m)) if m.contains("trusted block")),
+            "{why}: {:?}",
+            result.as_ref().err()
+        );
+    }
+}
+
+#[test]
+fn a_body_above_the_snapshot_that_is_not_on_the_verified_chain_is_refused() {
+    let archive = archive_node(70);
+    let mut source = Source::honest(&archive);
+    source.swap_body_at = Some(55); // above the snapshot at 50
+    let (state, _dir) = empty_state();
+    let result = bootstrap_pruned(Arc::clone(&state), genesis(), config(), &source, K);
+    assert!(
+        matches!(&result, Err(NodeError::Network(m)) if m.contains("header chain names")),
+        "{:?}",
+        result.as_ref().err()
+    );
+    assert!(state.chain_meta().expect("meta").is_none());
 }

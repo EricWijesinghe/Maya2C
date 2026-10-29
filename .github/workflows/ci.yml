@@ -19,7 +19,48 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
 
+# A new push to a pull request supersedes its running check: without this,
+# every push left the old run holding runners for hours, and on 2026-10-28
+# the queue jammed with no job starting at all. Master runs are never
+# cancelled; each is the record for its commit.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # ---------------------------------------------------------------------
+  # Whether a pull request touches anything a build or test reads. A site
+  # or prose change (the 2026-10-28 maintenance-overlay fix) waited hours
+  # behind a full Rust build it could not affect. The list is deliberately
+  # narrow: xtask and tests read reports/ and parts of docs/, so only paths
+  # no code reads are exempt. A job skipped by `if:` reports success, so
+  # the required checks still pass. Pushes to master always run everything.
+  # ---------------------------------------------------------------------
+  changes:
+    name: changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"; echo "push: full run"; exit 0
+          fi
+          files=$(git diff --name-only "$BASE"...HEAD)
+          echo "$files"
+          if echo "$files" | grep -qvE '^(docs/(site|brand|master-prompts|releases)/|README\.md$)'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"; echo "code changed: full run"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"; echo "docs only: build and test jobs skipped"
+          fi
+
   # ---------------------------------------------------------------------
   # Seconds. Needs no build, so it runs first and alone.
   # ---------------------------------------------------------------------
@@ -36,7 +77,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: nightly-2026-07-15
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: xtask
 
@@ -62,6 +103,8 @@ jobs:
   # produces now and replays them through the independent TypeScript verifier.
   spec:
     name: spec conformance
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -73,12 +116,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: nightly-2026-07-15
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: spec
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "22"
+          check-latest: true
       - name: Vectors match the reference
         run: cargo run -p maya-spec-ref --bin spec-vectors -- --check
       - name: Independent verifier (TypeScript, own BLAKE3)
@@ -110,6 +154,8 @@ jobs:
 
   fmt:
     name: rustfmt
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -127,6 +173,8 @@ jobs:
   # ---------------------------------------------------------------------
   clippy:
     name: clippy
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -143,7 +191,7 @@ jobs:
         with:
           toolchain: nightly-2026-07-15
           components: clippy
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: clippy
 
@@ -186,6 +234,8 @@ jobs:
   # ---------------------------------------------------------------------
   test:
     name: nextest (core)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     # 150, not 90: on 2026-09-28 this job took 29-87 minutes when it finished,
     # and 5 of 12 runs were cancelled at 90 with every test still passing
@@ -206,7 +256,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: nightly-2026-07-15
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: nextest
       - uses: taiki-e/install-action@b1351b86cd80d01fa50a500e2c3e435ce4e1dd60 # nextest
@@ -279,6 +329,8 @@ jobs:
   # ---------------------------------------------------------------------
   deny:
     name: cargo-deny
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

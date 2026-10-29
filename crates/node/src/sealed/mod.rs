@@ -26,6 +26,7 @@
 //! not of the encoding.
 
 use crate::core::codec::ByteReader;
+use crate::core::sealed_payload::MAX_SEALED_CIPHERTEXT;
 use crate::error::{NodeError, Result};
 use crate::state::account::Address;
 
@@ -324,7 +325,7 @@ impl EnvelopeRecord {
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let mut reader = ByteReader::new(bytes);
         let sender = reader.read_array::<32>()?;
-        let length = reader.read_collection_len(1)?;
+        let length = reader.read_byte_len(MAX_SEALED_CIPHERTEXT)?;
         Ok(Self {
             sender,
             ciphertext: reader.read_slice(length)?.to_vec(),

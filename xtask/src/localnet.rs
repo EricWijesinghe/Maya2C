@@ -230,6 +230,11 @@ fn start_with(work: &Path, i: u16, remote: Option<&Remote>) -> Result<Child> {
             "--p2p-port",
             &p2p_port(i).to_string(),
         ]);
+    // `cargo xtask bench-tps` writes one to lift the per-address RPC limit.
+    let config = work.join("node.toml");
+    if config.exists() {
+        cmd.arg("--config").arg(&config);
+    }
     match remote {
         Some(r) if i == VALIDATORS - 1 => {
             cmd.args(["--remote-signer", &r.addr, "--signer-pin", &r.pin])
@@ -267,8 +272,12 @@ fn block_id(i: u16, height: u64) -> Result<String> {
 }
 
 pub(crate) fn balance(i: u16, address: &str) -> Result<u64> {
-    rpc(i, "get_balance", &json!([address]))?["balance"]
-        .as_u64()
+    // A decimal string since amounts became 256-bit (ADR-046); reading it as
+    // a JSON number made every transfer look missing (nightly, 2026-10-18).
+    let v = rpc(i, "get_balance", &json!([address]))?;
+    v["balance"]
+        .as_str()
+        .and_then(|s| s.parse().ok())
         .ok_or_else(|| format!("node {i}: get_balance carries no balance"))
 }
 

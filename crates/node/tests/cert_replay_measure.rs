@@ -12,6 +12,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use custom_l1_node::core::ChainTag;
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -25,7 +26,7 @@ use custom_l1_node::consensus::bft::wire::decode_certificate;
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
 use custom_l1_node::consensus::chain::{Chain, ChainConfig};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
-use custom_l1_node::crypto::keys::{self, SigningKey, VerifyingKey};
+use custom_l1_node::crypto::validator_keys::{self as keys, SigningKey, VerifyingKey};
 use custom_l1_node::genesis::{Allocation, BftGenesis, GenesisBond, GenesisConfig, StakingGenesis};
 use custom_l1_node::state::db::StateDB;
 use maya_dag_bft::{Authenticator, Params};
@@ -318,8 +319,14 @@ impl Sampler {
 
 /// Every certificate of every epoch `0..=head` in `dir`, verified against
 /// `keys`, with nothing else done: the verification cost on its own.
-fn verify_only(dir: &std::path::Path, head: u64, keys: &Arc<[VerifyingKey]>) -> (usize, usize) {
-    let auth = custom_l1_node::consensus::bft::auth::MlDsaAuthenticator::observer(Arc::clone(keys));
+fn verify_only(
+    dir: &std::path::Path,
+    head: u64,
+    keys: &Arc<[VerifyingKey]>,
+    tag: ChainTag,
+) -> (usize, usize) {
+    let auth =
+        custom_l1_node::consensus::bft::auth::MlDsaAuthenticator::observer(Arc::clone(keys), tag);
     let (mut certs, mut sigs) = (0_usize, 0_usize);
     for epoch in 0..=head {
         let mut offset = 0_u64;
@@ -374,9 +381,10 @@ fn catching_up_by_replay_costs_this_much() {
     run.members.clear();
     let want = reference.chain.height();
 
-    let (certs, sigs) = verify_only(&peer_dir, head, &committee);
+    let tag = ChainTag::from_genesis(reference.chain.genesis());
+    let (certs, sigs) = verify_only(&peer_dir, head, &committee, tag);
     let t = Instant::now();
-    let _ = verify_only(&peer_dir, head, &committee);
+    let _ = verify_only(&peer_dir, head, &committee, tag);
     println!(
         "VERIFY n={n} certs={certs} sigs={sigs} verify_secs={:.2}",
         t.elapsed().as_secs_f64()

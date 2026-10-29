@@ -54,7 +54,7 @@ fn the_wasmtime_version_pin_has_not_drifted() {
     let actual = env!("CARGO_PKG_VERSION_MAJOR");
     let _ = actual;
     assert_eq!(
-        WASMTIME_VERSION, "48.0.6",
+        WASMTIME_VERSION, "48.0.7",
         "the recorded wasmtime version changed; verify the gas schedule"
     );
 }

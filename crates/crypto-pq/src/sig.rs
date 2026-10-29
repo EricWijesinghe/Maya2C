@@ -329,6 +329,15 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
+    /// `HybridSigningKey`'s `ZeroizeOnDrop` is a bare marker, so the compiler
+    /// does not check its fields. This is the check: if slh-dsa stopped wiping its
+    /// secret key on drop, this stops compiling instead of leaving it in memory.
+    #[test]
+    fn the_wrapped_secret_key_wipes_itself_on_drop() {
+        fn requires_zeroize_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+        requires_zeroize_on_drop::<slh_dsa::SigningKey<Sha2_128s>>();
+    }
+
     #[test]
     fn the_parameter_set_has_the_sizes_the_wire_format_assumes() {
         assert_eq!(SIGNATURE_LEN, 7856);

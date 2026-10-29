@@ -36,7 +36,7 @@ fn found_block(id: &str, height: u64, sequence: u64, reward: u64) -> FoundBlock 
         id: id.to_string(),
         height,
         sequence,
-        reward,
+        reward: primitive_types::U256::from(reward),
         finder: ALICE,
         found_at_millis: 1_700_000_000_000,
         state: BlockState::Immature,
@@ -44,7 +44,10 @@ fn found_block(id: &str, height: u64, sequence: u64, reward: u64) -> FoundBlock 
 }
 
 fn entry(miner: Address, amount: u64) -> PayoutEntry {
-    PayoutEntry { miner, amount }
+    PayoutEntry {
+        miner,
+        amount: primitive_types::U256::from(amount),
+    }
 }
 
 fn batch(id: u64, nonce: u64, state: PayoutState, entries: Vec<PayoutEntry>) -> PayoutBatch {
@@ -120,15 +123,24 @@ fn credits_start_immature_and_mature_together() {
             .record_block(&block, &[entry(ALICE, 600), entry(BOB, 400)])
             .unwrap();
 
-        assert_eq!(ledger.balance(&ALICE).unwrap().immature, 600);
-        assert_eq!(ledger.balance(&ALICE).unwrap().unpaid, 0);
+        assert_eq!(
+            ledger.balance(&ALICE).unwrap().immature,
+            primitive_types::U256::from(600)
+        );
+        assert_eq!(
+            ledger.balance(&ALICE).unwrap().unpaid,
+            primitive_types::U256::from(0)
+        );
 
         ledger.mature_block("block-a").unwrap();
 
         let alice = ledger.balance(&ALICE).unwrap();
-        assert_eq!(alice.immature, 0);
-        assert_eq!(alice.unpaid, 600);
-        assert_eq!(ledger.balance(&BOB).unwrap().unpaid, 400);
+        assert_eq!(alice.immature, primitive_types::U256::from(0));
+        assert_eq!(alice.unpaid, primitive_types::U256::from(600));
+        assert_eq!(
+            ledger.balance(&BOB).unwrap().unpaid,
+            primitive_types::U256::from(400)
+        );
     });
 }
 
@@ -145,7 +157,10 @@ fn maturing_twice_does_not_credit_twice() {
         ledger.mature_block("block-a").unwrap();
         ledger.mature_block("block-a").unwrap();
 
-        assert_eq!(ledger.balance(&ALICE).unwrap().unpaid, 600);
+        assert_eq!(
+            ledger.balance(&ALICE).unwrap().unpaid,
+            primitive_types::U256::from(600)
+        );
     });
 }
 
@@ -159,8 +174,12 @@ fn an_orphaned_block_takes_its_credits_back() {
         ledger.orphan_block("block-a").unwrap();
 
         let alice = ledger.balance(&ALICE).unwrap();
-        assert_eq!(alice.immature, 0);
-        assert_eq!(alice.unpaid, 0, "an orphaned block earns nothing");
+        assert_eq!(alice.immature, primitive_types::U256::from(0));
+        assert_eq!(
+            alice.unpaid,
+            primitive_types::U256::from(0),
+            "an orphaned block earns nothing"
+        );
         assert_eq!(
             ledger.block("block-a").unwrap().unwrap().state,
             BlockState::Orphaned
@@ -182,7 +201,10 @@ fn orphaning_twice_does_not_take_credits_from_another_block() {
         ledger.orphan_block("block-a").unwrap();
 
         // Block B's credit must be untouched.
-        assert_eq!(ledger.balance(&ALICE).unwrap().immature, 500);
+        assert_eq!(
+            ledger.balance(&ALICE).unwrap().immature,
+            primitive_types::U256::from(500)
+        );
     });
 }
 
@@ -197,7 +219,10 @@ fn a_matured_block_cannot_be_orphaned_out_of_paid_credits() {
         ledger.mature_block("block-a").unwrap();
         ledger.orphan_block("block-a").unwrap();
 
-        assert_eq!(ledger.balance(&ALICE).unwrap().unpaid, 600);
+        assert_eq!(
+            ledger.balance(&ALICE).unwrap().unpaid,
+            primitive_types::U256::from(600)
+        );
         assert_eq!(
             ledger.block("block-a").unwrap().unwrap().state,
             BlockState::Mature
@@ -212,7 +237,10 @@ fn recording_the_same_block_twice_credits_once() {
         ledger.record_block(&block, &[entry(ALICE, 600)]).unwrap();
         ledger.record_block(&block, &[entry(ALICE, 600)]).unwrap();
 
-        assert_eq!(ledger.balance(&ALICE).unwrap().immature, 600);
+        assert_eq!(
+            ledger.balance(&ALICE).unwrap().immature,
+            primitive_types::U256::from(600)
+        );
     });
 }
 
@@ -228,15 +256,23 @@ fn creating_a_batch_debits_it_and_reversing_it_gives_the_credits_back() {
         ledger.create_batch(&payout).unwrap();
 
         let alice = ledger.balance(&ALICE).unwrap();
-        assert_eq!(alice.unpaid, 0, "the credit is committed to a batch");
-        assert_eq!(alice.paid, 600);
+        assert_eq!(
+            alice.unpaid,
+            primitive_types::U256::from(0),
+            "the credit is committed to a batch"
+        );
+        assert_eq!(alice.paid, primitive_types::U256::from(600));
 
         payout.state = PayoutState::Orphaned;
         ledger.reverse_batch(&payout).unwrap();
 
         let alice = ledger.balance(&ALICE).unwrap();
-        assert_eq!(alice.unpaid, 600, "a lost batch owes the miner again");
-        assert_eq!(alice.paid, 0);
+        assert_eq!(
+            alice.unpaid,
+            primitive_types::U256::from(600),
+            "a lost batch owes the miner again"
+        );
+        assert_eq!(alice.paid, primitive_types::U256::from(0));
     });
 }
 
@@ -256,8 +292,8 @@ fn a_repeated_batch_creation_debits_once() {
         ledger.create_batch(&payout).unwrap();
 
         let alice = ledger.balance(&ALICE).unwrap();
-        assert_eq!(alice.unpaid, 200);
-        assert_eq!(alice.paid, 400);
+        assert_eq!(alice.unpaid, primitive_types::U256::from(200));
+        assert_eq!(alice.paid, primitive_types::U256::from(400));
     });
 }
 
@@ -278,7 +314,10 @@ fn reversing_a_batch_twice_credits_once() {
         ledger.reverse_batch(&payout).unwrap();
         ledger.reverse_batch(&payout).unwrap();
 
-        assert_eq!(ledger.balance(&ALICE).unwrap().unpaid, 600);
+        assert_eq!(
+            ledger.balance(&ALICE).unwrap().unpaid,
+            primitive_types::U256::from(600)
+        );
     });
 }
 
@@ -301,8 +340,14 @@ fn a_confirmed_batch_cannot_be_reversed() {
         payout.state = PayoutState::Orphaned;
         ledger.reverse_batch(&payout).unwrap();
 
-        assert_eq!(ledger.balance(&ALICE).unwrap().unpaid, 0);
-        assert_eq!(ledger.balance(&ALICE).unwrap().paid, 600);
+        assert_eq!(
+            ledger.balance(&ALICE).unwrap().unpaid,
+            primitive_types::U256::from(0)
+        );
+        assert_eq!(
+            ledger.balance(&ALICE).unwrap().paid,
+            primitive_types::U256::from(600)
+        );
     });
 }
 
@@ -432,7 +477,10 @@ fn a_reopened_ledger_still_knows_what_it_owes() {
     }
 
     let ledger = RocksLedger::open(dir.path()).unwrap();
-    assert_eq!(ledger.balance(&ALICE).unwrap().unpaid, 600);
+    assert_eq!(
+        ledger.balance(&ALICE).unwrap().unpaid,
+        primitive_types::U256::from(600)
+    );
     assert_eq!(ledger.tip_sequence().unwrap(), Some(9));
     assert_eq!(
         ledger.block("block-a").unwrap().unwrap().state,

@@ -22,8 +22,9 @@ use crate::state::Account;
 pub struct FeeInfo {
     /// Whether this chain charges fees at all.
     pub active: bool,
-    /// Base fee per serialized byte for the next block.
-    pub base_fee: u64,
+    /// Base fee per serialized byte for the next block, as a decimal string
+    /// (ADR-066: 256-bit).
+    pub base_fee: String,
     /// Hex address a transaction pays its fee to, as an ordinary output.
     pub collector: String,
 }
@@ -138,7 +139,7 @@ pub struct CheckpointInfo {
     pub height: u64,
     /// Hex block id.
     pub block: String,
-    /// `(committee index, hex ML-DSA-65 signature)`, ordered by index.
+    /// `(committee index, hex ML-DSA-87 validator signature)`, ordered by index.
     pub signatures: Vec<(u16, String)>,
 }
 
@@ -290,6 +291,18 @@ pub struct TransactionInfo {
     /// hybrid key fields are then empty. Absent otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub multisig: Option<MultisigInfo>,
+    /// The transaction kind's name, e.g. `transfer` or `place_order`. Empty from
+    /// a node that predates it.
+    #[serde(default)]
+    pub kind: String,
+    /// What the transaction does, in one sentence, from the same words every
+    /// wallet shows (`core::describe`). Empty from a node that predates it.
+    #[serde(default)]
+    pub summary: String,
+    /// Whether a signer should look twice: it moves value, locks funds, runs
+    /// code, or changes who controls something.
+    #[serde(default)]
+    pub careful: bool,
 }
 
 /// A multisig transaction's policy, as the API reports it.
@@ -314,6 +327,7 @@ pub struct SuiteKeyInfo {
 
 impl From<&Transaction> for TransactionInfo {
     fn from(tx: &Transaction) -> Self {
+        let described = crate::core::describe::describe(tx);
         Self {
             txid: hex::encode(tx.txid()),
             sender: hex::encode(tx.sender()),
@@ -358,6 +372,9 @@ impl From<&Transaction> for TransactionInfo {
                     .collect(),
                 approved_by: auth.approvals().iter().map(|a| a.index).collect(),
             }),
+            kind: tx.kind.label().to_owned(),
+            summary: described.summary,
+            careful: described.review == crate::core::describe::Review::Careful,
         }
     }
 }

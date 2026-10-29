@@ -8,6 +8,7 @@ description = "Model Context Protocol server: lets AI assistants decode transact
 
 [dependencies]
 custom-l1-node = { path = "../../crates/node", default-features = false }
+maya-amount = { path = "../../crates/amount" }
 maya-clear-sign = { path = "../../crates/clear-sign" }
 serde_json.workspace = true
 hex.workspace = true
