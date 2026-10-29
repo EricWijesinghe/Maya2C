@@ -325,10 +325,19 @@ impl StateDB {
             }
 
             if let Some(kind) = opened {
-                // The whole reason this is not `?`. A revealed action that
-                // fails leaves the overlay as it was — `apply_kind` mutates
-                // only on the paths that succeed — and the block continues.
-                let _ = self.apply_revealed(overlay, &record.sender, &id, &kind, context);
+                // A revealed action that fails is the sender's loss and the
+                // block continues, so it runs on a copy committed only on
+                // success: not every action stages its writes after its last
+                // check (Register writes its key before the bond debit,
+                // pre-audit S-026). A storage error is this node's, not the
+                // action's, so it fails the block here rather than letting one
+                // node skip what the others applied (S-020).
+                let mut attempt = overlay.clone();
+                match self.apply_revealed(&mut attempt, &record.sender, &id, &kind, context) {
+                    Ok(()) => *overlay = attempt,
+                    Err(e @ NodeError::Storage(_)) => return Err(e),
+                    Err(_) => {}
+                }
                 overlay.revealed += 1;
             }
         }

@@ -133,16 +133,29 @@ impl Chain {
     /// the heavier branch simply not arrived yet.
     fn adopt_heaviest(&mut self) {
         let tip_work = self.total_work();
+        // Equal work is broken by the lowest id, never by the map's iteration
+        // order, which differs per process (pre-audit S-018).
         let best = self
             .records
             .iter()
             .filter(|(_, record)| record.total_work > tip_work)
-            .max_by_key(|(_, record)| record.total_work)
+            .max_by(|a, b| a.1.total_work.cmp(&b.1.total_work).then(b.0.cmp(a.0)))
             .map(|(id, _)| *id);
-        if let Some(best) = best
-            && self.state.has_body(&best).unwrap_or(false)
-        {
-            let _ = self.reorganize(&best);
+        let Some(best) = best else { return };
+        match self.state.has_body(&best) {
+            Ok(true) => {
+                if let Err(e) = self.reorganize(&best) {
+                    eprintln!(
+                        "chain: staying on the current tip; switching to heavier branch {} failed: {e}",
+                        hex::encode(best)
+                    );
+                }
+            }
+            Ok(false) => {}
+            Err(e) => eprintln!(
+                "chain: cannot read heavier branch {}: {e}",
+                hex::encode(best)
+            ),
         }
     }
 
