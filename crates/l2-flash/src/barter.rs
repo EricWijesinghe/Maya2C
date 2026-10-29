@@ -9,6 +9,8 @@
 
 use std::collections::BTreeMap;
 
+use primitive_types::{U256, U512};
+
 use crate::channel::Address;
 
 /// Why a barter step was refused.
@@ -18,9 +20,9 @@ pub enum BarterError {
     #[error("insufficient balance: need {required}, have {available}")]
     Insufficient {
         /// What was needed.
-        required: u64,
+        required: U256,
         /// What there was.
-        available: u64,
+        available: U256,
     },
     /// No SLA with that id.
     #[error("no SLA {0}")]
@@ -56,16 +58,16 @@ pub struct Sla {
     /// What.
     pub resource: Resource,
     /// Paid per unit delivered.
-    pub price_per_unit: u64,
+    pub price_per_unit: U256,
     /// Units the provider commits to deliver each tick.
-    pub committed_per_tick: u64,
+    pub committed_per_tick: U256,
     /// Basis points of the commitment the provider must reach to avoid a
     /// slash.
     pub floor_bps: u64,
     /// Slashed per breaching tick, from the provider's collateral.
-    pub slash_per_breach: u64,
+    pub slash_per_breach: U256,
     /// The provider's collateral posted for this SLA.
-    pub collateral: u64,
+    pub collateral: U256,
 }
 
 const BPS: u64 = 10_000;
@@ -73,24 +75,36 @@ const BPS: u64 = 10_000;
 /// The market: balances, SLAs, and what has moved since the last settlement.
 #[derive(Clone, Debug, Default)]
 pub struct Market {
-    balances: BTreeMap<Address, u64>,
+    balances: BTreeMap<Address, U256>,
     slas: Vec<Sla>,
     /// Collateral still held per SLA.
-    held: Vec<u64>,
-    /// Net movement per account since the last settlement (positive: owed to it).
-    net: BTreeMap<Address, i128>,
-    /// Change in collateral held in escrow since the last settlement.
-    escrow_delta: i128,
+    held: Vec<U256>,
+    /// Credits and debits per account since the last settlement. Two unsigned
+    /// 256-bit totals rather than one signed number: nothing wider than
+    /// 256 bits exists, and a signed 256 would halve the range.
+    net: BTreeMap<Address, (U256, U256)>,
+    /// Collateral posted into, and released from, escrow since the last settlement.
+    escrow_in: U256,
+    escrow_out: U256,
     /// Payments and slashes applied since the last settlement.
     updates: u64,
     breaches: u64,
+}
+
+/// A signed 256-bit change: a magnitude and a direction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Delta {
+    /// `true` when the account owes (its debits exceeded its credits).
+    pub negative: bool,
+    /// How much.
+    pub magnitude: U256,
 }
 
 /// One netted settlement: the only thing that touches the L1.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Settlement {
     /// Each account's net change, in address order; they sum to zero.
-    pub deltas: Vec<(Address, i128)>,
+    pub deltas: Vec<(Address, Delta)>,
     /// Channel updates the batch replaces.
     pub updates: u64,
     /// SLA breaches slashed.
@@ -99,14 +113,20 @@ pub struct Settlement {
 
 impl Market {
     /// Funds `who` with `amount` (a channel's opening capacity).
-    pub fn fund(&mut self, who: Address, amount: u64) {
-        *self.balances.entry(who).or_default() += amount;
+    ///
+    /// # Errors
+    ///
+    /// [`BarterError::Overflow`] if the balance would pass 2^256 - 1.
+    pub fn fund(&mut self, who: Address, amount: U256) -> Result<(), BarterError> {
+        let balance = self.balances.entry(who).or_default();
+        *balance = balance.checked_add(amount).ok_or(BarterError::Overflow)?;
+        Ok(())
     }
 
     /// `who`'s spendable balance.
     #[must_use]
-    pub fn balance(&self, who: &Address) -> u64 {
-        self.balances.get(who).copied().unwrap_or(0)
+    pub fn balance(&self, who: &Address) -> U256 {
+        self.balances.get(who).copied().unwrap_or_default()
     }
 
     /// Opens an SLA, moving the provider's collateral out of its balance.
@@ -118,11 +138,14 @@ impl Market {
         self.debit(sla.provider, sla.collateral)?;
         self.slas.push(sla);
         self.held.push(sla.collateral);
-        self.escrow_delta += i128::from(sla.collateral);
+        self.escrow_in = self
+            .escrow_in
+            .checked_add(sla.collateral)
+            .ok_or(BarterError::Overflow)?;
         Ok(self.slas.len() - 1)
     }
 
-    fn debit(&mut self, who: Address, amount: u64) -> Result<(), BarterError> {
+    fn debit(&mut self, who: Address, amount: U256) -> Result<(), BarterError> {
         let balance = self.balances.entry(who).or_default();
         let available = *balance;
         *balance = available
@@ -131,13 +154,17 @@ impl Market {
                 required: amount,
                 available,
             })?;
-        *self.net.entry(who).or_default() -= i128::from(amount);
+        let net = self.net.entry(who).or_default();
+        net.1 = net.1.checked_add(amount).ok_or(BarterError::Overflow)?;
         Ok(())
     }
 
-    fn credit(&mut self, who: Address, amount: u64) {
-        *self.balances.entry(who).or_default() += amount;
-        *self.net.entry(who).or_default() += i128::from(amount);
+    fn credit(&mut self, who: Address, amount: U256) -> Result<(), BarterError> {
+        let balance = self.balances.entry(who).or_default();
+        *balance = balance.checked_add(amount).ok_or(BarterError::Overflow)?;
+        let net = self.net.entry(who).or_default();
+        net.0 = net.0.checked_add(amount).ok_or(BarterError::Overflow)?;
+        Ok(())
     }
 
     /// One tick of SLA `id`: the provider delivered `delivered` units. The
@@ -148,22 +175,29 @@ impl Market {
     /// # Errors
     ///
     /// An unknown SLA, or a consumer that cannot pay for what it received.
-    pub fn tick(&mut self, id: usize, delivered: u64) -> Result<bool, BarterError> {
+    pub fn tick(&mut self, id: usize, delivered: U256) -> Result<bool, BarterError> {
         let sla = *self.slas.get(id).ok_or(BarterError::UnknownSla(id))?;
         let owed = delivered
             .checked_mul(sla.price_per_unit)
             .ok_or(BarterError::Overflow)?;
         self.debit(sla.consumer, owed)?;
-        self.credit(sla.provider, owed);
+        self.credit(sla.provider, owed)?;
         self.updates += 1;
-        let floor = sla.committed_per_tick.saturating_mul(sla.floor_bps) / BPS;
+        // The product is taken in 512 bits, so a huge commitment is not clamped.
+        let floor = U256::try_from(
+            sla.committed_per_tick.full_mul(U256::from(sla.floor_bps)) / U512::from(BPS),
+        )
+        .map_err(|_| BarterError::Overflow)?;
         if delivered >= floor {
             return Ok(false);
         }
         let slash = sla.slash_per_breach.min(self.held[id]);
         self.held[id] -= slash;
-        self.escrow_delta -= i128::from(slash);
-        self.credit(sla.consumer, slash);
+        self.escrow_out = self
+            .escrow_out
+            .checked_add(slash)
+            .ok_or(BarterError::Overflow)?;
+        self.credit(sla.consumer, slash)?;
         self.breaches += 1;
         Ok(true)
     }
@@ -175,15 +209,21 @@ impl Market {
     /// An unknown SLA.
     pub fn close(&mut self, id: usize) -> Result<(), BarterError> {
         let left = std::mem::take(self.held.get_mut(id).ok_or(BarterError::UnknownSla(id))?);
-        self.escrow_delta -= i128::from(left);
-        self.credit(self.slas[id].provider, left);
-        Ok(())
+        self.escrow_out = self
+            .escrow_out
+            .checked_add(left)
+            .ok_or(BarterError::Overflow)?;
+        self.credit(self.slas[id].provider, left)
     }
 
     /// Collateral still held across open SLAs.
     #[must_use]
-    pub fn collateral_held(&self) -> u64 {
-        self.held.iter().sum()
+    pub fn collateral_held(&self) -> U256 {
+        // shortcut: saturates; held collateral was debited from balances, so the
+        // sum fits 256 bits unless the market itself was funded past it.
+        self.held
+            .iter()
+            .fold(U256::zero(), |sum, h| sum.saturating_add(*h))
     }
 
     /// Everything moved since the last settlement, netted per account, as
@@ -194,12 +234,30 @@ impl Market {
     /// [`BarterError::NotConserved`] if the deltas and the change in escrow
     /// do not sum to zero — which would mean value was created or lost.
     pub fn settle(&mut self) -> Result<Settlement, BarterError> {
-        let deltas: Vec<(Address, i128)> = std::mem::take(&mut self.net)
-            .into_iter()
-            .filter(|(_, d)| *d != 0)
-            .collect();
-        let sum: i128 = deltas.iter().map(|(_, d)| *d).sum();
-        if sum + std::mem::take(&mut self.escrow_delta) != 0 {
+        // Value in must equal value out: credits + collateral posted == debits +
+        // collateral released. (The old signed form summed these to zero.)
+        let (mut credits, mut debits) = (self.escrow_in, self.escrow_out);
+        let mut deltas = Vec::new();
+        for (who, (gain, loss)) in std::mem::take(&mut self.net) {
+            credits = credits.checked_add(gain).ok_or(BarterError::Overflow)?;
+            debits = debits.checked_add(loss).ok_or(BarterError::Overflow)?;
+            if gain != loss {
+                deltas.push((
+                    who,
+                    Delta {
+                        negative: loss > gain,
+                        magnitude: if loss > gain {
+                            loss - gain
+                        } else {
+                            gain - loss
+                        },
+                    },
+                ));
+            }
+        }
+        self.escrow_in = U256::zero();
+        self.escrow_out = U256::zero();
+        if credits != debits {
             return Err(BarterError::NotConserved);
         }
         let out = Settlement {

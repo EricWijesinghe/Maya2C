@@ -15,7 +15,7 @@ machines. No secret key ever leaves the machine it was made on.
 
 ## Each council member, on their own device (ADR-050)
 
-Three devices by default: this PC, the MacBook, and an offline backup. Make new council keys for every chain: an approval does not yet name its chain (ADR-050, review finding).
+Three devices by default: this PC, the MacBook, and an offline backup. Every approval names its chain (`--genesis`), so approvals for one chain never count on another (ADR-050). Still, give each chain its own keys.
 
 - Put a long random passphrase in a file on another drive than the key, and a
   paper copy somewhere safe. Never type it on a command line.
@@ -44,6 +44,15 @@ Three devices by default: this PC, the MacBook, and an offline backup. Make new 
    inputs. Their `genesis.json` must be **byte-identical** to the
    coordinator's (compare sha256), and the commitment beside their label must
    be the one they noted in step 1. Any difference stops the launch.
+7a. The genesis id must differ from every testnet genesis ever published
+   (`docs/site/authored/testnet.mdx` and the release notes). A match means a
+   testnet signature would be valid on mainnet: stop.
+7b. Pin it. Add the genesis id, lower-case hex, to `MAINNET_GENESIS` in
+   `apps/wallet-gui/core/src/networks.rs`, merge, and tag the release from
+   that commit. Until then the wallet shows no network as MAINNET and
+   refuses to sign for a node that claims to be one. Publish the
+   fingerprint (first and last eight hex characters) wherever the network is
+   announced, so people can compare it with what their wallet shows.
 
 ## Launch
 
@@ -83,11 +92,11 @@ nonce (0 for the first action; it goes up by one after every action).
 
 1. On each of two member devices:
    `genesis-ceremony council approve --key <label>.council.sealed
-   --passphrase-file <file> --council <dir of the three .public files>
+   --passphrase-file <file> --council <dir of the three .public files> --genesis genesis.json
    --nonce <n> --pause <module> --blocks <n>` (or `--resume <module>`).
    It writes `<label>.approval`: a signature, no secret. Modules are named as
    in `invariant_guard::Module`: `dex`, `vm`, `oracle`, and so on.
-2. On any machine: `genesis-ceremony council combine --council <dir>
+2. On any machine: `genesis-ceremony council combine --council <dir> --genesis genesis.json
    a.approval b.approval`. It checks every signature and refuses one approval,
    a repeat, a forgery or two approvals for different actions. It writes
    `council-action.hex`.

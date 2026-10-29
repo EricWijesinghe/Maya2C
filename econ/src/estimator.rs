@@ -9,11 +9,26 @@
 
 use maya_fee_market::next_base_fee;
 
+/// The fee rule on this simulator's `u64` fee. The rule itself is 256-bit; the
+/// model's fee track is not, and clamps to `u64` here. SIM only: never on a
+/// production path (Standing Order 3).
+fn rule_step(fee: u64, size: u64, target: u64, denominator: u64, floor: u64) -> u64 {
+    use maya_fee_market::Amount;
+    next_base_fee(
+        Amount::from_u64(fee),
+        size,
+        target,
+        denominator,
+        Amount::from_u64(floor),
+    )
+    .saturating_to_u64()
+}
+
 /// The highest base fee reachable `k` blocks after `base`, under the rule.
 pub fn max_base_fee_after(base: u64, k: u32, target: u64, denominator: u64, floor: u64) -> u64 {
     let mut fee = base;
     for _ in 0..k {
-        fee = next_base_fee(fee, 2 * target, target, denominator, floor);
+        fee = rule_step(fee, 2 * target, target, denominator, floor);
     }
     fee
 }
@@ -44,7 +59,7 @@ pub fn measure(
     let mut fee = start;
     fees.push(fee);
     for s in sizes {
-        fee = next_base_fee(fee, *s, target, denominator, floor);
+        fee = rule_step(fee, *s, target, denominator, floor);
         fees.push(fee);
     }
     let k_us = k as usize;

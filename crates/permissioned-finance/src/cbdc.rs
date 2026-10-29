@@ -1,5 +1,6 @@
 //! A permissioned CBDC vault with ZK-KYC admission.
 
+use maya_amount::Amount;
 use std::collections::{BTreeMap, BTreeSet};
 
 use maya_zk_stark::Proof;
@@ -20,7 +21,7 @@ pub enum VaultError {
     /// Over the sender's per-transfer limit for its tier.
     OverLimit {
         /// The limit.
-        limit: u64,
+        limit: Amount,
     },
     /// Balance too low.
     Insufficient,
@@ -37,17 +38,21 @@ pub struct Vault {
     /// The KYC issuer's credential and revocation roots (anchored on chain).
     kyc_roots: (Digest, Digest),
     /// Per-transfer limit per tier; tier 0 is "not admitted".
-    limits: BTreeMap<u32, u64>,
+    limits: BTreeMap<u32, Amount>,
     tiers: BTreeMap<Account, u32>,
     frozen: BTreeSet<Account>,
-    balances: BTreeMap<Account, u64>,
-    supply: u64,
+    balances: BTreeMap<Account, Amount>,
+    supply: Amount,
 }
 
 impl Vault {
     /// A vault run by `issuer`, admitting against the given KYC roots.
     #[must_use]
-    pub fn new(issuer: Account, kyc_roots: (Digest, Digest), limits: BTreeMap<u32, u64>) -> Self {
+    pub fn new(
+        issuer: Account,
+        kyc_roots: (Digest, Digest),
+        limits: BTreeMap<u32, Amount>,
+    ) -> Self {
         Self {
             issuer,
             kyc_roots,
@@ -55,7 +60,7 @@ impl Vault {
             tiers: BTreeMap::new(),
             frozen: BTreeSet::new(),
             balances: BTreeMap::new(),
-            supply: 0,
+            supply: Amount::default(),
         }
     }
 
@@ -82,7 +87,7 @@ impl Vault {
     /// # Errors
     ///
     /// Not the issuer, not admitted, or overflow.
-    pub fn issue(&mut self, actor: Account, to: Account, amount: u64) -> Result<(), VaultError> {
+    pub fn issue(&mut self, actor: Account, to: Account, amount: Amount) -> Result<(), VaultError> {
         if actor != self.issuer {
             return Err(VaultError::NotIssuer);
         }
@@ -91,7 +96,7 @@ impl Vault {
             .supply
             .checked_add(amount)
             .ok_or(VaultError::Overflow)?;
-        let b = self.balances.entry(to).or_insert(0);
+        let b = self.balances.entry(to).or_default();
         *b = b.checked_add(amount).ok_or(VaultError::Overflow)?;
         Ok(())
     }
@@ -135,18 +140,18 @@ impl Vault {
     /// # Errors
     ///
     /// Any [`VaultError`]; a refusal changes nothing.
-    pub fn settle(&mut self, from: Account, to: Account, amount: u64) -> Result<(), VaultError> {
+    pub fn settle(&mut self, from: Account, to: Account, amount: Amount) -> Result<(), VaultError> {
         let tier = self.require_admitted(&from)?;
         self.require_admitted(&to)?;
-        let limit = self.limits.get(&tier).copied().unwrap_or(0);
+        let limit = self.limits.get(&tier).copied().unwrap_or_default();
         if amount > limit {
             return Err(VaultError::OverLimit { limit });
         }
-        let from_balance = self.balances.get(&from).copied().unwrap_or(0);
+        let from_balance = self.balances.get(&from).copied().unwrap_or_default();
         let rest = from_balance
             .checked_sub(amount)
             .ok_or(VaultError::Insufficient)?;
-        let to_balance = self.balances.get(&to).copied().unwrap_or(0);
+        let to_balance = self.balances.get(&to).copied().unwrap_or_default();
         let credited = to_balance.checked_add(amount).ok_or(VaultError::Overflow)?;
         self.balances.insert(from, rest);
         self.balances.insert(to, credited);
@@ -155,19 +160,23 @@ impl Vault {
 
     /// A balance.
     #[must_use]
-    pub fn balance(&self, who: &Account) -> u64 {
-        self.balances.get(who).copied().unwrap_or(0)
+    pub fn balance(&self, who: &Account) -> Amount {
+        self.balances.get(who).copied().unwrap_or_default()
     }
 
     /// Total issued.
     #[must_use]
-    pub fn supply(&self) -> u64 {
+    pub fn supply(&self) -> Amount {
         self.supply
     }
 
     /// Sum of every balance: must always equal [`Vault::supply`].
     #[must_use]
-    pub fn held(&self) -> u128 {
-        self.balances.values().map(|b| u128::from(*b)).sum()
+    pub fn held(&self) -> Amount {
+        // shortcut: saturates past 2^256 - 1; `issue` refuses any supply that
+        // would pass it, and every balance is part of the supply.
+        self.balances
+            .values()
+            .fold(Amount::default(), |sum, b| sum.saturating_add(*b))
     }
 }

@@ -315,6 +315,56 @@ async fn get_block_by_height_reports_a_missing_height() {
     assert!(result.is_err(), "height beyond the tip must not resolve");
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn get_validators_is_null_on_a_chain_without_staking() {
+    let node = start_node(&[], false).await;
+
+    let info: Option<serde_json::Value> = node
+        .client
+        .request("get_validators", rpc_params![])
+        .await
+        .expect("get_validators");
+
+    assert!(info.is_none(), "{info:?}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_range_stops_at_the_tip_and_matches_the_single_block_answer() {
+    let node = start_node(&[], false).await;
+
+    let range: Vec<BlockInfo> = node
+        .client
+        .request("get_blocks_by_height_range", rpc_params![0u64, 5u64])
+        .await
+        .expect("range");
+    let single: BlockInfo = node
+        .client
+        .request("get_block_by_height", rpc_params![0u64])
+        .await
+        .expect("single");
+
+    // Only genesis exists: the answer is short, not an error and not padded.
+    assert_eq!(range.len(), 1);
+    assert_eq!(range[0].raw, single.raw);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_range_past_the_tip_or_of_a_bad_size_is_refused() {
+    let node = start_node(&[], false).await;
+
+    for params in [
+        rpc_params![42u64, 1u64],
+        rpc_params![0u64, 0u64],
+        rpc_params![0u64, 33u64],
+    ] {
+        let result: Result<Vec<BlockInfo>, _> = node
+            .client
+            .request("get_blocks_by_height_range", params)
+            .await;
+        assert!(result.is_err(), "must be refused");
+    }
+}
+
 // ---------------------------------------------------------------------------
 // get_mining_candidate + submit_block
 // ---------------------------------------------------------------------------

@@ -8,6 +8,7 @@ rust-version.workspace = true
 description = "Interoperability without trusted bridges: Ethereum header verification, per-route value caps that grow with clean history, proof-settled intent escrow"
 
 [dependencies]
+maya-amount = { path = "../amount" }
 sha3.workspace = true
 # The beacon light client: SSZ is SHA-256 Merkle trees; sync-committee
 # signatures are BLS12-381, verified with supranational's blst (the library

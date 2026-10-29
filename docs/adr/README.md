@@ -87,5 +87,5 @@ The observation that would make this worth reopening.
 | [052](ADR-052-follower-advance-by-certificates.md) | A follower advances on certificates the current committee signed (rejoin by certificate replay) | Accepted |
 | [053](ADR-053-ordered-set-root-in-header.md) | Commit each anchor's ordered sub-DAG in the block header | Proposed |
 | [054](ADR-054-reproducible-builds.md) | Reproducible Linux node builds: path remapping, one shared build script, a twice-built CI check | Accepted |
-| [055](ADR-055-quantum-harbor-binding.md) | Quantum Harbor step one: classical-key → PQ-vault binding, anchored on chain; no coins move | Proposed |
-| [056](ADR-056-guardian-recovery-transactions.md) | Guardian recovery as four node transactions with a delay and an owner cancel | Proposed |
+| [055](ADR-055-quantum-harbor-binding.md) | Quantum Harbor step one: classical-key → PQ-vault binding, anchored on chain; no coins move | Accepted |
+| [056](ADR-056-guardian-recovery-transactions.md) | Guardian recovery as four node transactions with a delay and an owner cancel | Accepted |

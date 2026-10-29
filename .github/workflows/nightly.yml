@@ -42,7 +42,7 @@ jobs:
           toolchain: nightly-2026-07-15
           targets: wasm32-unknown-unknown,thumbv8m.main-none-eabihf,riscv32imc-unknown-none-elf
           components: rust-src
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: frontier
 
@@ -69,6 +69,14 @@ jobs:
       # pins the port to the authors' reference, and a check would not.
       - name: Threshold Raccoon (threshold-lattice)
         run: cargo test -p maya-custody-mpc --features threshold-lattice
+
+      # The PR run checks 192 schedules per committee; the indirect-commit bug
+      # it exists to catch took ~6,000 random cases to reach, so the deep
+      # search runs here. The two hand-built DAGs pin that case on every PR.
+      - name: DAG-BFT adversarial schedules (deep)
+        env:
+          MAYA_SCHEDULE_CASES: "10000"
+        run: cargo test -p maya-dag-bft --release --test adversarial_schedules
 
   # ---------------------------------------------------------------------
   # Fuzzing. The decoders of untrusted input, from a persisted corpus.
@@ -116,7 +124,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: nightly-2026-07-15
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: fuzz
           key: fuzz
@@ -129,8 +137,10 @@ jobs:
       # uploaded below rather than lost with it.
       - name: Fuzz ${{ matrix.target }}
         working-directory: fuzz
+        # The host target, stated: cargo-fuzz picked musl, which this
+        # toolchain does not have (E0463 on every target, 2026-10-18).
         run: |
-          cargo fuzz run ${{ matrix.target }} \
+          cargo fuzz run --target x86_64-unknown-linux-gnu ${{ matrix.target }} \
             -- \
             -max_total_time=600 \
             -max_len=65536 \
@@ -166,7 +176,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: nightly-2026-07-15
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: kani
       - name: Install Kani
@@ -205,7 +215,7 @@ jobs:
         with:
           toolchain: nightly-2026-07-15
           components: llvm-tools
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: coverage
       - uses: taiki-e/install-action@be76f545a6a2f94fb131c5bb748ebed32edb5760 # cargo-llvm-cov
@@ -243,7 +253,7 @@ jobs:
         with:
           toolchain: nightly-2026-07-15
           components: clippy
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: lint-debt
 
@@ -274,7 +284,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: nightly-2026-07-15
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: localnet
       - name: Localnet

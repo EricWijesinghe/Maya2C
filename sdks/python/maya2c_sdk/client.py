@@ -46,7 +46,9 @@ class Client:
 
     def account_at_tip(self, address: str) -> dict[str, Any]:
         """The account (address, balance, nonce) with the tip's height and block id, read together."""
-        return self.call("get_account_at_tip", [address])
+        account = self.call("get_account_at_tip", [address])
+        # u256 balances arrive as decimal strings (ADR-046); hand callers an int like balance().
+        return {**account, "balance": int(account["balance"])}
 
     def block(self, height: int) -> dict[str, Any]:
         """The block at ``height`` on the node's best chain."""

@@ -552,9 +552,9 @@ mod tests {
         let html = miner_page(
             "aa".repeat(32),
             MinerBalance {
-                unpaid: 500,
-                immature: 300,
-                paid: 1_200,
+                unpaid: primitive_types::U256::from(500),
+                immature: primitive_types::U256::from(300),
+                paid: primitive_types::U256::from(1_200),
             },
             vec![worker(true)],
         );

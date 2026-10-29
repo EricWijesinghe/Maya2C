@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 use std::error::Error;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -16,10 +16,10 @@ use custom_l1_node::consensus::bft::catchup::{self, Position};
 use custom_l1_node::consensus::bft::certsync;
 use custom_l1_node::consensus::bft::remote::{DEFAULT_DEADLINE, RemoteSigner, ValidatorKey};
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
-use custom_l1_node::crypto::keys::{self, VerifyingKey};
+use custom_l1_node::crypto::validator_keys::{self as keys, VerifyingKey};
 use custom_l1_node::genesis::BftGenesis;
 use custom_l1_node::metrics::Metrics;
-use custom_l1_node::network::{Mempool, NodeEvent, NodeHandle};
+use custom_l1_node::network::{Mempool, NodeHandle};
 use custom_l1_node::rpc::bootstrap::RpcBootstrapSource;
 use maya_dag_bft::Params;
 use tokio::sync::broadcast::error::RecvError;
@@ -41,6 +41,8 @@ pub(super) struct Reporting {
     pub(super) metrics: Arc<Metrics>,
     pub(super) checkpoint: Arc<Mutex<CheckpointBook>>,
     pub(super) status: Arc<Mutex<custom_l1_node::rpc::types::BftStatus>>,
+    /// Where witnessed equivocation evidence is kept for an operator to file.
+    pub(super) evidence_dir: PathBuf,
 }
 
 /// Puts the driver's checkpoints where `get_checkpoint` reads them: this
@@ -122,7 +124,7 @@ pub(super) fn remote_signer(
     );
     let public: [u8; keys::PUBLIC_KEY_LEN] = hex::decode(pubkey_hex)?
         .try_into()
-        .map_err(|_| "--validator-pubkey is not an ML-DSA-65 public key")?;
+        .map_err(|_| "--validator-pubkey is not an ML-DSA-87 validator public key")?;
     let remote = RemoteSigner::connect(
         addr,
         identity,
@@ -478,7 +480,9 @@ pub(super) struct Feed {
     /// a stopgap against cheap committee capture while one operator
     /// proposes every block. Zero proposes everything.
     min_register_bond: u64,
-    first_seen: BTreeMap<[u8; 32], Instant>,
+    /// When each pooled transaction was first seen, and its sender (hashing a
+    /// public key per transaction per tick under the pool's read lock is not free).
+    first_seen: BTreeMap<[u8; 32], (Instant, [u8; 32])>,
     /// RPC-submitted transactions already gossiped, so the validator whose
     /// share one is hears of it without waiting out the grace period.
     gossiped: std::collections::BTreeSet<[u8; 32]>,
@@ -509,8 +513,8 @@ impl Feed {
     /// Every validator receives every gossiped transaction, and if every one
     /// proposed all of them each would be ordered `n` times and deduplicated
     /// at build. So each validator proposes its *share* — the transactions
-    /// whose id's first byte is its index modulo the committee size —
-    /// straight away, and anything else only once it has waited
+    /// whose *sender's* first address byte is its index modulo the committee
+    /// size — straight away, and anything else only once it has waited
     /// [`SHARE_GRACE`] without appearing in a block: the owner may be down.
     /// Local policy, not consensus; any split gives the same blocks.
     fn feed(&mut self, driver: &mut BftDriver, pools: &[&Mempool]) {
@@ -520,18 +524,31 @@ impl Feed {
         let now = Instant::now();
         for pool in pools {
             let mut refused = Vec::new();
-            for tx in pool.snapshot() {
-                let id = tx.txid();
-                if self.below_floor(&tx) {
-                    refused.push(id);
-                    continue;
+            // Ids, senders and nonces only: cloning every pooled transaction
+            // (~13 KB) and re-hashing it on every 100 ms tick made block time
+            // grow with the pool (bench-tps, 2026-10-25). Sorted, so one
+            // sender's transactions reach the engine in nonce order.
+            let mut pending = pool.scan(|id, tx| {
+                if driver.is_queued(id) {
+                    return None;
                 }
-                if driver.is_queued(&id) {
-                    continue;
+                if self.below_floor(tx) {
+                    refused.push(*id);
+                    return None;
                 }
-                let seen = *self.first_seen.entry(id).or_insert(now);
-                let mine = usize::from(id[0]) % self.committee.max(1) == usize::from(me);
-                if mine || now.duration_since(seen) >= SHARE_GRACE {
+                let sender = self
+                    .first_seen
+                    .get(id)
+                    .map_or_else(|| tx.sender(), |(_, cached)| *cached);
+                Some((sender, tx.nonce, *id))
+            });
+            pending.sort_unstable();
+            for (sender, _, id) in pending {
+                let (seen, _) = *self.first_seen.entry(id).or_insert((now, sender));
+                let mine = proposer_of(&sender, self.committee) == usize::from(me);
+                if (mine || now.duration_since(seen) >= SHARE_GRACE)
+                    && let Some(tx) = pool.get(&id)
+                {
                     driver.submit(&tx);
                 }
             }
@@ -558,16 +575,38 @@ impl Feed {
     /// would ever learn of them, and a transaction outside its share would
     /// wait out [`SHARE_GRACE`] (measured: 3.7 s against 0.75 s in-share).
     fn unannounced(&mut self, rpc_pool: &Mempool) -> Vec<custom_l1_node::core::Transaction> {
-        rpc_pool
-            .snapshot()
+        let mut fresh = rpc_pool
+            .scan(|id, tx| (!self.gossiped.contains(id)).then(|| (tx.sender(), tx.nonce, *id)));
+        // Nonce order, so peers receive a sender's chain in the order it executes.
+        fresh.sort_unstable();
+        fresh
             .into_iter()
-            .filter(|tx| self.gossiped.insert(tx.txid()))
+            .filter_map(|(_, _, id)| {
+                self.gossiped.insert(id);
+                rpc_pool.get(&id)
+            })
             .collect()
     }
 }
 
+/// Which validator proposes `sender`'s transactions straight away. By sender, not
+/// by transaction id: split by id, one account's consecutive nonces landed in
+/// different validators' vertices and executed in whatever order the DAG gave
+/// them, so about one per block succeeded (bench-tps, 2026-10-25). Kept together
+/// and fed in nonce order they execute in the order they were signed. Node
+/// policy, not consensus; any split gives valid blocks.
+fn proposer_of(sender: &[u8; 32], committee: usize) -> usize {
+    usize::from(sender[0]) % committee.max(1)
+}
+
 /// Publishes, prunes the pools, and reports what `step` did.
-async fn act(step: Step, network: &NodeHandle, pools: &[&Mempool], feed: &mut Feed) {
+async fn act(
+    step: Step,
+    network: &NodeHandle,
+    pools: &[&Mempool],
+    feed: &mut Feed,
+    evidence_dir: &Path,
+) {
     for frame in step.frames {
         if let Err(error) = network.publish_bft(frame).await {
             // With no peer in the mesh yet every publish fails; a validator
@@ -603,10 +642,29 @@ async fn act(step: Step, network: &NodeHandle, pools: &[&Mempool], feed: &mut Fe
         eprintln!("bft: {notice}");
     }
     for evidence in &step.equivocations {
-        eprintln!(
-            "bft: validator {} equivocated in round {} — evidence held for slashing",
-            evidence.first.author, evidence.first.round
-        );
+        // A validator process holds no account key, so it cannot file the
+        // report itself; it keeps the pair for `l1-wallet report-equivocation`.
+        let path = evidence_dir.join(custom_l1_node::consensus::bft::evidence::file_name(
+            evidence,
+        ));
+        let saved = std::fs::create_dir_all(evidence_dir).and_then(|()| {
+            std::fs::write(
+                &path,
+                custom_l1_node::consensus::bft::evidence::to_text(evidence),
+            )
+        });
+        match saved {
+            Ok(()) => eprintln!(
+                "bft: validator {} equivocated in round {} — evidence saved to {}",
+                evidence.first.author,
+                evidence.first.round,
+                path.display()
+            ),
+            Err(error) => eprintln!(
+                "bft: validator {} equivocated in round {} — evidence NOT saved: {error}",
+                evidence.first.author, evidence.first.round
+            ),
+        }
     }
 }
 
@@ -651,17 +709,18 @@ pub(super) async fn bft_loop(
         metrics,
         checkpoint,
         status,
+        evidence_dir,
     } = reporting;
-    let mut events = network.subscribe();
+    let mut events = network.subscribe_frames();
     let mut ticker = tokio::time::interval(TICK);
     let gossip_pool = network.mempool().clone();
     let pools = [&gossip_pool, &rpc_pool];
     let mut dropped = Dropped::default();
-    act(opening, &network, &pools, &mut feed).await;
+    act(opening, &network, &pools, &mut feed, &evidence_dir).await;
     loop {
         let step = tokio::select! {
             event = events.recv() => match event {
-                Ok(NodeEvent::BftFrame(frame)) => {
+                Ok(frame) => {
                     let mut guard = lock_chain(&chain);
                     driver.on_frame(&mut guard, now_ms(), &frame)
                 }
@@ -669,7 +728,6 @@ pub(super) async fn bft_loop(
                     dropped.add(lost);
                     continue;
                 }
-                Ok(_) => continue,
                 Err(RecvError::Closed) => return,
             },
             _ = ticker.tick() => {
@@ -698,7 +756,7 @@ pub(super) async fn bft_loop(
                     #[allow(clippy::cast_precision_loss)]
                     metrics.observe_finality(now.saturating_sub(*anchor) as f64 / 1_000.0);
                 }
-                act(step, &network, &pools, &mut feed).await;
+                act(step, &network, &pools, &mut feed, &evidence_dir).await;
             }
             // A storage fault here means a vote could not be made durable, so
             // it was not sent. Carry on: the next tick retries, and a disk
@@ -713,9 +771,35 @@ pub(super) async fn bft_loop(
 mod tests {
     #![allow(clippy::unwrap_used)]
 
-    use super::{Feed, PROBE_TIMEOUT, rank_catch_up_sources};
+    use super::{Feed, PROBE_TIMEOUT, proposer_of, rank_catch_up_sources};
     use custom_l1_node::core::staking_payload::StakingAction;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[test]
+    fn one_senders_transactions_always_have_one_proposer() {
+        // Whatever the nonce or id, the proposer depends on the sender alone.
+        for first in 0..=255u8 {
+            let mut sender = [0u8; 32];
+            sender[0] = first;
+            let proposer = proposer_of(&sender, 5);
+            assert!(proposer < 5);
+            sender[31] = 0xAB; // other address bytes do not move it
+            assert_eq!(proposer_of(&sender, 5), proposer);
+        }
+        // An empty committee is treated as one, not a division by zero.
+        assert_eq!(proposer_of(&[9; 32], 0), 0);
+    }
+
+    #[test]
+    fn senders_are_spread_across_the_committee() {
+        let mut counts = [0usize; 5];
+        for first in 0..=255u8 {
+            let mut sender = [0u8; 32];
+            sender[0] = first;
+            counts[proposer_of(&sender, 5)] += 1;
+        }
+        assert!(counts.iter().all(|c| (51..=52).contains(c)), "{counts:?}");
+    }
 
     /// A JSON-RPC peer that answers every request with `tip` as its height.
     async fn peer(tip: u64) -> String {
@@ -782,7 +866,7 @@ mod tests {
         );
     }
     use custom_l1_node::core::{Transaction, TxKind};
-    use custom_l1_node::crypto::{PUBLIC_KEY_LEN, SIGNATURE_LENGTH};
+    use custom_l1_node::crypto::validator_keys::{PUBLIC_KEY_LEN, SIGNATURE_LENGTH};
 
     fn tx(kind: TxKind) -> Transaction {
         let mut tx = Transaction::new(vec![], vec![], 0);

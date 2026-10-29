@@ -2,6 +2,7 @@
 //! that gates inbound transactions.
 
 pub mod behaviour;
+mod bus;
 pub mod evidence_tap;
 pub mod gossip_score;
 pub mod identity;

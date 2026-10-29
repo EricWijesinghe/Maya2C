@@ -103,6 +103,8 @@ pub fn router(state: AppState) -> Router {
         .route("/tx", get(transaction_search))
         .route("/tx/{txid}", get(transaction_detail))
         .route("/account", get(account))
+        .route("/validators", get(validators))
+        .route("/api/validators", get(api_validators))
         .route("/api/stats", get(api_stats))
         .route("/api/blocks", get(api_blocks))
         .route("/api/blocks/{height}", get(api_block))
@@ -301,6 +303,54 @@ async fn account(
         transactions,
         error,
     )))
+}
+
+/// The validator set, live from the node: a stale committee would be shown as
+/// current and quietly be wrong.
+async fn validators(State(state): State<AppState>) -> Result<Response> {
+    let (info, error) = match &state.node_rpc {
+        Some(url) => match fetch_validators(url).await {
+            Ok(Some(info)) => (Some(info), None),
+            Ok(None) => (
+                None,
+                Some("This chain has no staking, so no validator set.".to_string()),
+            ),
+            Err(error) => (
+                None,
+                Some(format!(
+                    "Node unavailable or too old to list validators: {error}"
+                )),
+            ),
+        },
+        None => (None, Some("No node endpoint configured.".to_string())),
+    };
+    Ok(html(ui::validators_page(info, error)))
+}
+
+async fn api_validators(
+    State(state): State<AppState>,
+) -> Result<Json<Option<custom_l1_node::rpc::validators::ValidatorsInfo>>> {
+    let url = state
+        .node_rpc
+        .as_deref()
+        .ok_or_else(|| ExplorerError::NodeRpc("no node endpoint configured".to_string()))?;
+    Ok(Json(fetch_validators(url).await?))
+}
+
+async fn fetch_validators(
+    url: &str,
+) -> Result<Option<custom_l1_node::rpc::validators::ValidatorsInfo>> {
+    use jsonrpsee::core::client::ClientT;
+    use jsonrpsee::http_client::HttpClientBuilder;
+    use jsonrpsee::rpc_params;
+
+    let client = HttpClientBuilder::default()
+        .build(url)
+        .map_err(|e| ExplorerError::NodeRpc(e.to_string()))?;
+    client
+        .request("get_validators", rpc_params![])
+        .await
+        .map_err(|e| ExplorerError::NodeRpc(e.to_string()))
 }
 
 /// Reads a live balance from the node.

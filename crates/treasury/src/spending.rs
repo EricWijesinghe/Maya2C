@@ -7,6 +7,8 @@
 //! appended to the ledger, which is what "transparent on-chain reporting"
 //! reads.
 
+use maya_amount::Amount;
+
 /// An approval stage (role), in the order they must sign.
 pub type Stage = u8;
 
@@ -36,7 +38,7 @@ pub struct Spend {
     /// Recipient address.
     pub recipient: [u8; 32],
     /// Amount.
-    pub amount: u64,
+    pub amount: Amount,
     /// Human-readable purpose, published as-is.
     pub memo: String,
     /// Where it is.
@@ -70,11 +72,11 @@ pub enum SpendError {
 /// The treasury.
 pub struct Treasury {
     /// Balance held.
-    pub balance: u64,
+    pub balance: Amount,
     epoch_blocks: u64,
-    epoch_limit: u64,
+    epoch_limit: Amount,
     stages: Stage,
-    spent_epoch: (u64, u64),
+    spent_epoch: (u64, Amount),
     spends: Vec<Spend>,
     ledger: Vec<Entry>,
 }
@@ -83,20 +85,26 @@ impl Treasury {
     /// A treasury paying at most `epoch_limit` per `epoch_blocks`, with
     /// `stages` approvals required per spend.
     #[must_use]
-    pub fn new(balance: u64, epoch_blocks: u64, epoch_limit: u64, stages: Stage) -> Self {
+    pub fn new(balance: Amount, epoch_blocks: u64, epoch_limit: Amount, stages: Stage) -> Self {
         Self {
             balance,
             epoch_blocks: epoch_blocks.max(1),
             epoch_limit,
             stages: stages.max(1),
-            spent_epoch: (0, 0),
+            spent_epoch: (0, Amount::default()),
             spends: Vec::new(),
             ledger: Vec::new(),
         }
     }
 
     /// Proposes a spend; returns its index.
-    pub fn propose(&mut self, recipient: [u8; 32], amount: u64, memo: &str, height: u64) -> usize {
+    pub fn propose(
+        &mut self,
+        recipient: [u8; 32],
+        amount: Amount,
+        memo: &str,
+        height: u64,
+    ) -> usize {
         self.spends.push(Spend {
             recipient,
             amount,
@@ -139,7 +147,7 @@ impl Treasury {
         let spent = if self.spent_epoch.0 == epoch {
             self.spent_epoch.1
         } else {
-            0
+            Amount::default()
         };
         if spent.saturating_add(amount) > self.epoch_limit {
             return Err(SpendError::OverEpochLimit);
@@ -147,8 +155,12 @@ impl Treasury {
         if amount > self.balance {
             return Err(SpendError::Insufficient);
         }
-        self.balance -= amount;
-        self.spent_epoch = (epoch, spent + amount);
+        // Both bounded above by checks just made, so these cannot fail.
+        self.balance = self
+            .balance
+            .checked_sub(amount)
+            .ok_or(SpendError::Insufficient)?;
+        self.spent_epoch = (epoch, spent.saturating_add(amount));
         self.spends[i].status = Status::Executed { height };
         self.ledger.push(Entry {
             height,

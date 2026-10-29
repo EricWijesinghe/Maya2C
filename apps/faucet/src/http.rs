@@ -151,11 +151,14 @@ pub struct Status {
     /// The chain being funded.
     pub chain_id: String,
     /// Units per grant.
-    pub dispense: u64,
+    #[serde(with = "custom_l1_node::state::amount_serde")]
+    pub dispense: primitive_types::U256,
     /// The day's ceiling.
-    pub daily_cap: u64,
+    #[serde(with = "custom_l1_node::state::amount_serde")]
+    pub daily_cap: primitive_types::U256,
     /// Units already handed out today.
-    pub spent_today: u64,
+    #[serde(with = "custom_l1_node::state::amount_serde")]
+    pub spent_today: primitive_types::U256,
     /// Seconds one grant blocks the next.
     pub window_seconds: u64,
 }
@@ -212,8 +215,8 @@ async fn request(
             StatusCode::OK,
             Json(serde_json::json!({
                 "txid": txid,
-                "amount": grant.amount,
-                "remaining_today": grant.remaining_today,
+                "amount": grant.amount.to_string(),
+                "remaining_today": grant.remaining_today.to_string(),
                 "next_request_in": grant.next_request_in,
             })),
         )
@@ -375,8 +378,13 @@ mod tests {
 
     #[test]
     fn the_proxy_header_is_not_trusted_by_default() {
-        let faucet = Faucet::new("maya-genesis-rc1", 100, 1_000, std::time::SystemTime::now())
-            .expect("testnet");
+        let faucet = Faucet::new(
+            "maya-genesis-rc1",
+            primitive_types::U256::from(100),
+            primitive_types::U256::from(1_000),
+            std::time::SystemTime::now(),
+        )
+        .expect("testnet");
         let service = FaucetService::new(faucet, Arc::new(crate::testing::NullDispenser));
         assert!(
             !service.trusts_proxy(),

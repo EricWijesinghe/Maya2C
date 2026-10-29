@@ -5,7 +5,7 @@
 use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 
-use maya_crypto_pq::suite::{MasterSeed, SuiteId, verify};
+use maya_crypto_pq::suite::{MasterSeed, validator};
 use maya_signer::backend::{BackendError, KeystoreBackend, SignerBackend, kms, pkcs11};
 use maya_signer::channel::{self, ChannelError, Identity};
 use maya_signer::keystore::{self, KeystoreError};
@@ -80,9 +80,12 @@ fn signatures_cover_exactly_the_bytes_validators_verify() {
     // ADR-033: VOTE_DOMAIN ‖ digest, the node's own message, nothing more.
     let expected = [maya_dag_bft::VOTE_DOMAIN, r.digest.as_slice()].concat();
     assert_eq!(signed_message(&r), expected);
-    verify(SuiteId::MlDsa65, s.public_key(), &expected, &sig).unwrap();
+    let public: &[u8; validator::PUBLIC_KEY_LEN] = s.public_key().try_into().unwrap();
+    let sig: &[u8; validator::SIGNATURE_LEN] = sig.as_slice().try_into().unwrap();
+    // ML-DSA-87 under the validator context: what the node verifies (CRY-4).
+    assert!(validator::verify(public, &expected, sig));
     assert!(
-        verify(SuiteId::MlDsa65, s.public_key(), &r.digest, &sig).is_err(),
+        !validator::verify(public, &r.digest, sig),
         "the bare digest must not verify"
     );
 }

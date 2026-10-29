@@ -149,7 +149,7 @@ pub trait SwapChain: Send + Sync {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Fees {
     /// Base fee per transaction byte.
-    pub base_fee: u64,
+    pub base_fee: primitive_types::U256,
     /// The address fee outputs pay.
     pub collector: Address,
 }

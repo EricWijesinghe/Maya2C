@@ -114,9 +114,9 @@ impl ChainView for FakeChain {
             .map(|(_, id)| id.clone()))
     }
 
-    async fn account(&self, _address: &Address) -> Result<(u64, u64)> {
+    async fn account(&self, _address: &Address) -> Result<(primitive_types::U256, u64)> {
         let state = self.state.lock().expect("fake chain lock");
-        Ok((state.balance, state.nonce))
+        Ok((primitive_types::U256::from(state.balance), state.nonce))
     }
 
     async fn broadcast(&self, raw: &[u8]) -> Result<String> {
