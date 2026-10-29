@@ -10,19 +10,19 @@
 //! vote out of the buffer; the flood is still free to lag the subscribers that
 //! only want transaction events, which can afford it.
 //!
-//! The frame buffer is bounded in slots, not in bytes: a gossip message may be
-//! 8 MiB (`MAX_GOSSIP_MESSAGE_BYTES`), so the worst case is that size times the
-//! capacity, held until the slowest receiver passes it. Real frames are far
-//! smaller, and this has not been measured against a peer that sends junk
-//! frames of maximum size past the first-byte check in `gossiped_bft`. Follow-up:
-//! cap frames at the real maximum (batch size x transaction size) there, or
-//! bound this channel by bytes.
+//! The frame buffer is bounded in bytes as well as slots: 512 slots of 5 MiB
+//! frames is 2.5 GiB, and a frame that decodes is not yet a frame whose
+//! signature checks. [`FrameWindow`] tracks the frames the channel can still
+//! hold and refuses one that would take them past [`MAX_HELD_FRAME_BYTES`], so
+//! a flood of large frames costs frames, which the engine re-fetches, never
+//! the node's memory (pre-audit S-003).
 //!
 //! Also open: the BFT loop can still lag under a flood of *frames* (it verifies
 //! them under the chain lock); the loop counts the loss and relies on the
 //! engine to re-gossip.
 
-use std::sync::Arc;
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use tokio::sync::broadcast;
 
@@ -36,22 +36,74 @@ const EVENT_CHANNEL_CAPACITY: usize = 256;
 /// burst of frames without losing one.
 const FRAME_CHANNEL_CAPACITY: usize = 512;
 
+/// Most frame bytes the channel may hold: 64 proposals with a full 4 MiB
+/// batch, far above a round's worth from any real committee.
+const MAX_HELD_FRAME_BYTES: usize = 256 * 1024 * 1024;
+
+/// Sizes of the frames still in the channel, oldest first. The broadcast
+/// channel keeps exactly the last `capacity` frames sent, so this mirrors it.
+struct FrameWindow {
+    sizes: VecDeque<usize>,
+    held: usize,
+    capacity: usize,
+    max_bytes: usize,
+}
+
+impl FrameWindow {
+    /// Admits a frame of `len` bytes, or refuses it if keeping it would take
+    /// the channel past `max_bytes`. Admitting a frame into a full channel
+    /// evicts the oldest, exactly as the broadcast channel does.
+    fn admit(&mut self, len: usize) -> bool {
+        let evicted = if self.sizes.len() == self.capacity {
+            self.sizes.front().copied().unwrap_or(0)
+        } else {
+            0
+        };
+        if self.held - evicted + len > self.max_bytes {
+            return false;
+        }
+        if self.sizes.len() == self.capacity {
+            self.sizes.pop_front();
+            self.held -= evicted;
+        }
+        self.sizes.push_back(len);
+        self.held += len;
+        true
+    }
+}
+
 /// The node's two broadcast channels.
 #[derive(Clone)]
 pub(super) struct Bus {
     events: broadcast::Sender<NodeEvent>,
     frames: broadcast::Sender<Arc<Vec<u8>>>,
+    window: Arc<Mutex<FrameWindow>>,
 }
 
 impl Bus {
     pub(super) fn new() -> Self {
-        Self::with_capacity(EVENT_CHANNEL_CAPACITY, FRAME_CHANNEL_CAPACITY)
+        Self::with_limits(
+            EVENT_CHANNEL_CAPACITY,
+            FRAME_CHANNEL_CAPACITY,
+            MAX_HELD_FRAME_BYTES,
+        )
     }
 
+    #[cfg(test)]
     fn with_capacity(events: usize, frames: usize) -> Self {
+        Self::with_limits(events, frames, MAX_HELD_FRAME_BYTES)
+    }
+
+    fn with_limits(events: usize, frames: usize, max_bytes: usize) -> Self {
         Self {
             events: broadcast::channel(events).0,
             frames: broadcast::channel(frames).0,
+            window: Arc::new(Mutex::new(FrameWindow {
+                sizes: VecDeque::with_capacity(frames),
+                held: 0,
+                capacity: frames,
+                max_bytes,
+            })),
         }
     }
 
@@ -62,9 +114,16 @@ impl Bus {
 
     /// As [`Bus::emit`] (a send failure only means nobody is subscribed), for a
     /// DAG-BFT frame that arrived on the consensus topic. Decoded and verified
-    /// by `consensus::bft::BftDriver`, not here.
-    pub(super) fn emit_frame(&self, frame: Arc<Vec<u8>>) {
+    /// by `consensus::bft::BftDriver`, not here. Returns `false` when the
+    /// frame was refused for the byte budget.
+    pub(super) fn emit_frame(&self, frame: Arc<Vec<u8>>) -> bool {
+        // The lock covers the send, so the window and the channel agree on order.
+        let mut window = self.window.lock().unwrap_or_else(PoisonError::into_inner);
+        if !window.admit(frame.len()) {
+            return false;
+        }
         let _ = self.frames.send(frame);
+        true
     }
 
     pub(super) fn subscribe(&self) -> broadcast::Receiver<NodeEvent> {
@@ -110,5 +169,28 @@ mod tests {
         }
         // Loss on the frame channel stays visible to the loop that counts it.
         assert!(matches!(frames.try_recv(), Err(TryRecvError::Lagged(3))));
+    }
+
+    #[test]
+    fn large_frames_cannot_hold_more_than_the_byte_budget() {
+        let bus = Bus::with_limits(4, 8, 10);
+        let mut frames = bus.subscribe_frames();
+        assert!(bus.emit_frame(Arc::new(vec![0; 6])));
+        // 6 + 6 would hold 12 bytes: refused, and the first frame survives.
+        assert!(!bus.emit_frame(Arc::new(vec![1; 6])));
+        assert!(bus.emit_frame(Arc::new(vec![2; 4])));
+        assert_eq!(frames.try_recv().unwrap().len(), 6);
+        assert_eq!(frames.try_recv().unwrap().len(), 4);
+        assert!(frames.try_recv().is_err());
+    }
+
+    #[test]
+    fn an_evicted_frame_frees_its_bytes() {
+        let bus = Bus::with_limits(4, 2, 10);
+        assert!(bus.emit_frame(Arc::new(vec![0; 5])));
+        assert!(bus.emit_frame(Arc::new(vec![0; 5])));
+        // The channel is full; the next frame evicts a 5-byte one, so 10 fit.
+        assert!(bus.emit_frame(Arc::new(vec![0; 5])));
+        assert!(!bus.emit_frame(Arc::new(vec![0; 6])));
     }
 }
