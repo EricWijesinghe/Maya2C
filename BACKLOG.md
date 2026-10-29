@@ -135,6 +135,13 @@ Eric 2026-10-29: build all of these after mainnet (each needs a dated `docs/prio
 
 ## P6 — deferred and frontier (untouched until their milestone)
 
+- **Next evolution brief (Eric, 2026-10-30), after mainnet.** The full feature list is in
+  [docs/master-prompts/next-evolution.md](docs/master-prompts/next-evolution.md): privacy by default,
+  sharding, AI agents, identity, interop, SDKs in five languages, mobile and browser validators.
+  First step: a gap table against `features.toml`. Several items already exist (DAG-BFT finality,
+  PQ crypto, WASM VM, Rust SDK). Items that collide with an invariant are reported before any ADR;
+  homomorphic encryption and ring signatures, for example, need a PQ variant (invariant 2).
+
 - MP06: dealer-free MPC offline phase; per-order dark-pool proofs;
   proof-of-personhood liveness and uniqueness (needs attested hardware,
   invariant 11); Landsat second oracle sensor (requester-pays bucket).
