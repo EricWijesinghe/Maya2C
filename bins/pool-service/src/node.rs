@@ -197,11 +197,9 @@ impl crate::payout::ChainView for NodeClient {
             .map(|block| block.header.id))
     }
 
-    async fn account(&self, address: &[u8; 32]) -> Result<(u64, u64)> {
+    async fn account(&self, address: &[u8; 32]) -> Result<(primitive_types::U256, u64)> {
         let info = self.account_info(address).await?;
-        // Payouts are u64 on the wire, so a treasury above u64::MAX can
-        // still pay at most u64::MAX per transaction: saturate.
-        Ok((saturating_u64(info.balance), info.nonce))
+        Ok((info.balance, info.nonce))
     }
 
     async fn broadcast(&self, raw: &[u8]) -> Result<String> {

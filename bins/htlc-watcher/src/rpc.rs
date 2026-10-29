@@ -115,7 +115,9 @@ impl SwapChain for RpcChain {
                 WatcherError::Rpc(format!("{} get_fee_info: bad collector", self.url))
             })?;
         Ok(Some(Fees {
-            base_fee: info.base_fee,
+            base_fee: primitive_types::U256::from_dec_str(&info.base_fee).map_err(|_| {
+                WatcherError::Rpc(format!("{} get_fee_info: bad base_fee", self.url))
+            })?,
             collector,
         }))
     }

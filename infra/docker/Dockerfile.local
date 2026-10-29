@@ -1,6 +1,6 @@
 # Runtime-only image around a node binary built on the host.
 #
-# For `deploy-production.sh --target local-k3d`, where rebuilding the whole
+# For `scripts/deploy-production.sh --target local-k3d`, where rebuilding the whole
 # workspace inside Docker (infra/docker/Dockerfile) would double a 20-minute
 # compile for a throwaway cluster. The production image stays the multi-stage,
 # statically linked one; this one is never pushed anywhere.

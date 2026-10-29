@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 use maya_dag_bft::Committee;
 
 use crate::core::ChainTag;
-use crate::crypto::keys::{SIGNATURE_LENGTH, SigningKey, VerifyingKey};
+use crate::crypto::validator_keys::{SIGNATURE_LENGTH, SigningKey, VerifyingKey};
 use crate::error::{NodeError, Result};
 
 /// Domain of the bytes an attestation signs, distinct from every vertex,
@@ -75,7 +75,7 @@ pub struct Attestation {
     pub block: [u8; 32],
     /// The validator's index in that epoch's committee.
     pub validator: u16,
-    /// ML-DSA-65 over [`attestation_bytes`].
+    /// ML-DSA-87 validator signature over [`attestation_bytes`].
     pub signature: Vec<u8>,
 }
 
@@ -396,7 +396,7 @@ impl Collector {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
-    use crate::crypto::keys::signing_key_from_seed;
+    use crate::crypto::validator_keys::signing_key_from_seed;
 
     const CHAIN: ChainTag = ChainTag::from_genesis([7; 32]);
 

@@ -48,7 +48,9 @@ impl Params {
         max_commission_bps: 2_000,
     };
 
-    /// Whether every basis-point field is at most 100%.
+    /// Whether every basis-point field is at most 100% and the unbonding delay
+    /// is at least one epoch. At zero, funds would leave at the next boundary and
+    /// the window in which evidence can still slash them would be empty.
     #[must_use]
     pub const fn is_valid(&self) -> bool {
         (self.double_sign_slash_bps as u64) <= BPS
@@ -56,6 +58,7 @@ impl Params {
             && (self.downtime_threshold_bps as u64) <= BPS
             && (self.max_commission_bps as u64) <= BPS
             && self.max_validators > 0
+            && self.unbonding_epochs > 0
             && !self.min_self_bond.is_zero()
     }
 }
@@ -69,4 +72,17 @@ pub(crate) fn bps_of(amount: Amount, bps: u16) -> Amount {
     amount
         .mul_div(Amount::from_u64(u64::from(bps)), Amount::from_u64(BPS))
         .unwrap_or(amount)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_empty_evidence_window_is_not_a_valid_parameter_set() {
+        assert!(Params::DEVNET.is_valid());
+        let mut p = Params::DEVNET;
+        p.unbonding_epochs = 0;
+        assert!(!p.is_valid());
+    }
 }

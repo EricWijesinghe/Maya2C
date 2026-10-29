@@ -1,6 +1,11 @@
 # ADR-056: Guardian recovery as node transactions
 
-**Status:** Proposed (for Eric). A consensus change: spec, conformance vectors, an invariant, an activation height and two reviewers before it is live.
+**Status:** Accepted 2026-10-19 (Eric: "all decisions are approved, take the best recommended"), with the answers below. A consensus change: spec, conformance vectors, an invariant, an activation height and two reviewers before it is live.
+
+**Answers:**
+1. Testnet first, behind an activation height, rolled out one validator at a time. ADR-016 makes smart-account validation launch core, so mainnet must not be its first chain.
+2. Default delay 7 days; the minimum stays one epoch (3,600 blocks).
+3. Vaults stay separate. Invariant 32 stays as simple as it is; a vault owner who wants recovery puts the vault under a recoverable account.
 
 ## Context
 

@@ -9,11 +9,13 @@
 //!   returns everything not yet *claimed*, vested or not. Whether a grant is
 //!   clawback-eligible is fixed when it is created and cannot be added later.
 
+use maya_amount::Amount;
+
 /// A vesting grant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Grant {
     /// Total tokens granted.
-    pub total: u64,
+    pub total: Amount,
     /// Height vesting starts.
     pub start: u64,
     /// Blocks before anything vests.
@@ -23,7 +25,7 @@ pub struct Grant {
     /// Whether governance may claw back unclaimed tokens.
     pub clawback_allowed: bool,
     /// Tokens already claimed.
-    pub claimed: u64,
+    pub claimed: Amount,
     /// Height vesting was frozen by termination, if it was.
     pub terminated_at: Option<u64>,
     /// Whether the grant was clawed back.
@@ -50,7 +52,7 @@ impl Grant {
     ///
     /// [`VestingError::BadSchedule`] for an impossible schedule.
     pub fn new(
-        total: u64,
+        total: Amount,
         start: u64,
         cliff: u64,
         duration: u64,
@@ -65,7 +67,7 @@ impl Grant {
             cliff,
             duration,
             clawback_allowed,
-            claimed: 0,
+            claimed: Amount::default(),
             terminated_at: None,
             clawed_back: false,
         })
@@ -73,22 +75,25 @@ impl Grant {
 
     /// Tokens vested at `height`.
     #[must_use]
-    pub fn vested(&self, height: u64) -> u64 {
+    pub fn vested(&self, height: u64) -> Amount {
         if self.clawed_back {
             return self.claimed;
         }
         let h = self.terminated_at.map_or(height, |t| t.min(height));
         if h < self.start.saturating_add(self.cliff) {
-            return 0;
+            return Amount::default();
         }
-        let elapsed = u128::from(h - self.start).min(u128::from(self.duration));
-        u64::try_from(u128::from(self.total) * elapsed / u128::from(self.duration))
+        let elapsed = (h - self.start).min(self.duration);
+        // The 512-bit product inside `mul_div` cannot overflow; elapsed <= duration
+        // keeps the quotient <= total, so the fallback is never taken.
+        self.total
+            .mul_div(Amount::from_u64(elapsed), Amount::from_u64(self.duration))
             .unwrap_or(self.total)
     }
 
     /// Tokens claimable now.
     #[must_use]
-    pub fn claimable(&self, height: u64) -> u64 {
+    pub fn claimable(&self, height: u64) -> Amount {
         self.vested(height).saturating_sub(self.claimed)
     }
 
@@ -97,11 +102,11 @@ impl Grant {
     /// # Errors
     ///
     /// [`VestingError::NotVested`] if `amount` exceeds what is claimable.
-    pub fn claim(&mut self, amount: u64, height: u64) -> Result<(), VestingError> {
+    pub fn claim(&mut self, amount: Amount, height: u64) -> Result<(), VestingError> {
         if amount > self.claimable(height) {
             return Err(VestingError::NotVested);
         }
-        self.claimed += amount;
+        self.claimed = self.claimed.saturating_add(amount);
         Ok(())
     }
 
@@ -110,12 +115,12 @@ impl Grant {
     /// # Errors
     ///
     /// [`VestingError::AlreadyClosed`] if already terminated or clawed back.
-    pub fn terminate(&mut self, height: u64) -> Result<u64, VestingError> {
+    pub fn terminate(&mut self, height: u64) -> Result<Amount, VestingError> {
         if self.terminated_at.is_some() || self.clawed_back {
             return Err(VestingError::AlreadyClosed);
         }
         self.terminated_at = Some(height);
-        Ok(self.total - self.vested(height))
+        Ok(self.total.saturating_sub(self.vested(height)))
     }
 
     /// Claws back everything unclaimed; returns the amount returned.
@@ -123,7 +128,7 @@ impl Grant {
     /// # Errors
     ///
     /// [`VestingError::ClawbackNotAllowed`] or [`VestingError::AlreadyClosed`].
-    pub fn claw_back(&mut self) -> Result<u64, VestingError> {
+    pub fn claw_back(&mut self) -> Result<Amount, VestingError> {
         if !self.clawback_allowed {
             return Err(VestingError::ClawbackNotAllowed);
         }
@@ -131,6 +136,6 @@ impl Grant {
             return Err(VestingError::AlreadyClosed);
         }
         self.clawed_back = true;
-        Ok(self.total - self.claimed)
+        Ok(self.total.saturating_sub(self.claimed))
     }
 }

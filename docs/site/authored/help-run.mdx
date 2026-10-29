@@ -7,6 +7,7 @@ description: For anyone who wants to help, no technical background needed. Pick 
 ---
 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+import InstallPicker from '../../../components/InstallPicker.astro';
 
 Thank you for helping. Your computer becomes one of the machines that keep
 the Maya2C test network running. Setting it up takes about five minutes, and you can
@@ -18,80 +19,15 @@ remove everything at any time.
 - Test coins have **no value**. Helping earns credit in the validator list, not money.
 :::
 
-Pick your computer. The rest of the page follows your choice.
+Pick your computer once. Every section of this page then follows that choice.
 
 ## 1. Install
 
-<Tabs syncKey="os">
-<TabItem label="Windows" icon="seti:windows">
+Choose your computer, its version, and how you want to install. The steps
+below change to match, and every command has a **Copy** button. Tick **Done**
+as you go, or switch on **One step at a time** to be walked through.
 
-<Steps>
-
-1. Click **Start**, type **PowerShell**, and press **Enter**.
-
-2. Copy this line, paste it into the blue window (right-click pastes), and press **Enter**:
-
-   ```powershell
-   irm https://raw.githubusercontent.com/EricWijesinghe/Maya2C/master/scripts/join-testnet.ps1 | iex
-   ```
-
-3. Windows asks **"Do you want to allow this app to make changes?"** Click **Yes**.
-
-4. A second window lists what it will install and asks **Install? [y/N]**. Type `y` and press **Enter**.
-
-5. Wait for **Done. Thank you for helping!** You can close the windows. The node keeps running in the background and starts by itself with Windows.
-
-</Steps>
-
-If Windows shows **"Windows protected your PC"**, click **More info**, then **Run anyway**. The program is not code-signed yet. Every download is checked against its published fingerprint before it runs.
-
-</TabItem>
-<TabItem label="Mac" icon="apple">
-
-<Steps>
-
-1. Press **⌘ Command + Space**, type **Terminal**, and press **Return**.
-
-2. Copy this line, paste it into Terminal (**⌘ V**), and press **Return**:
-
-   ```bash
-   curl -fsSL https://raw.githubusercontent.com/EricWijesinghe/Maya2C/master/scripts/join-testnet.sh | bash
-   ```
-
-3. When it asks for **Password**, type your Mac login password and press **Return**. **Nothing shows while you type**; that is normal.
-
-4. Wait for **Done. Thank you for helping!** You can close Terminal. The node keeps running in the background and starts by itself with the Mac.
-
-</Steps>
-
-**Keep the Mac awake:** keep it plugged in and the lid open. The node stops the
-Mac from sleeping while it is on power. To be sure, open **System Settings ›
-Battery › Options** and turn on **Prevent automatic sleeping on power adapter
-when the display is off**.
-
-No "unidentified developer" warning appears, because Terminal installs the program directly.
-
-</TabItem>
-<TabItem label="Linux" icon="linux">
-
-<Steps>
-
-1. Open a terminal.
-
-2. Paste this line and press **Enter**:
-
-   ```bash
-   curl -fsSL https://raw.githubusercontent.com/EricWijesinghe/Maya2C/master/scripts/join-testnet.sh | bash
-   ```
-
-3. Type your password if `sudo` asks for it.
-
-4. Wait for **Done. Thank you for helping!** The node runs as the `maya2c-node` service and starts with the computer.
-
-</Steps>
-
-</TabItem>
-</Tabs>
+<InstallPicker guide="join" />
 
 ## 2. Check it is working
 
@@ -156,7 +92,10 @@ every block. For now, Eric approves each validator by hand.
    [application form](https://github.com/EricWijesinghe/Maya2C/issues/new?template=validator-application.yml).
    It holds only public information. **Never send** `validator.key` or `wallet.key`.
 
-4. When Eric approves you, you get a **bond amount**. Register with it:
+4. When Eric approves you, he sends your wallet the bond plus a little for
+   fees. Register with the bond he gives you. On the testnet it is at least
+   **1000000000** (one billion base units). The network ignores anything
+   smaller, so the installer refuses it and tells you why.
 
    <Tabs syncKey="os">
    <TabItem label="Windows" icon="seti:windows">

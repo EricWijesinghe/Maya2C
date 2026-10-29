@@ -52,6 +52,9 @@ const CAUGHT_UP: u64 = 5;
 struct Shared {
     timeline: Mutex<Timeline>,
     tip: AtomicU64,
+    /// The final report of a chain stopped on purpose (`--stopped`): served
+    /// as is, because a stopped chain is not halting and has nothing to follow.
+    stopped: Option<serde_json::Value>,
 }
 
 impl Shared {
@@ -69,6 +72,7 @@ struct Args {
     ntfy: Option<String>,
     watch: Vec<(String, String)>,
     known: Vec<(String, String)>,
+    stopped: Option<String>,
 }
 
 fn args() -> Result<Args, String> {
@@ -79,6 +83,7 @@ fn args() -> Result<Args, String> {
         ntfy: None,
         watch: Vec::new(),
         known: Vec::new(),
+        stopped: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -100,9 +105,10 @@ fn args() -> Result<Args, String> {
                 let (name, id) = v.split_once('=').ok_or("--known takes NAME=PEERID")?;
                 a.known.push((name.to_owned(), id.to_owned()));
             }
+            "--stopped" => a.stopped = Some(value()?),
             "--help" | "-h" => {
                 return Err(
-                    "usage: maya-status --node URL --listen ADDR [--threshold SECS] [--ntfy URL] [--watch NAME=URL]... [--known NAME=PEERID]..."
+                    "usage: maya-status --node URL --listen ADDR [--threshold SECS] [--ntfy URL] [--watch NAME=URL]... [--known NAME=PEERID]... [--stopped FINAL.json]"
                         .into(),
                 );
             }
@@ -110,6 +116,33 @@ fn args() -> Result<Args, String> {
         }
     }
     Ok(a)
+}
+
+/// Reads the final report of a chain stopped on purpose and marks it so:
+/// `stopped: true`, `halted_now: false`. Refuses a file that is not a report
+/// or that records a halt, so the flag cannot paper over one.
+fn stopped_report(path: &str) -> Result<serde_json::Value, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+    let mut report: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
+    for field in [
+        "height",
+        "genesis",
+        "last_block",
+        "streak_seconds",
+        "uptime",
+        "halts",
+    ] {
+        if report.get(field).is_none() {
+            return Err(format!("{path}: not a status report (no {field})"));
+        }
+    }
+    if report["halted_now"] == serde_json::Value::Bool(true) {
+        return Err(format!("{path}: records a halt in progress, not a stop"));
+    }
+    report["stopped"] = serde_json::Value::Bool(true);
+    report["halted_now"] = serde_json::Value::Bool(false);
+    Ok(report)
 }
 
 fn now() -> u64 {
@@ -212,6 +245,9 @@ async fn follow(client: HttpClient, shared: Arc<Shared>, ntfy: Option<String>) {
 }
 
 async fn api(State(shared): State<Arc<Shared>>) -> impl IntoResponse {
+    if let Some(stopped) = &shared.stopped {
+        return Json(stopped.clone());
+    }
     if shared.caught_up().is_none() {
         let seen = shared
             .timeline
@@ -320,11 +356,21 @@ async fn main() {
             std::process::exit(1);
         }
     };
+    let stopped = match a.stopped.as_deref().map(stopped_report).transpose() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("status: --stopped: {e}");
+            std::process::exit(2);
+        }
+    };
     let shared = Arc::new(Shared {
         timeline: Mutex::new(Timeline::new(a.threshold)),
         tip: AtomicU64::new(u64::MAX),
+        stopped,
     });
-    tokio::spawn(follow(client, Arc::clone(&shared), a.ntfy));
+    if shared.stopped.is_none() {
+        tokio::spawn(follow(client, Arc::clone(&shared), a.ntfy));
+    }
 
     let watch_list = if a.watch.is_empty() {
         vec![("seed".to_owned(), a.node.clone())]
@@ -370,5 +416,37 @@ async fn main() {
     println!("maya-status on http://{} following {}", a.listen, a.node);
     if let Err(e) = axum::serve(listener, app).await {
         eprintln!("status: {e}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::stopped_report;
+
+    fn write(text: &str) -> tempfile::NamedTempFile {
+        let f = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(f.path(), text).unwrap();
+        f
+    }
+
+    const FINAL: &str = r#"{"genesis":1792511653,"halted_now":false,"halts":[],"height":393812,"last_block":1793172992,"since_last_block":18,"streak_seconds":661357,"threshold_seconds":60,"uptime":1.0}"#;
+
+    #[test]
+    fn a_final_report_is_served_as_stopped_not_halted() {
+        let f = write(FINAL);
+        let r = stopped_report(f.path().to_str().unwrap()).unwrap();
+        assert_eq!(r["stopped"], true);
+        assert_eq!(r["halted_now"], false);
+        assert_eq!(r["streak_seconds"], 661_357);
+    }
+
+    #[test]
+    fn a_halt_in_progress_or_a_non_report_is_refused() {
+        let halted = write(&FINAL.replace(r#""halted_now":false"#, r#""halted_now":true"#));
+        assert!(stopped_report(halted.path().to_str().unwrap()).is_err());
+        let other = write(r#"{"height":1}"#);
+        assert!(stopped_report(other.path().to_str().unwrap()).is_err());
     }
 }

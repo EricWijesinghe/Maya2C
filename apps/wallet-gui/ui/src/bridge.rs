@@ -420,22 +420,30 @@ pub struct NetworkStatus {
     pub genesis: String,
     /// The node's tip height.
     pub height: u64,
+    /// `mainnet`, `test` or `impostor`, decided by the wallet core from the
+    /// genesis id against the pinned mainnet genesis, never from the name.
+    /// Missing reads as `test`: the safe direction to be wrong in.
+    #[serde(default)]
+    pub class: String,
+    /// The genesis id's two ends, to compare with the published one.
+    #[serde(default)]
+    pub fingerprint: String,
 }
 
 impl NetworkStatus {
-    /// Whether this is a test network, whose coins have no value. Anything
-    /// not named as mainnet is treated as one: a wallet that mistook a
-    /// testnet for mainnet is the dangerous direction to be wrong in.
+    /// Whether this is a test network, whose coins have no value. Only a
+    /// pinned mainnet genesis is mainnet: a node's name is a claim, and a
+    /// wallet that mistook a testnet for mainnet is the dangerous direction
+    /// to be wrong in.
     #[must_use]
     pub fn is_test_network(&self) -> bool {
-        !matches!(
-            self.network
-                .as_deref()
-                .map(str::trim)
-                .map(str::to_ascii_lowercase)
-                .as_deref(),
-            Some("maya-mainnet" | "mainnet")
-        )
+        self.class != "mainnet"
+    }
+
+    /// A node that claims to be mainnet with a genesis that is not pinned.
+    #[must_use]
+    pub fn is_impostor(&self) -> bool {
+        self.class == "impostor"
     }
 }
 

@@ -1,6 +1,6 @@
 //! The epoch boundary: downtime, rewards, releases, and the next committee.
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
 use maya_amount::Amount;
@@ -56,10 +56,23 @@ impl Staking {
         let mut out = EpochOutcome::default();
         let jailed = self.punish_downtime(participation, &mut out)?;
         self.pay_rewards(&jailed, reward_pool, &mut out)?;
+        self.pending_self.clear();
+        self.pending_delegations.clear();
         self.epoch = self.epoch.checked_add(1).ok_or(StakeError::Overflow)?;
         self.release(&mut out);
-        self.validators
-            .retain(|_, v| v.status == Status::Tombstoned || !v.total().is_zero());
+        // A record with funds still unbonding stays, even at zero stake: evidence
+        // against it must still find it to slash those funds, and its id must not
+        // be registrable again while they wait (self-review 2026-10-25, finding 1).
+        // Empty entries (`unbond(0)` is accepted) must not pin one forever.
+        let unbonding: BTreeSet<ValidatorId> = self
+            .unbonding
+            .iter()
+            .filter(|u| !u.amount.is_zero())
+            .map(|u| u.validator)
+            .collect();
+        self.validators.retain(|id, v| {
+            v.status == Status::Tombstoned || !v.total().is_zero() || unbonding.contains(id)
+        });
         let max = usize::from(self.params.max_validators);
         self.active = self.ranked().into_iter().take(max).map(|s| s.id).collect();
         out.active.clone_from(&self.active);
@@ -106,36 +119,24 @@ impl Staking {
         pool: Amount,
         out: &mut EpochOutcome,
     ) -> Result<(), StakeError> {
-        let earners: Vec<(ValidatorId, Amount)> = self
-            .active
-            .iter()
-            .filter(|id| !jailed.contains(id))
-            .filter_map(|id| self.validators.get(id).map(|v| (*id, v.total())))
-            .filter(|(_, t)| !t.is_zero())
-            .collect();
-        let total = earners
-            .iter()
-            .try_fold(Amount::ZERO, |sum, (_, t)| sum.checked_add(*t))
-            .ok_or(StakeError::Overflow)?;
         // Delegations grouped by validator in one pass, so paying every
         // validator is O(delegations), not O(validators × delegations): an
         // attacker who mass-delegates dust must not make every node's epoch
         // boundary quadratic. Grouping keeps each list in delegator order,
         // which is the order the effects were emitted in before.
-        let mut by_validator: BTreeMap<ValidatorId, Vec<(Address, Amount)>> = BTreeMap::new();
-        for ((delegator, validator), amount) in &self.delegations {
-            by_validator
-                .entry(*validator)
-                .or_default()
-                .push((*delegator, *amount));
-        }
+        let by_validator = self.eligible_delegations();
+        let earners = self.earning_stakes(jailed, &by_validator)?;
+        let total = earners
+            .iter()
+            .try_fold(Amount::ZERO, |sum, e| sum.checked_add(e.total))
+            .ok_or(StakeError::Overflow)?;
         let mut paid = Amount::ZERO;
         if !total.is_zero() {
-            for (id, stake) in &earners {
-                let share = share_of(pool, *stake, total);
-                let delegations = by_validator.get(id).map_or(&[][..], Vec::as_slice);
+            for e in &earners {
+                let share = share_of(pool, e.total, total);
+                let delegations = by_validator.get(&e.id).map_or(&[][..], Vec::as_slice);
                 paid = paid
-                    .checked_add(self.pay_validator(*id, share, delegations, out)?)
+                    .checked_add(self.pay_validator(e.id, share, e, delegations, out)?)
                     .ok_or(StakeError::Overflow)?;
             }
         }
@@ -146,12 +147,66 @@ impl Staking {
         Ok(())
     }
 
+    /// Each validator's delegations as they earn this epoch: stake added in
+    /// this epoch is left out, so bonding in the boundary block earns nothing.
+    fn eligible_delegations(&self) -> BTreeMap<ValidatorId, Vec<(Address, Amount)>> {
+        let mut by_validator: BTreeMap<ValidatorId, Vec<(Address, Amount)>> = BTreeMap::new();
+        for ((delegator, validator), amount) in &self.delegations {
+            let pending = self
+                .pending_delegations
+                .get(&(*delegator, *validator))
+                .copied()
+                .unwrap_or(Amount::ZERO);
+            by_validator
+                .entry(*validator)
+                .or_default()
+                .push((*delegator, amount.saturating_sub(pending)));
+        }
+        by_validator
+    }
+
+    /// The active, unjailed validators with non-zero earning stake, in
+    /// committee order. Self bond added this epoch is left out, like
+    /// delegations.
+    fn earning_stakes(
+        &self,
+        jailed: &[ValidatorId],
+        by_validator: &BTreeMap<ValidatorId, Vec<(Address, Amount)>>,
+    ) -> Result<Vec<Earner>, StakeError> {
+        let mut earners = Vec::new();
+        for id in self.active.iter().filter(|id| !jailed.contains(id)) {
+            let Some(v) = self.validators.get(id) else {
+                continue;
+            };
+            let pending = self.pending_self.get(id).copied().unwrap_or(Amount::ZERO);
+            let self_bond = v.self_bond.saturating_sub(pending);
+            let delegated = by_validator.get(id).map_or(Ok(Amount::ZERO), |ds| {
+                ds.iter()
+                    .try_fold(Amount::ZERO, |sum, (_, a)| sum.checked_add(*a))
+                    .ok_or(StakeError::Overflow)
+            })?;
+            let total = self_bond
+                .checked_add(delegated)
+                .ok_or(StakeError::Overflow)?;
+            if !total.is_zero() {
+                earners.push(Earner {
+                    id: *id,
+                    self_bond,
+                    total,
+                });
+            }
+        }
+        Ok(earners)
+    }
+
     /// Splits one validator's reward: commission to the operator, the rest pro
-    /// rata over its self bond and delegations. Returns what was credited.
+    /// rata over its earning self bond and delegations. Returns what was
+    /// credited.
     fn pay_validator(
         &self,
         id: ValidatorId,
         reward: Amount,
+        earner: &Earner,
         delegations: &[(Address, Amount)],
         out: &mut EpochOutcome,
     ) -> Result<Amount, StakeError> {
@@ -160,10 +215,10 @@ impl Staking {
         };
         let commission = bps_of(reward, v.commission_bps);
         let rest = reward.checked_sub(commission).ok_or(StakeError::Overflow)?;
-        let total = v.total();
+        let total = earner.total;
         let mut credited = Amount::ZERO;
         let own = commission
-            .checked_add(share_of(rest, v.self_bond, total))
+            .checked_add(share_of(rest, earner.self_bond, total))
             .ok_or(StakeError::Overflow)?;
         if !own.is_zero() {
             out.effects.push(Effect::Credit(v.operator, own));
@@ -191,6 +246,13 @@ impl Staking {
                 .map(|u| Effect::Credit(u.owner, u.amount)),
         );
     }
+}
+
+/// A validator's stake that earns in the ending epoch.
+struct Earner {
+    id: ValidatorId,
+    self_bond: Amount,
+    total: Amount,
 }
 
 /// `pool × part / whole`, rounded down, through a 512-bit product. `part ≤

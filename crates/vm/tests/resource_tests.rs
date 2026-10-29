@@ -4,6 +4,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use maya_amount::Amount;
 use maya_contract_safety::{Capability, Fault, Id, RateLimit, Right, Runtime, State};
 use maya_vm::error::VmError;
 use maya_vm::host::{Address, ContractId, Event, HostState, MemoryState};
@@ -55,10 +56,10 @@ fn contract(body: &str) -> Vec<u8> {
     wat::parse_str(format!(
         r#"(module
             (import "maya_res" "self" (func $self (result i32)))
-            (import "maya_res" "balance" (func $balance (param i32 i32) (result i64)))
-            (import "maya_res" "transfer" (func $transfer (param i32 i32 i32 i64)))
-            (import "maya_res" "mint" (func $mint (param i32 i32 i64)))
-            (import "maya_res" "burn" (func $burn (param i32 i32 i64)))
+            (import "maya_res" "balance" (func $balance (param i32 i32) (result i64 i64 i64 i64)))
+            (import "maya_res" "transfer" (func $transfer (param i32 i32 i32 i64 i64 i64 i64)))
+            (import "maya_res" "mint" (func $mint (param i32 i32 i64 i64 i64 i64)))
+            (import "maya_res" "burn" (func $burn (param i32 i32 i64 i64 i64 i64)))
             (memory (export "memory") 1)
             (func (export "invoke") (param i32) (result i64)
               {body}
@@ -70,16 +71,16 @@ fn contract(body: &str) -> Vec<u8> {
 /// `transfer(from, to, TOKEN, amount)` as WAT.
 fn transfer(from: Id, to: Id, amount: i64) -> String {
     format!(
-        "(call $transfer (i32.const {from}) (i32.const {to}) (i32.const {TOKEN}) (i64.const {amount}))"
+        "(call $transfer (i32.const {from}) (i32.const {to}) (i32.const {TOKEN}) (i64.const {amount}) (i64.const 0) (i64.const 0) (i64.const 0))"
     )
 }
 
 /// ME holds 1,000 and BOB holds 1,000; supply 2,000.
 fn host() -> Host {
     let mut state = State::default();
-    state.balances.insert((ME, TOKEN), 1_000);
-    state.balances.insert((BOB, TOKEN), 1_000);
-    state.supply.insert(TOKEN, 2_000);
+    state.balances.insert((ME, TOKEN), Amount::from_u64(1_000));
+    state.balances.insert((BOB, TOKEN), Amount::from_u64(1_000));
+    state.supply.insert(TOKEN, Amount::from_u64(2_000));
     let mut rt = Runtime::default();
     rt.state = state;
     Host {
@@ -96,11 +97,8 @@ fn run(body: &str, h: Host) -> (Host, Result<u64, VmError>) {
 
 fn balances(h: &Host) -> (u128, u128, u128) {
     let s = &h.rt.state;
-    (
-        s.balance(ME, TOKEN),
-        s.balance(ALICE, TOKEN),
-        s.balance(BOB, TOKEN),
-    )
+    let n = |holder| s.balance(holder, TOKEN).to_u128().unwrap();
+    (n(ME), n(ALICE), n(BOB))
 }
 
 #[test]
@@ -108,7 +106,7 @@ fn a_contract_moves_its_own_units_and_supply_is_conserved() {
     let (h, out) = run(&transfer(ME, ALICE, 100), host());
     assert!(out.is_ok(), "{out:?}");
     assert_eq!(balances(&h), (900, 100, 1_000));
-    assert_eq!(h.rt.state.supply[&TOKEN], 2_000);
+    assert_eq!(h.rt.state.supply[&TOKEN], Amount::from_u64(2_000));
 }
 
 #[test]
@@ -123,7 +121,7 @@ fn another_holders_units_need_their_capability_and_only_up_to_the_allowance() {
         holder: ME,
         kind: TOKEN,
         right: Right::Move,
-        remaining: 50,
+        remaining: Amount::from_u64(50),
     });
     let (h, out) = run(&transfer(BOB, ALICE, 50), granted);
     assert!(out.is_ok(), "{out:?}");
@@ -136,10 +134,12 @@ fn another_holders_units_need_their_capability_and_only_up_to_the_allowance() {
 
 #[test]
 fn minting_and_burning_need_the_kinds_capability() {
-    let mint = format!("(call $mint (i32.const {TOKEN}) (i32.const {ALICE}) (i64.const 7))");
+    let mint = format!(
+        "(call $mint (i32.const {TOKEN}) (i32.const {ALICE}) (i64.const 7) (i64.const 0) (i64.const 0) (i64.const 0))"
+    );
     let (h, out) = run(&mint, host());
     assert_eq!(out, Err(VmError::Resource(Fault::NoCapability)));
-    assert_eq!(h.rt.state.supply[&TOKEN], 2_000);
+    assert_eq!(h.rt.state.supply[&TOKEN], Amount::from_u64(2_000));
 
     let mut h = h;
     for right in [Right::Mint, Right::Burn] {
@@ -148,16 +148,24 @@ fn minting_and_burning_need_the_kinds_capability() {
             holder: ME,
             kind: TOKEN,
             right,
-            remaining: 10,
+            remaining: Amount::from_u64(10),
         });
     }
     let (h, out) = run(&mint, h);
     assert!(out.is_ok(), "{out:?}");
-    assert_eq!((h.rt.state.supply[&TOKEN], balances(&h).1), (2_007, 7));
-    let burn = format!("(call $burn (i32.const {TOKEN}) (i32.const {ALICE}) (i64.const 7))");
+    assert_eq!(
+        (h.rt.state.supply[&TOKEN], balances(&h).1),
+        (Amount::from_u64(2_007), 7)
+    );
+    let burn = format!(
+        "(call $burn (i32.const {TOKEN}) (i32.const {ALICE}) (i64.const 7) (i64.const 0) (i64.const 0) (i64.const 0))"
+    );
     let (h, out) = run(&burn, h);
     assert!(out.is_ok(), "{out:?}");
-    assert_eq!((h.rt.state.supply[&TOKEN], balances(&h).1), (2_000, 0));
+    assert_eq!(
+        (h.rt.state.supply[&TOKEN], balances(&h).1),
+        (Amount::from_u64(2_000), 0)
+    );
 }
 
 #[test]
@@ -192,7 +200,7 @@ fn any_failure_reverts_every_move_the_call_made() {
 fn a_declared_invariant_is_checked_when_the_call_ends() {
     let mut h = host();
     h.rt.declare_invariant(ME, "reserve >= 500", |s: &State| {
-        s.balance(ME, TOKEN) >= 500
+        s.balance(ME, TOKEN) >= Amount::from_u64(500)
     });
     let (h, out) = run(&transfer(ME, ALICE, 600), h);
     assert_eq!(
@@ -212,7 +220,7 @@ fn an_outflow_over_the_limit_is_queued_not_executed() {
         ME,
         RateLimit {
             kind: TOKEN,
-            max: 100,
+            max: Amount::from_u64(100),
             window: 10,
         },
     );
@@ -227,7 +235,7 @@ fn an_outflow_over_the_limit_is_queued_not_executed() {
         1,
         "the queued outflow survives the revert"
     );
-    assert_eq!(h.rt.pending[0].amount, 150);
+    assert_eq!(h.rt.pending[0].amount, Amount::from_u64(150));
 }
 
 #[test]
@@ -257,8 +265,28 @@ fn the_consensus_surface_does_not_resolve_maya_res() {
 fn a_contract_reads_its_id_and_balances() {
     let body = format!(
         "(if (i32.ne (call $self) (i32.const {ME})) (then unreachable))
-         (if (i64.ne (call $balance (i32.const {BOB}) (i32.const {TOKEN})) (i64.const 1000)) (then unreachable))"
+         (call $balance (i32.const {BOB}) (i32.const {TOKEN})) drop drop drop
+         (if (i64.ne (i64.const 1000)) (then unreachable))"
     );
     let (_, out) = run(&body, host());
     assert!(out.is_ok(), "{out:?}");
+}
+
+#[test]
+fn a_contract_moves_an_amount_past_u128_without_clamping() {
+    // 2^192 units: limb 3 = 1. The old single-i64 ABI capped a call at 2^63-1.
+    let mint = format!(
+        "(call $mint (i32.const {TOKEN}) (i32.const {ALICE}) (i64.const 0) (i64.const 0) (i64.const 0) (i64.const 1))"
+    );
+    let mut h = host();
+    h.rt.grant(Capability {
+        grantor: 0,
+        holder: ME,
+        kind: TOKEN,
+        right: Right::Mint,
+        remaining: Amount::MAX,
+    });
+    let (h, out) = run(&mint, h);
+    assert!(out.is_ok(), "{out:?}");
+    assert_eq!(h.rt.state.balance(ALICE, TOKEN), Amount([0, 0, 0, 1]));
 }
