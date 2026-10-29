@@ -179,6 +179,16 @@ impl Chain {
                 });
             }
 
+            if !self.config.fixed_target {
+                let median = self.median_time_past(&parent_id)?;
+                if !super::timestamp_after_median(header.timestamp, median) {
+                    return Err(NodeError::Network(format!(
+                        "header timestamp {} at height {height} is not after the median {median}",
+                        header.timestamp
+                    )));
+                }
+            }
+
             let expected = self.next_target(&parent_id)?;
             if header.difficulty_target != expected {
                 return Err(NodeError::Network(format!(

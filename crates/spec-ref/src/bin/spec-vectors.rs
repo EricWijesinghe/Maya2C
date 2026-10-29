@@ -547,6 +547,50 @@ fn prune_cases() -> Vec<Value> {
         .collect()
 }
 
+/// CON-10: a header version other than 0 is invalid.
+fn header_version_cases() -> Vec<Value> {
+    [("header-version-zero", 0u8), ("header-version-one-is-invalid", 1), ("header-version-max-is-invalid", 255)]
+        .iter()
+        .map(|(id, version)| {
+            let expect = if consensus::header_version_ok(*version) {
+                json!({"result": "ok"})
+            } else {
+                json!({"result": "error", "error": "UnsupportedHeaderVersion"})
+            };
+            json!({"id": id, "rules": ["CON-10"], "fn": "header_version", "version": version, "expect": expect})
+        })
+        .collect()
+}
+
+/// CON-11: the median of the last eleven timestamps, and the rule that a
+/// timestamp must be later than it.
+fn median_time_cases() -> Vec<Value> {
+    let stamps = |v: &[u64]| v.iter().map(u64::to_string).collect::<Vec<_>>();
+    let history: Vec<u64> = (0..15).map(|i| 1_000 + 15 * i).collect();
+    let shuffled = vec![50u64, 10, 40, 20, 30];
+    // One far-future block among eleven does not move the median.
+    let mut skewed: Vec<u64> = (0..11).map(|i| 1_000 + 15 * i).collect();
+    skewed[10] = 9_000_000_000;
+    let median_case = |id: &str, recent: &[u64]| json!({"id": id, "rules": ["CON-11"], "fn": "median_time", "recent": stamps(recent), "expect": {"result": "ok", "median": consensus::median_time_past(recent).to_string()}});
+    let rule_case = |id: &str, timestamp: u64, median: u64| {
+        let expect = if consensus::timestamp_ok(timestamp, median) {
+            json!({"result": "ok"})
+        } else {
+            json!({"result": "error", "error": "TimestampNotAfterMedian"})
+        };
+        json!({"id": id, "rules": ["CON-11"], "fn": "timestamp_rule", "timestamp": timestamp.to_string(), "median": median.to_string(), "expect": expect})
+    };
+    vec![
+        median_case("median-uses-only-the-last-eleven", &history),
+        median_case("median-of-an-unsorted-short-history", &shuffled),
+        median_case("median-of-a-single-block-is-that-block", &[777]),
+        median_case("one-far-future-block-does-not-move-the-median", &skewed),
+        rule_case("timestamp-after-median", 1_100, 1_099),
+        rule_case("timestamp-equal-to-median-is-invalid", 1_099, 1_099),
+        rule_case("timestamp-before-median-is-invalid", 900, 1_099),
+    ]
+}
+
 fn verification_cases() -> Vec<Value> {
     [
         ("v5-verify", 5u8, "verify", true),
@@ -574,6 +618,8 @@ fn consensus_vectors() -> Value {
         pow_cases(),
         fork_choice_cases(),
         prune_cases(),
+        header_version_cases(),
+        median_time_cases(),
         verification_cases(),
     ]
     .into_iter()
@@ -590,6 +636,7 @@ fn header_vectors(k: &BTreeMap<String, Address>) -> Value {
         nonce: 0x0123_4567_89ab_cdef,
         difficulty_target: [0x0f; 32],
         tx_root: [0x33; 32],
+        version: 0,
     };
     let frames: Vec<Frame> = (0..3u64)
         .map(|n| Frame {
@@ -601,7 +648,7 @@ fn header_vectors(k: &BTreeMap<String, Address>) -> Value {
         .collect();
     let txs: Vec<String> = frames.iter().map(|f| hex(&wire::encode(f))).collect();
     let root = header::tx_root(&frames.iter().map(wire::txid).collect::<Vec<_>>());
-    let fields = |tx_root: [u8; 32]| json!({"prev_hash": hex(&h.prev_hash), "state_root": hex(&h.state_root), "timestamp": h.timestamp.to_string(), "nonce": h.nonce.to_string(), "difficulty_target": hex(&h.difficulty_target), "tx_root": hex(&tx_root)});
+    let fields = |tx_root: [u8; 32]| json!({"prev_hash": hex(&h.prev_hash), "state_root": hex(&h.state_root), "timestamp": h.timestamp.to_string(), "nonce": h.nonce.to_string(), "difficulty_target": hex(&h.difficulty_target), "tx_root": hex(&tx_root), "version": h.version});
     let cases = vec![
         json!({"id": "header-layout-and-id", "rules": ["CON-1", "CON-2"], "header": fields(h.tx_root), "expect": {"result": "ok", "bytes": hex(&header::serialize(&h)), "id": hex(&header::block_id(&h))}}),
         json!({"id": "tx-root-matches", "rules": ["CON-3", "ROOT-3"], "header": fields(root), "transactions": txs, "expect": {"result": "ok", "tx_root": hex(&root)}}),

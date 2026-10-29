@@ -111,6 +111,7 @@ async fn keyed_pair() -> (TestNode, TestNode) {
 
 fn block(nonce: u64) -> Block {
     let header = BlockHeader {
+        version: 0,
         prev_hash: [0; 32],
         state_root: [0; 32],
         timestamp: 1,

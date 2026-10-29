@@ -21,12 +21,12 @@
 //!
 //! | Key | Value |
 //! |---|---|
-//! | `blk:h:<id>` | header (144 B) ‖ height (u64 LE) ‖ cumulative work (U256 BE) |
+//! | `blk:h:<id>` | header (145 B) ‖ height (u64 LE) ‖ cumulative work (U256 BE) |
 //! | `blk:b:<id>` | the block's wire encoding |
 //! | `blk:n:<height BE>` | id of the active-chain block at that height |
 //! | `blk:meta` | genesis id ‖ tip id ‖ prune horizon (u64 LE) |
 //!
-//! Headers stay for every block, forever: 144 bytes each, carrying the
+//! Headers stay for every block, forever: 145 bytes each, carrying the
 //! `state_root` and `tx_root` a pruned body is verified against. Bodies and
 //! undo journals are what `state_pruner` removes.
 //!

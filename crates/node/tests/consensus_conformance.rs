@@ -8,7 +8,7 @@
 
 use std::path::PathBuf;
 
-use custom_l1_node::consensus::chain::below_prune_horizon;
+use custom_l1_node::consensus::chain::{below_prune_horizon, median_of, timestamp_after_median};
 use custom_l1_node::consensus::{cumulative_work, dag_bft_target, retarget, work_from_target};
 use custom_l1_node::core::multisig_tx::MultisigAuth;
 use custom_l1_node::core::transaction::{Transaction, TxOutput};
@@ -155,6 +155,26 @@ fn check(case: &Value) {
                 expect["winner"].as_str().unwrap(),
                 "{id}"
             );
+        }
+        "header_version" => {
+            let version = u8::try_from(case["version"].as_u64().unwrap()).unwrap();
+            let accepted = custom_l1_node::core::block::HEADER_VERSION == version;
+            assert_eq!(outcome(accepted), want, "{id}");
+        }
+        "median_time" => {
+            let recent: Vec<u64> = case["recent"].as_array().unwrap().iter().map(num).collect();
+            let start = recent
+                .len()
+                .saturating_sub(custom_l1_node::consensus::chain::MEDIAN_TIME_SPAN);
+            assert_eq!(
+                median_of(&recent[start..]).to_string(),
+                expect["median"].as_str().unwrap(),
+                "{id}"
+            );
+        }
+        "timestamp_rule" => {
+            let ok = timestamp_after_median(num(&case["timestamp"]), num(&case["median"]));
+            assert_eq!(outcome(ok), want, "{id}");
         }
         "prune_horizon" => {
             let refused = below_prune_horizon(num(&case["height"]), num(&case["horizon"]));

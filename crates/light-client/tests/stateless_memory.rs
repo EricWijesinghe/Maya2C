@@ -127,6 +127,7 @@ fn signed_block(keys: &[HybridSigningKey], block: u64) -> Vec<Transaction> {
 
 fn next_header(parent: &BlockHeader) -> BlockHeader {
     BlockHeader {
+        version: 0,
         prev_hash: parent.id(),
         state_root: [0; 32],
         timestamp: parent.timestamp + 1,
@@ -170,6 +171,7 @@ fn write_chain(directory: &std::path::Path, out: &mut impl Write) -> BlockHeader
     }
 
     let genesis = BlockHeader {
+        version: 0,
         prev_hash: [0; 32],
         state_root: db.state_root().expect("root"),
         timestamp: 1_756_252_800,

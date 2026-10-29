@@ -38,6 +38,7 @@ fn sample_transaction() -> Transaction {
 
 fn sample_header(difficulty_target: [u8; HASH_LEN]) -> BlockHeader {
     BlockHeader {
+        version: 0,
         prev_hash: [3u8; 32],
         state_root: [4u8; 32],
         timestamp: 1_756_252_800,
@@ -356,14 +357,32 @@ const KAT_DIGEST: &str = "ebdd87f0608df19740abeeeebe33b1f315ab0861d4649890fe4256
 /// evidence. The 144-byte header has its own vector below.
 const KAT_INPUT_LEN: usize = 112;
 
-/// ArgonBlake over a full-length 144-byte header of the same pattern.
+/// ArgonBlake over 144 bytes of the same pattern: the full header as it was
+/// from 2026-09-11 (`tx_root` added) until ADR-063 added the version byte.
 ///
-/// Added 2026-09-11 when `tx_root` grew the header, and mirrored in
-/// `hal/cuda-miner/tests/parity.rs`, whose split hasher only accepts
-/// full-length headers. It was frozen from the node's output; the GPU
-/// split was checked against it independently. The same rule applies: it is
+/// Kept after the header grew, as `KAT_INPUT_LEN` was kept when it grew to 144:
+/// this vector still passing on its original input is the evidence that the
+/// *function* did not change, only the length of what is hashed.
+const KAT_DIGEST_HEADER_144: &str =
+    "5b3992c971393e4127ccd78fb00c2d82217ecdc41b3a0c3caab0629531a78e44";
+
+/// ArgonBlake over a full-length 145-byte header (ADR-063) of the same
+/// pattern, mirrored in `hal/cuda-miner/tests/parity.rs`, whose split hasher
+/// only accepts full-length headers. Frozen from the node's output on
+/// 2026-10-27; the GPU-side split is checked against it independently. It is
 /// never correct to update it to make a failure go away.
-const KAT_DIGEST_HEADER: &str = "5b3992c971393e4127ccd78fb00c2d82217ecdc41b3a0c3caab0629531a78e44";
+const KAT_DIGEST_HEADER: &str = "7fa88db3dc219d12888934e835b970231698da402cd549c6084664b8cf144c4a";
+
+#[test]
+fn argon_blake_matches_the_frozen_known_answer_on_the_144_byte_header() {
+    let digest = argon_blake_hash(&[0x5Au8; 144]).expect("hash must succeed");
+
+    assert_eq!(
+        hex::encode(digest),
+        KAT_DIGEST_HEADER_144,
+        "ArgonBlake over 144 bytes changed — the function changed, not a test to update"
+    );
+}
 
 #[test]
 fn argon_blake_matches_the_frozen_known_answer_on_a_full_header() {

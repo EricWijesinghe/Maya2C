@@ -212,6 +212,7 @@ fn header_seeds() -> Vec<(String, Vec<u8>)> {
         (
             "genesis_shaped",
             BlockHeader {
+                version: 0,
                 prev_hash: [0; 32],
                 state_root: [0; 32],
                 timestamp: 0,
@@ -223,6 +224,7 @@ fn header_seeds() -> Vec<(String, Vec<u8>)> {
         (
             "saturated",
             BlockHeader {
+                version: 0,
                 prev_hash: [0xFF; 32],
                 state_root: [0xFF; 32],
                 timestamp: u64::MAX,
@@ -234,6 +236,7 @@ fn header_seeds() -> Vec<(String, Vec<u8>)> {
         (
             "typical",
             BlockHeader {
+                version: 0,
                 prev_hash: [0x01; 32],
                 state_root: [0x02; 32],
                 timestamp: 1_700_000_000,
@@ -260,6 +263,7 @@ fn header_seeds() -> Vec<(String, Vec<u8>)> {
 
 fn block_seeds() -> Vec<(String, Vec<u8>)> {
     let header = BlockHeader {
+        version: 0,
         prev_hash: [0x01; 32],
         state_root: [0x02; 32],
         timestamp: 1_700_000_000,

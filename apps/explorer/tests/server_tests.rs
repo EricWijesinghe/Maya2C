@@ -53,6 +53,9 @@ fn transaction(height: i64, index: usize) -> IndexedTx {
         output_count: 1,
         total_out: (500 + index as i64).to_string(),
         signed: true,
+        kind: String::new(),
+        summary: String::new(),
+        careful: false,
     }
 }
 
