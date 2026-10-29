@@ -261,11 +261,15 @@ impl Chain {
         let previous = (self.tip, self.prune_horizon);
         self.tip = *tip;
         self.prune_horizon = height;
-        if let Err(error) = self.check_tip_state() {
+        // Memory goes back if either the state check or the write fails, so a
+        // failed write cannot leave memory ahead of the disk (pre-audit S-019).
+        let result = self
+            .check_tip_state()
+            .and_then(|()| self.state.write_batch(batch));
+        if result.is_err() {
             (self.tip, self.prune_horizon) = previous;
-            return Err(error);
         }
-        self.state.write_batch(batch)
+        result
     }
 
     /// Highest height whose body has been pruned; zero if none has.
