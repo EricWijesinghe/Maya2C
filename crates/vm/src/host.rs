@@ -62,8 +62,8 @@ pub const RANDOMNESS_LEN: usize = 32;
 /// provide none.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OracleValue {
-    /// The agreed price, in units of `1 / FEED_SCALE`.
-    pub value: u64,
+    /// The agreed price, in units of `1 / FEED_SCALE`: 256-bit (ADR-066).
+    pub value: maya_amount::Amount,
     /// Height at which the chain accepted it.
     pub updated_height: u64,
     /// Round the value came from.

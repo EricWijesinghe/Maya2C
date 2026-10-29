@@ -82,6 +82,9 @@ impl Staking {
         id: ValidatorId,
         amount: Amount,
     ) -> Result<Vec<Effect>, StakeError> {
+        if amount.is_zero() {
+            return Err(StakeError::BelowMinimum);
+        }
         let min = self.params.min_self_bond;
         let release_epoch = self.release_epoch()?;
         let v = self.operated_mut(operator, &id)?;
@@ -94,12 +97,12 @@ impl Staking {
         }
         v.self_bond = rest;
         drain_pending(&mut self.pending_self, id, amount);
-        self.unbonding.push(Unbonding {
+        self.push_unbonding(Unbonding {
             owner: operator,
             validator: id,
             amount,
             release_epoch,
-        });
+        })?;
         Ok(Vec::new())
     }
 
@@ -145,11 +148,15 @@ impl Staking {
         Ok(vec![Effect::Debit(delegator, amount)])
     }
 
-    /// Starts unbonding `amount` of a delegation.
+    /// Starts unbonding `amount` of a delegation. Like [`Self::unbond`], what
+    /// remains must be zero or at least the minimum delegation, and so must
+    /// `amount` unless it empties the delegation: every unbonding entry is a
+    /// row in the staking record, and one-unit undelegations were a free way
+    /// to grow that record until no node could decode it.
     ///
     /// # Errors
     ///
-    /// No such delegation, or more than delegated.
+    /// No such delegation, more than delegated, or a part below the minimum.
     pub fn undelegate(
         &mut self,
         delegator: Address,
@@ -165,6 +172,10 @@ impl Staking {
         let rest = current
             .checked_sub(amount)
             .ok_or(StakeError::InsufficientStake)?;
+        let min = self.params.min_delegation;
+        if amount.is_zero() || (!rest.is_zero() && (rest < min || amount < min)) {
+            return Err(StakeError::BelowMinimum);
+        }
         let v = self
             .validators
             .get_mut(&id)
@@ -179,13 +190,28 @@ impl Staking {
             self.delegations.insert(key, rest);
         }
         drain_pending(&mut self.pending_delegations, key, amount);
-        self.unbonding.push(Unbonding {
+        self.push_unbonding(Unbonding {
             owner: delegator,
             validator: id,
             amount,
             release_epoch,
-        });
+        })?;
         Ok(Vec::new())
+    }
+
+    /// Adds `u` to the unbonding queue, folded into the entry with the same
+    /// owner, validator and release epoch if there is one. Entries that
+    /// release together are indistinguishable, so one row is enough, and the
+    /// queue is then bounded by stake positions times the unbonding window.
+    fn push_unbonding(&mut self, u: Unbonding) -> Result<(), StakeError> {
+        if let Some(e) = self.unbonding.iter_mut().find(|e| {
+            e.owner == u.owner && e.validator == u.validator && e.release_epoch == u.release_epoch
+        }) {
+            e.amount = e.amount.checked_add(u.amount).ok_or(StakeError::Overflow)?;
+        } else {
+            self.unbonding.push(u);
+        }
+        Ok(())
     }
 
     /// Slashes `id` for signing two vertices in one slot and retires it for

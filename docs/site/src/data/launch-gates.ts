@@ -9,7 +9,7 @@ export const gates: { name: string; detail: string; state: GateState; href: stri
   { name: "Localnet", detail: "4 validators over real libp2p: agree, survive a kill, catch up", state: "done", href: "/guides/quickstart" },
   { name: "Devnet software", detail: "DAG-BFT finality, staking, slashing, fee market, SLO metrics", state: "done", href: "/reference/blockgraph" },
   { name: "Operations rehearsed", detail: "state sync, crash restore, coordinated restart", state: "done", href: "/guides/validators" },
-  { name: "Public testnet", detail: "maya-testnet-1 is live: rpc, faucet and chat relay public; four validators, committee of 4", state: "done", href: "/guides/testnet" },
+  { name: "Public testnet", detail: "maya-testnet-1 ran 7 days 15 h with zero halts to block 393,812, then was paused on purpose 2026-10-28 for the next genesis", state: "done", href: "/guides/testnet" },
   { name: "Foundation validator set", detail: "four project-run validators, all on one PC and said so: any one validator can stop without halting the chain, the PC failing halts it until it returns; other machines join after launch (ADR-047)", state: "next", href: "/guides/validators" },
   { name: "Attacknet, 4 weeks", detail: "self-run attacknet daily (crashes, stolen key, floods, outages) plus a public break-it programme for credit; paid incentives after funding (ADR-042)", state: "later", href: "/reference/empire" },
   { name: "Pre-audit + audit applied for", detail: "pre-audit package complete and free audit programmes applied to; mainnet carries an \"external audit pending\" label until a report lands (ADR-042)", state: "later", href: "/reference/architecture-vision" },
