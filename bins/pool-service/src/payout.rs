@@ -66,7 +66,7 @@ pub trait ChainView: Send + Sync {
     async fn block_id_at(&self, height: u64) -> Result<Option<String>>;
 
     /// The treasury's balance and next usable nonce.
-    async fn account(&self, address: &Address) -> Result<(u64, u64)>;
+    async fn account(&self, address: &Address) -> Result<(primitive_types::U256, u64)>;
 
     /// Broadcasts signed transaction bytes, returning the transaction id.
     async fn broadcast(&self, raw: &[u8]) -> Result<String>;
@@ -91,7 +91,7 @@ pub struct SettleReport {
     /// Batches that reached the confirmation depth.
     pub confirmed: usize,
     /// Value moved by batches broadcast this pass, in base units.
-    pub value_broadcast: u64,
+    pub value_broadcast: primitive_types::U256,
 }
 
 /// Turns share credits into transactions.
@@ -450,9 +450,9 @@ mod tests {
                 .map(|(_, id)| id.clone()))
         }
 
-        async fn account(&self, _address: &Address) -> Result<(u64, u64)> {
+        async fn account(&self, _address: &Address) -> Result<(primitive_types::U256, u64)> {
             let state = self.state.lock().unwrap();
-            Ok((state.balance, state.nonce))
+            Ok((primitive_types::U256::from(state.balance), state.nonce))
         }
 
         async fn broadcast(&self, raw: &[u8]) -> Result<String> {
@@ -472,10 +472,11 @@ mod tests {
 
     fn config() -> PoolConfig {
         PoolConfig {
-            reward_per_block: 1_000,
+            reward_per_block: primitive_types::U256::from(1_000),
+            max_batch_value: primitive_types::U256::MAX,
             fee_rate: 0.0,
             confirmations: 3,
-            min_payout: 10,
+            min_payout: primitive_types::U256::from(10),
             ..PoolConfig::default()
         }
     }
@@ -518,9 +519,18 @@ mod tests {
             .unwrap();
 
         assert_eq!(credits.len(), 2);
-        assert_eq!(ledger.balance(&ALICE).unwrap().immature, 500);
-        assert_eq!(ledger.balance(&BOB).unwrap().immature, 500);
-        assert_eq!(ledger.balance(&ALICE).unwrap().unpaid, 0);
+        assert_eq!(
+            ledger.balance(&ALICE).unwrap().immature,
+            primitive_types::U256::from(500)
+        );
+        assert_eq!(
+            ledger.balance(&BOB).unwrap().immature,
+            primitive_types::U256::from(500)
+        );
+        assert_eq!(
+            ledger.balance(&ALICE).unwrap().unpaid,
+            primitive_types::U256::from(0)
+        );
     }
 
     #[test]
@@ -542,7 +552,10 @@ mod tests {
             .credit_block("block-a", 100, 0, ALICE, &target_from_leading_zero_bits(8))
             .unwrap();
 
-        assert_eq!(ledger.balance(&ALICE).unwrap().immature, 900);
+        assert_eq!(
+            ledger.balance(&ALICE).unwrap().immature,
+            primitive_types::U256::from(900)
+        );
     }
 
     #[tokio::test]
@@ -563,11 +576,17 @@ mod tests {
         // Not yet deep enough.
         chain.set_height(102);
         assert_eq!(engine.settle().await.unwrap().matured, 0);
-        assert_eq!(ledger.balance(&ALICE).unwrap().unpaid, 0);
+        assert_eq!(
+            ledger.balance(&ALICE).unwrap().unpaid,
+            primitive_types::U256::from(0)
+        );
 
         chain.set_height(103);
         assert_eq!(engine.settle().await.unwrap().matured, 1);
-        assert_eq!(ledger.balance(&ALICE).unwrap().immature, 0);
+        assert_eq!(
+            ledger.balance(&ALICE).unwrap().immature,
+            primitive_types::U256::from(0)
+        );
     }
 
     #[tokio::test]
@@ -592,8 +611,14 @@ mod tests {
         let report = engine.settle().await.unwrap();
         assert_eq!(report.orphaned, 1);
         assert_eq!(report.matured, 0);
-        assert_eq!(ledger.balance(&ALICE).unwrap().immature, 0);
-        assert_eq!(ledger.balance(&ALICE).unwrap().unpaid, 0);
+        assert_eq!(
+            ledger.balance(&ALICE).unwrap().immature,
+            primitive_types::U256::from(0)
+        );
+        assert_eq!(
+            ledger.balance(&ALICE).unwrap().unpaid,
+            primitive_types::U256::from(0)
+        );
     }
 
     #[tokio::test]
@@ -615,11 +640,17 @@ mod tests {
         let report = engine.settle().await.unwrap();
         assert_eq!(report.matured, 1);
         assert_eq!(report.broadcast, 1);
-        assert_eq!(report.value_broadcast, 1_000);
+        assert_eq!(report.value_broadcast, primitive_types::U256::from(1_000));
 
         assert_eq!(chain.broadcasts().len(), 1);
-        assert_eq!(ledger.balance(&ALICE).unwrap().paid, 500);
-        assert_eq!(ledger.balance(&ALICE).unwrap().unpaid, 0);
+        assert_eq!(
+            ledger.balance(&ALICE).unwrap().paid,
+            primitive_types::U256::from(500)
+        );
+        assert_eq!(
+            ledger.balance(&ALICE).unwrap().unpaid,
+            primitive_types::U256::from(0)
+        );
     }
 
     #[tokio::test]
@@ -645,7 +676,10 @@ mod tests {
         engine.settle().await.unwrap();
 
         assert_eq!(chain.broadcasts().len(), 1);
-        assert_eq!(ledger.balance(&ALICE).unwrap().paid, 500);
+        assert_eq!(
+            ledger.balance(&ALICE).unwrap().paid,
+            primitive_types::U256::from(500)
+        );
     }
 
     #[tokio::test]
@@ -709,7 +743,10 @@ mod tests {
             broadcasts[0], broadcasts[1],
             "and it was the same bytes, not a fresh signature over the same nonce"
         );
-        assert_eq!(ledger.balance(&ALICE).unwrap().paid, 500);
+        assert_eq!(
+            ledger.balance(&ALICE).unwrap().paid,
+            primitive_types::U256::from(500)
+        );
     }
 
     #[tokio::test]
@@ -729,7 +766,10 @@ mod tests {
         assert!(matches!(error, PoolError::Treasury(_)));
 
         // The miner is still owed. An empty treasury must not consume credits.
-        assert_eq!(ledger.balance(&ALICE).unwrap().unpaid, 1_000);
+        assert_eq!(
+            ledger.balance(&ALICE).unwrap().unpaid,
+            primitive_types::U256::from(1_000)
+        );
         assert!(chain.broadcasts().is_empty());
     }
 
@@ -745,7 +785,7 @@ mod tests {
             Arc::clone(&ledger),
             Arc::clone(&chain),
             PoolConfig {
-                min_payout: 5_000,
+                min_payout: primitive_types::U256::from(5_000),
                 ..config()
             },
         );
@@ -757,7 +797,10 @@ mod tests {
 
         engine.settle().await.unwrap();
         assert!(chain.broadcasts().is_empty());
-        assert_eq!(ledger.balance(&ALICE).unwrap().unpaid, 1_000);
+        assert_eq!(
+            ledger.balance(&ALICE).unwrap().unpaid,
+            primitive_types::U256::from(1_000)
+        );
     }
 
     #[tokio::test]
@@ -778,11 +821,17 @@ mod tests {
         let treasury = Treasury::from_key(generate_signing_key().unwrap());
         let entries = vec![PayoutEntry {
             miner: ALICE,
-            amount: 1_000,
+            amount: primitive_types::U256::from(1_000),
         }];
         let test_tag = custom_l1_node::core::ChainTag::from_genesis([0; 32]);
         let signed = treasury
-            .sign_payout(&entries, 0, 1_000_000, &config(), &test_tag)
+            .sign_payout(
+                &entries,
+                0,
+                primitive_types::U256::from(1_000_000),
+                &config(),
+                &test_tag,
+            )
             .unwrap();
         let orphan_batch = PayoutBatch {
             id: ledger.next_batch_id().unwrap(),
@@ -822,12 +871,15 @@ mod tests {
                         id: hex::encode(miner),
                         height: 1,
                         sequence: 0,
-                        reward: amount,
+                        reward: primitive_types::U256::from(amount),
                         finder: miner,
                         found_at_millis: 0,
                         state: BlockState::Immature,
                     },
-                    &[PayoutEntry { miner, amount }],
+                    &[PayoutEntry {
+                        miner,
+                        amount: primitive_types::U256::from(amount),
+                    }],
                 )
                 .unwrap();
             ledger.mature_block(&hex::encode(miner)).unwrap();
@@ -835,8 +887,8 @@ mod tests {
 
         let entries = engine.select_entries().unwrap();
         assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0].amount, 300);
-        assert_eq!(entries[1].amount, 200);
+        assert_eq!(entries[0].amount, primitive_types::U256::from(300));
+        assert_eq!(entries[1].amount, primitive_types::U256::from(200));
         assert_eq!(entries, engine.select_entries().unwrap());
     }
 }

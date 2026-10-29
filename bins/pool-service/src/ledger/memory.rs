@@ -202,7 +202,9 @@ impl ShareLedger for MemoryLedger {
         Ok(inner
             .balances
             .iter()
-            .filter(|(_, balance)| balance.unpaid > 0 || balance.immature > 0 || balance.paid > 0)
+            .filter(|(_, balance)| {
+                !(balance.unpaid.is_zero() && balance.immature.is_zero() && balance.paid.is_zero())
+            })
             .map(|(address, balance)| (*address, balance.clone()))
             .collect())
     }

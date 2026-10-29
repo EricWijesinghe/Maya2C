@@ -117,7 +117,9 @@
     if (!r) { $("state").innerHTML = 'maya-testnet-1 · <b>status service unreachable</b>'; return; }
     if (r.syncing) { $("state").innerHTML = `maya-testnet-1 · <b>reading history ${fmt(r.height)} / ${fmt(r.tip)}</b>`; return; }
     $("state").className = r.halted_now ? "pill down" : "pill";
-    $("state").innerHTML = `maya-testnet-1 · <b>${r.halted_now ? `halted ${dur(r.since_last_block)}` : "producing"}</b>`;
+    $("state").innerHTML = r.stopped
+      ? `maya-testnet-1 · <b>stopped on purpose ${when(r.last_block)}, after ${dur(r.streak_seconds)} with no halt</b>`
+      : `maya-testnet-1 · <b>${r.halted_now ? `halted ${dur(r.since_last_block)}` : "producing"}</b>`;
     const pct = r.uptime * 100;
     $("pct").textContent = pct >= 99.995 ? "100%" : pct.toFixed(2) + "%";
     $("arc").setAttribute("stroke-dasharray", `${(r.uptime * 326.7).toFixed(1)} 400`);

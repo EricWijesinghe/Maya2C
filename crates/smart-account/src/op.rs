@@ -1,5 +1,6 @@
 //! Operations and their canonical signing bytes.
 
+use maya_amount::Amount;
 use maya_crypto_pq::suite::SuiteId;
 
 use crate::fees::FeeSpec;
@@ -14,7 +15,7 @@ pub enum Action {
         /// Recipient account.
         to: AccountId,
         /// Amount.
-        amount: u64,
+        amount: Amount,
     },
     /// Register a new owner key (its public key travels once, here).
     AddKey {

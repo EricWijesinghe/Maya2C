@@ -11,6 +11,7 @@ description = "Native smart accounts: keys registered once and rotated without c
 # by exactly the NIST-vectored code a transaction is. BLAKE3 for key hashes and
 # account ids.
 [dependencies]
+maya-amount = { path = "../amount" }
 maya-crypto-pq = { path = "../crypto-pq" }
 blake3.workspace = true
 

@@ -71,10 +71,12 @@ pub fn sign_with_fee(
     });
     let size = u64::try_from(sign(outputs.clone())?.to_bytes().len()).unwrap_or(u64::MAX);
     if let Some(fee) = outputs.last_mut() {
-        // base_fee × size is below 2^128; doubled, still exact in 256 bits.
-        fee.amount = primitive_types::U256::from(fees.base_fee)
-            * primitive_types::U256::from(size)
-            * primitive_types::U256::from(2u8);
+        // Saturating: a fee near 2^256 is one no account can pay, and the node
+        // refuses the transaction, rather than a wrapped one being signed.
+        fee.amount = fees
+            .base_fee
+            .saturating_mul(primitive_types::U256::from(size))
+            .saturating_mul(primitive_types::U256::from(2u8));
     }
     sign(outputs)
 }

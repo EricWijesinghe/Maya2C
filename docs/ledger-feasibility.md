@@ -79,7 +79,7 @@ each attempt runs `ExpandMask` and the NTT k·ℓ times instead of ℓ.
 
 | Step | Device | Pinned by |
 |---|---|---|
-| Chain key | SLIP-0010 ed25519 at `m/44'/7331'/a'/0'/i'`, the `HDW_ED25519_SLIP10` syscall | `tests/ledger_tests.rs` under Speculos, against an independent host BIP-39 → SLIP-0010 derivation (itself checked against the published vectors) |
+| Chain key | SLIP-0010 ed25519 at `m/44'/2992'/a'/0'/i'`, the `HDW_ED25519_SLIP10` syscall | `tests/ledger_tests.rs` under Speculos, against an independent host BIP-39 → SLIP-0010 derivation (itself checked against the published vectors) |
 | Key | `ξ = BLAKE3-derive-key("…suite 0x10 ml-dsa-65 xi v1", chain key)`, then KeyGen | `tests/parity_tests.rs`, against a fixture the node writes (`crates/node/tests/ledger_fixture_tests.rs`) |
 | Address | the node's `suite_address` | same fixture |
 | Signature | deterministic, `rnd = 0³²`, empty context | same fixture: the device signs the node's own v7 transfer to the node's own bytes |
