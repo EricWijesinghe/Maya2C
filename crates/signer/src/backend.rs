@@ -1,6 +1,6 @@
 //! Where the signing key lives (ADR-022).
 
-use maya_crypto_pq::suite::{MasterSeed, MlDsa65, SignatureSuite};
+use maya_crypto_pq::suite::{MasterSeed, ValidatorSigningKey};
 
 /// Backend failures.
 #[derive(Debug, thiserror::Error)]
@@ -15,9 +15,10 @@ pub enum BackendError {
 
 /// A place a validator key can sign from.
 pub trait SignerBackend {
-    /// The ML-DSA-65 public key.
+    /// The ML-DSA-87 validator public key (ADR-051 option 3).
     fn public_key(&self) -> &[u8];
-    /// Signs `message` with ML-DSA-65 (FIPS 204, deterministic).
+    /// Signs `message` as a validator: ML-DSA-87, deterministic, under the
+    /// validator context (`maya_crypto_pq::suite::validator::CONTEXT`).
     ///
     /// # Errors
     ///
@@ -28,16 +29,16 @@ pub trait SignerBackend {
 /// The encrypted-keystore backend: the key is in this process's memory,
 /// decrypted from `keystore` at start-up and zeroized on drop.
 pub struct KeystoreBackend {
-    key: <MlDsa65 as SignatureSuite>::SigningKey,
+    key: ValidatorSigningKey,
     public: Vec<u8>,
 }
 
 impl KeystoreBackend {
-    /// A backend holding the key derived from `seed`.
+    /// A backend holding the validator key `seed` names (the seed is `ξ`).
     #[must_use]
     pub fn new(seed: &MasterSeed) -> Self {
-        let key = MlDsa65::signing_key_from_seed(seed);
-        let public = MlDsa65::public_key(&key);
+        let key = ValidatorSigningKey::from_seed(seed.expose());
+        let public = key.public_key().to_vec();
         Self { key, public }
     }
 }
@@ -48,7 +49,10 @@ impl SignerBackend for KeystoreBackend {
     }
 
     fn sign(&self, message: &[u8]) -> Result<Vec<u8>, BackendError> {
-        MlDsa65::sign(&self.key, message).map_err(|_| BackendError::Sign)
+        self.key
+            .sign(message)
+            .map(|sig| sig.to_vec())
+            .map_err(|_| BackendError::Sign)
     }
 }
 

@@ -117,6 +117,15 @@ const WIRE_VERSION: u8 = 5;
 /// Wire format version for a transaction carrying a typed payload.
 const WIRE_VERSION_PAYLOAD: u8 = 6;
 
+/// Largest encoded transaction any node will decode.
+///
+/// A transaction rides in a DAG-BFT batch (`MAX_BATCH_BYTES`, 4 MiB), so none
+/// can usefully be bigger. It also has to hold the biggest legal payload: a full
+/// `SettleBatch` of [`MAX_BATCH_CLOSURES`](super::payload::MAX_BATCH_CLOSURES)
+/// closures is about 3.4 MB. One bound, named here, is what block decoding,
+/// transaction decoding and mempool admission all refuse above.
+pub const MAX_TX_BYTES: usize = 4 * 1024 * 1024;
+
 /// Highest wire version predating hybrid signing.
 ///
 /// Covers both the ed25519 era (1, 2) and the ML-DSA-only era (3, 4). They are
@@ -425,6 +434,12 @@ impl Transaction {
     /// version, a truncated or over-long frame, an implausible collection
     /// count, or trailing bytes.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() > MAX_TX_BYTES {
+            return Err(NodeError::Decode(format!(
+                "transaction of {} bytes exceeds the maximum {MAX_TX_BYTES}",
+                bytes.len()
+            )));
+        }
         let mut reader = ByteReader::new(bytes);
 
         let version = reader.read_u8()?;

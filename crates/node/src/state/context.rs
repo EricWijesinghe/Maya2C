@@ -53,6 +53,11 @@ pub struct BlockContext {
     /// [`SHIELDED_ACTIVATION_HEIGHT`] is the default for every genesis that
     /// does not name one.
     pub shielded_activation: u64,
+    /// First height at which RWA delivery-versus-payment swaps execute.
+    ///
+    /// [`DVP_ACTIVATION_HEIGHT`] everywhere the node builds a context. Tests set
+    /// it with [`Self::with_dvp_activation`].
+    pub dvp_activation: u64,
 }
 
 /// First height at which shielded join-splits execute, for a genesis that
@@ -62,6 +67,14 @@ pub const SHIELDED_ACTIVATION_HEIGHT: u64 = 0;
 /// The shielded activation height meaning "never": the pool stays off until a
 /// later protocol upgrade schedules it (ADR-037).
 pub const SHIELDED_NEVER: u64 = u64::MAX;
+
+/// First height at which RWA delivery-versus-payment swaps execute: none.
+///
+/// The research-branch pattern. A swap names its seller in the payload and only
+/// the buyer signs, so anyone could take units from any holder at any price.
+/// What has to be decided first is written in ADR-061: the swap needs the
+/// seller's consent, carried as a seller-signed offer the swap consumes once.
+pub const DVP_ACTIVATION_HEIGHT: u64 = u64::MAX;
 
 /// First height at which `IoT` anchor transactions execute: none.
 ///
@@ -159,7 +172,23 @@ impl BlockContext {
             threat_intel_activation: THREAT_INTEL_ACTIVATION_HEIGHT,
             iot_activation: IOT_ACTIVATION_HEIGHT,
             shielded_activation: SHIELDED_ACTIVATION_HEIGHT,
+            dvp_activation: DVP_ACTIVATION_HEIGHT,
         }
+    }
+
+    /// The same context with RWA swaps active from `height` on.
+    #[must_use]
+    pub const fn with_dvp_activation(self, height: u64) -> Self {
+        Self {
+            dvp_activation: height,
+            ..self
+        }
+    }
+
+    /// Whether RWA delivery-versus-payment swaps execute in this block.
+    #[must_use]
+    pub const fn dvp_active(self) -> bool {
+        self.height >= self.dvp_activation
     }
 
     /// The same context with shielded join-splits active from `height` on.

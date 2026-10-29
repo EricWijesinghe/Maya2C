@@ -3,7 +3,7 @@
 //! | key | value |
 //! |---|---|
 //! | `k:state` | [`StakingRecord`]: the `maya-staking` state plus the node's slot counts |
-//! | `k:key:<id>` | the validator's 1,952-byte ML-DSA-65 verifying key |
+//! | `k:key:<id>` | the validator's 2,592-byte ML-DSA-87 verifying key |
 //! | `k:cmt:<epoch be>` | that epoch's committee, ids in committee order |
 //!
 //! One record for the whole staking state is a deliberate v1 choice: every
@@ -20,9 +20,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use maya_staking::{Amount, Params, Staking, Status, Unbonding, ValidatorRecord};
 
-/// Staking record format. 2 since ADR-046 widened every amount to 256 bits; a
-/// version-1 record is refused, not reinterpreted.
-const RECORD_VERSION: u8 = 2;
+/// Staking record format. 2 since ADR-046 widened every amount to 256 bits; 3
+/// adds the stake added this epoch (earns from the next). A version-1 or -2
+/// record is refused, not reinterpreted.
+const RECORD_VERSION: u8 = 3;
 
 use crate::core::codec::ByteReader;
 use crate::error::{NodeError, Result};
@@ -242,10 +243,48 @@ fn put_counts(out: &mut Vec<u8>, m: &BTreeMap<[u8; 32], u64>) {
 }
 
 fn read_counts(r: &mut ByteReader<'_>) -> Result<BTreeMap<[u8; 32], u64>> {
-    let n = r.read_collection_len(40)?;
+    let n = r.read_record_len(40)?;
     (0..n)
         .map(|_| Ok((r.read_array()?, r.read_u64()?)))
         .collect()
+}
+
+/// Reads the pending sections. Keys must be strictly ascending (one canonical
+/// encoding per map), entries non-zero, and each entry no larger than the
+/// stake it belongs to, so a corrupt record cannot make stake look larger.
+fn decode_pending(r: &mut ByteReader<'_>, staking: &mut Staking) -> Result<()> {
+    let refused = || NodeError::Decode("staking pending stake out of order or range".into());
+    let n = r.read_record_len(32 + 32)?;
+    let mut prev: Option<[u8; 32]> = None;
+    for _ in 0..n {
+        let id: [u8; 32] = r.read_array()?;
+        if prev.is_some_and(|p| p >= id) {
+            return Err(refused());
+        }
+        prev = Some(id);
+        let amount = read_amount(r)?;
+        let bond = staking.validators.get(&id).map(|v| v.self_bond);
+        if amount.is_zero() || bond.is_none_or(|b| amount > b) {
+            return Err(refused());
+        }
+        staking.pending_self.insert(id, amount);
+    }
+    let n = r.read_record_len(32 + 32 + 32)?;
+    let mut prev: Option<([u8; 32], [u8; 32])> = None;
+    for _ in 0..n {
+        let key: ([u8; 32], [u8; 32]) = (r.read_array()?, r.read_array()?);
+        if prev.is_some_and(|p| p >= key) {
+            return Err(refused());
+        }
+        prev = Some(key);
+        let amount = read_amount(r)?;
+        let held = staking.delegations.get(&key).copied();
+        if amount.is_zero() || held.is_none_or(|h| amount > h) {
+            return Err(refused());
+        }
+        staking.pending_delegations.insert(key, amount);
+    }
+    Ok(())
 }
 
 impl StakingRecord {
@@ -284,6 +323,17 @@ impl StakingRecord {
         for id in &s.retired {
             out.extend_from_slice(id);
         }
+        put_u64(&mut out, s.pending_self.len() as u64);
+        for (id, amount) in &s.pending_self {
+            out.extend_from_slice(id);
+            put_amount(&mut out, *amount);
+        }
+        put_u64(&mut out, s.pending_delegations.len() as u64);
+        for ((d, v), amount) in &s.pending_delegations {
+            out.extend_from_slice(d);
+            out.extend_from_slice(v);
+            put_amount(&mut out, *amount);
+        }
         put_u64(&mut out, self.epoch_blocks);
         put_u64(&mut out, self.last_round);
         put_counts(&mut out, &self.expected);
@@ -307,7 +357,7 @@ impl StakingRecord {
             .map_err(|e| NodeError::Decode(format!("staking params: {e:?}")))?;
         staking.epoch = r.read_u64()?;
         // Id, operator, two amounts, commission, status tag.
-        let n = r.read_collection_len(32 + 32 + 32 + 32 + 2 + 1)?;
+        let n = r.read_record_len(32 + 32 + 32 + 32 + 2 + 1)?;
         for _ in 0..n {
             let id: [u8; 32] = r.read_array()?;
             let record = ValidatorRecord {
@@ -319,12 +369,12 @@ impl StakingRecord {
             };
             staking.validators.insert(id, record);
         }
-        let n = r.read_collection_len(32 + 32 + 32)?;
+        let n = r.read_record_len(32 + 32 + 32)?;
         for _ in 0..n {
             let key = (r.read_array()?, r.read_array()?);
             staking.delegations.insert(key, read_amount(&mut r)?);
         }
-        let n = r.read_collection_len(32 + 32 + 32 + 8)?;
+        let n = r.read_record_len(32 + 32 + 32 + 8)?;
         for _ in 0..n {
             staking.unbonding.push(Unbonding {
                 owner: r.read_array()?,
@@ -333,12 +383,13 @@ impl StakingRecord {
                 release_epoch: r.read_u64()?,
             });
         }
-        let n = r.read_collection_len(32)?;
+        let n = r.read_record_len(32)?;
         staking.active = (0..n).map(|_| r.read_array()).collect::<Result<_>>()?;
-        let n = r.read_collection_len(32)?;
+        let n = r.read_record_len(32)?;
         staking.retired = (0..n)
             .map(|_| r.read_array())
             .collect::<Result<BTreeSet<_>>>()?;
+        decode_pending(&mut r, &mut staking)?;
         let record = Self {
             staking,
             epoch_blocks: r.read_u64()?,
@@ -398,6 +449,7 @@ mod tests {
         let bytes = record.encode();
         let back = StakingRecord::decode(&bytes).unwrap();
         assert_eq!(back, record);
+        assert!(!back.staking.pending_delegations.is_empty());
         assert_eq!(back.encode(), bytes);
         assert!(StakingRecord::decode(&bytes[..bytes.len() - 1]).is_err());
     }
@@ -406,5 +458,155 @@ mod tests {
     fn a_validator_id_is_the_hash_of_its_key_not_the_key() {
         assert_ne!(validator_id(&[1; 1952]), validator_id(&[2; 1952]));
         assert_eq!(validator_id(&[1; 1952]).len(), 32);
+    }
+}
+
+#[cfg(test)]
+mod pending_tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+
+    /// A valid record with no pending stake, cut before its trailing
+    /// sections, so each test can append its own pending sections.
+    fn prefix() -> Vec<u8> {
+        let mut staking = Staking::new(Params::DEVNET).unwrap();
+        staking
+            .register([1; 32], [8; 32], Amount::from_u64(5_000), 0)
+            .unwrap();
+        staking
+            .register([2; 32], [9; 32], Amount::from_u64(5_000), 0)
+            .unwrap();
+        staking
+            .delegate([3; 32], [9; 32], Amount::from_u64(400))
+            .unwrap();
+        staking.pending_self.clear();
+        staking.pending_delegations.clear();
+        let record = StakingRecord {
+            staking,
+            epoch_blocks: 600,
+            last_round: 0,
+            expected: BTreeMap::new(),
+            authored: BTreeMap::new(),
+        };
+        let bytes = record.encode();
+        // Pending counts (16), epoch_blocks, last_round, two empty count maps.
+        bytes[..bytes.len() - 48].to_vec()
+    }
+
+    /// `((delegator, validator), amount)`.
+    type PendingDelegation = (([u8; 32], [u8; 32]), u64);
+
+    fn with_pending(
+        prefix: &[u8],
+        self_pending: &[([u8; 32], u64)],
+        delegated_pending: &[PendingDelegation],
+    ) -> Vec<u8> {
+        let mut out = prefix.to_vec();
+        put_u64(&mut out, self_pending.len() as u64);
+        for (id, amount) in self_pending {
+            out.extend_from_slice(id);
+            put_amount(&mut out, Amount::from_u64(*amount));
+        }
+        put_u64(&mut out, delegated_pending.len() as u64);
+        for ((d, v), amount) in delegated_pending {
+            out.extend_from_slice(d);
+            out.extend_from_slice(v);
+            put_amount(&mut out, Amount::from_u64(*amount));
+        }
+        put_u64(&mut out, 600);
+        put_u64(&mut out, 0);
+        put_u64(&mut out, 0);
+        put_u64(&mut out, 0);
+        out
+    }
+
+    #[test]
+    fn a_pending_self_section_decodes_and_round_trips() {
+        let bytes = with_pending(&prefix(), &[([9; 32], 300)], &[]);
+        let record = StakingRecord::decode(&bytes).unwrap();
+        assert_eq!(
+            record.staking.pending_self.get(&[9; 32]),
+            Some(&Amount::from_u64(300))
+        );
+        assert_eq!(record.encode(), bytes);
+    }
+
+    #[test]
+    fn a_pending_delegation_section_decodes_and_round_trips() {
+        let bytes = with_pending(&prefix(), &[], &[(([3; 32], [9; 32]), 150)]);
+        let record = StakingRecord::decode(&bytes).unwrap();
+        assert_eq!(record.encode(), bytes);
+    }
+
+    #[test]
+    fn out_of_order_pending_keys_are_refused() {
+        let bytes = with_pending(&prefix(), &[([9; 32], 300), ([8; 32], 300)], &[]);
+        assert!(StakingRecord::decode(&bytes).is_err());
+    }
+
+    #[test]
+    fn duplicate_pending_keys_are_refused() {
+        let bytes = with_pending(&prefix(), &[([8; 32], 300), ([8; 32], 300)], &[]);
+        assert!(StakingRecord::decode(&bytes).is_err());
+    }
+
+    #[test]
+    fn pending_above_the_bond_is_refused() {
+        let bytes = with_pending(&prefix(), &[([8; 32], 5_001)], &[]);
+        assert!(StakingRecord::decode(&bytes).is_err());
+        let at_bond = with_pending(&prefix(), &[([8; 32], 5_000)], &[]);
+        assert!(StakingRecord::decode(&at_bond).is_ok());
+    }
+
+    #[test]
+    fn pending_above_the_delegation_is_refused() {
+        let bytes = with_pending(&prefix(), &[], &[(([3; 32], [9; 32]), 401)]);
+        assert!(StakingRecord::decode(&bytes).is_err());
+    }
+
+    #[test]
+    fn pending_for_an_unknown_validator_or_delegation_is_refused() {
+        let unknown_validator = with_pending(&prefix(), &[([7; 32], 1)], &[]);
+        assert!(StakingRecord::decode(&unknown_validator).is_err());
+        let unknown_delegation = with_pending(&prefix(), &[], &[(([4; 32], [9; 32]), 1)]);
+        assert!(StakingRecord::decode(&unknown_delegation).is_err());
+    }
+
+    #[test]
+    fn zero_pending_entries_are_refused() {
+        let bytes = with_pending(&prefix(), &[([8; 32], 0)], &[]);
+        assert!(StakingRecord::decode(&bytes).is_err());
+    }
+}
+
+#[cfg(test)]
+mod record_size_tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+
+    #[test]
+    fn a_record_above_the_wire_count_cap_still_decodes() {
+        // Pre-audit CRITICAL-1 (self-run): the record decoder used the wire's
+        // 65,536-element cap while the encoder had none, so the 65,537th
+        // unbonding entry made every block fail to apply on every node.
+        let mut staking = Staking::new(Params::DEVNET).unwrap();
+        let entries = usize::try_from(crate::core::codec::MAX_COLLECTION_LEN).unwrap() + 1;
+        staking.unbonding = (0..entries)
+            .map(|i| maya_staking::Unbonding {
+                owner: [1; 32],
+                validator: [2; 32],
+                amount: maya_ledger_math::Amount::from_u64(1),
+                release_epoch: i as u64,
+            })
+            .collect();
+        let record = StakingRecord {
+            staking,
+            epoch_blocks: 600,
+            last_round: 0,
+            expected: BTreeMap::new(),
+            authored: BTreeMap::new(),
+        };
+        let bytes = record.encode();
+        assert_eq!(StakingRecord::decode(&bytes).unwrap(), record);
     }
 }

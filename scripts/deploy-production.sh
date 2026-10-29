@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# deploy-production.sh — the deploy orchestrator (Master Prompt 10 §6).
+# scripts/deploy-production.sh — the deploy orchestrator (Master Prompt 10 §6).
 #
 # =============================================================================
 # Safety model
@@ -30,11 +30,11 @@
 # Usage
 # =============================================================================
 #
-#   ./deploy-production.sh                          # dry run, cloud target: plans only
-#   ./deploy-production.sh --target local-k3d       # dry run, full pipeline on k3d
-#   ./deploy-production.sh --target local-k3d --keep   # leave the cluster up
-#   ./deploy-production.sh --target local-docker    # dry run, NODES containers, no Kubernetes
-#   APPROVED=infrastructure,hardening,rollout ./deploy-production.sh --apply
+#   scripts/deploy-production.sh                          # dry run, cloud target: plans only
+#   scripts/deploy-production.sh --target local-k3d       # dry run, full pipeline on k3d
+#   scripts/deploy-production.sh --target local-k3d --keep   # leave the cluster up
+#   scripts/deploy-production.sh --target local-docker    # dry run, NODES containers, no Kubernetes
+#   APPROVED=infrastructure,hardening,rollout scripts/deploy-production.sh --apply
 #
 # Environment (non-secret): NODES (default 12), BIN_PROFILE (default ci),
 # CLUSTER (default maya2c-local), SKIP_BUILD=1 to reuse target/<profile>/maya2c-node.
@@ -47,7 +47,7 @@
 # which target ran.
 
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 MODE=dry-run
 TARGET=cloud

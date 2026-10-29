@@ -155,8 +155,18 @@ impl StateDB {
     /// Every governed call site goes through this rather than a `const`, which
     /// is what makes the rule a fact about chain state at a height rather than
     /// about the binary.
-    pub(crate) fn parameter(&self, overlay: &Overlay, key: ParameterKey) -> Result<u64> {
+    pub(crate) fn parameter(
+        &self,
+        overlay: &Overlay,
+        key: ParameterKey,
+    ) -> Result<maya_dex::Amount> {
         Ok(self.parameters_through(overlay)?.get(key))
+    }
+
+    /// A count-like parameter (a per-block ceiling, a basis-point rate) as `u64`.
+    /// Their governance bounds are far below `u64::MAX`, so this never clamps.
+    pub(crate) fn parameter_u64(&self, overlay: &Overlay, key: ParameterKey) -> Result<u64> {
+        Ok(self.parameter(overlay, key)?.saturating_to_u64())
     }
 
     fn totals_through(&self, overlay: &Overlay) -> Result<Totals> {
@@ -250,6 +260,7 @@ impl StateDB {
                     .locked
                     .checked_add(request.amount)
                     .ok_or(NodeError::BalanceOverflow)?,
+                ..totals
             }
             .encode()
             .to_vec(),
@@ -307,6 +318,7 @@ impl StateDB {
             TOTALS_KEY.to_vec(),
             Totals {
                 locked: totals.locked.saturating_sub(request.amount),
+                ..totals
             }
             .encode()
             .to_vec(),
@@ -341,6 +353,19 @@ impl StateDB {
             overlay,
             work_key(&claim.beneficiary),
             record.encode().to_vec(),
+        );
+
+        // The same credit joins the aggregate quorum is measured against.
+        let totals = self.totals_through(overlay)?;
+        Self::put_record(
+            overlay,
+            TOTALS_KEY.to_vec(),
+            Totals {
+                work: totals.work.credited(work, context.height),
+                ..totals
+            }
+            .encode()
+            .to_vec(),
         );
         Ok(())
     }
@@ -396,7 +421,9 @@ impl StateDB {
         // what a governance system wants.
         // The parameter is a bounded u64 rule (ADR-048); the coin it moves is
         // 256-bit like every balance.
-        let deposit = U256::from(self.parameter(overlay, ParameterKey::GovernanceProposalDeposit)?);
+        let deposit = maya_stateless_core::amount::to_u256(
+            self.parameter(overlay, ParameterKey::GovernanceProposalDeposit)?,
+        );
         self.debit_native(overlay, sender, deposit)?;
 
         Self::put_record(
@@ -509,7 +536,14 @@ impl StateDB {
         overlay: &mut Overlay,
         context: BlockContext,
     ) -> Result<()> {
-        let eligible = to_amount(self.totals_through(overlay)?.locked);
+        // Everyone who can cast a vote: locked stake and decayed work credit,
+        // the same two terms a ballot's weight is made of.
+        let totals = self.totals_through(overlay)?;
+        let eligible = to_amount(
+            totals
+                .locked
+                .saturating_add(U256::from(totals.work.value_at(context.height))),
+        );
         let quorum_bps = maya_governance::limits::MIN_QUORUM_BPS;
         let approval_bps = maya_governance::limits::MIN_APPROVAL_BPS;
 

@@ -16,7 +16,7 @@
 //! # Status
 //!
 //! The engine is sans-IO: it runs under `maya-sim` with [`Unauthenticated`]
-//! (SIM — no keys), and in the node behind an ML-DSA-65 [`Authenticator`]
+//! (SIM — no keys), and in the node behind an ML-DSA-87 (ADR-051 option 3) [`Authenticator`]
 //! with a gossip transport, one block per committed [`SubDag`] (ADR-027).
 //! A throughput figure from this crate alone is an *ordering* figure, not TPS
 //! as the Production Standing Orders define it, and is labelled so.

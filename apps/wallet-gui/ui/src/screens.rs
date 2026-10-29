@@ -18,7 +18,7 @@ pub fn short(hash: &str) -> String {
 /// Groups digits in threes: `1234567` → `1,234,567`.
 ///
 /// For counts only (heights, nonces). Amounts go through `show_amount`, which
-/// formats whole coins at 18 decimals; this would drop the decimal point.
+/// formats whole coins at 24 decimals; this would drop the decimal point.
 pub fn group_digits(n: impl std::fmt::Display) -> String {
     let digits = n.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);

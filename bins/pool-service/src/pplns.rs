@@ -39,6 +39,7 @@ use std::collections::BTreeMap;
 use custom_l1_node::consensus::U256;
 use custom_l1_node::consensus::difficulty::work_from_target;
 use custom_l1_node::state::Address;
+use primitive_types::{U256 as Amount, U512};
 
 use crate::error::{PoolError, Result};
 use crate::ledger::WindowSlice;
@@ -94,7 +95,7 @@ pub fn window_size(network_target: &[u8; 32], factor: f64) -> Result<U256> {
 /// pay and the caller must not send the reward anywhere — or if the arithmetic
 /// cannot be performed exactly. Both stop the payout rather than approximating
 /// it.
-pub fn split(window: &WindowSlice, reward: u64) -> Result<Vec<PayoutEntry>> {
+pub fn split(window: &WindowSlice, reward: Amount) -> Result<Vec<PayoutEntry>> {
     if window.shares.is_empty() || window.total.is_zero() {
         return Err(PoolError::Treasury(
             "the PPLNS window is empty, so there is nobody to credit".to_string(),
@@ -109,29 +110,18 @@ pub fn split(window: &WindowSlice, reward: u64) -> Result<Vec<PayoutEntry>> {
         *entry = entry.saturating_add(U256::from_u64(share.weight));
     }
 
-    let denominator = window.total;
-    let mut floors: Vec<(Address, u64, U256)> = Vec::with_capacity(weights.len());
-    let mut distributed: u64 = 0;
+    let denominator = U512::from_big_endian(&window.total.to_be_bytes());
+    let mut floors: Vec<(Address, Amount, U512)> = Vec::with_capacity(weights.len());
+    let mut distributed = Amount::zero();
 
     for (miner, weight) in &weights {
-        // `weight * reward` cannot overflow 256 bits by any reachable route: a
-        // window holds at most MAX_WINDOW_SHARES shares of at most 2^63 each,
-        // which is under 2^86, and a reward is under 2^64. The check is here
-        // because an accounting routine that guesses when its arithmetic fails
-        // is worse than one that stops.
-        let scaled = weight.mul_div_u64(reward, 1).ok_or_else(|| {
-            PoolError::Treasury(
-                "share weight times reward overflowed 256 bits; refusing to \
-                 approximate a payout"
-                    .to_string(),
-            )
-        })?;
+        // A 512-bit product: a window weight is under 2^86 and a reward under
+        // 2^256, so `weight * reward` cannot overflow it, and no guard is needed
+        // on the multiply. The quotient is at most `reward`, so it fits back.
+        let scaled = Amount::from_big_endian(&weight.to_be_bytes()).full_mul(reward);
+        let (quotient, remainder) = scaled.div_mod(denominator);
 
-        let (quotient, remainder) = scaled
-            .div_rem(denominator)
-            .ok_or_else(|| PoolError::Treasury("PPLNS window weight is zero".to_string()))?;
-
-        let amount = to_u64(quotient).ok_or_else(|| {
+        let amount = Amount::try_from(quotient).map_err(|_| {
             PoolError::Treasury(
                 "a single miner's credit exceeded the reward, which means the \
                  window denominator is wrong"
@@ -147,21 +137,22 @@ pub fn split(window: &WindowSlice, reward: u64) -> Result<Vec<PayoutEntry>> {
 
     // Largest remainder: the spare units go to the claims that missed by most.
     // Ties break on the address so the result does not depend on map ordering.
+    // `spare` is below the number of miners, so neither step can overflow.
     let mut spare = reward.saturating_sub(distributed);
-    if spare > 0 {
+    if !spare.is_zero() {
         floors.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.0.cmp(&b.0)));
         for slot in &mut floors {
-            if spare == 0 {
+            if spare.is_zero() {
                 break;
             }
-            slot.1 += 1;
-            spare -= 1;
+            slot.1 += Amount::one();
+            spare -= Amount::one();
         }
     }
 
     let mut entries: Vec<PayoutEntry> = floors
         .into_iter()
-        .filter(|(_, amount, _)| *amount > 0)
+        .filter(|(_, amount, _)| !amount.is_zero())
         .map(|(miner, amount, _)| PayoutEntry { miner, amount })
         .collect();
     entries.sort_by_key(|a| a.miner);
@@ -169,26 +160,16 @@ pub fn split(window: &WindowSlice, reward: u64) -> Result<Vec<PayoutEntry>> {
     // The invariant, checked rather than asserted in a comment. A payout that
     // does not sum to the reward is either minting or stranding value, and both
     // are worse than a stopped payout task.
-    let total: u64 = entries.iter().map(|entry| entry.amount).sum();
-    if total != reward {
+    let total = entries
+        .iter()
+        .try_fold(Amount::zero(), |sum, entry| sum.checked_add(entry.amount));
+    if total != Some(reward) {
         return Err(PoolError::Treasury(format!(
-            "PPLNS split produced {total} against a reward of {reward}"
+            "PPLNS split produced {total:?} against a reward of {reward}"
         )));
     }
 
     Ok(entries)
-}
-
-/// Narrows a `U256` to a `u64`, or `None` if it does not fit.
-fn to_u64(value: U256) -> Option<u64> {
-    let bytes = value.to_be_bytes();
-    let (high, low) = bytes.split_at(24);
-    if high.iter().any(|byte| *byte != 0) {
-        return None;
-    }
-    let mut buf = [0u8; 8];
-    buf.copy_from_slice(low);
-    Some(u64::from_be_bytes(buf))
 }
 
 #[cfg(test)]
@@ -226,13 +207,13 @@ mod tests {
         entries
             .iter()
             .find(|entry| entry.miner == miner)
-            .map_or(0, |entry| entry.amount)
+            .map_or(0, |entry| entry.amount.as_u64())
     }
 
     #[test]
     fn an_even_split_is_even() {
         let slice = window(&[(ALICE, "rig", 100), (BOB, "rig", 100)]);
-        let entries = split(&slice, 1_000).unwrap();
+        let entries = split(&slice, primitive_types::U256::from(1_000)).unwrap();
 
         assert_eq!(amount_for(&entries, ALICE), 500);
         assert_eq!(amount_for(&entries, BOB), 500);
@@ -245,7 +226,7 @@ mod tests {
         let mut shares = vec![(ALICE, "rig", 900u64)];
         shares.extend((0..9).map(|_| (BOB, "rig", 100u64)));
 
-        let entries = split(&window(&shares), 1_800).unwrap();
+        let entries = split(&window(&shares), primitive_types::U256::from(1_800)).unwrap();
         assert_eq!(amount_for(&entries, ALICE), 900);
         assert_eq!(amount_for(&entries, BOB), 900);
     }
@@ -259,8 +240,8 @@ mod tests {
         let mut split_up = vec![(BOB, "rig", 1_000u64)];
         split_up.extend((0..10).map(|_| (ALICE, "rig", 100u64)));
 
-        let before = split(&whole, 4_242).unwrap();
-        let after = split(&window(&split_up), 4_242).unwrap();
+        let before = split(&whole, primitive_types::U256::from(4_242)).unwrap();
+        let after = split(&window(&split_up), primitive_types::U256::from(4_242)).unwrap();
 
         assert_eq!(amount_for(&before, ALICE), amount_for(&after, ALICE));
         assert_eq!(amount_for(&before, BOB), amount_for(&after, BOB));
@@ -272,9 +253,15 @@ mod tests {
         // units, and where a payout starts minting or stranding value.
         for reward in [1u64, 2, 3, 7, 999, 1_000, 1_000_003, u32::MAX as u64] {
             let slice = window(&[(ALICE, "rig", 1), (BOB, "rig", 1), (CAROL, "rig", 1)]);
-            let entries = split(&slice, reward).unwrap();
-            let total: u64 = entries.iter().map(|entry| entry.amount).sum();
-            assert_eq!(total, reward, "split of {reward} did not conserve value");
+            let entries = split(&slice, primitive_types::U256::from(reward)).unwrap();
+            let total = entries
+                .iter()
+                .fold(Amount::zero(), |sum, entry| sum + entry.amount);
+            assert_eq!(
+                total,
+                Amount::from(reward),
+                "split of {reward} did not conserve value"
+            );
         }
     }
 
@@ -283,11 +270,26 @@ mod tests {
         // Reward 10 across weights 1, 1, 1: floors are 3, 3, 3 with a spare
         // unit that must land somewhere deterministic.
         let slice = window(&[(ALICE, "rig", 1), (BOB, "rig", 1), (CAROL, "rig", 1)]);
-        let first = split(&slice, 10).unwrap();
-        let second = split(&slice, 10).unwrap();
+        let first = split(&slice, primitive_types::U256::from(10)).unwrap();
+        let second = split(&slice, primitive_types::U256::from(10)).unwrap();
 
         assert_eq!(first, second, "the split must be a function of its input");
-        assert_eq!(first.iter().map(|e| e.amount).sum::<u64>(), 10);
+        assert_eq!(
+            first.iter().fold(Amount::zero(), |sum, e| sum + e.amount),
+            Amount::from(10u64)
+        );
+    }
+
+    #[test]
+    fn a_reward_above_u64_splits_to_the_unit() {
+        // 50 coins at 24 decimals is 5e25 base units, far past u64::MAX (~1.8e19).
+        // The old u64 split refused it; ADR-046 money must split exactly.
+        let reward = Amount::from(50u64) * Amount::exp10(24) + Amount::from(7u64);
+        let slice = window(&[(ALICE, "rig", 3), (BOB, "rig", 5), (CAROL, "rig", 11)]);
+        let entries = split(&slice, reward).unwrap();
+        let total = entries.iter().fold(Amount::zero(), |sum, e| sum + e.amount);
+        assert_eq!(total, reward);
+        assert!(entries.iter().any(|e| e.amount > Amount::from(u64::MAX)));
     }
 
     #[test]
@@ -297,7 +299,7 @@ mod tests {
         let mut slice = window(&[(ALICE, "rig", 10)]);
         slice.full = false;
 
-        let entries = split(&slice, 1_000).unwrap();
+        let entries = split(&slice, primitive_types::U256::from(1_000)).unwrap();
         assert_eq!(amount_for(&entries, ALICE), 1_000);
     }
 
@@ -306,7 +308,10 @@ mod tests {
         // Nobody to pay means the reward must not be sent anywhere, and the
         // caller has to hear about it.
         let slice = WindowSlice::default();
-        assert!(matches!(split(&slice, 1_000), Err(PoolError::Treasury(_))));
+        assert!(matches!(
+            split(&slice, primitive_types::U256::from(1_000)),
+            Err(PoolError::Treasury(_))
+        ));
     }
 
     #[test]
@@ -315,8 +320,12 @@ mod tests {
         let mut shares = vec![(BOB, "rig", 1u64)];
         shares.extend((0..1_000).map(|_| (ALICE, "rig", 1_000_000u64)));
 
-        let entries = split(&window(&shares), 100).unwrap();
-        assert!(entries.iter().all(|entry| entry.amount > 0));
+        let entries = split(&window(&shares), primitive_types::U256::from(100)).unwrap();
+        assert!(
+            entries
+                .iter()
+                .all(|entry| entry.amount > primitive_types::U256::from(0))
+        );
     }
 
     #[test]

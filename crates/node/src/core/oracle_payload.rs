@@ -33,7 +33,7 @@
 
 use maya_vrf::ecvrf::PROOF_LEN;
 
-use crate::core::codec::ByteReader;
+use crate::core::codec::{ByteReader, put_amount};
 use crate::crypto::hybrid::{
     HYBRID_PUBLIC_KEY_LEN, HYBRID_SIGNATURE_LENGTH, HybridPublicKey, HybridSignature,
 };
@@ -50,13 +50,13 @@ use crate::state::account::Address;
 pub const MAX_OBSERVATIONS: usize = 21;
 
 /// Encoded size of one [`FeedObservation`].
-pub const OBSERVATION_SIZE: usize = 8 + HYBRID_PUBLIC_KEY_LEN + HYBRID_SIGNATURE_LENGTH;
+pub const OBSERVATION_SIZE: usize = 32 + HYBRID_PUBLIC_KEY_LEN + HYBRID_SIGNATURE_LENGTH;
 
 /// One authority's attestation of a price.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FeedObservation {
-    /// The observed price, in units of `1 / FEED_SCALE`.
-    pub value: u64,
+    /// The observed price, in units of `1 / FEED_SCALE`: 256-bit (ADR-066).
+    pub value: primitive_types::U256,
     /// Key the signature verifies under. The registry stores only addresses,
     /// which are hashes, so the key has to travel with the signature.
     pub public_key: Box<HybridPublicKey>,
@@ -122,7 +122,7 @@ pub struct BeaconSubmission {
 impl FeedObservation {
     /// Appends the fixed-width encoding.
     pub fn encode_into(&self, buf: &mut Vec<u8>) {
-        buf.extend_from_slice(&self.value.to_le_bytes());
+        put_amount(buf, &self.value);
         self.public_key.encode_into(buf);
         self.signature.encode_into(buf);
     }
@@ -134,7 +134,7 @@ impl FeedObservation {
     /// Returns [`NodeError::Decode`] if the section is truncated.
     pub fn decode(reader: &mut ByteReader<'_>) -> Result<Self> {
         Ok(Self {
-            value: reader.read_u64()?,
+            value: reader.read_amount()?,
             public_key: Box::new(HybridPublicKey::decode(reader)?),
             signature: Box::new(HybridSignature::decode(reader)?),
         })

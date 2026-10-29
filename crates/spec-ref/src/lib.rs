@@ -18,6 +18,7 @@ pub mod balance;
 pub mod consensus;
 pub mod fees;
 pub mod header;
+pub mod mining;
 pub mod root;
 pub mod stf;
 pub mod wire;

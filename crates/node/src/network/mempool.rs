@@ -17,6 +17,7 @@
 
 use primitive_types::U256;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
 use crate::core::Transaction;
@@ -34,10 +35,18 @@ pub struct Mempool {
     transactions: Arc<RwLock<HashMap<TxHash, Transaction>>>,
     state: Arc<StateDB>,
     capacity: usize,
+    /// Encoded bytes of everything pooled. A count cap alone lets 4,096
+    /// transactions of `MAX_TX_BYTES` each pin about 16 GiB.
+    pooled_bytes: Arc<AtomicUsize>,
+    max_bytes: usize,
 }
 
 /// Default maximum number of pooled transactions.
 pub const DEFAULT_CAPACITY: usize = 4_096;
+
+/// Default ceiling on the encoded bytes held in the pool: sixteen of the
+/// largest legal transactions, or a few thousand ordinary ones.
+pub const DEFAULT_MAX_BYTES: usize = 64 * 1024 * 1024;
 
 impl Mempool {
     /// Creates a mempool backed by `state`.
@@ -53,7 +62,16 @@ impl Mempool {
             transactions: Arc::new(RwLock::new(HashMap::new())),
             state,
             capacity,
+            pooled_bytes: Arc::new(AtomicUsize::new(0)),
+            max_bytes: DEFAULT_MAX_BYTES,
         }
+    }
+
+    /// The same pool with a byte budget of `max_bytes` instead of the default.
+    #[must_use]
+    pub fn with_max_bytes(mut self, max_bytes: usize) -> Self {
+        self.max_bytes = max_bytes;
+        self
     }
 
     /// A poisoned lock means another thread panicked while holding it. Rather
@@ -139,7 +157,7 @@ impl Mempool {
             return self.validate_share(tx, share);
         }
         if let Some(fees) = self.state.committed_fees()? {
-            let required = U256::from(fees.required(tx.to_bytes().len()));
+            let required = maya_stateless_core::amount::to_u256(fees.required(tx.to_bytes().len()));
             let offered = tx
                 .outputs
                 .iter()
@@ -307,6 +325,7 @@ impl Mempool {
         // Validation performs RocksDB reads; deliberately outside any lock.
         self.validate(&tx)?;
 
+        let size = tx.to_bytes().len();
         let mut pool = self.write_pool();
         if pool.contains_key(&hash) {
             return Ok(false);
@@ -317,8 +336,21 @@ impl Mempool {
                 self.capacity
             )));
         }
+        // Every mutation holds the write lock, so this read cannot race an add.
+        if self
+            .pooled_bytes
+            .load(Ordering::Relaxed)
+            .saturating_add(size)
+            > self.max_bytes
+        {
+            return Err(NodeError::MempoolRejected(format!(
+                "pool is full ({} bytes)",
+                self.max_bytes
+            )));
+        }
 
         pool.insert(hash, tx);
+        self.pooled_bytes.fetch_add(size, Ordering::Relaxed);
         Ok(true)
     }
 
@@ -357,6 +389,17 @@ impl Mempool {
         self.read_pool().is_empty()
     }
 
+    /// Applies `pick` to every pooled transaction under one read lock and keeps
+    /// what it returns, without cloning the transactions themselves. A pooled
+    /// transaction is ~13 KB, so [`Mempool::snapshot`] every few milliseconds on a
+    /// busy pool copies tens of megabytes to look at a hash.
+    pub fn scan<T>(&self, mut pick: impl FnMut(&TxHash, &Transaction) -> Option<T>) -> Vec<T> {
+        self.read_pool()
+            .iter()
+            .filter_map(|(hash, tx)| pick(hash, tx))
+            .collect()
+    }
+
     /// Snapshot of all pooled transactions.
     #[must_use]
     pub fn snapshot(&self) -> Vec<Transaction> {
@@ -368,10 +411,13 @@ impl Mempool {
     /// Called after a block commits to evict transactions it included.
     pub fn remove_all(&self, hashes: &[TxHash]) -> usize {
         let mut pool = self.write_pool();
-        hashes
-            .iter()
-            .filter(|hash| pool.remove(*hash).is_some())
-            .count()
+        let mut removed = 0;
+        for tx in hashes.iter().filter_map(|hash| pool.remove(hash)) {
+            self.pooled_bytes
+                .fetch_sub(tx.to_bytes().len(), Ordering::Relaxed);
+            removed += 1;
+        }
+        removed
     }
 
     /// Drops pooled transactions that committed state has invalidated.

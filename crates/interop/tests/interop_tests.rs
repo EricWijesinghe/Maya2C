@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used)]
 
+use maya_amount::Amount;
 use maya_interop::eth::{self, Header};
 use maya_interop::intents::{DeliveryVerifier, Escrow, Intent, IntentError, State};
 use maya_interop::routes::{Route, RouteError};
@@ -81,21 +82,32 @@ fn a_forged_field_or_a_broken_parent_link_is_caught() {
 #[test]
 fn a_route_bug_cannot_move_more_than_its_cap_and_trust_grows_only_with_clean_time() {
     let day = 7_200;
-    let mut r = Route::new(10_000, 1_000, 100_000, day, day, 0);
+    let mut r = Route::new(
+        Amount::from_u64(10_000),
+        Amount::from_u64(1_000),
+        Amount::from_u64(100_000),
+        day,
+        day,
+        0,
+    );
     // A bug lets an attacker send repeatedly on day zero: capped at 10,000 in the window.
     let stolen: u128 = (0..100)
-        .filter_map(|_| r.send(1_000, 10).ok().map(|()| 1_000))
+        .filter_map(|_| r.send(Amount::from_u64(1_000), 10).ok().map(|()| 1_000))
         .sum();
     assert_eq!(stolen, 10_000);
     assert!(matches!(
-        r.send(1, 10),
-        Err(RouteError::OverCap { cap: 10_000, .. })
+        r.send(Amount::from_u64(1), 10),
+        Err(RouteError::OverCap { cap, .. }) if cap == Amount::from_u64(10_000)
     ));
     // Thirty clean days later the cap has grown; an incident drops it back.
-    assert_eq!(r.cap(30 * day), 40_000);
+    assert_eq!(r.cap(30 * day), Amount::from_u64(40_000));
     r.incident(30 * day);
-    assert_eq!(r.cap(30 * day + 1), 10_000);
-    assert_eq!(r.cap(1_000 * day), 100_000, "never above the ceiling");
+    assert_eq!(r.cap(30 * day + 1), Amount::from_u64(10_000));
+    assert_eq!(
+        r.cap(1_000 * day),
+        Amount::from_u64(100_000),
+        "never above the ceiling"
+    );
 }
 
 /// A stand-in light client: accepts a proof equal to the intent's commitment.
@@ -112,8 +124,8 @@ fn intent() -> Intent {
     Intent {
         user: [1; 32],
         recipient: b"alice@eth".to_vec(),
-        amount: 100,
-        escrow: 101,
+        amount: Amount::from_u64(100),
+        escrow: Amount::from_u64(101),
         deadline: 1_000,
     }
 }
@@ -126,9 +138,13 @@ fn a_solver_that_takes_the_intent_and_never_delivers_gets_nothing_and_the_user_i
         Err(IntentError::BadProof)
     );
     assert_eq!(e.refund(999), Err(IntentError::NotExpired));
-    assert_eq!(e.refund(1_001), Ok(101));
+    assert_eq!(e.refund(1_001), Ok(Amount::from_u64(101)));
     assert_eq!(e.state, State::Refunded);
-    let proof = [b"alice@eth".as_slice(), &100u128.to_le_bytes()].concat();
+    let proof = [
+        b"alice@eth".as_slice(),
+        &Amount::from_u64(100).to_le_bytes(),
+    ]
+    .concat();
     assert_eq!(
         e.claim(&proof, &Verifier, 1_002),
         Err(IntentError::Closed),
@@ -139,9 +155,13 @@ fn a_solver_that_takes_the_intent_and_never_delivers_gets_nothing_and_the_user_i
 #[test]
 fn delivery_settles_whoever_submits_the_proof_so_relayer_censorship_does_not_block_it() {
     let mut e = Escrow::open(intent());
-    let proof = [b"alice@eth".as_slice(), &100u128.to_le_bytes()].concat();
+    let proof = [
+        b"alice@eth".as_slice(),
+        &Amount::from_u64(100).to_le_bytes(),
+    ]
+    .concat();
     // The solver's relayer censors; the user (or anyone) submits the same proof.
-    assert_eq!(e.claim(&proof, &Verifier, 900), Ok(101));
+    assert_eq!(e.claim(&proof, &Verifier, 900), Ok(Amount::from_u64(101)));
     assert_eq!(
         e.refund(2_000),
         Err(IntentError::Closed),

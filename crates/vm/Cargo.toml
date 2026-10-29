@@ -34,6 +34,8 @@ maya-contract-safety = { path = "../contract-safety" }
 # ADR-036 testnet re-genesis, which was a hard fork anyway.
 # 48.0.4 -> 48.0.6 (2026-10-17, RUSTSEC-2026-0353..0364) rides the ADR-046
 # 256-bit re-genesis, also a hard fork; vm gas tests unchanged (98 passed).
+# 48.0.6 -> 48.0.7 (2026-10-25, RUSTSEC-2026-0378/0379) rides the mainnet-prep
+# re-genesis, also a hard fork; vm tests pass unchanged.
 #
 # default-features = false drops gc, component-model, threads, and
 # stack-switching, each of which is a determinism or attack-surface liability
@@ -41,7 +43,7 @@ maya-contract-safety = { path = "../contract-safety" }
 # The module cache key. Already in the tree through `archive`, `identity`
 # and `rwa`; the cache needs a digest, not anything algebraic.
 blake3 = "1"
-wasmtime = { version = "=48.0.6", default-features = false, features = [
+wasmtime = { version = "=48.0.7", default-features = false, features = [
     "cranelift",
     # The Pulley interpreter tier (`src/tier.rs`). Without it wasmtime can
     # compile *to* Pulley but refuses to run the bytecode on a native host.

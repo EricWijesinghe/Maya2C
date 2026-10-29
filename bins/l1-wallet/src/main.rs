@@ -141,6 +141,18 @@ enum Command {
         tx: TxOptions,
     },
 
+    /// File double-sign evidence a validator saved under its data dir
+    /// (`evidence/equivocation-*.hex`). Anyone may file it; the chain checks
+    /// both signatures and slashes the offender.
+    ReportEquivocation {
+        /// The evidence file.
+        #[arg(long)]
+        evidence: PathBuf,
+
+        #[command(flatten)]
+        tx: TxOptions,
+    },
+
     /// Carry a security-council action (ADR-050) from this wallet. The
     /// authority is the approvals inside it, never this wallet: the file is
     /// what `genesis-ceremony council combine` wrote.
@@ -366,6 +378,24 @@ async fn command_delegate(
     Ok(())
 }
 
+async fn command_report_equivocation(
+    path: &Path,
+    rpc_url: &str,
+    evidence: &Path,
+    opts: &TxOptions,
+) -> Result<()> {
+    let text = std::fs::read_to_string(evidence)
+        .with_context(|| format!("reading {}", evidence.display()))?;
+    let action = custom_l1_node::consensus::bft::evidence::from_text(&text)?;
+    let key = load_key(path)?;
+    let payload = Payload {
+        kind: TxKind::Staking(Box::new(action)),
+        outputs: vec![],
+    };
+    submit(&key, rpc_url, payload, opts).await?;
+    Ok(())
+}
+
 async fn command_council_action(
     path: &Path,
     rpc_url: &str,
@@ -398,6 +428,18 @@ struct Payload {
     outputs: Vec<TxOutput>,
 }
 
+/// Prints what `tx` will do, in full, before anything is signed.
+fn print_description(tx: &Transaction) {
+    let described = custom_l1_node::core::describe::describe(tx);
+    println!("signing:  {}", described.summary);
+    for (label, value) in &described.details {
+        println!("          {label}: {value}");
+    }
+    if described.review == custom_l1_node::core::describe::Review::Careful {
+        println!("          check every line above; this moves value or changes control");
+    }
+}
+
 /// Signs `payload` with the wallet key and broadcasts it, or prints it raw.
 /// Returns whether it was broadcast.
 async fn submit(
@@ -419,6 +461,13 @@ async fn submit(
     // ADR-036: the signature commits to this node's genesis, so the
     // transaction is worthless on any other Maya2C chain.
     let chain = client.get_chain_info().await?;
+    // Said before the key signs, from the payload as the user asked for it (the
+    // fee output is added below and is not a recipient). The same words every
+    // wallet shows (`core::describe`).
+    let mut intent = Transaction::new(vec![], payload.outputs.clone(), nonce);
+    intent.kind = payload.kind.clone();
+    print_description(&intent);
+
     let outputs = with_fee(&client, key, &payload, nonce, opts.fee, &chain).await?;
     let mut tx = Transaction::new(vec![], outputs, nonce);
     tx.kind = payload.kind;
@@ -469,12 +518,17 @@ async fn with_fee(
     let amount = if let Some(fee) = fee {
         fee
     } else {
-        // base_fee × size is below 2^128; doubled, still exact in 256 bits.
+        // Checked: a base fee near 2^256 must not wrap into a small, signable fee.
         let mut probe = Transaction::new(vec![], outputs.clone(), nonce);
         probe.kind = payload.kind.clone();
         probe.sign(key, chain).context("signing the fee probe")?;
         let size = u64::try_from(probe.to_bytes().len())?;
-        let quoted = U256::from(info.base_fee) * U256::from(size) * U256::from(2u8);
+        let base_fee = U256::from_dec_str(&info.base_fee)
+            .map_err(|_| anyhow::anyhow!("the node sent a bad base_fee {:?}", info.base_fee))?;
+        let quoted = base_fee
+            .checked_mul(U256::from(size))
+            .and_then(|f| f.checked_mul(U256::from(2u8)))
+            .ok_or_else(|| anyhow::anyhow!("the node quoted a fee past 2^256 - 1"))?;
         // The quote comes from the node and is signed without a prompt, so a
         // hostile node could name a fee that empties the account into its own
         // collector. Above the old u64 ceiling it is refused: such a fee must
@@ -493,8 +547,30 @@ async fn with_fee(
     Ok(outputs)
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+/// Stack for the thread that runs every command. ML-DSA keys and 256-bit
+/// amounts are large stack values, and `generate` overflowed Windows' 1 MiB
+/// main thread in a debug build (attacknet setup, 2026-10-29), as
+/// `genesis-ceremony` did before it. 16 MiB costs nothing on a CLI.
+const WALLET_STACK_BYTES: usize = 16 * 1024 * 1024;
+
+fn main() -> Result<()> {
+    std::thread::Builder::new()
+        .name("l1-wallet".to_string())
+        .stack_size(WALLET_STACK_BYTES)
+        .spawn(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .thread_stack_size(WALLET_STACK_BYTES)
+                .build()
+                .context("starting the async runtime")?
+                .block_on(run())
+        })
+        .context("spawning the wallet thread")?
+        .join()
+        .map_err(|_| anyhow::anyhow!("the wallet thread panicked"))?
+}
+
+async fn run() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
@@ -546,6 +622,15 @@ async fn main() -> Result<()> {
                 &cli.rpc_url,
                 &validator,
                 amount,
+                &tx,
+            ))
+            .await
+        }
+        Command::ReportEquivocation { evidence, tx } => {
+            Box::pin(command_report_equivocation(
+                &cli.keystore,
+                &cli.rpc_url,
+                &evidence,
                 &tx,
             ))
             .await
