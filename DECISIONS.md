@@ -521,3 +521,18 @@ frozen build is proven on local multi-validator networks (attacknet, rejoin dril
 mining E2E, self pre-audit) from 11-04 to 11-08; mainnet 11-09 → 11-14, each step with its
 own APPROVED. Risk stated once: the mining lane has never run on a public, multi-machine
 network before mainnet.
+
+## 2026-10-29 — Supply, miner pay, freeze rule (Eric delegated: "you decide the best for me")
+
+- **No 512-bit amounts, no new minting.** Eric: "I don't wanna involve 512 bits". Supply
+  stays ADR-068: about 21M coins over the halving phase, then a tail paid forever from the
+  keyless genesis reserve sized to the last `u64` height. Nothing is ever minted, so the end
+  of the halving phase changes nothing for miners: the tail simply continues. The 2^256
+  base-unit total discussed on 10-29 is not built.
+- **Tail: 1% of 21M a year** (about 210,000 coins a year, double the 0.5% default), set as
+  `tail_epoch_reward` in `mining.json` at the re-genesis. Why: Eric wants miners paid well
+  for good; 1% is close to Ethereum's issuance and the 100% base-fee burn (ADR-029) offsets it
+  as use grows. Recompute the per-epoch figure from the mainnet epoch length before signing.
+- **Freeze waits for the serious self-run findings**: S-012..S-015, S-027 (round 2) and
+  S-033 (committee floor, ADR-070). Medium and low rows follow as patch releases.
+- **Mainnet date: decided later, when the work is done** (Eric: "first finish the work").
