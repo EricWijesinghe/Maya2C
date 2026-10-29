@@ -42,6 +42,7 @@ pub mod amount;
 pub mod compose;
 pub mod error;
 pub mod hd;
+pub mod networks;
 pub mod payment;
 pub mod vault;
 pub mod wallet;

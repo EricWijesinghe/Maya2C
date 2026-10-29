@@ -27,7 +27,8 @@ struct Entry {
     at: u64,
     ip: IpAddr,
     address: String,
-    amount: u64,
+    #[serde(with = "custom_l1_node::state::amount_serde::lenient")]
+    amount: primitive_types::U256,
 }
 
 /// A grant read back from the journal.
@@ -40,7 +41,7 @@ pub struct Replayed {
     /// The address funded.
     pub address: [u8; 32],
     /// Units granted.
-    pub amount: u64,
+    pub amount: primitive_types::U256,
 }
 
 /// The open journal.
@@ -113,7 +114,12 @@ impl Ledger {
             .map_err(|e| format!("{}: {e}", path.display()))
     }
 
-    fn line(at: SystemTime, ip: IpAddr, address: &[u8; 32], amount: u64) -> Result<String, String> {
+    fn line(
+        at: SystemTime,
+        ip: IpAddr,
+        address: &[u8; 32],
+        amount: primitive_types::U256,
+    ) -> Result<String, String> {
         serde_json::to_string(&Entry {
             at: secs(at),
             ip,
@@ -133,10 +139,40 @@ impl Ledger {
         at: SystemTime,
         ip: IpAddr,
         address: &[u8; 32],
-        amount: u64,
+        amount: primitive_types::U256,
     ) -> Result<(), String> {
         let line = Self::line(at, ip, address, amount)?;
         writeln!(self.file, "{line}").map_err(|e| e.to_string())?;
         self.file.sync_data().map_err(|e| e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+
+    #[test]
+    fn a_journal_written_before_u256_still_replays() {
+        // A u64-era line holds a JSON number. Refusing it would stop the faucet
+        // starting; dropping it would forget a grant and re-open the window.
+        let path = std::env::temp_dir().join(format!("faucet-u256-{}.jsonl", std::process::id()));
+        let now = UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let line = format!(
+            r#"{{"at":999990,"ip":"127.0.0.1","address":"{}","amount":1000}}"#,
+            "11".repeat(32)
+        );
+        std::fs::write(&path, format!("{line}\n")).unwrap();
+
+        let (_journal, live) = Ledger::open(&path, now).unwrap();
+        let rewritten = std::fs::read_to_string(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+
+        assert_eq!(live.len(), 1);
+        assert_eq!(live[0].amount, primitive_types::U256::from(1_000u64));
+        assert!(
+            rewritten.contains(r#""amount":"1000""#),
+            "rewritten as a decimal string"
+        );
     }
 }

@@ -53,9 +53,11 @@ pub fn default_suite(parameters: &ParameterTable) -> Result<SuiteId> {
 ///
 /// [`NodeError::SignatureSuite`] for a value naming no suite, or a suite
 /// mainnet does not permit.
-pub fn suite_for_default(raw: u64) -> Result<SuiteId> {
-    let byte = u8::try_from(raw)
-        .map_err(|_| NodeError::SignatureSuite(format!("default suite {raw} is not a byte")))?;
+pub fn suite_for_default(raw: maya_dex::Amount) -> Result<SuiteId> {
+    let byte = raw
+        .to_u64()
+        .and_then(|v| u8::try_from(v).ok())
+        .ok_or_else(|| NodeError::SignatureSuite(format!("default suite {raw} is not a byte")))?;
     let suite = SuiteId::try_from(byte).map_err(|e| NodeError::SignatureSuite(e.to_string()))?;
     if SuitePolicy::genesis(Network::Mainnet).permitted(suite) {
         Ok(suite)
@@ -74,7 +76,7 @@ pub fn suite_for_default(raw: u64) -> Result<SuiteId> {
 ///
 /// [`NodeError::SignatureSuite`] for a `DefaultSignatureSuite` value that
 /// names no permitted suite.
-pub fn check_parameter(key: ParameterKey, value: u64) -> Result<()> {
+pub fn check_parameter(key: ParameterKey, value: maya_dex::Amount) -> Result<()> {
     match key {
         ParameterKey::DefaultSignatureSuite => suite_for_default(value).map(|_| ()),
         _ => Ok(()),

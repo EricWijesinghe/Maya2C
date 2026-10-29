@@ -134,12 +134,13 @@ fn miner_address(index: usize) -> Address {
 /// Test configuration.
 fn config() -> PoolConfig {
     PoolConfig {
-        reward_per_block: REWARD,
+        reward_per_block: primitive_types::U256::from(REWARD),
+        max_batch_value: primitive_types::U256::MAX,
         // No fee: the split is being checked to the unit, and a fee would only
         // add a rounding step between the reward and the assertion.
         fee_rate: 0.0,
         confirmations: CONFIRMATIONS,
-        min_payout: 1,
+        min_payout: primitive_types::U256::from(1),
         pplns_factor: 2.0,
         // See SHARE_BITS: below the production floor on purpose, and this
         // config is never passed through `validate`.
@@ -526,7 +527,7 @@ async fn a_sessions_blocks_pay_out_to_the_unit() {
         .balances()
         .unwrap()
         .iter()
-        .map(|(_, balance)| balance.immature)
+        .map(|(_, balance)| balance.immature.as_u64())
         .sum();
     assert_eq!(
         immature,
@@ -545,13 +546,13 @@ async fn a_sessions_blocks_pay_out_to_the_unit() {
         .balances()
         .unwrap()
         .iter()
-        .map(|(_, balance)| balance.paid)
+        .map(|(_, balance)| balance.paid.as_u64())
         .sum();
     let unpaid: u64 = ledger
         .balances()
         .unwrap()
         .iter()
-        .map(|(_, balance)| balance.unpaid)
+        .map(|(_, balance)| balance.unpaid.as_u64())
         .sum();
 
     assert_eq!(
@@ -621,7 +622,7 @@ async fn a_restart_mid_session_does_not_pay_anyone_twice() {
         .balances()
         .unwrap()
         .iter()
-        .map(|(_, balance)| balance.paid)
+        .map(|(_, balance)| balance.paid.as_u64())
         .sum();
 
     // A fresh daemon over the same ledger, with a chain that has moved on.
@@ -638,13 +639,13 @@ async fn a_restart_mid_session_does_not_pay_anyone_twice() {
         .balances()
         .unwrap()
         .iter()
-        .map(|(_, balance)| balance.paid)
+        .map(|(_, balance)| balance.paid.as_u64())
         .sum();
     let unpaid_after: u64 = ledger
         .balances()
         .unwrap()
         .iter()
-        .map(|(_, balance)| balance.unpaid)
+        .map(|(_, balance)| balance.unpaid.as_u64())
         .sum();
 
     assert_eq!(
@@ -699,7 +700,7 @@ async fn splitting_a_farm_across_two_rigs_pays_the_same_as_one() {
     // one rig the pool happened to see last.
     let balance = ledger.balance(&miner_address(0)).unwrap();
     assert!(
-        balance.immature > 0,
+        balance.immature > primitive_types::U256::from(0),
         "the miner running two rigs was credited nothing"
     );
     assert_eq!(

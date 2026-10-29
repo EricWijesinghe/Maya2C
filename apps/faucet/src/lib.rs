@@ -82,9 +82,11 @@ pub enum FaucetError {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Grant {
     /// Units dispensed.
-    pub amount: u64,
+    #[serde(with = "custom_l1_node::state::amount_serde")]
+    pub amount: primitive_types::U256,
     /// Units left in today's budget after this grant.
-    pub remaining_today: u64,
+    #[serde(with = "custom_l1_node::state::amount_serde")]
+    pub remaining_today: primitive_types::U256,
     /// Seconds until this caller may ask again.
     pub next_request_in: u64,
 }
@@ -93,8 +95,8 @@ pub struct Grant {
 #[derive(Debug)]
 pub struct Faucet {
     chain_id: String,
-    dispense: u64,
-    daily_cap: u64,
+    dispense: primitive_types::U256,
+    daily_cap: primitive_types::U256,
     /// Guarded together: a grant must decrement the budget and record both
     /// windows atomically, or two concurrent requests could each observe a
     /// budget large enough and both spend it.
@@ -104,7 +106,7 @@ pub struct Faucet {
 #[derive(Debug)]
 struct State {
     limiter: Limiter,
-    spent_today: u64,
+    spent_today: primitive_types::U256,
     day_started: SystemTime,
     /// `None` keeps everything in memory, as tests and the load test want.
     ledger: Option<ledger::Ledger>,
@@ -121,8 +123,8 @@ impl Faucet {
     /// request — which is the one somebody is watching.
     pub fn new(
         chain_id: impl Into<String>,
-        dispense: u64,
-        daily_cap: u64,
+        dispense: primitive_types::U256,
+        daily_cap: primitive_types::U256,
         now: SystemTime,
     ) -> Result<Self, FaucetError> {
         let chain_id = chain_id.into();
@@ -139,7 +141,7 @@ impl Faucet {
             daily_cap,
             state: Mutex::new(State {
                 limiter: Limiter::new(),
-                spent_today: 0,
+                spent_today: primitive_types::U256::zero(),
                 day_started: now,
                 ledger: None,
             }),
@@ -182,13 +184,13 @@ impl Faucet {
 
     /// Units handed out per grant.
     #[must_use]
-    pub const fn dispense(&self) -> u64 {
+    pub const fn dispense(&self) -> primitive_types::U256 {
         self.dispense
     }
 
     /// The day's ceiling, regardless of who asks.
     #[must_use]
-    pub const fn daily_cap(&self) -> u64 {
+    pub const fn daily_cap(&self) -> primitive_types::U256 {
         self.daily_cap
     }
 
@@ -227,7 +229,7 @@ impl Faucet {
             .duration_since(state.day_started)
             .is_ok_and(|elapsed| elapsed >= Duration::from_secs(24 * 60 * 60))
         {
-            state.spent_today = 0;
+            state.spent_today = primitive_types::U256::zero();
             state.day_started = now;
         }
 
@@ -258,7 +260,7 @@ impl Faucet {
 
     /// Units already handed out today.
     #[must_use]
-    pub fn spent_today(&self) -> u64 {
+    pub fn spent_today(&self) -> primitive_types::U256 {
         match self.state.lock() {
             Ok(guard) => guard.spent_today,
             Err(poisoned) => poisoned.into_inner().spent_today,
@@ -291,7 +293,13 @@ mod tests {
     }
 
     fn faucet() -> Faucet {
-        Faucet::new("maya-genesis-rc1", 100, 1_000, now()).expect("a testnet chain")
+        Faucet::new(
+            "maya-genesis-rc1",
+            primitive_types::U256::from(100),
+            primitive_types::U256::from(1_000),
+            now(),
+        )
+        .expect("a testnet chain")
     }
 
     fn addr(byte: u8) -> String {
@@ -307,7 +315,13 @@ mod tests {
         // Refused at construction, so a misconfigured deployment fails to
         // start rather than on the first request somebody is watching.
         for chain in ["mainnet", "maya-mainnet"] {
-            let error = Faucet::new(chain, 100, 1_000, now()).expect_err("must refuse");
+            let error = Faucet::new(
+                chain,
+                primitive_types::U256::from(100),
+                primitive_types::U256::from(1_000),
+                now(),
+            )
+            .expect_err("must refuse");
             assert!(matches!(error, FaucetError::ValueBearingChain(_)));
         }
     }
@@ -316,8 +330,8 @@ mod tests {
     fn a_grant_reports_what_is_left() {
         let faucet = faucet();
         let grant = faucet.request(ip(1), &addr(1), now()).expect("granted");
-        assert_eq!(grant.amount, 100);
-        assert_eq!(grant.remaining_today, 900);
+        assert_eq!(grant.amount, primitive_types::U256::from(100));
+        assert_eq!(grant.remaining_today, primitive_types::U256::from(900));
         assert_eq!(grant.next_request_in, limit::WINDOW.as_secs());
     }
 
@@ -336,7 +350,7 @@ mod tests {
             .request(ip(200), &addr(200), now())
             .expect_err("the cap is reached");
         assert!(matches!(error, FaucetError::BudgetExhausted));
-        assert_eq!(faucet.spent_today(), 1_000);
+        assert_eq!(faucet.spent_today(), primitive_types::U256::from(1_000));
     }
 
     #[test]
@@ -357,7 +371,13 @@ mod tests {
     fn a_rate_limit_is_reported_before_the_budget() {
         // A rate-limited caller can act on that; "the budget is gone" is not
         // actionable and would be the wrong thing to tell them.
-        let faucet = Faucet::new("maya-genesis-rc1", 100, 100, now()).expect("faucet");
+        let faucet = Faucet::new(
+            "maya-genesis-rc1",
+            primitive_types::U256::from(100),
+            primitive_types::U256::from(100),
+            now(),
+        )
+        .expect("faucet");
         faucet.request(ip(1), &addr(1), now()).expect("first");
 
         let error = faucet
@@ -405,7 +425,13 @@ mod tests {
     fn one_ip_with_many_fresh_addresses_gets_one_grant() {
         // The headline property, at the service level rather than the
         // limiter's. Free keypair generation must not be free money.
-        let faucet = Faucet::new("maya-genesis-rc1", 100, 1_000_000, now()).expect("faucet");
+        let faucet = Faucet::new(
+            "maya-genesis-rc1",
+            primitive_types::U256::from(100),
+            primitive_types::U256::from(1_000_000),
+            now(),
+        )
+        .expect("faucet");
         faucet.request(ip(1), &addr(0), now()).expect("first");
 
         for byte in 1..=255u8 {
@@ -414,7 +440,11 @@ mod tests {
                 "address {byte} from the same IP must be refused"
             );
         }
-        assert_eq!(faucet.spent_today(), 100, "exactly one grant");
+        assert_eq!(
+            faucet.spent_today(),
+            primitive_types::U256::from(100),
+            "exactly one grant"
+        );
     }
 }
 
@@ -429,10 +459,15 @@ mod ledger_tests {
     }
 
     fn fresh(path: &std::path::Path, now: SystemTime) -> Faucet {
-        Faucet::new("maya2c-testnet", 1_000, 2_500, now)
-            .unwrap()
-            .with_ledger(path, now)
-            .unwrap()
+        Faucet::new(
+            "maya2c-testnet",
+            primitive_types::U256::from(1_000),
+            primitive_types::U256::from(2_500),
+            now,
+        )
+        .unwrap()
+        .with_ledger(path, now)
+        .unwrap()
     }
 
     #[test]
@@ -457,7 +492,7 @@ mod ledger_tests {
             f.request(ip, &"cc".repeat(32), at(3_600)),
             Err(FaucetError::RateLimited(_))
         ));
-        assert_eq!(f.spent_today(), 2_000);
+        assert_eq!(f.spent_today(), primitive_types::U256::from(2_000));
         let other = IpAddr::V4(Ipv4Addr::new(198, 51, 100, 1));
         assert!(matches!(
             f.request(other, &"dd".repeat(32), at(3_601)),
@@ -466,7 +501,7 @@ mod ledger_tests {
         // A day later the journal is compacted away and everything is fresh.
         drop(f);
         let f = fresh(&path, at(90_000));
-        assert_eq!(f.spent_today(), 0);
+        assert_eq!(f.spent_today(), primitive_types::U256::from(0));
         f.request(ip, &"cc".repeat(32), at(90_000)).unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
     }

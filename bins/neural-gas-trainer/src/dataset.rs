@@ -9,10 +9,25 @@
 //! so the network sees the states its own choices would lead to rather than
 //! only the states the linear rule visits.
 
-use maya_fee_market::{Features, neural_next_base_fee};
+use maya_fee_market::Features;
 
 use crate::rng::SplitMix64;
 use crate::simulator::{Market, TARGET_BYTES, features};
+
+/// The neural rule on this trainer's `u64` fee track. The rule is 256-bit; the
+/// simulated market's fee is not, and clamps to `u64` here. SIM / training only.
+fn neural_step(fee: u64, size: u64, target: u64, denominator: u64, floor: u64, gain: u64) -> u64 {
+    use maya_fee_market::Amount;
+    maya_fee_market::neural_next_base_fee(
+        Amount::from_u64(fee),
+        size,
+        target,
+        denominator,
+        Amount::from_u64(floor),
+        gain,
+    )
+    .saturating_to_u64()
+}
 
 /// EIP-1559's denominator, as in `FeeConfig::TESTING`.
 pub const DENOMINATOR: u64 = 8;
@@ -61,7 +76,7 @@ pub fn generate(seed: u64, blocks: usize) -> Vec<Sample> {
         } else {
             (behaviour.unit() * 20_000.0) as u64
         };
-        fee = neural_next_base_fee(
+        fee = neural_step(
             fee,
             block.size,
             TARGET_BYTES,

@@ -181,7 +181,7 @@ impl Withdrawal {
     }
 }
 
-fn record_key(owner: &Address) -> Vec<u8> {
+pub(crate) fn record_key(owner: &Address) -> Vec<u8> {
     [RECORD_PREFIX, owner.as_slice()].concat()
 }
 
@@ -304,7 +304,7 @@ impl StateDB {
                 .fold(U256::zero(), |total, o| total.saturating_add(o.amount))
         };
         let allowed_fee = match self.fee_record(overlay)? {
-            Some(fees) => U256::from(fees.required(tx.to_bytes().len()))
+            Some(fees) => maya_stateless_core::amount::to_u256(fees.required(tx.to_bytes().len()))
                 .saturating_mul(U256::from(VAULT_FEE_HEADROOM)),
             None => U256::zero(),
         };

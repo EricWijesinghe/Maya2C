@@ -843,3 +843,83 @@ fn one_far_future_timestamp_does_not_steer_the_retarget() {
         "one extreme timestamp moved the next target"
     );
 }
+
+// ---------------------------------------------------------------------------
+// proof of work checked away from the chain lock
+// ---------------------------------------------------------------------------
+
+/// A chain that verifies proof of work, with genesis at `bits` leading zero bits.
+fn work_chain(bits: u32) -> (Chain, TempDir) {
+    let (state, dir) = open_state();
+    let genesis = Block::new(
+        BlockHeader {
+            prev_hash: [0u8; 32],
+            state_root: [0u8; 32],
+            timestamp: 1_000_000,
+            nonce: 0,
+            difficulty_target: target_from_leading_zero_bits(bits),
+            tx_root: [0; 32],
+        },
+        Vec::new(),
+    );
+    let chain = common::open_chain(
+        state,
+        genesis,
+        ChainConfig::with_pow_limit(unlimited_pow_limit()),
+    )
+    .expect("open chain");
+    (chain, dir)
+}
+
+#[test]
+fn work_checked_away_from_the_chain_inserts_without_being_checked_again() {
+    let (mut chain, _dir) = work_chain(0);
+    let genesis = chain.genesis();
+    let block = child_of(&chain, genesis, 1_000_015, vec![]);
+
+    // Taken under the lock...
+    let check = chain.pow_check(&block).expect("cheap rules pass");
+    // ...and the chain moves on before the work is checked, as it can when the
+    // check runs with no lock held.
+    let sibling = child_of(&chain, genesis, 1_000_030, vec![]);
+    chain.insert_block(sibling).expect("sibling");
+
+    let proof = check.run(&block.header).expect("work meets the target");
+    let outcome = chain
+        .insert_block_prechecked(block.clone(), proof)
+        .expect("insert");
+    assert!(
+        matches!(
+            outcome,
+            InsertOutcome::Extended { .. } | InsertOutcome::SideBranch { .. }
+        ),
+        "{outcome:?}"
+    );
+    assert!(chain.get(&block.header.id()).is_some());
+}
+
+#[test]
+fn insufficient_work_is_refused_by_the_check_and_by_insertion_alike() {
+    let (mut chain, _dir) = work_chain(40);
+    let block = child_of(&chain, chain.genesis(), 1_000_015, vec![]);
+
+    // The cheap rules pass, so the work check is the one that refuses it.
+    let check = chain.pow_check(&block).expect("cheap rules pass");
+    let refused = check.run(&block.header).unwrap_err().to_string();
+    assert!(refused.contains("insufficient proof of work"), "{refused}");
+
+    let direct = chain.insert_block(block).unwrap_err().to_string();
+    assert!(direct.contains("insufficient proof of work"), "{direct}");
+}
+
+#[test]
+fn a_block_the_cheap_rules_refuse_never_reaches_the_work_check() {
+    // The ordering the chain has always had: a wrong target is refused for the
+    // price of comparing two arrays, not a 32 MiB hash.
+    let (chain, _dir) = work_chain(0);
+    let mut block = child_of(&chain, chain.genesis(), 1_000_015, vec![]);
+    block.header.difficulty_target = target_from_leading_zero_bits(8);
+
+    let refused = chain.pow_check(&block).err().expect("refused").to_string();
+    assert!(refused.contains("wrong difficulty target"), "{refused}");
+}

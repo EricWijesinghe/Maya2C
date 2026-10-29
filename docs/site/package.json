@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "ingest": "node scripts/ingest.mjs",
-    "health": "node scripts/gen-health.mjs",
+    "health": "node scripts/gen-health.mjs && node scripts/gen-progress.mjs",
     "dev": "npm run ingest && npm run health && astro dev",
     "build": "npm run ingest && npm run health && node scripts/gen-updates.mjs && astro build && node scripts/check-csp.mjs",
     "preview": "astro preview"

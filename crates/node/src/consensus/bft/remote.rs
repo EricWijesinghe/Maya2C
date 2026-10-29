@@ -21,8 +21,8 @@ use maya_signer::channel::{self, Channel, Identity};
 use maya_signer::protection::Kind;
 use maya_signer::service::{Request, Response};
 
-use crate::crypto::SIGNATURE_LENGTH;
-use crate::crypto::keys::{SigningKey, VerifyingKey};
+use crate::crypto::validator_keys::SIGNATURE_LENGTH;
+use crate::crypto::validator_keys::{SigningKey, VerifyingKey};
 use crate::error::{NodeError, Result};
 
 /// How long one signing round-trip may take by default: well under the

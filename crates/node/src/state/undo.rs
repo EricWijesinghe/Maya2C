@@ -128,7 +128,7 @@ impl UndoRecord {
     /// or malformed.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let mut reader = ByteReader::new(bytes);
-        let count = reader.read_collection_len(ENTRY_SIZE)?;
+        let count = reader.read_record_len(ENTRY_SIZE)?;
 
         let mut entries = Vec::with_capacity(count);
         for _ in 0..count {
@@ -158,7 +158,7 @@ impl UndoRecord {
             }
         };
 
-        let nullifier_count = reader.read_collection_len(32)?;
+        let nullifier_count = reader.read_record_len(32)?;
         let mut nullifiers = Vec::with_capacity(nullifier_count);
         for _ in 0..nullifier_count {
             nullifiers.push(reader.read_array::<32>()?);
@@ -169,7 +169,7 @@ impl UndoRecord {
         // list rather than as a truncated record.
         let mut records = Vec::new();
         if reader.remaining() > 0 {
-            let count = reader.read_collection_len(9)?;
+            let count = reader.read_record_len(9)?;
             records.reserve(count);
             for _ in 0..count {
                 let key_length = reader.read_byte_len(MAX_RECORD_BYTES)?;

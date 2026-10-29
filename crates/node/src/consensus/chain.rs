@@ -257,6 +257,65 @@ pub struct Chain {
     prune_horizon: u64,
 }
 
+/// What the cheap rules decided about a block (see `Chain::admission_checks`).
+enum Admission {
+    /// Already held with its body: nothing to do.
+    Known { id: BlockId },
+    /// Passed every rule that is cheaper than the proof of work.
+    Fresh {
+        id: BlockId,
+        parent_id: BlockId,
+        height: u64,
+        parent_work: U256,
+    },
+}
+
+/// Everything needed to check one header's proof of work away from the chain.
+///
+/// Verifying work is a 32 MiB Argon2id pass (or a DAG lookup), tens of
+/// milliseconds that must not be spent while holding the lock every other
+/// reader of the chain waits on. Take this under the lock with
+/// [`Chain::pow_check`], then call [`PowCheck::run`] with no lock held.
+#[derive(Clone)]
+pub struct PowCheck {
+    height: u64,
+    verify: bool,
+    dag: Arc<CacheRegistry>,
+}
+
+/// A proof of work that [`PowCheck::run`] verified for one block at one height.
+///
+/// Cannot be built any other way, so holding one means the work was checked.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PowVerified {
+    block_id: BlockId,
+    height: u64,
+}
+
+impl PowCheck {
+    /// Checks `header`'s proof of work at the height this check was taken for.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Network`] if the work does not meet the declared
+    /// target, or propagates a failure to generate the epoch cache.
+    pub fn run(&self, header: &BlockHeader) -> Result<PowVerified> {
+        if self.verify {
+            let pow = header.pow_hash_at(self.height, &self.dag)?;
+            if !meets_target(&pow, &header.difficulty_target) {
+                return Err(NodeError::Network(format!(
+                    "insufficient proof of work at height {}",
+                    self.height
+                )));
+            }
+        }
+        Ok(PowVerified {
+            block_id: header.id(),
+            height: self.height,
+        })
+    }
+}
+
 impl Chain {
     /// The epoch caches this chain validates against.
     ///
@@ -425,6 +484,66 @@ impl Chain {
     /// block's transactions fails, or they execute to a state root other than
     /// the one the header declares.
     pub fn insert_block(&mut self, block: Block) -> Result<InsertOutcome> {
+        self.insert_block_inner(block, None)
+    }
+
+    /// [`Chain::insert_block`] for a block whose proof of work was already
+    /// checked by [`PowCheck::run`], so the check need not run again under the
+    /// lock that guards this chain.
+    ///
+    /// The proof is a claim about one block at one height and is used only if it
+    /// names exactly this block and the height its parent gives it; a proof for
+    /// anything else is ignored and the work is checked here as usual. Every
+    /// other rule still runs.
+    ///
+    /// # Errors
+    ///
+    /// As [`Chain::insert_block`].
+    pub fn insert_block_prechecked(
+        &mut self,
+        block: Block,
+        proof: PowVerified,
+    ) -> Result<InsertOutcome> {
+        self.insert_block_inner(block, Some(proof))
+    }
+
+    /// What is needed to check `block`'s proof of work without this chain: its
+    /// height, whether work is verified at all, and the epoch caches. Runs every
+    /// rule that is cheaper than the proof of work first, so a malformed block is
+    /// refused here at the cost it always was, before anyone pays for the work
+    /// check. Take it under the lock, then [`PowCheck::run`] outside it.
+    ///
+    /// # Errors
+    ///
+    /// Whatever [`Chain::insert_block`] would return before it reached the proof
+    /// of work: a body that disagrees with its `tx_root`, an unknown parent, an
+    /// unsupported or pruned height, a wrong declared target.
+    pub fn pow_check(&self, block: &Block) -> Result<PowCheck> {
+        let height = match self.admission_checks(block)? {
+            // Already held: insertion will say so without checking any work.
+            Admission::Known { .. } => {
+                return Ok(PowCheck {
+                    height: 0,
+                    verify: false,
+                    dag: Arc::clone(&self.dag),
+                });
+            }
+            Admission::Fresh { height, .. } => height,
+        };
+        Ok(PowCheck {
+            height,
+            verify: self.config.verify_pow,
+            dag: Arc::clone(&self.dag),
+        })
+    }
+
+    /// Every rule that is cheaper than the proof of work, in the order they
+    /// have always run: the body matches `tx_root`, the block is not already
+    /// held, its parent is known, its height is governed by a version this build
+    /// understands and is above the prune horizon, and its declared target is
+    /// the retarget rule's. One function, so the lock-free path
+    /// ([`Chain::pow_check`]) and the insertion path cannot drift apart.
+    fn admission_checks(&self, block: &Block) -> Result<Admission> {
         // First, before anything is stored — side branches included — and
         // before the duplicate check. Records are keyed by header id, so a
         // mismatched body stored under an honest header would make the genuine
@@ -440,7 +559,7 @@ impl Chain {
         // pruned node's bootstrap imports them. Its body arriving is not a
         // duplicate: it goes through validation like any block, and lands.
         if self.records.contains_key(&id) && self.state.has_body(&id)? {
-            return Ok(InsertOutcome::Duplicate { id });
+            return Ok(Admission::Known { id });
         }
 
         let parent_id = block.header.prev_hash;
@@ -493,7 +612,33 @@ impl Chain {
             )));
         }
 
-        if self.config.verify_pow {
+        Ok(Admission::Fresh {
+            id,
+            parent_id,
+            height,
+            parent_work,
+        })
+    }
+
+    fn insert_block_inner(
+        &mut self,
+        block: Block,
+        proof: Option<PowVerified>,
+    ) -> Result<InsertOutcome> {
+        let (id, parent_id, height, parent_work) = match self.admission_checks(&block)? {
+            Admission::Known { id } => return Ok(InsertOutcome::Duplicate { id }),
+            Admission::Fresh {
+                id,
+                parent_id,
+                height,
+                parent_work,
+            } => (id, parent_id, height, parent_work),
+        };
+
+        let proven = proof
+            .as_ref()
+            .is_some_and(|p| p.height == height && p.block_id == block.header.id());
+        if self.config.verify_pow && !proven {
             // The rule is chosen by the height this block lands at, which is
             // derived from its parent — not from anything the block itself
             // declares. A miner cannot select an easier proof-of-work rule by

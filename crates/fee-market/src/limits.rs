@@ -8,6 +8,8 @@
 //! to zero in a block, or a base-fee floor of zero that makes spam free.
 //! [`crate::FeeConfig::validate`] checks every configuration against these.
 
+use maya_amount::Amount;
+
 /// The smallest change denominator: the base fee moves by at most `1/8` of
 /// itself per block. EIP-1559's value, and the fastest this chain will allow.
 pub const MIN_CHANGE_DENOMINATOR: u64 = 8;
@@ -21,7 +23,7 @@ pub const MAX_CHANGE_DENOMINATOR: u64 = 1024;
 /// Not zero. A zero floor lets a quiet chain decay to a free one, and a free
 /// byte on a chain whose signatures are 11,165 bytes is a storage subsidy for
 /// whoever wants it.
-pub const MIN_BASE_FEE_FLOOR: u64 = 1;
+pub const MIN_BASE_FEE_FLOOR: Amount = Amount::from_u64(1);
 
 /// The smallest block-size target a configuration may choose, in bytes.
 ///

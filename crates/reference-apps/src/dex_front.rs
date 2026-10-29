@@ -100,7 +100,7 @@ pub fn review_swap(
     claimed: &[Effect],
     simulated: &[Effect],
     pool: Address,
-    balances: Vec<(Address, u128)>,
+    balances: Vec<(Address, Amount)>,
 ) -> Vec<Warning> {
     let ctx = Context {
         verified: [pool].into_iter().collect(),

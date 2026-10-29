@@ -23,8 +23,12 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use custom_l1_node::state::Address;
+use primitive_types::{U256, U512};
 
 use crate::error::{PoolError, Result};
+
+/// Parts-per-million denominator for `fee_rate` in integer arithmetic.
+const FEE_PPM_SCALE: u64 = 1_000_000;
 
 /// Default interval the vardiff controller steers each channel toward.
 ///
@@ -105,8 +109,11 @@ pub struct PoolConfig {
     ///
     /// Required, because this chain mints no reward of its own. See the module
     /// documentation.
-    pub reward_per_block: u64,
+    pub reward_per_block: U256,
     /// Fraction of each reward the operator retains, in `[0, 1)`.
+    ///
+    /// Applied at parts-per-million resolution (`miner_share`), since an f64
+    /// cannot multiply a 256-bit reward exactly.
     pub fee_rate: f64,
     /// Operator's fee destination.
     pub fee_address: Address,
@@ -118,7 +125,7 @@ pub struct PoolConfig {
     ///
     /// A payout below the cost of the transaction that carries it destroys
     /// value on the way to the miner.
-    pub min_payout: u64,
+    pub min_payout: U256,
     /// Largest number of outputs in one payout transaction.
     pub max_outputs_per_batch: usize,
     /// Ceiling on what one payout batch may move, in base units.
@@ -126,7 +133,7 @@ pub struct PoolConfig {
     /// A custody control, not an accounting one: the treasury key is hot on a
     /// network-facing daemon, and this bounds what a single compromised batch
     /// can carry.
-    pub max_batch_value: u64,
+    pub max_batch_value: U256,
     /// Share interval the vardiff controller steers toward.
     pub share_interval: Duration,
     /// Vardiff bounds, in leading zero bits.
@@ -149,14 +156,17 @@ impl Default for PoolConfig {
             // Deliberately zero, and rejected by `validate`. A plausible-looking
             // default would be a policy invented by the code rather than chosen
             // by the operator.
-            reward_per_block: 0,
+            reward_per_block: U256::zero(),
             fee_rate: 0.01,
             fee_address: [0u8; 32],
             pplns_factor: DEFAULT_PPLNS_FACTOR,
             confirmations: DEFAULT_CONFIRMATIONS,
-            min_payout: 1_000,
+            // 0.01 coin at 24 decimals: below that a payout is dust whose
+            // output costs more than it carries.
+            min_payout: U256::exp10(22),
             max_outputs_per_batch: DEFAULT_MAX_OUTPUTS_PER_BATCH,
-            max_batch_value: u64::MAX,
+            // Unset: an operator must choose the custody bound (validate).
+            max_batch_value: U256::zero(),
             share_interval: DEFAULT_SHARE_INTERVAL,
             min_target_bits: 16,
             max_target_bits: 48,
@@ -173,7 +183,7 @@ impl PoolConfig {
     pub fn validate(&self) -> Result<()> {
         let bad = |message: String| Err(PoolError::Config(message));
 
-        if self.reward_per_block == 0 {
+        if self.reward_per_block.is_zero() {
             return bad(
                 "reward_per_block is unset. This chain mints no block reward \
                  (docs/stratum-v2.md §5), so the value a found block distributes \
@@ -210,8 +220,11 @@ impl PoolConfig {
             return bad("max_outputs_per_batch is zero, so no payout could be built".to_string());
         }
 
-        if self.max_batch_value == 0 {
-            return bad("max_batch_value is zero, so every batch would be refused".to_string());
+        if self.max_batch_value.is_zero() {
+            return bad(
+                "max_batch_value is unset. It bounds what one batch signed by the hot \n                 treasury key can move; set it (base units) with --max-batch-value"
+                    .to_string(),
+            );
         }
 
         if self.share_interval.is_zero() {
@@ -238,12 +251,21 @@ impl PoolConfig {
 
     /// The share of a reward that reaches miners, after the operator's fee.
     #[must_use]
-    pub fn miner_share(&self, reward: u64) -> u64 {
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss,
+        reason = "validate() keeps fee_rate in [0, 1), so the ppm value is in [0, 1e6)"
+    )]
+    pub fn miner_share(&self, reward: U256) -> U256 {
         // The fee is taken off the top and the remainder is what PPLNS splits,
         // so the rounding direction matters: truncating the *fee* leaves the
         // spare unit with the miners, which is the direction to be wrong in.
-        let fee = (reward as f64 * self.fee_rate) as u64;
-        reward.saturating_sub(fee)
+        // The rate goes through integer parts-per-million because an f64 cannot
+        // hold a 256-bit reward; `validate` keeps it in `[0, 1)`.
+        let ppm = U256::from((self.fee_rate * FEE_PPM_SCALE as f64).round() as u64);
+        let fee = reward.full_mul(ppm) / U512::from(FEE_PPM_SCALE);
+        reward.saturating_sub(U256::try_from(fee).unwrap_or(U256::MAX))
     }
 }
 
@@ -254,7 +276,8 @@ mod tests {
 
     fn valid() -> PoolConfig {
         PoolConfig {
-            reward_per_block: 1_000_000,
+            reward_per_block: primitive_types::U256::from(1_000_000),
+            max_batch_value: primitive_types::U256::MAX,
             ..PoolConfig::default()
         }
     }
@@ -265,6 +288,30 @@ mod tests {
         // gets an error naming the decision they have not made, rather than a
         // pool that runs and pays nothing.
         assert!(PoolConfig::default().validate().is_err());
+    }
+
+    #[test]
+    fn the_fee_is_exact_at_twenty_four_decimals() {
+        // 2% of 50 coins is 1 coin exactly; an f64 product would round it.
+        let config = PoolConfig {
+            fee_rate: 0.02,
+            ..valid()
+        };
+        let coin = primitive_types::U256::exp10(24);
+        let reward = primitive_types::U256::from(50u64) * coin;
+        assert_eq!(config.miner_share(reward), reward - coin);
+        assert!(config.miner_share(primitive_types::U256::MAX) < primitive_types::U256::MAX);
+    }
+
+    #[test]
+    fn a_missing_batch_cap_is_refused() {
+        // The cap bounds what a stolen hot treasury key can move in one batch;
+        // an operator who forgets it must hear so at start-up.
+        let config = PoolConfig {
+            max_batch_value: U256::zero(),
+            ..valid()
+        };
+        assert!(config.validate().is_err());
     }
 
     #[test]
@@ -309,6 +356,9 @@ mod tests {
             fee_rate: 0.5,
             ..valid()
         };
-        assert_eq!(config.miner_share(3), 2);
+        assert_eq!(
+            config.miner_share(primitive_types::U256::from(3)),
+            primitive_types::U256::from(2)
+        );
     }
 }
