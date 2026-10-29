@@ -853,6 +853,7 @@ fn work_chain(bits: u32) -> (Chain, TempDir) {
     let (state, dir) = open_state();
     let genesis = Block::new(
         BlockHeader {
+            version: 0,
             prev_hash: [0u8; 32],
             state_root: [0u8; 32],
             timestamp: 1_000_000,
