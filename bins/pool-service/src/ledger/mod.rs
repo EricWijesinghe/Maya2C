@@ -83,7 +83,8 @@ pub struct FoundBlock {
     /// block's window, and paying them from this one would pay twice.
     pub sequence: u64,
     /// Value distributed to miners, after the operator's fee.
-    pub reward: u64,
+    #[serde(with = "custom_l1_node::state::amount_serde::lenient")]
+    pub reward: primitive_types::U256,
     /// Miner credited with finding it.
     pub finder: Address,
     /// When the pool accepted it, in milliseconds since the epoch.
@@ -96,11 +97,14 @@ pub struct FoundBlock {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MinerBalance {
     /// Credits from confirmed blocks, awaiting a payout batch.
-    pub unpaid: u64,
+    #[serde(with = "custom_l1_node::state::amount_serde::lenient")]
+    pub unpaid: primitive_types::U256,
     /// Credits from blocks that could still be orphaned.
-    pub immature: u64,
+    #[serde(with = "custom_l1_node::state::amount_serde::lenient")]
+    pub immature: primitive_types::U256,
     /// Total ever sent on chain.
-    pub paid: u64,
+    #[serde(with = "custom_l1_node::state::amount_serde::lenient")]
+    pub paid: primitive_types::U256,
 }
 
 /// A slice of the ledger, newest first.
@@ -271,6 +275,17 @@ where
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+
+    #[test]
+    fn a_balance_written_before_u256_still_decodes() {
+        // Pool ledgers on disk hold JSON numbers from the u64 era; reading one
+        // must not strand a miner's credit. New writes are decimal strings.
+        let old: MinerBalance =
+            serde_json::from_str(r#"{"unpaid":5,"immature":6,"paid":7}"#).unwrap();
+        assert_eq!(old.unpaid, primitive_types::U256::from(5u64));
+        let written = serde_json::to_string(&old).unwrap();
+        assert_eq!(written, r#"{"unpaid":"5","immature":"6","paid":"7"}"#);
+    }
 
     fn record(sequence: u64, weight: u64) -> ShareRecord {
         ShareRecord {

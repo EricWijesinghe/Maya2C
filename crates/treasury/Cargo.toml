@@ -7,9 +7,11 @@ edition.workspace = true
 rust-version.workspace = true
 description = "Treasury spending rules (per-epoch limits, staged approval, public ledger) and allocation vesting (cliff, linear release, termination, clawback)"
 
-# Dependency-free, like ledger-math and dex: these are consensus rules once
-# wired, and Kani should be able to compile them.
+# Only `maya-amount`, itself dependency-free: these are consensus rules once
+# wired, and Kani should be able to compile them. Amounts are the ledger's
+# 256-bit width (ADR-046).
 [dependencies]
+maya-amount = { path = "../amount" }
 
 [lints]
 workspace = true

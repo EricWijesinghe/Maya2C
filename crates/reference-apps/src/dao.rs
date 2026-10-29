@@ -54,7 +54,7 @@ pub fn propose(
     treasury: &mut Treasury,
     rules: &Rules,
     recipient: [u8; 32],
-    amount: u64,
+    amount: Amount,
     memo: &str,
     height: u64,
 ) -> Result<Grant, DaoError> {

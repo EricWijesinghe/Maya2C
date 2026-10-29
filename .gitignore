@@ -123,3 +123,10 @@ docs/site/public/updates/
 /skills-lock.json
 /.posit/
 /.tabnine/
+
+# Local agent-skill installer symlinks and the 1.8 GiB nested offsec-sandbox build dir: machine state, not source.
+/skills/
+/offsec-sandbox/target/
+
+# Stray dev output of `maya2c-genesis` (its default --out is the cwd); never source.
+/genesis.json

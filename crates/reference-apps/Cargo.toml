@@ -10,6 +10,7 @@ description = "Reference applications (payments, DEX front end, DAO, quantum-saf
 # Each app composes libraries the chain already has; none adds protocol code.
 # That is the point of a template: what a team copies must be what exists.
 [dependencies]
+maya-amount = { path = "../amount" }
 maya-crypto-pq = { path = "../crypto-pq" }
 maya-smart-account = { path = "../smart-account" }
 maya-dex = { path = "../dex" }

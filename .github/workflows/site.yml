@@ -12,7 +12,11 @@ name: site
 on:
   push:
     branches: [master]
-    paths: ["docs/**", ".github/workflows/site.yml"]
+    paths: ["docs/**", ".github/workflows/site.yml", "features.toml", "PROGRESS.md", "BACKLOG.md", "STATE.md", "reports/**"]
+  # Rebuild on a clock too, so CI status, merged PRs and releases (which change
+  # nothing under docs/) reach the site without anyone touching it.
+  schedule:
+    - cron: "17 */6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -41,6 +45,9 @@ jobs:
           cache-dependency-path: docs/site/package-lock.json
       - run: npm ci
       - run: npm run build
+        env:
+          # Read-only API calls for scripts/gen-progress.mjs (CI status, PRs, releases).
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
           path: docs/site/dist
