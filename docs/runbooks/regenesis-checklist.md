@@ -101,6 +101,12 @@ chain-id.
   (ADR-068), the reserve must hold the lifetime emission, so the total is far above 21M coins
   by design; 21M is the halving schedule's main issuance, and the rest is released only by the
   tail. Check both printed lines before `APPROVED: sign genesis`.
+- Tail (DECISIONS 2026-10-29): `tail_epoch_reward` = 1% of 21M coins a year divided by
+  epochs per year at the mainnet epoch length, in base units (10^24 per coin).
+  At 3,600-block epochs and about one block a second (8,766 epochs a year):
+  `tail_epoch_reward = 23956194387405886379192334` (about 23.96 coins an epoch). If the
+  mainnet `round_interval_ms` changes the block rate, recompute it. Genesis `validate` refuses a
+  tail whose per-share rounds to zero (S-027), so a refusal at signing means recompute.
 - **Remote signer database (HIGH-4 review):** votes are now bound to the chain, so a signer's
   slashing-protection database must be per chain. Start mainnet with a fresh signer database;
   reusing a testnet one makes the signer refuse mainnet votes as conflicts (safe, but no votes).
