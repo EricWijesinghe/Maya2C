@@ -6,6 +6,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use maya_amount::Amount;
 use maya_governance::error::GovernanceError;
 use maya_governance::limits::{
     BPS_DENOMINATOR, EXECUTION_GRACE_BLOCKS, MAX_TIMELOCK_BLOCKS, MAX_VOTING_BLOCKS,
@@ -87,9 +88,9 @@ fn every_refusal_says_something_specific() {
         GovernanceError::UnknownParameter { tag: 99 },
         GovernanceError::ParameterOutOfRange {
             key: ParameterKey::DexProtocolFeeBps,
-            value: 9_999,
-            min: 0,
-            max: 200,
+            value: Amount::from_u64(9_999),
+            min: Amount::from_u64(0),
+            max: Amount::from_u64(200),
         },
         GovernanceError::ChangeCountOutOfRange { count: 0 },
         GovernanceError::DuplicateParameter {
@@ -137,7 +138,7 @@ fn a_range_refusal_names_the_range_it_would_have_accepted() {
     // The rejection has to say what would have been acceptable, or a proposer
     // is left guessing at a bound they cannot see.
     let error = ParameterKey::DexProtocolFeeBps
-        .check(9_999)
+        .check(Amount::from_u64(9_999))
         .expect_err("out of range");
     let text = error.to_string();
 

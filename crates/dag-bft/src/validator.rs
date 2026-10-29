@@ -13,7 +13,7 @@
 //! Time is whatever the caller passes in milliseconds; the engine never
 //! reads a clock, so a simulator can drive it deterministically.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use crate::auth::{Authenticator, Equivocation, SignContext, SignKind, Unauthenticated};
 use crate::commit::{Committer, SubDag};
@@ -70,6 +70,13 @@ pub struct Output {
     pub sub_dags: Vec<SubDag>,
     /// Conflicting signed proposals seen, for the staking module.
     pub equivocations: Vec<Equivocation>,
+    /// Certificates this step verified and inserted into the DAG, own ones
+    /// included: the only certificates a node may persist. A certificate
+    /// that arrives is not one of these until its signatures check and its
+    /// parents are held, which may be several steps later. Carried whole,
+    /// not by digest: the same step may commit and collect it below the
+    /// horizon before the caller could look it up.
+    pub inserted: Vec<Certificate>,
 }
 
 /// Engine parameters.
@@ -146,6 +153,15 @@ pub struct Validator<A = Unauthenticated> {
     last_proposed_ms: u64,
     /// When `tick` last re-broadcast, for `resend_interval_ms`.
     last_resend_ms: u64,
+    /// When a re-delivered buffered certificate last re-requested its
+    /// ancestors, for `resend_interval_ms`: a peer replaying one certificate
+    /// gets at most one round of fetches per interval out of this node.
+    last_refetch_ms: u64,
+    /// Fetch replies sent to each member in the current `resend_interval_ms`
+    /// window: (window start, replies). A reply can be a whole certificate,
+    /// so an unanswered budget is an amplifier for anyone who can send a
+    /// 33-byte `Fetch`.
+    fetch_replies: BTreeMap<ValidatorId, (u64, u32)>,
 }
 
 impl Validator<Unauthenticated> {
@@ -177,6 +193,8 @@ impl<A: Authenticator> Validator<A> {
             waiting_since: None,
             last_proposed_ms: 0,
             last_resend_ms: 0,
+            last_refetch_ms: 0,
+            fetch_replies: BTreeMap::new(),
         }
     }
 
@@ -310,15 +328,40 @@ impl<A: Authenticator> Validator<A> {
                 voter,
                 signature,
             } => self.on_vote(digest, round, voter, signature, &mut out),
-            Message::Cert(c) => self.on_cert(from, c, &mut out),
-            Message::Fetch(d) => {
-                if let Some(c) = self.dag.by_digest(&d).or_else(|| self.buffer.get(&d)) {
-                    out.sends.push((Dest::To(from), Message::Cert(c.clone())));
-                }
-            }
+            Message::Cert(c) => self.on_cert(now_ms, from, c, &mut out),
+            Message::Fetch(d) => self.on_fetch(now_ms, from, d, &mut out),
         }
         self.progress(now_ms, &mut out);
         out
+    }
+
+    /// Answers a fetch, at most [`Self::fetch_budget`] times per member per
+    /// `resend_interval_ms`. An honest node asks for at most twice the
+    /// committee per gap it finds (`fetch_missing`), so twice that again is
+    /// room for a retry; past it the fetch is dropped and asked again later.
+    fn on_fetch(&mut self, now_ms: u64, from: ValidatorId, d: Digest, out: &mut Output) {
+        if from >= self.committee.size() {
+            return;
+        }
+        let Some(c) = self.dag.by_digest(&d).or_else(|| self.buffer.get(&d)) else {
+            return;
+        };
+        let budget = self.fetch_budget();
+        let interval = self.params.resend_interval_ms;
+        let (start, sent) = self.fetch_replies.entry(from).or_insert((now_ms, 0));
+        if now_ms.saturating_sub(*start) >= interval {
+            *start = now_ms;
+            *sent = 0;
+        }
+        if *sent >= budget {
+            return;
+        }
+        *sent += 1;
+        out.sends.push((Dest::To(from), Message::Cert(c.clone())));
+    }
+
+    fn fetch_budget(&self) -> u32 {
+        4 * u32::from(self.committee.size())
     }
 
     /// Periodic work: re-broadcast what may have been lost, and advance past
@@ -468,7 +511,7 @@ impl<A: Authenticator> Validator<A> {
         }
     }
 
-    fn on_cert(&mut self, from: ValidatorId, c: Certificate, out: &mut Output) {
+    fn on_cert(&mut self, now_ms: u64, from: ValidatorId, c: Certificate, out: &mut Output) {
         if c.vertex.epoch != self.params.epoch || !c.is_well_formed(&self.committee) {
             return;
         }
@@ -482,7 +525,16 @@ impl<A: Authenticator> Validator<A> {
         let digest = c.digest();
         // Before the signatures: a re-broadcast of a held certificate costs a
         // lookup, not a quorum of verifications.
-        if self.dag.contains(&digest) || self.buffer.contains_key(&digest) {
+        if self.dag.contains(&digest) {
+            return;
+        }
+        // Still waiting on parents: ask again. The first fetch, or its reply,
+        // may have been lost, and nothing else would ever re-request it.
+        if self.buffer.contains_key(&digest) {
+            if now_ms.saturating_sub(self.last_refetch_ms) >= self.params.resend_interval_ms {
+                self.last_refetch_ms = now_ms;
+                self.fetch_missing(digest, from, out);
+            }
             return;
         }
         let authentic = c
@@ -499,12 +551,10 @@ impl<A: Authenticator> Validator<A> {
         if self.dag.contains(&digest) || c.vertex.round < self.dag.gc_round() {
             return;
         }
-        let missing = self.dag.missing_parents(&c);
-        if !missing.is_empty() {
-            for d in missing.into_iter().filter(|d| !self.buffer.contains_key(d)) {
-                out.sends.push((Dest::To(from), Message::Fetch(d)));
-            }
+        if !self.dag.missing_parents(&c).is_empty() {
+            // Buffered first: `fetch_missing` walks from the buffer.
             self.buffer.insert(digest, c);
+            self.fetch_missing(digest, from, out);
             return;
         }
         if !self.has_parent_quorum(&c.vertex) {
@@ -515,8 +565,39 @@ impl<A: Authenticator> Validator<A> {
         if self.pending.is_some() && self.pending_digest == Some(digest) {
             self.pending = None;
         }
-        self.dag.insert_digested(c, digest);
-        self.drain_buffer();
+        if self.dag.insert_digested(c, digest) {
+            self.report_inserted(&digest, out);
+        }
+        self.drain_buffer(out);
+    }
+
+    /// Fetches from `from` the ancestors buffered certificate `digest` waits
+    /// on, through parents that are themselves buffered: each once, and at
+    /// most two committees' worth per call. Every fetch is a gossip frame the
+    /// whole network carries, so one inbound certificate must not turn into
+    /// a fetch per edge of a long stuck chain; what the cap leaves out is
+    /// asked for on the next retry.
+    fn fetch_missing(&self, digest: Digest, from: ValidatorId, out: &mut Output) {
+        let cap = 2 * usize::from(self.committee.size());
+        let mut asked = 0;
+        let mut stack = vec![digest];
+        let mut seen = BTreeSet::new();
+        while let Some(d) = stack.pop() {
+            if !seen.insert(d) {
+                continue;
+            }
+            let Some(c) = self.buffer.get(&d) else {
+                continue;
+            };
+            for p in self.dag.missing_parents(c) {
+                if self.buffer.contains_key(&p) {
+                    stack.push(p);
+                } else if asked < cap && seen.insert(p) {
+                    asked += 1;
+                    out.sends.push((Dest::To(from), Message::Fetch(p)));
+                }
+            }
+        }
     }
 
     /// Whether `v`'s parents, all held, were authored by a quorum of weight
@@ -536,8 +617,16 @@ impl<A: Authenticator> Validator<A> {
             }))
     }
 
+    /// Copies a certificate just inserted into `out.inserted`, while the DAG
+    /// still holds it.
+    fn report_inserted(&self, digest: &Digest, out: &mut Output) {
+        if let Some(c) = self.dag.by_digest(digest) {
+            out.inserted.push(c.clone());
+        }
+    }
+
     /// Inserts buffered certificates whose parents have arrived.
-    fn drain_buffer(&mut self) {
+    fn drain_buffer(&mut self, out: &mut Output) {
         loop {
             let ready: Vec<Digest> = self
                 .buffer
@@ -551,8 +640,9 @@ impl<A: Authenticator> Validator<A> {
             for d in ready {
                 if let Some(c) = self.buffer.remove(&d)
                     && self.has_parent_quorum(&c.vertex)
+                    && self.dag.insert_digested(c, d)
                 {
-                    self.dag.insert_digested(c, d);
+                    self.report_inserted(&d, out);
                 }
             }
         }

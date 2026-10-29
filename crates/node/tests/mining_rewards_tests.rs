@@ -19,8 +19,8 @@ use custom_l1_node::crypto::dag::Params;
 use custom_l1_node::crypto::dag::hashimoto::hashimoto_light;
 use custom_l1_node::crypto::dag::registry::{CacheRegistry, DagConfig};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
-use custom_l1_node::crypto::keys;
 use custom_l1_node::crypto::pow::meets_target;
+use custom_l1_node::crypto::validator_keys as keys;
 use custom_l1_node::error::NodeError;
 use custom_l1_node::genesis::{
     Allocation, BftGenesis, FeesGenesis, GenesisBond, GenesisConfig, StakingGenesis,
@@ -47,6 +47,7 @@ fn mining() -> MiningGenesis {
     MiningGenesis {
         initial_epoch_reward: primitive_types::U256::from(EPOCH_REWARD),
         halving_epochs: 100,
+        tail_epoch_reward: primitive_types::U256::zero(),
         miner_share_bps: 7_000,
         target_shares: TARGET_SHARES,
         max_shares_per_block: 2,
@@ -86,8 +87,8 @@ fn config(mining: Option<MiningGenesis>) -> GenesisConfig {
                 }],
             )),
             fees: Some(FeesGenesis {
-                initial_base_fee: 1,
-                min_base_fee: 1,
+                initial_base_fee: primitive_types::U256::one(),
+                min_base_fee: primitive_types::U256::one(),
                 target_block_bytes: 100_000,
                 change_denominator: 8,
             }),
@@ -430,4 +431,30 @@ fn the_work_handed_to_miners_finds_shares_the_chain_pays() {
         .committed_share_work(&record, &[0x77; 32])
         .unwrap();
     assert_ne!(other, header);
+}
+
+#[test]
+fn a_tail_needs_a_reserve_that_pays_it_until_the_last_height() {
+    let tailed = MiningGenesis {
+        tail_epoch_reward: primitive_types::U256::from(EPOCH_REWARD / 10),
+        ..mining()
+    };
+    let lifetime = tailed
+        .record(EPOCH_BLOCKS)
+        .unwrap()
+        .lifetime_emission()
+        .unwrap();
+    let lifetime = primitive_types::U256::from_little_endian(&lifetime.to_le_bytes());
+
+    let short = TempDir::new().unwrap();
+    let mut config = config(Some(tailed.clone()));
+    config.allocations[0].balance = lifetime - 1;
+    let state = Arc::new(StateDB::open(short.path()).unwrap());
+    let err = config.seed_state(&state).unwrap_err().to_string();
+    assert!(err.contains("lifetime emission"), "{err}");
+
+    let funded = TempDir::new().unwrap();
+    config.allocations[0].balance = lifetime;
+    let state = Arc::new(StateDB::open(funded.path()).unwrap());
+    config.seed_state(&state).unwrap();
 }

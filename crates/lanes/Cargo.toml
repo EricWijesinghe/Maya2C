@@ -9,6 +9,7 @@ description = "Local fee markets per app and reserved capacity lanes, with a blo
 
 # Dependency-free and integer-only: fee rules become consensus rules.
 [dependencies]
+maya-amount = { path = "../amount" }
 
 [lints]
 workspace = true

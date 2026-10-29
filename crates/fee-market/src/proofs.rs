@@ -29,28 +29,29 @@ fn a_split_conserves_every_unit() {
 
 #[kani::proof]
 fn the_base_fee_respects_its_floor_and_its_step() {
-    let parent: u64 = kani::any();
+    let parent = any_amount();
     let size: u64 = kani::any();
     let target: u64 = kani::any();
     let denominator: u64 = kani::any();
-    let floor: u64 = kani::any();
+    let floor = any_amount();
     kani::assume(target > 0 && denominator >= 8);
     let next = next_base_fee(parent, size, target, denominator, floor);
     assert!(next >= floor);
     if next < parent {
         // A decrease is bounded by one denominator's worth of the parent.
-        assert!(parent - next <= parent / denominator || next == floor);
+        let eighth = parent.checked_div(Amount::from_u64(denominator)).unwrap();
+        assert!(parent.saturating_sub(next) <= eighth || next == floor);
     }
 }
 
 /// The neural rule's envelope, for every gain — and so for every weight file.
 #[kani::proof]
 fn the_neural_rule_never_leaves_the_envelope() {
-    let parent: u64 = kani::any();
+    let parent = any_amount();
     let size: u64 = kani::any();
     let target: u64 = kani::any();
     let denominator: u64 = kani::any();
-    let floor: u64 = kani::any();
+    let floor = any_amount();
     let gain: u64 = kani::any();
     kani::assume(target > 0 && denominator >= 8);
     let next = crate::rule::neural_next_base_fee(parent, size, target, denominator, floor, gain);
@@ -63,7 +64,8 @@ fn the_neural_rule_never_leaves_the_envelope() {
         // Never falls under a full block; rises at most twice EIP-1559's rise.
         assert!(next >= parent);
         let linear_rise = linear.saturating_sub(parent);
-        assert!(next - parent <= core::cmp::max(linear_rise.saturating_mul(2), 1) || next == floor);
+        let bound = core::cmp::max(linear_rise.saturating_add(linear_rise), Amount::from_u64(1));
+        assert!(next.saturating_sub(parent) <= bound || next == floor);
     } else if size < target {
         // Never rises under an empty one, except to meet the floor.
         assert!(next <= core::cmp::max(parent, floor));

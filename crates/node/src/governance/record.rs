@@ -11,6 +11,7 @@ use primitive_types::U256;
 
 use crate::core::codec::{ByteReader, put_amount};
 use crate::error::{NodeError, Result};
+use crate::governance::work::{WORK_RECORD_LEN, WorkRecord};
 use crate::state::account::Address;
 
 /// Encoded size of a [`LockRecord`].
@@ -21,7 +22,7 @@ pub const LOCK_RECORD_LEN: usize = 32 + 8;
 /// Encoded size of a [`Totals`] record.
 ///
 /// One 256-bit amount (ADR-046).
-pub const TOTALS_LEN: usize = 32;
+pub const TOTALS_LEN: usize = 32 + crate::governance::work::WORK_RECORD_LEN;
 
 /// One address's locked stake.
 ///
@@ -78,6 +79,16 @@ pub struct Totals {
     /// alongside them. Counting it by scanning would be a walk of every locker
     /// on every proposal that closed.
     pub locked: U256,
+    /// Work credit across every address, decayed by the same halving rule as
+    /// each address's own.
+    ///
+    /// Quorum is measured against the electorate that can cast a vote, and
+    /// work credit casts votes, so the denominator must hold it too. One
+    /// aggregate record, because summing per-address decayed credit would walk
+    /// every miner on every proposal that closed. It floors once rather than
+    /// once per address, so it is never below the sum of the parts and turnout
+    /// from work cannot exceed it by rounding.
+    pub work: WorkRecord,
 }
 
 impl Totals {
@@ -85,7 +96,8 @@ impl Totals {
     #[must_use]
     pub fn encode(&self) -> [u8; TOTALS_LEN] {
         let mut buf = [0u8; TOTALS_LEN];
-        self.locked.to_little_endian(&mut buf);
+        self.locked.to_little_endian(&mut buf[..32]);
+        buf[32..].copy_from_slice(&self.work.encode());
         buf
     }
 
@@ -98,6 +110,7 @@ impl Totals {
         let mut reader = ByteReader::new(bytes);
         let record = Self {
             locked: reader.read_amount()?,
+            work: WorkRecord::decode(reader.read_slice(WORK_RECORD_LEN)?)?,
         };
         reader.finish()?;
         Ok(record)
@@ -112,7 +125,7 @@ impl Totals {
 /// entry.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ParameterTable {
-    values: BTreeMap<u16, u64>,
+    values: BTreeMap<u16, maya_dex::Amount>,
 }
 
 impl ParameterTable {
@@ -124,7 +137,7 @@ impl ParameterTable {
 
     /// The value in force for `key`.
     #[must_use]
-    pub fn get(&self, key: ParameterKey) -> u64 {
+    pub fn get(&self, key: ParameterKey) -> maya_dex::Amount {
         self.values
             .get(&key.tag())
             .copied()
@@ -138,7 +151,7 @@ impl ParameterTable {
     /// made and again when it executes — so a setter that also checked would be
     /// a third place for the rule to live and a third place for it to drift.
     #[must_use]
-    pub fn with(&self, key: ParameterKey, value: u64) -> Self {
+    pub fn with(&self, key: ParameterKey, value: maya_dex::Amount) -> Self {
         let mut values = self.values.clone();
         values.insert(key.tag(), value);
         Self { values }
@@ -149,7 +162,7 @@ impl ParameterTable {
     /// Ordered by tag, so an explorer or an RPC rendering the table produces
     /// the same output on every node.
     #[must_use]
-    pub fn entries(&self) -> Vec<(ParameterKey, u64)> {
+    pub fn entries(&self) -> Vec<(ParameterKey, maya_dex::Amount)> {
         ALL_KEYS.iter().map(|key| (*key, self.get(*key))).collect()
     }
 
@@ -160,10 +173,11 @@ impl ParameterTable {
     /// table would have to be rewritten to keep the state root stable.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(8 + self.values.len() * 10);
+        let mut buf = Vec::with_capacity(8 + self.values.len() * 34);
         buf.extend_from_slice(&(self.values.len() as u64).to_le_bytes());
         for (tag, value) in &self.values {
             buf.extend_from_slice(&tag.to_le_bytes());
+            // 256-bit (ADR-066): a money parameter is not capped by its type.
             buf.extend_from_slice(&value.to_le_bytes());
         }
         buf
@@ -180,7 +194,7 @@ impl ParameterTable {
     /// upgraded node disagrees with.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let mut reader = ByteReader::new(bytes);
-        let count = reader.read_collection_len(10)?;
+        let count = reader.read_collection_len(34)?;
 
         let mut values = BTreeMap::new();
         for _ in 0..count {
@@ -189,7 +203,10 @@ impl ParameterTable {
             ParameterKey::from_tag(tag).map_err(|error| NodeError::Governance {
                 reason: error.to_string(),
             })?;
-            values.insert(tag, reader.read_u64()?);
+            values.insert(
+                tag,
+                maya_dex::Amount::from_le_bytes(reader.read_array::<32>()?),
+            );
         }
         reader.finish()?;
         Ok(Self { values })
@@ -198,7 +215,7 @@ impl ParameterTable {
     /// Hashes the table into a Merkle leaf.
     #[must_use]
     pub fn leaf(&self) -> [u8; 32] {
-        let mut hasher = blake3::Hasher::new_derive_key("maya-governance parameters leaf v1");
+        let mut hasher = blake3::Hasher::new_derive_key("maya-governance parameters leaf v2");
         hasher.update(&self.encode());
         *hasher.finalize().as_bytes()
     }
@@ -220,7 +237,7 @@ pub struct ProposalRecord {
     /// release round-trips through an older one's decoder far enough to be
     /// *reported* — the refusal happens when it is executed, where it can name
     /// the parameter that is not understood.
-    pub changes: Vec<(u16, u64)>,
+    pub changes: Vec<(u16, maya_dex::Amount)>,
 }
 
 impl ProposalRecord {
@@ -228,7 +245,7 @@ impl ProposalRecord {
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
         // Proposer, deposit, state, schedule, three 256-bit tallies, count.
-        let mut buf = Vec::with_capacity(32 + 32 + 1 + 32 + 96 + 8 + self.changes.len() * 10);
+        let mut buf = Vec::with_capacity(32 + 32 + 1 + 32 + 96 + 8 + self.changes.len() * 34);
         buf.extend_from_slice(&self.proposer);
         put_amount(&mut buf, &self.deposit);
         buf.push(self.proposal.state.tag());
@@ -242,6 +259,7 @@ impl ProposalRecord {
         buf.extend_from_slice(&(self.changes.len() as u64).to_le_bytes());
         for (tag, value) in &self.changes {
             buf.extend_from_slice(&tag.to_le_bytes());
+            // 256-bit (ADR-066): a money parameter is not capped by its type.
             buf.extend_from_slice(&value.to_le_bytes());
         }
         buf
@@ -274,11 +292,14 @@ impl ProposalRecord {
             abstain_votes: read_weight(&mut reader)?,
         };
 
-        let count = reader.read_collection_len(10)?;
+        let count = reader.read_collection_len(34)?;
         let mut changes = Vec::with_capacity(count);
         for _ in 0..count {
             let tag = u16::from(reader.read_u8()?) | (u16::from(reader.read_u8()?) << 8);
-            changes.push((tag, reader.read_u64()?));
+            changes.push((
+                tag,
+                maya_dex::Amount::from_le_bytes(reader.read_array::<32>()?),
+            ));
         }
         reader.finish()?;
 
@@ -297,7 +318,7 @@ impl ProposalRecord {
     /// Hashes the record into a Merkle leaf.
     #[must_use]
     pub fn leaf(&self, id: &[u8; 32]) -> [u8; 32] {
-        let mut hasher = blake3::Hasher::new_derive_key("maya-governance proposal leaf v1");
+        let mut hasher = blake3::Hasher::new_derive_key("maya-governance proposal leaf v2");
         hasher.update(id);
         hasher.update(&self.encode());
         *hasher.finalize().as_bytes()
@@ -326,22 +347,28 @@ mod tests {
     #[test]
     fn setting_a_parameter_leaves_the_table_it_was_given_alone() {
         let before = ParameterTable::new();
-        let after = before.with(ParameterKey::DexProtocolFeeBps, 25);
+        let after = before.with(ParameterKey::DexProtocolFeeBps, Amount::from_u64(25));
 
-        assert_eq!(before.get(ParameterKey::DexProtocolFeeBps), 0);
-        assert_eq!(after.get(ParameterKey::DexProtocolFeeBps), 25);
+        assert_eq!(
+            before.get(ParameterKey::DexProtocolFeeBps),
+            Amount::from_u64(0)
+        );
+        assert_eq!(
+            after.get(ParameterKey::DexProtocolFeeBps),
+            Amount::from_u64(25)
+        );
     }
 
     #[test]
     fn a_table_round_trips_and_only_carries_what_was_set() {
         let table = ParameterTable::new()
-            .with(ParameterKey::DexProtocolFeeBps, 25)
-            .with(ParameterKey::VmMaxMemoryPages, 512);
+            .with(ParameterKey::DexProtocolFeeBps, Amount::from_u64(25))
+            .with(ParameterKey::VmMaxMemoryPages, Amount::from_u64(512));
 
         let decoded = ParameterTable::decode(&table.encode()).expect("decode");
         assert_eq!(decoded, table);
         // Two explicit entries, whatever the number of keys the build knows.
-        assert_eq!(decoded.encode().len(), 8 + 2 * 10);
+        assert_eq!(decoded.encode().len(), 8 + 2 * 34);
     }
 
     #[test]
@@ -350,7 +377,7 @@ mod tests {
         // Continuing would mean building on a state every upgraded node
         // disagrees with — a silent fork rather than a stopped node.
         let mut encoded = ParameterTable::new()
-            .with(ParameterKey::DexProtocolFeeBps, 1)
+            .with(ParameterKey::DexProtocolFeeBps, Amount::from_u64(1))
             .encode();
         encoded[8] = 0xFF;
         encoded[9] = 0xFF;
@@ -388,7 +415,10 @@ mod tests {
             proposer: [3u8; 32],
             deposit: U256::from(10_000u64),
             proposal,
-            changes: vec![(1, 25), (6, 512)],
+            changes: vec![
+                (1, maya_dex::Amount::from_u64(25)),
+                (6, maya_dex::Amount::from_u64(512)),
+            ],
         };
 
         assert_eq!(ProposalRecord::decode(&record.encode()), Ok(record));

@@ -322,8 +322,9 @@ impl StateDB {
     /// governance decision reaches every pool rather than only the ones
     /// created after it.
     fn priced(&self, overlay: &Overlay, record: &PoolRecord) -> Result<PoolRecord> {
-        let protocol_bps = u32::try_from(self.parameter(overlay, ParameterKey::DexProtocolFeeBps)?)
-            .unwrap_or(u32::MAX);
+        let protocol_bps =
+            u32::try_from(self.parameter_u64(overlay, ParameterKey::DexProtocolFeeBps)?)
+                .unwrap_or(u32::MAX);
 
         let fees = FeeSchedule::new(record.pool.fees.lp_bps, protocol_bps)
             .map_err(|error| trade_error("pool pricing", error))?;
@@ -823,7 +824,7 @@ impl StateDB {
             });
         }
 
-        let ceiling = self.parameter(overlay, ParameterKey::DexMaxOrdersPerBook)?;
+        let ceiling = self.parameter_u64(overlay, ParameterKey::DexMaxOrdersPerBook)?;
         let count = self.adjust_order_count(overlay, &placement.pair, 1)?;
         if count > ceiling {
             return Err(NodeError::Trade {
@@ -1033,8 +1034,9 @@ impl StateDB {
                 .map_err(|error| trade_error("book reconstruction", error))?;
         }
 
-        let ceiling = usize::try_from(self.parameter(overlay, ParameterKey::DexMaxFillsPerBlock)?)
-            .unwrap_or(usize::MAX);
+        let ceiling =
+            usize::try_from(self.parameter_u64(overlay, ParameterKey::DexMaxFillsPerBlock)?)
+                .unwrap_or(usize::MAX);
         let budget = ceiling.saturating_sub(overlay.fills);
         if budget == 0 {
             return Ok(());
@@ -1070,11 +1072,18 @@ impl StateDB {
             // The bid's escrow paid the quote; the ask's paid the base. Both
             // are decremented by exactly what left them, so what remains is
             // exact rather than recomputed.
+            // Checked, not saturating: escrow is placed at the ceiling of what
+            // a fill can take, so an underflow means the book and the escrow
+            // disagree, and clamping to zero would hide value created.
             if let Some(record) = working.get_mut(&fill.bid_id) {
-                record.escrow = record.escrow.saturating_sub(fill.quote);
+                record.escrow = record.escrow.checked_sub(fill.quote).ok_or_else(|| {
+                    NodeError::InvariantViolation("dex: bid escrow below a fill's quote".into())
+                })?;
             }
             if let Some(record) = working.get_mut(&fill.ask_id) {
-                record.escrow = record.escrow.saturating_sub(fill.base);
+                record.escrow = record.escrow.checked_sub(fill.base).ok_or_else(|| {
+                    NodeError::InvariantViolation("dex: ask escrow below a fill's base".into())
+                })?;
             }
         }
 

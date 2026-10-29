@@ -12,7 +12,7 @@ use std::path::Path;
 use argon2::{Algorithm, Argon2, Params, Version};
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
-use maya_crypto_pq::suite::{MasterSeed, MlDsa65, SignatureSuite};
+use maya_crypto_pq::suite::{MasterSeed, ValidatorSigningKey};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
@@ -48,7 +48,7 @@ struct File {
     salt: String,
     nonce: String,
     ciphertext: String,
-    ml_dsa_65_public_key: String,
+    ml_dsa_87_public_key: String,
 }
 
 pub(crate) fn key_from(
@@ -103,7 +103,7 @@ pub fn create(path: &Path, seed: &MasterSeed, passphrase: &[u8]) -> Result<Vec<u
     let ciphertext = cipher
         .encrypt(Nonce::from_slice(&nonce), seed.expose().as_slice())
         .map_err(|_| KeystoreError::Decrypt)?;
-    let public = MlDsa65::public_key(&MlDsa65::signing_key_from_seed(seed));
+    let public = ValidatorSigningKey::from_seed(seed.expose()).public_key();
     let file = File {
         format: FORMAT,
         kdf: "argon2id".into(),
@@ -112,12 +112,12 @@ pub fn create(path: &Path, seed: &MasterSeed, passphrase: &[u8]) -> Result<Vec<u
         salt: hex(&salt),
         nonce: hex(&nonce),
         ciphertext: hex(&ciphertext),
-        ml_dsa_65_public_key: hex(&public),
+        ml_dsa_87_public_key: hex(&public),
     };
     let text =
         serde_json::to_string_pretty(&file).map_err(|e| KeystoreError::Format(e.to_string()))?;
     std::fs::write(path, text)?;
-    Ok(public)
+    Ok(public.to_vec())
 }
 
 /// Decrypts the keystore at `path`.
@@ -161,8 +161,7 @@ pub fn open(path: &Path, passphrase: &[u8]) -> Result<MasterSeed, KeystoreError>
     let seed = MasterSeed::from_bytes(bytes);
     // `from_bytes` took a copy; wipe this one (Standing Order 5).
     zeroize::Zeroize::zeroize(&mut bytes);
-    if hex(&MlDsa65::public_key(&MlDsa65::signing_key_from_seed(&seed)))
-        != file.ml_dsa_65_public_key
+    if hex(&ValidatorSigningKey::from_seed(seed.expose()).public_key()) != file.ml_dsa_87_public_key
     {
         return Err(KeystoreError::Decrypt);
     }

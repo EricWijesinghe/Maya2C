@@ -10,6 +10,7 @@ description = "Master Prompt 6 §4-5: a permissioned CBDC vault with ZK-KYC, a s
 # RESEARCH: libraries with tests, none wired into block execution. The vault
 # gates onboarding on a STARK credential proof from crates/zk-stark.
 [dependencies]
+maya-amount = { path = "../amount" }
 blake3.workspace = true
 maya-zk-stark = { path = "../zk-stark" }
 # `mpc_darkpool`: share randomness comes from the caller's RNG, as in

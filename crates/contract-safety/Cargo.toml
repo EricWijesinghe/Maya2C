@@ -7,9 +7,11 @@ edition.workspace = true
 rust-version.workspace = true
 description = "Safe-by-default contract runtime rules: move-only resources, capabilities, re-entrancy off by default, declared invariants with rollback, outflow rate limits"
 
-# Dependency-free: these are execution rules, and like ledger-math and dex
-# they should stay compilable by Kani.
+# Only `maya-amount`, itself dependency-free: these are execution rules, and
+# like ledger-math and dex they stay compilable by Kani. Balances are the
+# ledger's 256-bit `Amount` so a contract token can hold what the ledger can.
 [dependencies]
+maya-amount = { path = "../amount" }
 
 [lints]
 workspace = true

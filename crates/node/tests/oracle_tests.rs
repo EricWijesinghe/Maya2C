@@ -213,9 +213,10 @@ impl Fixture {
             .enumerate()
             .map(|(index, value)| {
                 let authority = &self.authorities[index];
-                let message = observation_bytes(&feed_id, round, *value, observed_height);
+                let message =
+                    observation_bytes(&feed_id, round, U256::from(*value), observed_height);
                 FeedObservation {
-                    value: *value,
+                    value: U256::from(*value),
                     public_key: Box::new(authority.signing.public_key()),
                     signature: Box::new(authority.signing.sign(&message).expect("sign")),
                 }
@@ -451,7 +452,11 @@ fn a_quorum_of_observations_stores_their_median() {
         .expect("submit");
 
     let record = fixture.db.feed(&feed_id).expect("read").expect("feed");
-    assert_eq!(record.value, 101, "the median, not the first or the mean");
+    assert_eq!(
+        record.value,
+        U256::from(101),
+        "the median, not the first or the mean"
+    );
     assert_eq!(record.round, 1);
     assert_eq!(record.observations, 3);
     assert_eq!(
@@ -481,7 +486,7 @@ fn one_liar_in_a_quorum_cannot_move_the_median() {
             .expect("read")
             .expect("feed")
             .value,
-        102
+        U256::from(102)
     );
 }
 
@@ -513,9 +518,9 @@ fn one_authority_signing_twice_is_not_a_quorum_of_two() {
 
     let authority = &fixture.authorities[0];
     let observation = |value: u64| {
-        let message = observation_bytes(&feed_id, 1, value, 2);
+        let message = observation_bytes(&feed_id, 1, U256::from(value), 2);
         FeedObservation {
-            value,
+            value: U256::from(value),
             public_key: Box::new(authority.signing.public_key()),
             signature: Box::new(authority.signing.sign(&message).expect("sign")),
         }
@@ -546,20 +551,20 @@ fn a_signature_from_outside_the_registry_is_refused() {
     let feed_id = fixture.create_feed(0);
     let outsider = generate_signing_key().expect("key");
 
-    let message = observation_bytes(&feed_id, 1, 100, 2);
+    let message = observation_bytes(&feed_id, 1, U256::from(100), 2);
     let mut observations: Vec<FeedObservation> = fixture
         .authorities
         .iter()
         .take(2)
         .map(|authority| FeedObservation {
-            value: 100,
+            value: U256::from(100),
             public_key: Box::new(authority.signing.public_key()),
             signature: Box::new(authority.signing.sign(&message).expect("sign")),
         })
         .collect();
 
     observations.push(FeedObservation {
-        value: 100,
+        value: U256::from(100),
         public_key: Box::new(outsider.public_key()),
         signature: Box::new(outsider.sign(&message).expect("sign")),
     });
@@ -592,7 +597,7 @@ fn a_forged_signature_is_refused_even_from_a_real_authority() {
         TxKind::SubmitFeed(submission) => *submission,
         other => panic!("expected a feed submission, got {}", other.label()),
     };
-    submission.observations[0].value = 999;
+    submission.observations[0].value = U256::from(999);
 
     let tx = signed(
         TxKind::SubmitFeed(Box::new(submission)),
