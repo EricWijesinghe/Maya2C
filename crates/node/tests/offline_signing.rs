@@ -88,6 +88,7 @@ fn build_export_sign_offline_and_broadcast() {
         "the signature binds the offline key's address"
     );
     let header = BlockHeader {
+        version: 0,
         prev_hash: [0; 32],
         state_root: [0; 32],
         timestamp: 1_756_252_800,

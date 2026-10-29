@@ -393,6 +393,7 @@ mod tests {
         for h in 1..=len {
             let block = Block::new(
                 crate::core::BlockHeader {
+                    version: 0,
                     prev_hash: parent,
                     state_root: [0; 32],
                     timestamp: h,

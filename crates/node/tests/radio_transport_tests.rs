@@ -119,6 +119,7 @@ impl RadioLink for Endpoint<'_> {
 
 fn header(height: u64) -> BlockHeader {
     BlockHeader {
+        version: 0,
         prev_hash: [height as u8; 32],
         state_root: [(height + 1) as u8; 32],
         timestamp: 1_789_000_000 + height,

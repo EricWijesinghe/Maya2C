@@ -182,6 +182,7 @@ fn the_search_seed_agrees() {
     // same 32 bytes the node derives from a decoded header — including which
     // eight bytes are the nonce.
     let header = BlockHeader {
+        version: 0,
         prev_hash: [3u8; 32],
         state_root: [4u8; 32],
         timestamp: 1_700_000_000,

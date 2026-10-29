@@ -112,6 +112,7 @@ fn verify(hash: Hash, leaf: [u8; 32], path: &[(bool, [u8; 32])], root: &[u8; 32]
 
 fn block_of(transactions: Vec<Transaction>) -> Block {
     let header = BlockHeader {
+        version: 0,
         prev_hash: [0; 32],
         state_root: [0; 32],
         timestamp: 1_756_252_800,

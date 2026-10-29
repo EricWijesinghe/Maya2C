@@ -132,6 +132,7 @@ mod tests {
 
     fn registry_with_job(height: u64, bits: u32) -> (JobRegistry, u32) {
         let header = BlockHeader {
+            version: 0,
             prev_hash: [3u8; 32],
             state_root: [4u8; 32],
             timestamp: 1_700_000_000,

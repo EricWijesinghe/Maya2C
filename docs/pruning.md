@@ -25,8 +25,8 @@ node then refuses any block or reorg that reaches at or below its horizon
 gone.
 
 The check sits in `Chain::reorganize`, before anything is reverted, so a reorg
-that cannot finish never starts. Headers stay forever, at 144 bytes each,
-about 4.3 MB per 30,000 blocks. They carry the `state_root` and `tx_root` that
+that cannot finish never starts. Headers stay forever, at 145 bytes each,
+about 4.4 MB per 30,000 blocks. They carry the `state_root` and `tx_root` that
 a pruned body is later verified against.
 
 ## Archive, verify, then delete

@@ -27,7 +27,7 @@ Stratum V2's mining messages assume a Bitcoin header. They carry a
 `merkle_root`, a compact `nbits`, a rollable `version`, and a coinbase
 transaction to hide an extranonce in.
 
-Maya2C's header is 144 bytes and keeps only the root, as `tx_root`
+Maya2C's header is 145 bytes and keeps only the root, as `tx_root`
 ([`crates/node/src/core/block.rs:9-41`](../crates/node/src/core/block.rs)):
 
 ```text

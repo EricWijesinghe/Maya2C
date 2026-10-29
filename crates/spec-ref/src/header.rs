@@ -18,18 +18,21 @@ pub struct Header {
     pub difficulty_target: [u8; 32],
     /// Root of the block's transaction ids.
     pub tx_root: [u8; 32],
+    /// Header layout version (CON-10): 0.
+    pub version: u8,
 }
 
-/// CON-1: the 144-byte encoding, fields in declaration order.
+/// CON-1: the 145-byte encoding, fields in declaration order.
 #[must_use]
 pub fn serialize(h: &Header) -> Vec<u8> {
-    let mut out = Vec::with_capacity(144);
+    let mut out = Vec::with_capacity(145);
     out.extend_from_slice(&h.prev_hash);
     out.extend_from_slice(&h.state_root);
     out.extend_from_slice(&h.timestamp.to_le_bytes());
     out.extend_from_slice(&h.nonce.to_le_bytes());
     out.extend_from_slice(&h.difficulty_target);
     out.extend_from_slice(&h.tx_root);
+    out.push(h.version);
     out
 }
 
