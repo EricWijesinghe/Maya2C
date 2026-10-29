@@ -90,6 +90,15 @@ pub struct IndexedTx {
     pub total_out: String,
     /// Whether a signature is present.
     pub signed: bool,
+    /// Transaction kind (`core::describe`). Empty from a node that predates it.
+    #[serde(default)]
+    pub kind: String,
+    /// What the wallet shows before signing. Empty from an older node.
+    #[serde(default)]
+    pub summary: String,
+    /// Whether signing it needs a closer look than a routine payment.
+    #[serde(default)]
+    pub careful: bool,
 }
 
 impl IndexedTx {
@@ -113,6 +122,9 @@ impl IndexedTx {
                     })
                     .to_string(),
                 signed: tx.signed,
+                kind: tx.kind.clone(),
+                summary: tx.summary.clone(),
+                careful: tx.careful,
             })
             .collect()
     }
