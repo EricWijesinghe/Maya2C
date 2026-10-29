@@ -71,8 +71,12 @@ const DROP_REPORT_INTERVAL: Duration = Duration::from_secs(10);
 pub(super) const BFT_DIR: &str = "bft";
 
 /// Rounds of the follow loop a follower may import nothing while its source
-/// is ahead before it asks the BFT loop to replay certificates instead.
+/// is ahead before it asks the BFT loop to replay certificates instead. Each
+/// rescue that leaves it still following doubles the wait, up to
+/// [`STUCK_ROUNDS_MAX`], so sparse checkpoints cannot turn into a replay every
+/// ten seconds.
 const STUCK_ROUNDS: u32 = 10;
+const STUCK_ROUNDS_MAX: u32 = 320;
 
 /// How the follow loop rescues a follower that checkpoints cannot move
 /// (attacknet 2026-10-30, attack 7). A follower imports only to a checkpoint,
@@ -94,30 +98,60 @@ pub(super) struct Rescue {
     pub(super) data_dir: PathBuf,
 }
 
-/// Replays `url`'s certificate logs into this node's own (ADR-052) and
-/// returns the replayed engine. Blocking RPC and disk work, so off the async
-/// workers; the chain is locked for the replay, as at startup.
+/// Replays the head epoch's certificates from `url` into this node's own log
+/// (ADR-052) and returns the replayed engine. The pages are fetched with the
+/// chain unlocked; only the replay holds the lock, as at startup. Blocking RPC
+/// and disk work, so off the async workers.
 fn replay_certificates(
     url: &str,
     chain: &Arc<Mutex<Chain>>,
     setup: &BftSetup,
     data_dir: &Path,
-    epoch: u64,
-) -> Result<certsync::Synced, Box<dyn Error>> {
+) -> Result<(BftDriver, Step), Box<dyn Error>> {
     use custom_l1_node::consensus::bft::certsync::CertSource as _;
     let source = RpcBootstrapSource::new(url, tokio::runtime::Handle::current())?;
-    // Only within the source's head epoch, which needs no checkpoint. Behind
-    // that, finished epochs need their attested ends, and the checkpoint path
-    // is still the way forward.
-    let head = tokio::task::block_in_place(|| source.current_epoch())?;
-    if head != epoch {
-        return Err(format!("the source is in epoch {head}, this node in {epoch}").into());
-    }
+    let (epoch, (keys, weights), tag) = {
+        let c = lock_chain(chain);
+        let (epoch, keys) = certsync::head_epoch(&c, setup)?;
+        (
+            epoch,
+            keys,
+            custom_l1_node::core::ChainTag::from_genesis(c.genesis()),
+        )
+    };
     let dir = data_dir.join(BFT_DIR);
-    Ok(tokio::task::block_in_place(|| {
+    tokio::task::block_in_place(|| -> Result<_, Box<dyn Error>> {
+        // Only within the source's head epoch, which needs no checkpoint;
+        // `head_replay` checks again under the lock.
+        let head = source.current_epoch()?;
+        if head != epoch {
+            return Err(format!("the source is in epoch {head}, this node in {epoch}").into());
+        }
+        let fetched = certsync::fetch_epoch(
+            &source,
+            epoch,
+            &keys,
+            weights.as_deref(),
+            &dir,
+            certsync::PAGE,
+            tag,
+        )?;
+        if fetched.skipped > 0 {
+            println!(
+                "catch-up:    skipped {} undecodable record(s)",
+                fetched.skipped
+            );
+        }
         let mut guard = lock_chain(chain);
-        certsync::sync(&mut guard, &source, setup, &dir, now_ms(), certsync::PAGE)
-    })?)
+        Ok(certsync::head_replay(
+            &mut guard,
+            &source,
+            setup,
+            &dir,
+            now_ms(),
+            epoch,
+        )?)
+    })
 }
 
 /// The tip height `url` reports, or `None` when it does not answer in time.
@@ -487,6 +521,7 @@ pub(super) async fn follow_loop(
     let mut last_error: Option<String> = None;
     let mut idle: u32 = 0;
     let mut stuck: u32 = 0;
+    let mut patience = STUCK_ROUNDS;
     loop {
         ticker.tick().await;
         // Every second only while following. A builder derives its own
@@ -526,12 +561,13 @@ pub(super) async fn follow_loop(
                                 theirs - ours
                             );
                         }
-                        if stuck >= STUCK_ROUNDS {
+                        if stuck >= patience {
                             stuck = 0;
                             eprintln!(
-                                "catch-up: still {} behind after {STUCK_ROUNDS} rounds; replaying certificates from {url}",
+                                "catch-up: still {} behind after {patience} rounds; replaying certificates from {url}",
                                 theirs - ours
                             );
+                            patience = (patience * 2).min(STUCK_ROUNDS_MAX);
                             // Full means a replay is already queued.
                             let _ = rescue.try_send(url.clone());
                         }
@@ -542,6 +578,7 @@ pub(super) async fn follow_loop(
             Ok(_) => {
                 last_error = None;
                 stuck = 0;
+                patience = STUCK_ROUNDS;
             }
             Err(e) => {
                 let message = e;
@@ -838,14 +875,14 @@ pub(super) async fn bft_loop(
                 if !driver.is_follower() {
                     continue;
                 }
-                match replay_certificates(&url, &chain, &setup, &data_dir, driver.epoch()) {
-                    Ok(synced) => {
-                        driver = synced.driver;
+                match replay_certificates(&url, &chain, &setup, &data_dir) {
+                    Ok((replayed, opening)) => {
+                        driver = replayed;
                         println!(
                             "catch-up:    replayed certificates from {url}; building again at height {}",
                             lock_chain(&chain).height()
                         );
-                        Ok(synced.step)
+                        Ok(opening)
                     }
                     Err(e) => {
                         eprintln!("catch-up: certificate replay from {url} failed: {e}; still following");
