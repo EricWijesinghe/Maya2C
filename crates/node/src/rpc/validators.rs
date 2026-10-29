@@ -119,29 +119,42 @@ mod tests {
 
     #[test]
     fn a_jailed_validator_shows_why_and_until_when() {
+        // Five seats: the committee floor (ADR-070) never jails below four, so
+        // a smaller set would keep the offender seated.
         let mut s = Staking::new(Params::DEVNET).unwrap();
-        let (a, b) = ([1u8; 32], [2u8; 32]);
+        let a = [1u8; 32];
+        let others: Vec<[u8; 32]> = (2u8..=5).map(|n| [n; 32]).collect();
         s.register([0xA1; 32], a, Amount::from_u64(5_000), 0)
             .unwrap();
-        s.register([0xA2; 32], b, Amount::from_u64(9_000), 0)
-            .unwrap();
+        for (n, id) in others.iter().enumerate() {
+            s.register([0xB0 + n as u8; 32], *id, Amount::from_u64(9_000), 0)
+                .unwrap();
+        }
         s.end_epoch(&Participation::default(), Amount::ZERO)
             .unwrap();
         // Validator `a` authored nothing of its 10 slots: downtime.
         let mut p = Participation::default();
         p.expected.insert(a, 10);
-        p.expected.insert(b, 10);
-        p.authored.insert(b, 10);
+        for id in &others {
+            p.expected.insert(*id, 10);
+            p.authored.insert(*id, 10);
+        }
         s.end_epoch(&p, Amount::ZERO).unwrap();
 
         let info = validators_info(&record(s));
-        assert_eq!(info.total, 2);
-        assert_eq!(info.committee, 1, "the jailed validator left the committee");
-        let first = &info.validators[0];
-        assert_eq!(first.id, hex::encode(b));
-        assert!(first.in_committee && first.status == "bonded");
-        let jailed = &info.validators[1];
-        assert_eq!(jailed.id, hex::encode(a));
+        assert_eq!(info.total, 5);
+        assert_eq!(info.committee, 4, "the jailed validator left the committee");
+        let healthy = info
+            .validators
+            .iter()
+            .find(|v| v.id == hex::encode(others[0]))
+            .unwrap();
+        assert!(healthy.in_committee && healthy.status == "bonded");
+        let jailed = info
+            .validators
+            .iter()
+            .find(|v| v.id == hex::encode(a))
+            .unwrap();
         assert_eq!(jailed.status, "jailed");
         assert!(jailed.jailed_until.is_some() && !jailed.in_committee);
     }
