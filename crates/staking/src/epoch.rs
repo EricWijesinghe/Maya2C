@@ -119,14 +119,30 @@ impl Staking {
                 .cmp(&(u128::from(b.1) * u128::from(a.2)))
                 .then(a.0.cmp(&b.0))
         });
-        let allowed = self.ranked().len().saturating_sub(MIN_COMMITTEE);
-        for (n, (id, _, _)) in down.into_iter().enumerate() {
-            let burned = self.slash(id, self.params.downtime_slash_bps)?;
+        // Slash first, then count: a slash can drop a thin bond below
+        // `min_self_bond`, and the floor must hold for the set that is left.
+        for (id, _, _) in &down {
+            let burned = self.slash(*id, self.params.downtime_slash_bps)?;
             out.effects.push(Effect::Burn(burned));
-            unpaid.push(id);
-            if n >= allowed {
-                continue;
+            unpaid.push(*id);
+        }
+        let allowed = self.ranked().len().saturating_sub(MIN_COMMITTEE);
+        let mut spent = 0;
+        for (id, _, _) in down {
+            // Jailing an ineligible validator costs the committee nothing, so
+            // only eligible ones draw on the budget; the ineligible are always
+            // jailed, so a top-up cannot skip the term.
+            let eligible = self
+                .validators
+                .get(&id)
+                .is_some_and(|v| self.is_eligible(v));
+            if eligible {
+                if spent >= allowed {
+                    continue;
+                }
+                spent += 1;
             }
+            // Never overwrite a tombstone: jailing would let a retired key return.
             if let Some(v) = self.validators.get_mut(&id)
                 && v.status != Status::Tombstoned
             {
