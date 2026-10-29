@@ -1108,6 +1108,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
             println!("shutting down");
             Ok(())
         }
+        () = terminated() => {
+            println!("shutting down (SIGTERM)");
+            Ok(())
+        }
         Some(ended) = critical.join_next() => {
             let why = match ended {
                 Err(e) if e.is_panic() => "panicked",
@@ -1117,6 +1121,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
             Err(format!("a consensus task {why}; exiting so the node is restarted").into())
         }
     }
+}
+
+/// Resolves on SIGTERM, which systemd and container runtimes send to stop a
+/// service; never resolves where there is no such signal (pre-audit S-031).
+async fn terminated() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        if let Ok(mut term) = signal(SignalKind::terminate()) {
+            term.recv().await;
+            return;
+        }
+    }
+    std::future::pending::<()>().await;
 }
 
 /// How often a node short of peers dials its bootnodes again.
