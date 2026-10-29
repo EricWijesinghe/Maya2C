@@ -498,3 +498,44 @@ fn downtime_jailing_never_shrinks_the_committee_below_four_seats() {
 fn staking_min_committee() -> usize {
     maya_staking::MIN_COMMITTEE
 }
+
+/// Security review of S-033: the floor is counted after the slash. Two
+/// thin bonds fall below `min_self_bond` when slashed, leaving four eligible,
+/// so the third down validator (the worst) must stay seated, not be jailed.
+#[test]
+fn the_committee_floor_is_counted_after_the_slash() {
+    let mut s = Staking::new(Params::DEVNET).unwrap();
+    for n in 1..=4 {
+        s.register(account(n), id(n), a(10_000), 0).unwrap();
+    }
+    // Just above the 1,000 minimum: a 1% slash drops both below it.
+    s.register(account(5), id(5), a(1_005), 0).unwrap();
+    s.register(account(6), id(6), a(1_005), 0).unwrap();
+    s.end_epoch(&Participation::default(), Amount::ZERO)
+        .unwrap();
+    let authored = BTreeMap::from([
+        (id(1), 100),
+        (id(2), 100),
+        (id(3), 100),
+        (id(4), 0),
+        (id(5), 10),
+        (id(6), 10),
+    ]);
+    let out = s
+        .end_epoch(
+            &Participation {
+                rounds: 100,
+                authored,
+                ..Participation::default()
+            },
+            Amount::ZERO,
+        )
+        .unwrap();
+    assert!(
+        out.active.contains(&id(4)),
+        "the floor keeps the worst offender seated"
+    );
+    assert_eq!(out.active.len(), staking_min_committee());
+    // The thin bonds are jailed for free: they no longer count.
+    assert!(out.jailed.contains(&id(5)) && out.jailed.contains(&id(6)));
+}
