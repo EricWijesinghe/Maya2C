@@ -177,13 +177,19 @@ pub(super) fn open(
 async fn catch_up_once(
     url: &str,
     chain: &Arc<Mutex<Chain>>,
-    committee: &Arc<[VerifyingKey]>,
-    weights: Option<&Arc<[u64]>>,
+    fallback: (&Arc<[VerifyingKey]>, Option<&Arc<[u64]>>),
 ) -> Result<u64, Box<dyn Error>> {
-    let from = Position::of(&lock_chain(chain));
+    // Position and committee under one lock: read apart, a boundary block
+    // imported between them pairs an epoch with the wrong committee, the
+    // S-011 symptom for a tick (pre-audit S-024). `fallback` is for a chain
+    // without staking.
+    let (from, committee, weights) = {
+        let c = lock_chain(chain);
+        let (committee, weights) = BftDriver::staked_committee(&c)?
+            .unwrap_or_else(|| (Arc::clone(fallback.0), fallback.1.cloned()));
+        (Position::of(&c), committee, weights)
+    };
     let source = RpcBootstrapSource::new(url, tokio::runtime::Handle::current())?;
-    let committee = Arc::clone(committee);
-    let weights = weights.cloned();
     let blocks = tokio::task::spawn_blocking(move || {
         catchup::fetch(from, &source, &committee, weights.as_deref())
     })
@@ -291,14 +297,23 @@ pub(super) async fn catch_up_from_any(
         tokio::time::sleep(PROBE_PAUSE).await;
     }
     let mut last_error = None;
+    // A source that imports nothing may be behind this node, or lying about
+    // its tip: try the rest before calling it caught up (pre-audit S-029).
+    let mut first_answered = None;
     for url in ranked {
         match catch_up(&url, chain, driver).await {
-            Ok(_) => return Ok(Some(url)),
+            Ok(imported) if imported > 0 => return Ok(Some(url)),
+            Ok(_) => {
+                first_answered.get_or_insert(url);
+            }
             Err(error) => {
                 eprintln!("catch-up:    {url} failed: {error}; trying the next source");
                 last_error = Some(error);
             }
         }
+    }
+    if first_answered.is_some() {
+        return Ok(first_answered);
     }
     match last_error {
         Some(error) => Err(error),
@@ -380,10 +395,8 @@ pub(super) async fn catch_up(
     // after which the next committee is the one in state.
     let mut imported = 0;
     loop {
-        let trusted = BftDriver::staked_committee(&lock_chain(chain))?;
-        let (committee, weights) =
-            trusted.unwrap_or_else(|| (driver.committee(), driver.weights()));
-        let n = catch_up_once(url, chain, &committee, weights.as_ref()).await?;
+        let (committee, weights) = (driver.committee(), driver.weights());
+        let n = catch_up_once(url, chain, (&committee, weights.as_ref())).await?;
         imported += n;
         if n == 0 {
             break;
@@ -438,18 +451,10 @@ pub(super) async fn follow_loop(
             }
         }
         idle = 0;
-        // Re-read each round: the loop outlives the epoch it started in, and a
-        // checkpoint is only valid against its own epoch's committee.
-        let current = BftDriver::staked_committee(&lock_chain(&chain));
-        let (committee, weights) = match current {
-            Ok(Some(now)) => now,
-            Ok(None) => (Arc::clone(&genesis_committee), None),
-            Err(e) => {
-                eprintln!("catch-up: reading the committee: {e}");
-                continue;
-            }
-        };
-        match catch_up_once(&url, &chain, &committee, weights.as_ref()).await {
+        // The committee is re-read each round inside `catch_up_once`: the loop
+        // outlives the epoch it started in, and a checkpoint is only valid
+        // against its own epoch's committee.
+        match catch_up_once(&url, &chain, (&genesis_committee, None)).await {
             Ok(_) => last_error = None,
             Err(e) => {
                 let message = e.to_string();

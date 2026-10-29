@@ -185,6 +185,29 @@ async fn get_balance_rejects_a_malformed_address() {
     assert!(wrong_length.is_err());
 }
 
+/// Pre-audit S-012: the per-IP limiter charges one token per HTTP request, so
+/// a batch would carry any number of calls for one token. Batches are refused.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_batch_request_is_refused_so_one_token_buys_one_call() {
+    let node = start_node(&[], false).await;
+    let mut batch = jsonrpsee::core::params::BatchRequestBuilder::new();
+    for _ in 0..3 {
+        batch
+            .insert("get_balance", rpc_params![hex::encode([9u8; 32])])
+            .expect("batch entry");
+    }
+
+    let answer = node.client.batch_request::<AccountInfo>(batch).await;
+
+    let served = answer.map_or(0, |response| response.num_successful_calls());
+    assert_eq!(served, 0, "calls in a batch were served");
+    let single: Result<AccountInfo, _> = node
+        .client
+        .request("get_balance", rpc_params![hex::encode([9u8; 32])])
+        .await;
+    assert!(single.is_ok(), "a single call stopped working: {single:?}");
+}
+
 // ---------------------------------------------------------------------------
 // send_raw_transaction — key generation, signing, broadcast
 // ---------------------------------------------------------------------------
