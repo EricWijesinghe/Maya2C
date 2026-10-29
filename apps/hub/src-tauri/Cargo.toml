@@ -27,6 +27,9 @@ serde_json = "1"
 # Blocking JSON-RPC to the node, run off the UI thread. The hub reaches the
 # network only through these Rust commands, never from the webview.
 ureq = { version = "3.4", features = ["json"] }
+# In-app updates: check, ask, verify against the signing key, install. Off in
+# any build without an updater config, which release CI adds only when signed.
+maya-app-update = { path = "../../app-update" }
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
