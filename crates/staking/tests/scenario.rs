@@ -274,12 +274,15 @@ fn rewards_pay_commission_then_pro_rata_and_burn_only_dust() {
 
 #[test]
 fn a_validator_that_misses_its_rounds_is_slashed_and_sits_out() {
+    // Six seats, so the committee floor (MIN_COMMITTEE) leaves room to jail.
     let mut s = Staking::new(Params::DEVNET).unwrap();
-    s.register(account(1), id(1), a(10_000), 0).unwrap();
-    s.register(account(2), id(2), a(10_000), 0).unwrap();
+    for n in 1..=6 {
+        s.register(account(n), id(n), a(10_000), 0).unwrap();
+    }
     s.end_epoch(&Participation::default(), Amount::ZERO)
         .unwrap();
-    let authored = BTreeMap::from([(id(1), 100), (id(2), 10)]);
+    let mut authored: BTreeMap<_, _> = (1..=6).map(|n| (id(n), 100)).collect();
+    authored.insert(id(2), 10);
     let out = s
         .end_epoch(
             &Participation {
@@ -291,7 +294,8 @@ fn a_validator_that_misses_its_rounds_is_slashed_and_sits_out() {
         )
         .unwrap();
     assert_eq!(out.jailed, vec![id(2)]);
-    assert_eq!(out.active, vec![id(1)]);
+    assert!(!out.active.contains(&id(2)));
+    assert_eq!(out.active.len(), 5);
     assert_eq!(s.validators[&id(2)].self_bond, a(9_900));
     // Back after the jail term.
     for _ in 0..Params::DEVNET.jail_epochs {
@@ -436,4 +440,48 @@ fn undelegations_cannot_grow_the_unbonding_queue_for_free() {
     assert_eq!(s.unbonding.len(), 1);
     assert_eq!(s.unbonding[0].amount, a(1_000));
     assert!(!s.delegations.contains_key(&(account(2), id(1))));
+}
+
+/// Pre-audit S-033: three of five seats down in one epoch. Jailing all three
+/// would leave a two-seat committee, so only the worst one is jailed; every
+/// down validator is still slashed and unpaid.
+#[test]
+fn downtime_jailing_never_shrinks_the_committee_below_four_seats() {
+    let mut s = Staking::new(Params::DEVNET).unwrap();
+    for n in 1..=5 {
+        s.register(account(n), id(n), a(10_000), 0).unwrap();
+    }
+    s.end_epoch(&Participation::default(), Amount::ZERO)
+        .unwrap();
+    // Validators 3, 4 and 5 are down; 4 took part least.
+    let authored = BTreeMap::from([(id(1), 100), (id(2), 100), (id(3), 30), (id(4), 0), (id(5), 20)]);
+    let out = s
+        .end_epoch(
+            &Participation {
+                rounds: 100,
+                authored,
+                ..Participation::default()
+            },
+            a(1_000),
+        )
+        .unwrap();
+    assert_eq!(out.jailed, vec![id(4)]);
+    assert_eq!(out.active.len(), staking_min_committee());
+    for n in 3..=5 {
+        assert_eq!(s.validators[&id(n)].self_bond, a(9_900), "validator {n} slashed");
+    }
+    // Only the two that took part are paid.
+    let paid: Vec<_> = out
+        .effects
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Credit(to, _) => Some(*to),
+            _ => None,
+        })
+        .collect();
+    assert!(paid.iter().all(|to| *to == account(1) || *to == account(2)), "{paid:?}");
+}
+
+fn staking_min_committee() -> usize {
+    maya_staking::MIN_COMMITTEE
 }
