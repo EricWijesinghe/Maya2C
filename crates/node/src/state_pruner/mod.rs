@@ -16,7 +16,7 @@
 //!
 //! # What is kept
 //!
-//! Every header, forever: 144 bytes each, about 4.3 MB per 30,000 blocks.
+//! Every header, forever: 145 bytes each, about 4.4 MB per 30,000 blocks.
 //! A header carries `tx_root` and `state_root`, which is all a pruned body is
 //! ever verified against. Those are the "light Merkle roots" left where the
 //! blocks were. Bodies and undo journals below the horizon are deleted.

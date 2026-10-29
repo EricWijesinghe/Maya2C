@@ -38,6 +38,7 @@ const START_BALANCE: u64 = 1_000_000;
 fn genesis() -> Block {
     Block::new(
         BlockHeader {
+            version: 0,
             prev_hash: [0; 32],
             state_root: [0; 32],
             timestamp: 1_000_000,
@@ -107,7 +108,7 @@ fn open_chain(state_dir: &PathBuf, fund: bool) -> Chain {
             )
             .unwrap();
     }
-    common::open_chain(state, genesis(), ChainConfig::without_pow_verification()).unwrap()
+    common::open_chain(state, genesis(), ChainConfig::dag_bft()).unwrap()
 }
 
 impl Mesh {

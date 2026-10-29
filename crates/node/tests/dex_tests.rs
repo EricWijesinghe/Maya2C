@@ -63,6 +63,7 @@ fn fixture(funded: &[(Address, u64)]) -> Fixture {
 fn block_of(transactions: Vec<Transaction>) -> Block {
     Block::new(
         BlockHeader {
+            version: 0,
             prev_hash: [0u8; 32],
             state_root: [0u8; 32],
             timestamp: 1_756_252_800,
@@ -765,6 +766,23 @@ fn placing_an_order_takes_its_escrow_and_cancelling_returns_it() {
 
     assert_eq!(market.held(&market.maker_address), held_before);
     assert!(market.db().get_order(&order_id).expect("read").is_none());
+}
+
+#[test]
+fn an_order_worth_less_than_one_quote_unit_is_refused_at_placement() {
+    // Price 1 is a billionth of a quote unit per base unit, so one base unit
+    // is worth a zero quote: an order no trade could ever pay for, which would
+    // otherwise rest at the front of the book and sit in every pass's way.
+    let mut market = market();
+    let dust = TxKind::PlaceOrder(OrderPlacement {
+        pair: market.pair,
+        side: Side::Ask.tag(),
+        price: primitive_types::U256::one(),
+        amount: primitive_types::U256::one(),
+        expiry: 0,
+    });
+
+    assert!(market.apply(vec![dust], 2).is_err());
 }
 
 #[test]

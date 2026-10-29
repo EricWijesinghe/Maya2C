@@ -50,7 +50,7 @@ pub struct Member {
     /// The validator's public key, lowercase hex.
     pub key: String,
     /// The operator account and its bond, when the chain stakes.
-    pub bond: Option<(String, u64)>,
+    pub bond: Option<(String, primitive_types::U256)>,
 }
 
 /// Parses a committee file's text.
@@ -92,10 +92,8 @@ fn parse_line(line: &str) -> Result<Member, Box<dyn Error>> {
     let key = hex_field(key, VALIDATOR_KEY_HEX, "validator key")?;
     let bond = match bond {
         Some((operator, amount)) => {
-            let amount: u64 = amount
-                .parse()
-                .map_err(|_| format!("bond '{amount}' is not a number"))?;
-            if amount == 0 {
+            let amount = crate::units(amount, "bond")?;
+            if amount.is_zero() {
                 return Err("a bond must be non-zero".into());
             }
             Some((
@@ -144,7 +142,7 @@ pub fn genesis(members: &[Member], epoch_blocks: u64) -> BftGenesis {
         .filter_map(|m| m.bond.clone())
         .map(|(operator, bond)| GenesisBond {
             operator,
-            bond: primitive_types::U256::from(bond),
+            bond,
             commission_bps: 0,
         })
         .collect();
@@ -238,6 +236,18 @@ mod tests {
     }
 
     #[test]
+    fn a_ten_coin_bond_at_24_decimals_parses_past_u64() {
+        // 10 coins at 10^24 base units is 10^25, above u64::MAX (about 1.8e19).
+        let ten_coins = format!("1{}", "0".repeat(25));
+        let text = format!("a {} {} {ten_coins}\n", key('a'), address('1'));
+        let bft = genesis(&parse(&text).expect("parse"), 7);
+        let bond = bft.staking.expect("staked").bonds[0].bond;
+        assert_eq!(bond, primitive_types::U256::exp10(25));
+        let above = format!("a {} {} 1{}", key('a'), address('1'), "0".repeat(78));
+        assert!(parse(&above).is_err(), "above 2^256 - 1 accepted");
+    }
+
+    #[test]
     fn malformed_committees_are_refused() {
         let cases = [
             String::new(),
@@ -246,6 +256,7 @@ mod tests {
             format!("a {} {} 10\nb {}", key('a'), address('1'), key('b')),
             format!("a {} {} 0", key('a'), address('1')),
             format!("a {} {} ten", key('a'), address('1')),
+            format!("a {} {} +10", key('a'), address('1')),
             format!("a {} xyz 10", key('a')),
         ];
         for case in &cases {

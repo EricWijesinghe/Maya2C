@@ -29,6 +29,7 @@ use crate::consensus::difficulty::{
     unlimited_pow_limit, work_from_target,
 };
 use crate::consensus::uint::U256;
+use crate::core::block::HEADER_VERSION;
 use crate::core::{Block, BlockHeader, Transaction};
 use crate::crypto::dag::registry::{CacheRegistry, DagConfig};
 use crate::crypto::pow::meets_target;
@@ -42,6 +43,28 @@ mod store;
 
 /// Content-addressed block identifier. See [`BlockHeader::id`].
 pub type BlockId = [u8; 32];
+
+/// Blocks the median timestamp is taken over (ADR-063): the block itself and ten
+/// ancestors. Eleven is Bitcoin's span; an odd count has a single middle value,
+/// and a majority of the span is what an attacker needs to move it.
+pub const MEDIAN_TIME_SPAN: usize = 11;
+
+/// The middle value of `stamps` (the upper middle for an even count), or 0 for
+/// none. CON-11's median, kept apart from the chain so the conformance
+/// vectors reach the same function the chain applies.
+#[must_use]
+pub fn median_of(stamps: &[u64]) -> u64 {
+    let mut sorted = stamps.to_vec();
+    sorted.sort_unstable();
+    sorted.get(sorted.len() / 2).copied().unwrap_or(0)
+}
+
+/// CON-11: a timestamp is acceptable only if it is later than the median of
+/// the blocks before it.
+#[must_use]
+pub const fn timestamp_after_median(timestamp: u64, median: u64) -> bool {
+    timestamp > median
+}
 
 /// CON-8 (`spec/05-consensus.md`): a block at or below the prune horizon is
 /// refused. Named so the conformance vectors reach the same predicate the
@@ -405,18 +428,44 @@ impl Chain {
             }
         }
 
-        // Saturating: a parent timestamp behind the window start would
-        // otherwise underflow. Zero clamps up to the minimum band below.
-        let actual_timespan = parent
-            .header
-            .timestamp
-            .saturating_sub(cursor.header.timestamp);
+        // Measured between median times, not between two single timestamps, so
+        // a miner who writes an extreme timestamp on the window's last (or
+        // first) block cannot steer the next target (ADR-063). Saturating: a
+        // parent median behind the window start would otherwise underflow, and
+        // zero clamps up to the minimum band in `retarget`.
+        let actual_timespan = self
+            .median_time_past(parent_id)?
+            .saturating_sub(self.median_time_past(&cursor.header.id())?);
 
         Ok(retarget(
             &parent.header.difficulty_target,
             actual_timespan,
             &self.config.pow_limit,
         ))
+    }
+
+    /// The median timestamp of `id` and up to ten of its ancestors (ADR-063).
+    ///
+    /// A block's timestamp must exceed it, and the retarget measures its window
+    /// by it, so one block carrying a far-future or far-past timestamp moves
+    /// neither: it would take a majority of the span. Deterministic, and it
+    /// reads no clock. Headers are kept below the prune horizon, so a pruned node
+    /// computes the same value as an archive node.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Network`] if `id` is unknown.
+    pub fn median_time_past(&self, id: &BlockId) -> Result<u64> {
+        let mut stamps = Vec::with_capacity(MEDIAN_TIME_SPAN);
+        let mut cursor = Some(self.require(id)?);
+        while let Some(record) = cursor {
+            if stamps.len() == MEDIAN_TIME_SPAN {
+                break;
+            }
+            stamps.push(record.header.timestamp);
+            cursor = record.parent.and_then(|parent| self.records.get(&parent));
+        }
+        Ok(median_of(&stamps))
     }
 
     fn require(&self, id: &BlockId) -> Result<&BlockRecord> {
@@ -521,6 +570,26 @@ impl Chain {
         // Before any rule is applied: a height governed by a protocol version
         // this binary does not implement is not ours to judge (spec/ §4).
         refuse_unsupported(self.config.unsupported_upgrade, height)?;
+
+        // ADR-063: a timestamp is later than the median of the blocks before
+        // it. Deterministic, so every node reaches the same verdict; the
+        // other half of the proposal, a bound against the local clock, is an
+        // admission rule and is not part of consensus.
+        //
+        // Only where a target is retargeted. The rule exists to stop a
+        // timestamp steering difficulty; a fixed-target chain (DAG-BFT) has no
+        // retarget to steer, and there blocks can come faster than once a
+        // second, so a median rule would push timestamps ahead of the clock for
+        // as long as that rate lasted.
+        if !self.config.fixed_target {
+            let median = self.median_time_past(&parent_id)?;
+            if !timestamp_after_median(block.header.timestamp, median) {
+                return Err(NodeError::Network(format!(
+                    "timestamp {} at height {height} is not after the median {median} of the blocks before it",
+                    block.header.timestamp
+                )));
+            }
+        }
 
         // At or below the horizon the parent's undo journal is gone, so a
         // block forking there could never be reorganised onto. Refused before
@@ -814,7 +883,16 @@ impl Chain {
         transactions: Vec<Transaction>,
         nonce: u64,
     ) -> Result<Block> {
+        // Never earlier than the rule allows: a miner's wall clock can lag the
+        // median, so the builder raises it. A fixed-target (DAG-BFT) chain has
+        // no such rule, and its derived blocks are not refused for their clock.
+        let timestamp = if self.config.fixed_target {
+            timestamp
+        } else {
+            timestamp.max(self.median_time_past(&self.tip)?.saturating_add(1))
+        };
         let header = BlockHeader {
+            version: HEADER_VERSION,
             prev_hash: self.tip,
             state_root: [0; 32],
             timestamp,

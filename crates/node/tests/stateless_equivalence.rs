@@ -72,6 +72,7 @@ impl Node {
             db.put_account(&address, &account).expect("fund");
         }
         let tip = BlockHeader {
+            version: 0,
             prev_hash: [0; 32],
             state_root: db.state_root().expect("root"),
             timestamp: 1_756_252_800,
@@ -96,6 +97,7 @@ impl Node {
 
     fn draft(&self, transactions: Vec<Transaction>) -> Block {
         let header = BlockHeader {
+            version: 0,
             prev_hash: self.tip.id(),
             state_root: [0; 32],
             timestamp: self.tip.timestamp + 1,

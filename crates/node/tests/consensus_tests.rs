@@ -59,6 +59,7 @@ fn transfer(from: &HybridSigningKey, to: Address, amount: u64, nonce: u64) -> Tr
 fn genesis() -> Block {
     Block::new(
         BlockHeader {
+            version: 0,
             prev_hash: [0u8; 32],
             state_root: [0u8; 32],
             timestamp: 1_000_000,
@@ -83,6 +84,7 @@ fn child_of(
     let target = chain.next_target(&parent).expect("next target");
     let mut block = Block::new(
         BlockHeader {
+            version: 0,
             prev_hash: parent,
             state_root: [0u8; 32],
             timestamp,
@@ -445,6 +447,7 @@ fn a_block_with_an_unknown_parent_is_rejected() {
 
     let orphan = Block::new(
         BlockHeader {
+            version: 0,
             prev_hash: [0xAAu8; 32],
             state_root: [0u8; 32],
             timestamp: 1_000_015,
@@ -751,9 +754,17 @@ fn difficulty_recalculates_at_the_hundredth_block() {
         "block 100 should be a retarget height"
     );
 
-    // The window spanned 99 intervals, slightly under the intended 100, so the
-    // target tightens proportionally.
-    let window = 99 * TARGET_BLOCK_TIME;
+    // The window is measured between median times (ADR-063). The window's
+    // last block is 99, whose median is block 94's time; its first block is
+    // genesis, which has no ancestors, so its median is its own time. That
+    // makes the first window five intervals short; every later window is
+    // symmetric (see the next test).
+    let genesis_time = chain
+        .get(&chain.genesis())
+        .expect("genesis")
+        .header
+        .timestamp;
+    let window = (1_000_000 + 94 * TARGET_BLOCK_TIME).saturating_sub(genesis_time);
     let expected = retarget(&genesis_target, window, &unlimited_pow_limit());
     assert_eq!(retargeted.header.difficulty_target, expected);
     assert!(
@@ -766,6 +777,73 @@ fn difficulty_recalculates_at_the_hundredth_block() {
     assert_eq!(chain.height(), RETARGET_INTERVAL);
 }
 
+#[test]
+fn a_window_of_evenly_spaced_blocks_measures_exactly_its_intervals() {
+    // Past the first window both ends of the span have a full eleven blocks
+    // behind them, so their medians lag by the same five intervals and the
+    // measured span is the true one: 99 intervals for a 100-block window.
+    let (state, _dir) = open_state();
+    let mut chain = test_chain(state);
+    let mut parent = chain.genesis();
+    let mut timestamp = 1_000_000u64;
+
+    for _ in 1..(2 * RETARGET_INTERVAL) {
+        timestamp += TARGET_BLOCK_TIME;
+        let block = child_of(&chain, parent, timestamp, vec![]);
+        parent = block.header.id();
+        chain.insert_block(block).expect("insert");
+    }
+    assert_eq!(chain.height(), 2 * RETARGET_INTERVAL - 1);
+
+    let inherited = chain.get(&parent).expect("tip").header.difficulty_target;
+    timestamp += TARGET_BLOCK_TIME;
+    let second = child_of(&chain, parent, timestamp, vec![]);
+    let expected = retarget(&inherited, 99 * TARGET_BLOCK_TIME, &unlimited_pow_limit());
+    assert_eq!(second.header.difficulty_target, expected);
+}
+
+#[test]
+fn one_far_future_timestamp_does_not_steer_the_retarget() {
+    // The audit's manipulation: the miner of the window's last block writes an
+    // enormous timestamp to ease the next target. A median over eleven blocks
+    // ignores one such block, so the target is what honest spacing gives.
+    let (state, _dir) = open_state();
+    let mut chain = test_chain(state);
+    let mut parent = chain.genesis();
+    let mut timestamp = 1_000_000u64;
+
+    for height in 1..RETARGET_INTERVAL {
+        timestamp += TARGET_BLOCK_TIME;
+        let stamped = if height == RETARGET_INTERVAL - 1 {
+            timestamp + 1_000_000_000
+        } else {
+            timestamp
+        };
+        let block = child_of(&chain, parent, stamped, vec![]);
+        parent = block.header.id();
+        chain.insert_block(block).expect("insert");
+    }
+
+    let honest = {
+        let (state, _dir) = open_state();
+        let mut other = test_chain(state);
+        let mut p = other.genesis();
+        let mut t = 1_000_000u64;
+        for _ in 1..RETARGET_INTERVAL {
+            t += TARGET_BLOCK_TIME;
+            let block = child_of(&other, p, t, vec![]);
+            p = block.header.id();
+            other.insert_block(block).expect("insert");
+        }
+        other.next_target(&p).expect("target")
+    };
+    assert_eq!(
+        chain.next_target(&parent).expect("target"),
+        honest,
+        "one extreme timestamp moved the next target"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // proof of work checked away from the chain lock
 // ---------------------------------------------------------------------------
@@ -775,6 +853,7 @@ fn work_chain(bits: u32) -> (Chain, TempDir) {
     let (state, dir) = open_state();
     let genesis = Block::new(
         BlockHeader {
+            version: 0,
             prev_hash: [0u8; 32],
             state_root: [0u8; 32],
             timestamp: 1_000_000,

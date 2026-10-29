@@ -37,8 +37,11 @@ const POLL: Duration = Duration::from_secs(2);
 /// peer connecting, it is on the page.
 const LIVE_POLL: Duration = Duration::from_secs(1);
 
-/// A watched node slower than this counts as not answering this poll.
-const LIVE_TIMEOUT: Duration = Duration::from_millis(800);
+/// A watched node slower than this counts as not answering this poll. 3 s,
+/// not 0.8 s: the validators moved to a VM in another region (2026-10-19),
+/// and a poll through the forward measured 600-1,250 ms, so every node
+/// "stopped answering" and came "back" every few seconds while healthy.
+const LIVE_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Headers per `get_headers` call: the node's own cap.
 const BATCH: u64 = 2_000;

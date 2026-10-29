@@ -29,6 +29,7 @@ mod common;
 fn genesis(timestamp: u64) -> Block {
     Block::new(
         BlockHeader {
+            version: 0,
             prev_hash: [0u8; 32],
             state_root: [0u8; 32],
             timestamp,
