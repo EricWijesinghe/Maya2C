@@ -98,8 +98,10 @@ impl NodeDriver {
     /// of random bytes behind a valid version byte (pre-audit S-003).
     fn gossiped_bft(&mut self, data: &[u8]) -> Verdict {
         let verdict = classify_bft_frame(data);
-        if verdict == Verdict::Accept {
-            self.events.emit_frame(std::sync::Arc::new(data.to_vec()));
+        // Over the byte budget: neither kept nor relayed, and not the sender's fault.
+        if verdict == Verdict::Accept && !self.events.emit_frame(std::sync::Arc::new(data.to_vec()))
+        {
+            return Verdict::Ignore;
         }
         verdict
     }
