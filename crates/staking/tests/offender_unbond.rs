@@ -97,9 +97,10 @@ fn an_honest_full_exit_is_released_in_full() {
 fn a_zero_amount_unbond_does_not_keep_an_emptied_record_alive() {
     let mut s = registered();
     s.unbond(OPERATOR, OFFENDER, amount(BOND)).unwrap();
-    // Re-pushing empty entries must not extend the record's life past the real funds.
+    // Empty entries could once be pushed to extend the record's life past the
+    // real funds; they are now refused outright (pre-audit S-001).
     for _ in 0..3 {
-        s.unbond(OPERATOR, OFFENDER, Amount::ZERO).unwrap();
+        assert!(s.unbond(OPERATOR, OFFENDER, Amount::ZERO).is_err());
         epochs(&mut s, 2);
     }
     epochs(&mut s, Params::DEVNET.unbonding_epochs + 1);

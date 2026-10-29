@@ -16,7 +16,7 @@ use custom_l1_node::consensus::bft::catchup::{self, Position};
 use custom_l1_node::consensus::bft::certsync;
 use custom_l1_node::consensus::bft::remote::{DEFAULT_DEADLINE, RemoteSigner, ValidatorKey};
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
-use custom_l1_node::crypto::keys::{self, VerifyingKey};
+use custom_l1_node::crypto::validator_keys::{self as keys, VerifyingKey};
 use custom_l1_node::genesis::BftGenesis;
 use custom_l1_node::metrics::Metrics;
 use custom_l1_node::network::{Mempool, NodeHandle};
@@ -124,7 +124,7 @@ pub(super) fn remote_signer(
     );
     let public: [u8; keys::PUBLIC_KEY_LEN] = hex::decode(pubkey_hex)?
         .try_into()
-        .map_err(|_| "--validator-pubkey is not an ML-DSA-65 public key")?;
+        .map_err(|_| "--validator-pubkey is not an ML-DSA-87 validator public key")?;
     let remote = RemoteSigner::connect(
         addr,
         identity,
@@ -866,7 +866,7 @@ mod tests {
         );
     }
     use custom_l1_node::core::{Transaction, TxKind};
-    use custom_l1_node::crypto::{PUBLIC_KEY_LEN, SIGNATURE_LENGTH};
+    use custom_l1_node::crypto::validator_keys::{PUBLIC_KEY_LEN, SIGNATURE_LENGTH};
 
     fn tx(kind: TxKind) -> Transaction {
         let mut tx = Transaction::new(vec![], vec![], 0);

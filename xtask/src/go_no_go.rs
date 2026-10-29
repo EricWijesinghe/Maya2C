@@ -77,7 +77,10 @@ fn findings(root: &Path) -> Verdict {
     if rows.is_empty() {
         return Verdict::Fail("no external audit has reported: the tracker has no findings, which is not the same as zero".into());
     }
-    let open_high = rows.iter().filter(|r| {
+    // `S-` rows are our own (self-run) review: they block like any finding,
+    // but never stand in for an external report above.
+    let own = text.lines().filter(|l| l.starts_with("| S-"));
+    let open_high = rows.iter().copied().chain(own).filter(|r| {
         let l = r.to_ascii_lowercase();
         (l.contains("| critical |") || l.contains("| high |")) && !l.contains("| closed |")
     });

@@ -172,6 +172,71 @@ fn write_guest(
     Ok(())
 }
 
+/// Shared body of `oracle_read` (8-byte price) and `oracle_read_u256`
+/// (32-byte price). Returns the byte count written, -1 for an unknown feed or a
+/// bad pointer, -2 for a stale feed, -3 when the 8-byte call cannot hold the
+/// price.
+fn read_oracle<S: HostState + Send + 'static>(
+    caller: &mut Caller<'_, CallContext<S>>,
+    feed_ptr: i32,
+    max_age_blocks: i64,
+    out_ptr: i32,
+    wide: bool,
+) -> i32 {
+    let Some(memory) = caller_memory(caller) else {
+        caller
+            .data_mut()
+            .fail(VmError::MissingExport("memory".into()));
+        return -1;
+    };
+    let feed_id = match read_guest(&memory, caller, feed_ptr as u32, 32) {
+        Ok(bytes) => {
+            let mut id = [0u8; 32];
+            id.copy_from_slice(&bytes);
+            id
+        }
+        Err(error) => {
+            caller.data_mut().fail(error);
+            return -1;
+        }
+    };
+
+    let Some(feed) = caller.data().state.oracle_feed(&feed_id) else {
+        return -1;
+    };
+
+    // Saturating, so a feed somehow ahead of the chain -- a reorg in flight --
+    // reads as fresh rather than as a wrapped, enormous age that would pass any
+    // bound.
+    let age = caller
+        .data()
+        .state
+        .block_height()
+        .saturating_sub(feed.updated_height);
+    // A negative bound is not "no bound": it is a caller who got their
+    // arithmetic wrong, and answering it would be answering a question nobody
+    // asked.
+    if max_age_blocks < 0 || age > max_age_blocks as u64 {
+        return -2;
+    }
+
+    let (bytes, written): (Vec<u8>, i32) = if wide {
+        (feed.value.to_le_bytes().to_vec(), 32)
+    } else {
+        // Refused, not clamped: a contract pricing collateral at a saturated
+        // u64::MAX would liquidate against a number nobody reported.
+        let Some(narrow) = feed.value.to_u64() else {
+            return -3;
+        };
+        (narrow.to_le_bytes().to_vec(), 8)
+    };
+    if let Err(error) = write_guest(&memory, caller, out_ptr as u32, &bytes) {
+        caller.data_mut().fail(error);
+        return -1;
+    }
+    written
+}
+
 /// Fetches the guest's exported memory.
 pub(crate) fn caller_memory<S: HostState + Send + 'static>(
     caller: &mut Caller<'_, CallContext<S>>,
@@ -569,6 +634,8 @@ pub const HOST_FUNCTIONS: &[&str] = &[
     "storage_write",
     "block_randomness",
     "oracle_read",
+    // ADR-066: the exact 256-bit price; `oracle_read` clamps past u64::MAX.
+    "oracle_read_u256",
     "oracle_feed_age",
     "emit_event",
     // Registered by `crate::zkml::register`, unconditionally and with no
@@ -825,53 +892,27 @@ fn register_host_functions<S: HostState + Send + 'static>(
              max_age_blocks: i64,
              out_ptr: i32|
              -> i32 {
-                let Some(memory) = caller_memory(&mut caller) else {
-                    caller
-                        .data_mut()
-                        .fail(VmError::MissingExport("memory".into()));
-                    return -1;
-                };
-                let feed_id = match read_guest(&memory, &caller, feed_ptr as u32, 32) {
-                    Ok(bytes) => {
-                        let mut id = [0u8; 32];
-                        id.copy_from_slice(&bytes);
-                        id
-                    }
-                    Err(error) => {
-                        caller.data_mut().fail(error);
-                        return -1;
-                    }
-                };
+                read_oracle(&mut caller, feed_ptr, max_age_blocks, out_ptr, false)
+            },
+        )
+        .map_err(wrap)?;
 
-                let Some(feed) = caller.data().state.oracle_feed(&feed_id) else {
-                    return -1;
-                };
-
-                // Saturating, so a feed somehow ahead of the chain — a reorg in
-                // flight — reads as fresh rather than as a wrapped, enormous
-                // age that would pass any bound.
-                let age = caller
-                    .data()
-                    .state
-                    .block_height()
-                    .saturating_sub(feed.updated_height);
-                // A negative bound is not "no bound": it is a caller who got
-                // their arithmetic wrong, and answering it would be answering a
-                // question nobody asked.
-                if max_age_blocks < 0 || age > max_age_blocks as u64 {
-                    return -2;
-                }
-
-                if let Err(error) = write_guest(
-                    &memory,
-                    &mut caller,
-                    out_ptr as u32,
-                    &feed.value.to_le_bytes(),
-                ) {
-                    caller.data_mut().fail(error);
-                    return -1;
-                }
-                8
+    // oracle_read_u256(feed_ptr, max_age_blocks, out_ptr) -> i32
+    //
+    // `oracle_read` with the exact 256-bit price (ADR-066): writes 32
+    // little-endian bytes and returns 32, with the same -1 / -2 failures. The
+    // 8-byte `oracle_read` stays for contracts already deployed; it clamps a
+    // price past u64::MAX to u64::MAX, which is why this exists.
+    linker
+        .func_wrap(
+            "env",
+            "oracle_read_u256",
+            |mut caller: Caller<'_, CallContext<S>>,
+             feed_ptr: i32,
+             max_age_blocks: i64,
+             out_ptr: i32|
+             -> i32 {
+                read_oracle(&mut caller, feed_ptr, max_age_blocks, out_ptr, true)
             },
         )
         .map_err(wrap)?;

@@ -7,21 +7,23 @@
 //! lose at most its small starting cap, and a route earns trust only by
 //! running without trouble.
 
+use maya_amount::Amount;
+
 /// A route's limits and history.
 #[derive(Clone, Debug)]
 pub struct Route {
     /// Cap per window on day zero.
-    pub base: u128,
+    pub base: Amount,
     /// Cap added per clean day.
-    pub per_clean_day: u128,
+    pub per_clean_day: Amount,
     /// Highest the cap can grow.
-    pub ceiling: u128,
+    pub ceiling: Amount,
     /// Window length, blocks.
     pub window: u64,
     /// Blocks per day, for the clean clock.
     pub blocks_per_day: u64,
     clean_since: u64,
-    used: (u64, u128),
+    used: (u64, Amount),
 }
 
 /// Why a transfer was refused.
@@ -30,9 +32,9 @@ pub enum RouteError {
     /// This window's cap is spent.
     OverCap {
         /// Cap at this height.
-        cap: u128,
+        cap: Amount,
         /// Already moved this window.
-        used: u128,
+        used: Amount,
     },
 }
 
@@ -40,9 +42,9 @@ impl Route {
     /// A route opened at `height`.
     #[must_use]
     pub fn new(
-        base: u128,
-        per_clean_day: u128,
-        ceiling: u128,
+        base: Amount,
+        per_clean_day: Amount,
+        ceiling: Amount,
         window: u64,
         blocks_per_day: u64,
         height: u64,
@@ -54,16 +56,16 @@ impl Route {
             window: window.max(1),
             blocks_per_day: blocks_per_day.max(1),
             clean_since: height,
-            used: (u64::MAX, 0),
+            used: (u64::MAX, Amount::default()),
         }
     }
 
     /// The cap at `height`.
     #[must_use]
-    pub fn cap(&self, height: u64) -> u128 {
-        let days = u128::from(height.saturating_sub(self.clean_since) / self.blocks_per_day);
+    pub fn cap(&self, height: u64) -> Amount {
+        let days = Amount::from_u64(height.saturating_sub(self.clean_since) / self.blocks_per_day);
         self.base
-            .saturating_add(self.per_clean_day.saturating_mul(days))
+            .saturating_add(self.per_clean_day.checked_mul(days).unwrap_or(Amount::MAX))
             .min(self.ceiling)
     }
 
@@ -72,18 +74,20 @@ impl Route {
     /// # Errors
     ///
     /// [`RouteError::OverCap`] if it does not.
-    pub fn send(&mut self, amount: u128, height: u64) -> Result<(), RouteError> {
+    pub fn send(&mut self, amount: Amount, height: u64) -> Result<(), RouteError> {
         let window = height / self.window;
         let used = if self.used.0 == window {
             self.used.1
         } else {
-            0
+            Amount::default()
         };
         let cap = self.cap(height);
-        if used.saturating_add(amount) > cap {
-            return Err(RouteError::OverCap { cap, used });
-        }
-        self.used = (window, used + amount);
+        // A sum past 2^256 - 1 is over any cap, never a wrapped or clamped one.
+        let total = used
+            .checked_add(amount)
+            .filter(|total| *total <= cap)
+            .ok_or(RouteError::OverCap { cap, used })?;
+        self.used = (window, total);
         Ok(())
     }
 

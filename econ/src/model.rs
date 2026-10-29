@@ -146,7 +146,7 @@ pub fn run(params: &EconParams, scenario: &Scenario, seed: u64) -> Run {
         supply: params.genesis_supply,
         staked: (u128::from(params.genesis_supply) * u128::from(params.initial_staking_ppm)
             / 1_000_000) as u64,
-        base_fee: params.fees.initial_base_fee,
+        base_fee: params.fees.initial_base_fee.saturating_to_u64(),
         validators: params.validators,
         price: params.genesis_price,
         cost_factor: 1.0,
@@ -237,13 +237,15 @@ fn simulate_day(
         treasury += s.treasury.saturating_to_u64();
         tips += s.tip.saturating_to_u64();
         used += bytes;
+        // The rule is 256-bit; the simulator's fee track is u64 and clamps here (SIM).
         st.base_fee = next_base_fee(
-            st.base_fee,
+            maya_fee_market::Amount::from_u64(st.base_fee),
             bytes,
             target,
             params.fees.change_denominator,
             params.fees.min_base_fee,
-        );
+        )
+        .saturating_to_u64();
         peak_base_fee = peak_base_fee.max(st.base_fee);
     }
     st.spam_left = spam_budget * scale;
