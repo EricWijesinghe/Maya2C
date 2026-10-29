@@ -105,9 +105,9 @@ struct Args {
     epoch_blocks: u64,
     /// Mining rewards (ADR-044): the `bft.mining` parameters and the units
     /// the keyless reserve starts with. Both or neither.
-    mining: Option<(MiningGenesis, u64)>,
+    mining: Option<(MiningGenesis, primitive_types::U256)>,
     mining_file: Option<PathBuf>,
-    mining_reserve: Option<u64>,
+    mining_reserve: Option<primitive_types::U256>,
     /// ADR-050: the council's public halves, threshold and longest pause.
     council_dir: Option<PathBuf>,
     council_threshold: Option<u8>,
@@ -217,10 +217,7 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--contributions" => args.contributions = PathBuf::from(value()?),
             "--treasury-public" => args.treasury_public = Some(PathBuf::from(value()?)),
             "--chain-id" => args.chain_id = value()?,
-            "--supply" => {
-                args.supply = primitive_types::U256::from_dec_str(&value()?)
-                    .map_err(|e| format!("--supply: {e:?}"))?
-            }
+            "--supply" => args.supply = units(&value()?, "--supply")?,
             "--timestamp" => args.timestamp = Some(value()?.parse()?),
             "--difficulty-bits" => args.difficulty_bits = value()?.parse()?,
             "--pow-limit-bits" => args.pow_limit_bits = Some(value()?.parse()?),
@@ -231,7 +228,7 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--validators" => args.validators = Some(PathBuf::from(value()?)),
             "--epoch-blocks" => args.epoch_blocks = value()?.parse()?,
             "--mining" => args.mining_file = Some(PathBuf::from(value()?)),
-            "--mining-reserve" => args.mining_reserve = Some(value()?.parse()?),
+            "--mining-reserve" => args.mining_reserve = Some(units(&value()?, "--mining-reserve")?),
             "--council" => args.council_dir = Some(PathBuf::from(value()?)),
             "--council-threshold" => args.council_threshold = Some(value()?.parse()?),
             "--council-max-pause-blocks" => {
@@ -315,9 +312,23 @@ fn read_council(args: &Args) -> Result<Option<council::Council>, Box<dyn Error>>
     Ok(Some(council::genesis(dir, threshold, max_pause)?))
 }
 
+/// A base-unit amount: plain decimal digits up to 2^256 - 1. At 24 decimals a
+/// single 10-coin bond is above `u64::MAX`, so amounts are never parsed as u64.
+pub(crate) fn units(text: &str, what: &str) -> Result<primitive_types::U256, String> {
+    if text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(format!(
+            "{what} '{text}' is not a whole number of base units"
+        ));
+    }
+    primitive_types::U256::from_dec_str(text)
+        .map_err(|_| format!("{what} '{text}' is above 2^256 - 1"))
+}
+
 /// `--mining` and `--mining-reserve` together, read and checked; both
 /// absent is a fees-only chain.
-fn load_mining(args: &Args) -> Result<Option<(MiningGenesis, u64)>, Box<dyn Error>> {
+fn load_mining(
+    args: &Args,
+) -> Result<Option<(MiningGenesis, primitive_types::U256)>, Box<dyn Error>> {
     match (&args.mining_file, args.mining_reserve) {
         (None, None) => Ok(None),
         (Some(path), Some(reserve)) => {
@@ -351,7 +362,7 @@ fn launch_config(
         bft.mining = Some(mining.clone());
         allocations.push(Allocation {
             address: hex::encode(MINING_RESERVE),
-            balance: primitive_types::U256::from(*reserve),
+            balance: *reserve,
         });
     }
     // A value-bearing chain counts votes by stake (ADR-040 part 2): one seat
@@ -1077,7 +1088,7 @@ mod shielded_tests {
             .map(|i| committee::Member {
                 label: format!("op{i}"),
                 key: hex::encode([i; 32]),
-                bond: Some((hex::encode([i; 32]), 1_000_000)),
+                bond: Some((hex::encode([i; 32]), primitive_types::U256::from(1_000_000))),
             })
             .collect();
         for (chain, weighted) in [("maya-mainnet", true), ("maya-testnet-2", false)] {
@@ -1129,7 +1140,7 @@ mod mining_tests {
                         .verifying_key()
                         .to_bytes(),
                 ),
-                bond: Some((hex::encode([i; 32]), 1_000_000)),
+                bond: Some((hex::encode([i; 32]), primitive_types::U256::from(1_000_000))),
             })
             .collect()
     }
@@ -1152,7 +1163,7 @@ mod mining_tests {
         let args = Args {
             chain_id: "maya-testnet-2".into(),
             epoch_blocks: 20,
-            mining: Some((mining(), 5_000_000)),
+            mining: Some((mining(), primitive_types::U256::from(5_000_000))),
             ..Args::default()
         };
         let config = launch_config(&args, Vec::new(), None, Some(&members()));
@@ -1175,7 +1186,7 @@ mod mining_tests {
         let args = Args {
             chain_id: "maya-testnet-2".into(),
             epoch_blocks: 20,
-            mining: Some((mining(), 999_999)),
+            mining: Some((mining(), primitive_types::U256::from(999_999))),
             ..Args::default()
         };
         let config = launch_config(&args, Vec::new(), None, Some(&members()));
