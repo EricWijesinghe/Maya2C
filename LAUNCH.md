@@ -20,7 +20,7 @@ ADR-027).
 |---|---|---|
 | Workspace builds and every test passes | `reports/raw-test-baseline-2026-09-27.log` (2,626 passed, 0 failed) | PASS |
 | Validators peer, agree and survive a failure from genesis | `cargo xtask localnet`: four `maya2c-node` validators over real libp2p agree on one chain, a transfer executes on all four, three keep committing with one killed, the restarted one catches up (`reports/localnet/2026-09-28.log`, PASS in 14.7 s at `6d20648`) | PASS |
-| 12-node cluster from genesis | `scripts/local_cluster.sh`; `deploy-production.sh --target local-docker` ran 12/12 RPC-healthy (not peered); `--target local-k3d` blocked in this sandbox (`reports/10-launch.md`) | partial |
+| 12-node cluster from genesis | `scripts/local_cluster.sh`; `scripts/deploy-production.sh --target local-docker` ran 12/12 RPC-healthy (not peered); `--target local-k3d` blocked in this sandbox (`reports/10-launch.md`) | partial |
 | Reality ledger claims backed | `cargo xtask coverage` | PASS |
 
 ## Gate 2 — Devnet (persistent, team-operated)

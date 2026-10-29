@@ -87,7 +87,7 @@ ledger_device_sdk = { version = "1.37", features = ["sys", "nano_nbgl"] }
 name = "Maya2C"
 curve = ["ed25519"]
 flags = "0"
-path = ["44'/7331'"]
+path = ["44'/2992'"]
 
 [package.metadata.ledger.nanosplus]
 icon = "icons/maya2c_14x14.gif"

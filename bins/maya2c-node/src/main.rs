@@ -207,7 +207,7 @@ struct Args {
     /// DAG-BFT: never propose a validator registration bonding less than
     /// this (ADR-039 option 3). Node policy, not consensus; 0 is off.
     min_register_bond: u64,
-    /// ML-DSA-65 validator key; absent means an observer on a DAG-BFT network.
+    /// ML-DSA-87 validator key; absent means an observer on a DAG-BFT network.
     validator_key: Option<PathBuf>,
     /// File holding the passphrase of a sealed `validator_key`.
     validator_passphrase_file: Option<PathBuf>,

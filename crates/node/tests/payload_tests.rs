@@ -44,6 +44,7 @@ use custom_l1_node::crypto::hybrid::{
 use custom_l1_node::crypto::keys::{
     PUBLIC_KEY_LEN as ML_DSA_PUBLIC_KEY_LEN, SIGNATURE_LENGTH as ML_DSA_SIGNATURE_LENGTH,
 };
+use primitive_types::U256;
 
 mod common;
 
@@ -310,7 +311,7 @@ fn every_payload_kind_has_distinct_signing_bytes() {
             round: 1,
             observed_height: 2,
             observations: vec![FeedObservation {
-                value: 100,
+                value: U256::from(100),
                 public_key: Box::new(filled_public_key(5)),
                 signature: Box::new(filled_signature(6)),
             }],
@@ -344,7 +345,7 @@ fn every_payload_kind_has_distinct_signing_bytes() {
         TxKind::Propose(Box::new(ProposalSubmission {
             voting_blocks: 480,
             timelock_blocks: 960,
-            changes: vec![(1, 25)],
+            changes: vec![(1, maya_dex::Amount::from_u64(25))],
         })),
         TxKind::CastVote(Ballot {
             proposal: [12u8; 32],
@@ -698,7 +699,7 @@ fn every_oracle_kind_survives_a_round_trip_unchanged() {
             observed_height: 12_345,
             observations: (0..3u8)
                 .map(|index| FeedObservation {
-                    value: 1_000 + u64::from(index),
+                    value: U256::from(1_000 + u64::from(index)),
                     public_key: Box::new(filled_public_key(index)),
                     signature: Box::new(filled_signature(index.wrapping_add(64))),
                 })
@@ -742,7 +743,7 @@ fn a_feed_submission_with_no_observations_is_rejected() {
             round: 1,
             observed_height: 1,
             observations: vec![FeedObservation {
-                value: 1,
+                value: U256::from(1),
                 public_key: Box::new(filled_public_key(1)),
                 signature: Box::new(filled_signature(2)),
             }],
@@ -752,7 +753,7 @@ fn a_feed_submission_with_no_observations_is_rejected() {
     .to_bytes();
 
     // The observation count sits directly before the single observation.
-    let observation_size = 8
+    let observation_size = 32
         + ML_DSA_PUBLIC_KEY_LEN
         + SLH_DSA_PUBLIC_KEY_LEN
         + ML_DSA_SIGNATURE_LENGTH
@@ -774,7 +775,7 @@ fn a_feed_submission_above_the_ceiling_is_rejected_before_it_is_allocated() {
             round: 1,
             observed_height: 1,
             observations: vec![FeedObservation {
-                value: 1,
+                value: U256::from(1),
                 public_key: Box::new(filled_public_key(1)),
                 signature: Box::new(filled_signature(2)),
             }],
@@ -783,7 +784,7 @@ fn a_feed_submission_above_the_ceiling_is_rejected_before_it_is_allocated() {
     )
     .to_bytes();
 
-    let observation_size = 8
+    let observation_size = 32
         + ML_DSA_PUBLIC_KEY_LEN
         + SLH_DSA_PUBLIC_KEY_LEN
         + ML_DSA_SIGNATURE_LENGTH
@@ -834,7 +835,7 @@ fn every_governance_kind_survives_a_round_trip_unchanged() {
             voting_blocks: 500,
             timelock_blocks: 1_000,
             changes: (1..=MAX_CHANGES as u16)
-                .map(|tag| (tag, u64::from(tag)))
+                .map(|tag| (tag, maya_dex::Amount::from_u64(u64::from(tag))))
                 .collect(),
         })),
         TxKind::CastVote(Ballot {
@@ -860,14 +861,14 @@ fn a_proposal_with_no_changes_is_rejected() {
         TxKind::Propose(Box::new(ProposalSubmission {
             voting_blocks: 500,
             timelock_blocks: 1_000,
-            changes: vec![(1, 25)],
+            changes: vec![(1, maya_dex::Amount::from_u64(25))],
         })),
         0,
     )
     .to_bytes();
 
-    // The change count sits before one 10-byte change.
-    let count_index = encoded.len() - 10 - 8;
+    // The change count sits before one 34-byte change (2-byte tag, 32-byte value).
+    let count_index = encoded.len() - 34 - 8;
     encoded[count_index..count_index + 8].copy_from_slice(&0u64.to_le_bytes());
     assert!(Transaction::from_bytes(&encoded).is_err());
 }
@@ -881,13 +882,13 @@ fn a_proposal_above_the_bundling_ceiling_is_rejected() {
         TxKind::Propose(Box::new(ProposalSubmission {
             voting_blocks: 500,
             timelock_blocks: 1_000,
-            changes: vec![(1, 25)],
+            changes: vec![(1, maya_dex::Amount::from_u64(25))],
         })),
         0,
     )
     .to_bytes();
 
-    let count_index = encoded.len() - 10 - 8;
+    let count_index = encoded.len() - 34 - 8;
     encoded[count_index..count_index + 8].copy_from_slice(&(MAX_CHANGES as u64 + 1).to_le_bytes());
     assert!(Transaction::from_bytes(&encoded).is_err());
 }

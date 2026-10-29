@@ -1,0 +1,232 @@
+{
+  "cases": [
+    {
+      "epoch": "0",
+      "expect": "1000000",
+      "fn": "epoch_reward",
+      "halving_epochs": "10",
+      "id": "halving-epoch-0",
+      "initial": "1000000",
+      "rules": [
+        "MINE-1"
+      ],
+      "tail": "0"
+    },
+    {
+      "epoch": "9",
+      "expect": "1000000",
+      "fn": "epoch_reward",
+      "halving_epochs": "10",
+      "id": "halving-last-of-era",
+      "initial": "1000000",
+      "rules": [
+        "MINE-1"
+      ],
+      "tail": "0"
+    },
+    {
+      "epoch": "10",
+      "expect": "500000",
+      "fn": "epoch_reward",
+      "halving_epochs": "10",
+      "id": "halving-once",
+      "initial": "1000000",
+      "rules": [
+        "MINE-1"
+      ],
+      "tail": "0"
+    },
+    {
+      "epoch": "640",
+      "expect": "0",
+      "fn": "epoch_reward",
+      "halving_epochs": "10",
+      "id": "halving-to-zero",
+      "initial": "1000000",
+      "rules": [
+        "MINE-1"
+      ],
+      "tail": "0"
+    },
+    {
+      "epoch": "40",
+      "expect": "100000",
+      "fn": "epoch_reward",
+      "halving_epochs": "10",
+      "id": "tail-floor",
+      "initial": "1000000",
+      "rules": [
+        "MINE-1"
+      ],
+      "tail": "100000"
+    },
+    {
+      "epoch": "18446744073709551615",
+      "expect": "100000",
+      "fn": "epoch_reward",
+      "halving_epochs": "10",
+      "id": "tail-forever",
+      "initial": "1000000",
+      "rules": [
+        "MINE-1"
+      ],
+      "tail": "100000"
+    },
+    {
+      "epoch": "256",
+      "expect": "0",
+      "fn": "epoch_reward",
+      "halving_epochs": "1",
+      "id": "max-reward-256-halvings",
+      "initial": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+      "rules": [
+        "MINE-1"
+      ],
+      "tail": "0"
+    },
+    {
+      "expect": {
+        "committee": "300000",
+        "miners": "700000"
+      },
+      "fn": "split",
+      "id": "split-70",
+      "miner_bps": "7000",
+      "reward": "1000000",
+      "rules": [
+        "MINE-2"
+      ]
+    },
+    {
+      "expect": {
+        "committee": "3",
+        "miners": "4"
+      },
+      "fn": "split",
+      "id": "split-rounds-down",
+      "miner_bps": "7000",
+      "reward": "7",
+      "rules": [
+        "MINE-2"
+      ]
+    },
+    {
+      "expect": {
+        "committee": "0",
+        "miners": "9"
+      },
+      "fn": "split",
+      "id": "split-all-miners",
+      "miner_bps": "10000",
+      "reward": "9",
+      "rules": [
+        "MINE-2"
+      ]
+    },
+    {
+      "expect": {
+        "committee": "0",
+        "miners": "9"
+      },
+      "fn": "split",
+      "id": "split-bps-clamped",
+      "miner_bps": "20000",
+      "reward": "9",
+      "rules": [
+        "MINE-2"
+      ]
+    },
+    {
+      "expect": {
+        "committee": "34737626771194858627071295502606372355980995399692169211837275202373938891981",
+        "miners": "81054462466121336796499689506081535497288989265948394827620308805539190747954"
+      },
+      "fn": "split",
+      "id": "split-max",
+      "miner_bps": "7000",
+      "reward": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+      "rules": [
+        "MINE-2"
+      ]
+    },
+    {
+      "epoch_blocks": "368934881474191032",
+      "expect": {
+        "result": "ok",
+        "total": "19406250"
+      },
+      "fn": "lifetime_emission",
+      "halving_epochs": "10",
+      "id": "lifetime-no-tail",
+      "initial": "1000000",
+      "rules": [
+        "MINE-3"
+      ],
+      "tail": "0"
+    },
+    {
+      "epoch_blocks": "368934881474191032",
+      "expect": {
+        "result": "ok",
+        "total": "19850000"
+      },
+      "fn": "lifetime_emission",
+      "halving_epochs": "10",
+      "id": "lifetime-tail",
+      "initial": "1000000",
+      "rules": [
+        "MINE-3"
+      ],
+      "tail": "100000"
+    },
+    {
+      "epoch_blocks": "368934881474191032",
+      "expect": {
+        "result": "ok",
+        "total": "51000000"
+      },
+      "fn": "lifetime_emission",
+      "halving_epochs": "1000",
+      "id": "lifetime-era-cut-short",
+      "initial": "1000000",
+      "rules": [
+        "MINE-3"
+      ],
+      "tail": "1"
+    },
+    {
+      "epoch_blocks": "3600",
+      "expect": {
+        "result": "ok",
+        "total": "122978302582903908"
+      },
+      "fn": "lifetime_emission",
+      "halving_epochs": "4380",
+      "id": "lifetime-testnet-shape",
+      "initial": "1000000",
+      "rules": [
+        "MINE-3"
+      ],
+      "tail": "24"
+    },
+    {
+      "epoch_blocks": "1",
+      "expect": {
+        "error": "AboveCeiling",
+        "result": "error"
+      },
+      "fn": "lifetime_emission",
+      "halving_epochs": "1",
+      "id": "lifetime-at-ceiling",
+      "initial": "340282366920938463463374607431768211456",
+      "rules": [
+        "MINE-3"
+      ],
+      "tail": "340282366920938463463374607431768211456"
+    }
+  ],
+  "format": 1,
+  "generator": "maya-spec-ref spec-vectors",
+  "spec": "spec/09-mining.md",
+  "u64": "decimal strings"
+}

@@ -82,7 +82,7 @@ fn the_apps_coin_type_matches_the_wallets() {
     // `apps/ledger-maya2c/src/derive.rs` duplicates it (the app cannot depend
     // on the wallet); a device deriving on another coin type produces keys the
     // desktop wallet cannot find.
-    const APP_COIN_TYPE: u32 = 7331;
+    const APP_COIN_TYPE: u32 = 2992;
     assert_eq!(APP_COIN_TYPE, maya_wallet_core::hd::COIN_TYPE);
 }
 

@@ -207,7 +207,7 @@ impl RocksLedger {
         &self,
         id: &str,
         to: BlockState,
-        adjust: impl Fn(&mut MinerBalance, u64),
+        adjust: impl Fn(&mut MinerBalance, primitive_types::U256),
     ) -> Result<()> {
         let Some(mut block) = self.block(id)? else {
             return Ok(());

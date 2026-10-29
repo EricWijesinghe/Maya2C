@@ -537,7 +537,8 @@ mod tests {
     fn state_with_job() -> PoolState {
         let state = PoolState::new(
             PoolConfig {
-                reward_per_block: 1_000,
+                reward_per_block: primitive_types::U256::from(1_000),
+                max_batch_value: primitive_types::U256::MAX,
                 ..PoolConfig::default()
             },
             Arc::new(MemoryLedger::new()),
@@ -727,7 +728,8 @@ mod tests {
         // Opening one anyway would leave the rig idle with no way to know why.
         let state = PoolState::new(
             PoolConfig {
-                reward_per_block: 1_000,
+                reward_per_block: primitive_types::U256::from(1_000),
+                max_batch_value: primitive_types::U256::MAX,
                 ..PoolConfig::default()
             },
             Arc::new(MemoryLedger::new()),

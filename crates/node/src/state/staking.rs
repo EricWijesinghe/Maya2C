@@ -3,7 +3,7 @@
 //! | key | value |
 //! |---|---|
 //! | `k:state` | [`StakingRecord`]: the `maya-staking` state plus the node's slot counts |
-//! | `k:key:<id>` | the validator's 1,952-byte ML-DSA-65 verifying key |
+//! | `k:key:<id>` | the validator's 2,592-byte ML-DSA-87 verifying key |
 //! | `k:cmt:<epoch be>` | that epoch's committee, ids in committee order |
 //!
 //! One record for the whole staking state is a deliberate v1 choice: every
@@ -243,7 +243,7 @@ fn put_counts(out: &mut Vec<u8>, m: &BTreeMap<[u8; 32], u64>) {
 }
 
 fn read_counts(r: &mut ByteReader<'_>) -> Result<BTreeMap<[u8; 32], u64>> {
-    let n = r.read_collection_len(40)?;
+    let n = r.read_record_len(40)?;
     (0..n)
         .map(|_| Ok((r.read_array()?, r.read_u64()?)))
         .collect()
@@ -254,7 +254,7 @@ fn read_counts(r: &mut ByteReader<'_>) -> Result<BTreeMap<[u8; 32], u64>> {
 /// stake it belongs to, so a corrupt record cannot make stake look larger.
 fn decode_pending(r: &mut ByteReader<'_>, staking: &mut Staking) -> Result<()> {
     let refused = || NodeError::Decode("staking pending stake out of order or range".into());
-    let n = r.read_collection_len(32 + 32)?;
+    let n = r.read_record_len(32 + 32)?;
     let mut prev: Option<[u8; 32]> = None;
     for _ in 0..n {
         let id: [u8; 32] = r.read_array()?;
@@ -269,7 +269,7 @@ fn decode_pending(r: &mut ByteReader<'_>, staking: &mut Staking) -> Result<()> {
         }
         staking.pending_self.insert(id, amount);
     }
-    let n = r.read_collection_len(32 + 32 + 32)?;
+    let n = r.read_record_len(32 + 32 + 32)?;
     let mut prev: Option<([u8; 32], [u8; 32])> = None;
     for _ in 0..n {
         let key: ([u8; 32], [u8; 32]) = (r.read_array()?, r.read_array()?);
@@ -357,7 +357,7 @@ impl StakingRecord {
             .map_err(|e| NodeError::Decode(format!("staking params: {e:?}")))?;
         staking.epoch = r.read_u64()?;
         // Id, operator, two amounts, commission, status tag.
-        let n = r.read_collection_len(32 + 32 + 32 + 32 + 2 + 1)?;
+        let n = r.read_record_len(32 + 32 + 32 + 32 + 2 + 1)?;
         for _ in 0..n {
             let id: [u8; 32] = r.read_array()?;
             let record = ValidatorRecord {
@@ -369,12 +369,12 @@ impl StakingRecord {
             };
             staking.validators.insert(id, record);
         }
-        let n = r.read_collection_len(32 + 32 + 32)?;
+        let n = r.read_record_len(32 + 32 + 32)?;
         for _ in 0..n {
             let key = (r.read_array()?, r.read_array()?);
             staking.delegations.insert(key, read_amount(&mut r)?);
         }
-        let n = r.read_collection_len(32 + 32 + 32 + 8)?;
+        let n = r.read_record_len(32 + 32 + 32 + 8)?;
         for _ in 0..n {
             staking.unbonding.push(Unbonding {
                 owner: r.read_array()?,
@@ -383,9 +383,9 @@ impl StakingRecord {
                 release_epoch: r.read_u64()?,
             });
         }
-        let n = r.read_collection_len(32)?;
+        let n = r.read_record_len(32)?;
         staking.active = (0..n).map(|_| r.read_array()).collect::<Result<_>>()?;
-        let n = r.read_collection_len(32)?;
+        let n = r.read_record_len(32)?;
         staking.retired = (0..n)
             .map(|_| r.read_array())
             .collect::<Result<BTreeSet<_>>>()?;
@@ -576,5 +576,37 @@ mod pending_tests {
     fn zero_pending_entries_are_refused() {
         let bytes = with_pending(&prefix(), &[([8; 32], 0)], &[]);
         assert!(StakingRecord::decode(&bytes).is_err());
+    }
+}
+
+#[cfg(test)]
+mod record_size_tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+
+    #[test]
+    fn a_record_above_the_wire_count_cap_still_decodes() {
+        // Pre-audit CRITICAL-1 (self-run): the record decoder used the wire's
+        // 65,536-element cap while the encoder had none, so the 65,537th
+        // unbonding entry made every block fail to apply on every node.
+        let mut staking = Staking::new(Params::DEVNET).unwrap();
+        let entries = usize::try_from(crate::core::codec::MAX_COLLECTION_LEN).unwrap() + 1;
+        staking.unbonding = (0..entries)
+            .map(|i| maya_staking::Unbonding {
+                owner: [1; 32],
+                validator: [2; 32],
+                amount: maya_ledger_math::Amount::from_u64(1),
+                release_epoch: i as u64,
+            })
+            .collect();
+        let record = StakingRecord {
+            staking,
+            epoch_blocks: 600,
+            last_round: 0,
+            expected: BTreeMap::new(),
+            authored: BTreeMap::new(),
+        };
+        let bytes = record.encode();
+        assert_eq!(StakingRecord::decode(&bytes).unwrap(), record);
     }
 }

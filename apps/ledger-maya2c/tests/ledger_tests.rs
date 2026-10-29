@@ -66,7 +66,7 @@ fn frame(ins: u8, p1: u8, p2: u8, payload: &[u8]) -> Vec<u8> {
 
 fn path(account: u32, index: u32) -> Vec<u8> {
     let mut out = vec![5u8];
-    for c in [44, 7331, account, 0, index] {
+    for c in [44, 2992, account, 0, index] {
         out.extend_from_slice(&(c | 0x8000_0000u32).to_be_bytes());
     }
     out
@@ -121,7 +121,7 @@ fn slip10(seed: &[u8], path: &[u32]) -> [u8; 32] {
 }
 
 fn expected_keys(account: u32, index: u32) -> suite::Keypair {
-    let chain_key = slip10(&bip39_seed(MNEMONIC), &[44, 7331, account, 0, index]);
+    let chain_key = slip10(&bip39_seed(MNEMONIC), &[44, 2992, account, 0, index]);
     suite::keypair_from_chain_key(&chain_key)
 }
 
