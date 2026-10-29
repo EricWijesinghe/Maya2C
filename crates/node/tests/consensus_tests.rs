@@ -860,7 +860,6 @@ fn work_chain(bits: u32) -> (Chain, TempDir) {
             nonce: 0,
             difficulty_target: target_from_leading_zero_bits(bits),
             tx_root: [0; 32],
-            version: 0,
         },
         Vec::new(),
     );
