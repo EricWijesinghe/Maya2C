@@ -1,5 +1,6 @@
 //! Operations a transaction or evidence can perform between epochs.
 
+use alloc::collections::BTreeMap;
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -43,6 +44,7 @@ impl Staking {
                 status: Status::Bonded,
             },
         );
+        self.pending_self.insert(id, bond);
         Ok(vec![Effect::Debit(operator, bond)])
     }
 
@@ -62,6 +64,7 @@ impl Staking {
             .self_bond
             .checked_add(amount)
             .ok_or(StakeError::Overflow)?;
+        add_pending(&mut self.pending_self, id, amount)?;
         Ok(vec![Effect::Debit(operator, amount)])
     }
 
@@ -79,6 +82,9 @@ impl Staking {
         id: ValidatorId,
         amount: Amount,
     ) -> Result<Vec<Effect>, StakeError> {
+        if amount.is_zero() {
+            return Err(StakeError::BelowMinimum);
+        }
         let min = self.params.min_self_bond;
         let release_epoch = self.release_epoch()?;
         let v = self.operated_mut(operator, &id)?;
@@ -90,12 +96,13 @@ impl Staking {
             return Err(StakeError::BelowMinimum);
         }
         v.self_bond = rest;
-        self.unbonding.push(Unbonding {
+        drain_pending(&mut self.pending_self, id, amount);
+        self.push_unbonding(Unbonding {
             owner: operator,
             validator: id,
             amount,
             release_epoch,
-        });
+        })?;
         Ok(Vec::new())
     }
 
@@ -103,7 +110,8 @@ impl Staking {
     ///
     /// # Errors
     ///
-    /// Below the minimum delegation, unknown or tombstoned validator, overflow.
+    /// Below the minimum delegation, unknown (or emptied) or tombstoned validator,
+    /// overflow.
     pub fn delegate(
         &mut self,
         delegator: Address,
@@ -120,6 +128,11 @@ impl Staking {
         if v.status == Status::Tombstoned {
             return Err(StakeError::Tombstoned);
         }
+        // An emptied record that only lingers for its unbonding funds is as good
+        // as gone: delegating into it would pin it (and its id) for nothing.
+        if v.total().is_zero() {
+            return Err(StakeError::UnknownValidator);
+        }
         let delegated = v
             .delegated
             .checked_add(amount)
@@ -131,14 +144,19 @@ impl Staking {
         let new_entry = entry.checked_add(amount).ok_or(StakeError::Overflow)?;
         *entry = new_entry;
         v.delegated = delegated;
+        add_pending(&mut self.pending_delegations, (delegator, id), amount)?;
         Ok(vec![Effect::Debit(delegator, amount)])
     }
 
-    /// Starts unbonding `amount` of a delegation.
+    /// Starts unbonding `amount` of a delegation. Like [`Self::unbond`], what
+    /// remains must be zero or at least the minimum delegation, and so must
+    /// `amount` unless it empties the delegation: every unbonding entry is a
+    /// row in the staking record, and one-unit undelegations were a free way
+    /// to grow that record until no node could decode it.
     ///
     /// # Errors
     ///
-    /// No such delegation, or more than delegated.
+    /// No such delegation, more than delegated, or a part below the minimum.
     pub fn undelegate(
         &mut self,
         delegator: Address,
@@ -154,6 +172,10 @@ impl Staking {
         let rest = current
             .checked_sub(amount)
             .ok_or(StakeError::InsufficientStake)?;
+        let min = self.params.min_delegation;
+        if amount.is_zero() || (!rest.is_zero() && (rest < min || amount < min)) {
+            return Err(StakeError::BelowMinimum);
+        }
         let v = self
             .validators
             .get_mut(&id)
@@ -167,13 +189,29 @@ impl Staking {
         } else {
             self.delegations.insert(key, rest);
         }
-        self.unbonding.push(Unbonding {
+        drain_pending(&mut self.pending_delegations, key, amount);
+        self.push_unbonding(Unbonding {
             owner: delegator,
             validator: id,
             amount,
             release_epoch,
-        });
+        })?;
         Ok(Vec::new())
+    }
+
+    /// Adds `u` to the unbonding queue, folded into the entry with the same
+    /// owner, validator and release epoch if there is one. Entries that
+    /// release together are indistinguishable, so one row is enough, and the
+    /// queue is then bounded by stake positions times the unbonding window.
+    fn push_unbonding(&mut self, u: Unbonding) -> Result<(), StakeError> {
+        if let Some(e) = self.unbonding.iter_mut().find(|e| {
+            e.owner == u.owner && e.validator == u.validator && e.release_epoch == u.release_epoch
+        }) {
+            e.amount = e.amount.checked_add(u.amount).ok_or(StakeError::Overflow)?;
+        } else {
+            self.unbonding.push(u);
+        }
+        Ok(())
     }
 
     /// Slashes `id` for signing two vertices in one slot and retires it for
@@ -238,6 +276,19 @@ impl Staking {
             }
         }
         self.delegations.retain(|_, a| !a.is_zero());
+        // Pending stake is cut at the same rate, so what it earns is unchanged.
+        if let Some(p) = self.pending_self.get_mut(&id) {
+            let cut = bps_of(*p, bps);
+            *p = p.checked_sub(cut).ok_or(StakeError::Overflow)?;
+        }
+        for ((_, validator), p) in &mut self.pending_delegations {
+            if *validator == id {
+                let cut = bps_of(*p, bps);
+                *p = p.checked_sub(cut).ok_or(StakeError::Overflow)?;
+            }
+        }
+        self.pending_self.retain(|_, a| !a.is_zero());
+        self.pending_delegations.retain(|_, a| !a.is_zero());
         Ok(burned)
     }
 
@@ -263,5 +314,59 @@ impl Staking {
             return Err(StakeError::Tombstoned);
         }
         Ok(v)
+    }
+}
+
+/// Records stake added this epoch; it earns nothing until the next boundary.
+fn add_pending<K: Ord>(
+    map: &mut BTreeMap<K, Amount>,
+    key: K,
+    amount: Amount,
+) -> Result<(), StakeError> {
+    // Zero is never stored: the record encoding refuses zero entries.
+    if amount.is_zero() {
+        return Ok(());
+    }
+    let entry = map.entry(key).or_insert(Amount::ZERO);
+    *entry = entry.checked_add(amount).ok_or(StakeError::Overflow)?;
+    Ok(())
+}
+
+/// Unbonding takes pending stake first, so what is left is the earned part.
+fn drain_pending<K: Ord + Copy>(map: &mut BTreeMap<K, Amount>, key: K, amount: Amount) {
+    let Some(pending) = map.get(&key).map(|p| p.saturating_sub(amount)) else {
+        return;
+    };
+    if pending.is_zero() {
+        map.remove(&key);
+    } else {
+        map.insert(key, pending);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    use crate::params::Params;
+
+    fn id(n: u8) -> ValidatorId {
+        [n; 32]
+    }
+
+    #[test]
+    fn a_slash_cuts_pending_stake_by_the_same_rate_as_earned() {
+        let mut s = Staking::new(Params::DEVNET).unwrap();
+        s.register([1; 32], id(9), Amount::from_u64(1_000), 0)
+            .unwrap();
+        // Settle the registration so the first 1_000 counts as earned.
+        s.end_epoch(&crate::Participation::default(), Amount::ZERO)
+            .unwrap();
+        s.bond_more([1; 32], id(9), Amount::from_u64(1_000))
+            .unwrap();
+        s.slash(id(9), 5_000).unwrap();
+        let bond = s.validators[&id(9)].self_bond;
+        let pending = s.pending_self[&id(9)];
+        assert_eq!(bond.saturating_sub(pending), Amount::from_u64(500));
     }
 }

@@ -47,10 +47,16 @@ pub const MINING_RESERVE: Address = [
 pub const BPS: u64 = 10_000;
 
 /// Mining record format; see [`MiningRecord::encode`].
-const RECORD_VERSION: u8 = 3;
+const RECORD_VERSION: u8 = 4;
 
 /// The retarget moves at most this factor per epoch, either way.
 pub const MAX_RETARGET_FACTOR: u64 = 4;
+
+/// The most a schedule may ever pay, 2^192. Every amount below it times any
+/// `u64` factor (a fee step, a share count, a basis point) still fits 256
+/// bits, so no reward computation can overflow. `validate` enforces it on
+/// every record, from genesis or decode (2026-10-28 decision).
+pub const LIFETIME_EMISSION_CEILING: Amount = Amount([0, 0, 0, 1]);
 
 /// Domain of the digest a share's proof of work commits to.
 const SHARE_DOMAIN: &str = "maya2c mining share v1";
@@ -101,6 +107,11 @@ pub struct MiningGenesis {
     pub initial_epoch_reward: primitive_types::U256,
     /// Epochs between halvings.
     pub halving_epochs: u64,
+    /// The floor the halvings stop at, paid every epoch until the last height
+    /// a `u64` reaches: mining never ends (ADR-046 decision 4). Zero, or
+    /// absent: the reward halves to nothing, as before.
+    #[serde(default, with = "crate::state::amount_serde::lenient")]
+    pub tail_epoch_reward: primitive_types::U256,
     /// Miners' part of each epoch's reward; the rest goes to the committee.
     pub miner_share_bps: u64,
     /// Shares per epoch the retarget steers toward.
@@ -129,6 +140,7 @@ impl MiningGenesis {
         let record = MiningRecord {
             initial_epoch_reward: maya_stateless_core::amount::to_amount(self.initial_epoch_reward),
             halving_epochs: self.halving_epochs,
+            tail_epoch_reward: maya_stateless_core::amount::to_amount(self.tail_epoch_reward),
             miner_share_bps: self.miner_share_bps,
             target_shares: self.target_shares,
             max_shares_per_block: self.max_shares_per_block,
@@ -154,6 +166,8 @@ pub struct MiningRecord {
     pub initial_epoch_reward: Amount,
     /// As [`MiningGenesis::halving_epochs`].
     pub halving_epochs: u64,
+    /// As [`MiningGenesis::tail_epoch_reward`].
+    pub tail_epoch_reward: Amount,
     /// As [`MiningGenesis::miner_share_bps`].
     pub miner_share_bps: u64,
     /// As [`MiningGenesis::target_shares`].
@@ -188,12 +202,46 @@ pub struct MiningRecord {
 
 impl MiningRecord {
     /// The whole reward of `epoch`: the initial reward halved once per
-    /// `halving_epochs`, reaching zero once every bit has shifted out (at most
-    /// 256 halvings for a 256-bit reward, ADR-046).
+    /// `halving_epochs`, never below the tail. With no tail it reaches zero
+    /// once every bit has shifted out (at most 256 halvings, ADR-046).
     #[must_use]
     pub fn epoch_reward(&self, epoch: u64) -> Amount {
         let halvings = u32::try_from(epoch / self.halving_epochs).unwrap_or(u32::MAX);
-        self.initial_epoch_reward.shr(halvings)
+        self.initial_epoch_reward
+            .shr(halvings)
+            .max(self.tail_epoch_reward)
+    }
+
+    /// An upper bound on everything this schedule pays, from epoch 0 to the
+    /// last epoch a `u64` height reaches. A reserve funded with it never runs
+    /// dry, so the tail is paid for as long as the chain can count blocks.
+    /// `None` at or past [`LIFETIME_EMISSION_CEILING`].
+    #[must_use]
+    pub fn lifetime_emission(&self) -> Option<Amount> {
+        // u128 counts: with one-block epochs there are 2^64 of them.
+        let epochs_total = u128::from(u64::MAX / self.epoch_blocks) + 1;
+        let era = u128::from(self.halving_epochs);
+        let mut total = Amount::ZERO;
+        let mut start: u128 = 0;
+        for halvings in 0u32..=256 {
+            if start >= epochs_total {
+                break;
+            }
+            let halved = self.initial_epoch_reward.shr(halvings);
+            let left = epochs_total - start;
+            // From the first era at or under the tail, every epoch pays the tail.
+            let (reward, epochs) = if halved <= self.tail_epoch_reward {
+                (self.tail_epoch_reward, left)
+            } else {
+                (halved, era.min(left))
+            };
+            total = total.checked_add(reward.checked_mul(Amount::from_u128(epochs))?)?;
+            if halved <= self.tail_epoch_reward {
+                break;
+            }
+            start = start.saturating_add(era);
+        }
+        (total < LIFETIME_EMISSION_CEILING).then_some(total)
     }
 
     /// Miners' part of `epoch`'s reward.
@@ -258,14 +306,15 @@ impl MiningRecord {
         u64::try_from(scaled).unwrap_or(u64::MAX)
     }
 
-    /// Fixed-width encoding, version 3: the reward and `paid` are 256-bit
-    /// (ADR-046). Version 2 held them as `u64` and version 1 lacked
-    /// `spent_after`; neither was on a public chain with mining active.
+    /// Fixed-width encoding, version 4: adds the tail reward. Version 3 had no
+    /// tail, version 2 held amounts as `u64` and version 1 lacked
+    /// `spent_after`; none was on a public chain with mining active.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(1 + 32 + 8 * 8 + 32 + 1 + 96);
+        let mut out = Vec::with_capacity(1 + 64 + 8 * 8 + 32 + 1 + 96);
         out.push(RECORD_VERSION);
         out.extend_from_slice(&self.initial_epoch_reward.to_le_bytes());
+        out.extend_from_slice(&self.tail_epoch_reward.to_le_bytes());
         for value in [
             self.halving_epochs,
             self.miner_share_bps,
@@ -299,6 +348,7 @@ impl MiningRecord {
         }
         let record = Self {
             initial_epoch_reward: Amount::from_le_bytes(r.read_array()?),
+            tail_epoch_reward: Amount::from_le_bytes(r.read_array()?),
             halving_epochs: r.read_u64()?,
             miner_share_bps: r.read_u64()?,
             target_shares: r.read_u64()?,
@@ -338,6 +388,14 @@ impl MiningRecord {
         }
         if self.miner_share_bps > BPS {
             return bad("miner_share_bps above 10000");
+        }
+        if self.tail_epoch_reward > self.initial_epoch_reward {
+            return bad("tail_epoch_reward above initial_epoch_reward");
+        }
+        // Here, not only at genesis, so a snapshot or a corrupted store cannot
+        // carry a schedule whose arithmetic could overflow.
+        if self.lifetime_emission().is_none() {
+            return bad("lifetime emission at or above 2^192");
         }
         if U256::from_be_bytes(&self.target) > U256::from_be_bytes(&self.target_limit) {
             return bad("target easier than its limit");
@@ -418,6 +476,7 @@ mod tests {
         MiningGenesis {
             initial_epoch_reward: primitive_types::U256::from(1_000_000),
             halving_epochs: 10,
+            tail_epoch_reward: primitive_types::U256::zero(),
             miner_share_bps: 7_000,
             target_shares: 100,
             max_shares_per_block: 4,
@@ -556,11 +615,108 @@ mod tests {
         assert!(MiningRecord::decode(&bytes).is_err());
     }
 
+    fn with_tail(tail: u64, epoch_blocks: u64) -> MiningRecord {
+        MiningRecord {
+            tail_epoch_reward: Amount::from_u64(tail),
+            epoch_blocks,
+            ..record()
+        }
+    }
+
+    #[test]
+    fn the_reward_halves_down_to_the_tail_and_stays_there_forever() {
+        let r = with_tail(100_000, 600);
+        assert_eq!(r.epoch_reward(10), Amount::from_u64(500_000));
+        // 1_000_000 >> 4 = 62_500 is under the tail.
+        assert_eq!(r.epoch_reward(40), Amount::from_u64(100_000));
+        assert_eq!(r.epoch_reward(u64::MAX), Amount::from_u64(100_000));
+    }
+
+    #[test]
+    fn lifetime_emission_is_the_sum_of_every_epoch() {
+        // ~50 epochs before a u64 height runs out: small enough to add up one
+        // by one and compare.
+        for tail in [0, 100_000] {
+            let r = with_tail(tail, u64::MAX / 50);
+            let last = u64::MAX / r.epoch_blocks;
+            let brute = (0..=last).fold(Amount::ZERO, |sum, e| {
+                sum.checked_add(r.epoch_reward(e)).unwrap()
+            });
+            assert_eq!(r.lifetime_emission(), Some(brute), "tail {tail}");
+        }
+    }
+
+    #[test]
+    fn a_schedule_past_the_ceiling_has_no_lifetime_emission() {
+        // 2^130 per epoch over 2^64 one-block epochs is 2^194 > 2^192.
+        let huge = Amount([0, 0, 4, 0]);
+        let r = MiningRecord {
+            initial_epoch_reward: huge,
+            tail_epoch_reward: huge,
+            epoch_blocks: 1,
+            ..record()
+        };
+        assert_eq!(r.lifetime_emission(), None);
+        // Under it, with one-block epochs (2^64 of them), it is exact.
+        let r = MiningRecord {
+            initial_epoch_reward: Amount::from_u64(1 << 40),
+            tail_epoch_reward: Amount::from_u64(1 << 40),
+            epoch_blocks: 1,
+            ..record()
+        };
+        assert_eq!(r.lifetime_emission(), Some(Amount([0, 1 << 40, 0, 0])));
+        // The ceiling is exclusive: 2^128 per epoch over 2^64 epochs is
+        // exactly 2^192 and is refused; one unit less per epoch is not.
+        let at = |reward: Amount| MiningRecord {
+            initial_epoch_reward: reward,
+            tail_epoch_reward: reward,
+            epoch_blocks: 1,
+            ..record()
+        };
+        assert_eq!(at(Amount([0, 0, 1, 0])).lifetime_emission(), None);
+        assert!(
+            at(Amount([u64::MAX, u64::MAX, 0, 0]))
+                .lifetime_emission()
+                .is_some()
+        );
+        assert!(MiningRecord::decode(&at(Amount([0, 0, 1, 0])).encode()).is_err());
+    }
+
+    #[test]
+    fn an_era_cut_short_by_the_last_height_is_counted_to_the_epoch() {
+        // ~50 epochs in all, eras of 1000: the first era never finishes.
+        for tail in [0, 1] {
+            let r = MiningRecord {
+                halving_epochs: 1_000,
+                ..with_tail(tail, u64::MAX / 50)
+            };
+            let epochs = u64::MAX / r.epoch_blocks + 1;
+            assert_eq!(
+                r.lifetime_emission(),
+                r.initial_epoch_reward.checked_mul(Amount::from_u64(epochs))
+            );
+        }
+    }
+
+    #[test]
+    fn a_tail_above_the_initial_reward_is_refused_on_decode() {
+        let mut r = record();
+        r.tail_epoch_reward = r
+            .initial_epoch_reward
+            .checked_add(Amount::from_u64(1))
+            .unwrap();
+        assert!(MiningRecord::decode(&r.encode()).is_err());
+        assert!(MiningRecord::decode(&with_tail(1, 600).encode()).is_ok());
+        r.tail_epoch_reward = r.initial_epoch_reward;
+        assert!(MiningRecord::decode(&r.encode()).is_ok());
+    }
+
     #[test]
     fn genesis_refuses_bad_parameters() {
         let good = MiningGenesis {
             initial_epoch_reward: primitive_types::U256::from(1_000),
             halving_epochs: 1,
+            tail_epoch_reward: primitive_types::U256::zero(),
             miner_share_bps: 7_000,
             target_shares: 1,
             max_shares_per_block: 1,

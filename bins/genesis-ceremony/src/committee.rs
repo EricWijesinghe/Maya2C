@@ -20,8 +20,8 @@ use std::path::Path;
 
 use custom_l1_node::genesis::{BftGenesis, FeesGenesis, GenesisBond, StakingGenesis};
 
-/// Hex characters in an ML-DSA-65 public key (1,952 bytes).
-const VALIDATOR_KEY_HEX: usize = 2 * 1_952;
+/// Hex characters in an ML-DSA-87 validator public key (ADR-051 option 3).
+const VALIDATOR_KEY_HEX: usize = 2 * custom_l1_node::crypto::validator_keys::PUBLIC_KEY_LEN;
 /// Hex characters in an address.
 const ADDRESS_HEX: usize = 64;
 /// Fewest validators a launch committee may have: DAG-BFT tolerates `f`
@@ -36,8 +36,8 @@ pub const DEFAULT_EPOCH_BLOCKS: u64 = 3_600;
 /// target, at most 1/8 change per block), so a launch starts from parameters
 /// that have been exercised rather than untested ones.
 const LAUNCH_FEES: FeesGenesis = FeesGenesis {
-    initial_base_fee: 1,
-    min_base_fee: 1,
+    initial_base_fee: primitive_types::U256([1, 0, 0, 0]),
+    min_base_fee: primitive_types::U256([1, 0, 0, 0]),
     target_block_bytes: 2_621_440,
     change_denominator: 8,
 };

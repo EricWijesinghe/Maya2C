@@ -20,6 +20,8 @@
 
 use std::collections::BTreeMap;
 
+use maya_amount::Amount;
+
 /// An app identifier (a state-key group).
 pub type App = u32;
 
@@ -35,7 +37,7 @@ pub struct Params {
     /// Step denominator: fees move by at most 1/denom per block.
     pub denom: u64,
     /// Floor for every base fee.
-    pub floor: u64,
+    pub floor: Amount,
     /// Most transactions one app may place in a block's general space. The
     /// cap is what keeps a hot app from filling blocks and so raising the
     /// *global* fee for everyone (Solana applies the same idea per account).
@@ -43,19 +45,24 @@ pub struct Params {
 }
 
 /// One EIP-1559-style step.
-fn step(fee: u64, used: u64, target: u64, denom: u64, floor: u64) -> u64 {
-    let (fee, used, target, denom) = (
-        u128::from(fee),
-        u128::from(used),
-        u128::from(target.max(1)),
-        u128::from(denom.max(1)),
-    );
+fn step(fee: Amount, used: u64, target: u64, denom: u64, floor: Amount) -> Amount {
+    let (target, denom) = (target.max(1), denom.max(1));
+    // `fee * x / target / denom` is `fee * x / (target * denom)`: nested floors
+    // agree, and the 512-bit product inside `mul_div` cannot overflow.
+    let scale = Amount::from_u128(u128::from(target) * u128::from(denom));
     let next = if used > target {
-        fee + (fee * (used - target) / target / denom).max(1)
+        let up = fee
+            .mul_div(Amount::from_u64(used - target), scale)
+            .unwrap_or(Amount::MAX)
+            .max(Amount::from_u64(1));
+        fee.saturating_add(up)
     } else {
-        fee - fee * (target - used) / target / denom
+        let down = fee
+            .mul_div(Amount::from_u64(target - used), scale)
+            .unwrap_or_default();
+        fee.saturating_sub(down)
     };
-    u64::try_from(next).unwrap_or(u64::MAX).max(floor)
+    next.max(floor)
 }
 
 /// Base fees: one global, one per app.
@@ -64,9 +71,9 @@ pub struct Fees {
     /// Parameters.
     pub params: Params,
     /// Global base fee.
-    pub global: u64,
+    pub global: Amount,
     /// Per-app base fees (absent = floor).
-    pub local: BTreeMap<App, u64>,
+    pub local: BTreeMap<App, Amount>,
 }
 
 impl Fees {
@@ -82,7 +89,7 @@ impl Fees {
 
     /// What a transaction touching `app` pays now.
     #[must_use]
-    pub fn price(&self, app: App) -> u64 {
+    pub fn price(&self, app: App) -> Amount {
         self.global
             .saturating_add(self.local.get(&app).copied().unwrap_or(self.params.floor))
     }
@@ -117,7 +124,7 @@ pub struct Lane {
     /// Reserved transactions per block.
     pub slots: u64,
     /// Fixed price per transaction in the lane.
-    pub price: u64,
+    pub price: Amount,
 }
 
 /// A bid for lane capacity.
@@ -128,7 +135,7 @@ pub struct Bid {
     /// Slots wanted.
     pub slots: u64,
     /// Price per slot offered.
-    pub price: u64,
+    pub price: Amount,
 }
 
 /// Allocates lanes: highest price first, at most `per_holder` slots each and
@@ -161,7 +168,7 @@ pub struct Tx {
     /// App touched.
     pub app: App,
     /// Maximum fee the sender pays.
-    pub max_fee: u64,
+    pub max_fee: Amount,
     /// Lane holder it belongs to, if it rides a lane.
     pub lane: Option<u32>,
     /// Height it arrived.

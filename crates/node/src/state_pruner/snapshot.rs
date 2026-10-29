@@ -39,7 +39,7 @@ use std::sync::Arc;
 use rocksdb::WriteBatch;
 
 use crate::consensus::{Chain, ChainConfig};
-use crate::core::codec::ByteReader;
+use crate::core::codec::{ByteReader, MAX_RECORD_BYTES};
 use crate::core::{Block, BlockHeader};
 use crate::error::{NodeError, Result};
 use crate::state::commitments::{committed_prefixes, is_committed};
@@ -47,6 +47,14 @@ use crate::state::db::StateDB;
 
 /// Entries per snapshot chunk.
 pub const CHUNK_ENTRIES: usize = 4_096;
+
+/// Longest key a chunk entry may carry.
+const MAX_ENTRY_KEY: usize = 64 * 1024;
+
+/// Longest value a chunk entry may carry. The old 65,536 ceiling (the
+/// collection-count cap, reused by mistake) made a busy chain's snapshot export
+/// something it could not import.
+const MAX_ENTRY_VALUE: usize = MAX_RECORD_BYTES;
 
 /// Headers asked for per request during bootstrap.
 pub const HEADER_BATCH: u64 = 2_000;
@@ -133,9 +141,9 @@ pub fn decode_chunk(bytes: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
     let count = reader.read_collection_len(16)?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
-        let key_len = reader.read_collection_len(1)?;
+        let key_len = reader.read_byte_len(MAX_ENTRY_KEY)?;
         let key = reader.read_slice(key_len)?.to_vec();
-        let value_len = reader.read_collection_len(1)?;
+        let value_len = reader.read_byte_len(MAX_ENTRY_VALUE)?;
         let value = reader.read_slice(value_len)?.to_vec();
         entries.push((key, value));
     }
@@ -255,7 +263,21 @@ fn sync_headers(
                 headers.len()
             )));
         }
-        ids.extend(chain.import_headers(&headers)?);
+        let imported = chain.import_headers(&headers)?;
+        // import_headers only needs each parent to be known, so a source could
+        // repeat or skip headers and still hand back the right count. Heights
+        // are positions in this vector, so it has to be a chain by position.
+        let mut parent = *ids.last().unwrap_or(&[0; 32]);
+        for (offset, (header, id)) in headers.iter().zip(&imported).enumerate() {
+            if header.prev_hash != parent {
+                return Err(NodeError::Network(format!(
+                    "headers do not chain: the header served for height {} does not extend                      the one before it",
+                    from + offset as u64
+                )));
+            }
+            parent = *id;
+        }
+        ids.extend(imported);
         from = to + 1;
     }
     Ok(ids)
@@ -332,13 +354,51 @@ pub fn bootstrap_pruned(
     source: &dyn BootstrapSource,
     min_depth: u64,
 ) -> Result<Chain> {
+    bootstrap_pruned_anchored(state, genesis, config, source, min_depth, None)
+}
+
+/// A block the operator vouches for, learned from somewhere other than the
+/// bootstrap source (a second node, an explorer, a person).
+///
+/// Why it exists: a bootstrap checks that the source's headers link and meet
+/// the proof-of-work target, and that the snapshot reproduces a header's state
+/// root. On a DAG-BFT chain the target is near zero, so nothing in that costs
+/// a lying source anything: it can serve a self-consistent chain that no
+/// committee ever signed. Checking one block id against an independent source
+/// is the weak-subjectivity checkpoint proof-of-stake chains use for the same
+/// reason; it turns "trust the source for everything" into "trust the source
+/// for nothing the operator already knows".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TrustedBlock {
+    /// Height of the block.
+    pub height: u64,
+    /// Its id (the header hash).
+    pub id: [u8; 32],
+}
+
+/// As [`bootstrap_pruned`], additionally refusing a source whose best chain
+/// does not contain `anchor` (when given).
+///
+/// # Errors
+///
+/// As [`bootstrap_pruned`]; plus [`NodeError::Network`] when the trusted block
+/// is above the source's tip or is not the source's block at that height. The
+/// database is purged in that case, like any failed bootstrap.
+pub fn bootstrap_pruned_anchored(
+    state: Arc<StateDB>,
+    genesis: Block,
+    config: ChainConfig,
+    source: &dyn BootstrapSource,
+    min_depth: u64,
+    anchor: Option<TrustedBlock>,
+) -> Result<Chain> {
     if !state.scan_prefix(b"")?.is_empty() {
         return Err(NodeError::Storage(
             "a pruned bootstrap needs an empty database".to_string(),
         ));
     }
     let chain = Chain::open(Arc::clone(&state), genesis, config)?;
-    match bootstrap_into(chain, &state, source, min_depth) {
+    match bootstrap_into(chain, &state, source, min_depth, anchor) {
         Ok(chain) => Ok(chain),
         Err(error) => {
             // The database was empty when this started, so wiping it is exact:
@@ -356,15 +416,42 @@ fn bootstrap_into(
     state: &StateDB,
     source: &dyn BootstrapSource,
     min_depth: u64,
+    anchor: Option<TrustedBlock>,
 ) -> Result<Chain> {
     let tip = source.tip_height()?;
     let ids = sync_headers(&mut chain, source, tip)?;
+    if let Some(trusted) = anchor {
+        // Height 0 is the genesis this node already has: it proves nothing
+        // about the source.
+        let theirs = usize::try_from(trusted.height)
+            .ok()
+            .filter(|h| *h > 0)
+            .and_then(|h| ids.get(h));
+        if theirs != Some(&trusted.id) {
+            return Err(NodeError::Network(format!(
+                "the source's chain does not contain the trusted block {} at height {}                  (its tip is {tip}; height 0 and heights above the tip never match):                  refusing to bootstrap from it",
+                hex::encode(trusted.id),
+                trusted.height
+            )));
+        }
+    }
 
     let manifest = source.snapshot_manifest()?;
     let height = manifest.height;
     if height == 0 || height.saturating_add(min_depth) > tip {
         return Err(NodeError::Network(format!(
             "snapshot at height {height} is not {min_depth} blocks below tip {tip}"
+        )));
+    }
+    // Block ids commit to their ancestors, so the anchor vouches only for the
+    // chain up to its own height. A snapshot above it sits on headers the
+    // anchor says nothing about.
+    if let Some(trusted) = anchor
+        && trusted.height < height
+    {
+        return Err(NodeError::Network(format!(
+            "the trusted block is at height {}, below the snapshot at {height}: it cannot              vouch for the chain the snapshot sits on (give a newer trusted block)",
+            trusted.height
         )));
     }
     let snapshot_id = ids[height as usize];
@@ -384,7 +471,20 @@ fn bootstrap_into(
     chain.adopt_snapshot(&ids[..=height as usize])?;
     // Fetched a window at a time with several requests in flight, inserted
     // strictly in order: every body is still fully validated.
+    let mut next = height + 1;
     super::prefetch::for_each_prefetched(height + 1, tip, &|h| source.block(h), |block| {
+        // Each body must extend the header chain already verified, so a source
+        // cannot swap in a different fork above the snapshot; the tip's own id
+        // is checked once (computing an id costs a proof-of-work hash).
+        let verified_parent = ids[next as usize - 1];
+        if block.header.prev_hash != verified_parent
+            || (next == tip && block.header.id() != ids[next as usize])
+        {
+            return Err(NodeError::Network(format!(
+                "the body served for height {next} is not the block its header chain names"
+            )));
+        }
+        next += 1;
         chain.insert_block(block).map(|_| ())
     })?;
     Ok(chain)
@@ -613,5 +713,12 @@ mod tests {
         let entries = vec![(b"acct:a".to_vec(), vec![1, 2]), (b"d:x".to_vec(), vec![])];
         assert_eq!(decode_chunk(&encode_chunk(&entries)), Ok(entries));
         assert!(decode_chunk(&[0xff; 9]).is_err());
+    }
+
+    #[test]
+    fn a_value_past_the_old_collection_cap_still_round_trips() {
+        // The staking record is one value; a busy chain's passes 65,536 bytes.
+        let entries = vec![(b"stk".to_vec(), vec![0xaa; 200_000])];
+        assert_eq!(decode_chunk(&encode_chunk(&entries)), Ok(entries));
     }
 }

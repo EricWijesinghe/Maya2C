@@ -1,0 +1,27 @@
+---
+// Self-updating progress: every number comes from public/progress.json, which
+// scripts/gen-progress.mjs counts at each build (every 6 h and on each merge).
+import OrbRow from "./OrbRow.astro";
+import p from "../../public/progress.json";
+const repo = "https://github.com/EricWijesinghe/Maya2C";
+const when = (iso) => (iso ? new Date(iso).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "unknown");
+const items = [
+  { title: `${p.gates.met} of ${p.gates.total} gates`, line: "Mainnet checks passed", href: `${repo}/blob/master/docs/mainnet-v1-plan.md` },
+  { title: `${p.progress.done} done`, line: `${p.progress.open} steps still open`, href: `${repo}/blob/master/PROGRESS.md` },
+  { title: p.master_ci ? (p.master_ci.conclusion === "success" ? "CI green" : `CI ${p.master_ci.conclusion}`) : "CI unknown", line: `master, ${when(p.master_ci?.at)}`, href: p.master_ci?.url ?? `${repo}/actions` },
+  { title: p.merged_last_7_days == null ? "—" : `${p.merged_last_7_days} merged`, line: "changes in the last 7 days", href: `${repo}/pulls?q=is%3Apr+is%3Amerged` },
+  { title: p.open_prs == null ? "—" : `${p.open_prs} in review`, line: "open pull requests", href: `${repo}/pulls` },
+  { title: p.latest_release?.tag ?? "no release", line: `newest build, ${when(p.latest_release?.at)}`, href: `${repo}/releases` },
+];
+---
+<OrbRow items={items} />
+{p.recent?.length > 0 && (
+  <ul class="maya-whats-new">
+    {p.recent.map((r) => <li><a href={r.url}>{r.title}</a> <span>{when(r.at).slice(0, 10)}</span></li>)}
+  </ul>
+)}
+<style>
+  .maya-whats-new { list-style: none; padding: 0; margin: 1rem 0; display: grid; gap: 0.35rem; }
+  .maya-whats-new span { color: var(--muted); font-size: 0.8em; }
+</style>
+<p class="maya-footnote">Counted automatically at {when(p.generated)}; rebuilt every 6 hours and on every merge.</p>

@@ -17,7 +17,7 @@ use custom_l1_node::rpc::bootstrap::{RpcBootstrapSource, SnapshotService};
 use custom_l1_node::state::StateDB;
 use custom_l1_node::state_pruner::archive::{Archiver, prune_round};
 use custom_l1_node::state_pruner::cold::ColdBlocks;
-use custom_l1_node::state_pruner::snapshot::{Snapshots, bootstrap_pruned};
+use custom_l1_node::state_pruner::snapshot::{Snapshots, bootstrap_pruned_anchored};
 use custom_l1_node::state_pruner::{ArchivePolicy, PRUNE_DEPTH, PruneConfig};
 use maya_archive::arweave::ArweaveGateway;
 use maya_archive::kubo::KuboStore;
@@ -32,6 +32,16 @@ const PRUNE_POLL: Duration = Duration::from_secs(60);
 /// Snapshots kept on disk. Two, so the one being served is never the one
 /// being replaced.
 const SNAPSHOTS_KEPT: usize = 2;
+
+/// ADR-060: a bootstrap without a pinned block trusts its source for which
+/// chain it joins. A production (mainnet) build refuses that outright.
+fn require_anchor(production: bool, anchored: bool) -> Result<(), Box<dyn Error>> {
+    if production && !anchored {
+        return Err("a production build bootstraps only with --trusted-block HEIGHT:HEX                     (ADR-060): without it the source alone decides which chain this node starts on"
+            .into());
+    }
+    Ok(())
+}
 
 /// Opens the stored chain, or bootstraps a pruned node into an empty database.
 ///
@@ -54,12 +64,20 @@ pub(super) async fn open_or_bootstrap(
     if fresh && let Some(url) = &args.bootstrap_from {
         let depth = args.prune_depth.unwrap_or(PRUNE_DEPTH);
         println!("bootstrap:   pruned, from {url}, snapshot at least {depth} blocks deep");
+        let anchor = args.trusted_block;
+        require_anchor(cfg!(feature = "production"), anchor.is_some())?;
+        match anchor {
+            Some(_) => println!("bootstrap:   the source's chain must contain the pinned block"),
+            None => println!(
+                "bootstrap:   no --trusted-block: the source alone decides which chain this node starts on"
+            ),
+        }
         let source = RpcBootstrapSource::new(url, tokio::runtime::Handle::current())?;
         let state = Arc::clone(state);
         // Blocking: the source waits on the runtime for every call, which is
         // only allowed off the runtime's own threads.
         let chain = tokio::task::spawn_blocking(move || {
-            bootstrap_pruned(state, genesis, chain_config, &source, depth)
+            bootstrap_pruned_anchored(state, genesis, chain_config, &source, depth, anchor)
         })
         .await??;
         return Ok(chain);
@@ -255,5 +273,17 @@ mod tests {
             ..Args::default()
         };
         assert_eq!(snapshot_interval(&asked), Some(100));
+    }
+}
+
+#[cfg(test)]
+mod anchor_tests {
+    use super::require_anchor;
+
+    #[test]
+    fn production_refuses_an_unanchored_bootstrap_and_testnet_allows_it() {
+        assert!(require_anchor(true, false).is_err());
+        assert!(require_anchor(true, true).is_ok());
+        assert!(require_anchor(false, false).is_ok());
     }
 }

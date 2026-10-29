@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used)]
 
+use maya_amount::Amount;
 use maya_lanes::{Bid, Fees, Lane, Params, Tx, auction, build};
 
 const P: Params = Params {
@@ -7,7 +8,7 @@ const P: Params = Params {
     app_target: 2,
     global_target: 5,
     denom: 8,
-    floor: 1,
+    floor: Amount::from_u64(1),
     app_cap: 10,
 };
 
@@ -18,17 +19,17 @@ fn the_auction_caps_each_holder_and_the_total() {
             Bid {
                 holder: 1,
                 slots: 10,
-                price: 50,
+                price: Amount::from_u64(50),
             },
             Bid {
                 holder: 2,
                 slots: 2,
-                price: 40,
+                price: Amount::from_u64(40),
             },
             Bid {
                 holder: 3,
                 slots: 5,
-                price: 30,
+                price: Amount::from_u64(30),
             },
         ],
         6,
@@ -40,17 +41,17 @@ fn the_auction_caps_each_holder_and_the_total() {
             Lane {
                 holder: 1,
                 slots: 3,
-                price: 50
+                price: Amount::from_u64(50)
             },
             Lane {
                 holder: 2,
                 slots: 2,
-                price: 40
+                price: Amount::from_u64(40)
             },
             Lane {
                 holder: 3,
                 slots: 1,
-                price: 30
+                price: Amount::from_u64(30)
             }
         ]
     );
@@ -67,19 +68,19 @@ fn lane_traffic_goes_first_and_unused_lane_space_is_released() {
     let lanes = [Lane {
         holder: 7,
         slots: 4,
-        price: 1,
+        price: Amount::from_u64(1),
     }];
     let mut pool: Vec<Tx> = (0..3)
         .map(|i| Tx {
             app: 1,
-            max_fee: 1,
+            max_fee: Amount::from_u64(1),
             lane: Some(7),
             arrived: i,
         })
         .collect();
     pool.extend((0..20).map(|i| Tx {
         app: 2,
-        max_fee: 100,
+        max_fee: Amount::from_u64(100),
         lane: None,
         arrived: i,
     }));
@@ -104,10 +105,18 @@ fn a_hot_app_raises_only_its_own_local_fee() {
         fees.update(&[(1, 5), (2, 1)].into_iter().collect());
     }
     assert!(
-        fees.price(1) > 5 * fees.price(2) / 2,
+        fees.price(1)
+            > fees
+                .price(2)
+                .mul_div(Amount::from_u64(5), Amount::from_u64(2))
+                .unwrap(),
         "hot app 1: {} vs quiet app 2: {}",
         fees.price(1),
         fees.price(2)
     );
-    assert_eq!(fees.local[&2], 1, "the quiet app stays at the floor");
+    assert_eq!(
+        fees.local[&2],
+        Amount::from_u64(1),
+        "the quiet app stays at the floor"
+    );
 }

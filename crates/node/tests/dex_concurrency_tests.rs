@@ -564,3 +564,28 @@ fn a_block_of_trades_conserves_every_asset() {
     );
     assert_eq!(asset_before, asset_after, "asset was created or destroyed");
 }
+
+#[test]
+fn the_pool_holds_to_a_byte_budget_and_gives_it_back_on_removal() {
+    // A count cap alone lets 4,096 transactions of the 4 MiB maximum pin about
+    // 16 GiB. The budget counts encoded bytes and is returned when a block
+    // includes the transactions.
+    let maker = generate_signing_key().expect("key");
+    let traders = keys(TRADERS);
+    let arena = arena(&maker, &traders);
+    let mut transactions = arena.swaps();
+    let size = transactions[0].to_bytes().len();
+    let mempool = Mempool::new(Arc::clone(&arena.db)).with_max_bytes(size + size / 2);
+
+    let first = transactions.remove(0);
+    let first_id = first.txid();
+    mempool.insert(first).expect("the first fits");
+    let refused = mempool.insert(transactions.remove(0));
+    assert!(refused.is_err(), "a second would exceed the byte budget");
+    assert_eq!(mempool.len(), 1);
+
+    assert_eq!(mempool.remove_all(&[first_id]), 1);
+    mempool
+        .insert(transactions.remove(0))
+        .expect("the budget came back with the removal");
+}

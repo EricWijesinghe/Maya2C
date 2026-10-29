@@ -24,8 +24,8 @@ const DAILY_CAP: u64 = 1_000;
 fn service(dispenser: Arc<RecordingDispenser>) -> Arc<FaucetService> {
     let faucet = Faucet::new(
         "maya-genesis-rc1",
-        DISPENSE,
-        DAILY_CAP,
+        primitive_types::U256::from(DISPENSE),
+        primitive_types::U256::from(DAILY_CAP),
         std::time::SystemTime::now(),
     )
     .expect("a testnet chain");
@@ -72,12 +72,16 @@ async fn a_first_request_is_funded() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let body = body_json(response).await;
-    assert_eq!(body["amount"], DISPENSE);
-    assert_eq!(body["remaining_today"], DAILY_CAP - DISPENSE);
+    assert_eq!(
+        body["amount"],
+        DISPENSE.to_string(),
+        "amounts are decimal strings (ADR-046)"
+    );
+    assert_eq!(body["remaining_today"], (DAILY_CAP - DISPENSE).to_string());
 
     let sent = dispenser.sent();
     assert_eq!(sent.len(), 1);
-    assert_eq!(sent[0], ([1u8; 32], DISPENSE));
+    assert_eq!(sent[0], ([1u8; 32], primitive_types::U256::from(DISPENSE)));
 }
 
 #[tokio::test]
@@ -176,7 +180,7 @@ async fn an_exhausted_budget_is_a_503() {
         .expect("served");
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(body_json(response).await["error"], "budget_exhausted");
-    assert_eq!(dispenser.total(), DAILY_CAP);
+    assert_eq!(dispenser.total(), primitive_types::U256::from(DAILY_CAP));
 }
 
 #[tokio::test]
@@ -186,8 +190,8 @@ async fn a_node_failure_is_a_500_that_leaks_nothing() {
     // without ever completing a grant.
     let faucet = Faucet::new(
         "maya-genesis-rc1",
-        DISPENSE,
-        DAILY_CAP,
+        primitive_types::U256::from(DISPENSE),
+        primitive_types::U256::from(DAILY_CAP),
         std::time::SystemTime::now(),
     )
     .expect("testnet");
@@ -250,8 +254,8 @@ async fn a_trusted_proxy_supplies_the_client_address() {
     // the peer address would give the whole internet one shared bucket.
     let faucet = Faucet::new(
         "maya-genesis-rc1",
-        DISPENSE,
-        DAILY_CAP,
+        primitive_types::U256::from(DISPENSE),
+        primitive_types::U256::from(DAILY_CAP),
         std::time::SystemTime::now(),
     )
     .expect("testnet");
@@ -278,8 +282,8 @@ async fn a_trusted_proxy_takes_the_last_hop_not_the_first() {
     // straight back to the caller.
     let faucet = Faucet::new(
         "maya-genesis-rc1",
-        DISPENSE,
-        DAILY_CAP,
+        primitive_types::U256::from(DISPENSE),
+        primitive_types::U256::from(DAILY_CAP),
         std::time::SystemTime::now(),
     )
     .expect("testnet");
@@ -331,8 +335,8 @@ async fn status_reports_the_budget_without_revealing_the_key() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = body_json(response).await;
     assert_eq!(body["chain_id"], "maya-genesis-rc1");
-    assert_eq!(body["spent_today"], DISPENSE);
-    assert_eq!(body["daily_cap"], DAILY_CAP);
+    assert_eq!(body["spent_today"], DISPENSE.to_string());
+    assert_eq!(body["daily_cap"], DAILY_CAP.to_string());
 
     let rendered = body.to_string();
     for forbidden in ["key", "secret", "seed"] {

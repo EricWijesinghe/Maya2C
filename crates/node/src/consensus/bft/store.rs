@@ -52,6 +52,10 @@ pub struct Recovered {
 /// this is the bound a certified vertex can reach.
 pub const MAX_BATCH_BYTES: usize = 4 * 1024 * 1024;
 
+// A transaction the codec accepts must fit in a batch, or a legal transaction
+// could never be ordered.
+const _: () = assert!(crate::core::MAX_TX_BYTES <= MAX_BATCH_BYTES);
+
 /// Most items in one vertex's batch. Honest validators refuse a proposal with
 /// more than `Params::batch_size` items, so genesis must not set `batch_size`
 /// above this (checked in genesis validation).
@@ -66,7 +70,7 @@ const RECORD_SLACK: usize = 64 * 1024;
 
 /// Bytes of one vote's entry in a certificate: voter id, signature length
 /// prefix, and the signature.
-const VOTE_ENTRY: usize = 2 + 8 + crate::crypto::keys::SIGNATURE_LENGTH;
+const VOTE_ENTRY: usize = 2 + 8 + crate::crypto::validator_keys::SIGNATURE_LENGTH;
 
 /// Largest record a log or a peer may carry, in raw bytes: the largest
 /// certificate or proposal the protocol can produce. It is derived from the

@@ -5,7 +5,7 @@
 # ingress controller), no ServiceMonitor or PrometheusRule (no Prometheus operator CRDs), no
 # zone anti-affinity (one host has one zone), k3s's local-path storage
 # instead of `maya-retain`, and requests small enough for one machine.
-# `deploy-production.sh --target local-k3d` applies it.
+# `scripts/deploy-production.sh --target local-k3d` applies it.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 

@@ -83,7 +83,11 @@ fn circulating_supply_falls_every_block_while_total_is_conserved() {
         let txs: Vec<TxFee> = (0..per_block)
             .map(|_| TxFee {
                 size_bytes: size,
-                max_fee: maya_ledger_math::Amount::from_u64(base_fee * size + 100),
+                max_fee: base_fee
+                    .checked_mul(maya_ledger_math::Amount::from_u64(size))
+                    .unwrap()
+                    .checked_add(maya_ledger_math::Amount::from_u64(100))
+                    .unwrap(),
                 max_tip: maya_ledger_math::Amount::from_u64(100),
             })
             .collect();
@@ -141,7 +145,11 @@ fn the_treasury_receives_one_fifth_of_the_base_fee_and_the_producer_every_tip() 
     let base_fee = config.initial_base_fee;
     let txs = [TxFee {
         size_bytes: size,
-        max_fee: maya_ledger_math::Amount::from_u64(base_fee * size + 250),
+        max_fee: base_fee
+            .checked_mul(maya_ledger_math::Amount::from_u64(size))
+            .unwrap()
+            .checked_add(maya_ledger_math::Amount::from_u64(250))
+            .unwrap(),
         max_tip: maya_ledger_math::Amount::from_u64(250),
     }];
     let Ok(BlockFeeOutcome::Charged {
@@ -162,7 +170,11 @@ fn the_treasury_receives_one_fifth_of_the_base_fee_and_the_producer_every_tip() 
     else {
         panic!("charged");
     };
-    let base_paid = base_fee * size;
+    let base_paid = base_fee
+        .checked_mul(maya_ledger_math::Amount::from_u64(size))
+        .unwrap()
+        .to_u64()
+        .unwrap();
     assert_eq!(treasury, maya_ledger_math::Amount::from_u64(base_paid / 5));
     assert_eq!(
         burned,

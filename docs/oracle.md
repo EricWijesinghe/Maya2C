@@ -106,7 +106,8 @@ done here.
 ```
 
 `oracle_read(feed_ptr, max_age_blocks, out_ptr)` returns `8` on success, `-1` for
-an unknown feed, and `-2` for a stale one. **Nothing is written on failure**, so a
+an unknown feed, `-2` for a stale one, and `-3` when the price does not fit 8 bytes
+(read it with `oracle_read_u256`, which returns `32`). **Nothing is written on failure**, so a
 contract that ignores the return value reads whatever was already in its buffer
 rather than a number that looks like a price.
 

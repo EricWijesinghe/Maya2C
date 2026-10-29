@@ -182,7 +182,7 @@ impl CouncilGenesis {
 /// The genesis committee of a DAG-BFT network.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BftGenesis {
-    /// Hex ML-DSA-65 verifying keys, in committee order: index `i` here is
+    /// Hex ML-DSA-87 validator verifying keys, in committee order: index `i` here is
     /// validator id `i` in every vertex and vote. Order is consensus.
     pub validators: Vec<String>,
     /// How long a validator waits for a round's anchor before advancing
@@ -217,10 +217,13 @@ pub struct BftGenesis {
 /// Genesis fee-market parameters, checked against `maya-fee-market`'s limits.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FeesGenesis {
-    /// Base fee at block 1, per serialized byte.
-    pub initial_base_fee: u64,
+    /// Base fee at block 1, per serialized byte: 256-bit (ADR-066), a JSON
+    /// number or a decimal string.
+    #[serde(with = "crate::state::amount_serde::lenient")]
+    pub initial_base_fee: U256,
     /// Floor for the base fee.
-    pub min_base_fee: u64,
+    #[serde(with = "crate::state::amount_serde::lenient")]
+    pub min_base_fee: U256,
     /// Block size the base fee steers toward, in bytes.
     pub target_block_bytes: u64,
     /// The base fee moves by at most `1 / change_denominator` per block.
@@ -238,18 +241,18 @@ impl FeesGenesis {
         let config = maya_fee_market::FeeConfig {
             activation_height: 1,
             target_block_bytes: self.target_block_bytes,
-            min_base_fee: self.min_base_fee,
+            min_base_fee: to_amount(self.min_base_fee),
             change_denominator: self.change_denominator,
             treasury_bps: 0,
-            initial_base_fee: self.initial_base_fee,
+            initial_base_fee: to_amount(self.initial_base_fee),
             neural_activation_height: u64::MAX,
         };
         config
             .validate()
             .map_err(|e| NodeError::Decode(format!("bft.fees: {e:?}")))?;
         Ok(crate::state::fees::FeeRecord {
-            base_fee: self.initial_base_fee,
-            min_base_fee: self.min_base_fee,
+            base_fee: to_amount(self.initial_base_fee),
+            min_base_fee: to_amount(self.min_base_fee),
             target_block_bytes: self.target_block_bytes,
             change_denominator: self.change_denominator,
         })
@@ -340,7 +343,7 @@ impl StakingGenesis {
 }
 
 impl BftGenesis {
-    /// A committee of `validators` (hex ML-DSA-65 keys, in committee order)
+    /// A committee of `validators` (hex ML-DSA-87 validator keys, in committee order)
     /// with the default round timing, no staking and no fee market: what a
     /// tool that mints a genesis starts from before choosing those.
     #[must_use]
@@ -372,9 +375,11 @@ impl BftGenesis {
     ///
     /// # Errors
     ///
-    /// [`NodeError::Decode`] for an empty committee, a malformed key, or the
+    /// [`NodeError::Decode`] for an empty committee, a key of the wrong length
+    /// (any 2,592 bytes decode under FIPS 204; one nobody holds verifies
+    /// nothing, and registration needs a proof of possession), or the
     /// same key twice (one operator holding two votes).
-    pub fn verifying_keys(&self) -> Result<Vec<crate::crypto::keys::VerifyingKey>> {
+    pub fn verifying_keys(&self) -> Result<Vec<crate::crypto::validator_keys::VerifyingKey>> {
         if self.validators.is_empty() {
             return Err(NodeError::Decode("bft.validators must not be empty".into()));
         }
@@ -386,7 +391,7 @@ impl BftGenesis {
         for (i, encoded) in self.validators.iter().enumerate() {
             let bytes = hex::decode(encoded)
                 .map_err(|e| NodeError::Decode(format!("bft.validators[{i}]: {e}")))?;
-            let array: [u8; crate::crypto::keys::PUBLIC_KEY_LEN] = bytes
+            let array: [u8; crate::crypto::validator_keys::PUBLIC_KEY_LEN] = bytes
                 .as_slice()
                 .try_into()
                 .map_err(|_| NodeError::Decode(format!("bft.validators[{i}]: wrong key length")))?;
@@ -395,7 +400,9 @@ impl BftGenesis {
                     "bft.validators[{i}] duplicates an earlier key"
                 )));
             }
-            keys.push(crate::crypto::keys::VerifyingKey::from_bytes(&array)?);
+            keys.push(crate::crypto::validator_keys::VerifyingKey::from_bytes(
+                &array,
+            )?);
         }
         Ok(keys)
     }
@@ -889,21 +896,33 @@ impl GenesisConfig {
             }
             // Rewards are transfers out of the reserve. An unfunded reserve
             // would be a mining chain that silently pays nothing.
-            let reserve = hex::encode(crate::state::mining::MINING_RESERVE);
-            let funded = self
-                .allocations
-                .iter()
-                .filter(|a| a.address.eq_ignore_ascii_case(&reserve))
-                .fold(U256::zero(), |sum, a| sum.saturating_add(a.balance));
+            // Decoded, so a `0x`-prefixed reserve entry is counted too.
+            let mut funded = U256::zero();
+            for allocation in &self.allocations {
+                if decode_address(&allocation.address)? == crate::state::mining::MINING_RESERVE {
+                    funded = funded.saturating_add(allocation.balance);
+                }
+            }
             if funded < mining.initial_epoch_reward {
                 return Err(NodeError::Decode(
                     "bft.mining: the mining reserve holds less than one epoch's reward".into(),
                 ));
             }
-            records.insert(
-                crate::state::mining::MINING_KEY.to_vec(),
-                mining.record(staking.epoch_blocks)?.encode(),
-            );
+            let record = mining.record(staking.epoch_blocks)?;
+            // A tail is a promise that mining never ends. Funding every epoch a
+            // u64 height reaches keeps it without ever minting.
+            if !mining.tail_epoch_reward.is_zero() {
+                let lifetime = record.lifetime_emission().ok_or_else(|| {
+                    NodeError::Decode("bft.mining: lifetime emission at or above 2^192".into())
+                })?;
+                if funded < maya_stateless_core::amount::to_u256(lifetime) {
+                    return Err(NodeError::Decode(format!(
+                        "bft.mining: the reserve must hold the lifetime emission, {}",
+                        maya_stateless_core::amount::to_u256(lifetime)
+                    )));
+                }
+            }
+            records.insert(crate::state::mining::MINING_KEY.to_vec(), record.encode());
         }
         if staking.bonds.len() != bft.validators.len() {
             return Err(NodeError::Decode(
@@ -929,6 +948,9 @@ impl GenesisConfig {
             active.push(id);
         }
         state.active.clone_from(&active);
+        // Genesis bonds are eligible for epoch 0's rewards, not pending.
+        state.pending_self.clear();
+        state.pending_delegations.clear();
         let weights = crate::state::staking::stake_weights(&state, &active);
         let record = StakingRecord {
             staking: state,
@@ -1024,14 +1046,12 @@ impl GenesisConfig {
         h.update(&bft.round_interval_ms.to_le_bytes());
         if let Some(fees) = &bft.fees {
             h.update(b"fees");
-            for v in [
-                fees.initial_base_fee,
-                fees.min_base_fee,
-                fees.target_block_bytes,
-                fees.change_denominator,
-            ] {
-                h.update(&v.to_le_bytes());
-            }
+            // The two fees are 256-bit like every amount (ADR-066); the rest are
+            // counts. Fixed-width, so no length prefix is needed.
+            h.update(&amount_bytes(fees.initial_base_fee));
+            h.update(&amount_bytes(fees.min_base_fee));
+            h.update(&fees.target_block_bytes.to_le_bytes());
+            h.update(&fees.change_denominator.to_le_bytes());
         }
         if let Some(staking) = &bft.staking {
             h.update(b"staking");
@@ -1158,4 +1178,57 @@ pub fn decode_address(value: &str) -> Result<Address> {
             bytes.len()
         ))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    use crate::state::staking::{STATE_KEY, StakingRecord};
+    use maya_staking::{Effect, Participation};
+
+    #[test]
+    fn genesis_stake_earns_at_the_first_epoch_boundary() {
+        let validator = crate::crypto::validator_keys::signing_key_from_seed(&[0x61; 32]).unwrap();
+        let config = GenesisConfig {
+            chain_id: "genesis-earn".to_string(),
+            timestamp: 1_000_000,
+            difficulty_bits: 0,
+            pow_limit_bits: 0,
+            allocations: Vec::new(),
+            oracle: None,
+            sealed: None,
+            treasury: None,
+            protocol_upgrades: Vec::new(),
+            security_council: None,
+            shielded_activation_height: None,
+            bft: Some(BftGenesis {
+                validators: vec![hex::encode(validator.verifying_key().to_bytes())],
+                anchor_timeout_ms: 1_000,
+                batch_size: 100,
+                round_interval_ms: 500,
+                staking: Some(StakingGenesis::with_bonds(
+                    600,
+                    vec![GenesisBond {
+                        operator: hex::encode([0x0a; 32]),
+                        bond: U256::from(10_000),
+                        commission_bps: 0,
+                    }],
+                )),
+                fees: None,
+                mining: None,
+            }),
+        };
+        let records = config.staking_records().unwrap();
+        let bytes = records.get(STATE_KEY).unwrap().clone();
+        let mut record = StakingRecord::decode(&bytes).unwrap();
+        assert_eq!(record.encode(), bytes);
+        let pool = to_amount(U256::from(1_000));
+        let out = record
+            .staking
+            .end_epoch(&Participation::default(), pool)
+            .unwrap();
+        assert!(out.effects.contains(&Effect::Credit([0x0a; 32], pool)));
+        assert!(!out.effects.iter().any(|e| matches!(e, Effect::Burn(_))));
+    }
 }

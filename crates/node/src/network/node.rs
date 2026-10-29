@@ -30,9 +30,6 @@ use crate::network::sync::RateLimiter;
 use crate::network::topics::{blocks_topic, txs_topic};
 use crate::state::StateDB;
 
-/// Capacity of the outbound event broadcast channel.
-const EVENT_CHANNEL_CAPACITY: usize = 256;
-
 /// Addresses taken from one peer's identify announcement.
 const MAX_LEARNED_ADDRESSES: usize = 8;
 
@@ -141,9 +138,6 @@ pub enum NodeEvent {
     RelayFailure(String),
     /// Kademlia inserted or refreshed a routing table entry.
     RoutingUpdated(PeerId),
-    /// A DAG-BFT frame arrived on the consensus topic. Decoded and verified by
-    /// `consensus::bft::BftDriver`, not here.
-    BftFrame(std::sync::Arc<Vec<u8>>),
     /// A peer subscribed to one of our topics.
     PeerSubscribed {
         /// The subscribing peer.
@@ -209,7 +203,7 @@ enum Command {
 pub struct NodeHandle {
     peer_id: PeerId,
     commands: mpsc::Sender<Command>,
-    events: broadcast::Sender<NodeEvent>,
+    events: super::bus::Bus,
     mempool: Mempool,
 }
 
@@ -233,6 +227,13 @@ impl NodeHandle {
     #[must_use]
     pub fn subscribe(&self) -> broadcast::Receiver<NodeEvent> {
         self.events.subscribe()
+    }
+
+    /// Subscribes to DAG-BFT frames from the consensus topic, on a channel of
+    /// their own so other events cannot push them out (`network::bus`).
+    #[must_use]
+    pub fn subscribe_frames(&self) -> broadcast::Receiver<std::sync::Arc<Vec<u8>>> {
+        self.events.subscribe_frames()
     }
 
     async fn send(&self, command: Command) -> Result<()> {
@@ -473,19 +474,19 @@ impl Node {
     #[must_use]
     pub fn spawn(self) -> NodeHandle {
         let (command_tx, command_rx) = mpsc::channel(COMMAND_CHANNEL_CAPACITY);
-        let (event_tx, _) = broadcast::channel(EVENT_CHANNEL_CAPACITY);
+        let bus = super::bus::Bus::new();
 
         let handle = NodeHandle {
             peer_id: *self.swarm.local_peer_id(),
             commands: command_tx,
-            events: event_tx.clone(),
+            events: bus.clone(),
             mempool: self.mempool.clone(),
         };
 
         let driver = NodeDriver {
             swarm: self.swarm,
             mempool: self.mempool,
-            events: event_tx,
+            events: bus,
             epoch: self.epoch,
             rotation_check: self.rotation_check,
             stats: self.stats,
@@ -509,7 +510,7 @@ impl Node {
 struct NodeDriver {
     swarm: Swarm<NodeBehaviour>,
     mempool: Mempool,
-    events: broadcast::Sender<NodeEvent>,
+    events: super::bus::Bus,
     /// Drives post-quantum session rotation.
     epoch: EpochClock,
     /// How often to sweep for stale sessions.
@@ -543,7 +544,7 @@ struct NodeDriver {
 impl NodeDriver {
     /// A send failure only means nobody is subscribed, which is not an error.
     fn emit(&self, event: NodeEvent) {
-        let _ = self.events.send(event);
+        self.events.emit(event);
     }
 
     async fn run(mut self, mut commands: mpsc::Receiver<Command>) {
