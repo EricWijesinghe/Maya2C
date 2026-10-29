@@ -14,6 +14,7 @@
 //! that supply is conserved and that the block's transfers all succeeded —
 //! which is what "no downtime" means for a chain.
 
+use maya_amount::Amount;
 use maya_crypto_pq::agility::migration::{
     Account, Address, Authorizer, KeyCommitment, MigrationError, MigrationState, claim_message,
     recovery_message, rotate_message, transfer_message,
@@ -78,7 +79,7 @@ fn populate() -> MigrationState {
         let account = Account {
             suite: SuiteId::SlhDsaSha2_128s,
             key: old_key(i),
-            balance: BALANCE,
+            balance: Amount::from_u128(BALANCE),
             recovery: None,
         };
         state.open(address(i), account).expect("open");
@@ -88,7 +89,7 @@ fn populate() -> MigrationState {
         let account = Account {
             suite: SuiteId::MlDsa87,
             key: old_key(i),
-            balance: BALANCE,
+            balance: Amount::from_u128(BALANCE),
             recovery: None,
         };
         state.open(address(i), account).expect("open");
@@ -104,9 +105,19 @@ fn run_transfers(state: &mut MigrationState, policy: &SuitePolicy, height: u64) 
         let from_i = ACCOUNTS + (k + offset) % ACTIVE_ACCOUNTS;
         let to_i = ACCOUNTS + (k * 7 + 1 + offset) % ACTIVE_ACCOUNTS;
         let (from, to) = (address(from_i), address(to_i));
-        let auth = tag(&old_key(from_i), &transfer_message(&from, &to, 1));
+        let auth = tag(
+            &old_key(from_i),
+            &transfer_message(&from, &to, Amount::from_u64(1)),
+        );
         state
-            .transfer(policy, height, (&from, &to), 1, &auth, &SimAuthorizer)
+            .transfer(
+                policy,
+                height,
+                (&from, &to),
+                Amount::from_u64(1),
+                &auth,
+                &SimAuthorizer,
+            )
             .unwrap_or_else(|e| panic!("transfer failed at height {height}: {e}"));
     }
 }

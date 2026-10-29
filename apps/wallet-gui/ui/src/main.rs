@@ -219,12 +219,20 @@ fn NetworkPill() -> impl IntoView {
         {move || match state.network.get() {
             Some(status) => {
                 let test = status.is_test_network();
+                let impostor = status.is_impostor();
                 let name = status.network.clone().unwrap_or_else(|| "unnamed network".into());
                 let title = format!("{name} \u{b7} genesis {}", screens::short(&status.genesis));
+                let (class, kind) = if impostor {
+                    ("net-pill impostor", "NOT MAINNET")
+                } else if test {
+                    ("net-pill test", "TESTNET")
+                } else {
+                    ("net-pill main", "MAINNET")
+                };
                 view! {
-                    <span class=if test { "net-pill test" } else { "net-pill main" } title=title>
+                    <span class=class title=title>
                         <span class="dot"></span>
-                        <span class="net-kind">{if test { "TESTNET" } else { "MAINNET" }}</span>
+                        <span class="net-kind">{kind}</span>
                         <span class="net-height">
                             {format!("#{}", screens::group_digits(status.height))}
                         </span>

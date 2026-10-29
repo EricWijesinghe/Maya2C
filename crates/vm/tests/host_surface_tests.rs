@@ -27,7 +27,7 @@ fn module_importing(module: &str, name: &str, signature: &str) -> Vec<u8> {
     wat::parse_str(&text).expect("valid WAT")
 }
 
-/// Signatures for the eleven, in the same order as [`HOST_FUNCTIONS`].
+/// Signatures for the twelve, in the same order as [`HOST_FUNCTIONS`].
 const SIGNATURES: &[&str] = &[
     "(result i64)",
     // caller (ADR-026)
@@ -38,7 +38,9 @@ const SIGNATURES: &[&str] = &[
     "(param i32 i32 i32 i32) (result i32)",
     "(param i32 i32 i32 i32)",
     "(param i32)",
-    "(param i32 i32) (result i32)",
+    // oracle_read, then oracle_read_u256 (ADR-066): feed, max age, out pointer.
+    "(param i32 i64 i32) (result i32)",
+    "(param i32 i64 i32) (result i32)",
     "(param i32) (result i64)",
     "(param i32 i32)",
     "(param i32 i32 i32 i32 i32 i32 i32) (result i32)",
@@ -50,8 +52,8 @@ fn the_list_and_the_signatures_stay_the_same_length() {
     assert_eq!(HOST_FUNCTIONS.len(), SIGNATURES.len());
     assert_eq!(
         HOST_FUNCTIONS.len(),
-        11,
-        "the host surface changed size (caller: ADR-026; get_balance_u256: ADR-046)"
+        12,
+        "the host surface changed size (caller: ADR-026; get_balance_u256: ADR-046; oracle_read_u256: ADR-066)"
     );
 }
 

@@ -94,15 +94,10 @@ impl SealedEnvelope {
     /// ciphertext is outside [`MIN_SEALED_CIPHERTEXT`]..=[`MAX_SEALED_CIPHERTEXT`].
     pub fn decode(reader: &mut ByteReader<'_>) -> Result<Self> {
         let reveal_height = reader.read_u64()?;
-        let length = reader.read_collection_len(1)?;
+        let length = reader.read_byte_len(MAX_SEALED_CIPHERTEXT)?;
         if length < MIN_SEALED_CIPHERTEXT {
             return Err(NodeError::Decode(format!(
                 "sealed ciphertext of {length} bytes is below the minimum {MIN_SEALED_CIPHERTEXT}"
-            )));
-        }
-        if length > MAX_SEALED_CIPHERTEXT {
-            return Err(NodeError::Decode(format!(
-                "sealed ciphertext of {length} bytes exceeds the maximum {MAX_SEALED_CIPHERTEXT}"
             )));
         }
         Ok(Self {

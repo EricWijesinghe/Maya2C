@@ -5,7 +5,7 @@
 //!
 //! | piece | file | what it adds |
 //! |---|---|---|
-//! | authenticity | [`auth`] | ML-DSA-65 signatures on proposals, votes, certificates |
+//! | authenticity | [`auth`] | ML-DSA-87 validator signatures on proposals, votes, certificates |
 //! | transport | [`wire`] | one bounded, canonical frame per gossip message |
 //! | safety across restarts | [`store`] | own proposals and votes fsync'd before sending |
 //! | execution | [`builder`] | one block per committed anchor, derived, never proposed |
@@ -39,6 +39,7 @@ pub mod builder;
 pub mod catchup;
 pub mod certsync;
 pub mod driver;
+pub mod evidence;
 pub mod remote;
 pub mod store;
 pub mod wire;

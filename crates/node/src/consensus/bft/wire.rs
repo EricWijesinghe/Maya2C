@@ -30,12 +30,13 @@ pub const WIRE_VERSION: u8 = 1;
 /// `to` for a broadcast.
 pub const BROADCAST: u16 = u16::MAX;
 
-/// Most bytes one signature may claim. ML-DSA-65's is 3,309; the bound only
+/// Most bytes one signature may claim. An ML-DSA-87 validator signature is 4,627; the bound only
 /// has to stop a length prefix from asking for gigabytes.
 const MAX_SIGNATURE_BYTES: usize = 8 * 1024;
 
-/// Most bytes one transaction may claim inside a vertex.
-const MAX_PAYLOAD_BYTES: usize = 1024 * 1024;
+/// Most bytes one transaction may claim inside a vertex: the most the
+/// transaction codec accepts, or a legal transaction could be mined by no one.
+const MAX_PAYLOAD_BYTES: usize = crate::core::MAX_TX_BYTES;
 
 const TAG_PROPOSE: u8 = 0;
 const TAG_VOTE: u8 = 1;
@@ -287,6 +288,25 @@ mod tests {
             };
             assert_eq!(Envelope::decode(&env.encode()).unwrap(), env);
         }
+    }
+
+    #[test]
+    fn a_vertex_carries_a_transaction_of_the_largest_size_the_codec_accepts() {
+        // The mempool and the transaction codec accept up to MAX_TX_BYTES, and
+        // a batch may hold that much. A smaller per-item cap here made every
+        // peer refuse a vertex that carried such a transaction.
+        let mut big = vertex();
+        big.batch = vec![vec![0xcc; crate::core::MAX_TX_BYTES]];
+        let env = Envelope {
+            epoch: 2,
+            from: 3,
+            to: BROADCAST,
+            message: Message::Propose {
+                vertex: big,
+                signature: vec![5; 3309],
+            },
+        };
+        assert_eq!(Envelope::decode(&env.encode()).unwrap(), env);
     }
 
     #[test]

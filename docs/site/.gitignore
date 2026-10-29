@@ -3,6 +3,7 @@
 # of them is authored.
 src/content/docs/**/*.md
 src/content/docs/index.mdx
+src/content/docs/guides/*.mdx
 src/sidebar.generated.json
 
 node_modules/

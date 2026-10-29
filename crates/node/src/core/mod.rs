@@ -4,6 +4,7 @@ pub mod batch;
 pub mod block;
 pub mod codec;
 pub mod council_payload;
+pub mod describe;
 pub mod dex_payload;
 pub mod governance_payload;
 pub mod htlc_payload;
@@ -34,4 +35,4 @@ pub use payload::{
     ChannelClosure, ChannelId, ChannelOpen, ContractCall, ContractDeploy, RevocationProof, TxKind,
 };
 pub use sealed_payload::{RevealShare, SealedEnvelope, derive_envelope_id, envelope_aad};
-pub use transaction::{ChainTag, Transaction, TxInput, TxOutput};
+pub use transaction::{ChainTag, MAX_TX_BYTES, Transaction, TxInput, TxOutput};

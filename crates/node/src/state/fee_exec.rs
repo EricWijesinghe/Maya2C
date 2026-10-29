@@ -50,7 +50,7 @@ impl StateDB {
         let required = if matches!(tx.kind, TxKind::MiningShare(_)) && tx.outputs.is_empty() {
             U256::zero()
         } else {
-            U256::from(fees.required(size))
+            maya_stateless_core::amount::to_u256(fees.required(size))
         };
         // Saturating: the outputs already passed the transaction's checked
         // output total, so a sum past 2^256 cannot reach here.

@@ -241,8 +241,9 @@ pub async fn broadcast(node_url: &str, raw_hex: &str) -> Result<String> {
 pub struct FeeQuote {
     /// Whether this chain charges fees at all.
     pub active: bool,
-    /// Base fee per serialized byte for the next block.
-    pub base_fee: u64,
+    /// Base fee per serialized byte for the next block: 256-bit (ADR-066).
+    #[serde(with = "custom_l1_node::state::amount_serde::lenient")]
+    pub base_fee: primitive_types::U256,
     /// Hex address the fee output must pay.
     pub collector: String,
 }
@@ -267,7 +268,8 @@ pub async fn fee_quote(node_url: &str) -> Result<FeeQuote> {
     }
     Ok(FeeQuote {
         active: info.active,
-        base_fee: info.base_fee,
+        base_fee: primitive_types::U256::from_dec_str(&info.base_fee)
+            .map_err(|_| WalletError::Node(format!("bad base_fee {:?}", info.base_fee)))?,
         collector: info.collector,
     })
 }
@@ -316,6 +318,10 @@ pub struct NetworkStatus {
     pub genesis: String,
     /// The node's tip height.
     pub height: u64,
+    /// What the genesis says the network is; never the name alone.
+    pub class: crate::networks::NetworkClass,
+    /// The genesis id's two ends, for comparing with the published one.
+    pub fingerprint: String,
 }
 
 /// Reads the network's name, genesis and tip height in one call.
@@ -332,6 +338,8 @@ pub async fn network_status(node_url: &str) -> Result<NetworkStatus> {
         .await
         .map_err(|e| WalletError::Node(e.to_string()))?;
     Ok(NetworkStatus {
+        class: crate::networks::classify(info.chain_id.as_deref(), &info.genesis),
+        fingerprint: crate::networks::fingerprint(&info.genesis),
         network: info.chain_id,
         genesis: info.genesis,
         height: info.height,

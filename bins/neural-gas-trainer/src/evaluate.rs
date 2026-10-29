@@ -1,11 +1,38 @@
 //! Running the market closed-loop under a rule, and checking the envelope on
 //! every block.
 
+use maya_fee_market::Model;
 use maya_fee_market::model::UNIT_GAIN_BPS;
-use maya_fee_market::{Model, neural_next_base_fee, next_base_fee};
 
 use crate::dataset::{DENOMINATOR, FLOOR, INITIAL_FEE};
 use crate::simulator::{MAX_BLOCK_BYTES, Market, TARGET_BYTES, features};
+
+/// The fee rules on this trainer's `u64` fee track. The rules are 256-bit; the
+/// simulated market's fee is not, and clamps to `u64` here. SIM / training only.
+fn linear_step(fee: u64, size: u64, target: u64, denominator: u64, floor: u64) -> u64 {
+    use maya_fee_market::Amount;
+    maya_fee_market::next_base_fee(
+        Amount::from_u64(fee),
+        size,
+        target,
+        denominator,
+        Amount::from_u64(floor),
+    )
+    .saturating_to_u64()
+}
+
+fn neural_step(fee: u64, size: u64, target: u64, denominator: u64, floor: u64, gain: u64) -> u64 {
+    use maya_fee_market::Amount;
+    maya_fee_market::neural_next_base_fee(
+        Amount::from_u64(fee),
+        size,
+        target,
+        denominator,
+        Amount::from_u64(floor),
+        gain,
+    )
+    .saturating_to_u64()
+}
 
 /// Which rule sets the fee.
 #[derive(Clone, Copy, Debug)]
@@ -47,13 +74,13 @@ pub fn run(seed: u64, blocks: usize, controller: Controller<'_>) -> Metrics {
         market.advance();
         let block = market.block(fee);
         let next = match controller {
-            Controller::Linear => next_base_fee(fee, block.size, TARGET_BYTES, DENOMINATOR, FLOOR),
+            Controller::Linear => linear_step(fee, block.size, TARGET_BYTES, DENOMINATOR, FLOOR),
             Controller::ConstantGain(gain) => {
-                neural_next_base_fee(fee, block.size, TARGET_BYTES, DENOMINATOR, FLOOR, gain)
+                neural_step(fee, block.size, TARGET_BYTES, DENOMINATOR, FLOOR, gain)
             }
             Controller::Neural(model) => {
                 let gain = model.gain(&features(&block, previous_size));
-                neural_next_base_fee(fee, block.size, TARGET_BYTES, DENOMINATOR, FLOOR, gain)
+                neural_step(fee, block.size, TARGET_BYTES, DENOMINATOR, FLOOR, gain)
             }
         };
         if !matches!(controller, Controller::Linear) && !within_envelope(fee, block.size, next) {
@@ -80,7 +107,7 @@ pub fn run(seed: u64, blocks: usize, controller: Controller<'_>) -> Metrics {
 /// floor.
 #[must_use]
 pub fn within_envelope(parent: u64, size: u64, next: u64) -> bool {
-    let linear = next_base_fee(parent, size, TARGET_BYTES, DENOMINATOR, FLOOR);
+    let linear = linear_step(parent, size, TARGET_BYTES, DENOMINATOR, FLOOR);
     let direction_and_speed = match size.cmp(&TARGET_BYTES) {
         core::cmp::Ordering::Greater => {
             let linear_rise = linear.saturating_sub(parent);

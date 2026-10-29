@@ -67,6 +67,19 @@ pub enum MultisigError {
         /// The policy's `m`.
         threshold: usize,
     },
+    /// More approvals than the threshold.
+    ///
+    /// Approvals are not part of a transaction's id, so a quorum with a spare
+    /// signature has two valid encodings of one spend: anyone relaying it can
+    /// drop the spare and change the bytes, and the block's size, under a fixed
+    /// id. Exactly `m` makes the signed bytes the only valid ones.
+    #[error("{received} approvals, the policy takes exactly {threshold}")]
+    AboveThreshold {
+        /// Approvals presented.
+        received: usize,
+        /// The policy's `m`.
+        threshold: usize,
+    },
     /// Approvals out of order, repeated, or naming no listed key.
     #[error("approval index {0} is repeated, out of order, or not in the policy")]
     BadIndex(u8),
@@ -212,19 +225,26 @@ impl MultisigPolicy {
 
     /// Checks that `approvals` authorize `message`.
     ///
-    /// Approvals must be in strictly increasing index order — which makes a
-    /// repeated signer unrepresentable rather than merely detected — and
-    /// *every* one presented must verify. An invalid signature is refused even
-    /// when the valid ones would have met the threshold: a spend carrying
-    /// garbage is not one a relayer should be able to pad.
+    /// There must be exactly `m` approvals, in strictly increasing index
+    /// order — which makes a repeated signer unrepresentable rather than merely
+    /// detected — and *every* one must verify. Exactly `m` because approvals sit
+    /// outside the transaction id: a spare would give one spend two encodings
+    /// (see [`MultisigError::AboveThreshold`]).
     ///
     /// # Errors
     ///
-    /// [`MultisigError::BelowThreshold`], [`MultisigError::BadIndex`], or
+    /// [`MultisigError::BelowThreshold`], [`MultisigError::AboveThreshold`],
+    /// [`MultisigError::BadIndex`], or
     /// [`MultisigError::Suite`] naming the first signer that failed.
     pub fn verify(&self, message: &[u8], approvals: &[Approval]) -> Result<(), MultisigError> {
         if approvals.len() < self.threshold() {
             return Err(MultisigError::BelowThreshold {
+                received: approvals.len(),
+                threshold: self.threshold(),
+            });
+        }
+        if approvals.len() > self.threshold() {
+            return Err(MultisigError::AboveThreshold {
                 received: approvals.len(),
                 threshold: self.threshold(),
             });

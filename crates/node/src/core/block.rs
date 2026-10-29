@@ -1,7 +1,7 @@
 ﻿//! Block headers, blocks, and their proof-of-work binding.
 
 use crate::core::codec::ByteReader;
-use crate::core::transaction::Transaction;
+use crate::core::transaction::{MAX_TX_BYTES, Transaction};
 use crate::crypto::argon_blake::{HASH_LEN, argon_blake_hash};
 use crate::crypto::dag::hashimoto::hashimoto_light;
 use crate::crypto::dag::registry::CacheRegistry;
@@ -325,7 +325,7 @@ impl Block {
         let count = reader.read_collection_len(8)?;
         let mut transactions = Vec::with_capacity(count);
         for _ in 0..count {
-            let len = reader.read_collection_len(1)?;
+            let len = reader.read_byte_len(MAX_TX_BYTES)?;
             let frame = reader.read_slice(len)?;
             transactions.push(Transaction::from_bytes(frame)?);
         }
