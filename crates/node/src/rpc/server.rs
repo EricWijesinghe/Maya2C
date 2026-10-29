@@ -295,14 +295,23 @@ const _: () = assert!(
 /// match it to back off and retry (`rpc::bootstrap`).
 pub const BUDGET_EXHAUSTED: &str = "certificate byte budget used up for this client; retry later";
 
+/// Proof-of-work passes `submit_block` runs at once, across all clients.
+static POW_PASSES: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+
 /// The refusal a client gets when it already holds a page in flight.
 pub const PAGE_BUSY: &str = "one certificate page at a time per client";
 
 /// The server configuration with [`RPC_RESPONSE_LIMIT`] (jsonrpsee 0.26 takes
 /// the limit through its config, not the builder).
+///
+/// HTTP only, no batches (pre-audit S-012): the per-IP limiter charges one
+/// token per HTTP request, so a batch or one WebSocket connection would carry
+/// unlimited calls for one token. No client of the node RPC uses either.
 fn server_config() -> jsonrpsee::server::ServerConfig {
     jsonrpsee::server::ServerConfig::builder()
         .max_response_body_size(RPC_RESPONSE_LIMIT)
+        .set_batch_request_config(jsonrpsee::server::BatchRequestConfig::Disabled)
+        .http_only()
         .build()
 }
 
@@ -762,6 +771,15 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
 
     module
         .register_method("get_mining_candidate", |_params, ctx, _| {
+            // A candidate is a state-root preview under the chain lock, and on
+            // a DAG-BFT network nobody can submit it (pre-audit S-017); miners
+            // there use `get_mining_work`.
+            if !ctx.accepts_blocks {
+                return Err(rejected(
+                    "this network is ordered by DAG-BFT; mine shares with get_mining_work"
+                        .to_string(),
+                ));
+            }
             let chain = ctx.chain();
 
             // Timestamps come from the node clock, which is what a miner would
@@ -806,8 +824,15 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
             // Proof-of-work verification is a 32 MiB Argon2id pass. Running it
             // inline would block the reactor for tens of milliseconds and stall
             // every other connection.
+            // At most POW_PASSES at once (pre-audit S-014): a pass is 32 MiB
+            // and any block naming a known parent and the right target earns
+            // one, so excess submissions are refused rather than queued.
+            let Ok(permit) = POW_PASSES.try_acquire() else {
+                return Err(rejected("busy verifying other blocks; retry".to_string()));
+            };
             let context = ctx.clone();
             let result = tokio::task::spawn_blocking(move || {
+                let _permit = permit;
                 // Work is checked with no lock held: a request with a wrong
                 // nonce costs the sender nothing, and under the lock it would
                 // hold every other reader of the chain for the whole pass.
