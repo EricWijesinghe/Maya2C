@@ -208,6 +208,59 @@ async fn supply_is_served() {
     assert_eq!(body["total"], "42000");
 }
 
+#[tokio::test]
+async fn listing_sites_get_whole_coins_as_plain_text() {
+    // CoinGecko and CoinMarketCap read one bare number of whole coins.
+    for (uri, expected) in [
+        ("/v1/supply/circulating", "0.000000000000000000021"),
+        ("/v1/supply/total", "0.000000000000000000042"),
+    ] {
+        let response = app_with(Arc::new(MockNode::default()))
+            .oneshot(
+                Request::builder()
+                    .uri(uri)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        assert_eq!(
+            std::str::from_utf8(&bytes).expect("utf8"),
+            expected,
+            "{uri}"
+        );
+    }
+}
+
+#[test]
+fn coin_decimals_match_the_wallet() {
+    // Read from source: depending on the wallet core would link the whole
+    // node into the gateway's tests.
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../apps/wallet-gui/core/src/amount.rs"
+    );
+    let source = std::fs::read_to_string(path).expect("wallet amount.rs");
+    let line = source
+        .lines()
+        .find(|l| l.starts_with("pub const DECIMALS: usize ="))
+        .expect("DECIMALS in amount.rs");
+    let wallet: usize = line
+        .trim_start_matches("pub const DECIMALS: usize =")
+        .trim()
+        .trim_end_matches(';')
+        .parse()
+        .expect("a number");
+    assert_eq!(maya_api_gateway::coins::COIN_DECIMALS, wallet);
+}
+
 // ---------------------------------------------------------------------------
 // The allowlist, observed from outside
 // ---------------------------------------------------------------------------

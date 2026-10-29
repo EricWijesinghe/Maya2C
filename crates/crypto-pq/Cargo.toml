@@ -26,6 +26,7 @@ rust-version.workspace = true
 # Feature-unification point: `hqc` (draft standard, measured non-constant-time
 # decapsulation, ADR-009) forwards to its `research` feature, so no production
 # build can carry it (ADR-016).
+maya-amount = { path = "../amount" }
 maya-build-guard = { path = "../build-guard" }
 # Pure Rust, which the infra/docker/Dockerfile's static-musl build depends on. The PQClean
 # bindings (pqcrypto-sphincsplus) would add a C toolchain and an unsafe FFI

@@ -23,7 +23,7 @@ use std::time::Instant;
 
 use custom_l1_node::consensus::bft::auth::MlDsaAuthenticator;
 use custom_l1_node::consensus::bft::{BROADCAST, Envelope};
-use custom_l1_node::crypto::keys::{self, VerifyingKey};
+use custom_l1_node::crypto::validator_keys::{self as keys, VerifyingKey};
 use maya_dag_bft::{Committee, Dest, Output, Params, Validator};
 
 const ROUNDS: u64 = 8;
@@ -72,6 +72,8 @@ fn measure(n: u16) -> (f64, f64) {
                 MlDsaAuthenticator::validator(
                     Arc::clone(&signers[usize::from(i)]),
                     Arc::clone(&committee),
+                    // A local measurement: any tag every engine shares.
+                    custom_l1_node::core::ChainTag([0; 32]),
                 ),
             )
         })

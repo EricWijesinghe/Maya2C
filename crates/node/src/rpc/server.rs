@@ -681,7 +681,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 .map_err(|e| rejected(e.to_string()))?;
             Ok::<_, ErrorObjectOwned>(crate::rpc::types::FeeInfo {
                 active: fees.is_some(),
-                base_fee: fees.map_or(0, |f| f.base_fee),
+                base_fee: fees.map_or_else(|| "0".to_string(), |f| f.base_fee.to_string()),
                 collector: hex::encode(crate::state::fees::FEE_COLLECTOR),
             })
         })

@@ -60,7 +60,10 @@ pub struct Tx {
     pub reads: Vec<Key>,
     /// Keys written (a subset of what an executor may touch).
     pub writes: Vec<Key>,
-    /// Amount moved.
+    /// Amount moved, in the model's own units.
+    ///
+    /// u64 on purpose: a synthetic workload for the parallel executor, never a
+    /// chain amount, so ADR-046's 256-bit rule does not reach it.
     pub amount: u64,
 }
 

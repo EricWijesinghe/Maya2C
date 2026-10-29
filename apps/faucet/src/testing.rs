@@ -8,7 +8,6 @@
 //! of the policy, and running them against a real node would test `RocksDB`.
 
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use async_trait::async_trait;
 
@@ -20,7 +19,11 @@ pub struct NullDispenser;
 
 #[async_trait]
 impl Dispenser for NullDispenser {
-    async fn send(&self, recipient: &[u8; 32], _amount: u64) -> Result<String, DispenseError> {
+    async fn send(
+        &self,
+        recipient: &[u8; 32],
+        _amount: primitive_types::U256,
+    ) -> Result<String, DispenseError> {
         Ok(hex::encode(recipient))
     }
 }
@@ -28,8 +31,7 @@ impl Dispenser for NullDispenser {
 /// Records every send, so a test can count what was actually handed out.
 #[derive(Debug, Default)]
 pub struct RecordingDispenser {
-    sent: Mutex<Vec<([u8; 32], u64)>>,
-    total: AtomicU64,
+    sent: Mutex<Vec<([u8; 32], primitive_types::U256)>>,
 }
 
 impl RecordingDispenser {
@@ -46,7 +48,7 @@ impl RecordingDispenser {
     /// If a test thread panicked while holding the lock, which is a failure
     /// the test should see rather than hide.
     #[must_use]
-    pub fn sent(&self) -> Vec<([u8; 32], u64)> {
+    pub fn sent(&self) -> Vec<([u8; 32], primitive_types::U256)> {
         self.sent.lock().expect("no test panicked mid-send").clone()
     }
 
@@ -54,19 +56,26 @@ impl RecordingDispenser {
     ///
     /// The number a load test checks against the cap.
     #[must_use]
-    pub fn total(&self) -> u64 {
-        self.total.load(Ordering::SeqCst)
+    pub fn total(&self) -> primitive_types::U256 {
+        self.sent()
+            .iter()
+            .fold(primitive_types::U256::zero(), |sum, (_, amount)| {
+                sum + amount
+            })
     }
 }
 
 #[async_trait]
 impl Dispenser for RecordingDispenser {
-    async fn send(&self, recipient: &[u8; 32], amount: u64) -> Result<String, DispenseError> {
+    async fn send(
+        &self,
+        recipient: &[u8; 32],
+        amount: primitive_types::U256,
+    ) -> Result<String, DispenseError> {
         self.sent
             .lock()
             .expect("no test panicked mid-send")
             .push((*recipient, amount));
-        self.total.fetch_add(amount, Ordering::SeqCst);
         Ok(hex::encode(recipient))
     }
 }
@@ -78,7 +87,11 @@ pub struct FailingDispenser;
 
 #[async_trait]
 impl Dispenser for FailingDispenser {
-    async fn send(&self, _recipient: &[u8; 32], _amount: u64) -> Result<String, DispenseError> {
+    async fn send(
+        &self,
+        _recipient: &[u8; 32],
+        _amount: primitive_types::U256,
+    ) -> Result<String, DispenseError> {
         Err(DispenseError::Node("the node is down".to_string()))
     }
 }

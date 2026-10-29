@@ -352,7 +352,7 @@ deliberately left at 64 bits, and why, are tabled in ADR-048.
   - the third key is kept offline, as the sealed file plus a paper passphrase in two places.
 - **ADR-055 (Quantum Harbor binding) accepted.** It is built after the launch gates, with an `AnchorAttestation` anchor, so there is no new transaction kind. `k256` goes into `quantum-harbor` only, after an audit check.
 - **ADR-056 (guardian recovery) accepted.** It goes on the testnet first, behind an activation height. The default delay is 7 days, with a minimum of one epoch. Vaults stay separate.
-- **The soak clock resets: the new earliest pass is 2026-10-26 21:28 KST.**
+- **The soak clock resets: the new earliest pass is 2026-10-26 21:28 KST.** Superseded the same night: the testnet moved to the Oracle VM (Eric approved 2026-10-20), and the VM chain starts at block 1, 2026-10-20 00:04:11 KST, so **the earliest pass is 2026-10-27 00:04 KST**.
   - What happened: the PC went to battery at 18:19:04 KST, and a forced suspend at 18:42 stopped every node.
   - Measured on chain: no block was produced between 18:42:40 and 21:28:31 KST (2 h 45 min 51 s, before height 129,307).
   - A 7-day soak with a 2 h 46 min stop is not a 7-day soak.
@@ -443,3 +443,81 @@ deliberately left at 64 bits, and why, are tabled in ADR-048.
   (about 4 years, computed from the measured rate). This is a devnet rate: if the mainnet
   `round_interval_ms` differs, recompute before the genesis freeze. It is Bitcoin's interval
   and is not claimed to be better than any chain's.
+## 2026-10-28 — Supply, capacity and the governance deposit (Claude decided, Eric delegated)
+
+- **Supply stays 21M coins at 18 decimals (2026-10-26 stands).** Capacity is already the
+  maximum (U256, 2^256 base units, the EVM width), and 18 decimals is Ethereum's divisibility
+  and 10^10 times Bitcoin's. A supply at the ceiling would make each coin worthless and
+  overflow on the first reward. Eric's aim, "no numberwise disadvantage, and value", is met
+  by maximum capacity plus a scarce supply.
+- **Governance proposal deposit: default 10 coins, bounds 1 to 100,000 coins**
+  (`crates/governance/src/params.rs`). The u64-era bounds were 1e-14 coin by default and
+  1e-9 at most, so spam proposals were free and governance could not change that. It is
+  refunded unless the proposal is withdrawn. Eric did not follow the question and asked
+  Claude to pick; he can veto it before genesis.
+- **ADR-062: both halves (Claude, under Eric's "enterprise grade" delegation).** Note that
+  the existing sparse tree also rebuilds O(N) per block (docs/stateless.md, "Root cost"),
+  so 062a means an *incremental* sparse root, pinned by an incremental == full-rebuild
+  property test.
+- **Mainnet moves to about 2026-11-20** (Eric accepted). Re-genesis soak runs in parallel
+  with the self-run attacknet and pre-audit, not before them.
+
+## 2026-10-28 — Forever mining, 24 decimals, fee burn, 512-bit math (Eric approved)
+
+Eric: "OK I approve the chart keep the ecosystem upgradable and continute". Recorded in
+[ADR-068](docs/adr/ADR-068-forever-mining.md):
+
+1. A tail reward: the halvings stop at a floor paid every epoch to the last `u64` height.
+   Genesis funds the reserve with the exact lifetime emission (no mint, ever); ceiling 2^192.
+   **Built** (`state/mining.rs`, `genesis.rs`). Tail size: default proposal 0.5% of 21M a
+   year, set in the genesis file at the re-genesis.
+2. 24 decimals instead of 18. Not built yet.
+3. Fee burn: already 100% of the base fee (ADR-029); more than the approved 50%, so unchanged.
+4. 512-bit intermediates for amount × amount: audit of remaining sites not done yet.
+
+"Upgradable": parameters change by protocol upgrade at an activation height, not by a live
+governance knob over emission.
+
+## 2026-10-28 — Validator keys are ML-DSA-87 (ADR-051 option 3, built)
+
+Eric chose "Build it now" for the re-genesis. Separate type from transaction keys, `ml-dsa`
+backend (invariant 4), context `maya2c validator v1`, spec CRY-4. Council keys stay
+ML-DSA-65 for now. Every validator key must be regenerated for the re-genesis.
+
+## 2026-10-28 — ADR-062a/b move to after mainnet (Claude, under Eric's delegation)
+
+Mainnet deadline ~2026-11-28. Measured state-root cost is 0.88 ms at 1k accounts and 6.82 ms
+at 10k (`reports/bench/state-root-scaling-23a158f4.md`); a launch chain sits at the low end.
+The sparse accounts tree is already an activation-height switch (`sl:accounts-sparse`,
+`state/stateless.rs`), so ADR-062a (incremental sparse root) lands later as a scheduled
+upgrade without a re-genesis, and ADR-062b (per-validator staking records) the same way.
+Building either now would put a new state format into the freeze week for no launch-time
+gain. Revisit when accounts pass ~50k or block time is threatened (measure, then decide).
+
+## 2026-10-28 — ADR-068 step 4: 512-bit product audit, clean
+
+`rg` over node state/consensus, dex, fee-market, governance, ledger-math, staking and amount
+for every multiplication of amounts. Every amount × amount product is a 512-bit
+`mul_wide`/`mul_div`/`full_mul` (dex AMM invariant and share checks, governance tally,
+ledger-math splits, fee-market step, invariant-guard anomaly) or a checked/saturating op that
+refuses or clamps. Bare `*` on amounts appears only on constants (`10 * COIN`) and in
+`staking/concentration.rs`, whose inputs are shifted into the `u64` range before `× BPS`
+(fits `u128`). No change needed.
+
+## 2026-10-29 — Pre-audit HIGH-4, LOW-7, INFO-8 (self-run audit by maya2c-9a)
+
+- HIGH-4 fixed: every DAG-BFT vote signs `VOTE_DOMAIN ‖ H("maya2c dag-bft vote chain v1",
+  chain_tag ‖ digest)`, so a validator key reused across chains cannot have votes or
+  equivocations counted on another. Remote signers sign the bound digest unchanged. Wire
+  change, pre-genesis.
+- LOW-7: protocol floor unchanged (1 unit); mainnet genesis sets min_base_fee ≥ 10^6 (runbook).
+- INFO-8: no protocol supply cap; genesis is the cap; with the tail, total > 21M by design
+  (runbook).
+## 2026-10-28 — No second public soak; the next public genesis is mainnet (Eric)
+
+Relayed through session maya2c-9a, Eric's words: "we validate for 7 days and we continue, no
+repeat". Overrides ADR-044's requirement that gate 3 run again on the mining build. The
+frozen build is proven on local multi-validator networks (attacknet, rejoin drills, Hub
+mining E2E, self pre-audit) from 11-04 to 11-08; mainnet 11-09 → 11-14, each step with its
+own APPROVED. Risk stated once: the mining lane has never run on a public, multi-machine
+network before mainnet.
