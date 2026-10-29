@@ -398,9 +398,9 @@ fn cancelling_dust_counts_against_the_work_ceiling() {
 
 #[test]
 fn a_resting_dust_order_does_not_freeze_the_honest_orders_behind_it() {
-    // The dust ask is the best ask (lowest price) and the oldest order, so it is
-    // the maker and sets the price: one base unit at price 1 is a zero quote,
-    // and the pass stops. The honest pair behind it crosses and never trades.
+    // The dust ask is the best ask and the oldest order, so it is the maker and
+    // sets the price: one base unit at price 1 is a zero quote. It is cancelled
+    // for refund and the honest pair behind it trades (H-1, ADR-064).
     let book = book_of(&[
         order(1, Side::Ask, a(1), 1, 1),
         order(2, Side::Ask, price(10), 100, 2),
