@@ -1,0 +1,166 @@
+/* Maya2C Explorer: HUD layer.
+ *
+ * Loaded after the inline base styles, so everything here is an override:
+ * delete this file and the explorer falls back to its plain theme. It lives in
+ * /assets so the look can change without rebuilding the binary.
+ */
+:root {
+  --hud-cyan: #22e6ff;
+  --hud-violet: #8b5cf6;
+  --hud-magenta: #ff3df2;
+  --hud-amber: #ffb020;
+  --hud-lime: #7dff6a;
+  --hud-ink: #e6f6ff;
+  --hud-dim: #7f9bb3;
+  --hud-bg: #02040c;
+  --hud-glass: rgba(8, 20, 40, 0.55);
+  --hud-line: rgba(34, 230, 255, 0.28);
+  --hud-glow: 0 0 18px rgba(34, 230, 255, 0.35), inset 0 0 22px rgba(34, 230, 255, 0.06);
+  --hud-mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+}
+
+html { background: var(--hud-bg); }
+body {
+  background:
+    radial-gradient(1200px 700px at 78% -10%, rgba(139, 92, 246, 0.22), transparent 60%),
+    radial-gradient(900px 600px at 0% 30%, rgba(34, 230, 255, 0.14), transparent 60%),
+    radial-gradient(800px 500px at 60% 110%, rgba(255, 61, 242, 0.12), transparent 60%),
+    var(--hud-bg) !important;
+  color: var(--hud-ink);
+  min-height: 100vh;
+}
+/* Perspective grid floor, fixed behind everything. */
+body::before {
+  content: "";
+  position: fixed; inset: 0; z-index: -2; pointer-events: none;
+  background:
+    linear-gradient(rgba(34, 230, 255, 0.07) 1px, transparent 1px) 0 0 / 48px 48px,
+    linear-gradient(90deg, rgba(34, 230, 255, 0.07) 1px, transparent 1px) 0 0 / 48px 48px;
+  mask-image: radial-gradient(ellipse at 50% 30%, #000 20%, transparent 75%);
+}
+/* Scan line: one soft band crossing the screen every few seconds. */
+body::after {
+  content: "";
+  position: fixed; left: 0; right: 0; top: -20vh; height: 20vh; z-index: -1; pointer-events: none;
+  background: linear-gradient(transparent, rgba(34, 230, 255, 0.05), transparent);
+  animation: hud-scan 7s linear infinite;
+}
+@keyframes hud-scan { to { transform: translateY(140vh); } }
+
+#hud-field { position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: 0.55; }
+
+/* ---------- navigation ---------- */
+.nav {
+  background: rgba(2, 6, 18, 0.72) !important;
+  border-bottom: 1px solid var(--hud-line) !important;
+  box-shadow: 0 1px 0 rgba(255, 61, 242, 0.25), 0 8px 30px rgba(0, 0, 0, 0.45);
+}
+.nav a { letter-spacing: 0.08em; text-transform: uppercase; font-size: 0.82rem; }
+.nav a:hover, .nav a:focus-visible { color: var(--hud-cyan) !important; text-shadow: 0 0 10px var(--hud-cyan); }
+.brand { position: relative; gap: 14px; }
+.brand .word { margin-left: 4px; }
+.brand .emblem {
+  filter: drop-shadow(0 0 8px rgba(34, 230, 255, 0.7));
+  border-radius: 50%;
+}
+/* Two counter-rotating arcs around the emblem. */
+.brand::before, .brand::after {
+  content: ""; position: absolute; left: -6px; top: 50%;
+  width: 52px; height: 52px; margin-top: -26px; border-radius: 50%;
+  border: 2px solid transparent; pointer-events: none;
+}
+.brand::before { border-top-color: var(--hud-cyan); border-right-color: var(--hud-cyan); animation: hud-spin 6s linear infinite; }
+.brand::after { inset-inline-start: -2px; width: 44px; height: 44px; margin-top: -22px;
+  border-bottom-color: var(--hud-magenta); border-left-color: var(--hud-magenta); animation: hud-spin 4s linear infinite reverse; }
+@keyframes hud-spin { to { transform: rotate(360deg); } }
+.brand .word {
+  font-weight: 800; letter-spacing: 0.12em;
+  background: linear-gradient(90deg, var(--hud-cyan), var(--hud-violet), var(--hud-magenta));
+  -webkit-background-clip: text; background-clip: text; color: transparent !important;
+}
+
+/* ---------- panels: glass with corner brackets ---------- */
+.panel, .tile {
+  position: relative;
+  background: var(--hud-glass) !important;
+  border: 1px solid var(--hud-line) !important;
+  box-shadow: var(--hud-glow);
+  backdrop-filter: blur(8px);
+  border-radius: 6px !important;
+}
+.panel::before, .tile::before, .panel::after, .tile::after {
+  content: ""; position: absolute; width: 14px; height: 14px; pointer-events: none;
+  border: 2px solid var(--hud-cyan);
+}
+.panel::before, .tile::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+.panel::after, .tile::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; border-color: var(--hud-magenta); }
+.panel h2 {
+  text-transform: uppercase; letter-spacing: 0.18em; font-size: 0.85rem !important;
+  color: var(--hud-cyan) !important; text-shadow: 0 0 12px rgba(34, 230, 255, 0.6);
+}
+.panel h2::before { content: "▸ "; color: var(--hud-magenta); }
+
+/* ---------- stat tiles ---------- */
+.tile .label { text-transform: uppercase; letter-spacing: 0.14em; font-size: 0.7rem; color: var(--hud-dim) !important; }
+.tile .value {
+  font-family: var(--hud-mono); font-variant-numeric: tabular-nums;
+  background: linear-gradient(180deg, #fff, var(--hud-cyan));
+  -webkit-background-clip: text; background-clip: text; color: transparent !important;
+  text-shadow: none; filter: drop-shadow(0 0 8px rgba(34, 230, 255, 0.45));
+}
+.tile:nth-child(3n+2) .value { background-image: linear-gradient(180deg, #fff, var(--hud-magenta)); filter: drop-shadow(0 0 8px rgba(255, 61, 242, 0.45)); }
+.tile:nth-child(3n) .value { background-image: linear-gradient(180deg, #fff, var(--hud-amber)); filter: drop-shadow(0 0 8px rgba(255, 176, 32, 0.45)); }
+.tile.hud-flash { animation: hud-flash 0.9s ease-out; }
+@keyframes hud-flash { from { box-shadow: 0 0 34px rgba(125, 255, 106, 0.8), var(--hud-glow); } }
+
+/* ---------- block-time chart ---------- */
+.chart .bar {
+  background: linear-gradient(180deg, var(--hud-magenta), var(--hud-violet) 45%, var(--hud-cyan)) !important;
+  box-shadow: 0 0 10px rgba(139, 92, 246, 0.55);
+  border-radius: 2px 2px 0 0;
+}
+
+/* ---------- ribbon cubes ---------- */
+.cube .f {
+  background: rgba(34, 230, 255, 0.08) !important;
+  border: 1px solid rgba(34, 230, 255, 0.65) !important;
+  box-shadow: inset 0 0 14px rgba(34, 230, 255, 0.35);
+}
+.cube .f.front { color: #fff !important; font-family: var(--hud-mono); text-shadow: 0 0 8px var(--hud-cyan); }
+.cube:nth-child(3n+1) .f { border-color: rgba(255, 61, 242, 0.7) !important; box-shadow: inset 0 0 14px rgba(255, 61, 242, 0.35); }
+.cube:nth-child(3n+2) .f { border-color: rgba(255, 176, 32, 0.7) !important; box-shadow: inset 0 0 14px rgba(255, 176, 32, 0.3); }
+
+/* ---------- tables ---------- */
+table { border-collapse: separate !important; border-spacing: 0 4px !important; }
+thead th { text-transform: uppercase; letter-spacing: 0.12em; font-size: 0.72rem; color: var(--hud-dim) !important; border: 0 !important; }
+tbody tr { background: rgba(10, 26, 52, 0.5); transition: background 0.2s, box-shadow 0.2s; }
+tbody tr:hover { background: rgba(34, 230, 255, 0.1); box-shadow: inset 3px 0 0 var(--hud-cyan); }
+tbody tr:first-child { animation: hud-row 1.2s ease-out; }
+@keyframes hud-row { from { background: rgba(125, 255, 106, 0.25); } }
+td, .mono { font-family: var(--hud-mono); }
+a { color: var(--hud-cyan); }
+
+/* ---------- propagation core (built by hud.js on the dashboard) ---------- */
+.hud-core { padding: 0 !important; overflow: hidden; }
+.hud-core canvas { display: block; width: 100%; height: clamp(340px, 46vw, 540px); }
+.hud-core .hud-read {
+  position: absolute; left: 18px; top: 14px; right: 18px;
+  display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  font-family: var(--hud-mono); font-size: 0.78rem; letter-spacing: 0.1em; text-transform: uppercase;
+  pointer-events: none;
+}
+.hud-core .hud-read b { color: var(--hud-lime); font-weight: 600; text-shadow: 0 0 8px rgba(125, 255, 106, 0.7); }
+.hud-core .hud-read span { color: var(--hud-dim); }
+.hud-core .hud-note {
+  position: absolute; left: 18px; bottom: 12px; right: 18px; margin: 0;
+  font-size: 0.72rem; color: var(--hud-dim); pointer-events: none;
+}
+
+@media (max-width: 640px) {
+  .brand::before, .brand::after { display: none; }
+  .hud-core .hud-read { font-size: 0.68rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  body::after, .brand::before, .brand::after { animation: none; }
+  .tile.hud-flash, tbody tr:first-child { animation: none; }
+}

@@ -32,8 +32,35 @@ fn tx(i: i64) -> IndexedTx {
     }
 }
 
+/// External scripts without `defer`/`async`, and stylesheet links: the
+/// requests a browser must finish before it paints. A deferred script runs
+/// after parsing, so it does not hold up first paint.
 fn render_blocking_requests(html: &str) -> usize {
-    html.matches("<script src").count() + html.matches("rel=\"stylesheet\"").count()
+    let blocking_scripts = html
+        .split("<script src")
+        .skip(1)
+        .filter(|rest| {
+            let tag = rest.split('>').next().unwrap_or("");
+            !tag.contains("defer") && !tag.contains("async")
+        })
+        .count();
+    blocking_scripts + html.matches("rel=\"stylesheet\"").count()
+}
+
+#[test]
+fn a_deferred_script_does_not_block_and_a_plain_one_does() {
+    assert_eq!(
+        render_blocking_requests(r#"<script src="/a.js" defer></script>"#),
+        0
+    );
+    assert_eq!(
+        render_blocking_requests(r#"<script src="/a.js"></script>"#),
+        1
+    );
+    assert_eq!(
+        render_blocking_requests(r#"<link rel="stylesheet" href="/a.css"/>"#),
+        1
+    );
 }
 
 #[test]
