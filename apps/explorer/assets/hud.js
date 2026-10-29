@@ -87,8 +87,7 @@
       '<canvas></canvas>' +
       '<div class="hud-read"><span>HEIGHT <b id="hud-h">—</b></span>' +
       '<span>LAST BLOCK <b id="hud-age">—</b></span>' +
-      '<span>TXS <b id="hud-tx">—</b></span>' +
-      '<span>QUORUM <b id="hud-q">3 / 4</b></span></div>' +
+      '<span>TXS <b id="hud-tx">—</b></span></div>' +
       '<p class="hud-note">Live: every wave is a real block from this explorer’s feed. ' +
       'The four validators are drawn, not mapped.</p>';
     tiles.parentNode.insertBefore(sec, tiles);
@@ -96,9 +95,9 @@
     var g = fit(canvas);
     watch(canvas, function () { g = fit(canvas); });
 
-    var waves = [], packets = [], t0 = performance.now(), lastBlockAt = 0, signed = 0;
+    var waves = [], packets = [], t0 = performance.now(), lastBlockAt = 0;
     var heightEl = document.getElementById('hud-h'), ageEl = document.getElementById('hud-age');
-    var txEl = document.getElementById('hud-tx'), qEl = document.getElementById('hud-q');
+    var txEl = document.getElementById('hud-tx');
     var start = document.getElementById('stat-height');
     if (start) heightEl.textContent = start.textContent;
 
@@ -110,7 +109,7 @@
 
     function block(b) {
       var col = hueOf(b && b.id);
-      lastBlockAt = performance.now(); signed = 0;
+      lastBlockAt = performance.now();
       if (b && b.height !== undefined) heightEl.textContent = String(b.height);
       if (b && b.tx_count !== undefined) txEl.textContent = String(b.tx_count);
       waves.push({ t: lastBlockAt, c: col });
@@ -209,7 +208,6 @@
         if (u < 0) return true;
         if (u >= 1) {
           if (!k.back) packets.push({ from: k.to, to: -1, t: now + 120, c: '#7dff6a', back: true });
-          else if (++signed >= 3) qEl.textContent = Math.min(signed, 4) + ' / 4 SIGNED';
           return false;
         }
         var a = k.from < 0 ? { x: cx, y: cy } : pos[k.from];
