@@ -184,11 +184,17 @@ fn a_full_pool_evicts_its_cheapest_for_a_better_paying_transaction() {
     assert!(pool.insert(paying(&key(1), 50, 0)).unwrap());
 
     let err = pool.insert(paying(&key(2), 10, 0)).unwrap_err();
-    assert!(matches!(err, NodeError::MempoolRejected(ref m) if m.contains("full")), "{err:?}");
+    assert!(
+        matches!(err, NodeError::MempoolRejected(ref m) if m.contains("full")),
+        "{err:?}"
+    );
 
     assert!(pool.insert(paying(&key(2), 100, 0)).unwrap());
     assert_eq!(pool.len(), 2);
-    assert!(!pool.contains(&cheap.txid()), "the cheapest entry was not the one evicted");
+    assert!(
+        !pool.contains(&cheap.txid()),
+        "the cheapest entry was not the one evicted"
+    );
 }
 
 #[test]

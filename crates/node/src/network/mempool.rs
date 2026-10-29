@@ -179,8 +179,11 @@ impl Mempool {
             return Ok(Vec::new());
         }
         let per_byte = |f: U256, s: usize| f.saturating_mul(U256::from(s));
-        let mut ranked: Vec<(TxHash, U256, usize)> =
-            self.lock_fees().iter().map(|(h, &(f, s))| (*h, f, s)).collect();
+        let mut ranked: Vec<(TxHash, U256, usize)> = self
+            .lock_fees()
+            .iter()
+            .map(|(h, &(f, s))| (*h, f, s))
+            .collect();
         // Ascending fee per byte (a/b < c/d as a·d < c·b), ties by hash.
         ranked.sort_by(|a, b| {
             per_byte(a.1, b.2)
@@ -441,7 +444,12 @@ impl Mempool {
         // write lock below, since another insert may land in between.
         let balance = self.state.get_account(&tx.sender())?.balance;
         let (fee, size) = (fee_of(&tx), tx.to_bytes().len());
-        self.victims(self.len(), self.pooled_bytes.load(Ordering::Relaxed), fee, size)?;
+        self.victims(
+            self.len(),
+            self.pooled_bytes.load(Ordering::Relaxed),
+            fee,
+            size,
+        )?;
         self.check_sender_room(&tx, balance)?;
 
         // Validation performs RocksDB reads; deliberately outside any lock.
