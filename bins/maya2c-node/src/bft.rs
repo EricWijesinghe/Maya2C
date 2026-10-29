@@ -291,14 +291,23 @@ pub(super) async fn catch_up_from_any(
         tokio::time::sleep(PROBE_PAUSE).await;
     }
     let mut last_error = None;
+    // A source that imports nothing may be behind this node, or lying about
+    // its tip: try the rest before calling it caught up (pre-audit S-029).
+    let mut first_answered = None;
     for url in ranked {
         match catch_up(&url, chain, driver).await {
-            Ok(_) => return Ok(Some(url)),
+            Ok(imported) if imported > 0 => return Ok(Some(url)),
+            Ok(_) => {
+                first_answered.get_or_insert(url);
+            }
             Err(error) => {
                 eprintln!("catch-up:    {url} failed: {error}; trying the next source");
                 last_error = Some(error);
             }
         }
+    }
+    if first_answered.is_some() {
+        return Ok(first_answered);
     }
     match last_error {
         Some(error) => Err(error),
