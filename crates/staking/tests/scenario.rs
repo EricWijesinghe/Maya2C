@@ -454,7 +454,13 @@ fn downtime_jailing_never_shrinks_the_committee_below_four_seats() {
     s.end_epoch(&Participation::default(), Amount::ZERO)
         .unwrap();
     // Validators 3, 4 and 5 are down; 4 took part least.
-    let authored = BTreeMap::from([(id(1), 100), (id(2), 100), (id(3), 30), (id(4), 0), (id(5), 20)]);
+    let authored = BTreeMap::from([
+        (id(1), 100),
+        (id(2), 100),
+        (id(3), 30),
+        (id(4), 0),
+        (id(5), 20),
+    ]);
     let out = s
         .end_epoch(
             &Participation {
@@ -468,7 +474,11 @@ fn downtime_jailing_never_shrinks_the_committee_below_four_seats() {
     assert_eq!(out.jailed, vec![id(4)]);
     assert_eq!(out.active.len(), staking_min_committee());
     for n in 3..=5 {
-        assert_eq!(s.validators[&id(n)].self_bond, a(9_900), "validator {n} slashed");
+        assert_eq!(
+            s.validators[&id(n)].self_bond,
+            a(9_900),
+            "validator {n} slashed"
+        );
     }
     // Only the two that took part are paid.
     let paid: Vec<_> = out
@@ -479,7 +489,10 @@ fn downtime_jailing_never_shrinks_the_committee_below_four_seats() {
             _ => None,
         })
         .collect();
-    assert!(paid.iter().all(|to| *to == account(1) || *to == account(2)), "{paid:?}");
+    assert!(
+        paid.iter().all(|to| *to == account(1) || *to == account(2)),
+        "{paid:?}"
+    );
 }
 
 fn staking_min_committee() -> usize {
