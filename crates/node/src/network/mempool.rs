@@ -14,6 +14,14 @@
 //! Inbound gossip is untrusted. A transaction is admitted only if it is
 //! well-formed, correctly signed, not already pooled, and consistent with
 //! committed state: nonce not stale, balance sufficient.
+//!
+//! ## One sender's share (pre-audit S-013)
+//!
+//! A nonce may run at most [`MAX_NONCE_AHEAD`] past the account's, one sender
+//! holds at most [`MAX_PER_SENDER`] entries, and everything a sender has
+//! pooled must be affordable together, not one transaction at a time. Without
+//! these, one account holding a single coin filled the pool with
+//! future-nonce spends of that coin, none of which ever paid a fee.
 
 use primitive_types::U256;
 use std::collections::HashMap;
@@ -22,7 +30,7 @@ use std::sync::{Arc, RwLock};
 
 use crate::core::Transaction;
 use crate::error::{NodeError, Result};
-use crate::state::{Module, StateDB};
+use crate::state::{Address, Module, StateDB};
 
 /// Identifier of a pooled transaction.
 pub type TxHash = [u8; 32];
@@ -39,7 +47,27 @@ pub struct Mempool {
     /// transactions of `MAX_TX_BYTES` each pin about 16 GiB.
     pooled_bytes: Arc<AtomicUsize>,
     max_bytes: usize,
+    /// Entries and summed outputs pooled per sender, changed only under the
+    /// pool's write lock (always taken first).
+    senders: Arc<std::sync::Mutex<HashMap<Address, Pending>>>,
+    /// Fee and encoded size of every pooled entry, so a full pool can evict
+    /// its cheapest per byte without re-encoding everything it holds. Changed
+    /// only under the pool's write lock.
+    fees: Arc<std::sync::Mutex<HashMap<TxHash, (U256, usize)>>>,
 }
+
+/// What one sender has pooled.
+#[derive(Clone, Copy, Debug, Default)]
+struct Pending {
+    count: usize,
+    outputs: U256,
+}
+
+/// How far past the account's nonce a pooled transaction may run.
+pub const MAX_NONCE_AHEAD: u64 = 64;
+
+/// Most pooled transactions one sender may hold.
+pub const MAX_PER_SENDER: usize = 64;
 
 /// Default maximum number of pooled transactions.
 pub const DEFAULT_CAPACITY: usize = 4_096;
@@ -64,6 +92,8 @@ impl Mempool {
             capacity,
             pooled_bytes: Arc::new(AtomicUsize::new(0)),
             max_bytes: DEFAULT_MAX_BYTES,
+            senders: Arc::default(),
+            fees: Arc::default(),
         }
     }
 
@@ -95,6 +125,92 @@ impl Mempool {
     /// # Errors
     ///
     /// Propagates every read or decode failure.
+    fn lock_senders(&self) -> std::sync::MutexGuard<'_, HashMap<Address, Pending>> {
+        self.senders
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Refuses `tx` when one more entry from its sender would pass
+    /// [`MAX_PER_SENDER`], or its outputs plus the sender's pooled ones would
+    /// pass `balance`. Mining shares are exempt: each costs real work.
+    fn check_sender_room(&self, tx: &Transaction, balance: U256) -> Result<()> {
+        if is_share(tx) {
+            return Ok(());
+        }
+        let sender = tx.sender();
+        let pending = self
+            .lock_senders()
+            .get(&sender)
+            .copied()
+            .unwrap_or_default();
+        if pending.count >= MAX_PER_SENDER {
+            return Err(NodeError::MempoolRejected(format!(
+                "sender already holds {MAX_PER_SENDER} pooled transactions"
+            )));
+        }
+        let total = pending.outputs.saturating_add(total_out(tx)?);
+        if total > balance {
+            return Err(NodeError::InsufficientBalance {
+                address: hex::encode(sender),
+                required: total,
+                available: balance,
+            });
+        }
+        Ok(())
+    }
+
+    fn lock_fees(&self) -> std::sync::MutexGuard<'_, HashMap<TxHash, (U256, usize)>> {
+        self.fees
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// What must leave a pool holding `len` entries and `bytes` for one more
+    /// of `size` bytes paying `fee` to fit: its cheapest entries per byte,
+    /// each strictly cheaper than the newcomer. Refused when those are not
+    /// enough, so a full pool is never displaced by something paying less
+    /// (security review of pre-audit S-013: without eviction, 64 senders of
+    /// 64 entries each held a full pool against every better-paying sender).
+    fn victims(&self, len: usize, bytes: usize, fee: U256, size: usize) -> Result<Vec<TxHash>> {
+        let mut count = (len + 1).saturating_sub(self.capacity);
+        let mut over = bytes.saturating_add(size).saturating_sub(self.max_bytes);
+        if count == 0 && over == 0 {
+            return Ok(Vec::new());
+        }
+        let per_byte = |f: U256, s: usize| f.saturating_mul(U256::from(s));
+        let mut ranked: Vec<(TxHash, U256, usize)> = self
+            .lock_fees()
+            .iter()
+            .map(|(h, &(f, s))| (*h, f, s))
+            .collect();
+        // Ascending fee per byte (a/b < c/d as a·d < c·b), ties by hash.
+        ranked.sort_by(|a, b| {
+            per_byte(a.1, b.2)
+                .cmp(&per_byte(b.1, a.2))
+                .then(a.0.cmp(&b.0))
+        });
+        let mut out = Vec::new();
+        for (hash, f, s) in ranked {
+            if count == 0 && over == 0 {
+                break;
+            }
+            if per_byte(f, size) >= per_byte(fee, s) {
+                break;
+            }
+            out.push(hash);
+            count = count.saturating_sub(1);
+            over = over.saturating_sub(s);
+        }
+        if count > 0 || over > 0 {
+            return Err(NodeError::MempoolRejected(format!(
+                "pool is full ({} transactions, {} bytes) and nothing pooled pays less per byte",
+                self.capacity, self.max_bytes
+            )));
+        }
+        Ok(out)
+    }
+
     fn admission_height(&self) -> Result<u64> {
         // `chain_meta` is asked first because it is the one read that says
         // "no chain yet" as a value (`None`) rather than as an error.
@@ -187,13 +303,14 @@ impl Mempool {
                 actual: tx.nonce,
             });
         }
-
-        let mut total_out = U256::zero();
-        for output in &tx.outputs {
-            total_out = total_out
-                .checked_add(output.amount)
-                .ok_or(NodeError::BalanceOverflow)?;
+        if tx.nonce > sender.nonce.saturating_add(MAX_NONCE_AHEAD) {
+            return Err(NodeError::MempoolRejected(format!(
+                "nonce {} is more than {MAX_NONCE_AHEAD} past the account's {}",
+                tx.nonce, sender.nonce
+            )));
         }
+
+        let total_out = total_out(tx)?;
         if sender.balance < total_out {
             return Err(NodeError::InsufficientBalance {
                 address: hex::encode(sender_address),
@@ -322,33 +439,37 @@ impl Mempool {
             return Ok(false);
         }
 
+        // Room first (pre-audit S-016): refusing for a full pool or a sender
+        // at its share must not cost a signature check. Re-checked under the
+        // write lock below, since another insert may land in between.
+        let balance = self.state.get_account(&tx.sender())?.balance;
+        let (fee, size) = (fee_of(&tx), tx.to_bytes().len());
+        self.victims(
+            self.len(),
+            self.pooled_bytes.load(Ordering::Relaxed),
+            fee,
+            size,
+        )?;
+        self.check_sender_room(&tx, balance)?;
+
         // Validation performs RocksDB reads; deliberately outside any lock.
         self.validate(&tx)?;
 
-        let size = tx.to_bytes().len();
         let mut pool = self.write_pool();
         if pool.contains_key(&hash) {
             return Ok(false);
         }
-        if pool.len() >= self.capacity {
-            return Err(NodeError::MempoolRejected(format!(
-                "pool is full ({} transactions)",
-                self.capacity
-            )));
-        }
+        self.check_sender_room(&tx, balance)?;
         // Every mutation holds the write lock, so this read cannot race an add.
-        if self
-            .pooled_bytes
-            .load(Ordering::Relaxed)
-            .saturating_add(size)
-            > self.max_bytes
-        {
-            return Err(NodeError::MempoolRejected(format!(
-                "pool is full ({} bytes)",
-                self.max_bytes
-            )));
+        let bytes = self.pooled_bytes.load(Ordering::Relaxed);
+        for victim in self.victims(pool.len(), bytes, fee, size)? {
+            if let Some(old) = pool.remove(&victim) {
+                self.forget(&victim, &old);
+            }
         }
 
+        self.track(&tx, true);
+        self.lock_fees().insert(hash, (fee, size));
         pool.insert(hash, tx);
         self.pooled_bytes.fetch_add(size, Ordering::Relaxed);
         Ok(true)
@@ -412,12 +533,45 @@ impl Mempool {
     pub fn remove_all(&self, hashes: &[TxHash]) -> usize {
         let mut pool = self.write_pool();
         let mut removed = 0;
-        for tx in hashes.iter().filter_map(|hash| pool.remove(hash)) {
-            self.pooled_bytes
-                .fetch_sub(tx.to_bytes().len(), Ordering::Relaxed);
-            removed += 1;
+        for hash in hashes {
+            if let Some(tx) = pool.remove(hash) {
+                self.forget(hash, &tx);
+                removed += 1;
+            }
         }
         removed
+    }
+
+    /// Takes a removed entry out of the byte count and both tallies. Called
+    /// with the pool's write lock held.
+    fn forget(&self, hash: &TxHash, tx: &Transaction) {
+        self.pooled_bytes
+            .fetch_sub(tx.to_bytes().len(), Ordering::Relaxed);
+        self.track(tx, false);
+        self.lock_fees().remove(hash);
+    }
+
+    /// Adds `tx` to its sender's [`Pending`] or takes it away. Called with the
+    /// pool's write lock held, so the tally always matches the pool.
+    fn track(&self, tx: &Transaction, added: bool) {
+        if is_share(tx) {
+            return;
+        }
+        // Admitted transactions passed `total_out`, so this cannot overflow.
+        let outputs = total_out(tx).unwrap_or_default();
+        let sender = tx.sender();
+        let mut senders = self.lock_senders();
+        let entry = senders.entry(sender).or_default();
+        if added {
+            entry.count += 1;
+            entry.outputs = entry.outputs.saturating_add(outputs);
+        } else {
+            entry.count = entry.count.saturating_sub(1);
+            entry.outputs = entry.outputs.saturating_sub(outputs);
+            if entry.count == 0 {
+                senders.remove(&sender);
+            }
+        }
     }
 
     /// Drops pooled transactions that committed state has invalidated.
@@ -444,4 +598,29 @@ impl Mempool {
 
         Ok(self.remove_all(&stale))
     }
+}
+
+/// What `tx` pays the fee collector.
+fn fee_of(tx: &Transaction) -> U256 {
+    tx.outputs
+        .iter()
+        .filter(|o| o.recipient == crate::state::fees::FEE_COLLECTOR)
+        .fold(U256::zero(), |sum, o| sum.saturating_add(o.amount))
+}
+
+/// A fee-free mining share (ADR-044), which moves nothing.
+fn is_share(tx: &Transaction) -> bool {
+    matches!(tx.kind, crate::core::TxKind::MiningShare(_)) && tx.outputs.is_empty()
+}
+
+/// The sum of `tx`'s outputs.
+///
+/// # Errors
+///
+/// [`NodeError::BalanceOverflow`] when they do not fit in 256 bits.
+fn total_out(tx: &Transaction) -> Result<U256> {
+    tx.outputs.iter().try_fold(U256::zero(), |sum, output| {
+        sum.checked_add(output.amount)
+            .ok_or(NodeError::BalanceOverflow)
+    })
 }

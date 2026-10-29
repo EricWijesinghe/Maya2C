@@ -412,6 +412,15 @@ impl MiningRecord {
         if self.miner_share_bps > 0 && per_share.is_zero() {
             return bad("a share in epoch 0 would pay nothing");
         }
+        // And forever after (pre-audit S-027): every epoch pays at least the
+        // tail, so a tail whose share rounds to nothing would stop paying
+        // miners in the tail era while validators were still paid.
+        let tail_share = bps_of(self.tail_epoch_reward, self.miner_share_bps)
+            .checked_div(Amount::from_u64(self.target_shares))
+            .unwrap_or(Amount::ZERO);
+        if self.miner_share_bps > 0 && !self.tail_epoch_reward.is_zero() && tail_share.is_zero() {
+            return bad("a share in the tail era would pay nothing");
+        }
         Ok(())
     }
 }
@@ -624,6 +633,23 @@ mod tests {
     }
 
     #[test]
+    fn a_tail_whose_share_rounds_to_nothing_is_refused() {
+        // Pre-audit S-027: epoch 0 pays, but the tail split over the shares
+        // would not.
+        let mut r = with_tail(1, 600);
+        r.miner_share_bps = 5_000;
+        r.target_shares = 1_000;
+        assert!(
+            r.validate().is_err(),
+            "a tail paying zero per share was accepted"
+        );
+        r.tail_epoch_reward = Amount::from_u64(2_000);
+        assert!(r.validate().is_ok());
+        r.tail_epoch_reward = Amount::ZERO;
+        assert!(r.validate().is_ok(), "no tail at all stays allowed");
+    }
+
+    #[test]
     fn the_reward_halves_down_to_the_tail_and_stays_there_forever() {
         let r = with_tail(100_000, 600);
         assert_eq!(r.epoch_reward(10), Amount::from_u64(500_000));
@@ -706,7 +732,8 @@ mod tests {
             .checked_add(Amount::from_u64(1))
             .unwrap();
         assert!(MiningRecord::decode(&r.encode()).is_err());
-        assert!(MiningRecord::decode(&with_tail(1, 600).encode()).is_ok());
+        // A tail that still pays every share (S-027): 1,000 × 70% / 100 shares.
+        assert!(MiningRecord::decode(&with_tail(1_000, 600).encode()).is_ok());
         r.tail_epoch_reward = r.initial_epoch_reward;
         assert!(MiningRecord::decode(&r.encode()).is_ok());
     }
