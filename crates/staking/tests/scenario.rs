@@ -539,3 +539,30 @@ fn the_committee_floor_is_counted_after_the_slash() {
     // The thin bonds are jailed for free: they no longer count.
     assert!(out.jailed.contains(&id(5)) && out.jailed.contains(&id(6)));
 }
+
+/// Pre-audit S-030: a validator the node's empty-committee fallback keeps
+/// seated while it is still jailed is not slashed again, and its term is not
+/// restarted, each epoch it stays down.
+#[test]
+fn a_jailed_validator_kept_by_the_fallback_is_not_punished_twice() {
+    let mut s = Staking::new(Params::DEVNET).unwrap();
+    // A thin bond: one downtime slash drops it below the minimum, so it is
+    // jailed even though the floor protects small committees.
+    s.register(account(1), id(1), a(1_005), 0).unwrap();
+    s.end_epoch(&Participation::default(), Amount::ZERO)
+        .unwrap();
+    let down = || Participation {
+        rounds: 100,
+        authored: BTreeMap::from([(id(1), 0)]),
+        ..Participation::default()
+    };
+    let out = s.end_epoch(&down(), Amount::ZERO).unwrap();
+    assert_eq!(out.jailed, vec![id(1)]);
+    let (bond, status) = (s.validators[&id(1)].self_bond, s.validators[&id(1)].status);
+    // What `staking_exec::end_epoch` does when the committee would be empty.
+    s.active = vec![id(1)];
+    let out = s.end_epoch(&down(), Amount::ZERO).unwrap();
+    assert!(out.jailed.is_empty(), "jailed again: {:?}", out.jailed);
+    assert_eq!(s.validators[&id(1)].self_bond, bond, "slashed twice");
+    assert_eq!(s.validators[&id(1)].status, status, "term restarted");
+}

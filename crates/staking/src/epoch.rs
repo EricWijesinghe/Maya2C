@@ -105,7 +105,19 @@ impl Staking {
             if expected > 0
                 && u128::from(authored) * u128::from(BPS) < threshold * u128::from(expected)
             {
-                down.push((id, authored, expected));
+                // Seated while still jailed means the empty-committee fallback
+                // kept it (`staking_exec::end_epoch`). It is not paid, but it was
+                // already slashed and jailed for this outage: slashing again and
+                // restarting the term every epoch would punish one offence
+                // forever (pre-audit S-030).
+                let serving = self.validators.get(&id).is_some_and(
+                    |v| matches!(v.status, Status::Jailed { until } if until > self.epoch),
+                );
+                if serving {
+                    unpaid.push(id);
+                } else {
+                    down.push((id, authored, expected));
+                }
             }
         }
         // Pre-audit S-033: jailing may not shrink the eligible set below
