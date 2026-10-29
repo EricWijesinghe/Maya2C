@@ -117,6 +117,86 @@ fn mempool_full_refuses_then_drains_then_admits() {
     );
 }
 
+/// Pre-audit S-013: one funded account cannot fill the pool with future-nonce
+/// spends of the same coins.
+#[test]
+fn one_sender_cannot_fill_the_pool_with_unaffordable_or_far_ahead_spends() {
+    let (c, _d) = funded(2);
+    let pool = Mempool::new(Arc::clone(c.state()));
+    // Key 0 holds 1,000,000: two spends of 600,000 cannot both be paid.
+    assert!(pool.insert(transfer(&key(0), 600_000, 0)).unwrap());
+    let err = pool.insert(transfer(&key(0), 600_000, 1)).unwrap_err();
+    assert!(
+        matches!(err, NodeError::InsufficientBalance { .. }),
+        "{err:?}"
+    );
+    // A nonce past the window is refused outright.
+    let far = custom_l1_node::network::mempool::MAX_NONCE_AHEAD + 1;
+    let err = pool.insert(transfer(&key(1), 1, far)).unwrap_err();
+    assert!(
+        matches!(err, NodeError::MempoolRejected(ref m) if m.contains("past")),
+        "{err:?}"
+    );
+    // Affordable spends stop at the per-sender share.
+    let share = custom_l1_node::network::mempool::MAX_PER_SENDER;
+    for nonce in 0..share as u64 {
+        assert!(pool.insert(transfer(&key(1), 1, nonce)).unwrap());
+    }
+    let err = pool.insert(transfer(&key(1), 2, 0)).unwrap_err();
+    assert!(
+        matches!(err, NodeError::MempoolRejected(ref m) if m.contains("sender")),
+        "{err:?}"
+    );
+    // A block draining the sender frees its share again.
+    let ids = pool.scan(|hash, _| Some(*hash));
+    pool.remove_all(&ids);
+    assert!(pool.insert(transfer(&key(1), 2, 0)).unwrap(), "share freed");
+}
+
+/// A transfer of 1 that also pays `fee` to the fee collector.
+fn paying(from: &HybridSigningKey, fee: u64, nonce: u64) -> Transaction {
+    let mut tx = Transaction::new(
+        vec![],
+        vec![
+            TxOutput {
+                amount: U256::from(1),
+                recipient: [0x77; 32],
+            },
+            TxOutput {
+                amount: U256::from(fee),
+                recipient: custom_l1_node::state::fees::FEE_COLLECTOR,
+            },
+        ],
+        nonce,
+    );
+    tx.sign(from, &common::test_chain()).unwrap();
+    tx
+}
+
+/// Review of pre-audit S-013: a full pool gives way to a better-paying
+/// transaction, never to an equal or cheaper one.
+#[test]
+fn a_full_pool_evicts_its_cheapest_for_a_better_paying_transaction() {
+    let (c, _d) = funded(3);
+    let pool = Mempool::with_capacity(Arc::clone(c.state()), 2);
+    let cheap = paying(&key(0), 10, 0);
+    assert!(pool.insert(cheap.clone()).unwrap());
+    assert!(pool.insert(paying(&key(1), 50, 0)).unwrap());
+
+    let err = pool.insert(paying(&key(2), 10, 0)).unwrap_err();
+    assert!(
+        matches!(err, NodeError::MempoolRejected(ref m) if m.contains("full")),
+        "{err:?}"
+    );
+
+    assert!(pool.insert(paying(&key(2), 100, 0)).unwrap());
+    assert_eq!(pool.len(), 2);
+    assert!(
+        !pool.contains(&cheap.txid()),
+        "the cheapest entry was not the one evicted"
+    );
+}
+
 #[test]
 fn deep_reorg_of_twenty_blocks_rewrites_state_to_the_heavier_branch() {
     let (mut main, _a) = funded(1);
