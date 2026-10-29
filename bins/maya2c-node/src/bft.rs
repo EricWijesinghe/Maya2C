@@ -825,6 +825,7 @@ impl Dropped {
     }
 }
 
+#[allow(clippy::too_many_arguments)] // each is a separate owner: chain, network, pools, engine, rescue
 pub(super) async fn bft_loop(
     chain: Arc<Mutex<Chain>>,
     network: NodeHandle,
