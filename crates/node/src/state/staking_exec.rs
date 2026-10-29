@@ -176,6 +176,9 @@ impl StateDB {
         let previous_len = stored.len();
         let mut record = StakingRecord::decode(&stored)?;
         let s = &mut record.staking;
+        // The key record is written last, with the staking record, so a
+        // Register refused by the bond debit leaves nothing behind (S-026).
+        let mut registered = None;
         let effects = match action {
             StakingAction::Register {
                 key,
@@ -186,11 +189,9 @@ impl StateDB {
                 let verifying = VerifyingKey::from_bytes(key)?;
                 verifying.verify(&StakingAction::possession_message(sender), possession)?;
                 let id = validator_id(key.as_slice());
-                let effects = s
-                    .register(*sender, id, to_amount(*bond), *commission_bps)
-                    .map_err(stake_err)?;
-                overlay.records.insert(key_record(&id), Some(key.to_vec()));
-                effects
+                registered = Some((key_record(&id), key.to_vec()));
+                s.register(*sender, id, to_amount(*bond), *commission_bps)
+                    .map_err(stake_err)?
             }
             StakingAction::BondMore { validator, amount } => s
                 .bond_more(*sender, *validator, to_amount(*amount))
@@ -221,6 +222,9 @@ impl StateDB {
             )));
         }
         self.apply_effects(overlay, Some(sender), &effects)?;
+        if let Some((key, value)) = registered {
+            overlay.records.insert(key, Some(value));
+        }
         overlay.records.insert(STATE_KEY.to_vec(), Some(encoded));
         Ok(())
     }
@@ -280,11 +284,21 @@ impl StateDB {
         };
         // The epoch's committee as the engine ran it, not `active`: a
         // mid-epoch tombstone leaves `active` but not the leader schedule.
-        let committee = self
+        // Where no record was written the engine runs `active` as committed
+        // before this block (`EpochCommittee::of_epoch`), so slots are counted
+        // against that set: not this block's overlay copy, which a tombstone
+        // earlier in the block may already have changed, and never an empty
+        // set that credits nobody (pre-audit S-021, review 2026-10-30).
+        let committee = match self
             .record(overlay, &committee_record(record.staking.epoch))?
             .map(|bytes| decode_committee(&bytes))
             .transpose()?
-            .unwrap_or_default();
+        {
+            Some(ids) => ids,
+            None => self
+                .committed_staking()?
+                .map_or_else(|| record.staking.active.clone(), |r| r.staking.active),
+        };
         count_slots(&mut record, &committee, header.nonce);
         if context.height.is_multiple_of(record.epoch_blocks) {
             self.end_epoch(overlay, &mut record)?;
