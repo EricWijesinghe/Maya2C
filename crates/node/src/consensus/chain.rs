@@ -806,8 +806,7 @@ impl Chain {
             if let Err(error) = self.revert_one(id) {
                 // A revert that fails partway leaves the chain between
                 // branches. Re-apply what was reverted, as a failed apply does.
-                self.restore_after_failed_reorg(&[], &reverted);
-                return Err(error);
+                return Err(self.restore_after_failed_reorg(&[], &reverted, error));
             }
             reverted.push(*id);
         }
@@ -816,8 +815,7 @@ impl Chain {
         for id in &to_apply {
             if let Err(error) = self.apply_one(id) {
                 // Unwind this partial branch, then put the original chain back.
-                self.restore_after_failed_reorg(&applied, &reverted);
-                return Err(error);
+                return Err(self.restore_after_failed_reorg(&applied, &reverted, error));
             }
             applied.push(*id);
         }
@@ -826,20 +824,48 @@ impl Chain {
         Ok((reverted, applied))
     }
 
-    /// Best-effort restoration after a reorg fails partway through.
+    /// Restoration after a reorg fails partway through, returning the error
+    /// the caller should report.
     ///
     /// Reverts whatever the new branch managed to apply, then re-applies the
-    /// original branch oldest-first. Errors here are not propagated: the caller
-    /// is already returning the original failure, and there is no better
-    /// recovery available than trying every step.
-    fn restore_after_failed_reorg(&self, applied: &[BlockId], reverted: &[BlockId]) {
+    /// original branch oldest-first, trying every step. When a step fails the
+    /// state sits somewhere between branches (pre-audit S-015), so the
+    /// in-memory tip is re-read from storage, which every apply and revert
+    /// moves in the same batch as the state: the next block is then judged
+    /// against the state it really extends, not the tip memory remembered.
+    fn restore_after_failed_reorg(
+        &mut self,
+        applied: &[BlockId],
+        reverted: &[BlockId],
+        cause: NodeError,
+    ) -> NodeError {
+        let mut failures = Vec::new();
         for id in applied.iter().rev() {
-            let _ = self.revert_one(id);
+            if let Err(e) = self.revert_one(id) {
+                failures.push(format!("revert {}: {e}", hex::encode(id)));
+            }
         }
         // `reverted` is newest-first, so replay it in reverse.
         for id in reverted.iter().rev() {
-            let _ = self.apply_one(id);
+            if let Err(e) = self.apply_one(id) {
+                failures.push(format!("re-apply {}: {e}", hex::encode(id)));
+            }
         }
+        if failures.is_empty() {
+            return cause;
+        }
+        let stored = match self.state.chain_meta() {
+            Ok(Some(meta)) if self.records.contains_key(&meta.tip) => {
+                self.tip = meta.tip;
+                format!("the tip is now the stored {}", hex::encode(meta.tip))
+            }
+            Ok(_) => "the stored tip is unknown; restart to recover".to_string(),
+            Err(e) => format!("the stored tip could not be read ({e}); restart to recover"),
+        };
+        NodeError::Storage(format!(
+            "{cause}; restoring the original branch also failed ({}); {stored}",
+            failures.join(", ")
+        ))
     }
 
     /// Block ids of the active chain, genesis first.
