@@ -16,6 +16,8 @@
 //!    transactions at one node's RPC; it must stay up and refuse them;
 //! 6. **long outage** — one validator down for longer than the engine keeps
 //!    rounds, then restarted with `--catch-up-from`; it must rejoin.
+//! 8. **restart ahead** — a validator restarts with `--catch-up-from` a peer
+//!    an epoch behind it; it must refuse that source, still start, and rejoin.
 //!
 //! 7. **beyond retention** (`--beyond-retention`, once after the rounds) —
 //!    one validator down until the network is past the epochs whose
@@ -556,6 +558,45 @@ fn long_outage(net: &mut Net) -> Result<()> {
     Ok(())
 }
 
+/// Attack 8 (pre-audit S-009): a validator restarts with `--catch-up-from`
+/// a peer that is an epoch behind it. Certificate sync must refuse that
+/// peer rather than report "caught up", the node must fall back, start, and
+/// rejoin.
+fn restart_while_ahead(net: &mut Net) -> Result<()> {
+    let (_, down) = victims(2)?;
+    let (laggard, ahead) = (down[0], down[1]);
+    if laggard == 0 || ahead == 0 {
+        return Err("node 0 must stay up for the checks".into());
+    }
+    net.procs.kill(usize::from(laggard));
+    let start = epoch(0).ok_or("node 0 silent")?;
+    // Up to two 60-block epochs: longer than `wait_until`'s bound.
+    let waited = Instant::now();
+    while epoch(0).is_none_or(|e| e <= start + 1) {
+        if waited.elapsed() > RETENTION_WAIT {
+            return Err(format!("network did not pass epoch {} in time", start + 1));
+        }
+        std::thread::sleep(Duration::from_secs(2));
+    }
+    net.procs.kill(usize::from(ahead));
+    // The laggard comes back first and is still catching up when the node
+    // ahead of it asks it for certificates.
+    net.restart(laggard, Some(0))?;
+    net.restart(ahead, Some(laggard))?;
+    let all = Net::honest(&[]);
+    let target = height(0).ok_or("node 0 silent")?;
+    let t = wait_until("rejoin after restarting ahead of its source", || {
+        agree(&all, target)
+    })?;
+    let log = std::fs::read_to_string(net.work.join(format!("v{ahead}")).join("node.log"))
+        .unwrap_or_default();
+    let refused = log.matches("the peer is behind this node").count();
+    net.say(format!(
+        "restart ahead: validator {ahead} restarted from validator {laggard} (behind it), rejoined at {target} in {t:.1?}; behind-peer refusals logged: {refused}"
+    ));
+    Ok(())
+}
+
 fn epoch(i: u16) -> Option<u64> {
     rpc(i, "get_bft_status", &json!([])).ok()?["epoch"].as_u64()
 }
@@ -612,6 +653,7 @@ fn round(net: &mut Net, n: usize) -> Result<()> {
     garbage_on_the_wire(net)?;
     rpc_flood(net)?;
     long_outage(net)?;
+    restart_while_ahead(net)?;
     let h = no_fork(&Net::honest(&[]))?;
     net.say(format!("round {n}: no fork anywhere through height {h}"));
     Ok(())

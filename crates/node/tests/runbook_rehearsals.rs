@@ -117,6 +117,42 @@ fn mempool_full_refuses_then_drains_then_admits() {
     );
 }
 
+/// Pre-audit S-013: one funded account cannot fill the pool with future-nonce
+/// spends of the same coins.
+#[test]
+fn one_sender_cannot_fill_the_pool_with_unaffordable_or_far_ahead_spends() {
+    let (c, _d) = funded(2);
+    let pool = Mempool::new(Arc::clone(c.state()));
+    // Key 0 holds 1,000,000: two spends of 600,000 cannot both be paid.
+    assert!(pool.insert(transfer(&key(0), 600_000, 0)).unwrap());
+    let err = pool.insert(transfer(&key(0), 600_000, 1)).unwrap_err();
+    assert!(
+        matches!(err, NodeError::InsufficientBalance { .. }),
+        "{err:?}"
+    );
+    // A nonce past the window is refused outright.
+    let far = custom_l1_node::network::mempool::MAX_NONCE_AHEAD + 1;
+    let err = pool.insert(transfer(&key(1), 1, far)).unwrap_err();
+    assert!(
+        matches!(err, NodeError::MempoolRejected(ref m) if m.contains("past")),
+        "{err:?}"
+    );
+    // Affordable spends stop at the per-sender share.
+    let share = custom_l1_node::network::mempool::MAX_PER_SENDER;
+    for nonce in 0..share as u64 {
+        assert!(pool.insert(transfer(&key(1), 1, nonce)).unwrap());
+    }
+    let err = pool.insert(transfer(&key(1), 2, 0)).unwrap_err();
+    assert!(
+        matches!(err, NodeError::MempoolRejected(ref m) if m.contains("sender")),
+        "{err:?}"
+    );
+    // A block draining the sender frees its share again.
+    let ids = pool.scan(|hash, _| Some(*hash));
+    pool.remove_all(&ids);
+    assert!(pool.insert(transfer(&key(1), 2, 0)).unwrap(), "share freed");
+}
+
 #[test]
 fn deep_reorg_of_twenty_blocks_rewrites_state_to_the_heavier_branch() {
     let (mut main, _a) = funded(1);

@@ -591,3 +591,101 @@ fn a_weighted_node_restarts_after_a_mid_epoch_tombstone_and_keeps_weights() {
     assert_eq!(ids.len(), weights.len());
     assert!(!ids.contains(&offender));
 }
+
+/// A peer's checkpoints and blocks, as a catching-up node sees them: the
+/// book a running node keeps (closing and live checkpoints, by epoch).
+struct PeerBook<'a> {
+    book: custom_l1_node::consensus::bft::attest::CheckpointBook,
+    chain: &'a Chain,
+}
+
+impl custom_l1_node::consensus::bft::catchup::CheckpointSource for PeerBook<'_> {
+    fn checkpoint(
+        &self,
+    ) -> custom_l1_node::error::Result<Option<custom_l1_node::consensus::bft::attest::Checkpoint>>
+    {
+        Ok(self.book.newest().cloned())
+    }
+
+    fn checkpoint_of(
+        &self,
+        epoch: u64,
+    ) -> custom_l1_node::error::Result<Option<custom_l1_node::consensus::bft::attest::Checkpoint>>
+    {
+        Ok(self.book.of_epoch(epoch).cloned())
+    }
+
+    fn block(
+        &self,
+        height: u64,
+    ) -> custom_l1_node::error::Result<custom_l1_node::core::block::Block> {
+        let state = self.chain.state();
+        let id = state.canonical_id(height)?.expect("peer holds the height");
+        Ok(state.load_block(&id)?.expect("peer holds the body"))
+    }
+}
+
+#[test]
+fn a_node_catches_up_by_checkpoints_across_a_boundary_that_shrinks_the_committee() {
+    // Pre-audit S-011 (attacknet round 8): the boundary into epoch 2 jails the
+    // three absent seats, so seven seats become four. A node that slept
+    // through it must cross by checkpoints alone: epoch 1's final checkpoint
+    // against epoch 1's committee, then epoch 2's against the four.
+    let mut mesh = Mesh::with(true);
+    register_absent_seats(&mut mesh);
+    let mut book = custom_l1_node::consensus::bft::attest::CheckpointBook::default();
+    for _ in 0..600 {
+        if mesh.all_in_epoch(2) && book.newest().is_some_and(|c| c.epoch >= 2) {
+            break;
+        }
+        mesh.now += 250;
+        mesh.tick();
+        mesh.pump(3_000);
+        let d = &mesh.members[0].driver;
+        for c in [d.closing_checkpoint(), d.checkpoint()]
+            .into_iter()
+            .flatten()
+        {
+            book.offer(c);
+        }
+    }
+    assert!(mesh.all_in_epoch(2), "no second boundary");
+    assert_eq!(
+        mesh.committee(0).len(),
+        4,
+        "the absent seats were not jailed"
+    );
+    let target = book.newest().expect("an epoch-2 checkpoint").height;
+
+    let config = genesis_with(true);
+    let state = Arc::new(StateDB::open(mesh.root.path().join("state-sleeper")).unwrap());
+    config.seed_state(&state).unwrap();
+    let mut sleeper = common::open_chain(
+        state,
+        config.genesis_block().unwrap(),
+        ChainConfig::without_pow_verification(),
+    )
+    .unwrap();
+    let source = PeerBook {
+        book,
+        chain: &mesh.members[0].chain,
+    };
+    for _ in 0..8 {
+        let (committee, weights) = BftDriver::staked_committee(&sleeper).unwrap().unwrap();
+        let n = custom_l1_node::consensus::bft::catchup::catch_up(
+            &mut sleeper,
+            &source,
+            &committee,
+            weights.as_deref(),
+        )
+        .unwrap();
+        if n == 0 {
+            break;
+        }
+    }
+    assert!(
+        sleeper.height() >= target,
+        "stuck at {} below the attested {target}",
+        sleeper.height()
+    );
+}
