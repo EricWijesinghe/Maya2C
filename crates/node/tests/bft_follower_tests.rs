@@ -1031,7 +1031,7 @@ impl CertSource for Stalling {
 fn followers_past_f_get_no_checkpoint_until_a_certificate_replay_rescues_them() {
     let mut mesh = Mesh::new();
     // Just past a boundary, so the stuck spell stays inside one epoch.
-    mesh.run_until(|m| m.height(0) >= EPOCH_BLOCKS + 1);
+    mesh.run_until(|m| m.height(0) > EPOCH_BLOCKS);
     let stuck_at = mesh.height(0);
     let epoch = mesh.epoch(0).unwrap();
     for i in [2, 3] {
@@ -1113,7 +1113,7 @@ fn followers_past_f_get_no_checkpoint_until_a_certificate_replay_rescues_them() 
 #[test]
 fn a_head_replay_for_an_epoch_the_peer_has_left_is_refused_and_changes_nothing() {
     let mut mesh = Mesh::new();
-    mesh.run_until(|m| m.height(0) >= EPOCH_BLOCKS + 1);
+    mesh.run_until(|m| m.height(0) > EPOCH_BLOCKS);
     mesh.hold_out(3);
     let behind = mesh.height(3);
     let epoch = mesh.epoch(0).unwrap();
