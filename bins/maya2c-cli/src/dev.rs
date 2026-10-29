@@ -63,6 +63,10 @@ pub fn fresh_node_dir(workspace_root: &Path) -> anyhow::Result<PathBuf> {
 
 /// Password of every dev keystore. Dev keys fund nothing real.
 pub const DEV_PASSWORD: &str = "maya2c-dev";
+
+/// The throwaway validator key's passphrase. The node refuses one shorter than
+/// 12 bytes, which `DEV_PASSWORD` is.
+const DEV_VALIDATOR_PASSPHRASE: &str = "maya2c-dev-validator";
 /// Balance of each pre-funded account, base units.
 pub const DEV_BALANCE: u64 = 1_000_000_000;
 /// The default `chain_id`.
@@ -134,9 +138,16 @@ fn prepare(o: &Options) -> anyhow::Result<(Vec<(HybridSigningKey, String)>, Path
     }
     let node_dir = o.dir.join("node");
     std::fs::create_dir_all(&node_dir)?;
+    // Sealed even here: a production node (the one a release ships) refuses a
+    // plaintext key, and the same sealed throwaway works on every build. The
+    // directory is wiped on each run and the chain is local, so the passphrase
+    // protects nothing and is written beside the key.
+    std::fs::write(node_dir.join("validator.pass"), DEV_VALIDATOR_PASSPHRASE)?;
     let validator = Command::new(o.bin_dir.join(format!("maya2c-node{EXE}")))
         .arg("--generate-validator-key")
         .arg(node_dir.join("validator.key"))
+        .arg("--validator-passphrase-file")
+        .arg(node_dir.join("validator.pass"))
         .output()
         .context("running maya2c-node --generate-validator-key")?;
     if !validator.status.success() {
@@ -184,6 +195,8 @@ fn spawn_node(o: &Options, genesis: &Path) -> anyhow::Result<Child> {
         ])
         .arg("--validator-key")
         .arg(node_dir.join("validator.key"))
+        .arg("--validator-passphrase-file")
+        .arg(node_dir.join("validator.pass"))
         .args(&o.node_args)
         .stdout(log.try_clone()?)
         .stderr(log)

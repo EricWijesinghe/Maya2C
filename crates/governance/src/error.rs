@@ -23,11 +23,11 @@ pub enum GovernanceError {
         /// Parameter involved.
         key: ParameterKey,
         /// Value that was proposed.
-        value: u64,
+        value: maya_amount::Amount,
         /// Smallest permitted.
-        min: u64,
+        min: maya_amount::Amount,
         /// Largest permitted.
-        max: u64,
+        max: maya_amount::Amount,
     },
     /// A proposal carried no changes, or more than
     /// [`crate::params::MAX_CHANGES_PER_PROPOSAL`].

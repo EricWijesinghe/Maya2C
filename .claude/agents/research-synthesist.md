@@ -1,5 +1,6 @@
 ---
 name: research-synthesist
+model: sonnet
 description: "Expert in literature review, source evaluation, and evidence synthesis — turns a scattered pile of sources into a structured, honestly-weighted map of what the evidence actually supports"
 tools: Read, Grep, Glob, Bash, mcp__serena__find_symbol, mcp__serena__find_referencing_symbols, mcp__serena__get_symbols_overview, WebFetch, WebSearch, mcp__fetch__fetch
 # upstream: msitarzewski/agency-agents@ad9264e309bd research/research-synthesist.md (MIT)

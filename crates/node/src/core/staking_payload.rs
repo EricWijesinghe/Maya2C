@@ -1,7 +1,7 @@
 //! Staking transactions (ADR-028): what a sender can do to the validator set.
 //!
 //! ```text
-//! action = 0 key[1952] bond:u256 commission:u16 possession[3309]   register
+//! action = 0 key[2592] bond:u256 commission:u16 possession[4627]   register
 //!        | 1 id[32] amount:u256                                    bond more
 //!        | 2 id[32] amount:u256                                    unbond
 //!        | 3 id[32] amount:u256                                    delegate
@@ -9,7 +9,7 @@
 //!        | 5 len:u64 frame len:u64 frame                          equivocation
 //! ```
 //!
-//! A registration carries the validator's ML-DSA-65 key and a *proof of
+//! A registration carries the validator's ML-DSA-87 key and a *proof of
 //! possession*: that key's signature over the sender's address. Without it
 //! anyone could register someone else's key, and the real holder's votes would
 //! then count toward a validator they do not control.
@@ -19,7 +19,7 @@
 //! signatures against the committee of the epoch they name.
 
 use crate::core::codec::ByteReader;
-use crate::crypto::{PUBLIC_KEY_LEN, SIGNATURE_LENGTH};
+use crate::crypto::validator_keys::{PUBLIC_KEY_LEN, SIGNATURE_LENGTH};
 use crate::error::{NodeError, Result};
 
 /// Domain of the proof-of-possession signature.

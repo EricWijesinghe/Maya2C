@@ -30,7 +30,7 @@ use crate::state::account::Address;
 pub const MAX_CHANGES: usize = maya_governance::params::MAX_CHANGES_PER_PROPOSAL;
 
 /// Encoded size of one `(tag, value)` change.
-pub const CHANGE_SIZE: usize = 2 + 8;
+pub const CHANGE_SIZE: usize = 2 + 32;
 
 /// Crediting a block's work to an address.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,7 +68,7 @@ pub struct ProposalSubmission {
     /// Blocks between passing and becoming executable — the exit window.
     pub timelock_blocks: u64,
     /// Rule changes, as `(parameter tag, new value)`.
-    pub changes: Vec<(u16, u64)>,
+    pub changes: Vec<(u16, maya_dex::Amount)>,
 }
 
 /// Casting a vote.
@@ -177,7 +177,10 @@ impl ProposalSubmission {
         for _ in 0..count {
             let low = reader.read_u8()?;
             let high = reader.read_u8()?;
-            changes.push((u16::from(low) | (u16::from(high) << 8), reader.read_u64()?));
+            changes.push((
+                u16::from(low) | (u16::from(high) << 8),
+                maya_dex::Amount::from_le_bytes(reader.read_array::<32>()?),
+            ));
         }
 
         Ok(Self {

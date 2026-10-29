@@ -9,6 +9,7 @@
 //! Each payment produces a receipt line rendered by the clear-signing crate,
 //! the same text the wallet showed when the session was authorised.
 
+use maya_amount::Amount;
 use maya_clear_sign::{Effect, render};
 use maya_crypto_pq::suite::SuiteId;
 use maya_smart_account::account::AccountError;
@@ -39,24 +40,24 @@ pub fn authorise_till(
     customer: &mut Wallet,
     till: &Key,
     checkout: &Checkout,
-    daily_limit: u64,
+    daily_limit: Amount,
     height: u64,
 ) -> Result<(), AccountError> {
     let policy = customer.signed(Action::SetPolicy(Policy {
         daily_limit,
         ..Policy::default()
     }));
-    registry.apply(&policy, height, 0)?;
+    registry.apply(&policy, height, Amount::from_u64(0))?;
     let session = customer.signed(Action::AddSessionKey {
         suite: SuiteId::MlDsa65,
         public_key: till.pk.clone(),
         scope: SessionScope {
             recipients: vec![checkout.merchant],
-            max_amount: checkout.max_per_payment,
+            max_amount: Amount::from_u64(checkout.max_per_payment),
             expires_at: checkout.expires_at,
         },
     });
-    registry.apply(&session, height, 0)
+    registry.apply(&session, height, Amount::from_u64(0))
 }
 
 /// The till charges `amount` to the customer. Returns the receipt line.
@@ -71,17 +72,17 @@ pub fn charge(
     customer: &mut Wallet,
     till: &Key,
     to: AccountId,
-    amount: u64,
+    amount: Amount,
     height: u64,
 ) -> Result<String, AccountError> {
     let op = till.sign(customer.op(Action::Transfer { to, amount }));
-    if let Err(e) = registry.apply(&op, height, 0) {
+    if let Err(e) = registry.apply(&op, height, Amount::from_u64(0)) {
         customer.refused();
         return Err(e);
     }
     Ok(render(&Effect::Transfer {
         token: [0; 32],
         to,
-        amount: u128::from(amount),
+        amount,
     }))
 }

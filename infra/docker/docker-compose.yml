@@ -11,7 +11,7 @@
 #
 # All three nodes bind-mount the *same* read-only `genesis.json`. That is the
 # point: a node whose genesis differs by one byte derives a different genesis
-# hash and silently forms its own network. `deploy.sh` generates the file once
+# hash and silently forms its own network. `maya2c-genesis` generates the file once
 # before starting anything.
 #
 # ## Multi-region

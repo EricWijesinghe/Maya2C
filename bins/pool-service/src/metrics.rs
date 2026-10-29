@@ -322,9 +322,10 @@ impl PoolMetrics {
     }
 
     /// Sets the aggregate unpaid and immature balances.
-    pub fn set_balances(&self, unpaid: u64, immature: u64) {
-        self.unpaid.set(clamp(unpaid));
-        self.immature.set(clamp(immature));
+    pub fn set_balances(&self, unpaid: primitive_types::U256, immature: primitive_types::U256) {
+        self.unpaid.set(clamp(crate::node::saturating_u64(unpaid)));
+        self.immature
+            .set(clamp(crate::node::saturating_u64(immature)));
     }
 
     /// Sets the treasury balance.

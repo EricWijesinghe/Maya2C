@@ -76,6 +76,12 @@
 </style>
 
 <script>
+  // True while the testnet is stopped on purpose (2026-10-28, after the
+  // 7-day soak: reports/sessions/2026-10-28-testnet-stopped.md). A stopped
+  // chain is not an outage, and covering every page would hide the site,
+  // the proof and the downloads behind "down for maintenance". The home page
+  // says the testnet is paused. Set it back to false with the next genesis.
+  const TESTNET_PAUSED = true;
   const STATUS_URL = "https://status.maya2c.dev/api/status";
   const POLL_SECONDS = 20;
   const TIMEOUT_MS = 8000;
@@ -162,11 +168,13 @@
     requestAnimationFrame(frame);
   }
 
-  $("maint-retry").addEventListener("click", check);
-  setInterval(() => {
-    countdown -= 1;
-    $("maint-next").textContent = `${Math.max(countdown, 0)}s`;
-    if (countdown <= 0) check();
-  }, 1000);
-  check();
+  if (!TESTNET_PAUSED) {
+    $("maint-retry").addEventListener("click", check);
+    setInterval(() => {
+      countdown -= 1;
+      $("maint-next").textContent = `${Math.max(countdown, 0)}s`;
+      if (countdown <= 0) check();
+    }, 1000);
+    check();
+  }
 </script>

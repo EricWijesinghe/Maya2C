@@ -2,7 +2,7 @@
 //!
 //! # A constant duplicated from the wallet, deliberately
 //!
-//! `COIN_TYPE` (7331) comes from `apps/wallet-gui/core/src/hd.rs`. Importing
+//! `COIN_TYPE` (2992) comes from `apps/wallet-gui/core/src/hd.rs`. Importing
 //! it would mean depending on `custom-l1-node`, which pulls RocksDB's C++ into
 //! a Cortex-M binary. The address the device shows is the suite-`0x10`
 //! address (`suite::address`), pinned against the node by
@@ -14,7 +14,7 @@
 use crate::apdu::ApduError;
 
 /// Maya2C's SLIP-44 coin type.
-pub const COIN_TYPE: u32 = 7331;
+pub const COIN_TYPE: u32 = 2992;
 
 /// Bit marking a hardened path component.
 pub const HARDENED: u32 = 0x8000_0000;
@@ -22,7 +22,7 @@ pub const HARDENED: u32 = 0x8000_0000;
 /// Components in the path this app accepts.
 pub const PATH_LEN: usize = 5;
 
-/// An accepted derivation path: `m/44'/7331'/account'/0'/index'`.
+/// An accepted derivation path: `m/44'/2992'/account'/0'/index'`.
 ///
 /// A fixed shape rather than an arbitrary path. A device that derived anywhere
 /// the host asked would sign with a key the user's other software cannot find,

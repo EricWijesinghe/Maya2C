@@ -6,7 +6,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use maya_fee_market::model::{FEATURE_LIMIT, INPUTS, MAX_GAIN_BPS, UNIT_GAIN_BPS};
-use maya_fee_market::{Features, MODEL_V1, Model, neural_next_base_fee};
+use maya_fee_market::{Features, MODEL_V1, Model};
 use maya_neural_gas_trainer::evaluate::{Controller, LINEAR_GAIN, run, within_envelope};
 use maya_neural_gas_trainer::rng::SplitMix64;
 use maya_neural_gas_trainer::simulator::TARGET_BYTES;
@@ -57,7 +57,15 @@ fn random_features_and_fees_never_leave_the_envelope() {
         let parent = rng.next_u64() % 10_000_000 + 1;
         let size = rng.next_u64() % (4 * TARGET_BYTES);
         let gain = MODEL_V1.gain(&Features::new(values));
-        let next = neural_next_base_fee(parent, size, TARGET_BYTES, 8, 1, gain);
+        let next = maya_fee_market::neural_next_base_fee(
+            maya_fee_market::Amount::from_u64(parent),
+            size,
+            TARGET_BYTES,
+            8,
+            maya_fee_market::Amount::from_u64(1),
+            gain,
+        )
+        .saturating_to_u64();
         assert!(
             within_envelope(parent, size, next),
             "{values:?} {parent} {size} → {next}"
