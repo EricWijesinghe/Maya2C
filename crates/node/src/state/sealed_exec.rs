@@ -328,15 +328,19 @@ impl StateDB {
                 // A revealed action that fails is the sender's loss and the
                 // block continues, so it runs on a copy committed only on
                 // success: not every action stages its writes after its last
-                // check (Register writes its key before the bond debit,
-                // pre-audit S-026). A storage error is this node's, not the
-                // action's, so it fails the block here rather than letting one
-                // node skip what the others applied (S-020).
+                // check (Register wrote its key before the bond debit,
+                // pre-audit S-026). Every error is swallowed, storage included:
+                // some `Storage` errors are derived from state, so failing the
+                // block on them could halt every node at once. A node-local I/O
+                // error instead yields a root the header does not match, which
+                // invariant 24 refuses, so it costs that node a retry, not a
+                // fork (S-020, review 2026-10-30).
                 let mut attempt = overlay.clone();
-                match self.apply_revealed(&mut attempt, &record.sender, &id, &kind, context) {
-                    Ok(()) => *overlay = attempt,
-                    Err(e @ NodeError::Storage(_)) => return Err(e),
-                    Err(_) => {}
+                if self
+                    .apply_revealed(&mut attempt, &record.sender, &id, &kind, context)
+                    .is_ok()
+                {
+                    *overlay = attempt;
                 }
                 overlay.revealed += 1;
             }

@@ -284,14 +284,21 @@ impl StateDB {
         };
         // The epoch's committee as the engine ran it, not `active`: a
         // mid-epoch tombstone leaves `active` but not the leader schedule.
-        // Where no record was written the engine runs `active`
-        // (`EpochCommittee::of_epoch`), so slots are counted against the same
-        // set, never an empty one that credits nobody (pre-audit S-021).
-        let committee = self
+        // Where no record was written the engine runs `active` as committed
+        // before this block (`EpochCommittee::of_epoch`), so slots are counted
+        // against that set: not this block's overlay copy, which a tombstone
+        // earlier in the block may already have changed, and never an empty
+        // set that credits nobody (pre-audit S-021, review 2026-10-30).
+        let committee = match self
             .record(overlay, &committee_record(record.staking.epoch))?
             .map(|bytes| decode_committee(&bytes))
             .transpose()?
-            .unwrap_or_else(|| record.staking.active.clone());
+        {
+            Some(ids) => ids,
+            None => self
+                .committed_staking()?
+                .map_or_else(|| record.staking.active.clone(), |r| r.staking.active),
+        };
         count_slots(&mut record, &committee, header.nonce);
         if context.height.is_multiple_of(record.epoch_blocks) {
             self.end_epoch(overlay, &mut record)?;
