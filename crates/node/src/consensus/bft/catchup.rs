@@ -145,6 +145,12 @@ fn own_epoch_final(
             super::attest::KEPT_EPOCHS
         )));
     };
+    if own.epoch != from.epoch {
+        return Err(NodeError::Network(format!(
+            "asked for epoch {}'s final checkpoint, the peer sent one of epoch {}",
+            from.epoch, own.epoch
+        )));
+    }
     own.verify(&from.tag, committee, weights)?;
     if own.height <= from.height {
         return Err(NodeError::Network(format!(
@@ -172,12 +178,15 @@ pub fn fetch(
     let Some(newest) = source.checkpoint()? else {
         return Ok(Vec::new());
     };
-    // The network is past this node's epoch: its committee cannot check the
-    // newer checkpoint, so go as far as this epoch's own final one first.
-    let checkpoint = if newest.epoch > from.epoch {
-        own_epoch_final(from, source, committee, weights)?
-    } else {
-        newest
+    // A checkpoint is only checked against its own epoch's committee
+    // (pre-audit S-011). The network past this node's epoch: go as far as this
+    // epoch's own final checkpoint first. This node past the network's newest
+    // checkpoint (it imported the boundary block, but the new committee has
+    // signed nothing yet): there is nothing it can check, so nothing to import.
+    let checkpoint = match newest.epoch.cmp(&from.epoch) {
+        core::cmp::Ordering::Greater => own_epoch_final(from, source, committee, weights)?,
+        core::cmp::Ordering::Equal => newest,
+        core::cmp::Ordering::Less => return Ok(Vec::new()),
     };
     checkpoint.verify(&from.tag, committee, weights)?;
     if checkpoint.height <= from.height {
@@ -336,6 +345,35 @@ mod tests {
             "asked for its own epoch's final checkpoint"
         );
         assert!(err.to_string().contains("block 41 requested"), "{err}");
+    }
+
+    #[test]
+    fn past_the_newest_checkpoints_epoch_it_imports_nothing_instead_of_misverifying() {
+        // Pre-audit S-011 (attacknet round 8): the node imported the boundary
+        // block, so its state is in epoch 2, while the peer's newest checkpoint
+        // is still epoch 1's. Checking it against epoch 2's committee refused a
+        // valid checkpoint as "short of a quorum"; it is simply not newer.
+        let (signing, committee) = keys();
+        let source = Source {
+            newest: checkpoint(&signing, 1, 60),
+            of_epoch: None,
+            asked: Mutex::default(),
+        };
+        let mut seven = committee.clone();
+        seven.extend(keys().1.into_iter().take(3));
+        assert!(fetch(at(60, 2), &source, &seven, None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn an_epochs_final_checkpoint_from_another_epoch_is_refused_by_label() {
+        let (signing, committee) = keys();
+        let source = Source {
+            newest: checkpoint(&signing, 3, 200),
+            of_epoch: Some(checkpoint(&signing, 2, 150)),
+            asked: Mutex::default(),
+        };
+        let err = fetch(at(40, 1), &source, &committee, None).unwrap_err();
+        assert!(err.to_string().contains("sent one of epoch 2"), "{err}");
     }
 
     #[test]

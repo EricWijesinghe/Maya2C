@@ -1,14 +1,15 @@
 //! Fuzzes [`BlockHeader::from_bytes`].
 //!
-//! The header is fixed-width — 144 bytes, no length prefixes — so the decoder
+//! The header is fixed-width — 145 bytes, no length prefixes — so the decoder
 //! has a narrow surface, but it is reachable from `get_mining_candidate` over
 //! JSON-RPC as well as from block gossip, which makes it reachable by callers
 //! that never went through `Block::from_bytes`.
 //!
-//! The canonicality property is total here: exactly one 144-byte string maps to
-//! each header, and every 144-byte string is a valid header. So `from_bytes`
-//! must succeed for any input of exactly `HEADER_LEN` and fail for every other
-//! length — a stronger claim than round-tripping alone, and asserted as such.
+//! The canonicality property is total here: exactly one 145-byte string maps to
+//! each header, and every 145-byte string ending in the ADR-063 version byte 0
+//! is a valid header. So `from_bytes`
+//! must succeed for exactly those inputs and fail for every other
+//! input — a stronger claim than round-tripping alone, and asserted as such.
 //!
 //! `pow_hash` and `meets_difficulty` are never called: ArgonBlake is a 32 MiB
 //! Argon2id pass, seconds per invocation.
@@ -37,10 +38,10 @@ fuzz_target!(|data: &[u8]| {
             );
         }
         Err(_) => {
-            assert_ne!(
-                data.len(),
-                HEADER_LEN,
-                "every {HEADER_LEN}-byte string is a well-formed header, but this one was rejected"
+            // The version byte is serialized last; only version 0 exists.
+            assert!(
+                data.len() != HEADER_LEN || data[HEADER_LEN - 1] != 0,
+                "every {HEADER_LEN}-byte version-0 string is a well-formed header, but this one was rejected"
             );
         }
     }
