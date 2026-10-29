@@ -153,6 +153,50 @@ fn one_sender_cannot_fill_the_pool_with_unaffordable_or_far_ahead_spends() {
     assert!(pool.insert(transfer(&key(1), 2, 0)).unwrap(), "share freed");
 }
 
+/// A transfer of 1 that also pays `fee` to the fee collector.
+fn paying(from: &HybridSigningKey, fee: u64, nonce: u64) -> Transaction {
+    let mut tx = Transaction::new(
+        vec![],
+        vec![
+            TxOutput {
+                amount: U256::from(1),
+                recipient: [0x77; 32],
+            },
+            TxOutput {
+                amount: U256::from(fee),
+                recipient: custom_l1_node::state::fees::FEE_COLLECTOR,
+            },
+        ],
+        nonce,
+    );
+    tx.sign(from, &common::test_chain()).unwrap();
+    tx
+}
+
+/// Review of pre-audit S-013: a full pool gives way to a better-paying
+/// transaction, never to an equal or cheaper one.
+#[test]
+fn a_full_pool_evicts_its_cheapest_for_a_better_paying_transaction() {
+    let (c, _d) = funded(3);
+    let pool = Mempool::with_capacity(Arc::clone(c.state()), 2);
+    let cheap = paying(&key(0), 10, 0);
+    assert!(pool.insert(cheap.clone()).unwrap());
+    assert!(pool.insert(paying(&key(1), 50, 0)).unwrap());
+
+    let err = pool.insert(paying(&key(2), 10, 0)).unwrap_err();
+    assert!(
+        matches!(err, NodeError::MempoolRejected(ref m) if m.contains("full")),
+        "{err:?}"
+    );
+
+    assert!(pool.insert(paying(&key(2), 100, 0)).unwrap());
+    assert_eq!(pool.len(), 2);
+    assert!(
+        !pool.contains(&cheap.txid()),
+        "the cheapest entry was not the one evicted"
+    );
+}
+
 #[test]
 fn deep_reorg_of_twenty_blocks_rewrites_state_to_the_heavier_branch() {
     let (mut main, _a) = funded(1);
