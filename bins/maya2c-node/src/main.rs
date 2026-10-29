@@ -468,14 +468,19 @@ fn load_market_feed(path: Option<&Path>) -> Result<MarketFeed, Box<dyn Error>> {
     Ok(MarketFeed::with_quotes(quotes))
 }
 
-/// Takes the chain lock, recovering it if a previous holder panicked.
+/// Takes the chain lock. A poisoned lock exits the process.
 ///
-/// Refusing to proceed on a poisoned lock would take the node down
-/// permanently; state itself is protected by RocksDB's atomic batches.
+/// A holder that panicked may have left the in-memory chain (tip, index,
+/// caches) half-updated, and carrying on would serve and build on it
+/// (pre-audit S-022). The disk is safe, since `RocksDB` writes atomic batches,
+/// so a restart, which the service manager does, rebuilds memory from it.
 fn lock_chain(chain: &Mutex<Chain>) -> std::sync::MutexGuard<'_, Chain> {
-    chain
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+    chain.lock().unwrap_or_else(|_| {
+        eprintln!(
+            "fatal: a task panicked holding the chain lock; exiting so the node restarts from disk"
+        );
+        std::process::exit(1)
+    })
 }
 
 /// Seconds since the Unix epoch.
@@ -887,6 +892,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let pq_stats = p2p.session_stats();
     let pq_epoch = p2p.epoch_clock();
     let network = p2p.spawn();
+    // Consensus tasks, watched below: one ending stops the node (S-022).
+    let mut critical = tokio::task::JoinSet::new();
     tokio::spawn(rotation_height_loop(Arc::clone(&chain), pq_epoch.clone()));
     tokio::spawn(threat_enforcement_loop(Arc::clone(&chain), network.clone()));
     tokio::spawn(dag_prepare_loop(Arc::clone(&chain)));
@@ -1030,7 +1037,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             // overtaken (its peer moved on, or its engine stalls), and the
             // checkpoint import this loop does is what rescues it (driver
             // `overtaken`, ADR-038).
-            tokio::spawn(bft::follow_loop(
+            critical.spawn(bft::follow_loop(
                 url,
                 Arc::clone(&chain),
                 Arc::clone(&setup.committee),
@@ -1042,7 +1049,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             Some(id) => println!("dag-bft:     validator {id} of {size}"),
             None => println!("dag-bft:     observer of {size} validators"),
         }
-        tokio::spawn(bft::bft_loop(
+        critical.spawn(bft::bft_loop(
             Arc::clone(&chain),
             network.clone(),
             rpc_pool,
@@ -1060,7 +1067,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         // Apply blocks arriving over gossip. Without this task the node decodes
         // every gossiped block and then drops it on the floor. Proof of work
         // only: on DAG-BFT a gossiped block is a claim nobody derived.
-        tokio::spawn(block_import_loop(
+        critical.spawn(block_import_loop(
             Arc::clone(&chain),
             network.clone(),
             Arc::clone(&metrics),
@@ -1074,7 +1081,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     if let Some(pruning) = pruning {
-        tokio::spawn(pruning_loop(Arc::clone(&chain), pruning));
+        critical.spawn(pruning_loop(Arc::clone(&chain), pruning));
     }
 
     if args.mine {
@@ -1090,10 +1097,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     println!("node ready");
 
-    // Run until interrupted. Ctrl-C is the container stop signal.
-    tokio::signal::ctrl_c().await?;
-    println!("shutting down");
-    Ok(())
+    // Run until interrupted (Ctrl-C is the container stop signal), or until a
+    // consensus task ends. None returns on its own, so one ending has
+    // panicked or lost its channel. Exiting lets the service manager restart
+    // the node; staying up would keep RPC answering for a node whose
+    // consensus is dead (pre-audit S-022).
+    tokio::select! {
+        signal = tokio::signal::ctrl_c() => {
+            signal?;
+            println!("shutting down");
+            Ok(())
+        }
+        Some(ended) = critical.join_next() => {
+            let why = match ended {
+                Err(e) if e.is_panic() => "panicked",
+                Err(_) => "was cancelled",
+                Ok(()) => "stopped",
+            };
+            Err(format!("a consensus task {why}; exiting so the node is restarted").into())
+        }
+    }
 }
 
 /// How often a node short of peers dials its bootnodes again.
