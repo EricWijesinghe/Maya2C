@@ -387,3 +387,44 @@ fn the_limit_bounds_a_window_not_a_transaction() {
     chain.send(transfer(&chain, &owner_key, bob, 100)).unwrap();
     assert_eq!(chain.balance(&bob), 200);
 }
+
+#[test]
+fn a_failed_vault_transfer_does_not_spend_the_window_for_the_next_one() {
+    // Selection tries transactions in order and keeps what applies. A transfer
+    // that charged the vault window and then failed on its nonce must leave the
+    // window as it found it, or a valid transfer behind it is dropped.
+    let (owner_key, owner) = key();
+    let (guardian_key, guardian) = key();
+    let mut chain = Chain::new(&[owner, guardian]);
+    let _ = guardian_key;
+    chain
+        .send(vault(&chain, &owner_key, configure(guardian)))
+        .unwrap();
+
+    let bob = [0xB0; 32];
+    let mut bad_nonce = Transaction::new(
+        vec![],
+        vec![TxOutput {
+            amount: primitive_types::U256::from(LIMIT),
+            recipient: bob,
+        }],
+        chain.nonce(&owner) + 5,
+    );
+    bad_nonce.sign(&owner_key, &common::test_chain()).unwrap();
+    let good = transfer(&chain, &owner_key, bob, LIMIT);
+
+    let kept = chain
+        .db
+        .select_applicable(
+            vec![bad_nonce, good.clone()],
+            BlockContext::at_height(chain.height + 1),
+            target_from_leading_zero_bits(0),
+        )
+        .unwrap();
+
+    assert_eq!(
+        kept,
+        vec![good],
+        "only the transfer with the right nonce is kept"
+    );
+}

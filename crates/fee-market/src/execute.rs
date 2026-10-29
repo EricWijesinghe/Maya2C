@@ -38,7 +38,7 @@ const _: () = assert!(INPUTS == 6);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ParentFees {
     /// The parent's base fee, per byte.
-    pub base_fee: u64,
+    pub base_fee: Amount,
     /// The parent's serialized size, in bytes.
     pub size_bytes: u64,
 }
@@ -78,7 +78,7 @@ pub enum BlockFeeOutcome {
     /// Fees were charged.
     Charged {
         /// This block's base fee, per byte.
-        base_fee: u64,
+        base_fee: Amount,
         /// One entry per transaction, in order.
         charges: Vec<Charge>,
         /// Total sent to the fee sink, including unclaimed tips.
@@ -173,8 +173,11 @@ pub fn apply_block_fees_with_features(
     let mut charges = Vec::with_capacity(txs.len());
     let (mut burned, mut treasury, mut tips) = (Amount::ZERO, Amount::ZERO, Amount::ZERO);
     for (index, tx) in txs.iter().enumerate() {
-        // A u64 price times a u64 size is below 2^128: never overflows.
-        let required = Amount::from_u128(u128::from(base_fee) * u128::from(tx.size_bytes));
+        // A price near 2^256 times any size can overflow; no sender can afford it,
+        // so it saturates to a requirement nothing meets rather than wrapping.
+        let required = base_fee
+            .checked_mul(Amount::from_u64(tx.size_bytes))
+            .unwrap_or(Amount::MAX);
         if tx.max_fee < required {
             return Err(FeeError::Underpriced {
                 index,
@@ -223,7 +226,7 @@ fn resolve_base_fee(
     height: u64,
     parent: Option<ParentFees>,
     features: Option<&Features>,
-) -> Result<u64, FeeError> {
+) -> Result<Amount, FeeError> {
     let Some(parent) = parent else {
         return Ok(config.initial_base_fee);
     };
@@ -299,7 +302,7 @@ mod tests {
         assert_eq!((burned, treasury, tips), (a(800), a(200), a(50)));
     }
 
-    fn base_fee_of(outcome: Result<BlockFeeOutcome, FeeError>) -> u64 {
+    fn base_fee_of(outcome: Result<BlockFeeOutcome, FeeError>) -> Amount {
         match outcome {
             Ok(BlockFeeOutcome::Charged { base_fee, .. }) => base_fee,
             other => panic!("not charged: {other:?}"),
@@ -307,7 +310,7 @@ mod tests {
     }
 
     const PARENT: ParentFees = ParentFees {
-        base_fee: 800,
+        base_fee: Amount::from_u64(800),
         size_bytes: 3 * 1024 * 1024 / 2,
     };
 

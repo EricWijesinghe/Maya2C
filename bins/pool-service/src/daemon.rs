@@ -535,7 +535,8 @@ pub async fn settle_loop(state: Arc<PoolState>, engine: Arc<PayoutEngine>) {
                 state.metrics.record_payouts(
                     report.broadcast as u64,
                     report.confirmed as u64,
-                    report.value_broadcast,
+                    // shortcut: Prometheus counters are u64, so a value above it saturates; the ledger keeps the exact figure.
+                    crate::node::saturating_u64(report.value_broadcast),
                 );
             }
             Err(PoolError::Treasury(reason)) => {

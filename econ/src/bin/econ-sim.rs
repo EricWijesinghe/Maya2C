@@ -134,7 +134,7 @@ fn main() {
             k,
             f.target_block_bytes,
             f.change_denominator,
-            f.min_base_fee,
+            f.min_base_fee.saturating_to_u64(),
             1_000,
         );
         println!(

@@ -41,8 +41,8 @@ cd D:\Maya2C
 # Build all required binaries
 cargo build --release -p maya2c-node -p maya-api-gateway -p attacknet-controller
 
-# Build attacknet adversary (if implemented)
-cargo build --release -p attacknet-adversary 2>&1 || Write-Warning "Adversary not yet implemented"
+# The in-tree attacker is `cargo xtask attacknet` (seven validators as processes);
+# a separate adversary binary does not exist yet.
 ```
 
 ### 3. Provision the Lab
@@ -276,7 +276,7 @@ curl http://127.0.0.1:34310/health
 wsl -- docker version
 
 # Manual start
-cd D:\Maya2C
+cd D:\Maya2C\infra\monitoring
 wsl -- docker-compose -f docker-compose.monitoring.yml up -d
 ```
 
@@ -297,11 +297,11 @@ cargo run -p attacknet-controller -- report --date 2026-10-09
 
 | File | Purpose |
 |------|---------|
-| `docker-compose.monitoring.yml` | Monitoring stack (Prometheus, Grafana, Alertmanager, Vector) |
-| `prometheus.yml` | Prometheus scrape config |
-| `grafana-datasources.yml` | Grafana datasource config |
-| `alertmanager.yml` | Alertmanager config |
-| `vector.yml` | Vector log aggregation config |
+| `infra/monitoring/docker-compose.monitoring.yml` | Monitoring stack (Prometheus, Grafana, Alertmanager, Vector) |
+| `infra/monitoring/prometheus.yml` | Prometheus scrape config |
+| `infra/monitoring/grafana-datasources.yml` | Grafana datasource config |
+| `infra/monitoring/alertmanager.yml` | Alertmanager config |
+| `infra/monitoring/vector.yml` | Vector log aggregation config |
 | `scripts/attacknet-lab.ps1` | PowerShell lab orchestration |
 | `bins/attacknet-controller/` | Rust lab controller binary |
 | `reports/attacknet/` | Evidence and reports |

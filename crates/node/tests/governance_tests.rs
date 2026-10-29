@@ -72,6 +72,11 @@ fn signed(kind: TxKind, nonce: u64, key: &HybridSigningKey) -> Transaction {
     tx
 }
 
+/// 1,000 coins at 24 decimals: more than any deposit these tests pay.
+fn deposit_headroom() -> primitive_types::U256 {
+    primitive_types::U256::exp10(27)
+}
+
 fn fixture() -> Fixture {
     let dir = TempDir::new().expect("temp dir");
     let db = StateDB::open(dir.path()).expect("open");
@@ -85,7 +90,8 @@ fn fixture() -> Fixture {
         db.put_account(
             &holder.address(),
             &Account {
-                balance: primitive_types::U256::from(BALANCE),
+                // Plus headroom for the proposal deposit, which is whole coins.
+                balance: primitive_types::U256::from(BALANCE) + deposit_headroom(),
                 nonce: 0,
             },
         )
@@ -136,7 +142,18 @@ impl Fixture {
     }
 
     fn parameter(&self, key: ParameterKey) -> u64 {
-        self.db.parameters().expect("parameters").get(key)
+        self.db
+            .parameters()
+            .expect("parameters")
+            .get(key)
+            .saturating_to_u64()
+    }
+
+    /// A parameter at full width: the deposit is 10 coins, 10^25 base units at
+    /// 24 decimals, past `u64`.
+    fn parameter_wide(&self, key: ParameterKey) -> primitive_types::U256 {
+        let amount = self.db.parameters().expect("parameters").get(key);
+        primitive_types::U256::from_little_endian(&amount.to_le_bytes())
     }
 
     fn state_of(&self, id: &[u8; 32]) -> ProposalState {
@@ -159,7 +176,7 @@ impl Fixture {
             TxKind::Propose(Box::new(ProposalSubmission {
                 voting_blocks: MIN_VOTING_BLOCKS,
                 timelock_blocks: MIN_TIMELOCK_BLOCKS,
-                changes: vec![(key.tag(), value)],
+                changes: vec![(key.tag(), maya_dex::Amount::from_u64(value))],
             })),
             height,
         )
@@ -211,7 +228,7 @@ fn locking_stake_moves_it_out_of_the_spendable_balance() {
         .expect("account");
     assert_eq!(
         account.balance,
-        primitive_types::U256::from(BALANCE - 1_000)
+        primitive_types::U256::from(BALANCE - 1_000) + deposit_headroom()
     );
     assert_eq!(
         fixture
@@ -263,7 +280,7 @@ fn stake_cannot_be_withdrawn_before_its_height() {
             .get_account(&fixture.address(0))
             .expect("account")
             .balance,
-        primitive_types::U256::from(BALANCE)
+        primitive_types::U256::from(BALANCE) + deposit_headroom()
     );
 }
 
@@ -362,7 +379,10 @@ fn a_proposal_below_the_timelock_floor_is_refused() {
             TxKind::Propose(Box::new(ProposalSubmission {
                 voting_blocks: MIN_VOTING_BLOCKS,
                 timelock_blocks: MIN_TIMELOCK_BLOCKS - 1,
-                changes: vec![(ParameterKey::DexProtocolFeeBps.tag(), 10)],
+                changes: vec![(
+                    ParameterKey::DexProtocolFeeBps.tag(),
+                    maya_dex::Amount::from_u64(10),
+                )],
             })),
             1,
         )
@@ -385,7 +405,7 @@ fn no_proposal_can_name_the_quorum_or_the_timelock() {
                 TxKind::Propose(Box::new(ProposalSubmission {
                     voting_blocks: MIN_VOTING_BLOCKS,
                     timelock_blocks: MIN_TIMELOCK_BLOCKS,
-                    changes: vec![(tag, 1)],
+                    changes: vec![(tag, maya_dex::Amount::from_u64(1))],
                 })),
                 1,
             )
@@ -408,7 +428,13 @@ fn a_proposal_outside_a_parameters_hard_range_is_refused() {
                 TxKind::Propose(Box::new(ProposalSubmission {
                     voting_blocks: MIN_VOTING_BLOCKS,
                     timelock_blocks: MIN_TIMELOCK_BLOCKS,
-                    changes: vec![(ParameterKey::DexProtocolFeeBps.tag(), bounds.max + 1)],
+                    changes: vec![(
+                        ParameterKey::DexProtocolFeeBps.tag(),
+                        bounds
+                            .max
+                            .checked_add(maya_dex::Amount::from_u64(1))
+                            .unwrap(),
+                    )],
                 })),
                 1,
             )
@@ -495,6 +521,54 @@ fn a_proposal_that_misses_quorum_is_rejected_and_changes_nothing() {
 }
 
 #[test]
+fn work_credit_held_by_those_who_stay_home_counts_in_the_quorum_denominator() {
+    // Vote weight is locked stake plus work credit, so the electorate quorum is
+    // measured against must be both. Measured against locked stake alone, one
+    // miner's small credit meets quorum on a chain where a great deal more work
+    // is held by miners who did not vote (audit H-2).
+    let fixture = fixture();
+    fixture
+        .act(
+            0,
+            TxKind::ClaimWork(WorkClaim {
+                beneficiary: fixture.address(0),
+            }),
+            1,
+        )
+        .expect("claim");
+    let credit = u64::try_from(
+        fixture
+            .db
+            .work_credit(&fixture.address(0), 1)
+            .expect("credit"),
+    )
+    .expect("small");
+    assert!(credit > 0);
+
+    // Exactly the 10% quorum of the locked stake alone.
+    fixture.lock(1, credit * 10, 200_000, 2);
+    // A second miner earns twenty times as much and never votes.
+    for height in 3..23 {
+        fixture
+            .act(
+                2,
+                TxKind::ClaimWork(WorkClaim {
+                    beneficiary: fixture.address(2),
+                }),
+                height,
+            )
+            .expect("claim");
+    }
+
+    let (id, executable) = fixture.propose(ParameterKey::DexProtocolFeeBps, 25, 23);
+    fixture.vote(0, id, Choice::For, 24).expect("vote");
+
+    fixture.apply(vec![], executable).expect("settle");
+    assert_eq!(fixture.state_of(&id), ProposalState::Rejected);
+    assert_eq!(fixture.parameter(ParameterKey::DexProtocolFeeBps), 0);
+}
+
+#[test]
 fn a_proposal_voted_down_is_rejected_and_changes_nothing() {
     let fixture = fixture();
     fixture.lock(0, 3_000_000, 200_000, 1);
@@ -516,7 +590,7 @@ fn the_proposers_deposit_returns_when_the_proposal_settles() {
     let fixture = fixture();
     fixture.lock(0, 3_000_000, 200_000, 1);
 
-    let deposit = fixture.parameter(ParameterKey::GovernanceProposalDeposit);
+    let deposit = fixture.parameter_wide(ParameterKey::GovernanceProposalDeposit);
     let before = fixture
         .db
         .get_account(&fixture.address(0))
@@ -640,7 +714,13 @@ fn a_governed_ceiling_is_read_from_state_rather_than_from_the_binary() {
     fixture.lock(1, 4_000_000, 200_000, 2);
 
     let default = fixture.parameter(ParameterKey::DexMaxOrdersPerBook);
-    assert_eq!(default, ParameterKey::DexMaxOrdersPerBook.bounds().default);
+    assert_eq!(
+        default,
+        ParameterKey::DexMaxOrdersPerBook
+            .bounds()
+            .default
+            .saturating_to_u64()
+    );
 
     let (id, executable) = fixture.propose(ParameterKey::DexMaxOrdersPerBook, 512, 3);
     fixture.vote(0, id, Choice::For, 10).expect("vote");

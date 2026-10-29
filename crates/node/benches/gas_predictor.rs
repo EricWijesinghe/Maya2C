@@ -88,15 +88,15 @@ fn synthetic_block(keys: &[HybridSigningKey], count: usize) -> Block {
     Block::new(header(), transactions)
 }
 
-fn neural_fee(block: &Block, size: u64) -> u64 {
+fn neural_fee(block: &Block, size: u64) -> maya_dex::Amount {
     let features = Features::new(extract(block, size, TARGET, TARGET).values);
     next_base_fee_by_rule(
         FeeRule::Neural(&MODEL_V1),
-        PARENT_FEE,
+        maya_dex::Amount::from_u64(PARENT_FEE),
         size,
         TARGET,
         DENOMINATOR,
-        FLOOR,
+        maya_dex::Amount::from_u64(FLOOR),
         &features,
     )
 }
@@ -127,8 +127,8 @@ fn bench_rule(c: &mut Criterion) {
     burst.bench_function("features_and_rule", |b| {
         b.iter(|| {
             (0..blocks)
-                .map(|_| neural_fee(black_box(&full), size))
-                .sum::<u64>()
+                .map(|_| neural_fee(black_box(&full), size).saturating_to_u64())
+                .fold(0u64, u64::saturating_add)
         });
     });
     burst.finish();
@@ -200,11 +200,11 @@ fn bench_signed(c: &mut Criterion) {
                         black_box(neural_fee(&block, size));
                     } else {
                         black_box(maya_fee_market::next_base_fee(
-                            PARENT_FEE,
+                            maya_dex::Amount::from_u64(PARENT_FEE),
                             size,
                             TARGET,
                             DENOMINATOR,
-                            FLOOR,
+                            maya_dex::Amount::from_u64(FLOOR),
                         ));
                     }
                 },

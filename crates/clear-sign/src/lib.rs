@@ -18,13 +18,15 @@
 
 use std::collections::BTreeSet;
 
+use maya_amount::Amount;
+
 /// A 32-byte address.
 pub type Address = [u8; 32];
 
 /// An amount at or above this is treated as "unlimited" (2^96).
-pub const UNLIMITED: u128 = 1 << 96;
+pub const UNLIMITED: Amount = Amount([0, 1 << 32, 0, 0]);
 /// Outflow of at least this share of a balance, in percent, is a drain.
-pub const DRAIN_PERCENT: u128 = 90;
+pub const DRAIN_PERCENT: u64 = 90;
 
 /// One effect of a transaction.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -36,7 +38,7 @@ pub enum Effect {
         /// Recipient.
         to: Address,
         /// Amount in base units.
-        amount: u128,
+        amount: Amount,
     },
     /// Another party may spend up to `amount` of `token` later.
     Approve {
@@ -45,7 +47,7 @@ pub enum Effect {
         /// Who may spend.
         spender: Address,
         /// Allowance.
-        amount: u128,
+        amount: Amount,
     },
     /// Another party may move every item of a collection.
     ApproveAll {
@@ -62,7 +64,7 @@ pub enum Effect {
         /// Who may spend.
         spender: Address,
         /// Allowance.
-        amount: u128,
+        amount: Amount,
     },
     /// A contract's code is replaced.
     Upgrade {
@@ -93,7 +95,7 @@ pub struct Context {
     /// Contracts whose source is verified and whose reputation is known.
     pub verified: BTreeSet<Address>,
     /// The user's balance per token before the transaction.
-    pub balances: Vec<(Address, u128)>,
+    pub balances: Vec<(Address, Amount)>,
 }
 
 /// A warning the wallet must show. Ordered by severity, highest first.
@@ -208,8 +210,13 @@ fn warnings_for(e: &Effect, ctx: &Context, out: &mut BTreeSet<Warning>) {
                 .balances
                 .iter()
                 .find(|(t, _)| t == token)
-                .map_or(0, |(_, b)| *b);
-            if balance > 0 && amount.saturating_mul(100) >= balance.saturating_mul(DRAIN_PERCENT) {
+                .map_or(Amount::default(), |(_, b)| *b);
+            // Exact 512-bit products: a saturated 256-bit product would flag (or miss)
+            // a drain by clamping.
+            if !balance.is_zero()
+                && amount.mul_wide(Amount::from_u64(100))
+                    >= balance.mul_wide(Amount::from_u64(DRAIN_PERCENT))
+            {
                 out.insert(Warning::DrainsBalance);
             }
         }

@@ -157,14 +157,23 @@ Credit halves every 5,760 blocks (~1 day). Voting power should reflect hash powe
 forever. Halving is exact in integers — it is a shift — where a fractional decay
 would need a rounding rule, and a rounding rule in voting weight is a bias.
 
-### Quorum is measured against locked stake alone
+### Quorum is measured against locked stake plus work credit
 
-Work credit decays per address at a different moment for each address, so a
-chain-wide total would drift from the sum of its parts, and a quorum denominator
-that is quietly wrong is worse than one that is conservatively simple.
+A ballot weighs locked stake plus decayed work credit, so the electorate quorum is
+measured against must hold both (decided 2026-10-27, DECISIONS.md; it was locked
+stake alone, and a small credit then met quorum on a chain where most work was held
+by miners who did not vote).
 
-The consequence: turnout can exceed 100% when miners vote. That only makes quorum
-*easier*, never harder, and the binding threshold — approval — is unaffected.
+The chain keeps one aggregate work record beside the locked total. It is credited on
+every work claim and halves by the same rule as each address's own credit, so a
+departed miner's credit leaves the denominator as it leaves their weight. Both
+clocks advance by whole half-lives only: a record credited more often than every
+half-life used to reset its clock and never decay, which would have grown the
+denominator for ever.
+
+Turnout can still exceed 100% in one case: weights are fixed when a vote is cast and
+the denominator is read at close, so work that decays in between lowers it. That only
+makes quorum easier, and approval is unaffected.
 
 ---
 

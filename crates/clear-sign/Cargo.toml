@@ -10,6 +10,7 @@ description = "Clear signing: a transaction intent standard, plain-language rend
 # Dependency-free: a wallet, the Ledger app and the explorer must all render
 # the same words from the same bytes.
 [dependencies]
+maya-amount = { path = "../amount" }
 
 [lints]
 workspace = true

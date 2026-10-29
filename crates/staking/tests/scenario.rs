@@ -401,3 +401,39 @@ fn undelegate_takes_pending_stake_before_earned_stake() {
     let out = s.end_epoch(&Participation::default(), a(3_000)).unwrap();
     assert!(out.effects.contains(&Effect::Credit(account(3), a(1_000))));
 }
+
+#[test]
+fn undelegations_cannot_grow_the_unbonding_queue_for_free() {
+    // Pre-audit CRITICAL-1 (self-run): one-unit undelegations each added a row
+    // to the staking record until no node could decode it.
+    let mut s = Staking::new(Params::DEVNET).unwrap();
+    s.register(account(1), id(1), a(10_000), 0).unwrap();
+    s.delegate(account(2), id(1), a(1_000)).unwrap();
+    assert_eq!(
+        s.undelegate(account(2), id(1), Amount::ZERO),
+        Err(StakeError::BelowMinimum)
+    );
+    assert_eq!(
+        s.undelegate(account(2), id(1), a(1)),
+        Err(StakeError::BelowMinimum)
+    );
+    assert_eq!(
+        s.unbond(account(1), id(1), Amount::ZERO),
+        Err(StakeError::BelowMinimum)
+    );
+    // Undelegations releasing in the same epoch fold into one row.
+    for _ in 0..50 {
+        s.undelegate(account(2), id(1), a(10)).unwrap();
+    }
+    assert_eq!(s.unbonding.len(), 1);
+    assert_eq!(s.unbonding[0].amount, a(500));
+    // Leaving a remainder below the minimum is refused; leaving whole is not.
+    assert_eq!(
+        s.undelegate(account(2), id(1), a(495)),
+        Err(StakeError::BelowMinimum)
+    );
+    s.undelegate(account(2), id(1), a(500)).unwrap();
+    assert_eq!(s.unbonding.len(), 1);
+    assert_eq!(s.unbonding[0].amount, a(1_000));
+    assert!(!s.delegations.contains_key(&(account(2), id(1))));
+}

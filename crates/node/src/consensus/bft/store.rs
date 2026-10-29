@@ -70,7 +70,7 @@ const RECORD_SLACK: usize = 64 * 1024;
 
 /// Bytes of one vote's entry in a certificate: voter id, signature length
 /// prefix, and the signature.
-const VOTE_ENTRY: usize = 2 + 8 + crate::crypto::keys::SIGNATURE_LENGTH;
+const VOTE_ENTRY: usize = 2 + 8 + crate::crypto::validator_keys::SIGNATURE_LENGTH;
 
 /// Largest record a log or a peer may carry, in raw bytes: the largest
 /// certificate or proposal the protocol can produce. It is derived from the

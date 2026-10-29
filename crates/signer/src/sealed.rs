@@ -1,5 +1,5 @@
 //! Sealed secret files: any secret byte string at rest, for keys that are not
-//! derived from a 32-byte seed (a node's expanded ML-DSA-65 validator key).
+//! derived from a 32-byte seed (a node validator key sealed by older builds; ML-DSA-87 validator keys are a 32-byte seed).
 //!
 //! The same primitives as [`crate::keystore`]: Argon2id (64 MiB, 3 passes)
 //! stretches the passphrase, and ChaCha20-Poly1305 seals the secret. Everything
@@ -15,9 +15,11 @@ use zeroize::Zeroizing;
 use crate::keystore::{KDF_MEMORY_KIB, KDF_PASSES, KeystoreError, hex, key_from, unhex};
 
 const FORMAT: u32 = 2;
-/// The kind label of a node's ML-DSA-65 validator key; the node and the
+/// The kind label of a node's ML-DSA-87 validator key (a 32-byte seed); the
+/// label changed with the key type, so a file sealed by an older build fails
+/// with a kind mismatch rather than opening as the wrong key. The node and the
 /// wallet both open it, so the label lives here once.
-pub const VALIDATOR_KEY_KIND: &str = "maya2c-ml-dsa-65-validator-key";
+pub const VALIDATOR_KEY_KIND: &str = "maya2c-ml-dsa-87-validator-seed";
 /// The environment variable naming a validator passphrase *file*. The value
 /// is a path, never the passphrase: an environment is readable by every
 /// process that can inspect this one.

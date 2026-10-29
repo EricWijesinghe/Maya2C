@@ -1,6 +1,6 @@
 # ADR-063: A version byte and a timestamp bound in the block header
 
-Status: Proposed (2026-10-26). Needs Eric's decision. Header change: free before genesis, a hard fork after.
+Status: Accepted (2026-10-27, Eric: version byte + median-time rule). Implementation also clamps the retarget span input so one far-future timestamp cannot steer difficulty; the clock-based drift check is an admission rule only, never part of `apply`. Originally Proposed 2026-10-26.
 
 ## Context
 `BlockHeader` is a fixed 144 bytes (`core/block.rs`); the nonce range and the GPU

@@ -176,7 +176,7 @@ function fees(): number {
         const gap = size > t ? size - t : t - size;
         const delta = (p * gap) / t / d;
         next = size > t ? p + (delta > 1n ? delta : 1n) : p > delta ? p - delta : 0n;
-        if (next > U64_MAX) next = U64_MAX;
+        if (next > U256_MAX) next = U256_MAX; // FEE-3 saturates at 2^256 − 1 (ADR-066)
         if (next < floor) next = floor;
       }
       check(next === BigInt(c.expect), `${c.id}: got ${next}`);
@@ -229,6 +229,41 @@ for (const k of keyDoc.keys) {
   check(derived === k.address, `keys.json ${k.name}: address`);
   keys.set(k.name, k.address);
 }
-const counts = { state_transitions: stateTransitions(keys), encoding: encoding(), fees: fees(), headers: headers(), keys: keys.size };
+// ------------------------------------------------------------------ mining
+// MINE-1..3 from spec/09-mining.md, in BigInt: no width to overflow, so the
+// 2^192 ceiling is checked on the exact sum.
+function mining(): number {
+  const doc = load("mining.json");
+  const reward = (initial: bigint, tail: bigint, h: bigint, e: bigint) => {
+    const n = e / h;
+    const halved = n >= 256n ? 0n : initial >> n;
+    return halved > tail ? halved : tail;
+  };
+  for (const c of doc.cases) {
+    if (c.fn === "epoch_reward") {
+      const got = reward(BigInt(c.initial), BigInt(c.tail), BigInt(c.halving_epochs), BigInt(c.epoch));
+      check(got === BigInt(c.expect), `${c.id}: got ${got}`);
+    } else if (c.fn === "split") {
+      const r = BigInt(c.reward), bps = BigInt(c.miner_bps) < 10000n ? BigInt(c.miner_bps) : 10000n;
+      const miners = (r * bps) / 10000n;
+      check(miners === BigInt(c.expect.miners) && r - miners === BigInt(c.expect.committee), `${c.id}`);
+    } else if (c.fn === "lifetime_emission") {
+      const [initial, tail, h, blocks] = [c.initial, c.tail, c.halving_epochs, c.epoch_blocks].map(BigInt);
+      const epochs = U64_MAX / blocks + 1n;
+      let total = 0n;
+      for (let start = 0n, k = 0n; start < epochs; start += h, k += 1n) {
+        const halved = k >= 256n ? 0n : initial >> k;
+        const left = epochs - start;
+        if (halved <= tail) { total += tail * left; break; }
+        total += halved * (h < left ? h : left);
+      }
+      const ok = total < 1n << 192n;
+      check(ok === (c.expect.result === "ok") && (!ok || total === BigInt(c.expect.total)), `${c.id}: got ${total}`);
+    } else check(false, `${c.id}: unknown fn ${c.fn}`);
+  }
+  return doc.cases.length;
+}
+
+const counts = { state_transitions: stateTransitions(keys), encoding: encoding(), fees: fees(), headers: headers(), mining: mining(), keys: keys.size };
 console.log(`verifier-ts (independent, signatures trusted from vectors): ${JSON.stringify(counts)} cases, ${failures} mismatches`);
 process.exit(failures === 0 ? 0 : 1);

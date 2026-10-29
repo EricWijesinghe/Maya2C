@@ -2,7 +2,7 @@
 //! puts a validator key into the committee, and how anyone delegates to one.
 //!
 //! Two keys meet here and stay distinct. The wallet's hybrid key pays the bond
-//! and signs the transaction; the validator's ML-DSA-65 key — the one the node
+//! and signs the transaction; the validator's ML-DSA-87 key — the one the node
 //! votes with, written by `maya2c-node --generate-validator-key` — signs only a
 //! proof of possession over the paying address. Without that proof anyone
 //! could register someone else's key and capture its votes.
@@ -11,7 +11,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use custom_l1_node::core::staking_payload::StakingAction;
-use custom_l1_node::crypto::keys::{SECRET_KEY_LEN, SigningKey};
+use custom_l1_node::crypto::validator_keys::{SECRET_KEY_LEN, SigningKey};
 use maya_signer::sealed;
 use zeroize::Zeroizing;
 
@@ -21,7 +21,7 @@ pub const MAX_COMMISSION_BPS: u16 = 10_000;
 
 /// Reads a validator key in either format `maya2c-node` writes: sealed
 /// (`--seal-validator-key`, opened with the passphrase file named by
-/// `MAYA2C_VALIDATOR_PASSPHRASE_FILE`) or the legacy ML-DSA-65 secret key as hex.
+/// `MAYA2C_VALIDATOR_PASSPHRASE_FILE`) or the 32-byte ML-DSA-87 validator seed as hex.
 ///
 /// # Errors
 ///
@@ -73,7 +73,10 @@ pub fn load_validator_key_with(path: &Path, pass_path: Option<&Path>) -> Result<
 
 fn key_from_bytes(bytes: &[u8], path: &Path) -> Result<SigningKey> {
     let Ok(array) = <[u8; SECRET_KEY_LEN]>::try_from(bytes) else {
-        bail!("{}: not an ML-DSA-65 validator secret key", path.display());
+        bail!(
+            "{}: not an ML-DSA-87 validator seed (32 bytes)",
+            path.display()
+        );
     };
     let array = Zeroizing::new(array);
     SigningKey::from_bytes(&array).context("decoding the validator key")
@@ -129,7 +132,7 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::*;
-    use custom_l1_node::crypto::keys::generate_signing_key;
+    use custom_l1_node::crypto::validator_keys::generate_signing_key;
 
     #[test]
     fn a_registration_proves_possession_of_the_key_for_this_sender_only() {

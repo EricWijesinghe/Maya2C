@@ -219,7 +219,7 @@ impl Vertex {
 /// author can have two certified vertices in one round.
 ///
 /// Each vote is a signature by the voter over the vertex digest, made and
-/// checked through [`crate::Authenticator`]. The node signs with ML-DSA-65
+/// checked through [`crate::Authenticator`]. The node signs with ML-DSA-87 (ADR-051 option 3)
 /// and carries the quorum's signatures side by side (ADR-021 measured why they
 /// are not aggregated); the simulator's [`crate::Unauthenticated`] leaves them
 /// empty, and that is the one thing a simulation takes on trust.

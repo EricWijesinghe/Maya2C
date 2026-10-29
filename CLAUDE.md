@@ -123,36 +123,18 @@ and 548 of the writes were whole files. So:
   not just the lines you are changing. An edit that makes sense in isolation
   can break an invariant stated three lines above it.
 
-**Searching:** `rg` for text, `ast-grep` / `sgr` for structure. Both honor
-`.ignore` and `.gitignore`. Never `Get-ChildItem -Recurse` from the repo root.
-
-**Editing:** targeted `Edit` / `replace_symbol_body`. Never rewrite a whole file
-to change part of it. Show diffs, not restatements of the file.
-
-**Command output:** every build/test/lint call goes through `condense` or the
-`qb` / `qt` / `ql` wrappers. `gdf` for stat, `gdfp` for a bounded unified diff,
-`gst` / `glog` for git. An unfiltered `cargo` invocation is a defect.
-
-**Responses:** terse and fragment-based. Lead with `file:line`. No preamble, no
-restating the question, no summarizing output already shown.
-
-Helpers live in `~/.claude/shell/token-helpers.ps1` and
-`token-helpers-bounded.ps1` (`.sh` equivalents for bash), auto-loaded from the
-PowerShell profile and `~/.bashrc`.
+Never `Get-ChildItem -Recurse` from the repo root. An unfiltered `cargo`
+invocation is a defect. Search, editing and output wrappers: global `CLAUDE.md`.
 
 ## Workspace Map
 
-87 members, and eleven tracked crates that are **not**
-members because they target a different architecture or must keep their
-dependency graph away from the node's: `fuzz/`, `offsec-sandbox/`,
-`hal/iot-firmware/`, `hal/ebpf-net/programs/`, `apps/dashboard/`, `apps/wallet-gui/ui/`,
-`apps/wallet-gui/src-tauri/`, `apps/chat-gui/src-tauri/`, `apps/ledger-maya2c/`, `contracts/token-swap/`,
-`contracts/nft-game/`. Seven of the eleven cannot be built for the host at all, so
-"the workspace builds" is a claim about 87 of 98 crates.
+Directory-by-directory guide and file-placement rules: [docs/REPO-MAP.md](docs/REPO-MAP.md), [docs/HYGIENE.md](docs/HYGIENE.md).
 
-What each one is for, and why it is a separate crate:
-[docs/workspace-map.md](docs/workspace-map.md). Membership itself comes from
-`cargo metadata --no-deps`.
+87 members plus eleven tracked crates deliberately outside the workspace
+(different architecture, or a dependency graph kept away from the node's).
+Seven of the eleven cannot be built for the host, so "the workspace builds" is
+a claim about 87 of 98 crates. The list and the reasons:
+[docs/workspace-map.md](docs/workspace-map.md); membership: `cargo metadata --no-deps`.
 
 ## Tiers, classes and the reality ledger
 
@@ -178,17 +160,14 @@ consensus).
 
 **Status** — `planned` / `stub` / `working` / `verified`.
 
-Subsystems now (2026-09-28): 61 verified, 66 working, 20 planned; 54 core, 67 extended, 26 frontier.
 
 ## Roadmap Status
 
-**SHIPPED** — in the tree, reachable, tested. **RESEARCH** — tested, but
-*nothing in consensus calls it* (usually activation height `u64::MAX`;
-promoting one is a written decision). **PLANNED** — no code; `grep` will not
-find it. A dark subsystem and an unwritten one look identical from outside.
-Detail and rationale: [docs/architecture-vision.md](docs/architecture-vision.md);
-ordering: [docs/trajectory.md](docs/trajectory.md); the thirty `Prompts/`
-briefs: [docs/master-prompts/README.md](docs/master-prompts/README.md).
+SHIPPED / RESEARCH (tested, nothing in consensus calls it, usually activation
+height `u64::MAX`; promoting one is a written decision) / PLANNED (no code).
+Detail: [docs/architecture-vision.md](docs/architecture-vision.md); ordering:
+[docs/trajectory.md](docs/trajectory.md); briefs:
+[docs/master-prompts/README.md](docs/master-prompts/README.md).
 
 Four PLANNED items collide with recorded invariants and must be reconciled
 *before* code: the bytecode hot-patcher (13), relativistic clock sync and
@@ -228,14 +207,11 @@ written as achieved is a directive nobody will implement. Expanded in
    today: the apply path allocates (RocksDB owned buffers, the journal's `Vec`).
    Do not add an allocation to an inner loop that lacked one; measure first.
 4. **No `unsafe` in core execution paths.** Holds today for `crates/node/src/state/`,
-   `crates/node/src/chain.rs`, `ledger-math`, `dex`, `governance`, `fee-market`, `vrf` — the
-   same crates whose dependency-freedom exists so Kani can compile them. Exempt
-   by construction: `cuda-miner` (CUDA driver FFI), `sdk-ffi` (the C ABI *is*
-   the product), `wgpu-miner` (GPU buffer mapping), `hal/ebpf-net/src/linux/`
-   (AF_XDP rings and UMEM shared with the kernel; behind `xdp`, so a default
-   node links none of it), `hal/ebpf-net/programs` (packet pointers the verifier
-   bounds). An `unsafe` block anywhere else needs a hardware-attestation
-   justification in a comment, and a reviewer.
+   `crates/node/src/chain.rs`, `ledger-math`, `dex`, `governance`, `fee-market`, `vrf`.
+   Exempt by construction: `cuda-miner`, `sdk-ffi`, `wgpu-miner`,
+   `hal/ebpf-net` (list and reasons: architecture-vision §7). An `unsafe` block
+   anywhere else needs a hardware-attestation justification in a comment, and a
+   reviewer.
 
 ## Build & Test
 
@@ -245,9 +221,6 @@ Never run unfiltered cargo output — use `qb` / `qt` / `ql`, or pipe through
 ```powershell
 cargo xtask disk                     # artifact size vs the 30 GiB ceiling
 cargo xtask coverage --verify-targets # the ledger, and that its tests are real targets
-qb                                   # cargo build --workspace
-qt                                   # cargo nextest run --workspace
-ql                                   # cargo clippy --all-targets
 cargo deny check                     # advisories, bans, licences, sources
 bash scripts/lint_debt.sh --check    # the clippy::pedantic ratchet
 bash scripts/doc_coverage.sh --check # doc coverage, 90% floor
@@ -268,23 +241,11 @@ Four things that will otherwise cost a day each:
   The `[profile.dev.package.*]` overrides that name workspace members are the
   only thing optimising them, and invariant 2 depends on one of them.
 
-Measured 2026-09-20: cold `cargo check --workspace --all-targets` 4m 34s,
-cold build 4m 54s, `cargo nextest run --workspace` 2,515 tests across 169
-binaries all passing, root `target/` 26.4 GiB and 27.7 GiB across every
-artifact directory. Measured 2026-09-26 (80 members, 4 vCPU cloud VM):
-`cargo test --workspace --profile ci --no-fail-fast` 2,793 passed, 0 failed,
-6 ignored across 320 test binaries (doc-tests included) in 41m 0s.
-
 ## Code Conventions
 
-- Functions under 50 lines; source files 200–400 typical, 800 soft ceiling;
-  nesting depth ≤ 4. Test, generated and vendored files may exceed the ceiling.
-- `snake_case` functions and variables, `PascalCase` types,
-  `SCREAMING_SNAKE_CASE` constants. Lifetimes short and lowercase.
-- Immutable by default; return new values rather than mutating arguments.
-- Every error handled explicitly, never swallowed. Typed errors with
-  `thiserror` in libraries. Validate at boundaries.
-- No magic numbers, no hardcoded secrets, no leftover debug prints.
+- Size, naming, immutability, error-handling and no-magic-number rules: the
+  global `00-core.md`. Test, generated and vendored files may exceed the file
+  ceiling. Libraries use typed `thiserror` errors.
 - **Comments say why, not what.** This repository's manifests and modules
   explain the reasoning behind a boundary, a version pin or a parameter set.
   That prose is the documentation — do not strip it when editing near it.
@@ -299,11 +260,8 @@ MCP servers, the ECC harness surface, `.ignore` rules, brand assets and cache
 locations are in [docs/environment.md](docs/environment.md) — none of it about
 the chain, all of it about the cost of working on it.
 
-1. Navigation order: `skel` / `ctx` → `serena` symbols → `ast-grep` → bounded
-   `Read`. Whole-file reads last.
-2. Run `/graphify` after major structural changes.
-3. Keep files modular — 200-400 lines typical, 800 max.
-4. Consensus, crypto, and ledger changes get a `rust-reviewer` +
+1. Keep files modular — 200-400 lines typical, 800 max.
+2. Consensus, crypto, and ledger changes get a `rust-reviewer` +
    `security-reviewer` pass before commit.
 5. A new subsystem lands in [docs/architecture-vision.md](docs/architecture-vision.md)
    with a status tag *before* it lands in `Cargo.toml`, gets a `features.toml`
@@ -313,16 +271,6 @@ the chain, all of it about the cost of working on it.
    nobody can check.
 6. A new external dependency goes in `[workspace.dependencies]` if any other
    member already uses it — [ADR-005](docs/adr/ADR-005-dependency-unification.md).
-
-## How to Resume
-
-Follow "Start of session" in the Operating Protocol below. The older
-checklist it replaces, still useful for detail:
-
-1. `cargo xtask coverage` — the ledger, and whether every claim is still backed.
-2. `cargo xtask disk` — artifact size, before starting anything long.
-3. `reports/01-foundation.md` — the last measured build and test numbers.
-4. [PROGRESS.md](PROGRESS.md) — the first unticked box.
 
 ## Operating Protocol
 
@@ -402,13 +350,8 @@ dependency to a core crate; expanding scope beyond
 
 ### Reporting to Eric
 
-Every 5 sessions, and on request: `reports/executive/<date>.md`, plain
-language, one page at most — what now works (with evidence links), what
-broke or was downgraded, real numbers measured, risks ranked with what
-would reduce each, what is needed from Eric (decisions, approvals, money,
-people), and an honest distance to the current milestone in weeks of work,
-labelled as an estimate. No hype, no "revolutionary", no percentage not
-computed from evidence. If progress was slow, say so and why.
+Every 5 sessions, and on request: `reports/executive/<date>.md` — use the
+`executive-report` skill. No hype; no percentage not computed from evidence.
 
 ### When to stop and ask Eric
 

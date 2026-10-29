@@ -31,6 +31,26 @@ use crate::network::topics::{bft_topic, blocks_topic, txs_topic};
 /// flood of maximum-size junk could pin gigabytes before the engine looks.
 pub(crate) const MAX_BFT_FRAME_BYTES: usize = 5 * 1024 * 1024;
 
+/// The gossip verdict on a DAG-BFT topic message, before any signature.
+fn classify_bft_frame(data: &[u8]) -> Verdict {
+    use crate::consensus::bft::{Envelope, attest, wire::WIRE_VERSION};
+    if data.len() > MAX_BFT_FRAME_BYTES {
+        return Verdict::Ignore;
+    }
+    // Engine frames, or block attestations (ADR-038), which carry their own
+    // first byte so neither can parse as the other.
+    let decodes = match data.first().copied() {
+        Some(WIRE_VERSION) => Envelope::decode(data).is_ok(),
+        Some(attest::ATTEST_FRAME) => attest::Attestation::decode(data).is_ok(),
+        _ => return Verdict::Ignore,
+    };
+    if decodes {
+        Verdict::Accept
+    } else {
+        Verdict::Reject(Offence::MalformedFrame)
+    }
+}
+
 impl NodeDriver {
     /// Validates one gossiped message and tells gossipsub what to do with it.
     ///
@@ -71,23 +91,19 @@ impl NodeDriver {
         self.attest(verdict, author, message.sequence_number, signature, data);
     }
 
-    /// Relays a DAG-BFT frame that has the right version byte and hands it to
-    /// whoever runs consensus. Signatures are the engine's to check; the gossip
-    /// layer only refuses what cannot be a frame (`consensus::bft` module note).
+    /// Relays a DAG-BFT frame that decodes and hands it to whoever runs
+    /// consensus. Signatures are the engine's to check; the gossip layer
+    /// refuses what cannot be a frame (`consensus::bft` module note). It once
+    /// checked only the first byte, so every node relayed and buffered 5 MiB
+    /// of random bytes behind a valid version byte (pre-audit S-003).
     fn gossiped_bft(&mut self, data: &[u8]) -> Verdict {
-        if data.len() > MAX_BFT_FRAME_BYTES {
-            return Verdict::Ignore;
-        }
-        // Engine frames, or block attestations (ADR-038), which carry their
-        // own first byte so neither can parse as the other.
-        let first = data.first().copied();
-        if first != Some(crate::consensus::bft::wire::WIRE_VERSION)
-            && first != Some(crate::consensus::bft::attest::ATTEST_FRAME)
+        let verdict = classify_bft_frame(data);
+        // Over the byte budget: neither kept nor relayed, and not the sender's fault.
+        if verdict == Verdict::Accept && !self.events.emit_frame(std::sync::Arc::new(data.to_vec()))
         {
             return Verdict::Ignore;
         }
-        self.events.emit_frame(std::sync::Arc::new(data.to_vec()));
-        Verdict::Accept
+        verdict
     }
 
     fn gossiped_transaction(&mut self, data: &[u8]) -> Verdict {
@@ -282,3 +298,37 @@ const _: () = {
     assert!(MAX_BFT_FRAME_BYTES > crate::consensus::bft::store::MAX_BATCH_BYTES);
     assert!(MAX_BFT_FRAME_BYTES < crate::network::behaviour::MAX_GOSSIP_MESSAGE_BYTES);
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::consensus::bft::wire::WIRE_VERSION;
+
+    #[test]
+    fn a_frame_that_does_not_decode_is_never_relayed() {
+        let mut junk = vec![0x5a_u8; 4096];
+        junk[0] = WIRE_VERSION;
+        assert_eq!(
+            classify_bft_frame(&junk),
+            Verdict::Reject(Offence::MalformedFrame)
+        );
+        let mut attest = junk.clone();
+        attest[0] = crate::consensus::bft::attest::ATTEST_FRAME;
+        assert_eq!(
+            classify_bft_frame(&attest),
+            Verdict::Reject(Offence::MalformedFrame)
+        );
+        assert_eq!(classify_bft_frame(&[0xEE, 1, 2]), Verdict::Ignore);
+        let fetch = crate::consensus::bft::Envelope {
+            epoch: 3,
+            from: 1,
+            to: crate::consensus::bft::wire::BROADCAST,
+            message: maya_dag_bft::Message::Fetch([7; 32]),
+        };
+        assert_eq!(classify_bft_frame(&fetch.encode()), Verdict::Accept);
+        assert_eq!(
+            classify_bft_frame(&vec![WIRE_VERSION; MAX_BFT_FRAME_BYTES + 1]),
+            Verdict::Ignore
+        );
+    }
+}

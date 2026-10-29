@@ -7,6 +7,10 @@ band; move an item to PROGRESS.md when it starts.
 
 ## P1 — mainnet launch gates (docs/mainnet-v1-plan.md)
 
+- [x] ADR-068 step 2: 24 decimals (feat/decimals-24) (wallet DECIMALS, SDKs, explorer, governance COIN, pool, genesis amounts).
+- [x] ADR-068 step 4 (clean, DECISIONS 10-28): audit consensus amount × amount products for 512-bit or checked math.
+- [x] spec: MINE-* rules + vectors (spec/09-mining.md; node conformance test not yet run) for the mining schedule incl. the tail (ADR-044 shipped without spec).
+
 - **Gate 8: historical catch-up for a restarted validator.** The engine
   answers `Fetch` only from memory (`GC_DEPTH` = 50 rounds), so a validator
   down longer than about 30 s is stranded for good. Serve fetches below the
@@ -105,6 +109,8 @@ band; move an item to PROGRESS.md when it starts.
 
 ## P4 — adoption-critical
 
+- [ ] **Eric 2026-10-28, starts once everything is at zero errors** (CI green, suites passing, mainnet stack merged): the biggest GUI/UI upgrade, with fully deployable, signed applications on every platform: wallet, chat, hub/miner, explorer, site. Windows, Linux, Android now; macOS/iOS after the MacBook. Never flagged by OS, antivirus or stores.
+
 - MP23: move the safe-contract resource rules from opt-in imports onto the
   consensus import surface (needs an ADR and invariant work).
 - MP24: guest traps mapped to source lines (needs a backtrace out of the
@@ -112,6 +118,19 @@ band; move an item to PROGRESS.md when it starts.
 - MP22/MP29/MP24 usability and developer studies — need participants (Eric).
 
 ## P5 — differentiators
+
+Eric 2026-10-29: build all of these after mainnet (each needs a dated `docs/prior-art/` search before any "first" claim, and an ADR):
+- [ ] **Decentralization-aware rewards**: per-epoch Nakamoto coefficient / Gini from `staking/concentration.rs`; rewards tilt toward small validators and miners when control concentrates.
+- [ ] **Cryptographic sunset schedule**: a suite deprecation announces a height, a migration window, wallet warnings and an automatic move to the successor suite (`crypto-pq/agility`, invariant 29).
+- [ ] **Post-quantum time-locked messages and payments**: unreadable and unspendable until a future height, ML-KEM sealed (sealed mempool / threshold encryption). Prior art: drand tlock (not PQ, not native).
+- [ ] **AI-work mining**: miners earn for verified AI inference via the ADR-044 WorkClaim kind. Prior art: Bittensor, Gensyn.
+- [ ] **Offline payments**: PQ-signed transfers carried by Bluetooth, LoRa or satellite and settled when a relay is online (chat DTN design).
+- [ ] **Quantum Harbor safe-deposit**: BTC/ETH holders commit a PQ proof of ownership now, claimable if their keys are broken later (`quantum-harbor`).
+- [ ] **Duress keys** (Scam Shield): a registered panic key; a transfer signed with it sends a decoy amount, locks the real balance 72 h and alerts guardians.
+- [ ] **Safety-window payments** (Scam Shield): opt-in protected transfers, spendable after a window, recallable with guardian-approved fraud proof; `threat-intel` flags known scam addresses.
+- [ ] **On-chain AI judge**: contracts name an open model by hash; disputes resolved by deterministic integer inference every validator reproduces (builds on fee-market `MODEL_V1`).
+- [ ] **Living inheritance**: owner heartbeat; missed check-ins, then a guardian veto window, then transfer to heirs.
+- [ ] **Phone-mined first fees**: a zero-balance user's visible, opt-in proof of work counts as a mining share that pays its first fees (ADR-044 share lane; no hidden mining).
 
 - MP25: zero-knowledge light client (research-sized).
 - MP28: outside-asset route into PQ vaults (depends on MP25); archive task
