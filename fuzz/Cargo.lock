@@ -2849,6 +2849,9 @@ version = "0.1.0"
 [[package]]
 name = "maya-contract-safety"
 version = "0.1.0"
+dependencies = [
+ "maya-amount",
+]
 
 [[package]]
 name = "maya-crypto-pq"
@@ -2858,6 +2861,7 @@ dependencies = [
  "ed25519-dalek 3.0.0",
  "getrandom 0.4.3",
  "hqc-kem",
+ "maya-amount",
  "maya-build-guard",
  "ml-dsa",
  "ml-kem",
