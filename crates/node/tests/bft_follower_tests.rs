@@ -1069,11 +1069,31 @@ fn followers_past_f_get_no_checkpoint_until_a_certificate_replay_rescues_them() 
         "a checkpoint formed with only two of four attesting"
     );
 
-    // The rescue: each follower replays the head epoch from a builder.
+    // The rescue, as the node binary runs it: fetch the head epoch's pages,
+    // then replay them under the chain, and swap in the replayed engine.
     for i in [2, 3] {
         let source = mesh.peer_log(0);
-        mesh.restart_from(i, &source, PAGE).unwrap();
-        assert!(!mesh.members[i].driver.as_ref().unwrap().is_follower());
+        let setup = mesh.setups[i].clone();
+        let now = mesh.now;
+        let m = &mut mesh.members[i];
+        let (head, (keys, weights)) = certsync::head_epoch(&m.chain, &setup).unwrap();
+        assert_eq!(head, epoch);
+        let tag = custom_l1_node::core::ChainTag::from_genesis(m.chain.genesis());
+        certsync::fetch_epoch(
+            &source,
+            head,
+            &keys,
+            weights.as_deref(),
+            &m.bft_dir,
+            PAGE,
+            tag,
+        )
+        .unwrap();
+        let (driver, step) =
+            certsync::head_replay(&mut m.chain, &source, &setup, &m.bft_dir, now, head).unwrap();
+        assert!(!driver.is_follower());
+        m.driver = Some(driver);
+        mesh.absorb(i, step);
     }
     let target = mesh.height(0) + EPOCH_BLOCKS;
     mesh.run_until(|m| (0..VALIDATORS).all(|i| m.height(i) >= target));
@@ -1086,4 +1106,23 @@ fn followers_past_f_get_no_checkpoint_until_a_certificate_replay_rescues_them() 
     );
     mesh.agree();
     assert_eq!(mesh.equivocations, 0);
+}
+
+/// A rescue that raced an epoch boundary is refused before it replays
+/// anything: a finished epoch needs its attested end.
+#[test]
+fn a_head_replay_for_an_epoch_the_peer_has_left_is_refused_and_changes_nothing() {
+    let mut mesh = Mesh::new();
+    mesh.run_until(|m| m.height(0) >= EPOCH_BLOCKS + 1);
+    mesh.hold_out(3);
+    let behind = mesh.height(3);
+    let epoch = mesh.epoch(0).unwrap();
+    mesh.run_until(|m| m.epoch(0).is_some_and(|e| e > epoch));
+    let source = mesh.peer_log(0);
+    let setup = mesh.setups[3].clone();
+    let m = &mut mesh.members[3];
+    let (mine, _) = certsync::head_epoch(&m.chain, &setup).unwrap();
+    let refused = certsync::head_replay(&mut m.chain, &source, &setup, &m.bft_dir, 0, mine);
+    assert!(refused.is_err(), "replayed an epoch the peer had finished");
+    assert_eq!(m.chain.height(), behind, "a refused rescue moved the chain");
 }

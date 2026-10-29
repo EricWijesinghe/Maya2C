@@ -253,7 +253,7 @@ pub fn fetch_epoch(
 }
 
 /// An epoch's committee keys and, on a stake-weighted chain, its weights.
-type EpochKeys = (Arc<[VerifyingKey]>, Option<Arc<[u64]>>);
+pub type EpochKeys = (Arc<[VerifyingKey]>, Option<Arc<[u64]>>);
 
 /// The epoch the chain's state is in, and its committee.
 fn current(chain: &Chain, setup: &BftSetup) -> Result<(u64, EpochKeys)> {
@@ -264,6 +264,52 @@ fn current(chain: &Chain, setup: &BftSetup) -> Result<(u64, EpochKeys)> {
     let (keys, weights) =
         BftDriver::staked_committee(chain)?.unwrap_or_else(|| (Arc::clone(&setup.committee), None));
     Ok((epoch, (keys, weights)))
+}
+
+/// The epoch the chain's state is in and its committee: what a head-epoch
+/// rescue fetches against before it locks the chain for [`head_replay`].
+///
+/// # Errors
+///
+/// Storage or decode failures reading the staking record.
+pub fn head_epoch(chain: &Chain, setup: &BftSetup) -> Result<(u64, EpochKeys)> {
+    current(chain, setup)
+}
+
+/// Replays the logs [`fetch_epoch`] wrote for `epoch`, for a follower that no
+/// checkpoint can move (the node binary's `bft::Rescue`). The fetch runs
+/// first, without the chain locked; this is the part that needs the lock.
+///
+/// Refused before anything is replayed unless the chain is still in `epoch`
+/// and `epoch` is still the peer's head: a finished epoch needs its attested
+/// end, so a rescue that raced a boundary stays a no-op rather than a partial
+/// replay.
+///
+/// # Errors
+///
+/// [`NodeError::Decode`] for the refusals above or an attested checkpoint the
+/// replay does not reproduce, and whatever opening the engine reports.
+pub fn head_replay(
+    chain: &mut Chain,
+    source: &impl CertSource,
+    setup: &BftSetup,
+    dir: &Path,
+    now_ms: u64,
+    epoch: u64,
+) -> Result<(BftDriver, crate::consensus::bft::Step)> {
+    let (now, (keys, weights)) = current(chain, setup)?;
+    if now != epoch {
+        return Err(refuse("the chain left the epoch whose logs were fetched"));
+    }
+    let head = source.current_epoch()?;
+    if head != epoch {
+        return Err(refuse(
+            "the peer left the head epoch; a finished epoch needs its attested end",
+        ));
+    }
+    let (driver, step) = BftDriver::open(setup, dir, chain, now_ms)?;
+    attested_end(chain, source, epoch, head, &keys, weights.as_deref())?;
+    Ok((driver, step))
 }
 
 /// Completeness of a replayed epoch (ADR-038, ADR-052). The epoch's checkpoint
