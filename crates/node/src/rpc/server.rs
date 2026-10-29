@@ -827,6 +827,12 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
             // At most POW_PASSES at once (pre-audit S-014): a pass is 32 MiB
             // and any block naming a known parent and the right target earns
             // one, so excess submissions are refused rather than queued.
+            // The cheap checks (known parent, declared target) come first, so
+            // a block that fails them never holds a slot an honest miner needs.
+            let check = ctx
+                .chain()
+                .pow_check(&block)
+                .map_err(|e| rejected(e.to_string()))?;
             let Ok(permit) = POW_PASSES.try_acquire() else {
                 return Err(rejected("busy verifying other blocks; retry".to_string()));
             };
@@ -836,7 +842,6 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 // Work is checked with no lock held: a request with a wrong
                 // nonce costs the sender nothing, and under the lock it would
                 // hold every other reader of the chain for the whole pass.
-                let check = context.chain().pow_check(&block)?;
                 let proof = check.run(&block.header)?;
                 let mut chain = context.chain();
                 let outcome = chain.insert_block_prechecked(block, proof)?;

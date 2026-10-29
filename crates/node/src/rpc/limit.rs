@@ -142,6 +142,7 @@ impl RateLimiter {
         if !self.is_enabled() {
             return true;
         }
+        let address = bucket_key(address);
 
         let mut buckets = match self.buckets.lock() {
             Ok(guard) => guard,
@@ -192,6 +193,40 @@ impl RateLimiter {
             Ok(guard) => guard.len(),
             Err(poisoned) => poisoned.into_inner().len(),
         }
+    }
+}
+
+/// The address a bucket is kept for: an IPv4 address as itself (unwrapped from
+/// its IPv4-mapped IPv6 form), an IPv6 address by its /64. One IPv6 host
+/// usually holds a whole /64, so keying the full address handed it 2^64
+/// buckets (security review of pre-audit S-012).
+fn bucket_key(address: IpAddr) -> IpAddr {
+    match address {
+        IpAddr::V4(_) => address,
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => IpAddr::V4(v4),
+            None => {
+                let mut segments = v6.segments();
+                segments[4..].fill(0);
+                IpAddr::V6(std::net::Ipv6Addr::from(segments))
+            }
+        },
+    }
+}
+
+#[cfg(test)]
+mod bucket_key_tests {
+    use super::*;
+
+    #[test]
+    fn one_ipv6_slash_64_shares_a_bucket_and_mapped_v4_is_v4() {
+        let a: IpAddr = "2001:db8:1:2::1".parse().unwrap();
+        let b: IpAddr = "2001:db8:1:2:ffff:1:2:3".parse().unwrap();
+        let other: IpAddr = "2001:db8:1:3::1".parse().unwrap();
+        assert_eq!(bucket_key(a), bucket_key(b));
+        assert_ne!(bucket_key(a), bucket_key(other));
+        let mapped: IpAddr = "::ffff:192.0.2.7".parse().unwrap();
+        assert_eq!(bucket_key(mapped), "192.0.2.7".parse::<IpAddr>().unwrap());
     }
 }
 
