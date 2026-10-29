@@ -23,7 +23,7 @@ use maya_dag_bft::{Authenticator, Certificate, Committee};
 use super::attest::Checkpoint;
 use super::auth::MlDsaAuthenticator;
 use super::builder::unseal;
-use super::store::{CertPage, SafetyStore, for_each_certificate};
+use super::store::{CertPage, SafetyStore, encoded_len, for_each_certificate};
 use super::wire::{decode_certificate, encode_certificate};
 use super::{BftDriver, BftSetup};
 use crate::consensus::chain::Chain;
@@ -203,6 +203,13 @@ pub fn fetch_epoch(
         if page.records.len() > limits.records {
             return Err(refuse("page larger than asked"));
         }
+        // Pre-audit S-010: the protocol's page budget is checked here too, not
+        // left to the transport limit. A server pages by its own budget, never
+        // above this one; as there, a lone record may exceed it.
+        let encoded: usize = page.records.iter().map(|r| encoded_len(r.len())).sum();
+        if page.records.len() > 1 && encoded > PAGE_ENCODED_BYTES {
+            return Err(refuse("page over its byte budget"));
+        }
         let end = page_end(offset, &page.records);
         if page.next != end {
             return Err(refuse("page end does not match its records"));
@@ -320,6 +327,16 @@ fn last_height_of(chain: &Chain, ids: &[[u8; 32]], epoch: u64) -> Option<u64> {
     })
 }
 
+/// Pre-audit S-009: before any epoch is crossed, a peer whose head is behind
+/// this node cannot catch it up. Returning Ok would pass as "caught up"; the
+/// error makes the caller try another source.
+fn peer_not_behind(crossed: u64, epoch: u64, head: u64) -> Result<()> {
+    if crossed == 0 && head < epoch {
+        return Err(refuse("the peer is behind this node"));
+    }
+    Ok(())
+}
+
 /// What [`sync`] leaves behind: the epoch boundaries crossed, and the driver
 /// its last replay opened, with the frames that open produced.
 pub struct Synced {
@@ -359,6 +376,7 @@ pub fn sync(
     loop {
         let (epoch, (keys, weights)) = current(chain, setup)?;
         let head = source.current_epoch()?;
+        peer_not_behind(crossed, epoch, head)?;
         let behind = epoch <= head;
         if behind {
             let fetched = fetch_epoch(
@@ -395,5 +413,60 @@ pub fn sync(
             });
         }
         crossed += 1;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+
+    /// Serves one page of two records that together exceed the page budget.
+    struct TwoRecords;
+
+    impl CertSource for TwoRecords {
+        fn current_epoch(&self) -> Result<u64> {
+            Ok(0)
+        }
+        fn page(&self, _: u64, offset: u64, _: usize) -> Result<CertPage> {
+            let records = vec![vec![0; PAGE_ENCODED_BYTES / 3]; 2];
+            let next = page_end(offset, &records);
+            Ok(CertPage {
+                records,
+                next,
+                done: true,
+            })
+        }
+        fn checkpoint_of(&self, _: u64) -> Result<Option<Checkpoint>> {
+            Ok(None)
+        }
+    }
+
+    #[test]
+    fn a_page_over_its_byte_budget_is_refused_by_the_client() {
+        let dir = tempfile::tempdir().unwrap();
+        let keys: Arc<[VerifyingKey]> = Vec::new().into();
+        let err = fetch_epoch(
+            &TwoRecords,
+            0,
+            &keys,
+            None,
+            dir.path(),
+            PAGE,
+            ChainTag([0; 32]),
+        )
+        .err()
+        .unwrap();
+        assert!(err.to_string().contains("byte budget"), "{err}");
+    }
+
+    #[test]
+    fn a_peer_behind_this_node_does_not_end_catch_up_as_success() {
+        assert!(peer_not_behind(0, 5, 4).is_err());
+        assert!(peer_not_behind(0, 5, 5).is_ok());
+        assert!(
+            peer_not_behind(1, 5, 4).is_ok(),
+            "after a crossing the peer was ahead"
+        );
     }
 }
