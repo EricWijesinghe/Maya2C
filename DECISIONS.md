@@ -536,3 +536,9 @@ network before mainnet.
 - **Freeze waits for the serious self-run findings**: S-012..S-015, S-027 (round 2) and
   S-033 (committee floor, ADR-070). Medium and low rows follow as patch releases.
 - **Mainnet date: decided later, when the work is done** (Eric: "first finish the work").
+- **Approvals (Eric, 2026-10-29/30, answering the decision list: "you are free to decide my
+  brother", "whatever cause to dominate … should be done"):** the committee floor
+  (ADR-070) is accepted; `APPROVED: re-genesis`, conditional on S-012..S-015, S-027 and S-033
+  being merged and a full attacknet passing on that commit; `APPROVED: slip44`, submitted
+  as satoshilabs/slips#2085 (coin type 2992, MAYA); listings (CoinGecko, CoinMarketCap) at the
+  mainnet launch. Not covered: `sign genesis` and `mainnet` keep their own approvals.
