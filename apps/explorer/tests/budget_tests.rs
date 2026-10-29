@@ -26,6 +26,9 @@ fn tx(i: i64) -> IndexedTx {
         output_count: 2,
         total_out: (1_000_000 + i).to_string(),
         signed: true,
+        kind: String::new(),
+        summary: String::new(),
+        careful: false,
     }
 }
 
