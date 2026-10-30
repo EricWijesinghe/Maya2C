@@ -308,7 +308,28 @@ jobs:
             apps/hub/src-tauri -> target
           key: hub-${{ matrix.os }}
 
+      # Signed in-app updates, as for the wallet and chat: only for a tagged
+      # release with the signing key; otherwise the Hub never offers one.
+      - name: Updater config
+        shell: bash
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -n "$KEY" ] && [ -f apps/updater-pubkey.txt ] && [[ "$GITHUB_REF" == refs/tags/node-v* ]]; then
+            pub=$(tr -d '\r\n' < apps/updater-pubkey.txt)
+            cfg="$RUNNER_TEMP/hub-updater.json"
+            printf '{"version":"0.1.%s","bundle":{"createUpdaterArtifacts":true},"plugins":{"updater":{"pubkey":"%s","endpoints":["https://maya2c.dev/updates/hub.json"]}}}\n' \
+              "$GITHUB_RUN_NUMBER" "$pub" > "$cfg"
+            echo "HUB_UPDATER_CONFIG=$cfg" >> "$GITHUB_ENV"
+            echo "signed update bundles: version 0.1.$GITHUB_RUN_NUMBER"
+          else
+            echo "no signing key or not a release tag: unsigned build, updater off"
+          fi
+
       - name: Build installer with the miner inside
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: cargo xtask hub-bundle
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
