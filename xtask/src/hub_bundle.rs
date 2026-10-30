@@ -40,10 +40,15 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     fs::copy(&from, &to).map_err(|e| format!("{} -> {}: {e}", from.display(), to.display()))?;
     println!("sidecar: {}", to.display());
 
+    // Release CI passes a signed-updater config here (release-binaries.yml);
+    // without one the Hub is the unsigned build that never offers an update.
+    let mut build = Command::new("cargo");
+    build.args(["tauri", "build", "--config", "tauri.release.conf.json"]);
+    if let Some(updater) = std::env::var_os("HUB_UPDATER_CONFIG") {
+        build.arg("--config").arg(updater);
+    }
     status(
-        Command::new("cargo")
-            .args(["tauri", "build", "--config", "tauri.release.conf.json"])
-            .current_dir(&hub),
+        build.current_dir(&hub),
         "cargo tauri build (install tauri-cli 2 if missing)",
     )?;
     let hub_target = custom.unwrap_or_else(|| hub.join("target"));
