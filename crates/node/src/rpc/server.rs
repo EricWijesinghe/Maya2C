@@ -481,6 +481,20 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     module
+        .register_method("get_node_version", |_params, _ctx, _| {
+            // What an operator's tools (the Hub, the status page) compare with
+            // the signed release channel to say an upgrade is out. The node
+            // itself never calls out to look: a validator phoning a fixed URL
+            // leaks its address, and installs go by activation height anyway.
+            Ok::<_, ErrorObjectOwned>(serde_json::json!({
+                "version": env!("CARGO_PKG_VERSION"),
+                "protocol": crate::upgrade::SUPPORTED_PROTOCOL_VERSION,
+                "header_version": crate::core::block::HEADER_VERSION,
+            }))
+        })
+        .map_err(|e| rejected(e.to_string()))?;
+
+    module
         .register_method("get_bft_status", |_params, ctx, _| {
             let status = ctx.bft_status.as_ref().map(|slot| {
                 *slot
