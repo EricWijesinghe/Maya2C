@@ -6,12 +6,20 @@
 //! operator running four validators is one share (the hybrid testnet is
 //! exactly that case, and fails here by design). Hosts cannot be read from a
 //! genesis file, so "3 or more hosts" stays a human check in `go-no-go`.
+//!
+//! Proof of work: on a DAG-BFT chain blocks carry none (the ceremony writes
+//! `difficulty_bits = 0`); the work is in the mining shares (`bft.mining`,
+//! ADR-044), so a chain with mining passes at difficulty 0 and one without
+//! mining needs a block difficulty. The fee floor must be at least
+//! [`MIN_BASE_FEE`] (pre-audit S-007).
 
 use serde::Deserialize;
 use std::collections::BTreeMap;
 
 const MAX_SHARE_BPS: u128 = 2_000;
 const MIN_VALIDATORS: usize = 7;
+/// Lowest mainnet base fee per byte: 1 unit at 18 decimals, 10^6 at 24.
+const MIN_BASE_FEE: u128 = 1_000_000;
 
 #[derive(Deserialize)]
 struct Genesis {
@@ -23,6 +31,32 @@ struct Genesis {
 struct Bft {
     validators: Vec<String>,
     staking: Staking,
+    #[serde(default)]
+    fees: Option<Fees>,
+    #[serde(default)]
+    mining: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+struct Fees {
+    #[serde(deserialize_with = "units")]
+    min_base_fee: u128,
+}
+
+/// A 256-bit amount as genesis writes it, a JSON number or a decimal string,
+/// read as `u128`: every amount this policy compares fits, and one that does
+/// not is refused rather than wrapped.
+fn units<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u128, D::Error> {
+    match serde_json::Value::deserialize(d)? {
+        serde_json::Value::Number(n) => n
+            .as_u64()
+            .map(u128::from)
+            .ok_or_else(|| serde::de::Error::custom(format!("{n} is not a whole amount"))),
+        serde_json::Value::String(text) => text.parse().map_err(serde::de::Error::custom),
+        other => Err(serde::de::Error::custom(format!(
+            "{other} is not an amount"
+        ))),
+    }
 }
 
 #[derive(Deserialize)]
@@ -35,6 +69,7 @@ struct Staking {
 #[derive(Deserialize)]
 struct Bond {
     operator: String,
+    #[serde(deserialize_with = "units")]
     bond: u128,
 }
 
@@ -54,8 +89,16 @@ fn problems(text: &str) -> Result<Vec<String>, String> {
     if !g.bft.staking.stake_weighted {
         out.push("voting is not stake-weighted".to_string());
     }
-    if g.difficulty_bits == 0 {
-        out.push("difficulty_bits is 0: proof of work is free".to_string());
+    if g.difficulty_bits == 0 && g.bft.mining.is_none() {
+        out.push("difficulty_bits is 0 and no bft.mining: proof of work is free".to_string());
+    }
+    match &g.bft.fees {
+        None => out.push("no bft.fees: transactions would be free".to_string()),
+        Some(f) if f.min_base_fee < MIN_BASE_FEE => out.push(format!(
+            "min_base_fee {} is below {MIN_BASE_FEE} (S-007)",
+            f.min_base_fee
+        )),
+        Some(_) => {}
     }
     let mut per_operator: BTreeMap<&str, u128> = BTreeMap::new();
     let mut total: u128 = 0;
@@ -113,6 +156,7 @@ mod tests {
             .join(",");
         format!(
             "{{\"difficulty_bits\":{difficulty},\"bft\":{{\"validators\":[{validators}],\
+             \"fees\":{{\"min_base_fee\":\"1000000\"}},\
              \"staking\":{{\"stake_weighted\":{weighted},\"bonds\":[{bonds}]}}}}}}"
         )
     }
@@ -155,5 +199,32 @@ mod tests {
     #[test]
     fn a_non_genesis_file_is_an_error_not_a_pass() {
         assert!(problems("{}").is_err());
+    }
+
+    #[test]
+    fn a_bft_chain_with_mining_needs_no_block_difficulty() {
+        let mining = genesis(0, true, &EVEN).replace("\"fees\"", "\"mining\":{},\"fees\"");
+        assert!(problems(&mining).unwrap().is_empty());
+        let found = problems(&genesis(0, true, &EVEN)).unwrap();
+        assert!(
+            found.iter().any(|p| p.contains("proof of work is free")),
+            "{found:?}"
+        );
+    }
+
+    #[test]
+    fn a_fee_floor_below_a_million_units_fails() {
+        let cheap = genesis(20, true, &EVEN).replace("\"1000000\"", "1");
+        let found = problems(&cheap).unwrap();
+        assert!(found.iter().any(|p| p.contains("S-007")), "{found:?}");
+        let free = genesis(20, true, &EVEN).replace("\"fees\":{\"min_base_fee\":\"1000000\"},", "");
+        let found = problems(&free).unwrap();
+        assert!(found.iter().any(|p| p.contains("no bft.fees")), "{found:?}");
+    }
+
+    #[test]
+    fn a_bond_written_as_a_decimal_string_is_read() {
+        let g = genesis(20, true, &EVEN).replace("\"bond\":100", "\"bond\":\"100\"");
+        assert!(problems(&g).unwrap().is_empty());
     }
 }
