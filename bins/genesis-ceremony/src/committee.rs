@@ -32,12 +32,15 @@ pub const MIN_LAUNCH_VALIDATORS: usize = 4;
 /// testnet's value.
 pub const DEFAULT_EPOCH_BLOCKS: u64 = 3_600;
 
-/// The fee market the public testnet runs (base fee 1 per byte, a 2.5 MiB
-/// target, at most 1/8 change per block), so a launch starts from parameters
-/// that have been exercised rather than untested ones.
+/// The fee market the public testnet ran (a 2.5 MiB target, at most 1/8
+/// change per block), so a launch starts from exercised parameters. The base
+/// fee is that testnet's 1 unit per byte at 18 decimals, which is 10^6 units at
+/// 24 (ADR-068); 1 unit would make every byte 10^6 times cheaper to spam
+/// (pre-audit S-007).
+pub const LAUNCH_MIN_BASE_FEE: u64 = 1_000_000;
 const LAUNCH_FEES: FeesGenesis = FeesGenesis {
-    initial_base_fee: primitive_types::U256([1, 0, 0, 0]),
-    min_base_fee: primitive_types::U256([1, 0, 0, 0]),
+    initial_base_fee: primitive_types::U256([LAUNCH_MIN_BASE_FEE, 0, 0, 0]),
+    min_base_fee: primitive_types::U256([LAUNCH_MIN_BASE_FEE, 0, 0, 0]),
     target_block_bytes: 2_621_440,
     change_denominator: 8,
 };
