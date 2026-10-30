@@ -89,6 +89,7 @@ fn genesis_with(stake_weighted: bool) -> GenesisConfig {
                     .collect(),
                 min_self_bond: primitive_types::U256::from(1_000),
                 max_validators: 100,
+                min_delegation: primitive_types::U256::from(10),
                 stake_weighted,
             }),
         }),

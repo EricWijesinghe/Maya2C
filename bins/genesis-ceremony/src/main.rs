@@ -112,6 +112,11 @@ struct Args {
     council_dir: Option<PathBuf>,
     council_threshold: Option<u8>,
     council_max_pause_blocks: Option<u64>,
+    /// Staking floors in base units: least self bond to register a validator,
+    /// least amount one delegation adds. Absent: the devnet defaults, which a
+    /// value-bearing chain refuses (they are dust at 24 decimals).
+    min_self_bond: Option<primitive_types::U256>,
+    min_delegation: Option<primitive_types::U256>,
 }
 
 impl Default for Args {
@@ -138,6 +143,8 @@ impl Default for Args {
             council_dir: None,
             council_threshold: None,
             council_max_pause_blocks: None,
+            min_self_bond: None,
+            min_delegation: None,
         }
     }
 }
@@ -177,6 +184,10 @@ fn print_usage() {
          files from `council key`; required on a value-bearing chain\n  \
          --council-threshold <N>      approvals a pause needs, a strict majority\n  \
          --council-max-pause-blocks <N>  longest single pause, in blocks\n  \
+         --min-self-bond <UNITS>      least self bond to register a validator;\n                               \
+         required on a value-bearing chain\n  \
+         --min-delegation <UNITS>     least one delegation adds; required on a\n                               \
+         value-bearing chain\n  \
          --supply <UNITS>             total genesis supply, treasury included\n  \
          --timestamp <UNIX>           genesis timestamp; pin it for a real launch\n  \
          --difficulty-bits <N>        starting difficulty (default 22)\n  \
@@ -231,6 +242,10 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--mining-reserve" => args.mining_reserve = Some(units(&value()?, "--mining-reserve")?),
             "--council" => args.council_dir = Some(PathBuf::from(value()?)),
             "--council-threshold" => args.council_threshold = Some(value()?.parse()?),
+            "--min-self-bond" => args.min_self_bond = Some(units(&value()?, "--min-self-bond")?),
+            "--min-delegation" => {
+                args.min_delegation = Some(units(&value()?, "--min-delegation")?);
+            }
             "--council-max-pause-blocks" => {
                 args.council_max_pause_blocks = Some(value()?.parse()?);
             }
@@ -265,6 +280,14 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
     // brake, or it has none until a hard fork adds one.
     if is_value_bearing(&args.chain_id) && args.council_dir.is_none() {
         return Err("a value-bearing chain needs --council <DIR> (ADR-050)".into());
+    }
+    // The devnet floors are 10^-21 and 10^-23 of a coin: a validator seat or a
+    // delegation for dust. A value-bearing chain states its own.
+    if is_value_bearing(&args.chain_id)
+        && args.validators.is_some()
+        && (args.min_self_bond.is_none() || args.min_delegation.is_none())
+    {
+        return Err("a value-bearing chain needs --min-self-bond and --min-delegation".into());
     }
     Ok(args)
 }
@@ -353,6 +376,14 @@ fn launch_config(
     committee: Option<&[committee::Member]>,
 ) -> GenesisConfig {
     let mut bft = committee.map(|members| committee::genesis(members, args.epoch_blocks));
+    if let Some(staking) = bft.as_mut().and_then(|b| b.staking.as_mut()) {
+        if let Some(floor) = args.min_self_bond {
+            staking.min_self_bond = floor;
+        }
+        if let Some(floor) = args.min_delegation {
+            staking.min_delegation = floor;
+        }
+    }
     // Rewards are transfers out of a keyless reserve, so the reserve is an
     // allocation like any other and the supply sums as before. `parse_args`
     // refuses `--mining` without `--validators`, so `bft` exists here.

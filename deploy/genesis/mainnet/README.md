@@ -41,18 +41,27 @@ genesis-ceremony --chain-id maya-mainnet \
   --mining deploy/genesis/mainnet/mining.json \
   --mining-reserve 122753829695359067419575633036805965021648 \
   --council council-public --council-threshold 2 --council-max-pause-blocks <N> \
+  --min-self-bond <UNITS> --min-delegation <UNITS> \
   --timestamp <UNIX> --out-dir out
 cargo xtask genesis-check out/genesis.json
 ```
 
 - `validators.txt`: one line per validator, `label key operator bond`, with at least 7
   validators and no operator above 20% of the bonded stake.
+- The check counts payout addresses. At launch every validator is run by one person
+  (DECISIONS 2026-10-25), so each gets its own operator address. The launch says so publicly:
+  "validators run by one operator", never "independent".
 - For `maya-mainnet` the tool adds what the chain needs on its own:
   - stake-weighted voting (ADR-040);
   - a refusal to run without the council (ADR-050);
   - the fee market with `min_base_fee` = 10^6 (S-007).
-- `genesis-check` refuses a file with no fees, a lower floor, no mining and no block
-  difficulty, fewer than 7 validators, or an operator above the cap.
+- `--min-self-bond` and `--min-delegation` are required on `maya-mainnet`. The devnet
+  defaults are 10^-21 and 10^-23 of a coin. Mainnet: 1,000 coins
+  (`1000000000000000000000000000`) and 1 coin (`1000000000000000000000000`), decided
+  2026-10-30 (DECISIONS.md).
+- `genesis-check` refuses a file with any of these: no fees, a lower fee floor, no mining
+  and no block difficulty, fewer than 7 validators, an operator above the cap, or staking
+  floors below the mainnet constants in `xtask/src/genesis_check.rs`.
 
 ## Dry run (2026-10-30, throwaway keys, nothing published)
 

@@ -542,3 +542,19 @@ network before mainnet.
   being merged and a full attacknet passing on that commit; `APPROVED: slip44`, submitted
   as satoshilabs/slips#2085 (coin type 2992, MAYA); listings (CoinGecko, CoinMarketCap) at the
   mainnet launch. Not covered: `sign genesis` and `mainnet` keep their own approvals.
+
+## 2026-10-30 — Mainnet staking floors: 1,000 coins to validate, 1 coin to delegate (Claude, under Eric's delegation)
+
+Eric, asked for these numbers: "finish everything … keep it up"; earlier in the same session
+"you are free to decide my brother" and "do what's best financially and security wise".
+Decided under that delegation:
+
+- `min_self_bond` = 1,000 coins (10^27 base units). About 0.005% of the halving phase's
+  issuance, so an early miner can reach it. Dust seats would otherwise fill the 100-seat
+  committee (O(n²) DAG traffic) and churn for free.
+- `min_delegation` = 1 coin (10^24 base units). One coin is cheap, but bounds how fast a
+  sender can grow the staking record (the 8 MiB cap, S-006).
+
+Set at the ceremony with `--min-self-bond` / `--min-delegation` (required on `maya-mainnet`)
+and enforced by `cargo xtask genesis-check` (constants in `xtask/src/genesis_check.rs`).
+Eric may change either before `APPROVED: sign genesis`; that is a one-line change.
