@@ -48,6 +48,9 @@ cargo xtask genesis-check out/genesis.json
 
 - `validators.txt`: one line per validator, `label key operator bond`, with at least 7
   validators and no operator above 20% of the bonded stake.
+- The check counts payout addresses. At launch every validator is run by one person
+  (DECISIONS 2026-10-25), so each gets its own operator address. The launch says so publicly:
+  "validators run by one operator", never "independent".
 - For `maya-mainnet` the tool adds what the chain needs on its own:
   - stake-weighted voting (ADR-040);
   - a refusal to run without the council (ADR-050);
