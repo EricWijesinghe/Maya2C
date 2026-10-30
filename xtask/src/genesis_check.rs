@@ -20,6 +20,13 @@ const MAX_SHARE_BPS: u128 = 2_000;
 const MIN_VALIDATORS: usize = 7;
 /// Lowest mainnet base fee per byte: 1 unit at 18 decimals, 10^6 at 24.
 const MIN_BASE_FEE: u128 = 1_000_000;
+/// Mainnet staking floors (24 decimals): 1,000 coins to register a validator
+/// and 1 coin per delegation. Proposed 2026-10-30 and awaiting Eric's answer;
+/// a different answer changes these two lines. The devnet defaults (1,000 and
+/// 10 base units) are dust: a free validator seat, a free delegation.
+const MIN_SELF_BOND: u128 = 1_000 * COIN;
+const MIN_DELEGATION: u128 = COIN;
+const COIN: u128 = 1_000_000_000_000_000_000_000_000;
 
 #[derive(Deserialize)]
 struct Genesis {
@@ -64,6 +71,15 @@ struct Staking {
     #[serde(default)]
     stake_weighted: bool,
     bonds: Vec<Bond>,
+    /// Absent means the node's devnet default, which fails the floor.
+    #[serde(default, deserialize_with = "units_opt")]
+    min_self_bond: Option<u128>,
+    #[serde(default, deserialize_with = "units_opt")]
+    min_delegation: Option<u128>,
+}
+
+fn units_opt<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u128>, D::Error> {
+    units(d).map(Some)
 }
 
 #[derive(Deserialize)]
@@ -85,6 +101,23 @@ fn problems(text: &str) -> Result<Vec<String>, String> {
     }
     if g.bft.validators.len() != g.bft.staking.bonds.len() {
         out.push("validators and bonds differ in number".to_string());
+    }
+    let floors = [
+        ("min_self_bond", g.bft.staking.min_self_bond, MIN_SELF_BOND),
+        (
+            "min_delegation",
+            g.bft.staking.min_delegation,
+            MIN_DELEGATION,
+        ),
+    ];
+    for (name, value, floor) in floors {
+        match value {
+            Some(v) if v >= floor => {}
+            Some(v) => out.push(format!("staking.{name} {v} is below {floor}")),
+            None => out.push(format!(
+                "staking.{name} is unset: the devnet default is dust"
+            )),
+        }
     }
     if !g.bft.staking.stake_weighted {
         out.push("voting is not stake-weighted".to_string());
@@ -157,7 +190,9 @@ mod tests {
         format!(
             "{{\"difficulty_bits\":{difficulty},\"bft\":{{\"validators\":[{validators}],\
              \"fees\":{{\"min_base_fee\":\"1000000\"}},\
-             \"staking\":{{\"stake_weighted\":{weighted},\"bonds\":[{bonds}]}}}}}}"
+             \"staking\":{{\"stake_weighted\":{weighted},\
+             \"min_self_bond\":\"1000000000000000000000000000\",\
+             \"min_delegation\":\"1000000000000000000000000\",\"bonds\":[{bonds}]}}}}}}"
         )
     }
 
@@ -220,6 +255,28 @@ mod tests {
         let free = genesis(20, true, &EVEN).replace("\"fees\":{\"min_base_fee\":\"1000000\"},", "");
         let found = problems(&free).unwrap();
         assert!(found.iter().any(|p| p.contains("no bft.fees")), "{found:?}");
+    }
+
+    #[test]
+    fn dust_or_unset_staking_floors_fail() {
+        let dust = genesis(20, true, &EVEN).replace(
+            "\"min_self_bond\":\"1000000000000000000000000000\"",
+            "\"min_self_bond\":\"1000\"",
+        );
+        let found = problems(&dust).unwrap();
+        assert!(
+            found
+                .iter()
+                .any(|p| p.contains("min_self_bond 1000 is below")),
+            "{found:?}"
+        );
+        let unset = genesis(20, true, &EVEN)
+            .replace("\"min_delegation\":\"1000000000000000000000000\",", "");
+        let found = problems(&unset).unwrap();
+        assert!(
+            found.iter().any(|p| p.contains("min_delegation is unset")),
+            "{found:?}"
+        );
     }
 
     #[test]

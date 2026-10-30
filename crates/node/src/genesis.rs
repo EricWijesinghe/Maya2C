@@ -275,6 +275,15 @@ pub struct StakingGenesis {
     /// Largest committee. Defaults to the devnet value.
     #[serde(default = "StakingGenesis::default_max_validators")]
     pub max_validators: u16,
+    /// Least amount one delegation may add. Defaults to the devnet value, and
+    /// only a non-default value is written or committed into the genesis id,
+    /// so every genesis written before keeps its bytes and its id.
+    #[serde(
+        default = "StakingGenesis::default_min_delegation",
+        skip_serializing_if = "StakingGenesis::is_default_min_delegation",
+        with = "crate::state::amount_serde::lenient"
+    )]
+    pub min_delegation: U256,
     /// Votes count by stake, not by seat (ADR-040 part 2): each epoch's
     /// weights are frozen in state at its boundary. Off unless set, and
     /// hashed into the genesis id when on, so two operators who disagree
@@ -307,12 +316,21 @@ impl StakingGenesis {
             bonds,
             min_self_bond: Self::default_min_self_bond(),
             max_validators: Self::default_max_validators(),
+            min_delegation: Self::default_min_delegation(),
             stake_weighted: false,
         }
     }
 
     fn default_min_self_bond() -> U256 {
         to_u256(maya_staking::Params::DEVNET.min_self_bond)
+    }
+
+    fn default_min_delegation() -> U256 {
+        to_u256(maya_staking::Params::DEVNET.min_delegation)
+    }
+
+    fn is_default_min_delegation(value: &U256) -> bool {
+        *value == Self::default_min_delegation()
     }
 
     const fn default_max_validators() -> u16 {
@@ -324,6 +342,7 @@ impl StakingGenesis {
     pub fn params(&self) -> maya_staking::Params {
         maya_staking::Params {
             min_self_bond: to_amount(self.min_self_bond),
+            min_delegation: to_amount(self.min_delegation),
             max_validators: self.max_validators,
             ..maya_staking::Params::DEVNET
         }
@@ -1015,10 +1034,28 @@ impl GenesisConfig {
             .as_ref()
             .and_then(|b| b.staking.as_ref())
             .is_some_and(|s| s.stake_weighted);
-        if !weighted {
+        let base = if weighted {
+            blake3::derive_key("maya2c genesis stake-weighted committee v1", &base)
+        } else {
+            base
+        };
+        self.delegation_commitment(base)
+    }
+
+    /// Folds a non-default `min_delegation` into the id, so operators who
+    /// disagree about it disagree about block zero; a default one leaves every
+    /// earlier id unchanged.
+    fn delegation_commitment(&self, base: [u8; 32]) -> [u8; 32] {
+        let Some(staking) = self.bft.as_ref().and_then(|b| b.staking.as_ref()) else {
+            return base;
+        };
+        if StakingGenesis::is_default_min_delegation(&staking.min_delegation) {
             return base;
         }
-        blake3::derive_key("maya2c genesis stake-weighted committee v1", &base)
+        let mut h = blake3::Hasher::new_derive_key("maya2c genesis min delegation v1");
+        h.update(&base);
+        h.update(&amount_bytes(staking.min_delegation));
+        *h.finalize().as_bytes()
     }
 
     /// First height at which shielded join-splits execute on this network.
@@ -1231,5 +1268,53 @@ mod tests {
             .unwrap();
         assert!(out.effects.contains(&Effect::Credit([0x0a; 32], pool)));
         assert!(!out.effects.iter().any(|e| matches!(e, Effect::Burn(_))));
+    }
+
+    /// A default `min_delegation` leaves the bytes and the id of every earlier
+    /// genesis alone; a stated one is committed into the id and reaches the
+    /// staking parameters.
+    #[test]
+    fn min_delegation_keeps_old_ids_and_binds_new_ones() {
+        let staking = StakingGenesis::with_bonds(
+            600,
+            vec![GenesisBond {
+                operator: hex::encode([0x0a; 32]),
+                bond: U256::from(10_000),
+                commission_bps: 0,
+            }],
+        );
+        let config = |staking: StakingGenesis| GenesisConfig {
+            chain_id: "min-delegation".to_string(),
+            timestamp: 1_000_000,
+            difficulty_bits: 0,
+            pow_limit_bits: 0,
+            allocations: Vec::new(),
+            oracle: None,
+            sealed: None,
+            treasury: None,
+            protocol_upgrades: Vec::new(),
+            security_council: None,
+            shielded_activation_height: None,
+            bft: Some(BftGenesis {
+                validators: vec!["00".repeat(32)],
+                anchor_timeout_ms: 1_000,
+                batch_size: 100,
+                round_interval_ms: 500,
+                staking: Some(staking),
+                fees: None,
+                mining: None,
+            }),
+        };
+        let old = config(staking.clone());
+        let json = serde_json::to_string(&old).unwrap();
+        assert!(!json.contains("min_delegation"), "a default is not written");
+        let reread: GenesisConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(reread.chain_id_commitment(), old.chain_id_commitment());
+
+        let mut stated = staking;
+        stated.min_delegation = U256::from(10).pow(U256::from(24));
+        assert_eq!(stated.params().min_delegation, to_amount(stated.min_delegation));
+        let new = config(stated);
+        assert_ne!(new.chain_id_commitment(), old.chain_id_commitment());
     }
 }
