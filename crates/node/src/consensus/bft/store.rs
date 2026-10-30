@@ -426,6 +426,8 @@ fn frame(record: &[u8]) -> Vec<u8> {
 /// logs serve nothing — an engine never signs for an epoch it has left, so
 /// their votes cannot be repeated — and left alone they grow without bound
 /// (maya-testnet-1: 3.1 GB of logs against 162 MB of state in 4.5 days).
+/// The current epoch's log is never dropped: a follower that no checkpoint can
+/// move replays it from a peer (`bft::Rescue` in the node binary).
 pub const RETAINED_PAST_EPOCHS: u64 = 1;
 
 /// Removes `root/epoch-<n>` for every `n < first_kept`, returning the epochs
