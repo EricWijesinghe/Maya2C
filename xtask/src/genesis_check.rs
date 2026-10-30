@@ -21,8 +21,8 @@ const MIN_VALIDATORS: usize = 7;
 /// Lowest mainnet base fee per byte: 1 unit at 18 decimals, 10^6 at 24.
 const MIN_BASE_FEE: u128 = 1_000_000;
 /// Mainnet staking floors (24 decimals): 1,000 coins to register a validator
-/// and 1 coin per delegation. Proposed 2026-10-30 and awaiting Eric's answer;
-/// a different answer changes these two lines. The devnet defaults (1,000 and
+/// and 1 coin per delegation, decided 2026-10-30 (DECISIONS.md) under Eric's
+/// delegation; changing either is one line here. The devnet defaults (1,000 and
 /// 10 base units) are dust: a free validator seat, a free delegation.
 const MIN_SELF_BOND: u128 = 1_000 * COIN;
 const MIN_DELEGATION: u128 = COIN;
