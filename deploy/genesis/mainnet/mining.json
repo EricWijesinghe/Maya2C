@@ -1,0 +1,10 @@
+{
+  "initial_epoch_reward": "299452429842573579739904175",
+  "halving_epochs": 35064,
+  "tail_epoch_reward": "23956194387405886379192334",
+  "miner_share_bps": 7000,
+  "target_shares": 1000,
+  "max_shares_per_block": 16,
+  "initial_target": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "dag": "mainnet"
+}
