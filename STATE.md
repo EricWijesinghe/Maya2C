@@ -1,6 +1,21 @@
 # State
 
 ## Handover
+- **2026-10-30 — consensus FROZEN at `8987a6be`; confirming attacknet PASS 8/8.**
+  - **Evidence:** `reports/attacknet/2026-10-30-1.md`: no fork through 721; attack 7 back from a
+    snapshot in 601 ms; attack 8 rejoined in 2.0 s. The failing pre-fix runs are kept as -3,
+    and the first pass is 2026-10-29-4.
+  - **Merged overnight:** #244 round 8; #245 S-011; #246 ADR-070 committee floor (S-033); #247 libz-sys;
+    #248/#249/#250/#251 S-018..S-026, S-029; #252/#253 S-012..S-017, S-027 + review; #254 S-030;
+    #255 follower rescue by head-epoch certificate replay (S-034, the attack-7 halt); #256
+    findings S-012..S-034; #257 attacknet report.
+  - **Open, non-consensus:** #258 Hub signed updates, #259 `get_node_version`.
+  - **Deferred, post-mainnet:** S-016 off-thread admission, S-028, S-031 rest, S-023/S-025/S-032
+    documented. Gate 10 stays "running": no in-place way back when more than f seats are gone for good.
+  - **Do first:** re-genesis (Eric's conditions hold). Use the checklist inputs: ML-DSA-87 keys, 24
+    decimals, `tail_epoch_reward = 23956194387405886379192334` (1% of 21M/yr over 8,766 one-hour
+    epochs), `min_base_fee` ≥ 10^6. Then local multi-validator proving. Then ask Eric directly
+    for `APPROVED: sign genesis` (separate) and the mainnet launch.
 - **2026-10-29 — mainnet build merged; attacknet PASS; freeze candidate on master.**
   - **Done:** #221 forever mining, #222 ML-DSA-87 validator keys, #230 24 decimals (api-gateway
     COIN_DECIMALS=24 agrees with wallet), #236 chain-tagged votes (S-004), #226 status
