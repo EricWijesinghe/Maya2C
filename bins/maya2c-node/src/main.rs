@@ -1021,6 +1021,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             Some((_, driver, opening)) => (driver, opening),
             None => bft::open(&setup, &args.data_dir, &chain)?,
         };
+        let mut rescue_requests = None;
         if let Some(first) = args.catch_up_from.first() {
             let url = match synced {
                 Some(url) => url,
@@ -1037,11 +1038,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
             // overtaken (its peer moved on, or its engine stalls), and the
             // checkpoint import this loop does is what rescues it (driver
             // `overtaken`, ADR-038).
+            let (tx, rx) = tokio::sync::mpsc::channel(1);
+            rescue_requests = Some(rx);
             critical.spawn(bft::follow_loop(
                 url,
                 Arc::clone(&chain),
                 Arc::clone(&setup.committee),
                 Arc::clone(&status_slot),
+                tx,
             ));
         }
         let size = setup.committee.len();
@@ -1061,6 +1065,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 checkpoint: checkpoint_slot,
                 status: status_slot,
                 evidence_dir: args.data_dir.join("evidence"),
+            },
+            bft::Rescue {
+                requests: rescue_requests,
+                setup: setup.clone(),
+                data_dir: args.data_dir.clone(),
             },
         ));
     } else {

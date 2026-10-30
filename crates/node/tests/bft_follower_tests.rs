@@ -1021,3 +1021,108 @@ impl CertSource for Stalling {
         self.honest.checkpoint_of(epoch)
     }
 }
+
+/// Attacknet 2026-10-30, attack 7: more than f seats following. Followers
+/// vote but only builders attest, so no checkpoint of the epoch forms, and a
+/// follower imports only to a checkpoint: it waits forever on signatures that
+/// only it could have added. Replaying the head epoch's certificates, which
+/// need no checkpoint, brings it back to building (`bft::Rescue`).
+#[test]
+fn followers_past_f_get_no_checkpoint_until_a_certificate_replay_rescues_them() {
+    let mut mesh = Mesh::new();
+    // Just past a boundary, so the stuck spell stays inside one epoch.
+    mesh.run_until(|m| m.height(0) > EPOCH_BLOCKS);
+    let stuck_at = mesh.height(0);
+    let epoch = mesh.epoch(0).unwrap();
+    for i in [2, 3] {
+        let m = &mut mesh.members[i];
+        m.driver.as_mut().unwrap().follow_attested(&m.chain);
+    }
+    let attested = |m: &Mesh| {
+        m.members[0]
+            .driver
+            .as_ref()
+            .unwrap()
+            .checkpoint()
+            .map(|c| c.height)
+    };
+    let checkpoint_before = attested(&mesh);
+    mesh.run_until(|m| m.height(0) >= stuck_at + 3);
+    assert_eq!(
+        mesh.epoch(0),
+        Some(epoch),
+        "the test left the epoch it meant to stay in"
+    );
+    assert!(
+        mesh.height(0) > stuck_at,
+        "two builders and four voters stopped the chain"
+    );
+    for i in [2, 3] {
+        assert_eq!(
+            mesh.height(i),
+            stuck_at,
+            "follower {i} moved without a checkpoint"
+        );
+    }
+    assert!(
+        attested(&mesh) <= Some(stuck_at).max(checkpoint_before),
+        "a checkpoint formed with only two of four attesting"
+    );
+
+    // The rescue, as the node binary runs it: fetch the head epoch's pages,
+    // then replay them under the chain, and swap in the replayed engine.
+    for i in [2, 3] {
+        let source = mesh.peer_log(0);
+        let setup = mesh.setups[i].clone();
+        let now = mesh.now;
+        let m = &mut mesh.members[i];
+        let (head, (keys, weights)) = certsync::head_epoch(&m.chain, &setup).unwrap();
+        assert_eq!(head, epoch);
+        let tag = custom_l1_node::core::ChainTag::from_genesis(m.chain.genesis());
+        certsync::fetch_epoch(
+            &source,
+            head,
+            &keys,
+            weights.as_deref(),
+            &m.bft_dir,
+            PAGE,
+            tag,
+        )
+        .unwrap();
+        let (driver, step) =
+            certsync::head_replay(&mut m.chain, &source, &setup, &m.bft_dir, now, head).unwrap();
+        assert!(!driver.is_follower());
+        m.driver = Some(driver);
+        mesh.absorb(i, step);
+    }
+    let target = mesh.height(0) + EPOCH_BLOCKS;
+    mesh.run_until(|m| (0..VALIDATORS).all(|i| m.height(i) >= target));
+    for i in 0..VALIDATORS {
+        assert!(mesh.height(i) >= target, "member {i} at {}", mesh.height(i));
+    }
+    assert!(
+        attested(&mesh) > Some(stuck_at + 3),
+        "checkpoints did not come back once the followers built again"
+    );
+    mesh.agree();
+    assert_eq!(mesh.equivocations, 0);
+}
+
+/// A rescue that raced an epoch boundary is refused before it replays
+/// anything: a finished epoch needs its attested end.
+#[test]
+fn a_head_replay_for_an_epoch_the_peer_has_left_is_refused_and_changes_nothing() {
+    let mut mesh = Mesh::new();
+    mesh.run_until(|m| m.height(0) > EPOCH_BLOCKS);
+    mesh.hold_out(3);
+    let behind = mesh.height(3);
+    let epoch = mesh.epoch(0).unwrap();
+    mesh.run_until(|m| m.epoch(0).is_some_and(|e| e > epoch));
+    let source = mesh.peer_log(0);
+    let setup = mesh.setups[3].clone();
+    let m = &mut mesh.members[3];
+    let (mine, _) = certsync::head_epoch(&m.chain, &setup).unwrap();
+    let refused = certsync::head_replay(&mut m.chain, &source, &setup, &m.bft_dir, 0, mine);
+    assert!(refused.is_err(), "replayed an epoch the peer had finished");
+    assert_eq!(m.chain.height(), behind, "a refused rescue moved the chain");
+}
