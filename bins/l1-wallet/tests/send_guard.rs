@@ -172,9 +172,9 @@ fn a_collector_that_is_not_the_protocol_one_is_refused() {
 
 #[test]
 fn a_node_quote_above_the_cap_is_refused() {
-    // Cap is 10^18 base units. A 10^14 base-fee quote on a transaction of about
-    // 13 KB is 2 * 10^14 * 13,000 = 2.6 * 10^18, above it.
-    let (url, calls) = fake_node(GENESIS, &protocol_collector(), "100000000000000");
+    // Cap is 10^24 base units. A 10^20 base-fee quote on a transaction of about
+    // 13 KB is 2 * 10^20 * 13,000 = 2.6 * 10^24, above it.
+    let (url, calls) = fake_node(GENESIS, &protocol_collector(), "100000000000000000000");
     let output = run_send(&url, "1000", &["--genesis", GENESIS, "--yes"]);
     assert!(!output.status.success());
     assert!(

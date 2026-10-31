@@ -27,12 +27,12 @@ pub const TESTNET_GENESIS: &[&str] = &[];
 const MAINNET_NAMES: &[&str] = &["maya-mainnet", "mainnet"];
 
 /// Default fee cap, in base units, for every transaction kind. One whole MAYA
-/// (ADR-046: 18 decimals). A fixed figure, not a quote multiple, so a hostile
+/// (ADR-068: 24 decimals, `maya_amount::ONE_COIN`). A fixed figure, not a quote multiple, so a hostile
 /// node cannot raise it together with the fee.
 /// shortcut: 1 MAYA is a judgment, not a measured fee; it bounds a single
 /// transaction's fee, not a fee market. Upgrade from testnet fee data, or
 /// override per call with `--max-fee`.
-pub const DEFAULT_MAX_FEE: U256 = U256([1_000_000_000_000_000_000u64, 0, 0, 0]);
+pub const DEFAULT_MAX_FEE: U256 = U256([0x1bce_cced_a100_0000, 0xd3c2, 0, 0]); // 10^24
 
 /// Transfers whose fee exceeds this share of the amount get a warning, not a refusal.
 const FEE_WARN_DIVISOR: u64 = 10;
@@ -234,14 +234,14 @@ mod tests {
 
     #[test]
     fn the_default_cap_is_one_maya_in_base_units() {
-        // ADR-046: 18 decimals, so one MAYA is 10^18 base units.
-        assert_eq!(DEFAULT_MAX_FEE, U256::from(10u64).pow(U256::from(18u8)));
+        // ADR-068: 24 decimals, so one MAYA is 10^24 base units.
+        assert_eq!(DEFAULT_MAX_FEE, U256::from(10u64).pow(U256::from(24u8)));
     }
 
     #[test]
     fn a_hostile_quote_above_the_default_cap_is_refused() {
-        // Quote 2 * 10^12 * 10^6 = 2 * 10^18, above the 10^18 default cap.
-        let info = protocol_info("1000000000000");
+        // Quote 2 * 10^18 * 10^6 = 2 * 10^24, above the 10^24 default cap.
+        let info = protocol_info("1000000000000000000");
         let err = quote_fee(&info, 1_000_000, None, None).unwrap_err();
         assert!(err.to_string().contains("above the cap"), "{err}");
     }

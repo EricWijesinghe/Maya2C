@@ -16,8 +16,8 @@ trusted from the node) for the CLI.
   - `check_collector`: the node's collector must equal
     `custom_l1_node::state::fees::FEE_COLLECTOR`.
   - `quote_fee`: `--fee` or the node quote `2 x base_fee x size`, checked
-    against the cap. Cap = `--max-fee` or `DEFAULT_MAX_FEE` = 10^18 base units
-    (one MAYA, ADR-046 18 decimals). Fixed, so it does not move with the node's
+    against the cap. Cap = `--max-fee` or `DEFAULT_MAX_FEE` = 10^24 base units
+    (one MAYA, ADR-068 24 decimals; corrected from 10^18 after #272 review). Fixed, so it does not move with the node's
     quote or the amount.
   - `fee_warning`: transfers only, fee above a tenth of the amount. Warn, do not
     refuse.
