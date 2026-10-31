@@ -9,7 +9,7 @@
 use maya_amount::Amount;
 use maya_dex::amm::Pool;
 use maya_dex::fees::FeeSchedule;
-use maya_dex::types::PRICE_SCALE;
+use maya_dex::types::{MAX_ASSET_SUPPLY, PRICE_SCALE};
 
 /// One coin in base units (ADR-068: 24 decimals).
 const COIN: u128 = 1_000_000_000_000_000_000_000_000;
@@ -55,4 +55,26 @@ fn the_largest_spot_price_fits_256_bits() {
         "bound is 2^184, got {} bits",
         price.bits()
     );
+}
+
+#[test]
+fn a_pool_at_the_supply_cap_still_has_a_price() {
+    // The worst pool registration allows: the cap against one base unit.
+    let price = pool(Amount::ONE, MAX_ASSET_SUPPLY)
+        .spot_price()
+        .expect("fits");
+    assert_eq!(price, MAX_ASSET_SUPPLY.checked_mul(PRICE_SCALE).unwrap());
+    // One unit past the cap is exactly where the price path would overflow.
+    let over = MAX_ASSET_SUPPLY.checked_add(Amount::ONE).unwrap();
+    assert!(pool(Amount::ONE, over).spot_price().is_err());
+}
+
+#[test]
+fn the_cap_covers_every_realistic_asset() {
+    // 1e14 whole tokens at 24 decimals fits with room to spare.
+    let big = Amount::from_u128(100_000_000_000_000)
+        .checked_mul(PRICE_SCALE)
+        .unwrap();
+    assert!(big < MAX_ASSET_SUPPLY);
+    assert!(MAX_ASSET_SUPPLY.bits() >= 176);
 }

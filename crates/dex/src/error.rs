@@ -63,7 +63,7 @@ pub enum DexError {
 impl fmt::Display for DexError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let message = match self {
-            Self::Overflow => "trade arithmetic exceeded 64 bits",
+            Self::Overflow => "trade arithmetic exceeded 256 bits",
             Self::ZeroAmount => "amount must be non-zero",
             Self::EmptyPool => "pool holds no liquidity",
             Self::InsufficientLiquidity => "output exceeds available reserve",
