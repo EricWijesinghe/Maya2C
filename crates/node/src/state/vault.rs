@@ -307,6 +307,7 @@ impl StateDB {
     fn vault_outflow(&self, overlay: &Overlay, tx: &Transaction) -> Result<U256> {
         let collector = crate::state::fees::FEE_COLLECTOR;
         // Saturating: an outflow past 2^256 is past any limit either way.
+        // (Only sums saturate here; the fee allowance is checked, see fee_allowance.)
         let sum = |fee: bool| -> U256 {
             tx.outputs
                 .iter()
