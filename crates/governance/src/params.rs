@@ -49,8 +49,8 @@
 use crate::error::{GovernanceError, Result};
 use maya_amount::Amount;
 
-/// One coin in base units: 24 decimals (ADR-068, amending ADR-046).
-const COIN: u128 = 1_000_000_000_000_000_000_000_000;
+/// One coin in base units: 24 decimals (ADR-068), from `maya_amount`.
+const COIN: u128 = maya_amount::ONE_COIN;
 
 /// A rule that governance may change.
 ///

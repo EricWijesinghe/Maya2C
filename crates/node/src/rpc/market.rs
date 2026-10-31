@@ -50,8 +50,8 @@ const NON_CIRCULATING: &[Address] = &[crate::state::shielded::FEE_SINK];
 /// A supply figure, in base units.
 ///
 /// Base units, matching every other amount in the codebase — account balances,
-/// transfer amounts, the shielded pool's holdings. There is no decimals constant
-/// here, so nothing is scaled. Saying "whole coins" in one place and "base
+/// transfer amounts, the shielded pool's holdings. No decimals are applied
+/// here (the coin's 24 are `maya_amount::COIN_DECIMALS`, ADR-068), so nothing is scaled. Saying "whole coins" in one place and "base
 /// units" everywhere else is how a listing form ends up wrong by a power of ten.
 ///
 /// Aggregators expect a bare decimal number, not JSON, on their supply

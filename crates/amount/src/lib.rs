@@ -46,6 +46,14 @@ const DEC_CHUNK: u64 = 10_000_000_000_000_000_000;
 /// 2²⁵⁶ has 78 decimal digits: five 19-digit chunks hold any amount.
 const DEC_CHUNKS: usize = 5;
 
+/// Decimal places in one whole coin (ADR-068, amending ADR-046). The single
+/// source: the wallet's `DECIMALS`, the gateway, governance and the genesis
+/// check all read it. `spec/tests/units.json` pins the same value for SDKs.
+pub const COIN_DECIMALS: usize = 24;
+/// One whole coin in base units: 10^[`COIN_DECIMALS`].
+pub const ONE_COIN: u128 = 1_000_000_000_000_000_000_000_000;
+const _: () = assert!(ONE_COIN == 10u128.pow(24));
+
 /// A non-negative integer below 2²⁵⁶, little-endian `u64` limbs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub struct Amount(pub [u64; LIMBS]);

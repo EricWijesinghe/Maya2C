@@ -26,7 +26,7 @@ const MIN_BASE_FEE: u128 = 1_000_000;
 /// 10 base units) are dust: a free validator seat, a free delegation.
 const MIN_SELF_BOND: u128 = 1_000 * COIN;
 const MIN_DELEGATION: u128 = COIN;
-const COIN: u128 = 1_000_000_000_000_000_000_000_000;
+const COIN: u128 = maya_amount::ONE_COIN;
 
 #[derive(Deserialize)]
 struct Genesis {

@@ -30,8 +30,8 @@ How to read the 81 s:
 
 ## What every kit says first
 
-1. **Amounts are base units.** No symbol or decimals are ratified yet
-   (`chain/maya2c-testnet.json`).
+1. **Amounts are base units.** One coin is 10^24 base units (ADR-068); the
+   wallet shows the ticker MAYA. The chain records neither (`chain/maya2c-testnet.json`).
 2. **Contracts are metered, not billed.** Gas bounds execution, and the fee
    market is inactive.
 3. **There are no contract-to-contract calls.** `env.call` is deliberately

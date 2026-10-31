@@ -29,7 +29,7 @@ height):
 --mining-reserve 122753829695359067419575633036805965021648
 ```
 
-That is about 1.23 × 10^17 coins (2^137 base units), under the 2^192 ceiling. The tool
+That is about 1.23 × 10^17 coins (about 2^136.5 base units), under the 2^192 ceiling. The tool
 refuses any less.
 
 ## The command (run on genesis day, after the keys exist)
