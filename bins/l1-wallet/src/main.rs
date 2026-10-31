@@ -549,10 +549,15 @@ async fn with_fee(
     chain: &ChainTag,
 ) -> Result<(Vec<TxOutput>, U256)> {
     let mut outputs = payload.outputs.clone();
-    let info = match client.get_fee_info().await {
-        Ok(info) if info.active => info,
-        _ => return Ok((outputs, U256::zero())),
-    };
+    // An unreachable fee query refuses rather than silently sending fee-less.
+    // Inactive fees pay nothing, so there is no collector or cap to check.
+    let info = client
+        .get_fee_info()
+        .await
+        .context("querying the node's fee rules; refusing to sign without them")?;
+    if !info.active {
+        return Ok((outputs, U256::zero()));
+    }
     // The collector comes from the node, so it is checked against the protocol's before any fee is paid to it.
     guard::check_collector(&info.collector)?;
     let collector = decode_address(&info.collector)?;
