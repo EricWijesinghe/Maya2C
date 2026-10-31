@@ -8,6 +8,7 @@ const POLL_MINER_MS = 1000;
 const POLL_NODE_MS = 4000;
 const POLL_GPU_MS = 3000;
 const HEIGHT_HISTORY = 300;
+const PACE_MIN_MS = 5 * 60_000; // a rate from under five minutes of payouts is noise
 
 const tauri = window.__TAURI__ && window.__TAURI__.core;
 const isPreview = !tauri;
@@ -42,10 +43,10 @@ const preview = (() => {
       if (rates.length > 450) rates.shift();
       if (Math.random() < 0.05) {
         accepted += 1;
-        events.push({ event: "share", accepted: true, reward: 7_000_000_000, t_ms: t });
+        events.push({ event: "share", accepted: true, reward: 7e22, t_ms: t });
       }
-      return { running: true, status: "mining", mode: "preview", epoch: 118, share_reward: 7_000_000_000, accepted, rejected: 0,
-        earned: accepted * 7_000_000_000, started_ms: t0, address: "preview", rates, events };
+      return { running: true, status: "mining", mode: "preview", epoch: 118, share_reward: 7e22, accepted, rejected: 0,
+        earned: accepted * 7e22, started_ms: t0, address: "preview", rates, events };
     },
     node_snapshot: () => {
       height += Math.random() < 0.6 ? 1 : 0;
@@ -118,6 +119,7 @@ function renderMiner() {
   setText("t-epoch", m.epoch ?? "—");
   setText("t-reward", m.share_reward == null ? "—" : maya(m.share_reward));
   setText("t-uptime", m.running ? uptime(m.started_ms) : "—");
+  setText("t-pace", paceLine(m));
   const power = $("power");
   power.setAttribute("aria-pressed", String(m.running));
   setText("power-text", m.running ? "Stop mining" : "Start mining");
@@ -133,6 +135,15 @@ function renderMiner() {
   state.lastAccepted = m.accepted;
   Charts.area($("rate-chart"), m.rates);
   renderFeed(m.events);
+}
+
+// Paid rate from what the chain actually credited, never from accepted shares
+// (accepted is not paid: 145 accepted against 10 paid on the mining devnet).
+function paceLine(m) {
+  const ran = m.running && m.started_ms ? Date.now() - m.started_ms : 0;
+  if (ran < PACE_MIN_MS) return m.running ? "paid rate after 5 min" : "";
+  const perHour = (Number(m.earned) * 3_600_000) / ran;
+  return `≈ ${maya(perHour)} MAYA/h paid`;
 }
 
 function renderFeed(events) {
