@@ -1,5 +1,7 @@
 //! Block headers, blocks, and their proof-of-work binding.
 
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
+
 use crate::core::codec::ByteReader;
 use crate::core::transaction::{MAX_TX_BYTES, Transaction};
 use crate::crypto::argon_blake::{HASH_LEN, argon_blake_hash};
@@ -82,6 +84,73 @@ pub fn decode_cut(payload_lens: impl IntoIterator<Item = usize>, budget: u64) ->
         count += 1;
     }
     count
+}
+
+/// CON-13 fair share: which payloads the DAG-BFT builder decodes, as indices into
+/// `entries` in commit order. `entries` are `(author, length, key)`; `key` is
+/// what identifies a payload's bytes, so a repeat has the same key. Deficit
+/// round-robin over authors in ascending index: each turn adds the quantum
+/// `budget / committee_size` to every author still waiting, and an author admits
+/// from the front of its queue while the next payload fits its deficit and the
+/// budget left. An author finishes when its queue is empty or its next payload
+/// is larger than the budget left, so an admitted set is always a prefix of the
+/// author's queue. Returns the admitted indices and the bytes charged.
+///
+/// The committee size, not the number of active authors, sets the quantum: an
+/// honest author's first-turn credit is then at least `budget / committee_size`
+/// whatever the others do (ADR-072, "Fair share").
+#[must_use]
+pub fn decode_plan<K: Ord + Copy>(
+    entries: &[(u16, usize, K)],
+    committee_size: usize,
+    budget: u64,
+) -> (Vec<usize>, u64) {
+    let mut queues: BTreeMap<u16, VecDeque<usize>> = BTreeMap::new();
+    for (index, (author, _, _)) in entries.iter().enumerate() {
+        queues.entry(*author).or_default().push_back(index);
+    }
+    let quantum = (budget / committee_size.max(1) as u64).max(1);
+    let mut deficit: BTreeMap<u16, u64> = BTreeMap::new();
+    let mut remaining = budget;
+    let mut seen: BTreeSet<K> = BTreeSet::new();
+    let mut admitted: Vec<usize> = Vec::new();
+    while !queues.is_empty() {
+        let mut finished = Vec::new();
+        for (author, queue) in &mut queues {
+            let d = deficit.entry(*author).or_insert(0);
+            *d = d.saturating_add(quantum);
+            loop {
+                let Some(&index) = queue.front() else {
+                    finished.push(*author);
+                    break;
+                };
+                let (_, len, key) = entries[index];
+                if seen.contains(&key) {
+                    // A repeat costs nothing and is never decoded.
+                    queue.pop_front();
+                    continue;
+                }
+                let len = len as u64;
+                if len > remaining {
+                    finished.push(*author);
+                    break;
+                }
+                if len > *d {
+                    break;
+                }
+                *d -= len;
+                remaining -= len;
+                seen.insert(key);
+                admitted.push(index);
+                queue.pop_front();
+            }
+        }
+        for author in finished {
+            queues.remove(&author);
+        }
+    }
+    admitted.sort_unstable();
+    (admitted, budget - remaining)
 }
 
 /// Domain separator for the seed a DAG hash is searched against.
@@ -479,5 +548,76 @@ impl Block {
             transaction.verify_at(height, policy, chain)?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod fair_share_tests {
+    use super::*;
+
+    /// Deterministic generator for the property test: no `proptest` dependency.
+    struct Lcg(u64);
+
+    impl Lcg {
+        fn next(&mut self) -> u64 {
+            self.0 = self
+                .0
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            self.0 >> 33
+        }
+    }
+
+    #[test]
+    fn one_author_matches_the_old_prefix_cut() {
+        // A single author is the old cut: a prefix that stops at the first misfit.
+        let lens = [300_usize, 900, 200, 5_000, 10];
+        let entries: Vec<(u16, usize, u64)> = lens
+            .iter()
+            .enumerate()
+            .map(|(i, len)| (7, *len, i as u64))
+            .collect();
+        let (admitted, _) = decode_plan(&entries, 16, 1_500);
+        let old = decode_cut(lens, 1_500);
+        assert_eq!(admitted, (0..old).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn random_orders_respect_the_budget_the_prefix_rule_and_work_conservation() {
+        let mut rng = Lcg(0x5eed);
+        for case in 0..2_000 {
+            let committee = 1 + (rng.next() % 8) as usize;
+            let budget = 1 + rng.next() % 10_000;
+            let count = (rng.next() % 40) as usize;
+            let entries: Vec<(u16, usize, u64)> = (0..count)
+                .map(|i| {
+                    let author = (rng.next() % committee as u64) as u16;
+                    let len = 1 + (rng.next() % 4_000) as usize;
+                    (author, len, i as u64)
+                })
+                .collect();
+            let (admitted, charged) = decode_plan(&entries, committee, budget);
+            assert!(charged <= budget, "case {case}: budget");
+            let sum: u64 = admitted.iter().map(|&i| entries[i].1 as u64).sum();
+            assert_eq!(charged, sum, "case {case}: charged is the admitted bytes");
+            let remaining = budget - charged;
+            for author in 0..committee as u16 {
+                let queue: Vec<usize> = (0..count).filter(|&i| entries[i].0 == author).collect();
+                let got: Vec<usize> = admitted
+                    .iter()
+                    .copied()
+                    .filter(|&i| entries[i].0 == author)
+                    .collect();
+                assert_eq!(got, queue[..got.len()].to_vec(), "case {case}: prefix");
+                if let Some(&next) = queue.get(got.len()) {
+                    // Work conservation: the author stopped only because the next
+                    // payload did not fit what was left, and what was left only shrank.
+                    assert!(
+                        entries[next].1 as u64 > remaining,
+                        "case {case}: conservation"
+                    );
+                }
+            }
+        }
     }
 }

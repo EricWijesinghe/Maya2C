@@ -92,42 +92,62 @@ moving this from Proposed to Accepted.
    sent. `Block::from_bytes` ends with `ByteReader::finish`, which refuses trailing bytes, and the
    counts are fixed-width. Pinned by `a_received_block_re_encodes_to_the_bytes_it_came_from`.
 
-## Sub-DAG decode bound (CON-13)
+## Sub-DAG decode bound and fair share (CON-13)
 
-9. **The builder decodes at most one cap of batch bytes per block.** `builder.rs`
-   `ordered_transactions` decodes distinct payloads in commit order, through
-   `core::block::decode_cut`, and stops before the first new payload that would take the decoded
-   bytes past `MAX_BLOCK_BYTES` (`DECODE_BUDGET`). A repeat is skipped before decode. The driver
-   releases the queued copy of an own payload that was not included by comparing blake3 hashes of
-   the raw payloads, so a payload past the cut is never decoded and is still released; it stays
-   in its proposer's pool and is proposed again.
-   - Before this change the decode had no bound. The sub-DAG's rounds are not bounded by the
-     protocol: a commit's sub-DAG is the causal history not yet ordered, which reaches back to
-     `last_committed_round - GC_DEPTH` (`dag-bft/src/commit.rs` `order_history`,
-     `dag-bft/src/validator.rs` `progress`, GC_DEPTH = 50 at `validator.rs:24`), and the gap
-     between commits depends on leader liveness, which the engine does not bound. Worst case per
-     sub-DAG is therefore (gap + 50) rounds × 100 vertices × 4 MiB, with no protocol ceiling.
-   - Worst-case decode per block after this change: `MAX_BLOCK_BYTES` = 5 MiB of payload bytes
-     (5,242,880). Decode is the expensive step (allocation and transaction parsing per payload),
-     and it is the only one bounded by `DECODE_BUDGET`.
-   - Not bounded, and why it is acceptable: two linear passes touch every payload byte of the
-     sub-DAG, not only the budgeted prefix. The builder's dedupe compares raw payloads, and the
-     driver hashes its own payloads (blake3) to find queued copies. Both read bytes that were
-     already hashed once: `dag-bft/src/vertex.rs` `digest` covers every batch byte, and a vertex is
-     digested when it is received and certified, so the first full pass over those bytes is paid
-     at admission, not at commit. Each pass is linear in committed bytes and does no parsing, no
-     allocation per payload, and no signature work. The total is bounded by the sub-DAG's size,
-     which the protocol does not bound (see the residual below), so a commit's cost remains
-     linear in its committed bytes, not constant. Bounding the sub-DAG itself needs a protocol
-     change (a cap on uncommitted rounds), which is not part of this change.
-   - Residual: the cut is in commit order, so a sub-DAG whose first 5 MiB are non-executing
-     transactions (or junk that decodes to nothing) leaves the executable ones after it to a later
-     block. They are not lost; they stay pooled. Throughput under that attack is lower; it is
-     not a safety issue. Repeats do not spend the budget, because dedupe runs before the cut; the
-     dedupe compares raw bytes and decodes nothing.
-- The per-vertex and committee limits are unchanged, so a committed vertex can hold up to 4 MiB
-  that is never applied (it is decoded only inside the budget).
-- Staging, the fee pass and the state-root pass over the admitted set are bounded by the cap.
+9. **The builder decodes at most `DECODE_BUDGET` of batch bytes per block, shared fairly among
+   authors** (deficit round-robin in ascending committee index, CON-13).
+   - Before this change, the decode cut ran in commit order `(round, author)`. The lowest index
+     took the whole budget first, so a validator that filled its vertices with junk or
+     non-executing payloads starved honest proposers. That was the 2026-11-01 security review's
+     HIGH-1. An author now spends only its own share, and unused shares go to the others in the
+     same walk.
+   - `decode_plan` (`core/block.rs`) is the single rule; `builder::decode_fair_payloads` and the
+     spec-ref oracle `consensus::decode_fair` use it.
+   - **Charging.** The per-author meter charges raw bytes. What it bounds is decode work, which
+     happens before anyone knows whether a payload decodes or executes. The block cap (CON-12) is
+     still charged only for executing transactions. The alternative, charging only executing bytes,
+     cannot bound decode work: a junk payload would be decoded for free.
+   - **Quantum divisor.** The quantum is `DECODE_BUDGET / n`, where `n` is the committee size
+     (`BftDriver.committee.len()`), not the number of authors with payloads. With the active count,
+     one honest author among `f` active junk authors gets `B / (f + 1)` on its first turn, which is
+     below the guarantee when `f` is close to `n / 3`.
+   - **Prefix.** An author's admitted set is a prefix of its queue. A payload that does not fit the
+     budget left finishes that author only, and nothing behind it is passed over.
+   - **Repeats.** A payload identical to an admitted one is skipped with no charge and no decode.
+     The dedupe compares raw bytes, so it is linear and does no parsing. A finished author's
+     remaining payloads are never touched.
+   - **Commit order.** Admitted payloads are emitted in commit order. Execution order is the commit
+     order restricted to the admitted set.
+
+   **Derivation of `DECODE_BUDGET` = 3/2 × `MAX_BLOCK_BYTES`.** Let `M` = `MAX_BLOCK_BYTES`,
+   `B` = `DECODE_BUDGET`, `n` = committee size, `f` = junk authors with `f < n / 3`, and
+   `Q = B / n`.
+   - In the first turn, authors are served in ascending index, and each has deficit `Q`, so each
+     admits at most `Q`. Before the `k`-th author is served, at most `(k − 1) · Q` has been spent,
+     so at least `(n − k + 1) · Q ≥ Q` remains. Every author therefore gets its full `Q` in its first
+     turn, whatever the authors before it did.
+   - Honest authors' first-turn admission is then at least `(n − f) · Q` when each honest author has
+     at least `Q` of demand, and `Q = B / n`, so it is `B · (n − f) / n`.
+   - With `f < n / 3`, `(n − f) / n > 2 / 3`, so the honest first-turn total is above `2B / 3`.
+   - With `B = 3M / 2`, `2B / 3 = M`: one full block cap of honest executing transactions is
+     admitted whatever the junk authors do. With `B = M`, the bound would be `2M / 3`, which is why
+     the budget is raised.
+   - Assumption: each honest author's transfers are at most `Q` (`B / n` = 1.875 MiB at `n` = 4 and
+     0.075 MiB at `n` = 100, `B` = 7.5 MiB). A single honest payload larger than `Q` waits for
+     deficit to accumulate, so the first-turn bound does not cover it; it is still admitted in a later
+     turn while budget remains. A transaction of 4 MiB (`MAX_TX_BYTES`) would be such a payload.
+     This is a shortcut in the derivation, not in the rule: the guarantee is stated for standard-sized
+     transactions.
+   - Cost: decode work per block is at most `B` = 7.5 MiB, up from 5 MiB. Termination: a waiting
+     author's deficit grows by `Q` per turn, so it admits a payload of length `L` within `⌈L / Q⌉`
+     turns. For `L` ≤ `MAX_TX_BYTES` (4 MiB) and `n` = 100 that is at most 54 turns.
+
+   **Residual.** An author's own junk delays only that author's executable payloads. With `f`
+   faulty authors, honest throughput per walk is at least `(n − f) / n` of the decode budget, under
+   the assumption above. The sub-DAG itself is still unbounded by the protocol: its rounds are not
+   capped (see `dag-bft/src/commit.rs` `order_history`), so the work per commit is linear in the
+   committed bytes outside the walk, namely the streamed dedupe over raw bytes. Bounding the sub-DAG
+   needs a protocol change, which is not part of this change.
 
 ## Activation
 
