@@ -31,10 +31,6 @@ const RECORD_PREFIX: &[u8] = b"q:v:";
 pub const MAX_DELAY_BLOCKS: u64 = 1_000_000;
 /// Most requests open at once in one vault.
 pub const MAX_OPEN_REQUESTS: u32 = 64;
-/// Multiple of the required fee a vault transaction may pay before the excess
-/// counts against its limit. Wallets pay 2x (`l1-wallet`), so 4x is headroom
-/// for a base fee that rose between signing and inclusion.
-pub const VAULT_FEE_HEADROOM: u64 = 4;
 
 /// Record format of a vault and a withdrawal: 2 since ADR-046 made every
 /// amount 256-bit. A version-1 record is refused, not reinterpreted.
@@ -292,8 +288,9 @@ impl StateDB {
         Ok(Some(vault))
     }
 
-    /// Value `tx` moves out: every non-fee output, plus fee outputs above
-    /// [`VAULT_FEE_HEADROOM`] times the required fee.
+    /// Value `tx` moves out: every output, except that the collector outputs
+    /// up to the required fee are exempt. `charge_fee` already checked that
+    /// fee at this base fee, so nothing above it is a fee and all of it counts.
     fn vault_outflow(&self, overlay: &Overlay, tx: &Transaction) -> Result<U256> {
         let collector = crate::state::fees::FEE_COLLECTOR;
         // Saturating: an outflow past 2^256 is past any limit either way.
@@ -303,12 +300,11 @@ impl StateDB {
                 .filter(|o| (o.recipient == collector) == fee)
                 .fold(U256::zero(), |total, o| total.saturating_add(o.amount))
         };
-        let allowed_fee = match self.fee_record(overlay)? {
-            Some(fees) => maya_stateless_core::amount::to_u256(fees.required(tx.to_bytes().len()))
-                .saturating_mul(U256::from(VAULT_FEE_HEADROOM)),
+        let required = match self.fee_record(overlay)? {
+            Some(fees) => maya_stateless_core::amount::to_u256(fees.required(tx.to_bytes().len())),
             None => U256::zero(),
         };
-        Ok(sum(false).saturating_add(sum(true).saturating_sub(allowed_fee)))
+        Ok(sum(false).saturating_add(sum(true).saturating_sub(required)))
     }
 
     /// Stores `vault` as `owner`'s record: how a charged window is kept.

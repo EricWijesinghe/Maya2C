@@ -364,6 +364,65 @@ fn the_fee_collector_is_not_a_way_around_the_limit() {
 }
 
 #[test]
+fn a_fee_above_the_required_fee_counts_against_a_zero_limit() {
+    // Replay of the headroom bypass: the vault exempted 4x the required fee,
+    // so a limit-0 vault paid 4x to the collector uncounted, 3x per tx leaking.
+    // Only the required fee is exempt; the excess counts.
+    use custom_l1_node::state::fees::{FEE_COLLECTOR, FEE_KEY, FeeRecord};
+    use maya_dex::Amount;
+    let (owner_key, owner) = key();
+    let (_, guardian) = key();
+    let mut chain = Chain::new(&[owner]);
+    chain
+        .db
+        .put_account(
+            &owner,
+            &Account {
+                balance: primitive_types::U256::from(10_000_000_000u64),
+                nonce: 0,
+            },
+        )
+        .unwrap();
+    let zero_limit = VaultAction::Configure(VaultConfig {
+        delay_blocks: DELAY,
+        limit: primitive_types::U256::zero(),
+        guardians: vec![guardian],
+    });
+    // Configured before fees are live: the configure transaction has no fee.
+    chain.send(vault(&chain, &owner_key, zero_limit)).unwrap();
+    let record = FeeRecord {
+        base_fee: Amount::from_u64(1),
+        min_base_fee: Amount::from_u64(1),
+        target_block_bytes: 1_000_000,
+        change_denominator: 8,
+    };
+    chain
+        .db
+        .raw_put_for_test(FEE_KEY, &record.encode())
+        .unwrap();
+    // Fixed-width encoding, so the size does not depend on the amount: at a
+    // base fee of 1 per byte, the required fee is the size in bytes.
+    let pay = |chain: &Chain, amount: u64| {
+        let mut tx = Transaction::new(
+            vec![],
+            vec![TxOutput {
+                amount: primitive_types::U256::from(amount),
+                recipient: FEE_COLLECTOR,
+            }],
+            chain.nonce(&owner),
+        );
+        tx.sign(&owner_key, &common::test_chain()).unwrap();
+        tx
+    };
+    let required = pay(&chain, 1).to_bytes().len() as u64;
+    let refused = chain.send(pay(&chain, 4 * required)).unwrap_err();
+    assert!(refused.contains("instant limit"), "{refused}");
+    assert_eq!(chain.balance(&owner), 10_000_000_000);
+    // Exactly the required fee is exempt, even with a zero limit.
+    chain.send(pay(&chain, required)).unwrap();
+}
+
+#[test]
 fn the_limit_bounds_a_window_not_a_transaction() {
     // Review: a per-transaction limit let a stolen key drain a vault through
     // many in-limit transfers at once. The limit is outflow per window of
