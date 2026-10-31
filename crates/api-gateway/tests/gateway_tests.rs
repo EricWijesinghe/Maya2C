@@ -244,7 +244,10 @@ fn coin_decimals_match_the_spec() {
     // The wallet's DECIMALS is the same constant (crates/amount), so pinning
     // the gateway to the spec vector pins the wallet too.
     let spec = include_str!("../../../spec/tests/units.json");
-    let pinned = format!("\"coin_decimals\": {},", maya_api_gateway::coins::COIN_DECIMALS);
+    let pinned = format!(
+        "\"coin_decimals\": {},",
+        maya_api_gateway::coins::COIN_DECIMALS
+    );
     assert!(spec.contains(&pinned), "spec/tests/units.json: {pinned}");
 }
 

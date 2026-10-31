@@ -36,7 +36,10 @@ mod tests {
 
     #[test]
     fn base_units_become_whole_coins() {
-        assert_eq!(base_units_to_coins("0", COIN_DECIMALS).as_deref(), Some("0"));
+        assert_eq!(
+            base_units_to_coins("0", COIN_DECIMALS).as_deref(),
+            Some("0")
+        );
         assert_eq!(
             base_units_to_coins("1", COIN_DECIMALS).as_deref(),
             Some("0.000000000000000000000001")
