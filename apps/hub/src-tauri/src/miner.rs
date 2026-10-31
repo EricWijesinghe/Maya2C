@@ -6,7 +6,7 @@
 
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
@@ -14,6 +14,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+use crate::miner_guard::{self, PINNED_SUMS};
 
 /// Hash-rate samples kept: 15 minutes at one per two seconds.
 const RATE_HISTORY: usize = 450;
@@ -135,20 +137,19 @@ pub fn ingest(state: &mut MinerState, line: &str, t_ms: u64) {
 }
 
 impl Miner {
-    /// Starts the miner, replacing any previous run's numbers.
+    /// Starts the miner, replacing any previous run's numbers. `install` and
+    /// `data` are the Hub's install and data folders; the miner and the key
+    /// file are checked against them (miner_guard.rs).
     ///
     /// # Errors
     ///
-    /// Already running, a bad setting, or a binary that will not start.
-    pub fn start(&self, config: &MinerConfig) -> Result<(), String> {
+    /// Already running, a bad setting, a failed check, or a binary that will not start.
+    pub fn start(&self, config: &MinerConfig, install: &Path, data: &Path) -> Result<(), String> {
         crate::node::check_url(&config.rpc)?;
-        let binary = PathBuf::from(&config.binary);
-        if !binary.is_file() {
-            return Err(format!("miner not found at {}", binary.display()));
-        }
-        if config.key_file.trim().is_empty() {
-            return Err("choose a payout key file".into());
-        }
+        let binary = miner_guard::check_miner(&config.binary, install, PINNED_SUMS)
+            .map_err(|e| e.to_string())?;
+        let key_file = miner_guard::resolve_key_file(&config.key_file, data)
+            .map_err(|e| e.to_string())?;
         let threads = config.threads.clamp(1, MAX_THREADS);
         let mut slot = self.child.lock().unwrap_or_else(PoisonError::into_inner);
         if slot.is_some() {
@@ -158,7 +159,7 @@ impl Miner {
             .args(["--mine", "--json", "--rpc", &config.rpc, "--threads"])
             .arg(threads.to_string())
             .arg("--key-file")
-            .arg(Path::new(&config.key_file))
+            .arg(&key_file)
             .args(config.gpu.then_some("--gpu"))
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -316,14 +317,19 @@ mod tests {
     #[test]
     fn a_missing_binary_is_refused_before_anything_runs() {
         let miner = Miner::default();
+        let temp = std::env::temp_dir();
         let err = miner
-            .start(&MinerConfig {
-                binary: "Z:/nope/maya2c-gpu-miner.exe".into(),
-                rpc: "http://127.0.0.1:8545".into(),
-                key_file: "k".into(),
-                threads: 2,
-                gpu: false,
-            })
+            .start(
+                &MinerConfig {
+                    binary: "Z:/nope/maya2c-gpu-miner.exe".into(),
+                    rpc: "http://127.0.0.1:8545".into(),
+                    key_file: "k".into(),
+                    threads: 2,
+                    gpu: false,
+                },
+                &temp,
+                &temp,
+            )
             .unwrap_err();
         assert!(err.contains("not found"), "{err}");
         assert!(!miner.state().running);

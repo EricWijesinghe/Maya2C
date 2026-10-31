@@ -3,7 +3,7 @@
 //! A [`Wallet`] holds an unlocked seed for the duration of a session. It is the
 //! only place key material lives outside the keychain, and it zeroizes on drop.
 //!
-//! Broadcasting is deliberately separate from signing: [`crate::payment::sign_transfer`]
+//! Broadcasting is deliberately separate from signing: [`Wallet::sign`]
 //! needs no network, so a signing device never has to have one.
 
 use std::collections::BTreeMap;
