@@ -64,11 +64,41 @@ test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 
 Decimals (ADR-068) untouched. No consensus code changed (describe and wallet only).
 
+## Round 2: release pin wiring, TOCTOU
+
+Pin wiring: `cargo xtask hub-bundle` (the only command the release hub job runs) builds the
+miner, hashes the sidecar Tauri ships, writes `binaries/miner-sha256sums.txt` (one
+`sha256sum` line named as installed, `maya2c-gpu-miner[.exe]`), and sets
+`MAYA2C_MINER_SHA256SUMS` for the Hub build. `release-binaries.yml` is not edited, so
+no conflict with #266. Dev: the same command is the dev path; a plain `cargo run` of the
+Hub refuses the miner (documented in `apps/hub/README.md`). No unpinned fallback.
+
+TOCTOU (Windows): the miner is opened with `FILE_SHARE_READ` only, hashed from that handle,
+re-canonicalized after open, and the handle is kept in the running child's record until the
+child is killed or exits. Test `a_writer_cannot_open_the_miner_while_the_guard_holds_it`
+(Windows) asserts a write open fails with sharing violation (32) and delete fails.
+
+Hub test output after round 2, `cargo test --manifest-path apps/hub/src-tauri/Cargo.toml`
+(`CARGO_BUILD_JOBS=1`, no warnings):
+
+```
+test miner_guard::tests::a_writer_cannot_open_the_miner_while_the_guard_holds_it ... ok
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+`cargo check -p xtask` (`CARGO_BUILD_JOBS=1`): `Finished dev profile`, exit 0.
+
 ## Gaps (not done or not verified)
 
-- Miner pinning needs CI wiring. `MAYA2C_MINER_SHA256SUMS` is not set by `release-binaries.yml`, so release Hubs refuse every miner until it is. The release `SHA256SUMS` lists archives and installers, not the raw miner executable, so CI must emit a raw miner line.
-- Time-of-check to time-of-use: the hash is checked, then the path is spawned. A writer inside the install folder could swap the file in between. Not mitigated (copy to a private location before spawn is the fix).
-- Key-file ownership and ACL check (P5 second test, `hub_refuses_key_file_not_owned_by_user`) not implemented; only the location check is.
+- Not verified in CI: the release run has not executed the new hub-bundle pin step; the
+  macOS sidecar could be modified by Tauri signing, which would make the installed file
+  differ from the pinned hash and the Hub would refuse its own miner. Check on the first
+  tagged run.
+- Unix TOCTOU residual: spawn is by path after the hash. A rename over the miner path between
+  hash and exec runs the new file. Fix: spawn via fd (`/proc/self/fd/N` on Linux, fexecve
+  elsewhere). Not done.
+- Key-file ownership/ACL check (P5, `hub_refuses_key_file_not_owned_by_user`) not implemented;
+  the location check is. Listed, not small enough for this pass (Windows owner needs Win32).
 - The settings UI still shows the miner-program field; the backend ignores its directory.
 - `describe` runtime coverage is still 6 sample kinds. The 56-arm `match` has no wildcard, so an omitted kind fails to compile, but no runtime test calls all 56 (payload fixtures needed).
 - Not built: Tauri bundle, wallet-gui `src-tauri` (separate workspace; its own `sign_transfer` command calls `Wallet::sign`, which is unchanged), the explorer.

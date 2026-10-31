@@ -13,6 +13,8 @@ description = "Workspace automation: disk accounting and the reality-ledger gate
 serde = { workspace = true, features = ["derive"] }
 toml.workspace = true
 serde_json.workspace = true
+# Pins the release miner's hash into the Hub build (hub_bundle.rs); already in the lock.
+sha2 = { workspace = true }
 
 [lints]
 workspace = true

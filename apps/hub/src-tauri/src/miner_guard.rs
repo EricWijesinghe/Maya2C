@@ -6,7 +6,8 @@
 //! build. The key file must stay inside the Hub's data folder.
 
 use std::fmt;
-use std::fs;
+use std::fs::{self, File, OpenOptions};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
@@ -50,7 +51,7 @@ impl fmt::Display for GuardError {
             }
             Self::Unpinned(name) => write!(
                 f,
-                "this Hub build has no checksum for {name}; refusing to run it"
+                "this Hub build has no miner checksum for {name} (build it with cargo xtask hub-bundle); refusing to run it"
             ),
             Self::HashMismatch { expected, actual } => write!(
                 f,
@@ -174,30 +175,54 @@ pub fn pinned_hash(sums: &str, file: &str) -> Result<String, GuardError> {
 }
 
 /// # Errors
+
+/// The miner the Hub may run, held open read-only until its child exits.
 ///
-/// The file cannot be read, or its digest differs from `expected`.
-pub fn verify_hash(path: &Path, expected: &str) -> Result<(), GuardError> {
-    let actual = sha256_hex(&fs::read(path).map_err(io)?);
-    if actual == expected {
-        Ok(())
-    } else {
-        Err(GuardError::HashMismatch {
-            expected: expected.to_string(),
-            actual,
-        })
-    }
+/// On Windows the handle takes `FILE_SHARE_READ` only, so a writer or deleter
+/// cannot open the file while this exists: the bytes hashed are the bytes run.
+/// On Unix the handle is kept, but a path replaced after open is not blocked
+/// (residual, see the session report).
+#[derive(Debug)]
+pub struct PinnedMiner {
+    pub path: PathBuf,
+    pub file: File,
 }
 
-/// The miner the Hub may run: the bundled copy whose SHA-256 matches `sums`.
+/// Opens the miner for reading only, sharing reads and nothing else on Windows.
+fn open_read_only(path: &Path) -> std::io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // FILE_SHARE_READ (0x1): other readers may open it; writers and deleters may not.
+        options.share_mode(0x1);
+    }
+    options.open(path)
+}
+
+/// The miner the Hub may run: the bundled copy whose SHA-256 matches `sums`,
+/// hashed through the same handle that is returned.
 ///
 /// # Errors
 ///
-/// Any failure of [`resolve_miner`], [`pinned_hash`] or [`verify_hash`].
-pub fn check_miner(requested: &str, install: &Path, sums: &str) -> Result<PathBuf, GuardError> {
+/// Any failure of [`resolve_miner`], [`pinned_hash`], opening or reading, a
+/// hash mismatch, or [`GuardError::OutsideInstall`] if the path moved on open.
+pub fn check_miner(requested: &str, install: &Path, sums: &str) -> Result<PinnedMiner, GuardError> {
     let path = resolve_miner(requested, install)?;
     let expected = pinned_hash(sums, &miner_file_name())?;
-    verify_hash(&path, &expected)?;
-    Ok(path)
+    let mut file = open_read_only(&path).map_err(io)?;
+    let reresolved = path.canonicalize().map_err(io)?;
+    if reresolved != path {
+        return Err(GuardError::OutsideInstall(reresolved));
+    }
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).map_err(io)?;
+    let actual = sha256_hex(&bytes);
+    if actual != expected {
+        return Err(GuardError::HashMismatch { expected, actual });
+    }
+    Ok(PinnedMiner { path, file })
 }
 
 /// The payout key file, which must sit inside `data`. A link there is
@@ -268,8 +293,27 @@ mod tests {
     #[test]
     fn bundled_miner_with_a_matching_hash_is_accepted() {
         let (_base, install, sums) = bundle("good");
-        let path = check_miner(&miner_file_name(), &install, &sums).expect("accepted");
-        assert_eq!(path.file_name().unwrap().to_str(), Some(miner_file_name().as_str()));
+        let pinned = check_miner(&miner_file_name(), &install, &sums).expect("accepted");
+        assert_eq!(pinned.path.file_name().unwrap().to_str(), Some(miner_file_name().as_str()));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_writer_cannot_open_the_miner_while_the_guard_holds_it() {
+        const ERROR_SHARING_VIOLATION: i32 = 32;
+        let (_base, install, sums) = bundle("writer");
+        let pinned = check_miner(&miner_file_name(), &install, &sums).expect("accepted");
+        let write = OpenOptions::new().write(true).open(&pinned.path);
+        assert_eq!(
+            write.expect_err("a writer must be refused").raw_os_error(),
+            Some(ERROR_SHARING_VIOLATION)
+        );
+        assert!(fs::remove_file(&pinned.path).is_err(), "delete must be refused");
+        drop(pinned);
+        OpenOptions::new()
+            .write(true)
+            .open(install.join(miner_file_name()))
+            .expect("writable once the guard lets go");
     }
 
     #[test]
