@@ -30,12 +30,13 @@
 
 use maya_amount::Amount;
 
-use crate::limits::MAX_BASE_FEE_PER_BYTE;
+use crate::limits::{MAX_BASE_FEE_PER_BYTE, MIN_CHANGE_DENOMINATOR};
 
 /// The next block's base fee, per byte.
 ///
 /// Fees are 256-bit [`Amount`]s; the product is taken in 512 bits and the result
-/// saturates at `Amount::MAX`, so no input panics and none wraps. `target` and `denominator` are assumed validated —
+/// saturates at `Amount::MAX`, so no input panics and none wraps. `target` is assumed validated, and `denominator` at
+/// least `MIN_CHANGE_DENOMINATOR` (debug-asserted) —
 /// [`crate::FeeConfig::validate`] guarantees both are non-zero — but a zero is
 /// treated as "no change" rather than a division by zero, so a caller that
 /// skipped validation gets a constant fee and not a crash.
@@ -50,6 +51,11 @@ pub fn next_base_fee(
     if target == 0 || denominator == 0 {
         return parent_base_fee.max(floor);
     }
+    // The one-share bound of ADR-071 is stated for denominators the config admits.
+    debug_assert!(
+        denominator >= MIN_CHANGE_DENOMINATOR,
+        "change denominator {denominator} is below MIN_CHANGE_DENOMINATOR"
+    );
 
     let (gap, rising) = if parent_size >= target {
         (parent_size - target, parent_size > target)
