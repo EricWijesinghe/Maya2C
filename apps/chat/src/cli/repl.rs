@@ -67,6 +67,7 @@ struct Chat {
 impl Chat {
     async fn send(&mut self, text: &str) -> Result<(), String> {
         let to = self.peer.ok_or("no peer yet: /to HEX")?;
+        let established = self.client.has_session(&to);
         match courier::deliver(&mut self.client, &self.relay, to, text.as_bytes(), now()).await {
             Ok(()) => {
                 save_client(&self.home, &self.client)?;
@@ -74,9 +75,16 @@ impl Chat {
                 Ok(())
             }
             Err(e) => {
-                // The chain may have advanced past a message the relay never
-                // took; the saved state has not.
-                self.client = load_client(&self.home)?;
+                // An established session keeps its advanced chain even though the send
+                // failed: the relay may hold the envelope with only the reply lost, and
+                // rewinding would seal the next message under the same key and nonce
+                // (two-time pad; ADR-074). The receiver skips a missing index. Only a
+                // session this send opened is rewound: the retry handshakes afresh.
+                if established {
+                    save_client(&self.home, &self.client)?;
+                } else {
+                    self.client = load_client(&self.home)?;
+                }
                 Err(why(&e))
             }
         }
