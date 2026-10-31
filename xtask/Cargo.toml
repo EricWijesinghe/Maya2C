@@ -13,6 +13,12 @@ description = "Workspace automation: disk accounting and the reality-ledger gate
 serde = { workspace = true, features = ["derive"] }
 toml.workspace = true
 serde_json.workspace = true
+# Site integrity (`site_integrity.rs`): `regex` and `base64` are already in the
+# lock through other crates; `hex` and `sha2` are workspace dependencies.
+regex = "1"
+base64 = "0.22"
+hex.workspace = true
+sha2.workspace = true
 
 [lints]
 workspace = true
