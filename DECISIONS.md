@@ -561,9 +561,11 @@ Eric may change either before `APPROVED: sign genesis`; that is a one-line chang
 
 ## 2026-10-31 — Correction to "ADR-068 step 4: 512-bit product audit, clean" (2026-10-28)
 
-That entry accepted saturating ops as clamps. One was not: the vault fee allowance
-(`crates/node/src/state/vault.rs`, `required × 4` with `saturating_mul`) became `U256::MAX`
-when `required()` saturated, so fee-collector outputs escaped the vault's instant limit.
-It is now `checked_mul` and refuses with `NodeError::Vault`; in-range results are unchanged
-(PR #273, `reports/sessions/2026-10-31-amount-product-audit.md`). Rule from here: a saturating
-op whose result widens a limit is a bug; saturation is only acceptable where it narrows one.
+That entry missed a vault limit bypass. `VAULT_FEE_HEADROOM = 4` exempted up to 4× the
+required fee per transaction from the vault's instant limit, never charged to the window, so
+a limit-0 vault could leak 3× required per transaction to the tip pool. Now only
+`fees.required(size)` is exempt; anything above counts as outflow (PR #273, replay test
+`a_fee_above_the_required_fee_counts_against_a_zero_limit`, fails on the old code).
+Consensus-visible (invariant 32), rides the mainnet genesis. The saturating overflow first
+suspected there is unreachable (`charge_fee` refuses first; balances ≤ supply).
+Rule from here: an exemption from a limit is exactly the amount that justifies it.
