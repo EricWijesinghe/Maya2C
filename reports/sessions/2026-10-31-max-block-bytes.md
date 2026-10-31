@@ -88,3 +88,30 @@ $ cargo xtask spec-coverage --strict -> 53 rules, 110 vectors; 50 consensus rule
 ## Commit and PR
 
 Commit and PR are recorded in the run that produced this file (see the PR URL in the final report). Not merged.
+
+## Review round 2 (coordinator)
+
+1. Non-executing transactions no longer cost room. Selection is first-fit (item 2 below), and a transaction too big for the room left is not staged at all. Red-team: with the old `break` restored, `a_transaction_that_cannot_execute_costs_the_block_no_room` and `an_executing_transaction_too_big_for_the_room_is_passed_over` both FAIL.
+2. First-fit everywhere: `core::block::first_fit`, `spec-ref consensus::first_fit`, CON-12 text, vectors (`block-first-fit-passes-over-oversized`), ADR-072 item 3.
+3. Prewarm is cache-only: `prewarm_verification` calls `verified.verify` and ignores failures; the sequential pass verifies through the same cache. The warm-up now covers only the cap's worth of bytes (`warmup_len`). Still unbounded, stated in ADR-072: decode of the committed sub-DAG.
+4. Mempool refuses `to_bytes().len() > MAX_TX_BYTES` on local submission. Red-team: with the check disabled, `an_oversized_transaction_is_refused_by_the_mempool` FAILS.
+5. ADR-072 records that invariant 33 has no activation height (pre-genesis re-genesis). Canonical decode: `a_received_block_re_encodes_to_the_bytes_it_came_from` passes, `Block::from_bytes` refuses trailing bytes.
+
+Real output, after the changes:
+
+```
+$ cargo test -p custom-l1-node --test block_bytes_tests --test consensus_conformance --test bft_node_tests
+block_bytes_tests: test result: ok. 10 passed; 0 failed
+consensus_conformance: test result: ok. 1 passed; 0 failed
+bft_node_tests: test result: ok. 7 passed; 0 failed
+$ cargo test -p maya-fee-market -> 46 + 1 + 6 + 13 passed; 0 failed; EXIT 0
+$ cargo xtask spec-coverage --strict -> 53 rules, 111 vectors; 50 consensus rules covered, 0 gaps
+```
+
+Mutation run (block_bytes_tests, old `break` and no mempool check restored):
+```
+test an_oversized_transaction_is_refused_by_the_mempool ... FAILED
+test an_executing_transaction_too_big_for_the_room_is_passed_over ... FAILED
+test a_transaction_that_cannot_execute_costs_the_block_no_room ... FAILED
+test result: FAILED. 7 passed; 3 failed
+```

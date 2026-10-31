@@ -220,13 +220,13 @@ fn check(case: &Value) {
                 .map(|v| usize::try_from(num(v)).unwrap())
                 .collect();
             let bytes = custom_l1_node::core::block::block_wire_len(lens.iter().copied());
-            let admitted = custom_l1_node::core::block::admitted_prefix(&lens, num(&case["cap"]));
+            let listed = custom_l1_node::core::block::first_fit(&lens, num(&case["cap"]))
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
             assert_eq!(bytes.to_string(), expect["bytes"].as_str().unwrap(), "{id}");
-            assert_eq!(
-                admitted.to_string(),
-                expect["admitted"].as_str().unwrap(),
-                "{id}"
-            );
+            assert_eq!(listed, expect["admitted"].as_str().unwrap(), "{id}");
         }
         other => panic!("{id}: unknown fn {other}"),
     }

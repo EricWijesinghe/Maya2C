@@ -31,21 +31,39 @@ pub fn block_wire_len(encoded_lens: impl IntoIterator<Item = usize>) -> u64 {
     })
 }
 
-/// How many leading transactions, of the given encoded lengths and in order,
-/// fit under `cap`. Stops at the first one that would not: a later one is not
-/// admitted past it, so the cut is a prefix and every node cuts the same way.
+/// Indices of the transactions first-fit admits from `encoded_lens`, in
+/// order, if every one of them executes. A transaction that does not fit the
+/// room left is passed over and the rest are still considered (ADR-072), so
+/// one large transaction cannot hold back the small ones behind it.
 #[must_use]
-pub fn admitted_prefix(encoded_lens: &[usize], cap: u64) -> usize {
+pub fn first_fit(encoded_lens: &[usize], cap: u64) -> Vec<usize> {
     let mut total = BLOCK_OVERHEAD;
-    let mut admitted = 0;
+    let mut admitted = Vec::new();
+    for (index, len) in encoded_lens.iter().enumerate() {
+        let next = total.saturating_add(transaction_wire_len(*len));
+        if next <= cap {
+            total = next;
+            admitted.push(index);
+        }
+    }
+    admitted
+}
+
+/// How many leading transactions to verify ahead of the selection pass: the
+/// longest prefix whose encodings fit `cap`. Those are the transactions the
+/// pass is most likely to admit; the rest are verified when it reaches them.
+#[must_use]
+pub fn warmup_len(encoded_lens: impl IntoIterator<Item = usize>, cap: u64) -> usize {
+    let mut total = BLOCK_OVERHEAD;
+    let mut count = 0;
     for len in encoded_lens {
-        total = total.saturating_add(transaction_wire_len(*len));
+        total = total.saturating_add(transaction_wire_len(len));
         if total > cap {
             break;
         }
-        admitted += 1;
+        count += 1;
     }
-    admitted
+    count
 }
 
 /// Domain separator for the seed a DAG hash is searched against.

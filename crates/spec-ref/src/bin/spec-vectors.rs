@@ -562,10 +562,11 @@ fn header_version_cases() -> Vec<Value> {
         .collect()
 }
 
-/// CON-12: the wire size of a block, how many transactions a cap admits, and
-/// the cap itself. Lengths are encodings in bytes.
+/// CON-12: the wire size of a block, the transactions a cap admits (first-fit,
+/// as indices, comma-separated), and the cap itself. Lengths are encodings in bytes.
 fn block_size_cases() -> Vec<Value> {
     let lens = |v: &[u64]| v.iter().map(u64::to_string).collect::<Vec<_>>();
+    let idx = |v: &[usize]| v.iter().map(usize::to_string).collect::<Vec<_>>().join(",");
     // Illustrative lengths: the hybrid signature alone is 11,165 bytes
     // (docs/blockgraph.md); a whole transaction encodes larger.
     let hybrid = 11_165u64;
@@ -573,16 +574,20 @@ fn block_size_cases() -> Vec<Value> {
         json!({"id": "block-cap-value", "rules": ["CON-12"], "fn": "block_cap", "expect": {"result": "ok", "cap": consensus::MAX_BLOCK_BYTES.to_string()}}),
     ];
     let empty: Vec<u64> = vec![];
-    cases.push(json!({"id": "block-size-empty", "rules": ["CON-12"], "fn": "block_size", "tx_lens": lens(&empty), "cap": consensus::MAX_BLOCK_BYTES.to_string(), "expect": {"result": "ok", "bytes": "153", "admitted": "0"}}));
+    cases.push(json!({"id": "block-size-empty", "rules": ["CON-12"], "fn": "block_size", "tx_lens": lens(&empty), "cap": consensus::MAX_BLOCK_BYTES.to_string(), "expect": {"result": "ok", "bytes": "153", "admitted": ""}}));
     let two = vec![hybrid, hybrid];
     let exact = consensus::block_wire_bytes(&two);
-    cases.push(json!({"id": "block-size-exact-cap-admits", "rules": ["CON-12"], "fn": "block_size", "tx_lens": lens(&two), "cap": exact.to_string(), "expect": {"result": "ok", "bytes": exact.to_string(), "admitted": "2"}}));
-    cases.push(json!({"id": "block-size-one-byte-under-cut", "rules": ["CON-12"], "fn": "block_size", "tx_lens": lens(&two), "cap": (exact - 1).to_string(), "expect": {"result": "ok", "bytes": exact.to_string(), "admitted": "1"}}));
-    let big = vec![hybrid; 400];
-    let cap = consensus::MAX_BLOCK_BYTES;
+    cases.push(json!({"id": "block-size-exact-cap-admits", "rules": ["CON-12"], "fn": "block_size", "tx_lens": lens(&two), "cap": exact.to_string(), "expect": {"result": "ok", "bytes": exact.to_string(), "admitted": "0,1"}}));
+    cases.push(json!({"id": "block-size-one-byte-under-cut", "rules": ["CON-12"], "fn": "block_size", "tx_lens": lens(&two), "cap": (exact - 1).to_string(), "expect": {"result": "ok", "bytes": exact.to_string(), "admitted": "0"}}));
+    // First-fit: an oversized transaction is passed over and the small one after it is admitted.
+    let mixed = vec![6_000u64, 100];
+    let small_cap = consensus::block_wire_bytes(&[100]);
+    cases.push(json!({"id": "block-first-fit-passes-over-oversized", "rules": ["CON-12"], "fn": "block_size", "tx_lens": lens(&mixed), "cap": small_cap.to_string(), "expect": {"result": "ok", "bytes": consensus::block_wire_bytes(&mixed).to_string(), "admitted": "1"}}));
     cases.push(json!({"id": "block-over-cap-refused", "rules": ["CON-12"], "fn": "block_within_cap", "tx_lens": lens(&two), "cap": (exact - 1).to_string(), "expect": {"result": "error", "error": "BlockTooLarge"}}));
     cases.push(json!({"id": "block-at-cap-accepted", "rules": ["CON-12"], "fn": "block_within_cap", "tx_lens": lens(&two), "cap": exact.to_string(), "expect": {"result": "ok"}}));
-    cases.push(json!({"id": "block-size-400-hybrid-within-cap", "rules": ["CON-12"], "fn": "block_size", "tx_lens": lens(&big), "cap": cap.to_string(), "expect": {"result": "ok", "bytes": consensus::block_wire_bytes(&big).to_string(), "admitted": consensus::admitted_prefix(&big, cap).to_string()}}));
+    let big = vec![hybrid; 400];
+    let cap = consensus::MAX_BLOCK_BYTES;
+    cases.push(json!({"id": "block-size-400-hybrid-within-cap", "rules": ["CON-12"], "fn": "block_size", "tx_lens": lens(&big), "cap": cap.to_string(), "expect": {"result": "ok", "bytes": consensus::block_wire_bytes(&big).to_string(), "admitted": idx(&consensus::first_fit(&big, cap))}}));
     cases
 }
 
