@@ -25,6 +25,15 @@ pub const MAX_CHANGE_DENOMINATOR: u64 = 1024;
 /// whoever wants it.
 pub const MIN_BASE_FEE_FLOOR: Amount = Amount::from_u64(1);
 
+/// The highest base fee, in base units per byte. ADR-071.
+///
+/// PLACEHOLDER, PENDING ERIC. The value is the middle option: 0.1 MAYA for one
+/// standard transfer of 13,215 bytes (`reports/13-pq-weight.md`) at 24 decimals
+/// (`apps/wallet-gui/core/src/amount.rs::DECIMALS`). The other options are in
+/// ADR-071: 0.01 MAYA = 756_715_853_197_124_479 and 1 MAYA =
+/// 75_671_585_319_712_447_975 per byte. Changing it changes genesis consensus.
+pub const MAX_BASE_FEE_PER_BYTE: Amount = Amount::from_u128(7_567_158_531_971_244_797);
+
 /// The smallest block-size target a configuration may choose, in bytes.
 ///
 /// Below this, a single hybrid-signed transaction (~11.5 KB) is over target on
