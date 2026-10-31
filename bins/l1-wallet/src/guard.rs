@@ -97,13 +97,13 @@ pub fn check_genesis(
     testnet: &[&str],
 ) -> Result<GenesisTrust> {
     let node = normal(genesis);
-    if let Some(expected) = expected {
-        if normal(expected) != node {
-            bail!(
-                "the node reports genesis {node} but --genesis expects {}; refusing to sign",
-                normal(expected)
-            );
-        }
+    if let Some(expected) = expected
+        && normal(expected) != node
+    {
+        bail!(
+            "the node reports genesis {node} but --genesis expects {}; refusing to sign",
+            normal(expected)
+        );
     }
     if mainnet.iter().any(|p| normal(p) == node) {
         return Ok(GenesisTrust::Mainnet);
