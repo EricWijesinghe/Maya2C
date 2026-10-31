@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use maya_spec_ref::balance::Balance;
+use maya_spec_ref::fees::MAX_BASE_FEE_PER_BYTE;
 use maya_spec_ref::stf::{Account, Transfer, apply_block};
 use maya_spec_ref::wire::{self, Frame};
 use maya_spec_ref::{Address, consensus, fees, header, mining, root};
@@ -337,16 +338,34 @@ fn fee_vectors() -> Value {
             denom,
             Balance::from(floor),
         );
-        cases.push(json!({"id": id, "rules": rules, "fn": "next_base_fee", "parent_base_fee": parent.to_string(), "parent_size": size.to_string(), "target": target.to_string(), "denominator": denom.to_string(), "floor": floor.to_string(), "expect": next.to_string()}));
+        cases.push(json!({"id": id, "rules": rules, "fn": "next_base_fee", "parent_base_fee": parent.to_string(), "parent_size": size.to_string(), "target": target.to_string(), "denominator": denom.to_string(), "floor": floor.to_string(), "ceiling": MAX_BASE_FEE_PER_BYTE.to_string(), "expect": next.to_string()}));
     }
-    // FEE-3 at the 256-bit width (ADR-066): a fee past u64 keeps rising exactly,
-    // and the ceiling is 2^256 - 1, not u64::MAX.
-    for (id, parent) in [
-        ("rises-past-u64", Balance::from(u64::MAX)),
-        ("saturate-high", Balance::MAX),
+    // FEE-3's one-eighth cap (ADR-071): a block at 64 times the target still
+    // raises the fee by one denominator's share, not by 63/8 of it.
+    let capped_rise = fees::next_base_fee(
+        Balance::from(1_000),
+        64_000_000,
+        1_000_000,
+        8,
+        Balance::from(1),
+    );
+    cases.push(json!({"id": "rise-capped-at-one-eighth", "rules": ["FEE-3"], "fn": "next_base_fee", "parent_base_fee": "1000", "parent_size": "64000000", "target": "1000000", "denominator": "8", "floor": "1", "ceiling": MAX_BASE_FEE_PER_BYTE.to_string(), "expect": capped_rise.to_string()}));
+    // FEE-6 (ADR-071): a rise stops at the ceiling, and a fee already above it holds.
+    for (id, parent, rules) in [
+        (
+            "rise-to-ceiling",
+            Balance::from(MAX_BASE_FEE_PER_BYTE - 1),
+            &["FEE-6"][..],
+        ),
+        (
+            "at-ceiling-holds",
+            Balance::from(MAX_BASE_FEE_PER_BYTE),
+            &["FEE-6"],
+        ),
+        ("above-ceiling-holds", Balance::MAX, &["FEE-6"]),
     ] {
         let next = fees::next_base_fee(parent, 2_000_000, 1_000_000, 8, Balance::from(1));
-        cases.push(json!({"id": id, "rules": ["FEE-3"], "fn": "next_base_fee", "parent_base_fee": parent.to_string(), "parent_size": "2000000", "target": "1000000", "denominator": "8", "floor": "1", "expect": next.to_string()}));
+        cases.push(json!({"id": id, "rules": rules, "fn": "next_base_fee", "parent_base_fee": parent.to_string(), "parent_size": "2000000", "target": "1000000", "denominator": "8", "floor": "1", "ceiling": MAX_BASE_FEE_PER_BYTE.to_string(), "expect": next.to_string()}));
     }
     // FEE-5 at the testing configuration's initial base fee of 10 per byte.
     for (id, size, max_fee) in [

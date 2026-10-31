@@ -39,6 +39,7 @@
 //! faster than EIP-1559 when demand collapses. A rival producer pushing fees
 //! *up* is bounded by the doubled rise.
 
+use crate::limits::MAX_BASE_FEE_PER_BYTE;
 use crate::model::{Features, MAX_GAIN_BPS, Model, UNIT_GAIN_BPS};
 use crate::next_base_fee;
 use maya_amount::Amount;
@@ -92,7 +93,15 @@ pub fn neural_next_base_fee(
     };
 
     let next = if rising {
-        base.saturating_add(step.max(Amount::from_u64(1)))
+        // The same one-denominator share and ceiling as `next_base_fee` (ADR-071):
+        // a neural gain may steer the step, but it may not outrun the bound.
+        let share = base
+            .checked_div(Amount::from_u64(denominator))
+            .unwrap_or(Amount::ZERO)
+            .max(Amount::from_u64(1));
+        let rise = step.max(Amount::from_u64(1)).min(share);
+        base.saturating_add(rise)
+            .min(MAX_BASE_FEE_PER_BYTE.max(base))
     } else {
         base.saturating_sub(step)
     };
@@ -275,10 +284,15 @@ mod tests {
 
     #[test]
     fn extreme_inputs_saturate_instead_of_overflowing() {
-        // The ceiling is the 256-bit one: a u64::MAX fee rises, it does not stop.
-        let fee = Amount::from_u64(u64::MAX);
+        // Below the ceiling a fee rises; above it (u64::MAX is above MAX_BASE_FEE_PER_BYTE) it holds.
+        let fee = Amount::from_u64(1_000_000_000_000_000_000);
         let up = neural_next_base_fee(fee, u64::MAX, 1, 8, Amount::from_u64(1), MAX_GAIN_BPS);
         assert!(up > fee);
+        let above = Amount::from_u64(u64::MAX);
+        assert_eq!(
+            neural_next_base_fee(above, u64::MAX, 1, 8, Amount::from_u64(1), MAX_GAIN_BPS),
+            above
+        );
         assert_eq!(
             neural_next_base_fee(
                 Amount::MAX,

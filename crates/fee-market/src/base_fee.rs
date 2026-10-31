@@ -13,7 +13,9 @@
 //!
 //! ```text
 //! delta = parent_base_fee · |parent_size − target| / target / denominator
-//! next  = parent_base_fee + max(delta, 1)   if parent_size > target
+//! rise  = min(max(delta, 1), max(parent_base_fee / denominator, 1))
+//! next  = min(parent_base_fee + rise, max(MAX_BASE_FEE_PER_BYTE, parent_base_fee))
+//!                                           if parent_size > target
 //!         parent_base_fee − delta           if parent_size < target
 //!         parent_base_fee                   otherwise
 //! next  = max(next, floor)
@@ -21,9 +23,14 @@
 //!
 //! The `max(delta, 1)` on the way up is EIP-1559's, and it matters: without it
 //! a base fee of 7 over a denominator of 8 rounds every increase to zero, and a
-//! chain at the floor can be kept full forever at the floor price.
+//! chain at the floor can be kept full forever at the floor price. The
+//! `min(…, parent / denominator)` is the other half: without it a block at 64
+//! times the target multiplies the fee by about 8.9 (ADR-071). The fall needs
+//! no such bound, since `parent_size ≥ 0` keeps the gap at most `target`.
 
 use maya_amount::Amount;
+
+use crate::limits::MAX_BASE_FEE_PER_BYTE;
 
 /// The next block's base fee, per byte.
 ///
@@ -57,7 +64,16 @@ pub fn next_base_fee(
         .unwrap_or(Amount::MAX);
 
     let next = if rising {
-        parent_base_fee.saturating_add(delta.max(Amount::from_u64(1)))
+        // One denominator's share of the fee at most, never less than one unit.
+        let share = parent_base_fee
+            .checked_div(Amount::from_u64(denominator))
+            .unwrap_or(Amount::ZERO)
+            .max(Amount::from_u64(1));
+        let rise = delta.max(Amount::from_u64(1)).min(share);
+        // A fee already above the ceiling holds; it does not fall to meet it.
+        parent_base_fee
+            .saturating_add(rise)
+            .min(MAX_BASE_FEE_PER_BYTE.max(parent_base_fee))
     } else {
         parent_base_fee.saturating_sub(delta)
     };
@@ -142,11 +158,18 @@ mod tests {
     }
 
     #[test]
-    fn a_fee_past_u64_rises_by_exactly_one_eighth() {
-        // 2^200: far past u64 and u128; the step is exact, not clamped.
-        let fee = Amount([0, 0, 0, 1 << 8]);
+    fn a_fee_below_the_ceiling_rises_by_exactly_one_eighth() {
+        // Well past u64 but under the ceiling: the step is exact, not clamped.
+        let fee = Amount::from_u64(4_000_000_000_000_000_000);
         let expected = fee.saturating_add(fee.checked_div(a(DENOM)).unwrap());
         assert_eq!(next(fee, 2 * TARGET, 1), expected);
+    }
+
+    #[test]
+    fn a_fee_above_the_ceiling_holds_on_a_full_block() {
+        // 2^200 is above MAX_BASE_FEE_PER_BYTE: a rise must not lift it further.
+        let fee = Amount([0, 0, 0, 1 << 8]);
+        assert_eq!(next(fee, 2 * TARGET, 1), fee);
     }
 
     #[test]
