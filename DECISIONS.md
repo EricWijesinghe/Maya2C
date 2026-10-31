@@ -558,3 +558,12 @@ Decided under that delegation:
 Set at the ceremony with `--min-self-bond` / `--min-delegation` (required on `maya-mainnet`)
 and enforced by `cargo xtask genesis-check` (constants in `xtask/src/genesis_check.rs`).
 Eric may change either before `APPROVED: sign genesis`; that is a one-line change.
+
+## 2026-10-31 — Correction to "ADR-068 step 4: 512-bit product audit, clean" (2026-10-28)
+
+That entry accepted saturating ops as clamps. One was not: the vault fee allowance
+(`crates/node/src/state/vault.rs`, `required × 4` with `saturating_mul`) became `U256::MAX`
+when `required()` saturated, so fee-collector outputs escaped the vault's instant limit.
+It is now `checked_mul` and refuses with `NodeError::Vault`; in-range results are unchanged
+(PR #273, `reports/sessions/2026-10-31-amount-product-audit.md`). Rule from here: a saturating
+op whose result widens a limit is a bug; saturation is only acceptable where it narrows one.
