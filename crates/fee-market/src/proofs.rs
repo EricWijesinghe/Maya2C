@@ -45,11 +45,10 @@ fn the_base_fee_respects_its_floor_and_its_step() {
     }
 }
 
-/// The neural rule's envelope, for every gain — and so for every weight file.
+/// The linear rise is at most one denominator's share, and ends at the ceiling
+/// (FEE-3 and FEE-6, ADR-071).
 #[kani::proof]
 fn a_rise_is_one_denominator_share_and_stops_at_the_ceiling() {
-    // FEE-3 and FEE-6 (ADR-071): one block raises the fee by at most a
-    // denominator's share, and no rise ends above the ceiling.
     let parent = any_amount();
     let size: u64 = kani::any();
     let target: u64 = kani::any();
@@ -64,6 +63,7 @@ fn a_rise_is_one_denominator_share_and_stops_at_the_ceiling() {
     assert!(next <= MAX_BASE_FEE_PER_BYTE.max(parent).max(floor));
 }
 
+/// The neural rule's envelope, for every gain — and so for every weight file.
 #[kani::proof]
 fn the_neural_rule_never_leaves_the_envelope() {
     let parent = any_amount();

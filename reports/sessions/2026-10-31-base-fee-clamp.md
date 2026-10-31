@@ -96,3 +96,24 @@ Recovery at full blocks from 10 to the B cap: about 354 blocks under the new rul
 
 - Another session holds `cargo test -p maya-wallet-core` (PID 16828). Not touched.
 - Commit requested as `ADR-069`; this is ADR-071. Co-author line per the user's instruction (Opus 5.5).
+
+## Review fixes (coordinator, same branch)
+
+- Drift guard: `crates/fee-market/tests/base_fee_clamp_tests.rs` reads `spec/tests/fees.json` ceiling fields, `crates/spec-ref/src/fees.rs`, and `formal/z3/fee_market.py`, and asserts each equals `MAX_BASE_FEE_PER_BYTE`.
+- `next_base_fee` debug-asserts `denominator >= MIN_CHANGE_DENOMINATOR`. The one property test that passed denominators 1..8 now uses 8..1000. Trainer callers all pass `DENOMINATOR = 8` (`bins/neural-gas-trainer/src/dataset.rs:33`), so no caller changes.
+- `proofs.rs`: the neural doc comment is back on `the_neural_rule_never_leaves_the_envelope`; the clamp harness has its own doc.
+- `rule.rs` doc: "bounded by the doubled rise" replaced with one share per block plus the ceiling.
+- ADR-071 consequences corrected: the published testnet genesis (`docs/site/public/testnet/genesis.json`, `bft.fees`) does activate the fee market at height 1. The testnet is stopped, so nothing runs it today; restarting it from stored state under this binary would diverge. The ceiling is not in the genesis hash.
+
+`CARGO_BUILD_JOBS=1 cargo test -p maya-fee-market`, final run:
+
+```
+Running unittests src\lib.rs                 test result: ok. 47 passed; 0 failed
+Running tests\base_fee_clamp_tests.rs        test result: ok. 9 passed; 0 failed
+Running tests\lean_differential.rs           test result: ok. 1 passed; 0 failed
+Running tests\mutation_boundaries.rs         test result: ok. 6 passed; 0 failed
+Running tests\property_tests.rs              test result: ok. 13 passed; 0 failed
+EXIT 0
+```
+
+Node test: still not compiled here; it runs in CI.

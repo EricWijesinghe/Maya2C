@@ -52,7 +52,11 @@ Standard transfer `S = 13,215 B`, 24 decimals (`1 MAYA = 10^24` base units). Per
 ## Consequences
 
 - Recovery is slow: from 10 to the B cap takes about 354 full blocks (computed from the new step), against about 19 under the old rule. That is the intended effect of the clamp and is also a cost to the chain: a real demand spike is priced slowly.
-- Consensus change. Any network that has the fee market active computes different base fees, and so different state roots, after this change. It rides mainnet genesis. No live network is changed by this PR.
+- Consensus change, and precisely which networks it touches:
+  - `docs/site/public/testnet/genesis.json` carries `bft.fees` (`initial_base_fee` 1, `min_base_fee` 1, `target_block_bytes` 2621440, `change_denominator` 8). `FeesGenesis::record` (`crates/node/src/genesis.rs:242`) sets `activation_height: 1`. So the published testnet genesis **does** activate the fee market from height 1. The earlier draft of this ADR was wrong to say no live network is changed.
+  - The testnet is stopped (per Eric's note, 2026-10-31), so no running node is affected today. Any restart of that chain from stored state under this binary would compute different base fees for any block whose size exceeds the target, and so diverge from the recorded history. The testnet must be re-genesised, or stay stopped, before it runs this rule.
+  - No mainnet genesis exists yet; this rule ships in it.
+  - The ceiling is compiled in, not in the genesis record or its hash (`genesis.rs` hashes the initial and minimum fees, target and denominator only). Two binaries with different ceilings share a genesis hash and diverge at the first block that reaches the ceiling. The ceiling must therefore be fixed in the same release as genesis.
 - The Z3 model in `formal/z3/fee_market.py` now models the clamp and proves FEE-6. Z3 is not installed on this machine, so the proofs are NOT VERIFIED here.
 - The Kani harness `a_rise_is_one_denominator_share_and_stops_at_the_ceiling` (`crates/fee-market/src/proofs.rs`) is written but NOT VERIFIED: Kani runs in WSL only.
 - Two reviewers are required for a consensus change (`CLAUDE.md`, Production Standing Orders). This is not enforced by CI.

@@ -95,3 +95,74 @@ fn the_ceiling_is_a_configuration_bound() {
     config.initial_base_fee = MAX_BASE_FEE_PER_BYTE;
     assert!(config.validate().is_ok());
 }
+
+/// Reads a file from the repository root (this crate sits two levels down).
+fn repo_file(relative: &str) -> String {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../");
+    std::fs::read_to_string(format!("{path}{relative}"))
+        .unwrap_or_else(|e| panic!("reading {relative}: {e}"))
+}
+
+/// The digits of `text` with `_` separators removed, parsed.
+fn number(text: &str) -> u128 {
+    let digits: String = text.chars().filter(|c| c.is_ascii_digit()).collect();
+    digits
+        .parse()
+        .unwrap_or_else(|_| panic!("no number in {text:?}"))
+}
+
+#[test]
+fn the_conformance_vectors_carry_the_compiled_in_ceiling() {
+    // Drift guard: spec/tests/fees.json is generated from spec-ref, which
+    // mirrors this constant. A changed limits.rs that is not regenerated fails here.
+    let ceiling = MAX_BASE_FEE_PER_BYTE.to_u128().unwrap();
+    let fields: Vec<u128> = repo_file("spec/tests/fees.json")
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("\"ceiling\": \""))
+        .map(|rest| number(rest.trim_end_matches([',', '"'])))
+        .collect();
+    assert!(
+        !fields.is_empty(),
+        "no ceiling fields in spec/tests/fees.json"
+    );
+    for value in fields {
+        assert_eq!(value, ceiling, "spec/tests/fees.json ceiling drifted");
+    }
+}
+
+#[test]
+fn the_reference_implementation_mirrors_the_ceiling() {
+    let line = repo_file("crates/spec-ref/src/fees.rs")
+        .lines()
+        .find(|l| l.contains("pub const MAX_BASE_FEE_PER_BYTE: u64 ="))
+        .map(str::to_owned)
+        .expect("spec-ref declares MAX_BASE_FEE_PER_BYTE");
+    let value = number(line.split('=').nth(1).expect("an assignment"));
+    assert_eq!(
+        value,
+        MAX_BASE_FEE_PER_BYTE.to_u128().unwrap(),
+        "spec-ref drifted"
+    );
+}
+
+#[test]
+fn the_z3_model_mirrors_the_ceiling() {
+    let line = repo_file("formal/z3/fee_market.py")
+        .lines()
+        .find(|l| l.starts_with("MAX_BASE_FEE_PER_BYTE ="))
+        .map(str::to_owned)
+        .expect("the Z3 model declares MAX_BASE_FEE_PER_BYTE");
+    let value = number(
+        line.split('=')
+            .nth(1)
+            .expect("an assignment")
+            .split('#')
+            .next()
+            .unwrap(),
+    );
+    assert_eq!(
+        value,
+        MAX_BASE_FEE_PER_BYTE.to_u128().unwrap(),
+        "Z3 model drifted"
+    );
+}

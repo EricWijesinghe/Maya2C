@@ -37,7 +37,8 @@
 //! writes, the result is a fee at least as high as EIP-1559's — the lever points
 //! the wrong way for them. What that gives up: the network cannot cut the fee
 //! faster than EIP-1559 when demand collapses. A rival producer pushing fees
-//! *up* is bounded by the doubled rise.
+//! *up* is bounded by one denominator's share per block and by the ceiling
+//! (ADR-071), the same bounds the linear rule has.
 
 use crate::limits::MAX_BASE_FEE_PER_BYTE;
 use crate::model::{Features, MAX_GAIN_BPS, Model, UNIT_GAIN_BPS};
