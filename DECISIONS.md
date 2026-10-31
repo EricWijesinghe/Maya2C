@@ -576,7 +576,8 @@ waste of computation power"; then, on the options: "use recommended maximum pote
 - **DEX `PRICE_SCALE` 1e9 -> 1e24, before the freeze** (consensus format). It matches
   24-decimal coins: a price at a billionth of a coin per coin used to floor to 0 or 1, and
   now resolves exactly. Spot price is at most 2^104 x 2^80 = 2^184. Pinned by
-  `crates/dex/tests/price_scale_tests.rs`.
+  `crates/dex/tests/price_scale_tests.rs`. Safe only because mainnet starts from a fresh
+  genesis: no order or vector at the old scale survives (a 1e9 price would mean 1e15x less).
 - **Cumulative work cannot saturate on mainnet:** no change needed. A DAG-BFT genesis must
   set `difficulty_bits = pow_limit_bits = 0` (`genesis.rs:685`, `genesis_tests.rs:174`),
   so each block adds work 1 (`consensus_tests.rs:300`), and total work is at most the height

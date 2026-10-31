@@ -70,7 +70,8 @@ pub fn sandwich_batch(pool: Pool, victim_in: u64, attack_in: u64) -> Option<i128
     // any base left over or short valued at the clearing price.
     let base_delta = signed(bought)? - signed(guess)?;
     let scale = signed(maya_dex::PRICE_SCALE)?;
-    let base_value = base_delta * signed(out.price)? / scale;
+    // Checked: at the 1e24 price scale a large pool overflows i128 here.
+    let base_value = base_delta.checked_mul(signed(out.price)?)? / scale;
     Some(signed(sold_for)? - i128::from(attack_in) + base_value)
 }
 
