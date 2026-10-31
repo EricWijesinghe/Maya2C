@@ -59,7 +59,11 @@ fn bound_sign(
 ) -> maya_wallet_core::error::Result<SignedTransfer> {
     let mut wallet = Wallet::from_mnemonic(PHRASE, "").expect("wallet");
     let account = wallet.account(0).expect("account 0");
-    assert_eq!(account.address, hex::encode(key.address()), "test key is account 0");
+    assert_eq!(
+        account.address,
+        hex::encode(key.address()),
+        "test key is account 0"
+    );
     let confirmed = wallet.confirm(0, recipient, amount, &terms)?.signing_hash;
     wallet.sign(0, recipient, amount, &terms, &confirmed)
 }
@@ -72,7 +76,17 @@ fn sign_transfer(
     nonce: u64,
     chain: &ChainTag,
 ) -> maya_wallet_core::error::Result<SignedTransfer> {
-    bound_sign(key, recipient, amount, SignTerms { fee, fee_to: None, nonce, chain })
+    bound_sign(
+        key,
+        recipient,
+        amount,
+        SignTerms {
+            fee,
+            fee_to: None,
+            nonce,
+            chain,
+        },
+    )
 }
 
 #[test]

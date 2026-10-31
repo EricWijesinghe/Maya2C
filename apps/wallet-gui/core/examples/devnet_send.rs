@@ -10,7 +10,9 @@
 
 use maya_wallet_core::hd::{self, DerivationPath, seed_from_mnemonic};
 use maya_wallet_core::payment::{priced_fee_tiers, transfer_size};
-use maya_wallet_core::wallet::{SignTerms, Wallet, broadcast, chain_info, fee_quote, fetch_account};
+use maya_wallet_core::wallet::{
+    SignTerms, Wallet, broadcast, chain_info, fee_quote, fetch_account,
+};
 
 const DEVNET_PHRASE: &str = "abandon abandon abandon abandon abandon abandon abandon abandon \
                              abandon abandon abandon about";
