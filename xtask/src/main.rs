@@ -32,6 +32,7 @@ mod pgo;
 mod readiness;
 mod release_check;
 mod sdk_e2e;
+mod site_integrity;
 mod slo_check;
 mod spec_coverage;
 mod status;
@@ -74,6 +75,7 @@ fn main() -> ExitCode {
         "down" => up::down(),
         "status" => status::run(rest),
         "sweep" => sweep::run(rest),
+        "site-integrity" => site_integrity::run(rest),
         "help" | "--help" | "-h" => {
             usage();
             return ExitCode::SUCCESS;
@@ -153,6 +155,11 @@ cargo xtask <command>
   status [--live]       Where the project stands, from evidence on disk: the
                         last sweep, the gap register, the ledger, STATE.md's
                         milestone and next tasks. Builds nothing unless --live.
+  site-integrity sri <dist> | manifest <dist> <out> [--commit SHA]
+                        | check <manifest> <live_dir>
+                        Subresource integrity for the built site, a SHA-256
+                        manifest of its served files, and the comparison of
+                        fetched live bodies against that manifest.
   sweep [--clean] [STEP...]
                         Run every gate in order (fmt, unsafe, build, clippy,
                         nextest, ledger, spec, readiness, lint-debt,

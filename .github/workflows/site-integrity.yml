@@ -1,0 +1,165 @@
+# Hourly live check: does maya2c.dev serve what the deployed build produced?
+#
+# Incident 2026-10-06: a stolen Cloudflare token injected a script into every
+# page. The old watch ran on one PC and compared byte counts, and kept no copy
+# of a differing page, so a 5558-byte difference could not be judged later.
+#
+# This job, on a GitHub runner that holds no Cloudflare credential:
+#   1. takes the manifest of the latest successful `site` deploy, after
+#      verifying its attestation (so a forged manifest cannot vouch for a
+#      forged page);
+#   2. fetches every HTML, JS and CSS file it lists from https://maya2c.dev;
+#   3. compares each body with `cargo xtask site-integrity check`, which strips
+#      only Cloudflare's own rewrites (email obfuscation, Web Analytics beacon);
+#   4. on any difference: uploads the differing bodies, opens or updates an
+#      issue labelled `site-integrity`, and fails the run.
+name: site-integrity
+
+on:
+  schedule:
+    # Off the hour: the site deploy runs at :17 every six hours.
+    - cron: "41 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site-integrity
+  cancel-in-progress: false
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read   # download the deployed manifest
+      issues: write   # open or update the alert
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      DEPLOYED: deployed
+      UA: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Find the latest successful site deploy
+        run: |
+          set -euo pipefail
+          gh run list --repo "$REPO" --workflow site.yml --branch master --status success \
+            --limit 1 --json databaseId,headSha,updatedAt \
+            --jq '.[0] | "RUN_ID=\(.databaseId)\nHEAD_SHA=\(.headSha)\nUPDATED_AT=\(.updatedAt)"' \
+            >> "$GITHUB_ENV"
+          echo "deployed run $RUN_ID, commit $HEAD_SHA, finished $UPDATED_AT"
+
+      - name: Skip the first hour after a deploy (CDN propagation)
+        id: fresh
+        run: |
+          set -euo pipefail
+          age=$(( $(date -u +%s) - $(date -u -d "$UPDATED_AT" +%s) ))
+          echo "deploy finished ${age}s ago"
+          # 2026-10-13: a 5558-byte difference right after a 07:49 deploy was
+          # CDN lag, not an attack. A check inside that window cannot tell them
+          # apart, so it waits for the next hourly run.
+          if [ "$age" -lt 3600 ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; else echo "skip=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Download the deployed manifest
+        if: steps.fresh.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          # The manifest is an artifact of that run; the run is named by the
+          # GitHub API, not by anything the live site serves.
+          gh run download "$RUN_ID" --repo "$REPO" --name site-manifest --dir "$DEPLOYED"
+
+      - name: Verify the manifest's attestation
+        if: steps.fresh.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          gh attestation verify "$DEPLOYED/integrity-manifest.json" \
+            --repo "$REPO" --signer-workflow "$REPO/.github/workflows/site.yml"
+
+      - name: Fetch every listed file from maya2c.dev
+        if: steps.fresh.outputs.skip == 'false'
+        run: |
+          set -uo pipefail
+          mkdir -p live
+          jq -r '.files | keys[]' "$DEPLOYED/integrity-manifest.json" | while read -r rel; do
+            # Directory URLs: guides/testnet/index.html is served at /guides/testnet/.
+            url="https://maya2c.dev/${rel%index.html}"
+            mkdir -p "live/$(dirname "$rel")"
+            # No -L: a redirect is a difference to report, not to follow.
+            curl -sS -m 30 -A "$UA" -o "live/$rel" "$url" || echo "fetch failed: $url"
+          done
+
+      - name: Compare the live bodies with the deployed build
+        if: steps.fresh.outputs.skip == 'false'
+        id: compare
+        run: |
+          set +e
+          cargo run --locked --quiet -p xtask -- site-integrity check \
+            "$DEPLOYED/integrity-manifest.json" live > report.txt 2>&1
+          code=$?
+          cat report.txt
+          echo "exit=$code" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the differing bodies
+        if: steps.fresh.outputs.skip == 'false' && steps.compare.outputs.exit != '0'
+        run: |
+          set -euo pipefail
+          mkdir -p drift
+          cp "$DEPLOYED/integrity-manifest.json" drift/
+          cp report.txt drift/
+          awk '/^(MISMATCH|MISSING)/ {print $2}' report.txt | while read -r rel; do
+            mkdir -p "drift/$(dirname "$rel")"
+            [ -f "live/$rel" ] && cp "live/$rel" "drift/$rel" || true
+          done
+
+      - name: Upload the differing bodies
+        if: steps.fresh.outputs.skip == 'false' && steps.compare.outputs.exit != '0'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: site-drift-${{ github.run_id }}
+          path: drift/
+          retention-days: 90
+
+      - name: Open or update the alert issue
+        if: steps.fresh.outputs.skip == 'false' && steps.compare.outputs.exit != '0'
+        run: |
+          set -euo pipefail
+          gh label create site-integrity --repo "$REPO" --color B60205 \
+            --description "maya2c.dev differs from the deployed build" --force
+          {
+            echo "The live site differs from the build deployed at commit \`$HEAD_SHA\` (run $RUN_ID)."
+            echo
+            echo "Differing bodies are in the workflow artifact \`site-drift-${GITHUB_RUN_ID}\`."
+            echo "Cloudflare's own rewrites are normalised; anything else is a finding until explained in writing."
+            echo
+            echo '```'
+            head -c 6000 report.txt
+            echo '```'
+            echo
+            echo "Run: $GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID"
+          } > issue.md
+          existing=$(gh issue list --repo "$REPO" --label site-integrity --state open \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$REPO" --body-file issue.md
+          else
+            gh issue create --repo "$REPO" --label site-integrity \
+              --title "site-integrity: maya2c.dev differs from the deployed build" --body-file issue.md
+          fi
+
+      - name: Close the alert after a clean check
+        if: steps.fresh.outputs.skip == 'false' && steps.compare.outputs.exit == '0'
+        run: |
+          set -euo pipefail
+          for n in $(gh issue list --repo "$REPO" --label site-integrity --state open --json number --jq '.[].number'); do
+            gh issue close "$n" --repo "$REPO" \
+              --comment "Clean: run $GITHUB_RUN_ID matched the deployed build at $HEAD_SHA."
+          done
+
+      - name: Fail the run on any difference
+        if: steps.fresh.outputs.skip == 'false' && steps.compare.outputs.exit != '0'
+        run: exit 1
