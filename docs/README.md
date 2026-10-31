@@ -93,6 +93,7 @@ inherits the thing it describes.
 | [integrations/](integrations/EXCHANGES.md) | What exchanges and custodians need, including confirmation depth |
 | [strategy/](strategy/WEAKNESS_MAP.md), [prior-art/](prior-art/README.md) | Sourced weaknesses, beat bars, and the searches that decide what may be called "first" |
 | [privacy/LIMITS.md](privacy/LIMITS.md), [security/Q_DAY_PLAYBOOK.md](security/Q_DAY_PLAYBOOK.md) | What the privacy layer does not hide; what to do on Q-day |
+| [security/THREAT_MODEL_SIGNER_CHAIN.md](security/THREAT_MODEL_SIGNER_CHAIN.md) | Signer-chain threat model against Lazarus-class forged-screen attacks, with a ranked pre-mainnet gap table |
 | [migration/](migration/README.md) | Porting from Ethereum, Solana and Move, and the first thing that will not port |
 | [ecosystem/](ecosystem/METRICS.md) | Grants, hackathon kit and course drafts, and the metrics method |
 | [public/](public/BENCHMARK_REPORT.md) | Benchmark report, beat-bar status and announcement copy — drafts awaiting approval |
