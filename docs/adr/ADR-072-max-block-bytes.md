@@ -68,9 +68,10 @@ moving this from Proposed to Accepted.
 
 - The measured 400-transfer run (153 transfers/s, `reports/bench/2026-10-25-tps-series.md`) is
   inside the cap. Throughput under any mix larger than 5 MiB per block is capped.
-- **Conflict to decide.** `MAX_TARGET_BLOCK_BYTES` in the same file is 16 MiB. A fee target above 5 MiB
-  can never be reached by a block, so the fee market's upper target is unreachable as configured.
-  Either the target range or this cap must change, in an ADR of its own. Not changed here.
+- **Target range follows the cap.** `MAX_TARGET_BLOCK_BYTES` was 16 MiB. A target at or above the cap
+  can never be exceeded, so the base fee would never rise and spam would stay at the floor. It is now
+  `MAX_BLOCK_BYTES / 2` (2.5 MiB, the published testnet's own target), so a full block is 2x target and
+  moves the fee by the full 1/D step (ADR-071).
 - A block over the cap is refused on every path, so a malicious builder cannot bypass the cap.
 - Consensus-visible: a block that was valid before is now invalid above the cap, and the
   selection changes what an over-cap order produces. Re-genesis only.
