@@ -31,7 +31,7 @@ pub fn group_digits(n: impl std::fmt::Display) -> String {
     out
 }
 
-/// A base-unit decimal string from IPC as the 18-decimal amount a person
+/// A base-unit decimal string from IPC as the whole-coin amount a person
 /// reads. Empty means "not loaded yet" and reads as zero, as it always has.
 pub fn show_amount(base: &str) -> String {
     match amount::parse_base_units(base) {
@@ -724,11 +724,11 @@ pub mod send {
 
         let build_preview = move |_| {
             let Ok(amount_value) = typed_amount(&amount.get()) else {
-                state.fail("Amount must be a number with at most 18 decimal places.");
+                state.fail(amount::decimal_places_message("Amount"));
                 return;
             };
             let Ok(fee_value) = typed_amount(&fee.get()) else {
-                state.fail("Fee must be a number with at most 18 decimal places.");
+                state.fail(amount::decimal_places_message("Fee"));
                 return;
             };
             state.clear();

@@ -13,6 +13,8 @@ description = "Workspace automation: disk accounting and the reality-ledger gate
 serde = { workspace = true, features = ["derive"] }
 toml.workspace = true
 serde_json.workspace = true
+# The coin's decimals (ADR-068): the genesis floors are in whole-coin multiples of it.
+maya-amount = { path = "../crates/amount" }
 
 [lints]
 workspace = true
