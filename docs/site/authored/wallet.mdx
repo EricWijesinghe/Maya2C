@@ -116,7 +116,7 @@ l1-wallet --keystore my.key generate            # new keypair, encrypted
 l1-wallet --keystore my.key address             # address held in the keystore
 l1-wallet --keystore my.key --rpc-url https://rpc.maya2c.dev/rpc balance
 l1-wallet --keystore my.key block --height 0    # genesis is height 0
-l1-wallet --keystore my.key send --to <address> --amount 100 [--nonce N] [--fee F] [--no-broadcast]
+l1-wallet --keystore my.key send --to <address> --amount 100 [--nonce N] [--fee F] [--max-fee F] [--genesis ID] [--yes] [--no-broadcast]
 l1-wallet --keystore my.key delegate --validator <64 hex> --amount 1000
 ```
 
@@ -142,6 +142,33 @@ to the fee-collector address, and the node burns that amount. The wallet default
 "Standard", paid twice the minimum on the 2026-09-29 measurement
 ([API reference](/guides/api/)). A demand-responsive fee market exists in
 `crates/fee-market` and is switched off; see [transactions](/guides/transactions/).
+
+## Before a key signs
+
+`send`, `delegate`, `register-validator`, `report-equivocation` and
+`council-action` check four things, in this order, and refuse on any failure.
+Nothing is signed or broadcast on a refusal.
+
+1. **Chain.** The node's genesis id must be one the build pins, or the one you
+   pass with `--genesis <id>`. A node that calls itself `maya-mainnet` without
+   the pinned mainnet genesis is always refused, even with `--genesis`. This
+   build pins no mainnet genesis yet, and no testnet genesis either, so every
+   testnet needs `--genesis`. Take the id from the network's published genesis
+   id, not from the node you are about to sign with.
+2. **Collector.** The fee must go to the protocol's fee collector
+   (`state::fees::FEE_COLLECTOR`). A node that names another address is refused.
+3. **Fee cap.** A fee above the cap is refused. The default cap is one whole
+   MAYA (10^18 base units, `guard::DEFAULT_MAX_FEE`) for every kind of
+   transaction, whatever the amount. `--max-fee` overrides it per call. The
+   cap is a fixed judgment, not a measured fee, and this build has no wallet
+   config file to change it in. A transfer whose fee is more than a tenth of
+   the amount sent prints a warning but still signs, so dust transfers work.
+   `--fee` is checked against the same cap.
+4. **Your yes.** The wallet prints the chain, genesis, every output with its
+   full address, and the fee. On a terminal it then asks you to type `yes`.
+   Without a terminal it refuses unless you pass `--yes`, which prints the same
+   description and skips the question. Use `--yes` only in scripts whose inputs
+   you control.
 
 ## Fees are burned
 
