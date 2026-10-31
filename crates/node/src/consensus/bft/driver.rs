@@ -47,6 +47,34 @@ pub struct BftSetup {
     pub params: Params,
 }
 
+/// A transaction this node handed to the engine and has not seen included.
+pub(super) struct Queued {
+    /// blake3 of the encoding the engine carries, so a committed payload is
+    /// matched without decoding it.
+    raw: [u8; 32],
+    tx: Transaction,
+}
+
+/// Removes the queued transactions this node proposed that the sub-DAG carried
+/// (`own`, blake3 of each payload) but the block did not include (`kept`), and
+/// returns them for re-submission. Matched by hash, so a payload past the
+/// decode budget is never decoded, yet its queued copy is still released.
+pub(super) fn release_unincluded(
+    queued: &mut BTreeMap<[u8; 32], Queued>,
+    own: &BTreeSet<[u8; 32]>,
+    kept: &BTreeSet<[u8; 32]>,
+) -> Vec<Transaction> {
+    let ids: Vec<[u8; 32]> = queued
+        .iter()
+        .filter(|(id, q)| own.contains(&q.raw) && !kept.contains(*id))
+        .map(|(id, _)| *id)
+        .collect();
+    ids.iter()
+        .filter_map(|id| queued.remove(id))
+        .map(|q| q.tx)
+        .collect()
+}
+
 /// What one step produced for the binary to act on.
 #[derive(Debug, Default)]
 pub struct Step {
@@ -56,13 +84,13 @@ pub struct Step {
     pub blocks: Vec<BlockId>,
     /// Transactions those blocks included, to drop from the mempool.
     pub included: Vec<[u8; 32]>,
-    /// Ids of transactions this node proposed that were ordered but not
-    /// included — a nonce ahead of its predecessor, a conflict, or past the
-    /// block cap (ADR-072) — and are no longer queued. They are still pooled,
-    /// so the next feed proposes the ones still valid; without this a transfer
-    /// whose nonce-1 sibling was ordered first by another validator was
-    /// stranded for good (measured: 25 of 100 in `examples/bft_tps.rs`).
-    pub dropped: Vec<[u8; 32]>,
+    /// Transactions this node proposed that were ordered but not included — a
+    /// nonce ahead of its predecessor, a conflict, or past the block cap
+    /// (ADR-072) — and are no longer queued. The caller re-submits the ones
+    /// still valid; without this a transfer whose nonce-1 sibling was ordered
+    /// first by another validator was stranded for good (measured: 25 of 100
+    /// in `examples/bft_tps.rs`).
+    pub dropped: Vec<Transaction>,
     /// Each built block's anchor proposal time, milliseconds: what the
     /// finality-latency metric measures from.
     pub anchor_times_ms: Vec<u64>,
@@ -163,10 +191,8 @@ pub struct BftDriver {
     /// vertex on every receipt to dedupe a log was measurable, and
     /// certification leaves one certificate per slot. Pruned with the horizon.
     logged: BTreeSet<(u64, ValidatorId)>,
-    /// Transactions handed to the engine and not yet seen in a block: id to
-    /// the hash of their encoding. A committed payload is matched by that hash,
-    /// so releasing an unincluded one needs no decode.
-    queued: BTreeMap<[u8; 32], [u8; 32]>,
+    /// Transactions handed to the engine and not yet seen in a block, by id.
+    queued: BTreeMap<[u8; 32], Queued>,
     /// Kept to build the next epoch's engine.
     signer: Option<ValidatorKey>,
     params: Params,
@@ -424,7 +450,14 @@ impl BftDriver {
             return;
         }
         let bytes = tx.to_bytes();
-        self.queued.insert(txid, *blake3::hash(&bytes).as_bytes());
+        let raw = *blake3::hash(&bytes).as_bytes();
+        self.queued.insert(
+            txid,
+            Queued {
+                raw,
+                tx: tx.clone(),
+            },
+        );
         self.engine.submit(bytes);
     }
 
@@ -743,16 +776,8 @@ impl BftDriver {
                 .flat_map(|c| c.vertex.batch.iter())
                 .map(|bytes| *blake3::hash(bytes).as_bytes())
                 .collect();
-            let released: Vec<[u8; 32]> = self
-                .queued
-                .iter()
-                .filter(|(id, raw)| own.contains(*raw) && !kept.contains(*id))
-                .map(|(id, _)| *id)
-                .collect();
-            for id in &released {
-                self.queued.remove(id);
-            }
-            step.dropped.extend(released);
+            step.dropped
+                .extend(release_unincluded(&mut self.queued, &own, &kept));
             let inserted = chain.insert_block(block)?;
             step.build_time += started.elapsed();
             match inserted {
@@ -836,5 +861,69 @@ impl BftDriver {
         };
         let (tip_epoch, tip_round) = unseal(tip.header.nonce);
         (epoch, round) <= (tip_epoch, tip_round)
+    }
+}
+
+#[cfg(test)]
+mod release_tests {
+    use super::*;
+    use crate::core::transaction::TxOutput;
+    use primitive_types::U256;
+
+    fn tx(nonce: u64) -> Transaction {
+        let output = TxOutput {
+            amount: U256::from(1_u64),
+            recipient: [7; 32],
+        };
+        Transaction::new(vec![], vec![output], nonce)
+    }
+
+    fn hash_of(tx: &Transaction) -> [u8; 32] {
+        *blake3::hash(&tx.to_bytes()).as_bytes()
+    }
+
+    fn queue(txs: &[Transaction]) -> BTreeMap<[u8; 32], Queued> {
+        txs.iter()
+            .map(|t| {
+                (
+                    t.txid(),
+                    Queued {
+                        raw: hash_of(t),
+                        tx: t.clone(),
+                    },
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_own_payload_not_included_is_released_by_hash_and_the_rest_stay_queued() {
+        let (a, b, c) = (tx(1), tx(2), tx(3));
+        let mut queued = queue(&[a.clone(), b.clone(), c.clone()]);
+        // The sub-DAG carried a and b from this node; c was not in it.
+        let own: BTreeSet<[u8; 32]> = [hash_of(&a), hash_of(&b)].into_iter().collect();
+        // The block included a, so only b is released.
+        let kept: BTreeSet<[u8; 32]> = [a.txid()].into_iter().collect();
+
+        let released = release_unincluded(&mut queued, &own, &kept);
+
+        assert_eq!(released, vec![b.clone()]);
+        assert!(
+            queued.contains_key(&a.txid()),
+            "included stays until the caller removes it"
+        );
+        assert!(!queued.contains_key(&b.txid()));
+        assert!(queued.contains_key(&c.txid()));
+    }
+
+    #[test]
+    fn a_payload_past_the_decode_cut_is_released_without_being_decoded() {
+        // Only the hash of an own payload is known here; no decode happens.
+        let past_cut = tx(9);
+        let mut queued = queue(&[past_cut.clone()]);
+        let own: BTreeSet<[u8; 32]> = [hash_of(&past_cut)].into_iter().collect();
+        let released = release_unincluded(&mut queued, &own, &BTreeSet::new());
+        assert_eq!(released, vec![past_cut]);
+        assert!(queued.is_empty());
     }
 }

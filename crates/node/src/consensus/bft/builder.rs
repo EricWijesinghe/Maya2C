@@ -156,28 +156,50 @@ mod tests {
 
     const MIB: usize = 1 << 20;
 
+    /// A transfer payload with `outputs` outputs, so tests can use unequal sizes.
+    fn payload_with_outputs(nonce: u64, outputs: usize) -> Vec<u8> {
+        let outputs = (0..outputs)
+            .map(|_| TxOutput {
+                amount: U256::from(1_u64),
+                recipient: [7; 32],
+            })
+            .collect();
+        Transaction::new(vec![], outputs, nonce).to_bytes()
+    }
+
     fn payload(nonce: u64) -> Vec<u8> {
-        let output = TxOutput {
-            amount: U256::from(1_u64),
-            recipient: [7; 32],
-        };
-        Transaction::new(vec![], vec![output], nonce).to_bytes()
+        payload_with_outputs(nonce, 1)
+    }
+
+    /// The same stalled order, built from scratch on each call, so two calls
+    /// share no allocation or state.
+    fn stalled_order() -> Vec<Vec<u8>> {
+        let txs = (0..8_u64).map(|n| payload_with_outputs(n, 16));
+        let junk = (0..100_u8).map(|i| vec![i; MIB]);
+        txs.chain(junk).collect()
     }
 
     #[test]
     fn a_walk_across_many_stalled_rounds_decodes_within_the_budget() {
-        // 100 distinct 1 MiB payloads: a commit that spans stalled rounds.
-        let junk: Vec<Vec<u8>> = (0..100_u8).map(|i| vec![i; MIB]).collect();
-        let first = decode_within(junk.iter().map(Vec::as_slice), DECODE_BUDGET);
-        let again = decode_within(junk.iter().map(Vec::as_slice), DECODE_BUDGET);
-        assert_eq!(
-            first.1,
-            5 * MIB as u64,
-            "the walk stops before the sixth payload"
-        );
-        assert!(first.1 <= DECODE_BUDGET);
-        assert_eq!(first.0.len(), again.0.len(), "two walks of one order agree");
-        assert_eq!(first.1, again.1);
+        // Transfers, then 100 distinct 1 MiB payloads: a commit spanning stalled rounds.
+        let order = stalled_order();
+        let (txs, charged) = decode_within(order.iter().map(Vec::as_slice), DECODE_BUDGET);
+        assert!(charged <= DECODE_BUDGET);
+        // The next 1 MiB payload would take the total past the budget, so the walk stops there.
+        assert!(DECODE_BUDGET - charged < MIB as u64);
+        assert_eq!(txs.len(), 8, "the transfers ahead of the junk are decoded");
+    }
+
+    #[test]
+    fn two_nodes_built_from_the_same_order_decode_the_same_transactions() {
+        let (first, first_charged) =
+            decode_within(stalled_order().iter().map(Vec::as_slice), DECODE_BUDGET);
+        let (second, second_charged) =
+            decode_within(stalled_order().iter().map(Vec::as_slice), DECODE_BUDGET);
+        let ids = |txs: &[Transaction]| txs.iter().map(Transaction::txid).collect::<Vec<_>>();
+        assert_eq!(ids(&first), ids(&second));
+        assert_eq!(first_charged, second_charged);
+        assert!(!first.is_empty());
     }
 
     #[test]
@@ -192,16 +214,24 @@ mod tests {
 
     #[test]
     fn transactions_past_the_budget_are_left_for_a_later_walk() {
-        let (p1, p2, p3) = (payload(1), payload(2), payload(3));
-        let budget = (p1.len() + p2.len()) as u64;
-        let (first, _) = decode_within([p1.as_slice(), p2.as_slice(), p3.as_slice()], budget);
-        assert_eq!(first.len(), 2);
-        // The next block's walk sees the leftover, and only the leftover is new.
-        let (second, _) = decode_within([p3.as_slice(), p3.as_slice()], DECODE_BUDGET);
-        assert_eq!(second.len(), 1);
+        // Unequal sizes: p2 is large, p3 is small enough to fit after it.
+        // The walk must stop at p2, not pass it over to p3 as first-fit would.
+        let (p1, p2, p3) = (payload(1), payload_with_outputs(2, 400), payload(3));
+        assert!(p2.len() > p1.len() + p3.len());
+        let budget = (p1.len() + p2.len() - 1) as u64;
+        let (first, charged) = decode_within([p1.as_slice(), p2.as_slice(), p3.as_slice()], budget);
+        assert_eq!(charged, p1.len() as u64);
+        assert_eq!(first.len(), 1);
+        // The next walk, over the leftover in the same order, decodes both once.
+        let (second, _) =
+            decode_within([p2.as_slice(), p3.as_slice(), p3.as_slice()], DECODE_BUDGET);
+        let ids: Vec<_> = second.iter().map(Transaction::txid).collect();
         assert_eq!(
-            second[0].txid(),
-            Transaction::from_bytes(&p3).unwrap().txid()
+            ids,
+            vec![
+                Transaction::from_bytes(&p2).unwrap().txid(),
+                Transaction::from_bytes(&p3).unwrap().txid(),
+            ]
         );
     }
 }
