@@ -14,7 +14,7 @@
 //!    already turned into a block before a restart is skipped by comparing its
 //!    seal with the tip's.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -56,12 +56,13 @@ pub struct Step {
     pub blocks: Vec<BlockId>,
     /// Transactions those blocks included, to drop from the mempool.
     pub included: Vec<[u8; 32]>,
-    /// Transactions this node proposed that were ordered but not executed —
-    /// a nonce ahead of its predecessor, a conflict — and are no longer
-    /// queued. The caller re-submits the ones still valid; without this a
-    /// transfer whose nonce-1 sibling was ordered first by another validator
-    /// was stranded for good (measured: 25 of 100 in `examples/bft_tps.rs`).
-    pub dropped: Vec<Transaction>,
+    /// Ids of transactions this node proposed that were ordered but not
+    /// included — a nonce ahead of its predecessor, a conflict, or past the
+    /// block cap (ADR-072) — and are no longer queued. They are still pooled,
+    /// so the next feed proposes the ones still valid; without this a transfer
+    /// whose nonce-1 sibling was ordered first by another validator was
+    /// stranded for good (measured: 25 of 100 in `examples/bft_tps.rs`).
+    pub dropped: Vec<[u8; 32]>,
     /// Each built block's anchor proposal time, milliseconds: what the
     /// finality-latency metric measures from.
     pub anchor_times_ms: Vec<u64>,
@@ -162,8 +163,10 @@ pub struct BftDriver {
     /// vertex on every receipt to dedupe a log was measurable, and
     /// certification leaves one certificate per slot. Pruned with the horizon.
     logged: BTreeSet<(u64, ValidatorId)>,
-    /// Transactions handed to the engine and not yet seen in a block.
-    queued: BTreeSet<[u8; 32]>,
+    /// Transactions handed to the engine and not yet seen in a block: id to
+    /// the hash of their encoding. A committed payload is matched by that hash,
+    /// so releasing an unincluded one needs no decode.
+    queued: BTreeMap<[u8; 32], [u8; 32]>,
     /// Kept to build the next epoch's engine.
     signer: Option<ValidatorKey>,
     params: Params,
@@ -333,7 +336,7 @@ impl BftDriver {
             epoch,
             store,
             logged: BTreeSet::new(),
-            queued: BTreeSet::new(),
+            queued: BTreeMap::new(),
             signer,
             params,
             dir,
@@ -416,15 +419,19 @@ impl BftDriver {
 
     /// Queues `tx` for a future vertex, once. An observer queues nothing.
     pub fn submit(&mut self, tx: &Transaction) {
-        if self.id.is_some() && self.queued.insert(tx.txid()) {
-            self.engine.submit(tx.to_bytes());
+        let txid = tx.txid();
+        if self.id.is_none() || self.queued.contains_key(&txid) {
+            return;
         }
+        let bytes = tx.to_bytes();
+        self.queued.insert(txid, *blake3::hash(&bytes).as_bytes());
+        self.engine.submit(bytes);
     }
 
     /// Whether `txid` is already queued.
     #[must_use]
     pub fn is_queued(&self, txid: &[u8; 32]) -> bool {
-        self.queued.contains(txid)
+        self.queued.contains_key(txid)
     }
 
     /// Handles one gossip frame.
@@ -727,18 +734,25 @@ impl BftDriver {
             let included: Vec<[u8; 32]> =
                 block.transactions.iter().map(Transaction::txid).collect();
             let kept: BTreeSet<[u8; 32]> = included.iter().copied().collect();
-            for tx in sub_dag
+            // Matched by hash, not decoded: a payload past the decode budget
+            // is never decoded, yet its queued copy must still be released.
+            let own: BTreeSet<[u8; 32]> = sub_dag
                 .certificates
                 .iter()
                 .filter(|c| Some(c.vertex.author) == self.id)
                 .flat_map(|c| c.vertex.batch.iter())
-                .filter_map(|bytes| Transaction::from_bytes(bytes).ok())
-            {
-                let id = tx.txid();
-                if !kept.contains(&id) && self.queued.remove(&id) {
-                    step.dropped.push(tx);
-                }
+                .map(|bytes| *blake3::hash(bytes).as_bytes())
+                .collect();
+            let released: Vec<[u8; 32]> = self
+                .queued
+                .iter()
+                .filter(|(id, raw)| own.contains(*raw) && !kept.contains(*id))
+                .map(|(id, _)| *id)
+                .collect();
+            for id in &released {
+                self.queued.remove(id);
             }
+            step.dropped.extend(released);
             let inserted = chain.insert_block(block)?;
             step.build_time += started.elapsed();
             match inserted {

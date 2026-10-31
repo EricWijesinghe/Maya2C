@@ -80,6 +80,22 @@ pub fn first_fit(tx_lens: &[u64], cap: u64) -> Vec<usize> {
     admitted
 }
 
+/// CON-13: how many leading payloads the builder decodes under `budget`
+/// bytes. `payload_lens` are the distinct payloads in commit order. The walk
+/// stops at the first one that would take the total over; it does not pass
+/// it over.
+#[must_use]
+pub fn decode_cut(payload_lens: &[u64], budget: u64) -> usize {
+    let mut total = 0_u64;
+    for (count, len) in payload_lens.iter().enumerate() {
+        total = total.saturating_add(*len);
+        if total > budget {
+            return count;
+        }
+    }
+    payload_lens.len()
+}
+
 /// CON-11: the median of the most recent `MEDIAN_TIME_SPAN` timestamps,
 /// `recent` ordered oldest first. The upper middle for an even count.
 #[must_use]

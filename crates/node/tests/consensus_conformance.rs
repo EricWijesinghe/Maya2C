@@ -228,6 +228,16 @@ fn check(case: &Value) {
             assert_eq!(bytes.to_string(), expect["bytes"].as_str().unwrap(), "{id}");
             assert_eq!(listed, expect["admitted"].as_str().unwrap(), "{id}");
         }
+        "decode_cut" => {
+            let lens: Vec<usize> = case["tx_lens"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| usize::try_from(num(v)).unwrap())
+                .collect();
+            let count = custom_l1_node::core::block::decode_cut(lens, num(&case["budget"]));
+            assert_eq!(count.to_string(), expect["count"].as_str().unwrap(), "{id}");
+        }
         other => panic!("{id}: unknown fn {other}"),
     }
 }

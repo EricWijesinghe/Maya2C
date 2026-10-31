@@ -92,15 +92,31 @@ moving this from Proposed to Accepted.
    sent. `Block::from_bytes` ends with `ByteReader::finish`, which refuses trailing bytes, and the
    counts are fixed-width. Pinned by `a_received_block_re_encodes_to_the_bytes_it_came_from`.
 
-## Work that is still unbounded
+## Sub-DAG decode bound (CON-13)
 
-- Decoding the committed sub-DAG (`builder.rs` `ordered_transactions`) decodes every batch
-  transaction in the sub-DAG. Each vertex is bounded (4 MiB, `MAX_BATCH_BYTES`) and the committee
-  is bounded (100, `MAX_COMMITTEE`), so one round is bounded. The number of rounds in a stalled
-  sub-DAG is not, so the decode is not bounded per block. The cap bounds what is applied, not
-  what is decoded. A cut before decode is the follow-up.
+9. **The builder decodes at most one cap of batch bytes per block.** `builder.rs`
+   `ordered_transactions` decodes distinct payloads in commit order, through
+   `core::block::decode_cut`, and stops before the first new payload that would take the decoded
+   bytes past `MAX_BLOCK_BYTES` (`DECODE_BUDGET`). A repeat is skipped before decode. The driver
+   releases the queued copy of an own payload that was not included by comparing blake3 hashes of
+   the raw payloads, so a payload past the cut is never decoded and is still released; it stays
+   in its proposer's pool and is proposed again.
+   - Before this change the decode had no bound. The sub-DAG's rounds are not bounded by the
+     protocol: a commit's sub-DAG is the causal history not yet ordered, which reaches back to
+     `last_committed_round - GC_DEPTH` (`dag-bft/src/commit.rs` `order_history`,
+     `dag-bft/src/validator.rs` `progress`, GC_DEPTH = 50 at `validator.rs:24`), and the gap
+     between commits depends on leader liveness, which the engine does not bound. Worst case per
+     sub-DAG is therefore (gap + 50) rounds × 100 vertices × 4 MiB, with no protocol ceiling.
+   - Worst-case decode per block after this change: `MAX_BLOCK_BYTES` = 5 MiB of payload bytes
+     (5,242,880). The hashing of the sub-DAG's payloads in the driver is linear in those bytes
+     and needs no decode.
+   - Residual: the cut is in commit order, so a sub-DAG whose first 5 MiB are non-executing
+     transactions (or junk that decodes to nothing) leaves the executable ones after it to a later
+     block. They are not lost; they stay pooled. Throughput under that attack is lower; it is
+     not a safety issue. Repeats do not spend the budget, because dedupe runs before the cut; the
+     dedupe compares raw bytes and decodes nothing.
 - The per-vertex and committee limits are unchanged, so a committed vertex can hold up to 4 MiB
-  that is never applied.
+  that is never applied (it is decoded only inside the budget).
 - Staging, the fee pass and the state-root pass over the admitted set are bounded by the cap.
 
 ## Activation
