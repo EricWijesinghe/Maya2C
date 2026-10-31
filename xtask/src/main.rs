@@ -37,6 +37,7 @@ mod spec_coverage;
 mod status;
 mod sweep;
 mod up;
+mod verify_release;
 
 use std::process::ExitCode;
 
@@ -74,6 +75,7 @@ fn main() -> ExitCode {
         "down" => up::down(),
         "status" => status::run(rest),
         "sweep" => sweep::run(rest),
+        "verify-release" => verify_release::run(rest),
         "help" | "--help" | "-h" => {
             usage();
             return ExitCode::SUCCESS;
@@ -100,6 +102,10 @@ cargo xtask <command>
   coverage [--quiet]    Read features.toml, print the ledger, and fail if an
                         entry claims `working` or `verified` without naming a
                         test that exists.
+  verify-release <dir> [--checksums-only]
+                        Check a downloaded release: SHA256SUMS, cosign
+                        signatures from the release workflow, and GitHub
+                        build attestations (docs/verify-release.md).
   release-check [--force-sim]
                         Build maya2c-node --features production and prove no
                         SIM crate or forbidden feature is linked. --force-sim
