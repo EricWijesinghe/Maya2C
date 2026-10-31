@@ -25,12 +25,27 @@ pub type PairId = [u8; 32];
 /// A price is quote base-units per [`PRICE_SCALE`] base base-units, and like
 /// every amount it is 256-bit (ADR-046). Every `price * amount` is formed as a
 /// 512-bit product and reduced by [`crate::math::mul_div_floor`], so it cannot
-/// overflow. `1e9` lets a price express nine decimal digits of precision, which
-/// is more than the eight the smallest sensible base unit needs.
+/// overflow (a documented exception to the 256-bit rule, DECISIONS 2026-11-01).
+/// `1e24` matches the 24 decimals of a coin (ADR-068): a price resolves one
+/// base unit per coin, so a cheap asset still has an exact price. The bound:
+/// a spot price `reserve_quote * 1e24 / reserve_base` is at most
+/// 2^104 * 2^80 = 2^184, well inside 256 bits.
 ///
 /// It is *not* a decimals constant for assets. Every amount in this crate, and
 /// everywhere in the node, is in base units.
-pub const PRICE_SCALE: Amount = Amount::from_u64(1_000_000_000);
+pub const PRICE_SCALE: Amount = Amount::from_u128(1_000_000_000_000_000_000_000_000);
+
+/// Largest total supply an asset may register: the largest reserve whose
+/// scaled price `reserve * PRICE_SCALE` still fits 256 bits (about 2^176).
+///
+/// Without it a 2^200-unit asset paired against one base unit overflows
+/// [`crate::amm::Pool::spot_price`], every batch on that pair refunds, and the
+/// pair id (which the attacker took first) is frozen (#279 security review).
+/// It is the whole 256-bit range the price path can carry, not a lower guess.
+pub const MAX_ASSET_SUPPLY: Amount = match Amount::MAX.checked_div(PRICE_SCALE) {
+    Some(max) => max,
+    None => panic!("PRICE_SCALE is non-zero"),
+};
 
 /// Which way value moves through a pair.
 ///

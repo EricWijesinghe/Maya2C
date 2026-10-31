@@ -558,3 +558,29 @@ Decided under that delegation:
 Set at the ceremony with `--min-self-bond` / `--min-delegation` (required on `maya-mainnet`)
 and enforced by `cargo xtask genesis-check` (constants in `xtask/src/genesis_check.rs`).
 Eric may change either before `APPROVED: sign genesis`; that is a one-line change.
+
+## 2026-11-01 — 256-bit ceiling, DEX price scale 1e24, headroom uses (Eric)
+
+Eric: "we always stay under 256 and use maximum we can use in 256 because going 512 is a
+waste of computation power"; then, on the options: "use recommended maximum potential".
+
+- **256-bit rule:** all new code computes in checked U256 (`checked_mul` -> typed error),
+  no `mul_wide` / `Wide` / 512-bit `mul_div`. Bound: supply is about 2^104 (21M x 10^24),
+  so amount x amount is at most 2^209.
+- **Documented exception:** the existing 512-bit intermediates listed in
+  `reports/sessions/2026-10-31-amount-product-audit.md`. Sites that also multiply by a
+  fixed-point scale reach about 2^288, so a blind switch to checked U256 would refuse valid
+  trades and rewards. A site is converted only with a written worst-case bound, a test at
+  max inputs, and its Kani proof redone. Cost, for the record: a 512-bit mul_div is tens of
+  ns against 1.062 ms per transfer (`reports/12-baseline.md`), under 0.01%.
+- **DEX `PRICE_SCALE` 1e9 -> 1e24, before the freeze** (consensus format). It matches
+  24-decimal coins: a price at a billionth of a coin per coin used to floor to 0 or 1, and
+  now resolves exactly. Spot price is at most 2^104 x 2^80 = 2^184. Pinned by
+  `crates/dex/tests/price_scale_tests.rs`. Safe only because mainnet starts from a fresh
+  genesis: no order or vector at the old scale survives (a 1e9 price would mean 1e15x less).
+- **Cumulative work cannot saturate on mainnet:** no change needed. A DAG-BFT genesis must
+  set `difficulty_bits = pow_limit_bits = 0` (`genesis.rs:685`, `genesis_tests.rs:174`),
+  so each block adds work 1 (`consensus_tests.rs:300`), and total work is at most the height
+  (< 2^64).
+- **After launch, at activation heights (BACKLOG P5):** reward-per-share accumulator,
+  256-bit TWAP accumulators, packed state words.
