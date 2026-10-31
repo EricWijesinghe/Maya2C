@@ -588,7 +588,27 @@ fn block_size_cases() -> Vec<Value> {
     let big = vec![hybrid; 400];
     let cap = consensus::MAX_BLOCK_BYTES;
     cases.push(json!({"id": "block-size-400-hybrid-within-cap", "rules": ["CON-12"], "fn": "block_size", "tx_lens": lens(&big), "cap": cap.to_string(), "expect": {"result": "ok", "bytes": consensus::block_wire_bytes(&big).to_string(), "admitted": idx(&consensus::first_fit(&big, cap))}}));
+    cases.extend(decode_cut_cases());
     cases
+}
+
+/// CON-13: the builder decodes a prefix of the distinct payloads, and the
+/// prefix stops at the first payload past the budget (first-fit would pass it over).
+fn decode_cut_cases() -> Vec<Value> {
+    let lens = |v: &[u64]| v.iter().map(u64::to_string).collect::<Vec<_>>();
+    let case = |id: &str, tx_lens: &[u64], budget: u64, count: usize| json!({"id": id, "rules": ["CON-13"], "fn": "decode_cut", "tx_lens": lens(tx_lens), "budget": budget.to_string(), "expect": {"result": "ok", "count": count.to_string()}});
+    vec![
+        case("decode-cut-empty", &[], 5, 0),
+        case("decode-cut-all-fit", &[1, 2, 3], 6, 3),
+        case("decode-cut-one-byte-short", &[1, 2, 3], 5, 2),
+        case("decode-cut-stops-not-passes-over", &[6_000, 100], 1_000, 0),
+        case(
+            "decode-cut-budget-of-one-maximal-payload",
+            &[4_194_304, 4_194_304],
+            4_194_304,
+            1,
+        ),
+    ]
 }
 
 /// CON-11: the median of the last eleven timestamps, and the rule that a

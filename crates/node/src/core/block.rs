@@ -66,6 +66,24 @@ pub fn warmup_len(encoded_lens: impl IntoIterator<Item = usize>, cap: u64) -> us
     count
 }
 
+/// How many of `payload_lens` the DAG-BFT builder decodes (CON-13): the
+/// longest prefix whose raw bytes fit `budget`. The walk stops at the first
+/// payload that would take the total over, rather than passing it over as
+/// first-fit does, so the bytes decoded per block are bounded by `budget`.
+#[must_use]
+pub fn decode_cut(payload_lens: impl IntoIterator<Item = usize>, budget: u64) -> usize {
+    let mut total = 0_u64;
+    let mut count = 0;
+    for len in payload_lens {
+        total = total.saturating_add(len as u64);
+        if total > budget {
+            break;
+        }
+        count += 1;
+    }
+    count
+}
+
 /// Domain separator for the seed a DAG hash is searched against.
 const POW_SEED_CONTEXT: &str = "custom-l1-node 2026-08-31 dag pow seed v1";
 

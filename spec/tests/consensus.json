@@ -1042,6 +1042,85 @@
         "11165",
         "11165"
       ]
+    },
+    {
+      "budget": "5",
+      "expect": {
+        "count": "0",
+        "result": "ok"
+      },
+      "fn": "decode_cut",
+      "id": "decode-cut-empty",
+      "rules": [
+        "CON-13"
+      ],
+      "tx_lens": []
+    },
+    {
+      "budget": "6",
+      "expect": {
+        "count": "3",
+        "result": "ok"
+      },
+      "fn": "decode_cut",
+      "id": "decode-cut-all-fit",
+      "rules": [
+        "CON-13"
+      ],
+      "tx_lens": [
+        "1",
+        "2",
+        "3"
+      ]
+    },
+    {
+      "budget": "5",
+      "expect": {
+        "count": "2",
+        "result": "ok"
+      },
+      "fn": "decode_cut",
+      "id": "decode-cut-one-byte-short",
+      "rules": [
+        "CON-13"
+      ],
+      "tx_lens": [
+        "1",
+        "2",
+        "3"
+      ]
+    },
+    {
+      "budget": "1000",
+      "expect": {
+        "count": "0",
+        "result": "ok"
+      },
+      "fn": "decode_cut",
+      "id": "decode-cut-stops-not-passes-over",
+      "rules": [
+        "CON-13"
+      ],
+      "tx_lens": [
+        "6000",
+        "100"
+      ]
+    },
+    {
+      "budget": "4194304",
+      "expect": {
+        "count": "1",
+        "result": "ok"
+      },
+      "fn": "decode_cut",
+      "id": "decode-cut-budget-of-one-maximal-payload",
+      "rules": [
+        "CON-13"
+      ],
+      "tx_lens": [
+        "4194304",
+        "4194304"
+      ]
     }
   ],
   "format": 1,
