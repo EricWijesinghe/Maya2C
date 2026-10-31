@@ -1,0 +1,10 @@
+---
+// The fields universe: every field Maya2C spans, each part with its honest status.
+// Data and the build-time check live in src/data/fields.ts and scripts/check-fields.mjs.
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import FieldsUniverse from "../components/FieldsUniverse.astro";
+---
+
+<StarlightPage frontmatter={{ title: "Fields", description: "Every field Maya2C spans, and the honest status of each part: shipped, research, simulator or planned.", template: "splash" }}>
+  <FieldsUniverse />
+</StarlightPage>
