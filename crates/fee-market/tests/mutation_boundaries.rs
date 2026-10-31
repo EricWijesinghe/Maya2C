@@ -23,7 +23,7 @@ use maya_fee_market::{
 #[test]
 fn limits_are_the_documented_sizes() {
     assert_eq!(MIN_TARGET_BLOCK_BYTES, 65_536);
-    assert_eq!(MAX_TARGET_BLOCK_BYTES, 16_777_216);
+    assert_eq!(MAX_TARGET_BLOCK_BYTES, 2_621_440);
     assert_eq!(FEATURE_LIMIT, 4 * 65_536);
 }
 

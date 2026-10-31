@@ -1,4 +1,4 @@
-﻿//! Block headers, blocks, and their proof-of-work binding.
+//! Block headers, blocks, and their proof-of-work binding.
 
 use crate::core::codec::ByteReader;
 use crate::core::transaction::{MAX_TX_BYTES, Transaction};
@@ -8,6 +8,63 @@ use crate::crypto::dag::registry::CacheRegistry;
 use crate::crypto::pow::meets_target;
 use crate::error::{NodeError, Result};
 use crate::state::merkle::{PathStep, merkle_path, merkle_root};
+use maya_fee_market::limits::MAX_BLOCK_BYTES;
+
+/// Wire bytes a block takes before its first transaction: the header and the
+/// transaction count, as [`Block::to_bytes`] writes them.
+const BLOCK_OVERHEAD: u64 = HEADER_LEN as u64 + 8;
+
+// A maximal transaction must fit a block alone (ADR-072), or it blocks the queue.
+const _: () = assert!(MAX_BLOCK_BYTES >= BLOCK_OVERHEAD + 8 + MAX_TX_BYTES as u64);
+
+/// Wire bytes one transaction of `encoded_len` bytes adds to a block: its
+/// length prefix and its encoding.
+#[must_use]
+pub fn transaction_wire_len(encoded_len: usize) -> u64 {
+    8u64.saturating_add(u64::try_from(encoded_len).unwrap_or(u64::MAX))
+}
+
+/// Wire bytes of a block whose transactions have the given encoded lengths.
+pub fn block_wire_len(encoded_lens: impl IntoIterator<Item = usize>) -> u64 {
+    encoded_lens.into_iter().fold(BLOCK_OVERHEAD, |sum, len| {
+        sum.saturating_add(transaction_wire_len(len))
+    })
+}
+
+/// Indices of the transactions first-fit admits from `encoded_lens`, in
+/// order, if every one of them executes. A transaction that does not fit the
+/// room left is passed over and the rest are still considered (ADR-072), so
+/// one large transaction cannot hold back the small ones behind it.
+#[must_use]
+pub fn first_fit(encoded_lens: &[usize], cap: u64) -> Vec<usize> {
+    let mut total = BLOCK_OVERHEAD;
+    let mut admitted = Vec::new();
+    for (index, len) in encoded_lens.iter().enumerate() {
+        let next = total.saturating_add(transaction_wire_len(*len));
+        if next <= cap {
+            total = next;
+            admitted.push(index);
+        }
+    }
+    admitted
+}
+
+/// How many leading transactions to verify ahead of the selection pass: the
+/// longest prefix whose encodings fit `cap`. Those are the transactions the
+/// pass is most likely to admit; the rest are verified when it reaches them.
+#[must_use]
+pub fn warmup_len(encoded_lens: impl IntoIterator<Item = usize>, cap: u64) -> usize {
+    let mut total = BLOCK_OVERHEAD;
+    let mut count = 0;
+    for len in encoded_lens {
+        total = total.saturating_add(transaction_wire_len(len));
+        if total > cap {
+            break;
+        }
+        count += 1;
+    }
+    count
+}
 
 /// Domain separator for the seed a DAG hash is searched against.
 const POW_SEED_CONTEXT: &str = "custom-l1-node 2026-08-31 dag pow seed v1";
@@ -314,6 +371,22 @@ impl Block {
             return Err(NodeError::TxRootMismatch {
                 expected: hex::encode(self.header.tx_root),
                 actual: hex::encode(actual),
+            });
+        }
+        Ok(())
+    }
+
+    /// Refuses a block whose wire form is over [`MAX_BLOCK_BYTES`] (ADR-072).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::BlockTooLarge`] if it is.
+    pub fn check_size(&self) -> Result<()> {
+        let bytes = block_wire_len(self.transactions.iter().map(|tx| tx.to_bytes().len()));
+        if bytes > MAX_BLOCK_BYTES {
+            return Err(NodeError::BlockTooLarge {
+                bytes,
+                cap: MAX_BLOCK_BYTES,
             });
         }
         Ok(())

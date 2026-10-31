@@ -31,8 +31,23 @@ pub const MIN_BASE_FEE_FLOOR: Amount = Amount::from_u64(1);
 /// its own, and the base fee ratchets up on every non-empty block.
 pub const MIN_TARGET_BLOCK_BYTES: u64 = 64 * 1024;
 
-/// The largest block-size target, in bytes.
-pub const MAX_TARGET_BLOCK_BYTES: u64 = 16 * 1024 * 1024;
+/// The largest block-size target, in bytes: half the block cap (ADR-072).
+///
+/// A target at or above `MAX_BLOCK_BYTES` could never be exceeded, so the
+/// base fee could never rise and spam would stay at the floor. At half, a
+/// full block is 2x target and moves the fee by the full 1/D step.
+pub const MAX_TARGET_BLOCK_BYTES: u64 = MAX_BLOCK_BYTES / 2;
+
+/// The largest block a chain accepts, in wire bytes (ADR-072).
+///
+/// Provisional, pending measurement on the launch host. Two bounds fix it.
+/// Below: one maximal transaction (`MAX_TX_BYTES`, 4 MiB) plus the block's
+/// own framing must fit alone, or a valid transaction could never be
+/// included and would hold up every one queued behind it. Above: a block at
+/// the cap must still travel in one 8 MiB gossip frame. 5 MiB sits between
+/// them, and admits the 400-transfer block measured in
+/// `reports/bench/2026-10-25-tps-series.md` (about 4.3 MiB) with room to spare.
+pub const MAX_BLOCK_BYTES: u64 = 5 * 1024 * 1024;
 
 /// The most of each base fee that may go to the treasury, in basis points.
 ///
