@@ -230,6 +230,38 @@ jobs:
             -D warnings
 
   # ---------------------------------------------------------------------
+  # Broken intra-doc links. doc-coverage runs only nightly (about 35 min), and
+  # a broken link blocked it unseen for days (BACKLOG P2). Plain rustdoc on
+  # the workspace libraries is a check-sized build, so it runs per PR.
+  # ---------------------------------------------------------------------
+  doc-links:
+    name: doc links
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Free runner disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev llvm-dev libssl-dev pkg-config mold
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: nightly-2026-07-15
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: doc-links
+      - name: rustdoc, broken intra-doc links denied
+        env:
+          RUSTDOCFLAGS: -D rustdoc::broken-intra-doc-links
+        run: cargo doc --profile ci --workspace --no-deps --lib
+
+  # ---------------------------------------------------------------------
   # Tests, core tier.
   # ---------------------------------------------------------------------
   test:

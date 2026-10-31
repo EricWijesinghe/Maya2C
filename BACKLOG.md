@@ -62,7 +62,7 @@ band; move an item to PROGRESS.md when it starts.
   the tip: Duplicate {..}` while it follows attested blocks. `InsertOutcome::
   Duplicate` should be skipped quietly; logging it as malformed hides real
   decode errors in noise. Reported by maya2c-c9.
-- **HTLC two-devnet swap times out under full parallel load** (1,058 s in a
+- [x] (`.config/nextest.toml` override, 2026-11-01) **HTLC two-devnet swap times out under full parallel load** (1,058 s in a
   workspace nextest run; 18 s alone). Mark it heavy / serial in nextest.
 - **Chat envelopes are twice the size they need to be.** `Envelope::encode`
   (ciborium) writes ciphertext `Vec<u8>` as a CBOR integer array, about two
@@ -92,7 +92,7 @@ band; move an item to PROGRESS.md when it starts.
   `git rev-parse HEAD`; the 2026-09-28 re-run ran with uncommitted fixes on
   top. Add `git status --porcelain` count to `Sweep`, and have `status`
   print it.
-- **doc-coverage takes about 35 minutes** (2,094 s on 2026-09-28) and runs
+- [x] (ci.yml `doc-links`, 2026-11-01) **doc-coverage takes about 35 minutes** (2,094 s on 2026-09-28) and runs
   only nightly; a broken intra-doc link blocked it unseen. Add
   `-D rustdoc::broken-intra-doc-links` to a fast per-PR `cargo doc` job.
 
