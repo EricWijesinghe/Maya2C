@@ -170,13 +170,20 @@ function fees(): number {
       check(treasury === BigInt(c.expect.treasury) && BigInt(c.base_fee_paid) - treasury === BigInt(c.expect.burned), `${c.id}`);
     } else {
       const [p, size, t, d, floor] = [c.parent_base_fee, c.parent_size, c.target, c.denominator, c.floor].map(BigInt);
+      const ceiling = BigInt(c.ceiling); // FEE-6 (ADR-071); the vectors carry it
       let next: bigint;
       if (t === 0n || d === 0n) next = p > floor ? p : floor;
       else {
         const gap = size > t ? size - t : t - size;
         const delta = (p * gap) / t / d;
-        next = size > t ? p + (delta > 1n ? delta : 1n) : p > delta ? p - delta : 0n;
-        if (next > U256_MAX) next = U256_MAX; // FEE-3 saturates at 2^256 − 1 (ADR-066)
+        if (size > t) {
+          const share = p / d > 1n ? p / d : 1n; // FEE-3: one denominator's share
+          const rise = delta > 1n ? delta : 1n;
+          next = p + (rise < share ? rise : share);
+          const cap = ceiling > p ? ceiling : p; // FEE-6: a fee above the ceiling holds
+          if (next > cap) next = cap;
+          if (next > U256_MAX) next = U256_MAX;
+        } else next = p > delta ? p - delta : 0n;
         if (next < floor) next = floor;
       }
       check(next === BigInt(c.expect), `${c.id}: got ${next}`);
