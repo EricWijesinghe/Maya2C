@@ -5,6 +5,7 @@
 //! and the hub only reads the address it announces.
 
 use std::collections::VecDeque;
+use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
@@ -67,10 +68,16 @@ pub struct MinerState {
     pub events: VecDeque<Value>,
 }
 
+/// The running miner: its process, and the read-only handle on its file.
+struct Running {
+    child: Child,
+    _miner: File,
+}
+
 /// The child and its state, shared with the reader thread.
 #[derive(Default)]
 pub struct Miner {
-    child: Mutex<Option<Child>>,
+    child: Mutex<Option<Running>>,
     state: Arc<Mutex<MinerState>>,
 }
 
@@ -146,7 +153,7 @@ impl Miner {
     /// Already running, a bad setting, a failed check, or a binary that will not start.
     pub fn start(&self, config: &MinerConfig, install: &Path, data: &Path) -> Result<(), String> {
         crate::node::check_url(&config.rpc)?;
-        let binary = miner_guard::check_miner(&config.binary, install, PINNED_SUMS)
+        let pinned = miner_guard::check_miner(&config.binary, install, PINNED_SUMS)
             .map_err(|e| e.to_string())?;
         let key_file = miner_guard::resolve_key_file(&config.key_file, data)
             .map_err(|e| e.to_string())?;
@@ -155,7 +162,7 @@ impl Miner {
         if slot.is_some() {
             return Err("the miner is already running".into());
         }
-        let mut child = Command::new(&binary)
+        let mut child = Command::new(&pinned.path)
             .args(["--mine", "--json", "--rpc", &config.rpc, "--threads"])
             .arg(threads.to_string())
             .arg("--key-file")
@@ -180,7 +187,12 @@ impl Miner {
         if let Some(err) = child.stderr.take() {
             self.read_lines(err);
         }
-        *slot = Some(child);
+        // The read-only handle lives as long as the child, so the miner file
+        // cannot be replaced while the process it hashed is running.
+        *slot = Some(Running {
+            child,
+            _miner: pinned.file,
+        });
         Ok(())
     }
 
@@ -196,14 +208,14 @@ impl Miner {
 
     /// Stops the miner if it runs.
     pub fn stop(&self) {
-        if let Some(mut child) = self
+        if let Some(mut running) = self
             .child
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .take()
         {
-            let _ = child.kill();
-            let _ = child.wait();
+            let _ = running.child.kill();
+            let _ = running.child.wait();
         }
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         state.running = false;
@@ -215,7 +227,7 @@ impl Miner {
         let mut slot = self.child.lock().unwrap_or_else(PoisonError::into_inner);
         let exited = slot
             .as_mut()
-            .and_then(|c| c.try_wait().ok().flatten())
+            .and_then(|r| r.child.try_wait().ok().flatten())
             .map(|status| status.to_string());
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(status) = exited {
