@@ -11,9 +11,10 @@ use custom_l1_node::core::Transaction;
 use maya_wallet_core::error::WalletError;
 use maya_wallet_core::hd::{self, DerivationPath, seed_from_mnemonic};
 use maya_wallet_core::payment::{
-    FEE_SINK, FeeTier, PaymentRequest, check_fee_collector, decode_qr_png, normalize_address,
-    priced_fee_tiers, scan_payment_request, sign_transfer, sign_transfer_to, transfer_size,
+    FEE_SINK, FeeTier, PaymentRequest, SignedTransfer, check_fee_collector, decode_qr_png,
+    normalize_address, priced_fee_tiers, scan_payment_request, transfer_size,
 };
+use maya_wallet_core::wallet::{SignTerms, Wallet};
 
 /// The chain every test signature commits to (ADR-036).
 const CHAIN: ChainTag = ChainTag::from_genesis([0x5A; 32]);
@@ -43,6 +44,45 @@ fn qr_png(text: &str) -> Vec<u8> {
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .expect("encode png");
     png
+}
+
+/// Signs through the wallet's confirm-hash gate, as the GUI does: the hash is
+/// the confirmation of these same terms. `key` must be account 0 of `TEST_PHRASE`.
+fn bound_sign(
+    key: &custom_l1_node::crypto::hybrid::HybridSigningKey,
+    recipient: &str,
+    amount: primitive_types::U256,
+    terms: SignTerms<'_>,
+) -> maya_wallet_core::error::Result<SignedTransfer> {
+    let mut wallet = Wallet::from_mnemonic(TEST_PHRASE, "").expect("wallet");
+    let account = wallet.account(0).expect("account 0");
+    assert_eq!(account.address, hex::encode(key.address()), "test key is account 0");
+    let confirmed = wallet.confirm(0, recipient, amount, &terms)?.signing_hash;
+    wallet.sign(0, recipient, amount, &terms, &confirmed)
+}
+
+fn sign_transfer(
+    key: &custom_l1_node::crypto::hybrid::HybridSigningKey,
+    recipient: &str,
+    amount: primitive_types::U256,
+    fee: primitive_types::U256,
+    nonce: u64,
+    chain: &ChainTag,
+) -> maya_wallet_core::error::Result<SignedTransfer> {
+    bound_sign(key, recipient, amount, SignTerms { fee, fee_to: None, nonce, chain })
+}
+
+fn sign_transfer_to(
+    key: &custom_l1_node::crypto::hybrid::HybridSigningKey,
+    recipient: &str,
+    amount: primitive_types::U256,
+    fee: primitive_types::U256,
+    fee_to: &str,
+    nonce: u64,
+    chain: &ChainTag,
+) -> maya_wallet_core::error::Result<SignedTransfer> {
+    let terms = SignTerms { fee, fee_to: Some(fee_to), nonce, chain };
+    bound_sign(key, recipient, amount, terms)
 }
 
 fn signing_key() -> custom_l1_node::crypto::hybrid::HybridSigningKey {
@@ -429,8 +469,9 @@ fn a_manual_fee_overrides_the_tier() {
 
 /// Where a fee-charging chain wants fees paid. Any address the node names;
 /// this one is only distinct from the burn sink and the recipients above.
+/// The chain's own fee collector: the only collector a signing path accepts.
 fn collector() -> String {
-    address(0xFC)
+    hex::encode(custom_l1_node::state::fees::FEE_COLLECTOR)
 }
 
 #[test]
@@ -536,7 +577,7 @@ fn only_the_chains_own_fee_collector_is_accepted() {
     let real = hex::encode(custom_l1_node::state::fees::FEE_COLLECTOR);
     assert_eq!(check_fee_collector(&real), Ok(()));
     assert!(matches!(
-        check_fee_collector(&collector()),
+        check_fee_collector(&address(0xFC)),
         Err(WalletError::Address(_))
     ));
     assert!(matches!(

@@ -23,7 +23,10 @@ use crate::core::council_payload::CouncilKind;
 use crate::core::payload::TxKind;
 use crate::core::staking_payload::StakingAction;
 use crate::core::transaction::Transaction;
+use crate::core::transaction::TxOutput;
 use crate::core::vault_payload::VaultAction;
+use crate::state::fees::FEE_COLLECTOR;
+use crate::state::shielded::FEE_SINK;
 
 /// How closely a signer should look.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -109,19 +112,48 @@ pub fn describe(tx: &Transaction) -> Description {
     describe_kind(&tx.kind)
 }
 
+/// A fee output pays the chain's collector, or the burn sink on a chain that
+/// burns fees. Any other output after the first is a payment, however small.
+#[must_use]
+pub fn is_fee_output(output: &TxOutput) -> bool {
+    output.recipient == FEE_COLLECTOR || output.recipient == FEE_SINK
+}
+
+/// The first output is always the payment, so a transfer to the burn sink
+/// still reads as a send. Later outputs are fees only when they pay a fee
+/// address; a second output to anyone else is shown as a second recipient.
 fn describe_transfer(tx: &Transaction) -> Description {
-    let total = tx
-        .outputs
-        .iter()
-        .fold(U256::zero(), |sum, o| sum.saturating_add(o.amount));
-    let to = plural(tx.outputs.len(), "recipient", "recipients");
-    let mut described =
-        Description::new(format!("Send {} to {to}.", amount(total)), Review::Careful);
-    for output in &tx.outputs {
+    let Some((first, rest)) = tx.outputs.split_first() else {
+        return Description::new("Send 0 base units to 0 recipients.", Review::Careful);
+    };
+    let (fees, others): (Vec<&TxOutput>, Vec<&TxOutput>) =
+        rest.iter().partition(|o| is_fee_output(o));
+    let payments: Vec<&TxOutput> = std::iter::once(first).chain(others).collect();
+    let total = sum(payments.iter().map(|o| o.amount));
+    let fee = sum(fees.iter().map(|o| o.amount));
+    let to = plural(payments.len(), "recipient", "recipients");
+    let fee_words = if fees.is_empty() {
+        String::new()
+    } else {
+        format!(", with a fee of {}", amount(fee))
+    };
+    let mut described = Description::new(
+        format!("Send {} to {to}{fee_words}.", amount(total)),
+        Review::Careful,
+    );
+    for output in payments {
         described = described.with("pay to", full(&output.recipient));
         described = described.with("amount", amount(output.amount));
     }
+    for output in fees {
+        described = described.with("fee to", full(&output.recipient));
+        described = described.with("fee", amount(output.amount));
+    }
     described
+}
+
+fn sum(values: impl Iterator<Item = U256>) -> U256 {
+    values.fold(U256::zero(), U256::saturating_add)
 }
 
 /// Describes a payload kind. A `Transfer` here has no outputs to read; use
@@ -574,6 +606,59 @@ mod tests {
         assert_eq!(d.review, Review::Careful);
         assert!(d.details.contains(&("pay to", "ab".repeat(32))));
         assert!(d.details.contains(&("pay to", "cd".repeat(32))));
+    }
+
+    fn transfer_with(outputs: Vec<([u8; 32], u64)>) -> Transaction {
+        let outputs = outputs
+            .into_iter()
+            .map(|(recipient, amount)| TxOutput {
+                amount: U256::from(amount),
+                recipient,
+            })
+            .collect();
+        Transaction::new(vec![], outputs, 0)
+    }
+
+    #[test]
+    fn a_fee_to_the_collector_is_named_as_the_fee_not_a_recipient() {
+        let tx = transfer_with(vec![([0xAB; 32], 1_000), (FEE_COLLECTOR, 7)]);
+        let d = describe(&tx);
+        assert_eq!(
+            d.summary,
+            "Send 1,000 base units to 1 recipient, with a fee of 7 base units."
+        );
+        assert!(d.details.contains(&("fee to", full(&FEE_COLLECTOR))));
+        assert!(d.details.contains(&("fee", "7 base units".to_string())));
+        assert!(!d.details.iter().any(|(l, v)| *l == "pay to" && *v == full(&FEE_COLLECTOR)));
+    }
+
+    #[test]
+    fn a_fee_burned_to_the_sink_is_named_as_the_fee() {
+        let d = describe(&transfer_with(vec![([0xAB; 32], 50), (FEE_SINK, 3)]));
+        assert_eq!(
+            d.summary,
+            "Send 50 base units to 1 recipient, with a fee of 3 base units."
+        );
+    }
+
+    #[test]
+    fn a_second_output_to_anyone_else_stays_a_recipient() {
+        let d = describe(&transfer_with(vec![([0xAB; 32], 10), ([0xCD; 32], 90)]));
+        assert_eq!(d.summary, "Send 100 base units to 2 recipients.");
+        assert!(!d.summary.contains("fee"));
+    }
+
+    #[test]
+    fn a_transfer_to_the_burn_sink_is_a_send_not_a_fee() {
+        let d = describe(&transfer_with(vec![(FEE_SINK, 9)]));
+        assert_eq!(d.summary, "Send 9 base units to 1 recipient.");
+        assert!(d.details.contains(&("pay to", full(&FEE_SINK))));
+    }
+
+    #[test]
+    fn describing_a_transfer_twice_gives_the_same_words() {
+        let tx = transfer_with(vec![([0xAB; 32], 1), (FEE_COLLECTOR, 2)]);
+        assert_eq!(describe(&tx), describe(&tx));
     }
 
     #[test]

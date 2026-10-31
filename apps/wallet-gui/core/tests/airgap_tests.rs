@@ -21,7 +21,8 @@
 use custom_l1_node::core::ChainTag;
 use maya_wallet_core::airgap::{self, Assembler, Frame};
 use maya_wallet_core::hd::{DerivationPath, seed_from_mnemonic, signing_key_at};
-use maya_wallet_core::payment::sign_transfer;
+use maya_wallet_core::payment::SignedTransfer;
+use maya_wallet_core::wallet::{SignTerms, Wallet};
 
 /// The chain every test signature commits to (ADR-036).
 const CHAIN: ChainTag = ChainTag::from_genesis([0x5A; 32]);
@@ -46,6 +47,32 @@ fn signed_blob() -> Vec<u8> {
     .expect("signing needs no network");
 
     hex::decode(&signed.raw_hex).expect("the wallet emits valid hex")
+}
+
+/// Signs through the wallet's confirm-hash gate, as the GUI does: the hash is
+/// the confirmation of these same terms. `key` must be account 0 of `PHRASE`.
+fn bound_sign(
+    key: &custom_l1_node::crypto::hybrid::HybridSigningKey,
+    recipient: &str,
+    amount: primitive_types::U256,
+    terms: SignTerms<'_>,
+) -> maya_wallet_core::error::Result<SignedTransfer> {
+    let mut wallet = Wallet::from_mnemonic(PHRASE, "").expect("wallet");
+    let account = wallet.account(0).expect("account 0");
+    assert_eq!(account.address, hex::encode(key.address()), "test key is account 0");
+    let confirmed = wallet.confirm(0, recipient, amount, &terms)?.signing_hash;
+    wallet.sign(0, recipient, amount, &terms, &confirmed)
+}
+
+fn sign_transfer(
+    key: &custom_l1_node::crypto::hybrid::HybridSigningKey,
+    recipient: &str,
+    amount: primitive_types::U256,
+    fee: primitive_types::U256,
+    nonce: u64,
+    chain: &ChainTag,
+) -> maya_wallet_core::error::Result<SignedTransfer> {
+    bound_sign(key, recipient, amount, SignTerms { fee, fee_to: None, nonce, chain })
 }
 
 #[test]
