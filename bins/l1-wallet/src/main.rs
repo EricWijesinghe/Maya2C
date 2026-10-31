@@ -4,8 +4,9 @@
 //! l1-wallet generate                          create and encrypt a new key
 //! l1-wallet address                           print the address of a keystore
 //! l1-wallet balance                           query account state over RPC
-//! l1-wallet send --to <ADDR> --amount <VAL>   sign and broadcast a transfer
-//!               [--no-broadcast]              ... or only print the signed hex
+//! l1-wallet send --to <ADDR> --amount <VAL>   confirm, then sign and broadcast
+//!               [--genesis ID] [--max-fee F]  pin the chain, cap the fee
+//!               [--yes] [--no-broadcast]      script mode, or only print the signed hex
 //! ```
 //!
 //! ## Password handling
@@ -17,9 +18,11 @@
 //! environment variable is not persisted to disk by default and is not visible
 //! in `ps` output on modern systems.
 
+use l1_wallet::guard::{self, GenesisTrust};
 use l1_wallet::keystore;
 use primitive_types::U256;
 
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
@@ -28,6 +31,7 @@ use custom_l1_node::core::council_payload::CouncilAction;
 use custom_l1_node::core::staking_payload::StakingAction;
 use custom_l1_node::core::{ChainTag, Transaction, TxKind, TxOutput};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
+use custom_l1_node::rpc::ChainInfo;
 
 use l1_wallet::client::NodeClient;
 
@@ -92,20 +96,8 @@ enum Command {
         #[arg(long, value_parser = parse_amount)]
         amount: U256,
 
-        /// Sender nonce. Fetched from the node when omitted.
-        #[arg(long)]
-        nonce: Option<u64>,
-
-        /// Fee paid to the collector. Defaults to twice the base fee on the
-        /// transaction's size, the excess being the validators' tip, where
-        /// the chain charges fees; nothing where it does not.
-        #[arg(long, value_parser = parse_amount)]
-        fee: Option<U256>,
-
-        /// Sign and print the raw transaction hex instead of broadcasting it,
-        /// for a different client (an SDK, a gateway) to submit.
-        #[arg(long)]
-        no_broadcast: bool,
+        #[command(flatten)]
+        tx: TxOptions,
     },
 
     /// Register a validator key and bond to it from this wallet (ADR-028).
@@ -166,18 +158,35 @@ enum Command {
     },
 }
 
-/// Nonce, fee and broadcast choices shared by every signed transaction.
+/// Nonce, fee, confirmation and broadcast choices shared by every signed transaction.
 #[derive(clap::Args, Debug)]
 struct TxOptions {
     /// Sender nonce. Fetched from the node when omitted.
     #[arg(long)]
     nonce: Option<u64>,
 
-    /// Fee paid to the collector; defaults as for `send`.
+    /// Fee paid to the collector. Defaults to twice the base fee on the
+    /// transaction's size, the excess being the validators' tip, where
+    /// the chain charges fees; nothing where it does not.
     #[arg(long, value_parser = parse_amount)]
     fee: Option<U256>,
 
-    /// Sign and print the raw transaction hex instead of broadcasting it.
+    /// Largest fee to pay, in base units. Without it the cap is
+    /// `guard::DEFAULT_MAX_FEE` (one MAYA), for every kind of transaction.
+    #[arg(long, value_parser = parse_amount)]
+    max_fee: Option<U256>,
+
+    /// The genesis id (hex) to sign for. Required for a network this build does
+    /// not pin; it must equal the id the node reports.
+    #[arg(long)]
+    genesis: Option<String>,
+
+    /// Sign without the typed confirmation, for scripts. The description is still printed.
+    #[arg(long)]
+    yes: bool,
+
+    /// Sign and print the raw transaction hex instead of broadcasting it,
+    /// for a different client (an SDK, a gateway) to submit.
     #[arg(long)]
     no_broadcast: bool,
 }
@@ -310,22 +319,15 @@ async fn command_send(
     rpc_url: &str,
     to: &str,
     amount: U256,
-    nonce: Option<u64>,
-    fee: Option<U256>,
-    broadcast: bool,
+    opts: &TxOptions,
 ) -> Result<()> {
     let recipient = decode_address(to)?;
     let key = load_key(path)?;
-    let opts = TxOptions {
-        nonce,
-        fee,
-        no_broadcast: !broadcast,
-    };
     let payload = Payload {
         kind: TxKind::Transfer,
         outputs: vec![TxOutput { amount, recipient }],
     };
-    if submit(&key, rpc_url, payload, &opts).await? {
+    if submit(&key, rpc_url, payload, opts).await? {
         println!("to:       {}", hex::encode(recipient));
         println!("amount:   {amount}");
     }
@@ -428,16 +430,45 @@ struct Payload {
     outputs: Vec<TxOutput>,
 }
 
-/// Prints what `tx` will do, in full, before anything is signed.
-fn print_description(tx: &Transaction) {
+/// Prints what `tx` will do, in full, before anything is signed: the chain it
+/// is for, every output with its full address, and the fee.
+fn print_description(tx: &Transaction, chain: &ChainInfo, trust: GenesisTrust, fee: U256) {
     let described = custom_l1_node::core::describe::describe(tx);
+    println!(
+        "chain:    {} ({})",
+        chain.chain_id.as_deref().unwrap_or("unnamed"),
+        trust.label()
+    );
+    println!("genesis:  {}", chain.genesis);
     println!("signing:  {}", described.summary);
     for (label, value) in &described.details {
         println!("          {label}: {value}");
     }
+    println!("fee:      {fee} base units, paid to the protocol collector");
     if described.review == custom_l1_node::core::describe::Review::Careful {
         println!("          check every line above; this moves value or changes control");
     }
+}
+
+/// The value a payload moves out of the sender's balance, for the fee warning.
+/// Staking actions carry their amounts outside the outputs, so they are read here.
+fn value_moved(payload: &Payload) -> U256 {
+    let outputs = payload
+        .outputs
+        .iter()
+        .fold(U256::zero(), |sum, o| sum.saturating_add(o.amount));
+    let staked = match &payload.kind {
+        TxKind::Staking(action) => match action.as_ref() {
+            StakingAction::Register { bond, .. } => *bond,
+            StakingAction::BondMore { amount, .. }
+            | StakingAction::Unbond { amount, .. }
+            | StakingAction::Delegate { amount, .. }
+            | StakingAction::Undelegate { amount, .. } => *amount,
+            _ => U256::zero(),
+        },
+        _ => U256::zero(),
+    };
+    outputs.saturating_add(staked)
 }
 
 /// Signs `payload` with the wallet key and broadcasts it, or prints it raw.
@@ -459,18 +490,30 @@ async fn submit(
     };
 
     // ADR-036: the signature commits to this node's genesis, so the
-    // transaction is worthless on any other Maya2C chain.
-    let chain = client.get_chain_info().await?;
-    // Said before the key signs, from the payload as the user asked for it (the
-    // fee output is added below and is not a recipient). The same words every
-    // wallet shows (`core::describe`).
-    let mut intent = Transaction::new(vec![], payload.outputs.clone(), nonce);
-    intent.kind = payload.kind.clone();
-    print_description(&intent);
+    // transaction is worthless on any other Maya2C chain. The node's word for
+    // which chain that is is checked before anything else is trusted.
+    let info = client.get_network().await?;
+    let chain = info.chain_tag().context("get_chain_info")?;
+    let trust = guard::check_genesis(
+        &info.genesis,
+        info.chain_id.as_deref(),
+        opts.genesis.as_deref(),
+        guard::MAINNET_GENESIS,
+        guard::TESTNET_GENESIS,
+    )?;
 
-    let outputs = with_fee(&client, key, &payload, nonce, opts.fee, &chain).await?;
+    let (outputs, fee) = with_fee(&client, key, &payload, nonce, opts, &chain).await?;
     let mut tx = Transaction::new(vec![], outputs, nonce);
     tx.kind = payload.kind;
+    // Shown from the exact transaction that is signed, fee output included.
+    print_description(&tx, &info, trust, fee);
+    let mut stdin = std::io::stdin().lock();
+    guard::require_confirmation(
+        opts.yes,
+        std::io::stdin().is_terminal(),
+        &mut stdin,
+        &mut std::io::stderr(),
+    )?;
     tx.sign(key, &chain).context("signing the transaction")?;
 
     let raw = hex::encode(tx.to_bytes());
@@ -502,49 +545,41 @@ async fn with_fee(
     key: &HybridSigningKey,
     payload: &Payload,
     nonce: u64,
-    fee: Option<U256>,
+    opts: &TxOptions,
     chain: &ChainTag,
-) -> Result<Vec<TxOutput>> {
+) -> Result<(Vec<TxOutput>, U256)> {
     let mut outputs = payload.outputs.clone();
-    let info = match client.get_fee_info().await {
-        Ok(info) if info.active => info,
-        _ => return Ok(outputs),
-    };
+    // An unreachable fee query refuses rather than silently sending fee-less.
+    // Inactive fees pay nothing, so there is no collector or cap to check.
+    let info = client
+        .get_fee_info()
+        .await
+        .context("querying the node's fee rules; refusing to sign without them")?;
+    if !info.active {
+        return Ok((outputs, U256::zero()));
+    }
+    // The collector comes from the node, so it is checked against the protocol's before any fee is paid to it.
+    guard::check_collector(&info.collector)?;
     let collector = decode_address(&info.collector)?;
     outputs.push(TxOutput {
         amount: U256::zero(),
         recipient: collector,
     });
-    let amount = if let Some(fee) = fee {
-        fee
-    } else {
-        // Checked: a base fee near 2^256 must not wrap into a small, signable fee.
-        let mut probe = Transaction::new(vec![], outputs.clone(), nonce);
-        probe.kind = payload.kind.clone();
-        probe.sign(key, chain).context("signing the fee probe")?;
-        let size = u64::try_from(probe.to_bytes().len())?;
-        let base_fee = U256::from_dec_str(&info.base_fee)
-            .map_err(|_| anyhow::anyhow!("the node sent a bad base_fee {:?}", info.base_fee))?;
-        let quoted = base_fee
-            .checked_mul(U256::from(size))
-            .and_then(|f| f.checked_mul(U256::from(2u8)))
-            .ok_or_else(|| anyhow::anyhow!("the node quoted a fee past 2^256 - 1"))?;
-        // The quote comes from the node and is signed without a prompt, so a
-        // hostile node could name a fee that empties the account into its own
-        // collector. Above the old u64 ceiling it is refused: such a fee must
-        // be chosen deliberately with --fee.
-        if quoted > U256::from(u64::MAX) {
-            bail!(
-                "the node quoted a fee of {quoted} base units; refusing to pay it \
-                 automatically (pass --fee to choose a fee yourself)"
-            );
+    // The fee's size is measured on a signed probe that already carries the fee output.
+    let mut probe = Transaction::new(vec![], outputs.clone(), nonce);
+    probe.kind = payload.kind.clone();
+    probe.sign(key, chain).context("signing the fee probe")?;
+    let size = u64::try_from(probe.to_bytes().len())?;
+    let fee = guard::quote_fee(&info, size, opts.fee, opts.max_fee)?;
+    if matches!(payload.kind, TxKind::Transfer) {
+        if let Some(warning) = guard::fee_warning(fee, value_moved(payload)) {
+            eprintln!("{warning}");
         }
-        quoted
-    };
-    if let Some(last) = outputs.last_mut() {
-        last.amount = amount;
     }
-    Ok(outputs)
+    if let Some(last) = outputs.last_mut() {
+        last.amount = fee;
+    }
+    Ok((outputs, fee))
 }
 
 /// Stack for the thread that runs every command. ML-DSA keys and 256-bit
@@ -578,23 +613,8 @@ async fn run() -> Result<()> {
         Command::Address => command_address(&cli.keystore),
         Command::Balance { address } => command_balance(&cli.keystore, &cli.rpc_url, address).await,
         Command::Block { height } => command_block(&cli.rpc_url, height).await,
-        Command::Send {
-            to,
-            amount,
-            nonce,
-            fee,
-            no_broadcast,
-        } => {
-            Box::pin(command_send(
-                &cli.keystore,
-                &cli.rpc_url,
-                &to,
-                amount,
-                nonce,
-                fee,
-                !no_broadcast,
-            ))
-            .await
+        Command::Send { to, amount, tx } => {
+            Box::pin(command_send(&cli.keystore, &cli.rpc_url, &to, amount, &tx)).await
         }
         Command::RegisterValidator {
             validator_key,
