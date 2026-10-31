@@ -24,8 +24,8 @@
 //! ## Units
 //!
 //! Every figure is in base units, the same unit `AccountInfo::balance` and the
-//! chain's transfer amounts use. There is no decimals constant in this codebase,
-//! so no scaling is applied. If one is ever introduced, both aggregators must be
+//! chain's transfer amounts use. No decimals are applied here (the coin's 24 are
+//! `maya_amount::COIN_DECIMALS`, ADR-068), so no scaling is applied. If one is ever introduced, both aggregators must be
 //! told the exponent — an unannounced change of unit shows up as a supply figure
 //! wrong by orders of magnitude, and it is the kind of error that gets a listing
 //! flagged rather than corrected.

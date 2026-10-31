@@ -15,8 +15,8 @@
 //!
 //! 2²⁵⁶ − 1 base units: the largest value a 256-bit balance can hold, so no
 //! larger cap could be represented by any account at all. It replaced
-//! 21,000,000 × 10⁸, which sat far inside `u64`. At 18 decimals `u64::MAX` is
-//! about 18 whole coins, so the old width could not carry the decision.
+//! 21,000,000 × 10⁸, which sat far inside `u64`. At 24 decimals `u64::MAX` is
+//! about 0.000018 whole coins, so the old width could not carry the decision.
 //!
 //! A cap this size bounds nothing in practice, by design. What limits real
 //! supply is the emission schedule, which ADR-046 decouples from the cap. The

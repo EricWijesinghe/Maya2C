@@ -5924,6 +5924,7 @@ dependencies = [
  "hex",
  "http-body-util",
  "jsonrpsee",
+ "maya-amount",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -6808,6 +6809,7 @@ dependencies = [
  "image",
  "jsonrpsee",
  "keyring",
+ "maya-amount",
  "maya-zk-stark",
  "pbkdf2",
  "primitive-types",
@@ -12756,6 +12758,7 @@ dependencies = [
 name = "xtask"
 version = "0.1.0"
 dependencies = [
+ "maya-amount",
  "serde",
  "serde_json",
  "toml 0.9.12+spec-1.1.0",

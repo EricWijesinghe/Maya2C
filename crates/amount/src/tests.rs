@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use super::*;
+use std::format;
 use std::string::ToString;
 
 /// 2^256 − 1, from any big-number tool.
@@ -143,4 +144,15 @@ fn wide_order_is_numeric_not_limbwise() {
             > Wide::from_amount(Amount([u64::MAX, u64::MAX, u64::MAX, 0]))
     );
     assert_eq!(low.cmp(&low), core::cmp::Ordering::Equal);
+}
+
+#[test]
+fn coin_constants_match_the_spec_vector() {
+    let spec = include_str!("../../../spec/tests/units.json");
+    assert!(spec.contains(&format!("\"coin_decimals\": {COIN_DECIMALS},")));
+    assert!(spec.contains(&format!("\"base_units_per_coin\": \"{ONE_COIN}\"")));
+    // 21,000,000 coins in base units: well inside a 256-bit balance.
+    let cap = 21_000_000 * ONE_COIN;
+    assert!(spec.contains(&format!("\"supply_cap_base_units\": \"{cap}\"")));
+    assert_eq!(Amount::from_u128(cap).to_string(), cap.to_string());
 }

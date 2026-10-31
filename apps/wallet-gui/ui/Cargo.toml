@@ -18,6 +18,8 @@ serde = { version = "1", features = ["derive"] }
 serde-wasm-bindgen = "0.6"
 # Amounts are 256-bit (ADR-046): the same U256 and the same amount.rs as the core.
 primitive-types = { version = "0.12.2", default-features = false }
+# amount.rs is shared by path; it reads the coin decimals from here (ADR-068).
+maya-amount = { path = "../../../crates/amount" }
 thiserror = "2.0"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"

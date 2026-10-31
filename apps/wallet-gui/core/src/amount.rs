@@ -7,8 +7,9 @@
 use primitive_types::U256;
 use thiserror::Error;
 
-/// Decimal places in one whole coin (ADR-046).
-pub const DECIMALS: usize = 24;
+/// Decimal places in one whole coin (ADR-068). Read from the one source,
+/// `maya_amount::COIN_DECIMALS`; the UI shares this file, so it gets the same value.
+pub const DECIMALS: usize = maya_amount::COIN_DECIMALS;
 
 /// The coin's ticker, chosen by the owner on 2026-10-18 (DECISIONS.md).
 pub const TICKER: &str = "MAYA";
@@ -52,13 +53,13 @@ pub fn parse_base_units(text: &str) -> Result<U256, AmountError> {
 
 /// Parses a whole-coin decimal such as `"1.5"`, exactly, into base units.
 ///
-/// At most 18 fractional digits; no rounding, so `"0.0000000000000000001"`
+/// At most [`DECIMALS`] fractional digits; no rounding, so one digit past that
 /// is rejected rather than truncated to zero.
 ///
 /// # Errors
 ///
 /// [`AmountError`] for anything [`parse_base_units`] rejects, a fraction with
-/// more than 18 digits, or a bare `.`, `1.` or `.5`.
+/// more than [`DECIMALS`] digits, or a bare `.`, `1.` or `.5`.
 pub fn parse_display(text: &str) -> Result<U256, AmountError> {
     if text.is_empty() {
         return Err(AmountError::Empty);
@@ -81,11 +82,12 @@ pub fn parse_display(text: &str) -> Result<U256, AmountError> {
     parse_base_units(&format!("{whole}{fraction}{padding}"))
 }
 
-/// Formats base units as a whole-coin decimal with 18 places and digit
-/// grouping: `1234567890123456789000` becomes `1,234.567890123456789000`.
+/// Formats base units as a whole-coin decimal with [`DECIMALS`] places and
+/// digit grouping: `1234` coins (`1234 * 10^DECIMALS` base units) becomes
+/// `1,234.000000000000000000000000`.
 ///
-/// Exact: the 18 places are the full precision, so nothing is rounded and a
-/// balance never reads higher than it is.
+/// Exact: the [`DECIMALS`] places are the full precision, so nothing is rounded
+/// and a balance never reads higher than it is.
 #[must_use]
 pub fn format_display(value: U256) -> String {
     render(value, true, false)
@@ -119,6 +121,13 @@ fn render(value: U256, grouped: bool, trim: bool) -> String {
     } else {
         format!("{whole}.{fraction}")
     }
+}
+
+/// The UI's refusal when a whole-coin field has too many decimal places. The
+/// limit is `DECIMALS`, so the text cannot drift from what the parser enforces.
+#[must_use]
+pub fn decimal_places_message(field: &str) -> String {
+    format!("{field} must be a number with at most {DECIMALS} decimal places.")
 }
 
 /// Longest input either parser will scan. A 2^256 - 1 decimal is 78 digits;
@@ -195,6 +204,16 @@ mod tests {
             format_display(U256::MAX),
             "115,792,089,237,316,195,423,570,985,008,687,907,853,269,984,665,640,564.039457584007913129639935"
         );
+    }
+
+    #[test]
+    fn ui_refusal_names_the_real_limit() {
+        assert_eq!(
+            decimal_places_message("Fee"),
+            "Fee must be a number with at most 24 decimal places."
+        );
+        let too_many = format!("0.{}1", "0".repeat(DECIMALS));
+        assert_eq!(parse_display(&too_many), Err(AmountError::TooManyDecimals));
     }
 
     #[test]
