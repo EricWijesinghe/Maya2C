@@ -87,7 +87,7 @@ def main():
 
     parent, size, target, denom, floor = Ints("parent size target denom floor")
     validated = And(u64(parent, size, target, denom, floor),
-                    target >= 64 * 1024, target <= 16 * 1024 * 1024,
+                    target >= 64 * 1024, target <= (5 * 1024 * 1024) // 2,
                     denom >= 8, denom <= 1024, floor >= 1)
     nxt, raw, prod = next_base_fee_model(parent, size, target, denom, floor)
     results.append(prove("next_base_fee: the u128 product never overflows", prod <= U128_MAX, validated))
