@@ -40,6 +40,7 @@
 pub mod airgap;
 pub mod amount;
 pub mod compose;
+pub mod confirm;
 pub mod error;
 pub mod hd;
 pub mod networks;

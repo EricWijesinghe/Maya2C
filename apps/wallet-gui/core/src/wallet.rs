@@ -17,10 +17,15 @@ use zeroize::Zeroizing;
 // Re-exported: the desktop app names the chain it signs for without linking the node.
 pub use custom_l1_node::core::ChainTag;
 
+use custom_l1_node::core::Transaction;
+use custom_l1_node::crypto::hybrid::HybridSigningKey;
+
+use crate::confirm::{Confirmation, confirmation};
 use crate::error::{Result, WalletError};
 use crate::hd::{self, DerivationPath, SEED_LEN};
 use crate::payment::{
-    SignedTransfer, check_fee_collector, sign_transfer, sign_transfer_to, transfer_size,
+    FEE_SINK, SignedTransfer, check_fee_collector, decode_address, finish_transfer, transfer_size,
+    transfer_tx,
 };
 
 /// A derived account.
@@ -127,11 +132,61 @@ impl Wallet {
         self.accounts.values().cloned().collect()
     }
 
-    /// Signs a transfer from account `index`. No network required.
+    /// The transfer from account `index` that `terms` describe, unsigned.
+    fn unsigned(
+        &self,
+        index: u32,
+        recipient: &str,
+        amount: primitive_types::U256,
+        terms: &SignTerms<'_>,
+    ) -> Result<(HybridSigningKey, Transaction)> {
+        let path = DerivationPath::account(0, index);
+        let signing_key = hd::signing_key_at(self.seed.as_ref(), &path)?;
+        let fee_recipient = match terms.fee_to {
+            Some(collector) => {
+                check_fee_collector(collector)?;
+                decode_address(collector)?
+            }
+            None => FEE_SINK,
+        };
+        let tx = transfer_tx(
+            &signing_key,
+            recipient,
+            amount,
+            terms.fee,
+            fee_recipient,
+            terms.nonce,
+        )?;
+        Ok((signing_key, tx))
+    }
+
+    /// What the confirm screen shows for this transfer. Signs nothing.
     ///
     /// # Errors
     ///
-    /// Propagates derivation and signing failures.
+    /// Propagates derivation, address and fee-collector failures.
+    pub fn confirm(
+        &self,
+        index: u32,
+        recipient: &str,
+        amount: primitive_types::U256,
+        terms: &SignTerms<'_>,
+    ) -> Result<Confirmation> {
+        let (_, tx) = self.unsigned(index, recipient, amount, terms)?;
+        Ok(confirmation(&tx, terms.chain))
+    }
+
+    /// Signs a transfer from account `index`, but only the one `confirmed_hash`
+    /// names. No network required.
+    ///
+    /// `confirmed_hash` is [`Confirmation::signing_hash`] from [`Wallet::confirm`]
+    /// with the same arguments. Any difference (recipient, amount, fee, nonce,
+    /// chain, collector) changes the hash and nothing is signed.
+    ///
+    /// # Errors
+    ///
+    /// [`WalletError::Signing`] when the hash does not match; otherwise
+    /// propagates derivation and signing failures.
     ///
     /// `terms` are what the node said while online: see [`SignTerms`].
     pub fn sign(
@@ -140,30 +195,24 @@ impl Wallet {
         recipient: &str,
         amount: primitive_types::U256,
         terms: &SignTerms<'_>,
+        confirmed_hash: &str,
     ) -> Result<SignedTransfer> {
-        let path = DerivationPath::account(0, index);
-        let signing_key = hd::signing_key_at(self.seed.as_ref(), &path)?;
-        let SignTerms {
-            fee,
-            fee_to,
-            nonce,
-            chain,
-        } = *terms;
-        let transfer = match fee_to {
-            Some(collector) => {
-                check_fee_collector(collector)?;
-                sign_transfer_to(
-                    &signing_key,
-                    recipient,
-                    amount,
-                    fee,
-                    collector,
-                    nonce,
-                    chain,
-                )?
-            }
-            None => sign_transfer(&signing_key, recipient, amount, fee, nonce, chain)?,
-        };
+        let (signing_key, tx) = self.unsigned(index, recipient, amount, terms)?;
+        if confirmation(&tx, terms.chain).signing_hash != confirmed_hash {
+            return Err(WalletError::Signing(
+                "the transaction differs from the one on the confirm screen; nothing was signed"
+                    .to_string(),
+            ));
+        }
+        let transfer = finish_transfer(
+            tx,
+            &signing_key,
+            recipient,
+            amount,
+            terms.fee,
+            terms.nonce,
+            terms.chain,
+        )?;
 
         self.history.push(PendingTransfer {
             transfer: transfer.clone(),
