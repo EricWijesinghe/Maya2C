@@ -21,10 +21,12 @@ use crate::config::StorageConfig;
 use maya_crypto_pq::agility::SuitePolicy;
 use maya_dex::batch::SwapIntent;
 use maya_dex::types::PairId;
+use maya_fee_market::limits::MAX_BLOCK_BYTES;
 use maya_ledger_math as ledger_math;
 use primitive_types::U256;
 use rocksdb::{BlockBasedOptions, Cache, DB, IteratorMode, Options, WriteBatch};
 
+use crate::core::block::{block_wire_len, transaction_wire_len};
 use crate::core::payload::ChannelId;
 use crate::core::{Block, ChainTag, Transaction};
 use crate::error::{NodeError, Result};
@@ -881,6 +883,9 @@ impl StateDB {
     /// flow, not against whatever happened to precede it — see
     /// [`maya_dex::batch`].
     fn stage_block(&self, block: &Block, context: BlockContext) -> Result<Overlay> {
+        // ADR-072: every apply path stages through here, so the cap holds for
+        // a block that was never imported as well as for one that was.
+        block.check_size()?;
         let mut overlay = Overlay::new();
         // Here and not in a commit path, so all four agree on which accounts
         // tree this block's root is built from.
@@ -1077,6 +1082,29 @@ impl StateDB {
         context: BlockContext,
         difficulty_target: [u8; HASH_LEN],
     ) -> Result<Vec<Transaction>> {
+        self.select_applicable_within(transactions, context, difficulty_target, MAX_BLOCK_BYTES)
+    }
+
+    /// [`StateDB::select_applicable`] under an explicit wire-byte `cap`, which
+    /// the node passes as [`MAX_BLOCK_BYTES`] (ADR-072).
+    ///
+    /// Admission is in order and stops at the first transaction that would take
+    /// the block over `cap`: the rest are not staged, so the kept list is a
+    /// prefix of the executable ones. Transactions that do not execute cost no
+    /// room. Whatever is left is simply not in the block, so it stays with its
+    /// proposer and is proposed again, and the nonce rule keeps it from
+    /// executing twice.
+    ///
+    /// # Errors
+    ///
+    /// As [`StateDB::select_applicable`].
+    pub fn select_applicable_within(
+        &self,
+        transactions: Vec<Transaction>,
+        context: BlockContext,
+        difficulty_target: [u8; HASH_LEN],
+        cap: u64,
+    ) -> Result<Vec<Transaction>> {
         self.get_chain_tag()?;
         let mut overlay = Overlay::new();
         self.mark_sparse_accounts(&mut overlay, context)?;
@@ -1084,25 +1112,32 @@ impl StateDB {
         let policy = crate::crypto::suites::verification_policy();
         self.prewarm_verification(&transactions, context.height, &policy)?;
         let mut kept = Vec::with_capacity(transactions.len());
+        let mut wire = block_wire_len(std::iter::empty::<usize>());
         for tx in transactions {
-            if matches!(tx.kind, crate::core::TxKind::Transfer) {
+            let len = transaction_wire_len(tx.to_bytes().len());
+            if wire.saturating_add(len) > cap {
+                break;
+            }
+            let staged = if matches!(tx.kind, crate::core::TxKind::Transfer) {
                 // A plain transfer writes only its sender's and recipients'
                 // accounts and the fee tallies, so those are saved and put
                 // back on failure instead of copying the whole overlay: the
                 // copy made building a 900-transaction block quadratic.
-                if self.stage_transfer_or_undo(&mut overlay, &tx, context, &policy)? {
-                    kept.push(tx);
+                self.stage_transfer_or_undo(&mut overlay, &tx, context, &policy)?
+            } else {
+                let mut trial = overlay.clone();
+                match self.stage_transaction(&mut trial, &tx, context, &policy) {
+                    Ok(()) => {
+                        overlay = trial;
+                        true
+                    }
+                    Err(e @ NodeError::Storage(_)) => return Err(e),
+                    Err(_) => false,
                 }
-                continue;
-            }
-            let mut trial = overlay.clone();
-            match self.stage_transaction(&mut trial, &tx, context, &policy) {
-                Ok(()) => {
-                    overlay = trial;
-                    kept.push(tx);
-                }
-                Err(e @ NodeError::Storage(_)) => return Err(e),
-                Err(_) => {}
+            };
+            if staged {
+                wire = wire.saturating_add(len);
+                kept.push(tx);
             }
         }
         Ok(kept)

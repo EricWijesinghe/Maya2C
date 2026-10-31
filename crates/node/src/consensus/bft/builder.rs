@@ -79,7 +79,9 @@ fn median_time_ms(sub_dag: &SubDag) -> u64 {
 /// Builds the block `sub_dag` orders on top of `chain`'s tip.
 ///
 /// Transactions that do not execute in order are dropped
-/// ([`crate::state::StateDB::select_applicable`]). If the survivors still
+/// ([`crate::state::StateDB::select_applicable`]). Ones past the block cap
+/// (ADR-072) are not dropped: they are left out, and stay with their proposer
+/// for a later block. If the survivors still
 /// fail at the end-of-block passes, the block is built empty: an anchor must
 /// always produce a block, or two nodes that disagreed about one transaction
 /// would disagree about the height of everything after it.

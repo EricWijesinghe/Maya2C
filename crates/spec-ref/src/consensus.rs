@@ -46,6 +46,39 @@ pub const fn header_version_ok(version: u8) -> bool {
     version == 0
 }
 
+/// CON-12: the largest block, in wire bytes (ADR-072, provisional). Mirrors
+/// `maya_fee_market::limits::MAX_BLOCK_BYTES`; the conformance runner checks
+/// that the node's constant is this one.
+pub const MAX_BLOCK_BYTES: u64 = 5 * 1024 * 1024;
+
+/// CON-12: the header (145 bytes) and the transaction count (8).
+const BLOCK_OVERHEAD: u64 = 145 + 8;
+
+/// CON-12: wire bytes of a block carrying transactions of these encoded
+/// lengths: the overhead plus an 8-byte length prefix per transaction.
+#[must_use]
+pub fn block_wire_bytes(tx_lens: &[u64]) -> u64 {
+    tx_lens.iter().fold(BLOCK_OVERHEAD, |sum, len| {
+        sum.saturating_add(8).saturating_add(*len)
+    })
+}
+
+/// CON-12: how many leading transactions fit under `cap`. Stops at the first
+/// that would take the block over it, so the admitted set is a prefix.
+#[must_use]
+pub fn admitted_prefix(tx_lens: &[u64], cap: u64) -> usize {
+    let mut total = BLOCK_OVERHEAD;
+    let mut admitted = 0;
+    for len in tx_lens {
+        total = total.saturating_add(8).saturating_add(*len);
+        if total > cap {
+            break;
+        }
+        admitted += 1;
+    }
+    admitted
+}
+
 /// CON-11: the median of the most recent `MEDIAN_TIME_SPAN` timestamps,
 /// `recent` ordered oldest first. The upper middle for an even count.
 #[must_use]
