@@ -1,0 +1,206 @@
+---
+// The fields universe: every field Maya2C spans as an orb, placed by how far
+// along its most mature part is. Inner orbs are shipped, the middle ring is
+// research or simulator, the outer ring is planned. Statuses come from
+// src/data/fields.ts, which scripts/check-fields.mjs checks against features.toml
+// on every build. Without JavaScript each orb is a link to its detail, and every
+// detail is on the page; the script adds "pick an orb, read one card".
+import { fields, asOf, ledgerFile, type Field, type FieldTag } from "../data/fields";
+
+const rank: Record<FieldTag, number> = { SHIPPED: 4, RESEARCH: 3, SIM: 2, PLANNED: 1 };
+const word: Record<FieldTag, string> = { SHIPPED: "shipped", RESEARCH: "research", SIM: "simulator", PLANNED: "planned" };
+const ringOf: Record<FieldTag, number> = { SHIPPED: 24, RESEARCH: 37, SIM: 37, PLANNED: 44 };
+// Each ring starts at its own angle so the rings do not line up.
+const startOf: Record<number, number> = { 24: 0, 37: 22, 44: 45 };
+
+const headline = (f: Field): FieldTag =>
+  f.parts.reduce<FieldTag>((best, p) => (rank[p.tag] > rank[best] ? p.tag : best), f.parts[0].tag);
+const count = (f: Field, t: FieldTag) => f.parts.filter((p) => p.tag === t).length;
+const total = (t: FieldTag) => fields.reduce((n, f) => n + count(f, t), 0);
+
+// Geometry at build time, so the page ships no layout maths. Percentages of the sky box.
+const placed = fields.map((f) => {
+  const tag = headline(f);
+  const R = ringOf[tag];
+  const ring = fields.filter((g) => ringOf[headline(g)] === R);
+  const k = ring.indexOf(f);
+  const a = ((startOf[R] + k * (360 / ring.length) - 90) * Math.PI) / 180;
+  return {
+    f,
+    tag,
+    x: (50 + R * Math.cos(a)).toFixed(2),
+    y: (50 + R * Math.sin(a)).toFixed(2),
+  };
+});
+
+const parts = `${fields.reduce((n, f) => n + f.parts.length, 0)}`;
+---
+
+<section class="not-content universe-wrap" aria-label={`Maya2C fields: ${total("SHIPPED")} parts shipped, ${total("RESEARCH")} research, ${total("SIM")} simulator, ${total("PLANNED")} planned`}>
+    <div class="sky">
+      <svg viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+        <circle cx="50" cy="50" r="24" class="ring" />
+        <circle cx="50" cy="50" r="37" class="ring" />
+        <circle cx="50" cy="50" r="44" class="ring ring-out" />
+      </svg>
+      <div class="core" aria-hidden="true">
+        <span class="core-name">Maya2C</span>
+        <span class="core-cap">{parts} parts</span>
+      </div>
+      {placed.map(({ f, tag, x, y }, i) => (
+        <a class={`orb ${tag}`} href={`#f-${f.id}`} data-i={i} style={`left:${x}%;top:${y}%`}
+           aria-label={`${f.name}: ${word[tag]}`} aria-current={i === 0 ? "true" : undefined}>
+          <span class="dot" aria-hidden="true"></span>
+          <span class="lbl" aria-hidden="true">{f.name}</span>
+        </a>
+      ))}
+    </div>
+
+    <ol class="details">
+      {fields.map((f, i) => {
+        const tag = headline(f);
+        return (
+          <li class={`detail ${tag}`} id={`f-${f.id}`} data-i={i}>
+            <p class="tag"><span class="pip" aria-hidden="true"></span>{word[tag]}, most mature part</p>
+            <h3>{f.name}</h3>
+            <p class="line">{f.line}</p>
+            <p class="counts">
+              {count(f, "SHIPPED")} shipped · {count(f, "RESEARCH")} research · {count(f, "SIM")} simulator · {count(f, "PLANNED")} planned
+            </p>
+            <ul class="parts">
+              {f.parts.map((p) => (
+                <li><span class={`ptag ${p.tag}`}>{p.tag}</span>{p.name}</li>
+              ))}
+            </ul>
+            {f.note && <p class="note">{f.note}</p>}
+            <a class="learn" href={f.learn.href}>Learn more: {f.learn.label} →</a>
+          </li>
+        );
+      })}
+    </ol>
+
+    <p class="legend">
+      <span class="k SHIPPED">shipped</span><span class="k RESEARCH">research</span><span class="k SIM">simulator</span><span class="k PLANNED">planned</span>
+      <span class="asof">as of {asOf} · checked against <code>{ledgerFile}</code> on every build</span>
+    </p>
+</section>
+
+<script>
+  document.querySelectorAll<HTMLElement>(".universe-wrap").forEach((wrap) => {
+    const orbs = [...wrap.querySelectorAll<HTMLAnchorElement>(".orb")];
+    const details = [...wrap.querySelectorAll<HTMLElement>(".detail")];
+    const pick = (i: number) => {
+      orbs.forEach((o, k) => (k === i ? o.setAttribute("aria-current", "true") : o.removeAttribute("aria-current")));
+      details.forEach((d, k) => (d.hidden = k !== i));
+    };
+    wrap.classList.add("js");
+    pick(0);
+    orbs.forEach((o, i) => {
+      o.addEventListener("click", (e) => {
+        e.preventDefault();
+        pick(i);
+        o.focus();
+      });
+      o.addEventListener("keydown", (e) => {
+        const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+        if (!step) return;
+        e.preventDefault();
+        const next = (i + step + orbs.length) % orbs.length;
+        orbs[next].focus();
+        pick(next);
+      });
+    });
+  });
+</script>
+
+<style>
+  .universe-wrap {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 2rem; align-items: center;
+    margin: 1.5rem 0 2.5rem; padding: 1.75rem; border-radius: var(--r-l);
+    background: var(--glass); border: 1px solid var(--glass-edge); box-shadow: var(--shadow);
+  }
+  .universe-wrap [hidden] { display: none !important; }
+
+  .sky { position: relative; width: min(100%, 560px); aspect-ratio: 1; margin: 0 auto; }
+  .sky svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .ring { fill: none; stroke: var(--glass-edge); stroke-width: .25; stroke-dasharray: .8 1.2; }
+  .ring-out { stroke-dasharray: none; opacity: .6; }
+
+  .core {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: 22%; aspect-ratio: 1; border-radius: 50%; display: grid; place-content: center; text-align: center;
+    background: radial-gradient(circle, color-mix(in srgb, var(--cherenkov) 30%, transparent) 0%, transparent 70%);
+    animation: breathe 5s var(--glide) infinite;
+  }
+  .core-name { font: 800 clamp(1rem, 3.2vw, 1.6rem)/1 var(--display); color: var(--text); }
+  .core-cap { margin-top: .3rem; font: 600 .7rem var(--mono); color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+
+  .orb {
+    position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: .35rem;
+    color: var(--text); text-decoration: none; border-radius: var(--r-s); padding: .25rem;
+  }
+  .dot {
+    width: clamp(2.1rem, 6vw, 3rem); aspect-ratio: 1; border-radius: 50%; display: block;
+    transition: transform .35s var(--spring), box-shadow .35s var(--glide);
+  }
+  .orb.SHIPPED .dot { background: radial-gradient(circle at 35% 30%, var(--orb-hi), color-mix(in srgb, var(--verified) 55%, var(--void)) 70%); box-shadow: 0 0 0 1.5px var(--verified); }
+  .orb.RESEARCH .dot { background: radial-gradient(circle at 35% 30%, var(--orb-hi), color-mix(in srgb, var(--cherenkov) 50%, var(--void)) 70%); box-shadow: 0 0 0 1.5px var(--cherenkov); }
+  .orb.SIM .dot { background: radial-gradient(circle at 35% 30%, var(--orb-hi), color-mix(in srgb, var(--gold) 50%, var(--void)) 70%); box-shadow: 0 0 0 1.5px var(--gold); }
+  .orb.PLANNED .dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); border: 0; outline: 1.5px dashed var(--muted); outline-offset: 3px; }
+  .lbl {
+    font: 600 .74rem/1.2 var(--sans); white-space: nowrap; padding: .2rem .5rem; border-radius: var(--r-pill);
+    background: var(--well); border: 1px solid var(--glass-edge);
+  }
+  .orb[aria-current="true"] .dot { transform: scale(1.18); box-shadow: 0 0 0 3px var(--text), 0 0 18px var(--halo); }
+  .orb:hover .dot { transform: scale(1.1); }
+  .orb:focus-visible { outline: 3px solid var(--cherenkov-hi); outline-offset: 4px; }
+
+  .details { list-style: none; margin: 0; padding: 0; display: grid; gap: .9rem; min-width: 0; }
+  .detail { padding: 1.25rem 1.4rem; border-radius: var(--r-m); background: var(--well); border: 1px solid var(--glass-edge); }
+  .js .detail { animation: rise .45s var(--glide); }
+  .detail h3 { margin: .2rem 0 .3rem; font: 800 1.45rem/1.2 var(--display); color: var(--text); }
+  .detail .line { margin: 0 0 .5rem; color: var(--lede); }
+  .counts { margin: 0 0 .7rem; font: .8rem var(--mono); color: var(--muted); }
+  .parts { list-style: none; margin: 0 0 .7rem; padding: 0; display: grid; gap: .35rem; }
+  .parts li { display: flex; gap: .55rem; align-items: baseline; color: var(--lede); font-size: .92rem; }
+  .ptag { flex: none; min-width: 5.6rem; font: 700 .68rem var(--mono); letter-spacing: .06em; text-align: center; padding: .15rem .4rem; border-radius: var(--r-pill); border: 1px solid currentColor; }
+  /* Status words are text, so they are mixed toward --text: the bare light-theme
+     greens and golds measure 3.7 to 4.1:1 on the well, under AA for small text. */
+  .ptag.SHIPPED { color: color-mix(in srgb, var(--verified) 70%, var(--text)); }
+  .ptag.RESEARCH { color: color-mix(in srgb, var(--cherenkov-hi) 70%, var(--text)); }
+  .ptag.SIM { color: color-mix(in srgb, var(--gold) 70%, var(--text)); }
+  .ptag.PLANNED { color: var(--muted); border-style: dashed; }
+  .note { margin: 0 0 .7rem; font-size: .85rem; color: var(--muted); }
+  .learn { color: var(--accent-text); font-weight: 600; text-decoration: none; }
+  .learn:hover { text-decoration: underline; }
+  .tag { margin: 0; font: 600 .78rem var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: .5rem; }
+  .pip { width: .6rem; height: .6rem; border-radius: 50%; background: currentColor; }
+  .detail.SHIPPED .tag { color: color-mix(in srgb, var(--verified) 70%, var(--text)); }
+  .detail.RESEARCH .tag { color: color-mix(in srgb, var(--cherenkov-hi) 70%, var(--text)); }
+  .detail.SIM .tag { color: color-mix(in srgb, var(--gold) 70%, var(--text)); }
+  .detail.PLANNED .tag { color: var(--muted); }
+
+  .legend { grid-column: 1 / -1; margin: 0; display: flex; flex-wrap: wrap; gap: .5rem 1.1rem; align-items: center; font-size: .85rem; color: var(--muted); }
+  .k::before { content: ""; display: inline-block; width: .7rem; height: .7rem; border-radius: 50%; margin-right: .4rem; vertical-align: -1px; }
+  .k.SHIPPED::before { background: var(--verified); }
+  .k.RESEARCH::before { background: var(--cherenkov); }
+  .k.SIM::before { background: var(--gold); }
+  .k.PLANNED::before { border: 1.5px dashed var(--muted); }
+  .asof { margin-left: auto; }
+
+  @keyframes breathe { 50% { opacity: .6; transform: translate(-50%, -50%) scale(.96); } }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+
+  @media (max-width: 900px) {
+    .universe-wrap { grid-template-columns: minmax(0, 1fr); padding: 1.1rem; gap: 1.2rem; }
+    .asof { margin-left: 0; }
+  }
+  @media (max-width: 520px) {
+    .lbl { display: none; }
+    .orb[aria-current="true"] .lbl { display: block; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .core, .js .detail { animation: none; }
+    .dot { transition: none; }
+  }
+</style>
