@@ -63,18 +63,19 @@ pub fn block_wire_bytes(tx_lens: &[u64]) -> u64 {
     })
 }
 
-/// CON-12: how many leading transactions fit under `cap`. Stops at the first
-/// that would take the block over it, so the admitted set is a prefix.
+/// CON-12: the indices first-fit admits under `cap`, if each transaction
+/// executes. A transaction that would take the block over the cap is passed
+/// over, and the ones after it are still considered.
 #[must_use]
-pub fn admitted_prefix(tx_lens: &[u64], cap: u64) -> usize {
+pub fn first_fit(tx_lens: &[u64], cap: u64) -> Vec<usize> {
     let mut total = BLOCK_OVERHEAD;
-    let mut admitted = 0;
-    for len in tx_lens {
-        total = total.saturating_add(8).saturating_add(*len);
-        if total > cap {
-            break;
+    let mut admitted = Vec::new();
+    for (index, len) in tx_lens.iter().enumerate() {
+        let next = total.saturating_add(8).saturating_add(*len);
+        if next <= cap {
+            total = next;
+            admitted.push(index);
         }
-        admitted += 1;
     }
     admitted
 }

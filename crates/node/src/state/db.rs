@@ -26,7 +26,7 @@ use maya_ledger_math as ledger_math;
 use primitive_types::U256;
 use rocksdb::{BlockBasedOptions, Cache, DB, IteratorMode, Options, WriteBatch};
 
-use crate::core::block::{block_wire_len, transaction_wire_len};
+use crate::core::block::{block_wire_len, transaction_wire_len, warmup_len};
 use crate::core::payload::ChannelId;
 use crate::core::{Block, ChainTag, Transaction};
 use crate::error::{NodeError, Result};
@@ -1088,12 +1088,12 @@ impl StateDB {
     /// [`StateDB::select_applicable`] under an explicit wire-byte `cap`, which
     /// the node passes as [`MAX_BLOCK_BYTES`] (ADR-072).
     ///
-    /// Admission is in order and stops at the first transaction that would take
-    /// the block over `cap`: the rest are not staged, so the kept list is a
-    /// prefix of the executable ones. Transactions that do not execute cost no
-    /// room. Whatever is left is simply not in the block, so it stays with its
-    /// proposer and is proposed again, and the nonce rule keeps it from
-    /// executing twice.
+    /// Admission is first-fit in order: a transaction that would take the block
+    /// over `cap` is passed over and the ones after it are still considered.
+    /// Transactions that do not execute cost no room. Whatever is left out stays
+    /// with its proposer and is proposed again; the nonce rule keeps a
+    /// transaction from executing twice, and a later transaction from the same
+    /// sender fails on its nonce while an earlier one is left out.
     ///
     /// # Errors
     ///
@@ -1110,13 +1110,20 @@ impl StateDB {
         self.mark_sparse_accounts(&mut overlay, context)?;
         overlay.difficulty_target = difficulty_target;
         let policy = crate::crypto::suites::verification_policy();
-        self.prewarm_verification(&transactions, context.height, &policy)?;
+        // Verification is cache-only: a failure is not cached and the pass below
+        // verifies again through the same cache. Warming only the cap's worth of
+        // bytes bounds the work before the cut; later ones verify when reached.
+        let warm = warmup_len(transactions.iter().map(|t| t.to_bytes().len()), cap);
+        self.prewarm_verification(&transactions[..warm], context.height, &policy)?;
         let mut kept = Vec::with_capacity(transactions.len());
         let mut wire = block_wire_len(std::iter::empty::<usize>());
         for tx in transactions {
             let len = transaction_wire_len(tx.to_bytes().len());
+            // First-fit (ADR-072): one too big for the room left is passed over
+            // whether or not it would execute, so it is not staged, costs nothing
+            // and changes no state. Staging it and rolling back would give the same block.
             if wire.saturating_add(len) > cap {
-                break;
+                continue;
             }
             let staged = if matches!(tx.kind, crate::core::TxKind::Transfer) {
                 // A plain transfer writes only its sender's and recipients'
