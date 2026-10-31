@@ -29,6 +29,7 @@ mod localnet;
 mod mesh_check;
 mod mining_localnet;
 mod pgo;
+mod proving;
 mod readiness;
 mod release_check;
 mod sdk_e2e;
@@ -69,6 +70,7 @@ fn main() -> ExitCode {
         "bench-tps" => bench_tps::bench_tps(rest),
         "localnet" => localnet::localnet(rest),
         "mining-localnet" => mining_localnet::mining_localnet(rest),
+        "proving" => proving::proving(rest),
         "attacknet" => attacknet::attacknet(rest),
         "up" => up::up(),
         "down" => up::down(),
