@@ -178,12 +178,16 @@ async fn send(a: &Args) -> Result<(), String> {
     let relay = relay_addr(a)?;
     let to = address(a.to.as_deref().ok_or("--to is required")?)?;
     let mut client = load_client(&a.home)?;
-    courier::deliver(&mut client, &relay, to, a.text.join(" ").as_bytes(), now())
-        .await
-        .map_err(|e| why(&e))?;
-    // Saved only once the relay holds the message: a send that failed must
-    // not advance the chain past a message the peer will never see.
-    save_client(&a.home, &client)?;
+    let established = client.has_session(&to);
+    let sent = courier::deliver(&mut client, &relay, to, a.text.join(" ").as_bytes(), now()).await;
+    // Saved on success, and on failure too once a session exists: the relay
+    // may hold the envelope, and an unsaved chain would reuse its key next
+    // time (two-time pad; ADR-074). A failed first message is not saved, so
+    // the retry handshakes afresh.
+    if sent.is_ok() || established {
+        save_client(&a.home, &client)?;
+    }
+    sent.map_err(|e| why(&e))?;
     println!("sent to {}", hex::encode(to));
     Ok(())
 }

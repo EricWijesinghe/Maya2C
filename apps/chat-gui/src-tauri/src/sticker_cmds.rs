@@ -155,12 +155,22 @@ pub async fn request_pack(app: State<'_, Arc<App>>, peer: String, pack: String) 
     app.save(s)
 }
 
-/// Sends one plaintext, restoring the saved sessions if the relay refused it.
-async fn deliver(app: &App, s: &mut Session, peer: &str, plain: &[u8]) -> Result<(), String> {
+/// Sends one plaintext. On failure it never rewinds an established session.
+pub(crate) async fn deliver(app: &App, s: &mut Session, peer: &str, plain: &[u8]) -> Result<(), String> {
     let relay = relay_addr(&s.profile)?;
     let to = address(peer)?;
+    let established = s.client.has_session(&to);
     if let Err(e) = courier::deliver(&mut s.client, &relay, to, plain, now()).await {
-        *s = App::session(&app.files, s.seed.clone())?;
+        // An established session keeps its advanced chain even though the send
+        // failed: the relay may hold the envelope with only the reply lost, and
+        // rewinding would seal the next message under the same key and nonce
+        // (two-time pad; ADR-074). The receiver skips a missing index. Only a
+        // session this send opened is rewound: the retry handshakes afresh.
+        if established {
+            app.save(s)?;
+        } else {
+            *s = App::session(&app.files, s.seed.clone())?;
+        }
         return Err(why(&e));
     }
     Ok(())
