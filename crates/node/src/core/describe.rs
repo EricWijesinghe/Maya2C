@@ -629,7 +629,11 @@ mod tests {
         );
         assert!(d.details.contains(&("fee to", full(&FEE_COLLECTOR))));
         assert!(d.details.contains(&("fee", "7 base units".to_string())));
-        assert!(!d.details.iter().any(|(l, v)| *l == "pay to" && *v == full(&FEE_COLLECTOR)));
+        assert!(
+            !d.details
+                .iter()
+                .any(|(l, v)| *l == "pay to" && *v == full(&FEE_COLLECTOR))
+        );
     }
 
     #[test]
