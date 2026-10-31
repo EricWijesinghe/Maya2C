@@ -269,3 +269,59 @@ pub fn verification(version: u8, call: &str, signature_valid: bool) -> Result<()
     }
     Ok(())
 }
+
+/// CON-13: deficit round-robin over authors. `entries` are `(author, length,
+/// key)` in commit order; a repeat has the same key. Each turn adds
+/// `budget / committee` to every waiting author, in ascending author order.
+/// An author admits from the front of its queue while the next payload fits
+/// its deficit and the budget left, and finishes when its queue is empty or
+/// its next payload is larger than the budget left. Returns the admitted
+/// indices in commit order, and the bytes charged.
+#[must_use]
+pub fn decode_fair(entries: &[(u16, u64, u64)], committee: u64, budget: u64) -> (Vec<usize>, u64) {
+    use std::collections::{BTreeMap, BTreeSet, VecDeque};
+    let mut queues: BTreeMap<u16, VecDeque<usize>> = BTreeMap::new();
+    for (index, (author, _, _)) in entries.iter().enumerate() {
+        queues.entry(*author).or_default().push_back(index);
+    }
+    let quantum = (budget / committee.max(1)).max(1);
+    let mut deficit: BTreeMap<u16, u64> = BTreeMap::new();
+    let mut remaining = budget;
+    let mut seen: BTreeSet<u64> = BTreeSet::new();
+    let mut admitted: Vec<usize> = Vec::new();
+    while !queues.is_empty() {
+        let mut finished = Vec::new();
+        for (author, queue) in &mut queues {
+            let d = deficit.entry(*author).or_insert(0);
+            *d = d.saturating_add(quantum);
+            loop {
+                let Some(&index) = queue.front() else {
+                    finished.push(*author);
+                    break;
+                };
+                let (_, len, key) = entries[index];
+                if seen.contains(&key) {
+                    queue.pop_front();
+                    continue;
+                }
+                if len > remaining {
+                    finished.push(*author);
+                    break;
+                }
+                if len > *d {
+                    break;
+                }
+                *d -= len;
+                remaining -= len;
+                seen.insert(key);
+                admitted.push(index);
+                queue.pop_front();
+            }
+        }
+        for author in finished {
+            queues.remove(&author);
+        }
+    }
+    admitted.sort_unstable();
+    (admitted, budget - remaining)
+}

@@ -763,7 +763,7 @@ impl BftDriver {
             }
             let anchor_time = anchor.timestamp_ms;
             let started = std::time::Instant::now();
-            let block = build_block(chain, &sub_dag)?;
+            let block = build_block(chain, &sub_dag, self.committee.len())?;
             let included: Vec<[u8; 32]> =
                 block.transactions.iter().map(Transaction::txid).collect();
             let kept: BTreeSet<[u8; 32]> = included.iter().copied().collect();
