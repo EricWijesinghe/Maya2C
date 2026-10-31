@@ -35,6 +35,18 @@ pub type PairId = [u8; 32];
 /// everywhere in the node, is in base units.
 pub const PRICE_SCALE: Amount = Amount::from_u128(1_000_000_000_000_000_000_000_000);
 
+/// Largest total supply an asset may register: the largest reserve whose
+/// scaled price `reserve * PRICE_SCALE` still fits 256 bits (about 2^176).
+///
+/// Without it a 2^200-unit asset paired against one base unit overflows
+/// [`crate::amm::Pool::spot_price`], every batch on that pair refunds, and the
+/// pair id (which the attacker took first) is frozen (#279 security review).
+/// It is the whole 256-bit range the price path can carry, not a lower guess.
+pub const MAX_ASSET_SUPPLY: Amount = match Amount::MAX.checked_div(PRICE_SCALE) {
+    Some(max) => max,
+    None => panic!("PRICE_SCALE is non-zero"),
+};
+
 /// Which way value moves through a pair.
 ///
 /// A pair has a canonical `base` and `quote` asset, fixed when the pool is
