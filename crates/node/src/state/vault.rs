@@ -193,6 +193,16 @@ fn refuse<T>(why: impl Into<String>) -> Result<T> {
     Err(NodeError::Vault(why.into()))
 }
 
+/// Fee outputs a vault may send uncounted: [`VAULT_FEE_HEADROOM`] times the
+/// required fee. `required` saturates to `Amount::MAX` once a base fee
+/// overflows; saturating the headroom too would make the allowance unbounded
+/// and let every collector output escape the limit. Refused instead.
+fn fee_allowance(required: maya_dex::Amount) -> Result<U256> {
+    maya_stateless_core::amount::to_u256(required)
+        .checked_mul(U256::from(VAULT_FEE_HEADROOM))
+        .ok_or_else(|| NodeError::Vault("fee allowance overflows 256 bits".into()))
+}
+
 fn validate(config: &VaultConfig) -> Result<()> {
     if !(1..=MAX_DELAY_BLOCKS).contains(&config.delay_blocks) {
         return refuse(format!(
@@ -304,8 +314,7 @@ impl StateDB {
                 .fold(U256::zero(), |total, o| total.saturating_add(o.amount))
         };
         let allowed_fee = match self.fee_record(overlay)? {
-            Some(fees) => maya_stateless_core::amount::to_u256(fees.required(tx.to_bytes().len()))
-                .saturating_mul(U256::from(VAULT_FEE_HEADROOM)),
+            Some(fees) => fee_allowance(fees.required(tx.to_bytes().len()))?,
             None => U256::zero(),
         };
         Ok(sum(false).saturating_add(sum(true).saturating_sub(allowed_fee)))
@@ -536,6 +545,30 @@ mod tests {
             limit: primitive_types::U256::from(100),
             guardians: vec![[7; 32]],
         }
+    }
+
+    #[test]
+    fn a_saturated_fee_requirement_cannot_widen_the_fee_allowance() {
+        // `required` saturates to Amount::MAX on overflow. Times the headroom,
+        // the old saturating_mul gave U256::MAX, so every collector output
+        // counted as fee and escaped the limit.
+        let max = maya_dex::Amount::MAX;
+        assert!(fee_allowance(max).is_err());
+        assert_eq!(
+            fee_allowance(maya_dex::Amount::from_u64(5)).unwrap(),
+            U256::from(5 * VAULT_FEE_HEADROOM)
+        );
+        // Past u64, still exact.
+        let edge = maya_dex::Amount::from_u128(u128::MAX);
+        assert_eq!(
+            fee_allowance(edge).unwrap(),
+            U256::from(u128::MAX) * U256::from(VAULT_FEE_HEADROOM)
+        );
+        // The exact 256-bit boundary: 2^254 times 4 is 2^256 and refused, one below fits.
+        let two_254 = maya_dex::Amount([0, 0, 0, 1 << 62]);
+        assert!(fee_allowance(two_254).is_err());
+        let just_under = maya_dex::Amount([u64::MAX, u64::MAX, u64::MAX, (1 << 62) - 1]);
+        assert!(fee_allowance(just_under).is_ok());
     }
 
     #[test]
