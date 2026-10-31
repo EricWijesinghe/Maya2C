@@ -85,6 +85,54 @@
       "tail": "0"
     },
     {
+      "epoch": "18446744073709551615",
+      "expect": "0",
+      "fn": "epoch_reward",
+      "halving_epochs": "1",
+      "id": "halving-every-epoch-at-max",
+      "initial": "1000000",
+      "rules": [
+        "MINE-1"
+      ],
+      "tail": "0"
+    },
+    {
+      "epoch": "19",
+      "expect": "1",
+      "fn": "epoch_reward",
+      "halving_epochs": "1",
+      "id": "halving-by-19",
+      "initial": "1000000",
+      "rules": [
+        "MINE-1"
+      ],
+      "tail": "0"
+    },
+    {
+      "epoch": "18446744073709551615",
+      "expect": "500000",
+      "fn": "epoch_reward",
+      "halving_epochs": "18446744073709551615",
+      "id": "halving-interval-max",
+      "initial": "1000000",
+      "rules": [
+        "MINE-1"
+      ],
+      "tail": "0"
+    },
+    {
+      "epoch": "9999",
+      "expect": "1000000",
+      "fn": "epoch_reward",
+      "halving_epochs": "10",
+      "id": "tail-equals-initial",
+      "initial": "1000000",
+      "rules": [
+        "MINE-1"
+      ],
+      "tail": "1000000"
+    },
+    {
       "expect": {
         "committee": "300000",
         "miners": "700000"
@@ -145,6 +193,32 @@
       "id": "split-max",
       "miner_bps": "7000",
       "reward": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+      "rules": [
+        "MINE-2"
+      ]
+    },
+    {
+      "expect": {
+        "committee": "0",
+        "miners": "0"
+      },
+      "fn": "split",
+      "id": "split-zero-reward",
+      "miner_bps": "7000",
+      "reward": "0",
+      "rules": [
+        "MINE-2"
+      ]
+    },
+    {
+      "expect": {
+        "committee": "9",
+        "miners": "0"
+      },
+      "fn": "split",
+      "id": "split-zero-bps",
+      "miner_bps": "0",
+      "reward": "9",
       "rules": [
         "MINE-2"
       ]
@@ -223,6 +297,561 @@
         "MINE-3"
       ],
       "tail": "340282366920938463463374607431768211456"
+    },
+    {
+      "expect": "70000",
+      "fn": "share_reward",
+      "id": "share-first-of-epoch",
+      "miner_bps": "7000",
+      "paid": "0",
+      "reward": "1000000",
+      "rules": [
+        "MINE-4"
+      ],
+      "target_shares": "10"
+    },
+    {
+      "expect": "1",
+      "fn": "share_reward",
+      "id": "share-rounds-down",
+      "miner_bps": "7000",
+      "paid": "0",
+      "reward": "7",
+      "rules": [
+        "MINE-4"
+      ],
+      "target_shares": "3"
+    },
+    {
+      "expect": "1000",
+      "fn": "share_reward",
+      "id": "share-last-remainder",
+      "miner_bps": "7000",
+      "paid": "699000",
+      "reward": "1000000",
+      "rules": [
+        "MINE-4"
+      ],
+      "target_shares": "10"
+    },
+    {
+      "expect": "0",
+      "fn": "share_reward",
+      "id": "share-budget-spent",
+      "miner_bps": "7000",
+      "paid": "700000",
+      "reward": "1000000",
+      "rules": [
+        "MINE-4"
+      ],
+      "target_shares": "10"
+    },
+    {
+      "expect": "0",
+      "fn": "share_reward",
+      "id": "share-zero-bps",
+      "miner_bps": "0",
+      "paid": "0",
+      "reward": "1000000",
+      "rules": [
+        "MINE-4"
+      ],
+      "target_shares": "10"
+    },
+    {
+      "expect": "100000",
+      "fn": "share_reward",
+      "id": "share-bps-clamped",
+      "miner_bps": "20000",
+      "paid": "0",
+      "reward": "1000000",
+      "rules": [
+        "MINE-4"
+      ],
+      "target_shares": "10"
+    },
+    {
+      "expect": "0",
+      "fn": "share_reward",
+      "id": "share-zero-reward",
+      "miner_bps": "7000",
+      "paid": "0",
+      "reward": "0",
+      "rules": [
+        "MINE-4"
+      ],
+      "target_shares": "10"
+    },
+    {
+      "epoch_blocks": "3600",
+      "expect": "1606938044258990275541962092341162602522202993782792835301376",
+      "fn": "retarget",
+      "id": "retarget-on-target",
+      "rules": [
+        "MINE-5"
+      ],
+      "shares": "8",
+      "spent_after": "0",
+      "target": "1606938044258990275541962092341162602522202993782792835301376",
+      "target_limit": "1766847064778384329583297500742918515827483896875618958121606201292619776",
+      "target_shares": "8"
+    },
+    {
+      "epoch_blocks": "3600",
+      "expect": "803469022129495137770981046170581301261101496891396417650688",
+      "fn": "retarget",
+      "id": "retarget-hardens-x2",
+      "rules": [
+        "MINE-5"
+      ],
+      "shares": "16",
+      "spent_after": "0",
+      "target": "1606938044258990275541962092341162602522202993782792835301376",
+      "target_limit": "1766847064778384329583297500742918515827483896875618958121606201292619776",
+      "target_shares": "8"
+    },
+    {
+      "epoch_blocks": "3600",
+      "expect": "401734511064747568885490523085290650630550748445698208825344",
+      "fn": "retarget",
+      "id": "retarget-hardens-clamped-x4",
+      "rules": [
+        "MINE-5"
+      ],
+      "shares": "1000",
+      "spent_after": "0",
+      "target": "1606938044258990275541962092341162602522202993782792835301376",
+      "target_limit": "1766847064778384329583297500742918515827483896875618958121606201292619776",
+      "target_shares": "8"
+    },
+    {
+      "epoch_blocks": "3600",
+      "expect": "6427752177035961102167848369364650410088811975131171341205504",
+      "fn": "retarget",
+      "id": "retarget-eases-clamped-x4",
+      "rules": [
+        "MINE-5"
+      ],
+      "shares": "0",
+      "spent_after": "0",
+      "target": "1606938044258990275541962092341162602522202993782792835301376",
+      "target_limit": "1766847064778384329583297500742918515827483896875618958121606201292619776",
+      "target_shares": "8"
+    },
+    {
+      "epoch_blocks": "3600",
+      "expect": "459125155502568650154846312097475029292057998223655095800393",
+      "fn": "retarget",
+      "id": "retarget-spent-early",
+      "rules": [
+        "MINE-5"
+      ],
+      "shares": "8",
+      "spent_after": "1000",
+      "target": "1606938044258990275541962092341162602522202993782792835301376",
+      "target_limit": "1766847064778384329583297500742918515827483896875618958121606201292619776",
+      "target_shares": "8"
+    },
+    {
+      "epoch_blocks": "1",
+      "expect": "401734511064747568885490523085290650630550748445698208825344",
+      "fn": "retarget",
+      "id": "retarget-demand-huge-clamped",
+      "rules": [
+        "MINE-5"
+      ],
+      "shares": "18446744073709551615",
+      "spent_after": "1",
+      "target": "1606938044258990275541962092341162602522202993782792835301376",
+      "target_limit": "1766847064778384329583297500742918515827483896875618958121606201292619776",
+      "target_shares": "8"
+    },
+    {
+      "epoch_blocks": "3600",
+      "expect": "1766847064778384329583297500742918515827483896875618958121606201292619776",
+      "fn": "retarget",
+      "id": "retarget-capped-at-limit",
+      "rules": [
+        "MINE-5"
+      ],
+      "shares": "0",
+      "spent_after": "0",
+      "target": "1766847064778384329583297500742918515827483896875618958121606201292619776",
+      "target_limit": "1766847064778384329583297500742918515827483896875618958121606201292619776",
+      "target_shares": "8"
+    },
+    {
+      "epoch_blocks": "3600",
+      "expect": "1",
+      "fn": "retarget",
+      "id": "retarget-never-zero",
+      "rules": [
+        "MINE-5"
+      ],
+      "shares": "1000",
+      "spent_after": "0",
+      "target": "1",
+      "target_limit": "1766847064778384329583297500742918515827483896875618958121606201292619776",
+      "target_shares": "8"
+    },
+    {
+      "epoch_blocks": "3600",
+      "expect": {
+        "result": "ok"
+      },
+      "fn": "validate",
+      "halving_epochs": "10",
+      "id": "schedule-ok",
+      "initial": "1000000",
+      "max_shares_per_block": "16",
+      "miner_share_bps": "7000",
+      "rules": [
+        "MINE-3",
+        "MINE-6",
+        "MINE-7",
+        "MINE-8"
+      ],
+      "spent_after": "0",
+      "tail": "0",
+      "target": "1606938044258990275541962092341162602522202993782792835301376",
+      "target_limit": "1766847064778384329583297500742918515827483896875618958121606201292619776",
+      "target_shares": "10"
+    },
+    {
+      "epoch_blocks": "3600",
+      "expect": {
+        "result": "ok"
+      },
+      "fn": "validate",
+      "halving_epochs": "10",
+      "id": "schedule-tail-ok",
+      "initial": "1000000",
+      "max_shares_per_block": "16",
+      "miner_share_bps": "7000",
+      "rules": [
+        "MINE-3",
+        "MINE-6",
+        "MINE-7",
+        "MINE-8"
+      ],
+      "spent_after": "0",
+      "tail": "100000",
+      "target": "1606938044258990275541962092341162602522202993782792835301376",
+      "target_limit": "1766847064778384329583297500742918515827483896875618958121606201292619776",
+      "target_shares": "10"
+    },
+    {
+      "epoch_blocks": "3600",
+      "expect": {
+        "error": "MINE-6",
+        "result": "error"
+      },
+      "fn": "validate",
+      "halving_epochs": "0",
+      "id": "refuse-zero-halving",
+      "initial": "1000000",
+      "max_shares_per_block": "16",
+      "miner_share_bps": "7000",
+      "rules": [
+        "MINE-6"
+      ],
+      "spent_after": "0",
+      "tail": "0",
+      "target": "1606938044258990275541962092341162602522202993782792835301376",
+      "target_limit": "1766847064778384329583297500742918515827483896875618958121606201292619776",
+      "target_shares": "10"
+    },
+    {
+      "epoch_blocks": "3600",
+      "expect": {
+        "error": "MINE-6",
+        "result": "error"
+      },
+      "fn": "validate",
+      "halving_epochs": "10",
+      "id": "refuse-zero-target-shares",
+      "initial": "1000000",
+      "max_shares_per_block": "16",
+      "miner_share_bps": "7000",
+      "rules": [
+        "MINE-6"
+      ],
+      "spent_after": "0",
+      "tail": "0",
+      "target": "1606938044258990275541962092341162602522202993782792835301376",
+      "target_limit": "1766847064778384329583297500742918515827483896875618958121606201292619776",
+      "target_shares": "0"
+    },
+    {
+      "epoch_blocks": "0",
+      "expect": {
+        "error": "MINE-6",
+        "result": "error"
+      },
+      "fn": "validate",
+      "halving_epochs": "10",
+      "id": "refuse-zero-epoch-blocks",
+      "initial": "1000000",
+      "max_shares_per_block": "16",
+      "miner_share_bps": "7000",
+      "rules": [
+        "MINE-6"
+      ],
+      "spent_after": "0",
+      "tail": "0",
+      "target": "1606938044258990275541962092341162602522202993782792835301376",
+      "target_limit": "1766847064778384329583297500742918515827483896875618958121606201292619776",
+      "target_shares": "10"
+    },
+    {
+      "epoch_blocks": "3600",
+      "expect": {
+        "error": "MINE-6",
+        "result": "error"
+      },
+      "fn": "validate",
+      "halving_epochs": "10",
+      "id": "refuse-zero-max-shares",
+      "initial": "1000000",
+      "max_shares_per_block": "0",
+      "miner_share_bps": "7000",
+      "rules": [
+        "MINE-6"
+      ],
+      "spent_after": "0",
+      "tail": "0",
+      "target": "1606938044258990275541962092341162602522202993782792835301376",
+      "target_limit": "1766847064778384329583297500742918515827483896875618958121606201292619776",
+      "target_shares": "10"
+    },
+    {
+      "epoch_blocks": "3600",
+      "expect": {
+        "error": "MINE-6",
+        "result": "error"
+      },
+      "fn": "validate",
+      "halving_epochs": "10",
+      "id": "refuse-bps-above-whole",
+      "initial": "1000000",
+      "max_shares_per_block": "16",
+      "miner_share_bps": "10001",
+      "rules": [
+        "MINE-6"
+      ],
+      "spent_after": "0",
+      "tail": "0",
+      "target": "1606938044258990275541962092341162602522202993782792835301376",
+      "target_limit": "1766847064778384329583297500742918515827483896875618958121606201292619776",
+      "target_shares": "10"
+    },
+    {
+      "epoch_blocks": "3600",
+      "expect": {
+        "error": "MINE-6",
+        "result": "error"
+      },
+      "fn": "validate",
+      "halving_epochs": "10",
+      "id": "refuse-tail-above-initial",
+      "initial": "1000000",
+      "max_shares_per_block": "16",
+      "miner_share_bps": "7000",
+      "rules": [
+        "MINE-6"
+      ],
+      "spent_after": "0",
+      "tail": "1000001",
+      "target": "1606938044258990275541962092341162602522202993782792835301376",
+      "target_limit": "1766847064778384329583297500742918515827483896875618958121606201292619776",
+      "target_shares": "10"
+    },
+    {
+      "epoch_blocks": "3600",
+      "expect": {
+        "error": "MINE-6",
+        "result": "error"
+      },
+      "fn": "validate",
+      "halving_epochs": "10",
+      "id": "refuse-spent-past-epoch",
+      "initial": "1000000",
+      "max_shares_per_block": "16",
+      "miner_share_bps": "7000",
+      "rules": [
+        "MINE-6"
+      ],
+      "spent_after": "3601",
+      "tail": "0",
+      "target": "1606938044258990275541962092341162602522202993782792835301376",
+      "target_limit": "1766847064778384329583297500742918515827483896875618958121606201292619776",
+      "target_shares": "10"
+    },
+    {
+      "epoch_blocks": "3600",
+      "expect": {
+        "error": "MINE-7",
+        "result": "error"
+      },
+      "fn": "validate",
+      "halving_epochs": "10",
+      "id": "refuse-share-pays-nothing",
+      "initial": "9",
+      "max_shares_per_block": "16",
+      "miner_share_bps": "7000",
+      "rules": [
+        "MINE-7"
+      ],
+      "spent_after": "0",
+      "tail": "0",
+      "target": "1606938044258990275541962092341162602522202993782792835301376",
+      "target_limit": "1766847064778384329583297500742918515827483896875618958121606201292619776",
+      "target_shares": "10"
+    },
+    {
+      "epoch_blocks": "3600",
+      "expect": {
+        "error": "MINE-7",
+        "result": "error"
+      },
+      "fn": "validate",
+      "halving_epochs": "10",
+      "id": "refuse-tail-share-pays-nothing",
+      "initial": "1000000",
+      "max_shares_per_block": "16",
+      "miner_share_bps": "7000",
+      "rules": [
+        "MINE-7"
+      ],
+      "spent_after": "0",
+      "tail": "1",
+      "target": "1606938044258990275541962092341162602522202993782792835301376",
+      "target_limit": "1766847064778384329583297500742918515827483896875618958121606201292619776",
+      "target_shares": "10"
+    },
+    {
+      "epoch_blocks": "1",
+      "expect": {
+        "error": "MINE-3",
+        "result": "error"
+      },
+      "fn": "validate",
+      "halving_epochs": "1",
+      "id": "refuse-lifetime-at-ceiling",
+      "initial": "340282366920938463463374607431768211456",
+      "max_shares_per_block": "16",
+      "miner_share_bps": "7000",
+      "rules": [
+        "MINE-3"
+      ],
+      "spent_after": "0",
+      "tail": "340282366920938463463374607431768211456",
+      "target": "1606938044258990275541962092341162602522202993782792835301376",
+      "target_limit": "1766847064778384329583297500742918515827483896875618958121606201292619776",
+      "target_shares": "10"
+    },
+    {
+      "epoch_blocks": "3600",
+      "expect": {
+        "error": "MINE-8",
+        "result": "error"
+      },
+      "fn": "validate",
+      "halving_epochs": "10",
+      "id": "refuse-target-zero",
+      "initial": "1000000",
+      "max_shares_per_block": "16",
+      "miner_share_bps": "7000",
+      "rules": [
+        "MINE-8"
+      ],
+      "spent_after": "0",
+      "tail": "0",
+      "target": "0",
+      "target_limit": "1766847064778384329583297500742918515827483896875618958121606201292619776",
+      "target_shares": "10"
+    },
+    {
+      "epoch_blocks": "3600",
+      "expect": {
+        "error": "MINE-8",
+        "result": "error"
+      },
+      "fn": "validate",
+      "halving_epochs": "10",
+      "id": "refuse-target-above-limit",
+      "initial": "1000000",
+      "max_shares_per_block": "16",
+      "miner_share_bps": "7000",
+      "rules": [
+        "MINE-8"
+      ],
+      "spent_after": "0",
+      "tail": "0",
+      "target": "3533694129556768659166595001485837031654967793751237916243212402585239552",
+      "target_limit": "1766847064778384329583297500742918515827483896875618958121606201292619776",
+      "target_shares": "10"
+    },
+    {
+      "anchor": "2222222222222222222222222222222222222222222222222222222222222222",
+      "chain_tag": "1111111111111111111111111111111111111111111111111111111111111111",
+      "epoch": "1",
+      "expect": "4faae6ab6b7813dfda776a6ea01119bd0390e1f0f94cdf4431175a2b6ebc9abb",
+      "fn": "share_header",
+      "id": "share-header-epoch-1",
+      "miner": "3333333333333333333333333333333333333333333333333333333333333333",
+      "rules": [
+        "MINE-9"
+      ]
+    },
+    {
+      "anchor": "5555555555555555555555555555555555555555555555555555555555555555",
+      "chain_tag": "4444444444444444444444444444444444444444444444444444444444444444",
+      "epoch": "18446744073709551615",
+      "expect": "6647ace15857e1f000be287ce46ca5ad355cb920c41912d9cb525a8dda21bb7d",
+      "fn": "share_header",
+      "id": "share-header-epoch-max",
+      "miner": "6666666666666666666666666666666666666666666666666666666666666666",
+      "rules": [
+        "MINE-9"
+      ]
+    },
+    {
+      "digest": "0f00000000000000000000000000000000000000000000000000000000000000",
+      "expect": {
+        "result": "ok"
+      },
+      "fn": "meets_target",
+      "id": "share-digest-equal-target",
+      "rules": [
+        "MINE-10"
+      ],
+      "target": "0f00000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "digest": "0000000000000000000000000000000000000000000000000000000000000000",
+      "expect": {
+        "result": "ok"
+      },
+      "fn": "meets_target",
+      "id": "share-digest-zero",
+      "rules": [
+        "MINE-10"
+      ],
+      "target": "0f00000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "digest": "0f00000000000000000000000000000000000000000000000000000000000001",
+      "expect": {
+        "error": "MINE-10",
+        "result": "error"
+      },
+      "fn": "meets_target",
+      "id": "refuse-digest-above-target",
+      "rules": [
+        "MINE-10"
+      ],
+      "target": "0f00000000000000000000000000000000000000000000000000000000000000"
     }
   ],
   "format": 1,

@@ -9,7 +9,7 @@ band; move an item to PROGRESS.md when it starts.
 
 - [x] ADR-068 step 2: 24 decimals (feat/decimals-24) (wallet DECIMALS, SDKs, explorer, governance COIN, pool, genesis amounts).
 - [x] ADR-068 step 4 (clean, DECISIONS 10-28): audit consensus amount × amount products for 512-bit or checked math.
-- [x] spec: MINE-* rules + vectors (spec/09-mining.md; node conformance test not yet run) for the mining schedule incl. the tail (ADR-044 shipped without spec).
+- [x] spec: MINE-* rules + vectors (spec/09-mining.md; node conformance test run 2026-10-31, see reports/sessions/2026-10-31-mine-spec.md) for the mining schedule incl. the tail (ADR-044 shipped without spec).
 
 - **Gate 8: historical catch-up for a restarted validator.** The engine
   answers `Fetch` only from memory (`GC_DEPTH` = 50 rounds), so a validator
