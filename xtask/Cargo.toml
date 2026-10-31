@@ -13,6 +13,9 @@ description = "Workspace automation: disk accounting and the reality-ledger gate
 serde = { workspace = true, features = ["derive"] }
 toml.workspace = true
 serde_json.workspace = true
+# verify-release: SHA-256 of each release file, same crate the workspace already uses.
+sha2.workspace = true
+hex.workspace = true
 
 [lints]
 workspace = true
