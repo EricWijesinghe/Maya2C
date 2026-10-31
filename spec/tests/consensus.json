@@ -1042,6 +1042,319 @@
         "11165",
         "11165"
       ]
+    },
+    {
+      "budget": "5",
+      "expect": {
+        "count": "0",
+        "result": "ok"
+      },
+      "fn": "decode_cut",
+      "id": "decode-cut-empty",
+      "rules": [
+        "CON-13"
+      ],
+      "tx_lens": []
+    },
+    {
+      "budget": "6",
+      "expect": {
+        "count": "3",
+        "result": "ok"
+      },
+      "fn": "decode_cut",
+      "id": "decode-cut-all-fit",
+      "rules": [
+        "CON-13"
+      ],
+      "tx_lens": [
+        "1",
+        "2",
+        "3"
+      ]
+    },
+    {
+      "budget": "5",
+      "expect": {
+        "count": "2",
+        "result": "ok"
+      },
+      "fn": "decode_cut",
+      "id": "decode-cut-one-byte-short",
+      "rules": [
+        "CON-13"
+      ],
+      "tx_lens": [
+        "1",
+        "2",
+        "3"
+      ]
+    },
+    {
+      "budget": "1000",
+      "expect": {
+        "count": "0",
+        "result": "ok"
+      },
+      "fn": "decode_cut",
+      "id": "decode-cut-stops-not-passes-over",
+      "rules": [
+        "CON-13"
+      ],
+      "tx_lens": [
+        "6000",
+        "100"
+      ]
+    },
+    {
+      "budget": "4194304",
+      "expect": {
+        "count": "1",
+        "result": "ok"
+      },
+      "fn": "decode_cut",
+      "id": "decode-cut-budget-of-one-maximal-payload",
+      "rules": [
+        "CON-13"
+      ],
+      "tx_lens": [
+        "4194304",
+        "4194304"
+      ]
+    },
+    {
+      "authors": [
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "1",
+        "2",
+        "3"
+      ],
+      "budget": "5242880",
+      "committee": "4",
+      "expect": {
+        "admitted": "0,1,2,10,11,12",
+        "charged": "4718592",
+        "result": "ok"
+      },
+      "fn": "decode_fair",
+      "id": "fair-junk-heavy-low-index-author",
+      "keys": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "101",
+        "102",
+        "103"
+      ],
+      "lens": [
+        "1048576",
+        "1048576",
+        "1048576",
+        "1048576",
+        "1048576",
+        "1048576",
+        "1048576",
+        "1048576",
+        "1048576",
+        "1048576",
+        "524288",
+        "524288",
+        "524288"
+      ],
+      "rules": [
+        "CON-13"
+      ]
+    },
+    {
+      "authors": [
+        "7",
+        "7",
+        "7",
+        "7",
+        "7"
+      ],
+      "budget": "1500",
+      "committee": "16",
+      "expect": {
+        "admitted": "0,1,2",
+        "charged": "1400",
+        "result": "ok"
+      },
+      "fn": "decode_fair",
+      "id": "fair-one-author-is-the-old-prefix-cut",
+      "keys": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "lens": [
+        "300",
+        "900",
+        "200",
+        "5000",
+        "10"
+      ],
+      "rules": [
+        "CON-13"
+      ]
+    },
+    {
+      "authors": [
+        "0",
+        "1",
+        "1"
+      ],
+      "budget": "1048576",
+      "committee": "2",
+      "expect": {
+        "admitted": "0,2",
+        "charged": "1500",
+        "result": "ok"
+      },
+      "fn": "decode_fair",
+      "id": "fair-repeat-across-authors-charged-once",
+      "keys": [
+        "7",
+        "7",
+        "8"
+      ],
+      "lens": [
+        "1000",
+        "1000",
+        "500"
+      ],
+      "rules": [
+        "CON-13"
+      ]
+    },
+    {
+      "authors": [
+        "0",
+        "0",
+        "1",
+        "1",
+        "1",
+        "1",
+        "1",
+        "1",
+        "1",
+        "1"
+      ],
+      "budget": "8388608",
+      "committee": "4",
+      "expect": {
+        "admitted": "0,2,3,4,5,6,7,8",
+        "charged": "8388608",
+        "result": "ok"
+      },
+      "fn": "decode_fair",
+      "id": "fair-absent-authors-share-redistributed",
+      "keys": [
+        "1",
+        "2",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17"
+      ],
+      "lens": [
+        "1048576",
+        "7864320",
+        "1048576",
+        "1048576",
+        "1048576",
+        "1048576",
+        "1048576",
+        "1048576",
+        "1048576",
+        "1048576"
+      ],
+      "rules": [
+        "CON-13"
+      ]
+    },
+    {
+      "authors": [
+        "0",
+        "0",
+        "1",
+        "1"
+      ],
+      "budget": "3145728",
+      "committee": "2",
+      "expect": {
+        "admitted": "2,3",
+        "charged": "1048576",
+        "result": "ok"
+      },
+      "fn": "decode_fair",
+      "id": "fair-misfit-finishes-only-its-author",
+      "keys": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "lens": [
+        "2621440",
+        "104857",
+        "524288",
+        "524288"
+      ],
+      "rules": [
+        "CON-13"
+      ]
+    },
+    {
+      "authors": [
+        "2",
+        "0",
+        "1"
+      ],
+      "budget": "10485760",
+      "committee": "3",
+      "expect": {
+        "admitted": "0,1,2",
+        "charged": "1500",
+        "result": "ok"
+      },
+      "fn": "decode_fair",
+      "id": "fair-admitted-in-commit-order",
+      "keys": [
+        "1",
+        "2",
+        "3"
+      ],
+      "lens": [
+        "500",
+        "500",
+        "500"
+      ],
+      "rules": [
+        "CON-13"
+      ]
     }
   ],
   "format": 1,

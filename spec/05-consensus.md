@@ -21,6 +21,15 @@ Node: `crates/node/src/core/block.rs`, `crates/node/src/consensus/`.
 - **CON-10** A header's `version` is 0; any other value is invalid, and a header of another length is not a header (ADR-063).
 - **CON-11** On a chain whose target is retargeted (CON-5), a block's timestamp is later than the median of the timestamps of its parent and up to ten earlier ancestors (the upper middle when fewer than eleven exist); otherwise invalid. A DAG-BFT chain (CON-9) does not apply this rule: it has no retarget to steer, and its blocks can come faster than once a second (ADR-063).
 - **CON-12** A block's wire size is `145 + 8 + Σ(8 + len)` bytes, where `len` is each transaction's encoding, and it is at most `MAX_BLOCK_BYTES` = 5 MiB (5,242,880) (ADR-072, provisional). A block over the cap is invalid, whoever built it. A builder admits transactions first-fit, in order: one that would take the block over the cap is passed over and the ones after it are still considered; a transaction that does not execute costs no room. The admitted indices are a function of the order and the cap alone, so every node makes the same cut. *(provisional value: pending measurement on the launch host)*
+- **CON-13** *(positive only: CON-13 selects payloads and never refuses one; a refusal is CON-12's `BlockTooLarge`)* A DAG-BFT builder decodes a committed sub-DAG's batch payloads within `DECODE_BUDGET` = 3/2 × `MAX_BLOCK_BYTES` (7,864,320), shared fairly among authors by deficit round-robin.
+  - Each author's queue is its payloads in commit order. Authors are taken in ascending `ValidatorId` (the committee index in each vertex).
+  - Every turn adds `Q = max(1, DECODE_BUDGET / n)` to each author still waiting, where `n` is the committee size. The divisor is the committee size, not the number of active authors, so an honest author's first-turn credit does not depend on how many authors are active.
+  - An author admits payloads from the front of its queue while the next one fits both its deficit and the budget left. A payload identical to one already admitted is skipped without a charge or a decode.
+  - An author finishes when its queue is empty, or when its next payload is larger than the budget left. Its admitted set is therefore a prefix of its queue: nothing is passed over.
+  - A finished author's unused deficit is dropped. The budget left keeps going to the others.
+  - Admitted payloads are emitted in commit order, so execution order is the commit order restricted to the admitted set.
+  - The bytes charged are raw payload bytes, per author. Payloads not admitted are not in the block and stay with their proposers.
+  - Decode work per block is at most `DECODE_BUDGET`. Removing repeats compares raw bytes and decodes nothing (ADR-072).
 
 ## Vectors and gaps
 
