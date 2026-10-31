@@ -1313,7 +1313,10 @@ mod tests {
 
         let mut stated = staking;
         stated.min_delegation = U256::from(10).pow(U256::from(24));
-        assert_eq!(stated.params().min_delegation, to_amount(stated.min_delegation));
+        assert_eq!(
+            stated.params().min_delegation,
+            to_amount(stated.min_delegation)
+        );
         let new = config(stated);
         assert_ne!(new.chain_id_commitment(), old.chain_id_commitment());
     }
