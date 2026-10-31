@@ -208,6 +208,21 @@ async fn a_batch_request_is_refused_so_one_token_buys_one_call() {
     assert!(single.is_ok(), "a single call stopped working: {single:?}");
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn get_node_version_reports_this_build() {
+    let node = start_node(&[], false).await;
+    let v: serde_json::Value = node
+        .client
+        .request("get_node_version", rpc_params![])
+        .await
+        .expect("get_node_version");
+    assert_eq!(v["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(
+        v["protocol"],
+        custom_l1_node::upgrade::SUPPORTED_PROTOCOL_VERSION
+    );
+}
+
 // ---------------------------------------------------------------------------
 // send_raw_transaction — key generation, signing, broadcast
 // ---------------------------------------------------------------------------
