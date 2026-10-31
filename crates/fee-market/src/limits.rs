@@ -34,6 +34,17 @@ pub const MIN_TARGET_BLOCK_BYTES: u64 = 64 * 1024;
 /// The largest block-size target, in bytes.
 pub const MAX_TARGET_BLOCK_BYTES: u64 = 16 * 1024 * 1024;
 
+/// The largest block a chain accepts, in wire bytes (ADR-072).
+///
+/// Provisional, pending measurement on the launch host. Two bounds fix it.
+/// Below: one maximal transaction (`MAX_TX_BYTES`, 4 MiB) plus the block's
+/// own framing must fit alone, or a valid transaction could never be
+/// included and would hold up every one queued behind it. Above: a block at
+/// the cap must still travel in one 8 MiB gossip frame. 5 MiB sits between
+/// them, and admits the 400-transfer block measured in
+/// `reports/bench/2026-10-25-tps-series.md` (about 4.3 MiB) with room to spare.
+pub const MAX_BLOCK_BYTES: u64 = 5 * 1024 * 1024;
+
 /// The most of each base fee that may go to the treasury, in basis points.
 ///
 /// The rest is burned. A treasury share of 100% would turn the burn — the only

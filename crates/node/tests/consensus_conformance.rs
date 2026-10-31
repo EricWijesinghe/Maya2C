@@ -195,6 +195,39 @@ fn check(case: &Value) {
             };
             assert_eq!(outcome(result.is_ok()), want, "{id}: {result:?}");
         }
+        "block_cap" => {
+            assert_eq!(
+                maya_fee_market::limits::MAX_BLOCK_BYTES.to_string(),
+                expect["cap"].as_str().unwrap(),
+                "{id}"
+            );
+        }
+        "block_within_cap" => {
+            let lens: Vec<usize> = case["tx_lens"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| usize::try_from(num(v)).unwrap())
+                .collect();
+            let bytes = custom_l1_node::core::block::block_wire_len(lens.iter().copied());
+            assert_eq!(outcome(bytes <= num(&case["cap"])), want, "{id}");
+        }
+        "block_size" => {
+            let lens: Vec<usize> = case["tx_lens"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| usize::try_from(num(v)).unwrap())
+                .collect();
+            let bytes = custom_l1_node::core::block::block_wire_len(lens.iter().copied());
+            let admitted = custom_l1_node::core::block::admitted_prefix(&lens, num(&case["cap"]));
+            assert_eq!(bytes.to_string(), expect["bytes"].as_str().unwrap(), "{id}");
+            assert_eq!(
+                admitted.to_string(),
+                expect["admitted"].as_str().unwrap(),
+                "{id}"
+            );
+        }
         other => panic!("{id}: unknown fn {other}"),
     }
 }

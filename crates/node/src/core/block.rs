@@ -1,4 +1,4 @@
-﻿//! Block headers, blocks, and their proof-of-work binding.
+//! Block headers, blocks, and their proof-of-work binding.
 
 use crate::core::codec::ByteReader;
 use crate::core::transaction::{MAX_TX_BYTES, Transaction};
@@ -8,6 +8,45 @@ use crate::crypto::dag::registry::CacheRegistry;
 use crate::crypto::pow::meets_target;
 use crate::error::{NodeError, Result};
 use crate::state::merkle::{PathStep, merkle_path, merkle_root};
+use maya_fee_market::limits::MAX_BLOCK_BYTES;
+
+/// Wire bytes a block takes before its first transaction: the header and the
+/// transaction count, as [`Block::to_bytes`] writes them.
+const BLOCK_OVERHEAD: u64 = HEADER_LEN as u64 + 8;
+
+// A maximal transaction must fit a block alone (ADR-072), or it blocks the queue.
+const _: () = assert!(MAX_BLOCK_BYTES >= BLOCK_OVERHEAD + 8 + MAX_TX_BYTES as u64);
+
+/// Wire bytes one transaction of `encoded_len` bytes adds to a block: its
+/// length prefix and its encoding.
+#[must_use]
+pub fn transaction_wire_len(encoded_len: usize) -> u64 {
+    8u64.saturating_add(u64::try_from(encoded_len).unwrap_or(u64::MAX))
+}
+
+/// Wire bytes of a block whose transactions have the given encoded lengths.
+pub fn block_wire_len(encoded_lens: impl IntoIterator<Item = usize>) -> u64 {
+    encoded_lens.into_iter().fold(BLOCK_OVERHEAD, |sum, len| {
+        sum.saturating_add(transaction_wire_len(len))
+    })
+}
+
+/// How many leading transactions, of the given encoded lengths and in order,
+/// fit under `cap`. Stops at the first one that would not: a later one is not
+/// admitted past it, so the cut is a prefix and every node cuts the same way.
+#[must_use]
+pub fn admitted_prefix(encoded_lens: &[usize], cap: u64) -> usize {
+    let mut total = BLOCK_OVERHEAD;
+    let mut admitted = 0;
+    for len in encoded_lens {
+        total = total.saturating_add(transaction_wire_len(*len));
+        if total > cap {
+            break;
+        }
+        admitted += 1;
+    }
+    admitted
+}
 
 /// Domain separator for the seed a DAG hash is searched against.
 const POW_SEED_CONTEXT: &str = "custom-l1-node 2026-08-31 dag pow seed v1";
@@ -314,6 +353,22 @@ impl Block {
             return Err(NodeError::TxRootMismatch {
                 expected: hex::encode(self.header.tx_root),
                 actual: hex::encode(actual),
+            });
+        }
+        Ok(())
+    }
+
+    /// Refuses a block whose wire form is over [`MAX_BLOCK_BYTES`] (ADR-072).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::BlockTooLarge`] if it is.
+    pub fn check_size(&self) -> Result<()> {
+        let bytes = block_wire_len(self.transactions.iter().map(|tx| tx.to_bytes().len()));
+        if bytes > MAX_BLOCK_BYTES {
+            return Err(NodeError::BlockTooLarge {
+                bytes,
+                cap: MAX_BLOCK_BYTES,
             });
         }
         Ok(())
