@@ -8,7 +8,7 @@ band; move an item to PROGRESS.md when it starts.
 ## P1 — mainnet launch gates (docs/mainnet-v1-plan.md)
 
 - [x] ADR-068 step 2: 24 decimals (feat/decimals-24) (wallet DECIMALS, SDKs, explorer, governance COIN, pool, genesis amounts).
-- [x] ADR-068 step 4: audit consensus amount × amount products for 512-bit or checked math. Re-audited 2026-10-31 (reports/sessions/2026-10-31-amount-product-audit.md): one defect fixed (vault fee allowance saturated, F1); the 2026-10-28 "clean" entry missed it.
+- [x] ADR-068 step 4: audit consensus amount × amount products for 512-bit or checked math. Re-audited 2026-10-31 (reports/sessions/2026-10-31-amount-product-audit.md): one defect fixed (vault fee headroom let 4x required escape the limit, F1; consensus-visible, note for mainnet genesis); the 2026-10-28 "clean" entry missed it.
 - [x] spec: MINE-* rules + vectors (spec/09-mining.md; node conformance test not yet run) for the mining schedule incl. the tail (ADR-044 shipped without spec).
 
 - **Gate 8: historical catch-up for a restarted validator.** The engine

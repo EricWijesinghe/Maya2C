@@ -11,43 +11,53 @@ Method: `rg` for every `checked_mul`, `wrapping_mul`, `saturating_mul`,
 
 ## Finding
 
-**F1 (fixed): vault fee allowance saturated, letting fee outputs escape the limit.**
-`crates/node/src/state/vault.rs`, `vault_outflow`:
-`fees.required(size)` saturates to `Amount::MAX` when `base_fee * size` overflows.
-The allowance was `to_u256(required).saturating_mul(4)`, which gives `U256::MAX`.
-Then `sum(true).saturating_sub(allowed_fee)` is 0, so every collector output is
-treated as fee and is not counted against the vault's instant limit.
-Reachable: the fee market is designed to rise toward the 256-bit ceiling
-(`crates/fee-market/src/base_fee.rs:154`, `rule.rs:278`), so a base fee near 2^254
-is reachable over time.
+**F1 (fixed): vault fee headroom let fee outputs escape a vault's limit.**
+`crates/node/src/state/vault.rs`, `vault_outflow`. Before the fix the outflow
+exempted collector outputs up to `VAULT_FEE_HEADROOM (4) x required`. Each
+transaction could therefore send 4x the required fee to `FEE_COLLECTOR` without
+counting toward `window_spent`. A limit-0 vault leaked 3x required per transaction.
+`charge_fee` already checks `required` at the same base fee, so the headroom had no
+purpose.
 
-Fix: `fee_allowance(required) -> Result<U256>` uses `checked_mul` and returns
-`NodeError::Vault("fee allowance overflows 256 bits")`. Same result for every
-in-range input; only the overflow case changes (now refused).
+Fix: the outflow exempts only `fees.required(size)`, which `charge_fee` has already
+checked. Any collector output above it counts toward `window_spent` like any other
+outflow. `VAULT_FEE_HEADROOM` and `fee_allowance` are removed.
 
-Test: `state::vault::tests::a_saturated_fee_requirement_cannot_widen_the_fee_allowance`
-covers `Amount::MAX` (must be Err), `5` (= 20), `u128::MAX` (exact), and the 2^254
-boundary (2^254 refused, 2^254 - 1 accepted).
+**Consensus-visible (invariant 32).** Before mainnet genesis: a vault transaction that
+previously sent more than `required` to the collector is now refused. Note it in the
+genesis build.
 
-Red-team: with the old saturating body restored, the test fails:
+**Overflow path (defense-in-depth, not reachable).** The earlier version of this
+branch multiplied the required fee with `saturating_mul`, after `required()`
+saturated to `Amount::MAX` on overflow. That path is not reachable today:
+`charge_fee` runs before the vault check and refuses any transaction whose collector
+outputs fall short of the saturated requirement. Balances are bounded by supply
+(about 2^104). The fix that removed the multiplication is kept as defense-in-depth.
+Fee-market base-fee logic is untouched; another agent owns it.
+
+**Tests.**
+- Integration: `crates/node/tests/vault_tests.rs::a_fee_above_the_required_fee_counts_against_a_zero_limit`.
+  Limit-0 vault, fee record live, one transaction with a collector output of
+  4x required is refused with "instant limit"; exactly `required` is accepted.
+- Red-team, HEAD `vault.rs` restored temporarily:
 ```
-thread 'state::vault::tests::a_saturated_fee_requirement_cannot_widen_the_fee_allowance' panicked at crates\node\src\state\vault.rs:554:9:
-assertion failed: fee_allowance(max).is_err()
-test result: FAILED. 0 passed; 1 failed; ... exit=101
+thread 'a_fee_above_the_required_fee_counts_against_a_zero_limit' panicked at crates\node\tests\vault_tests.rs:418:57:
+called `Result::unwrap_err()` on an `Ok` value: ()
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 7 filtered out; exit=101
 ```
-With the checked body: `test result: ok. 1 passed; 0 failed` (exit 0).
+- Fixed: `cargo test -p custom-l1-node --test vault_tests` gives `8 passed; 0 failed`, exit 0.
 
 **Contradiction:** `DECISIONS.md` 2026-10-28 ("ADR-068 step 4: 512-bit product audit,
-clean") accepted "a checked/saturating op that refuses or clamps" as safe. That missed
-F1: here saturation is not a clamp of the value, it removes the limit. That entry should
-be amended, not left as "clean".
+clean") accepted "a checked/saturating op that refuses or clamps" as safe. It missed
+F1: the headroom removed the limit for fee outputs. That entry should be amended, not
+left as "clean".
 
 ## Sites (every consensus amount product in scope)
 
 ### Fixed
 | # | Site | Product | Result |
 |---|------|---------|--------|
-| 1 | `node/src/state/vault.rs` `vault_outflow` | fee x 4 headroom (U256 saturating_mul) | F1, now checked |
+| 1 | `node/src/state/vault.rs` `vault_outflow` | required fee x 4 headroom | F1: headroom removed, excess counts |
 
 ### Proven safe: 512-bit or widening
 | # | Site | Product | Reason |
@@ -70,7 +80,7 @@ be amended, not left as "clean".
 | 13 | `node/src/state/mining.rs:238` `lifetime_emission` | reward x epochs | `checked_mul` -> `None` -> genesis refuses |
 | 14 | `node/src/state/mining_exec.rs:33` `dag_epoch` | epoch x epoch_blocks | `checked_mul` -> `NodeError::Mining` |
 | 15 | `fee-market/src/execute.rs:179` | base_fee x size | `checked_mul` -> MAX -> `Underpriced` unless `max_fee` is MAX, then balance check refuses |
-| 16 | `node/src/state/fees.rs:93` `required` | base_fee x size | `checked_mul` -> MAX, documented: "nobody can pay that". F1 was the caller that multiplied MAX again |
+| 16 | `node/src/state/fees.rs:93` `required` | base_fee x size | `checked_mul` -> MAX, documented: "nobody can pay that". The vault exemption is capped by `charge_fee`, which runs first |
 
 ### Proven safe: fits its width by bound
 | # | Site | Product | Reason |
@@ -99,11 +109,12 @@ be amended, not left as "clean".
 - `fee-market` base fee is designed to rise to the 256-bit ceiling. Fee saturation to
   `Amount::MAX` then makes fees unpayable (liveness for users), by design. Not an
   overflow, not fixed here. Worth a policy decision (an explicit cap) before mainnet.
+  Fee-market base-fee logic is owned by another agent and was not touched.
 
 ## Test output
-- `cargo test -p custom-l1-node --lib fee_allowance` (checked): `test result: ok. 1 passed; 0 failed`, exit 0.
-- Red-team (saturating body): `FAILED. 0 passed; 1 failed`, exit 101 (see above).
-- `cargo test -p custom-l1-node --lib vault`: `test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 451 filtered out`, exit 0.
+- `cargo test -p custom-l1-node --test vault_tests`: `8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.37s`, exit 0.
+- Red-team (HEAD `vault.rs`): `FAILED. 0 passed; 1 failed`, exit 101 (see above).
+- Earlier, with the overflow-only fix (superseded): `cargo test -p custom-l1-node --lib vault`: `4 passed; 0 failed`, exit 0.
 
 NOT VERIFIED: `dex`, `fee-market`, `staking`, `ledger-math` and `governance` tests and Kani
 proofs were not run in this session; those sites were audited by reading only. Build was
