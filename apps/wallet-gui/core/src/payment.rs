@@ -10,7 +10,10 @@
 //!
 //! ## Offline signing
 //!
-//! [`sign_transfer`] needs no network. It produces the raw hex a node accepts,
+//! The only signing entry is [`crate::wallet::Wallet::sign`], which refuses
+//! unless handed the hash of the confirm screen (see [`crate::confirm`]).
+//!
+//! [`crate::wallet::Wallet::sign`] needs no network. It produces the raw hex a node accepts,
 //! which can be moved to a connected machine by any means — including a QR code
 //! displayed on an air-gapped device. Broadcasting is a separate, explicit step
 //! so the signing machine never has to touch a network.
@@ -19,6 +22,7 @@ use custom_l1_node::core::{ChainTag, Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
 use serde::{Deserialize, Serialize};
 
+use crate::confirm::checksummed;
 use crate::error::{Result, WalletError};
 
 /// URI scheme for payment requests.
@@ -133,13 +137,23 @@ pub fn normalize_address(address: &str) -> Result<String> {
     let cleaned = address.trim().trim_start_matches("0x");
     let bytes = hex::decode(cleaned)
         .map_err(|_| WalletError::Address(format!("'{address}' is not hexadecimal")))?;
-    if bytes.len() != 32 {
-        return Err(WalletError::Address(format!(
+    let array: [u8; 32] = bytes.as_slice().try_into().map_err(|_| {
+        WalletError::Address(format!(
             "an address is 32 bytes; '{address}' decodes to {}",
             bytes.len()
+        ))
+    })?;
+    // Mixed case is a checksum claim (as shown on the confirm screen): a
+    // wrong capital is a typo, and the transfer must not go to that address.
+    // All-lower or all-upper carries no claim and is accepted.
+    let mixed = cleaned.bytes().any(|b| b.is_ascii_lowercase())
+        && cleaned.bytes().any(|b| b.is_ascii_uppercase());
+    if mixed && cleaned != checksummed(&array) {
+        return Err(WalletError::Address(format!(
+            "'{address}' fails its checksum: a letter's case is wrong; re-copy the address"
         )));
     }
-    Ok(hex::encode(bytes))
+    Ok(hex::encode(array))
 }
 
 /// Decodes a `[u8; 32]` address.
@@ -288,61 +302,6 @@ pub struct SignedTransfer {
     pub raw_hex: String,
 }
 
-/// Signs a transfer without touching the network.
-///
-/// The `fee` is carried as an explicit second output to a burn address, which
-/// is what gives the user manual fee control: the chain has no separate fee
-/// field, so a fee is value the sender deliberately does not send to the
-/// recipient.
-///
-/// # Errors
-///
-/// Returns [`WalletError::Address`] for a malformed recipient, or
-/// [`WalletError::AmountOverflow`] if amount and fee overflow together.
-pub fn sign_transfer(
-    signing_key: &HybridSigningKey,
-    recipient: &str,
-    amount: primitive_types::U256,
-    fee: primitive_types::U256,
-    nonce: u64,
-    chain: &ChainTag,
-) -> Result<SignedTransfer> {
-    sign_with_fee_to(signing_key, recipient, amount, fee, FEE_SINK, nonce, chain)
-}
-
-/// Signs a transfer on a fee-market chain (ADR-029). No network access.
-///
-/// The fee is an ordinary signed output to `fee_recipient`, the collector the
-/// node names in `get_fee_info` — not the burn sink, which such a node
-/// refuses as payment. The chain burns the base-fee part itself; anything
-/// above it is a tip to validators. Fetch the collector while online and sign
-/// here, so an air-gapped device can still sign.
-///
-/// # Errors
-///
-/// [`WalletError::Address`] for a malformed recipient or collector, or
-/// [`WalletError::AmountOverflow`] if amount and fee overflow together.
-pub fn sign_transfer_to(
-    signing_key: &HybridSigningKey,
-    recipient: &str,
-    amount: primitive_types::U256,
-    fee: primitive_types::U256,
-    fee_recipient: &str,
-    nonce: u64,
-    chain: &ChainTag,
-) -> Result<SignedTransfer> {
-    let fee_recipient = decode_address(fee_recipient)?;
-    sign_with_fee_to(
-        signing_key,
-        recipient,
-        amount,
-        fee,
-        fee_recipient,
-        nonce,
-        chain,
-    )
-}
-
 /// Refuses any fee collector but the chain's own.
 ///
 /// The wallet learns the collector from whatever node or gateway it is
@@ -379,15 +338,11 @@ pub fn transfer_size(
     nonce: u64,
     chain: &ChainTag,
 ) -> Result<u64> {
-    let probe = sign_transfer_to(
-        signing_key,
-        fee_recipient,
-        primitive_types::U256::one(),
-        primitive_types::U256::one(),
-        fee_recipient,
-        nonce,
-        chain,
-    )?;
+    // A probe, never broadcast: it only measures the bytes a transfer occupies.
+    let one = primitive_types::U256::one();
+    let collector = decode_address(fee_recipient)?;
+    let tx = transfer_tx(signing_key, fee_recipient, one, one, collector, nonce)?;
+    let probe = finish_transfer(tx, signing_key, fee_recipient, one, one, nonce, chain)?;
     u64::try_from(probe.raw_hex.len() / 2).map_err(|_| WalletError::AmountOverflow)
 }
 
@@ -415,19 +370,6 @@ pub fn priced_fee_tiers(
             .ok_or(WalletError::AmountOverflow)
     };
     Ok([required, tier(2)?, tier(4)?])
-}
-
-fn sign_with_fee_to(
-    signing_key: &HybridSigningKey,
-    recipient: &str,
-    amount: primitive_types::U256,
-    fee: primitive_types::U256,
-    fee_recipient: [u8; 32],
-    nonce: u64,
-    chain: &ChainTag,
-) -> Result<SignedTransfer> {
-    let tx = transfer_tx(signing_key, recipient, amount, fee, fee_recipient, nonce)?;
-    finish_transfer(tx, signing_key, recipient, amount, fee, nonce, chain)
 }
 
 /// The unsigned transfer, with the signer's public keys already in place.

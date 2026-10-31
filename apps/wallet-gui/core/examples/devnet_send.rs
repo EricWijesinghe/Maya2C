@@ -9,8 +9,8 @@
 //! ```
 
 use maya_wallet_core::hd::{self, DerivationPath, seed_from_mnemonic};
-use maya_wallet_core::payment::{priced_fee_tiers, sign_transfer, sign_transfer_to, transfer_size};
-use maya_wallet_core::wallet::{broadcast, chain_info, fee_quote, fetch_account};
+use maya_wallet_core::payment::{priced_fee_tiers, transfer_size};
+use maya_wallet_core::wallet::{SignTerms, Wallet, broadcast, chain_info, fee_quote, fetch_account};
 
 const DEVNET_PHRASE: &str = "abandon abandon abandon abandon abandon abandon abandon abandon \
                              abandon abandon abandon about";
@@ -40,29 +40,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         quote.active, quote.base_fee, quote.collector
     );
 
-    let transfer = if quote.active {
+    // Signs only through the confirm-hash gate, as the GUI does: the hash is the
+    // confirmation of these exact terms, so nothing differs between screen and bytes.
+    let fee = if quote.active {
         let size = transfer_size(&key, &quote.collector, nonce, &chain)?;
         let [_, standard, _] = priced_fee_tiers(quote.base_fee, size)?;
         println!("size:     {size} bytes -> Standard fee {standard}");
-        sign_transfer_to(
-            &key,
-            recipient,
-            primitive_types::U256::from(amount),
-            standard,
-            &quote.collector,
-            nonce,
-            &chain,
-        )?
+        standard
     } else {
-        sign_transfer(
-            &key,
-            recipient,
-            primitive_types::U256::from(amount),
-            primitive_types::U256::from(0),
-            nonce,
-            &chain,
-        )?
+        primitive_types::U256::zero()
     };
+    let terms = SignTerms {
+        fee,
+        fee_to: quote.active.then_some(quote.collector.as_str()),
+        nonce,
+        chain: &chain,
+    };
+    let amount = primitive_types::U256::from(amount);
+    let mut wallet = Wallet::from_seed(seed);
+    let confirm = wallet.confirm(0, recipient, amount, &terms)?;
+    println!("confirm:  {}", confirm.description);
+    let transfer = wallet.sign(0, recipient, amount, &terms, &confirm.signing_hash)?;
     let txid = broadcast(url, &transfer.raw_hex).await?;
     println!("txid:     {txid}");
     Ok(())

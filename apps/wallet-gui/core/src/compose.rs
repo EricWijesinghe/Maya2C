@@ -1,6 +1,6 @@
 //! Transaction composers beyond a plain transfer.
 //!
-//! `payment::sign_transfer` covers the ordinary case. This module adds the two
+//! `Wallet::sign` covers the ordinary case. This module adds the two
 //! the wallet did not have: an AMM swap and a shielded joinsplit. Both carry a
 //! caveat that belongs in the type rather than in a document.
 //!
@@ -39,10 +39,15 @@
 //! return value, not a doc comment, because a doc comment cannot be rendered
 //! in a confirmation dialog.
 
+#[cfg(test)]
 use custom_l1_node::core::ChainTag;
+#[cfg(test)]
 use custom_l1_node::core::dex_payload::SwapRequest;
+#[cfg(test)]
 use custom_l1_node::core::payload::TxKind;
+#[cfg(test)]
 use custom_l1_node::core::transaction::Transaction;
+#[cfg(test)]
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
 
 use crate::error::{Result, WalletError};
@@ -151,7 +156,9 @@ impl SwapOutcome {
 ///
 /// A slippage bound is **not** validated here and cannot fail: `min_out` above
 /// what the pool can pay is a skipped swap, not a rejected transaction.
-pub fn compose_swap(
+#[cfg(test)]
+// Test-only: signs without the confirm-hash binding that `Wallet::sign` enforces.
+fn compose_swap(
     key: &HybridSigningKey,
     request: SwapRequest,
     nonce: u64,
@@ -232,6 +239,27 @@ impl ShieldedComposer {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+
+    const PHRASE: &str = "abandon abandon abandon abandon abandon abandon abandon abandon                           abandon abandon abandon about";
+
+    #[test]
+    fn a_zero_input_swap_is_refused_before_anything_is_signed() {
+        let seed = crate::hd::seed_from_mnemonic(PHRASE, "").unwrap();
+        let path = crate::hd::DerivationPath::account(0, 0);
+        let key = crate::hd::signing_key_at(seed.as_ref(), &path).unwrap();
+        let request = SwapRequest {
+            pair: [2; 32],
+            direction: 0,
+            amount_in: primitive_types::U256::zero(),
+            min_out: primitive_types::U256::one(),
+            deadline: 50,
+        };
+        let chain = ChainTag::from_genesis([1; 32]);
+        assert!(matches!(
+            compose_swap(&key, request, 0, &chain),
+            Err(WalletError::AmountOverflow)
+        ));
+    }
 
     #[test]
     fn a_skipped_swap_is_a_successful_transaction() {
