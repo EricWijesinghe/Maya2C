@@ -108,8 +108,18 @@ moving this from Proposed to Accepted.
      between commits depends on leader liveness, which the engine does not bound. Worst case per
      sub-DAG is therefore (gap + 50) rounds × 100 vertices × 4 MiB, with no protocol ceiling.
    - Worst-case decode per block after this change: `MAX_BLOCK_BYTES` = 5 MiB of payload bytes
-     (5,242,880). The hashing of the sub-DAG's payloads in the driver is linear in those bytes
-     and needs no decode.
+     (5,242,880). Decode is the expensive step (allocation and transaction parsing per payload),
+     and it is the only one bounded by `DECODE_BUDGET`.
+   - Not bounded, and why it is acceptable: two linear passes touch every payload byte of the
+     sub-DAG, not only the budgeted prefix. The builder's dedupe compares raw payloads, and the
+     driver hashes its own payloads (blake3) to find queued copies. Both read bytes that were
+     already hashed once: `dag-bft/src/vertex.rs` `digest` covers every batch byte, and a vertex is
+     digested when it is received and certified, so the first full pass over those bytes is paid
+     at admission, not at commit. Each pass is linear in committed bytes and does no parsing, no
+     allocation per payload, and no signature work. The total is bounded by the sub-DAG's size,
+     which the protocol does not bound (see the residual below), so a commit's cost remains
+     linear in its committed bytes, not constant. Bounding the sub-DAG itself needs a protocol
+     change (a cap on uncommitted rounds), which is not part of this change.
    - Residual: the cut is in commit order, so a sub-DAG whose first 5 MiB are non-executing
      transactions (or junk that decodes to nothing) leaves the executable ones after it to a later
      block. They are not lost; they stay pooled. Throughput under that attack is lower; it is
