@@ -80,21 +80,30 @@ pub struct CreatedWallet {
     pub account: Account,
 }
 
-/// A confirmation summary.
+/// What the confirm screen shows. Computed by the wallet core from the exact
+/// transaction that would be signed; the UI renders it and adds nothing.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct TransferPreview {
-    /// Hex-encoded sender.
+pub struct Confirmation {
+    /// Hash of the signing bytes. Handed back to `sign_transfer`.
+    pub signing_hash: String,
+    /// One sentence from `describe`.
+    pub description: String,
+    /// `describe`'s detail lines, in full.
+    pub details: Vec<(String, String)>,
+    /// Genesis id the signature commits to, hex.
+    pub chain_id: String,
+    /// Sender address, hex.
     pub sender: String,
-    /// Hex-encoded recipient.
-    pub recipient: String,
-    /// Amount to the recipient, base units as a decimal string.
-    pub amount: String,
-    /// Fee, base units as a decimal string.
-    pub fee: String,
-    /// Amount plus fee, base units as a decimal string.
-    pub total: String,
     /// Nonce.
     pub nonce: u64,
+    /// Recipient, checksummed hex (transfers only).
+    pub recipient: Option<String>,
+    /// Amount in display units (transfers only).
+    pub amount: Option<String>,
+    /// Fee in display units (transfers only).
+    pub fee: Option<String>,
+    /// Fee above the amount: shown as a warning.
+    pub fee_exceeds_amount: bool,
 }
 
 /// A fee preset.
@@ -271,31 +280,36 @@ pub async fn parse_payment_uri(input: &str) -> Result<PaymentRequest, String> {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct TransferArgs<'a> {
+struct PreviewArgs<'a> {
     index: u32,
     recipient: &'a str,
     amount: &'a str,
     fee: &'a str,
+    fee_to: Option<&'a str>,
     nonce: u64,
+    genesis: &'a str,
 }
 
-/// Summarises a transfer for confirmation, without signing it. `amount` and
-/// `fee` are base-unit decimal strings: the IPC never carries a JS number.
+/// Computes the confirm screen for a transfer. `amount` and `fee` are
+/// base-unit decimal strings: the IPC never carries a JS number. Signs nothing.
 pub async fn preview_transfer(
     index: u32,
     recipient: &str,
     amount: &str,
     fee: &str,
     nonce: u64,
-) -> Result<TransferPreview, String> {
+    terms: &FeeTerms,
+) -> Result<Confirmation, String> {
     call(
         "preview_transfer",
-        &TransferArgs {
+        &PreviewArgs {
             index,
             recipient,
             amount,
             fee,
+            fee_to: terms.collector.as_deref(),
             nonce,
+            genesis: &terms.genesis,
         },
     )
     .await
@@ -313,6 +327,7 @@ pub async fn sign_transfer(
     fee: &str,
     nonce: u64,
     terms: &FeeTerms,
+    confirmed_hash: &str,
 ) -> Result<SignedTransfer, String> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -324,6 +339,7 @@ pub async fn sign_transfer(
         fee_to: Option<&'a str>,
         nonce: u64,
         genesis: &'a str,
+        confirmed_hash: &'a str,
     }
     call(
         "sign_transfer",
@@ -335,6 +351,7 @@ pub async fn sign_transfer(
             fee_to: terms.collector.as_deref(),
             nonce,
             genesis: &terms.genesis,
+            confirmed_hash,
         },
     )
     .await
