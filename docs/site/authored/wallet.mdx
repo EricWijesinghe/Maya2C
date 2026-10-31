@@ -158,7 +158,7 @@ Nothing is signed or broadcast on a refusal.
 2. **Collector.** The fee must go to the protocol's fee collector
    (`state::fees::FEE_COLLECTOR`). A node that names another address is refused.
 3. **Fee cap.** A fee above the cap is refused. The default cap is one whole
-   MAYA (10^18 base units, `guard::DEFAULT_MAX_FEE`) for every kind of
+   MAYA (10^24 base units, `guard::DEFAULT_MAX_FEE`) for every kind of
    transaction, whatever the amount. `--max-fee` overrides it per call. The
    cap is a fixed judgment, not a measured fee, and this build has no wallet
    config file to change it in. A transfer whose fee is more than a tenth of
