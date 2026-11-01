@@ -27,6 +27,7 @@
 //! drops it, which zeroizes the seed.
 use std::sync::Mutex;
 
+use maya_wallet_core::confirm::Confirmation;
 use maya_wallet_core::hd::seed_from_mnemonic;
 use maya_wallet_core::payment::{FeeTier, PaymentRequest, SignedTransfer};
 use maya_wallet_core::vault::{OsKeychain, Vault};
@@ -65,26 +66,6 @@ pub struct CreatedWallet {
     pub mnemonic: String,
     /// The first account, so the UI has something to show immediately.
     pub account: Account,
-}
-
-/// A summary of what a signature would authorize.
-///
-/// Shown for confirmation *before* signing. Users approve a rendered summary,
-/// so the summary must describe exactly what gets signed and nothing else.
-#[derive(Serialize)]
-pub struct TransferPreview {
-    /// Hex-encoded sender.
-    pub sender: String,
-    /// Hex-encoded recipient.
-    pub recipient: String,
-    /// Amount to the recipient, base units as a decimal string.
-    pub amount: String,
-    /// Fee, burned, base units as a decimal string.
-    pub fee: String,
-    /// Amount plus fee, base units as a decimal string.
-    pub total: String,
-    /// Nonce that will be used.
-    pub nonce: u64,
 }
 
 /// A selectable fee preset.
@@ -269,33 +250,32 @@ pub fn parse_payment_uri(input: String) -> Result<PaymentRequest, String> {
     PaymentRequest::parse(&input).map_err(|e| e.to_string())
 }
 
-/// Summarises a transfer for confirmation, without signing it.
+/// The confirm screen's content for a transfer, computed by the wallet core
+/// from the transaction that would be signed. Signs nothing.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri maps each JS argument to one parameter.
 pub fn preview_transfer(
     index: u32,
     recipient: String,
     amount: String,
     fee: String,
+    fee_to: Option<String>,
     nonce: u64,
+    genesis: String,
     session: tauri::State<'_, Session>,
-) -> Result<TransferPreview, String> {
-    let recipient = payment::normalize_address(&recipient).map_err(|e| e.to_string())?;
+) -> Result<Confirmation, String> {
+    let chain = parse_genesis(&genesis)?;
     let amount = parse_amount_arg("amount", &amount)?;
-    let fee = parse_amount_arg("fee", &fee)?;
-    let total = amount
-        .checked_add(fee)
-        .ok_or_else(|| "amount and fee overflow".to_string())?;
-
+    let terms = SignTerms {
+        fee: parse_amount_arg("fee", &fee)?,
+        fee_to: fee_to.as_deref(),
+        nonce,
+        chain: &chain,
+    };
     session.with(|wallet| {
-        let account = wallet.account(index).map_err(|e| e.to_string())?;
-        Ok(TransferPreview {
-            sender: account.address,
-            recipient: recipient.clone(),
-            amount: amount.to_string(),
-            fee: fee.to_string(),
-            total: total.to_string(),
-            nonce,
-        })
+        wallet
+            .confirm(index, &recipient, amount, &terms)
+            .map_err(|e| e.to_string())
     })
 }
 
@@ -310,6 +290,8 @@ fn parse_amount_arg(name: &str, text: &str) -> Result<primitive_types::U256, Str
 /// `fee_to` is the collector from [`fee_options`]; without it the fee is
 /// burned, which only a chain without a fee market accepts. `genesis` is the
 /// hex genesis id from [`fee_options`]: the one chain the signature is valid on.
+/// `confirmed_hash` is the `signing_hash` [`preview_transfer`] returned for these
+/// same arguments; any other transaction is refused.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)] // Tauri maps each JS argument to one parameter.
 pub fn sign_transfer(
@@ -320,6 +302,7 @@ pub fn sign_transfer(
     fee_to: Option<String>,
     nonce: u64,
     genesis: String,
+    confirmed_hash: String,
     session: tauri::State<'_, Session>,
 ) -> Result<SignedTransfer, String> {
     let chain = parse_genesis(&genesis)?;
@@ -332,7 +315,7 @@ pub fn sign_transfer(
     };
     session.with(|wallet| {
         wallet
-            .sign(index, &recipient, amount, &terms)
+            .sign(index, &recipient, amount, &terms, &confirmed_hash)
             .map_err(|e| e.to_string())
     })
 }
