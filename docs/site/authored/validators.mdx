@@ -139,8 +139,9 @@ how mainnet will work.
   Evidence can be filed for `unbonding_epochs + 1` epochs after the offence.
 - **Undelegating takes the whole stake or leaves at least the minimum.** A
   zero or dust undelegation is refused.
-- **Your node votes on every round.** Its signatures are ML-DSA-65, the NIST
-  post-quantum standard, like every other signature on the chain.
+- **Your node votes on every round.** Its vote signatures are ML-DSA-87, the
+  NIST post-quantum standard at security level 5 (ADR-051). Transactions stay
+  ML-DSA-65.
 
 </TabItem>
 <TabItem label="For scientists">

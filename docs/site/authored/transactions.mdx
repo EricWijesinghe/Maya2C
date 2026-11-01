@@ -198,20 +198,38 @@ prove that no checked operation wraps and that add and subtract are inverses.
 
 ## The fee rule
 
-The base fee $b_t$ is charged per byte. The controller in `crates/fee-market`
-(built, **switched off**) is an EIP-1559-style update. With $T$ the target block
-size in bytes, $s_t$ the parent's size and $D = 8$ the denominator:
+The base fee $b_t$ is charged per byte. It is live wherever genesis sets
+`bft.fees`, which the testnet does ([ADR-029](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-029-fee-market-live.md)).
+The controller in `crates/fee-market` is an EIP-1559-style update. With $T$ the
+target block size in bytes, $s_t$ the parent's size and $D = 8$ the denominator:
 
 $$
-b_{t+1} = \max\!\left(b_{\min},\; b_t + \frac{b_t\,(s_t - T)}{T\,D}\right),
-\qquad \text{with at least one unit of rise when } s_t > T.
+\delta_t = \frac{b_t\,|s_t - T|}{T\,D},
+\qquad
+r_t = \min\!\left(\max(\delta_t, 1),\; \max\!\left(\frac{b_t}{D}, 1\right)\right)
 $$
 
-So a block at $2T$ raises the fee by exactly $1/8$, and an empty block lowers it
-by $1/8$. The charge is $c = b_t\,|\tau| + \mathrm{tip}$, where
-$\mathrm{tip} = \min(\texttt{max\_tip}, \texttt{max\_fee} - b_t)$. Of the base
-fee, 80% is burned and 20% goes to the treasury, rounding the treasury share
-down, so no unit is created or lost.
+$$
+b_{t+1} = \begin{cases}
+\min\bigl(b_t + r_t,\; \max(B_{\max}, b_t)\bigr) & s_t > T \
+\max(b_{\min},\; b_t - \delta_t) & s_t < T \
+b_t & s_t = T
+\end{cases}
+$$
+
+The rise is clamped to one denominator's share per block, so no block, however
+full, lifts the fee by more than 1/8 ([ADR-071](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-071-base-fee-step-clamp-and-ceiling.md),
+Proposed). A block at $2T$ raises the fee by exactly 1/8, and an empty block
+lowers it by 1/8. The fee also stops at a compiled-in ceiling $B_{\max}$
+(`MAX_BASE_FEE_PER_BYTE` in `crates/fee-market/src/limits.rs`). That value is
+ADR-071's option B, 0.1 MAYA for a 13,215-byte transfer, and it awaits the
+economics decision.
+
+The charge is $c = b_t\,|\tau| + \mathrm{tip}$, where
+$\mathrm{tip} = \min(\texttt{max\_tip}, \texttt{max\_fee} - b_t)$. The whole
+base-fee part is burned to `FEE_SINK` (`crates/node/src/state/fee_exec.rs`,
+`settle_fees`). Tips go to validators through the staking reward pool. The
+`treasury_bps` setting in `crates/fee-market` is not used by the node.
 
 The bound the code enforces is `MAX_SUPPLY` $= 2^{256}-1$ in
 `crates/fee-market/src/supply.rs`. Older documentation mentions a cap of
@@ -229,7 +247,11 @@ certificate graph alone, with no clock in it (see [consensus](/guides/consensus/
 ## Status
 
 - Built and tested. Not audited.
-- Fee market: built, tested, not wired into state transitions.
+- Fee market: live where genesis sets `bft.fees` (ADR-029). The rise clamp and
+  the ceiling are ADR-071, Proposed.
+- Block byte cap: 5 MiB, ADR-072, Proposed. See [consensus](/guides/consensus/).
+- Coin: 24 decimals, one coin = $10^{24}$ base units (ADR-068). Consensus amount
+  products are checked.
 - 256-bit amounts: implemented in the node path for transfers; the DEX
   arithmetic uses the same crate.
 
