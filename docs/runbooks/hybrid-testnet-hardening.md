@@ -65,7 +65,9 @@ The block must be **recent**: within the unbonding window of the network's head,
 the node's tip. Take it from the explorer or from two peers you trust, never from the peer
 you are rejoining through alone.
 
-Windows, computed as `unbonding_epochs (7) x epoch_blocks x 15 s`:
+Windows, computed as `unbonding_epochs (7) x epoch_blocks x block interval`. The interval is
+measured from the node's own headers over the last `epoch_blocks` blocks and capped at 15 s,
+so a fast chain has a shorter window. The figures below use the 15 s cap, the longest case:
 
 | Network (source of `epoch_blocks`) | `epoch_blocks` | Window |
 |---|---|---|

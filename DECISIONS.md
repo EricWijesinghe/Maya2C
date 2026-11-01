@@ -748,3 +748,18 @@ honest source answers with the head.
 passes it are still held. With `PREFETCH_WORKERS` = 4 and 32 blocks of 5 MiB per request, the
 peak is about 512 MiB + 640 MiB, roughly 1.2 GiB. This is recorded in `catchup.rs` at
 `MAX_LINKED_GAP_BYTES`.
+
+### B49 final review (2026-11-02): measured block interval, own-block trusted refused
+
+- **Block interval is measured, capped at the target.** `block_interval_secs` (`rejoin.rs`)
+  takes `(tip.timestamp − timestamp of the block epoch_blocks back) / epoch_blocks` from the
+  node's own headers, and uses `min(observed, TARGET_BLOCK_TIME)`, at least 1 s. With no
+  history, or a non-positive delta, it uses the target. This chain's DAG-BFT blocks have been
+  measured well under 15 s (`reports/bench/2026-10-25-tps-series.md`, about 2.6 s per block on a
+  shared machine). A shorter window is the strict direction: it can only make the time trigger
+  fire sooner. An honest late restart has `--trusted-block` or `--allow-unconfirmed-start`.
+- **A `--trusted-block` at or below this node's own tip does not lift the unconfirmed
+  refusal.** It would give a catch-up of nothing. Only a block above the tip gives the
+  hash-linked path.
+- The stale sentence "only the start-up time trigger remains" is removed from `DECISIONS.md`
+  (grep confirms no match).
