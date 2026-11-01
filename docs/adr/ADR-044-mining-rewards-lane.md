@@ -5,6 +5,7 @@ block rewards (no founder premine), GPU mining from block 1. Parameters below
 are defaults Eric may change until the launch freeze. Replaces gate 6 of
 `docs/mainnet-v1-plan.md` ("fees only", ADR-029) for mainnet.
 **Date:** 2026-10-11
+**Amended:** 2026-11-01 (Eric approved): the payout text now matches `state/mining.rs` (`share_reward`, `epoch_reward`): fixed per-share reward, unpaid budget stays in the reserve, tail floor on `R(e)`. No consensus change.
 
 ## Context
 
@@ -50,14 +51,13 @@ finalize blocks. They earn issuance by publishing work:
 3. **Emission per epoch, paid from a reserve, never minted.** Genesis
    allocates `MAX_SUPPLY − Σ allocations` to a keyless `MINING_RESERVE`
    address, so the conservation invariant (no native mint, ever) is unchanged.
-   Rewards are transfers out of the reserve, and emission ends when it is empty. `R(e) = INITIAL_EPOCH_REWARD >> (e / HALVING_EPOCHS)`,
-   integer only. At the epoch's last block:
-   - `MINER_SHARE_BPS` of `R(e)` is split across the epoch's valid claims,
-     pro rata by claim count (each claim is one share at the same target);
-     integer division, remainder burned;
-   - the rest goes to the committee through the existing staking payout
-     (ADR-028);
-   - an epoch with no claims burns the miner share instead of carrying it.
+   Rewards are transfers out of the reserve. `R(e) = max(INITIAL_EPOCH_REWARD >> (e / HALVING_EPOCHS), TAIL_EPOCH_REWARD)`,
+   integer only, a function of the epoch alone (never of the reserve balance). With a nonzero tail, genesis refuses a reserve smaller than
+   `lifetime_emission()` (an upper bound on everything the schedule pays), so it never runs dry
+   (`genesis.rs`, `bft.mining`). Without a tail, emission ends when `R(e)` reaches zero or the reserve is empty. At the epoch's last block:
+   - `MINER_SHARE_BPS` of `R(e)` is the epoch's miner budget; each valid claim earns `budget / target_shares` (integer division), capped by what is left of the budget. A claim that lands after the budget is spent still counts and pays nothing;
+   - the rest goes to the committee through the existing staking payout (ADR-028);
+   - any miner budget left unpaid at the epoch's end, including all of it when no claims land, stays in `MINING_RESERVE`. Nothing is burned and nothing carries into the next epoch's budget; it only extends how long the reserve lasts.
    Total minted is checked against `MAX_SUPPLY` with `check_supply`; emission
    stops at the cap.
 4. **Difficulty retargets per epoch** toward `TARGET_CLAIMS_PER_EPOCH`, using
