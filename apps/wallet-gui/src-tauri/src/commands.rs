@@ -27,7 +27,7 @@
 //! drops it, which zeroizes the seed.
 use std::sync::Mutex;
 
-use maya_wallet_core::confirm::Confirmation;
+use maya_wallet_core::confirm::{Confirmation, approval_message};
 use maya_wallet_core::hd::seed_from_mnemonic;
 use maya_wallet_core::payment::{FeeTier, PaymentRequest, SignedTransfer};
 use maya_wallet_core::vault::{OsKeychain, Vault};
@@ -36,6 +36,7 @@ use maya_wallet_core::wallet::{
 };
 use maya_wallet_core::{generate_mnemonic, payment, validate_mnemonic, wallet};
 use serde::{Deserialize, Serialize};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 /// The unlocked session, if any.
 #[derive(Default)]
@@ -285,16 +286,19 @@ fn parse_amount_arg(name: &str, text: &str) -> Result<primitive_types::U256, Str
     maya_wallet_core::amount::parse_base_units(text).map_err(|e| format!("{name}: {e}"))
 }
 
-/// Signs a transfer. No network access.
+/// Signs a transfer, but only after the person answers a native OK/Cancel
+/// dialog. No network access.
 ///
-/// `fee_to` is the collector from [`fee_options`]; without it the fee is
-/// burned, which only a chain without a fee market accepts. `genesis` is the
-/// hex genesis id from [`fee_options`]: the one chain the signature is valid on.
-/// `confirmed_hash` is the `signing_hash` [`preview_transfer`] returned for these
-/// same arguments; any other transaction is refused.
+/// The dialog text is built by the core from the transaction it would sign, so
+/// a compromised webview cannot change what the signer reads. `fee_to` is the
+/// collector from [`fee_options`]; without it the fee is burned, which only a
+/// chain without a fee market accepts. `genesis` is the hex genesis id from
+/// [`fee_options`]. `confirmed_hash` must be the `signing_hash`
+/// [`preview_transfer`] returned for these same arguments.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)] // Tauri maps each JS argument to one parameter.
-pub fn sign_transfer(
+pub async fn sign_transfer(
+    app: tauri::AppHandle,
     index: u32,
     recipient: String,
     amount: String,
@@ -307,17 +311,54 @@ pub fn sign_transfer(
 ) -> Result<SignedTransfer, String> {
     let chain = parse_genesis(&genesis)?;
     let amount = parse_amount_arg("amount", &amount)?;
+    let fee = parse_amount_arg("fee", &fee)?;
+    // Refused before the dialog, so a person is never asked to approve a fee the core would not sign.
+    wallet::check_fee_cap(fee, false).map_err(|e| e.to_string())?;
     let terms = SignTerms {
-        fee: parse_amount_arg("fee", &fee)?,
+        fee,
         fee_to: fee_to.as_deref(),
         nonce,
         chain: &chain,
+        allow_high_fee: false,
     };
+    // Rust computes the confirmation; the reviewed slot is set here by `confirm`.
+    let shown = session.with(|wallet| {
+        wallet
+            .confirm(index, &recipient, amount, &terms)
+            .map_err(|e| e.to_string())
+    })?;
+    if shown.signing_hash != confirmed_hash {
+        return Err(
+            "the transaction differs from the one on the confirm screen; nothing was signed"
+                .to_string(),
+        );
+    }
+    if !approved_on_screen(&app, &shown).await? {
+        return Err("cancelled on the native confirm screen; nothing was signed".to_string());
+    }
     session.with(|wallet| {
         wallet
-            .sign(index, &recipient, amount, &terms, &confirmed_hash)
+            .sign(index, &recipient, amount, &terms, &shown.signing_hash)
             .map_err(|e| e.to_string())
     })
+}
+
+/// The native OK/Cancel screen for a signature. Its words come from the core's
+/// [`Confirmation`], never from the webview.
+async fn approved_on_screen(app: &tauri::AppHandle, shown: &Confirmation) -> Result<bool, String> {
+    let question = app
+        .dialog()
+        .message(approval_message(shown))
+        .title("Confirm transfer")
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Sign".into(),
+            "Cancel".into(),
+        ));
+    // A blocking dialog must not hold an async worker thread (as in app-update).
+    tauri::async_runtime::spawn_blocking(move || question.blocking_show())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// A genesis id as `fee_options` returned it: 64 hex characters.

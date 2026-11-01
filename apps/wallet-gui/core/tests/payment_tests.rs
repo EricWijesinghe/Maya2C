@@ -82,6 +82,7 @@ fn sign_transfer(
             fee_to: None,
             nonce,
             chain,
+            allow_high_fee: false,
         },
     )
 }
@@ -100,6 +101,7 @@ fn sign_transfer_to(
         fee_to: Some(fee_to),
         nonce,
         chain,
+        allow_high_fee: false,
     };
     bound_sign(key, recipient, amount, terms)
 }

@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 
 use jsonrpsee::core::client::ClientT;
-use jsonrpsee::http_client::HttpClientBuilder;
+use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
@@ -23,6 +23,7 @@ use custom_l1_node::crypto::hybrid::HybridSigningKey;
 use crate::confirm::{Confirmation, confirmation};
 use crate::error::{Result, WalletError};
 use crate::hd::{self, DerivationPath, SEED_LEN};
+use crate::node_url::check_node_url;
 use crate::payment::{
     FEE_SINK, SignedTransfer, check_fee_collector, decode_address, finish_transfer, transfer_size,
     transfer_tx,
@@ -213,6 +214,7 @@ impl Wallet {
                     .to_string(),
             ));
         }
+        check_fee_cap(terms.fee, terms.allow_high_fee)?;
         let (signing_key, tx) = self.unsigned(index, recipient, amount, terms)?;
         if confirmation(&tx, terms.chain).signing_hash != confirmed_hash {
             return Err(WalletError::Signing(
@@ -286,9 +288,7 @@ impl Wallet {
 ///
 /// Returns [`WalletError::Node`] if the node is unreachable or rejects it.
 pub async fn broadcast(node_url: &str, raw_hex: &str) -> Result<String> {
-    let client = HttpClientBuilder::default()
-        .build(node_url)
-        .map_err(|e| WalletError::Node(format!("connecting to {node_url}: {e}")))?;
+    let client = connect(node_url)?;
 
     let result: serde_json::Value = client
         .request("send_raw_transaction", rpc_params![raw_hex])
@@ -320,9 +320,7 @@ pub struct FeeQuote {
 ///
 /// Returns [`WalletError::Node`] if the node is unreachable.
 pub async fn fee_quote(node_url: &str) -> Result<FeeQuote> {
-    let client = HttpClientBuilder::default()
-        .build(node_url)
-        .map_err(|e| WalletError::Node(format!("connecting to {node_url}: {e}")))?;
+    let client = connect(node_url)?;
 
     let info: custom_l1_node::rpc::FeeInfo = client
         .request("get_fee_info", rpc_params![])
@@ -353,6 +351,39 @@ pub struct SignTerms<'a> {
     pub nonce: u64,
     /// The genesis the signature commits to (ADR-036), from [`chain_info`].
     pub chain: &'a ChainTag,
+    /// Signs a fee above [`max_transfer_fee`]. Set by a person who chose it, never by a node.
+    pub allow_high_fee: bool,
+}
+
+/// The most a transfer may pay in fees without the override: one whole MAYA
+/// (`maya_amount::ONE_COIN`), the same bound as the CLI's `DEFAULT_MAX_FEE`.
+// shortcut: a judgment, not a fee-market figure; upgrade from testnet fee data.
+#[must_use]
+pub fn max_transfer_fee() -> primitive_types::U256 {
+    primitive_types::U256::from(maya_amount::ONE_COIN)
+}
+
+/// Refuses a fee above [`max_transfer_fee`] unless `allow_high_fee` is set.
+/// A node cannot set the override: only the caller of the core API can.
+///
+/// # Errors
+///
+/// [`WalletError::Signing`] when the fee is above the cap and not overridden.
+pub fn check_fee_cap(fee: primitive_types::U256, allow_high_fee: bool) -> Result<()> {
+    if allow_high_fee || fee <= max_transfer_fee() {
+        return Ok(());
+    }
+    Err(WalletError::Signing(
+        "the fee is above the 1 MAYA cap; nothing was signed".to_string(),
+    ))
+}
+
+/// The JSON-RPC client for `node_url`, once the URL passes [`check_node_url`].
+fn connect(node_url: &str) -> Result<HttpClient> {
+    check_node_url(node_url)?;
+    HttpClientBuilder::default()
+        .build(node_url)
+        .map_err(|e| WalletError::Node(format!("connecting to {node_url}: {e}")))
 }
 
 /// Fetches the chain's genesis block id (for transaction signing).
@@ -361,9 +392,7 @@ pub struct SignTerms<'a> {
 ///
 /// Returns [`WalletError::Node`] if the node is unreachable.
 pub async fn chain_info(node_url: &str) -> Result<ChainTag> {
-    let client = HttpClientBuilder::default()
-        .build(node_url)
-        .map_err(|e| WalletError::Node(format!("connecting to {node_url}: {e}")))?;
+    let client = connect(node_url)?;
 
     let info: custom_l1_node::rpc::ChainInfo = client
         .request("get_chain_info", rpc_params![])
@@ -396,9 +425,7 @@ pub struct NetworkStatus {
 ///
 /// Returns [`WalletError::Node`] if the node is unreachable.
 pub async fn network_status(node_url: &str) -> Result<NetworkStatus> {
-    let client = HttpClientBuilder::default()
-        .build(node_url)
-        .map_err(|e| WalletError::Node(format!("connecting to {node_url}: {e}")))?;
+    let client = connect(node_url)?;
     let info: custom_l1_node::rpc::ChainInfo = client
         .request("get_chain_info", rpc_params![])
         .await
@@ -418,9 +445,7 @@ pub async fn network_status(node_url: &str) -> Result<NetworkStatus> {
 ///
 /// Returns [`WalletError::Node`] if the node is unreachable.
 pub async fn fetch_account(node_url: &str, address: &str) -> Result<(primitive_types::U256, u64)> {
-    let client = HttpClientBuilder::default()
-        .build(node_url)
-        .map_err(|e| WalletError::Node(format!("connecting to {node_url}: {e}")))?;
+    let client = connect(node_url)?;
 
     let info: custom_l1_node::rpc::AccountInfo = client
         .request("get_balance", rpc_params![address])
