@@ -26,8 +26,8 @@ use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::error::NodeError;
 use custom_l1_node::state::{
-    Account, Address, AssetId, BlockContext, Direction, NATIVE_ASSET, PRICE_SCALE, Side, StateDB,
-    derive_asset_id, derive_lp_asset, derive_pair_id,
+    Account, Address, AssetId, BlockContext, Direction, NATIVE_ASSET, PRICE_SCALE, PoolRecord,
+    Side, StateDB, derive_asset_id, derive_lp_asset, derive_pair_id,
 };
 use primitive_types::U256;
 use tempfile::TempDir;
@@ -445,6 +445,16 @@ fn a_pool_with_no_usable_price_cannot_be_created() {
         )
         .unwrap_err();
     assert!(matches!(error, NodeError::Trade { .. }), "{error}");
+    let pair = derive_pair_id(&base, &quote, LP_FEE_BPS);
+    assert!(harness.db.get_pool(&pair).expect("read").is_none());
+    assert_eq!(
+        harness
+            .db
+            .asset_balance(&base, &key.address())
+            .expect("balance"),
+        U256::exp10(45),
+        "the refused creation debited the creator"
+    );
     // The same ratio one unit inside the edge is a working pool.
     let edge = create(base, quote, U256::exp10(24), U256::one());
     harness
@@ -493,19 +503,69 @@ fn a_batch_that_would_leave_no_usable_price_refunds_and_keeps_the_pool() {
             BlockContext::at_height(3),
         )
         .expect("a refused batch never fails the block");
+    assert_reserves_and_balance_kept(&harness, &pair, &before, &base, &key, held);
+}
 
-    let after = harness.db.get_pool(&pair).expect("read").expect("pool");
+fn assert_reserves_and_balance_kept(
+    harness: &Fixture,
+    pair: &[u8; 32],
+    before: &PoolRecord,
+    base: &AssetId,
+    key: &HybridSigningKey,
+    held: U256,
+) {
+    let after = harness.db.get_pool(pair).expect("read").expect("pool");
     assert_eq!(after.pool.reserve_base, before.pool.reserve_base);
     assert_eq!(after.pool.reserve_quote, before.pool.reserve_quote);
     assert_eq!(
         harness
             .db
-            .asset_balance(&base, &key.address())
+            .asset_balance(base, &key.address())
             .expect("balance"),
         held
     );
 }
 
+#[test]
+fn a_route_that_would_leave_no_usable_price_does_not_execute() {
+    // Replay: on master this route wrote (≈1e26, 1), spot price 0, and froze
+    // the pair. Now it is a route that does not pay: no write, block valid.
+    let key = generate_signing_key().expect("key");
+    let harness = fixture(&[(key.address(), 1_000)]);
+    let (base, quote) = two_big_assets(&harness, &key);
+    let pool = create(base, quote, U256::exp10(24) * 2, U256::from(2));
+    harness
+        .db
+        .apply_block(
+            &block_of(vec![signed(pool, 2, &key)]),
+            BlockContext::at_height(2),
+        )
+        .expect("price 1 is usable");
+    let pair = derive_pair_id(&base, &quote, LP_FEE_BPS);
+    let before = harness.db.get_pool(&pair).expect("read").expect("pool");
+    let held = harness
+        .db
+        .asset_balance(&base, &key.address())
+        .expect("balance");
+
+    let route = TxKind::SwapRoute(SwapRoute {
+        legs: vec![RouteLeg {
+            pair,
+            direction: Direction::BaseToQuote.tag(),
+        }],
+        amount_in: U256::exp10(26),
+        min_out: U256::one(),
+        deadline: 0,
+    });
+    harness
+        .db
+        .apply_block(
+            &block_of(vec![signed(route, 3, &key)]),
+            BlockContext::at_height(3),
+        )
+        .expect("a route that does not pay never fails the block");
+    assert_reserves_and_balance_kept(&harness, &pair, &before, &base, &key, held);
+}
 #[test]
 fn the_same_pair_cannot_have_two_pools_at_one_fee_rate() {
     let mut market = market();

@@ -773,8 +773,13 @@ impl StateDB {
             return Err(NodeError::RouteDiscontinuity { leg: 0 });
         };
 
-        for (_, record) in &pools {
-            ensure_priced(&record.pool, "routed swap")?;
+        // An earlier transaction in this block can push a pool to the edge, so
+        // this is a route that does not pay, like an unpriceable leg: no write.
+        if !pools
+            .iter()
+            .all(|(_, record)| has_usable_price(&record.pool))
+        {
+            return Ok(());
         }
 
         self.debit_asset(overlay, &first_asset, sender, route.amount_in)?;
@@ -1208,7 +1213,6 @@ fn output_asset(record: &PoolRecord, direction: Direction) -> AssetId {
     }
 }
 
-/// Wraps an engine refusal with the operation that provoked it.
 /// Whether `pool` is empty or keeps a price batches can clear at: nonzero and
 /// within 256 bits. A funded pool past either edge refunds every batch on its
 /// pair for good, and the pair id cannot be reused (#279 review, DECISIONS
@@ -1219,13 +1223,17 @@ fn has_usable_price(pool: &Pool) -> bool {
 
 /// [`has_usable_price`] as a refusal, for transactions that execute in place.
 fn ensure_priced(pool: &Pool, operation: &'static str) -> Result<()> {
-    if has_usable_price(pool) {
-        Ok(())
-    } else {
-        Err(trade_error(operation, DexError::ZeroPrice))
+    if !pool.is_funded() {
+        return Ok(());
+    }
+    match pool.spot_price() {
+        Ok(price) if !price.is_zero() => Ok(()),
+        Ok(_) => Err(trade_error(operation, DexError::ZeroPrice)),
+        Err(error) => Err(trade_error(operation, error)),
     }
 }
 
+/// Wraps an engine refusal with the operation that provoked it.
 fn trade_error(operation: &'static str, error: DexError) -> NodeError {
     NodeError::Trade {
         operation,
