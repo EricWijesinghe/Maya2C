@@ -31,7 +31,7 @@ rpc() {  # $1 port, $2 method
 }
 node() {  # $1 data dir, $2 rpc port, $3 p2p port, rest: extra args
     local d=$1 r=$2 p=$3; shift 3
-    "$BIN" --genesis "$WORK/genesis.json" --data-dir "$d" --rpc-addr "127.0.0.1:$r" --p2p-port "$p" "$@" \
+    "$BIN" --genesis "$WORK/genesis.json" --data-dir "$d" --rpc-addr "127.0.0.1:$r" --p2p-port "$p" --allow-private-peers "$@" \
         > "$d.log" 2>&1 &
     echo $!
 }
