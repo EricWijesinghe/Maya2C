@@ -112,11 +112,14 @@ pub async fn run(validators: usize, dir: &Path) -> Result<(), Box<dyn Error>> {
     let (jobs, _) = broadcast::channel(16);
 
     push_and_broadcast(&state, &jobs, 0)?;
-    let server = daemon::serve_stratum(
+    // Every simulated miner connects from loopback, so the production per-address
+    // cap would refuse most of them and the run would measure refusals instead.
+    let server = daemon::serve_stratum_capped(
         "127.0.0.1:0".parse()?,
         Arc::clone(&state),
         validator,
         jobs.clone(),
+        usize::MAX,
     )
     .await?;
     println!("LISTEN {}", server.address);
