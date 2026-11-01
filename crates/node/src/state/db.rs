@@ -780,8 +780,24 @@ impl StateDB {
         context: BlockContext,
         policy: &SuitePolicy,
     ) -> Result<()> {
-        // Authorization first — an unsigned or forged transaction must never
-        // reach the balance rules.
+        // Nonce before signatures (audit 2026-11-01): the sender is a hash of the
+        // keys the transaction carries, and the nonce is one read, so a wrong
+        // nonce is refused without paying for the hybrid verify below. The
+        // accept set is unchanged: a transaction still applies only if its nonce
+        // matches, its signatures verify and its fee and vault checks pass. Only
+        // the error returned by a transaction that fails several checks changes.
+        let sender_address = tx.sender();
+        let expected = self.load(overlay, &sender_address)?.nonce;
+        if tx.nonce != expected {
+            return Err(NodeError::InvalidNonce {
+                address: hex::encode(sender_address),
+                expected,
+                actual: tx.nonce,
+            });
+        }
+
+        // Authorization — an unsigned or forged transaction must never reach
+        // the balance rules.
         //
         // This one call is the chain's post-quantum rule. `Transaction::verify`
         // passes only when *both* the ML-DSA-65 (FIPS 204) and the
@@ -801,29 +817,20 @@ impl StateDB {
             .verify(tx, context.height, policy, self.get_chain_tag()?)?;
         self.charge_fee(overlay, tx)?;
 
-        // Derived from the keys the signatures were just checked against, never
-        // read from a wire field. A transaction able to name a sender
-        // independently of the keys that signed it would authorize spending
-        // from an account it does not control. The address hashes both keys, so
-        // a forged half paired with an attacker-chosen partner key resolves to
-        // an account that holds nothing.
-        let sender_address = tx.sender();
+        // The sender above is derived from the keys the signatures were just
+        // checked against, never read from a wire field. A transaction able to
+        // name a sender independently of the keys that signed it would authorize
+        // spending from an account it does not control. The address hashes both
+        // keys, so a forged half paired with an attacker-chosen partner key
+        // resolves to an account that holds nothing.
         // A vault account may send only in-limit transfers and vault actions
         // (ADR-030), checked before a unit moves.
         if let Some(vault) = self.vault_check(overlay, tx, &sender_address, context.height)? {
             StateDB::store_vault(overlay, &sender_address, &vault);
         }
-        let mut sender = self.load(overlay, &sender_address)?;
-
-        // Nonce check. This is the double-spend guard: the first spend bumps
+        // The double-spend guard is the nonce check above: the first spend bumps
         // the nonce, so a replay of the same transaction no longer matches.
-        if tx.nonce != sender.nonce {
-            return Err(NodeError::InvalidNonce {
-                address: hex::encode(sender_address),
-                expected: sender.nonce,
-                actual: tx.nonce,
-            });
-        }
+        let mut sender = self.load(overlay, &sender_address)?;
 
         // Outputs are 256-bit on the wire (ADR-046); ledger-math's proved fold
         // sums them and refuses any intermediate overflow.
