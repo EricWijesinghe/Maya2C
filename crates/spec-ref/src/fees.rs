@@ -6,7 +6,7 @@ use crate::balance::Balance;
 pub const BPS: u64 = 10_000;
 
 /// FEE-6's ceiling, per byte: mirrors `maya_fee_market::limits::MAX_BASE_FEE_PER_BYTE`
-/// (ADR-071, a placeholder pending the economics decision). Changing one
+/// (ADR-076, a placeholder pending the economics decision). Changing one
 /// without the other splits the reference from the node.
 pub const MAX_BASE_FEE_PER_BYTE: u64 = 7_567_158_531_971_244_797;
 

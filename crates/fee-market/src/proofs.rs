@@ -46,7 +46,7 @@ fn the_base_fee_respects_its_floor_and_its_step() {
 }
 
 /// The linear rise is at most one denominator's share, and ends at the ceiling
-/// (FEE-3 and FEE-6, ADR-071).
+/// (FEE-3 and FEE-6, ADR-076).
 #[kani::proof]
 fn a_rise_is_one_denominator_share_and_stops_at_the_ceiling() {
     let parent = any_amount();

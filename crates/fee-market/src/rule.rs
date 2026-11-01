@@ -38,7 +38,7 @@
 //! the wrong way for them. What that gives up: the network cannot cut the fee
 //! faster than EIP-1559 when demand collapses. A rival producer pushing fees
 //! *up* is bounded by one denominator's share per block and by the ceiling
-//! (ADR-071), the same bounds the linear rule has.
+//! (ADR-076), the same bounds the linear rule has.
 
 use crate::limits::MAX_BASE_FEE_PER_BYTE;
 use crate::model::{Features, MAX_GAIN_BPS, Model, UNIT_GAIN_BPS};
@@ -94,7 +94,7 @@ pub fn neural_next_base_fee(
     };
 
     let next = if rising {
-        // The same one-denominator share and ceiling as `next_base_fee` (ADR-071):
+        // The same one-denominator share and ceiling as `next_base_fee` (ADR-076):
         // a neural gain may steer the step, but it may not outrun the bound.
         let share = base
             .checked_div(Amount::from_u64(denominator))

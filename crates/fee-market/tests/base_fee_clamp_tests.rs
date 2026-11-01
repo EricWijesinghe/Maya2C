@@ -1,6 +1,6 @@
-//! The base-fee step clamp and ceiling (ADR-071).
+//! The base-fee step clamp and ceiling (ADR-076).
 //!
-//! Before ADR-071 a block at 64 times the target multiplied the base fee by
+//! Before ADR-076 a block at 64 times the target multiplied the base fee by
 //! about 8.9, and nothing bounded it. These tests pin the three properties
 //! that now hold: the rise per block is at most `1/denominator`, the fee never
 //! exceeds `MAX_BASE_FEE_PER_BYTE`, and a one-coin account can still pay for a

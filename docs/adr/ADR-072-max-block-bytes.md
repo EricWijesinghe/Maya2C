@@ -6,7 +6,7 @@
 
 ## Context
 
-The fee clamp (ADR-071, PR #274) bounds how fast the base fee can rise, so a block's
+The fee clamp (ADR-076, PR #274) bounds how fast the base fee can rise, so a block's
 size no longer raises its price. Before that, a large block was expensive to fill. After it,
 size is only a cost for the attacker who pays the fee, and the chain has no other bound on it.
 
@@ -75,7 +75,7 @@ moving this from Proposed to Accepted.
 - **Target range follows the cap.** `MAX_TARGET_BLOCK_BYTES` was 16 MiB. A target at or above the cap
   can never be exceeded, so the base fee would never rise and spam would stay at the floor. It is now
   `MAX_BLOCK_BYTES / 2` (2.5 MiB, the published testnet's own target), so a full block is 2x target and
-  moves the fee by the full 1/D step (ADR-071).
+  moves the fee by the full 1/D step (ADR-076).
 - A block over the cap is refused on every path, so a malicious builder cannot bypass the cap.
 - Consensus-visible: a block that was valid before is now invalid above the cap, and the
   selection changes what an over-cap order produces. Re-genesis only.
