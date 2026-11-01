@@ -12,10 +12,12 @@ use std::time::{Duration, Instant};
 
 use custom_l1_node::consensus::Chain;
 use custom_l1_node::consensus::bft::attest::CheckpointBook;
+use custom_l1_node::consensus::bft::builder::DECODE_BUDGET;
 use custom_l1_node::consensus::bft::catchup::{self, Anchor, Position};
 use custom_l1_node::consensus::bft::certsync;
 use custom_l1_node::consensus::bft::remote::{DEFAULT_DEADLINE, RemoteSigner, ValidatorKey};
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
+use custom_l1_node::core::block::decode_quantum;
 use custom_l1_node::crypto::validator_keys::{self as keys, VerifyingKey};
 use custom_l1_node::genesis::BftGenesis;
 use custom_l1_node::metrics::Metrics;
@@ -238,12 +240,20 @@ pub(super) fn setup(
     genesis: &BftGenesis,
     signer: Option<ValidatorKey>,
 ) -> Result<BftSetup, Box<dyn Error>> {
+    let committee: Arc<[VerifyingKey]> = genesis.verifying_keys()?.into();
+    // CON-13: a vertex carries at most one author's quantum, so a batch of
+    // small payloads is always admitted by the decode walk. Payloads that do
+    // not fit stay in the mempool for the next vertex. A payload the walk does
+    // not admit is released by the driver (`Step::dropped`) and re-submitted,
+    // so it is not lost. The quantum is fixed at the genesis committee size.
+    let max_batch_bytes = usize::try_from(decode_quantum(DECODE_BUDGET, committee.len()))?;
     Ok(BftSetup {
         epoch: 0,
-        committee: genesis.verifying_keys()?.into(),
+        committee,
         signer,
         params: Params {
             batch_size: genesis.batch_size,
+            max_batch_bytes,
             anchor_timeout_ms: genesis.anchor_timeout_ms,
             min_round_interval_ms: genesis.round_interval_ms,
             // Local, not consensus: how often a lost proposal or certificate
@@ -785,6 +795,8 @@ impl Feed {
                     self.min_register_bond
                 );
             }
+            // Removed once logged: left in the pool they would be logged again
+            // on every tick (the removal was lost in the oversize change).
             pool.remove_all(&refused);
         }
     }

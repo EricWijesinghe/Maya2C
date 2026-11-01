@@ -950,7 +950,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // `get_peers`: who this node is connected to, with no addresses, so it is
     // safe on every node (`rpc::peers`).
     let rpc_context = rpc_context.with_network_view(network.clone());
-    let rpc = serve_metered(args.rpc_addr, rpc_context, Arc::clone(&metrics), limiter).await?;
+    let rpc = serve_metered(
+        args.rpc_addr,
+        rpc_context,
+        Arc::clone(&metrics),
+        limiter,
+        node_config.rpc.trusted_proxies.clone(),
+    )
+    .await?;
     println!("rpc:         http://{}", rpc.address);
 
     // --- Metrics ---
