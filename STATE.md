@@ -1,6 +1,21 @@
 # State
 
 ## Handover
+- **2026-11-01 — hardening wave merged; re-frozen at `ec8d0be1`; 5-day local proving run started.**
+  - **Merged (security, review-driven):** #268 wasmtime 48.0.8; #270 CLI wallet fail-closed fee
+    query and 10^24 cap; #271 wallet confirm screen bound to the signing hash; #273 vault
+    headroom bypass; #274 ADR-071 base-fee clamp and ceiling (option B 0.1 MAYA, Eric
+    approved); #276 ADR-072 5 MiB block cap, first-fit; #275 Hub miner path guard; #279 DEX
+    1e24 scale and supply cap; #287 wallet one-shot review slot; #289 DEX zero-price DoS
+    (Kani harness 1 SUCCESSFUL with cover; harness 2 re-running); #293 ADR-044 reserve
+    wording. Last before the freeze: #272 24-decimal COIN, #278 CON-13 decode bound with
+    per-author fair share.
+  - **Measured:** apply 55.2 ms/MiB serial, 22.9 ms/MiB with parallel verify; 414 ms worst
+    case at the 7.5 MiB decode budget (`reports/bench/2026-11-01-apply-per-mib.md`, #296).
+  - **Unfinished:** proving run (5 days) on the freeze sha, then attacknet, Hub E2E and a
+    self pre-audit pass; Kani harness 2 for #289 (if it fails: fix, re-freeze, restart).
+  - **Do first:** read `reports/proving/` for the run's hourly lines. When it passes, ask Eric
+    for `APPROVED: sign genesis` (separate from the launch).
 - **2026-10-30 — consensus FROZEN at `8987a6be`; confirming attacknet PASS 8/8.**
   - **Evidence:** `reports/attacknet/2026-10-30-1.md`: no fork through 721; attack 7 back from a
     snapshot in 601 ms; attack 8 rejoined in 2.0 s. The failing pre-fix runs are kept as -3,
