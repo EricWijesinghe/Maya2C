@@ -389,6 +389,11 @@ mod tests {
 
         let initiator = tokio::spawn(async move { initiate(&mut b).await });
         let pending = begin_respond().expect("begin");
+        // The first message is the framed encapsulation key, byte for byte.
+        // `respond_with` sends exactly `frame(encoded)`, so the split path puts the
+        // same bytes on the wire. A seeded KEM would allow a full byte comparison
+        // against `respond_with`; `generate` takes no seed, so this is the check.
+        assert_eq!(pending.first_message(), frame(&pending.encoded));
         a.write_all(&pending.first_message())
             .await
             .expect("send key");
@@ -410,7 +415,13 @@ mod tests {
     #[test]
     fn a_wrong_length_initiator_message_is_refused_before_decapsulation() {
         let pending = begin_respond().expect("begin");
-        assert!(pending.finish(&[VERSION; 3]).is_err());
+        match pending.finish(&[VERSION; 3]) {
+            Err(NodeError::PqHandshake(message)) => assert_eq!(
+                message,
+                format!("initiator message is 3 bytes, expected {INITIATOR_MESSAGE_LEN}")
+            ),
+            other => panic!("expected a length refusal, got {:?}", other.map(|_| ())),
+        }
     }
 
     #[tokio::test]
