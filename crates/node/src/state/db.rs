@@ -18,10 +18,10 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 use crate::config::StorageConfig;
+use crate::state::fees::MAX_BLOCK_BYTES;
 use maya_crypto_pq::agility::SuitePolicy;
 use maya_dex::batch::SwapIntent;
 use maya_dex::types::PairId;
-use maya_fee_market::limits::MAX_BLOCK_BYTES;
 use maya_ledger_math as ledger_math;
 use primitive_types::U256;
 use rocksdb::{BlockBasedOptions, Cache, DB, IteratorMode, Options, WriteBatch};

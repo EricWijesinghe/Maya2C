@@ -7,8 +7,8 @@ use crate::crypto::dag::hashimoto::hashimoto_light;
 use crate::crypto::dag::registry::CacheRegistry;
 use crate::crypto::pow::meets_target;
 use crate::error::{NodeError, Result};
+use crate::state::fees::MAX_BLOCK_BYTES;
 use crate::state::merkle::{PathStep, merkle_path, merkle_root};
-use maya_fee_market::limits::MAX_BLOCK_BYTES;
 
 /// Wire bytes a block takes before its first transaction: the header and the
 /// transaction count, as [`Block::to_bytes`] writes them.
