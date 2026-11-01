@@ -37,7 +37,7 @@ use std::time::{Duration, Instant};
 use futures::{AsyncReadExt, AsyncWriteExt};
 use maya_stratum_v2::{Frame, FrameHeader, MAX_PAYLOAD_LEN, Message};
 use tokio::net::{TcpSocket, TcpStream};
-use tokio::sync::{Semaphore, broadcast, mpsc};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, broadcast, mpsc};
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
 use custom_l1_node::network::pq::handshake;
@@ -76,6 +76,14 @@ const SEND_TIMEOUT: Duration = Duration::from_secs(2);
 /// Without a deadline, a socket that connects and says nothing holds its task
 /// and buffers for as long as the peer keeps the TCP connection open.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Handshakes in progress at once, across every connection.
+///
+/// Each handshake spends CPU on X25519 and ML-KEM on a runtime worker. Capping
+/// it apart from connections means a flood of sockets that connect and stall
+/// cannot take every worker, while a burst of honest reconnects still gets
+/// through a few hundred at a time.
+const MAX_CONCURRENT_HANDSHAKES: usize = 256;
 
 /// Longest a connected miner may go without sending a frame.
 ///
@@ -249,6 +257,7 @@ pub async fn serve_stratum(
     let listener = socket.listen(LISTEN_BACKLOG)?;
     let bound = listener.local_addr()?;
     let admission = Arc::new(Semaphore::new(MAX_CONNECTIONS));
+    let handshakes = Arc::new(Semaphore::new(MAX_CONCURRENT_HANDSHAKES));
     let per_ip: PerIpCounts = Arc::new(Mutex::new(HashMap::new()));
 
     tokio::spawn(async move {
@@ -289,12 +298,15 @@ pub async fn serve_stratum(
             let state = Arc::clone(&state);
             let validator = validator.clone();
             let jobs = jobs.subscribe();
+            let handshakes = Arc::clone(&handshakes);
 
             tokio::spawn(async move {
                 // Both held for the connection's life, released when it ends.
                 let _permit = permit;
                 let _ip_slot = ip_slot;
-                if let Err(error) = serve_connection(stream, state, validator, jobs).await {
+                if let Err(error) =
+                    serve_connection(stream, state, validator, jobs, handshakes).await
+                {
                     // Connection-level failures are ordinary: miners disconnect,
                     // Ð¸ a malformed frame is a client bug, not a pool one.
                     eprintln!("pool: connection {peer} ended: {error}");
@@ -306,22 +318,41 @@ pub async fn serve_stratum(
     Ok(PoolServer { address: bound })
 }
 
+/// Takes a handshake slot, waiting at most `wait` for one.
+///
+/// Past `wait` the connection is refused rather than queued: a queue of waiting
+/// sockets would hold each one for as long as the flood lasted.
+async fn take_handshake_slot(
+    slots: Arc<Semaphore>,
+    wait: Duration,
+) -> Result<OwnedSemaphorePermit> {
+    tokio::time::timeout(wait, slots.acquire_owned())
+        .await
+        .map_err(|_| PoolError::Server("no handshake slot before the timeout".to_string()))?
+        .map_err(|_| PoolError::Server("handshake limiter closed".to_string()))
+}
+
 /// Drives one miner connection from handshake to close.
 async fn serve_connection(
     stream: TcpStream,
     state: Arc<PoolState>,
     validator: Validator,
     mut jobs: broadcast::Receiver<Arc<Job>>,
+    handshakes: Arc<Semaphore>,
 ) -> Result<()> {
     stream.set_nodelay(true)?;
 
     // The compat layer exists for exactly this line: the handshake is written
     // against futures' traits and a Tokio socket implements Tokio's.
     let mut compat = stream.compat();
+    // Held across the handshake only, so a connection past the limit waits here
+    // rather than running its crypto alongside the rest.
+    let slot = take_handshake_slot(handshakes, HANDSHAKE_TIMEOUT).await?;
     let keys = tokio::time::timeout(HANDSHAKE_TIMEOUT, handshake::respond(&mut compat))
         .await
         .map_err(|_| PoolError::Server("post-quantum handshake timed out".to_string()))?
         .map_err(|e| PoolError::Server(format!("post-quantum handshake failed: {e}")))?;
+    drop(slot);
 
     // `is_initiator: false` — the pool responds, so it opens with the key the
     // dialer seals with. Getting this backwards yields a stream that decrypts
@@ -1067,6 +1098,21 @@ mod tests {
 
         drop(IpSlot::claim(&counts, ip).unwrap());
         assert!(counts.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_connect_flood_cannot_hold_every_handshake_slot() {
+        // Once the slots are held, the next connection is refused at its wait
+        // rather than queued behind the flood, and a released slot is reusable.
+        let wait = Duration::from_millis(20);
+        let slots = Arc::new(Semaphore::new(2));
+        let first = take_handshake_slot(Arc::clone(&slots), wait).await.unwrap();
+        let second = take_handshake_slot(Arc::clone(&slots), wait).await.unwrap();
+        assert!(take_handshake_slot(Arc::clone(&slots), wait).await.is_err());
+
+        drop(first);
+        assert!(take_handshake_slot(Arc::clone(&slots), wait).await.is_ok());
+        drop(second);
     }
 
     #[test]
