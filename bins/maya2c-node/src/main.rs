@@ -204,6 +204,8 @@ struct Args {
     /// DAG-BFT: catch up through this peer's attested checkpoint and follow
     /// attested blocks (ADR-038), for a node that was down too long to rejoin.
     catch_up_from: Vec<String>,
+    /// Keep private and loopback peer addresses (a local devnet only).
+    allow_private_peers: bool,
     /// DAG-BFT: never propose a validator registration bonding less than
     /// this (ADR-039 option 3). Node policy, not consensus; 0 is off.
     min_register_bond: u64,
@@ -272,6 +274,7 @@ impl Default for Args {
             bootstrap_from: None,
             trusted_block: None,
             catch_up_from: Vec::new(),
+            allow_private_peers: false,
             min_register_bond: 0,
             validator_key: None,
             validator_passphrase_file: None,
@@ -407,6 +410,7 @@ fn parse_args_from(arguments: impl Iterator<Item = String>) -> Result<Args, Box<
             "--bootstrap-from" => args.bootstrap_from = Some(value()?),
             "--trusted-block" => args.trusted_block = Some(parse_trusted_block(&value()?)?),
             "--catch-up-from" => args.catch_up_from.push(value()?),
+            "--allow-private-peers" => args.allow_private_peers = true,
             "--min-register-bond" => args.min_register_bond = value()?.parse()?,
             "--validator-key" => args.validator_key = Some(PathBuf::from(value()?)),
             "--remote-signer" => args.remote_signer = Some(value()?.parse()?),
@@ -876,6 +880,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let identity = load_or_create_identity(&args.data_dir)?;
     let pq = PqUpgrade::with_policy(args.dual_kem).with_mlkem1024(args.mlkem1024);
     let mut p2p = Node::new_tcp_with_identity_and_pq(Arc::clone(&state), identity, pq)?;
+    if args.allow_private_peers {
+        p2p.allow_private_peer_addresses();
+    }
     // Logged unconditionally, including the default. An operator debugging a
     // connection failure between two nodes needs to know which side offered
     // what, and "the line is absent" is a worse answer than "off".
