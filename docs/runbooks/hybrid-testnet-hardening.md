@@ -62,8 +62,9 @@ Beyond the span, restore from a snapshot with `--bootstrap-from`.
 Known residual: a P2P-only node (no `--catch-up-from`) that goes stale while running has no
 follower to stop. It keeps running, and a restart applies the start-up rule.
 The block must be **recent**: within the unbonding window of the network's head, and above
-the node's tip. Take it from the explorer or from two peers you trust, never from the peer
-you are rejoining through alone.
+the node's tip. Outside operators set `MAYA2C_TRUSTED_BLOCK=HEIGHT:HEX` from the explorer, or
+from two independent peers, before the start. The launchers below fetch a block only when
+that variable is not set.
 
 Windows, computed as `unbonding_epochs (7) x epoch_blocks x block interval`. The interval is
 measured from the node's own headers over the last `epoch_blocks` blocks and capped at 15 s,
@@ -81,17 +82,30 @@ Short windows mean a node restarted after a 35-minute outage on the Oracle VM te
 devnet is refused until it is given a trusted block. That is intended.
 
 **Restart rule (B49), now in every launcher.** Before a node with `--catch-up-from` starts, the
-launcher takes a trusted block from the peer it catches up from: `get_chain_info` for the tip
-height, then `get_block_by_height` for its id. It passes `--trusted-block HEIGHT:HEX`. The tip is
-recent by definition. A node within the window accepts it as a checked anchor, so passing it is
-always safe.
+launcher picks its `--trusted-block HEIGHT:HEX` in this order:
+
+1. `MAYA2C_TRUSTED_BLOCK` in the environment (`-TrustedBlock` on the `.ps1` launchers). An
+   operator's explorer block always wins over any fetch.
+2. Otherwise a fetch: `get_chain_info` for the tip height, then `get_block_by_height` for its id,
+   from two sources. The two must agree on the block at the lower tip. One source is a warned
+   convenience.
+
+The tip is recent by definition. A node within the window accepts the block as a checked anchor,
+so passing it is always safe.
 
 | Launcher | Fetches from | Notes |
 |---|---|---|
-| `infra/hybrid-testnet/start-pc-validators.ps1` | first live peer from `Get-Sources` | every start; warns and starts without one if none answers |
-| `infra/testnet-vm/join-validator.ps1` | `-Bootstrap` URL (default `https://bootstrap.maya2c.dev/rpc`) | the boot task's `run-node.cmd` runs `trusted-block.ps1` on every start |
-| `scripts/join-testnet.sh` | `$BOOTSTRAP` (same endpoint) | the service runs `run-node.sh`, which fetches before `exec` on every start |
-| `scripts/dr-drill.ps1` | the drill's `$peer` | one start; warns and starts without one |
+| `infra/hybrid-testnet/start-pc-validators.ps1` | the first two live peers from `Get-Sources` | our own PC nodes; with one live peer it warns |
+| `infra/testnet-vm/join-validator.ps1` | `-Bootstrap` and optional `-TrustedSource` | our own VM: convenience fetch. Outside operators set `-TrustedBlock` from the explorer |
+| `scripts/join-testnet.sh` | `$BOOTSTRAP` and optional `MAYA2C_TRUSTED_SOURCE` at install | outside operators: set `MAYA2C_TRUSTED_BLOCK` (systemd `Environment=`, or launchd `EnvironmentVariables`) from the explorer, or give a second independent peer in `MAYA2C_TRUSTED_SOURCE` |
+| `scripts/dr-drill.ps1` | the drill's `$peer` and `$seed` | a drill against our own nodes |
+
+**Who does what:**
+- **Our own nodes** (the PC, the Oracle VM, the drill, attacknet, the controller): the fetch is a
+  convenience. Attacknet and the controller run against our own lab nodes, so one source is fine
+  there.
+- **Outside operators:** set `MAYA2C_TRUSTED_BLOCK=HEIGHT:HEX` from the explorer, or from two
+  independent peers you verify yourself. Do not rely on a single fetched source.
 
 A launcher that finds no block still starts the node. A node behind the window then refuses,
 and the log says why. The restart fails loudly only in the lab (`cargo xtask attacknet`, the

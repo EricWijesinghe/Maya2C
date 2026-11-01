@@ -95,6 +95,13 @@ param(
     # Snapshot/catch-up endpoint so a joining node loads a recent snapshot over
     # https (port 443, NAT-friendly) instead of replaying the chain from block 0.
     [string]$Bootstrap     = 'https://bootstrap.maya2c.dev/rpc',
+    # B49: an operator's trusted block (HEIGHT:HEX, from the explorer). It wins over
+    # any fetch, and the environment variable MAYA2C_TRUSTED_BLOCK does the same.
+    [string]$TrustedBlock,
+    # B49: a second RPC endpoint. With two, the fetched block is used only if both
+    # agree on it at the lower tip. Outside operators should give an explorer
+    # block in -TrustedBlock instead of relying on one fetch.
+    [string]$TrustedSource,
     [string]$ReleaseTag,
     [string]$NodeSha256,
     [switch]$Silent,
@@ -353,29 +360,53 @@ function Register-BootTask {
     # a Windows CI runner, 2026-10-12) stayed stopped. systemd's
     # Restart=always and launchd's KeepAlive already do this on Linux and Mac.
     $launcher = Join-Path $InstallDir 'run-node.cmd'
-    # B49: every start, boot or restart, fetches a trusted block from the
-    # bootstrap endpoint first: a flag fixed at registration goes stale. Without
-    # one the node still starts, and refuses only if it is behind the window.
+    # B49: every start, boot or restart, takes a trusted block before the node
+    # starts: a flag fixed at registration goes stale. Order: -TrustedBlock or
+    # MAYA2C_TRUSTED_BLOCK (the operator's, always wins); otherwise a fetch from
+    # -Bootstrap, and from -TrustedSource too when given, which must agree.
     $helper = Join-Path $InstallDir 'trusted-block.ps1'
     Set-Content -Path $helper -Encoding ASCII -Value @'
 # Prints "--trusted-block HEIGHT:HEX" for a node start (B49), or nothing.
-param([string]$Url)
+param([string]$Url, [string]$Second = '', [string]$Override = '')
 $ErrorActionPreference = 'Stop'
-function Invoke-TrustedRpc([string]$Method, $Params) {
+function Invoke-TrustedRpc([string]$Endpoint, [string]$Method, $Params) {
     $body = @{ jsonrpc = '2.0'; id = 1; method = $Method; params = $Params } | ConvertTo-Json -Compress -Depth 4
-    (Invoke-RestMethod $Url -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 10).result
+    (Invoke-RestMethod $Endpoint -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 10).result
 }
-try {
-    $tip = [uint64](Invoke-TrustedRpc 'get_chain_info' @()).height
-    $block = Invoke-TrustedRpc 'get_block_by_height' @($tip)
-    if ([uint64]$block.height -eq $tip -and $block.header.id -match '^[0-9a-fA-F]{64}$') {
-        Write-Output "--trusted-block $($tip):$($block.header.id)"
-    } else {
-        [Console]::Error.WriteLine('trusted block: the reply did not match its height; starting without one')
+function Get-TrustedFlag([string[]]$Urls) {
+    $pair = @($Urls | Where-Object { $_ } | Select-Object -First 2)
+    if ($pair.Count -eq 0) { return $null }
+    if ($pair.Count -eq 1) {
+        [Console]::Error.WriteLine("trusted block: from a single source ($($pair[0])). This is a convenience for our own nodes. An outside operator should set MAYA2C_TRUSTED_BLOCK from the explorer, or give -TrustedSource")
     }
-} catch {
-    [Console]::Error.WriteLine("trusted block: $($_.Exception.Message); starting without one")
+    $tips = @()
+    foreach ($u in $pair) {
+        try { $tips += [uint64](Invoke-TrustedRpc $u 'get_chain_info' @()).height }
+        catch { [Console]::Error.WriteLine("trusted block: $u did not answer; starting without one"); return $null }
+    }
+    $m = ($tips | Measure-Object -Minimum).Minimum
+    $ids = @()
+    foreach ($u in $pair) {
+        try {
+            $b = Invoke-TrustedRpc $u 'get_block_by_height' @($m)
+            if ([uint64]$b.height -ne $m -or $b.header.id -notmatch '^[0-9a-fA-F]{64}$') { throw 'no usable block' }
+            $ids += $b.header.id.ToLower()
+        } catch { [Console]::Error.WriteLine("trusted block: $u gave no usable block at $m; starting without one"); return $null }
+    }
+    if (@($ids | Select-Object -Unique).Count -ne 1) {
+        [Console]::Error.WriteLine("trusted block: the sources disagree at height $m; starting without one"); return $null
+    }
+    return "--trusted-block $($m):$($ids[0])"
 }
+$chosen = if ($Override) { $Override } else { $env:MAYA2C_TRUSTED_BLOCK }
+if ($chosen -match '^\d+:[0-9a-fA-F]{64}$') {
+    Write-Output "--trusted-block $chosen"
+    [Console]::Error.WriteLine('trusted block: operator override')
+    exit 0
+}
+if ($chosen) { [Console]::Error.WriteLine('trusted block: the override is not HEIGHT:HEX; ignored, fetching instead') }
+$flag = Get-TrustedFlag @($Url, $Second)
+if ($flag) { Write-Output $flag } else { [Console]::Error.WriteLine('trusted block: none; the node starts without one (behind the window it refuses)') }
 '@
     $launcher = Join-Path $InstallDir 'run-node.cmd'
     @"
@@ -383,7 +414,7 @@ try {
 rem Maya2C validator launcher. Started at boot by the "$TaskName" task.
 :run
 set TRUSTED=
-powershell -NoProfile -ExecutionPolicy Bypass -File "$helper" -Url "$Bootstrap" > "$InstallDir\trusted.flag" 2>> "$LogDir\node.log"
+powershell -NoProfile -ExecutionPolicy Bypass -File "$helper" -Url "$Bootstrap" -Second "$TrustedSource" -Override "$TrustedBlock" > "$InstallDir\trusted.flag" 2>> "$LogDir\node.log"
 set /p TRUSTED=<"$InstallDir\trusted.flag"
 "$NodeExe" $nodeArgs %TRUSTED% >> "$LogDir\node.log" 2>&1
 echo %date% %time% maya2c-node exited with %errorlevel%; restarting in $RestartSeconds s >> "$LogDir\node.log"
