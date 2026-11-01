@@ -116,3 +116,25 @@ mod tests {
         assert_ne!(shown, hex::encode(address), "letters must carry case");
     }
 }
+
+/// The text a native approval dialog shows, built from the confirmation the
+/// core computed. The webview never supplies these words, so it cannot change
+/// what the signer reads.
+#[must_use]
+pub fn approval_message(shown: &Confirmation) -> String {
+    let mut lines = vec![shown.description.clone()];
+    if let Some(to) = &shown.recipient {
+        lines.push(format!("To: {to}"));
+    }
+    if let Some(amount) = &shown.amount {
+        lines.push(format!("Amount: {amount} MAYA"));
+    }
+    if let Some(fee) = &shown.fee {
+        lines.push(format!("Fee: {fee} MAYA"));
+    }
+    lines.push(format!("Chain: {}", shown.chain_id));
+    if shown.fee_exceeds_amount {
+        lines.push("Warning: the fee is larger than the amount.".to_string());
+    }
+    lines.join("\n")
+}
