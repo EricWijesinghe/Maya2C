@@ -188,6 +188,7 @@ pub fn classify_block_frame(decoded: &Result<Block>) -> Verdict {
 pub fn classify_import(error: &NodeError) -> Option<Offence> {
     match error {
         NodeError::TxRootMismatch { .. }
+        | NodeError::BlockTooLarge { .. }
         | NodeError::StateRootMismatch { .. }
         | NodeError::InvariantViolation(_)
         | NodeError::SignatureVerification

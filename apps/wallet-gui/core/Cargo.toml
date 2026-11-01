@@ -17,6 +17,8 @@ path = "src/lib.rs"
 [dependencies]
 # Amounts are 256-bit (ADR-046), the node's U256.
 primitive-types.workspace = true
+# The coin's decimals (ADR-068), the one source every client reads.
+maya-amount = { path = "../../../crates/amount" }
 custom-l1-node = { path = "../../../crates/node" }
 
 # BIP-39 mnemonics. Wordlist only — seed derivation is PBKDF2 per the spec.

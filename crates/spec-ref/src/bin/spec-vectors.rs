@@ -581,6 +581,55 @@ fn header_version_cases() -> Vec<Value> {
         .collect()
 }
 
+/// CON-12: the wire size of a block, the transactions a cap admits (first-fit,
+/// as indices, comma-separated), and the cap itself. Lengths are encodings in bytes.
+fn block_size_cases() -> Vec<Value> {
+    let lens = |v: &[u64]| v.iter().map(u64::to_string).collect::<Vec<_>>();
+    let idx = |v: &[usize]| v.iter().map(usize::to_string).collect::<Vec<_>>().join(",");
+    // Illustrative lengths: the hybrid signature alone is 11,165 bytes
+    // (docs/blockgraph.md); a whole transaction encodes larger.
+    let hybrid = 11_165u64;
+    let mut cases = vec![
+        json!({"id": "block-cap-value", "rules": ["CON-12"], "fn": "block_cap", "expect": {"result": "ok", "cap": consensus::MAX_BLOCK_BYTES.to_string()}}),
+    ];
+    let empty: Vec<u64> = vec![];
+    cases.push(json!({"id": "block-size-empty", "rules": ["CON-12"], "fn": "block_size", "tx_lens": lens(&empty), "cap": consensus::MAX_BLOCK_BYTES.to_string(), "expect": {"result": "ok", "bytes": "153", "admitted": ""}}));
+    let two = vec![hybrid, hybrid];
+    let exact = consensus::block_wire_bytes(&two);
+    cases.push(json!({"id": "block-size-exact-cap-admits", "rules": ["CON-12"], "fn": "block_size", "tx_lens": lens(&two), "cap": exact.to_string(), "expect": {"result": "ok", "bytes": exact.to_string(), "admitted": "0,1"}}));
+    cases.push(json!({"id": "block-size-one-byte-under-cut", "rules": ["CON-12"], "fn": "block_size", "tx_lens": lens(&two), "cap": (exact - 1).to_string(), "expect": {"result": "ok", "bytes": exact.to_string(), "admitted": "0"}}));
+    // First-fit: an oversized transaction is passed over and the small one after it is admitted.
+    let mixed = vec![6_000u64, 100];
+    let small_cap = consensus::block_wire_bytes(&[100]);
+    cases.push(json!({"id": "block-first-fit-passes-over-oversized", "rules": ["CON-12"], "fn": "block_size", "tx_lens": lens(&mixed), "cap": small_cap.to_string(), "expect": {"result": "ok", "bytes": consensus::block_wire_bytes(&mixed).to_string(), "admitted": "1"}}));
+    cases.push(json!({"id": "block-over-cap-refused", "rules": ["CON-12"], "fn": "block_within_cap", "tx_lens": lens(&two), "cap": (exact - 1).to_string(), "expect": {"result": "error", "error": "BlockTooLarge"}}));
+    cases.push(json!({"id": "block-at-cap-accepted", "rules": ["CON-12"], "fn": "block_within_cap", "tx_lens": lens(&two), "cap": exact.to_string(), "expect": {"result": "ok"}}));
+    let big = vec![hybrid; 400];
+    let cap = consensus::MAX_BLOCK_BYTES;
+    cases.push(json!({"id": "block-size-400-hybrid-within-cap", "rules": ["CON-12"], "fn": "block_size", "tx_lens": lens(&big), "cap": cap.to_string(), "expect": {"result": "ok", "bytes": consensus::block_wire_bytes(&big).to_string(), "admitted": idx(&consensus::first_fit(&big, cap))}}));
+    cases.extend(decode_cut_cases());
+    cases
+}
+
+/// CON-13: the builder decodes a prefix of the distinct payloads, and the
+/// prefix stops at the first payload past the budget (first-fit would pass it over).
+fn decode_cut_cases() -> Vec<Value> {
+    let lens = |v: &[u64]| v.iter().map(u64::to_string).collect::<Vec<_>>();
+    let case = |id: &str, tx_lens: &[u64], budget: u64, count: usize| json!({"id": id, "rules": ["CON-13"], "fn": "decode_cut", "tx_lens": lens(tx_lens), "budget": budget.to_string(), "expect": {"result": "ok", "count": count.to_string()}});
+    vec![
+        case("decode-cut-empty", &[], 5, 0),
+        case("decode-cut-all-fit", &[1, 2, 3], 6, 3),
+        case("decode-cut-one-byte-short", &[1, 2, 3], 5, 2),
+        case("decode-cut-stops-not-passes-over", &[6_000, 100], 1_000, 0),
+        case(
+            "decode-cut-budget-of-one-maximal-payload",
+            &[4_194_304, 4_194_304],
+            4_194_304,
+            1,
+        ),
+    ]
+}
+
 /// CON-11: the median of the last eleven timestamps, and the rule that a
 /// timestamp must be later than it.
 fn median_time_cases() -> Vec<Value> {
@@ -640,6 +689,8 @@ fn consensus_vectors() -> Value {
         header_version_cases(),
         median_time_cases(),
         verification_cases(),
+        block_size_cases(),
+        decode_fair_cases(),
     ]
     .into_iter()
     .flatten()
@@ -1037,4 +1088,88 @@ fn main() {
         );
         std::process::exit(1);
     }
+}
+
+/// CON-13 fair share: deficit round-robin over authors. `authors`, `lens` and
+/// `keys` are parallel lists in commit order; the expectation is the spec-ref
+/// oracle's, so the committed vectors and the oracle cannot drift apart.
+fn decode_fair_cases() -> Vec<Value> {
+    let mib = 1u64 << 20;
+    let case =
+        |id: &str, authors: &[u16], lens: &[u64], keys: &[u64], committee: u64, budget: u64| {
+            let entries: Vec<(u16, u64, u64)> = authors
+                .iter()
+                .zip(lens)
+                .zip(keys)
+                .map(|((a, l), k)| (*a, *l, *k))
+                .collect();
+            let (admitted, charged) = consensus::decode_fair(&entries, committee, budget);
+            let idx = admitted
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
+            json!({"id": id, "rules": ["CON-13"], "fn": "decode_fair",
+            "authors": authors.iter().map(u16::to_string).collect::<Vec<_>>(),
+            "lens": lens.iter().map(u64::to_string).collect::<Vec<_>>(),
+            "keys": keys.iter().map(u64::to_string).collect::<Vec<_>>(),
+            "committee": committee.to_string(), "budget": budget.to_string(),
+            "expect": {"result": "ok", "admitted": idx, "charged": charged.to_string()}})
+        };
+    let mut junk_authors = vec![0u16; 10];
+    junk_authors.extend([1, 2, 3]);
+    let mut junk_lens = vec![mib; 10];
+    junk_lens.extend([mib / 2; 3]);
+    let mut junk_keys: Vec<u64> = (0..10).collect();
+    junk_keys.extend([101, 102, 103]);
+    vec![
+        case(
+            "fair-junk-heavy-low-index-author",
+            &junk_authors,
+            &junk_lens,
+            &junk_keys,
+            4,
+            5 * mib,
+        ),
+        case(
+            "fair-one-author-is-the-old-prefix-cut",
+            &[7; 5],
+            &[300, 900, 200, 5000, 10],
+            &[0, 1, 2, 3, 4],
+            16,
+            1500,
+        ),
+        case(
+            "fair-repeat-across-authors-charged-once",
+            &[0, 1, 1],
+            &[1000, 1000, 500],
+            &[7, 7, 8],
+            2,
+            mib,
+        ),
+        case(
+            "fair-absent-authors-share-redistributed",
+            &[0, 0, 1, 1, 1, 1, 1, 1, 1, 1],
+            &[mib, 15 * mib / 2, mib, mib, mib, mib, mib, mib, mib, mib],
+            &[1, 2, 10, 11, 12, 13, 14, 15, 16, 17],
+            4,
+            8 * mib,
+        ),
+        case(
+            "fair-misfit-finishes-only-its-author",
+            &[0, 0, 1, 1],
+            &[5 * mib / 2, mib / 10, mib / 2, mib / 2],
+            &[1, 2, 3, 4],
+            2,
+            3 * mib,
+        ),
+        case(
+            "fair-admitted-in-commit-order",
+            &[2, 0, 1],
+            &[500, 500, 500],
+            &[1, 2, 3],
+            3,
+            10 * mib,
+        ),
+    ]
 }
