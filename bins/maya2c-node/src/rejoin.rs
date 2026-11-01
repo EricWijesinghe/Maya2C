@@ -7,12 +7,14 @@
 //! a node catches up only through a trusted block (`--trusted-block`), which the
 //! chain has to pass through, and that block has to be recent.
 //!
-//! Staleness needs a CONFIRMATION. A node's own clock or tip never refuses by
-//! itself: a genesis-only node whose genesis is old, or a halted network, looks
-//! identical to a forgery from the node's side, so a time-old tip counts only
-//! when a source reports a head beyond the window. The claimed head is
-//! unverified. It only ever tightens the guard, and only the maximum claim over
-//! the answering sources is used.
+//! Trust model. A stale start is safe with `--trusted-block`. A time-old tip
+//! with no confirming head is refused unless the operator passes
+//! `--allow-unconfirmed-start`, because an eclipsed node (every source it
+//! reaches is the attacker's) looks exactly like a halted network or an old
+//! genesis from its own side. A running follower assumes at least one honest
+//! source: it keeps following and warns when no head is confirmed. Heads
+//! reported by sources are unverified. The maximum decides whether the
+//! requirement applies and how recent the block must be.
 //!
 //! This is node policy. Block validity and state roots are unchanged. The wall
 //! clock is read here and passed into the pure functions, never read inside
@@ -95,8 +97,8 @@ pub(crate) struct Local {
 }
 
 /// Unix seconds now. A clock that cannot be read returns `u64::MAX`, which makes
-/// every tip look old, so the time trigger then needs a confirming head, and no
-/// refusal is made on the clock alone.
+/// every tip look old, so the time trigger then needs a confirming head, and an
+/// unconfirmed start is refused unless the operator allows it.
 pub(crate) fn clock_now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -125,7 +127,7 @@ pub(crate) fn time_old(local: Local, now: u64) -> bool {
 /// the claimed head epoch is more than the window past this node's epoch; or
 /// the tip is older than the window of time AND the claimed head is more than
 /// the window of blocks past the tip. A time-old tip with no head beyond the
-/// window is not stale: that is a halted network or a genesis-only node.
+/// window is not stale here. It is unconfirmed, and [`decide`] handles it.
 ///
 /// Boundaries are strict: exactly one window is not stale; one more is.
 #[must_use]
@@ -151,9 +153,8 @@ pub(crate) fn stale(local: Local, claimed: Option<Claimed>, now: u64) -> Option<
     )
 }
 
-/// The warning for a time-old tip with no confirming head: its age, when the
-/// node would otherwise be refused on time alone. `None` when it is not old,
-/// or when a head confirms it (then `stale` decides).
+/// The age of a time-old tip that no head confirms, or `None` when the tip is
+/// fresh or stale is decided by a head.
 #[must_use]
 pub(crate) fn unconfirmed_age(local: Local, claimed: Option<Claimed>, now: u64) -> Option<u64> {
     if !time_old(local, now) || stale(local, claimed, now).is_some() {
@@ -169,8 +170,9 @@ pub(crate) fn future_ahead(local: Local, now: u64) -> Option<u64> {
     (ahead > CLOCK_SKEW_SECS).then_some(ahead)
 }
 
-/// Whether `trusted` is recent enough to anchor on: the staking epoch it sits in
-/// is within the window of the claimed head. `claimed` is the MAXIMUM claim, so a
+/// Whether `trusted` is recent enough to anchor on: its staking epoch is at
+/// least one epoch INSIDE the window of the claimed head, so a follower anchored
+/// to it is not stale again mid-catch-up. `claimed` is the MAXIMUM claim, so a
 /// lower claim from another source cannot loosen this. Further back, the
 /// committee that signed the block has unbonded.
 #[must_use]
@@ -181,7 +183,7 @@ pub(crate) fn is_recent(
     epoch_blocks: u64,
 ) -> bool {
     let trusted_epoch = trusted.height / epoch_blocks.max(1);
-    claimed.saturating_sub(trusted_epoch) <= window
+    claimed.saturating_sub(trusted_epoch) < window
 }
 
 /// A trusted block at or below the local tip must be this node's block at that
@@ -211,9 +213,12 @@ pub(crate) fn check_against_tip(
 
 /// The anchor a catch-up uses, from the pure facts.
 ///
-/// A stale node with no trusted block is refused, with the way out in the
-/// message. A stale node whose trusted block is not recent for the claimed head
-/// is refused too: the committee that signed it has unbonded.
+/// - Not stale, not time-old: [`Anchor::Unanchored`], or `Checked` with a trusted block.
+/// - Stale (a head confirms it): needs a trusted block, recent for the claimed
+///   head. It is refused otherwise.
+/// - Time-old with no confirming head: a trusted block gives `Stale` (the
+///   hash-linked path, no claim needed). With no trusted block it is refused,
+///   unless `allow_unconfirmed` (the operator's `--allow-unconfirmed-start`).
 ///
 /// # Errors
 ///
@@ -223,8 +228,16 @@ pub(crate) fn decide(
     claimed: Option<Claimed>,
     now: u64,
     trusted: Option<TrustedBlock>,
+    allow_unconfirmed: bool,
 ) -> Result<Anchor, String> {
-    match (stale(local, claimed, now), trusted) {
+    let reason = stale(local, claimed, now);
+    let unconfirmed = reason.is_none() && time_old(local, now);
+    match (reason, trusted) {
+        (None, _) if unconfirmed => match trusted {
+            Some(block) => Ok(Anchor::Stale(block)),
+            None if allow_unconfirmed => Ok(Anchor::Unanchored),
+            None => Err(unconfirmed_refusal(now.saturating_sub(local.tip_timestamp))),
+        },
         (None, None) => Ok(Anchor::Unanchored),
         (None, Some(block)) => Ok(Anchor::Checked(block)),
         (Some(reason), None) => Err(refusal(reason)),
@@ -260,14 +273,20 @@ fn refusal(reason: Stale) -> String {
         ),
     };
     format!(
-        "this node is stale: {why}. Validators that unbonded since can sign a chain that never happened (a long-range attack), and this node's own state cannot tell it apart. Pass --trusted-block HEIGHT:HEX with a RECENT block (within the unbonding window of the head) above this node's tip, taken from the explorer, a peer you trust, or the published checkpoint, then restart with --catch-up-from. If this node was offline longer than the window allows, restore from a snapshot with --bootstrap-from"
+        "this node is stale: {why}. Validators that unbonded since can sign a chain that never happened (a long-range attack), and this node's own state cannot tell it apart. Pass --trusted-block HEIGHT:HEX with a RECENT block (at least one epoch inside the unbonding window of the head) above this node's tip, taken from the explorer, a peer you trust, or the published checkpoint, then restart with --catch-up-from. If this node was offline longer than the window allows, restore from a snapshot with --bootstrap-from"
+    )
+}
+
+fn unconfirmed_refusal(age_secs: u64) -> String {
+    format!(
+        "this node's tip is {age_secs} s old and no source reports a head beyond the unbonding window, so nothing confirms the network moved on. There are two honest causes: the network halted for longer than the window, or this genesis was signed long before launch. The attack this refuses: an eclipsed node (every source it reaches is the attacker's) sees exactly the same thing, and the keys of validators that unbonded can sign a chain at no cost. Pass --trusted-block HEIGHT:HEX instead when possible (a block above the tip, at least one epoch inside the window, from two or more independent sources), or --bootstrap-from. Only if neither is possible, and you know which honest cause applies, pass --allow-unconfirmed-start"
     )
 }
 
 fn too_old(block: TrustedBlock, claimed: u64, window: u64, epoch_blocks: u64) -> String {
     let epoch = block.height / epoch_blocks.max(1);
     format!(
-        "the trusted block at height {} is in epoch {epoch}, more than the {window}-epoch unbonding window behind the head (epoch {claimed}, the maximum any source reports): the committee that signed it may have unbonded. Pass a RECENT trusted block, within the window of the head",
+        "the trusted block at height {} is in epoch {epoch}, at or more than the {window}-epoch unbonding window behind the head (epoch {claimed}, the maximum any source reports): the committee that signed it may have unbonded. Pass a RECENT trusted block, at least one epoch inside the window of the head",
         block.height
     )
 }
@@ -360,10 +379,13 @@ pub(crate) fn track_trusted(
 /// probe reported this round, or `None` when the tip is fresh (the probe is only
 /// made for an old tip).
 ///
+/// A running follower never refuses an unconfirmed (time-old, no head) tip. It
+/// keeps following and warns, which is the residual documented in DECISIONS.
+///
 /// # Errors
 ///
-/// The refusal from [`decide`]. A running follower that is stale with nothing
-/// pending stops, and the node exits so it can be restarted with a trusted block.
+/// The refusal from [`decide`] for a confirmed stale follower with nothing
+/// pending. The node exits so it can be restarted with a trusted block.
 pub(crate) fn round_decision(
     local: Option<Local>,
     pending: Option<TrustedBlock>,
@@ -373,7 +395,7 @@ pub(crate) fn round_decision(
     let Some(local) = local else {
         return Ok(pending.map_or(Anchor::Unanchored, Anchor::Checked));
     };
-    decide(local, claimed, now, pending)
+    decide(local, claimed, now, pending, true)
 }
 
 /// The committed staking facts, or `None` on a chain without staking, where
@@ -405,9 +427,9 @@ pub(crate) fn round_anchor(
 /// The anchor for this start-up catch-up. Reads the committed state, probes the
 /// sources for their claimed head, and decides.
 ///
-/// This runs with or without `--catch-up-from`. A node started on the P2P sync
-/// path is guarded too. A time-old tip with no confirming head is a warning and
-/// the node starts: a genesis-only node, or a halted network, must not be refused.
+/// Runs on every BFT chain, with or without `--catch-up-from`. A chain without
+/// BFT is not covered. A time-old tip with no confirming head is refused unless
+/// `allow_unconfirmed` is set (`--allow-unconfirmed-start`).
 ///
 /// # Errors
 ///
@@ -417,6 +439,7 @@ pub(crate) async fn anchor(
     urls: &[String],
     chain: &Arc<Mutex<Chain>>,
     trusted: Option<TrustedBlock>,
+    allow_unconfirmed: bool,
 ) -> Result<Anchor, Box<dyn Error>> {
     let (local, tip_height, local_id) = {
         let c = lock_chain(chain);
@@ -432,21 +455,22 @@ pub(crate) async fn anchor(
     };
     let claimed = newest_claimed(urls).await;
     let now = clock_now();
-    if let Some(age) = unconfirmed_age(local, claimed, now) {
-        eprintln!(
-            "rejoin: WARNING: this node's tip is {age} s old and no source reports a head beyond the unbonding window. Starting unconfirmed; a halted network looks like this. If it is a forgery, only a trusted block helps, and it is required once a head is reported beyond the window"
-        );
-    }
     if let Some(ahead) = future_ahead(local, now) {
         eprintln!(
             "rejoin: WARNING: this node's tip is {ahead} s ahead of this host's clock. The clock may be wrong"
         );
     }
-    let reason = stale(local, claimed, now);
-    if let Some(reason) = reason {
+    if let Some(reason) = stale(local, claimed, now) {
         println!("rejoin:      {reason:?}; catching up only through a recent trusted block");
     }
-    Ok(decide(local, claimed, now, trusted)?)
+    if allow_unconfirmed {
+        if let Some(age) = unconfirmed_age(local, claimed, now) {
+            eprintln!(
+                "rejoin: WARNING: starting unconfirmed by operator choice (--allow-unconfirmed-start): the tip is {age} s old and no source reports a head beyond the window"
+            );
+        }
+    }
+    Ok(decide(local, claimed, now, trusted, allow_unconfirmed)?)
 }
 
 /// The maximum head any answering source reports, or `None` when none answered.
@@ -507,9 +531,10 @@ mod tests {
         height: 99,
         id: [7; 32],
     };
-    /// A recent trusted block: epoch 11, 7 behind a head of epoch 18.
+    /// A recent trusted block: epoch 12, 6 behind a head of epoch 18, so one
+    /// epoch inside the window.
     const RECENT: TrustedBlock = TrustedBlock {
-        height: 1_100,
+        height: 1_200,
         id: [7; 32],
     };
 
@@ -545,48 +570,84 @@ mod tests {
     }
 
     #[test]
-    fn a_fresh_genesis_with_an_old_timestamp_and_no_source_starts() {
-        // Why: the regression. Height 0, genesis older than the window, nobody to
-        // confirm it. The time trigger alone must never refuse.
+    fn a_fresh_genesis_inside_the_window_starts_with_no_flag() {
+        // Why: the common case. Height 0, genesis inside the window, no source.
+        let genesis = Local {
+            height: 0,
+            epoch: 0,
+            tip_timestamp: 1_000_000 - 100,
+            ..LOCAL
+        };
+        assert_eq!(
+            decide(genesis, None, 1_000_000, None, false),
+            Ok(Anchor::Unanchored)
+        );
+    }
+
+    #[test]
+    fn a_fresh_genesis_with_an_old_timestamp_needs_the_flag() {
+        // Why: height 0, genesis signed long before launch, no source. It is an
+        // honest case, but it looks like an eclipse, so the operator says so.
         let genesis = Local {
             height: 0,
             epoch: 0,
             tip_timestamp: 1,
             ..LOCAL
         };
-        assert_eq!(stale(genesis, None, u64::MAX), None);
+        let err = decide(genesis, None, old_now(), None, false).unwrap_err();
+        assert!(err.contains("--allow-unconfirmed-start"), "{err}");
+        assert!(err.contains("eclipse") || err.contains("eclipsed"), "{err}");
         assert_eq!(
-            decide(genesis, None, u64::MAX, None),
+            decide(genesis, None, old_now(), None, true),
             Ok(Anchor::Unanchored)
         );
     }
 
     #[test]
-    fn a_time_old_tip_with_no_newer_head_starts_and_warns() {
-        // Why: a halted network reports no head beyond the tip. The node starts,
-        // and the warning is the only effect.
+    fn a_time_old_tip_with_no_claim_is_refused_without_the_flag_and_starts_with_it() {
+        // Why: the eclipse guard. A halted network and an eclipse look the same.
         let now = old_now();
-        assert_eq!(stale(LOCAL, head(10, 1_000), now), None);
-        assert_eq!(
-            decide(LOCAL, head(10, 1_000), now, None),
-            Ok(Anchor::Unanchored)
-        );
-        assert_eq!(
-            unconfirmed_age(LOCAL, head(10, 1_000), now),
-            Some(WINDOW_SECS + 1)
-        );
-        assert_eq!(unconfirmed_age(LOCAL, None, now), Some(WINDOW_SECS + 1));
+        let err = decide(LOCAL, None, now, None, false).unwrap_err();
+        assert!(err.contains("--allow-unconfirmed-start"), "{err}");
+        assert!(err.contains("--trusted-block"), "{err}");
+        assert_eq!(decide(LOCAL, None, now, None, true), Ok(Anchor::Unanchored));
     }
 
     #[test]
-    fn a_time_old_tip_with_a_head_beyond_the_window_is_refused_without_a_trusted_block() {
-        // Head 701 blocks past the tip, the window is 700.
+    fn a_time_old_tip_with_a_trusted_block_and_no_claim_takes_the_hash_linked_path() {
+        // Why: the operator opted in with a block. The hash-linked stale path
+        // applies, though no head confirms the staleness.
+        let now = old_now();
+        assert_eq!(
+            decide(LOCAL, None, now, Some(RECENT), false),
+            Ok(Anchor::Stale(RECENT))
+        );
+        assert_eq!(
+            decide(LOCAL, None, now, Some(RECENT), true),
+            Ok(Anchor::Stale(RECENT))
+        );
+    }
+
+    #[test]
+    fn a_head_within_the_window_does_not_confirm_a_time_old_tip() {
+        // Head 700 blocks past the tip, the window is 700: not beyond it.
+        let now = old_now();
+        let within = head(10, LOCAL.height + 700);
+        assert_eq!(stale(LOCAL, within, now), None);
+        assert!(decide(LOCAL, within, now, None, false).is_err());
+        assert_eq!(unconfirmed_age(LOCAL, within, now), Some(WINDOW_SECS + 1));
+    }
+
+    #[test]
+    fn a_time_old_tip_with_a_head_beyond_the_window_is_refused_even_with_the_flag() {
+        // Why: a confirmed stale node is refused whatever the operator's flag says.
         let now = old_now();
         let ahead = head(10, LOCAL.height + 701);
         assert!(matches!(stale(LOCAL, ahead, now), Some(Stale::Time { .. })));
-        let err = decide(LOCAL, ahead, now, None).unwrap_err();
+        let err = decide(LOCAL, ahead, now, None, false).unwrap_err();
         assert!(err.contains("--trusted-block HEIGHT:HEX"), "{err}");
         assert!(err.contains("RECENT"), "{err}");
+        assert!(decide(LOCAL, ahead, now, None, true).is_err());
         assert_eq!(unconfirmed_age(LOCAL, ahead, now), None);
     }
 
@@ -603,14 +664,6 @@ mod tests {
     }
 
     #[test]
-    fn with_no_urls_there_is_no_claim_and_so_no_refusal() {
-        // With no --catch-up-from there are no sources to probe. No claim means
-        // no confirmation, so an old tip starts with a warning.
-        assert_eq!(stale(LOCAL, None, old_now()), None);
-        assert_eq!(decide(LOCAL, None, old_now(), None), Ok(Anchor::Unanchored));
-    }
-
-    #[test]
     fn a_tip_in_the_future_is_a_warning_not_a_refusal() {
         let now = 1_000_000;
         let beyond = Local {
@@ -619,7 +672,10 @@ mod tests {
         };
         assert_eq!(future_ahead(beyond, now), Some(CLOCK_SKEW_SECS + 1));
         assert_eq!(stale(beyond, None, now), None);
-        assert_eq!(decide(beyond, None, now, None), Ok(Anchor::Unanchored));
+        assert_eq!(
+            decide(beyond, None, now, None, false),
+            Ok(Anchor::Unanchored)
+        );
         let within = Local {
             tip_timestamp: now + CLOCK_SKEW_SECS,
             ..LOCAL
@@ -629,51 +685,93 @@ mod tests {
 
     #[test]
     fn a_stale_node_with_a_recent_trusted_block_is_anchored_and_a_fresh_one_is_checked() {
-        let reason_claim = head(18, 1_000);
         assert_eq!(
-            decide(LOCAL, reason_claim, LOCAL.tip_timestamp, Some(RECENT)),
+            decide(
+                LOCAL,
+                head(18, 1_000),
+                LOCAL.tip_timestamp,
+                Some(RECENT),
+                false
+            ),
             Ok(Anchor::Stale(RECENT))
         );
         assert_eq!(
-            decide(LOCAL, None, LOCAL.tip_timestamp, Some(TRUSTED)),
+            decide(LOCAL, None, LOCAL.tip_timestamp, Some(TRUSTED), false),
             Ok(Anchor::Checked(TRUSTED))
         );
         assert_eq!(
-            decide(LOCAL, None, LOCAL.tip_timestamp, None),
+            decide(LOCAL, None, LOCAL.tip_timestamp, None, false),
             Ok(Anchor::Unanchored)
         );
     }
 
     #[test]
     fn a_trusted_block_older_than_the_window_behind_the_head_is_refused() {
-        // Head epoch 18: height 99 is epoch 0 (too old), height 1_100 is epoch 11 (recent).
+        // Head epoch 18: height 99 is epoch 0 (too old), height 1_200 is epoch 12 (recent).
         let claim = head(18, 1_000);
-        assert!(decide(LOCAL, claim, LOCAL.tip_timestamp, Some(TRUSTED)).is_err());
+        assert!(decide(LOCAL, claim, LOCAL.tip_timestamp, Some(TRUSTED), false).is_err());
         assert_eq!(
-            decide(LOCAL, claim, LOCAL.tip_timestamp, Some(RECENT)),
+            decide(LOCAL, claim, LOCAL.tip_timestamp, Some(RECENT), false),
             Ok(Anchor::Stale(RECENT))
         );
     }
 
     #[test]
+    fn recency_is_tightened_by_one_epoch() {
+        // Why: a block exactly at the window's edge puts a follower straight back
+        // into stale mid-catch-up. Head epoch 18, window 7: epoch 11 is exactly
+        // one window back (refused); epoch 12 is inside it (accepted).
+        let edge = TrustedBlock {
+            height: 1_100,
+            id: [0; 32],
+        };
+        let inside = TrustedBlock {
+            height: 1_200,
+            id: [0; 32],
+        };
+        assert!(!is_recent(edge, 18, 7, 100));
+        assert!(is_recent(inside, 18, 7, 100));
+        assert!(
+            decide(
+                LOCAL,
+                head(18, 1_000),
+                LOCAL.tip_timestamp,
+                Some(edge),
+                false
+            )
+            .is_err()
+        );
+        assert!(
+            decide(
+                LOCAL,
+                head(18, 1_000),
+                LOCAL.tip_timestamp,
+                Some(inside),
+                false
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
     fn recency_applies_to_a_time_stale_node_too() {
-        // Why: once a time-old tip is confirmed by a head, the trusted block must
-        // be recent against that head, whatever the stale reason.
+        // Once a time-old tip is confirmed by a head, the trusted block must be
+        // recent against that head, whatever the stale reason.
+        // Head epoch 10 (no epoch trigger), 701 blocks ahead: the time trigger.
         let now = old_now();
-        let claim = head(18, LOCAL.height + 701);
+        let claim = head(10, LOCAL.height + 701);
         assert!(matches!(stale(LOCAL, claim, now), Some(Stale::Time { .. })));
-        assert!(decide(LOCAL, claim, now, Some(TRUSTED)).is_err());
+        assert!(decide(LOCAL, claim, now, Some(TRUSTED), false).is_err());
         assert_eq!(
-            decide(LOCAL, claim, now, Some(RECENT)),
+            decide(LOCAL, claim, now, Some(RECENT), false),
             Ok(Anchor::Stale(RECENT))
         );
     }
 
     #[test]
     fn recency_is_checked_against_the_maximum_claim() {
-        // Why: one source says epoch 11, another says epoch 18. The maximum (18)
-        // is what the trusted block must be recent for. RECENT is 7 behind 18, so
-        // it passes; a block at epoch 10 passes against 11 but not against 18.
+        // One source says epoch 11, another says epoch 18. The maximum (18) is
+        // what the trusted block must be recent for.
         let lower = Claimed {
             epoch: 11,
             height: 1_200,
@@ -688,15 +786,36 @@ mod tests {
             height: 1_000,
             id: [7; 32],
         };
-        // The lower claim alone does not make the node stale, so nothing is recency-checked.
+        // The lower claim alone does not make the node stale.
         assert_eq!(
-            decide(LOCAL, Some(lower), LOCAL.tip_timestamp, Some(at_epoch_10)),
+            decide(
+                LOCAL,
+                Some(lower),
+                LOCAL.tip_timestamp,
+                Some(at_epoch_10),
+                false
+            ),
             Ok(Anchor::Checked(at_epoch_10))
         );
         // The maximum does: epoch 10 is 8 behind epoch 18.
-        assert!(decide(LOCAL, Some(joined), LOCAL.tip_timestamp, Some(at_epoch_10)).is_err());
+        assert!(
+            decide(
+                LOCAL,
+                Some(joined),
+                LOCAL.tip_timestamp,
+                Some(at_epoch_10),
+                false
+            )
+            .is_err()
+        );
         assert_eq!(
-            decide(LOCAL, Some(joined), LOCAL.tip_timestamp, Some(RECENT)),
+            decide(
+                LOCAL,
+                Some(joined),
+                LOCAL.tip_timestamp,
+                Some(RECENT),
+                false
+            ),
             Ok(Anchor::Stale(RECENT))
         );
     }
@@ -725,8 +844,9 @@ mod tests {
 
     #[test]
     fn a_follower_exits_only_when_a_newer_head_beyond_the_window_is_confirmed() {
-        // Why: a halt leaves no newer head, so the follower keeps running. Only a
-        // confirmed head beyond the window, with nothing pending, stops it.
+        // Why: a halt leaves no newer head, so the follower keeps running (the
+        // residual, documented). Only a confirmed head beyond the window, with
+        // nothing pending, stops it.
         let now = old_now();
         let confirmed = head(10, LOCAL.height + 701);
         assert!(round_decision(Some(LOCAL), None, confirmed, now).is_err());
@@ -740,6 +860,12 @@ mod tests {
         );
         assert_eq!(
             round_decision(Some(LOCAL), Some(RECENT), confirmed, now),
+            Ok(Anchor::Stale(RECENT))
+        );
+        // A time-old follower with a trusted block still pending takes the
+        // hash-linked path, though no head confirms it.
+        assert_eq!(
+            round_decision(Some(LOCAL), Some(RECENT), None, now),
             Ok(Anchor::Stale(RECENT))
         );
         assert_eq!(

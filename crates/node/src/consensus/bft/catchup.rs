@@ -356,8 +356,13 @@ pub const MAX_LINKED_GAP: u64 = 50_000;
 /// up to `MAX_BLOCK_BYTES` (5 MiB, ADR-072). 512 MiB admits about 102 blocks
 /// of that maximum size, and about 10.7 KiB per block across the full
 /// 50,000-block cap, so the byte cap is the binding one for large blocks. The
-/// check runs as each response arrives, so memory stays within this plus one
-/// request of [`BLOCKS_PER_REQUEST`] blocks.
+/// check runs as each response arrives. The true peak is NOT 512 MiB: responses
+/// already in flight when the total passes the cap are still held. That is up
+/// to `PREFETCH_WORKERS` (4) requests of `BLOCKS_PER_REQUEST` (32) blocks at
+/// 5 MiB each, 640 MiB. So the real bound is about 512 MiB + 640 MiB, roughly
+/// 1.2 GiB, not 512 MiB. Shortcut: lowering the cap to keep the total near
+/// 512 MiB would also cut the admitted gap; accepted for now. Upgrade: a
+/// per-request byte limit set from the peer's advertised size.
 pub const MAX_LINKED_GAP_BYTES: u64 = 512 * 1024 * 1024;
 
 /// Refuses a stale node's link across more than [`MAX_LINKED_GAP`] blocks.

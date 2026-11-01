@@ -82,13 +82,27 @@ pass `--catch-up-from` without `--trusted-block` (`infra/hybrid-testnet/start-pc
 will be refused after the window. Pass the trusted block to them before the next
 restart after a long outage.
 
-A brand-new node started from a genesis is never refused on its own clock. Its tip is the
-genesis, and an old genesis timestamp only produces a warning. It is refused only when a
-source reports a head more than the window ahead of it, which is a network that has run
-longer than that. Such a node needs a trusted block.
+**Start-up with no confirming head.** A node whose tip is older than the window, and that no
+source confirms with a head beyond the window, is refused at start-up at any height. This is
+the eclipse guard: an eclipsed node sees exactly what a halted network or an old genesis
+looks like. Two honest cases need the operator's word:
 
-A halted network does not stop its nodes. Followers keep running and log a line each time
-they probe. A follower exits only when a source confirms a head beyond the window and no
+- the network halted for longer than the window (pass `--allow-unconfirmed-start`), or
+- the genesis was signed long before launch and this node has not yet seen a head
+  (pass `--allow-unconfirmed-start`).
+
+Prefer `--trusted-block HEIGHT:HEX` (at least one epoch inside the window, from two or more
+independent sources) or `--bootstrap-from` whenever a block or snapshot is available. A
+fresh genesis whose timestamp is inside the window starts with no flag.
+
+**Trust model.** A running follower assumes at least one honest source. A stale restart is
+safe with `--trusted-block`, or with the operator's explicit `--allow-unconfirmed-start`. List
+two or more `https` sources in `--catch-up-from`, so one hostile source is never the only
+voice. A running follower with no confirming head keeps following and warns; that is the
+known residual above.
+
+A halted network does not stop its running nodes. Followers keep running and log a line each
+time they probe. A follower exits only when a source confirms a head beyond the window and no
 trusted block is pending. A restart then needs `--trusted-block`.
 
 ## 5. What this does not fix
