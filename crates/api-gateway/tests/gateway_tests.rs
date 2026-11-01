@@ -240,25 +240,15 @@ async fn listing_sites_get_whole_coins_as_plain_text() {
 }
 
 #[test]
-fn coin_decimals_match_the_wallet() {
-    // Read from source: depending on the wallet core would link the whole
-    // node into the gateway's tests.
-    let path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../apps/wallet-gui/core/src/amount.rs"
+fn coin_decimals_match_the_spec() {
+    // The wallet's DECIMALS is the same constant (crates/amount), so pinning
+    // the gateway to the spec vector pins the wallet too.
+    let spec = include_str!("../../../spec/tests/units.json");
+    let pinned = format!(
+        "\"coin_decimals\": {},",
+        maya_api_gateway::coins::COIN_DECIMALS
     );
-    let source = std::fs::read_to_string(path).expect("wallet amount.rs");
-    let line = source
-        .lines()
-        .find(|l| l.starts_with("pub const DECIMALS: usize ="))
-        .expect("DECIMALS in amount.rs");
-    let wallet: usize = line
-        .trim_start_matches("pub const DECIMALS: usize =")
-        .trim()
-        .trim_end_matches(';')
-        .parse()
-        .expect("a number");
-    assert_eq!(maya_api_gateway::coins::COIN_DECIMALS, wallet);
+    assert!(spec.contains(&pinned), "spec/tests/units.json: {pinned}");
 }
 
 // ---------------------------------------------------------------------------
