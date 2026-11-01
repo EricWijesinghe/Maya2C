@@ -103,21 +103,6 @@ pub fn checksummed(address: &[u8; 32]) -> String {
         .collect()
 }
 
-#[cfg(test)]
-mod tests {
-    #![allow(clippy::unwrap_used)]
-    use super::*;
-
-    #[test]
-    fn checksum_only_changes_case() {
-        let address = [0xab_u8; 32];
-        let shown = checksummed(&address);
-        assert_eq!(shown.to_ascii_lowercase(), hex::encode(address));
-        assert_eq!(hex::decode(&shown).unwrap(), address);
-        assert_ne!(shown, hex::encode(address), "letters must carry case");
-    }
-}
-
 /// The text a native approval dialog shows, built from the confirmation the
 /// core computed. The webview never supplies these words, so it cannot change
 /// what the signer reads.
@@ -133,11 +118,29 @@ pub fn approval_message(shown: &Confirmation) -> String {
     if let Some(fee) = &shown.fee {
         lines.push(format!("Fee: {fee} MAYA"));
     }
-    lines.push(format!("Network: {}", networks::display_name(&shown.chain_id)));
+    lines.push(format!(
+        "Network: {}",
+        networks::display_name(&shown.chain_id)
+    ));
     lines.push(format!("Chain: {}", shown.chain_id));
     lines.push(format!("Nonce: {}", shown.nonce));
     if shown.fee_exceeds_amount {
         lines.push("Warning: the fee is larger than the amount.".to_string());
     }
     lines.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+
+    #[test]
+    fn checksum_only_changes_case() {
+        let address = [0xab_u8; 32];
+        let shown = checksummed(&address);
+        assert_eq!(shown.to_ascii_lowercase(), hex::encode(address));
+        assert_eq!(hex::decode(&shown).unwrap(), address);
+        assert_ne!(shown, hex::encode(address), "letters must carry case");
+    }
 }

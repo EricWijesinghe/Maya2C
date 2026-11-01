@@ -286,10 +286,16 @@ fn the_approval_text_carries_the_core_computed_recipient_amount_fee_and_chain() 
 
     let text = maya_wallet_core::confirm::approval_message(&shown);
 
-    assert!(text.contains(&format!("To: {}", checksummed(&[0x22; 32]))), "{text}");
+    assert!(
+        text.contains(&format!("To: {}", checksummed(&[0x22; 32]))),
+        "{text}"
+    );
     assert!(text.contains("Amount: 1.5 MAYA"), "{text}");
     assert!(text.contains("Fee: 0.001 MAYA"), "{text}");
-    assert!(text.contains(&format!("Chain: {}", hex::encode(CHAIN.as_bytes()))), "{text}");
+    assert!(
+        text.contains(&format!("Chain: {}", hex::encode(CHAIN.as_bytes()))),
+        "{text}"
+    );
     assert!(text.contains("Nonce: 4"), "{text}");
     // No testnet or mainnet genesis is pinned yet, so this chain is unknown.
     assert!(text.contains("Network: UNKNOWN NETWORK"), "{text}");

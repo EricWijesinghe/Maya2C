@@ -26,7 +26,9 @@ pub fn check_node_url(url: &str) -> Result<()> {
         "http" => Err(refuse(
             "plain http is only allowed to localhost or a private address; use https",
         )),
-        _ => Err(refuse("the scheme must be https, or http to a local address")),
+        _ => Err(refuse(
+            "the scheme must be https, or http to a local address",
+        )),
     }
 }
 
@@ -42,7 +44,9 @@ fn split_url(url: &str) -> Option<(String, String)> {
     if authority.contains('\\') {
         return None;
     }
-    let host_port = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
+    let host_port = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host);
     let host = match host_port.strip_prefix('[') {
         Some(inner) => inner.split_once(']')?.0,
         None => host_port.split(':').next()?,

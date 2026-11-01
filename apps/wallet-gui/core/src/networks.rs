@@ -25,9 +25,15 @@ const MAINNET_NAMES: &[&str] = &["maya-mainnet", "mainnet"];
 #[must_use]
 pub fn display_name(genesis_hex: &str) -> &'static str {
     let genesis = genesis_hex.trim();
-    if MAINNET_GENESIS.iter().any(|p| p.eq_ignore_ascii_case(genesis)) {
+    if MAINNET_GENESIS
+        .iter()
+        .any(|p| p.eq_ignore_ascii_case(genesis))
+    {
         "Maya2C mainnet"
-    } else if TESTNET_GENESIS.iter().any(|p| p.eq_ignore_ascii_case(genesis)) {
+    } else if TESTNET_GENESIS
+        .iter()
+        .any(|p| p.eq_ignore_ascii_case(genesis))
+    {
         "Maya2C testnet"
     } else {
         "UNKNOWN NETWORK"

@@ -47,7 +47,9 @@ pub fn check_url(url: &str) -> Result<&str, String> {
     match scheme.as_str() {
         "https" => Ok(url),
         "http" if is_local_host(&host) => Ok(url),
-        "http" => Err("plain http is only allowed to localhost or a private address; use https".into()),
+        "http" => {
+            Err("plain http is only allowed to localhost or a private address; use https".into())
+        }
         _ => Err("the node URL must start with https://, or http:// for a local address".into()),
     }
 }
@@ -59,7 +61,9 @@ fn split_url(url: &str) -> Option<(String, String)> {
     if authority.contains('\\') {
         return None;
     }
-    let host_port = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
+    let host_port = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host);
     let host = match host_port.strip_prefix('[') {
         Some(inner) => inner.split_once(']')?.0,
         None => host_port.split(':').next()?,
@@ -185,7 +189,10 @@ mod tests {
 
     #[test]
     fn the_checked_url_is_the_trimmed_one() {
-        assert_eq!(check_url("  https://rpc.maya2c.dev/rpc  "), Ok("https://rpc.maya2c.dev/rpc"));
+        assert_eq!(
+            check_url("  https://rpc.maya2c.dev/rpc  "),
+            Ok("https://rpc.maya2c.dev/rpc")
+        );
     }
 
     #[test]
