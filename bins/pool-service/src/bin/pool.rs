@@ -102,6 +102,7 @@ fn print_usage() {
          --min-payout <N>        smallest payout, in base units (default 1000)\n  \
          --max-batch-value <N>   ceiling on one payout batch\n  \
          --validators <N>        concurrent share verifications (default 8)\n  \
+         --max-connections-per-ip <N>  connections one address may hold (default 64)\n  \
          -h, --help              show this message\n\n\
          ENVIRONMENT:\n  \
          {} unlocks the treasury keystore. There is deliberately\n  \
@@ -148,6 +149,9 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--confirmations" => args.config.confirmations = value()?.parse()?,
             "--min-payout" => args.config.min_payout = parse_amount(&value()?)?,
             "--max-batch-value" => args.config.max_batch_value = parse_amount(&value()?)?,
+            "--max-connections-per-ip" => {
+                args.config.max_connections_per_ip = value()?.parse()?;
+            }
             "--validators" => args.validators = value()?.parse()?,
             "--help" | "-h" => {
                 print_usage();
