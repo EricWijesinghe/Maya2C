@@ -19,6 +19,7 @@ use custom_l1_node::core::{Block, BlockHeader, ChainTag, Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::error::NodeError;
+use custom_l1_node::state::mining::{DagProfile, MiningRecord, share_header};
 use custom_l1_node::state::{Account, Address, BlockContext, StateDB};
 use serde_json::{Value, json};
 
@@ -408,14 +409,14 @@ fn header_vectors() {
 /// The node's mining schedule against `spec/tests/mining.json` (MINE-1 .. 3).
 #[test]
 fn mining_vectors() {
-    use custom_l1_node::state::mining::{DagProfile, MiningGenesis};
+    use custom_l1_node::state::mining::MiningGenesis;
     let doc = load("mining.json");
     for case in doc["cases"].as_array().unwrap() {
         let id = case["id"].as_str().unwrap();
         let record = |reward: &str, tail: &str, h: &str, blocks: u64| {
             let mut r = MiningGenesis {
                 initial_epoch_reward: primitive_types::U256::from(1_000_000),
-                halving_epochs: num(&case[h]),
+                halving_epochs: case.get(h).map_or(1, num),
                 tail_epoch_reward: primitive_types::U256::zero(),
                 miner_share_bps: 7_000,
                 target_shares: 1,
@@ -441,7 +442,7 @@ fn mining_vectors() {
                 );
             }
             "split" => {
-                let mut r = record("reward", "reward", "miner_bps", 600);
+                let mut r = record("reward", "reward", "halving_epochs", 600);
                 r.halving_epochs = 1;
                 r.miner_share_bps = num(&case["miner_bps"]).min(10_000);
                 assert_eq!(
@@ -466,8 +467,92 @@ fn mining_vectors() {
                     .then(|| to_amount(amount(&case["expect"]["total"])));
                 assert_eq!(r.lifetime_emission(), expect, "{id}");
             }
+            "share_reward" => {
+                let mut r = bare_record();
+                r.initial_epoch_reward = to_amount(amount(&case["reward"]));
+                r.miner_share_bps = num(&case["miner_bps"]);
+                r.target_shares = num(&case["target_shares"]);
+                r.paid = to_amount(amount(&case["paid"]));
+                assert_eq!(r.share_reward(), to_amount(amount(&case["expect"])), "{id}");
+            }
+            "retarget" => {
+                let mut r = bare_record();
+                r.target = be32(&case["target"]);
+                r.target_limit = be32(&case["target_limit"]);
+                r.target_shares = num(&case["target_shares"]);
+                r.shares = num(&case["shares"]);
+                r.spent_after = num(&case["spent_after"]);
+                r.epoch_blocks = num(&case["epoch_blocks"]);
+                assert_eq!(r.retarget(), be32(&case["expect"]), "{id}");
+            }
+            "validate" => {
+                let r = MiningRecord {
+                    initial_epoch_reward: to_amount(amount(&case["initial"])),
+                    halving_epochs: num(&case["halving_epochs"]),
+                    tail_epoch_reward: to_amount(amount(&case["tail"])),
+                    miner_share_bps: num(&case["miner_share_bps"]),
+                    target_shares: num(&case["target_shares"]),
+                    max_shares_per_block: num(&case["max_shares_per_block"]),
+                    epoch_blocks: num(&case["epoch_blocks"]),
+                    spent_after: num(&case["spent_after"]),
+                    target: be32(&case["target"]),
+                    target_limit: be32(&case["target_limit"]),
+                    ..bare_record()
+                };
+                let ok = r.validate().is_ok();
+                assert_eq!(ok, case["expect"]["result"] == "ok", "{id}");
+            }
+            "share_header" => {
+                let header = share_header(
+                    &hash32(&case["chain_tag"]),
+                    num(&case["epoch"]),
+                    &hash32(&case["anchor"]),
+                    &hash32(&case["miner"]),
+                );
+                assert_eq!(hex::encode(header), case["expect"], "{id}");
+            }
+            "meets_target" => {
+                let met = custom_l1_node::crypto::pow::meets_target(
+                    &hash32(&case["digest"]),
+                    &hash32(&case["target"]),
+                );
+                assert_eq!(met, case["expect"]["result"] == "ok", "{id}");
+            }
             other => panic!("{id}: unknown fn {other}"),
         }
+    }
+}
+
+/// A 256-bit decimal field of a mining vector, as the node's big-endian bytes.
+fn be32(v: &Value) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    amount(v).to_big_endian(&mut out);
+    out
+}
+
+/// A 32-byte hex field of a mining vector.
+fn hash32(v: &Value) -> [u8; 32] {
+    unhex(v.as_str().unwrap()).try_into().unwrap()
+}
+
+/// A record whose fields a case then sets; the rest are inert defaults.
+fn bare_record() -> MiningRecord {
+    MiningRecord {
+        initial_epoch_reward: to_amount(primitive_types::U256::zero()),
+        halving_epochs: 1,
+        tail_epoch_reward: to_amount(primitive_types::U256::zero()),
+        miner_share_bps: 0,
+        target_shares: 1,
+        max_shares_per_block: 1,
+        dag: DagProfile::Testing,
+        epoch_blocks: 1,
+        epoch: 0,
+        anchor: [0; 32],
+        target: [0; 32],
+        shares: 0,
+        paid: to_amount(primitive_types::U256::zero()),
+        spent_after: 0,
+        target_limit: [0xff; 32],
     }
 }
 

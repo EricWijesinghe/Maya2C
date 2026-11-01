@@ -126,7 +126,7 @@ proptest! {
         base_fee in 1u64..1_000_000u64,
         target in 1u64..10_000_000u64,
         parent_size in 0u64..10_000_000u64,
-        change_denom in 1u64..1000u64,
+        change_denom in 8u64..1000u64,  // ADR-071: next_base_fee debug-asserts denominator >= MIN_CHANGE_DENOMINATOR
     ) {
         // neural_next_base_fee(parent_base_fee, parent_size, target, denominator, floor, gain_bps)
         let fee = neural_next_base_fee(Amount::from_u64(base_fee), parent_size, target, change_denom, Amount::from_u64(1), UNIT_GAIN_BPS);

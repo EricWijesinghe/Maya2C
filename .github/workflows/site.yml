@@ -5,6 +5,12 @@
 # domain comes from docs/site/public/CNAME; DNS for maya2c.dev points at
 # GitHub's Pages addresses.
 #
+# Three jobs, least privilege first (incident 2026-10-06, threat model P2/P8):
+#   build   - runs npm and the build. No id-token, no pages write. Its output
+#             is files only.
+#   attest  - signs the integrity manifest that describes the build output.
+#   deploy  - the only job that can publish. It waits for the attestation.
+#
 # Runs on changes to the site or to docs/, because ingest.mjs copies docs/*.md
 # into the site: a docs edit that never redeploys is a stale site nobody notices.
 name: site
@@ -21,8 +27,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 # One deploy at a time; a newer push supersedes a queued one.
 concurrency:
@@ -32,29 +36,75 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: docs/site
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # The build never pushes; no credential is left on disk for a
+          # malicious package or build script to read.
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "22"
           check-latest: true
           cache: npm
           cache-dependency-path: docs/site/package-lock.json
-      - run: npm ci
-      - run: npm run build
+      # --ignore-scripts: npm lifecycle scripts run arbitrary code from the
+      # dependency tree. The site builds without them (verified locally with
+      # this lockfile); a package that truly needs one must be allow-listed
+      # here by name and the reason written beside it.
+      - name: Install dependencies (no lifecycle scripts)
+        working-directory: docs/site
+        run: npm ci --ignore-scripts
+      - name: Build the site
+        working-directory: docs/site
+        run: npm run build
         env:
           # Read-only API calls for scripts/gen-progress.mjs (CI status, PRs, releases).
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Add subresource integrity to built pages
+        run: cargo run --locked --quiet -p xtask -- site-integrity sri docs/site/dist
+      - name: Write the integrity manifest (SHA-256 of every served HTML, JS and CSS file)
+        run: >-
+          cargo run --locked --quiet -p xtask -- site-integrity manifest
+          docs/site/dist docs/site/dist/integrity-manifest.json --commit "$GITHUB_SHA"
+      - name: Keep the manifest for the attestation and the hourly live check
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: site-manifest
+          path: docs/site/dist/integrity-manifest.json
+          retention-days: 90
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
           path: docs/site/dist
 
-  deploy:
+  # Signs the manifest with this run's OIDC identity (Sigstore). `gh attestation
+  # verify <manifest> --repo EricWijesinghe/Maya2C` proves which workflow and
+  # commit produced the hashes that the live check trusts.
+  attest:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: site-manifest
+          path: manifest
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: manifest/integrity-manifest.json
+
+  deploy:
+    needs: [build, attest]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
