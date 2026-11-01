@@ -125,7 +125,7 @@ pub fn catch_up(
     weights: Option<&[u64]>,
 ) -> Result<u64> {
     let blocks = fetch(Position::of(chain), source, committee, weights)?;
-    import(chain, blocks)
+    import(chain, blocks).map(|report| report.applied)
 }
 
 /// The final checkpoint of `from`'s own epoch, for crossing into the next
@@ -241,19 +241,30 @@ pub fn fetch(
     Ok(blocks)
 }
 
+/// What [`import`] did with a batch.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Imported {
+    /// Blocks that extended the tip.
+    pub applied: u64,
+    /// Blocks the chain already held. A batch that overlaps what we have is
+    /// normal, so this is not a fault.
+    pub already_held: u64,
+}
+
 /// Re-executes `blocks` onto `chain` through [`Chain::insert_block`], which
 /// refuses a state root its own execution does not reproduce (invariant 24).
-/// Returns how many were imported.
 ///
 /// # Errors
 ///
-/// A block that does not extend the tip — the chain moved since
-/// [`fetch`] — or fails to execute. Blocks imported before it stay.
-pub fn import(chain: &mut Chain, blocks: Vec<Block>) -> Result<u64> {
-    let mut imported = 0;
+/// A block that fails to execute, or one that is neither an extension of the
+/// tip nor already held — the chain moved since [`fetch`]. Blocks imported
+/// before it stay.
+pub fn import(chain: &mut Chain, blocks: Vec<Block>) -> Result<Imported> {
+    let mut report = Imported::default();
     for block in blocks {
         match chain.insert_block(block)? {
-            InsertOutcome::Extended { .. } => imported += 1,
+            InsertOutcome::Extended { .. } => report.applied += 1,
+            InsertOutcome::Duplicate { .. } => report.already_held += 1,
             other => {
                 return Err(NodeError::Decode(format!(
                     "catch-up: a block did not extend the tip: {other:?}"
@@ -261,7 +272,7 @@ pub fn import(chain: &mut Chain, blocks: Vec<Block>) -> Result<u64> {
             }
         }
     }
-    Ok(imported)
+    Ok(report)
 }
 
 #[cfg(test)]

@@ -292,7 +292,14 @@ async fn catch_up_once(
     if blocks.is_empty() {
         return Ok(0);
     }
-    Ok(catchup::import(&mut lock_chain(chain), blocks)?)
+    let report = catchup::import(&mut lock_chain(chain), blocks)?;
+    if report.already_held > 0 {
+        eprintln!(
+            "catch-up: {} block(s) from {url} already held; not a fault",
+            report.already_held
+        );
+    }
+    Ok(report.applied)
 }
 
 /// Whether this node's own engine can derive every block between its tip
