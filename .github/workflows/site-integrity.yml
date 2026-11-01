@@ -48,11 +48,13 @@ jobs:
       - name: Find the latest successful site deploy
         run: |
           set -euo pipefail
-          gh run list --repo "$REPO" --workflow site.yml --branch master --status success \
+          # $GITHUB_ENV values reach later steps only, so this step prints its
+          # own copy (echoing $RUN_ID here failed every run under set -u).
+          found=$(gh run list --repo "$REPO" --workflow site.yml --branch master --status success \
             --limit 1 --json databaseId,headSha,updatedAt \
-            --jq '.[0] | "RUN_ID=\(.databaseId)\nHEAD_SHA=\(.headSha)\nUPDATED_AT=\(.updatedAt)"' \
-            >> "$GITHUB_ENV"
-          echo "deployed run $RUN_ID, commit $HEAD_SHA, finished $UPDATED_AT"
+            --jq '.[0] | "RUN_ID=\(.databaseId)\nHEAD_SHA=\(.headSha)\nUPDATED_AT=\(.updatedAt)"')
+          echo "$found" >> "$GITHUB_ENV"
+          echo "deployed: $found"
 
       - name: Skip the first hour after a deploy (CDN propagation)
         id: fresh
