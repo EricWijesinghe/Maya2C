@@ -72,8 +72,10 @@ pub struct Wallet {
     accounts: BTreeMap<u32, Account>,
     history: Vec<PendingTransfer>,
     /// Signing hash of the last confirm screen, spent by one successful sign.
-    /// The hash alone can be computed by any caller; this slot makes `sign`
-    /// accept only a transaction this session actually put on screen, once.
+    /// The hash alone can be computed by any caller; this slot makes
+    /// [`Wallet::sign`] (the GUI's only signing path) accept only a transaction
+    /// this session put on screen, once. The key-level functions in `payment`
+    /// and `compose` sign for whoever already holds a key and are not gated.
     reviewed: Option<String>,
 }
 
