@@ -49,7 +49,8 @@ use crate::model::{ShareOutcome, now_millis};
 use crate::node::NodeClient;
 use crate::payout::PayoutEngine;
 use crate::session::{
-    MAX_CHANNELS_PER_CONNECTION, Session, SessionAction, close_message, job_messages,
+    InvalidShareBudget, MAX_CHANNELS_PER_CONNECTION, Session, SessionAction, close_message,
+    job_messages,
 };
 use crate::share;
 use crate::state::{PoolEvent, PoolState};
@@ -402,6 +403,7 @@ async fn serve_connection(
 
     let mut session = Session::new();
     let mut acks = AckBook::default();
+    let mut invalid = InvalidShareBudget::default();
 
     let result = loop {
         // The timeout drops a half-read frame, which is safe only because the
@@ -451,6 +453,13 @@ async fn serve_connection(
                             break;
                         }
                     };
+
+                    // Every rejection here cost a full DAG verification, so a
+                    // connection that keeps sending junk is closed, not served.
+                    let accepted = matches!(verdict.outcome, ShareOutcome::Accepted { .. });
+                    if invalid.record(accepted) {
+                        closing = Some("too many invalid shares".to_string());
+                    }
 
                     match verdict.outcome {
                         ShareOutcome::Accepted { weight, .. } => {

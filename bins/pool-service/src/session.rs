@@ -50,6 +50,17 @@ const FLAGS: u32 = 0;
 /// legitimately fronts; a farm wanting more opens more connections.
 pub const MAX_CHANNELS_PER_CONNECTION: usize = 16;
 
+/// Rejected verdicts one connection may accumulate within a window before it is closed.
+pub const MAX_INVALID_SHARES: u32 = 64;
+
+/// Verdicts per rejection window.
+///
+/// Counted in verdicts rather than seconds: vardiff sets a working rig's share
+/// rate, so a count tracks the verification work the pool actually spent.
+pub const SHARE_WINDOW: u32 = 256;
+
+const _: () = assert!(MAX_INVALID_SHARES <= SHARE_WINDOW);
+
 /// Error code for a channel a connection does not own.
 const UNKNOWN_CHANNEL: &str = error_codes::UNKNOWN_CHANNEL;
 
@@ -85,6 +96,36 @@ pub struct ShareRequest {
     /// between submission and verification must not change what the miner is
     /// credited: they did the work against the target they were holding.
     pub target: [u8; 32],
+}
+
+/// Rejected verdicts on one connection, counted in tumbling windows.
+///
+/// Every verdict counted here has already cost a full DAG verification, so a
+/// connection streaming junk nonces is the cheapest denial of service the pool
+/// has. Sustained rejection above one verdict in four closes the connection.
+/// shortcut: tumbling windows, so a burst split across a boundary is counted in two halves; a sliding window costs per-share bookkeeping, upgrade if abuse shows it
+#[derive(Debug, Default)]
+pub struct InvalidShareBudget {
+    /// Verdicts in the current window.
+    seen: u32,
+    /// Rejections in the current window.
+    rejected: u32,
+}
+
+impl InvalidShareBudget {
+    /// Records one verdict. `true` means the connection has spent its budget.
+    pub fn record(&mut self, accepted: bool) -> bool {
+        self.seen += 1;
+        if !accepted {
+            self.rejected += 1;
+        }
+        let exhausted = self.rejected >= MAX_INVALID_SHARES;
+        if self.seen >= SHARE_WINDOW {
+            self.seen = 0;
+            self.rejected = 0;
+        }
+        exhausted
+    }
 }
 
 /// One connection.
@@ -1084,6 +1125,30 @@ mod tests {
             .unwrap();
 
         assert!(matches!(actions[0], SessionAction::Close(_)));
+    }
+
+    #[test]
+    fn a_connection_streaming_junk_is_closed_once_its_budget_is_spent() {
+        let mut budget = InvalidShareBudget::default();
+        for _ in 0..MAX_INVALID_SHARES - 1 {
+            assert!(!budget.record(false));
+        }
+        assert!(budget.record(false), "the budget is spent on the last junk share");
+    }
+
+    #[test]
+    fn junk_split_across_windows_does_not_add_up() {
+        let mut budget = InvalidShareBudget::default();
+        for _ in 0..MAX_INVALID_SHARES - 1 {
+            assert!(!budget.record(false));
+        }
+        // Valid shares fill the window and renew it.
+        for _ in 0..SHARE_WINDOW - (MAX_INVALID_SHARES - 1) {
+            assert!(!budget.record(true));
+        }
+        for _ in 0..MAX_INVALID_SHARES - 1 {
+            assert!(!budget.record(false), "the new window starts clean");
+        }
     }
 
     #[test]
