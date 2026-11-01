@@ -14,6 +14,15 @@ The desktop Hub runs `maya2c-gpu-miner --mine --json` and draws its events.
 On a phone the Hub only **watches**: the network, the app universe and your payouts.
 It runs no miner, because a phone would spend its battery and heat for next to no hashes.
 
+**The miner is pinned.** The Hub runs only a `maya2c-gpu-miner` beside its own
+executable whose SHA-256 matches the value compiled in at build time
+(`MAYA2C_MINER_SHA256SUMS`, see `src-tauri/src/miner_guard.rs`). A Hub built without
+that pin refuses to start any miner, by design. Build the Hub with `cargo xtask hub-bundle`
+(what the release job runs): it builds the miner, hashes that exact file and builds the
+Hub against the hash. A plain `cargo run` or `cargo tauri dev` of the Hub will refuse the
+miner until it has been built that way. There is no development fallback that accepts an
+unpinned miner.
+
 ## Preview without building
 
 `python -m http.server 8765` in `ui/`, then open it. In a plain browser the page runs on labelled preview data.

@@ -438,7 +438,10 @@ mod tests {
     /// Opens a channel directly, bypassing the protocol.
     fn open_channel(state: &PoolState) -> u32 {
         let mut channels = state.channels().unwrap();
-        let id = channels.open(key(), 1.0, &state.config, 0).unwrap().id;
+        let id = channels
+            .open(key(), 1.0, &state.config, 0, |_| false)
+            .unwrap()
+            .id;
         let job_id = state.jobs().unwrap().current().unwrap().id;
         channels.get_mut(id).unwrap().push_job(job_id);
         id
