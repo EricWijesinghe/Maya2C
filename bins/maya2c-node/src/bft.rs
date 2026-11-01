@@ -273,7 +273,7 @@ async fn catch_up_once(
     url: &str,
     chain: &Arc<Mutex<Chain>>,
     fallback: (&Arc<[VerifyingKey]>, Option<&Arc<[u64]>>),
-) -> Result<u64, Box<dyn Error>> {
+) -> Result<catchup::Imported, Box<dyn Error>> {
     // Position and committee under one lock: read apart, a boundary block
     // imported between them pairs an epoch with the wrong committee, the
     // S-011 symptom for a tick (pre-audit S-024). `fallback` is for a chain
@@ -290,16 +290,11 @@ async fn catch_up_once(
     })
     .await??;
     if blocks.is_empty() {
-        return Ok(0);
+        return Ok(catchup::Imported::default());
     }
-    let report = catchup::import(&mut lock_chain(chain), blocks)?;
-    if report.already_held > 0 {
-        eprintln!(
-            "catch-up: {} block(s) from {url} already held; not a fault",
-            report.already_held
-        );
-    }
-    Ok(report.applied)
+    // A duplicate does not stop the batch: `import` carries on to the blocks
+    // after it, and each of those is validated by `insert_block`.
+    Ok(catchup::import(&mut lock_chain(chain), blocks)?)
 }
 
 /// Whether this node's own engine can derive every block between its tip
@@ -498,9 +493,17 @@ pub(super) async fn catch_up(
     let mut imported = 0;
     loop {
         let (committee, weights) = (driver.committee(), driver.weights());
-        let n = catch_up_once(url, chain, (&committee, weights.as_ref())).await?;
-        imported += n;
-        if n == 0 {
+        let round = catch_up_once(url, chain, (&committee, weights.as_ref())).await?;
+        if round.applied == 0 && round.already_held > 0 {
+            // Nothing new in this batch: the blocks are already held, so the
+            // loop ends and the next poll will ask again.
+            eprintln!(
+                "catch-up: {} block(s) from {url} already held; not a fault",
+                round.already_held
+            );
+        }
+        imported += round.applied;
+        if round.applied == 0 {
             break;
         }
     }
@@ -535,6 +538,9 @@ pub(super) async fn follow_loop(
     let mut ticker = tokio::time::interval(FOLLOW_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut last_error: Option<String> = None;
+    // The already-held count last reported, so a batch that keeps finding the
+    // same held blocks is said once, not on every poll.
+    let mut last_held: Option<u64> = None;
     let mut idle: u32 = 0;
     let mut stuck: u32 = 0;
     let mut patience = STUCK_ROUNDS;
@@ -564,8 +570,20 @@ pub(super) async fn follow_loop(
         let round = catch_up_once(&url, &chain, (&genesis_committee, None))
             .await
             .map_err(|e| e.to_string());
+        match &round {
+            Ok(report) if report.applied == 0 && report.already_held > 0 => {
+                if last_held != Some(report.already_held) {
+                    eprintln!(
+                        "catch-up: {} block(s) from {url} already held; not a fault",
+                        report.already_held
+                    );
+                    last_held = Some(report.already_held);
+                }
+            }
+            _ => last_held = None,
+        }
         match round {
-            Ok(0) if following => {
+            Ok(report) if following && report.applied == 0 => {
                 last_error = None;
                 let ours = lock_chain(&chain).height();
                 match source_height(&url).await {
