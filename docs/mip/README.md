@@ -12,4 +12,4 @@ Rules:
 
 | MIP | Title | Status | ADR |
 |---|---|---|---|
-| [0001](MIP-0001-sentinel-recovery-network.md) | Sentinel Recovery Network: threat levels, cell quarantine, forward-only governed recovery | Proposed | [077](../adr/ADR-077-sentinel-recovery-network.md) |
+| [0001](MIP-0001-sentinel-recovery-network.md) | Sentinel Recovery Network: threat levels, cell quarantine, forward-only governed recovery | Accepted (build after mainnet) | [077](../adr/ADR-077-sentinel-recovery-network.md) |
