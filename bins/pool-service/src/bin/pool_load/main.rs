@@ -26,6 +26,7 @@
 //! target during the run. Every share costs the same pool work whatever its
 //! target, so the pinned value changes solving cost on the miner side only.
 
+mod cost;
 mod miner;
 mod run;
 mod serve;
@@ -118,6 +119,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 .ok_or("serve needs --ledger-dir")?;
             serve::run(validators, &dir).await
         }
+        "hash-cost" => cost::run(),
         "run" => {
             let flags = parse_flags(
                 rest,

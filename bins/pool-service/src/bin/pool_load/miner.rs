@@ -312,7 +312,11 @@ async fn plan_shares(
             usize::MAX
         };
         for i in 0..events {
-            let valid = (i + 1) % invalid_every != 0;
+            // The last share is always refused. The pool acknowledges accepted
+            // shares in batches of eight (daemon.rs ACK_BATCH) and flushes the
+            // pending batch before it refuses one, so a refused final share is
+            // what makes every accepted share in the run get acknowledged.
+            let valid = (i + 1) % invalid_every != 0 && i + 1 < events;
             loop {
                 if nonce > nonce_max {
                     return Err::<Vec<PlannedShare>, BoxError>(

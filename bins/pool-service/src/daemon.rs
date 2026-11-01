@@ -35,8 +35,8 @@ use std::time::Duration;
 
 use futures::{AsyncReadExt, AsyncWriteExt};
 use maya_stratum_v2::{Frame, FrameHeader, MAX_PAYLOAD_LEN, Message};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{broadcast, mpsc};
+use tokio::net::{TcpSocket, TcpStream};
+use tokio::sync::{Semaphore, broadcast, mpsc};
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
 use custom_l1_node::network::pq::handshake;
@@ -58,6 +58,29 @@ use crate::validator::{FoundBlockShare, Validator};
 /// draining, and holding more for it would be holding memory on the pool's
 /// behalf rather than theirs.
 const OUTBOUND_CAPACITY: usize = 64;
+
+/// Longest a TCP peer may take to finish the post-quantum handshake.
+///
+/// Without a deadline, a socket that connects and says nothing holds its task
+/// and buffers for as long as the peer keeps the TCP connection open.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Longest a connected miner may go without sending a frame.
+///
+/// Vardiff holds a working rig near one share a minute, so five minutes of
+/// silence is a rig that has stopped. Its channel and nonce range go back to
+/// the pool rather than sitting reserved.
+const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Connections served at once. `docs/stratum-v2.md` sizes the pool for 50,000.
+const MAX_CONNECTIONS: usize = 50_000;
+
+/// Connections the kernel queues before it refuses new ones.
+///
+/// Tokio's default backlog refused connects in bursts (`os error 10061` in
+/// `pool-load` with 10,000 miners). A burst is ordinary when miners reconnect
+/// after a restart, so the queue is sized for it.
+const LISTEN_BACKLOG: u32 = 4_096;
 
 /// Accepted shares acknowledged in one `SubmitSharesSuccess`.
 ///
@@ -110,8 +133,15 @@ pub async fn serve_stratum(
     validator: Validator,
     jobs: broadcast::Sender<Arc<Job>>,
 ) -> Result<PoolServer> {
-    let listener = TcpListener::bind(address).await?;
+    let socket = if address.is_ipv4() {
+        TcpSocket::new_v4()?
+    } else {
+        TcpSocket::new_v6()?
+    };
+    socket.bind(address)?;
+    let listener = socket.listen(LISTEN_BACKLOG)?;
     let bound = listener.local_addr()?;
+    let admission = Arc::new(Semaphore::new(MAX_CONNECTIONS));
 
     tokio::spawn(async move {
         loop {
@@ -126,11 +156,20 @@ pub async fn serve_stratum(
                 }
             };
 
+            // Refused, not queued: a queue here is memory the pool holds on a
+            // stranger's behalf. Dropping the socket is the refusal.
+            let Ok(permit) = Arc::clone(&admission).try_acquire_owned() else {
+                eprintln!("pool: connection {peer} refused, {MAX_CONNECTIONS} already open");
+                continue;
+            };
+
             let state = Arc::clone(&state);
             let validator = validator.clone();
             let jobs = jobs.subscribe();
 
             tokio::spawn(async move {
+                // Held for the connection's life, released when it ends.
+                let _permit = permit;
                 if let Err(error) = serve_connection(stream, state, validator, jobs).await {
                     // Connection-level failures are ordinary: miners disconnect,
                     // Ð¸ a malformed frame is a client bug, not a pool one.
@@ -155,8 +194,9 @@ async fn serve_connection(
     // The compat layer exists for exactly this line: the handshake is written
     // against futures' traits and a Tokio socket implements Tokio's.
     let mut compat = stream.compat();
-    let keys = handshake::respond(&mut compat)
+    let keys = tokio::time::timeout(HANDSHAKE_TIMEOUT, handshake::respond(&mut compat))
         .await
+        .map_err(|_| PoolError::Server("post-quantum handshake timed out".to_string()))?
         .map_err(|e| PoolError::Server(format!("post-quantum handshake failed: {e}")))?;
 
     // `is_initiator: false` — the pool responds, so it opens with the key the
@@ -217,10 +257,13 @@ async fn serve_connection(
     let mut acks = AckBook::default();
 
     let result = loop {
-        let frame = match read_frame(&mut reader).await {
-            Ok(Some(frame)) => frame,
-            Ok(None) => break Ok(()),
-            Err(error) => break Err(error),
+        // The timeout drops a half-read frame, which is safe only because the
+        // connection ends on that path and nothing reads the stream again.
+        let frame = match tokio::time::timeout(IDLE_TIMEOUT, read_frame(&mut reader)).await {
+            Ok(Ok(Some(frame))) => frame,
+            Ok(Ok(None)) => break Ok(()),
+            Ok(Err(error)) => break Err(error),
+            Err(_) => break Err(PoolError::Server("idle past the timeout".to_string())),
         };
 
         let message = match Message::from_frame(&frame) {
@@ -230,7 +273,12 @@ async fn serve_connection(
             Err(error) => break Err(PoolError::Protocol(error)),
         };
 
-        let actions = session.handle(message, &state)?;
+        // Not `?`: an error here must still reach the cleanup below, or the
+        // channel and its nonce range outlive the connection.
+        let actions = match session.handle(message, &state) {
+            Ok(actions) => actions,
+            Err(error) => break Err(error),
+        };
         if let Ok(mut held) = channels.lock() {
             *held = session.channels().to_vec();
         }
@@ -247,7 +295,15 @@ async fn serve_connection(
                 SessionAction::Validate(request) => {
                     let channel_id = request.channel_id;
                     let sequence_number = request.sequence_number;
-                    let verdict = validator.submit(request).await?;
+                    let verdict = match validator.submit(request).await {
+                        Ok(verdict) => verdict,
+                        Err(error) => {
+                            // Ends the connection through the cleanup path below,
+                            // rather than returning past it.
+                            closing = Some(error.to_string());
+                            break;
+                        }
+                    };
 
                     match verdict.outcome {
                         ShareOutcome::Accepted { weight, .. } => {
@@ -305,7 +361,9 @@ async fn serve_connection(
     // Whatever ended the connection, its channels have to go back: a leaked
     // channel holds a nonce range forever and leaves its rig showing as
     // connected on the dashboard.
-    session.disconnect(&state)?;
+    if let Err(error) = session.disconnect(&state) {
+        eprintln!("pool: releasing a connection's channels failed: {error}");
+    }
     drop(outbound);
     push_task.abort();
     let _ = write_task.await;
