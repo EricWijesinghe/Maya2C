@@ -44,7 +44,7 @@ use crate::htlc::{Direction, Htlc, Preimage, htlc_root};
 
 /// Domain for off-chain state updates. Distinct from the settlement domain so
 /// the two signature types cannot be substituted for one another.
-const UPDATE_DOMAIN: &[u8] = b"maya-flash.channel-update.v1";
+const UPDATE_DOMAIN: &[u8] = b"maya-flash.channel-update.v2";
 
 /// A channel participant's address.
 pub type Address = [u8; 32];
@@ -116,12 +116,15 @@ impl ChannelState {
         Ok(total)
     }
 
-    /// The bytes both parties sign for an off-chain update.
+    /// The bytes both parties sign for an off-chain update on `chain`.
     #[must_use]
-    pub fn update_signing_bytes(&self) -> Vec<u8> {
-        // id 32 + seq 8 + two 256-bit balances + htlc root 32 + commitment 32.
-        let mut buf = Vec::with_capacity(UPDATE_DOMAIN.len() + 32 + 8 + 64 + 64);
+    pub fn update_signing_bytes(&self, chain: &ChainTag) -> Vec<u8> {
+        // chain 32 + id 32 + seq 8 + two 256-bit balances + htlc root 32 + commitment 32.
+        let mut buf = Vec::with_capacity(UPDATE_DOMAIN.len() + 32 + 32 + 8 + 64 + 64);
         buf.extend_from_slice(UPDATE_DOMAIN);
+        // Defence in depth: an update signature is bound to its chain too, as
+        // settlement signatures are (audit finding 1).
+        buf.extend_from_slice(chain.as_bytes());
         buf.extend_from_slice(&self.channel_id);
         buf.extend_from_slice(&self.seq.to_le_bytes());
         let mut bytes = [0u8; 32];
@@ -193,8 +196,13 @@ impl SignedState {
     /// does not yield the keys it commits to, so the caller has to hold them —
     /// [`Channel`] does. Both schemes' proofs must pass for each party; a
     /// counterparty who could forge one half still cannot advance the channel.
-    pub fn verify(&self, pubkey_a: &HybridPublicKey, pubkey_b: &HybridPublicKey) -> Result<()> {
-        let message = self.state.update_signing_bytes();
+    pub fn verify(
+        &self,
+        pubkey_a: &HybridPublicKey,
+        pubkey_b: &HybridPublicKey,
+        chain: &ChainTag,
+    ) -> Result<()> {
+        let message = self.state.update_signing_bytes(chain);
         verify_one(pubkey_a, &message, &self.sig_a, "a")?;
         verify_one(pubkey_b, &message, &self.sig_b, "b")
     }
@@ -502,8 +510,12 @@ impl Channel {
     ///
     /// Returns [`FlashError::InvalidSignature`] if the ML-DSA signer fails,
     /// which FIPS 204 permits when its rejection loop does not terminate.
-    pub fn sign(state: &ChannelState, key: &HybridSigningKey) -> Result<Box<HybridSignature>> {
-        key.sign(&state.update_signing_bytes())
+    pub fn sign(
+        state: &ChannelState,
+        key: &HybridSigningKey,
+        chain: &ChainTag,
+    ) -> Result<Box<HybridSignature>> {
+        key.sign(&state.update_signing_bytes(chain))
             .map(Box::new)
             .map_err(|_| FlashError::InvalidSignature { party: "self" })
     }
@@ -517,9 +529,14 @@ impl Channel {
     ///
     /// Returns an error if the state is not a legal successor or either
     /// signature fails.
-    pub fn commit(&mut self, signed: SignedState, revoked_secret: Preimage) -> Result<()> {
+    pub fn commit(
+        &mut self,
+        signed: SignedState,
+        revoked_secret: Preimage,
+        chain: &ChainTag,
+    ) -> Result<()> {
         self.validate_successor(&signed.state)?;
-        signed.verify(&self.pubkey_a, &self.pubkey_b)?;
+        signed.verify(&self.pubkey_a, &self.pubkey_b, chain)?;
 
         self.revoked.push((self.current.seq, revoked_secret));
         self.current = signed.state;

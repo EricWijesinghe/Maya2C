@@ -150,13 +150,13 @@ fn run_transfers(
         // Both parties sign every state. One signature is a proposal; two are
         // an agreement, and only an agreement is enforceable.
         let signed = SignedState {
-            sig_a: Channel::sign(&next, key_a).expect("sign a"),
-            sig_b: Channel::sign(&next, key_b).expect("sign b"),
+            sig_a: Channel::sign(&next, key_a, &CHAIN).expect("sign a"),
+            sig_b: Channel::sign(&next, key_b, &CHAIN).expect("sign b"),
             state: next,
         };
 
         channel
-            .commit(signed, secret_for_seq(next_seq - 1))
+            .commit(signed, secret_for_seq(next_seq - 1), &CHAIN)
             .expect("state must commit");
     }
 }
