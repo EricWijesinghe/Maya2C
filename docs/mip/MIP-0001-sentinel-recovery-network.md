@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Status | **Proposed**, 2026-11-02. Design only. No code, no activation height. |
+| Status | **Accepted**, 2026-11-02: Eric approved D1–D7 as recommended (§13.6). Design only so far. Build R1–R7 after mainnet. No activation height yet. |
 | Requested by | Eric, 2026-11-02 ("do the upgrade I tell you now and also document it everywhere") |
 | Decision record | [ADR-077](../adr/ADR-077-sentinel-recovery-network.md) |
 | Prior art | [docs/prior-art/chain-level-exploit-recovery.md](../prior-art/chain-level-exploit-recovery.md), searched 2026-11-02 |
@@ -720,7 +720,7 @@ runs of §11.4, not from this document.
   validator set decentralizes.
 - Every number in it is a placeholder until measured.
 
-### 13.6 Open decisions for Eric
+### 13.6 Decisions (Eric approved all recommendations, 2026-11-02)
 
 | # | Decision | Recommendation |
 |---|---|---|

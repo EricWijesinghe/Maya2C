@@ -646,3 +646,5 @@ the brief, each argued in MIP-0001 §0.1:
 The prior-art search (2026-11-02) found Sui, Berachain, Flow and BNB Chain
 interventions, Cosmos `x/circuit` and Forta, so no "first" claim is made.
 Nothing enters the launch binary.
+
+Eric approved D1–D7 as recommended the same day ("I approve all you recomended"). ADR-077 is Accepted, and ADR-050 is amended for tainted balances once SRN activates. D5's exact fee share comes back to him as a number with R6.

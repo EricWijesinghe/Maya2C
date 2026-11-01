@@ -2565,7 +2565,7 @@ tier = "core"
 class = "RESEARCH"
 status = "planned"
 tests = []
-note = "MIP-0001 / ADR-077, proposed 2026-11-02. Design only; after mainnet; SRN_ACTIVATION_HEIGHT = u64::MAX. Builds on the invariant guard (invariant 28), the ADR-050 council pause and the threat-intel evidence model. No rewind of finalized blocks; recovery is a forward restitution of tainted balances under a bicameral vote, off until the committee passes an independence floor."
+note = "MIP-0001 / ADR-077, accepted 2026-11-02 (Eric approved D1-D7). Design only; after mainnet; SRN_ACTIVATION_HEIGHT = u64::MAX. Builds on the invariant guard (invariant 28), the ADR-050 council pause and the threat-intel evidence model. No rewind of finalized blocks; recovery is a forward restitution of tainted balances under a bicameral vote, off until the committee passes an independence floor."
 
 [[subsystem]]
 id = "iso-20022-xml-messaging-parser"

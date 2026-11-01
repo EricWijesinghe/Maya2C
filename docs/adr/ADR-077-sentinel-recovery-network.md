@@ -1,6 +1,6 @@
 # ADR-077: Sentinel Recovery Network: scoped quarantine and forward-only governed recovery
 
-- **Status:** Proposed, 2026-11-02 (Eric asked for the upgrade and for it to be documented everywhere). Seven decisions are open (D1–D7 below).
+- **Status:** Accepted, 2026-11-02. Eric approved every recommendation ("I approve all you recomended"), so D1–D7 below are decided as recommended. Build starts after mainnet. Activation still needs R1–R6 done, an independent audit and the independence floor.
 - **Full design:** [MIP-0001](../mip/MIP-0001-sentinel-recovery-network.md)
 - **Prior art:** [chain-level-exploit-recovery.md](../prior-art/chain-level-exploit-recovery.md), searched 2026-11-02
 - **Scope:** after mainnet (ADR-016, ADR-069). Nothing enters the launch binary. Every consensus part ships at `SRN_ACTIVATION_HEIGHT = u64::MAX`.
@@ -23,7 +23,7 @@ This tree already has the pieces for containment:
 - the threat-intel evidence model;
 - guardian recovery (ADR-056).
 
-## Decision (proposed)
+## Decision
 
 Build the Sentinel Recovery Network after mainnet, as specified in MIP-0001:
 
@@ -51,7 +51,7 @@ Build the Sentinel Recovery Network after mainnet, as specified in MIP-0001:
    Bond they post for "covered" status. Sentinels and proposers bond against
    griefing.
 
-## Open decisions (Eric)
+## Decisions (Eric, 2026-11-02: all as recommended)
 
 | # | Decision | Recommendation |
 |---|---|---|
@@ -59,7 +59,7 @@ Build the Sentinel Recovery Network after mainnet, as specified in MIP-0001:
 | D2 | Forward-only restitution, never rollback | yes |
 | D3 | Holder veto as a second house | yes |
 | D4 | Recovery off until the independence floor | yes |
-| D5 | Fee share for the Sentinel Fund | small; an economics decision |
+| D5 | Fee share for the Sentinel Fund | approved in principle; the exact bps is set with R6 economics and comes back to Eric as a number before activation |
 | D6 | Bonds as the only penalty on organizations | yes |
 | D7 | Order in the post-mainnet program | after Scam Shield (ADR-069 items 1–2) |
 
