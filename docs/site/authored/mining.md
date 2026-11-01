@@ -16,7 +16,7 @@ on a misunderstanding.
 
 | | Today |
 |---|---|
-| GPU mining for rewards | Built: a miner's shares (`WorkClaim`) are paid **70% of each epoch's issuance**, split by share count; the other 30% goes to validators. Paid out of a reserve allocated at genesis, never minted, capped at 21,000,000; issuance ends when the reserve is empty. No premine. A tail reward funded to the last height (ADR-068, [PR #221](https://github.com/EricWijesinghe/Maya2C/pull/221)) is proposed and not on master yet. **Mainnet has not launched**, so mining earns nothing yet. |
+| GPU mining for rewards | Built, and live from mainnet genesis. Each epoch the miners' part of the reward (70% by [ADR-044](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-044-mining-rewards-lane.md)'s default) is paid from a reserve allocated at genesis, never minted. A share earns a fixed amount of that budget, the budget divided by the epoch's target share count, and pays nothing once the budget is spent. Unpaid budget stays in the reserve. The validators' part goes to the committee through the staking payout. The reward halves on a schedule and then stays at a tail floor, so mining does not end ([ADR-068](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-068-forever-mining.md)). No premine. A genesis without `bft.mining` is fees-only, so the stopped testnet has no reward lane. |
 | Maya2C Hub | Planned: the desktop miner app, with the GPU miner inside, for Windows, macOS and Linux. The release workflow builds installers for all three, but the latest published release (`node-v0.1.0-testnet.4`) has none, so there is no Hub to download yet. Not code-signed yet, so Windows and macOS will warn "unknown publisher". A release Hub refuses every miner unless the miner's SHA-256 is pinned at build time, and the release job does not set that pin yet. |
 | Pool service (Stratum V2) | Built, measured on one 24-core PC (2026-11-01, `perf` profile, not the release build): 4,272.7 accepted shares per second at saturation, against 1,727.3 with eight validator workers. 10,000 miners at one share a minute, connected at a paced rate: 10,000 open, none failed, about 12 KiB each. Unpaced, about a third of 10,000 connects were refused; the cause is not isolated. |
 | DAG-BFT validators | Works: blocks, finality, transfers, fees and staking bonds at genesis. This is the consensus ([ADR-016](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-016-launch-scope.md)). |
@@ -59,18 +59,17 @@ healthy network and never reorganises it, which is what an application or a
 bank needs to treat a transfer as settled. The trade-off is that a validator
 set has to exist and be trustworthy, which is what staking and slashing are for.
 
-## What is needed before anyone can earn
+## What is open before the lane runs
 
-These are open decisions, not tasks waiting for time:
+The reward lane is part of mainnet genesis. It does not run on the stopped
+testnet, and a chain runs it when its genesis carries `bft.mining`.
 
-1. **A decision on issuance.** Today validators earn only tips, and emission is
-   nil. Whether that stays true, or new coins are minted for validators or a
-   treasury, is an economic decision for the project owner.
-2. **A public testnet** with seed validators, so outside validators have
-   something to join and register against.
-3. **At least four independent validators.** A DAG-BFT committee of *n*
-   tolerates ⌊(*n*−1)/3⌋ faults: one validator halts if it stops, two halt if
-   either stops, four survive one failure.
+1. **Mainnet genesis.** The lane starts when the mainnet genesis is signed with
+   `bft.mining` set, per [ADR-044](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-044-mining-rewards-lane.md).
+2. **Validators at launch.** A project-run validator set at launch, stated
+   publicly. Separate operators join after ([ADR-047](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-047-single-pc-foundation-set.md)).
+3. **ADR-044 is Proposed.** Its parameters are defaults the project owner may
+   change until the launch freeze.
 
 Testnet coins, when a testnet exists, will come from a faucet and will have no
 value. Anyone offering to sell you Maya2C coins today is not selling anything
