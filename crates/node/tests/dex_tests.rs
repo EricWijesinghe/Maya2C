@@ -612,6 +612,102 @@ fn an_honest_swap_still_clears_beside_a_flood_that_would_leave_no_price() {
 }
 
 #[test]
+fn a_split_flood_can_still_refund_one_large_honest_seller() {
+    // Pins the residual left by the largest-seller drop (#289). Pins current
+    // behaviour: a future fix that keeps the honest seller filled must flip the
+    // assertions below.
+    //
+    // One honest seller of H base and 255 attacker chunks of H - 1 base each,
+    // in one block. The honest swap is the largest base sale, so the first drop
+    // removes it. The 255 chunks are the most one pair accepts beside it:
+    // `StateDB::stage_swap` refuses the 257th intent with a block-level error,
+    // so 256 is the ceiling for the whole pair, honest swap included.
+    //
+    // apply_block does not enforce the mempool's per-sender cap of 64, so one
+    // attacker key is used. Through the mempool an attacker needs at least four
+    // senders; keys are free.
+    let maker = generate_signing_key().expect("key");
+    let honest = generate_signing_key().expect("key");
+    let attacker = generate_signing_key().expect("key");
+    let harness = fixture(&[
+        (maker.address(), 1_000),
+        (honest.address(), 1_000),
+        (attacker.address(), 1_000),
+    ]);
+    let (base, quote) = two_big_assets(&harness, &maker);
+    let seed = U256::exp10(13);
+    harness
+        .db
+        .apply_block(
+            &block_of(vec![signed(create(base, quote, seed, seed), 2, &maker)]),
+            BlockContext::at_height(2),
+        )
+        .expect("balanced pool");
+    let pair = derive_pair_id(&base, &quote, LP_FEE_BPS);
+
+    let honest_amount = U256::exp10(24);
+    let chunk = honest_amount - U256::one();
+    let fund = |recipient: Address, amount: U256, nonce| {
+        signed(
+            TxKind::TransferAsset(AssetTransfer {
+                asset: base,
+                recipient,
+                amount,
+            }),
+            nonce,
+            &maker,
+        )
+    };
+    harness
+        .db
+        .apply_block(
+            &block_of(vec![
+                fund(honest.address(), honest_amount, 3),
+                fund(attacker.address(), chunk * U256::from(255_u64), 4),
+            ]),
+            BlockContext::at_height(3),
+        )
+        .expect("funding");
+
+    let swap = |sender: &HybridSigningKey, amount_in: U256, nonce: u64| {
+        signed(
+            TxKind::Swap(SwapRequest {
+                pair,
+                direction: Direction::BaseToQuote.tag(),
+                amount_in,
+                min_out: U256::one(),
+                deadline: 0,
+            }),
+            nonce,
+            sender,
+        )
+    };
+    let mut txs = vec![swap(&honest, honest_amount, 0)];
+    txs.extend((0_u64..255).map(|nonce| swap(&attacker, chunk, nonce)));
+    harness
+        .db
+        .apply_block(&block_of(txs), BlockContext::at_height(4))
+        .expect("a flood the batch refuses never fails the block");
+
+    assert_eq!(
+        harness
+            .db
+            .asset_balance(&base, &honest.address())
+            .expect("balance"),
+        honest_amount,
+        "the honest seller is refunded in full"
+    );
+    assert_eq!(
+        harness
+            .db
+            .asset_balance(&quote, &honest.address())
+            .expect("balance"),
+        U256::zero(),
+        "and is paid nothing"
+    );
+}
+
+#[test]
 fn an_lp_whose_quote_share_rounds_to_zero_can_still_withdraw_its_base() {
     // Replay (#289 security review F3): with quote reserve 1, every partial
     // redemption rounds quote to 0, and ZeroOutput used to strand the base.
