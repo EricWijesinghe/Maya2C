@@ -70,6 +70,16 @@ jobs:
           - threat_evidence_decode
           # Device enrollments, batches, tamper events and clone evidence.
           - iot_anchor_decode
+          # Transaction-carried DEX, oracle, governance, identity, RWA and
+          # sealed-mempool sections. Reached from TxKind::decode, but the
+          # one-byte tag guard means payload_decode spends little time in them.
+          - dex_payload_decode
+          - oracle_payload_decode
+          - governance_payload_decode
+          - identity_payload_decode
+          - rwa_payload_decode
+          - rwa_record_decode
+          - sealed_payload_decode
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
