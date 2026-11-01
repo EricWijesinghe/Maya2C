@@ -236,7 +236,7 @@ fn settle_as_one_closure(transfers: usize) {
 
     // --- one closure settles all of it ---
     let closure = channel
-        .settlement_closure(&alice, &bob)
+        .settlement_closure(&alice, &bob, &CHAIN)
         .expect("no HTLCs pending");
 
     let mut settle_tx = Transaction::with_kind(TxKind::CooperativeClose(closure), 1);
@@ -350,7 +350,7 @@ fn a_revoked_state_from_a_long_channel_is_still_punishable() {
         htlcs: Vec::new(),
         revocation_commitment: commitment_for_seq(stale_seq),
     };
-    let message = stale.settlement_signing_bytes();
+    let message = stale.settlement_signing_bytes(&CHAIN);
     let closure = ChannelClosure {
         channel_id,
         seq: stale_seq,
@@ -467,7 +467,7 @@ fn a_hundred_channels_settle_in_one_transaction() {
         .zip(&peers)
         .map(|(channel, peer)| {
             channel
-                .settlement_closure(&hub, peer)
+                .settlement_closure(&hub, peer, &CHAIN)
                 .expect("no HTLCs pending")
         })
         .collect();

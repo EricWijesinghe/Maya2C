@@ -25,6 +25,7 @@ use crate::core::payload::{
     ChannelClosure, ChannelId, ChannelOpen, RevocationProof, derive_channel_id,
     revocation_commitment,
 };
+use crate::core::transaction::ChainTag;
 use crate::core::{Transaction, TxKind};
 use crate::crypto::hybrid::{HybridVerifyingKey, address_of};
 use crate::error::{NodeError, Result};
@@ -384,8 +385,12 @@ impl StateDB {
     /// Note also what `address_of` covers: both keys. A closure that named the
     /// victim's ML-DSA key beside an attacker's SLH-DSA key hashes to neither
     /// party's address and dies at this check.
-    fn verify_closure(closure: &ChannelClosure, record: &ChannelRecord) -> Result<()> {
-        let message = closure.signing_bytes();
+    fn verify_closure(
+        closure: &ChannelClosure,
+        record: &ChannelRecord,
+        chain: &ChainTag,
+    ) -> Result<()> {
+        let message = closure.signing_bytes(chain);
         let channel = hex::encode(closure.channel_id);
 
         for (address, public_key, signature, party) in [
@@ -447,7 +452,7 @@ impl StateDB {
             });
         }
 
-        Self::verify_closure(closure, &record)?;
+        Self::verify_closure(closure, &record, self.get_chain_tag()?)?;
         Self::check_conservation(closure, &record)?;
 
         self.credit(overlay, &record.party_a, closure.balance_a)?;
@@ -494,7 +499,7 @@ impl StateDB {
             });
         }
 
-        Self::verify_closure(closure, &record)?;
+        Self::verify_closure(closure, &record, self.get_chain_tag()?)?;
         Self::check_conservation(closure, &record)?;
 
         record.status = ChannelStatus::Disputed;

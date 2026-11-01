@@ -29,6 +29,7 @@
 //! settling would silently discard in-flight value, which is why
 //! [`Channel::settlement_closure`] refuses.
 
+use custom_l1_node::core::ChainTag;
 use custom_l1_node::core::payload::{
     ChannelClosure, ChannelId, channel_state_signing_bytes, revocation_commitment,
 };
@@ -135,10 +136,11 @@ impl ChannelState {
         buf
     }
 
-    /// The bytes both parties sign to settle this state on chain.
+    /// The bytes both parties sign to settle this state on `chain`.
     #[must_use]
-    pub fn settlement_signing_bytes(&self) -> Vec<u8> {
+    pub fn settlement_signing_bytes(&self, chain: &ChainTag) -> Vec<u8> {
         channel_state_signing_bytes(
+            chain,
             &self.channel_id,
             self.seq,
             self.balance_a,
@@ -542,8 +544,8 @@ impl Channel {
 
     /// Builds the on-chain closure for the current state.
     ///
-    /// Both parties sign the settlement form, which the L1 verifies against the
-    /// channel's registered participants.
+    /// Both parties sign the settlement form for `chain`, which the L1 verifies
+    /// against the channel's registered participants and its own chain tag.
     ///
     /// # Errors
     ///
@@ -554,6 +556,7 @@ impl Channel {
         &self,
         key_a: &HybridSigningKey,
         key_b: &HybridSigningKey,
+        chain: &ChainTag,
     ) -> Result<ChannelClosure> {
         if !self.current.is_settleable() {
             return Err(FlashError::HtlcsPending {
@@ -561,7 +564,7 @@ impl Channel {
             });
         }
 
-        let message = self.current.settlement_signing_bytes();
+        let message = self.current.settlement_signing_bytes(chain);
         Ok(ChannelClosure {
             channel_id: self.channel_id,
             seq: self.current.seq,
