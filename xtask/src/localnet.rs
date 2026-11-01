@@ -246,6 +246,8 @@ fn start_with(work: &Path, i: u16, remote: Option<&Remote>) -> Result<Child> {
             cmd.arg("--validator-key").arg(dir.join("validator.key"));
         }
     }
+    // Every validator here is on 127.0.0.1; discovery needs its private addresses.
+    cmd.arg("--allow-private-peers");
     for peer in (0..VALIDATORS).filter(|p| *p != i) {
         cmd.args([
             "--bootnode",

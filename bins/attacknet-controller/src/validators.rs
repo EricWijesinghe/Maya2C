@@ -66,6 +66,9 @@ impl ValidatorManager {
             .arg("--metrics-addr")
             .arg(format!("127.0.0.1:{}", validator.metrics_port));
 
+        // Every node in this lab is on 127.0.0.1; discovery needs those addresses.
+        cmd.arg("--allow-private-peers");
+
         // Add bootnodes (all other validators + bootnode)
         for v in &self.config.validators {
             if v.name != name {
@@ -312,6 +315,8 @@ pub fn build_validator_cmd(
         .arg("--metrics-addr")
         .arg(format!("127.0.0.1:{}", validator.metrics_port));
 
+    // Every node in this lab is on 127.0.0.1; discovery needs those addresses.
+    cmd.arg("--allow-private-peers");
     for bootnode in bootnodes {
         cmd.arg("--bootnode").arg(bootnode);
     }

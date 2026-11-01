@@ -239,7 +239,7 @@ fn the_fee_market_is_reached_only_through_its_genesis_gate() {
 
 #[test]
 fn a_max_fill_attack_cannot_price_out_a_one_coin_account() {
-    // ADR-071: six hundred blocks at 64 times the target, then a one-coin
+    // ADR-076: six hundred blocks at 64 times the target, then a one-coin
     // account pays for a standard transfer of its real encoded size. Before
     // the clamp the fee passed u256 within a few hundred blocks and the
     // transfer was unaffordable at any balance.
