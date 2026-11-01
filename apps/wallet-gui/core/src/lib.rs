@@ -10,7 +10,7 @@
 //!   ────────────────────          ──────────────────────
 //!   addresses, amounts     <──    derived public data
 //!   payload summaries      <──    what a signature would authorize
-//!   signed raw hex         <──    sign_transfer()
+//!   signed raw hex         <──    Wallet::sign()
 //!
 //!   passphrase             ──>    unlock, used and zeroized
 //!   payment URIs           ──>    parsed HERE, never in JS
@@ -49,12 +49,12 @@ pub mod vault;
 pub mod wallet;
 
 pub use airgap::{Assembler, Frame, frame_count, split};
-pub use compose::{CircuitTrust, ShieldedComposer, SwapOutcome, compose_swap};
+pub use compose::{CircuitTrust, ShieldedComposer, SwapOutcome};
 pub use error::{Result, WalletError};
 pub use hd::{DerivationPath, generate_mnemonic, seed_from_mnemonic, validate_mnemonic};
 pub use payment::{
     FeeTier, PaymentRequest, SignedTransfer, check_fee_collector, priced_fee_tiers,
-    scan_payment_request, sign_transfer, sign_transfer_to, transfer_size,
+    scan_payment_request, transfer_size,
 };
 pub use vault::{MemoryStore, OsKeychain, SecretStore, Vault};
 pub use wallet::{Account, PendingTransfer, Wallet};
