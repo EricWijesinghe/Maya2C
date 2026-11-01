@@ -47,17 +47,28 @@ use crate::job::Job;
 use crate::model::{ShareOutcome, now_millis};
 use crate::node::NodeClient;
 use crate::payout::PayoutEngine;
-use crate::session::{Session, SessionAction, close_message, job_messages};
+use crate::session::{
+    MAX_CHANNELS_PER_CONNECTION, Session, SessionAction, close_message, job_messages,
+};
 use crate::share;
 use crate::state::{PoolEvent, PoolState};
 use crate::validator::{FoundBlockShare, Validator};
 
 /// Messages queued for one connection before it is considered wedged.
 ///
-/// A miner that cannot absorb 64 messages is a miner whose socket has stopped
-/// draining, and holding more for it would be holding memory on the pool's
-/// behalf rather than theirs.
-const OUTBOUND_CAPACITY: usize = 64;
+/// Four messages per allowed channel: room for a job push to every channel plus
+/// the replies in flight. A queue that stays full past `SEND_TIMEOUT` is a
+/// socket that has stopped draining, and holding more for it would be holding
+/// memory on the pool's behalf rather than theirs.
+const OUTBOUND_CAPACITY: usize = MAX_CHANNELS_PER_CONNECTION * 4;
+
+/// Longest a reply may wait for room in a full outbound queue.
+///
+/// A healthy miner's queue fills during a job-push burst (two messages per
+/// channel per job, plus replies) and drains in milliseconds; a short wait
+/// rides that out. A reader that never drains is closed after this.
+/// shortcut: fixed bound, not measured against real burst sizes, revisit with stratum load data
+const SEND_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Longest a TCP peer may take to finish the post-quantum handshake.
 ///
@@ -71,6 +82,12 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 /// silence is a rig that has stopped. Its channel and nonce range go back to
 /// the pool rather than sitting reserved.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Queues a reply, waiting at most `timeout` for room. `false` means the queue
+/// stayed full or its writer is gone, and the connection should close.
+async fn enqueue(outbound: &mpsc::Sender<Message>, message: Message, timeout: Duration) -> bool {
+    outbound.send_timeout(message, timeout).await.is_ok()
+}
 
 /// Longest one frame may take to leave the socket before the write side gives up.
 ///
@@ -277,7 +294,7 @@ async fn serve_connection(
         for action in actions {
             match action {
                 SessionAction::Reply(message) => {
-                    if outbound.try_send(message).is_err() {
+                    if !enqueue(&outbound, message, SEND_TIMEOUT).await {
                         closing = Some("the connection stopped draining".to_string());
                     }
                 }
@@ -298,7 +315,7 @@ async fn serve_connection(
                     match verdict.outcome {
                         ShareOutcome::Accepted { weight, .. } => {
                             if let Some(ack) = acks.record(channel_id, sequence_number, weight)
-                                && outbound.try_send(ack).is_err()
+                                && !enqueue(&outbound, ack, SEND_TIMEOUT).await
                             {
                                 closing = Some("the connection stopped draining".to_string());
                             }
@@ -308,7 +325,7 @@ async fn serve_connection(
                             // *before* the rejected one must not arrive after
                             // it, or the miner cannot tell which failed.
                             if let Some(ack) = acks.flush(channel_id)
-                                && outbound.try_send(ack).is_err()
+                                && !enqueue(&outbound, ack, SEND_TIMEOUT).await
                             {
                                 closing = Some("the connection stopped draining".to_string());
                             }
@@ -319,7 +336,7 @@ async fn serve_connection(
                                     error_code: reason.code().to_string(),
                                 },
                             );
-                            if outbound.try_send(error).is_err() {
+                            if !enqueue(&outbound, error, SEND_TIMEOUT).await {
                                 closing = Some("the connection stopped draining".to_string());
                             }
                         }
@@ -330,7 +347,7 @@ async fn serve_connection(
                             channel_id,
                             maximum_target: target,
                         });
-                        if outbound.try_send(retune).is_err() {
+                        if !enqueue(&outbound, retune, SEND_TIMEOUT).await {
                             closing = Some("the connection stopped draining".to_string());
                         }
                     }
@@ -873,6 +890,43 @@ mod tests {
             "write task still stuck on a peer that never reads"
         );
         drop(queue);
+    }
+
+    #[tokio::test]
+    async fn a_full_queue_with_a_draining_reader_is_not_closed() {
+        // A job-push burst fills the queue briefly; the reader catches up and the
+        // reply must still go out rather than close a healthy miner.
+        let (outbound, mut queued) = mpsc::channel::<Message>(1);
+        let ping = || {
+            Message::SubmitSharesError(maya_stratum_v2::messages::SubmitSharesError {
+                channel_id: 1,
+                sequence_number: 1,
+                error_code: String::new(),
+            })
+        };
+        outbound.try_send(ping()).unwrap();
+        let reader = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            while queued.recv().await.is_some() {}
+        });
+
+        assert!(enqueue(&outbound, ping(), Duration::from_secs(2)).await);
+        drop(outbound);
+        reader.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_full_queue_that_never_drains_is_closed_at_the_timeout() {
+        let (outbound, _queued) = mpsc::channel::<Message>(1);
+        let ping = || {
+            Message::SubmitSharesError(maya_stratum_v2::messages::SubmitSharesError {
+                channel_id: 1,
+                sequence_number: 1,
+                error_code: String::new(),
+            })
+        };
+        outbound.try_send(ping()).unwrap();
+        assert!(!enqueue(&outbound, ping(), Duration::from_millis(20)).await);
     }
 
     #[test]
