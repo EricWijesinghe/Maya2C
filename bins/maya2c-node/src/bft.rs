@@ -238,9 +238,11 @@ pub(super) fn setup(
     signer: Option<ValidatorKey>,
 ) -> Result<BftSetup, Box<dyn Error>> {
     let committee: Arc<[VerifyingKey]> = genesis.verifying_keys()?.into();
-    // CON-13: a vertex carries at most one author's quantum, so its payloads
-    // are always admitted by the decode walk. Payloads that do not fit stay in
-    // the mempool and go into the next vertex; nothing honest is dropped here.
+    // CON-13: a vertex carries at most one author's quantum, so a batch of
+    // small payloads is always admitted by the decode walk. Payloads that do
+    // not fit stay in the mempool for the next vertex. A payload the walk does
+    // not admit is released by the driver (`Step::dropped`) and re-submitted,
+    // so it is not lost. The quantum is fixed at the genesis committee size.
     let max_batch_bytes = usize::try_from(decode_quantum(DECODE_BUDGET, committee.len()))?;
     Ok(BftSetup {
         epoch: 0,
@@ -730,6 +732,9 @@ impl Feed {
                     self.min_register_bond
                 );
             }
+            // Removed once logged: left in the pool they would be logged again
+            // on every tick (the removal was lost in the oversize change).
+            pool.remove_all(&refused);
         }
     }
 
