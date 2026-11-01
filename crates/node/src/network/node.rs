@@ -509,6 +509,7 @@ impl Node {
             addresses: threat::AddressBook::default(),
             links: links::LinkBook::default(),
             convicted: HashSet::new(),
+            allow_private_addresses: self.allow_private_addresses,
         };
         tokio::spawn(driver.run(command_rx));
 
@@ -549,6 +550,8 @@ struct NodeDriver {
     links: links::LinkBook,
     /// Peers refused for an on-chain conviction (`node::threat`).
     convicted: HashSet<PeerId>,
+    /// Copied from [`Node`]: keep non-routable learned addresses (local network only).
+    allow_private_addresses: bool,
 }
 
 impl NodeDriver {
