@@ -668,6 +668,14 @@ fn a_split_flood_can_still_refund_one_large_honest_seller() {
             BlockContext::at_height(3),
         )
         .expect("funding");
+    assert_eq!(
+        harness
+            .db
+            .asset_balance(&base, &honest.address())
+            .expect("balance"),
+        honest_amount,
+        "the honest seller is funded before the flood"
+    );
 
     let swap = |sender: &HybridSigningKey, amount_in: U256, nonce: u64| {
         signed(
@@ -689,21 +697,21 @@ fn a_split_flood_can_still_refund_one_large_honest_seller() {
         .apply_block(&block_of(txs), BlockContext::at_height(4))
         .expect("a flood the batch refuses never fails the block");
 
-    assert_eq!(
+    let held = |asset: &_, who: &HybridSigningKey| {
         harness
             .db
-            .asset_balance(&base, &honest.address())
-            .expect("balance"),
-        honest_amount,
-        "the honest seller is refunded in full"
-    );
+            .asset_balance(asset, &who.address())
+            .expect("balance")
+    };
+    let attacker_base = held(&base, &attacker);
+    let attacker_quote = held(&quote, &attacker);
+    // One assert over both sides, so a failure shows whether the honest
+    // seller was filled, refunded, or lost the input.
     assert_eq!(
-        harness
-            .db
-            .asset_balance(&quote, &honest.address())
-            .expect("balance"),
-        U256::zero(),
-        "and is paid nothing"
+        (held(&base, &honest), held(&quote, &honest)),
+        (honest_amount, U256::zero()),
+        "the honest seller is refunded in full and paid nothing \
+         (attacker base {attacker_base}, quote {attacker_quote})"
     );
 }
 
