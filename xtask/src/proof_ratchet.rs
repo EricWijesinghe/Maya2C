@@ -16,6 +16,7 @@
 //!   cargo xtask proof-ratchet --update   write the current counts as the baseline
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 const BASELINE: &str = "proof-ratchet.txt";
@@ -172,7 +173,7 @@ fn render(now: &BTreeMap<&'static str, usize>) -> String {
          # Raise with `cargo xtask proof-ratchet --update` and say why in the commit.\n",
     );
     for (name, count) in now {
-        s.push_str(&format!("{name} = {count}\n"));
+        let _ = writeln!(s, "{name} = {count}");
     }
     s
 }
