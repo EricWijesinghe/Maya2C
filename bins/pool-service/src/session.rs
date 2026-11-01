@@ -72,6 +72,9 @@ pub const MAX_OPENS_PER_WINDOW: u32 = 32;
 /// Length of the channel-open rate window.
 pub const OPEN_WINDOW: Duration = Duration::from_secs(60);
 
+/// Refused opens on one connection before it is closed.
+pub const MAX_REFUSED_OPENS: u32 = 8;
+
 /// Fixed-window limit on channel opens for one connection.
 ///
 /// Each open takes a nonce range and a job push, and each close releases them,
@@ -177,6 +180,8 @@ pub struct Session {
     channels: Vec<u32>,
     /// Channel opens requested by this connection, for the rate limit.
     opens: OpenRateLimit,
+    /// Opens refused by the rate limit over the connection's life.
+    refused_opens: u32,
 }
 
 impl Session {
@@ -280,6 +285,14 @@ impl Session {
         // Before the identity parse and the job lock, so a refused open costs
         // almost nothing.
         if !self.opens.allow(Instant::now()) {
+            // A rig retrying after a burst is refused and recovers. One that keeps
+            // asking past the limit is churning, and is closed.
+            self.refused_opens = self.refused_opens.saturating_add(1);
+            if self.refused_opens >= MAX_REFUSED_OPENS {
+                return Ok(vec![SessionAction::Close(
+                    "channel opens kept coming past the rate limit".to_string(),
+                )]);
+            }
             return Ok(vec![SessionAction::Reply(Message::OpenMiningChannelError(
                 OpenMiningChannelError {
                     request_id,
@@ -1211,12 +1224,24 @@ mod tests {
         for request_id in 0..MAX_OPENS_PER_WINDOW {
             session.handle(open(request_id), &state).unwrap();
         }
-        match &session.handle(open(MAX_OPENS_PER_WINDOW), &state).unwrap()[0] {
-            SessionAction::Reply(Message::OpenMiningChannelError(error)) => {
-                assert_eq!(error.error_code, "open-rate-exceeded");
+        // Refusals reply until the connection has kept asking past the limit
+        // MAX_REFUSED_OPENS times, and then it is closed.
+        let refusals = MAX_REFUSED_OPENS - 1;
+        for request_id in MAX_OPENS_PER_WINDOW..MAX_OPENS_PER_WINDOW + refusals {
+            let actions = session.handle(open(request_id), &state).unwrap();
+            match &actions[0] {
+                SessionAction::Reply(Message::OpenMiningChannelError(error)) => {
+                    assert_eq!(error.error_code, "open-rate-exceeded");
+                }
+                other => panic!("expected the open rate to refuse, got {other:?}"),
             }
-            other => panic!("expected the open rate to refuse, got {other:?}"),
         }
+        let last = MAX_OPENS_PER_WINDOW + refusals;
+        let actions = session.handle(open(last), &state).unwrap();
+        assert!(
+            matches!(actions[0], SessionAction::Close(_)),
+            "the connection is closed past the refusal limit"
+        );
     }
 
     #[test]
