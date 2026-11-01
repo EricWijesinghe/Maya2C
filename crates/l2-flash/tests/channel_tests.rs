@@ -2,6 +2,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use custom_l1_node::core::ChainTag;
 use custom_l1_node::crypto::hybrid::{HybridPublicKey, HybridSigningKey, generate_signing_key};
 
 use l2_flash::channel::{Channel, ChannelState, Party, SignedState};
@@ -258,7 +259,9 @@ fn a_state_with_pending_htlcs_cannot_be_settled() {
     // The on-chain format carries only balances, so settling now would silently
     // destroy the in-flight value.
     assert_eq!(
-        channel.settlement_closure(&key_a, &key_b).err(),
+        channel
+            .settlement_closure(&key_a, &key_b, &ChainTag::from_genesis([0x5A; 32]))
+            .err(),
         Some(FlashError::HtlcsPending { pending: 1 })
     );
 }

@@ -5129,8 +5129,11 @@ secrets themselves would grow on-chain storage without bound.
 
 - \textbf{Update form} commits to \texttt{(seq, balances, htlc\_root)} and is what parties
   exchange off-chain while HTLCs are in flight.
-- \textbf{Settlement form} commits to \texttt{(seq, balances)} only, and is the format
-  the L1 understands.
+- \textbf{Settlement form} is the format the L1 understands. It commits to the
+  domain \texttt{maya-flash.channel-state.v2}, the chain tag (ADR-036), the channel
+  id, \texttt{seq}, both balances and the revocation commitment. The chain tag
+  makes a state signed for one chain fail to settle on another, even where the
+  channel id matches.
 
 They are different domains, so an update signature can never be replayed as a
 settlement. A state is only settleable once its HTLC set is empty; otherwise
