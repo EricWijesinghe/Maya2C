@@ -79,7 +79,9 @@ const SEND_TIMEOUT: Duration = Duration::from_secs(2);
 /// budget waits together. Without it, a socket that connects and says nothing
 /// holds its task and buffers for as long as the peer keeps the TCP connection
 /// open, and the per-step bounds alone add up to more than any honest peer needs.
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+/// 15 s: above the two 5 s network waits plus CPU, so a slow mobile or satellite
+/// link that meets each step still completes.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Handshakes in progress at once, across every connection.
 ///
