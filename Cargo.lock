@@ -5924,6 +5924,7 @@ dependencies = [
  "hex",
  "http-body-util",
  "jsonrpsee",
+ "maya-amount",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -6808,6 +6809,7 @@ dependencies = [
  "image",
  "jsonrpsee",
  "keyring",
+ "maya-amount",
  "maya-zk-stark",
  "pbkdf2",
  "primitive-types",
@@ -12758,6 +12760,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "hex",
+ "maya-amount",
  "regex",
  "serde",
  "serde_json",
