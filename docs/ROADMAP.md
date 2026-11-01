@@ -27,6 +27,12 @@ written-down height, after its audit.
 | 7 | Multi-VM (EVM) | gas-parity suite; classical-security labelling (ADR-023) | VM + EVM |
 | — | zkML, PoUW, exotic transports, frontier HAL | the evidence ADR-016 names; none is scheduled | — |
 
+## Security after launch
+
+| Order | Work | Evidence that brings it in | Audit |
+|---|---|---|---|
+| 1 | Sentinel Recovery Network ([MIP-0001](mip/MIP-0001-sentinel-recovery-network.md), [ADR-077](adr/ADR-077-sentinel-recovery-network.md)) | Eric's decisions D1–D7; R1–R6 each with replay tests and attacknet scenarios S1–S8; activation only after an independent audit and the committee independence floor | (b) consensus, (c) state machine, economics |
+
 ## Beyond the protocol
 
 - **Second client**: close the spec gaps first (VM, extra state layers,

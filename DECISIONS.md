@@ -629,3 +629,20 @@ Two more from the same security review, fixed in the freeze:
   `an_lp_whose_quote_share_rounds_to_zero_can_still_withdraw_its_base`.
 Residual: "usable" means spot is not 0, not "every size clears". At spot near 1, small base sells
 round to 0 and are refunded until a buyer moves the price. That is a refund, not a lock.
+
+## 2026-11-02 — Sentinel Recovery Network proposed (MIP-0001, ADR-077)
+
+Eric asked for a protocol-level disaster-recovery upgrade. The design is written as
+MIP-0001, with ADR-077 Proposed and seven open decisions (D1–D7). Departures from
+the brief, each argued in MIP-0001 §0.1:
+- no rewind of finalized blocks; recovery is a forward restitution of tainted
+  balances;
+- AI is advisory only (invariant 20);
+- quarantine is per cell, never chain-wide, except a bounded T5;
+- penalties fall only on posted bonds;
+- recovery stays off until the committee passes an independence floor, so it is
+  off at launch (ADR-047).
+
+The prior-art search (2026-11-02) found Sui, Berachain, Flow and BNB Chain
+interventions, Cosmos `x/circuit` and Forta, so no "first" claim is made.
+Nothing enters the launch binary.
