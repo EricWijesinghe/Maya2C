@@ -290,8 +290,14 @@ fn the_approval_text_carries_the_core_computed_recipient_amount_fee_and_chain() 
         text.contains(&format!("To: {}", checksummed(&[0x22; 32]))),
         "{text}"
     );
-    assert!(text.contains("Amount: 1.5 MAYA"), "{text}");
-    assert!(text.contains("Fee: 0.001 MAYA"), "{text}");
+    assert!(
+        text.contains(&format!("Amount: {} MAYA", format_display(coins("1.5")))),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!("Fee: {} MAYA", format_display(coins("0.001")))),
+        "{text}"
+    );
     assert!(
         text.contains(&format!("Chain: {}", hex::encode(CHAIN.as_bytes()))),
         "{text}"
