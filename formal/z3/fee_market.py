@@ -26,6 +26,7 @@ from z3 import And, If, Implies, Int, Ints, Not, Solver, sat, unknown, unsat
 BPS = 10_000
 U64_MAX = (1 << 64) - 1
 U128_MAX = (1 << 128) - 1
+MAX_BASE_FEE_PER_BYTE = 7_567_158_531_971_244_797  # limits.rs, ADR-071 (pending Eric)
 TIMEOUT_MS = 120_000
 
 
@@ -66,7 +67,13 @@ def next_base_fee_model(parent, size, target, denom, floor):
     gap = If(size >= target, size - target, target - size)
     delta = (parent * gap / target) / denom
     rising = size > target
-    up = parent + If(delta > 1, delta, 1)
+    # FEE-3 and FEE-6 (ADR-071): a rise is at most one denominator's share and
+    # ends at the ceiling; a fee already above the ceiling holds.
+    share = If(parent / denom > 1, parent / denom, 1)
+    rise = If(delta > 1, delta, 1)
+    up = parent + If(rise < share, rise, share)
+    ceil = If(MAX_BASE_FEE_PER_BYTE > parent, MAX_BASE_FEE_PER_BYTE, parent)
+    up = If(up > ceil, ceil, up)
     down = If(parent >= delta, parent - delta, 0)
     nxt = If(rising, up, down)
     capped = If(nxt > U64_MAX, U64_MAX, nxt)
@@ -96,6 +103,10 @@ def main():
                          Implies(size <= target, nxt <= If(parent > floor, parent, floor)), validated))
     results.append(prove("next_base_fee: an over-target block never lowers the fee",
                          Implies(size > target, nxt >= parent), validated))
+    results.append(prove("next_base_fee: a rise is at most parent/denom (+1 below one denominator), any size",
+                         Implies(size > target, raw <= parent + If(parent / denom > 1, parent / denom, 1)), validated))
+    results.append(prove("next_base_fee: a rise never ends above max(ceiling, parent) (FEE-6)",
+                         Implies(size > target, nxt <= If(MAX_BASE_FEE_PER_BYTE > parent, MAX_BASE_FEE_PER_BYTE, parent)), validated))
     bounded = And(validated, size <= 2 * target)
     results.append(prove("next_base_fee: one step rises by at most parent/denom + 1 (size <= 2x target)",
                          raw <= parent + parent / denom + 1, bounded))
