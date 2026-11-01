@@ -503,7 +503,7 @@ fn on_a_fee_market_chain_the_fee_is_paid_to_the_collector_not_burned() {
     let signed = sign_transfer_to(
         &signing_key(),
         &address(30),
-        primitive_types::U256::from(1_000),
+        primitive_types::U256::from(100_000),
         primitive_types::U256::from(26_510),
         &collector(),
         0,
@@ -516,7 +516,7 @@ fn on_a_fee_market_chain_the_fee_is_paid_to_the_collector_not_burned() {
     assert_eq!(decoded.outputs.len(), 2);
     assert_eq!(
         decoded.outputs[0].amount,
-        primitive_types::U256::from(1_000)
+        primitive_types::U256::from(100_000)
     );
     assert_eq!(
         decoded.outputs[1].amount,
@@ -537,7 +537,7 @@ fn the_priced_size_is_the_size_of_the_transaction_actually_signed() {
     let signed = sign_transfer_to(
         &key,
         &address(31),
-        primitive_types::U256::from(123_456),
+        primitive_types::U256::from(9_876_543),
         primitive_types::U256::from(987_654),
         &collector(),
         4,
