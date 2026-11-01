@@ -90,11 +90,22 @@ impl NodeClient {
     ///
     /// Returns an error if the request fails.
     pub async fn get_chain_info(&self) -> Result<ChainTag> {
-        let info: ChainInfo = self
-            .inner
+        self.get_network()
+            .await?
+            .chain_tag()
+            .context("get_chain_info")
+    }
+
+    /// The node's full chain report: genesis, the name it claims, and tip height.
+    /// The name is a claim, so callers check the genesis before trusting it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails.
+    pub async fn get_network(&self) -> Result<ChainInfo> {
+        self.inner
             .request("get_chain_info", rpc_params![])
             .await
-            .context("get_chain_info")?;
-        info.chain_tag().context("get_chain_info")
+            .context("get_chain_info")
     }
 }
