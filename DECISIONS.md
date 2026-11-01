@@ -637,3 +637,27 @@ The three P0 rows judged guards on 2026-09-28 now carry a `reviewed-guard:` comm
 register so the call can still be disputed. Kani proof modules (`#[cfg(kani)] mod x;`) are
 treated as test code: `fee-market/src/proofs.rs:129` was counted as a P0 though it is in no
 binary. Register now: 0 P0, 0 P1, 31 P2, 3 reviewed guards.
+
+## 2026-11-02 — B49: a stale node rejoins only through a trusted block (node policy, not consensus)
+
+A node whose committed state is older than the unbonding window cannot tell the real chain from
+a long-range forgery by its own state: the validators that signed it have unbonded and their
+old keys sign at no cost. Rule (`bins/maya2c-node/src/rejoin.rs`, pure `stale()`):
+
+- **Epoch trigger:** the newest checkpoint any answering source claims is more than
+  `unbonding_epochs` epochs past the committed staking epoch. Exactly `unbonding_epochs` behind is
+  not stale; one more is.
+- **Time trigger:** the tip header is older than `unbonding_epochs × epoch_blocks ×
+  TARGET_BLOCK_TIME` seconds. This is derivable, but `TARGET_BLOCK_TIME` (15 s) is the intended
+  rate, not a measured one, so the window is an estimate. The epoch trigger does not depend on it.
+- A stale node with no `--trusted-block` is refused at start-up, with the way out in the message.
+- With a trusted block, the gap below it is linked to that block by hash alone (no committee),
+  and the committee rule resumes above it. A batch that reaches the trusted height must carry its
+  id there, or nothing is imported. Certificate replay (ADR-052) is skipped when a trusted block
+  is in use, because it verifies against the committee and would ignore the anchor.
+
+CLI: `--trusted-block` is accepted with `--bootstrap-from` or `--catch-up-from`, and refused
+otherwise (an anchor nothing uses is refused, not ignored). Staleness is decided once at start-up;
+the live follower (`follow_loop`) is unchanged and still uses the genesis committee as fallback
+for chains without staking. Not done: chains without staking state (the guard does not apply),
+and a node that goes stale while running.

@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use custom_l1_node::consensus::Chain;
 use custom_l1_node::consensus::bft::attest::CheckpointBook;
-use custom_l1_node::consensus::bft::catchup::{self, Position};
+use custom_l1_node::consensus::bft::catchup::{self, Anchor, Position};
 use custom_l1_node::consensus::bft::certsync;
 use custom_l1_node::consensus::bft::remote::{DEFAULT_DEADLINE, RemoteSigner, ValidatorKey};
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup, Step};
@@ -273,6 +273,7 @@ async fn catch_up_once(
     url: &str,
     chain: &Arc<Mutex<Chain>>,
     fallback: (&Arc<[VerifyingKey]>, Option<&Arc<[u64]>>),
+    anchor: Anchor,
 ) -> Result<catchup::Imported, Box<dyn Error>> {
     // Position and committee under one lock: read apart, a boundary block
     // imported between them pairs an epoch with the wrong committee, the
@@ -286,7 +287,7 @@ async fn catch_up_once(
     };
     let source = RpcBootstrapSource::new(url, tokio::runtime::Handle::current())?;
     let blocks = tokio::task::spawn_blocking(move || {
-        catchup::fetch(from, &source, &committee, weights.as_deref())
+        catchup::fetch_anchored(from, &source, &committee, weights.as_deref(), anchor)
     })
     .await??;
     if blocks.is_empty() {
@@ -384,6 +385,7 @@ pub(super) async fn catch_up_from_any(
     urls: &[String],
     chain: &Arc<Mutex<Chain>>,
     driver: &mut BftDriver,
+    anchor: Anchor,
 ) -> Result<Option<String>, Box<dyn Error>> {
     let mut ranked = Vec::new();
     for round in 1..=PROBE_ROUNDS {
@@ -398,7 +400,7 @@ pub(super) async fn catch_up_from_any(
     // its tip: try the rest before calling it caught up (pre-audit S-029).
     let mut first_answered = None;
     for url in ranked {
-        match catch_up(&url, chain, driver).await {
+        match catch_up(&url, chain, driver, anchor).await {
             Ok(imported) if imported > 0 => return Ok(Some(url)),
             Ok(_) => {
                 first_answered.get_or_insert(url);
@@ -480,6 +482,7 @@ pub(super) async fn catch_up(
     url: &str,
     chain: &Arc<Mutex<Chain>>,
     driver: &mut BftDriver,
+    anchor: Anchor,
 ) -> Result<u64, Box<dyn Error>> {
     // Where this node's own engine and DAG log stand, before any import:
     // what `within_engine_window` must measure the network against.
@@ -493,7 +496,7 @@ pub(super) async fn catch_up(
     let mut imported = 0;
     loop {
         let (committee, weights) = (driver.committee(), driver.weights());
-        let round = catch_up_once(url, chain, (&committee, weights.as_ref())).await?;
+        let round = catch_up_once(url, chain, (&committee, weights.as_ref()), anchor).await?;
         if round.applied == 0 && round.already_held > 0 {
             // Nothing new in this batch: the blocks are already held, so the
             // loop ends and the next poll will ask again.
@@ -567,7 +570,7 @@ pub(super) async fn follow_loop(
         // against its own epoch's committee.
         // Text, not the boxed error: the error is not `Send`, and the stuck
         // branch awaits a probe.
-        let round = catch_up_once(&url, &chain, (&genesis_committee, None))
+        let round = catch_up_once(&url, &chain, (&genesis_committee, None), Anchor::Unanchored)
             .await
             .map_err(|e| e.to_string());
         match &round {

@@ -52,8 +52,10 @@ use libp2p::Multiaddr;
 mod bft;
 mod import;
 mod pruning;
+mod rejoin;
 mod update_notice;
 mod validator_key;
+use custom_l1_node::consensus::bft::catchup::Anchor;
 use import::{backfill_loop, block_import_loop};
 use pruning::{open_or_bootstrap, pruning_loop, pruning_services};
 
@@ -447,9 +449,15 @@ fn parse_args_from(arguments: impl Iterator<Item = String>) -> Result<Args, Box<
         std::process::exit(0);
     }
     // An anchor nothing uses is worse than none: the operator believes the
-    // bootstrap is checked when it is not (ADR-060 review).
-    if args.trusted_block.is_some() && args.bootstrap_from.is_none() {
-        return Err("--trusted-block only means something with --bootstrap-from".into());
+    // bootstrap is checked when it is not (ADR-060 review). A catch-up checks
+    // it too (B49): a stale node needs it, and a fresh one checks what it is given.
+    if args.trusted_block.is_some()
+        && args.bootstrap_from.is_none()
+        && args.catch_up_from.is_empty()
+    {
+        return Err(
+            "--trusted-block only means something with --bootstrap-from or --catch-up-from".into(),
+        );
     }
     Ok(args)
 }
@@ -1003,9 +1011,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
                  will stay at the snapshot height; add --catch-up-from <the same URL>"
             );
         }
-        // Certificate replay first (ADR-052): a node that comes back from a
-        // replay is a full engine, so it takes no follower path below.
-        let replayed = if args.catch_up_from.is_empty() {
+        // The trust a catch-up may use (B49). A stale node is refused without a
+        // trusted block, so the decision comes before any source is trusted.
+        let anchor = rejoin::anchor(&args.catch_up_from, &chain, args.trusted_block).await?;
+        // Certificate replay (ADR-052) verifies against the committee alone and
+        // would ignore the trusted block, so a node held to one skips it.
+        // Otherwise a node that comes back from a replay is a full engine, so it
+        // takes no follower path below.
+        let replayed = if args.catch_up_from.is_empty() || anchor != Anchor::Unanchored {
             None
         } else {
             match bft::sync_certificates(&args.catch_up_from, &chain, &setup, &args.data_dir).await
@@ -1033,7 +1046,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         if let Some(first) = args.catch_up_from.first() {
             let url = match synced {
                 Some(url) => url,
-                None => bft::catch_up_from_any(&args.catch_up_from, &chain, &mut driver)
+                None => bft::catch_up_from_any(&args.catch_up_from, &chain, &mut driver, anchor)
                     .await?
                     .unwrap_or_else(|| {
                         println!(
@@ -1210,6 +1223,8 @@ mod tests {
         };
         assert!(args(&[]).is_err());
         assert!(args(&["--bootstrap-from", "http://127.0.0.1:1"]).is_ok());
+        // B49: a catch-up checks the anchor too, so it is no longer dead there.
+        assert!(args(&["--catch-up-from", "http://127.0.0.1:1"]).is_ok());
     }
 
     #[test]

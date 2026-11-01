@@ -46,6 +46,11 @@ When a peer restores from a snapshot, give it `--trusted-block HEIGHT:ID` from t
 paths that are not the bootstrap source, at or above the snapshot height. Without
 it the source alone decides which chain the node starts on.
 
+The same flag guards a rejoin (B49): a node offline longer than the unbonding window
+refuses `--catch-up-from` unless it is given `--trusted-block`, because validators that
+unbonded can sign a forged chain. Take the block from the explorer or a peer you trust,
+above the node's tip.
+
 ## 5. What this does not fix
 Stake concentration (a design decision: a validator above 1/3 of stake is a
 single point of failure and of capture) and the absence of an external audit.
