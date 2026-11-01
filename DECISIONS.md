@@ -600,3 +600,12 @@ that would end at price 0 is refused; a full withdrawal (pool empty) always pass
 Replays that fail on master and pass now: `a_pool_with_no_usable_price_cannot_be_created`,
 `a_route_that_would_leave_no_usable_price_does_not_execute`. Regression guard (master already
 refunds it): `a_batch_that_would_leave_no_usable_price_refunds_and_keeps_the_pool`.
+Two more from the same security review, fixed in the freeze:
+- Batch shrink: a zero clearing price, or a clearing that leaves spot 0, now drops the largest
+  base seller (fallback: smallest, so the loop always shrinks). Dropping the smallest let one flood
+  refund every honest co-trader. Replay: `an_honest_swap_still_clears_beside_a_flood_that_would_leave_no_price`.
+- Withdrawal refuses only when both sides round to zero. Refusing when either side did stranded an
+  LP's whole position in a pool with a dust side. Replay:
+  `an_lp_whose_quote_share_rounds_to_zero_can_still_withdraw_its_base`.
+Residual: "usable" means spot is not 0, not "every size clears". At spot near 1, small base sells
+round to 0 and are refunded until a buyer moves the price. That is a refund, not a lock.

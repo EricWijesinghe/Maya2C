@@ -566,6 +566,96 @@ fn a_route_that_would_leave_no_usable_price_does_not_execute() {
         .expect("a route that does not pay never fails the block");
     assert_reserves_and_balance_kept(&harness, &pair, &before, &base, &key, held);
 }
+
+#[test]
+fn an_honest_swap_still_clears_beside_a_flood_that_would_leave_no_price() {
+    // Replay (#289 security review F1): one flood intent with min_out 1 used to
+    // refund every honest swap in its batch. Now only the flood is dropped.
+    let key = generate_signing_key().expect("key");
+    let harness = fixture(&[(key.address(), 1_000)]);
+    let (base, quote) = two_big_assets(&harness, &key);
+    let seed = U256::exp10(13);
+    harness
+        .db
+        .apply_block(
+            &block_of(vec![signed(create(base, quote, seed, seed), 2, &key)]),
+            BlockContext::at_height(2),
+        )
+        .expect("balanced pool");
+    let pair = derive_pair_id(&base, &quote, LP_FEE_BPS);
+    let held_base = harness.db.asset_balance(&base, &key.address()).expect("b");
+    let held_quote = harness.db.asset_balance(&quote, &key.address()).expect("q");
+    let swap = |amount_in: U256, nonce| {
+        let request = TxKind::Swap(SwapRequest {
+            pair,
+            direction: Direction::BaseToQuote.tag(),
+            amount_in,
+            min_out: U256::one(),
+            deadline: 0,
+        });
+        signed(request, nonce, &key)
+    };
+    let honest = U256::exp10(10);
+    harness
+        .db
+        .apply_block(
+            &block_of(vec![swap(honest, 3), swap(U256::exp10(40), 4)]),
+            BlockContext::at_height(3),
+        )
+        .expect("block");
+    assert_eq!(
+        harness.db.asset_balance(&base, &key.address()).expect("b"),
+        held_base - honest,
+        "only the honest swap is filled; the flood is refunded"
+    );
+    assert!(harness.db.asset_balance(&quote, &key.address()).expect("q") > held_quote);
+}
+
+#[test]
+fn an_lp_whose_quote_share_rounds_to_zero_can_still_withdraw_its_base() {
+    // Replay (#289 security review F3): with quote reserve 1, every partial
+    // redemption rounds quote to 0, and ZeroOutput used to strand the base.
+    let key = generate_signing_key().expect("key");
+    let harness = fixture(&[(key.address(), 1_000)]);
+    let (base, quote) = two_big_assets(&harness, &key);
+    let seed_base = U256::from(2_000_000_u64);
+    harness
+        .db
+        .apply_block(
+            &block_of(vec![signed(
+                create(base, quote, seed_base, U256::one()),
+                2,
+                &key,
+            )]),
+            BlockContext::at_height(2),
+        )
+        .expect("pool with a one-unit quote side");
+    let pair = derive_pair_id(&base, &quote, LP_FEE_BPS);
+    let lp = derive_lp_asset(&pair);
+    let shares = harness.db.asset_balance(&lp, &key.address()).expect("lp");
+    let held = harness.db.asset_balance(&base, &key.address()).expect("b");
+    let withdraw = TxKind::RemoveLiquidity(LiquidityWithdrawal {
+        pair,
+        shares,
+        min_base: U256::one(),
+        min_quote: U256::zero(),
+    });
+    harness
+        .db
+        .apply_block(
+            &block_of(vec![signed(withdraw, 3, &key)]),
+            BlockContext::at_height(3),
+        )
+        .expect("the base side is redeemable");
+    assert!(
+        harness
+            .db
+            .asset_balance(&lp, &key.address())
+            .expect("lp")
+            .is_zero()
+    );
+    assert!(harness.db.asset_balance(&base, &key.address()).expect("b") > held);
+}
 #[test]
 fn the_same_pair_cannot_have_two_pools_at_one_fee_rate() {
     let mut market = market();
