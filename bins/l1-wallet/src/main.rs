@@ -34,6 +34,7 @@ use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
 use custom_l1_node::rpc::ChainInfo;
 
 use l1_wallet::client::NodeClient;
+use zeroize::Zeroizing;
 
 /// Environment variable consulted when no terminal is available.
 const PASSWORD_ENV: &str = "L1_WALLET_PASSWORD";
@@ -191,30 +192,83 @@ struct TxOptions {
     no_broadcast: bool,
 }
 
-/// Reads a password, preferring an interactive prompt.
-fn read_password(confirm: bool) -> Result<String> {
+/// Reads a password, preferring an interactive prompt. The result is held in
+/// `Zeroizing` so its buffer is wiped on drop; it is never printed or logged.
+fn read_password(confirm: bool) -> Result<Zeroizing<String>> {
     if let Ok(from_env) = std::env::var(PASSWORD_ENV)
         && !from_env.is_empty()
     {
-        return Ok(from_env);
+        return Ok(Zeroizing::new(from_env));
     }
 
-    let password = rpassword::prompt_password("keystore password: ")
-        .context("reading password; set L1_WALLET_PASSWORD for non-interactive use")?;
+    let password = Zeroizing::new(
+        rpassword::prompt_password("keystore password: ")
+            .context("reading password; set L1_WALLET_PASSWORD for non-interactive use")?,
+    );
+    let again = if confirm {
+        Some(Zeroizing::new(
+            rpassword::prompt_password("confirm password: ")
+                .context("reading password confirmation")?,
+        ))
+    } else {
+        None
+    };
+    checked_password(password, again)
+}
 
-    if confirm {
-        let again = rpassword::prompt_password("confirm password: ")
-            .context("reading password confirmation")?;
-        if again != password {
-            bail!("passwords do not match");
-        }
+/// The password, if it is not empty and the confirmation (when asked for)
+/// matches it.
+fn checked_password(
+    password: Zeroizing<String>,
+    again: Option<Zeroizing<String>>,
+) -> Result<Zeroizing<String>> {
+    if let Some(again) = again
+        && again.as_str() != password.as_str()
+    {
+        bail!("passwords do not match");
     }
-
     if password.is_empty() {
         bail!("password must not be empty");
     }
-
     Ok(password)
+}
+
+#[cfg(test)]
+mod password_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+
+    #[test]
+    fn a_matching_confirmation_yields_the_password() {
+        let password = checked_password(
+            Zeroizing::new("hunter2".into()),
+            Some(Zeroizing::new("hunter2".into())),
+        )
+        .unwrap();
+        assert_eq!(password.as_str(), "hunter2");
+    }
+
+    #[test]
+    fn a_mismatched_confirmation_is_refused() {
+        let error = checked_password(
+            Zeroizing::new("hunter2".into()),
+            Some(Zeroizing::new("hunter3".into())),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("do not match"), "{error}");
+    }
+
+    #[test]
+    fn an_empty_password_is_refused_with_or_without_confirmation() {
+        assert!(checked_password(Zeroizing::new(String::new()), None).is_err());
+        assert!(
+            checked_password(
+                Zeroizing::new(String::new()),
+                Some(Zeroizing::new(String::new())),
+            )
+            .is_err()
+        );
+    }
 }
 
 /// Loads and decrypts the keystore at `path`.
