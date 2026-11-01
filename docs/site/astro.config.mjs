@@ -191,6 +191,7 @@ export default defineConfig({
             { label: "API reference", link: "/guides/api" },
             { label: "Wallet integration", link: "/guides/wallet" },
             { label: "Compiling a contract", link: "/guides/contracts" },
+            { label: "Post-quantum comparison", link: "/guides/pq-comparison" },
           ],
         },
         // The whole of docs/, in the order ingest found it.
