@@ -920,7 +920,7 @@ mod release_tests {
     fn a_payload_past_the_decode_cut_is_released_without_being_decoded() {
         // Only the hash of an own payload is known here; no decode happens.
         let past_cut = tx(9);
-        let mut queued = queue(&[past_cut.clone()]);
+        let mut queued = queue(std::slice::from_ref(&past_cut));
         let own: BTreeSet<[u8; 32]> = [hash_of(&past_cut)].into_iter().collect();
         let released = release_unincluded(&mut queued, &own, &BTreeSet::new());
         assert_eq!(released, vec![past_cut]);
