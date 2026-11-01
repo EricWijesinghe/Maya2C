@@ -450,7 +450,7 @@ mod tests {
     #[test]
     fn a_fee_past_u64_is_charged_and_split_exactly() {
         // ADR-046: max_fee is 256-bit; a sender may offer more than 2^64 base
-        // units (about 18.4 coins at 18 decimals) and the excess is a tip.
+        // units (about 0.0000184 coins at 24 decimals) and the excess is a tip.
         let big = Amount::from_u128(u128::from(u64::MAX) * 3);
         let fee = TxFee {
             size_bytes: 100,
