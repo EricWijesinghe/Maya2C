@@ -178,6 +178,15 @@ impl StateDB {
             // Staged, not folded. The accumulator advances exactly once per
             // block in `settle_oracle`, whether or not a proof arrived.
             TxKind::SubmitBeacon(beacon) => self.stage_beacon(overlay, beacon, context),
+            // Refused, not ignored: a refused claim fails the transaction, so no
+            // work credit is recorded and voting weight stays locked stake alone
+            // until the claim is bound to a verified share (ADR-044).
+            TxKind::ClaimWork(_) if !context.work_claim_active() => {
+                Err(NodeError::WorkClaimInactive {
+                    height: context.height,
+                    activation: context.work_claim_activation,
+                })
+            }
             TxKind::ClaimWork(claim) => self.claim_work(overlay, claim, context),
             TxKind::LockStake(lock) => self.lock_stake(overlay, &sender, lock, context),
             TxKind::UnlockStake(unlock) => self.unlock_stake(overlay, &sender, unlock, context),
