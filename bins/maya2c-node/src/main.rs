@@ -52,6 +52,7 @@ use libp2p::Multiaddr;
 mod bft;
 mod import;
 mod pruning;
+mod update_notice;
 mod validator_key;
 use import::{backfill_loop, block_import_loop};
 use pruning::{open_or_bootstrap, pruning_loop, pruning_services};
