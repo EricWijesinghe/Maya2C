@@ -26,7 +26,7 @@ from z3 import And, If, Implies, Int, Ints, Not, Solver, sat, unknown, unsat
 BPS = 10_000
 U64_MAX = (1 << 64) - 1
 U128_MAX = (1 << 128) - 1
-MAX_BASE_FEE_PER_BYTE = 7_567_158_531_971_244_797  # limits.rs, ADR-071 (pending Eric)
+MAX_BASE_FEE_PER_BYTE = 7_567_158_531_971_244_797  # limits.rs, ADR-076 (pending Eric)
 TIMEOUT_MS = 120_000
 
 
@@ -67,7 +67,7 @@ def next_base_fee_model(parent, size, target, denom, floor):
     gap = If(size >= target, size - target, target - size)
     delta = (parent * gap / target) / denom
     rising = size > target
-    # FEE-3 and FEE-6 (ADR-071): a rise is at most one denominator's share and
+    # FEE-3 and FEE-6 (ADR-076): a rise is at most one denominator's share and
     # ends at the ceiling; a fee already above the ceiling holds.
     share = If(parent / denom > 1, parent / denom, 1)
     rise = If(delta > 1, delta, 1)

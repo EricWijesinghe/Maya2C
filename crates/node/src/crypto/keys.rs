@@ -294,10 +294,12 @@ struct SeedRng {
 
 impl fips204::RngCore for SeedRng {
     fn next_u32(&mut self) -> u32 {
+        // reviewed-guard: fips204 keygen calls only fill_bytes; reaching this is a bug.
         unimplemented!("ML-DSA key generation draws only the 32-byte seed")
     }
 
     fn next_u64(&mut self) -> u64 {
+        // reviewed-guard: fips204 keygen calls only fill_bytes; reaching this is a bug.
         unimplemented!("ML-DSA key generation draws only the 32-byte seed")
     }
 

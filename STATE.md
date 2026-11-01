@@ -4,7 +4,7 @@
 - **2026-11-01 — hardening wave merged; re-frozen at `ec8d0be1`; 5-day local proving run started.**
   - **Merged (security, review-driven):** #268 wasmtime 48.0.8; #270 CLI wallet fail-closed fee
     query and 10^24 cap; #271 wallet confirm screen bound to the signing hash; #273 vault
-    headroom bypass; #274 ADR-071 base-fee clamp and ceiling (option B 0.1 MAYA, Eric
+    headroom bypass; #274 ADR-076 (ex-071) base-fee clamp and ceiling (option B 0.1 MAYA, Eric
     approved); #276 ADR-072 5 MiB block cap, first-fit; #275 Hub miner path guard; #279 DEX
     1e24 scale and supply cap; #287 wallet one-shot review slot; #289 DEX zero-price DoS
     (Kani harness 1 SUCCESSFUL with cover; harness 2 re-running); #293 ADR-044 reserve
