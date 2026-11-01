@@ -549,3 +549,18 @@ fn a_catch_up_block_already_held_is_not_a_fault() {
         }
     );
 }
+
+#[test]
+fn a_block_that_is_neither_held_nor_an_extension_still_fails_the_import() {
+    use custom_l1_node::consensus::bft::catchup::import;
+
+    let root = TempDir::new().unwrap();
+    let mut chain = open_chain(&root.path().join("state"), false);
+
+    // Its parent is one the chain does not hold, so it is not a duplicate and
+    // cannot extend the tip. A duplicate must not have loosened this check.
+    let mut orphan = genesis();
+    orphan.header.prev_hash = [0x55; 32];
+    orphan.header.nonce = 1;
+    assert!(import(&mut chain, vec![orphan]).is_err());
+}
