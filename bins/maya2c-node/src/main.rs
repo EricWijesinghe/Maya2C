@@ -327,9 +327,11 @@ fn print_usage() {
          --catch-up-from <URL>    DAG-BFT: rejoin after a long outage through a peer's\n                           \
          attested checkpoint, then follow attested blocks (ADR-038);\n                           \
          repeatable: the reachable peer with the highest tip is used (ADR-043)\n  \
-         --trusted-block HEIGHT:HEX  block the chain must pass through; with --catch-up-from\n                           \
-         it is REQUIRED after an outage past the unbonding window (B49), with\n                           \
-         --bootstrap-from it anchors the snapshot (ADR-060)\n  \
+         --trusted-block HEIGHT:HEX  a RECENT block (within the unbonding window of the head) above\n                           \
+         this node's tip, that the chain must pass through. REQUIRED for a node stale past\n                           \
+         the unbonding window (B49), with --catch-up-from. A peer's claimed\n                           \
+         head can only make this requirement stricter, never lift it. With --bootstrap-from\n                           \
+         it anchors the snapshot (ADR-060)\n  \
          --validator-key <PATH>  DAG-BFT validator key; without it the node observes\n  \
          --generate-validator-key <PATH>  write a new validator key, print its public key;\n                           \
          sealed when a passphrase file is set (ADR-049)\n  \
@@ -1070,8 +1072,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 Arc::clone(&setup.committee),
                 Arc::clone(&status_slot),
                 tx,
+                args.trusted_block,
             ));
         }
+        // A stale node must reach its trusted block in this start-up: with no
+        // reachable source, or none serving the chain through it, nothing was
+        // caught up, and the node does not start (B49).
+        rejoin::require_reached(&lock_chain(&chain), anchor)?;
         let size = setup.committee.len();
         match driver.validator_id() {
             Some(id) => println!("dag-bft:     validator {id} of {size}"),

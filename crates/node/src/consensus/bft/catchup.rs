@@ -298,18 +298,48 @@ pub fn fetch_anchored(
 ) -> Result<Vec<Block>> {
     match anchor {
         Anchor::Unanchored => fetch(from, source, committee, weights),
-        Anchor::Checked(trusted) => {
+        Anchor::Checked(trusted) if from.height < trusted.height => {
             let blocks = fetch(from, source, committee, weights)?;
             check_trusted(from, &blocks, trusted)?;
             Ok(blocks)
         }
+        // At or past the trusted height: a batch that crossed it was checked
+        // then, and a block at or below the tip at start-up is checked by the
+        // node's own start-up rule (`rejoin::check_against_tip`).
+        Anchor::Checked(_) => fetch(from, source, committee, weights),
         Anchor::Stale(trusted) if from.height < trusted.height => {
+            check_gap(from.height, trusted.height)?;
             fetch_linked(from, trusted.height, trusted.id, source, "trusted")
         }
         // Past the trusted block the blocks just linked have written the
         // current committee into state, so the committee rule applies again.
         Anchor::Stale(_) => fetch(from, source, committee, weights),
     }
+}
+
+/// Most blocks a stale node may link across below its trusted block. Why: the
+/// whole gap is buffered before the trusted id can be compared, so the cap
+/// bounds the memory a hostile peer can make a stale node hold. 50,000 blocks
+/// is about 8.7 days at the 15 s target. A gap past it means the operator
+/// picked a trusted block far above the tip.
+/// Shortcut: the cap counts blocks, not bytes, and the bytes per block are not
+/// bounded here. Upgrade: a byte cap once the encoded block size limit is a
+/// named constant this path can read.
+pub const MAX_LINKED_GAP: u64 = 50_000;
+
+/// Refuses a stale node's link across more than [`MAX_LINKED_GAP`] blocks.
+///
+/// # Errors
+///
+/// [`NodeError::Decode`] naming the gap and asking for a closer trusted block.
+pub fn check_gap(from_height: u64, trusted_height: u64) -> Result<()> {
+    let gap = trusted_height.saturating_sub(from_height);
+    if gap <= MAX_LINKED_GAP {
+        return Ok(());
+    }
+    Err(NodeError::Decode(format!(
+        "catch-up: the gap below the trusted block is {gap} blocks, over the {MAX_LINKED_GAP}-block cap: the peer would make this node hold all of them before the trusted id can be checked. Pick a trusted block closer to this node's tip, above it and within the unbonding window of the network's head"
+    )))
 }
 
 /// Checks the block `blocks` carry at `trusted.height`, if they reach it.
@@ -642,6 +672,52 @@ mod tests {
         let (source, _) = chained(40, true);
         let past = Anchor::Stale(trusted_at(&source, 5));
         assert!(fetch_anchored(at_ten(&source), &source, &[], None, past).is_err());
+    }
+
+    #[test]
+    fn a_stale_node_whose_tip_is_the_trusted_block_is_past_the_anchor() {
+        // Boundary: from.height == trusted.height. The gap is empty, so the
+        // anchor is met and the committee rule applies (same empty committee
+        // fails the quorum).
+        let (source, _) = chained(40, true);
+        let at = Anchor::Stale(trusted_at(&source, 10));
+        assert!(fetch_anchored(at_ten(&source), &source, &[], None, at).is_err());
+    }
+
+    #[test]
+    fn a_checked_anchor_at_or_below_the_tip_does_not_re_check_the_chain() {
+        // The start-up rule checks a block at or below the tip; a batch past it
+        // must not re-check a trusted id it cannot see, so the committee path runs.
+        let (source, committee) = chained(40, true);
+        let below = Anchor::Checked(TrustedBlock {
+            height: 5,
+            id: [0xEE; 32],
+        });
+        assert!(fetch_anchored(at_ten(&source), &source, &committee, None, below).is_ok());
+    }
+
+    #[test]
+    fn a_link_across_more_than_the_cap_is_refused_before_any_request() {
+        // Why: the cap must trip before the source is asked for a single block.
+        // The chain here has 40 blocks, so any request would fail differently.
+        let (source, _) = chained(40, true);
+        let far = Anchor::Stale(TrustedBlock {
+            height: 10 + MAX_LINKED_GAP + 1,
+            id: [1; 32],
+        });
+        let err = fetch_anchored(at_ten(&source), &source, &[], None, far).unwrap_err();
+        assert!(err.to_string().contains("cap"), "{err}");
+        assert_eq!(source.requests.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn the_cap_is_inclusive_and_names_the_gap() {
+        assert!(check_gap(0, MAX_LINKED_GAP).is_ok());
+        assert!(check_gap(0, MAX_LINKED_GAP + 1).is_err());
+        assert!(
+            check_gap(100, 50).is_ok(),
+            "a trusted block below the start saturates to 0"
+        );
     }
 
     #[test]

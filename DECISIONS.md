@@ -661,3 +661,32 @@ otherwise (an anchor nothing uses is refused, not ignored). Staleness is decided
 the live follower (`follow_loop`) is unchanged and still uses the genesis committee as fallback
 for chains without staking. Not done: chains without staking state (the guard does not apply),
 and a node that goes stale while running.
+
+### B49 review round (2026-11-02, after the security and Rust reviews of #324)
+
+Superseded in part by the entry above:
+
+- Start-up runs with or without `--catch-up-from` (`rejoin::anchor`). A stale node with no
+  trusted block is refused in both cases.
+- A trusted block at or below the local tip must be this node's block at that height
+  (`check_against_tip`). A trusted block above the tip is checked as it is reached.
+- A stale node must reach its trusted block in the start-up (`require_reached`). If no source
+  answered, or none served a chain through it, the node does not start.
+- A trusted block must be RECENT: for an `Epochs` stale reason, its epoch must be within the
+  window of the claimed head (`is_recent`). Epoch of a height is `height / epoch_blocks`, since
+  the staking epoch ends at each multiple of `epoch_blocks` (`staking_exec.rs`).
+- The claimed epoch is UNVERIFIED. It only tightens the guard: a hostile source can force the
+  requirement (fail-safe), never lift it. If every source is hostile, only the time trigger
+  remains.
+- A tip later than the clock, beyond `CLOCK_SKEW_SECS` (120 s), is stale (`FutureTip`). A clock
+  that cannot be read is `u64::MAX`, which makes every tip stale (`clock_now`).
+- A running follower re-checks staleness each round (time trigger). Stale with nothing pending
+  stops the follower, and the node exits. Certificate replay (rescue) is requested only once the
+  trusted block is held.
+- Linking across more than `MAX_LINKED_GAP` = 50,000 blocks is refused before any request
+  (`catchup::check_gap`). The cap counts blocks; bytes are not bounded (shortcut recorded there).
+- Probes use `RpcBootstrapSource::probe_checkpoint`: one attempt, `PROBE_TIMEOUT` = 10 s, no retry
+  deadline. Probe failures are printed, not dropped.
+- Windows (`7 x epoch_blocks x 15 s`): testnet 105 h, Oracle VM and devnet 35 min, attacknet
+  1.75 h. Mainnet `epoch_blocks` is not in this repo. Operational consequences are in
+  `docs/runbooks/hybrid-testnet-hardening.md` section 4.
