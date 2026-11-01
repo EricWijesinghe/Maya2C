@@ -761,5 +761,5 @@ peak is about 512 MiB + 640 MiB, roughly 1.2 GiB. This is recorded in `catchup.r
 - **A `--trusted-block` at or below this node's own tip does not lift the unconfirmed
   refusal.** It would give a catch-up of nothing. Only a block above the tip gives the
   hash-linked path.
-- The stale sentence "only the start-up time trigger remains" is removed from `DECISIONS.md`
-  (grep confirms no match).
+- The earlier sentence claiming that a fully hostile source set leaves only the time trigger
+  is removed from `DECISIONS.md`. The trust model above replaces it.
