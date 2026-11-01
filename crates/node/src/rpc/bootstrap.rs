@@ -229,6 +229,36 @@ impl RpcBootstrapSource {
             .map_err(|e| NodeError::Network(format!("get_tip_height: {e}")))
     }
 
+    /// The peer's newest checkpoint in one attempt, bounded by
+    /// [`PROBE_TIMEOUT`]. Unlike [`Self::call`] it does not retry: the start-up
+    /// rejoin guard asks every source, and one that hangs must not hold the
+    /// node for the whole retry deadline.
+    ///
+    /// # Errors
+    ///
+    /// [`NodeError::Network`] if the peer does not answer in time or with an error.
+    pub fn probe_checkpoint(&self) -> Result<Option<crate::consensus::bft::attest::Checkpoint>> {
+        let answer = self.runtime.block_on(async {
+            tokio::time::timeout(
+                PROBE_TIMEOUT,
+                self.client
+                    .request::<Option<crate::rpc::types::CheckpointInfo>, _>(
+                        "get_checkpoint",
+                        rpc_params![],
+                    ),
+            )
+            .await
+        });
+        let info = answer
+            .map_err(|_| {
+                NodeError::Network(format!(
+                    "get_checkpoint: no answer within {PROBE_TIMEOUT:?}"
+                ))
+            })?
+            .map_err(|e| NodeError::Network(format!("get_checkpoint: {e}")))?;
+        info.map(|i| i.checkpoint()).transpose()
+    }
+
     /// One request, retried with backoff when the transport fails: a public
     /// bootstrap endpoint rate-limits per client (HTTP 429), and a joining
     /// node that gave up on the first refusal would have to start over. A
@@ -270,6 +300,10 @@ const RETRY_ATTEMPTS: u32 = 10;
 /// However many attempts remain, a request is given up after this long, so a
 /// peer that answers each request slowly cannot hold one for ten timeouts.
 const RETRY_DEADLINE: std::time::Duration = std::time::Duration::from_secs(180);
+/// One probe of a source for the rejoin guard (B49). Long enough for a loaded
+/// public endpoint, short enough that a start-up with several dead sources
+/// waits about a minute, not one retry deadline per source.
+pub const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 const RETRY_FIRST_WAIT: std::time::Duration = std::time::Duration::from_millis(500);
 const RETRY_MAX_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
 

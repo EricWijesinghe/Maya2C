@@ -46,10 +46,36 @@ When a peer restores from a snapshot, give it `--trusted-block HEIGHT:ID` from t
 paths that are not the bootstrap source, at or above the snapshot height. Without
 it the source alone decides which chain the node starts on.
 
-The same flag guards a rejoin (B49): a node offline longer than the unbonding window
-refuses `--catch-up-from` unless it is given `--trusted-block`, because validators that
-unbonded can sign a forged chain. Take the block from the explorer or a peer you trust,
-above the node's tip.
+The same flag guards a rejoin (B49). A node whose tip is older than the unbonding window
+(or whose state is more than `unbonding_epochs` epochs behind the claimed head) refuses to
+start without `--trusted-block`, because validators that unbonded can sign a forged chain.
+The block must be **recent**: within the unbonding window of the network's head, and above
+the node's tip. Take it from the explorer or from two peers you trust, never from the peer
+you are rejoining through alone.
+
+Windows, computed as `unbonding_epochs (7) x epoch_blocks x 15 s`:
+
+| Network (source of `epoch_blocks`) | `epoch_blocks` | Window |
+|---|---|---|
+| testnet (`docs/site/public/testnet/genesis.json`) | 3,600 | 105 h (4.4 days) |
+| Oracle VM testnet (`infra/testnet-vm/install.sh`) | 20 | 35 min |
+| localnet / devnet (`xtask/src/localnet.rs`) | 20 | 35 min |
+| attacknet (`xtask/src/attacknet.rs`) | 60 | 1.75 h |
+| mainnet | not in this repo; read it from the genesis file | - |
+
+Short windows mean a node restarted after a 35-minute outage on the Oracle VM testnet or a
+devnet is refused until it is given a trusted block. That is intended. Restart scripts that
+pass `--catch-up-from` without `--trusted-block` (`infra/hybrid-testnet/start-pc-validators.ps1`,
+`infra/testnet-vm/join-validator.ps1`, `scripts/join-testnet.sh`, `scripts/dr-drill.ps1`)
+will be refused after the window. Pass the trusted block to them before the next
+restart after a long outage.
+
+A brand-new node started from a fresh genesis is not refused while the genesis block is
+inside the window. A genesis older than the window (a chain that has been running longer
+than that) is refused like any stale node, and needs a trusted block.
+
+A node stale while it runs stops its follower, and the node exits so a restart can supply
+the block. A chain that halts for longer than the window does this to every node.
 
 ## 5. What this does not fix
 Stake concentration (a design decision: a validator above 1/3 of stake is a

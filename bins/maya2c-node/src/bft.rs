@@ -25,7 +25,10 @@ use maya_dag_bft::Params;
 use tokio::sync::broadcast::error::RecvError;
 use zeroize::Zeroizing;
 
+use custom_l1_node::state_pruner::snapshot::TrustedBlock;
+
 use super::lock_chain;
+use super::rejoin;
 
 /// Engine tick: re-broadcasts and anchor timeouts. Well under the anchor
 /// timeout, so a timeout fires within a tenth of its length of being due.
@@ -537,9 +540,13 @@ pub(super) async fn follow_loop(
     genesis_committee: Arc<[VerifyingKey]>,
     status: Arc<Mutex<custom_l1_node::rpc::types::BftStatus>>,
     rescue: tokio::sync::mpsc::Sender<String>,
+    trusted: Option<TrustedBlock>,
 ) {
     let mut ticker = tokio::time::interval(FOLLOW_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // Until the trusted block is held, certificate replay (which ignores it) is
+    // not requested, and the round is anchored to it (B49).
+    let mut reached = trusted.is_none();
     let mut last_error: Option<String> = None;
     // The already-held count last reported, so a batch that keeps finding the
     // same held blocks is said once, not on every poll.
@@ -570,7 +577,26 @@ pub(super) async fn follow_loop(
         // against its own epoch's committee.
         // Text, not the boxed error: the error is not `Send`, and the stuck
         // branch awaits a probe.
-        let round = catch_up_once(&url, &chain, (&genesis_committee, None), Anchor::Unanchored)
+        // Staleness is re-checked every round (B49). The guard is decided
+        // under the lock and converted to text before the await: the boxed
+        // error is not `Send`. A stale follower with no trusted block left to
+        // reach stops here, and the node exits so it is restarted with one.
+        let decided: Result<Anchor, String> = {
+            let c = lock_chain(&chain);
+            rejoin::track_trusted(&c, trusted, reached).and_then(|now_reached| {
+                reached = now_reached;
+                rejoin::round_anchor(&c, if reached { None } else { trusted })
+                    .map_err(|e| e.to_string())
+            })
+        };
+        let anchor = match decided {
+            Ok(anchor) => anchor,
+            Err(e) => {
+                eprintln!("rejoin: this follower stops: {e}");
+                return;
+            }
+        };
+        let round = catch_up_once(&url, &chain, (&genesis_committee, None), anchor)
             .await
             .map_err(|e| e.to_string());
         match &round {
@@ -606,7 +632,11 @@ pub(super) async fn follow_loop(
                             );
                             patience = (patience * 2).min(STUCK_ROUNDS_MAX);
                             // Full means a replay is already queued.
-                            let _ = rescue.try_send(url.clone());
+                            // Not while the trusted block is still pending: a
+                            // replay would verify against the committee alone.
+                            if reached {
+                                let _ = rescue.try_send(url.clone());
+                            }
                         }
                     }
                     _ => stuck = 0,
