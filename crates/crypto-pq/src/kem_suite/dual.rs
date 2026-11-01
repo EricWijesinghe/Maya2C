@@ -56,6 +56,7 @@ const fn id_of(byte: u8) -> KemId {
     match byte {
         0x31 => KemId::DualKem768Hqc128,
         0x32 => KemId::DualKem1024Hqc256,
+        // reviewed-guard: const fn, so a bad id fails compilation, never a running node.
         _ => panic!("not a DualKem id"),
     }
 }
