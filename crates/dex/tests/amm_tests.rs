@@ -360,8 +360,10 @@ fn a_redemption_too_small_to_return_anything_is_refused() {
         result,
         Err(DexError::ZeroOutput) | Ok(_) // a large enough pool may still pay
     ));
+    // One side may round to zero (an LP with a dust side must still exit),
+    // but never both.
     if let Ok(delta) = result {
-        assert!(!delta.base.is_zero() && !delta.quote.is_zero());
+        assert!(!delta.base.is_zero() || !delta.quote.is_zero());
     }
 }
 

@@ -496,7 +496,9 @@ impl Pool {
     /// - [`DexError::InsufficientShares`] if `shares` exceeds what is
     ///   redeemable — the supply less the permanently locked minimum.
     /// - [`DexError::ZeroOutput`] if the redemption would round to nothing on
-    ///   either side, which would burn shares for no assets.
+    ///   both sides, which would burn shares for no assets. One side rounding
+    ///   to zero is allowed: refusing it stranded an LP's whole position in a
+    ///   pool with a dust side (2026-11-01 review of #289).
     pub fn remove_liquidity(&self, shares: Amount) -> Result<LiquidityDelta> {
         if shares.is_zero() {
             return Err(DexError::ZeroAmount);
@@ -520,7 +522,7 @@ impl Pool {
         let quote = mul_div_floor(self.reserve_quote, shares, self.total_shares)
             .ok_or(DexError::Overflow)?;
 
-        if base.is_zero() || quote.is_zero() {
+        if base.is_zero() && quote.is_zero() {
             return Err(DexError::ZeroOutput);
         }
 
