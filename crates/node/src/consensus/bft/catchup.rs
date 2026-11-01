@@ -14,6 +14,7 @@ use crate::consensus::{Chain, InsertOutcome};
 use crate::core::{Block, ChainTag};
 use crate::crypto::validator_keys::VerifyingKey;
 use crate::error::{NodeError, Result};
+use crate::state_pruner::snapshot::TrustedBlock;
 
 use super::attest::Checkpoint;
 
@@ -189,7 +190,31 @@ pub fn fetch(
         core::cmp::Ordering::Less => return Ok(Vec::new()),
     };
     checkpoint.verify(&from.tag, committee, weights)?;
-    if checkpoint.height <= from.height {
+    fetch_linked(
+        from,
+        checkpoint.height,
+        checkpoint.block,
+        source,
+        "attested",
+    )
+}
+
+/// Fetches the blocks after `from` up to height `to_height`, checked to form
+/// one hash chain from `from.tip` to the block `to_id` there. Empty when
+/// `to_height` is not past `from`. `what` names the block in the error.
+///
+/// # Errors
+///
+/// [`NodeError::Decode`] for blocks that do not chain to `to_id`; errors from
+/// `source` as they come.
+fn fetch_linked(
+    from: Position,
+    to_height: u64,
+    to_id: [u8; 32],
+    source: &impl CheckpointSource,
+    what: &str,
+) -> Result<Vec<Block>> {
+    if to_height <= from.height {
         return Ok(Vec::new());
     }
     let mut parent = from.tip;
@@ -198,7 +223,7 @@ pub fn fetch(
     // Fetched in chunks with several requests in flight, linked strictly in
     // order: a source that answers out of order or lies gains nothing.
     let first = from.height + 1;
-    let last = checkpoint.height;
+    let last = to_height;
     let chunks = (last - first) / BLOCKS_PER_REQUEST + 1;
     let range = |i: u64| {
         let lo = first + i * BLOCKS_PER_REQUEST;
@@ -233,12 +258,81 @@ pub fn fetch(
             blocks.push(block);
         }
     }
-    if parent != checkpoint.block {
-        return Err(NodeError::Decode(
-            "catch-up: the blocks do not lead to the attested block".to_string(),
-        ));
+    if parent != to_id {
+        return Err(NodeError::Decode(format!(
+            "catch-up: the blocks do not lead to the {what} block at height {to_height}"
+        )));
     }
     Ok(blocks)
+}
+
+/// How a catch-up batch is checked against a trusted block. Node policy, not
+/// a consensus rule: block validity and state roots are the same under every
+/// variant.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Anchor {
+    /// The committee the node already trusts decides, as before.
+    Unanchored,
+    /// Ordinary catch-up: a batch that reaches the trusted height must carry
+    /// the trusted id there.
+    Checked(TrustedBlock),
+    /// A node stale past the unbonding window. Its committee may have
+    /// unbonded and be forging a chain, so the gap below the trusted block is
+    /// linked to it by hash alone; the committee rule resumes above it.
+    Stale(TrustedBlock),
+}
+
+/// The next batch for `from` under `anchor`, as [`fetch`] would return it,
+/// except where the anchor says otherwise.
+///
+/// # Errors
+///
+/// As [`fetch`], and [`NodeError::Decode`] when the blocks do not match the
+/// trusted block (nothing is returned, so nothing is imported).
+pub fn fetch_anchored(
+    from: Position,
+    source: &impl CheckpointSource,
+    committee: &[VerifyingKey],
+    weights: Option<&[u64]>,
+    anchor: Anchor,
+) -> Result<Vec<Block>> {
+    match anchor {
+        Anchor::Unanchored => fetch(from, source, committee, weights),
+        Anchor::Checked(trusted) => {
+            let blocks = fetch(from, source, committee, weights)?;
+            check_trusted(from, &blocks, trusted)?;
+            Ok(blocks)
+        }
+        Anchor::Stale(trusted) if from.height < trusted.height => {
+            fetch_linked(from, trusted.height, trusted.id, source, "trusted")
+        }
+        // Past the trusted block the blocks just linked have written the
+        // current committee into state, so the committee rule applies again.
+        Anchor::Stale(_) => fetch(from, source, committee, weights),
+    }
+}
+
+/// Checks the block `blocks` carry at `trusted.height`, if they reach it.
+/// A batch that stops short checks nothing; the batch that reaches the height
+/// does.
+///
+/// # Errors
+///
+/// [`NodeError::Decode`] when the block at that height is not `trusted.id`.
+pub fn check_trusted(from: Position, blocks: &[Block], trusted: TrustedBlock) -> Result<()> {
+    let Some(index) = trusted.height.checked_sub(from.height + 1) else {
+        return Ok(());
+    };
+    let Some(block) = usize::try_from(index).ok().and_then(|i| blocks.get(i)) else {
+        return Ok(());
+    };
+    if block.header.id() == trusted.id {
+        return Ok(());
+    }
+    Err(NodeError::Decode(format!(
+        "catch-up: the block at height {} is not the trusted block: the peer serves another chain; importing nothing",
+        trusted.height
+    )))
 }
 
 /// What [`import`] did with a batch.
@@ -472,6 +566,82 @@ mod tests {
             batches,
         };
         (source, committee)
+    }
+
+    /// Node at height 10 on the chain of `chained`, its tip the real block 10.
+    fn at_ten(source: &Chained) -> Position {
+        Position {
+            tip: source.blocks[9].header.id(),
+            ..at(10, 1)
+        }
+    }
+
+    fn trusted_at(source: &Chained, height: u64) -> TrustedBlock {
+        let block = &source.blocks[usize::try_from(height - 1).unwrap()];
+        TrustedBlock {
+            height,
+            id: block.header.id(),
+        }
+    }
+
+    #[test]
+    fn a_stale_node_links_its_gap_to_the_trusted_block_without_a_committee() {
+        // Why: the committee here signs nothing the source holds, so a
+        // committee check would refuse. Passing shows the gap is linked by
+        // hash to the trusted block alone (the stale-node rule).
+        let (source, _) = chained(40, true);
+        let got = fetch_anchored(
+            at_ten(&source),
+            &source,
+            &[],
+            None,
+            Anchor::Stale(trusted_at(&source, 25)),
+        )
+        .unwrap();
+        assert_eq!(got.len(), 15);
+        assert_eq!(got.last().unwrap().header.id(), trusted_at(&source, 25).id);
+    }
+
+    #[test]
+    fn a_chain_that_is_not_the_trusted_one_stops_the_catch_up_with_nothing_returned() {
+        // Why: a long-range forger can serve a chain of its own. Its blocks
+        // cannot hash to the trusted id, so the batch must be refused whole.
+        let (source, committee) = chained(40, true);
+        let wrong = TrustedBlock {
+            height: 25,
+            id: [0xEE; 32],
+        };
+        for anchor in [Anchor::Stale(wrong), Anchor::Checked(wrong)] {
+            let err =
+                fetch_anchored(at_ten(&source), &source, &committee, None, anchor).unwrap_err();
+            assert!(
+                matches!(&err, NodeError::Decode(m) if m.contains("trusted")),
+                "{anchor:?}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_ordinary_batch_that_reaches_the_trusted_block_must_carry_its_id() {
+        let (source, committee) = chained(40, true);
+        let right = Anchor::Checked(trusted_at(&source, 25));
+        let got = fetch_anchored(at_ten(&source), &source, &committee, None, right).unwrap();
+        assert_eq!(got.len(), 30);
+        // A batch stopping short of the trusted height checks nothing.
+        let short = Anchor::Checked(TrustedBlock {
+            height: 45,
+            id: [0xEE; 32],
+        });
+        assert!(fetch_anchored(at_ten(&source), &source, &committee, None, short).is_ok());
+    }
+
+    #[test]
+    fn a_stale_node_past_its_trusted_block_follows_the_committee_again() {
+        // Past the anchor the normal rule applies, so the same empty committee
+        // now fails the quorum check.
+        let (source, _) = chained(40, true);
+        let past = Anchor::Stale(trusted_at(&source, 5));
+        assert!(fetch_anchored(at_ten(&source), &source, &[], None, past).is_err());
     }
 
     #[test]

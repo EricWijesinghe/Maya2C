@@ -128,6 +128,7 @@ how mainnet will work.
 | `--print-config-template` | Prints the default template |
 | `--min-register-bond <N>` | Never propose a registration bonding less than N (ADR-039) |
 | `--catch-up-from <URL>` | Rejoin through a peer's attested checkpoint (ADR-038); repeatable |
+| `--trusted-block HEIGHT:HEX` | With `--catch-up-from`: the catch-up must pass through this block. Required when the node's state is more than `unbonding_epochs` epochs (or one unbonding window of time) behind; without it a stale node refuses to catch up (B49) |
 | `--snapshot-interval <N>` | Snapshot every N blocks; validators default to 3,600, 0 turns it off |
 | `--remote-signer <ADDR>` | Sign through `maya2c-signer` instead of a key file (ADR-033) |
 
