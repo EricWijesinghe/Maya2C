@@ -152,7 +152,7 @@ impl Miner {
     ///
     /// Already running, a bad setting, a failed check, or a binary that will not start.
     pub fn start(&self, config: &MinerConfig, install: &Path, data: &Path) -> Result<(), String> {
-        crate::node::check_url(&config.rpc)?;
+        let rpc = crate::node::check_url(&config.rpc)?;
         let pinned = miner_guard::check_miner(&config.binary, install, PINNED_SUMS)
             .map_err(|e| e.to_string())?;
         let key_file = miner_guard::resolve_key_file(&config.key_file, data)
@@ -163,7 +163,7 @@ impl Miner {
             return Err("the miner is already running".into());
         }
         let mut child = Command::new(&pinned.path)
-            .args(["--mine", "--json", "--rpc", &config.rpc, "--threads"])
+            .args(["--mine", "--json", "--rpc", rpc, "--threads"])
             .arg(threads.to_string())
             .arg("--key-file")
             .arg(&key_file)

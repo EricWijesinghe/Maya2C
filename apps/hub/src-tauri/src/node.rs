@@ -31,8 +31,9 @@ pub struct Snapshot {
 ///
 /// # Errors
 ///
-/// A URL that is not https, or is plain http to a public address.
-pub fn check_url(url: &str) -> Result<(), String> {
+/// A URL that is not https, or is plain http to a public address. Returns the
+/// trimmed URL: callers must use this value, not the untrimmed input.
+pub fn check_url(url: &str) -> Result<&str, String> {
     let url = url.trim();
     if url.len() >= 512 {
         return Err("the node URL is too long".into());
@@ -40,9 +41,12 @@ pub fn check_url(url: &str) -> Result<(), String> {
     let Some((scheme, host)) = split_url(url) else {
         return Err("the node URL must start with https://, or http:// for a local address".into());
     };
+    if is_metadata_host(&host) {
+        return Err("the node URL may not be a cloud metadata address".into());
+    }
     match scheme.as_str() {
-        "https" => Ok(()),
-        "http" if is_local_host(&host) => Ok(()),
+        "https" => Ok(url),
+        "http" if is_local_host(&host) => Ok(url),
         "http" => Err("plain http is only allowed to localhost or a private address; use https".into()),
         _ => Err("the node URL must start with https://, or http:// for a local address".into()),
     }
@@ -64,6 +68,18 @@ fn split_url(url: &str) -> Option<(String, String)> {
         return None;
     }
     Some((scheme.to_ascii_lowercase(), host.to_ascii_lowercase()))
+}
+
+/// Cloud instance-metadata endpoints, refused for every scheme. Twin of
+/// `is_metadata_host` in the wallet core.
+fn is_metadata_host(host: &str) -> bool {
+    const V4: std::net::Ipv4Addr = std::net::Ipv4Addr::new(169, 254, 169, 254);
+    const V6: std::net::Ipv6Addr = std::net::Ipv6Addr::new(0xfd00, 0xec2, 0, 0, 0, 0, 0, 0x254);
+    match host.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(ip)) => ip == V4,
+        Ok(std::net::IpAddr::V6(ip)) => ip == V6 || ip.to_ipv4_mapped() == Some(V4),
+        Err(_) => false,
+    }
 }
 
 fn is_local_host(host: &str) -> bool {
@@ -90,8 +106,10 @@ pub fn valid_address(address: &str) -> bool {
 }
 
 fn call(url: &str, method: &str, params: Value) -> Result<Value, String> {
+    // No redirects: a node URL that answers 3xx must not move the call elsewhere.
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(TIMEOUT))
+        .max_redirects(0)
         .build()
         .into();
     let body = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
@@ -155,6 +173,19 @@ mod tests {
         assert!(check_url("http://127.0.0.1.example/rpc").is_err());
         assert!(check_url("http://127.0.0.1.evil.example/rpc").is_err());
         assert!(check_url("https://8.8.8.8/rpc").is_ok());
+    }
+
+    #[test]
+    fn cloud_metadata_addresses_are_refused_for_every_scheme() {
+        assert!(check_url("http://169.254.169.254/latest/meta-data").is_err());
+        assert!(check_url("https://169.254.169.254/").is_err());
+        assert!(check_url("http://[fd00:ec2::254]/").is_err());
+        assert!(check_url("http://[::ffff:169.254.169.254]/").is_err());
+    }
+
+    #[test]
+    fn the_checked_url_is_the_trimmed_one() {
+        assert_eq!(check_url("  https://rpc.maya2c.dev/rpc  "), Ok("https://rpc.maya2c.dev/rpc"));
     }
 
     #[test]
