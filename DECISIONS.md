@@ -637,3 +637,10 @@ The three P0 rows judged guards on 2026-09-28 now carry a `reviewed-guard:` comm
 register so the call can still be disputed. Kani proof modules (`#[cfg(kani)] mod x;`) are
 treated as test code: `fee-market/src/proofs.rs:129` was counted as a P0 though it is in no
 binary. Register now: 0 P0, 0 P1, 31 P2, 3 reviewed guards.
+
+## 2026-11-02 — No second long soak; test networks run one day at most
+
+Eric: the 7-day validator soak is finished, and there will be no second 7-day
+run. A proving run or temporary testnet lasts at most 24 hours. `cargo xtask
+proving` now defaults to 24 h, the post-proving checklist says 24 h, and the
+re-freeze's proving restart uses it.
