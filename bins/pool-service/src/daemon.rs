@@ -92,6 +92,13 @@ const MAX_CONCURRENT_HANDSHAKES: usize = 256;
 /// the pool rather than sitting reserved.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 
+/// Longest a frame's payload may take to arrive once its header has.
+///
+/// `IDLE_TIMEOUT` covers waiting for a frame to start. Without this, a peer
+/// that sends a valid header and then stops would hold its connection for the
+/// full idle window.
+const FRAME_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// Queues a reply, waiting at most `timeout` for room. `false` means the queue
 /// stayed full or its writer is gone, and the connection should close.
 async fn enqueue(outbound: &mpsc::Sender<Message>, message: Message, timeout: Duration) -> bool {
@@ -111,7 +118,8 @@ const MAX_CONNECTIONS: usize = 50_000;
 ///
 /// NAT and mining farms put many rigs behind one address, so this is set well
 /// above what one site needs; a low cap would refuse honest miners.
-/// shortcut: keyed by full IP address, so an IPv6 attacker can rotate within a /64; upgrade to a prefix key when that is seen
+// shortcut: keyed by full IP address, so an IPv6 attacker can rotate within a /64;
+// upgrade to a prefix key when that is seen.
 const MAX_CONNECTIONS_PER_IP: usize = 64;
 
 /// Shortest gap between two lines reporting refused connections.
@@ -546,6 +554,15 @@ async fn write_frames<W: futures::io::AsyncWrite + Unpin>(
 
 /// Reads one SV2 frame, or `None` at a clean end of stream.
 async fn read_frame<R: futures::AsyncRead + Unpin>(reader: &mut R) -> Result<Option<Frame>> {
+    read_frame_within(reader, FRAME_TIMEOUT).await
+}
+
+/// [`read_frame`] with the payload deadline as a parameter, so a stall can be
+/// tested without waiting out [`FRAME_TIMEOUT`].
+async fn read_frame_within<R: futures::AsyncRead + Unpin>(
+    reader: &mut R,
+    payload_timeout: Duration,
+) -> Result<Option<Frame>> {
     let mut header_bytes = [0u8; maya_stratum_v2::frame::FRAME_HEADER_LEN];
     match reader.read_exact(&mut header_bytes).await {
         Ok(()) => {}
@@ -570,11 +587,20 @@ async fn read_frame<R: futures::AsyncRead + Unpin>(reader: &mut R) -> Result<Opt
         ));
     }
 
-    let mut payload = vec![0u8; header.msg_length as usize];
-    reader
-        .read_exact(&mut payload)
+    // Grows as bytes arrive instead of reserving the declared length up front: a
+    // header alone should not pin up to 64 KiB per connection.
+    let len = header.msg_length as usize;
+    let mut payload = Vec::new();
+    let mut limited = AsyncReadExt::take(&mut *reader, len as u64);
+    let read = tokio::time::timeout(payload_timeout, limited.read_to_end(&mut payload))
         .await
+        .map_err(|_| PoolError::Server("a frame's payload stalled past its deadline".to_string()))?
         .map_err(|error| PoolError::Server(format!("reading a frame payload: {error}")))?;
+    if read != len {
+        return Err(PoolError::Server(format!(
+            "connection closed inside a frame: {read} of {len} payload bytes"
+        )));
+    }
 
     let mut whole = header_bytes.to_vec();
     whole.extend_from_slice(&payload);
@@ -935,6 +961,48 @@ mod tests {
         let empty: &[u8] = &[];
         let mut reader = futures::io::Cursor::new(empty);
         assert!(read_frame(&mut reader).await.unwrap().is_none());
+    }
+
+    /// Yields its prefix, then never another byte: a peer that sent a header and stopped.
+    struct StalledAfter {
+        prefix: futures::io::Cursor<Vec<u8>>,
+    }
+
+    impl futures::AsyncRead for StalledAfter {
+        fn poll_read(
+            self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+            buf: &mut [u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            let this = self.get_mut();
+            match futures::AsyncRead::poll_read(std::pin::Pin::new(&mut this.prefix), cx, buf) {
+                std::task::Poll::Ready(Ok(0)) => std::task::Poll::Pending,
+                other => other,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_payload_that_stalls_after_its_header_is_abandoned_at_the_deadline() {
+        // The header promises 100 bytes and then nothing: the connection must not
+        // wait out the idle timeout, nor reserve the 100 bytes it never received.
+        let mut header = [0u8; maya_stratum_v2::frame::FRAME_HEADER_LEN];
+        header[0..2].copy_from_slice(&maya_stratum_v2::MAYA_EXTENSION_TYPE.to_le_bytes());
+        header[2] = 0x1a;
+        header[3..6].copy_from_slice(&[100, 0, 0]);
+
+        let mut reader = StalledAfter {
+            prefix: futures::io::Cursor::new(header.to_vec()),
+        };
+        let outcome = tokio::time::timeout(
+            Duration::from_secs(5),
+            read_frame_within(&mut reader, Duration::from_millis(20)),
+        )
+        .await;
+        assert!(
+            matches!(outcome, Ok(Err(_))),
+            "a stalled payload was not abandoned at its deadline"
+        );
     }
 
     #[tokio::test]
