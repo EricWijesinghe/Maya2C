@@ -173,19 +173,81 @@ where
     P::DecapsulationKey: Send,
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    let (decapsulation_key, encoded) = P::generate().map_err(kem_error)?;
-    write_all(stream, &frame(&encoded)).await?;
+    let pending = begin_respond_with::<P>()?;
+    write_all(stream, &pending.first_message()).await?;
 
     let mut inbound = vec![0u8; 1 + P::CIPHERTEXT_LEN];
     read_exact(stream, &mut inbound).await?;
-    check_version(inbound[0])?;
-    let ciphertext = &inbound[1..];
+    pending.finish(&inbound)
+}
 
-    // No error branch: see the module docs on implicit rejection. A forged
-    // ciphertext yields a different secret here, not a failure, and the
-    // mismatch surfaces when the first frame fails to authenticate.
-    let secret = P::decapsulate(&decapsulation_key, ciphertext).map_err(kem_error)?;
-    Ok(derive::<P>(secret.as_bytes(), &encoded, ciphertext))
+/// Starts the ML-KEM-768 responder half: generates the key, without touching the wire.
+///
+/// The split exists so a caller can hold a scarce resource (a CPU budget) only
+/// around the two synchronous steps, and not while waiting on the peer. The
+/// responder sends its key before the initiator sends anything, so the wait for
+/// the initiator's message is a network wait and must not hold that resource.
+///
+/// # Errors
+///
+/// Returns [`NodeError::PqHandshake`] if key generation fails for lack of entropy.
+pub fn begin_respond() -> Result<PendingResponder<MlKem768>, NodeError> {
+    begin_respond_with::<MlKem768>()
+}
+
+/// [`begin_respond`] under parameter set `P`.
+///
+/// # Errors
+///
+/// As [`begin_respond`].
+pub fn begin_respond_with<P: ParameterSet>() -> Result<PendingResponder<P>, NodeError> {
+    let (decapsulation_key, encoded) = P::generate().map_err(kem_error)?;
+    Ok(PendingResponder {
+        decapsulation_key,
+        encoded,
+    })
+}
+
+/// A responder that has generated its key and is waiting for the initiator.
+///
+/// Dropping it wipes the decapsulation key, so an abandoned handshake leaves no
+/// key material behind.
+pub struct PendingResponder<P: ParameterSet> {
+    decapsulation_key: P::DecapsulationKey,
+    encoded: Vec<u8>,
+}
+
+impl<P: ParameterSet> PendingResponder<P> {
+    /// The responder's first message: the version byte and the encapsulation key.
+    #[must_use]
+    pub fn first_message(&self) -> Vec<u8> {
+        frame(&self.encoded)
+    }
+
+    /// Completes the handshake from the initiator's message, which is exactly
+    /// the version byte followed by the ciphertext.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::PqHandshake`] if the message has the wrong length
+    /// or an unsupported version.
+    pub fn finish(self, inbound: &[u8]) -> Result<SessionKeys, NodeError> {
+        let expected = 1 + P::CIPHERTEXT_LEN;
+        if inbound.len() != expected {
+            return Err(NodeError::PqHandshake(format!(
+                "initiator message is {} bytes, expected {expected}",
+                inbound.len()
+            )));
+        }
+        check_version(inbound[0])?;
+        let ciphertext = &inbound[1..];
+
+        // No error branch: see the module docs on implicit rejection. A forged
+        // ciphertext yields a different secret here, not a failure, and the
+        // mismatch surfaces when the first frame fails to authenticate.
+        let secret = P::decapsulate(&self.decapsulation_key, ciphertext).map_err(kem_error)?;
+        Ok(derive::<P>(secret.as_bytes(), &self.encoded, ciphertext))
+    }
 }
 
 /// Runs the initiator half under parameter set `P`.
@@ -317,6 +379,38 @@ mod tests {
     /// against each other without a socket.
     fn duplex() -> (futures_ringbuf::Endpoint, futures_ringbuf::Endpoint) {
         futures_ringbuf::Endpoint::pair(4096, 4096)
+    }
+
+    #[tokio::test]
+    async fn a_split_responder_derives_the_keys_an_initiator_expects() {
+        // The split is what the pool uses to hold its CPU budget only around the
+        // two synchronous steps. It must produce the same keys as `respond`.
+        let (mut a, mut b) = duplex();
+
+        let initiator = tokio::spawn(async move { initiate(&mut b).await });
+        let pending = begin_respond().expect("begin");
+        a.write_all(&pending.first_message())
+            .await
+            .expect("send key");
+        let mut inbound = vec![0u8; INITIATOR_MESSAGE_LEN];
+        a.read_exact(&mut inbound).await.expect("read ciphertext");
+        let responder = pending.finish(&inbound).expect("finish");
+
+        let initiator = initiator.await.expect("join").expect("initiate");
+        assert_eq!(
+            *initiator.initiator_to_responder,
+            *responder.initiator_to_responder
+        );
+        assert_eq!(
+            *initiator.responder_to_initiator,
+            *responder.responder_to_initiator
+        );
+    }
+
+    #[test]
+    fn a_wrong_length_initiator_message_is_refused_before_decapsulation() {
+        let pending = begin_respond().expect("begin");
+        assert!(pending.finish(&[VERSION; 3]).is_err());
     }
 
     #[tokio::test]
