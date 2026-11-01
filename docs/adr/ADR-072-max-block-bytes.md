@@ -134,10 +134,15 @@ moving this from Proposed to Accepted.
      the budget is raised.
    - Assumption: each honest author's transfers are at most `Q` (`B / n` = 1.875 MiB at `n` = 4 and
      0.075 MiB at `n` = 100, `B` = 7.5 MiB). A single honest payload larger than `Q` waits for
-     deficit to accumulate, so the first-turn bound does not cover it; it is still admitted in a later
-     turn while budget remains. A transaction of 4 MiB (`MAX_TX_BYTES`) would be such a payload.
-     This is a shortcut in the derivation, not in the rule: the guarantee is stated for standard-sized
-     transactions.
+     deficit to accumulate, so the first-turn bound does not cover it. Nothing is refused or dropped
+     for size. Proposers pack at most one quantum per vertex (`Params.max_batch_bytes` =
+     `decode_quantum(DECODE_BUDGET, n)`, `bins/maya2c-node/src/bft.rs` setup) and leave the rest in the
+     mempool for the next vertex. A payload larger than the quantum is sent alone
+     (`take_batch`, `dag-bft/src/validator.rs`), and receivers accept a lone payload up
+     to `LONE_PAYLOAD_BYTES`. Residual, stated plainly: under a junk flood from `f` authors, a single
+     transaction larger than the quantum can wait until the flood ends, because budget only shrinks
+     within a walk. Batches of small payloads never wait this way: each fits its author's quantum in
+     its first turn. The guarantee is therefore for payloads within the quantum.
    - Cost: decode work per block is at most `B` = 7.5 MiB, up from 5 MiB. Termination: a waiting
      author's deficit grows by `Q` per turn, so it admits a payload of length `L` within `⌈L / Q⌉`
      turns. For `L` ≤ `MAX_TX_BYTES` (4 MiB) and `n` = 100 that is at most 54 turns.
