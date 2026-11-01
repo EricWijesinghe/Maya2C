@@ -1,4 +1,6 @@
-﻿//! Block headers, blocks, and their proof-of-work binding.
+//! Block headers, blocks, and their proof-of-work binding.
+
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use crate::core::codec::ByteReader;
 use crate::core::transaction::{MAX_TX_BYTES, Transaction};
@@ -7,7 +9,149 @@ use crate::crypto::dag::hashimoto::hashimoto_light;
 use crate::crypto::dag::registry::CacheRegistry;
 use crate::crypto::pow::meets_target;
 use crate::error::{NodeError, Result};
+use crate::state::fees::MAX_BLOCK_BYTES;
 use crate::state::merkle::{PathStep, merkle_path, merkle_root};
+
+/// Wire bytes a block takes before its first transaction: the header and the
+/// transaction count, as [`Block::to_bytes`] writes them.
+const BLOCK_OVERHEAD: u64 = HEADER_LEN as u64 + 8;
+
+// A maximal transaction must fit a block alone (ADR-072), or it blocks the queue.
+const _: () = assert!(MAX_BLOCK_BYTES >= BLOCK_OVERHEAD + 8 + MAX_TX_BYTES as u64);
+
+/// Wire bytes one transaction of `encoded_len` bytes adds to a block: its
+/// length prefix and its encoding.
+#[must_use]
+pub fn transaction_wire_len(encoded_len: usize) -> u64 {
+    8u64.saturating_add(u64::try_from(encoded_len).unwrap_or(u64::MAX))
+}
+
+/// Wire bytes of a block whose transactions have the given encoded lengths.
+pub fn block_wire_len(encoded_lens: impl IntoIterator<Item = usize>) -> u64 {
+    encoded_lens.into_iter().fold(BLOCK_OVERHEAD, |sum, len| {
+        sum.saturating_add(transaction_wire_len(len))
+    })
+}
+
+/// Indices of the transactions first-fit admits from `encoded_lens`, in
+/// order, if every one of them executes. A transaction that does not fit the
+/// room left is passed over and the rest are still considered (ADR-072), so
+/// one large transaction cannot hold back the small ones behind it.
+#[must_use]
+pub fn first_fit(encoded_lens: &[usize], cap: u64) -> Vec<usize> {
+    let mut total = BLOCK_OVERHEAD;
+    let mut admitted = Vec::new();
+    for (index, len) in encoded_lens.iter().enumerate() {
+        let next = total.saturating_add(transaction_wire_len(*len));
+        if next <= cap {
+            total = next;
+            admitted.push(index);
+        }
+    }
+    admitted
+}
+
+/// How many leading transactions to verify ahead of the selection pass: the
+/// longest prefix whose encodings fit `cap`. Those are the transactions the
+/// pass is most likely to admit; the rest are verified when it reaches them.
+#[must_use]
+pub fn warmup_len(encoded_lens: impl IntoIterator<Item = usize>, cap: u64) -> usize {
+    let mut total = BLOCK_OVERHEAD;
+    let mut count = 0;
+    for len in encoded_lens {
+        total = total.saturating_add(transaction_wire_len(len));
+        if total > cap {
+            break;
+        }
+        count += 1;
+    }
+    count
+}
+
+/// How many of `payload_lens` the DAG-BFT builder decodes (CON-13): the
+/// longest prefix whose raw bytes fit `budget`. The walk stops at the first
+/// payload that would take the total over, rather than passing it over as
+/// first-fit does, so the bytes decoded per block are bounded by `budget`.
+#[must_use]
+pub fn decode_cut(payload_lens: impl IntoIterator<Item = usize>, budget: u64) -> usize {
+    let mut total = 0_u64;
+    let mut count = 0;
+    for len in payload_lens {
+        total = total.saturating_add(len as u64);
+        if total > budget {
+            break;
+        }
+        count += 1;
+    }
+    count
+}
+
+/// CON-13 fair share: which payloads the DAG-BFT builder decodes, as indices into
+/// `entries` in commit order. `entries` are `(author, length, key)`; `key` is
+/// what identifies a payload's bytes, so a repeat has the same key. Deficit
+/// round-robin over authors in ascending index: each turn adds the quantum
+/// `budget / committee_size` to every author still waiting, and an author admits
+/// from the front of its queue while the next payload fits its deficit and the
+/// budget left. An author finishes when its queue is empty or its next payload
+/// is larger than the budget left, so an admitted set is always a prefix of the
+/// author's queue. Returns the admitted indices and the bytes charged.
+///
+/// The committee size, not the number of active authors, sets the quantum: an
+/// honest author's first-turn credit is then at least `budget / committee_size`
+/// whatever the others do (ADR-072, "Fair share").
+#[must_use]
+pub fn decode_plan<K: Ord + Copy>(
+    entries: &[(u16, usize, K)],
+    committee_size: usize,
+    budget: u64,
+) -> (Vec<usize>, u64) {
+    let mut queues: BTreeMap<u16, VecDeque<usize>> = BTreeMap::new();
+    for (index, (author, _, _)) in entries.iter().enumerate() {
+        queues.entry(*author).or_default().push_back(index);
+    }
+    let quantum = (budget / committee_size.max(1) as u64).max(1);
+    let mut deficit: BTreeMap<u16, u64> = BTreeMap::new();
+    let mut remaining = budget;
+    let mut seen: BTreeSet<K> = BTreeSet::new();
+    let mut admitted: Vec<usize> = Vec::new();
+    while !queues.is_empty() {
+        let mut finished = Vec::new();
+        for (author, queue) in &mut queues {
+            let d = deficit.entry(*author).or_insert(0);
+            *d = d.saturating_add(quantum);
+            loop {
+                let Some(&index) = queue.front() else {
+                    finished.push(*author);
+                    break;
+                };
+                let (_, len, key) = entries[index];
+                if seen.contains(&key) {
+                    // A repeat costs nothing and is never decoded.
+                    queue.pop_front();
+                    continue;
+                }
+                let len = len as u64;
+                if len > remaining {
+                    finished.push(*author);
+                    break;
+                }
+                if len > *d {
+                    break;
+                }
+                *d -= len;
+                remaining -= len;
+                seen.insert(key);
+                admitted.push(index);
+                queue.pop_front();
+            }
+        }
+        for author in finished {
+            queues.remove(&author);
+        }
+    }
+    admitted.sort_unstable();
+    (admitted, budget - remaining)
+}
 
 /// Domain separator for the seed a DAG hash is searched against.
 const POW_SEED_CONTEXT: &str = "custom-l1-node 2026-08-31 dag pow seed v1";
@@ -319,6 +463,22 @@ impl Block {
         Ok(())
     }
 
+    /// Refuses a block whose wire form is over [`MAX_BLOCK_BYTES`] (ADR-072).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::BlockTooLarge`] if it is.
+    pub fn check_size(&self) -> Result<()> {
+        let bytes = block_wire_len(self.transactions.iter().map(|tx| tx.to_bytes().len()));
+        if bytes > MAX_BLOCK_BYTES {
+            return Err(NodeError::BlockTooLarge {
+                bytes,
+                cap: MAX_BLOCK_BYTES,
+            });
+        }
+        Ok(())
+    }
+
     /// Encodes the block for the wire.
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -388,5 +548,76 @@ impl Block {
             transaction.verify_at(height, policy, chain)?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod fair_share_tests {
+    use super::*;
+
+    /// Deterministic generator for the property test: no `proptest` dependency.
+    struct Lcg(u64);
+
+    impl Lcg {
+        fn next(&mut self) -> u64 {
+            self.0 = self
+                .0
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            self.0 >> 33
+        }
+    }
+
+    #[test]
+    fn one_author_matches_the_old_prefix_cut() {
+        // A single author is the old cut: a prefix that stops at the first misfit.
+        let lens = [300_usize, 900, 200, 5_000, 10];
+        let entries: Vec<(u16, usize, u64)> = lens
+            .iter()
+            .enumerate()
+            .map(|(i, len)| (7, *len, i as u64))
+            .collect();
+        let (admitted, _) = decode_plan(&entries, 16, 1_500);
+        let old = decode_cut(lens, 1_500);
+        assert_eq!(admitted, (0..old).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn random_orders_respect_the_budget_the_prefix_rule_and_work_conservation() {
+        let mut rng = Lcg(0x5eed);
+        for case in 0..2_000 {
+            let committee = 1 + (rng.next() % 8) as usize;
+            let budget = 1 + rng.next() % 10_000;
+            let count = (rng.next() % 40) as usize;
+            let entries: Vec<(u16, usize, u64)> = (0..count)
+                .map(|i| {
+                    let author = (rng.next() % committee as u64) as u16;
+                    let len = 1 + (rng.next() % 4_000) as usize;
+                    (author, len, i as u64)
+                })
+                .collect();
+            let (admitted, charged) = decode_plan(&entries, committee, budget);
+            assert!(charged <= budget, "case {case}: budget");
+            let sum: u64 = admitted.iter().map(|&i| entries[i].1 as u64).sum();
+            assert_eq!(charged, sum, "case {case}: charged is the admitted bytes");
+            let remaining = budget - charged;
+            for author in 0..committee as u16 {
+                let queue: Vec<usize> = (0..count).filter(|&i| entries[i].0 == author).collect();
+                let got: Vec<usize> = admitted
+                    .iter()
+                    .copied()
+                    .filter(|&i| entries[i].0 == author)
+                    .collect();
+                assert_eq!(got, queue[..got.len()].to_vec(), "case {case}: prefix");
+                if let Some(&next) = queue.get(got.len()) {
+                    // Work conservation: the author stopped only because the next
+                    // payload did not fit what was left, and what was left only shrank.
+                    assert!(
+                        entries[next].1 as u64 > remaining,
+                        "case {case}: conservation"
+                    );
+                }
+            }
+        }
     }
 }

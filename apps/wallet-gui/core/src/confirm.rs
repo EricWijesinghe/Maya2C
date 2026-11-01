@@ -6,7 +6,7 @@
 //! [`Transaction::sign`] covers, and [`crate::wallet::Wallet::sign`] refuses
 //! unless it is handed that hash back.
 
-use custom_l1_node::core::describe::describe;
+use custom_l1_node::core::describe::{describe, is_fee_output};
 use custom_l1_node::core::payload::TxKind;
 use custom_l1_node::core::{ChainTag, Transaction};
 use primitive_types::U256;
@@ -36,7 +36,8 @@ pub struct Confirmation {
     pub recipient: Option<String>,
     /// Transfers only: the first output's amount, in display units.
     pub amount: Option<String>,
-    /// Transfers only: the outputs after the first, which pay the fee, in display units.
+    /// Transfers only: the outputs after the first that pay a fee address (the
+    /// collector or the burn sink), in display units.
     pub fee: Option<String>,
     /// Transfers only: the fee is larger than the amount. Raised as a warning.
     pub fee_exceeds_amount: bool,
@@ -50,6 +51,7 @@ pub fn confirmation(tx: &Transaction, chain: &ChainTag) -> Confirmation {
         (TxKind::Transfer, Some((first, rest))) => {
             let fee = rest
                 .iter()
+                .filter(|o| is_fee_output(o))
                 .fold(U256::zero(), |sum, o| sum.saturating_add(o.amount));
             Some((first, fee))
         }

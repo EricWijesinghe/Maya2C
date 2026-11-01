@@ -231,6 +231,15 @@ pub enum NodeError {
         actual: String,
     },
 
+    /// A block's wire form is over the cap every node enforces (ADR-072).
+    #[error("block is {bytes} bytes, over the {cap}-byte cap")]
+    BlockTooLarge {
+        /// Wire bytes the block takes.
+        bytes: u64,
+        /// The cap, in bytes.
+        cap: u64,
+    },
+
     /// A channel already exists under the derived identifier.
     #[error("channel {0} already exists")]
     ChannelExists(String),

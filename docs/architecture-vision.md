@@ -168,6 +168,7 @@ transport layer consensus-critical and hand an attacker a fork by radio.
 | Biomolecular TRNG | **PLANNED** | — | Entropy source. Would feed the beacon alongside the VRF, never replace it |
 | Photonic optical tensor driver | **PLANNED** | — | |
 | DNA quaternary archival engine | **PLANNED** | — | Cold storage tier beneath `archive`'s CAR v1 batches |
+| Maya OS and own hardware brand | **PLANNED** | — | Post-mainnet, P6. Plan: `docs/master-prompts/maya-os.md`. Attestation model collides with invariant 11 and needs an ADR before any code |
 | Magneto-optical MRAM driver | **PLANNED** | — | |
 | Bio-silicon neural organoid MEA interface | **PLANNED** | — | |
 

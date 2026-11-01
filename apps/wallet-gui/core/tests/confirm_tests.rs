@@ -67,7 +67,7 @@ fn every_kind_reaches_the_confirmation_as_describe_wrote_it() {
 
 #[test]
 fn a_transfer_confirmation_shows_recipient_amount_fee_and_chain() {
-    let wallet = test_wallet();
+    let mut wallet = test_wallet();
     let recipient = hex::encode([0x22; 32]);
     let shown = wallet
         .confirm(0, &recipient, coins("1.5"), &terms(coins("0.001"), 4))
@@ -244,4 +244,32 @@ fn a_payload_changed_between_review_and_sign_is_refused() {
             &reviewed.signing_hash,
         )
         .expect("the reviewed transfer signs");
+}
+
+#[test]
+fn signing_needs_a_confirm_from_this_session_and_spends_it() {
+    let mut wallet = test_wallet();
+    let recipient = hex::encode([0x22; 32]);
+    let amount = coins("1.5");
+    let fee = coins("0.001");
+    // The right hash, computed without ever showing the confirm screen.
+    let hash = test_wallet()
+        .confirm(0, &recipient, amount, &terms(fee, 4))
+        .unwrap()
+        .signing_hash;
+    let unreviewed = wallet.sign(0, &recipient, amount, &terms(fee, 4), &hash);
+    assert!(
+        matches!(unreviewed, Err(WalletError::Signing(_))),
+        "{unreviewed:?}"
+    );
+
+    wallet
+        .confirm(0, &recipient, amount, &terms(fee, 4))
+        .unwrap();
+    wallet
+        .sign(0, &recipient, amount, &terms(fee, 4), &hash)
+        .expect("the reviewed transfer signs");
+    let again = wallet.sign(0, &recipient, amount, &terms(fee, 4), &hash);
+    assert!(matches!(again, Err(WalletError::Signing(_))), "{again:?}");
+    assert_eq!(wallet.history().len(), 1, "one review, one signature");
 }

@@ -192,12 +192,17 @@ pub fn clear_batch(pool: &Pool, intents: &[SwapIntent]) -> Result<BatchOutcome> 
             // construction, so catching it can only mask a bug in the pricing
             // — but the alternative is writing a pool that is short, and
             // between the two, dropping trades is the recoverable one.
-            Err(
-                DexError::ZeroOutput
-                | DexError::ZeroPrice
-                | DexError::Overflow
-                | DexError::InvariantViolation,
-            ) => {
+            // A zero clearing price is the opposite case: base→quote
+            // imbalance so large that a base unit clears below one quote unit.
+            // The largest seller is the cause, and dropping the smallest
+            // instead would let one flood refund every honest co-trader.
+            Err(DexError::ZeroPrice) => {
+                let dropped = largest_seller(&active).unwrap_or_else(|| smallest(&active));
+                active.retain(|intent| intent.id != dropped);
+                skipped.push(dropped);
+                continue;
+            }
+            Err(DexError::ZeroOutput | DexError::Overflow | DexError::InvariantViolation) => {
                 let dropped = smallest(&active);
                 active.retain(|intent| intent.id != dropped);
                 skipped.push(dropped);
@@ -218,6 +223,16 @@ pub fn clear_batch(pool: &Pool, intents: &[SwapIntent]) -> Result<BatchOutcome> 
             })
             .map(|(trade, _)| trade.id)
             .collect();
+
+        if violators.is_empty() && !settlement.pool.spot_price().is_ok_and(|p| !p.is_zero()) {
+            // The batch clears but leaves no usable price (spot 0: base-heavy),
+            // which would refund every later batch on the pair. Drop the
+            // largest seller, as for a zero clearing price.
+            let dropped = largest_seller(&active).unwrap_or_else(|| smallest(&active));
+            active.retain(|intent| intent.id != dropped);
+            skipped.push(dropped);
+            continue;
+        }
 
         if violators.is_empty() {
             let mut outcome = settlement;
@@ -246,6 +261,17 @@ fn smallest(active: &[SwapIntent]) -> [u8; 32] {
         .min_by_key(|intent| (intent.amount_in, intent.id))
         .map(|intent| intent.id)
         .unwrap_or_default()
+}
+
+/// The largest base→quote intent, ties broken by identifier so every node
+/// drops the same one. `None` when nobody sells base; the caller then falls
+/// back to [`smallest`], so the shrink loop always removes an intent.
+fn largest_seller(active: &[SwapIntent]) -> Option<[u8; 32]> {
+    active
+        .iter()
+        .filter(|intent| intent.direction == Direction::BaseToQuote)
+        .max_by_key(|intent| (intent.amount_in, intent.id))
+        .map(|intent| intent.id)
 }
 
 /// Prices and settles one fixed set of intents, ignoring slippage bounds.

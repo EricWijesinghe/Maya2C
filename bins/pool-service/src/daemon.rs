@@ -35,8 +35,8 @@ use std::time::Duration;
 
 use futures::{AsyncReadExt, AsyncWriteExt};
 use maya_stratum_v2::{Frame, FrameHeader, MAX_PAYLOAD_LEN, Message};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{broadcast, mpsc};
+use tokio::net::{TcpSocket, TcpStream};
+use tokio::sync::{Semaphore, broadcast, mpsc};
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
 use custom_l1_node::network::pq::handshake;
@@ -47,17 +47,63 @@ use crate::job::Job;
 use crate::model::{ShareOutcome, now_millis};
 use crate::node::NodeClient;
 use crate::payout::PayoutEngine;
-use crate::session::{Session, SessionAction, close_message, job_messages};
+use crate::session::{
+    MAX_CHANNELS_PER_CONNECTION, Session, SessionAction, close_message, job_messages,
+};
 use crate::share;
 use crate::state::{PoolEvent, PoolState};
 use crate::validator::{FoundBlockShare, Validator};
 
 /// Messages queued for one connection before it is considered wedged.
 ///
-/// A miner that cannot absorb 64 messages is a miner whose socket has stopped
-/// draining, and holding more for it would be holding memory on the pool's
-/// behalf rather than theirs.
-const OUTBOUND_CAPACITY: usize = 64;
+/// Four messages per allowed channel: room for a job push to every channel plus
+/// the replies in flight. A queue that stays full past `SEND_TIMEOUT` is a
+/// socket that has stopped draining, and holding more for it would be holding
+/// memory on the pool's behalf rather than theirs.
+const OUTBOUND_CAPACITY: usize = MAX_CHANNELS_PER_CONNECTION * 4;
+
+/// Longest a reply may wait for room in a full outbound queue.
+///
+/// A healthy miner's queue fills during a job-push burst (two messages per
+/// channel per job, plus replies) and drains in milliseconds; a short wait
+/// rides that out. A reader that never drains is closed after this.
+/// shortcut: fixed bound, not measured against real burst sizes, revisit with stratum load data
+const SEND_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Longest a TCP peer may take to finish the post-quantum handshake.
+///
+/// Without a deadline, a socket that connects and says nothing holds its task
+/// and buffers for as long as the peer keeps the TCP connection open.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Longest a connected miner may go without sending a frame.
+///
+/// Vardiff holds a working rig near one share a minute, so five minutes of
+/// silence is a rig that has stopped. Its channel and nonce range go back to
+/// the pool rather than sitting reserved.
+const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Queues a reply, waiting at most `timeout` for room. `false` means the queue
+/// stayed full or its writer is gone, and the connection should close.
+async fn enqueue(outbound: &mpsc::Sender<Message>, message: Message, timeout: Duration) -> bool {
+    outbound.send_timeout(message, timeout).await.is_ok()
+}
+
+/// Longest one frame may take to leave the socket before the write side gives up.
+///
+/// A peer that stops reading holds `write_all` forever otherwise, and with it
+/// the connection's admission permit.
+const WRITE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Connections served at once. `docs/stratum-v2.md` sizes the pool for 50,000.
+const MAX_CONNECTIONS: usize = 50_000;
+
+/// Connections the kernel queues before it refuses new ones.
+///
+/// Tokio's default backlog refused connects in bursts (`os error 10061` in
+/// `pool-load` with 10,000 miners). A burst is ordinary when miners reconnect
+/// after a restart, so the queue is sized for it.
+const LISTEN_BACKLOG: u32 = 4_096;
 
 /// Accepted shares acknowledged in one `SubmitSharesSuccess`.
 ///
@@ -110,8 +156,15 @@ pub async fn serve_stratum(
     validator: Validator,
     jobs: broadcast::Sender<Arc<Job>>,
 ) -> Result<PoolServer> {
-    let listener = TcpListener::bind(address).await?;
+    let socket = if address.is_ipv4() {
+        TcpSocket::new_v4()?
+    } else {
+        TcpSocket::new_v6()?
+    };
+    socket.bind(address)?;
+    let listener = socket.listen(LISTEN_BACKLOG)?;
     let bound = listener.local_addr()?;
+    let admission = Arc::new(Semaphore::new(MAX_CONNECTIONS));
 
     tokio::spawn(async move {
         loop {
@@ -126,11 +179,20 @@ pub async fn serve_stratum(
                 }
             };
 
+            // Refused, not queued: a queue here is memory the pool holds on a
+            // stranger's behalf. Dropping the socket is the refusal.
+            let Ok(permit) = Arc::clone(&admission).try_acquire_owned() else {
+                eprintln!("pool: connection {peer} refused, {MAX_CONNECTIONS} already open");
+                continue;
+            };
+
             let state = Arc::clone(&state);
             let validator = validator.clone();
             let jobs = jobs.subscribe();
 
             tokio::spawn(async move {
+                // Held for the connection's life, released when it ends.
+                let _permit = permit;
                 if let Err(error) = serve_connection(stream, state, validator, jobs).await {
                     // Connection-level failures are ordinary: miners disconnect,
                     // Ð¸ a malformed frame is a client bug, not a pool one.
@@ -155,8 +217,9 @@ async fn serve_connection(
     // The compat layer exists for exactly this line: the handshake is written
     // against futures' traits and a Tokio socket implements Tokio's.
     let mut compat = stream.compat();
-    let keys = handshake::respond(&mut compat)
+    let keys = tokio::time::timeout(HANDSHAKE_TIMEOUT, handshake::respond(&mut compat))
         .await
+        .map_err(|_| PoolError::Server("post-quantum handshake timed out".to_string()))?
         .map_err(|e| PoolError::Server(format!("post-quantum handshake failed: {e}")))?;
 
     // `is_initiator: false` — the pool responds, so it opens with the key the
@@ -165,24 +228,8 @@ async fn serve_connection(
     let secure = PqStream::new(compat, keys, false);
     let (mut reader, writer) = secure.split();
 
-    let (outbound, mut queued) = mpsc::channel::<Message>(OUTBOUND_CAPACITY);
-    let mut writer = writer;
-    let write_task = tokio::spawn(async move {
-        while let Some(message) = queued.recv().await {
-            let Ok(frame) = message.to_frame() else {
-                // A message the pool itself could not encode is a pool bug, and
-                // dropping the connection over it would hide that.
-                eprintln!("pool: refusing to send an unencodable message");
-                continue;
-            };
-            if writer.write_all(&frame.encode()).await.is_err() {
-                break;
-            }
-            if writer.flush().await.is_err() {
-                break;
-            }
-        }
-    });
+    let (outbound, queued) = mpsc::channel::<Message>(OUTBOUND_CAPACITY);
+    let mut write_task = tokio::spawn(write_frames(writer, queued, WRITE_TIMEOUT));
 
     // Job pushes travel by their own task, so the read loop never has to sit in
     // a `select!` beside a half-read frame.
@@ -217,10 +264,13 @@ async fn serve_connection(
     let mut acks = AckBook::default();
 
     let result = loop {
-        let frame = match read_frame(&mut reader).await {
-            Ok(Some(frame)) => frame,
-            Ok(None) => break Ok(()),
-            Err(error) => break Err(error),
+        // The timeout drops a half-read frame, which is safe only because the
+        // connection ends on that path and nothing reads the stream again.
+        let frame = match tokio::time::timeout(IDLE_TIMEOUT, read_frame(&mut reader)).await {
+            Ok(Ok(Some(frame))) => frame,
+            Ok(Ok(None)) => break Ok(()),
+            Ok(Err(error)) => break Err(error),
+            Err(_) => break Err(PoolError::Server("idle past the timeout".to_string())),
         };
 
         let message = match Message::from_frame(&frame) {
@@ -230,7 +280,12 @@ async fn serve_connection(
             Err(error) => break Err(PoolError::Protocol(error)),
         };
 
-        let actions = session.handle(message, &state)?;
+        // Not `?`: an error here must still reach the cleanup below, or the
+        // channel and its nonce range outlive the connection.
+        let actions = match session.handle(message, &state) {
+            Ok(actions) => actions,
+            Err(error) => break Err(error),
+        };
         if let Ok(mut held) = channels.lock() {
             *held = session.channels().to_vec();
         }
@@ -239,7 +294,7 @@ async fn serve_connection(
         for action in actions {
             match action {
                 SessionAction::Reply(message) => {
-                    if outbound.send(message).await.is_err() {
+                    if !enqueue(&outbound, message, SEND_TIMEOUT).await {
                         closing = Some("the connection stopped draining".to_string());
                     }
                 }
@@ -247,12 +302,20 @@ async fn serve_connection(
                 SessionAction::Validate(request) => {
                     let channel_id = request.channel_id;
                     let sequence_number = request.sequence_number;
-                    let verdict = validator.submit(request).await?;
+                    let verdict = match validator.submit(request).await {
+                        Ok(verdict) => verdict,
+                        Err(error) => {
+                            // Ends the connection through the cleanup path below,
+                            // rather than returning past it.
+                            closing = Some(error.to_string());
+                            break;
+                        }
+                    };
 
                     match verdict.outcome {
                         ShareOutcome::Accepted { weight, .. } => {
                             if let Some(ack) = acks.record(channel_id, sequence_number, weight)
-                                && outbound.send(ack).await.is_err()
+                                && !enqueue(&outbound, ack, SEND_TIMEOUT).await
                             {
                                 closing = Some("the connection stopped draining".to_string());
                             }
@@ -262,7 +325,7 @@ async fn serve_connection(
                             // *before* the rejected one must not arrive after
                             // it, or the miner cannot tell which failed.
                             if let Some(ack) = acks.flush(channel_id)
-                                && outbound.send(ack).await.is_err()
+                                && !enqueue(&outbound, ack, SEND_TIMEOUT).await
                             {
                                 closing = Some("the connection stopped draining".to_string());
                             }
@@ -273,7 +336,7 @@ async fn serve_connection(
                                     error_code: reason.code().to_string(),
                                 },
                             );
-                            if outbound.send(error).await.is_err() {
+                            if !enqueue(&outbound, error, SEND_TIMEOUT).await {
                                 closing = Some("the connection stopped draining".to_string());
                             }
                         }
@@ -284,7 +347,7 @@ async fn serve_connection(
                             channel_id,
                             maximum_target: target,
                         });
-                        if outbound.send(retune).await.is_err() {
+                        if !enqueue(&outbound, retune, SEND_TIMEOUT).await {
                             closing = Some("the connection stopped draining".to_string());
                         }
                     }
@@ -294,9 +357,7 @@ async fn serve_connection(
 
         if let Some(reason) = closing {
             for channel_id in session.channels() {
-                let _ = outbound
-                    .send(close_message(*channel_id, "pool-closing"))
-                    .await;
+                let _ = outbound.try_send(close_message(*channel_id, "pool-closing"));
             }
             break Err(PoolError::Server(reason));
         }
@@ -305,11 +366,50 @@ async fn serve_connection(
     // Whatever ended the connection, its channels have to go back: a leaked
     // channel holds a nonce range forever and leaves its rig showing as
     // connected on the dashboard.
-    session.disconnect(&state)?;
+    // Pending acknowledgements are still owed to the miner: the shares they
+    // cover were accepted and credited before the connection ended.
+    for ack in acks.drain() {
+        let _ = outbound.try_send(ack);
+    }
+    if let Err(error) = session.disconnect(&state) {
+        eprintln!("pool: releasing a connection's channels failed: {error}");
+    }
     drop(outbound);
     push_task.abort();
-    let _ = write_task.await;
+    // Bounded: a peer that stopped reading must not hold the permit. The write
+    // task is aborted if it has not drained by the deadline.
+    if tokio::time::timeout(WRITE_TIMEOUT, &mut write_task)
+        .await
+        .is_err()
+    {
+        write_task.abort();
+    }
     result
+}
+
+/// Writes queued messages to the socket until the queue closes or a write stalls.
+async fn write_frames<W: futures::io::AsyncWrite + Unpin>(
+    mut writer: W,
+    mut queued: mpsc::Receiver<Message>,
+    write_timeout: Duration,
+) {
+    while let Some(message) = queued.recv().await {
+        let Ok(frame) = message.to_frame() else {
+            // A message the pool itself could not encode is a pool bug, and
+            // dropping the connection over it would hide that.
+            eprintln!("pool: refusing to send an unencodable message");
+            continue;
+        };
+        let bytes = frame.encode();
+        let sent = tokio::time::timeout(write_timeout, async {
+            writer.write_all(&bytes).await?;
+            writer.flush().await
+        })
+        .await;
+        if !matches!(sent, Ok(Ok(()))) {
+            break;
+        }
+    }
 }
 
 /// Reads one SV2 frame, or `None` at a clean end of stream.
@@ -382,6 +482,15 @@ impl AckBook {
             return self.flush(channel_id);
         }
         None
+    }
+
+    /// Emits every pending acknowledgement, for the paths that end a connection.
+    fn drain(&mut self) -> Vec<Message> {
+        let channels: Vec<u32> = self.pending.keys().copied().collect();
+        channels
+            .into_iter()
+            .filter_map(|channel_id| self.flush(channel_id))
+            .collect()
     }
 
     /// Emits an acknowledgement for whatever is pending on a channel.
@@ -724,5 +833,109 @@ mod tests {
         let mut reader = futures::io::Cursor::new(bytes);
         let frame = read_frame(&mut reader).await.unwrap().unwrap();
         assert_eq!(Message::from_frame(&frame).unwrap(), message);
+    }
+
+    /// A writer whose socket never drains, the way a peer that stopped reading looks.
+    struct Stalled;
+
+    impl futures::io::AsyncWrite for Stalled {
+        fn poll_write(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+            _: &[u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            std::task::Poll::Pending
+        }
+
+        fn poll_flush(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Pending
+        }
+
+        fn poll_close(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Pending
+        }
+    }
+
+    #[tokio::test]
+    async fn a_writer_that_stops_draining_is_abandoned_after_the_write_timeout() {
+        // Before the fix the write task never returned on a peer that stopped
+        // reading, and the connection's admission permit went with it.
+        let (queue, queued) = mpsc::channel(4);
+        queue
+            .send(Message::SubmitSharesStandard(
+                maya_stratum_v2::messages::SubmitSharesStandard {
+                    channel_id: 1,
+                    sequence_number: 1,
+                    job_id: 1,
+                    nonce: 1,
+                    ntime: 1,
+                },
+            ))
+            .await
+            .unwrap();
+
+        let finished = tokio::time::timeout(
+            Duration::from_secs(5),
+            write_frames(Stalled, queued, Duration::from_millis(20)),
+        )
+        .await;
+        assert!(
+            finished.is_ok(),
+            "write task still stuck on a peer that never reads"
+        );
+        drop(queue);
+    }
+
+    #[tokio::test]
+    async fn a_full_queue_with_a_draining_reader_is_not_closed() {
+        // A job-push burst fills the queue briefly; the reader catches up and the
+        // reply must still go out rather than close a healthy miner.
+        let (outbound, mut queued) = mpsc::channel::<Message>(1);
+        let ping = || {
+            Message::SubmitSharesError(maya_stratum_v2::messages::SubmitSharesError {
+                channel_id: 1,
+                sequence_number: 1,
+                error_code: String::new(),
+            })
+        };
+        outbound.try_send(ping()).unwrap();
+        let reader = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            while queued.recv().await.is_some() {}
+        });
+
+        assert!(enqueue(&outbound, ping(), Duration::from_secs(2)).await);
+        drop(outbound);
+        reader.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_full_queue_that_never_drains_is_closed_at_the_timeout() {
+        let (outbound, _queued) = mpsc::channel::<Message>(1);
+        let ping = || {
+            Message::SubmitSharesError(maya_stratum_v2::messages::SubmitSharesError {
+                channel_id: 1,
+                sequence_number: 1,
+                error_code: String::new(),
+            })
+        };
+        outbound.try_send(ping()).unwrap();
+        assert!(!enqueue(&outbound, ping(), Duration::from_millis(20)).await);
+    }
+
+    #[test]
+    fn draining_emits_every_pending_acknowledgement_once() {
+        // Shares accepted just before a connection ends are still owed an ack.
+        let mut acks = AckBook::default();
+        acks.record(1, 0, 10);
+        acks.record(2, 0, 10);
+        assert_eq!(acks.drain().len(), 2);
+        assert!(acks.drain().is_empty());
     }
 }
