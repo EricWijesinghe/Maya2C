@@ -47,7 +47,7 @@ if (-not $ok) { Say "key FAILED: $($out | Select-Object -Last 1)"; exit 1 }
 $exe = "$drill\maya2c-drill.exe"
 Copy-Item 'D:\Maya2C-validators\bin4\maya2c-validator.exe' $exe
 $args = "--genesis D:\Maya2C-testnet\genesis.json --data-dir `"$drill\data`" --rpc-addr 127.0.0.1:18699 " +
-        "--p2p-port 31399 --bootnode /ip4/127.0.0.1/tcp/31100 --bootstrap-from $peer --catch-up-from $peer --catch-up-from $seed " +
+        "--p2p-port 31399 --allow-private-peers --bootnode /ip4/127.0.0.1/tcp/31100 --bootstrap-from $peer --catch-up-from $peer --catch-up-from $seed " +
         "--prune-depth 3600 --snapshot-interval 3600 --snapshot-depth 3600"
 $t.Restart()
 $p = Start-Process -FilePath $exe -ArgumentList $args -WorkingDirectory $drill -WindowStyle Hidden `

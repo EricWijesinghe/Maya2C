@@ -128,7 +128,7 @@ for ($i = 1; $i -le 4; $i++) {
         if ($j -ne $i) { $boot += "--bootnode /ip4/127.0.0.1/tcp/$(31400 + $j)/p2p/$(Get-Content (Join-Path $root "pc$j\peer.id") -Raw)" }
     }
     $src = Get-Sources $i
-    $args = "--genesis `"$root\genesis.json`" --data-dir `"$dir\data`" --rpc-addr 127.0.0.1:$(if ($i -eq 1) { 8545 } else { 18700 + $i }) --p2p-port $(31400 + $i) " +
+    $args = "--genesis `"$root\genesis.json`" --data-dir `"$dir\data`" --rpc-addr 127.0.0.1:$(if ($i -eq 1) { 8545 } else { 18700 + $i }) --p2p-port $(31400 + $i) --allow-private-peers " +
         "--validator-key `"$dir\validator.key.sealed`" --validator-passphrase-file E:\Maya2C-secrets\pc$i.passphrase " +
         "--min-register-bond 1000000000 --snapshot-interval 3600 --snapshot-depth 3600 --prune-depth 3600 " +
         (($src | ForEach-Object { "--catch-up-from $_ " }) -join '') + $(if (-not (Test-Path (Join-Path $dir 'data/archive'))) { "--bootstrap-from http://127.0.0.1:18601 " }) + $(if ($i -eq 1) { $ws }) + ($boot -join ' ')
