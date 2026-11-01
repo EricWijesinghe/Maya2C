@@ -15,6 +15,18 @@ band; move an item to PROGRESS.md when it starts.
 - **Packed state words:** balance (about 104 bits) + nonce + flags in one 256-bit leaf,
   for fewer reads and smaller proofs (ADR-062 territory).
 
+## P2 — found in the 2026-11-01 hardening wave (post-freeze)
+
+- **OS-native wallet confirm dialog.** #287 makes `Wallet::sign` spend one confirm, but a
+  compromised webview can still call confirm and then sign without rendering anything. A
+  native dialog outside the webview closes that.
+- **Large-state apply bench.** The apply figures come from a fresh database; cold RocksDB
+  reads on a multi-GB state are MISSING (`reports/bench/2026-11-01-apply-per-mib.md`).
+- **Committed sub-DAG hashing** is still linear in committed bytes after the CON-13 decode
+  bound (#278).
+- **macOS Hub sidecar hash check** on the first tagged release that ships macOS.
+- **Kani `exact_out_never_undercharges`** stalls the nightly (ledger B40).
+
 ## P1 — mainnet launch gates (docs/mainnet-v1-plan.md)
 
 - [x] ADR-068 step 2: 24 decimals (feat/decimals-24) (wallet DECIMALS, SDKs, explorer, governance COIN, pool, genesis amounts). Residue closed on feat/adr068-24-decimals: one source `maya_amount::COIN_DECIMALS` / `ONE_COIN`, wallet UI text from it, `spec/tests/units.json` pin; see reports/sessions/2026-10-31-24-decimals.md.
