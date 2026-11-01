@@ -598,7 +598,7 @@ waste of computation power"; then, on the options: "use recommended maximum pote
 ## 2026-11-01 — Eric approves ADR-071 option B and the ADR-044 payout wording (economics)
 
 Eric, 2026-11-01: "I approve everything, finish them".
-- ADR-071: the base-fee ceiling is option B, 0.1 MAYA per standard transfer at the cap. That value is already in `crates/fee-market/src/limits.rs`, so no code change. Status: Accepted.
+- ADR-076 (was ADR-071; renumbered because 071 is taken): the base-fee ceiling is option B, 0.1 MAYA per standard transfer at the cap. That value is already in `crates/fee-market/src/limits.rs`, so no code change. Status: Accepted.
 - ADR-044: the text now matches the code, with no consensus change.
   - A claim earns `budget / target_shares`, capped by what is left of the epoch's budget.
   - Unpaid budget stays in `MINING_RESERVE`, with nothing burned and no carry-over.
