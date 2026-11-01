@@ -223,6 +223,7 @@ cargo xtask disk                     # artifact size vs the 30 GiB ceiling
 cargo xtask coverage --verify-targets # the ledger, and that its tests are real targets
 cargo deny check                     # advisories, bans, licences, sources
 bash scripts/lint_debt.sh --check    # the clippy::pedantic ratchet
+cargo xtask proof-ratchet --check    # proofs, vectors, replays, fuzz targets never fall (ADR-078 O3)
 bash scripts/doc_coverage.sh --check # doc coverage, 90% floor
 ```
 
