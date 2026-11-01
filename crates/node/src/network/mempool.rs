@@ -28,7 +28,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
-use crate::core::Transaction;
+use crate::core::{MAX_TX_BYTES, Transaction};
 use crate::error::{NodeError, Result};
 use crate::state::{Address, Module, StateDB};
 
@@ -444,6 +444,13 @@ impl Mempool {
         // write lock below, since another insert may land in between.
         let balance = self.state.get_account(&tx.sender())?.balance;
         let (fee, size) = (fee_of(&tx), tx.to_bytes().len());
+        // The decoder refuses a frame this large, but a local submission never
+        // is decoded. A transaction over the maximum could never fit a block.
+        if size > MAX_TX_BYTES {
+            return Err(NodeError::MempoolRejected(format!(
+                "transaction of {size} bytes exceeds the maximum {MAX_TX_BYTES}"
+            )));
+        }
         self.victims(
             self.len(),
             self.pooled_bytes.load(Ordering::Relaxed),

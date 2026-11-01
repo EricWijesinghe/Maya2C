@@ -89,3 +89,5 @@ The observation that would make this worth reopening.
 | [054](ADR-054-reproducible-builds.md) | Reproducible Linux node builds: path remapping, one shared build script, a twice-built CI check | Accepted |
 | [055](ADR-055-quantum-harbor-binding.md) | Quantum Harbor step one: classical-key → PQ-vault binding, anchored on chain; no coins move | Accepted |
 | [056](ADR-056-guardian-recovery-transactions.md) | Guardian recovery as four node transactions with a delay and an owner cancel | Accepted |
+| [073](ADR-073-hub-multi-rig-pool-profitability.md) | Hub multi-rig, pool view and on-chain profitability estimate | Proposed |
+| [074](ADR-074-chat-outbox-receipts-envelope-v2.md) | Chat sender outbox, signed delivery receipts, envelope v2 (and a send-path nonce-reuse fix) | Proposed |

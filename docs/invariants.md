@@ -237,3 +237,11 @@ phase that did it.
     `crates/node/tests/vault_tests.rs` (including
     `the_fee_collector_is_not_a_way_around_the_limit` and
     `the_limit_bounds_a_window_not_a_transaction`) — ADR-030.
+33. **A block whose wire form is over `MAX_BLOCK_BYTES` (5 MiB, provisional) is
+    refused on import and on every apply path, and the selection that builds a
+    block passes over any transaction that would take it over (first-fit).** The
+    choice is a function of the order and the cap, so every node makes the same one, and what is left out stays with
+    its proposer for a later block. Pinned by
+    `crates/node/tests/block_bytes_tests.rs` (including
+    `a_block_over_the_cap_is_refused_on_import` and
+    `a_transaction_left_out_is_applied_once_in_a_later_block`) — ADR-072.

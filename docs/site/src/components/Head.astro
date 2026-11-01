@@ -52,6 +52,9 @@ const ld = graph.length ? JSON.stringify({ "@context": "https://schema.org", "@g
 <meta property="og:image:height" content="630" />
 <meta property="og:image:alt" content={cardAlt} />
 <meta name="twitter:image" content={card} />
+{/* Starlight sets twitter:card but not the text, so a shared link showed no title or summary on X-style cards. */}
+<meta name="twitter:title" content={title} />
+{description && <meta name="twitter:description" content={description} />}
 {/* The home hero fetches these at once; opening the connections early saves a round trip. */}
 {parts.length === 0 && (
   <>
