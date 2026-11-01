@@ -228,6 +228,41 @@ fn check(case: &Value) {
             assert_eq!(bytes.to_string(), expect["bytes"].as_str().unwrap(), "{id}");
             assert_eq!(listed, expect["admitted"].as_str().unwrap(), "{id}");
         }
+        "decode_cut" => {
+            let lens: Vec<usize> = case["tx_lens"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| usize::try_from(num(v)).unwrap())
+                .collect();
+            let count = custom_l1_node::core::block::decode_cut(lens, num(&case["budget"]));
+            assert_eq!(count.to_string(), expect["count"].as_str().unwrap(), "{id}");
+        }
+        "decode_fair" => {
+            let list =
+                |key: &str| -> Vec<u64> { case[key].as_array().unwrap().iter().map(num).collect() };
+            let (authors, lens, keys) = (list("authors"), list("lens"), list("keys"));
+            let entries: Vec<(u16, usize, u64)> = authors
+                .iter()
+                .zip(&lens)
+                .zip(&keys)
+                .map(|((a, l), k)| (u16::try_from(*a).unwrap(), usize::try_from(*l).unwrap(), *k))
+                .collect();
+            let committee = usize::try_from(num(&case["committee"])).unwrap();
+            let (admitted, charged) =
+                custom_l1_node::core::block::decode_plan(&entries, committee, num(&case["budget"]));
+            let listed = admitted
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
+            assert_eq!(listed, expect["admitted"].as_str().unwrap(), "{id}");
+            assert_eq!(
+                charged.to_string(),
+                expect["charged"].as_str().unwrap(),
+                "{id}"
+            );
+        }
         other => panic!("{id}: unknown fn {other}"),
     }
 }

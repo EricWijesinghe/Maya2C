@@ -305,8 +305,8 @@ fn a_validator_that_misses_its_rounds_is_slashed_and_sits_out() {
     assert!(s.active.contains(&id(2)));
 }
 
-/// ADR-046: stake, delegations and rewards past `u64::MAX` (about 18.4 coins at
-/// 18 decimals) bond, earn pro rata and slash without loss.
+/// ADR-046: stake, delegations and rewards past `u64::MAX` (about 0.0000184 coins at
+/// 24 decimals) bond, earn pro rata and slash without loss.
 #[test]
 fn stakes_past_u64_bond_earn_and_slash_exactly() {
     let mut s = Staking::new(Params::DEVNET).unwrap();

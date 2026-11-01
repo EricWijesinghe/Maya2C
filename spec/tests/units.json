@@ -1,0 +1,7 @@
+{
+  "description": "Coin unit constants (ADR-068). Pinned by crates/amount, crates/api-gateway and the wallet; SDKs and docs must agree.",
+  "coin_decimals": 24,
+  "base_units_per_coin": "1000000000000000000000000",
+  "supply_cap_coins": "21000000",
+  "supply_cap_base_units": "21000000000000000000000000000000"
+}
