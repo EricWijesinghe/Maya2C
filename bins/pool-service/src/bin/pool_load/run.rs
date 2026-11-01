@@ -139,8 +139,8 @@ pub async fn execute(settings: Settings) -> Result<(), Box<dyn Error>> {
         let (ready, failed, rx) = (Arc::clone(&ready), Arc::clone(&failed), phase_rx.clone());
         handles.push(tokio::spawn(async move {
             if let Err(error) = run_miner(spec, rx, ready, tally).await {
-                failed.fetch_add(1, Ordering::SeqCst);
-                if index < 5 {
+                // The first few failures are printed, whichever miner they came from.
+                if failed.fetch_add(1, Ordering::SeqCst) < 5 {
                     eprintln!("pool-load: miner {index}: {error}");
                 }
             }
@@ -165,9 +165,10 @@ pub async fn execute(settings: Settings) -> Result<(), Box<dyn Error>> {
 
     let load_start = Instant::now() + Duration::from_millis(500);
     phase_tx.send_replace(Phase::Load(load_start));
-    tokio::time::sleep_until(tokio::time::Instant::from_std(
-        load_start + Duration::from_secs(settings.duration_secs) + Duration::from_millis(500),
-    ))
+    // The last share is due at events x interval, which can be past the nominal
+    // duration when that is not a whole number of intervals.
+    let window = interval.mul_f64(events as f64) + Duration::from_secs(1);
+    tokio::time::sleep_until(tokio::time::Instant::from_std(load_start + window))
     .await;
     let load_peak = feed.rss_peak.swap(0, Ordering::SeqCst);
     phase_tx.send_replace(Phase::Drain);
@@ -197,6 +198,7 @@ pub async fn execute(settings: Settings) -> Result<(), Box<dyn Error>> {
         active,
         failed: failed.load(Ordering::SeqCst),
         planned_per_miner: events,
+        window_secs: window.as_secs_f64(),
         job_fanout,
         tallies: tallies.iter().map(|t| t.lock().map(|t| t.clone()).unwrap_or_default()).collect(),
     };
@@ -254,6 +256,7 @@ struct Report<'a> {
     active: usize,
     failed: usize,
     planned_per_miner: usize,
+    window_secs: f64,
     job_fanout: Option<Vec<f64>>,
     tallies: Vec<Tally>,
 }
@@ -281,7 +284,7 @@ impl Report<'_> {
         println!("config: per-miner rate {:.3}/s, duration {} s, invalid ratio {:.3}, validators {}", s.per_miner_rate, s.duration_secs, s.invalid_ratio, s.validators);
         println!("offered shares: {offered:.0} ({} per miner)", self.planned_per_miner);
         println!("accepted: {accepted}  refused: {rejected} (of which valid refused: {valid_rejected})");
-        println!("accepted shares/s over the send window: {:.1}", accepted as f64 / s.duration_secs as f64);
+        println!("accepted shares/s over the send window ({:.1} s): {:.1}", self.window_secs, accepted as f64 / self.window_secs);
         println!("refused-share ack latency (immediate): p50 {} us  p99 {} us  n={}", pct(&mut errs, 0.50), pct(&mut errs, 0.99), errs.len());
         println!("accepted-share ack latency (batched, ACK_BATCH=8): p50 {} us  p99 {} us  n={}", pct(&mut acks, 0.50), pct(&mut acks, 0.99), acks.len());
         println!("server RSS (working set): baseline {} MiB, idle with {} channels {} MiB, peak idle {} MiB, peak under load {} MiB",
