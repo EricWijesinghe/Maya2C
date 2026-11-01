@@ -426,6 +426,13 @@ impl StateDB {
                 reason: "an asset with no supply would be a name and nothing else".to_string(),
             });
         }
+        // Past this, a pool's scaled price overflows and the pair freezes.
+        if registration.total_supply > to_u256(maya_dex::MAX_ASSET_SUPPLY) {
+            return Err(NodeError::InvalidAssetSymbol {
+                reason: "supply above MAX_ASSET_SUPPLY (about 2^176) would overflow pool prices"
+                    .to_string(),
+            });
+        }
 
         let asset = derive_asset_id(sender, nonce, &registration.symbol);
         if self.record(overlay, &asset_key(&asset))?.is_some() {

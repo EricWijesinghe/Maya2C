@@ -15,12 +15,17 @@
 
 use custom_l1_node::core::transaction::{Transaction, TxInput, TxOutput};
 use custom_l1_node::crypto::hybrid::generate_signing_key;
+use custom_l1_node::state::fees::FeeRecord;
+use maya_fee_market::limits::MAX_BASE_FEE_PER_BYTE;
 use maya_fee_market::{
     Amount, BlockFeeOutcome, FeeClaim, FeeConfig, MAX_SUPPLY, ParentFees, Supply, TxFee,
     apply_block_fees,
 };
 
 mod common;
+
+/// One coin at 24 decimals (`apps/wallet-gui/core/src/amount.rs::DECIMALS`).
+const ONE_COIN: u128 = 1_000_000_000_000_000_000_000_000;
 
 /// The serialized size of one signed single-input, single-output transfer.
 fn signed_transfer_size() -> u64 {
@@ -229,5 +234,33 @@ fn the_fee_market_is_reached_only_through_its_genesis_gate() {
     assert!(
         offenders.is_empty(),
         "fee market referenced from {offenders:?}"
+    );
+}
+
+#[test]
+fn a_max_fill_attack_cannot_price_out_a_one_coin_account() {
+    // ADR-071: six hundred blocks at 64 times the target, then a one-coin
+    // account pays for a standard transfer of its real encoded size. Before
+    // the clamp the fee passed u256 within a few hundred blocks and the
+    // transfer was unaffordable at any balance.
+    let config = FeeConfig::TESTING;
+    let mut record = FeeRecord {
+        base_fee: Amount::from_u64(10),
+        min_base_fee: Amount::from_u64(1),
+        target_block_bytes: config.target_block_bytes,
+        change_denominator: config.change_denominator,
+    };
+    for _ in 0..600 {
+        record = record.next(64 * config.target_block_bytes);
+    }
+    assert!(
+        record.base_fee <= MAX_BASE_FEE_PER_BYTE,
+        "fee {}",
+        record.base_fee
+    );
+    let owed = record.required(signed_transfer_size() as usize);
+    assert!(
+        owed <= Amount::from_u128(ONE_COIN),
+        "a standard transfer costs {owed} at the ceiling"
     );
 }

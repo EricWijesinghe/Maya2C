@@ -53,7 +53,7 @@ fn deep_pool() -> Pool {
 /// filling everything against one level, which is the shape that actually costs
 /// something.
 fn crossed_book(depth: u32) -> Book {
-    let mid = PRICE_SCALE.to_u64().expect("1e9");
+    let mid = PRICE_SCALE.to_u128().expect("1e24");
     let mut book = Book::new();
 
     for index in 0..depth {
@@ -64,7 +64,7 @@ fn crossed_book(depth: u32) -> Book {
             id,
             owner: [1u8; 32],
             side: Side::Ask,
-            price: maya_ledger_math::Amount::from_u64(mid - u64::from(index)),
+            price: maya_ledger_math::Amount::from_u128(mid - u128::from(index)),
             amount: maya_ledger_math::Amount::from_u64(1_000),
             remaining: maya_ledger_math::Amount::from_u64(1_000),
             sequence: u64::from(index) * 2,
@@ -79,7 +79,7 @@ fn crossed_book(depth: u32) -> Book {
             id,
             owner: [2u8; 32],
             side: Side::Bid,
-            price: maya_ledger_math::Amount::from_u64(mid + u64::from(index)),
+            price: maya_ledger_math::Amount::from_u128(mid + u128::from(index)),
             amount: maya_ledger_math::Amount::from_u64(1_000),
             remaining: maya_ledger_math::Amount::from_u64(1_000),
             sequence: u64::from(index) * 2 + 1,

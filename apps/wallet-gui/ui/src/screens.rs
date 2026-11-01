@@ -52,10 +52,18 @@ pub fn typed_amount(text: &str) -> Result<String, amount::AmountError> {
     amount::parse_display(text.trim()).map(|value| value.to_string())
 }
 
-/// A base-unit string as a number, for comparing two amounts. `None` if
-/// it is not one.
-pub fn base_value(base: &str) -> Option<primitive_types::U256> {
-    amount::parse_base_units(base).ok()
+/// A transfer the user reviewed: what the core showed, and the exact inputs it
+/// was computed from. Signing replays these, never the live form fields, so
+/// the reviewed transaction is the one `sign_transfer` is asked to sign.
+#[derive(Clone)]
+pub struct Review {
+    pub confirmation: bridge::Confirmation,
+    pub index: u32,
+    pub recipient: String,
+    pub amount: String,
+    pub fee: String,
+    pub nonce: u64,
+    pub terms: bridge::FeeTerms,
 }
 
 // ---------------------------------------------------------------------------
@@ -697,7 +705,7 @@ pub mod send {
         );
         let fee = RwSignal::new(String::new());
         let label = request.label.clone();
-        let preview = RwSignal::new(None::<bridge::TransferPreview>);
+        let preview = RwSignal::new(None::<Review>);
         let signed = RwSignal::new(None::<bridge::SignedTransfer>);
         let busy = RwSignal::new(false);
         let fee_terms = RwSignal::new(bridge::FeeTerms::default());
@@ -735,32 +743,46 @@ pub mod send {
             let index = state.selected.get();
             let nonce = state.account_state.get().nonce;
             let to = recipient.get();
+            // Captured now: signing replays these terms, so the chain and the
+            // collector the user reviewed cannot drift before the signature.
+            let terms = fee_terms.get_untracked();
 
             spawn_local(async move {
-                match bridge::preview_transfer(index, &to, &amount_value, &fee_value, nonce).await {
-                    Ok(summary) => preview.set(Some(summary)),
+                let outcome =
+                    bridge::preview_transfer(index, &to, &amount_value, &fee_value, nonce, &terms)
+                        .await;
+                match outcome {
+                    Ok(confirmation) => preview.set(Some(Review {
+                        confirmation,
+                        index,
+                        recipient: to,
+                        amount: amount_value,
+                        fee: fee_value,
+                        nonce,
+                        terms,
+                    })),
                     Err(error) => state.fail(error),
                 }
             });
         };
 
         let sign = move |_| {
-            let Some(summary) = preview.get() else {
+            let Some(review) = preview.get() else {
                 return;
             };
             busy.set(true);
             spawn_local(async move {
-                let terms = fee_terms.get_untracked();
-                match bridge::sign_transfer(
-                    state.selected.get_untracked(),
-                    &summary.recipient,
-                    &summary.amount,
-                    &summary.fee,
-                    summary.nonce,
-                    &terms,
+                let outcome = bridge::sign_transfer(
+                    review.index,
+                    &review.recipient,
+                    &review.amount,
+                    &review.fee,
+                    review.nonce,
+                    &review.terms,
+                    &review.confirmation.signing_hash,
                 )
-                .await
-                {
+                .await;
+                match outcome {
                     Ok(transfer) => {
                         signed.set(Some(transfer));
                         state.inform("Signed. This transaction can be broadcast from any device.");
@@ -883,27 +905,33 @@ pub mod send {
                     }
                 >
                     {move || {
-                        let summary = preview.get().expect("checked");
+                        let review = preview.get().expect("checked");
+                        // Every line here is rendered from the core's confirmation;
+                        // nothing is summarised in this file.
+                        let c = review.confirmation;
                         let is_signed = signed.get().is_some();
-                        // Compared as numbers: the strings would order "9" above "10".
-                        // An unreadable amount counts as large: the warning fails closed.
-                        let fee_is_large = match (base_value(&summary.fee), base_value(&summary.amount)) {
-                            (Some(fee), Some(amount)) => fee > amount,
-                            _ => true,
-                        };
+                        let fee_exceeds = c.fee_exceeds_amount;
                         view! {
                             <div class="summary">
-                                <div><span>"From"</span><span class="mono">{short(&summary.sender)}</span></div>
-                                <div><span>"To"</span><span class="mono">{short(&summary.recipient)}</span></div>
-                                <div><span>"Amount"</span><span>{show_amount(&summary.amount)}</span></div>
-                                <div><span>"Fee"</span><span>{show_amount(&summary.fee)}</span></div>
-                                <div class="total"><span>"Total"</span><span>{show_amount(&summary.total)}</span></div>
-                                <div><span>"Nonce"</span><span>{summary.nonce}</span></div>
+                                <p class="description">{c.description}</p>
+                                <div><span>"To"</span><span class="mono">{c.recipient.unwrap_or_default()}</span></div>
+                                <div><span>"Amount"</span><span>{c.amount.unwrap_or_default()}</span></div>
+                                <div><span>"Fee"</span><span>{c.fee.unwrap_or_default()}</span></div>
+                                <div><span>"Chain"</span><span class="mono">{c.chain_id}</span></div>
+                                <div><span>"From"</span><span class="mono">{c.sender}</span></div>
+                                <div><span>"Nonce"</span><span>{c.nonce}</span></div>
+                                <div><span>"Signing hash"</span><span class="mono">{c.signing_hash}</span></div>
+                                {c.details
+                                    .into_iter()
+                                    .map(|(label, value)| view! {
+                                        <div><span>{label}</span><span class="mono">{value}</span></div>
+                                    })
+                                    .collect_view()}
                             </div>
                             // The collector itself is checked in the wallet core against
                             // the chain's fixed address; the size of the fee is the user's
                             // to judge, so an unusual one is called out before signing.
-                            <Show when=move || fee_is_large>
+                            <Show when=move || fee_exceeds>
                                 <p class="hint warning">
                                     "The fee is larger than the amount you are sending.                                      Check it before signing."
                                 </p>

@@ -9,6 +9,7 @@
 //! cannot fall below its floor or step down faster than its denominator.
 
 use crate::base_fee::next_base_fee;
+use crate::limits::MAX_BASE_FEE_PER_BYTE;
 use crate::split::split;
 use crate::supply::Supply;
 use maya_amount::Amount;
@@ -42,6 +43,24 @@ fn the_base_fee_respects_its_floor_and_its_step() {
         let eighth = parent.checked_div(Amount::from_u64(denominator)).unwrap();
         assert!(parent.saturating_sub(next) <= eighth || next == floor);
     }
+}
+
+/// The linear rise is at most one denominator's share, and ends at the ceiling
+/// (FEE-3 and FEE-6, ADR-071).
+#[kani::proof]
+fn a_rise_is_one_denominator_share_and_stops_at_the_ceiling() {
+    let parent = any_amount();
+    let size: u64 = kani::any();
+    let target: u64 = kani::any();
+    let denominator: u64 = kani::any();
+    let floor = any_amount();
+    kani::assume(target > 0 && denominator >= 8 && size > target);
+    let next = next_base_fee(parent, size, target, denominator, floor);
+
+    let share = parent.checked_div(Amount::from_u64(denominator)).unwrap();
+    let one = Amount::from_u64(1);
+    assert!(next <= parent.saturating_add(share.max(one)).max(floor));
+    assert!(next <= MAX_BASE_FEE_PER_BYTE.max(parent).max(floor));
 }
 
 /// The neural rule's envelope, for every gain — and so for every weight file.
