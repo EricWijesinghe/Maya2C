@@ -690,3 +690,29 @@ Superseded in part by the entry above:
 - Windows (`7 x epoch_blocks x 15 s`): testnet 105 h, Oracle VM and devnet 35 min, attacknet
   1.75 h. Mainnet `epoch_blocks` is not in this repo. Operational consequences are in
   `docs/runbooks/hybrid-testnet-hardening.md` section 4.
+
+### B49 re-review (2026-11-02): confirmation required, byte cap, recency on the max claim
+
+Supersedes the earlier round where they conflict.
+
+- **Staleness needs a confirming head.** A node's own clock or tip never refuses alone. The
+  time trigger fires only when the tip is older than the window AND a source reports a head
+  more than `unbonding_epochs x epoch_blocks` blocks past the tip. A time-old tip with no newer
+  head starts with a warning. This is what lets a genesis-only node start, and lets a halted
+  network keep running. A future tip is a warning (`future_ahead`), not a refusal.
+- **Recency is checked against the maximum head any source reports, for every stale reason.**
+  A lower claim from another source cannot loosen it while the maximum is kept.
+- **Followers** probe only while the tip is old, at most every `FOLLOW_PROBE_EVERY` = 30
+  rounds. A follower exits only when a source confirms a head beyond the window and no trusted
+  block is pending.
+- **Byte cap:** `MAX_LINKED_GAP_BYTES` = 512 MiB, checked as each response arrives
+  (`catchup::fetch_linked`). Why 512 MiB: the block cap alone does not bound memory, since a
+  block is up to 5 MiB (ADR-072). The cap binds first for blocks above about 10.7 KiB.
+- **Real maximum offline span through a trusted block:** the 50,000-block cap (8.7 days at 15 s)
+  plus one window of the head (4.4 days on 3,600-block epochs), about 13 days. The byte cap
+  shortens this for large blocks. Beyond it, `--bootstrap-from`.
+- **Known residual (LOW):** a P2P-only node (no `--catch-up-from`) that goes stale while running
+  has no follower to stop. It keeps running. A restart applies the start-up rule.
+- **Unverified claims:** a source can force the requirement (fail-safe), and it can make
+  recency stricter. If every source is hostile, only the start-up time trigger remains, and it
+  still needs a head to confirm.

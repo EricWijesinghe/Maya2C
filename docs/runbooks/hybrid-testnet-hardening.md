@@ -46,9 +46,21 @@ When a peer restores from a snapshot, give it `--trusted-block HEIGHT:ID` from t
 paths that are not the bootstrap source, at or above the snapshot height. Without
 it the source alone decides which chain the node starts on.
 
-The same flag guards a rejoin (B49). A node whose tip is older than the unbonding window
-(or whose state is more than `unbonding_epochs` epochs behind the claimed head) refuses to
-start without `--trusted-block`, because validators that unbonded can sign a forged chain.
+The same flag guards a rejoin (B49). A node is stale when a source reports a head more than
+`unbonding_epochs` epochs past its committed epoch, or when its tip is older than the window
+AND a source reports a head more than the window of blocks past its tip. A time-old tip with
+no newer head is not stale: a halted network, or a fresh node on an old genesis, starts with a
+loud warning. A stale node refuses to start without `--trusted-block`, because validators
+that unbonded can sign a forged chain. Heads reported by sources are unverified.
+
+Maximum offline span through a trusted block: the block cap (50,000 blocks, 8.7 days at 15 s)
+plus the recency allowance (one window of the head: 25,200 blocks, 4.4 days on the 3,600-block
+testnet), about 13 days. The byte cap (512 MiB, about 10.7 KiB per block across the full block
+cap) binds first if blocks average more than that, so the real span is shorter on large blocks.
+Beyond the span, restore from a snapshot with `--bootstrap-from`.
+
+Known residual: a P2P-only node (no `--catch-up-from`) that goes stale while running has no
+follower to stop. It keeps running, and a restart applies the start-up rule.
 The block must be **recent**: within the unbonding window of the network's head, and above
 the node's tip. Take it from the explorer or from two peers you trust, never from the peer
 you are rejoining through alone.
@@ -70,12 +82,14 @@ pass `--catch-up-from` without `--trusted-block` (`infra/hybrid-testnet/start-pc
 will be refused after the window. Pass the trusted block to them before the next
 restart after a long outage.
 
-A brand-new node started from a fresh genesis is not refused while the genesis block is
-inside the window. A genesis older than the window (a chain that has been running longer
-than that) is refused like any stale node, and needs a trusted block.
+A brand-new node started from a genesis is never refused on its own clock. Its tip is the
+genesis, and an old genesis timestamp only produces a warning. It is refused only when a
+source reports a head more than the window ahead of it, which is a network that has run
+longer than that. Such a node needs a trusted block.
 
-A node stale while it runs stops its follower, and the node exits so a restart can supply
-the block. A chain that halts for longer than the window does this to every node.
+A halted network does not stop its nodes. Followers keep running and log a line each time
+they probe. A follower exits only when a source confirms a head beyond the window and no
+trusted block is pending. A restart then needs `--trusted-block`.
 
 ## 5. What this does not fix
 Stake concentration (a design decision: a validator above 1/3 of stake is a

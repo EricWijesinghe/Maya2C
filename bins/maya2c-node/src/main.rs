@@ -329,9 +329,10 @@ fn print_usage() {
          repeatable: the reachable peer with the highest tip is used (ADR-043)\n  \
          --trusted-block HEIGHT:HEX  a RECENT block (within the unbonding window of the head) above\n                           \
          this node's tip, that the chain must pass through. REQUIRED for a node stale past\n                           \
-         the unbonding window (B49), with --catch-up-from. A peer's claimed\n                           \
-         head can only make this requirement stricter, never lift it. With --bootstrap-from\n                           \
-         it anchors the snapshot (ADR-060)\n  \
+         the unbonding window (B49), confirmed by a source's head beyond the window. The\n                           \
+         heads sources report are UNVERIFIED: the maximum decides whether the requirement\n                           \
+         applies and how recent the block must be. A node offline longer than about 13 days\n                           \
+         on 3,600-block epochs must restore from a snapshot with --bootstrap-from (ADR-060)\n  \
          --validator-key <PATH>  DAG-BFT validator key; without it the node observes\n  \
          --generate-validator-key <PATH>  write a new validator key, print its public key;\n                           \
          sealed when a passphrase file is set (ADR-049)\n  \

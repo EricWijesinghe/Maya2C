@@ -547,6 +547,10 @@ pub(super) async fn follow_loop(
     // Until the trusted block is held, certificate replay (which ignores it) is
     // not requested, and the round is anchored to it (B49).
     let mut reached = trusted.is_none();
+    // The head a probe last reported, and the rounds until the next probe, so an
+    // old tip costs one request per FOLLOW_PROBE_EVERY rounds, not one a second.
+    let mut claimed: Option<rejoin::Claimed> = None;
+    let mut probe_in: u32 = 0;
     let mut last_error: Option<String> = None;
     // The already-held count last reported, so a batch that keeps finding the
     // same held blocks is said once, not on every poll.
@@ -577,15 +581,41 @@ pub(super) async fn follow_loop(
         // against its own epoch's committee.
         // Text, not the boxed error: the error is not `Send`, and the stuck
         // branch awaits a probe.
-        // Staleness is re-checked every round (B49). The guard is decided
-        // under the lock and converted to text before the await: the boxed
-        // error is not `Send`. A stale follower with no trusted block left to
-        // reach stops here, and the node exits so it is restarted with one.
+        // Staleness is re-checked every round (B49), and only a source's head
+        // beyond the window confirms it. The probe runs while the tip is old, at
+        // most every FOLLOW_PROBE_EVERY rounds: a halted network looks like this.
+        // A halt with no newer head keeps following, with a loud line per probe.
+        let old = {
+            let c = lock_chain(&chain);
+            match rejoin::local_state(&c) {
+                Ok(local) => local.is_some_and(|l| rejoin::time_old(l, rejoin::clock_now())),
+                Err(e) => {
+                    eprintln!("rejoin: state read failed: {e}");
+                    true
+                }
+            }
+        };
+        if old {
+            if probe_in == 0 {
+                claimed = rejoin::probe(&url).await;
+                probe_in = rejoin::FOLLOW_PROBE_EVERY;
+                eprintln!(
+                    "rejoin: this follower's tip is older than the unbonding window; source head {claimed:?}. Still following unless a head beyond the window is confirmed"
+                );
+            }
+            probe_in -= 1;
+        } else {
+            claimed = None;
+            probe_in = 0;
+        }
+        // The guard is decided under the lock and converted to text before any
+        // await: the boxed error is not `Send`. A stale follower with no trusted
+        // block left to reach stops, and the node exits so it is restarted with one.
         let decided: Result<Anchor, String> = {
             let c = lock_chain(&chain);
             rejoin::track_trusted(&c, trusted, reached).and_then(|now_reached| {
                 reached = now_reached;
-                rejoin::round_anchor(&c, if reached { None } else { trusted })
+                rejoin::round_anchor(&c, if reached { None } else { trusted }, claimed)
                     .map_err(|e| e.to_string())
             })
         };
