@@ -508,12 +508,10 @@ pub(crate) async fn anchor(
     if let Some(reason) = stale(local, claimed, now) {
         println!("rejoin:      {reason:?}; catching up only through a recent trusted block");
     }
-    if allow_unconfirmed {
-        if let Some(age) = unconfirmed_age(local, claimed, now) {
-            eprintln!(
-                "rejoin: WARNING: starting unconfirmed by operator choice (--allow-unconfirmed-start): the tip is {age} s old and no source reports a head beyond the window"
-            );
-        }
+    if allow_unconfirmed && let Some(age) = unconfirmed_age(local, claimed, now) {
+        eprintln!(
+            "rejoin: WARNING: starting unconfirmed by operator choice (--allow-unconfirmed-start): the tip is {age} s old and no source reports a head beyond the window"
+        );
     }
     Ok(decide(local, claimed, now, trusted, allow_unconfirmed)?)
 }
