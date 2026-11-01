@@ -1,9 +1,8 @@
 //! Plain-language transaction summaries (Master Prompt 29 §3).
 //!
 //! The sentence says only what the indexed record proves. Amounts are in base
-//! units because the chain has no ratified display symbol or decimals yet
-//! (`chain/maya2c-testnet.json` leaves both null); inventing "MAYA" with a
-//! decimal point here would put a number on screen nobody has agreed to.
+//! units. The wallet owns the display (MAYA, 24 decimals, ADR-068); this page
+//! states the indexed count and never applies a decimal point of its own.
 //! Recipients are counted, not named: the index keeps output totals, not
 //! output addresses. The technical view stays one click away on every page.
 
