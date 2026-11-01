@@ -86,6 +86,14 @@ pub fn decode_cut(payload_lens: impl IntoIterator<Item = usize>, budget: u64) ->
     count
 }
 
+/// The per-author quantum of [`decode_plan`]: `budget / committee_size`, at least
+/// one byte. The committee size, not the number of active authors, sets it.
+#[must_use]
+pub fn decode_quantum(budget: u64, committee_size: usize) -> u64 {
+    let quantum = budget / committee_size.max(1) as u64;
+    if quantum == 0 { 1 } else { quantum }
+}
+
 /// CON-13 fair share: which payloads the DAG-BFT builder decodes, as indices into
 /// `entries` in commit order. `entries` are `(author, length, key)`; `key` is
 /// what identifies a payload's bytes, so a repeat has the same key. Deficit
@@ -109,7 +117,7 @@ pub fn decode_plan<K: Ord + Copy>(
     for (index, (author, _, _)) in entries.iter().enumerate() {
         queues.entry(*author).or_default().push_back(index);
     }
-    let quantum = (budget / committee_size.max(1) as u64).max(1);
+    let quantum = decode_quantum(budget, committee_size);
     let mut deficit: BTreeMap<u16, u64> = BTreeMap::new();
     let mut remaining = budget;
     let mut seen: BTreeSet<K> = BTreeSet::new();

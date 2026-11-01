@@ -2,6 +2,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use custom_l1_node::core::ChainTag;
 use custom_l1_node::crypto::hybrid::{HybridPublicKey, HybridSigningKey, generate_signing_key};
 
 use l2_flash::channel::{Channel, ChannelState, Party, SignedState};
@@ -24,6 +25,9 @@ fn keypair() -> (HybridSigningKey, Box<HybridPublicKey>) {
     (key, public)
 }
 
+/// The chain every signature in these tests is made for (ADR-036).
+const CHAIN: ChainTag = ChainTag::from_genesis([0x5A; 32]);
+
 fn commit(
     channel: &mut Channel,
     next: ChannelState,
@@ -32,11 +36,11 @@ fn commit(
     revoked_secret: [u8; 32],
 ) -> l2_flash::Result<()> {
     let signed = SignedState {
-        sig_a: Channel::sign(&next, key_a).expect("sign a"),
-        sig_b: Channel::sign(&next, key_b).expect("sign b"),
+        sig_a: Channel::sign(&next, key_a, &CHAIN).expect("sign a"),
+        sig_b: Channel::sign(&next, key_b, &CHAIN).expect("sign b"),
         state: next,
     };
-    channel.commit(signed, revoked_secret)
+    channel.commit(signed, revoked_secret, &CHAIN)
 }
 
 fn node(byte: u8) -> NodeId {
@@ -107,13 +111,13 @@ fn a_state_signed_by_only_one_party_is_not_binding() {
 
     // A signs; the second signature is from someone who is not B.
     let signed = SignedState {
-        sig_a: Channel::sign(&next, &key_a).expect("sign a"),
-        sig_b: Channel::sign(&next, &impostor).expect("sign impostor"),
+        sig_a: Channel::sign(&next, &key_a, &CHAIN).expect("sign a"),
+        sig_b: Channel::sign(&next, &impostor, &CHAIN).expect("sign impostor"),
         state: next,
     };
 
     assert_eq!(
-        channel.commit(signed, [0u8; 32]),
+        channel.commit(signed, [0u8; 32], &CHAIN),
         Err(FlashError::InvalidSignature { party: "b" })
     );
 }
@@ -258,7 +262,7 @@ fn a_state_with_pending_htlcs_cannot_be_settled() {
     // The on-chain format carries only balances, so settling now would silently
     // destroy the in-flight value.
     assert_eq!(
-        channel.settlement_closure(&key_a, &key_b).err(),
+        channel.settlement_closure(&key_a, &key_b, &CHAIN).err(),
         Some(FlashError::HtlcsPending { pending: 1 })
     );
 }
