@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Status | **Proposed**, 2026-11-02. Strategy plus four protocol mechanisms (§12, decisions O1–O4). |
+| Status | **Accepted**, 2026-11-02: Eric approved O1–O4. Strategy plus four protocol mechanisms (§12). |
 | Requested by | Eric, 2026-11-02 ("Maya2C Omega Ascension Initiative") |
 | Decision record | [ADR-078](../adr/ADR-078-omega-durable-advantage.md) |
 | Prior art | [forkless-upgrades-and-adaptive-control.md](../prior-art/forkless-upgrades-and-adaptive-control.md), searched 2026-11-02; [chain-level-exploit-recovery.md](../prior-art/chain-level-exploit-recovery.md) |
@@ -317,7 +317,7 @@ research.
 
 ---
 
-## 12. Decisions (ADR-078)
+## 12. Decisions (ADR-078, approved by Eric 2026-11-02)
 
 | # | Decision | Recommendation |
 |---|---|---|

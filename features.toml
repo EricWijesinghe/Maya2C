@@ -2576,7 +2576,7 @@ tier = "core"
 class = "RESEARCH"
 status = "planned"
 tests = []
-note = "MIP-0002 / ADR-078, proposed 2026-11-02. Every adaptive consensus parameter as an integer PI controller with a governed setpoint, a per-block step clamp and a machine-checked bound (invariant 20); code upgrades pre-shipped and vote-activated, never fetched from chain state (invariant 13). The base-fee clamp (ADR-076) is the existing instance."
+note = "MIP-0002 / ADR-078, accepted 2026-11-02. Every adaptive consensus parameter as an integer PI controller with a governed setpoint, a per-block step clamp and a machine-checked bound (invariant 20); code upgrades pre-shipped and vote-activated, never fetched from chain state (invariant 13). The base-fee clamp (ADR-076) is the existing instance."
 
 [[subsystem]]
 id = "iso-20022-xml-messaging-parser"

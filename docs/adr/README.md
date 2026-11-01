@@ -92,4 +92,4 @@ The observation that would make this worth reopening.
 | [073](ADR-073-hub-multi-rig-pool-profitability.md) | Hub multi-rig, pool view and on-chain profitability estimate | Proposed |
 | [074](ADR-074-chat-outbox-receipts-envelope-v2.md) | Chat sender outbox, signed delivery receipts, envelope v2 (and a send-path nonce-reuse fix) | Proposed |
 | [077](ADR-077-sentinel-recovery-network.md) | Sentinel Recovery Network: scoped quarantine and forward-only governed recovery (MIP-0001), after mainnet | Accepted |
-| [078](ADR-078-omega-durable-advantage.md) | Omega design: three-speed evolution (vote-activated, pre-shipped code), bounded integer controllers, test ratchet, moat indicators (MIP-0002) | Proposed |
+| [078](ADR-078-omega-durable-advantage.md) | Omega design: three-speed evolution (vote-activated, pre-shipped code), bounded integer controllers, test ratchet, moat indicators (MIP-0002) | Accepted |

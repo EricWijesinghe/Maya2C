@@ -669,3 +669,5 @@ Decisions O1–O4 are proposed:
 Prior art: Tezos and Polkadot already upgrade without hard forks. Maya2C's
 difference is that a vote selects only the activation height, never code from
 state (invariant 13).
+
+Eric approved O1–O4 the same day. ADR-078 is Accepted. O3 (test ratchet) starts now in CI.
