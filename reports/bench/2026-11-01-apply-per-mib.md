@@ -1,38 +1,34 @@
-# Apply time per MiB at 1, 2.5 and 5 MiB blocks (ADR-072): NOT MEASURED
+# Apply time per MiB at the ADR-072 cap and the CON-13 decode budget
 
-Status: blocked. No figure in this file is a measurement.
+Measured 2026-11-01.
 
-- Commit: c219bd5c (`origin/fix/max-block-bytes`) plus the `fix/subdag-decode-bound` changes.
-  That commit is not built, so the figures are not for it.
-- Host: this Windows 11 Pro 10.0.29680 machine, 32.9 GiB RAM (launch host).
-- Blocker: the release bench (`crates/node/benches/apply_pipeline.rs`) needs a release build of
-  `custom-l1-node`. The debug lib test build at `CARGO_BUILD_JOBS=1` had reached 69 of roughly
-  1,167 lockfile packages after about 7 hours (`D:/Temp/claude-dag-warm.log`). No release build was
-  started.
+- Commit: `cbf6957b` (master plus #278 `fix/subdag-decode-bound`), with the one-line bench fix in this PR. Without the fix the bench panicked: `Storage("StateDB not bound to a chain")`. Apply now refuses an unbound StateDB, and the bench had not been updated for it.
+- Host: Intel(R) Core(TM) Ultra 9 275HX, 24 logical cores, 32,130 MB RAM, Windows 11 Pro Insider 10.0.29680, NitroZeus. rustc 1.99.0-nightly (da80ed070 2026-07-14).
+- Profile: release (`cargo bench`).
+- Load: CARGO_BUILD_JOBS=2; a WSL Kani run was going in parallel, so these figures are an upper bound.
+- Command: `CARGO_BUILD_JOBS=2 cargo bench -p custom-l1-node --bench apply_pipeline`
 
-## Command to run once the build exists (not run)
+## Raw output
 
 ```
-CARGO_BUILD_JOBS=1 cargo bench -p custom-l1-node --bench apply_pipeline 2>&1 | tail -40
+apply_pipeline: 400 hybrid transfers, 100/block, 24 cores, optimized
+verify   1 thread :    0.370 ms/tx      2700 tx/s  2 allocs/tx
+verify 24 threads:    0.026 ms/tx     38789 tx/s  (x14.37)
+apply    1 thread :    0.588 ms/tx      1700 tx/s  14 allocs/tx (includes verify)
+  state work alone:    0.218 ms/tx  (37.0% of apply; 12 allocs/tx)
+write amplification: NOT MEASURED (/proc/self/io unavailable on this platform)
+peak RSS: NOT MEASURED (/proc/self/status unavailable)
 ```
 
-Read the existing bench docs for the block sizes (1, 2.5, 5 MiB of standard hybrid transfers) and
-for the release profile before running. Record: median and p95 apply time per block, commit sha,
-CPU model, RAM, OS build, exact command.
+## Per MiB (computed from the lines above)
 
-## Fields to fill
+A standard hybrid transfer is 11,165 bytes (ADR-072). So 1 MiB holds 93.9 transfers, and the 7.5 MiB decode budget (3/2 × the 5 MiB cap) holds 704.
 
-| Block | Median apply (ms) | p95 apply (ms) | ms per MiB |
-|---|---|---|---|
-| 1 MiB | MISSING | MISSING | MISSING |
-| 2.5 MiB | MISSING | MISSING | MISSING |
-| 5 MiB | MISSING | MISSING | MISSING |
+| Path | ms/tx | ms per MiB | 5 MiB cap | 7.5 MiB budget |
+|---|---|---|---|---|
+| Serial apply, including serial verify | 0.588 | 55.2 | 276 ms | 414 ms |
+| Parallel verify (24 threads), then serial state work | 0.026 + 0.218 | 22.9 | 115 ms | 172 ms |
 
-CPU: MISSING. RAM: MISSING. OS build: MISSING (Windows 11 Pro 10.0.29680 is the host, not measured
-against). Block interval: `reports/bench/2026-10-25-tps-series.md` measured about 2.6 s for a
-400-transfer block on a shared machine; that is the only interval figure on record.
+The worst case, a full decode budget applied single-threaded, is 414 ms. That fits inside one block interval, so the provisional 5 MiB cap (ADR-072) stands on this host.
 
-## Conclusion
-
-5 MiB is not confirmed. ADR-072 derived about 0.2 to 0.5 s per block from 2026-09-26 figures, not
-from a measurement. No recommendation to change `MAX_BLOCK_BYTES` follows from this file.
+The run has 400 transfers in 4 blocks against a fresh DB. It does not measure a multi-GB state where RocksDB reads miss cache. That figure is MISSING and goes to BACKLOG.
