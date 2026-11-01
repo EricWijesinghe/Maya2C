@@ -111,6 +111,11 @@ fn block_id(i: u16, h: u64) -> Option<String> {
 /// The `--trusted-block` value for a catch-up restart (B49), taken from the live
 /// peer `from`: its own tip, so it is recent by definition. Waits for the peer's
 /// RPC, since a peer restarted just before this call is not listening yet.
+///
+/// Single-source is fine here: every node in this lab is ours, on 127.0.0.1, so
+/// the block cannot come from an outside party. The launchers that serve real
+/// operators do not work this way; they require two sources to agree, or an
+/// operator override (`MAYA2C_TRUSTED_BLOCK`).
 fn trusted_block(from: u16) -> Result<String> {
     let started = Instant::now();
     loop {

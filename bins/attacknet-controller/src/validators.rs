@@ -359,6 +359,10 @@ pub fn trusted_flag(info: &serde_json::Value, block: &serde_json::Value) -> Opti
 }
 
 /// One attempt: the live node at `url` reports its tip, and the block there.
+///
+/// Single-source is fine here: the controller runs against our own lab nodes on
+/// 127.0.0.1, so the block cannot come from an outside party. Public launchers
+/// require two sources to agree, or an operator override.
 async fn fetch_trusted_block(url: &str) -> Result<String> {
     let client = reqwest::Client::new();
     let info = json_rpc(&client, url, "get_chain_info", serde_json::json!([])).await?;

@@ -46,25 +46,38 @@ if (-not $ok) { Say "key FAILED: $($out | Select-Object -Last 1)"; exit 1 }
 # 2. The chain: a keyless node from a fresh disk, bootstrapped from a peer.
 $exe = "$drill\maya2c-drill.exe"
 Copy-Item 'D:\Maya2C-validators\bin4\maya2c-validator.exe' $exe
-# B49: the drill's catch-up passes a trusted block from the peer it bootstraps
-# from (its own tip, recent by definition). Without one the node refuses only
-# if it is behind the unbonding window, which a fresh disk is not.
+# B49: the drill's trusted block. MAYA2C_TRUSTED_BLOCK (the operator's explorer
+# block) wins; otherwise the block is fetched from the two peers the drill catches
+# up from, which must agree at the lower tip. A fresh disk is not behind the window,
+# so the node starts without one if none is found.
 function Invoke-TrustedRpc([string]$Url, [string]$Method, $Params) {
     $body = @{ jsonrpc = '2.0'; id = 1; method = $Method; params = $Params } | ConvertTo-Json -Compress -Depth 4
     (Invoke-RestMethod $Url -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 5).result
 }
-$trusted = $null
-for ($try = 1; $try -le 10 -and -not $trusted; $try++) {
-    try {
-        $tip = [uint64](Invoke-TrustedRpc $peer 'get_chain_info' @()).height
-        $block = Invoke-TrustedRpc $peer 'get_block_by_height' @($tip)
-        if ([uint64]$block.height -eq $tip -and $block.header.id -match '^[0-9a-fA-F]{64}$') {
-            $trusted = "--trusted-block $($tip):$($block.header.id)"
-        }
-    } catch { }
-    if (-not $trusted) { Start-Sleep -Seconds 3 }
+function Get-TrustedFlag([string[]]$Urls) {
+    $pair = @($Urls | Where-Object { $_ } | Select-Object -First 2)
+    if ($pair.Count -eq 0) { return $null }
+    if ($pair.Count -eq 1) { Say "trusted block from a single source ($($pair[0])): our own nodes only" }
+    $tips = @()
+    foreach ($u in $pair) {
+        try { $tips += [uint64](Invoke-TrustedRpc $u 'get_chain_info' @()).height }
+        catch { Say "trusted block: $u did not answer"; return $null }
+    }
+    $m = ($tips | Measure-Object -Minimum).Minimum
+    $ids = @()
+    foreach ($u in $pair) {
+        try {
+            $b = Invoke-TrustedRpc $u 'get_block_by_height' @($m)
+            if ([uint64]$b.height -ne $m -or $b.header.id -notmatch '^[0-9a-fA-F]{64}$') { throw 'no usable block' }
+            $ids += $b.header.id.ToLower()
+        } catch { Say "trusted block: $u gave no usable block at $m"; return $null }
+    }
+    if (@($ids | Select-Object -Unique).Count -ne 1) { Say "trusted block: the sources disagree at height $m"; return $null }
+    return "--trusted-block $($m):$($ids[0])"
 }
-if (-not $trusted) { Say "no trusted block from $($peer): the drill node starts without one" }
+$override = $env:MAYA2C_TRUSTED_BLOCK
+$trusted = if ($override -match '^\d+:[0-9a-fA-F]{64}$') { "--trusted-block $override" } else { Get-TrustedFlag @($peer, $seed) }
+if (-not $trusted) { Say "no trusted block: the drill node starts without one" }
 $args = "--genesis D:\Maya2C-testnet\genesis.json --data-dir `"$drill\data`" --rpc-addr 127.0.0.1:18699 " +
         "--p2p-port 31399 --allow-private-peers --bootnode /ip4/127.0.0.1/tcp/31100 --bootstrap-from $peer --catch-up-from $peer --catch-up-from $seed " +
         "$trusted " +
