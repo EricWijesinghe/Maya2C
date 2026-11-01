@@ -94,6 +94,9 @@ pub(crate) struct Local {
     pub(crate) epoch_blocks: u64,
     /// Unix seconds of this node's tip header.
     pub(crate) tip_timestamp: u64,
+    /// Seconds per block the window is measured at: observed from this node's
+    /// own headers, capped at the target (see [`block_interval_secs`]).
+    pub(crate) block_interval: u64,
 }
 
 /// Unix seconds now. A clock that cannot be read returns `u64::MAX`, which makes
@@ -105,20 +108,48 @@ pub(crate) fn clock_now() -> u64 {
         .map_or(u64::MAX, |elapsed| elapsed.as_secs())
 }
 
-/// The unbonding window in seconds. The block time is the protocol's intended
-/// rate (`TARGET_BLOCK_TIME`), not a measured one, so this is an estimate.
+/// The seconds per block the window is measured at. Why the cap: this chain's
+/// DAG-BFT blocks have been measured well under the 15 s target, and a slower
+/// estimate would lengthen the window, so the time trigger would under-detect.
+/// A shorter window is the strict direction; an honest late restart has
+/// `--trusted-block` or the explicit flag.
+///
+/// `observed` is the mean over the last `epoch_blocks` blocks, from this node's
+/// own headers: `back_ts` is the timestamp `epoch_blocks` below the tip. It is
+/// used only when the delta is positive, and never above `TARGET_BLOCK_TIME`.
+/// Without history, or with a non-positive delta, the target is used. Clamped to
+/// at least one second.
 #[must_use]
-pub(crate) fn window_secs(unbonding_epochs: u64, epoch_blocks: u64) -> u64 {
+pub(crate) fn block_interval_secs(tip_ts: u64, back_ts: Option<u64>, epoch_blocks: u64) -> u64 {
+    let observed = back_ts
+        .and_then(|back| tip_ts.checked_sub(back))
+        .filter(|delta| *delta > 0 && epoch_blocks > 0)
+        .map(|delta| delta / epoch_blocks);
+    observed
+        .map_or(TARGET_BLOCK_TIME, |o| o.min(TARGET_BLOCK_TIME))
+        .max(1)
+}
+
+/// The unbonding window in seconds, at the measured block interval.
+#[must_use]
+pub(crate) fn window_secs(unbonding_epochs: u64, epoch_blocks: u64, block_interval: u64) -> u64 {
     unbonding_epochs
         .saturating_mul(epoch_blocks)
-        .saturating_mul(TARGET_BLOCK_TIME)
+        .saturating_mul(block_interval)
 }
 
 /// Whether this node's tip is older than the window of time.
 #[must_use]
 pub(crate) fn time_old(local: Local, now: u64) -> bool {
-    now.saturating_sub(local.tip_timestamp)
-        > window_secs(local.unbonding_epochs, local.epoch_blocks)
+    now.saturating_sub(local.tip_timestamp) > window_of(local)
+}
+
+fn window_of(local: Local) -> u64 {
+    window_secs(
+        local.unbonding_epochs,
+        local.epoch_blocks,
+        local.block_interval,
+    )
 }
 
 /// Whether `local` is stale.
@@ -141,7 +172,7 @@ pub(crate) fn stale(local: Local, claimed: Option<Claimed>, now: u64) -> Option<
             window,
         });
     }
-    let window_secs = window_secs(local.unbonding_epochs, local.epoch_blocks);
+    let window_secs = window_of(local);
     let window_blocks = window.saturating_mul(local.epoch_blocks);
     let age_secs = now.saturating_sub(local.tip_timestamp);
     (age_secs > window_secs && head.height.saturating_sub(local.height) > window_blocks).then_some(
@@ -234,9 +265,11 @@ pub(crate) fn decide(
     let unconfirmed = reason.is_none() && time_old(local, now);
     match (reason, trusted) {
         (None, _) if unconfirmed => match trusted {
-            Some(block) => Ok(Anchor::Stale(block)),
+            // A block at or below this node's own tip gives no catch-up: it is
+            // the node's own history, so it does not lift the refusal.
+            Some(block) if block.height > local.height => Ok(Anchor::Stale(block)),
             None if allow_unconfirmed => Ok(Anchor::Unanchored),
-            None => Err(unconfirmed_refusal(now.saturating_sub(local.tip_timestamp))),
+            _ => Err(unconfirmed_refusal(now.saturating_sub(local.tip_timestamp))),
         },
         (None, None) => Ok(Anchor::Unanchored),
         (None, Some(block)) => Ok(Anchor::Checked(block)),
@@ -401,12 +434,24 @@ pub(crate) fn round_decision(
 /// The committed staking facts, or `None` on a chain without staking, where
 /// there is no unbonding window to measure.
 pub(crate) fn local_state(chain: &Chain) -> Result<Option<Local>, Box<dyn Error>> {
-    Ok(chain.state().committed_staking()?.map(|record| Local {
+    let Some(record) = chain.state().committed_staking()? else {
+        return Ok(None);
+    };
+    let tip_timestamp = chain.get(&chain.tip()).map_or(0, |b| b.header.timestamp);
+    // One walk down the tip's history per call, `epoch_blocks` lookups.
+    let back_ts = chain
+        .height()
+        .checked_sub(record.epoch_blocks)
+        .and_then(|height| block_id_at(chain, height))
+        .and_then(|id| chain.get(&id))
+        .map(|b| b.header.timestamp);
+    Ok(Some(Local {
         height: chain.height(),
         epoch: record.staking.epoch,
         unbonding_epochs: record.staking.params.unbonding_epochs,
         epoch_blocks: record.epoch_blocks,
-        tip_timestamp: chain.get(&chain.tip()).map_or(0, |b| b.header.timestamp),
+        tip_timestamp,
+        block_interval: block_interval_secs(tip_timestamp, back_ts, record.epoch_blocks),
     }))
 }
 
@@ -525,6 +570,7 @@ mod tests {
         unbonding_epochs: 7,
         epoch_blocks: 100,
         tip_timestamp: 1_000_000,
+        block_interval: 15,
     };
     const WINDOW_SECS: u64 = 10_500;
     const TRUSTED: TrustedBlock = TrustedBlock {
@@ -876,7 +922,81 @@ mod tests {
 
     #[test]
     fn the_window_saturates_rather_than_wrapping() {
-        assert_eq!(window_secs(u64::MAX, 2), u64::MAX);
-        assert_eq!(window_secs(7, 100), WINDOW_SECS);
+        assert_eq!(window_secs(u64::MAX, 2, 15), u64::MAX);
+        assert_eq!(window_secs(7, 100, 15), WINDOW_SECS);
+    }
+
+    #[test]
+    fn faster_observed_blocks_shorten_the_window() {
+        // 100 blocks in 500 s is 5 s per block: the window is 7 x 100 x 5 s.
+        let interval = block_interval_secs(1_000, Some(500), 100);
+        assert_eq!(interval, 5);
+        assert_eq!(window_secs(7, 100, interval), 3_500);
+        assert!(window_secs(7, 100, interval) < WINDOW_SECS);
+    }
+
+    #[test]
+    fn slower_observed_blocks_are_capped_at_the_target() {
+        // 100 blocks in 2,000 s is 20 s per block: the cap keeps the target, so
+        // the window is never longer than the target gives.
+        assert_eq!(
+            block_interval_secs(3_000, Some(1_000), 100),
+            TARGET_BLOCK_TIME
+        );
+    }
+
+    #[test]
+    fn no_history_uses_the_target() {
+        // Why: a young chain has no block `epoch_blocks` back, so no measurement.
+        assert_eq!(block_interval_secs(1_000, None, 100), TARGET_BLOCK_TIME);
+    }
+
+    #[test]
+    fn a_non_positive_delta_uses_the_target() {
+        // Why: equal or reversed timestamps say nothing about the rate.
+        assert_eq!(
+            block_interval_secs(1_000, Some(1_000), 100),
+            TARGET_BLOCK_TIME
+        );
+        assert_eq!(
+            block_interval_secs(1_000, Some(2_000), 100),
+            TARGET_BLOCK_TIME
+        );
+    }
+
+    #[test]
+    fn the_interval_is_at_least_one_second() {
+        // A delta under epoch_blocks seconds rounds to zero per block: clamp to 1.
+        assert_eq!(block_interval_secs(1_000, Some(950), 100), 1);
+    }
+
+    #[test]
+    fn a_time_old_tip_with_a_faster_chain_is_stale_sooner() {
+        // Why: with 5 s blocks the window is 3,500 s. A tip 3,501 s old is then
+        // time-old, where the 15 s target would still call it fresh.
+        let fast = Local {
+            block_interval: 5,
+            ..LOCAL
+        };
+        let now = fast.tip_timestamp + 3_501;
+        assert!(time_old(fast, now));
+        assert!(!time_old(LOCAL, now));
+    }
+
+    #[test]
+    fn a_block_at_or_below_the_own_tip_does_not_lift_the_unconfirmed_refusal() {
+        // Why: --trusted-block set to this node's own old block would skip the
+        // refusal with no catch-up. The node is at 1,000; the block is at 500.
+        let own = TrustedBlock {
+            height: 500,
+            id: [3; 32],
+        };
+        let err = decide(LOCAL, None, old_now(), Some(own), false).unwrap_err();
+        assert!(err.contains("--allow-unconfirmed-start"), "{err}");
+        // A block above the tip still gives the hash-linked path.
+        assert_eq!(
+            decide(LOCAL, None, old_now(), Some(RECENT), false),
+            Ok(Anchor::Stale(RECENT))
+        );
     }
 }
