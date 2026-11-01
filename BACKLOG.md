@@ -5,11 +5,23 @@ names its priority band (CLAUDE.md, Operating Protocol, "Choosing what to
 do next") and where it came from. Take from the top of the highest open
 band; move an item to PROGRESS.md when it starts.
 
+## P5 — 256-bit headroom (DECISIONS 2026-11-01, after launch, at an activation height)
+
+- **Reward-per-share accumulator** for mining and staking payouts: one 256-bit running total
+  at 1e24 precision makes each payout one subtraction, with no per-miner loop and no
+  rounding dust.
+- **TWAP accumulators** in the DEX: cumulative price x time in U256 never wraps, which
+  gives a manipulation-resistant price feed built into the chain.
+- **Packed state words:** balance (about 104 bits) + nonce + flags in one 256-bit leaf,
+  for fewer reads and smaller proofs (ADR-062 territory).
+
 ## P1 — mainnet launch gates (docs/mainnet-v1-plan.md)
 
 - [x] ADR-068 step 2: 24 decimals (feat/decimals-24) (wallet DECIMALS, SDKs, explorer, governance COIN, pool, genesis amounts).
-- [x] ADR-068 step 4 (clean, DECISIONS 10-28): audit consensus amount × amount products for 512-bit or checked math.
+- [x] ADR-068 step 4: audit consensus amount × amount products for 512-bit or checked math. Re-audited 2026-10-31 (reports/sessions/2026-10-31-amount-product-audit.md): one defect fixed (vault fee headroom let 4x required escape the limit, F1; consensus-visible, note for mainnet genesis); the 2026-10-28 "clean" entry missed it.
 - [x] spec: MINE-* rules + vectors (spec/09-mining.md; node conformance test not yet run) for the mining schedule incl. the tail (ADR-044 shipped without spec).
+- [x] ADR-068 step 4 (clean, DECISIONS 10-28): audit consensus amount × amount products for 512-bit or checked math.
+- [x] spec: MINE-* rules + vectors (spec/09-mining.md; node conformance test run 2026-10-31, see reports/sessions/2026-10-31-mine-spec.md) for the mining schedule incl. the tail (ADR-044 shipped without spec).
 
 - **Gate 8: historical catch-up for a restarted validator.** The engine
   answers `Fetch` only from memory (`GC_DEPTH` = 50 rounds), so a validator
@@ -62,7 +74,7 @@ band; move an item to PROGRESS.md when it starts.
   the tip: Duplicate {..}` while it follows attested blocks. `InsertOutcome::
   Duplicate` should be skipped quietly; logging it as malformed hides real
   decode errors in noise. Reported by maya2c-c9.
-- **HTLC two-devnet swap times out under full parallel load** (1,058 s in a
+- [x] (`.config/nextest.toml` override, 2026-11-01) **HTLC two-devnet swap times out under full parallel load** (1,058 s in a
   workspace nextest run; 18 s alone). Mark it heavy / serial in nextest.
 - **Chat envelopes are twice the size they need to be.** `Envelope::encode`
   (ciborium) writes ciphertext `Vec<u8>` as a CBOR integer array, about two
@@ -92,7 +104,7 @@ band; move an item to PROGRESS.md when it starts.
   `git rev-parse HEAD`; the 2026-09-28 re-run ran with uncommitted fixes on
   top. Add `git status --porcelain` count to `Sweep`, and have `status`
   print it.
-- **doc-coverage takes about 35 minutes** (2,094 s on 2026-09-28) and runs
+- [x] (ci.yml `doc-links`, 2026-11-01) **doc-coverage takes about 35 minutes** (2,094 s on 2026-09-28) and runs
   only nightly; a broken intra-doc link blocked it unseen. Add
   `-D rustdoc::broken-intra-doc-links` to a fast per-PR `cargo doc` job.
 

@@ -5,6 +5,7 @@
 
 mod gpu;
 mod miner;
+mod miner_guard;
 mod node;
 
 use std::path::PathBuf;
@@ -13,6 +14,7 @@ use serde::Serialize;
 use tauri::Manager;
 
 use crate::miner::{Miner, MinerConfig, MinerState};
+use crate::miner_guard::miner_file_name;
 
 /// Starting values for the settings panel.
 #[derive(Serialize)]
@@ -36,16 +38,12 @@ const PUBLIC_RPC: &str = "https://rpc.maya2c.dev/rpc";
 /// The miner next to the hub's own executable, where a release bundle puts
 /// it; otherwise the bare name, which the user can correct.
 fn miner_beside_hub() -> String {
-    let name = if cfg!(windows) {
-        "maya2c-gpu-miner.exe"
-    } else {
-        "maya2c-gpu-miner"
-    };
+    let name = miner_file_name();
     std::env::current_exe()
         .ok()
-        .and_then(|exe| exe.parent().map(|dir| dir.join(name)))
+        .and_then(|exe| exe.parent().map(|dir| dir.join(&name)))
         .filter(|path| path.is_file())
-        .map_or_else(|| name.to_string(), |path| path.display().to_string())
+        .map_or(name, |path| path.display().to_string())
 }
 
 #[tauri::command]
@@ -81,11 +79,17 @@ async fn gpu_telemetry() -> Result<gpu::GpuReport, String> {
 }
 
 #[tauri::command]
-fn miner_start(config: MinerConfig, state: tauri::State<'_, Miner>) -> Result<(), String> {
+fn miner_start(
+    config: MinerConfig,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Miner>,
+) -> Result<(), String> {
     if cfg!(mobile) {
         return Err("mining runs on the desktop Hub; this one watches".into());
     }
-    state.start(&config)
+    let install = miner_guard::install_dir().map_err(|e| e.to_string())?;
+    let data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    state.start(&config, &install, &data)
 }
 
 #[tauri::command]

@@ -51,7 +51,7 @@
           <div class="tiles">
             <div class="tile"><label>Accepted shares</label><b id="t-accepted">0</b></div>
             <div class="tile"><label>Rejected</label><b id="t-rejected">0</b></div>
-            <div class="tile gold"><label>Earned this session (on chain)</label><b id="t-earned">0</b><em>MAYA</em></div>
+            <div class="tile gold"><label>Earned this session (on chain)</label><b id="t-earned">0</b><em>MAYA</em><small class="sub" id="t-pace" title="On-chain balance growth divided by run time; shares the pool has accepted but not yet paid are not counted"></small></div>
             <div class="tile"><label>Payout balance</label><b id="t-balance">—</b><em>MAYA</em></div>
             <div class="tile"><label>Epoch</label><b id="t-epoch">—</b></div>
             <div class="tile"><label>Next share pays</label><b id="t-reward">—</b><em>MAYA</em></div>
@@ -83,6 +83,8 @@
           <div class="grid2 wide-left">
             <div class="card orb-card">
               <canvas id="orb" class="orb"></canvas>
+              <div class="net-layer" id="net-layer"></div>
+              <div class="net-tip" id="net-tip" role="tooltip" hidden></div>
               <div class="orb-caption">
                 <b id="n-height">—</b><span>block height</span>
               </div>
@@ -98,6 +100,10 @@
           <div class="card">
             <h2>Blocks seen this session</h2>
             <canvas id="height-chart" class="chart"></canvas>
+          </div>
+          <div class="card detail" id="n-detail" hidden>
+            <h2 id="nd-title"></h2>
+            <p id="nd-text"></p>
           </div>
         </section>
 
@@ -136,6 +142,7 @@
       </main>
     </div>
     <script src="charts.js"></script>
+    <script src="netview.js"></script>
     <script src="universe.js"></script>
     <script src="app.js"></script>
   </body>

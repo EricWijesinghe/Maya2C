@@ -2758,8 +2758,8 @@ paths = "`apps/wallet-gui/core`"
 tier = "extended"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-wallet-core", "apps/wallet-gui/core/tests/airgap_tests.rs", "apps/wallet-gui/core/tests/hd_tests.rs", "apps/wallet-gui/core/tests/payment_tests.rs", "apps/wallet-gui/core/tests/vault_tests.rs"]
-note = "The logic the Tauri shell and the CLI both use."
+tests = ["crate:maya-wallet-core", "apps/wallet-gui/core/tests/airgap_tests.rs", "apps/wallet-gui/core/tests/hd_tests.rs", "apps/wallet-gui/core/tests/payment_tests.rs", "apps/wallet-gui/core/tests/vault_tests.rs", "apps/wallet-gui/core/tests/confirm_tests.rs"]
+note = "The logic the Tauri shell and the CLI both use. Clear signing: the confirm screen is computed from the transaction that gets signed (describe, checksummed recipient, display units, chain id); sign refuses any transaction whose signing hash differs from the reviewed one (confirm_tests.rs)."
 
 [[subsystem]]
 id = "maya-chat"

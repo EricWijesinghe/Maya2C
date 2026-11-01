@@ -12,8 +12,10 @@
 //! .rpm and AppImage. macOS waits for a Mac to build on.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use sha2::{Digest, Sha256};
 
 const MINER: &str = "maya2c-gpu-miner";
 
@@ -39,10 +41,15 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     let to = sidecars.join(format!("{MINER}-{triple}{exe}"));
     fs::copy(&from, &to).map_err(|e| format!("{} -> {}: {e}", from.display(), to.display()))?;
     println!("sidecar: {}", to.display());
+    // The Hub refuses any miner whose hash is not pinned at its build time
+    // (apps/hub/src-tauri/src/miner_guard.rs), so the pin is taken here, from
+    // the very file Tauri ships.
+    let sums = write_miner_checksums(&to, &sidecars)?;
 
     // Release CI passes a signed-updater config here (release-binaries.yml);
     // without one the Hub is the unsigned build that never offers an update.
     let mut build = Command::new("cargo");
+    build.env("MAYA2C_MINER_SHA256SUMS", &sums);
     build.args(["tauri", "build", "--config", "tauri.release.conf.json"]);
     if let Some(updater) = std::env::var_os("HUB_UPDATER_CONFIG") {
         build.arg("--config").arg(updater);
@@ -54,6 +61,22 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     let hub_target = custom.unwrap_or_else(|| hub.join("target"));
     report(&hub_target.join("release/bundle"));
     Ok(())
+}
+
+/// Writes the `sha256sum` line the Hub checks its miner against. The line
+/// names the miner as installed: the sidecar's name without the triple.
+fn write_miner_checksums(sidecar: &Path, folder: &Path) -> Result<PathBuf, String> {
+    let bytes = fs::read(sidecar).map_err(|e| format!("{}: {e}", sidecar.display()))?;
+    let digest: String = Sha256::digest(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let installed = format!("{MINER}{}", std::env::consts::EXE_SUFFIX);
+    let sums = folder.join("miner-sha256sums.txt");
+    fs::write(&sums, format!("{digest}  {installed}\n"))
+        .map_err(|e| format!("{}: {e}", sums.display()))?;
+    println!("miner sha256: {digest}  {installed}");
+    Ok(sums)
 }
 
 fn status(cmd: &mut Command, what: &str) -> Result<(), String> {
