@@ -35,8 +35,8 @@ export const fields: Field[] = [
     name: "Core chain",
     line: "Signatures, state roots, execution and pruning.",
     learn: { href: `${vision}/#2-consensus-and-execution`, label: "Consensus and execution" },
-    note: "DAG-BFT finality is not listed. architecture-vision.md tags it RESEARCH and features.toml tags it verified; it appears once the two agree.",
     parts: [
+      { ledger: "dag-bft", tag: "SHIPPED", name: "DAG-BFT finality and ML-DSA-87 validator votes (ADR-027)" },
       { ledger: "hybrid-signature-transaction-validation", tag: "SHIPPED", name: "Both signatures checked on every transaction" },
       { ledger: "committed-transaction-root-state-root", tag: "SHIPPED", name: "Committed transaction and state roots" },
       { ledger: "undo-journal-and-reorg-safety", tag: "SHIPPED", name: "Undo journal for safe reorgs" },
@@ -51,7 +51,7 @@ export const fields: Field[] = [
     name: "Mining",
     line: "GPU mining, pools, and the desktop miner.",
     learn: { href: "/guides/mining/", label: "Mining and validators" },
-    note: "The block-reward lane (ADR-044) is in progress and is not listed as shipped.",
+    note: "The block-reward lane (ADR-044) is in progress and is not listed as shipped. Pool figures are measured on one PC (mining page).",
     parts: [
       { ledger: "gpu-mining-cuda", tag: "SHIPPED", name: "NVIDIA GPU mining (CUDA, off by default)" },
       { ledger: "gpu-mining-wgpu-vulkan-metal-dx12", tag: "SHIPPED", name: "Cross-vendor GPU mining (wgpu)" },
@@ -76,7 +76,7 @@ export const fields: Field[] = [
     line: "A post-quantum messenger, detached from the chain.",
     learn: { href: `${adr}/ADR-031-maya-chat.md`, label: "ADR-031: Maya Chat" },
     parts: [
-      { ledger: "maya-chat", tag: "RESEARCH", name: "Maya Chat messenger" },
+      { ledger: "maya-chat", tag: "RESEARCH", name: "Maya Chat messenger (a failed send never rewinds the ratchet, #285)" },
       { ledger: "chat-stickers", tag: "RESEARCH", name: "Stickers" },
     ],
   },
