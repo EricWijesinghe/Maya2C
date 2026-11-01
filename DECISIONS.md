@@ -648,3 +648,24 @@ interventions, Cosmos `x/circuit` and Forta, so no "first" claim is made.
 Nothing enters the launch binary.
 
 Eric approved D1–D7 as recommended the same day ("I approve all you recomended"). ADR-077 is Accepted, and ADR-050 is amended for tainted balances once SRN activates. D5's exact fee share comes back to him as a number with R6.
+
+## 2026-11-02 — Omega design proposed (MIP-0002, ADR-078)
+
+Eric asked what Maya2C must become so that no future protocol can surpass it.
+The answer, written honestly: no design can guarantee that, so MIP-0002 designs
+three things instead:
+- advantages a fork cannot take: track record, immunity corpus, identity graph,
+  proofs and decentralization, each with a published indicator;
+- an absorption pipeline for outside breakthroughs;
+- provable self-steering: bounded integer controllers, evolution searched off
+  chain and selected on chain.
+
+Decisions O1–O4 are proposed:
+- O1: three-speed evolution with pre-shipped, vote-activated code;
+- O2: bounded controllers;
+- O3: a test ratchet, which can start now;
+- O4: moat indicators.
+
+Prior art: Tezos and Polkadot already upgrade without hard forks. Maya2C's
+difference is that a vote selects only the activation height, never code from
+state (invariant 13).

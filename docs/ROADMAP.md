@@ -32,6 +32,7 @@ written-down height, after its audit.
 | Order | Work | Evidence that brings it in | Audit |
 |---|---|---|---|
 | 1 | Sentinel Recovery Network ([MIP-0001](mip/MIP-0001-sentinel-recovery-network.md), [ADR-077](adr/ADR-077-sentinel-recovery-network.md)) | Eric's decisions D1–D7; R1–R6 each with replay tests and attacknet scenarios S1–S8; activation only after an independent audit and the committee independence floor | (b) consensus, (c) state machine, economics |
+| 2 | Omega design ([MIP-0002](mip/MIP-0002-omega-durable-advantage.md), [ADR-078](adr/ADR-078-omega-durable-advantage.md)): test ratchet, moat indicators, bounded controllers, vote-activated upgrades | Ω1–Ω5 done-when criteria in MIP-0002 §13 | (b), (c), economics |
 
 ## Beyond the protocol
 
