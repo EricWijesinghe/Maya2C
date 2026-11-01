@@ -42,6 +42,14 @@ pub const PROTOCOL_VERSION: u16 = 2;
 /// negotiate without a message change.
 const FLAGS: u32 = 0;
 
+/// Channels one connection may hold open at once.
+///
+/// Each open channel takes a nonce range and receives every job push, so a
+/// connection that opened channels in a loop would multiply pool work and
+/// range consumption for free. Sixteen is the rig count one proxy connection
+/// legitimately fronts; a farm wanting more opens more connections.
+pub const MAX_CHANNELS_PER_CONNECTION: usize = 16;
+
 /// Error code for a channel a connection does not own.
 const UNKNOWN_CHANNEL: &str = error_codes::UNKNOWN_CHANNEL;
 
@@ -214,9 +222,24 @@ impl Session {
             ))]);
         };
 
+        if self.channels.len() >= MAX_CHANNELS_PER_CONNECTION {
+            return Ok(vec![SessionAction::Reply(Message::OpenMiningChannelError(
+                OpenMiningChannelError {
+                    request_id,
+                    error_code: "max-channels-per-connection".to_string(),
+                },
+            ))]);
+        }
+
         let mut channels = state.channels()?;
-        let Some(channel) = channels.open(key.clone(), reported_hashrate, &state.config, now)
-        else {
+        let is_retired = |job_id| jobs.get(job_id).is_none();
+        let Some(channel) = channels.open(
+            key.clone(),
+            reported_hashrate,
+            &state.config,
+            now,
+            is_retired,
+        ) else {
             return Ok(vec![SessionAction::Reply(Message::OpenMiningChannelError(
                 OpenMiningChannelError {
                     request_id,
@@ -849,6 +872,81 @@ mod tests {
             }
             other => panic!("expected a duplicate rejection, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_share_replayed_over_a_reconnect_is_never_verified_again() {
+        // Submit, drop the connection, reconnect, resubmit the same (job, nonce).
+        // A recycled range would let the second channel accept it and credit it
+        // twice; the range must stay quarantined while the job is retained.
+        let state = state_with_job();
+        let (mut first, channel_id, nonce_min) = opened(&state);
+        let job_id = state.jobs().unwrap().current().unwrap().id;
+        let submit = SubmitSharesStandard {
+            channel_id,
+            sequence_number: 1,
+            job_id,
+            nonce: nonce_min + 3,
+            ntime: 1_700_000_000,
+        };
+        assert!(matches!(
+            first
+                .handle(Message::SubmitSharesStandard(submit), &state)
+                .unwrap()[0],
+            SessionAction::Validate(_)
+        ));
+        first.disconnect(&state).unwrap();
+
+        let (mut second, reopened_id, _) = opened(&state);
+        let replay = SubmitSharesStandard {
+            channel_id: reopened_id,
+            ..submit
+        };
+        match &second
+            .handle(Message::SubmitSharesStandard(replay), &state)
+            .unwrap()[0]
+        {
+            SessionAction::Reply(Message::SubmitSharesError(error)) => {
+                assert_eq!(error.error_code, error_codes::NONCE_OUT_OF_RANGE);
+            }
+            other => panic!("a replayed share must not reach the validator, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_connection_cannot_open_channels_without_limit() {
+        // Without the cap one socket could hold every nonce range in the pool.
+        let state = state_with_job();
+        let mut session = Session::new();
+        session.handle(setup_message(), &state).unwrap();
+
+        let open = |request_id: u32| {
+            Message::OpenStandardMiningChannel(
+                maya_stratum_v2::messages::OpenStandardMiningChannel {
+                    request_id,
+                    user_identity: format!("{ADDRESS_HEX}.rig-{request_id}"),
+                    nominal_hash_rate: 1_000.0,
+                    max_target: [0xFF; 32],
+                },
+            )
+        };
+
+        for request_id in 0..MAX_CHANNELS_PER_CONNECTION as u32 {
+            assert!(matches!(
+                session.handle(open(request_id), &state).unwrap()[0],
+                SessionAction::Reply(Message::OpenStandardMiningChannelSuccess(_))
+            ));
+        }
+        match &session
+            .handle(open(MAX_CHANNELS_PER_CONNECTION as u32), &state)
+            .unwrap()[0]
+        {
+            SessionAction::Reply(Message::OpenMiningChannelError(error)) => {
+                assert_eq!(error.error_code, "max-channels-per-connection");
+            }
+            other => panic!("expected the channel cap to refuse, got {other:?}"),
+        }
+        assert_eq!(session.channels().len(), MAX_CHANNELS_PER_CONNECTION);
     }
 
     #[test]
