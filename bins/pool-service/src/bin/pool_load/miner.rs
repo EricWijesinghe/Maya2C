@@ -15,9 +15,7 @@ use futures::{AsyncReadExt, AsyncWriteExt};
 use maya_pool_service::job::Job;
 use maya_stratum_v2::frame::FRAME_HEADER_LEN;
 use maya_stratum_v2::messages::common::SetupConnection;
-use maya_stratum_v2::messages::mining::{
-    OpenStandardMiningChannel, SubmitSharesStandard,
-};
+use maya_stratum_v2::messages::mining::{OpenStandardMiningChannel, SubmitSharesStandard};
 use maya_stratum_v2::{Frame, FrameHeader, Message, Protocol};
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncReadCompatExt;
@@ -114,7 +112,10 @@ pub async fn run_miner(
         }),
     )
     .await?;
-    await_reply(&mut reader, |m| matches!(m, Message::SetupConnectionSuccess(_))).await?;
+    await_reply(&mut reader, |m| {
+        matches!(m, Message::SetupConnectionSuccess(_))
+    })
+    .await?;
 
     let identity = format!("{:064x}.rig-{}", spec.index as u64 + 1, spec.index);
     send(
@@ -127,9 +128,10 @@ pub async fn run_miner(
         }),
     )
     .await?;
-    let Message::OpenStandardMiningChannelSuccess(open) =
-        await_reply(&mut reader, |m| matches!(m, Message::OpenStandardMiningChannelSuccess(_)))
-            .await?
+    let Message::OpenStandardMiningChannelSuccess(open) = await_reply(&mut reader, |m| {
+        matches!(m, Message::OpenStandardMiningChannelSuccess(_))
+    })
+    .await?
     else {
         return Err("no channel".into());
     };
@@ -176,7 +178,10 @@ pub async fn run_miner(
 }
 
 /// Writes one message as a frame.
-async fn send<W: futures::AsyncWrite + Unpin>(writer: &mut W, message: Message) -> Result<(), BoxError> {
+async fn send<W: futures::AsyncWrite + Unpin>(
+    writer: &mut W,
+    message: Message,
+) -> Result<(), BoxError> {
     writer.write_all(&message.to_frame()?.encode()).await?;
     writer.flush().await?;
     Ok(())
@@ -206,7 +211,9 @@ where
 }
 
 /// Reads one frame, or `None` at a clean end of stream.
-pub async fn read_message<R: futures::AsyncRead + Unpin>(reader: &mut R) -> Result<Option<Message>, BoxError> {
+pub async fn read_message<R: futures::AsyncRead + Unpin>(
+    reader: &mut R,
+) -> Result<Option<Message>, BoxError> {
     let mut header = [0u8; FRAME_HEADER_LEN];
     match reader.read_exact(&mut header).await {
         Ok(()) => {}
@@ -218,7 +225,9 @@ pub async fn read_message<R: futures::AsyncRead + Unpin>(reader: &mut R) -> Resu
     whole.resize(FRAME_HEADER_LEN + decoded.msg_length as usize, 0);
     reader.read_exact(&mut whole[FRAME_HEADER_LEN..]).await?;
     let frame = Frame::decode(&whole).map_err(|e| format!("frame: {e}"))?;
-    Ok(Some(Message::from_frame(&frame).map_err(|e| format!("message: {e}"))?))
+    Ok(Some(
+        Message::from_frame(&frame).map_err(|e| format!("message: {e}"))?,
+    ))
 }
 
 /// Timestamps every reply. Runs until the connection ends or the task is aborted.

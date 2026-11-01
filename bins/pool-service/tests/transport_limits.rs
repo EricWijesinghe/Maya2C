@@ -35,14 +35,9 @@ async fn a_silent_socket_is_closed_after_the_handshake_timeout() {
     let (blocks, _found) = mpsc::channel(4);
     let validator = Validator::spawn(Arc::clone(&state), 1, blocks);
     let (jobs, _) = broadcast::channel(4);
-    let server = daemon::serve_stratum(
-        "127.0.0.1:0".parse().unwrap(),
-        state,
-        validator,
-        jobs,
-    )
-    .await
-    .unwrap();
+    let server = daemon::serve_stratum("127.0.0.1:0".parse().unwrap(), state, validator, jobs)
+        .await
+        .unwrap();
 
     let mut silent = TcpStream::connect(server.address).await.unwrap();
     // The responder speaks first, so the peer reads a little before the pool

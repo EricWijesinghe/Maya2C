@@ -73,10 +73,10 @@ fn spawn_server(settings: &Settings) -> Result<(std::process::Child, ServerFeed)
                     last.store(bytes, Ordering::SeqCst);
                     peak.fetch_max(bytes, Ordering::SeqCst);
                 }
-            } else if let Some(id) = line.strip_prefix("JOBSENT ") {
-                if let Ok(id) = id.parse() {
-                    let _ = jobs_tx.send(id);
-                }
+            } else if let Some(id) = line.strip_prefix("JOBSENT ")
+                && let Ok(id) = id.parse()
+            {
+                let _ = jobs_tx.send(id);
             }
         }
     });
@@ -116,7 +116,9 @@ pub async fn execute(settings: Settings) -> Result<(), Box<dyn Error>> {
     let job = Arc::new(Job::from_candidate(0, &serve::candidate(0))?);
 
     let started = Instant::now();
-    let events = (settings.per_miner_rate * settings.duration_secs as f64).ceil().max(1.0) as usize;
+    let events = (settings.per_miner_rate * settings.duration_secs as f64)
+        .ceil()
+        .max(1.0) as usize;
     let interval = Duration::from_secs_f64(1.0 / settings.per_miner_rate);
     let (phase_tx, phase_rx) = watch::channel(Phase::Wait);
     let ready = Arc::new(AtomicUsize::new(0));
@@ -168,8 +170,7 @@ pub async fn execute(settings: Settings) -> Result<(), Box<dyn Error>> {
     // The last share is due at events x interval, which can be past the nominal
     // duration when that is not a whole number of intervals.
     let window = interval.mul_f64(events as f64) + Duration::from_secs(1);
-    tokio::time::sleep_until(tokio::time::Instant::from_std(load_start + window))
-    .await;
+    tokio::time::sleep_until(tokio::time::Instant::from_std(load_start + window)).await;
     let load_peak = feed.rss_peak.swap(0, Ordering::SeqCst);
     phase_tx.send_replace(Phase::Drain);
     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -200,7 +201,10 @@ pub async fn execute(settings: Settings) -> Result<(), Box<dyn Error>> {
         planned_per_miner: events,
         window_secs: window.as_secs_f64(),
         job_fanout,
-        tallies: tallies.iter().map(|t| t.lock().map(|t| t.clone()).unwrap_or_default()).collect(),
+        tallies: tallies
+            .iter()
+            .map(|t| t.lock().map(|t| t.clone()).unwrap_or_default())
+            .collect(),
     };
     report.print();
     Ok(())
@@ -267,8 +271,16 @@ impl Report<'_> {
         let accepted: u64 = self.tallies.iter().map(|t| t.accepted).sum();
         let rejected: u64 = self.tallies.iter().map(|t| t.rejected).sum();
         let valid_rejected: u64 = self.tallies.iter().map(|t| t.valid_rejected).sum();
-        let mut errs: Vec<u32> = self.tallies.iter().flat_map(|t| t.rejected_latency_us.iter().copied()).collect();
-        let mut acks: Vec<u32> = self.tallies.iter().flat_map(|t| t.accepted_latency_us.iter().copied()).collect();
+        let mut errs: Vec<u32> = self
+            .tallies
+            .iter()
+            .flat_map(|t| t.rejected_latency_us.iter().copied())
+            .collect();
+        let mut acks: Vec<u32> = self
+            .tallies
+            .iter()
+            .flat_map(|t| t.accepted_latency_us.iter().copied())
+            .collect();
         let early = self.tallies.iter().filter(|t| t.ended_early).count();
         let per_conn_kib = if self.active > 0 && self.idle > self.baseline {
             (self.idle - self.baseline) as f64 / self.active as f64 / 1024.0
@@ -278,23 +290,65 @@ impl Report<'_> {
         let offered = self.active as f64 * self.planned_per_miner as f64;
 
         println!("== pool-load result ==");
-        println!("host: {} logical cores, ephemeral ports 1024-65535", std::thread::available_parallelism().map_or(0, |n| n.get()));
-        println!("miners requested: {}  channels open: {}  failed: {}  ended early: {early}", s.miners, self.active, self.failed);
-        println!("setup (connect, handshake, open, solve) wall: {:.1} s", self.setup_secs);
-        println!("config: per-miner rate {:.3}/s, duration {} s, invalid ratio {:.3}, validators {}", s.per_miner_rate, s.duration_secs, s.invalid_ratio, s.validators);
-        println!("offered shares: {offered:.0} ({} per miner)", self.planned_per_miner);
-        println!("accepted: {accepted}  refused: {rejected} (of which valid refused: {valid_rejected})");
-        println!("accepted shares/s over the send window ({:.1} s): {:.1}", self.window_secs, accepted as f64 / self.window_secs);
-        println!("refused-share ack latency (immediate): p50 {} us  p99 {} us  n={}", pct(&mut errs, 0.50), pct(&mut errs, 0.99), errs.len());
-        println!("accepted-share ack latency (batched, ACK_BATCH=8): p50 {} us  p99 {} us  n={}", pct(&mut acks, 0.50), pct(&mut acks, 0.99), acks.len());
-        println!("server RSS (working set): baseline {} MiB, idle with {} channels {} MiB, peak idle {} MiB, peak under load {} MiB",
-            mib(self.baseline), self.active, mib(self.idle), mib(self.idle_peak), mib(self.load_peak));
+        println!(
+            "host: {} logical cores, ephemeral ports 1024-65535",
+            std::thread::available_parallelism().map_or(0, |n| n.get())
+        );
+        println!(
+            "miners requested: {}  channels open: {}  failed: {}  ended early: {early}",
+            s.miners, self.active, self.failed
+        );
+        println!(
+            "setup (connect, handshake, open, solve) wall: {:.1} s",
+            self.setup_secs
+        );
+        println!(
+            "config: per-miner rate {:.3}/s, duration {} s, invalid ratio {:.3}, validators {}",
+            s.per_miner_rate, s.duration_secs, s.invalid_ratio, s.validators
+        );
+        println!(
+            "offered shares: {offered:.0} ({} per miner)",
+            self.planned_per_miner
+        );
+        println!(
+            "accepted: {accepted}  refused: {rejected} (of which valid refused: {valid_rejected})"
+        );
+        println!(
+            "accepted shares/s over the send window ({:.1} s): {:.1}",
+            self.window_secs,
+            accepted as f64 / self.window_secs
+        );
+        println!(
+            "refused-share ack latency (immediate): p50 {} us  p99 {} us  n={}",
+            pct(&mut errs, 0.50),
+            pct(&mut errs, 0.99),
+            errs.len()
+        );
+        println!(
+            "accepted-share ack latency (batched, ACK_BATCH=8): p50 {} us  p99 {} us  n={}",
+            pct(&mut acks, 0.50),
+            pct(&mut acks, 0.99),
+            acks.len()
+        );
+        println!(
+            "server RSS (working set): baseline {} MiB, idle with {} channels {} MiB, peak idle {} MiB, peak under load {} MiB",
+            mib(self.baseline),
+            self.active,
+            mib(self.idle),
+            mib(self.idle_peak),
+            mib(self.load_peak)
+        );
         println!("server memory per open channel (idle delta / channels): {per_conn_kib:.1} KiB");
         if let Some(fanout) = &self.job_fanout {
             let mut f = fanout.clone();
             f.sort_by(|a, b| a.total_cmp(b));
-            println!("job fan-out (push to NewMiningJob received): p50 {:.1} ms  p99 {:.1} ms  max {:.1} ms  miners {}",
-                pct_f(&f, 0.50), pct_f(&f, 0.99), f.last().copied().unwrap_or(0.0), f.len());
+            println!(
+                "job fan-out (push to NewMiningJob received): p50 {:.1} ms  p99 {:.1} ms  max {:.1} ms  miners {}",
+                pct_f(&f, 0.50),
+                pct_f(&f, 0.99),
+                f.last().copied().unwrap_or(0.0),
+                f.len()
+            );
         }
     }
 }
