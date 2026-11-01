@@ -92,6 +92,12 @@ jobs:
       - name: Superlative claims
         run: cargo xtask claims-check
 
+      # ADR-078 O3: the chain's immune memory may grow, never shrink. Fails if
+      # Kani harnesses, conformance vectors, exploit replays, ACVP files or
+      # fuzz targets fall below proof-ratchet.txt.
+      - name: Proof ratchet
+        run: cargo xtask proof-ratchet --check
+
       # Every command a guide in docs/ gives names a package, test, binary,
       # xtask or maya2c command, or script that exists (Master Prompt 17).
       - name: Guide commands

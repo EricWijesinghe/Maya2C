@@ -629,3 +629,18 @@ Two more from the same security review, fixed in the freeze:
   `an_lp_whose_quote_share_rounds_to_zero_can_still_withdraw_its_base`.
 Residual: "usable" means spot is not 0, not "every size clears". At spot near 1, small base sells
 round to 0 and are refunded until a buyer moves the price. That is a refund, not a lock.
+
+## 2026-11-02 — The proof ratchet (ADR-078 O3)
+
+`cargo xtask proof-ratchet --check` runs in CI beside claims-check. It fails
+when any of these falls below `proof-ratchet.txt`:
+- Kani harnesses;
+- spec conformance vectors;
+- exploit replays;
+- ACVP vector files;
+- fuzz targets.
+
+Baseline at creation: 83 harnesses, 164 vectors, 11 replays, 8 ACVP files,
+16 fuzz targets. Removing a counter also fails, so the ratchet cannot be
+bypassed by deleting it. A count that rises is raised with `--update`, and the
+commit message says why.

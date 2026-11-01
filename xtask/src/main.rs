@@ -29,6 +29,7 @@ mod localnet;
 mod mesh_check;
 mod mining_localnet;
 mod pgo;
+mod proof_ratchet;
 mod proving;
 mod readiness;
 mod release_check;
@@ -73,6 +74,7 @@ fn main() -> ExitCode {
         "localnet" => localnet::localnet(rest),
         "mining-localnet" => mining_localnet::mining_localnet(rest),
         "proving" => proving::proving(rest),
+        "proof-ratchet" => proof_ratchet::run(rest),
         "attacknet" => attacknet::attacknet(rest),
         "up" => up::up(),
         "down" => up::down(),
@@ -129,6 +131,8 @@ cargo xtask <command>
   eco-metrics           Ecosystem metrics computable from this repository
                         (active developers, retention, contracts), with a
                         named gap for each one that needs chain data.
+  proof-ratchet         Kani harnesses, conformance vectors, exploit replays and
+                        fuzz targets may grow, never fall [--check | --update].
   claims-check          Fail if a public surface calls a feature \"first\",
                         \"only\" or \"unprecedented\" without citing a completed
                         docs/prior-art/ search that permits the claim.
