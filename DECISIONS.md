@@ -594,3 +594,14 @@ waste of computation power"; then, on the options: "use recommended maximum pote
   (< 2^64).
 - **After launch, at activation heights (BACKLOG P5):** reward-per-share accumulator,
   256-bit TWAP accumulators, packed state words.
+
+## 2026-11-01 — Eric approves ADR-071 option B and the ADR-044 payout wording (economics)
+
+Eric, 2026-11-01: "I approve everything, finish them".
+- ADR-071: the base-fee ceiling is option B, 0.1 MAYA per standard transfer at the cap. That value is already in `crates/fee-market/src/limits.rs`, so no code change. Status: Accepted.
+- ADR-044: the text now matches the code, with no consensus change.
+  - A claim earns `budget / target_shares`, capped by what is left of the epoch's budget.
+  - Unpaid budget stays in `MINING_RESERVE`, with nothing burned and no carry-over.
+  - `R(e)` has a tail floor, and with a tail, genesis requires the reserve to hold `lifetime_emission()`.
+  - The old text said pro-rata, remainder burned, and an empty epoch burned (`state/mining.rs` `share_reward`, `epoch_reward`; `genesis.rs` `bft.mining`).
+- The GitHub `release` environment now requires Eric's approval and only deploys `node-v*` tags. The `pypi` environment requires his review.
