@@ -33,6 +33,25 @@ function Get-Sources([int]$self) {
     if (-not $urls) { $urls = @('http://127.0.0.1:18601') }
     return $urls
 }
+# B49: a restart passes a trusted block from the live peer it catches up from:
+# that peer's own tip, recent by definition. Returns the flag, or $null.
+function Invoke-TrustedRpc([string]$Url, [string]$Method, $Params) {
+    $body = @{ jsonrpc = '2.0'; id = 1; method = $Method; params = $Params } | ConvertTo-Json -Compress -Depth 4
+    (Invoke-RestMethod $Url -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 5).result
+}
+function Get-TrustedFlag([string]$Url) {
+    for ($try = 1; $try -le 10; $try++) {
+        try {
+            $tip = [uint64](Invoke-TrustedRpc $Url 'get_chain_info' @()).height
+            $block = Invoke-TrustedRpc $Url 'get_block_by_height' @($tip)
+            if ([uint64]$block.height -eq $tip -and $block.header.id -match '^[0-9a-fA-F]{64}$') {
+                return "--trusted-block $($tip):$($block.header.id)"
+            }
+        } catch { }
+        Start-Sleep -Seconds 3
+    }
+    return $null
+}
 # ADR-043: a wiped node restarts with an empty safety log, which is safe only
 # when the network is in a later epoch than the last one the node signed in.
 # Unknown network epoch counts as unsafe: a missed wipe costs time, a wrong
@@ -128,10 +147,18 @@ for ($i = 1; $i -le 4; $i++) {
         if ($j -ne $i) { $boot += "--bootnode /ip4/127.0.0.1/tcp/$(31400 + $j)/p2p/$(Get-Content (Join-Path $root "pc$j\peer.id") -Raw)" }
     }
     $src = Get-Sources $i
-    $args = "--genesis `"$root\genesis.json`" --data-dir `"$dir\data`" --rpc-addr 127.0.0.1:$(if ($i -eq 1) { 8545 } else { 18700 + $i }) --p2p-port $(31400 + $i) --allow-private-peers " +
+    # B49: a catch-up start passes the trusted block. Without one the node still
+    # starts, and it refuses only if it is behind the unbonding window.
+    $trusted = ''
+    if ($src.Count -gt 0) {
+        $flag = Get-TrustedFlag $src[0]
+        if ($flag) { $trusted = "$flag " }
+        else { Write-Output "$(Get-Date -Format s) pc$($i): no trusted block from $($src[0]); starting without one (a node behind the window will refuse)" }
+    }
+    $args ="--genesis `"$root\genesis.json`" --data-dir `"$dir\data`" --rpc-addr 127.0.0.1:$(if ($i -eq 1) { 8545 } else { 18700 + $i }) --p2p-port $(31400 + $i) --allow-private-peers " +
         "--validator-key `"$dir\validator.key.sealed`" --validator-passphrase-file E:\Maya2C-secrets\pc$i.passphrase " +
         "--min-register-bond 1000000000 --snapshot-interval 3600 --snapshot-depth 3600 --prune-depth 3600 " +
-        (($src | ForEach-Object { "--catch-up-from $_ " }) -join '') + $(if (-not (Test-Path (Join-Path $dir 'data/archive'))) { "--bootstrap-from http://127.0.0.1:18601 " }) + $(if ($i -eq 1) { $ws }) + ($boot -join ' ')
+        (($src | ForEach-Object { "--catch-up-from $_ " }) -join '') + $trusted + $(if (-not (Test-Path (Join-Path $dir 'data/archive'))) { "--bootstrap-from http://127.0.0.1:18601 " }) + $(if ($i -eq 1) { $ws }) + ($boot -join ' ')
     $line = "`"$exe`" $args >> `"$dir\node.log`" 2>&1"
     Start-Process -FilePath 'cmd.exe' -ArgumentList "/c `"$line`"" -WorkingDirectory $dir -WindowStyle Hidden
     Write-Output "$(Get-Date -Format s) pc$i started"

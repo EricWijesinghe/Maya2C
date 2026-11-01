@@ -78,11 +78,27 @@ so a fast chain has a shorter window. The figures below use the 15 s cap, the lo
 | mainnet | not in this repo; read it from the genesis file | - |
 
 Short windows mean a node restarted after a 35-minute outage on the Oracle VM testnet or a
-devnet is refused until it is given a trusted block. That is intended. Restart scripts that
-pass `--catch-up-from` without `--trusted-block` (`infra/hybrid-testnet/start-pc-validators.ps1`,
-`infra/testnet-vm/join-validator.ps1`, `scripts/join-testnet.sh`, `scripts/dr-drill.ps1`)
-will be refused after the window. Pass the trusted block to them before the next
-restart after a long outage.
+devnet is refused until it is given a trusted block. That is intended.
+
+**Restart rule (B49), now in every launcher.** Before a node with `--catch-up-from` starts, the
+launcher takes a trusted block from the peer it catches up from: `get_chain_info` for the tip
+height, then `get_block_by_height` for its id. It passes `--trusted-block HEIGHT:HEX`. The tip is
+recent by definition. A node within the window accepts it as a checked anchor, so passing it is
+always safe.
+
+| Launcher | Fetches from | Notes |
+|---|---|---|
+| `infra/hybrid-testnet/start-pc-validators.ps1` | first live peer from `Get-Sources` | every start; warns and starts without one if none answers |
+| `infra/testnet-vm/join-validator.ps1` | `-Bootstrap` URL (default `https://bootstrap.maya2c.dev/rpc`) | the boot task's `run-node.cmd` runs `trusted-block.ps1` on every start |
+| `scripts/join-testnet.sh` | `$BOOTSTRAP` (same endpoint) | the service runs `run-node.sh`, which fetches before `exec` on every start |
+| `scripts/dr-drill.ps1` | the drill's `$peer` | one start; warns and starts without one |
+
+A launcher that finds no block still starts the node. A node behind the window then refuses,
+and the log says why. The restart fails loudly only in the lab (`cargo xtask attacknet`, the
+controller), where a missing block would make the scenario meaningless.
+
+If the node is behind by more than the 50,000-block catch-up cap, the restart still refuses:
+restore from a snapshot with `--bootstrap-from` instead.
 
 **Start-up with no confirming head.** A node whose tip is older than the window, and that no
 source confirms with a head beyond the window, is refused at start-up at any height. This is

@@ -109,6 +109,28 @@ cargo run -p attacknet-controller -- run "1.1" --rounds 3
 .\scripts\attacknet-lab.ps1 -Action down
 ```
 
+### Restart rule (B49)
+
+Every restart that catches up passes `--catch-up-from <peer>` **and** `--trusted-block
+HEIGHT:HEX`. The block is taken from that peer's own tip, through its RPC, right before the
+node starts:
+
+1. `get_chain_info` on the peer gives its tip height.
+2. `get_block_by_height` on that height gives the block id.
+3. The pair is passed as `--trusted-block`, and checked against the restarting node.
+
+The tip is recent by definition, so the guard accepts it. A node behind the unbonding window
+needs it. A node within the window takes it as a checked anchor, so passing it is always
+safe. The restart waits for the peer's RPC (up to 3 minutes in `cargo xtask attacknet`, 30 s in the
+controller), then fails loudly rather than starting a node that would refuse.
+
+Where it is done: `xtask/src/attacknet.rs` (`start_node`, `trusted_block`) for
+`cargo xtask attacknet`, and `bins/attacknet-controller/src/validators.rs` (`start`,
+`fetch_trusted_block_patiently`) for the Rust controller.
+
+Do **not** pass `--allow-unconfirmed-start` for these restarts. It cannot override a
+confirmed stale node, and it is for operators, not the lab.
+
 ## Lab Architecture
 
 ```

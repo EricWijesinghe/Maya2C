@@ -353,11 +353,39 @@ function Register-BootTask {
     # a Windows CI runner, 2026-10-12) stayed stopped. systemd's
     # Restart=always and launchd's KeepAlive already do this on Linux and Mac.
     $launcher = Join-Path $InstallDir 'run-node.cmd'
+    # B49: every start, boot or restart, fetches a trusted block from the
+    # bootstrap endpoint first: a flag fixed at registration goes stale. Without
+    # one the node still starts, and refuses only if it is behind the window.
+    $helper = Join-Path $InstallDir 'trusted-block.ps1'
+    Set-Content -Path $helper -Encoding ASCII -Value @'
+# Prints "--trusted-block HEIGHT:HEX" for a node start (B49), or nothing.
+param([string]$Url)
+$ErrorActionPreference = 'Stop'
+function Invoke-TrustedRpc([string]$Method, $Params) {
+    $body = @{ jsonrpc = '2.0'; id = 1; method = $Method; params = $Params } | ConvertTo-Json -Compress -Depth 4
+    (Invoke-RestMethod $Url -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 10).result
+}
+try {
+    $tip = [uint64](Invoke-TrustedRpc 'get_chain_info' @()).height
+    $block = Invoke-TrustedRpc 'get_block_by_height' @($tip)
+    if ([uint64]$block.height -eq $tip -and $block.header.id -match '^[0-9a-fA-F]{64}$') {
+        Write-Output "--trusted-block $($tip):$($block.header.id)"
+    } else {
+        [Console]::Error.WriteLine('trusted block: the reply did not match its height; starting without one')
+    }
+} catch {
+    [Console]::Error.WriteLine("trusted block: $($_.Exception.Message); starting without one")
+}
+'@
+    $launcher = Join-Path $InstallDir 'run-node.cmd'
     @"
 @echo off
 rem Maya2C validator launcher. Started at boot by the "$TaskName" task.
 :run
-"$NodeExe" $nodeArgs >> "$LogDir\node.log" 2>&1
+set TRUSTED=
+powershell -NoProfile -ExecutionPolicy Bypass -File "$helper" -Url "$Bootstrap" > "$InstallDir\trusted.flag" 2>> "$LogDir\node.log"
+set /p TRUSTED=<"$InstallDir\trusted.flag"
+"$NodeExe" $nodeArgs %TRUSTED% >> "$LogDir\node.log" 2>&1
 echo %date% %time% maya2c-node exited with %errorlevel%; restarting in $RestartSeconds s >> "$LogDir\node.log"
 rem ping, not timeout: timeout fails at once in a session with no console.
 ping -n $($RestartSeconds + 1) 127.0.0.1 > nul
