@@ -615,6 +615,9 @@ fn the_receive_qr_is_an_svg_of_dark_modules_on_white() {
     let svg = maya_wallet_core::payment::payment_qr_svg(&request).expect("svg");
     assert!(svg.contains("<svg"), "{}", &svg[..svg.len().min(80)]);
     assert!(svg.contains("#05070f") && svg.contains("#ffffff"));
+    // The UI injects this SVG under `style-src 'self'` (no 'unsafe-inline'),
+    // where a style attribute or <style> element would be dropped.
+    assert!(!svg.contains("style"), "inline style in QR SVG");
     // Deterministic: the same request draws the same code.
     assert_eq!(
         svg,
