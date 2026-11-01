@@ -66,7 +66,7 @@
 # defines 160. An unallocated slot is a fact. An invented deliverable would
 # not be.
 #
-# `[[subsystem]]` — **90 entries: the ledger.** One per subsystem that exists,
+# `[[subsystem]]` — **156 entries: the ledger.** One per subsystem that exists,
 # with the tests that would fail if it broke. This says what the *tree* is,
 # and it is the table worth reading when the question is "does this work".
 #
@@ -2038,7 +2038,8 @@ paths = "`crates/dex`"
 tier = "extended"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-dex", "crates/dex/tests/amm_tests.rs", "crates/dex/tests/batch_tests.rs", "crates/dex/tests/book_tests.rs", "crates/dex/tests/encoding_tests.rs", "crates/dex/tests/matching_tests.rs", "crates/node/tests/dex_concurrency_tests.rs", "crates/node/tests/dex_tests.rs"]
+tests = ["crate:maya-dex", "crates/dex/tests/amm_tests.rs", "crates/dex/tests/batch_tests.rs", "crates/dex/tests/book_tests.rs", "crates/dex/tests/encoding_tests.rs", "crates/dex/tests/matching_tests.rs", "crates/node/tests/dex_concurrency_tests.rs", "crates/node/tests/dex_tests.rs", "crates/dex/tests/price_scale_tests.rs"]
+note = "PRICE_SCALE is 1e24 (ADR-068, #279): a pool price resolves to one base unit per coin; spot price bound 2^184. #289: no create, liquidity or routed write may leave a funded pool without a usable price (dex_exec.rs has_usable_price, dex_tests.rs). DEX products keep 512-bit mul_div as a documented exception (DECISIONS 2026-11-01)."
 
 [[subsystem]]
 id = "governance-lifecycle-and-bounds"
@@ -2059,6 +2060,7 @@ tier = "core"
 class = "REAL"
 status = "working"
 tests = ["crate:maya-amount", "crates/amount/tests/property_tests.rs", "crates/node/tests/amount_bytes_tests.rs"]
+note = "ADR-068 step 2 (#272): COIN_DECIMALS = 24 and ONE_COIN = 10^24 in crates/amount, read by the wallet, api-gateway, governance and xtask genesis. #273: consensus amount products are checked; the vault fee headroom is removed (see vault-accounts)."
 
 [[subsystem]]
 id = "eip-1559-base-fee-over-bytes"
@@ -2069,6 +2071,7 @@ tier = "core"
 class = "REAL"
 status = "verified"
 tests = ["crate:maya-fee-market", "crates/node/tests/fee_market_tests.rs", "crates/node/tests/fee_market_live_tests.rs"]
+note = "Live where genesis sets bft.fees (ADR-029). ADR-071 (Proposed on master): the base-fee rise is at most parent/denominator per block, and the fee is capped at MAX_BASE_FEE_PER_BYTE (7,567,158,531,971,244,797 base units: option B, 0.1 MAYA per 13,215-byte transfer, the value in limits.rs). The ceiling value awaits the economics decision; PR #293 would accept the option. Clamp tests: crates/fee-market/tests/base_fee_clamp_tests.rs."
 
 [[subsystem]]
 id = "neural-base-fee-gain"
@@ -2748,7 +2751,7 @@ tier = "extended"
 class = "REAL"
 status = "verified"
 tests = ["crate:l1-wallet"]
-note = "Keystore, transaction construction and RPC submission."
+note = "Keystore, transaction construction and RPC submission. #270: before a key signs, the genesis must be pinned or passed with --genesis, the fee collector must be FEE_COLLECTOR, the fee is capped (default 10^24 base units, --max-fee overrides), and a typed yes or --yes is required."
 
 [[subsystem]]
 id = "wallet-core-gui-shared"
@@ -2759,7 +2762,7 @@ tier = "extended"
 class = "REAL"
 status = "verified"
 tests = ["crate:maya-wallet-core", "apps/wallet-gui/core/tests/airgap_tests.rs", "apps/wallet-gui/core/tests/hd_tests.rs", "apps/wallet-gui/core/tests/payment_tests.rs", "apps/wallet-gui/core/tests/vault_tests.rs", "apps/wallet-gui/core/tests/confirm_tests.rs"]
-note = "The logic the Tauri shell and the CLI both use. Clear signing: the confirm screen is computed from the transaction that gets signed (describe, checksummed recipient, display units, chain id); sign refuses any transaction whose signing hash differs from the reviewed one (confirm_tests.rs)."
+note = "#271, #287, #275: sign refuses any hash other than the one the confirm screen showed, and each confirm signs once (confirm_tests.rs signing_needs_a_confirm_from_this_session_and_spends_it). Unbound sign_transfer, sign_transfer_to and compose_swap are removed from the public API. Limit: a compromised webview can still confirm and sign; an OS-native confirm is on the backlog. The logic the Tauri shell and the CLI both use. Clear signing: the confirm screen is computed from the transaction that gets signed (describe, checksummed recipient, display units, chain id); sign refuses any transaction whose signing hash differs from the reviewed one (confirm_tests.rs)."
 
 [[subsystem]]
 id = "maya-chat"
@@ -2769,8 +2772,8 @@ paths = "`apps/chat`, `apps/chat-gui`"
 tier = "extended"
 class = "RESEARCH"
 status = "working"
-tests = ["crate:maya-chat", "apps/chat/tests/session_tests.rs", "apps/chat/tests/relay_tests.rs", "apps/chat/tests/net_e2e_tests.rs"]
-note = "ADR-031. ML-DSA-65 identities (chain addresses), signed X-Wing prekeys, per-direction symmetric chains, libp2p store-and-forward relays. Unaudited; no groups, no metadata privacy, PoW postage per deposit; CLI sessions saved encrypted between runs; relays dialled by name (/dns4). Desktop app apps/chat-gui (Tauri 2, outside the workspace): seed in the OS keychain, contacts and history encrypted under a seed-derived key."
+tests = ["crate:maya-chat", "apps/chat/tests/session_tests.rs", "apps/chat/tests/send_failure_tests.rs", "apps/chat/tests/relay_tests.rs", "apps/chat/tests/net_e2e_tests.rs"]
+note = "ADR-031. #285: a failed send no longer rewinds an established ratchet (the advanced chain is saved; the receiver skips up to MAX_SKIP 1000), pinned by apps/chat/tests/send_failure_tests.rs. ML-DSA-65 identities (chain addresses), signed X-Wing prekeys, per-direction symmetric chains, libp2p store-and-forward relays. Unaudited; no groups, no metadata privacy, PoW postage per deposit; CLI sessions saved encrypted between runs; relays dialled by name (/dns4). Desktop app apps/chat-gui (Tauri 2, outside the workspace): seed in the OS keychain, contacts and history encrypted under a seed-derived key."
 
 [[subsystem]]
 id = "chat-stickers"
@@ -2804,7 +2807,7 @@ tier = "extended"
 class = "REAL"
 status = "planned"
 tests = []
-note = "ADR-045. Tauri 2, outside the workspace. Runs maya2c-gpu-miner --mine --json and draws hash rate, shares, earnings, NVIDIA telemetry via nvidia-smi, network height/committee/fees from JSON-RPC, and a status map of every app and field. Unit tests in src-tauri (cargo test there); not yet run against a mining chain, so planned until that end-to-end run is recorded."
+note = "ADR-045. #275: the Hub runs maya2c-gpu-miner beside it, and nothing else, whose SHA-256 is in the build-time MAYA2C_MINER_SHA256SUMS (unset = no miner); the key file must canonicalize inside the data folder; 21 unit tests in apps/hub/src-tauri. Open: hash-then-spawn TOCTOU, key-file ACL check, and release CI does not yet set the pin, so release Hubs run no miner. #290: CSP drops style-src 'unsafe-inline' (no live Tauri launch recorded). Tauri 2, outside the workspace. Runs maya2c-gpu-miner --mine --json and draws hash rate, shares, earnings, NVIDIA telemetry via nvidia-smi, network height/committee/fees from JSON-RPC, and a status map of every app and field. Unit tests in src-tauri (cargo test there); not yet run against a mining chain, so planned until that end-to-end run is recorded."
 
 [[subsystem]]
 id = "ledger-hardware-wallet-app"
@@ -2826,8 +2829,8 @@ paths = "`bins/pool-service`"
 tier = "extended"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-pool-service", "bins/pool-service/tests/ledger_tests.rs", "bins/pool-service/tests/worker_simulation.rs"]
-note = "PPLNS accounting and treasury payouts over Stratum V2."
+note = "PPLNS accounting and treasury payouts over Stratum V2. B13, measured 2026-11-01 (reports/sessions/2026-11-01-pool-scale.md; perf profile on a 24-core Windows 11 PC, not the release profile). Saturation, 1,000 miners at 5 shares/s for 10 s: 1,727.3 accepted shares/s with 8 validator workers, 4,272.7 with one per core. 10,000 miners at 1 share/min, paced connects: 10,000 channels open, 0 failed, about 12 KiB per channel. Unpaced 10,000 connects: about a third refused (os error 10061) on both builds, cause not isolated. Same PR: handshake deadline 10 s, idle timeout 5 min, 50,000-connection cap, cleanup of channel and nonce range on early return (the leak fix has no automated test)."
+tests = ["crate:maya-pool-service", "bins/pool-service/tests/ledger_tests.rs", "bins/pool-service/tests/transport_limits.rs", "bins/pool-service/tests/worker_simulation.rs"]
 
 [[subsystem]]
 id = "genesis-ceremony"
@@ -2974,8 +2977,8 @@ paths = "`crates/dag-bft`, `crates/node/src/consensus/bft/`, `bins/maya2c-node/s
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-dag-bft", "crates/dag-bft/tests/modes_sim.rs", "crates/dag-bft/tests/auth_and_restart.rs", "crates/dag-bft/tests/adversarial_schedules.rs", "crates/node/tests/bft_node_tests.rs", "crates/node/tests/bft_follower_tests.rs"]
-note = "ADR-015. All three modes run under maya-sim. Ordering figures only (no signatures, execution or disk) — not TPS. Wired into the node by ADR-027: blocks derived from committed anchors, signed votes, a safety log (bft_node_tests.rs; cargo xtask localnet). Catch-up by certificate replay (ADR-052): paged, verified, streamed; release cost 98.5 s for a 3,600-block epoch at n=7 (cert_replay_measure.rs, ignored); cross-epoch and forged-evidence tests in bft_follower_tests.rs. Adversarial schedules (adversarial_schedules.rs): the real engine against a network that reorders, drops and duplicates, and a Byzantine seat that equivocates and certifies any quorum it harvests; agreement, certificate uniqueness and post-GST liveness checked, three engine mutations shown caught (2026-10-28). Bounded random search, not a proof."
+tests = ["crate:maya-dag-bft", "crates/dag-bft/tests/modes_sim.rs", "crates/dag-bft/tests/auth_and_restart.rs", "crates/dag-bft/tests/adversarial_schedules.rs", "crates/node/tests/bft_node_tests.rs", "crates/node/tests/bft_follower_tests.rs", "crates/node/tests/block_bytes_tests.rs"]
+note = "ADR-015. Node vote signatures are ML-DSA-87 validator signatures over VOTE_DOMAIN (ADR-051 option 3; crates/node/src/consensus/bft/auth.rs). Block byte cap (ADR-072, Proposed): MAX_BLOCK_BYTES 5 MiB, block_bytes_tests.rs. All three modes run under maya-sim. Ordering figures only (no signatures, execution or disk) — not TPS. Wired into the node by ADR-027: blocks derived from committed anchors, signed votes, a safety log (bft_node_tests.rs; cargo xtask localnet). Catch-up by certificate replay (ADR-052): paged, verified, streamed; release cost 98.5 s for a 3,600-block epoch at n=7 (cert_replay_measure.rs, ignored); cross-epoch and forged-evidence tests in bft_follower_tests.rs. Adversarial schedules (adversarial_schedules.rs): the real engine against a network that reorders, drops and duplicates, and a Byzantine seat that equivocates and certifies any quorum it harvests; agreement, certificate uniqueness and post-GST liveness checked, three engine mutations shown caught (2026-10-28). Bounded random search, not a proof."
 
 [[subsystem]]
 id = "vm-execution-tiers"
@@ -3400,7 +3403,7 @@ tier = "core"
 class = "REAL"
 status = "verified"
 tests = ["crates/node/tests/vault_tests.rs", "bins/maya2c-cli/tests/vault_devnet_tests.rs"]
-note = "ADR-030, invariant 32. Master Prompts 22 and 28. `maya2c custody-report`: reconciled per-account statements over a height range, anchored to block ids, SHA-256 digested; tested against the devnet. No outside-asset bridge route exists, so vaults hold the native coin."
+note = "ADR-030, invariant 32. #273: VAULT_FEE_HEADROOM is removed; the required fee alone is exempt from the window limit, and a fee above it counts (vault_tests.rs a_fee_above_the_required_fee_counts_against_a_zero_limit). Consensus-visible: a note for the genesis build.Master Prompts 22 and 28. `maya2c custody-report`: reconciled per-account statements over a height range, anchored to block ids, SHA-256 digested; tested against the devnet. No outside-asset bridge route exists, so vaults hold the native coin."
 
 [[subsystem]]
 id = "private-contract-state"
