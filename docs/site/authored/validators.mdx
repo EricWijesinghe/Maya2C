@@ -128,7 +128,7 @@ how mainnet will work.
 | `--print-config-template` | Prints the default template |
 | `--min-register-bond <N>` | Never propose a registration bonding less than N (ADR-039) |
 | `--catch-up-from <URL>` | Rejoin through a peer's attested checkpoint (ADR-038); repeatable |
-| `--trusted-block HEIGHT:HEX` | A RECENT block (within the unbonding window of the head) above the node's tip, that the catch-up must pass through. Required for a node stale past the unbonding window (B49); without it the node refuses to start. A peer's claimed head can only make the requirement stricter, never lift it. See the hybrid-testnet hardening runbook for the windows per network |
+| `--trusted-block HEIGHT:HEX` | A RECENT block (within the unbonding window of the head) above the node's tip, that the catch-up must pass through. Required for a node stale past the unbonding window (B49); without it the node refuses to start. Heads reported by sources are unverified: the maximum decides whether the requirement applies (a head beyond the window confirms staleness) and how recent the block must be. A node offline longer than about 13 days on 3,600-block epochs restores from a snapshot with `--bootstrap-from`. See the hybrid-testnet hardening runbook for the windows per network |
 | `--snapshot-interval <N>` | Snapshot every N blocks; validators default to 3,600, 0 turns it off |
 | `--remote-signer <ADDR>` | Sign through `maya2c-signer` instead of a key file (ADR-033) |
 

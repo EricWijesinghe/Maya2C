@@ -196,6 +196,7 @@ pub fn fetch(
         checkpoint.block,
         source,
         "attested",
+        None,
     )
 }
 
@@ -213,6 +214,7 @@ fn fetch_linked(
     to_id: [u8; 32],
     source: &impl CheckpointSource,
     what: &str,
+    max_bytes: Option<u64>,
 ) -> Result<Vec<Block>> {
     if to_height <= from.height {
         return Ok(Vec::new());
@@ -229,6 +231,9 @@ fn fetch_linked(
         let lo = first + i * BLOCKS_PER_REQUEST;
         (lo, last.min(lo + BLOCKS_PER_REQUEST - 1))
     };
+    // Encoded bytes received so far, across every chunk. Checked as each
+    // response arrives, so the fetch stops mid-gap rather than after it.
+    let received = std::sync::atomic::AtomicU64::new(0);
     for start in (0..chunks).step_by(usize::try_from(CHUNK_WINDOW).unwrap_or(1)) {
         let end = (start + CHUNK_WINDOW - 1).min(chunks - 1);
         let window = crate::state_pruner::prefetch::fetch_ordered(
@@ -243,6 +248,18 @@ fn fetch_linked(
                         "catch-up: asked for blocks {lo}..={hi}, the peer sent {}",
                         got.len()
                     )));
+                }
+                if let Some(limit) = max_bytes {
+                    let bytes: u64 = got
+                        .iter()
+                        .map(|b| u64::try_from(b.to_bytes().len()).unwrap_or(u64::MAX))
+                        .sum();
+                    let total = received
+                        .fetch_add(bytes, std::sync::atomic::Ordering::SeqCst)
+                        .saturating_add(bytes);
+                    if total > limit {
+                        return Err(gap_bytes_error(total, limit));
+                    }
                 }
                 Ok(got)
             },
@@ -309,7 +326,14 @@ pub fn fetch_anchored(
         Anchor::Checked(_) => fetch(from, source, committee, weights),
         Anchor::Stale(trusted) if from.height < trusted.height => {
             check_gap(from.height, trusted.height)?;
-            fetch_linked(from, trusted.height, trusted.id, source, "trusted")
+            fetch_linked(
+                from,
+                trusted.height,
+                trusted.id,
+                source,
+                "trusted",
+                Some(MAX_LINKED_GAP_BYTES),
+            )
         }
         // Past the trusted block the blocks just linked have written the
         // current committee into state, so the committee rule applies again.
@@ -327,6 +351,15 @@ pub fn fetch_anchored(
 /// named constant this path can read.
 pub const MAX_LINKED_GAP: u64 = 50_000;
 
+/// Most encoded bytes a stale node may receive while linking across its gap.
+/// Why: the cap in blocks alone does not bound memory, since one block can be
+/// up to `MAX_BLOCK_BYTES` (5 MiB, ADR-072). 512 MiB admits about 102 blocks
+/// of that maximum size, and about 10.7 KiB per block across the full
+/// 50,000-block cap, so the byte cap is the binding one for large blocks. The
+/// check runs as each response arrives, so memory stays within this plus one
+/// request of [`BLOCKS_PER_REQUEST`] blocks.
+pub const MAX_LINKED_GAP_BYTES: u64 = 512 * 1024 * 1024;
+
 /// Refuses a stale node's link across more than [`MAX_LINKED_GAP`] blocks.
 ///
 /// # Errors
@@ -338,8 +371,15 @@ pub fn check_gap(from_height: u64, trusted_height: u64) -> Result<()> {
         return Ok(());
     }
     Err(NodeError::Decode(format!(
-        "catch-up: the gap below the trusted block is {gap} blocks, over the {MAX_LINKED_GAP}-block cap: the peer would make this node hold all of them before the trusted id can be checked. Pick a trusted block closer to this node's tip, above it and within the unbonding window of the network's head"
+        "catch-up: the gap below the trusted block is {gap} blocks, over the {MAX_LINKED_GAP}-block cap. Choose a trusted block closer to this node's tip (above it, within the unbonding window of the head), or, if this node was offline longer than that, restore from a snapshot with --bootstrap-from"
     )))
+}
+
+/// The byte-cap refusal, once the running total passes `limit`.
+fn gap_bytes_error(total: u64, limit: u64) -> NodeError {
+    NodeError::Decode(format!(
+        "catch-up: the blocks below the trusted block exceed {limit} bytes ({total} received so far). Choose a trusted block closer to this node's tip, or, if this node was offline longer than the window allows, restore from a snapshot with --bootstrap-from"
+    ))
 }
 
 /// Checks the block `blocks` carry at `trusted.height`, if they reach it.
@@ -718,6 +758,26 @@ mod tests {
             check_gap(100, 50).is_ok(),
             "a trusted block below the start saturates to 0"
         );
+    }
+
+    #[test]
+    fn the_byte_cap_aborts_the_link_and_a_gap_within_it_links() {
+        // Why: the byte total is checked as responses arrive, so a gap over the
+        // limit is refused with the error naming bytes, not linked and then checked.
+        let (source, _) = chained(40, true);
+        let id = trusted_at(&source, 25).id;
+        let err = fetch_linked(at_ten(&source), 25, id, &source, "trusted", Some(1)).unwrap_err();
+        assert!(err.to_string().contains("bytes"), "{err}");
+        let got = fetch_linked(
+            at_ten(&source),
+            25,
+            id,
+            &source,
+            "trusted",
+            Some(MAX_LINKED_GAP_BYTES),
+        )
+        .unwrap();
+        assert_eq!(got.len(), 15);
     }
 
     #[test]
