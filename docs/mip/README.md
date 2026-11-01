@@ -13,3 +13,4 @@ Rules:
 | MIP | Title | Status | ADR |
 |---|---|---|---|
 | [0001](MIP-0001-sentinel-recovery-network.md) | Sentinel Recovery Network: threat levels, cell quarantine, forward-only governed recovery | Accepted (build after mainnet) | [077](../adr/ADR-077-sentinel-recovery-network.md) |
+| [0002](MIP-0002-omega-durable-advantage.md) | Omega design: advantage numbers do not decide; three-speed evolution, bounded controllers, test ratchet, moat indicators | Proposed | [078](../adr/ADR-078-omega-durable-advantage.md) |
