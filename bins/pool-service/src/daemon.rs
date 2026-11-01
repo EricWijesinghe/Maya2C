@@ -29,9 +29,10 @@
 //! waiting on work it just asked for. Spawning per share would let one
 //! connection queue thousands of verifications and starve every other.
 
-use std::net::SocketAddr;
-use std::sync::Arc;
-use std::time::Duration;
+use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use futures::{AsyncReadExt, AsyncWriteExt};
 use maya_stratum_v2::{Frame, FrameHeader, MAX_PAYLOAD_LEN, Message};
@@ -97,6 +98,89 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Connections served at once. `docs/stratum-v2.md` sizes the pool for 50,000.
 const MAX_CONNECTIONS: usize = 50_000;
+
+/// Connections one peer address may hold open at once.
+///
+/// NAT and mining farms put many rigs behind one address, so this is set well
+/// above what one site needs; a low cap would refuse honest miners.
+/// shortcut: keyed by full IP address, so an IPv6 attacker can rotate within a /64; upgrade to a prefix key when that is seen
+const MAX_CONNECTIONS_PER_IP: usize = 64;
+
+/// Shortest gap between two lines reporting refused connections.
+///
+/// A flood refuses thousands of sockets a second; one line per refusal is a
+/// synchronous write per stranger, so the refusals are counted and reported in
+/// batches instead.
+const REFUSAL_LOG_INTERVAL: Duration = Duration::from_secs(10);
+
+/// Open connections per peer address, shared by the accept loop and every connection.
+type PerIpCounts = Arc<Mutex<HashMap<IpAddr, usize>>>;
+
+/// One connection's claim on its peer address, released when it is dropped.
+///
+/// Held by the connection task, so every way that task can end (a clean close,
+/// an error, a panic unwinding, an abort) gives the slot back.
+struct IpSlot {
+    counts: PerIpCounts,
+    ip: IpAddr,
+}
+
+impl IpSlot {
+    /// Claims a slot for `ip`, or `None` if that address is at its cap.
+    fn claim(counts: &PerIpCounts, ip: IpAddr) -> Option<Self> {
+        let mut map = counts.lock().unwrap_or_else(PoisonError::into_inner);
+        let open = map.entry(ip).or_insert(0);
+        if *open >= MAX_CONNECTIONS_PER_IP {
+            return None;
+        }
+        *open += 1;
+        Some(Self {
+            counts: Arc::clone(counts),
+            ip,
+        })
+    }
+}
+
+impl Drop for IpSlot {
+    fn drop(&mut self) {
+        let mut map = self.counts.lock().unwrap_or_else(PoisonError::into_inner);
+        let remaining = match map.get_mut(&self.ip) {
+            Some(open) => {
+                *open = open.saturating_sub(1);
+                *open
+            }
+            None => return,
+        };
+        if remaining == 0 {
+            map.remove(&self.ip);
+        }
+    }
+}
+
+/// Counts refused connections and decides when the count is worth a line.
+#[derive(Debug, Default)]
+struct RefusalLog {
+    /// When a line was last emitted, if ever.
+    last_reported: Option<Instant>,
+    /// Refusals since that line.
+    pending: u64,
+}
+
+impl RefusalLog {
+    /// Records one refusal. `Some(count)` means a line is due and reports `count`.
+    fn record(&mut self, now: Instant) -> Option<u64> {
+        self.pending = self.pending.saturating_add(1);
+        let due = match self.last_reported {
+            None => true,
+            Some(last) => now.saturating_duration_since(last) >= REFUSAL_LOG_INTERVAL,
+        };
+        if !due {
+            return None;
+        }
+        self.last_reported = Some(now);
+        Some(std::mem::take(&mut self.pending))
+    }
+}
 
 /// Connections the kernel queues before it refuses new ones.
 ///
@@ -165,8 +249,10 @@ pub async fn serve_stratum(
     let listener = socket.listen(LISTEN_BACKLOG)?;
     let bound = listener.local_addr()?;
     let admission = Arc::new(Semaphore::new(MAX_CONNECTIONS));
+    let per_ip: PerIpCounts = Arc::new(Mutex::new(HashMap::new()));
 
     tokio::spawn(async move {
+        let mut refusals = RefusalLog::default();
         loop {
             let (stream, peer) = match listener.accept().await {
                 Ok(accepted) => accepted,
@@ -181,8 +267,22 @@ pub async fn serve_stratum(
 
             // Refused, not queued: a queue here is memory the pool holds on a
             // stranger's behalf. Dropping the socket is the refusal.
+            let Some(ip_slot) = IpSlot::claim(&per_ip, peer.ip()) else {
+                if let Some(count) = refusals.record(Instant::now()) {
+                    eprintln!(
+                        "pool: refused {count} connection(s) since the last report, \
+                         {MAX_CONNECTIONS_PER_IP} open per address; latest from {peer}"
+                    );
+                }
+                continue;
+            };
             let Ok(permit) = Arc::clone(&admission).try_acquire_owned() else {
-                eprintln!("pool: connection {peer} refused, {MAX_CONNECTIONS} already open");
+                if let Some(count) = refusals.record(Instant::now()) {
+                    eprintln!(
+                        "pool: refused {count} connection(s) since the last report, \
+                         {MAX_CONNECTIONS} open; latest from {peer}"
+                    );
+                }
                 continue;
             };
 
@@ -191,8 +291,9 @@ pub async fn serve_stratum(
             let jobs = jobs.subscribe();
 
             tokio::spawn(async move {
-                // Held for the connection's life, released when it ends.
+                // Both held for the connection's life, released when it ends.
                 let _permit = permit;
+                let _ip_slot = ip_slot;
                 if let Err(error) = serve_connection(stream, state, validator, jobs).await {
                     // Connection-level failures are ordinary: miners disconnect,
                     // Ð¸ a malformed frame is a client bug, not a pool one.
@@ -937,5 +1038,50 @@ mod tests {
         acks.record(2, 0, 10);
         assert_eq!(acks.drain().len(), 2);
         assert!(acks.drain().is_empty());
+    }
+
+    #[test]
+    fn one_address_cannot_hold_more_than_its_cap_and_dropping_frees_a_slot() {
+        // NAT farms share an address, so the cap has to be real but generous.
+        let counts: PerIpCounts = Arc::new(Mutex::new(HashMap::new()));
+        let ip: IpAddr = "203.0.113.7".parse().unwrap();
+
+        let held: Vec<IpSlot> = (0..MAX_CONNECTIONS_PER_IP)
+            .map(|_| IpSlot::claim(&counts, ip).unwrap())
+            .collect();
+        assert!(IpSlot::claim(&counts, ip).is_none());
+
+        // A different address is unaffected by this one's cap.
+        let other: IpAddr = "203.0.113.8".parse().unwrap();
+        assert!(IpSlot::claim(&counts, other).is_some());
+
+        drop(held);
+        assert!(IpSlot::claim(&counts, ip).is_some());
+    }
+
+    #[test]
+    fn an_address_with_no_open_connections_leaves_no_entry_behind() {
+        // The map would otherwise grow by one entry per stranger that ever connected.
+        let counts: PerIpCounts = Arc::new(Mutex::new(HashMap::new()));
+        let ip: IpAddr = "198.51.100.1".parse().unwrap();
+
+        drop(IpSlot::claim(&counts, ip).unwrap());
+        assert!(counts.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn refusals_are_reported_in_batches_not_per_socket() {
+        let start = Instant::now();
+        let mut refusals = RefusalLog::default();
+
+        assert_eq!(refusals.record(start), Some(1), "the first refusal is reported");
+        for offset in 1..=5 {
+            assert_eq!(refusals.record(start + Duration::from_millis(offset)), None);
+        }
+        assert_eq!(
+            refusals.record(start + REFUSAL_LOG_INTERVAL),
+            Some(6),
+            "the next report carries everything refused since the last"
+        );
     }
 }
