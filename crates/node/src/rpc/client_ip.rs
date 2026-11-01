@@ -47,7 +47,10 @@ fn is_trusted(address: IpAddr, trusted: &[IpAddr]) -> bool {
 }
 
 fn parse_ip(text: &str) -> Option<IpAddr> {
-    text.trim().parse::<IpAddr>().ok().map(|ip| ip.to_canonical())
+    text.trim()
+        .parse::<IpAddr>()
+        .ok()
+        .map(|ip| ip.to_canonical())
 }
 
 #[cfg(test)]
