@@ -1250,7 +1250,10 @@ mod tests {
         for _ in 0..MAX_INVALID_SHARES - 1 {
             assert!(!budget.record(false));
         }
-        assert!(budget.record(false), "the budget is spent on the last junk share");
+        assert!(
+            budget.record(false),
+            "the budget is spent on the last junk share"
+        );
     }
 
     #[test]
