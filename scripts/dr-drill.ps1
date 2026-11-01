@@ -46,8 +46,28 @@ if (-not $ok) { Say "key FAILED: $($out | Select-Object -Last 1)"; exit 1 }
 # 2. The chain: a keyless node from a fresh disk, bootstrapped from a peer.
 $exe = "$drill\maya2c-drill.exe"
 Copy-Item 'D:\Maya2C-validators\bin4\maya2c-validator.exe' $exe
+# B49: the drill's catch-up passes a trusted block from the peer it bootstraps
+# from (its own tip, recent by definition). Without one the node refuses only
+# if it is behind the unbonding window, which a fresh disk is not.
+function Invoke-TrustedRpc([string]$Url, [string]$Method, $Params) {
+    $body = @{ jsonrpc = '2.0'; id = 1; method = $Method; params = $Params } | ConvertTo-Json -Compress -Depth 4
+    (Invoke-RestMethod $Url -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 5).result
+}
+$trusted = $null
+for ($try = 1; $try -le 10 -and -not $trusted; $try++) {
+    try {
+        $tip = [uint64](Invoke-TrustedRpc $peer 'get_chain_info' @()).height
+        $block = Invoke-TrustedRpc $peer 'get_block_by_height' @($tip)
+        if ([uint64]$block.height -eq $tip -and $block.header.id -match '^[0-9a-fA-F]{64}$') {
+            $trusted = "--trusted-block $($tip):$($block.header.id)"
+        }
+    } catch { }
+    if (-not $trusted) { Start-Sleep -Seconds 3 }
+}
+if (-not $trusted) { Say "no trusted block from $($peer): the drill node starts without one" }
 $args = "--genesis D:\Maya2C-testnet\genesis.json --data-dir `"$drill\data`" --rpc-addr 127.0.0.1:18699 " +
         "--p2p-port 31399 --allow-private-peers --bootnode /ip4/127.0.0.1/tcp/31100 --bootstrap-from $peer --catch-up-from $peer --catch-up-from $seed " +
+        "$trusted " +
         "--prune-depth 3600 --snapshot-interval 3600 --snapshot-depth 3600"
 $t.Restart()
 $p = Start-Process -FilePath $exe -ArgumentList $args -WorkingDirectory $drill -WindowStyle Hidden `
