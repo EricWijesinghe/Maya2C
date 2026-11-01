@@ -26,7 +26,7 @@
 //! channel, and a recycled range belongs to a new channel with its own empty
 //! set — there is no cross-channel duplicate to miss.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 
@@ -54,8 +54,11 @@ pub const MAX_CHANNELS: u64 = u64::MAX / NONCE_RANGE_SIZE;
 pub struct NonceAllocator {
     /// Next never-issued range index.
     next_index: u64,
-    /// Ranges returned by closed channels.
-    free: Vec<u64>,
+    /// Ranges returned by closed channels, oldest first, each with the last job
+    /// its channel was given. Held until that job retires: a closed channel's
+    /// miner can still submit nonces from its range for any job the pool retains,
+    /// so handing the range out sooner would let a reconnect replay them.
+    quarantine: VecDeque<(Option<u32>, u64)>,
 }
 
 /// A half-open nonce range, `[min, max)`.
@@ -84,20 +87,25 @@ impl NonceAllocator {
         Self::default()
     }
 
-    /// Allocates a range, preferring one a closed channel returned.
+    /// Allocates a range, preferring one a closed channel returned whose last
+    /// job `is_retired` reports as no longer retained.
     ///
     /// Returns `None` when every range is in use, which the caller reports as a
     /// channel-open error rather than by handing out an overlapping range.
-    pub fn allocate(&mut self) -> Option<NonceRange> {
-        let index = if let Some(recycled) = self.free.pop() {
-            recycled
-        } else {
-            if self.next_index >= MAX_CHANNELS {
-                return None;
+    pub fn allocate(&mut self, is_retired: impl Fn(u32) -> bool) -> Option<NonceRange> {
+        let index = match self.quarantine.front().copied() {
+            Some((last_job, index)) if last_job.is_none_or(&is_retired) => {
+                self.quarantine.pop_front();
+                index
             }
-            let index = self.next_index;
-            self.next_index += 1;
-            index
+            _ => {
+                if self.next_index >= MAX_CHANNELS {
+                    return None;
+                }
+                let index = self.next_index;
+                self.next_index += 1;
+                index
+            }
         };
 
         Some(NonceRange {
@@ -107,15 +115,16 @@ impl NonceAllocator {
         })
     }
 
-    /// Returns a range to the free list.
-    pub fn release(&mut self, range: NonceRange) {
-        self.free.push(range.index);
+    /// Returns a range, quarantined until `last_job` retires. `None` means the
+    /// channel was never given work, so nothing could have been submitted.
+    pub fn release(&mut self, range: NonceRange, last_job: Option<u32>) {
+        self.quarantine.push_back((last_job, range.index));
     }
 
     /// Ranges currently issued.
     #[must_use]
     pub fn issued(&self) -> u64 {
-        self.next_index - self.free.len() as u64
+        self.next_index - self.quarantine.len() as u64
     }
 }
 
@@ -295,8 +304,9 @@ impl ChannelRegistry {
         reported_hashrate: f32,
         config: &PoolConfig,
         now_millis: u64,
+        is_retired: impl Fn(u32) -> bool,
     ) -> Option<&ChannelState> {
-        let range = self.allocator.allocate()?;
+        let range = self.allocator.allocate(is_retired)?;
         let id = self.next_id.checked_add(1).map(|next| {
             let id = self.next_id;
             self.next_id = next;
@@ -310,7 +320,7 @@ impl ChannelRegistry {
     /// Closes a channel and returns its nonce range to the pool.
     pub fn close(&mut self, id: u32) -> Option<ChannelState> {
         let state = self.channels.remove(&id)?;
-        self.allocator.release(state.range);
+        self.allocator.release(state.range, state.current_job);
         Some(state)
     }
 
@@ -371,7 +381,9 @@ mod tests {
     #[test]
     fn allocated_ranges_never_overlap() {
         let mut allocator = NonceAllocator::new();
-        let ranges: Vec<_> = (0..64).map(|_| allocator.allocate().unwrap()).collect();
+        let ranges: Vec<_> = (0..64)
+            .map(|_| allocator.allocate(|_| true).unwrap())
+            .collect();
 
         for (index, first) in ranges.iter().enumerate() {
             assert!(first.min < first.max, "range {index} is empty");
@@ -385,20 +397,37 @@ mod tests {
     }
 
     #[test]
-    fn a_released_range_is_handed_out_again() {
+    fn a_released_range_waits_for_its_last_job_to_retire() {
+        // Handed out at once, a reconnecting miner would get the same nonces
+        // back and could resubmit shares for a job the pool still accepts.
+        let mut allocator = NonceAllocator::new();
+        let first = allocator.allocate(|_| false).unwrap();
+        allocator.release(first, Some(7));
+
+        let fresh = allocator.allocate(|_| false).unwrap();
+        assert_ne!(fresh, first, "job 7 is still retained");
+        assert_eq!(allocator.allocate(|job| job == 7).unwrap(), first);
+        assert_eq!(allocator.issued(), 2);
+    }
+
+    #[test]
+    fn a_range_never_given_work_is_recycled_at_once() {
         // Without recycling, a pool with churn refuses connections after a few
         // million opens for no reason a miner can see.
         let mut allocator = NonceAllocator::new();
-        let first = allocator.allocate().unwrap();
-        allocator.release(first);
-        assert_eq!(allocator.allocate().unwrap(), first);
+        let first = allocator.allocate(|_| false).unwrap();
+        allocator.release(first, None);
+        assert_eq!(allocator.allocate(|_| false).unwrap(), first);
         assert_eq!(allocator.issued(), 1);
     }
 
     #[test]
     fn a_nonce_outside_the_range_is_refused_before_anything_is_hashed() {
         let mut registry = ChannelRegistry::new();
-        let id = registry.open(key("rig-1"), 1.0, &config(), 0).unwrap().id;
+        let id = registry
+            .open(key("rig-1"), 1.0, &config(), 0, |_| true)
+            .unwrap()
+            .id;
         let channel = registry.get_mut(id).unwrap();
         channel.push_job(9);
 
@@ -419,7 +448,10 @@ mod tests {
         // Shares in flight when a job changes are the pool's push latency
         // showing up as the miner's rejection rate.
         let mut registry = ChannelRegistry::new();
-        let id = registry.open(key("rig-1"), 1.0, &config(), 0).unwrap().id;
+        let id = registry
+            .open(key("rig-1"), 1.0, &config(), 0, |_| true)
+            .unwrap()
+            .id;
         let channel = registry.get_mut(id).unwrap();
 
         channel.push_job(1);
@@ -435,7 +467,10 @@ mod tests {
     #[test]
     fn a_repeated_nonce_is_refused() {
         let mut registry = ChannelRegistry::new();
-        let id = registry.open(key("rig-1"), 1.0, &config(), 0).unwrap().id;
+        let id = registry
+            .open(key("rig-1"), 1.0, &config(), 0, |_| true)
+            .unwrap()
+            .id;
         let channel = registry.get_mut(id).unwrap();
         channel.push_job(1);
 
@@ -448,7 +483,10 @@ mod tests {
     #[test]
     fn duplicate_memory_is_released_when_a_job_retires() {
         let mut registry = ChannelRegistry::new();
-        let id = registry.open(key("rig-1"), 1.0, &config(), 0).unwrap().id;
+        let id = registry
+            .open(key("rig-1"), 1.0, &config(), 0, |_| true)
+            .unwrap()
+            .id;
         let channel = registry.get_mut(id).unwrap();
 
         channel.push_job(1);
@@ -466,7 +504,10 @@ mod tests {
     #[test]
     fn closing_a_channel_returns_its_range() {
         let mut registry = ChannelRegistry::new();
-        let id = registry.open(key("rig-1"), 1.0, &config(), 0).unwrap().id;
+        let id = registry
+            .open(key("rig-1"), 1.0, &config(), 0, |_| true)
+            .unwrap()
+            .id;
         assert_eq!(registry.len(), 1);
 
         registry.close(id).unwrap();
@@ -474,7 +515,9 @@ mod tests {
 
         // A new channel gets the recycled range but never the recycled id: a
         // message in flight for the old channel must not land on the new one.
-        let reopened = registry.open(key("rig-2"), 1.0, &config(), 0).unwrap();
+        let reopened = registry
+            .open(key("rig-2"), 1.0, &config(), 0, |_| true)
+            .unwrap();
         assert_ne!(reopened.id, id);
     }
 
@@ -483,7 +526,7 @@ mod tests {
         let mut registry = ChannelRegistry::new();
         for index in 0..50 {
             registry
-                .open(key(&format!("rig-{index}")), 1.0, &config(), 0)
+                .open(key(&format!("rig-{index}")), 1.0, &config(), 0, |_| true)
                 .expect("range available");
         }
 

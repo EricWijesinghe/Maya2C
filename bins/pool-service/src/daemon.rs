@@ -72,6 +72,12 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 /// the pool rather than sitting reserved.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 
+/// Longest one frame may take to leave the socket before the write side gives up.
+///
+/// A peer that stops reading holds `write_all` forever otherwise, and with it
+/// the connection's admission permit.
+const WRITE_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// Connections served at once. `docs/stratum-v2.md` sizes the pool for 50,000.
 const MAX_CONNECTIONS: usize = 50_000;
 
@@ -205,24 +211,8 @@ async fn serve_connection(
     let secure = PqStream::new(compat, keys, false);
     let (mut reader, writer) = secure.split();
 
-    let (outbound, mut queued) = mpsc::channel::<Message>(OUTBOUND_CAPACITY);
-    let mut writer = writer;
-    let write_task = tokio::spawn(async move {
-        while let Some(message) = queued.recv().await {
-            let Ok(frame) = message.to_frame() else {
-                // A message the pool itself could not encode is a pool bug, and
-                // dropping the connection over it would hide that.
-                eprintln!("pool: refusing to send an unencodable message");
-                continue;
-            };
-            if writer.write_all(&frame.encode()).await.is_err() {
-                break;
-            }
-            if writer.flush().await.is_err() {
-                break;
-            }
-        }
-    });
+    let (outbound, queued) = mpsc::channel::<Message>(OUTBOUND_CAPACITY);
+    let mut write_task = tokio::spawn(write_frames(writer, queued, WRITE_TIMEOUT));
 
     // Job pushes travel by their own task, so the read loop never has to sit in
     // a `select!` beside a half-read frame.
@@ -287,7 +277,7 @@ async fn serve_connection(
         for action in actions {
             match action {
                 SessionAction::Reply(message) => {
-                    if outbound.send(message).await.is_err() {
+                    if outbound.try_send(message).is_err() {
                         closing = Some("the connection stopped draining".to_string());
                     }
                 }
@@ -308,7 +298,7 @@ async fn serve_connection(
                     match verdict.outcome {
                         ShareOutcome::Accepted { weight, .. } => {
                             if let Some(ack) = acks.record(channel_id, sequence_number, weight)
-                                && outbound.send(ack).await.is_err()
+                                && outbound.try_send(ack).is_err()
                             {
                                 closing = Some("the connection stopped draining".to_string());
                             }
@@ -318,7 +308,7 @@ async fn serve_connection(
                             // *before* the rejected one must not arrive after
                             // it, or the miner cannot tell which failed.
                             if let Some(ack) = acks.flush(channel_id)
-                                && outbound.send(ack).await.is_err()
+                                && outbound.try_send(ack).is_err()
                             {
                                 closing = Some("the connection stopped draining".to_string());
                             }
@@ -329,7 +319,7 @@ async fn serve_connection(
                                     error_code: reason.code().to_string(),
                                 },
                             );
-                            if outbound.send(error).await.is_err() {
+                            if outbound.try_send(error).is_err() {
                                 closing = Some("the connection stopped draining".to_string());
                             }
                         }
@@ -340,7 +330,7 @@ async fn serve_connection(
                             channel_id,
                             maximum_target: target,
                         });
-                        if outbound.send(retune).await.is_err() {
+                        if outbound.try_send(retune).is_err() {
                             closing = Some("the connection stopped draining".to_string());
                         }
                     }
@@ -350,9 +340,7 @@ async fn serve_connection(
 
         if let Some(reason) = closing {
             for channel_id in session.channels() {
-                let _ = outbound
-                    .send(close_message(*channel_id, "pool-closing"))
-                    .await;
+                let _ = outbound.try_send(close_message(*channel_id, "pool-closing"));
             }
             break Err(PoolError::Server(reason));
         }
@@ -361,13 +349,50 @@ async fn serve_connection(
     // Whatever ended the connection, its channels have to go back: a leaked
     // channel holds a nonce range forever and leaves its rig showing as
     // connected on the dashboard.
+    // Pending acknowledgements are still owed to the miner: the shares they
+    // cover were accepted and credited before the connection ended.
+    for ack in acks.drain() {
+        let _ = outbound.try_send(ack);
+    }
     if let Err(error) = session.disconnect(&state) {
         eprintln!("pool: releasing a connection's channels failed: {error}");
     }
     drop(outbound);
     push_task.abort();
-    let _ = write_task.await;
+    // Bounded: a peer that stopped reading must not hold the permit. The write
+    // task is aborted if it has not drained by the deadline.
+    if tokio::time::timeout(WRITE_TIMEOUT, &mut write_task)
+        .await
+        .is_err()
+    {
+        write_task.abort();
+    }
     result
+}
+
+/// Writes queued messages to the socket until the queue closes or a write stalls.
+async fn write_frames<W: futures::io::AsyncWrite + Unpin>(
+    mut writer: W,
+    mut queued: mpsc::Receiver<Message>,
+    write_timeout: Duration,
+) {
+    while let Some(message) = queued.recv().await {
+        let Ok(frame) = message.to_frame() else {
+            // A message the pool itself could not encode is a pool bug, and
+            // dropping the connection over it would hide that.
+            eprintln!("pool: refusing to send an unencodable message");
+            continue;
+        };
+        let bytes = frame.encode();
+        let sent = tokio::time::timeout(write_timeout, async {
+            writer.write_all(&bytes).await?;
+            writer.flush().await
+        })
+        .await;
+        if !matches!(sent, Ok(Ok(()))) {
+            break;
+        }
+    }
 }
 
 /// Reads one SV2 frame, or `None` at a clean end of stream.
@@ -440,6 +465,15 @@ impl AckBook {
             return self.flush(channel_id);
         }
         None
+    }
+
+    /// Emits every pending acknowledgement, for the paths that end a connection.
+    fn drain(&mut self) -> Vec<Message> {
+        let channels: Vec<u32> = self.pending.keys().copied().collect();
+        channels
+            .into_iter()
+            .filter_map(|channel_id| self.flush(channel_id))
+            .collect()
     }
 
     /// Emits an acknowledgement for whatever is pending on a channel.
@@ -782,5 +816,72 @@ mod tests {
         let mut reader = futures::io::Cursor::new(bytes);
         let frame = read_frame(&mut reader).await.unwrap().unwrap();
         assert_eq!(Message::from_frame(&frame).unwrap(), message);
+    }
+
+    /// A writer whose socket never drains, the way a peer that stopped reading looks.
+    struct Stalled;
+
+    impl futures::io::AsyncWrite for Stalled {
+        fn poll_write(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+            _: &[u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            std::task::Poll::Pending
+        }
+
+        fn poll_flush(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Pending
+        }
+
+        fn poll_close(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Pending
+        }
+    }
+
+    #[tokio::test]
+    async fn a_writer_that_stops_draining_is_abandoned_after_the_write_timeout() {
+        // Before the fix the write task never returned on a peer that stopped
+        // reading, and the connection's admission permit went with it.
+        let (queue, queued) = mpsc::channel(4);
+        queue
+            .send(Message::SubmitSharesStandard(
+                maya_stratum_v2::messages::SubmitSharesStandard {
+                    channel_id: 1,
+                    sequence_number: 1,
+                    job_id: 1,
+                    nonce: 1,
+                    ntime: 1,
+                },
+            ))
+            .await
+            .unwrap();
+
+        let finished = tokio::time::timeout(
+            Duration::from_secs(5),
+            write_frames(Stalled, queued, Duration::from_millis(20)),
+        )
+        .await;
+        assert!(
+            finished.is_ok(),
+            "write task still stuck on a peer that never reads"
+        );
+        drop(queue);
+    }
+
+    #[test]
+    fn draining_emits_every_pending_acknowledgement_once() {
+        // Shares accepted just before a connection ends are still owed an ack.
+        let mut acks = AckBook::default();
+        acks.record(1, 0, 10);
+        acks.record(2, 0, 10);
+        assert_eq!(acks.drain().len(), 2);
+        assert!(acks.drain().is_empty());
     }
 }
