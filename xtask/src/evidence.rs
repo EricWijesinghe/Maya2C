@@ -24,6 +24,14 @@ pub struct Sweep {
     pub date: String,
     pub commit: String,
     pub clean: bool,
+    /// Whether the working tree had uncommitted changes when the sweep ran.
+    /// `None` when git could not say. Absent from reports written before this
+    /// field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dirty: Option<bool>,
+    /// The `git status --porcelain` lines at sweep time; empty when clean.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub changes: Vec<String>,
     pub steps: Vec<Step>,
 }
 
@@ -220,6 +228,8 @@ mod tests {
             date: "2026-09-28".into(),
             commit: "abc1234".into(),
             clean: true,
+            dirty: Some(true),
+            changes: vec![" M xtask/src/sweep.rs".into()],
             steps: vec![Step {
                 name: "nextest".into(),
                 command: "cargo nextest run".into(),
