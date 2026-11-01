@@ -571,10 +571,10 @@ async fn with_fee(
     probe.sign(key, chain).context("signing the fee probe")?;
     let size = u64::try_from(probe.to_bytes().len())?;
     let fee = guard::quote_fee(&info, size, opts.fee, opts.max_fee)?;
-    if matches!(payload.kind, TxKind::Transfer) {
-        if let Some(warning) = guard::fee_warning(fee, value_moved(payload)) {
-            eprintln!("{warning}");
-        }
+    if matches!(payload.kind, TxKind::Transfer)
+        && let Some(warning) = guard::fee_warning(fee, value_moved(payload))
+    {
+        eprintln!("{warning}");
     }
     if let Some(last) = outputs.last_mut() {
         last.amount = fee;
