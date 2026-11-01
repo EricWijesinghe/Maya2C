@@ -521,6 +521,7 @@ impl StateDB {
         let delta = Pool::empty(fees)
             .add_liquidity(to_amount(base_amount), to_amount(quote_amount))
             .map_err(|error| trade_error("pool creation", error))?;
+        ensure_priced(&delta.pool, "pool creation")?;
 
         self.debit_asset(overlay, &base_asset, sender, delta.base)?;
         self.debit_asset(overlay, &quote_asset, sender, delta.quote)?;
@@ -570,6 +571,8 @@ impl StateDB {
             });
         }
 
+        ensure_priced(&delta.pool, "deposit")?;
+
         self.debit_asset(overlay, &record.base_asset, sender, delta.base)?;
         self.debit_asset(overlay, &record.quote_asset, sender, delta.quote)?;
         self.credit_asset(
@@ -611,6 +614,8 @@ impl StateDB {
                 actual: to_u256(delta.quote),
             });
         }
+
+        ensure_priced(&delta.pool, "withdrawal")?;
 
         // Burn first. Crediting before the burn would let a redemption of more
         // shares than the sender holds pay out before it failed.
@@ -767,6 +772,10 @@ impl StateDB {
         let (Some(final_asset), Some(first_asset)) = (current_asset, route_input) else {
             return Err(NodeError::RouteDiscontinuity { leg: 0 });
         };
+
+        for (_, record) in &pools {
+            ensure_priced(&record.pool, "routed swap")?;
+        }
 
         self.debit_asset(overlay, &first_asset, sender, route.amount_in)?;
         self.credit_asset(overlay, &final_asset, sender, amount)?;
@@ -973,13 +982,18 @@ impl StateDB {
         // Priced with the chain's current protocol rate, which the stored
         // record deliberately does not carry.
         let priced = self.priced(overlay, &record)?;
-        let outcome = match clear_batch(&priced.pool, &intents) {
-            Ok(outcome) => outcome,
+        // A batch that would leave the pool with no usable price is refused the
+        // same way: the pair would otherwise refund every later batch for good.
+        let cleared = clear_batch(&priced.pool, &intents)
+            .ok()
+            .filter(|outcome| has_usable_price(&outcome.pool));
+        let outcome = match cleared {
+            Some(outcome) => outcome,
             // The pool cannot price this batch at all — it has been drained of
             // liquidity, most likely by a withdrawal in the same block. Every
             // trader gets their input back. Refusing the block instead would
             // let a withdrawal invalidate everybody else's transactions.
-            Err(_) => {
+            None => {
                 for intent in &intents {
                     let asset = input_asset(&record, intent.direction);
                     self.credit_asset(overlay, &asset, &intent.trader, intent.amount_in)?;
@@ -1195,6 +1209,23 @@ fn output_asset(record: &PoolRecord, direction: Direction) -> AssetId {
 }
 
 /// Wraps an engine refusal with the operation that provoked it.
+/// Whether `pool` is empty or keeps a price batches can clear at: nonzero and
+/// within 256 bits. A funded pool past either edge refunds every batch on its
+/// pair for good, and the pair id cannot be reused (#279 review, DECISIONS
+/// 2026-11-01), so no state transition may leave one behind.
+fn has_usable_price(pool: &Pool) -> bool {
+    !pool.is_funded() || pool.spot_price().is_ok_and(|price| !price.is_zero())
+}
+
+/// [`has_usable_price`] as a refusal, for transactions that execute in place.
+fn ensure_priced(pool: &Pool, operation: &'static str) -> Result<()> {
+    if has_usable_price(pool) {
+        Ok(())
+    } else {
+        Err(trade_error(operation, DexError::ZeroPrice))
+    }
+}
+
 fn trade_error(operation: &'static str, error: DexError) -> NodeError {
     NodeError::Trade {
         operation,

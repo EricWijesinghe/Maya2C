@@ -584,3 +584,14 @@ waste of computation power"; then, on the options: "use recommended maximum pote
   (< 2^64).
 - **After launch, at activation heights (BACKLOG P5):** reward-per-share accumulator,
   256-bit TWAP accumulators, packed state words.
+
+## 2026-11-01 — No state transition may leave a funded pool without a usable price (consensus, freeze)
+
+A funded pool whose spot price is 0, or overflows 256 bits, refunds every batch on its pair for
+good, and its pair id cannot be reused. This was a pre-existing DoS flagged in the #279 security
+review and agreed with maya2c-2b for the freeze. One predicate covers every path that writes a pool
+(`has_usable_price` in `state/dex_exec.rs`):
+- pool creation, deposit, withdrawal and routed swaps refuse the transaction before writing anything;
+- batch settlement refunds the batch, as for an unpriceable pool, so a block is never voided.
+Replay: `dex_tests.rs` `a_pool_with_no_usable_price_cannot_be_created` and
+`a_batch_that_would_leave_no_usable_price_refunds_and_keeps_the_pool`.

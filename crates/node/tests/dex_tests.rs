@@ -393,6 +393,119 @@ fn creating_a_pool_seeds_it_and_mints_share_tokens() {
     );
 }
 
+/// Two big assets from one key, returned as (base, quote) in the pair's order.
+fn two_big_assets(harness: &Fixture, key: &HybridSigningKey) -> (AssetId, AssetId) {
+    let supply = U256::exp10(45);
+    let register = |name: &str, nonce| {
+        signed(
+            TxKind::RegisterAsset(AssetRegistration {
+                symbol: symbol(name),
+                total_supply: supply,
+            }),
+            nonce,
+            key,
+        )
+    };
+    harness
+        .db
+        .apply_block(
+            &block_of(vec![register("AAA", 0), register("BBB", 1)]),
+            BlockContext::at_height(1),
+        )
+        .expect("register");
+    let a = derive_asset_id(&key.address(), 0, &symbol("AAA"));
+    let b = derive_asset_id(&key.address(), 1, &symbol("BBB"));
+    if a < b { (a, b) } else { (b, a) }
+}
+
+fn create(base: AssetId, quote: AssetId, base_amount: U256, quote_amount: U256) -> TxKind {
+    TxKind::CreatePool(PoolCreation {
+        asset_a: base,
+        asset_b: quote,
+        lp_fee_bps: LP_FEE_BPS,
+        amount_a: base_amount,
+        amount_b: quote_amount,
+    })
+}
+
+#[test]
+fn a_pool_with_no_usable_price_cannot_be_created() {
+    // Replay of the #279 review's frozen pair: base outweighs quote by more
+    // than PRICE_SCALE, so spot_price is 0 and every batch on the pair would
+    // refund for good, under a pair id nobody else can take.
+    let key = generate_signing_key().expect("key");
+    let harness = fixture(&[(key.address(), 1_000)]);
+    let (base, quote) = two_big_assets(&harness, &key);
+    let lopsided = create(base, quote, U256::exp10(26), U256::one());
+    let error = harness
+        .db
+        .apply_block(
+            &block_of(vec![signed(lopsided, 2, &key)]),
+            BlockContext::at_height(2),
+        )
+        .unwrap_err();
+    assert!(matches!(error, NodeError::Trade { .. }), "{error}");
+    // The same ratio one unit inside the edge is a working pool.
+    let edge = create(base, quote, U256::exp10(24), U256::one());
+    harness
+        .db
+        .apply_block(
+            &block_of(vec![signed(edge, 2, &key)]),
+            BlockContext::at_height(2),
+        )
+        .expect("price exactly 1 is usable");
+}
+
+#[test]
+fn a_batch_that_would_leave_no_usable_price_refunds_and_keeps_the_pool() {
+    // A balanced pool, then one swap so large that the post-batch ratio passes
+    // PRICE_SCALE. The batch is refused like an unpriceable one: the trader is
+    // refunded, the reserves stay, and the block still applies.
+    let key = generate_signing_key().expect("key");
+    let harness = fixture(&[(key.address(), 1_000)]);
+    let (base, quote) = two_big_assets(&harness, &key);
+    let seed = U256::exp10(13);
+    harness
+        .db
+        .apply_block(
+            &block_of(vec![signed(create(base, quote, seed, seed), 2, &key)]),
+            BlockContext::at_height(2),
+        )
+        .expect("balanced pool");
+    let pair = derive_pair_id(&base, &quote, LP_FEE_BPS);
+    let before = harness.db.get_pool(&pair).expect("read").expect("pool");
+    let held = harness
+        .db
+        .asset_balance(&base, &key.address())
+        .expect("balance");
+
+    let flood = TxKind::Swap(SwapRequest {
+        pair,
+        direction: Direction::BaseToQuote.tag(),
+        amount_in: U256::exp10(40),
+        min_out: U256::one(),
+        deadline: 0,
+    });
+    harness
+        .db
+        .apply_block(
+            &block_of(vec![signed(flood, 3, &key)]),
+            BlockContext::at_height(3),
+        )
+        .expect("a refused batch never fails the block");
+
+    let after = harness.db.get_pool(&pair).expect("read").expect("pool");
+    assert_eq!(after.pool.reserve_base, before.pool.reserve_base);
+    assert_eq!(after.pool.reserve_quote, before.pool.reserve_quote);
+    assert_eq!(
+        harness
+            .db
+            .asset_balance(&base, &key.address())
+            .expect("balance"),
+        held
+    );
+}
+
 #[test]
 fn the_same_pair_cannot_have_two_pools_at_one_fee_rate() {
     let mut market = market();
