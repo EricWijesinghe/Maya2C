@@ -46,6 +46,56 @@ pub const fn header_version_ok(version: u8) -> bool {
     version == 0
 }
 
+/// CON-12: the largest block, in wire bytes (ADR-072, provisional). Mirrors
+/// `maya_fee_market::limits::MAX_BLOCK_BYTES`; the conformance runner checks
+/// that the node's constant is this one.
+pub const MAX_BLOCK_BYTES: u64 = 5 * 1024 * 1024;
+
+/// CON-12: the header (145 bytes) and the transaction count (8).
+const BLOCK_OVERHEAD: u64 = 145 + 8;
+
+/// CON-12: wire bytes of a block carrying transactions of these encoded
+/// lengths: the overhead plus an 8-byte length prefix per transaction.
+#[must_use]
+pub fn block_wire_bytes(tx_lens: &[u64]) -> u64 {
+    tx_lens.iter().fold(BLOCK_OVERHEAD, |sum, len| {
+        sum.saturating_add(8).saturating_add(*len)
+    })
+}
+
+/// CON-12: the indices first-fit admits under `cap`, if each transaction
+/// executes. A transaction that would take the block over the cap is passed
+/// over, and the ones after it are still considered.
+#[must_use]
+pub fn first_fit(tx_lens: &[u64], cap: u64) -> Vec<usize> {
+    let mut total = BLOCK_OVERHEAD;
+    let mut admitted = Vec::new();
+    for (index, len) in tx_lens.iter().enumerate() {
+        let next = total.saturating_add(8).saturating_add(*len);
+        if next <= cap {
+            total = next;
+            admitted.push(index);
+        }
+    }
+    admitted
+}
+
+/// CON-13: how many leading payloads the builder decodes under `budget`
+/// bytes. `payload_lens` are the distinct payloads in commit order. The walk
+/// stops at the first one that would take the total over; it does not pass
+/// it over.
+#[must_use]
+pub fn decode_cut(payload_lens: &[u64], budget: u64) -> usize {
+    let mut total = 0_u64;
+    for (count, len) in payload_lens.iter().enumerate() {
+        total = total.saturating_add(*len);
+        if total > budget {
+            return count;
+        }
+    }
+    payload_lens.len()
+}
+
 /// CON-11: the median of the most recent `MEDIAN_TIME_SPAN` timestamps,
 /// `recent` ordered oldest first. The upper middle for an even count.
 #[must_use]
@@ -218,4 +268,60 @@ pub fn verification(version: u8, call: &str, signature_valid: bool) -> Result<()
         return Err("BadSignature");
     }
     Ok(())
+}
+
+/// CON-13: deficit round-robin over authors. `entries` are `(author, length,
+/// key)` in commit order; a repeat has the same key. Each turn adds
+/// `budget / committee` to every waiting author, in ascending author order.
+/// An author admits from the front of its queue while the next payload fits
+/// its deficit and the budget left, and finishes when its queue is empty or
+/// its next payload is larger than the budget left. Returns the admitted
+/// indices in commit order, and the bytes charged.
+#[must_use]
+pub fn decode_fair(entries: &[(u16, u64, u64)], committee: u64, budget: u64) -> (Vec<usize>, u64) {
+    use std::collections::{BTreeMap, BTreeSet, VecDeque};
+    let mut queues: BTreeMap<u16, VecDeque<usize>> = BTreeMap::new();
+    for (index, (author, _, _)) in entries.iter().enumerate() {
+        queues.entry(*author).or_default().push_back(index);
+    }
+    let quantum = (budget / committee.max(1)).max(1);
+    let mut deficit: BTreeMap<u16, u64> = BTreeMap::new();
+    let mut remaining = budget;
+    let mut seen: BTreeSet<u64> = BTreeSet::new();
+    let mut admitted: Vec<usize> = Vec::new();
+    while !queues.is_empty() {
+        let mut finished = Vec::new();
+        for (author, queue) in &mut queues {
+            let d = deficit.entry(*author).or_insert(0);
+            *d = d.saturating_add(quantum);
+            loop {
+                let Some(&index) = queue.front() else {
+                    finished.push(*author);
+                    break;
+                };
+                let (_, len, key) = entries[index];
+                if seen.contains(&key) {
+                    queue.pop_front();
+                    continue;
+                }
+                if len > remaining {
+                    finished.push(*author);
+                    break;
+                }
+                if len > *d {
+                    break;
+                }
+                *d -= len;
+                remaining -= len;
+                seen.insert(key);
+                admitted.push(index);
+                queue.pop_front();
+            }
+        }
+        for author in finished {
+            queues.remove(&author);
+        }
+    }
+    admitted.sort_unstable();
+    (admitted, budget - remaining)
 }

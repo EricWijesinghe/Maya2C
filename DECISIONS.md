@@ -559,6 +559,16 @@ Set at the ceremony with `--min-self-bond` / `--min-delegation` (required on `ma
 and enforced by `cargo xtask genesis-check` (constants in `xtask/src/genesis_check.rs`).
 Eric may change either before `APPROVED: sign genesis`; that is a one-line change.
 
+## 2026-10-31 — Correction to "ADR-068 step 4: 512-bit product audit, clean" (2026-10-28)
+
+That entry missed a vault limit bypass. `VAULT_FEE_HEADROOM = 4` exempted up to 4× the
+required fee per transaction from the vault's instant limit, never charged to the window, so
+a limit-0 vault could leak 3× required per transaction to the tip pool. Now only
+`fees.required(size)` is exempt; anything above counts as outflow (PR #273, replay test
+`a_fee_above_the_required_fee_counts_against_a_zero_limit`, fails on the old code).
+Consensus-visible (invariant 32), rides the mainnet genesis. The saturating overflow first
+suspected there is unreachable (`charge_fee` refuses first; balances ≤ supply).
+Rule from here: an exemption from a limit is exactly the amount that justifies it.
 ## 2026-11-01 — 256-bit ceiling, DEX price scale 1e24, headroom uses (Eric)
 
 Eric: "we always stay under 256 and use maximum we can use in 256 because going 512 is a
@@ -584,3 +594,28 @@ waste of computation power"; then, on the options: "use recommended maximum pote
   (< 2^64).
 - **After launch, at activation heights (BACKLOG P5):** reward-per-share accumulator,
   256-bit TWAP accumulators, packed state words.
+
+## 2026-11-01 — No state transition may leave a funded pool without a usable price (consensus, freeze)
+
+A funded pool whose spot price is 0, or overflows 256 bits, refunds every batch on its pair for
+good, and its pair id cannot be reused. This was a pre-existing DoS flagged in the #279 security
+review and agreed with maya2c-2b for the freeze. One predicate covers every path that writes a pool
+(`has_usable_price` in `state/dex_exec.rs`):
+- pool creation, deposit and withdrawal refuse the transaction before writing anything;
+- a routed swap that would leave such a pool is a no-op, like an unpriceable leg, because an earlier
+  transaction in the same block can move the pool and that must not void the block;
+- batch settlement refunds the batch, as for an unpriceable pool, so a block is never voided.
+Overflow cannot be reached: quote <= MAX_ASSET_SUPPLY = MAX / PRICE_SCALE. A partial withdrawal
+that would end at price 0 is refused; a full withdrawal (pool empty) always passes.
+Replays that fail on master and pass now: `a_pool_with_no_usable_price_cannot_be_created`,
+`a_route_that_would_leave_no_usable_price_does_not_execute`. Regression guard (master already
+refunds it): `a_batch_that_would_leave_no_usable_price_refunds_and_keeps_the_pool`.
+Two more from the same security review, fixed in the freeze:
+- Batch shrink: a zero clearing price, or a clearing that leaves spot 0, now drops the largest
+  base seller (fallback: smallest, so the loop always shrinks). Dropping the smallest let one flood
+  refund every honest co-trader. Replay: `an_honest_swap_still_clears_beside_a_flood_that_would_leave_no_price`.
+- Withdrawal refuses only when both sides round to zero. Refusing when either side did stranded an
+  LP's whole position in a pool with a dust side. Replay:
+  `an_lp_whose_quote_share_rounds_to_zero_can_still_withdraw_its_base`.
+Residual: "usable" means spot is not 0, not "every size clears". At spot near 1, small base sells
+round to 0 and are refunded until a buyer moves the price. That is a refund, not a lock.

@@ -71,7 +71,10 @@ impl Default for Args {
     fn default() -> Self {
         Self {
             config: PoolConfig::default(),
-            validators: DEFAULT_WORKERS,
+            // One verification per core. Above the DAG fork a share is CPU-bound
+            // over a shared cache: on a 24-core machine eight workers verified
+            // 1,727 shares/s and 24 verified 4,273 (reports/sessions/2026-11-01-pool-scale.md).
+            validators: std::thread::available_parallelism().map_or(DEFAULT_WORKERS, usize::from),
         }
     }
 }
