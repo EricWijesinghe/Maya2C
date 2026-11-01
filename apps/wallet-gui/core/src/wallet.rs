@@ -71,6 +71,10 @@ pub struct Wallet {
     seed: Zeroizing<[u8; SEED_LEN]>,
     accounts: BTreeMap<u32, Account>,
     history: Vec<PendingTransfer>,
+    /// Signing hash of the last confirm screen, spent by one successful sign.
+    /// The hash alone can be computed by any caller; this slot makes `sign`
+    /// accept only a transaction this session actually put on screen, once.
+    reviewed: Option<String>,
 }
 
 impl core::fmt::Debug for Wallet {
@@ -92,6 +96,7 @@ impl Wallet {
             seed,
             accounts: BTreeMap::new(),
             history: Vec::new(),
+            reviewed: None,
         }
     }
 
@@ -166,14 +171,16 @@ impl Wallet {
     ///
     /// Propagates derivation, address and fee-collector failures.
     pub fn confirm(
-        &self,
+        &mut self,
         index: u32,
         recipient: &str,
         amount: primitive_types::U256,
         terms: &SignTerms<'_>,
     ) -> Result<Confirmation> {
         let (_, tx) = self.unsigned(index, recipient, amount, terms)?;
-        Ok(confirmation(&tx, terms.chain))
+        let shown = confirmation(&tx, terms.chain);
+        self.reviewed = Some(shown.signing_hash.clone());
+        Ok(shown)
     }
 
     /// Signs a transfer from account `index`, but only the one `confirmed_hash`
@@ -197,6 +204,13 @@ impl Wallet {
         terms: &SignTerms<'_>,
         confirmed_hash: &str,
     ) -> Result<SignedTransfer> {
+        // A mismatch leaves the slot alone: only a signature spends a review.
+        if self.reviewed.as_deref() != Some(confirmed_hash) {
+            return Err(WalletError::Signing(
+                "no confirm screen in this session shows this transaction; nothing was signed"
+                    .to_string(),
+            ));
+        }
         let (signing_key, tx) = self.unsigned(index, recipient, amount, terms)?;
         if confirmation(&tx, terms.chain).signing_hash != confirmed_hash {
             return Err(WalletError::Signing(
@@ -213,6 +227,7 @@ impl Wallet {
             terms.nonce,
             terms.chain,
         )?;
+        self.reviewed = None;
 
         self.history.push(PendingTransfer {
             transfer: transfer.clone(),
