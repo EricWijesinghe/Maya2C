@@ -1,0 +1,11 @@
+# CON-13 fair share: old commit-order cut (7841c0bf) vs decode_plan, same scenarios
+# Command: rustc --edition 2024 -O fair_proof.rs && ./fair_proof.exe (standalone; scenarios mirror builder.rs tests at plan level)
+# Source: D:/Temp/claude/D--Maya2C/b2f76622-4adf-46bc-a177-0004f34f213a/scratchpad/fair_proof.rs (scratchpad, not committed)
+1 a_junk_heavy_low_index_author...                   old=FAIL new=PASS   (old admitted [0, 1, 2, 3, 4] charged 5242880; new admitted [0, 1, 2, 10, 11, 12] charged 4718592)
+2 one_author_matches_the_old_prefix_cut              old=PASS new=PASS   (old admitted [0, 1, 2] charged 1400; new admitted [0, 1, 2] charged 1400)
+3 a_repeat_across_authors_charged_once               old=PASS new=PASS   (old admitted [0, 2] charged 1500; new admitted [0, 2] charged 1500)
+4 an_absent_authors_share_is_redistributed           old=FAIL new=PASS   (old admitted [0] charged 1048576; new admitted [0, 2, 3, 4, 5, 6, 7, 8] charged 8388608)
+5 a_misfit_finishes_only_its_author                  old=FAIL new=PASS   (old admitted [0, 1] charged 2726297; new admitted [2, 3] charged 1048576)
+6 admitted_come_out_in_commit_order                  old=PASS new=PASS   (old admitted [0, 1, 2] charged 1500; new admitted [0, 1, 2] charged 1500)
+7 a_junk_heavy_author_does_not_hide_transfers        old=FAIL new=PASS   (old admitted [0, 1, 2, 3, 4, 5, 6] charged 7340032; new admitted [0, 1, 2, 3, 4, 5, 6, 100, 101, 102] charged 7343032)
+8 property (2000 seeded cases)                       old fails 885/2000   new fails 0/2000
