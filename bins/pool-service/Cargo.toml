@@ -18,6 +18,12 @@ path = "src/lib.rs"
 name = "pool"
 path = "src/bin/pool.rs"
 
+# Load generator and share-path measurement. Spawns `serve` as a child process so
+# server memory is the pool's own working set. See src/bin/pool_load/main.rs.
+[[bin]]
+name = "pool-load"
+path = "src/bin/pool_load/main.rs"
+
 [dependencies]
 # This is the layer where protocol values meet chain types, which
 # `crates/stratum-v2/Cargo.toml` names as the reason that crate has no chain

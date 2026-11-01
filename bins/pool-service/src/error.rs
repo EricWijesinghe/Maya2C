@@ -32,6 +32,17 @@ pub enum PoolError {
     #[error("node rpc: {0}")]
     NodeRpc(String),
 
+    /// The node now reports a different genesis from the one payouts are
+    /// signed with: it re-genesised. Payouts signed under `cached` are dead on
+    /// this chain; the next batch signs with `live`.
+    #[error("genesis changed: signed for {cached}, node now reports {live}")]
+    GenesisChanged {
+        /// The genesis (hex) payouts were being signed with.
+        cached: String,
+        /// The genesis (hex) the node reports now.
+        live: String,
+    },
+
     /// The payout path refused to spend.
     ///
     /// Never retried automatically. Every case here is a policy or custody

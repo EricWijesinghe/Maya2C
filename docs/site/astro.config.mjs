@@ -122,7 +122,6 @@ export default defineConfig({
                 downloadUrl: "https://github.com/EricWijesinghe/Maya2C/releases",
                 license: "https://www.apache.org/licenses/LICENSE-2.0",
                 publisher: { "@id": "https://maya2c.dev/#org" },
-                offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
                 description:
                   "Post-quantum layer-1 blockchain node: DAG-BFT finality and hybrid ML-DSA + SLH-DSA signatures.",
               },
@@ -133,6 +132,8 @@ export default defineConfig({
                 programmingLanguage: "Rust",
                 license: "https://www.apache.org/licenses/LICENSE-2.0",
                 publisher: { "@id": "https://maya2c.dev/#org" },
+                description:
+                  "Source code of the Maya2C post-quantum layer-1 blockchain node, written in Rust under Apache-2.0.",
               },
             ],
           }),
@@ -175,6 +176,7 @@ export default defineConfig({
           label: "Guides",
           items: [
             { label: "Experience Maya2C", link: "/experience/" },
+            { label: "FAQ", link: "/guides/faq" },
             { label: "Help run the network (easy)", link: "/guides/help-run" },
             { label: "Join the testnet", link: "/guides/testnet" },
             { label: "Quickstart", link: "/guides/quickstart" },

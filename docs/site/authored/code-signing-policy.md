@@ -14,7 +14,7 @@ release on a personal computer.
 |---|---|
 | Build provenance (Sigstore) | **On** for every release. Proves a file came from this repository's workflow at a named commit. |
 | Checksums and SBOM | **On**: `SHA256SUMS` and a software bill of materials are attached to every release. |
-| Windows and macOS code signing | **Not yet.** An application for free open-source code signing has been made to the SignPath Foundation. Until it is granted, Windows SmartScreen and macOS Gatekeeper show "unknown publisher". |
+| Windows and macOS code signing | **Not yet.** The project is applying to the SignPath Foundation for free open-source code signing. Until it is granted, Windows SmartScreen and macOS Gatekeeper show "unknown publisher". |
 | App update signatures | Wallet and Chat update bundles are signed with the project's update key once it is configured for a release. |
 
 When code signing is granted, this page will carry the signing provider's

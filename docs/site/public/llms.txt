@@ -1,29 +1,42 @@
 # Maya2C
 
-> Maya2C is a post-quantum layer-1 blockchain written in Rust. Every transaction carries two NIST post-quantum signatures, ML-DSA-65 (FIPS 204) and SLH-DSA (FIPS 205), and both must verify. Blocks finalize by DAG-BFT (Narwhal and Bullshark): a finalized block is never reorganised. Peer links use ML-KEM-768 (FIPS 203). The public testnet, maya-testnet-1, is live. Its coins have no value. No external security audit has reported yet.
+> Maya2C is a layer-1 blockchain written in Rust, built on NIST post-quantum cryptography. Every transaction carries two signatures, ML-DSA-65 (FIPS 204) and SLH-DSA-SHA2-128s (FIPS 205), and is accepted only if both verify. Validators order blocks with DAG-BFT consensus (a certified DAG with the Bullshark commit rule); safety holds while at most f of n validators are Byzantine, with f = (n − 1) / 3 rounded down. Peer connections use ML-KEM (FIPS 203), with ML-KEM-1024 preferred and ML-KEM-768 accepted. Status: the public testnet, maya-testnet-1, is paused (stopped 2026-10-28 on purpose); mainnet has not launched; no external security audit has been completed. The code is Apache-2.0.
 
-Every claim on the site links to the test that proves it. A claim without a test fails CI.
+Use the FAQ for direct answers. Pages marked as design or research describe work that is not in the live node; the architecture vision page states the status of each subsystem.
 
 ## Start here
 
-- [Experience Maya2C](https://maya2c.dev/experience/): live blocks, network calls and post-quantum signatures, in the browser
-- [Join the testnet](https://maya2c.dev/guides/testnet/): wallet, free test coins, a first post-quantum-signed transaction
-- [Run a validator](https://maya2c.dev/guides/validators/): one-command Linux join, the public bootnode, the testnet genesis
-- [API reference](https://maya2c.dev/guides/api/): JSON-RPC and REST endpoints of the public gateway
-- [Break it](https://maya2c.dev/guides/break-it/): attack the testnet for credit; daily self-run attacknet reports
+- [FAQ](https://maya2c.dev/guides/faq/): direct answers on what Maya2C is, its algorithms, finality, mining, mainnet status, audit status, and how to run a node or a wallet
+- [Testnet](https://maya2c.dev/guides/testnet/): current status of maya-testnet-1 (paused), and what test coins are
+- [Experience Maya2C](https://maya2c.dev/experience/): an in-browser walkthrough of post-quantum signatures and blocks
 
 ## How it works
 
-- [Post-quantum signatures](https://maya2c.dev/guides/signatures/): why two signature schemes, and what each protects against
-- [Hybrid signatures](https://maya2c.dev/reference/hybrid-signatures/): the exact construction of transaction authorization
-- [Post-quantum transport](https://maya2c.dev/reference/pq-transport/): ML-KEM-768 on every peer connection
+- [Post-quantum signatures](https://maya2c.dev/guides/signatures/): the two signature schemes, why both must verify, and the parameter sets
+- [Hybrid signatures](https://maya2c.dev/reference/hybrid-signatures/): the construction of transaction authorization
+- [Consensus and finality](https://maya2c.dev/guides/consensus/): DAG-BFT, the commit rule, the fault bound, and what finality means in this network
+- [Post-quantum transport](https://maya2c.dev/reference/pq-transport/): ML-KEM key exchange on peer connections, ML-KEM-1024 preferred with ML-KEM-768 fallback
+- [How a transaction works](https://maya2c.dev/guides/transactions/): the checks a transaction passes, the fee rule, and 256-bit amounts
+- [Mining and validators](https://maya2c.dev/guides/mining/): GPU mining status, and why miners do not order blocks
 - [Invariants](https://maya2c.dev/reference/invariants/): the numbered properties the code must keep, each pinned by a test
-- [Architecture vision](https://maya2c.dev/reference/architecture-vision/): what is shipped, what is research, what is planned
+- [Architecture vision](https://maya2c.dev/reference/architecture-vision/): the status (shipped, research, planned) of each subsystem
+- [Security audit](https://maya2c.dev/reference/security-audit/): the automated security checks, what each one proves, and what it does not
+
+## Run it
+
+- [Quickstart](https://maya2c.dev/guides/quickstart/): build the node and a wallet, and start a one-validator chain on your machine
+- [Help run the network](https://maya2c.dev/guides/help-run/): join the testnet with one command (applies when the testnet restarts)
+- [Run a validator](https://maya2c.dev/guides/validators/): validator steps for maya-testnet-1 (applies when the testnet restarts)
+- [Wallet integration](https://maya2c.dev/guides/wallet/): how a wallet holds keys, signs, sets nonces and fees, and talks to a gateway
+- [API reference](https://maya2c.dev/guides/api/): JSON-RPC and REST endpoints of the public gateway
+- [Compiling a contract](https://maya2c.dev/guides/contracts/): building a WASM contract for the Maya VM
 
 ## Live services
 
+These are offline or report on a paused network while maya-testnet-1 is stopped.
+
+- Status (measured uptime from block timestamps): https://status.maya2c.dev/
 - Block explorer: https://explorer.maya2c.dev/
-- Uptime, measured from block timestamps: https://status.maya2c.dev/
 - Faucet: https://faucet.maya2c.dev/
 - Public JSON-RPC: https://rpc.maya2c.dev/rpc
 
@@ -31,3 +44,4 @@ Every claim on the site links to the test that proves it. A claim without a test
 
 - Code (Apache-2.0): https://github.com/EricWijesinghe/Maya2C
 - Releases: https://github.com/EricWijesinghe/Maya2C/releases
+- Code signing policy: https://maya2c.dev/guides/code-signing-policy/
