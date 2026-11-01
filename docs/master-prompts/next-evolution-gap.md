@@ -142,7 +142,7 @@ Row count: 9 + 9 + 8 + 7 + 7 + 5 + 5 + 6 + 6 + 6 + 1 = **69**.
 Ranked by how many rows each unblocks, then by user impact. Each names its band and whether Eric decides.
 
 1. **Measure finality and finalized TPS (M2, M3, S for K1).** P2. Measured, not declared, per ADR-059 and Standing Order 2. Blocks any "near-instant" claim. No Eric decision.
-2. **Decide economics: rewards, treasury, supply (E1, E6, K3, E3).** P5. Eric decides; four rows wait on it. Resolve the conflicting memory entries first.
+2. **Economics beyond launch (E1, E6, K3, E3).** The launch economics are decided: GPU-mined block rewards, no premine, a forever tail reward and a 21M cap (ADR-044 and ADR-068, DECISIONS 2026-10-28). Still open for Eric: the treasury share, geographic incentives (K3), and any later change to the issuance schedule. P5.
 3. **Wire the genesis treasury spend path under invariants 12, 13 and 17 (E3, E5, A8).** P5. Medium, and it unlocks public goods funding. Yes: money.
 4. **Promote private contract state and the shielded default (C1, S1, S5).** P5. Medium. Yes: default privacy changes what mainnet ships.
 5. **Decide the human-verification model and its TEE question (ID4, K7, E4, ID3).** P5. The governance prerequisite. Yes: resolves invariant 11 for personhood.
