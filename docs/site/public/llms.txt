@@ -13,6 +13,7 @@ Use the FAQ for direct answers. Pages marked as design or research describe work
 ## How it works
 
 - [Post-quantum signatures](https://maya2c.dev/guides/signatures/): the two signature schemes, why both must verify, and the parameter sets
+- [Post-quantum comparison](https://maya2c.dev/guides/pq-comparison/): dated, sourced comparison with 18 other post-quantum chain entries (searched 2026-11-01); where others are ahead; mainnet not launched
 - [Hybrid signatures](https://maya2c.dev/reference/hybrid-signatures/): the construction of transaction authorization
 - [Consensus and finality](https://maya2c.dev/guides/consensus/): DAG-BFT, the commit rule, the fault bound, and what finality means in this network
 - [Post-quantum transport](https://maya2c.dev/reference/pq-transport/): ML-KEM key exchange on peer connections, ML-KEM-1024 preferred with ML-KEM-768 fallback
