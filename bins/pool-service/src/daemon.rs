@@ -29,14 +29,16 @@
 //! waiting on work it just asked for. Spawning per share would let one
 //! connection queue thousands of verifications and starve every other.
 
-use std::net::SocketAddr;
-use std::sync::Arc;
-use std::time::Duration;
+use std::collections::{HashMap, VecDeque};
+use std::future::Future;
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use futures::{AsyncReadExt, AsyncWriteExt};
 use maya_stratum_v2::{Frame, FrameHeader, MAX_PAYLOAD_LEN, Message};
 use tokio::net::{TcpSocket, TcpStream};
-use tokio::sync::{Semaphore, broadcast, mpsc};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, broadcast, mpsc, oneshot};
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
 use custom_l1_node::network::pq::handshake;
@@ -44,11 +46,12 @@ use custom_l1_node::network::pq::stream::PqStream;
 
 use crate::error::{PoolError, Result};
 use crate::job::Job;
-use crate::model::{ShareOutcome, now_millis};
+use crate::model::{RejectReason, ShareOutcome, now_millis};
 use crate::node::NodeClient;
 use crate::payout::PayoutEngine;
 use crate::session::{
-    MAX_CHANNELS_PER_CONNECTION, Session, SessionAction, close_message, job_messages,
+    InvalidShareBudget, MAX_CHANNELS_PER_CONNECTION, Session, SessionAction, close_message,
+    job_messages,
 };
 use crate::share;
 use crate::state::{PoolEvent, PoolState};
@@ -70,11 +73,23 @@ const OUTBOUND_CAPACITY: usize = MAX_CHANNELS_PER_CONNECTION * 4;
 /// shortcut: fixed bound, not measured against real burst sizes, revisit with stratum load data
 const SEND_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Longest a TCP peer may take to finish the post-quantum handshake.
+/// Longest a TCP peer may take to finish the post-quantum handshake, end to end.
 ///
-/// Without a deadline, a socket that connects and says nothing holds its task
-/// and buffers for as long as the peer keeps the TCP connection open.
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+/// The hard cap on the whole responder handshake: its network waits and its
+/// budget waits together. Without it, a socket that connects and says nothing
+/// holds its task and buffers for as long as the peer keeps the TCP connection
+/// open, and the per-step bounds alone add up to more than any honest peer needs.
+/// 15 s: above the two 5 s network waits plus CPU, so a slow mobile or satellite
+/// link that meets each step still completes.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Handshakes in progress at once, across every connection.
+///
+/// Each handshake spends CPU on X25519 and ML-KEM on a runtime worker. Capping
+/// it apart from connections means a flood of sockets that connect and stall
+/// cannot take every worker, while a burst of honest reconnects still gets
+/// through a few hundred at a time.
+const MAX_CONCURRENT_HANDSHAKES: usize = 256;
 
 /// Longest a connected miner may go without sending a frame.
 ///
@@ -82,6 +97,13 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 /// silence is a rig that has stopped. Its channel and nonce range go back to
 /// the pool rather than sitting reserved.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Longest a frame's payload may take to arrive once its header has.
+///
+/// `IDLE_TIMEOUT` covers waiting for a frame to start. Without this, a peer
+/// that sends a valid header and then stops would hold its connection for the
+/// full idle window.
+const FRAME_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Queues a reply, waiting at most `timeout` for room. `false` means the queue
 /// stayed full or its writer is gone, and the connection should close.
@@ -97,6 +119,178 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Connections served at once. `docs/stratum-v2.md` sizes the pool for 50,000.
 const MAX_CONNECTIONS: usize = 50_000;
+
+/// Connections one peer address may hold before its handshake completes.
+///
+/// Counts from accept until the handshake finishes. This bounds the handshakes
+/// one address can run at once, and a neighbour on a shared address can hold at
+/// most this many pre-auth slots. Authenticated connections are counted
+/// separately, against the operator's cap.
+const PREAUTH_PER_IP: usize = 8;
+
+/// Longest each network step of the handshake may wait on the peer.
+///
+/// The responder speaks first: it sends its key, then waits for the initiator's
+/// message. Both waits are network waits and hold no shared budget. Five seconds
+/// is sized for slow mobile and satellite links, where a round trip alone can
+/// take most of a second. Each wait is also capped by `HANDSHAKE_TIMEOUT`.
+const HANDSHAKE_IO_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Connects one address may open per burst.
+///
+/// NAT and farm bursts are real: a site that restarts opens its whole fleet at
+/// once. The burst is sized for that, and the sustained rate below is what stops
+/// a churning peer from tying up handshakes.
+const CONNECT_BURST: u32 = 16;
+
+/// Connects one address may open per second, sustained.
+///
+/// Honest rigs connect once and then stay. Four a second per address still
+/// allows a whole site to reconnect after a network blip. Churn faster than that
+/// is what fills the pre-auth budget, so the excess is refused at accept.
+const CONNECT_RATE_PER_SEC: u64 = 4;
+
+/// Milli-tokens for one connect. Integer arithmetic keeps the bucket exact.
+const ONE_CONNECT: u64 = 1_000;
+
+/// Buckets held before full ones are pruned. A full bucket carries no state.
+const BUCKET_PRUNE_AT: usize = 10_000;
+
+/// The per-address key for every per-address budget.
+///
+/// IPv4 is keyed on the full address. IPv6 is keyed on its /64: one host can
+/// hold a whole /64, so keying on the full address would let a single subscriber
+/// take a fresh budget with every new address. A /64 is the smallest unit a
+/// subscriber normally owns, so it is the unit this budget tracks.
+// shortcut: /64 is the fixed unit; a provider that delegates smaller prefixes to a single customer needs a shorter key.
+#[must_use]
+fn address_key(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V4(_) => ip,
+        IpAddr::V6(v6) => {
+            let network = u128::from(v6) & (u128::MAX << 64);
+            IpAddr::V6(Ipv6Addr::from(network))
+        }
+    }
+}
+
+/// One address's connect allowance, in milli-tokens, and when it was last topped up.
+#[derive(Clone, Copy, Debug)]
+struct Bucket {
+    tokens: u64,
+    last: Instant,
+}
+
+/// Milli-tokens an idle bucket has regained by `now`, capped at a full bucket.
+fn refilled(bucket: &Bucket, now: Instant) -> u64 {
+    let capacity = u64::from(CONNECT_BURST) * ONE_CONNECT;
+    let elapsed_ms =
+        u64::try_from(now.saturating_duration_since(bucket.last).as_millis()).unwrap_or(u64::MAX);
+    // Milli-tokens per millisecond: rate tokens/s is rate*1000 milli-tokens over 1000 ms.
+    let regained = elapsed_ms.saturating_mul(CONNECT_RATE_PER_SEC);
+    bucket.tokens.saturating_add(regained).min(capacity)
+}
+
+/// Takes one connect from `key`'s bucket. `false` means the address is over its rate.
+fn take_connect_token(buckets: &mut HashMap<IpAddr, Bucket>, key: IpAddr, now: Instant) -> bool {
+    let capacity = u64::from(CONNECT_BURST) * ONE_CONNECT;
+    if buckets.len() >= BUCKET_PRUNE_AT {
+        buckets.retain(|_, bucket| refilled(bucket, now) < capacity);
+    }
+
+    let bucket = buckets.entry(key).or_insert(Bucket {
+        tokens: capacity,
+        last: now,
+    });
+    bucket.tokens = refilled(bucket, now);
+    bucket.last = now;
+    if bucket.tokens >= ONE_CONNECT {
+        bucket.tokens -= ONE_CONNECT;
+        true
+    } else {
+        false
+    }
+}
+
+/// Shortest gap between two lines reporting refused or closed connections.
+///
+/// A flood refuses thousands of sockets a second; one line per refusal is a
+/// synchronous write per stranger, so events are counted and reported in
+/// batches instead.
+const REFUSAL_LOG_INTERVAL: Duration = Duration::from_secs(10);
+
+/// Open connections per peer address, for one of the two per-address budgets.
+///
+/// Keyed by full IP address, so an IPv6 peer can rotate within a /64 to get
+/// fresh budgets.
+// shortcut: full-address keys; upgrade to a prefix key if /64 rotation is seen.
+type PerIpCounts = Arc<Mutex<HashMap<IpAddr, usize>>>;
+
+/// One connection's claim on a per-address budget, released when it is dropped.
+///
+/// Held by the connection task, so every way that task can end (a clean close,
+/// an error, a panic unwinding, an abort) gives the slot back.
+struct IpSlot {
+    counts: PerIpCounts,
+    ip: IpAddr,
+}
+
+impl IpSlot {
+    /// Claims a slot for `ip`, or `None` if that address already has `cap` open.
+    fn claim(counts: &PerIpCounts, ip: IpAddr, cap: usize) -> Option<Self> {
+        let mut map = counts.lock().unwrap_or_else(PoisonError::into_inner);
+        let open = map.entry(ip).or_insert(0);
+        if *open >= cap {
+            return None;
+        }
+        *open += 1;
+        Some(Self {
+            counts: Arc::clone(counts),
+            ip,
+        })
+    }
+}
+
+impl Drop for IpSlot {
+    fn drop(&mut self) {
+        let mut map = self.counts.lock().unwrap_or_else(PoisonError::into_inner);
+        let remaining = match map.get_mut(&self.ip) {
+            Some(open) => {
+                *open = open.saturating_sub(1);
+                *open
+            }
+            None => return,
+        };
+        if remaining == 0 {
+            map.remove(&self.ip);
+        }
+    }
+}
+
+/// Counts refused or closed connections and decides when the count is worth a line.
+#[derive(Debug, Default)]
+struct ThrottledLog {
+    /// When a line was last emitted, if ever.
+    last_reported: Option<Instant>,
+    /// Events since that line.
+    pending: u64,
+}
+
+impl ThrottledLog {
+    /// Records one event. `Some(count)` means a line is due and reports `count`.
+    fn record(&mut self, now: Instant) -> Option<u64> {
+        self.pending = self.pending.saturating_add(1);
+        let due = match self.last_reported {
+            None => true,
+            Some(last) => now.saturating_duration_since(last) >= REFUSAL_LOG_INTERVAL,
+        };
+        if !due {
+            return None;
+        }
+        self.last_reported = Some(now);
+        Some(std::mem::take(&mut self.pending))
+    }
+}
 
 /// Connections the kernel queues before it refuses new ones.
 ///
@@ -145,6 +339,113 @@ pub struct PoolServer {
     pub address: SocketAddr,
 }
 
+/// Pre-auth connections per address, oldest first, each with the signal that evicts it.
+#[derive(Default)]
+struct PreAuthRegistry {
+    by_ip: HashMap<IpAddr, VecDeque<(u64, oneshot::Sender<()>)>>,
+    next_id: u64,
+}
+
+impl PreAuthRegistry {
+    /// Admits one pre-auth connection. At `cap`, the address's oldest pre-auth
+    /// connection is evicted first, so a newcomer is never the one refused.
+    ///
+    /// Returns the new entry's id, its eviction signal, and whether an older
+    /// connection was evicted to make room.
+    fn admit(&mut self, ip: IpAddr, cap: usize) -> (u64, oneshot::Receiver<()>, bool) {
+        let id = self.next_id;
+        self.next_id = self.next_id.wrapping_add(1);
+        let (evict, evicted) = oneshot::channel();
+
+        let queue = self.by_ip.entry(ip).or_default();
+        let mut evicted_any = false;
+        while queue.len() >= cap {
+            let Some((_, oldest)) = queue.pop_front() else {
+                break;
+            };
+            // The connection may already be gone; that is fine, its slot is free.
+            let _ = oldest.send(());
+            evicted_any = true;
+        }
+        queue.push_back((id, evict));
+        (id, evicted, evicted_any)
+    }
+
+    /// Forgets one entry. Idempotent: an evicted entry is already gone.
+    fn release(&mut self, ip: IpAddr, id: u64) {
+        let empty = match self.by_ip.get_mut(&ip) {
+            Some(queue) => {
+                queue.retain(|(entry, _)| *entry != id);
+                queue.is_empty()
+            }
+            None => false,
+        };
+        if empty {
+            self.by_ip.remove(&ip);
+        }
+    }
+}
+
+type PreAuth = Arc<Mutex<PreAuthRegistry>>;
+
+/// One pre-auth connection's entry, removed when it is dropped.
+struct PreAuthSlot {
+    registry: PreAuth,
+    ip: IpAddr,
+    id: u64,
+}
+
+impl Drop for PreAuthSlot {
+    fn drop(&mut self) {
+        let mut registry = self.registry.lock().unwrap_or_else(PoisonError::into_inner);
+        registry.release(self.ip, self.id);
+    }
+}
+
+/// Admission state shared by the accept loop and every connection task.
+#[derive(Clone)]
+struct Gates {
+    /// Synchronous handshake steps running at once, across every connection.
+    handshakes: Arc<Semaphore>,
+    /// Connect allowances per address, keyed by [`address_key`].
+    connect_rate: Arc<Mutex<HashMap<IpAddr, Bucket>>>,
+    /// Pre-auth connections per address, for eviction.
+    preauth: PreAuth,
+    /// Authenticated connections per peer address.
+    authenticated: PerIpCounts,
+    /// Cap on `authenticated`, per address.
+    per_ip_cap: usize,
+    /// Throttle for the refused-or-closed log line.
+    log: Arc<Mutex<ThrottledLog>>,
+}
+
+impl Gates {
+    fn new(per_ip_cap: usize) -> Self {
+        Self {
+            handshakes: Arc::new(Semaphore::new(MAX_CONCURRENT_HANDSHAKES)),
+            connect_rate: Arc::new(Mutex::new(HashMap::new())),
+            preauth: Arc::new(Mutex::new(PreAuthRegistry::default())),
+            authenticated: Arc::new(Mutex::new(HashMap::new())),
+            per_ip_cap,
+            log: Arc::new(Mutex::new(ThrottledLog::default())),
+        }
+    }
+}
+
+/// Counts one refused or closed connection, and prints a summary when one is due.
+fn report_closed(log: &Mutex<ThrottledLog>, peer: SocketAddr, reason: &str) {
+    let due = log
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .record(Instant::now());
+    if let Some(count) = due {
+        eprintln!(
+            "pool: {count} connection(s) refused or closed since the last report; \
+             latest from {peer}: {reason}"
+        );
+    }
+}
+
 /// Binds the Stratum listener and serves it on a background task.
 ///
 /// # Errors
@@ -156,6 +457,29 @@ pub async fn serve_stratum(
     validator: Validator,
     jobs: broadcast::Sender<Arc<Job>>,
 ) -> Result<PoolServer> {
+    let cap = state.config.max_connections_per_ip;
+    serve_stratum_capped(address, state, validator, jobs, cap).await
+}
+
+/// [`serve_stratum`] with the per-address connection cap set by the caller.
+///
+/// The load generator runs every simulated miner from loopback, which the
+/// production cap would refuse; it passes `usize::MAX` and says so. Production
+/// callers use [`serve_stratum`].
+///
+/// # Errors
+///
+/// Returns [`PoolError::Server`] if the address cannot be bound.
+// Only the pool-load bench may call this. Production goes through `serve_stratum`,
+// which applies the operator's configured cap.
+#[doc(hidden)]
+pub async fn serve_stratum_capped(
+    address: SocketAddr,
+    state: Arc<PoolState>,
+    validator: Validator,
+    jobs: broadcast::Sender<Arc<Job>>,
+    per_ip_cap: usize,
+) -> Result<PoolServer> {
     let socket = if address.is_ipv4() {
         TcpSocket::new_v4()?
     } else {
@@ -165,6 +489,7 @@ pub async fn serve_stratum(
     let listener = socket.listen(LISTEN_BACKLOG)?;
     let bound = listener.local_addr()?;
     let admission = Arc::new(Semaphore::new(MAX_CONNECTIONS));
+    let gates = Gates::new(per_ip_cap);
 
     tokio::spawn(async move {
         loop {
@@ -181,19 +506,56 @@ pub async fn serve_stratum(
 
             // Refused, not queued: a queue here is memory the pool holds on a
             // stranger's behalf. Dropping the socket is the refusal.
+            // A connection flood from rotating addresses can still fill the shared
+            // admission pool. Per-address budgets cannot stop that, because each
+            // address is new; upstream DDoS protection is the mitigation for it.
             let Ok(permit) = Arc::clone(&admission).try_acquire_owned() else {
-                eprintln!("pool: connection {peer} refused, {MAX_CONNECTIONS} already open");
+                report_closed(&gates.log, peer, "connection limit reached");
                 continue;
+            };
+
+            // Churn faster than handshakes finish is refused here, before any
+            // pre-auth entry or handshake work is spent on it.
+            let key = address_key(peer.ip());
+            let allowed = {
+                let mut buckets = gates
+                    .connect_rate
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner);
+                take_connect_token(&mut buckets, key, Instant::now())
+            };
+            if !allowed {
+                report_closed(&gates.log, peer, "connect rate exceeded for this address");
+                continue;
+            }
+
+            // At the address's pre-auth cap the oldest pre-auth connection gives
+            // way, so a newcomer from a shared address is not the one refused.
+            let (id, evicted, evicted_any) = {
+                let mut registry = gates.preauth.lock().unwrap_or_else(PoisonError::into_inner);
+                registry.admit(key, PREAUTH_PER_IP)
+            };
+            if evicted_any {
+                report_closed(&gates.log, peer, "evicted an older pre-auth connection");
+            }
+            let pre_slot = PreAuthSlot {
+                registry: Arc::clone(&gates.preauth),
+                ip: key,
+                id,
             };
 
             let state = Arc::clone(&state);
             let validator = validator.clone();
             let jobs = jobs.subscribe();
+            let gates = gates.clone();
 
             tokio::spawn(async move {
                 // Held for the connection's life, released when it ends.
                 let _permit = permit;
-                if let Err(error) = serve_connection(stream, state, validator, jobs).await {
+                let admitted = (pre_slot, evicted);
+                if let Err(error) =
+                    serve_connection(stream, peer, state, validator, jobs, gates, admitted).await
+                {
                     // Connection-level failures are ordinary: miners disconnect,
                     // Ð¸ a malformed frame is a client bug, not a pool one.
                     eprintln!("pool: connection {peer} ended: {error}");
@@ -205,22 +567,146 @@ pub async fn serve_stratum(
     Ok(PoolServer { address: bound })
 }
 
+/// Takes a handshake slot, waiting at most `wait` for one.
+///
+/// Past `wait` the connection is refused rather than queued: a queue of waiting
+/// sockets would hold each one for as long as the flood lasted.
+async fn take_handshake_slot(
+    slots: Arc<Semaphore>,
+    wait: Duration,
+) -> Result<OwnedSemaphorePermit> {
+    tokio::time::timeout(wait, slots.acquire_owned())
+        .await
+        .map_err(|_| PoolError::Server("no handshake slot before the timeout".to_string()))?
+        .map_err(|_| PoolError::Server("handshake limiter closed".to_string()))
+}
+
+/// Runs one synchronous handshake step under the shared handshake budget.
+///
+/// The step never awaits, so it occupies its runtime worker until it returns.
+/// The CPU bound is therefore the runtime worker count: at most that many steps
+/// run at once. The shared slot counts the steps in flight, and the network
+/// waits are outside this function on purpose.
+async fn crypto_step<T, E: std::fmt::Display>(
+    gates: &Gates,
+    step: impl FnOnce() -> std::result::Result<T, E>,
+) -> Result<T> {
+    let _slot = take_handshake_slot(Arc::clone(&gates.handshakes), HANDSHAKE_TIMEOUT).await?;
+    step().map_err(|error| PoolError::Server(format!("post-quantum handshake failed: {error}")))
+}
+
+/// Bounds one network step of the handshake, naming the step in its error.
+async fn within<T, E: std::fmt::Display>(
+    wait: Duration,
+    what: &str,
+    io: impl Future<Output = std::result::Result<T, E>>,
+) -> Result<T> {
+    tokio::time::timeout(wait, io)
+        .await
+        .map_err(|_| PoolError::Server(format!("timed out {what}")))?
+        .map_err(|error| PoolError::Server(format!("{what} failed: {error}")))
+}
+
+/// The responder half of the handshake, with every network wait bounded and
+/// every CPU step under the shared budget.
+///
+/// The responder speaks first, so the order is: generate (CPU), send our key
+/// (network), read the initiator's message (network), decapsulate (CPU). The
+/// initiator's message is read whole, at its fixed length, so a peer that sends
+/// part of it and stops is dropped at `io_wait`.
+///
+/// A silent connect costs one key generation. That is inherent to a
+/// responder-first protocol: the pool cannot know the peer is silent until it
+/// has sent its key.
+async fn handshake_as_responder<S>(
+    stream: &mut S,
+    gates: &Gates,
+    io_wait: Duration,
+) -> Result<handshake::SessionKeys>
+where
+    S: futures::AsyncRead + futures::AsyncWrite + Unpin,
+{
+    let pending = crypto_step(gates, handshake::begin_respond).await?;
+    let first = pending.first_message();
+    within(
+        io_wait,
+        "sending the handshake key",
+        stream.write_all(&first),
+    )
+    .await?;
+
+    let mut inbound = vec![0u8; handshake::INITIATOR_MESSAGE_LEN];
+    within(
+        io_wait,
+        "reading the initiator's handshake",
+        stream.read_exact(&mut inbound),
+    )
+    .await?;
+    crypto_step(gates, move || pending.finish(&inbound)).await
+}
+
+/// The whole responder handshake under one hard deadline.
+///
+/// Each network wait and each budget wait has its own bound, but their sum is
+/// larger than any honest peer needs. This deadline is the cap: a handshake that
+/// has not finished when it expires is abandoned, whichever step it was in.
+async fn handshake_within_deadline<S>(
+    stream: &mut S,
+    gates: &Gates,
+    overall: Duration,
+    io_wait: Duration,
+) -> Result<handshake::SessionKeys>
+where
+    S: futures::AsyncRead + futures::AsyncWrite + Unpin,
+{
+    match tokio::time::timeout(overall, handshake_as_responder(stream, gates, io_wait)).await {
+        Ok(keys) => keys,
+        Err(_) => Err(PoolError::Server(
+            "post-quantum handshake exceeded its deadline".to_string(),
+        )),
+    }
+}
+
 /// Drives one miner connection from handshake to close.
 async fn serve_connection(
     stream: TcpStream,
+    peer: SocketAddr,
     state: Arc<PoolState>,
     validator: Validator,
     mut jobs: broadcast::Receiver<Arc<Job>>,
+    gates: Gates,
+    admitted: (PreAuthSlot, oneshot::Receiver<()>),
 ) -> Result<()> {
     stream.set_nodelay(true)?;
+    let (preauth, mut evicted) = admitted;
 
     // The compat layer exists for exactly this line: the handshake is written
     // against futures' traits and a Tokio socket implements Tokio's.
     let mut compat = stream.compat();
-    let keys = tokio::time::timeout(HANDSHAKE_TIMEOUT, handshake::respond(&mut compat))
-        .await
-        .map_err(|_| PoolError::Server("post-quantum handshake timed out".to_string()))?
-        .map_err(|e| PoolError::Server(format!("post-quantum handshake failed: {e}")))?;
+    let handshake =
+        handshake_within_deadline(&mut compat, &gates, HANDSHAKE_TIMEOUT, HANDSHAKE_IO_TIMEOUT);
+    let keys = tokio::select! {
+        biased;
+        // A newer connection from this address took this one's place. The peer
+        // is not lost: it reconnects, and this socket is simply dropped.
+        _ = &mut evicted => return Ok(()),
+        keys = handshake => keys?,
+    };
+
+    // Pre-auth entry released here; from now on the address's farm budget applies.
+    drop(preauth);
+    // A ghost connection, authenticated and then silent, holds this slot until
+    // `IDLE_TIMEOUT` closes it. Keepalive via socket2 would reap it sooner, and
+    // evicting the oldest authenticated entry would free the slot at once; both
+    // are follow-ups.
+    let key = address_key(peer.ip());
+    let _authenticated = match IpSlot::claim(&gates.authenticated, key, gates.per_ip_cap) {
+        Some(slot) => slot,
+        None => {
+            report_closed(&gates.log, peer, "authenticated cap reached");
+            return Ok(());
+        }
+    };
 
     // `is_initiator: false` — the pool responds, so it opens with the key the
     // dialer seals with. Getting this backwards yields a stream that decrypts
@@ -262,6 +748,10 @@ async fn serve_connection(
 
     let mut session = Session::new();
     let mut acks = AckBook::default();
+    let mut invalid = InvalidShareBudget::default();
+    // Set when the budget closes the connection: that close is already counted
+    // on the shared log, so it is not also printed per connection.
+    let mut budget_closed = false;
 
     let result = loop {
         // The timeout drops a half-read frame, which is safe only because the
@@ -312,6 +802,25 @@ async fn serve_connection(
                         }
                     };
 
+                    // Every rejection here cost a full DAG verification, so a
+                    // connection that keeps sending junk is closed, not served.
+                    // Stale and duplicate verdicts were refused without verification, so
+                    // they spend nothing and are not counted.
+                    let counted = match verdict.outcome {
+                        ShareOutcome::Accepted { .. } => Some(true),
+                        ShareOutcome::Rejected(RejectReason::Stale | RejectReason::Duplicate) => {
+                            None
+                        }
+                        ShareOutcome::Rejected(_) => Some(false),
+                    };
+                    if let Some(accepted) = counted
+                        && invalid.record(accepted)
+                    {
+                        report_closed(&gates.log, peer, "too many invalid shares");
+                        budget_closed = true;
+                        closing = Some("too many invalid shares".to_string());
+                    }
+
                     match verdict.outcome {
                         ShareOutcome::Accepted { weight, .. } => {
                             if let Some(ack) = acks.record(channel_id, sequence_number, weight)
@@ -359,7 +868,11 @@ async fn serve_connection(
             for channel_id in session.channels() {
                 let _ = outbound.try_send(close_message(*channel_id, "pool-closing"));
             }
-            break Err(PoolError::Server(reason));
+            break if budget_closed {
+                Ok(())
+            } else {
+                Err(PoolError::Server(reason))
+            };
         }
     };
 
@@ -414,6 +927,15 @@ async fn write_frames<W: futures::io::AsyncWrite + Unpin>(
 
 /// Reads one SV2 frame, or `None` at a clean end of stream.
 async fn read_frame<R: futures::AsyncRead + Unpin>(reader: &mut R) -> Result<Option<Frame>> {
+    read_frame_within(reader, FRAME_TIMEOUT).await
+}
+
+/// [`read_frame`] with the payload deadline as a parameter, so a stall can be
+/// tested without waiting out [`FRAME_TIMEOUT`].
+async fn read_frame_within<R: futures::AsyncRead + Unpin>(
+    reader: &mut R,
+    payload_timeout: Duration,
+) -> Result<Option<Frame>> {
     let mut header_bytes = [0u8; maya_stratum_v2::frame::FRAME_HEADER_LEN];
     match reader.read_exact(&mut header_bytes).await {
         Ok(()) => {}
@@ -438,11 +960,20 @@ async fn read_frame<R: futures::AsyncRead + Unpin>(reader: &mut R) -> Result<Opt
         ));
     }
 
-    let mut payload = vec![0u8; header.msg_length as usize];
-    reader
-        .read_exact(&mut payload)
+    // Grows as bytes arrive instead of reserving the declared length up front: a
+    // header alone should not pin up to 64 KiB per connection.
+    let len = header.msg_length as usize;
+    let mut payload = Vec::new();
+    let mut limited = AsyncReadExt::take(&mut *reader, len as u64);
+    let read = tokio::time::timeout(payload_timeout, limited.read_to_end(&mut payload))
         .await
+        .map_err(|_| PoolError::Server("a frame's payload stalled past its deadline".to_string()))?
         .map_err(|error| PoolError::Server(format!("reading a frame payload: {error}")))?;
+    if read != len {
+        return Err(PoolError::Server(format!(
+            "connection closed inside a frame: {read} of {len} payload bytes"
+        )));
+    }
 
     let mut whole = header_bytes.to_vec();
     whole.extend_from_slice(&payload);
@@ -805,6 +1336,48 @@ mod tests {
         assert!(read_frame(&mut reader).await.unwrap().is_none());
     }
 
+    /// Yields its prefix, then never another byte: a peer that sent a header and stopped.
+    struct StalledAfter {
+        prefix: futures::io::Cursor<Vec<u8>>,
+    }
+
+    impl futures::AsyncRead for StalledAfter {
+        fn poll_read(
+            self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+            buf: &mut [u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            let this = self.get_mut();
+            match futures::AsyncRead::poll_read(std::pin::Pin::new(&mut this.prefix), cx, buf) {
+                std::task::Poll::Ready(Ok(0)) => std::task::Poll::Pending,
+                other => other,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_payload_that_stalls_after_its_header_is_abandoned_at_the_deadline() {
+        // The header promises 100 bytes and then nothing: the connection must not
+        // wait out the idle timeout, nor reserve the 100 bytes it never received.
+        let mut header = [0u8; maya_stratum_v2::frame::FRAME_HEADER_LEN];
+        header[0..2].copy_from_slice(&maya_stratum_v2::MAYA_EXTENSION_TYPE.to_le_bytes());
+        header[2] = 0x1a;
+        header[3..6].copy_from_slice(&[100, 0, 0]);
+
+        let mut reader = StalledAfter {
+            prefix: futures::io::Cursor::new(header.to_vec()),
+        };
+        let outcome = tokio::time::timeout(
+            Duration::from_secs(5),
+            read_frame_within(&mut reader, Duration::from_millis(20)),
+        )
+        .await;
+        assert!(
+            matches!(outcome, Ok(Err(_))),
+            "a stalled payload was not abandoned at its deadline"
+        );
+    }
+
     #[tokio::test]
     async fn a_frame_declaring_more_than_the_transport_can_carry_is_refused() {
         // Refused before a byte is reserved: at 50,000 connections a length
@@ -937,5 +1510,243 @@ mod tests {
         acks.record(2, 0, 10);
         assert_eq!(acks.drain().len(), 2);
         assert!(acks.drain().is_empty());
+    }
+
+    #[test]
+    fn one_address_cannot_hold_more_than_its_cap_and_dropping_frees_a_slot() {
+        // NAT farms share an address, so the cap has to be real but generous.
+        let counts: PerIpCounts = Arc::new(Mutex::new(HashMap::new()));
+        let ip: IpAddr = "203.0.113.7".parse().unwrap();
+
+        let cap = crate::config::DEFAULT_MAX_CONNECTIONS_PER_IP;
+        let held: Vec<IpSlot> = (0..cap)
+            .map(|_| IpSlot::claim(&counts, ip, cap).unwrap())
+            .collect();
+        assert!(IpSlot::claim(&counts, ip, cap).is_none());
+
+        // A different address is unaffected by this one's cap.
+        let other: IpAddr = "203.0.113.8".parse().unwrap();
+        assert!(IpSlot::claim(&counts, other, cap).is_some());
+
+        drop(held);
+        assert!(IpSlot::claim(&counts, ip, cap).is_some());
+    }
+
+    #[test]
+    fn an_address_with_no_open_connections_leaves_no_entry_behind() {
+        // The map would otherwise grow by one entry per stranger that ever connected.
+        let counts: PerIpCounts = Arc::new(Mutex::new(HashMap::new()));
+        let ip: IpAddr = "198.51.100.1".parse().unwrap();
+
+        let cap = crate::config::DEFAULT_MAX_CONNECTIONS_PER_IP;
+        drop(IpSlot::claim(&counts, ip, cap).unwrap());
+        assert!(counts.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn unauthenticated_connections_do_not_use_the_authenticated_budget() {
+        // A neighbour holding every pre-auth entry on a shared address must not
+        // stop the farm's authenticated connections.
+        let gates = Gates::new(crate::config::DEFAULT_MAX_CONNECTIONS_PER_IP);
+        let ip: IpAddr = "192.0.2.10".parse().unwrap();
+
+        let mut held = Vec::new();
+        for _ in 0..PREAUTH_PER_IP {
+            let (id, _signal, _evicted) = gates.preauth.lock().unwrap().admit(ip, PREAUTH_PER_IP);
+            held.push(PreAuthSlot {
+                registry: Arc::clone(&gates.preauth),
+                ip,
+                id,
+            });
+        }
+
+        assert!(IpSlot::claim(&gates.authenticated, ip, gates.per_ip_cap).is_some());
+        drop(held);
+    }
+
+    #[test]
+    fn a_newcomer_at_the_pre_auth_cap_evicts_the_oldest_entry() {
+        let mut registry = PreAuthRegistry::default();
+        let ip: IpAddr = "192.0.2.11".parse().unwrap();
+
+        let mut signals = Vec::new();
+        for _ in 0..PREAUTH_PER_IP {
+            let (_, signal, evicted_any) = registry.admit(ip, PREAUTH_PER_IP);
+            assert!(!evicted_any);
+            signals.push(signal);
+        }
+
+        let (_, _, evicted_any) = registry.admit(ip, PREAUTH_PER_IP);
+        assert!(evicted_any, "the newcomer displaces an older entry");
+        assert!(signals[0].try_recv().is_ok(), "the oldest was signalled");
+        assert!(
+            signals[1].try_recv().is_err(),
+            "the next oldest is still waiting"
+        );
+    }
+
+    #[test]
+    fn a_pre_auth_entry_is_forgotten_when_its_connection_ends() {
+        let registry: PreAuth = Arc::new(Mutex::new(PreAuthRegistry::default()));
+        let ip: IpAddr = "192.0.2.12".parse().unwrap();
+
+        let (id, _signal, _evicted) = registry.lock().unwrap().admit(ip, PREAUTH_PER_IP);
+        drop(PreAuthSlot {
+            registry: Arc::clone(&registry),
+            ip,
+            id,
+        });
+        assert!(registry.lock().unwrap().by_ip.is_empty());
+    }
+
+    #[test]
+    fn ipv6_budgets_are_keyed_on_the_64_bit_prefix() {
+        // Two addresses in one /64 share a budget; a different /64 does not.
+        // IPv4 keeps its full address.
+        let first: IpAddr = "2001:db8:1:2:3:4:5:6".parse().unwrap();
+        let same_prefix: IpAddr = "2001:db8:1:2:ffff:ffff:ffff:ffff".parse().unwrap();
+        let other_prefix: IpAddr = "2001:db8:1:3::1".parse().unwrap();
+        let v4: IpAddr = "192.0.2.77".parse().unwrap();
+
+        assert_eq!(address_key(first), address_key(same_prefix));
+        assert_ne!(address_key(first), address_key(other_prefix));
+        assert_eq!(address_key(v4), v4);
+    }
+
+    #[test]
+    fn connects_burst_then_are_refused_until_the_bucket_refills() {
+        // A burst is allowed; past it the address waits for tokens at the sustained rate.
+        let mut buckets = HashMap::new();
+        let ip: IpAddr = "198.51.100.9".parse().unwrap();
+        let start = Instant::now();
+
+        for _ in 0..CONNECT_BURST {
+            assert!(take_connect_token(&mut buckets, ip, start));
+        }
+        assert!(!take_connect_token(&mut buckets, ip, start));
+
+        // At 4 a second, one token returns every 250 ms.
+        let quarter = start + Duration::from_millis(250);
+        assert!(take_connect_token(&mut buckets, ip, quarter));
+        assert!(!take_connect_token(&mut buckets, ip, quarter));
+    }
+
+    #[tokio::test]
+    async fn a_handshake_that_stalls_between_steps_is_cut_at_the_overall_deadline() {
+        // Each wait is bounded on its own, but the handshake as a whole must end
+        // even when no single wait does.
+        use tokio::io::AsyncWriteExt;
+
+        let (server, mut client) = socket_pair().await;
+        client.write_all(&[1]).await.unwrap();
+        let gates = Gates::new(crate::config::DEFAULT_MAX_CONNECTIONS_PER_IP);
+
+        let mut compat = server.compat();
+        let outcome = handshake_within_deadline(
+            &mut compat,
+            &gates,
+            Duration::from_millis(50),
+            Duration::from_secs(60),
+        )
+        .await;
+        match outcome {
+            Err(PoolError::Server(message)) => {
+                assert!(message.contains("deadline"), "got: {message}");
+            }
+            other => panic!("expected the overall deadline, got {:?}", other.map(|_| ())),
+        }
+    }
+
+    /// A connected pair of loopback sockets, the server side first.
+    async fn socket_pair() -> (TcpStream, TcpStream) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let client = TcpStream::connect(address).await.unwrap();
+        let (server, _) = listener.accept().await.unwrap();
+        (server, client)
+    }
+
+    #[tokio::test]
+    async fn one_byte_then_stall_holds_no_global_handshake_slot() {
+        // The responder waits on the initiator's whole message. That wait is a
+        // network wait, and during it no shared handshake slot may be held.
+        use tokio::io::AsyncWriteExt;
+
+        let (server, mut client) = socket_pair().await;
+        client.write_all(&[1]).await.unwrap();
+        let gates = Gates::new(crate::config::DEFAULT_MAX_CONNECTIONS_PER_IP);
+
+        let mut compat = server.compat();
+        let waiting = {
+            let gates = gates.clone();
+            tokio::spawn(async move {
+                handshake_as_responder(&mut compat, &gates, Duration::from_millis(300)).await
+            })
+        };
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(
+            gates.handshakes.available_permits(),
+            MAX_CONCURRENT_HANDSHAKES,
+            "the peer is mid-message, so no slot may be held"
+        );
+        assert!(
+            waiting.await.unwrap().is_err(),
+            "a stalled message is dropped at its deadline"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_partial_first_message_then_a_stall_is_dropped_at_the_deadline() {
+        use tokio::io::AsyncWriteExt;
+
+        let (server, mut client) = socket_pair().await;
+        client.write_all(&[1; 10]).await.unwrap();
+        let gates = Gates::new(crate::config::DEFAULT_MAX_CONNECTIONS_PER_IP);
+
+        let mut compat = server.compat();
+        let outcome = tokio::time::timeout(
+            Duration::from_secs(5),
+            handshake_as_responder(&mut compat, &gates, Duration::from_millis(50)),
+        )
+        .await;
+        assert!(
+            matches!(outcome, Ok(Err(_))),
+            "a partial message was not dropped at its deadline"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_connect_flood_cannot_hold_every_handshake_slot() {
+        // Once the slots are held, the next connection is refused at its wait
+        // rather than queued behind the flood, and a released slot is reusable.
+        let wait = Duration::from_millis(20);
+        let slots = Arc::new(Semaphore::new(2));
+        let first = take_handshake_slot(Arc::clone(&slots), wait).await.unwrap();
+        let second = take_handshake_slot(Arc::clone(&slots), wait).await.unwrap();
+        assert!(take_handshake_slot(Arc::clone(&slots), wait).await.is_err());
+
+        drop(first);
+        assert!(take_handshake_slot(Arc::clone(&slots), wait).await.is_ok());
+        drop(second);
+    }
+
+    #[test]
+    fn refusals_are_reported_in_batches_not_per_connection() {
+        let start = Instant::now();
+        let mut refusals = ThrottledLog::default();
+
+        assert_eq!(
+            refusals.record(start),
+            Some(1),
+            "the first refusal is reported"
+        );
+        for offset in 1..=5 {
+            assert_eq!(refusals.record(start + Duration::from_millis(offset)), None);
+        }
+        assert_eq!(
+            refusals.record(start + REFUSAL_LOG_INTERVAL),
+            Some(6),
+            "the next report carries everything refused since the last"
+        );
     }
 }
