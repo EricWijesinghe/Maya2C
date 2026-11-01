@@ -594,3 +594,38 @@ waste of computation power"; then, on the options: "use recommended maximum pote
   (< 2^64).
 - **After launch, at activation heights (BACKLOG P5):** reward-per-share accumulator,
   256-bit TWAP accumulators, packed state words.
+
+## 2026-11-01 — Eric approves ADR-071 option B and the ADR-044 payout wording (economics)
+
+Eric, 2026-11-01: "I approve everything, finish them".
+- ADR-071: the base-fee ceiling is option B, 0.1 MAYA per standard transfer at the cap. That value is already in `crates/fee-market/src/limits.rs`, so no code change. Status: Accepted.
+- ADR-044: the text now matches the code, with no consensus change.
+  - A claim earns `budget / target_shares`, capped by what is left of the epoch's budget.
+  - Unpaid budget stays in `MINING_RESERVE`, with nothing burned and no carry-over.
+  - `R(e)` has a tail floor, and with a tail, genesis requires the reserve to hold `lifetime_emission()`.
+  - The old text said pro-rata, remainder burned, and an empty epoch burned (`state/mining.rs` `share_reward`, `epoch_reward`; `genesis.rs` `bft.mining`).
+- The GitHub `release` environment now requires Eric's approval and only deploys `node-v*` tags. The `pypi` environment requires his review.
+## 2026-11-01 — No state transition may leave a funded pool without a usable price (consensus, freeze)
+
+A funded pool whose spot price is 0, or overflows 256 bits, refunds every batch on its pair for
+good, and its pair id cannot be reused. This was a pre-existing DoS flagged in the #279 security
+review and agreed with maya2c-2b for the freeze. One predicate covers every path that writes a pool
+(`has_usable_price` in `state/dex_exec.rs`):
+- pool creation, deposit and withdrawal refuse the transaction before writing anything;
+- a routed swap that would leave such a pool is a no-op, like an unpriceable leg, because an earlier
+  transaction in the same block can move the pool and that must not void the block;
+- batch settlement refunds the batch, as for an unpriceable pool, so a block is never voided.
+Overflow cannot be reached: quote <= MAX_ASSET_SUPPLY = MAX / PRICE_SCALE. A partial withdrawal
+that would end at price 0 is refused; a full withdrawal (pool empty) always passes.
+Replays that fail on master and pass now: `a_pool_with_no_usable_price_cannot_be_created`,
+`a_route_that_would_leave_no_usable_price_does_not_execute`. Regression guard (master already
+refunds it): `a_batch_that_would_leave_no_usable_price_refunds_and_keeps_the_pool`.
+Two more from the same security review, fixed in the freeze:
+- Batch shrink: a zero clearing price, or a clearing that leaves spot 0, now drops the largest
+  base seller (fallback: smallest, so the loop always shrinks). Dropping the smallest let one flood
+  refund every honest co-trader. Replay: `an_honest_swap_still_clears_beside_a_flood_that_would_leave_no_price`.
+- Withdrawal refuses only when both sides round to zero. Refusing when either side did stranded an
+  LP's whole position in a pool with a dust side. Replay:
+  `an_lp_whose_quote_share_rounds_to_zero_can_still_withdraw_its_base`.
+Residual: "usable" means spot is not 0, not "every size clears". At spot near 1, small base sells
+round to 0 and are refunded until a buyer moves the price. That is a refund, not a lock.
