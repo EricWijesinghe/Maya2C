@@ -143,11 +143,11 @@ struct IpSlot {
 }
 
 impl IpSlot {
-    /// Claims a slot for `ip`, or `None` if that address is at its cap.
-    fn claim(counts: &PerIpCounts, ip: IpAddr) -> Option<Self> {
+    /// Claims a slot for `ip`, or `None` if that address already has `cap` open.
+    fn claim(counts: &PerIpCounts, ip: IpAddr, cap: usize) -> Option<Self> {
         let mut map = counts.lock().unwrap_or_else(PoisonError::into_inner);
         let open = map.entry(ip).or_insert(0);
-        if *open >= MAX_CONNECTIONS_PER_IP {
+        if *open >= cap {
             return None;
         }
         *open += 1;
@@ -257,6 +257,25 @@ pub async fn serve_stratum(
     validator: Validator,
     jobs: broadcast::Sender<Arc<Job>>,
 ) -> Result<PoolServer> {
+    serve_stratum_capped(address, state, validator, jobs, MAX_CONNECTIONS_PER_IP).await
+}
+
+/// [`serve_stratum`] with the per-address connection cap set by the caller.
+///
+/// The load generator runs every simulated miner from loopback, which the
+/// production cap would refuse; it passes `usize::MAX` and says so. Production
+/// callers use [`serve_stratum`].
+///
+/// # Errors
+///
+/// Returns [`PoolError::Server`] if the address cannot be bound.
+pub async fn serve_stratum_capped(
+    address: SocketAddr,
+    state: Arc<PoolState>,
+    validator: Validator,
+    jobs: broadcast::Sender<Arc<Job>>,
+    per_ip_cap: usize,
+) -> Result<PoolServer> {
     let socket = if address.is_ipv4() {
         TcpSocket::new_v4()?
     } else {
@@ -285,11 +304,11 @@ pub async fn serve_stratum(
 
             // Refused, not queued: a queue here is memory the pool holds on a
             // stranger's behalf. Dropping the socket is the refusal.
-            let Some(ip_slot) = IpSlot::claim(&per_ip, peer.ip()) else {
+            let Some(ip_slot) = IpSlot::claim(&per_ip, peer.ip(), per_ip_cap) else {
                 if let Some(count) = refusals.record(Instant::now()) {
                     eprintln!(
                         "pool: refused {count} connection(s) since the last report, \
-                         {MAX_CONNECTIONS_PER_IP} open per address; latest from {peer}"
+                         {per_ip_cap} open per address; latest from {peer}"
                     );
                 }
                 continue;
@@ -1154,17 +1173,18 @@ mod tests {
         let counts: PerIpCounts = Arc::new(Mutex::new(HashMap::new()));
         let ip: IpAddr = "203.0.113.7".parse().unwrap();
 
-        let held: Vec<IpSlot> = (0..MAX_CONNECTIONS_PER_IP)
-            .map(|_| IpSlot::claim(&counts, ip).unwrap())
+        let cap = MAX_CONNECTIONS_PER_IP;
+        let held: Vec<IpSlot> = (0..cap)
+            .map(|_| IpSlot::claim(&counts, ip, cap).unwrap())
             .collect();
-        assert!(IpSlot::claim(&counts, ip).is_none());
+        assert!(IpSlot::claim(&counts, ip, cap).is_none());
 
         // A different address is unaffected by this one's cap.
         let other: IpAddr = "203.0.113.8".parse().unwrap();
-        assert!(IpSlot::claim(&counts, other).is_some());
+        assert!(IpSlot::claim(&counts, other, cap).is_some());
 
         drop(held);
-        assert!(IpSlot::claim(&counts, ip).is_some());
+        assert!(IpSlot::claim(&counts, ip, cap).is_some());
     }
 
     #[test]
@@ -1173,7 +1193,7 @@ mod tests {
         let counts: PerIpCounts = Arc::new(Mutex::new(HashMap::new()));
         let ip: IpAddr = "198.51.100.1".parse().unwrap();
 
-        drop(IpSlot::claim(&counts, ip).unwrap());
+        drop(IpSlot::claim(&counts, ip, MAX_CONNECTIONS_PER_IP).unwrap());
         assert!(counts.lock().unwrap().is_empty());
     }
 
