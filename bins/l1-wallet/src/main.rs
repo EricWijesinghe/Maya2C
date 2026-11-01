@@ -233,44 +233,6 @@ fn checked_password(
     Ok(password)
 }
 
-#[cfg(test)]
-mod password_tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used)]
-    use super::*;
-
-    #[test]
-    fn a_matching_confirmation_yields_the_password() {
-        let password = checked_password(
-            Zeroizing::new("hunter2".into()),
-            Some(Zeroizing::new("hunter2".into())),
-        )
-        .unwrap();
-        assert_eq!(password.as_str(), "hunter2");
-    }
-
-    #[test]
-    fn a_mismatched_confirmation_is_refused() {
-        let error = checked_password(
-            Zeroizing::new("hunter2".into()),
-            Some(Zeroizing::new("hunter3".into())),
-        )
-        .unwrap_err();
-        assert!(error.to_string().contains("do not match"), "{error}");
-    }
-
-    #[test]
-    fn an_empty_password_is_refused_with_or_without_confirmation() {
-        assert!(checked_password(Zeroizing::new(String::new()), None).is_err());
-        assert!(
-            checked_password(
-                Zeroizing::new(String::new()),
-                Some(Zeroizing::new(String::new())),
-            )
-            .is_err()
-        );
-    }
-}
-
 /// Loads and decrypts the keystore at `path`.
 fn load_key(path: &Path) -> Result<HybridSigningKey> {
     if !path.exists() {
@@ -725,4 +687,42 @@ async fn run() -> Result<()> {
 /// parses decimal explicitly: `--amount 10` must mean ten, not sixteen.
 fn parse_amount(text: &str) -> std::result::Result<U256, String> {
     U256::from_dec_str(text).map_err(|_| format!("{text:?} is not a decimal amount below 2^256"))
+}
+
+#[cfg(test)]
+mod password_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+
+    #[test]
+    fn a_matching_confirmation_yields_the_password() {
+        let password = checked_password(
+            Zeroizing::new("hunter2".into()),
+            Some(Zeroizing::new("hunter2".into())),
+        )
+        .unwrap();
+        assert_eq!(password.as_str(), "hunter2");
+    }
+
+    #[test]
+    fn a_mismatched_confirmation_is_refused() {
+        let error = checked_password(
+            Zeroizing::new("hunter2".into()),
+            Some(Zeroizing::new("hunter3".into())),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("do not match"), "{error}");
+    }
+
+    #[test]
+    fn an_empty_password_is_refused_with_or_without_confirmation() {
+        assert!(checked_password(Zeroizing::new(String::new()), None).is_err());
+        assert!(
+            checked_password(
+                Zeroizing::new(String::new()),
+                Some(Zeroizing::new(String::new())),
+            )
+            .is_err()
+        );
+    }
 }
