@@ -23,8 +23,8 @@
 
 use std::collections::BTreeSet;
 
+use crate::state::fees::MAX_BLOCK_BYTES;
 use maya_dag_bft::SubDag;
-use maya_fee_market::limits::MAX_BLOCK_BYTES;
 
 use crate::consensus::Chain;
 use crate::core::block::decode_plan;
