@@ -327,6 +327,9 @@ fn print_usage() {
          --catch-up-from <URL>    DAG-BFT: rejoin after a long outage through a peer's\n                           \
          attested checkpoint, then follow attested blocks (ADR-038);\n                           \
          repeatable: the reachable peer with the highest tip is used (ADR-043)\n  \
+         --trusted-block HEIGHT:HEX  block the chain must pass through; with --catch-up-from\n                           \
+         it is REQUIRED after an outage past the unbonding window (B49), with\n                           \
+         --bootstrap-from it anchors the snapshot (ADR-060)\n  \
          --validator-key <PATH>  DAG-BFT validator key; without it the node observes\n  \
          --generate-validator-key <PATH>  write a new validator key, print its public key;\n                           \
          sealed when a passphrase file is set (ADR-049)\n  \
