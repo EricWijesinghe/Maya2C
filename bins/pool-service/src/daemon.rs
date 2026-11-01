@@ -31,7 +31,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -73,10 +73,12 @@ const OUTBOUND_CAPACITY: usize = MAX_CHANNELS_PER_CONNECTION * 4;
 /// shortcut: fixed bound, not measured against real burst sizes, revisit with stratum load data
 const SEND_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Longest a TCP peer may take to finish the post-quantum handshake.
+/// Longest a TCP peer may take to finish the post-quantum handshake, end to end.
 ///
-/// Without a deadline, a socket that connects and says nothing holds its task
-/// and buffers for as long as the peer keeps the TCP connection open.
+/// The hard cap on the whole responder handshake: its network waits and its
+/// budget waits together. Without it, a socket that connects and says nothing
+/// holds its task and buffers for as long as the peer keeps the TCP connection
+/// open, and the per-step bounds alone add up to more than any honest peer needs.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Handshakes in progress at once, across every connection.
@@ -127,15 +129,86 @@ const PREAUTH_PER_IP: usize = 8;
 /// Longest each network step of the handshake may wait on the peer.
 ///
 /// The responder speaks first: it sends its key, then waits for the initiator's
-/// message. Both waits are network waits and hold no shared budget. This bounds
-/// how long a silent or half-sent handshake keeps its pre-auth entry.
-const HANDSHAKE_IO_TIMEOUT: Duration = Duration::from_secs(2);
+/// message. Both waits are network waits and hold no shared budget. Five seconds
+/// is sized for slow mobile and satellite links, where a round trip alone can
+/// take most of a second. Each wait is also capped by `HANDSHAKE_TIMEOUT`.
+const HANDSHAKE_IO_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Synchronous handshake steps one address may run at once.
+/// Connects one address may open per burst.
 ///
-/// Each step is a short synchronous ML-KEM operation with no network wait, so two
-/// is ample for one NAT. It stops one address from taking the whole shared budget.
-const PER_IP_HANDSHAKES: usize = 2;
+/// NAT and farm bursts are real: a site that restarts opens its whole fleet at
+/// once. The burst is sized for that, and the sustained rate below is what stops
+/// a churning peer from tying up handshakes.
+const CONNECT_BURST: u32 = 16;
+
+/// Connects one address may open per second, sustained.
+///
+/// Honest rigs connect once and then stay. Four a second per address still
+/// allows a whole site to reconnect after a network blip. Churn faster than that
+/// is what fills the pre-auth budget, so the excess is refused at accept.
+const CONNECT_RATE_PER_SEC: u64 = 4;
+
+/// Milli-tokens for one connect. Integer arithmetic keeps the bucket exact.
+const ONE_CONNECT: u64 = 1_000;
+
+/// Buckets held before full ones are pruned. A full bucket carries no state.
+const BUCKET_PRUNE_AT: usize = 10_000;
+
+/// The per-address key for every per-address budget.
+///
+/// IPv4 is keyed on the full address. IPv6 is keyed on its /64: one host can
+/// hold a whole /64, so keying on the full address would let a single subscriber
+/// take a fresh budget with every new address. A /64 is the smallest unit a
+/// subscriber normally owns, so it is the unit this budget tracks.
+// shortcut: /64 is the fixed unit; a provider that delegates smaller prefixes to a single customer needs a shorter key.
+#[must_use]
+fn address_key(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V4(_) => ip,
+        IpAddr::V6(v6) => {
+            let network = u128::from(v6) & (u128::MAX << 64);
+            IpAddr::V6(Ipv6Addr::from(network))
+        }
+    }
+}
+
+/// One address's connect allowance, in milli-tokens, and when it was last topped up.
+#[derive(Clone, Copy, Debug)]
+struct Bucket {
+    tokens: u64,
+    last: Instant,
+}
+
+/// Milli-tokens an idle bucket has regained by `now`, capped at a full bucket.
+fn refilled(bucket: &Bucket, now: Instant) -> u64 {
+    let capacity = u64::from(CONNECT_BURST) * ONE_CONNECT;
+    let elapsed_ms =
+        u64::try_from(now.saturating_duration_since(bucket.last).as_millis()).unwrap_or(u64::MAX);
+    // Milli-tokens per millisecond: rate tokens/s is rate*1000 milli-tokens over 1000 ms.
+    let regained = elapsed_ms.saturating_mul(CONNECT_RATE_PER_SEC);
+    bucket.tokens.saturating_add(regained).min(capacity)
+}
+
+/// Takes one connect from `key`'s bucket. `false` means the address is over its rate.
+fn take_connect_token(buckets: &mut HashMap<IpAddr, Bucket>, key: IpAddr, now: Instant) -> bool {
+    let capacity = u64::from(CONNECT_BURST) * ONE_CONNECT;
+    if buckets.len() >= BUCKET_PRUNE_AT {
+        buckets.retain(|_, bucket| refilled(bucket, now) < capacity);
+    }
+
+    let bucket = buckets.entry(key).or_insert(Bucket {
+        tokens: capacity,
+        last: now,
+    });
+    bucket.tokens = refilled(bucket, now);
+    bucket.last = now;
+    if bucket.tokens >= ONE_CONNECT {
+        bucket.tokens -= ONE_CONNECT;
+        true
+    } else {
+        false
+    }
+}
 
 /// Shortest gap between two lines reporting refused or closed connections.
 ///
@@ -332,8 +405,8 @@ impl Drop for PreAuthSlot {
 struct Gates {
     /// Synchronous handshake steps running at once, across every connection.
     handshakes: Arc<Semaphore>,
-    /// The same steps, concurrently, per address.
-    handshake_crypto: PerIpCounts,
+    /// Connect allowances per address, keyed by [`address_key`].
+    connect_rate: Arc<Mutex<HashMap<IpAddr, Bucket>>>,
     /// Pre-auth connections per address, for eviction.
     preauth: PreAuth,
     /// Authenticated connections per peer address.
@@ -348,7 +421,7 @@ impl Gates {
     fn new(per_ip_cap: usize) -> Self {
         Self {
             handshakes: Arc::new(Semaphore::new(MAX_CONCURRENT_HANDSHAKES)),
-            handshake_crypto: Arc::new(Mutex::new(HashMap::new())),
+            connect_rate: Arc::new(Mutex::new(HashMap::new())),
             preauth: Arc::new(Mutex::new(PreAuthRegistry::default())),
             authenticated: Arc::new(Mutex::new(HashMap::new())),
             per_ip_cap,
@@ -431,23 +504,41 @@ pub async fn serve_stratum_capped(
 
             // Refused, not queued: a queue here is memory the pool holds on a
             // stranger's behalf. Dropping the socket is the refusal.
+            // A connection flood from rotating addresses can still fill the shared
+            // admission pool. Per-address budgets cannot stop that, because each
+            // address is new; upstream DDoS protection is the mitigation for it.
             let Ok(permit) = Arc::clone(&admission).try_acquire_owned() else {
                 report_closed(&gates.log, peer, "connection limit reached");
                 continue;
             };
 
+            // Churn faster than handshakes finish is refused here, before any
+            // pre-auth entry or handshake work is spent on it.
+            let key = address_key(peer.ip());
+            let allowed = {
+                let mut buckets = gates
+                    .connect_rate
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner);
+                take_connect_token(&mut buckets, key, Instant::now())
+            };
+            if !allowed {
+                report_closed(&gates.log, peer, "connect rate exceeded for this address");
+                continue;
+            }
+
             // At the address's pre-auth cap the oldest pre-auth connection gives
             // way, so a newcomer from a shared address is not the one refused.
             let (id, evicted, evicted_any) = {
                 let mut registry = gates.preauth.lock().unwrap_or_else(PoisonError::into_inner);
-                registry.admit(peer.ip(), PREAUTH_PER_IP)
+                registry.admit(key, PREAUTH_PER_IP)
             };
             if evicted_any {
                 report_closed(&gates.log, peer, "evicted an older pre-auth connection");
             }
             let pre_slot = PreAuthSlot {
                 registry: Arc::clone(&gates.preauth),
-                ip: peer.ip(),
+                ip: key,
                 id,
             };
 
@@ -488,21 +579,17 @@ async fn take_handshake_slot(
         .map_err(|_| PoolError::Server("handshake limiter closed".to_string()))
 }
 
-/// Runs one synchronous handshake step under the shared budget and the address's cap.
+/// Runs one synchronous handshake step under the shared handshake budget.
 ///
-/// Both guards are held only for `step`, which is short CPU work with no wait on
-/// the peer. The network waits are outside this function on purpose.
+/// The step never awaits, so it occupies its runtime worker until it returns.
+/// The CPU bound is therefore the runtime worker count: at most that many steps
+/// run at once. The shared slot counts the steps in flight, and the network
+/// waits are outside this function on purpose.
 async fn crypto_step<T, E: std::fmt::Display>(
     gates: &Gates,
-    ip: IpAddr,
     step: impl FnOnce() -> std::result::Result<T, E>,
 ) -> Result<T> {
     let _slot = take_handshake_slot(Arc::clone(&gates.handshakes), HANDSHAKE_TIMEOUT).await?;
-    let Some(_address) = IpSlot::claim(&gates.handshake_crypto, ip, PER_IP_HANDSHAKES) else {
-        return Err(PoolError::Server(
-            "address already has a handshake running".to_string(),
-        ));
-    };
     step().map_err(|error| PoolError::Server(format!("post-quantum handshake failed: {error}")))
 }
 
@@ -518,23 +605,26 @@ async fn within<T, E: std::fmt::Display>(
         .map_err(|error| PoolError::Server(format!("{what} failed: {error}")))
 }
 
-/// The responder half of the handshake, with every wait bounded and every CPU
-/// step under the shared budgets.
+/// The responder half of the handshake, with every network wait bounded and
+/// every CPU step under the shared budget.
 ///
 /// The responder speaks first, so the order is: generate (CPU), send our key
 /// (network), read the initiator's message (network), decapsulate (CPU). The
-/// initiator's message is read whole, with its length fixed by the protocol, so
-/// a peer that sends part of it and stops is dropped at `io_wait`.
+/// initiator's message is read whole, at its fixed length, so a peer that sends
+/// part of it and stops is dropped at `io_wait`.
+///
+/// A silent connect costs one key generation. That is inherent to a
+/// responder-first protocol: the pool cannot know the peer is silent until it
+/// has sent its key.
 async fn handshake_as_responder<S>(
     stream: &mut S,
     gates: &Gates,
-    ip: IpAddr,
     io_wait: Duration,
 ) -> Result<handshake::SessionKeys>
 where
     S: futures::AsyncRead + futures::AsyncWrite + Unpin,
 {
-    let pending = crypto_step(gates, ip, handshake::begin_respond).await?;
+    let pending = crypto_step(gates, handshake::begin_respond).await?;
     let first = pending.first_message();
     within(
         io_wait,
@@ -550,7 +640,29 @@ where
         stream.read_exact(&mut inbound),
     )
     .await?;
-    crypto_step(gates, ip, move || pending.finish(&inbound)).await
+    crypto_step(gates, move || pending.finish(&inbound)).await
+}
+
+/// The whole responder handshake under one hard deadline.
+///
+/// Each network wait and each budget wait has its own bound, but their sum is
+/// larger than any honest peer needs. This deadline is the cap: a handshake that
+/// has not finished when it expires is abandoned, whichever step it was in.
+async fn handshake_within_deadline<S>(
+    stream: &mut S,
+    gates: &Gates,
+    overall: Duration,
+    io_wait: Duration,
+) -> Result<handshake::SessionKeys>
+where
+    S: futures::AsyncRead + futures::AsyncWrite + Unpin,
+{
+    match tokio::time::timeout(overall, handshake_as_responder(stream, gates, io_wait)).await {
+        Ok(keys) => keys,
+        Err(_) => Err(PoolError::Server(
+            "post-quantum handshake exceeded its deadline".to_string(),
+        )),
+    }
 }
 
 /// Drives one miner connection from handshake to close.
@@ -569,18 +681,24 @@ async fn serve_connection(
     // The compat layer exists for exactly this line: the handshake is written
     // against futures' traits and a Tokio socket implements Tokio's.
     let mut compat = stream.compat();
-    let responder = handshake_as_responder(&mut compat, &gates, peer.ip(), HANDSHAKE_IO_TIMEOUT);
+    let handshake =
+        handshake_within_deadline(&mut compat, &gates, HANDSHAKE_TIMEOUT, HANDSHAKE_IO_TIMEOUT);
     let keys = tokio::select! {
         biased;
         // A newer connection from this address took this one's place. The peer
         // is not lost: it reconnects, and this socket is simply dropped.
         _ = &mut evicted => return Ok(()),
-        keys = responder => keys?,
+        keys = handshake => keys?,
     };
 
     // Pre-auth entry released here; from now on the address's farm budget applies.
     drop(preauth);
-    let _authenticated = match IpSlot::claim(&gates.authenticated, peer.ip(), gates.per_ip_cap) {
+    // A ghost connection, authenticated and then silent, holds this slot until
+    // `IDLE_TIMEOUT` closes it. Keepalive via socket2 would reap it sooner, and
+    // evicting the oldest authenticated entry would free the slot at once; both
+    // are follow-ups.
+    let key = address_key(peer.ip());
+    let _authenticated = match IpSlot::claim(&gates.authenticated, key, gates.per_ip_cap) {
         Some(slot) => slot,
         None => {
             report_closed(&gates.log, peer, "authenticated cap reached");
@@ -1480,16 +1598,61 @@ mod tests {
     }
 
     #[test]
-    fn a_third_handshake_step_for_one_address_is_refused_while_two_run() {
-        let gates = Gates::new(crate::config::DEFAULT_MAX_CONNECTIONS_PER_IP);
-        let ip: IpAddr = "198.51.100.9".parse().unwrap();
+    fn ipv6_budgets_are_keyed_on_the_64_bit_prefix() {
+        // Two addresses in one /64 share a budget; a different /64 does not.
+        // IPv4 keeps its full address.
+        let first: IpAddr = "2001:db8:1:2:3:4:5:6".parse().unwrap();
+        let same_prefix: IpAddr = "2001:db8:1:2:ffff:ffff:ffff:ffff".parse().unwrap();
+        let other_prefix: IpAddr = "2001:db8:1:3::1".parse().unwrap();
+        let v4: IpAddr = "192.0.2.77".parse().unwrap();
 
-        let running: Vec<IpSlot> = (0..PER_IP_HANDSHAKES)
-            .map(|_| IpSlot::claim(&gates.handshake_crypto, ip, PER_IP_HANDSHAKES).unwrap())
-            .collect();
-        assert!(IpSlot::claim(&gates.handshake_crypto, ip, PER_IP_HANDSHAKES).is_none());
-        drop(running);
-        assert!(IpSlot::claim(&gates.handshake_crypto, ip, PER_IP_HANDSHAKES).is_some());
+        assert_eq!(address_key(first), address_key(same_prefix));
+        assert_ne!(address_key(first), address_key(other_prefix));
+        assert_eq!(address_key(v4), v4);
+    }
+
+    #[test]
+    fn connects_burst_then_are_refused_until_the_bucket_refills() {
+        // A burst is allowed; past it the address waits for tokens at the sustained rate.
+        let mut buckets = HashMap::new();
+        let ip: IpAddr = "198.51.100.9".parse().unwrap();
+        let start = Instant::now();
+
+        for _ in 0..CONNECT_BURST {
+            assert!(take_connect_token(&mut buckets, ip, start));
+        }
+        assert!(!take_connect_token(&mut buckets, ip, start));
+
+        // At 4 a second, one token returns every 250 ms.
+        let quarter = start + Duration::from_millis(250);
+        assert!(take_connect_token(&mut buckets, ip, quarter));
+        assert!(!take_connect_token(&mut buckets, ip, quarter));
+    }
+
+    #[tokio::test]
+    async fn a_handshake_that_stalls_between_steps_is_cut_at_the_overall_deadline() {
+        // Each wait is bounded on its own, but the handshake as a whole must end
+        // even when no single wait does.
+        use tokio::io::AsyncWriteExt;
+
+        let (server, mut client) = socket_pair().await;
+        client.write_all(&[1]).await.unwrap();
+        let gates = Gates::new(crate::config::DEFAULT_MAX_CONNECTIONS_PER_IP);
+
+        let mut compat = server.compat();
+        let outcome = handshake_within_deadline(
+            &mut compat,
+            &gates,
+            Duration::from_millis(50),
+            Duration::from_secs(60),
+        )
+        .await;
+        match outcome {
+            Err(PoolError::Server(message)) => {
+                assert!(message.contains("deadline"), "got: {message}");
+            }
+            other => panic!("expected the overall deadline, got {:?}", other.map(|_| ())),
+        }
     }
 
     /// A connected pair of loopback sockets, the server side first.
@@ -1510,13 +1673,12 @@ mod tests {
         let (server, mut client) = socket_pair().await;
         client.write_all(&[1]).await.unwrap();
         let gates = Gates::new(crate::config::DEFAULT_MAX_CONNECTIONS_PER_IP);
-        let ip: IpAddr = "127.0.0.1".parse().unwrap();
 
         let mut compat = server.compat();
         let waiting = {
             let gates = gates.clone();
             tokio::spawn(async move {
-                handshake_as_responder(&mut compat, &gates, ip, Duration::from_millis(300)).await
+                handshake_as_responder(&mut compat, &gates, Duration::from_millis(300)).await
             })
         };
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -1538,12 +1700,11 @@ mod tests {
         let (server, mut client) = socket_pair().await;
         client.write_all(&[1; 10]).await.unwrap();
         let gates = Gates::new(crate::config::DEFAULT_MAX_CONNECTIONS_PER_IP);
-        let ip: IpAddr = "127.0.0.1".parse().unwrap();
 
         let mut compat = server.compat();
         let outcome = tokio::time::timeout(
             Duration::from_secs(5),
-            handshake_as_responder(&mut compat, &gates, ip, Duration::from_millis(50)),
+            handshake_as_responder(&mut compat, &gates, Duration::from_millis(50)),
         )
         .await;
         assert!(
