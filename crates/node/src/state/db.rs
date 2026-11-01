@@ -1214,8 +1214,9 @@ impl StateDB {
             .map(|a| (*a, overlay.accounts.get(a).copied()))
             .collect();
         let fees = (overlay.fee_burn, overlay.fee_bytes);
-        // A vault sender's window is charged before the nonce is checked, so a
-        // transfer that then fails would leave its spend behind and starve the
+        // A vault sender's window is charged in `stage_transaction` after the
+        // nonce check (audit finding 3) and before the transfer's own checks, so
+        // a transfer that then fails would leave its spend behind and starve the
         // valid transfer after it.
         let vault_key = crate::state::vault::record_key(&tx.sender());
         let vault_saved = overlay.records.get(&vault_key).cloned();
