@@ -1097,6 +1097,9 @@ pub async fn serve_metered(
             );
             let service =
                 tower::service_fn(move |mut request: hyper::Request<hyper::body::Incoming>| {
+                    // The service owns the permit and is dropped with the
+                    // connection, so the cap counts live sockets.
+                    let _held = &permit;
                     let headers = request.headers();
                     let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
                     let client = crate::rpc::client_ip::client_ip(
@@ -1117,16 +1120,11 @@ pub async fn serve_metered(
                         tower::Service::call(&mut inner, request).await
                     }
                 });
-            tokio::spawn(async move {
-                // Held until the connection ends, so the cap counts live sockets.
-                let _permit = permit;
-                let _ = jsonrpsee::server::serve_with_graceful_shutdown(
-                    socket,
-                    service,
-                    stop.clone().shutdown(),
-                )
-                .await;
-            });
+            tokio::spawn(jsonrpsee::server::serve_with_graceful_shutdown(
+                socket,
+                service,
+                stop.clone().shutdown(),
+            ));
         }
     });
 
