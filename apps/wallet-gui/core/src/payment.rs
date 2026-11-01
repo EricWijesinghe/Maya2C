@@ -440,7 +440,7 @@ fn sign_with_fee_to(
 ///
 /// [`WalletError::Address`] for a malformed recipient;
 /// [`WalletError::AmountOverflow`] if amount and fee overflow together.
-pub fn transfer_tx(
+pub(crate) fn transfer_tx(
     signing_key: &HybridSigningKey,
     recipient: &str,
     amount: primitive_types::U256,
@@ -479,7 +479,7 @@ pub fn transfer_tx(
 ///
 /// [`WalletError::Signing`] if the signer fails; [`WalletError::Address`] for
 /// a malformed recipient.
-pub fn finish_transfer(
+pub(crate) fn finish_transfer(
     mut tx: Transaction,
     signing_key: &HybridSigningKey,
     recipient: &str,
