@@ -20,12 +20,13 @@ Node: `crates/node/src/core/block.rs`, `crates/node/src/consensus/`.
 - **CON-9** Under DAG-BFT a block's `difficulty_target` equals its parent's, so every block carries the genesis target; otherwise invalid. A DAG-BFT genesis must declare `difficulty_bits` and `pow_limit_bits` of 0 (the unlimited target). There is no retarget and no activation pin: the target certifies nothing here, and a retarget on one-second blocks drove cumulative work to 2^256 − 1 within about 12,500 blocks, which stopped the chain (ADR-035).
 - **CON-10** A header's `version` is 0; any other value is invalid, and a header of another length is not a header (ADR-063).
 - **CON-11** On a chain whose target is retargeted (CON-5), a block's timestamp is later than the median of the timestamps of its parent and up to ten earlier ancestors (the upper middle when fewer than eleven exist); otherwise invalid. A DAG-BFT chain (CON-9) does not apply this rule: it has no retarget to steer, and its blocks can come faster than once a second (ADR-063).
+- **CON-12** A block's wire size is `145 + 8 + Σ(8 + len)` bytes, where `len` is each transaction's encoding, and it is at most `MAX_BLOCK_BYTES` = 5 MiB (5,242,880) (ADR-072, provisional). A block over the cap is invalid, whoever built it. A builder admits transactions first-fit, in order: one that would take the block over the cap is passed over and the ones after it are still considered; a transaction that does not execute costs no room. The admitted indices are a function of the order and the cap alone, so every node makes the same cut. *(provisional value: pending measurement on the launch host)*
 
 ## Vectors and gaps
 
 CON-1 to CON-3 are in `spec/tests/headers.json`, CON-4 in
 `state_transitions.json` (a declared root that matches and one that does
-not) and CON-5 to CON-8, CON-10 and CON-11 in `consensus.json`. CON-6's vectors pin the
+not) and CON-5 to CON-8, CON-10, CON-11 and CON-12 in `consensus.json`. CON-6's vectors pin the
 comparison of a hash with a target; the proof-of-work hash itself
 (`argonblake-pow`) has no language-neutral vector.
 

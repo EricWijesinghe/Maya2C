@@ -18,6 +18,9 @@ band; move an item to PROGRESS.md when it starts.
 ## P1 — mainnet launch gates (docs/mainnet-v1-plan.md)
 
 - [x] ADR-068 step 2: 24 decimals (feat/decimals-24) (wallet DECIMALS, SDKs, explorer, governance COIN, pool, genesis amounts). Residue closed on feat/adr068-24-decimals: one source `maya_amount::COIN_DECIMALS` / `ONE_COIN`, wallet UI text from it, `spec/tests/units.json` pin; see reports/sessions/2026-10-31-24-decimals.md.
+- [x] ADR-068 step 2: 24 decimals (feat/decimals-24) (wallet DECIMALS, SDKs, explorer, governance COIN, pool, genesis amounts).
+- [x] ADR-068 step 4: audit consensus amount × amount products for 512-bit or checked math. Re-audited 2026-10-31 (reports/sessions/2026-10-31-amount-product-audit.md): one defect fixed (vault fee headroom let 4x required escape the limit, F1; consensus-visible, note for mainnet genesis); the 2026-10-28 "clean" entry missed it.
+- [x] spec: MINE-* rules + vectors (spec/09-mining.md; node conformance test not yet run) for the mining schedule incl. the tail (ADR-044 shipped without spec).
 - [x] ADR-068 step 4 (clean, DECISIONS 10-28): audit consensus amount × amount products for 512-bit or checked math.
 - [x] spec: MINE-* rules + vectors (spec/09-mining.md; node conformance test run 2026-10-31, see reports/sessions/2026-10-31-mine-spec.md) for the mining schedule incl. the tail (ADR-044 shipped without spec).
 
@@ -72,7 +75,7 @@ band; move an item to PROGRESS.md when it starts.
   the tip: Duplicate {..}` while it follows attested blocks. `InsertOutcome::
   Duplicate` should be skipped quietly; logging it as malformed hides real
   decode errors in noise. Reported by maya2c-c9.
-- **HTLC two-devnet swap times out under full parallel load** (1,058 s in a
+- [x] (`.config/nextest.toml` override, 2026-11-01) **HTLC two-devnet swap times out under full parallel load** (1,058 s in a
   workspace nextest run; 18 s alone). Mark it heavy / serial in nextest.
 - **Chat envelopes are twice the size they need to be.** `Envelope::encode`
   (ciborium) writes ciphertext `Vec<u8>` as a CBOR integer array, about two
@@ -102,7 +105,7 @@ band; move an item to PROGRESS.md when it starts.
   `git rev-parse HEAD`; the 2026-09-28 re-run ran with uncommitted fixes on
   top. Add `git status --porcelain` count to `Sweep`, and have `status`
   print it.
-- **doc-coverage takes about 35 minutes** (2,094 s on 2026-09-28) and runs
+- [x] (ci.yml `doc-links`, 2026-11-01) **doc-coverage takes about 35 minutes** (2,094 s on 2026-09-28) and runs
   only nightly; a broken intra-doc link blocked it unseen. Add
   `-D rustdoc::broken-intra-doc-links` to a fast per-PR `cargo doc` job.
 

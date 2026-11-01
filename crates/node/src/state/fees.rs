@@ -25,6 +25,9 @@ use crate::core::codec::ByteReader;
 use crate::error::{NodeError, Result};
 use crate::state::account::Address;
 use maya_dex::Amount;
+/// The block byte cap (ADR-072), re-exported so the node names the fee market
+/// only through this module and genesis (`fee_market_tests` gate).
+pub use maya_fee_market::limits::MAX_BLOCK_BYTES;
 
 /// The fee state record. Under the staking layer's prefix: fees and staking
 /// are one economic subsystem, and one more layer would buy nothing.
