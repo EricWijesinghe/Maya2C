@@ -611,15 +611,19 @@ fn an_honest_swap_still_clears_beside_a_flood_that_would_leave_no_price() {
     assert!(harness.db.asset_balance(&quote, &key.address()).expect("q") > held_quote);
 }
 
-#[test]
-fn a_split_flood_can_still_refund_one_large_honest_seller() {
-    // Pins the residual left by the largest-seller drop (#289). Pins current
-    // behaviour: a future fix that keeps the honest seller filled must flip the
-    // assertions below.
-    //
-    // One honest seller of H base and 255 attacker chunks of H - 1 base each,
-    // in one block. The honest swap is the largest base sale, so the first drop
-    // removes it. The 255 chunks are the most one pair accepts beside it:
+/// What each side holds after one block of a split flood.
+struct FloodResult {
+    honest_in: U256,
+    attacker_in: U256,
+    honest: (U256, U256),
+    attacker: (U256, U256),
+}
+
+/// One honest seller of H base and 255 attacker chunks of H - 1 base, all
+/// base->quote on one pair in one block, against a 10^13 / 10^13 pool. The
+/// honest swap asks for `honest_min_out`; the attacker's ask for one unit.
+fn split_flood(honest_min_out: U256) -> FloodResult {
+    // The 255 chunks are the most one pair accepts beside the honest swap:
     // `StateDB::stage_swap` refuses the 257th intent with a block-level error,
     // so 256 is the ceiling for the whole pair, honest swap included.
     //
@@ -677,21 +681,21 @@ fn a_split_flood_can_still_refund_one_large_honest_seller() {
         "the honest seller is funded before the flood"
     );
 
-    let swap = |sender: &HybridSigningKey, amount_in: U256, nonce: u64| {
+    let swap = |sender: &HybridSigningKey, amount_in: U256, min_out: U256, nonce: u64| {
         signed(
             TxKind::Swap(SwapRequest {
                 pair,
                 direction: Direction::BaseToQuote.tag(),
                 amount_in,
-                min_out: U256::one(),
+                min_out,
                 deadline: 0,
             }),
             nonce,
             sender,
         )
     };
-    let mut txs = vec![swap(&honest, honest_amount, 0)];
-    txs.extend((0_u64..255).map(|nonce| swap(&attacker, chunk, nonce)));
+    let mut txs = vec![swap(&honest, honest_amount, honest_min_out, 0)];
+    txs.extend((0_u64..255).map(|nonce| swap(&attacker, chunk, U256::one(), nonce)));
     harness
         .db
         .apply_block(&block_of(txs), BlockContext::at_height(4))
@@ -703,15 +707,53 @@ fn a_split_flood_can_still_refund_one_large_honest_seller() {
             .asset_balance(asset, &who.address())
             .expect("balance")
     };
-    let attacker_base = held(&base, &attacker);
-    let attacker_quote = held(&quote, &attacker);
-    // One assert over both sides, so a failure shows whether the honest
-    // seller was filled, refunded, or lost the input.
+    FloodResult {
+        honest_in: honest_amount,
+        attacker_in: chunk * U256::from(255_u64),
+        honest: (held(&base, &honest), held(&quote, &honest)),
+        attacker: (held(&base, &attacker), held(&quote, &attacker)),
+    }
+}
+
+#[test]
+fn a_split_flood_fills_an_honest_seller_at_the_same_batch_price() {
+    // B38, measured in CI (replacing the refund #308 first assumed): the flood
+    // leaves spot at 1, not 0, so the largest-seller drop never fires. Every
+    // intent clears at one uniform price, the honest seller included. With
+    // min_out = 1 that crushed price is within the seller's own bound.
+    let r = split_flood(U256::one());
+    assert!(
+        r.honest.0.is_zero() && r.attacker.0.is_zero(),
+        "all base sold"
+    );
+    assert!(!r.honest.1.is_zero(), "the honest seller is paid");
+    // Same price per unit: honest_out / honest_in == attacker_out / attacker_in,
+    // up to one unit of floor rounding per intent (256 intents). The rounding
+    // favours the pool: CI saw the honest fill at 39,062,499,999 and each
+    // attacker chunk at 39,062,499,998, with the dust left in the reserve.
+    let lhs = r.honest.1 * r.attacker_in;
+    let rhs = r.attacker.1 * r.honest_in;
+    let gap = if lhs > rhs { lhs - rhs } else { rhs - lhs };
+    let slack = r.attacker_in + r.honest_in * U256::from(255_u64);
+    assert!(
+        gap <= slack,
+        "honest {:?} vs attacker {:?}: not one batch price",
+        r.honest,
+        r.attacker
+    );
+}
+
+#[test]
+fn an_honest_seller_with_a_real_bound_is_refunded_not_crushed() {
+    // Alone, 10^24 base into this pool pays about 10^13 quote. Asking for a
+    // tenth of that turns the uniform flood price into a slippage violation:
+    // the honest swap is dropped and its input comes back whole.
+    let r = split_flood(U256::exp10(12));
     assert_eq!(
-        (held(&base, &honest), held(&quote, &honest)),
-        (honest_amount, U256::zero()),
-        "the honest seller is refunded in full and paid nothing \
-         (attacker base {attacker_base}, quote {attacker_quote})"
+        r.honest,
+        (r.honest_in, U256::zero()),
+        "refunded in full (attacker {:?})",
+        r.attacker
     );
 }
 
