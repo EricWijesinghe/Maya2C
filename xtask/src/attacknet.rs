@@ -304,7 +304,9 @@ fn start_node(work: &Path, i: u16, catch_up: Option<u16>, bootstrap: bool) -> Re
             &SNAPSHOT_BLOCKS.to_string(),
             "--snapshot-depth",
             &SNAPSHOT_BLOCKS.to_string(),
-        ]);
+        ])
+        // Every validator here is on 127.0.0.1; discovery needs its private addresses.
+        .arg("--allow-private-peers");
     for peer in (0..VALIDATORS).filter(|p| *p != i) {
         cmd.args([
             "--bootnode",
