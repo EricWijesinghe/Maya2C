@@ -36,7 +36,10 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     time(SAMPLES / 10)?;
     let micros = time(SAMPLES)?;
     println!("== pool-load hash-cost ==");
-    println!("share verification (pow_hash_at, DagConfig::MAINNET, height {}): {micros:.1} us per hash, single thread, {SAMPLES} samples after warm-up", job.height);
+    println!(
+        "share verification (pow_hash_at, DagConfig::MAINNET, height {}): {micros:.1} us per hash, single thread, {SAMPLES} samples after warm-up",
+        job.height
+    );
     println!("single-thread shares/s: {:.0}", 1e6 / micros);
     Ok(())
 }

@@ -69,9 +69,7 @@ fn parse_flags(
             out.push((flag.clone(), String::new()));
             continue;
         }
-        let value = iter
-            .next()
-            .ok_or_else(|| format!("{flag} needs a value"))?;
+        let value = iter.next().ok_or_else(|| format!("{flag} needs a value"))?;
         out.push((flag.clone(), value.clone()));
     }
     Ok(out)
@@ -113,7 +111,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     match command.as_str() {
         "serve" => {
             let flags = parse_flags(rest, &["--validators", "--ledger-dir"], &[])?;
-            let validators = parse_or(&flags, "--validators", maya_pool_service::validator::DEFAULT_WORKERS)?;
+            let validators = parse_or(
+                &flags,
+                "--validators",
+                maya_pool_service::validator::DEFAULT_WORKERS,
+            )?;
             let dir = get(&flags, "--ledger-dir")
                 .map(PathBuf::from)
                 .ok_or("serve needs --ledger-dir")?;
@@ -139,7 +141,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 per_miner_rate: parse_or(&flags, "--per-miner-rate", 0.2)?,
                 duration_secs: parse_or(&flags, "--duration", 30)?,
                 invalid_ratio: parse_or(&flags, "--invalid-ratio", 0.05)?,
-                validators: parse_or(&flags, "--validators", maya_pool_service::validator::DEFAULT_WORKERS)?,
+                validators: parse_or(
+                    &flags,
+                    "--validators",
+                    maya_pool_service::validator::DEFAULT_WORKERS,
+                )?,
                 connect_batch: parse_or(&flags, "--connect-batch", 256)?,
                 job_push: flags.iter().any(|(flag, _)| flag == "--job-push"),
                 ledger_dir: get(&flags, "--ledger-dir")
