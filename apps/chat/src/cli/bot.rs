@@ -78,16 +78,19 @@ impl Bot {
             .map_err(|e| e.to_string())
     }
 
-    /// Answers one sender. The session store is saved only once the relay
-    /// holds the reply, for the reason `send` in `main.rs` gives.
+    /// Answers one sender. The session store is saved on success, and on
+    /// failure once a session exists, for the reason `send` in `main.rs` gives.
     async fn answer(&mut self, to: Address, text: &[u8]) -> Result<(), String> {
         let first = self.greeted.insert(to);
         let answer = reply(&String::from_utf8_lossy(text), first);
         let mut client = load_client(&self.home)?;
-        courier::deliver(&mut client, &self.relay, to, answer.as_bytes(), now())
-            .await
-            .map_err(|e| why(&e))?;
-        save_client(&self.home, &client)
+        let established = client.has_session(&to);
+        let sent = courier::deliver(&mut client, &self.relay, to, answer.as_bytes(), now()).await;
+        // As in `send` (main.rs): never drop an advanced chain once it exists.
+        if sent.is_ok() || established {
+            save_client(&self.home, &client)?;
+        }
+        sent.map_err(|e| why(&e))
     }
 
     /// Empties the mailbox and answers up to [`MAX_REPLIES_PER_ROUND`]

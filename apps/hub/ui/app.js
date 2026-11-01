@@ -8,6 +8,7 @@ const POLL_MINER_MS = 1000;
 const POLL_NODE_MS = 4000;
 const POLL_GPU_MS = 3000;
 const HEIGHT_HISTORY = 300;
+const PACE_MIN_MS = 5 * 60_000; // a rate from under five minutes of payouts is noise
 
 const tauri = window.__TAURI__ && window.__TAURI__.core;
 const isPreview = !tauri;
@@ -22,7 +23,6 @@ const state = {
   peak: 0,
   lastAccepted: 0,
   heights: [],
-  ripples: [],
   lastHeight: null,
 };
 
@@ -42,10 +42,10 @@ const preview = (() => {
       if (rates.length > 450) rates.shift();
       if (Math.random() < 0.05) {
         accepted += 1;
-        events.push({ event: "share", accepted: true, reward: 7_000_000_000, t_ms: t });
+        events.push({ event: "share", accepted: true, reward: 7e22, t_ms: t });
       }
-      return { running: true, status: "mining", mode: "preview", epoch: 118, share_reward: 7_000_000_000, accepted, rejected: 0,
-        earned: accepted * 7_000_000_000, started_ms: t0, address: "preview", rates, events };
+      return { running: true, status: "mining", mode: "preview", epoch: 118, share_reward: 7e22, accepted, rejected: 0,
+        earned: accepted * 7e22, started_ms: t0, address: "preview", rates, events };
     },
     node_snapshot: () => {
       height += Math.random() < 0.6 ? 1 : 0;
@@ -118,6 +118,7 @@ function renderMiner() {
   setText("t-epoch", m.epoch ?? "—");
   setText("t-reward", m.share_reward == null ? "—" : maya(m.share_reward));
   setText("t-uptime", m.running ? uptime(m.started_ms) : "—");
+  setText("t-pace", paceLine(m));
   const power = $("power");
   power.setAttribute("aria-pressed", String(m.running));
   setText("power-text", m.running ? "Stop mining" : "Start mining");
@@ -133,6 +134,15 @@ function renderMiner() {
   state.lastAccepted = m.accepted;
   Charts.area($("rate-chart"), m.rates);
   renderFeed(m.events);
+}
+
+// Paid rate from what the chain actually credited, never from accepted shares
+// (accepted is not paid: 145 accepted against 10 paid on the mining devnet).
+function paceLine(m) {
+  const ran = m.running && m.started_ms ? Date.now() - m.started_ms : 0;
+  if (ran < PACE_MIN_MS) return m.running ? "paid rate after 5 min" : "";
+  const perHour = (Number(m.earned) * 3_600_000) / ran;
+  return `≈ ${maya(perHour)} MAYA/h paid`;
 }
 
 function renderFeed(events) {
@@ -165,12 +175,14 @@ function renderNode() {
   if (!s || !s.reachable) {
     pill.className = "pill down";
     setText("net-text", s && s.error ? "Node unreachable" : "Connecting…");
+    NetView.update(s, null, false);
+    NetView.frame(performance.now());
     return;
   }
   const height = s.chain.height;
   pill.className = "pill live";
   setText("net-text", `${s.chain.chain_id} · #${height.toLocaleString()}`);
-  if (state.lastHeight != null && height > state.lastHeight) state.ripples.push(performance.now());
+  const newBlock = state.lastHeight != null && height > state.lastHeight;
   if (state.lastHeight !== height) {
     state.heights.push({ t_ms: Date.now(), hps: height });
     if (state.heights.length > HEIGHT_HISTORY) state.heights.shift();
@@ -183,12 +195,15 @@ function renderNode() {
   setText("n-fee", s.fees && s.fees.active ? s.fees.base_fee : "off");
   const work = s.mining;
   setText("n-mining", work ? (work.active ? `open · epoch ${work.epoch}` : "not open yet") : "—");
+  let rate = null;
   if (state.heights.length > 1) {
     const a = state.heights[0];
     const b = state.heights[state.heights.length - 1];
-    const perMin = ((b.hps - a.hps) / Math.max(1, b.t_ms - a.t_ms)) * 60000;
-    setText("n-rate", perMin.toFixed(1));
+    rate = ((b.hps - a.hps) / Math.max(1, b.t_ms - a.t_ms)) * 60000;
+    setText("n-rate", rate.toFixed(1));
   }
+  NetView.update(s, rate, newBlock);
+  NetView.frame(performance.now());
   Charts.area($("height-chart"), state.heights, { floor: true, label: (v) => ({ value: Math.round(v).toLocaleString(), unit: "" }) });
 
   setText("t-balance", s.account ? maya(s.account.balance) : "—");
@@ -296,11 +311,15 @@ function frame(t) {
     Charts.gauge($("gauge"), { hps: last, peak: state.peak, active: !!(m && m.running) && !reducedMotion, t });
     Charts.drawBursts($("fx"));
   }
-  if (onNetwork) {
-    const s = state.snapshot;
-    Charts.orb($("orb"), { members: s && s.bft ? s.bft.committee : 0, ripples: state.ripples, live: !!(s && s.reachable), t: reducedMotion ? 0 : t });
-  }
+  // Reduced motion draws the network view only when its state changes (renderNode).
+  if (onNetwork && !reducedMotion) NetView.frame(t);
   requestAnimationFrame(frame);
+}
+
+function showNetDetail(item) {
+  $("n-detail").hidden = false;
+  setText("nd-title", item.title);
+  setText("nd-text", [item.line, item.detail].filter(Boolean).join(" "));
 }
 
 // ------------------------------------------------------------ actions ----
@@ -371,6 +390,7 @@ async function main() {
   wireNav();
   wireSettings(defaults.cpu_threads);
   renderUniverse();
+  NetView.init({ canvas: $("orb"), layer: $("net-layer"), tip: $("net-tip"), reduced: reducedMotion, onSelect: showNetDetail });
   if (defaults.can_mine === false) {
     // Phones watch; the desktop Hub mines.
     $("power").hidden = true;

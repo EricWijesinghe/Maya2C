@@ -16,5 +16,6 @@
 #![warn(missing_docs)]
 
 pub mod client;
+pub mod guard;
 pub mod keystore;
 pub mod staking;
