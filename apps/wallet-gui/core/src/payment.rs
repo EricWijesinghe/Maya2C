@@ -426,6 +426,28 @@ fn sign_with_fee_to(
     nonce: u64,
     chain: &ChainTag,
 ) -> Result<SignedTransfer> {
+    let tx = transfer_tx(signing_key, recipient, amount, fee, fee_recipient, nonce)?;
+    finish_transfer(tx, signing_key, recipient, amount, fee, nonce, chain)
+}
+
+/// The unsigned transfer, with the signer's public keys already in place.
+///
+/// Those keys are part of the bytes [`Transaction::sign`] covers, so this is
+/// exactly what a signature will commit to. The confirm screen reads it before
+/// anything is signed.
+///
+/// # Errors
+///
+/// [`WalletError::Address`] for a malformed recipient;
+/// [`WalletError::AmountOverflow`] if amount and fee overflow together.
+pub fn transfer_tx(
+    signing_key: &HybridSigningKey,
+    recipient: &str,
+    amount: primitive_types::U256,
+    fee: primitive_types::U256,
+    fee_recipient: [u8; 32],
+    nonce: u64,
+) -> Result<Transaction> {
     let recipient_bytes = decode_address(recipient)?;
 
     // Checked, because a wrapped total would sign a transaction the sender
@@ -444,6 +466,28 @@ fn sign_with_fee_to(
     }
 
     let mut tx = Transaction::new(vec![], outputs, nonce);
+    *tx.public_key = signing_key.public_key();
+    Ok(tx)
+}
+
+/// Signs a transaction built by [`transfer_tx`].
+///
+/// Takes the built value rather than rebuilding it, so the transaction the
+/// user reviewed is the one that gets signed.
+///
+/// # Errors
+///
+/// [`WalletError::Signing`] if the signer fails; [`WalletError::Address`] for
+/// a malformed recipient.
+pub fn finish_transfer(
+    mut tx: Transaction,
+    signing_key: &HybridSigningKey,
+    recipient: &str,
+    amount: primitive_types::U256,
+    fee: primitive_types::U256,
+    nonce: u64,
+    chain: &ChainTag,
+) -> Result<SignedTransfer> {
     tx.sign(signing_key, chain)
         .map_err(|e| WalletError::Signing(e.to_string()))?;
 

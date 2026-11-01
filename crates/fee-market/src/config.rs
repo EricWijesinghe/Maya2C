@@ -18,8 +18,8 @@
 use maya_amount::Amount;
 
 use crate::limits::{
-    MAX_CHANGE_DENOMINATOR, MAX_TARGET_BLOCK_BYTES, MAX_TREASURY_BPS, MIN_BASE_FEE_FLOOR,
-    MIN_CHANGE_DENOMINATOR, MIN_TARGET_BLOCK_BYTES,
+    MAX_BASE_FEE_PER_BYTE, MAX_CHANGE_DENOMINATOR, MAX_TARGET_BLOCK_BYTES, MAX_TREASURY_BPS,
+    MIN_BASE_FEE_FLOOR, MIN_CHANGE_DENOMINATOR, MIN_TARGET_BLOCK_BYTES,
 };
 
 /// Fee market parameters.
@@ -56,6 +56,8 @@ pub enum ConfigError {
     TreasuryShare(u64),
     /// The initial base fee is below the floor.
     InitialBelowFloor,
+    /// The initial base fee is above the compiled-in ceiling (ADR-071).
+    Ceiling(Amount),
 }
 
 impl FeeConfig {
@@ -116,6 +118,9 @@ impl FeeConfig {
         }
         if self.initial_base_fee < self.min_base_fee {
             return Err(ConfigError::InitialBelowFloor);
+        }
+        if self.initial_base_fee > MAX_BASE_FEE_PER_BYTE {
+            return Err(ConfigError::Ceiling(self.initial_base_fee));
         }
         Ok(())
     }

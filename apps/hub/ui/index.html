@@ -83,6 +83,8 @@
           <div class="grid2 wide-left">
             <div class="card orb-card">
               <canvas id="orb" class="orb"></canvas>
+              <div class="net-layer" id="net-layer"></div>
+              <div class="net-tip" id="net-tip" role="tooltip" hidden></div>
               <div class="orb-caption">
                 <b id="n-height">—</b><span>block height</span>
               </div>
@@ -98,6 +100,10 @@
           <div class="card">
             <h2>Blocks seen this session</h2>
             <canvas id="height-chart" class="chart"></canvas>
+          </div>
+          <div class="card detail" id="n-detail" hidden>
+            <h2 id="nd-title"></h2>
+            <p id="nd-text"></p>
           </div>
         </section>
 
@@ -136,6 +142,7 @@
       </main>
     </div>
     <script src="charts.js"></script>
+    <script src="netview.js"></script>
     <script src="universe.js"></script>
     <script src="app.js"></script>
   </body>

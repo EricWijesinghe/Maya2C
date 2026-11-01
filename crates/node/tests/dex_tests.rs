@@ -273,6 +273,36 @@ fn an_asset_symbol_that_could_be_used_to_impersonate_is_refused() {
 }
 
 #[test]
+fn an_asset_supply_past_the_price_cap_is_refused() {
+    // #279 review F1: a 2^200 supply against one base unit overflowed the
+    // pool price and froze the pair. The cap itself still registers.
+    let key = generate_signing_key().expect("key");
+    let harness = fixture(&[(key.address(), 1_000)]);
+    let cap = primitive_types::U256::from_little_endian(&maya_dex::MAX_ASSET_SUPPLY.to_le_bytes());
+    let register = |supply, nonce| {
+        block_of(vec![signed(
+            TxKind::RegisterAsset(AssetRegistration {
+                symbol: symbol("BIG"),
+                total_supply: supply,
+            }),
+            nonce,
+            &key,
+        )])
+    };
+    assert!(matches!(
+        harness
+            .db
+            .apply_block(&register(cap + 1, 0), BlockContext::at_height(1))
+            .unwrap_err(),
+        NodeError::InvalidAssetSymbol { .. }
+    ));
+    harness
+        .db
+        .apply_block(&register(cap, 0), BlockContext::at_height(1))
+        .expect("the cap itself registers");
+}
+
+#[test]
 fn the_native_coin_cannot_be_moved_through_the_asset_transfer_path() {
     // Two spending paths over one balance is one more than can be reasoned
     // about, and the second one would not go through the nonce check that the

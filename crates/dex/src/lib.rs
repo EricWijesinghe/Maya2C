@@ -75,4 +75,4 @@ pub use error::DexError;
 pub use fees::FeeSchedule;
 pub use matching::{Fill, MatchLimits, MatchOutcome, match_book};
 pub use maya_amount::Amount;
-pub use types::{AssetId, Direction, PRICE_SCALE, PairId};
+pub use types::{AssetId, Direction, MAX_ASSET_SUPPLY, PRICE_SCALE, PairId};
