@@ -154,6 +154,17 @@ moving this from Proposed to Accepted.
    committed bytes outside the walk, namely the streamed dedupe over raw bytes. Bounding the sub-DAG
    needs a protocol change, which is not part of this change.
 
+   **Quantum fixed at genesis.** `n` in `decode_quantum(DECODE_BUDGET, n)` is the genesis committee
+   size, read once in `bins/maya2c-node/src/bft.rs` setup. It does not follow later committee
+   changes, so the quantum is one constant for the chain's life.
+
+**End-of-block drops (audit finding 4) are consensus.** Every validator runs `build_block` on the
+same sub-DAG. A transaction that stages but fails an end-of-block pass is found by bisection on the
+prefix length, dropped, and the block rebuilt. The probe order and bounds
+(`MAX_END_OF_BLOCK_DROPS` = 8, `END_OF_BLOCK_PROBES` = 32 total builds) are constants, so every node
+drops the same transaction. A storage or archive error is a local fault: it propagates and is never
+blamed on a transaction.
+
 ## Activation
 
 - Invariant 33 has no activation height. It is enforced from genesis because the change rides the

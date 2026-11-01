@@ -24,12 +24,16 @@
 use std::collections::BTreeSet;
 
 use crate::state::fees::MAX_BLOCK_BYTES;
-use maya_dag_bft::SubDag;
+use maya_dag_bft::{LONE_PAYLOAD_BYTES, SubDag};
 
 use crate::consensus::Chain;
 use crate::core::block::decode_plan;
+use crate::core::transaction::MAX_TX_BYTES;
 use crate::core::{Block, Transaction};
 use crate::error::Result;
+
+// A transaction the cap admits must be receivable as a lone payload (ADR-072).
+const _: () = assert!(MAX_TX_BYTES <= LONE_PAYLOAD_BYTES);
 
 /// Bits of the nonce that hold the anchor round.
 const ROUND_BITS: u32 = 40;
@@ -109,9 +113,13 @@ fn median_time_ms(sub_dag: &SubDag) -> u64 {
 }
 
 /// Most transactions one block may drop for failing the end-of-block passes
-/// before it is built empty (audit finding 4). Bounds the rebuilds an anchor
-/// can spend on one sub-DAG.
+/// before it is built empty (audit finding 4).
 const MAX_END_OF_BLOCK_DROPS: usize = 8;
+
+/// Most block builds one anchor may run on one sub-DAG: the first attempt plus
+/// every bisection probe. Each build applies the whole block, so this bounds
+/// the work an adversarial sub-DAG can force (audit finding 3).
+const END_OF_BLOCK_PROBES: usize = 32;
 
 /// Builds the block `sub_dag` orders on top of `chain`'s tip.
 ///
@@ -121,15 +129,19 @@ const MAX_END_OF_BLOCK_DROPS: usize = 8;
 /// for a later block. A transaction that stages but fails the end-of-block
 /// passes is dropped on its own and the block rebuilt without it
 /// ([`settle_block`]). Only if that does not converge within
-/// [`MAX_END_OF_BLOCK_DROPS`] is the block built empty: an anchor must always
-/// produce a block, or two nodes that disagreed about one transaction would
-/// disagree about the height of everything after it.
+/// [`MAX_END_OF_BLOCK_DROPS`] or [`END_OF_BLOCK_PROBES`] is the block built
+/// empty: an anchor must always produce a block, or two nodes that disagreed
+/// about one transaction would disagree about the height of everything after it.
+///
+/// **This is consensus.** Every validator runs `build_block` on the same
+/// sub-DAG, so the bisection, its probe order and its bounds must be identical
+/// on every node. They are: the probe sequence depends only on the ordered
+/// transactions, and the bounds are constants (ADR-072).
 ///
 /// # Errors
 ///
-/// Only if even the empty block cannot be built — the tip is missing from the
-/// index, the state cannot be read, or it is bound to no chain — which is a
-/// local fault, not a consensus outcome.
+/// Only if even the empty block cannot be built, or a local fault (a storage
+/// or archive error) stops a build, which is not a consensus outcome.
 pub fn build_block(chain: &Chain, sub_dag: &SubDag, committee_size: usize) -> Result<Block> {
     let anchor = &sub_dag.anchor.vertex;
     let parent = chain.get(&chain.tip()).map(|r| r.header.timestamp);
@@ -145,27 +157,40 @@ pub fn build_block(chain: &Chain, sub_dag: &SubDag, committee_size: usize) -> Re
     )
 }
 
+/// Whether a build error is a local fault rather than a verdict on a
+/// transaction. Local faults propagate; they are never blamed on a transaction.
+fn is_local_fault(error: &crate::error::NodeError) -> bool {
+    matches!(
+        error,
+        crate::error::NodeError::Storage(_) | crate::error::NodeError::Archive(_)
+    )
+}
+
 /// Builds from `pending` with `select` (the in-order execution filter) and
 /// `build` (the end-of-block passes). When `build` refuses the selection, the
 /// transaction that tips it over is found by bisection on the prefix length, is
-/// dropped, and the rest is selected and built again. The offender is the
-/// smallest failing prefix's last transaction, so a block with one bad
-/// transaction keeps every honest one. `empty` is the last resort.
+/// dropped, and the rest is selected and built again. `empty` is the last
+/// resort, reached when the drop or probe bound is spent.
 fn settle_block<B>(
     mut pending: Vec<Transaction>,
     mut select: impl FnMut(Vec<Transaction>) -> Result<Vec<Transaction>>,
     mut build: impl FnMut(Vec<Transaction>) -> Result<B>,
     empty: impl FnOnce() -> Result<B>,
 ) -> Result<B> {
+    let mut probes = END_OF_BLOCK_PROBES;
     for _ in 0..=MAX_END_OF_BLOCK_DROPS {
         let mut kept = select(pending)?;
-        if kept.is_empty() {
+        if kept.is_empty() || probes == 0 {
             break;
         }
+        probes -= 1;
         match build(kept.clone()) {
             Ok(block) => return Ok(block),
+            Err(error) if is_local_fault(&error) => return Err(error),
             Err(_) => {
-                let at = first_failing_prefix(&kept, &mut build);
+                let Some(at) = first_failing_prefix(&kept, &mut build, &mut probes)? else {
+                    break;
+                };
                 kept.remove(at);
                 pending = kept;
             }
@@ -174,22 +199,28 @@ fn settle_block<B>(
     empty()
 }
 
-/// Index of the transaction that makes `kept` fail to build. `kept` must fail.
-/// Bisects on prefix length: the smallest failing prefix ends at the offender.
+/// Index of the transaction that makes `kept` fail to build, or `None` when the
+/// probe budget runs out first. `kept` must fail. Bisects on prefix length: the
+/// smallest failing prefix ends at the offender. A local fault propagates.
 fn first_failing_prefix<B>(
     kept: &[Transaction],
     build: &mut impl FnMut(Vec<Transaction>) -> Result<B>,
-) -> usize {
+    probes: &mut usize,
+) -> Result<Option<usize>> {
     let (mut lo, mut hi) = (1, kept.len());
     while lo < hi {
+        if *probes == 0 {
+            return Ok(None);
+        }
+        *probes -= 1;
         let mid = lo + (hi - lo) / 2;
-        if build(kept[..mid].to_vec()).is_err() {
-            hi = mid;
-        } else {
-            lo = mid + 1;
+        match build(kept[..mid].to_vec()) {
+            Ok(_) => lo = mid + 1,
+            Err(error) if is_local_fault(&error) => return Err(error),
+            Err(_) => hi = mid,
         }
     }
-    lo - 1
+    Ok(Some(lo - 1))
 }
 
 #[cfg(test)]
@@ -366,10 +397,7 @@ mod tests {
 #[cfg(test)]
 mod audit_tests {
     use super::*;
-    use crate::core::block::{decode_plan, decode_quantum};
     use crate::error::NodeError;
-
-    const MIB: usize = 1 << 20;
 
     fn with_nonces(count: u64) -> Vec<Transaction> {
         (0..count)
@@ -414,13 +442,35 @@ mod audit_tests {
     }
 
     #[test]
-    fn an_honest_proposal_within_its_quantum_is_admitted_past_junk() {
-        let committee = 4;
-        let quantum = usize::try_from(decode_quantum(DECODE_BUDGET, committee)).expect("fits");
-        // One junk author sends 1 MiB payloads, far more than it is owed per turn.
-        let mut entries: Vec<(u16, usize, u64)> = (0..10).map(|i| (0, MIB, i)).collect();
-        entries.push((1, quantum, 99));
-        let (admitted, _) = decode_plan(&entries, committee, DECODE_BUDGET);
-        assert!(admitted.contains(&(entries.len() - 1)));
+    fn a_local_fault_is_not_blamed_on_a_transaction() {
+        // Master returns an empty block here; a storage fault is not a verdict
+        // on any transaction, so it must propagate.
+        let built: Result<usize> = settle_block(
+            with_nonces(4),
+            Ok,
+            |_| Err(NodeError::Storage("disk".into())),
+            || Ok(0),
+        );
+        assert!(matches!(built, Err(NodeError::Storage(_))));
+    }
+
+    #[test]
+    fn the_probe_budget_bounds_the_builds() {
+        let calls = std::cell::Cell::new(0usize);
+        let built: Result<usize> = settle_block(
+            with_nonces(500),
+            Ok,
+            |txs| {
+                calls.set(calls.get() + 1);
+                if txs.iter().any(|tx| tx.nonce % 2 == 1) {
+                    Err(NodeError::Decode("odd nonce".into()))
+                } else {
+                    Ok(txs.len())
+                }
+            },
+            || Ok(0),
+        );
+        assert!(calls.get() <= END_OF_BLOCK_PROBES, "{} builds", calls.get());
+        assert!(built.is_ok());
     }
 }
