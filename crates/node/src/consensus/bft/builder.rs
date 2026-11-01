@@ -108,15 +108,22 @@ fn median_time_ms(sub_dag: &SubDag) -> u64 {
     times[times.len() / 2]
 }
 
+/// Most transactions one block may drop for failing the end-of-block passes
+/// before it is built empty (audit finding 4). Bounds the rebuilds an anchor
+/// can spend on one sub-DAG.
+const MAX_END_OF_BLOCK_DROPS: usize = 8;
+
 /// Builds the block `sub_dag` orders on top of `chain`'s tip.
 ///
 /// Transactions that do not execute in order are dropped
 /// ([`crate::state::StateDB::select_applicable`]). Ones past the block cap
 /// (ADR-072) are not dropped: they are left out, and stay with their proposer
-/// for a later block. If the survivors still
-/// fail at the end-of-block passes, the block is built empty: an anchor must
-/// always produce a block, or two nodes that disagreed about one transaction
-/// would disagree about the height of everything after it.
+/// for a later block. A transaction that stages but fails the end-of-block
+/// passes is dropped on its own and the block rebuilt without it
+/// ([`settle_block`]). Only if that does not converge within
+/// [`MAX_END_OF_BLOCK_DROPS`] is the block built empty: an anchor must always
+/// produce a block, or two nodes that disagreed about one transaction would
+/// disagree about the height of everything after it.
 ///
 /// # Errors
 ///
@@ -129,15 +136,60 @@ pub fn build_block(chain: &Chain, sub_dag: &SubDag, committee_size: usize) -> Re
     let timestamp = (median_time_ms(sub_dag) / 1_000).max(parent.unwrap_or(0));
     let context = chain.context_at(chain.height() + 1);
     let target = chain.next_target(&chain.tip())?;
-    let kept =
-        chain
-            .state()
-            .select_applicable(decode_fair(sub_dag, committee_size).0, context, target)?;
     let nonce = seal(anchor.epoch, anchor.round);
-    match chain.candidate_block_sealed(timestamp, kept, nonce) {
-        Ok(block) => Ok(block),
-        Err(_) => chain.candidate_block_sealed(timestamp, Vec::new(), nonce),
+    settle_block(
+        decode_fair(sub_dag, committee_size).0,
+        |txs| chain.state().select_applicable(txs, context, target),
+        |txs| chain.candidate_block_sealed(timestamp, txs, nonce),
+        || chain.candidate_block_sealed(timestamp, Vec::new(), nonce),
+    )
+}
+
+/// Builds from `pending` with `select` (the in-order execution filter) and
+/// `build` (the end-of-block passes). When `build` refuses the selection, the
+/// transaction that tips it over is found by bisection on the prefix length, is
+/// dropped, and the rest is selected and built again. The offender is the
+/// smallest failing prefix's last transaction, so a block with one bad
+/// transaction keeps every honest one. `empty` is the last resort.
+fn settle_block<B>(
+    mut pending: Vec<Transaction>,
+    mut select: impl FnMut(Vec<Transaction>) -> Result<Vec<Transaction>>,
+    mut build: impl FnMut(Vec<Transaction>) -> Result<B>,
+    empty: impl FnOnce() -> Result<B>,
+) -> Result<B> {
+    for _ in 0..=MAX_END_OF_BLOCK_DROPS {
+        let mut kept = select(pending)?;
+        if kept.is_empty() {
+            break;
+        }
+        match build(kept.clone()) {
+            Ok(block) => return Ok(block),
+            Err(_) => {
+                let at = first_failing_prefix(&kept, &mut build);
+                kept.remove(at);
+                pending = kept;
+            }
+        }
     }
+    empty()
+}
+
+/// Index of the transaction that makes `kept` fail to build. `kept` must fail.
+/// Bisects on prefix length: the smallest failing prefix ends at the offender.
+fn first_failing_prefix<B>(
+    kept: &[Transaction],
+    build: &mut impl FnMut(Vec<Transaction>) -> Result<B>,
+) -> usize {
+    let (mut lo, mut hi) = (1, kept.len());
+    while lo < hi {
+        let mid = lo + (hi - lo) / 2;
+        if build(kept[..mid].to_vec()).is_err() {
+            hi = mid;
+        } else {
+            lo = mid + 1;
+        }
+    }
+    lo - 1
 }
 
 #[cfg(test)]
@@ -308,5 +360,67 @@ mod tests {
             .map(|t| Transaction::from_bytes(t).unwrap().txid())
             .collect();
         assert_eq!(ids(&decoded), expected);
+    }
+}
+
+#[cfg(test)]
+mod audit_tests {
+    use super::*;
+    use crate::core::block::{decode_plan, decode_quantum};
+    use crate::error::NodeError;
+
+    const MIB: usize = 1 << 20;
+
+    fn with_nonces(count: u64) -> Vec<Transaction> {
+        (0..count)
+            .map(|nonce| Transaction::new(vec![], vec![], nonce))
+            .collect()
+    }
+
+    /// Fails to build while any transaction in it has a nonce in `bad`.
+    fn builds_without(bad: &'static [u64]) -> impl FnMut(Vec<Transaction>) -> Result<usize> {
+        move |txs| {
+            if txs.iter().any(|tx| bad.contains(&tx.nonce)) {
+                Err(NodeError::Decode("fails the end-of-block pass".into()))
+            } else {
+                Ok(txs.len())
+            }
+        }
+    }
+
+    #[test]
+    fn one_transaction_failing_the_end_of_block_pass_keeps_the_rest() {
+        let built = settle_block(with_nonces(4), Ok, builds_without(&[2]), || Ok(0));
+        assert_eq!(built.expect("builds"), 3, "the block must not be emptied");
+    }
+
+    #[test]
+    fn every_failing_transaction_is_dropped_within_the_bound() {
+        let built = settle_block(with_nonces(5), Ok, builds_without(&[1, 3]), || Ok(0));
+        assert_eq!(built.expect("builds"), 3);
+    }
+
+    #[test]
+    fn a_block_that_never_converges_falls_back_to_empty() {
+        let built = settle_block(
+            with_nonces(20),
+            Ok,
+            |_: Vec<Transaction>| -> Result<usize> {
+                Err(NodeError::Decode("every selection fails".into()))
+            },
+            || Ok(0),
+        );
+        assert_eq!(built.expect("falls back"), 0);
+    }
+
+    #[test]
+    fn an_honest_proposal_within_its_quantum_is_admitted_past_junk() {
+        let committee = 4;
+        let quantum = usize::try_from(decode_quantum(DECODE_BUDGET, committee)).expect("fits");
+        // One junk author sends 1 MiB payloads, far more than it is owed per turn.
+        let mut entries: Vec<(u16, usize, u64)> = (0..10).map(|i| (0, MIB, i)).collect();
+        entries.push((1, quantum, 99));
+        let (admitted, _) = decode_plan(&entries, committee, DECODE_BUDGET);
+        assert!(admitted.contains(&(entries.len() - 1)));
     }
 }
