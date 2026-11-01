@@ -34,6 +34,14 @@ because the shielded-pool circuit is unaudited (`bins/genesis-ceremony`).
 | T−2 d | Final rehearsal on staging | all genesis validators | private channel + call |
 | T−1 h | Validators start nodes with the agreed genesis; signers online | validators | call |
 | T | Genesis timestamp passes; first blocks | — | status page |
+
+**Rejoin guard (B49) at genesis.** A validator started before the genesis timestamp is not
+affected: its tip time is in the future. The genesis timestamp is the launch moment, so the
+guard only bites on a genesis whose timestamp is itself older than the unbonding window. Do
+not pass `--allow-unconfirmed-start` to get past a refusal without knowing which honest case
+applies: a network halted longer than the window, or a genesis signed long before launch. Any
+validator restarted later with no confirming head needs `--trusted-block` (preferred) or
+`--bootstrap-from`. See `docs/runbooks/hybrid-testnet-hardening.md` section 4.
 | T+10 min | Check: finality reached, at least ⅔ of genesis stake participating | launch director | call |
 | T+1 h | Public announcement, only if every check passed and "APPROVED: announce" is given | comms | public |
 

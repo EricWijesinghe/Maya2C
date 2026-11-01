@@ -676,8 +676,7 @@ Superseded in part by the entry above:
   window of the claimed head (`is_recent`). Epoch of a height is `height / epoch_blocks`, since
   the staking epoch ends at each multiple of `epoch_blocks` (`staking_exec.rs`).
 - The claimed epoch is UNVERIFIED. It only tightens the guard: a hostile source can force the
-  requirement (fail-safe), never lift it. If every source is hostile, only the time trigger
-  remains.
+  requirement (fail-safe). It does not lift it: see the trust model in the re-review entry below.
 - A tip later than the clock, beyond `CLOCK_SKEW_SECS` (120 s), is stale (`FutureTip`). A clock
   that cannot be read is `u64::MAX`, which makes every tip stale (`clock_now`).
 - A running follower re-checks staleness each round (time trigger). Stale with nothing pending
@@ -714,5 +713,38 @@ Supersedes the earlier round where they conflict.
 - **Known residual (LOW):** a P2P-only node (no `--catch-up-from`) that goes stale while running
   has no follower to stop. It keeps running. A restart applies the start-up rule.
 - **Unverified claims:** a source can force the requirement (fail-safe), and it can make
-  recency stricter. If every source is hostile, only the start-up time trigger remains, and it
-  still needs a head to confirm.
+  recency stricter.
+
+### B49 round 4 (2026-11-02): eclipse bypass closed, trust model stated
+
+The re-review found that a node whose every source returns no head, or a low one, gets no
+confirmation. It then follows a forged chain on its old committee, ignoring its own clock
+evidence. A node alone cannot tell "halted network or old genesis" from "eclipsed", so the
+operator says which.
+
+- **A time-old tip with no confirming head is refused at start-up, at any height**, unless the
+  operator passes `--allow-unconfirmed-start`. The refusal names both honest causes and the
+  attack, and points to `--trusted-block` or `--bootstrap-from`. A fresh genesis inside the
+  window starts with no flag (`decide`, `rejoin.rs`).
+- **A time-old tip with a `--trusted-block` and no claim** takes the hash-linked path
+  (`Anchor::Stale`). The operator opted in with a block, so the hash-linked path applies even
+  though no head confirms staleness. Recency cannot be checked without a head, so the operator's
+  block choice carries that risk.
+- **Running followers are unchanged.** A follower with no confirming head keeps following and
+  warns, and it does not exit. The residual: an eclipsed follower keeps following a forged
+  chain while its sources withhold the head. Only a confirmed head beyond the window stops it.
+- **Recency is tightened by one epoch.** A trusted block must be at least one epoch inside the
+  window of the head (`is_recent`, strict `<`). A block exactly at the edge would put the
+  follower straight back into stale mid-catch-up.
+
+**Trust model.** A running follower assumes at least one honest source. A stale restart is
+safe with `--trusted-block`, or with the operator's explicit `--allow-unconfirmed-start`. An
+operator should list two or more `https` sources, so that one hostile source cannot be the only
+voice. Heads are unverified, and the maximum over sources decides the requirement and the
+recency. A hostile source can force the requirement (fail-safe). It cannot lift it while any
+honest source answers with the head.
+
+**Byte cap, true bound.** The cap is 512 MiB, but responses already in flight when the total
+passes it are still held. With `PREFETCH_WORKERS` = 4 and 32 blocks of 5 MiB per request, the
+peak is about 512 MiB + 640 MiB, roughly 1.2 GiB. This is recorded in `catchup.rs` at
+`MAX_LINKED_GAP_BYTES`.

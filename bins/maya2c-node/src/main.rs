@@ -204,6 +204,9 @@ struct Args {
     /// learned from somewhere other than the bootstrap peer. Refuses a peer
     /// whose chain does not contain it.
     trusted_block: Option<custom_l1_node::state_pruner::snapshot::TrustedBlock>,
+    /// Start a stale-looking node with no confirming head (B49). The operator's
+    /// statement that the network halted or the genesis is old, not an eclipse.
+    allow_unconfirmed_start: bool,
     /// DAG-BFT: catch up through this peer's attested checkpoint and follow
     /// attested blocks (ADR-038), for a node that was down too long to rejoin.
     catch_up_from: Vec<String>,
@@ -276,6 +279,7 @@ impl Default for Args {
             snapshot_interval: None,
             bootstrap_from: None,
             trusted_block: None,
+            allow_unconfirmed_start: false,
             catch_up_from: Vec::new(),
             allow_private_peers: false,
             min_register_bond: 0,
@@ -327,12 +331,16 @@ fn print_usage() {
          --catch-up-from <URL>    DAG-BFT: rejoin after a long outage through a peer's\n                           \
          attested checkpoint, then follow attested blocks (ADR-038);\n                           \
          repeatable: the reachable peer with the highest tip is used (ADR-043)\n  \
-         --trusted-block HEIGHT:HEX  a RECENT block (within the unbonding window of the head) above\n                           \
-         this node's tip, that the chain must pass through. REQUIRED for a node stale past\n                           \
-         the unbonding window (B49), confirmed by a source's head beyond the window. The\n                           \
-         heads sources report are UNVERIFIED: the maximum decides whether the requirement\n                           \
-         applies and how recent the block must be. A node offline longer than about 13 days\n                           \
-         on 3,600-block epochs must restore from a snapshot with --bootstrap-from (ADR-060)\n  \
+         --trusted-block HEIGHT:HEX  a block above this node's tip that the chain must pass through.\n                           \
+         REQUIRED for a node stale past the unbonding window (B49). Pick one at least one\n                           \
+         epoch inside the window of the head, so the follower is not stale again mid-catch-up.\n                           \
+         Also used when the tip is old and no source confirms a head: the hash-linked path.\n                           \
+         Heads sources report are UNVERIFIED: the maximum decides whether the requirement\n                           \
+         applies and how recent the block must be. Run with two or more https sources. A node\n                           \
+         offline longer than about 13 days on 3,600-block epochs restores with --bootstrap-from (ADR-060)\n  \
+         --allow-unconfirmed-start  start with an old tip and no source head beyond the window. Only for a\n                           \
+         halted network (longer than the window) or a genesis signed long before launch. It is\n                           \
+         refused otherwise, because an eclipsed node looks the same. Prefer --trusted-block\n  \
          --validator-key <PATH>  DAG-BFT validator key; without it the node observes\n  \
          --generate-validator-key <PATH>  write a new validator key, print its public key;\n                           \
          sealed when a passphrase file is set (ADR-049)\n  \
@@ -418,6 +426,7 @@ fn parse_args_from(arguments: impl Iterator<Item = String>) -> Result<Args, Box<
             "--snapshot-interval" => args.snapshot_interval = Some(value()?.parse()?),
             "--bootstrap-from" => args.bootstrap_from = Some(value()?),
             "--trusted-block" => args.trusted_block = Some(parse_trusted_block(&value()?)?),
+            "--allow-unconfirmed-start" => args.allow_unconfirmed_start = true,
             "--catch-up-from" => args.catch_up_from.push(value()?),
             "--allow-private-peers" => args.allow_private_peers = true,
             "--min-register-bond" => args.min_register_bond = value()?.parse()?,
@@ -1019,7 +1028,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         // The trust a catch-up may use (B49). A stale node is refused without a
         // trusted block, so the decision comes before any source is trusted.
-        let anchor = rejoin::anchor(&args.catch_up_from, &chain, args.trusted_block).await?;
+        let anchor = rejoin::anchor(
+            &args.catch_up_from,
+            &chain,
+            args.trusted_block,
+            args.allow_unconfirmed_start,
+        )
+        .await?;
         // Certificate replay (ADR-052) verifies against the committee alone and
         // would ignore the trusted block, so a node held to one skips it.
         // Otherwise a node that comes back from a replay is a full engine, so it
