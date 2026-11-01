@@ -420,4 +420,30 @@ mod tests {
         let err = resolve_key_file("miner.key", &data).unwrap_err();
         assert!(matches!(err, GuardError::KeyOutsideDataDir(_)), "{err}");
     }
+
+    /// The miner hub-bundle shipped must pass the pin this build compiled in,
+    /// and a copy with one byte flipped must not. CI runs it after
+    /// `cargo xtask hub-bundle` (release-binaries.yml); `#[ignore]` keeps a
+    /// plain `cargo test` from needing the sidecar, and a missing variable
+    /// fails the test rather than passing it.
+    #[test]
+    #[ignore = "CI: needs MAYA2C_SHIPPED_MINER and MAYA2C_MINER_SHA256SUMS"]
+    fn shipped_miner_passes_its_pin_and_a_flipped_byte_fails() {
+        let shipped = std::env::var_os("MAYA2C_SHIPPED_MINER")
+            .expect("set MAYA2C_SHIPPED_MINER to the bundled miner");
+        let bytes = fs::read(&shipped).expect("read the bundled miner");
+        assert!(!bytes.is_empty(), "the bundled miner is empty");
+        let base = scratch("shipped");
+        let install = base.join("install");
+        fs::create_dir_all(&install).expect("install folder");
+        let miner = install.join(miner_file_name());
+        fs::write(&miner, &bytes).expect("copy the bundled miner");
+        // The temporary handle drops at the end of this statement, before the rewrite below.
+        check_miner(&miner_file_name(), &install, PINNED_SUMS).expect("bundled miner accepted");
+        let mut flipped = bytes;
+        flipped[0] ^= 0x01;
+        fs::write(&miner, &flipped).expect("write the altered copy");
+        let err = check_miner(&miner_file_name(), &install, PINNED_SUMS).unwrap_err();
+        assert!(matches!(err, GuardError::HashMismatch { .. }), "{err}");
+    }
 }
