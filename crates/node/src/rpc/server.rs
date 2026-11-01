@@ -1088,6 +1088,9 @@ pub async fn serve_metered(
                 drop(socket);
                 continue;
             };
+            // Shared, because the per-connection service is cloned; the last
+            // clone drops with the connection and releases the slot.
+            let permit = Arc::new(permit);
             let (builder, methods, stop2, limiter, trusted) = (
                 builder.clone(),
                 methods.clone(),
