@@ -1,6 +1,6 @@
 # ADR-078: Omega design: three-speed evolution, bounded controllers, a test ratchet, published moat indicators
 
-- **Status:** Proposed, 2026-11-02. Eric asked for the "Omega Ascension" design. Decisions O1–O4 are below, with recommendations.
+- **Status:** Accepted, 2026-11-02. Eric approved O1–O4 ("I approve everything"). O3 is built now (CI only); O1, O2 and O4 come after mainnet.
 - **Full design:** [MIP-0002](../mip/MIP-0002-omega-durable-advantage.md)
 - **Prior art:** [forkless-upgrades-and-adaptive-control.md](../prior-art/forkless-upgrades-and-adaptive-control.md), searched 2026-11-02
 
@@ -13,7 +13,7 @@ beaten by more hardware. The achievable goal is:
 - a way to absorb outside breakthroughs;
 - self-steering that every node can re-execute and that is provably bounded.
 
-## Decision (proposed)
+## Decision
 
 | # | Decision | Recommendation | When |
 |---|---|---|---|
