@@ -859,4 +859,51 @@ mod batch_tests {
         let huge = with(vec![vec![0u8; LONE_PAYLOAD_BYTES + 1]]);
         assert!(!within_batch_bound(&huge, 40));
     }
+
+    /// Through `handle`: a missing parent makes an accepted proposal ask for it,
+    /// and a rejected one returns nothing. So the sends show the bound's verdict.
+    #[test]
+    fn on_receipt_a_lone_oversize_proposal_is_accepted_and_a_packed_one_is_not() {
+        let params = Params {
+            max_batch_bytes: 40,
+            ..Params::default()
+        };
+        let proposal = |batch: Vec<Payload>| Vertex {
+            epoch: 0,
+            round: 1,
+            author: 1,
+            timestamp_ms: 0,
+            parents: vec![[9u8; 32]],
+            batch,
+        };
+        let mut validator = Validator::new(0, Committee::new(4), params);
+
+        let packed = validator.handle(
+            0,
+            1,
+            Message::Propose {
+                vertex: proposal(vec![vec![0u8; 30], vec![0u8; 30]]),
+                signature: Vec::new(),
+            },
+        );
+        assert!(
+            packed.sends.is_empty(),
+            "two payloads over the bound are not received"
+        );
+
+        let lone = validator.handle(
+            0,
+            1,
+            Message::Propose {
+                vertex: proposal(vec![vec![0u8; 50]]),
+                signature: Vec::new(),
+            },
+        );
+        assert!(
+            lone.sends
+                .iter()
+                .any(|(_, m)| matches!(m, Message::Fetch(_))),
+            "a lone oversize payload is received, and asks for its missing parent"
+        );
+    }
 }
