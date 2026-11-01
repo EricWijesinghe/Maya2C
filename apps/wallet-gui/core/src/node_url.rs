@@ -4,7 +4,7 @@
 //! transactions and balances in the clear, so http is accepted only for a host
 //! on this machine or on a private network. https is accepted for any host.
 
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use crate::error::{Result, WalletError};
 
@@ -17,6 +17,9 @@ use crate::error::{Result, WalletError};
 /// https, or plain http to a public address.
 pub fn check_node_url(url: &str) -> Result<()> {
     let (scheme, host) = split_url(url).ok_or_else(|| refuse("it has no host"))?;
+    if is_metadata_host(&host) {
+        return Err(refuse("it is a cloud metadata address"));
+    }
     match scheme.as_str() {
         "https" => Ok(()),
         "http" if is_local_host(&host) => Ok(()),
@@ -48,6 +51,19 @@ fn split_url(url: &str) -> Option<(String, String)> {
         return None;
     }
     Some((scheme.to_ascii_lowercase(), host.to_ascii_lowercase()))
+}
+
+/// Cloud instance-metadata endpoints: IPv4 169.254.169.254 (inside link-local,
+/// so the rule below would allow it) and AWS's IPv6 fd00:ec2::254. Refused for
+/// every scheme, because a node URL must never reach one.
+fn is_metadata_host(host: &str) -> bool {
+    const V4: Ipv4Addr = Ipv4Addr::new(169, 254, 169, 254);
+    const V6: Ipv6Addr = Ipv6Addr::new(0xfd00, 0xec2, 0, 0, 0, 0, 0, 0x254);
+    match host.parse::<IpAddr>() {
+        Ok(IpAddr::V4(ip)) => ip == V4,
+        Ok(IpAddr::V6(ip)) => ip == V6 || ip.to_ipv4_mapped() == Some(V4),
+        Err(_) => false,
+    }
 }
 
 /// Loopback, RFC 1918 private, link-local, or IPv6 unique-local and link-local.
@@ -125,5 +141,14 @@ mod tests {
     fn scheme_case_and_credentials_on_a_safe_host_are_handled() {
         assert!(check_node_url("HTTPS://rpc.maya2c.dev/rpc").is_ok());
         assert!(check_node_url("http://user:pw@127.0.0.1:8545").is_ok());
+    }
+
+    #[test]
+    fn cloud_metadata_addresses_are_refused_for_every_scheme() {
+        assert!(check_node_url("http://169.254.169.254/latest/meta-data").is_err());
+        assert!(check_node_url("https://169.254.169.254/").is_err());
+        assert!(check_node_url("http://[fd00:ec2::254]/").is_err());
+        assert!(check_node_url("http://[::ffff:169.254.169.254]/").is_err());
+        assert!(check_node_url("http://169.254.10.1:8545").is_ok());
     }
 }

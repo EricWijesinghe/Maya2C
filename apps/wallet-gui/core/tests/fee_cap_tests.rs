@@ -66,3 +66,30 @@ fn the_override_signs_a_fee_above_the_cap() {
 
     assert!(result.is_ok());
 }
+
+#[test]
+fn a_fee_above_the_amount_is_refused_under_the_cap() {
+    let mut wallet = Wallet::from_mnemonic(TEST_PHRASE, "").unwrap();
+    let recipient = hex::encode([0x22; 32]);
+    let amount = coins("0.5");
+    let t = terms(coins("0.9"), false);
+    let shown = wallet.confirm(0, &recipient, amount, &t).unwrap();
+
+    let result = wallet.sign(0, &recipient, amount, &t, &shown.signing_hash);
+
+    assert!(result.is_err());
+    assert!(wallet.history().is_empty());
+}
+
+#[test]
+fn the_override_signs_a_fee_above_the_amount() {
+    let mut wallet = Wallet::from_mnemonic(TEST_PHRASE, "").unwrap();
+    let recipient = hex::encode([0x22; 32]);
+    let amount = coins("0.5");
+    let t = terms(coins("0.9"), true);
+    let shown = wallet.confirm(0, &recipient, amount, &t).unwrap();
+
+    let result = wallet.sign(0, &recipient, amount, &t, &shown.signing_hash);
+
+    assert!(result.is_ok());
+}

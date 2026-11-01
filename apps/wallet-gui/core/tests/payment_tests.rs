@@ -468,7 +468,7 @@ fn a_manual_fee_overrides_the_tier() {
     let signed = sign_transfer(
         &signing_key(),
         &address(27),
-        primitive_types::U256::from(500),
+        primitive_types::U256::from(50_000),
         primitive_types::U256::from(4_242),
         0,
         &CHAIN,

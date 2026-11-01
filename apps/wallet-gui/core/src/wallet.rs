@@ -214,7 +214,7 @@ impl Wallet {
                     .to_string(),
             ));
         }
-        check_fee_cap(terms.fee, terms.allow_high_fee)?;
+        check_fee_cap(terms.fee, amount, terms.allow_high_fee)?;
         let (signing_key, tx) = self.unsigned(index, recipient, amount, terms)?;
         if confirmation(&tx, terms.chain).signing_hash != confirmed_hash {
             return Err(WalletError::Signing(
@@ -351,7 +351,7 @@ pub struct SignTerms<'a> {
     pub nonce: u64,
     /// The genesis the signature commits to (ADR-036), from [`chain_info`].
     pub chain: &'a ChainTag,
-    /// Signs a fee above [`max_transfer_fee`]. Set by a person who chose it, never by a node.
+    /// Signs a fee above [`max_transfer_fee`] or above the amount. Set by a person who chose it, never by a node.
     pub allow_high_fee: bool,
 }
 
@@ -363,19 +363,32 @@ pub fn max_transfer_fee() -> primitive_types::U256 {
     primitive_types::U256::from(maya_amount::ONE_COIN)
 }
 
-/// Refuses a fee above [`max_transfer_fee`] unless `allow_high_fee` is set.
-/// A node cannot set the override: only the caller of the core API can.
+/// Refuses a fee above [`max_transfer_fee`], or larger than the amount sent,
+/// unless `allow_high_fee` is set. A node cannot set the override: only the
+/// caller of the core API can.
 ///
 /// # Errors
 ///
-/// [`WalletError::Signing`] when the fee is above the cap and not overridden.
-pub fn check_fee_cap(fee: primitive_types::U256, allow_high_fee: bool) -> Result<()> {
-    if allow_high_fee || fee <= max_transfer_fee() {
+/// [`WalletError::Signing`] when the fee is over either bound and not overridden.
+pub fn check_fee_cap(
+    fee: primitive_types::U256,
+    amount: primitive_types::U256,
+    allow_high_fee: bool,
+) -> Result<()> {
+    if allow_high_fee {
         return Ok(());
     }
-    Err(WalletError::Signing(
-        "the fee is above the 1 MAYA cap; nothing was signed".to_string(),
-    ))
+    if fee > max_transfer_fee() {
+        return Err(WalletError::Signing(
+            "the fee is above the 1 MAYA cap; nothing was signed".to_string(),
+        ));
+    }
+    if fee > amount {
+        return Err(WalletError::Signing(
+            "the fee is larger than the amount sent; nothing was signed".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 /// The JSON-RPC client for `node_url`, once the URL passes [`check_node_url`].
