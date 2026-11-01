@@ -170,7 +170,7 @@ function fees(): number {
       check(treasury === BigInt(c.expect.treasury) && BigInt(c.base_fee_paid) - treasury === BigInt(c.expect.burned), `${c.id}`);
     } else {
       const [p, size, t, d, floor] = [c.parent_base_fee, c.parent_size, c.target, c.denominator, c.floor].map(BigInt);
-      const ceiling = BigInt(c.ceiling); // FEE-6 (ADR-071); the vectors carry it
+      const ceiling = BigInt(c.ceiling); // FEE-6 (ADR-076); the vectors carry it
       let next: bigint;
       if (t === 0n || d === 0n) next = p > floor ? p : floor;
       else {
