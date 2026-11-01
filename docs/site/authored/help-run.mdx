@@ -90,7 +90,8 @@ every block. For now, Eric approves each validator by hand.
 
 3. Send `maya2c-application.txt` to Eric any way you like: chat, email or the
    [application form](https://github.com/EricWijesinghe/Maya2C/issues/new?template=validator-application.yml).
-   It holds only public information. **Never send** `validator.key` or `wallet.key`.
+   It holds only public information. **Never send** `validator.key`, `validator.pass` or `wallet.key`.
+   **Back up `validator.pass`** (the key's passphrase): without it the validator key cannot be opened.
 
 4. When Eric approves you, he sends your wallet the bond plus a little for
    fees. Register with the bond he gives you. On the testnet it is at least
@@ -135,7 +136,7 @@ computer on: a validator that is often offline loses part of its bond.
 | What | Where |
 |---|---|
 | Program | `C:\Program Files\Maya2C\` |
-| Keys (secret) | `C:\ProgramData\Maya2C\validator.key`, `wallet.key` |
+| Keys (secret) | `C:\ProgramData\Maya2C\validator.key`, `validator.pass` (its passphrase), `wallet.key` |
 | Chain data | `C:\ProgramData\Maya2C\v0\` |
 | Log | `C:\ProgramData\Maya2C\logs\node.log` |
 | Background task | Task Scheduler › **Maya2C Validator** |
@@ -146,7 +147,7 @@ computer on: a validator that is often offline loses part of its bond.
 | What | Where |
 |---|---|
 | Program | `/usr/local/bin/maya2c-node` |
-| Keys (secret) | `/Library/Application Support/Maya2C/validator.key`, `wallet.key` |
+| Keys (secret) | `/Library/Application Support/Maya2C/validator.key`, `validator.pass` (its passphrase), `wallet.key` |
 | Chain data | `/Library/Application Support/Maya2C/data/` |
 | Log | `/Library/Logs/Maya2C/node.log` (also in the **Console** app) |
 | Background service | `/Library/LaunchDaemons/dev.maya2c.node.plist` |
@@ -157,7 +158,7 @@ computer on: a validator that is often offline loses part of its bond.
 | What | Where |
 |---|---|
 | Program | `/usr/local/bin/maya2c-node` |
-| Keys (secret) | `/var/lib/maya2c/validator.key`, `wallet.key` |
+| Keys (secret) | `/var/lib/maya2c/validator.key`, `validator.pass` (its passphrase), `wallet.key` |
 | Chain data | `/var/lib/maya2c/data/` |
 | Log | `journalctl -u maya2c-node` |
 | Background service | `maya2c-node.service` (systemd) |
