@@ -14,9 +14,12 @@
 //! and the credits they carry are safe. The error variant this module returns
 //! is the one that says so.
 
+use std::sync::Arc;
+
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
+use tokio::sync::OnceCell;
 
 use custom_l1_node::core::ChainTag;
 use custom_l1_node::rpc::{
@@ -39,6 +42,9 @@ pub struct NodeClient {
     client: HttpClient,
     /// Endpoint, for error messages.
     url: String,
+    /// Fetched once and shared by every clone: the genesis does not change
+    /// under a running pool, and payout signing asks for it on every batch.
+    genesis: Arc<OnceCell<ChainTag>>,
 }
 
 impl NodeClient {
@@ -54,6 +60,7 @@ impl NodeClient {
         Ok(Self {
             client,
             url: url.to_string(),
+            genesis: Arc::new(OnceCell::new()),
         })
     }
 
@@ -166,13 +173,19 @@ impl NodeClient {
     ///
     /// Returns [`PoolError::NodeRpc`] on a transport or parsing failure.
     pub async fn get_chain_tag(&self) -> Result<ChainTag> {
-        let info: ChainInfo = self
-            .client
-            .request("get_chain_info", rpc_params![])
+        // A failed fetch is not stored, so the next call asks again.
+        self.genesis
+            .get_or_try_init(|| async {
+                let info: ChainInfo = self
+                    .client
+                    .request("get_chain_info", rpc_params![])
+                    .await
+                    .map_err(|e| PoolError::NodeRpc(format!("get_chain_info: {e}")))?;
+                info.chain_tag()
+                    .map_err(|e| PoolError::NodeRpc(format!("chain_tag: {e}")))
+            })
             .await
-            .map_err(|e| PoolError::NodeRpc(format!("get_chain_info: {e}")))?;
-        info.chain_tag()
-            .map_err(|e| PoolError::NodeRpc(format!("chain_tag: {e}")))
+            .copied()
     }
 }
 
@@ -240,5 +253,78 @@ mod tests {
             NodeClient::connect("not a url"),
             Err(PoolError::NodeRpc(_))
         ));
+    }
+
+    /// The request body of one HTTP/1.1 request, up to `Content-Length`.
+    fn read_body(stream: &mut std::net::TcpStream) -> Vec<u8> {
+        use std::io::Read;
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 1024];
+        loop {
+            let n = stream.read(&mut chunk).unwrap();
+            assert!(n > 0, "client closed before the request was complete");
+            buf.extend_from_slice(&chunk[..n]);
+            let Some(end) = buf.windows(4).position(|w| w == b"\r\n\r\n") else {
+                continue;
+            };
+            let head = String::from_utf8_lossy(&buf[..end]).to_lowercase();
+            let len = head
+                .lines()
+                .find_map(|l| l.strip_prefix("content-length:"))
+                .map_or(0, |v| v.trim().parse::<usize>().unwrap());
+            if buf.len() >= end + 4 + len {
+                return buf[end + 4..end + 4 + len].to_vec();
+            }
+        }
+    }
+
+    /// A loopback node that answers `get_chain_info` with `genesis` and counts
+    /// the requests it serves.
+    fn genesis_node(genesis: String) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::io::Write;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let served = std::sync::Arc::new(AtomicUsize::new(0));
+        let counter = std::sync::Arc::clone(&served);
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let mut stream = stream.unwrap();
+                let request: serde_json::Value =
+                    serde_json::from_slice(&read_body(&mut stream)).unwrap();
+                counter.fetch_add(1, Ordering::SeqCst);
+                let reply = serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": request["id"],
+                    "result": {"genesis": genesis, "chain_id": null, "height": 0},
+                })
+                .to_string();
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+                    reply.len()
+                )
+                .unwrap();
+            }
+        });
+        (url, served)
+    }
+
+    #[tokio::test]
+    async fn the_genesis_is_fetched_once_per_node_client() {
+        use std::sync::atomic::Ordering;
+        let (url, served) = genesis_node("ab".repeat(32));
+        let node = NodeClient::connect(&url).unwrap();
+
+        let first = node.get_chain_tag().await.unwrap();
+        let second = node.get_chain_tag().await.unwrap();
+        let clone = node.clone().get_chain_tag().await.unwrap();
+
+        // The binding is still the node's genesis, not a placeholder.
+        assert_eq!(first, ChainTag::from_genesis([0xab; 32]));
+        assert_eq!(first, second);
+        assert_eq!(first, clone);
+        assert_eq!(served.load(Ordering::SeqCst), 1);
     }
 }
