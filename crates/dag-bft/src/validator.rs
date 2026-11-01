@@ -886,8 +886,13 @@ mod batch_tests {
                 signature: Vec::new(),
             },
         );
+        // `handle` also runs `progress`, which may broadcast this validator's
+        // own vertex; only a Fetch for the missing parent shows a receipt.
         assert!(
-            packed.sends.is_empty(),
+            !packed
+                .sends
+                .iter()
+                .any(|(_, m)| matches!(m, Message::Fetch(_))),
             "two payloads over the bound are not received"
         );
 
