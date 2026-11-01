@@ -1,4 +1,6 @@
-# Post-proving checklist (after `cargo xtask proving --hours 120`)
+# Post-proving checklist (after `cargo xtask proving --hours 24`)
+
+**Eric, 2026-11-02:** the 7-day validator soak is finished. There is no second long soak; any proving run or temporary testnet lasts **one day at most**.
 
 Order matters: each step runs on the **frozen sha** the proving run used, unless it says
 otherwise.
@@ -13,7 +15,7 @@ Each cherry-pick and its re-proof is recorded in DECISIONS.md. A fix to node cod
 
 | # | Step | Command / doc | Pass means | Owner |
 |---|---|---|---|---|
-| 0 | Proving run finished clean | `cargo xtask proving` report under `reports/` | 120 h, no halt, no fork, the gates it checks are green; paste its summary | maya2c-2b |
+| 0 | Proving run finished clean | `cargo xtask proving` report under `reports/` | 24 h, no halt, no fork, the gates it checks are green; paste its summary | maya2c-2b |
 | 1 | Kani on the frozen sha | WSL: `cargo kani -p maya-ledger-math`, `-p maya-dex` (harnesses named in #289; `exact_out_never_undercharges` is B40), `-p maya-governance`, `-p maya-fee-market` | `VERIFICATION:- SUCCESSFUL` for each harness, each `cover!` SATISFIED | maya2c-77 |
 | 2 | Attacknet on the frozen sha | `cargo xtask attacknet` (`docs/runbooks/attacknet-lab-guide.md`) | every attack's stated property holds: crash f, crash f+1 halts without fork, stolen key, wire garbage, RPC flood, long outage rejoin, restart ahead | maya2c-2b |
 | 3 | Mining end to end | `cargo xtask mining-localnet`, then the Hub against that net: start mining, see shares and the on-chain "paid per hour" line move | a payout reaches the Hub's address from `MINING_RESERVE`; numbers match the chain | maya2c-77 |
