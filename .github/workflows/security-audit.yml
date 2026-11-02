@@ -80,6 +80,8 @@ jobs:
           - rwa_payload_decode
           - rwa_record_decode
           - sealed_payload_decode
+          # PoW target arithmetic and the prune-horizon predicate (pure rules).
+          - pow_target
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 

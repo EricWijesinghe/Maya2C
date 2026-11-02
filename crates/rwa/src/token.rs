@@ -313,9 +313,17 @@ impl RwaToken {
                 let eligibility_blocks =
                     u64::from_le_bytes(cursor.take(8)?.try_into().expect("sized"));
                 let count = cursor.take(1)?[0] as usize;
-                let mut trusted = Vec::with_capacity(count.min(MAX_TRUSTED_ISSUERS));
+                let mut trusted: Vec<Address> = Vec::with_capacity(count.min(MAX_TRUSTED_ISSUERS));
                 for _ in 0..count {
                     trusted.push(cursor.take(ADDRESS_BYTES)?.try_into().expect("sized"));
+                }
+                // `TransferRule::new` sorts and dedups, so accepting an unsorted
+                // list here would decode to a value that encodes differently.
+                if !trusted.windows(2).all(|pair| pair[0] < pair[1]) {
+                    return Err(Error::Malformed {
+                        what: "rwa token",
+                        reason: "trusted issuers are not strictly ascending".to_owned(),
+                    });
                 }
                 Some(TransferRule::new(
                     schema,
@@ -625,6 +633,27 @@ mod tests {
         );
         assert!(first.trusts(&[1; ADDRESS_BYTES]));
         assert!(!first.trusts(&[2; ADDRESS_BYTES]));
+    }
+
+    #[test]
+    fn a_token_whose_issuers_are_not_strictly_ascending_is_refused() {
+        // Two issuers, so the trusted list is the last 64 bytes of the record.
+        let canonical = token(Some(rule())).encode();
+        assert_eq!(
+            RwaToken::decode(&canonical).expect("canonical"),
+            token(Some(rule()))
+        );
+
+        let split = canonical.len() - 2 * ADDRESS_BYTES;
+        let mut unsorted = canonical.clone();
+        let (first, second) = unsorted[split..].split_at_mut(ADDRESS_BYTES);
+        first.swap_with_slice(second);
+        assert!(RwaToken::decode(&unsorted).is_err());
+
+        let mut duplicate = canonical.clone();
+        let (first, second) = duplicate[split..].split_at_mut(ADDRESS_BYTES);
+        second.copy_from_slice(first);
+        assert!(RwaToken::decode(&duplicate).is_err());
     }
 
     #[test]
