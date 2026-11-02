@@ -22,7 +22,9 @@ use crate::core::{Block, BlockHeader};
 use crate::error::{NodeError, Result};
 use crate::rpc::server::{BUDGET_EXHAUSTED, PAGE_BUSY, RPC_RESPONSE_LIMIT, RpcContext};
 use crate::rpc::types::BlockInfo;
-use crate::state_pruner::snapshot::{BootstrapSource, HEADER_BATCH, SnapshotManifest, Snapshots};
+use crate::state_pruner::snapshot::{
+    BootstrapSource, HEADER_BATCH, MAX_CHUNK_BYTES, SnapshotManifest, Snapshots,
+};
 
 /// JSON-RPC error code for a request the node refused.
 const REJECTED: i32 = -32_000;
@@ -446,6 +448,12 @@ impl BootstrapSource for RpcBootstrapSource {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .ok_or_else(|| NodeError::Network("chunk asked for before the manifest".into()))?;
         let text: String = self.call("get_snapshot_chunk", &rpc_params![height, index])?;
+        if text.len() > 2 * MAX_CHUNK_BYTES {
+            return Err(NodeError::Network(format!(
+                "snapshot chunk {index} arrived as {} hex characters, over the cap",
+                text.len()
+            )));
+        }
         unhex(&text)
     }
 

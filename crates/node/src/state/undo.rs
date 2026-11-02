@@ -170,6 +170,13 @@ impl UndoRecord {
         let mut records = Vec::new();
         if reader.remaining() > 0 {
             let count = reader.read_record_len(9)?;
+            // The encoder writes this section only when it is non-empty, so an
+            // explicit zero count is a second encoding of the same record.
+            if count == 0 {
+                return Err(crate::error::NodeError::Decode(
+                    "empty record section is not canonical".to_owned(),
+                ));
+            }
             records.reserve(count);
             for _ in 0..count {
                 let key_length = reader.read_byte_len(MAX_RECORD_BYTES)?;
@@ -217,5 +224,21 @@ mod tests {
             ..UndoRecord::default()
         };
         assert_eq!(UndoRecord::decode(&record.encode()), Ok(record));
+    }
+
+    #[test]
+    fn bytes_after_the_last_section_are_refused() {
+        let bare = UndoRecord::default().encode();
+        assert!(UndoRecord::decode(&bare).is_ok());
+
+        // An explicit empty record section decodes to the same value as no
+        // section, so accepting it would give the record two encodings.
+        let mut explicit_empty = bare.clone();
+        explicit_empty.extend_from_slice(&0u64.to_le_bytes());
+        assert!(UndoRecord::decode(&explicit_empty).is_err());
+
+        let mut one_stray_byte = bare;
+        one_stray_byte.push(0);
+        assert!(UndoRecord::decode(&one_stray_byte).is_err());
     }
 }

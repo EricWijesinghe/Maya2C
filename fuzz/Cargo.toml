@@ -237,3 +237,12 @@ path = "fuzz_targets/rwa_record_decode.rs"
 test = false
 doc = false
 bench = false
+
+# Proof-of-work target arithmetic and the prune-horizon predicate: the pure
+# rules a header and a reorg depend on, with no store or 32 MiB Argon2 pass.
+[[bin]]
+name = "pow_target"
+path = "fuzz_targets/pow_target.rs"
+test = false
+doc = false
+bench = false

@@ -310,6 +310,24 @@ mod tests {
     }
 
     #[test]
+    fn a_batch_item_one_byte_over_the_transaction_cap_is_refused() {
+        // Regression pin: the wire bound on a batch item is MAX_TX_BYTES, so a
+        // frame cannot carry a transaction the codec would refuse.
+        let mut over = vertex();
+        over.batch = vec![vec![0xcc; crate::core::MAX_TX_BYTES + 1]];
+        let env = Envelope {
+            epoch: 2,
+            from: 3,
+            to: BROADCAST,
+            message: Message::Propose {
+                vertex: over,
+                signature: vec![5; 3309],
+            },
+        };
+        assert!(Envelope::decode(&env.encode()).is_err());
+    }
+
+    #[test]
     fn truncation_trailing_bytes_and_bad_versions_are_refused() {
         for message in every_message() {
             let bytes = Envelope {
