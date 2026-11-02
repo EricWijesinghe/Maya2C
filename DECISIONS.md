@@ -768,3 +768,27 @@ peak is about 512 MiB + 640 MiB, roughly 1.2 GiB. This is recorded in `catchup.r
 - Production builds refuse plaintext keys, so the installers (`join-validator.ps1`, `join-testnet.sh`) now make a 32-byte CSPRNG passphrase in `validator.pass` next to the key (`C:\ProgramData\Maya2C\`, `/var/lib/maya2c/`, `/Library/Application Support/Maya2C/`), pass it to keygen by file, and export `MAYA2C_VALIDATOR_PASSPHRASE_FILE` on every start. The passphrase never goes on a command line or into a log. Reinstall keeps it; Windows `-Everything` removes it with the key. Losing it loses the key, so the operator is told to back it up. Windows ACL: grant SYSTEM and Administrators first, then `/inheritance:r`. Unix: `umask 077`, mode 600.
 - The Mac installer's run script now quotes its paths. macOS keeps data under `/Library/Application Support`, which word-split in the old `exec` line.
 - `infra/testnet-vm/install.sh` (the single-VM testnet) follows the same rule: one `validator.pass` per `v<i>` directory, passed to keygen by file and set by `Environment=` in `maya2c-validator@.service`. A reinstall that finds a key without its passphrase file stops; it never makes a new passphrase for an existing key.
+
+## 2026-11-02 — Owner approvals "approve all, recommended options": fee ceiling, supply wording, treasury, council, docs
+
+Owner approved the recommended option for each item below. Docs only; no consensus code changed.
+
+- **A4, fee ceiling (ADR-076, was ADR-071):** option B kept, 0.1 MAYA per standard transfer at the cap. ADR-076 status is Accepted (2026-11-01); no change.
+- **A5 and B43, supply wording (ADR-044):** the text now matches the code.
+  - One coin is 10^24 base units (`maya_amount::COIN_DECIMALS = 24`, `ONE_COIN = 10^24`, `crates/amount/src/lib.rs`).
+  - `fee_market::supply::MAX_SUPPLY` = `Amount::MAX` = 2^256 − 1 base units (`crates/fee-market/src/supply.rs`).
+  - 21,000,000 coins is the halving-phase emission budget (ADR-068), not the cap. The old "21M × 10^8" wording is removed from ADR-044 and `docs/fee-market.md`.
+  - The reserve is an explicit allocation to the keyless `MINING_RESERVE`, not `MAX_SUPPLY − Σ allocations`. With a tail, genesis refuses a reserve below `lifetime_emission()` (`crates/node/src/genesis.rs`).
+- **B-16, fee treasury (code check):** the 20% share is burned today, as decided.
+  - The node sets `treasury_bps: 0` (`crates/node/src/genesis.rs`). The base fee moves wholly to `FEE_SINK` (`crates/node/src/state/fee_exec.rs`, `settle_fees`).
+  - The 80/20 split in `crates/fee-market/src/execute.rs` has no caller outside the crate.
+  - `docs/fee-market.md` and `docs/site/authored/transactions.mdx` now say so.
+  - Still differs: `spec/04-fees.md` FEE-1 defines the treasury split as live, and the crate default `FeeConfig::TESTING` uses 2000 bps. Not changed here (consensus spec). Open item.
+- **B30, council (ADR-050):** `max_pause_blocks` = 6 hours of blocks, the value ADR-050 already records (2026-10-19 settings). The block count is computed at the ceremony. The offline council key is held in owner-held offline hardware; the location is not published. ADR-050 now carries this decision.
+- **B45:** the `release/*` ruleset is applied by the lead session, not by this PR.
+- **C15, doc drift:**
+  - `docs/architecture-vision.md` line 96 already reads SHIPPED / ADR-027 on master. No edit.
+  - Validator votes are ML-DSA-87 in code (`crates/node/src/consensus/bft/auth.rs`, ADR-051 option 3). `docs/site/authored/quickstart.mdx` said ML-DSA-65; fixed. ADR-027 carries a supersede note. `consensus.mdx` and `validators.mdx` already said 87.
+  - The macOS Hub installer claim in `docs/site/authored/mining.md` is corrected: no Hub installer is published for any platform.
+  - Organization JSON-LD `sameAs` (`docs/site/astro.config.mjs`) keeps only the GitHub project repository. LinkedIn, Facebook, Instagram and the personal subdomain are removed.
+- **B27, bootnode:** the mainnet bootnode peer id is `MAINNET_BOOTNODE_PEER_ID=SET-AT-GENESIS` in `deploy/genesis/mainnet/bootnode.env`. The mainnet join script does not exist yet. The testnet guides and `scripts/join-testnet.sh` keep the testnet id. No validators-guide generator exists, so the guide is hand-maintained and was not regenerated.
