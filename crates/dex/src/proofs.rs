@@ -343,17 +343,36 @@ fn a_deposit_does_not_dilute() {
 ///
 /// If it did not, the two functions would be an arbitrage against each other:
 /// ask for exactly what a cheap exact-in produces, and pay less for it.
+///
+/// One harness per direction, not a symbolic direction: the combined harness
+/// stalled CBMC (about 7 GB, past the 50 min limit) on the two symbolic swap
+/// paths. The split halves the symbolic branching; each half keeps the full
+/// pool and amount symbolic. The covers show both the exact-out and the
+/// exact-in comparison are reachable, so the asserts cannot pass vacuously.
 #[kani::proof]
-fn exact_out_never_undercharges() {
+fn exact_out_never_undercharges_base_to_quote() {
+    exact_out_never_undercharges(Direction::BaseToQuote);
+}
+
+/// The quote-to-base half of [`exact_out_never_undercharges_base_to_quote`].
+#[kani::proof]
+fn exact_out_never_undercharges_quote_to_base() {
+    exact_out_never_undercharges(Direction::QuoteToBase);
+}
+
+fn exact_out_never_undercharges(direction: Direction) {
     let pool = any_pool();
     let amount_out = any_u64_amount();
-    let direction = any_direction();
 
-    if let Ok(inverse) = pool.swap_exact_out(direction, amount_out) {
+    let exact_out = pool.swap_exact_out(direction, amount_out);
+    kani::cover!(exact_out.is_ok(), "an exact-output swap succeeds");
+    if let Ok(inverse) = exact_out {
         assert!(inverse.amount_out == amount_out);
         assert!(inverse.pool.k() >= pool.k());
 
-        if let Ok(forward) = pool.swap_exact_in(direction, inverse.amount_in) {
+        let forward = pool.swap_exact_in(direction, inverse.amount_in);
+        kani::cover!(forward.is_ok(), "the exact-input comparison is reachable");
+        if let Ok(forward) = forward {
             assert!(forward.amount_out >= amount_out);
         }
     }
