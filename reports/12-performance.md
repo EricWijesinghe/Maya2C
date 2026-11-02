@@ -1,6 +1,8 @@
 # 12 — Execution performance
 
 **Date:** 2026-09-26 · **Branch:** `claude/task-0g86kl` · **Brief:** Master Prompt 12
+
+> **Status as of 2026-11-03:** stale. Measured 2026-09-26 on a branch that predates the 2026-10-28..11-02 changes (u256 amounts, 24-decimal coin, ML-DSA-87 validator keys, consensus freeze at 9913c144). Figures and conclusions are historical and were not re-measured. Newer bench runs: `reports/bench/` (`cargo xtask bench-tps`). Current state: `PROGRESS.md`.
 Hardware record and profiles: [12-baseline.md](12-baseline.md).
 
 ## 1. The top five bottlenecks, with evidence

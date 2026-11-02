@@ -59,6 +59,11 @@ const MAX_ENTRY_VALUE: usize = MAX_RECORD_BYTES;
 /// Headers asked for per request during bootstrap.
 pub const HEADER_BATCH: u64 = 2_000;
 
+/// Most bytes one snapshot chunk may be when received. A chunk is
+/// `CHUNK_ENTRIES` entries, so the bound is generous for real state; it exists
+/// so a peer cannot make the importer hash and decode an unbounded body.
+pub const MAX_CHUNK_BYTES: usize = 64 * 1024 * 1024;
+
 /// Domain of a chunk's hash in the manifest.
 const CHUNK_CONTEXT: &str = "maya snapshot chunk v1";
 
@@ -294,6 +299,12 @@ fn import_snapshot(
     let mut previous: Option<Vec<u8>> = None;
     for (index, expected_hash) in manifest.chunks.iter().enumerate() {
         let chunk = source.snapshot_chunk(index)?;
+        if chunk.len() > MAX_CHUNK_BYTES {
+            return Err(NodeError::Network(format!(
+                "snapshot chunk {index} is {} bytes, over the {MAX_CHUNK_BYTES}-byte cap",
+                chunk.len()
+            )));
+        }
         if chunk_hash(&chunk) != *expected_hash {
             return Err(NodeError::Network(format!(
                 "snapshot chunk {index} does not match its manifest hash"
@@ -698,6 +709,27 @@ mod tests {
         assert!(
             matches!(result, Err(NodeError::Network(_))),
             "out-of-order keys were imported"
+        );
+    }
+
+    #[test]
+    fn a_chunk_over_the_byte_cap_is_refused_before_it_is_decoded() {
+        // Every entry is valid and the manifest hash matches, so only the cap
+        // can refuse it: five 14 MiB values come to 70 MiB, over the 64 MiB cap.
+        let big = vec![(b"acct:a".to_vec(), vec![0xab; 14 * 1024 * 1024]); 5];
+        let chunk = encode_chunk(&big);
+        assert!(chunk.len() > MAX_CHUNK_BYTES);
+        let manifest = SnapshotManifest {
+            height: 1,
+            block_id: [0; 32],
+            chunks: vec![chunk_hash(&chunk)],
+        };
+        let dir = tempfile::tempdir().expect("dir");
+        let target = StateDB::open(dir.path()).expect("open");
+        let result = import_snapshot(&target, &Chunks(vec![chunk]), &manifest, &[0; 32]);
+        assert!(
+            matches!(&result, Err(NodeError::Network(msg)) if msg.contains("cap")),
+            "an oversized chunk was not refused by the cap: {result:?}"
         );
     }
 

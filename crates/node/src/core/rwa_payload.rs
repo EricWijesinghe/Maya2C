@@ -280,3 +280,68 @@ fn text(bytes: &[u8]) -> Result<String> {
     String::from_utf8(bytes.to_vec())
         .map_err(|_| NodeError::Decode("rwa payload text is not UTF-8".to_owned()))
 }
+
+/// First height at which an issuance must list its credential issuers
+/// strictly ascending. `u64::MAX` until a height is written down: until then
+/// the executed behaviour is the frozen binary's, which sorts and dedups.
+pub const RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT: u64 = u64::MAX;
+
+/// Refuses an unsorted or duplicated issuer list at `height` once it reaches
+/// [`RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT`]. Before it, the list is accepted
+/// and normalised as it always was.
+///
+/// # Errors
+///
+/// Returns [`NodeError::Decode`] at or above the activation height when the
+/// list is not strictly ascending.
+pub fn check_issuer_order(trusted_issuers: &[[u8; DIGEST_LEN]], height: u64) -> Result<()> {
+    check_issuer_order_from(
+        trusted_issuers,
+        height,
+        RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT,
+    )
+}
+
+/// [`check_issuer_order`] with the activation height as an argument.
+fn check_issuer_order_from(
+    trusted_issuers: &[[u8; DIGEST_LEN]],
+    height: u64,
+    activation: u64,
+) -> Result<()> {
+    if height < activation || trusted_issuers.windows(2).all(|pair| pair[0] < pair[1]) {
+        return Ok(());
+    }
+    Err(NodeError::Decode(
+        "rwa rule issuers are not strictly ascending".to_owned(),
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+
+    const UNSORTED: [[u8; DIGEST_LEN]; 2] = [[2; DIGEST_LEN], [1; DIGEST_LEN]];
+    const SORTED: [[u8; DIGEST_LEN]; 2] = [[1; DIGEST_LEN], [2; DIGEST_LEN]];
+    const DUPLICATE: [[u8; DIGEST_LEN]; 2] = [[1; DIGEST_LEN], [1; DIGEST_LEN]];
+
+    #[test]
+    fn with_the_height_unwritten_unsorted_issuers_are_accepted_at_every_height() {
+        assert_eq!(RWA_STRICT_ISSUERS_ACTIVATION_HEIGHT, u64::MAX);
+        assert!(check_issuer_order(&UNSORTED, 0).is_ok());
+        assert!(check_issuer_order(&DUPLICATE, u64::MAX - 1).is_ok());
+    }
+
+    #[test]
+    fn one_block_below_the_activation_height_the_old_rule_holds() {
+        assert!(check_issuer_order_from(&UNSORTED, 99, 100).is_ok());
+        assert!(check_issuer_order_from(&DUPLICATE, 99, 100).is_ok());
+    }
+
+    #[test]
+    fn at_the_activation_height_unsorted_or_duplicate_issuers_are_refused() {
+        assert!(check_issuer_order_from(&UNSORTED, 100, 100).is_err());
+        assert!(check_issuer_order_from(&DUPLICATE, 101, 100).is_err());
+        assert!(check_issuer_order_from(&SORTED, 100, 100).is_ok());
+    }
+}
