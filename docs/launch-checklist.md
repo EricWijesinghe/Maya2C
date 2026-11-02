@@ -3,6 +3,11 @@
 What was built, what was verified, and what still blocks a value-bearing
 launch.
 
+**Rejoin guard (B49).** Validators restarted after the unbonding window with no confirming
+head need `--trusted-block` or `--bootstrap-from`. `--allow-unconfirmed-start` is only for a
+network halted longer than the window, or a genesis signed long before launch. Details:
+`docs/GENESIS.md` and `docs/runbooks/hybrid-testnet-hardening.md` section 4.
+
 ---
 
 ## The block is still in place, and nothing here lifted it
