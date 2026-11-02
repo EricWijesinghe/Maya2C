@@ -273,8 +273,20 @@ fn a_redemption_does_not_lower_the_share_price() {
     let pool = any_pool();
     let shares = any_u64_amount();
 
-    if let Ok(delta) = pool.remove_liquidity(shares) {
+    let result = pool.remove_liquidity(shares);
+    // Non-vacuity: Ok must be reachable, including the one-sided exit that
+    // 2026-11-01 (#289) admitted, or the asserts below prove nothing.
+    kani::cover!(result.is_ok(), "a redemption succeeds");
+    kani::cover!(
+        result
+            .as_ref()
+            .is_ok_and(|d| d.base.is_zero() != d.quote.is_zero()),
+        "a one-sided redemption succeeds"
+    );
+    if let Ok(delta) = result {
         assert!(delta.pool.total_shares.checked_add(shares) == Some(pool.total_shares));
+        // Neither side is ever emptied while the locked minimum remains.
+        assert!(!delta.pool.reserve_base.is_zero() && !delta.pool.reserve_quote.is_zero());
         // Cross-multiplied, so the comparison is exact rather than a comparison
         // of two floors.
         if !delta.pool.total_shares.is_zero() {
@@ -299,7 +311,9 @@ fn the_locked_minimum_is_never_redeemable() {
     let pool = any_pool();
     let shares = any_u64_amount();
 
-    if let Ok(delta) = pool.remove_liquidity(shares) {
+    let result = pool.remove_liquidity(shares);
+    kani::cover!(result.is_ok(), "a redemption succeeds");
+    if let Ok(delta) = result {
         assert!(delta.pool.total_shares >= MINIMUM_LIQUIDITY);
     }
 }
