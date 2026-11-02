@@ -2329,6 +2329,17 @@ status = "verified"
 tests = ["crate:maya-wgpu-miner", "hal/wgpu-miner/tests/gpu_validation.rs"]
 
 [[subsystem]]
+id = "verifiable-compute-job-market"
+name = "Verifiable compute job market (useful work for AI, science and multi-GPU hardware)"
+domain = "AI and hardware integration"
+paths = "`docs/adr/ADR-079-verifiable-compute.md`"
+tier = "extended"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "ADR-079, Proposed 2026-11-03; build after mainnet. Planned means no code: WorkClaim kind 1 is unassigned, no escrow state exists, and no multi-GPU scheduler is recorded. Verification rung (d), TEE attestation, is blocked until invariant 11 is reconciled; the repository's invariant 11 is the oracle rule. No throughput or speed-up figure has been measured."
+
+[[subsystem]]
 id = "confidential-federated-training"
 name = "Confidential federated training"
 domain = "AI and hardware integration"
