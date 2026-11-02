@@ -75,7 +75,11 @@ impl Chat {
         save_client(&self.home, &self.client)?;
         let flushed = courier::flush(&mut self.client, &self.relay, now()).await;
         save_client(&self.home, &self.client)?;
-        match flushed.map_err(|e| why(&e))?.into_iter().find(|(due, _)| *due == id) {
+        match flushed
+            .map_err(|e| why(&e))?
+            .into_iter()
+            .find(|(due, _)| *due == id)
+        {
             Some((_, Ok(()))) => {
                 println!("relayed (waiting for receipt)");
                 Ok(())
