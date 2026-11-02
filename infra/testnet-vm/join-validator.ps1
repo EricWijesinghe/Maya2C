@@ -104,6 +104,12 @@ param(
     [string]$TrustedSource,
     [string]$ReleaseTag,
     [string]$NodeSha256,
+    # Test only (CI and local devnets, never a real join). -BinaryDir installs
+    # maya2c-node.exe and l1-wallet.exe from a local build instead of a release.
+    # -Offline drops the bootnode and snapshot endpoint, so the node starts from
+    # -GenesisUrl alone. -GenesisUrl may be a local file path.
+    [string]$BinaryDir,
+    [switch]$Offline,
     [switch]$Silent,
     [switch]$IAmTheMachineOwner,
     [switch]$Uninstall,
@@ -322,10 +328,18 @@ function Install-Node($tag) {
     & $NodeExe --help | Select-Object -First 1 | ForEach-Object { Write-Note "node: $_" }
 }
 
+function Install-LocalNode {
+    Write-Step "Using the binaries in $BinaryDir (-BinaryDir, test only)"
+    New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+    Copy-Item (Join-Path $BinaryDir 'maya2c-node.exe') $NodeExe -Force
+    Copy-Item (Join-Path $BinaryDir 'l1-wallet.exe') (Join-Path $InstallDir 'l1-wallet.exe') -Force
+}
+
 function Install-Genesis {
     Write-Step 'Fetching and verifying genesis'
     New-Item -ItemType Directory -Force -Path $DataDir, $LogDir, $NodeDataDir | Out-Null
-    Invoke-WebRequest $GenesisUrl -OutFile $GenesisPath -UseBasicParsing
+    if (Test-Path -LiteralPath $GenesisUrl) { Copy-Item -LiteralPath $GenesisUrl -Destination $GenesisPath -Force }
+    else { Invoke-WebRequest $GenesisUrl -OutFile $GenesisPath -UseBasicParsing }
     $got = Get-Sha256 $GenesisPath
     if ($got -ne $GenesisSha256.ToLower()) {
         Remove-Item $GenesisPath -Force
@@ -377,11 +391,12 @@ function Register-BootTask {
         '--validator-key', $KeyPath,
         '--rpc-addr',       $RpcAddr,
         '--p2p-port',       "$P2pPort",
-        '--bootnode',       $Bootnode,
-        '--prune-depth',    '3600',
-        '--bootstrap-from', $Bootstrap,
-        '--catch-up-from',  $Bootstrap
-    ) -join ' '
+        '--prune-depth',    '3600'
+    )
+    # Offline (-Offline): an empty value would leave a flag with no argument.
+    if ($Bootnode)  { $nodeArgs += '--bootnode', $Bootnode }
+    if ($Bootstrap) { $nodeArgs += '--bootstrap-from', $Bootstrap, '--catch-up-from', $Bootstrap }
+    $nodeArgs = $nodeArgs -join ' '
     # A tiny launcher so logs are captured and the task line stays readable.
     # It restarts the node itself: Task Scheduler's restart-on-failure does
     # not fire when the program simply exits, so a node that stopped (seen on
@@ -590,13 +605,14 @@ if ($Update) {
 
 if (-not $GenesisUrl)    { Die 'join mode needs -GenesisUrl, where the seed operator published genesis.json' }
 if (-not $GenesisSha256) { Die 'join mode needs -GenesisSha256, the hash the seed operator published with it' }
-if (-not $Bootnode)      { Die 'join mode needs -Bootnode, the seed address /ip4/<ip>/tcp/31100' }
+if ($Offline) { $Bootnode = ''; $Bootstrap = '' }
+elseif (-not $Bootnode) { Die 'join mode needs -Bootnode, the seed address /ip4/<ip>/tcp/31100' }
 
 Show-Consent
 if ($DryRun) { Write-Host 'DryRun: nothing was changed.' -ForegroundColor Green; exit 0 }
 
-$tag = Get-ReleaseTag
-Install-Node $tag
+if ($BinaryDir) { Install-LocalNode }
+else { Install-Node (Get-ReleaseTag) }
 Install-Genesis
 New-ValidatorKey
 Register-BootTask
