@@ -48,7 +48,7 @@ So the answer is: **full, strong control over layer 1, and over layer 2 only bou
   3. an offline paper or hardware backup in a safe place.
 
   No single stolen device can pause anything, and losing one device locks nobody out.
-- **Bounded pause.** `max_pause_blocks` is set to a few hours of blocks. A pause is an on-chain, public transaction; it expires on its own, and renewing it needs a fresh 2-of-3.
+- **Bounded pause.** `max_pause_blocks` is 6 hours of blocks (value set 2026-10-19, see below; the block count is computed at the ceremony). A pause is an on-chain, public transaction; it expires on its own, and renewing it needs a fresh 2-of-3.
 - **Nothing more.** No freeze of balances, no forced transfers, no history rewrite, no fee or emission change. Those go through on-chain governance later, with a timelock, and are out of this ADR.
 - **The chain-wide halt** stays what it is in every BFT chain: honest validators stop signing. With the foundation set on one PC (ADR-047), that is our own watchdog.
 
@@ -87,3 +87,8 @@ Still to settle before the genesis ceremony:
 **Resolved 2026-10-19 (Eric: "all decisions are approved, take the best recommended").** The signed message is now `maya2c/security-council/v2 ‖ chain tag ‖ action ‖ nonce`, where the chain tag is the genesis block id (ADR-036). The domain moved to `v2` so no earlier approval can be read as a new one. `council approve` and `council combine` take `--genesis`. Covered by `approvals_signed_for_another_chain_are_refused` (`crates/node/tests/council_pause_tests.rs`) and `approvals_for_another_chain_do_not_combine` (ceremony). No live chain had a council, so no state changes.
 
 **Settings decided the same day, by the same approval:** `max_pause_blocks` is 6 hours of blocks, computed from the mainnet block time at the ceremony. The third council key is kept offline, as the sealed file plus a paper copy of its passphrase in two places, never on a networked machine.
+
+## Decision recorded (2026-11-02, owner: "approve all, recommended options")
+
+- `max_pause_blocks`: 6 hours of blocks, as above. The recommended value; no change.
+- Offline council key location: owner-held offline hardware, location not published. The key stays offline and is never on a networked machine.

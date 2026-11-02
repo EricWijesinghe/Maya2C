@@ -222,6 +222,8 @@ Rules in CLAUDE.md, "Operating Protocol"; state in [STATE.md](STATE.md).
 - [x] Consensus frozen 2026-10-30 at `8987a6be`: round-2 self-run pre-audit S-012..S-034 fixed or documented, confirming attacknet PASS 8/8 (`reports/attacknet/2026-10-30-1.md`)
 - [x] Hardening wave 2026-10-31..11-01 (signer chain, fee freeze, block volume, decode bound, vault, DEX zero price): #265-#296; apply 414 ms worst case at the 7.5 MiB decode budget (`reports/bench/2026-11-01-apply-per-mib.md`)
 - [ ] Re-frozen at `ec8d0be1` (2026-11-01); 5-day local proving run (`cargo xtask proving --hours 120`) running: `reports/proving/`
+- [x] Stale-node rejoin only through a trusted block (B49, #324); sealed join-script validator keys with a generated passphrase (B51, #325); site build fixed (#328); owner decisions on fee ceiling, supply wording, council pause and fee treasury recorded (DECISIONS 2026-11-02, docs only)
+- [ ] Freeze candidate `9913c144` (2026-11-02): 24 h local proving run in progress; mainnet bootnode peer id still `SET-AT-GENESIS` (`deploy/genesis/mainnet/bootnode.env`)
 
 ## How to resume
 
