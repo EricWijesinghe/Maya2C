@@ -31,6 +31,9 @@ const COIN: u128 = maya_amount::ONE_COIN;
 #[derive(Deserialize)]
 struct Genesis {
     difficulty_bits: u32,
+    /// Absent means the pool runs from block zero (ADR-037).
+    #[serde(default)]
+    shielded_activation_height: Option<u64>,
     bft: Bft,
 }
 
@@ -119,6 +122,9 @@ fn problems(text: &str) -> Result<Vec<String>, String> {
             )),
         }
     }
+    if g.shielded_activation_height != Some(u64::MAX) {
+        out.push("shielded pool is not off: its circuit is unaudited (ADR-037)".to_string());
+    }
     if !g.bft.staking.stake_weighted {
         out.push("voting is not stake-weighted".to_string());
     }
@@ -188,7 +194,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join(",");
         format!(
-            "{{\"difficulty_bits\":{difficulty},\"bft\":{{\"validators\":[{validators}],\
+            "{{\"difficulty_bits\":{difficulty},\"shielded_activation_height\":18446744073709551615,\"bft\":{{\"validators\":[{validators}],\
              \"fees\":{{\"min_base_fee\":\"1000000\"}},\
              \"staking\":{{\"stake_weighted\":{weighted},\
              \"min_self_bond\":\"1000000000000000000000000000\",\
@@ -229,6 +235,19 @@ mod tests {
         );
         let found = problems(&g).unwrap();
         assert!(found.len() >= 4, "{found:?}");
+    }
+
+    #[test]
+    fn a_genesis_with_the_shielded_pool_on_fails() {
+        let on = genesis(20, true, &EVEN)
+            .replace("\"shielded_activation_height\":18446744073709551615,", "");
+        let found = problems(&on).unwrap();
+        assert!(
+            found.iter().any(|p| p.contains("shielded pool is not off")),
+            "{found:?}"
+        );
+        let zero = genesis(20, true, &EVEN).replace("18446744073709551615", "0");
+        assert!(!problems(&zero).unwrap().is_empty());
     }
 
     #[test]

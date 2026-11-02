@@ -154,3 +154,26 @@ stopped. Fixed:
   pool evicted the closed epoch's shares and the gap stalled every later
   share. It also idles while the budget is spent and parses `dag` only for
   active work.
+
+## Work credit at launch: stake-only voting (2026-11-02)
+
+Governance voting is stake-only at launch. Eric's decision.
+
+`claim_work` credited each block's genesis-target work to any beneficiary the
+claim named, and nothing in the claim proved the sender mined. Voting weight is
+locked stake plus decayed work credit, so one fee per block bought weight.
+
+- **Refused, not ignored.** `TxKind::ClaimWork` fails with
+  `NodeError::WorkClaimInactive` at every height below
+  `WORK_CLAIM_ACTIVATION_HEIGHT`, which is `u64::MAX` at launch. The refusal is
+  at apply, so no work record is written and the transaction's fee is not
+  charged. Tests: `a_work_claim_is_refused_at_every_height_at_launch_and_credits_nothing`
+  and `with_a_refused_claim_present_the_voting_weight_is_locked_stake_alone`
+  (`crates/node/tests/governance_tests.rs`).
+- **Re-enabled only** when a claim is bound to a verified share in the same
+  block and credited to that share's miner. Until then the height stays
+  `u64::MAX`. Setting it earlier is a consensus change and needs its own ADR.
+- Tests that exercise the credit mechanism itself use
+  `BlockContext::with_work_claim_activation(0)` explicitly.
+- `docs/audit/KNOWN_ISSUES.md` #2 and #18 say the same.
+

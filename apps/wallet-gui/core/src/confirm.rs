@@ -13,6 +13,7 @@ use primitive_types::U256;
 use serde::Serialize;
 
 use crate::amount::format_display;
+use crate::networks;
 
 /// Bit of the BLAKE3 digest that decides a letter's case in a checksummed address.
 const UPPER_WHEN_NIBBLE_AT_LEAST: u8 = 8;
@@ -100,6 +101,33 @@ pub fn checksummed(address: &[u8; 32]) -> String {
             }
         })
         .collect()
+}
+
+/// The text a native approval dialog shows, built from the confirmation the
+/// core computed. The webview never supplies these words, so it cannot change
+/// what the signer reads.
+#[must_use]
+pub fn approval_message(shown: &Confirmation) -> String {
+    let mut lines = vec![shown.description.clone()];
+    if let Some(to) = &shown.recipient {
+        lines.push(format!("To: {to}"));
+    }
+    if let Some(amount) = &shown.amount {
+        lines.push(format!("Amount: {amount} MAYA"));
+    }
+    if let Some(fee) = &shown.fee {
+        lines.push(format!("Fee: {fee} MAYA"));
+    }
+    lines.push(format!(
+        "Network: {}",
+        networks::display_name(&shown.chain_id)
+    ));
+    lines.push(format!("Chain: {}", shown.chain_id));
+    lines.push(format!("Nonce: {}", shown.nonce));
+    if shown.fee_exceeds_amount {
+        lines.push("Warning: the fee is larger than the amount.".to_string());
+    }
+    lines.join("\n")
 }
 
 #[cfg(test)]

@@ -6,7 +6,7 @@ Each item links its evidence.
 | # | Issue | Where | Status |
 |---|---|---|---|
 | 1 | ~~DAG-BFT engine not wired; the node runs PoW~~ **Resolved**: DAG-BFT in the node, live on maya-testnet-1 | ADR-027, `crates/node/tests/bft_node_tests.rs` | closed |
-| 2 | ~~Staking and slashing not built~~ **Built**; voting is still one seat one vote — see 18 | ADR-028, `crates/node/tests/bft_staking_tests.rs` | closed |
+| 2 | ~~Staking and slashing not built~~ **Built**; governance voting is stake-only at launch (work credit is refused until re-enabled) — see 18 | ADR-028, `crates/node/tests/bft_staking_tests.rs` | closed |
 | 3 | ~~Fee market inactive (`FeeConfig::DISABLED`)~~ **Resolved**: active from genesis on DAG-BFT chains | ADR-029 | closed |
 | 4 | `apply_block` re-verifies every signature (93 % of apply time) | `reports/12-performance.md` §1 | designed, not built |
 | 5 | Shielded-pool circuit unaudited | `CIRCUIT_IS_AUDITED = false` | deferred |
@@ -22,6 +22,6 @@ Each item links its evidence.
 | 15 | ~~Contracts cannot learn their caller~~ **Resolved 2026-09-27**: `caller` host function, live from genesis | ADR-026 (Accepted), `crates/reference-apps/tests/nft_game.rs`, `crates/node/tests/nft_game_on_node_tests.rs` | closed |
 | 16 | Faucet grants once per IP per day; a venue behind one NAT gets one grant | `docs/ecosystem/HACKATHON_KIT.md` | open |
 | 17 | ~~DAG-BFT quorum was 2f + 1 at every committee size: unsafe at n = 2, 3, 5, 6, …~~ **Fixed**: n − f | ADR-039, `crates/dag-bft/src/vertex.rs` | closed |
-| 18 | ~~Committee capture by cheap absent seats~~ **Fixed for mainnet**: stake-weighted committees and checkpoints from a weighted genesis (ADR-040); maya-testnet-1 relies on `--min-register-bond`. Recovery from a genuine >1/3-stake outage still has no in-protocol path | ADR-039, ADR-040 | capture closed; recovery open |
+| 18 | ~~Committee capture by cheap absent seats~~ **Fixed for mainnet**: stake-weighted committees and checkpoints from a weighted genesis (ADR-040); maya-testnet-1 relies on `--min-register-bond`. Recovery from a genuine >1/3-stake outage still has no in-protocol path. **Governance voting is stake-only at launch** (2026-11-02): a `WorkClaim` carries no share proof and is refused at every height (`WorkClaimInactive`, `WORK_CLAIM_ACTIVATION_HEIGHT` = `u64::MAX`), so no work credit is ever recorded and voting weight is locked stake alone. Re-enabled only when a claim is bound to a verified share in its block and credited to that share's miner (ADR-044) | ADR-039, ADR-040, ADR-044 | capture closed; recovery open; work credit dark |
 | 19 | ~~Rejoin failures found by the self-run attacknet~~ **Fixed**: an f+1 crash left the restarted validators as permanent followers; no rejoin across an epoch boundary; validators one block behind became followers and, more than f at once, starved the checkpoint quorum (now they rebuild within the engine window); bootnodes never redialled; one HTTP 429 aborted a bootstrap | ADR-038 (2026-10-05 sections), `cargo xtask attacknet` | closed |
 | 20 | ~~Every node started with `--catch-up-from` polled its source's RPC every second, for ever~~ **Mitigated**: once a second only while following, every 30 s once it builds its own blocks. Followers still fetch over RPC rather than p2p. | ADR-038, `bins/maya2c-node/src/bft.rs` | mitigated |

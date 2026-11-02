@@ -100,6 +100,9 @@ struct Args {
     treasury_share_bps: u16,
     out_dir: PathBuf,
     force: bool,
+    /// `--shielded-never`: keep the pool off on any chain id, so a rehearsal
+    /// genesis matches mainnet's shape (ADR-037).
+    shielded_never: bool,
     /// The DAG-BFT committee file; absent, a proof-of-work genesis.
     validators: Option<PathBuf>,
     epoch_blocks: u64,
@@ -135,6 +138,7 @@ impl Default for Args {
             treasury_share_bps: 0,
             out_dir: PathBuf::from("./ceremony"),
             force: false,
+            shielded_never: false,
             validators: None,
             epoch_blocks: committee::DEFAULT_EPOCH_BLOCKS,
             mining: None,
@@ -236,6 +240,7 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
             "--treasury-share-bps" => args.treasury_share_bps = value()?.parse()?,
             "--out-dir" => args.out_dir = PathBuf::from(value()?),
             "--force" => args.force = true,
+            "--shielded-never" => args.shielded_never = true,
             "--validators" => args.validators = Some(PathBuf::from(value()?)),
             "--epoch-blocks" => args.epoch_blocks = value()?.parse()?,
             "--mining" => args.mining_file = Some(PathBuf::from(value()?)),
@@ -428,10 +433,11 @@ fn launch_config(
         treasury,
         protocol_upgrades: Vec::new(),
         security_council: None,
-        shielded_activation_height: shielded_activation_for(
-            &args.chain_id,
-            maya_zk_stark::pool::circuit_is_audited(),
-        ),
+        shielded_activation_height: if args.shielded_never {
+            Some(u64::MAX)
+        } else {
+            shielded_activation_for(&args.chain_id, maya_zk_stark::pool::circuit_is_audited())
+        },
         bft,
     }
 }

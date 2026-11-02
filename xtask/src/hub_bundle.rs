@@ -46,13 +46,15 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     // the very file Tauri ships.
     let sums = write_miner_checksums(&to, &sidecars)?;
 
-    // Release CI passes a signed-updater config here (release-binaries.yml);
-    // without one the Hub is the unsigned build that never offers an update.
+    // Release CI passes an updater config here (release-binaries.yml); without
+    // one the Hub is the unsigned build that never offers an update. With one,
+    // --no-sign keeps the signing key out of this build: the update bundles are
+    // signed afterwards by the release workflow's updater-sign job.
     let mut build = Command::new("cargo");
     build.env("MAYA2C_MINER_SHA256SUMS", &sums);
     build.args(["tauri", "build", "--config", "tauri.release.conf.json"]);
     if let Some(updater) = std::env::var_os("HUB_UPDATER_CONFIG") {
-        build.arg("--config").arg(updater);
+        build.arg("--config").arg(updater).arg("--no-sign");
     }
     status(
         build.current_dir(&hub),

@@ -25,6 +25,7 @@ use crate::core::payload::{
     ChannelClosure, ChannelId, ChannelOpen, RevocationProof, derive_channel_id,
     revocation_commitment,
 };
+use crate::core::transaction::ChainTag;
 use crate::core::{Transaction, TxKind};
 use crate::crypto::hybrid::{HybridVerifyingKey, address_of};
 use crate::error::{NodeError, Result};
@@ -177,6 +178,15 @@ impl StateDB {
             // Staged, not folded. The accumulator advances exactly once per
             // block in `settle_oracle`, whether or not a proof arrived.
             TxKind::SubmitBeacon(beacon) => self.stage_beacon(overlay, beacon, context),
+            // Refused, not ignored: a refused claim fails the transaction, so no
+            // work credit is recorded and voting weight stays locked stake alone
+            // until the claim is bound to a verified share (ADR-044).
+            TxKind::ClaimWork(_) if !context.work_claim_active() => {
+                Err(NodeError::WorkClaimInactive {
+                    height: context.height,
+                    activation: context.work_claim_activation,
+                })
+            }
             TxKind::ClaimWork(claim) => self.claim_work(overlay, claim, context),
             TxKind::LockStake(lock) => self.lock_stake(overlay, &sender, lock, context),
             TxKind::UnlockStake(unlock) => self.unlock_stake(overlay, &sender, unlock, context),
@@ -384,8 +394,12 @@ impl StateDB {
     /// Note also what `address_of` covers: both keys. A closure that named the
     /// victim's ML-DSA key beside an attacker's SLH-DSA key hashes to neither
     /// party's address and dies at this check.
-    fn verify_closure(closure: &ChannelClosure, record: &ChannelRecord) -> Result<()> {
-        let message = closure.signing_bytes();
+    fn verify_closure(
+        closure: &ChannelClosure,
+        record: &ChannelRecord,
+        chain: &ChainTag,
+    ) -> Result<()> {
+        let message = closure.signing_bytes(chain);
         let channel = hex::encode(closure.channel_id);
 
         for (address, public_key, signature, party) in [
@@ -447,7 +461,7 @@ impl StateDB {
             });
         }
 
-        Self::verify_closure(closure, &record)?;
+        Self::verify_closure(closure, &record, self.get_chain_tag()?)?;
         Self::check_conservation(closure, &record)?;
 
         self.credit(overlay, &record.party_a, closure.balance_a)?;
@@ -494,7 +508,7 @@ impl StateDB {
             });
         }
 
-        Self::verify_closure(closure, &record)?;
+        Self::verify_closure(closure, &record, self.get_chain_tag()?)?;
         Self::check_conservation(closure, &record)?;
 
         record.status = ChannelStatus::Disputed;
