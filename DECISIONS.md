@@ -833,3 +833,10 @@ Owner approved the recommended option for each item below. Docs only; no consens
   - The macOS Hub installer claim in `docs/site/authored/mining.md` is corrected: no Hub installer is published for any platform.
   - Organization JSON-LD `sameAs` (`docs/site/astro.config.mjs`) keeps only the GitHub project repository. LinkedIn, Facebook, Instagram and the personal subdomain are removed.
 - **B27, bootnode:** the mainnet bootnode peer id is `MAINNET_BOOTNODE_PEER_ID=SET-AT-GENESIS` in `deploy/genesis/mainnet/bootnode.env`. The mainnet join script does not exist yet. The testnet guides and `scripts/join-testnet.sh` keep the testnet id. No validators-guide generator exists, so the guide is hand-maintained and was not regenerated.
+
+## 2026-11-01 — B50: work claims refused at launch until bound to a verified share (ADR-044, ADR-079)
+
+- **Decision:** governance voting is stake-only at launch. `TxKind::ClaimWork` is refused at every height below `WORK_CLAIM_ACTIVATION_HEIGHT` (`u64::MAX`), before any credit or fee, with `NodeError::WorkClaimInactive`. Code: `crates/node/src/state/context.rs`, `crates/node/src/state/settlement.rs`, shipped in #317 (`f7f0958b`).
+- **Why:** `claim_work` credited genesis-target work to any named beneficiary with no proof the sender mined, so one fee per block bought voting weight.
+- **Lifting it:** only through a written activation height, bound to a claim that is backed by a verified share in the same block and credited to that share's miner (ADR-044). ADR-079 R2 is the first place that may do this; it needs its own consensus ADR.
+- **Recorded in:** ADR-044 ("Work credit at launch"), `docs/audit/KNOWN_ISSUES.md` #2 and #18, tests in `crates/node/tests/governance_tests.rs`.
