@@ -49,7 +49,10 @@ bootnode (`p2p.maya2c.dev`) outward. Leave the cloud firewalls at
 4. **Install and join** (any VM):
    `curl -fsSL https://raw.githubusercontent.com/EricWijesinghe/Maya2C/master/scripts/join-testnet.sh | bash`
    - The script checks the release and genesis hashes, makes the validator
-     key, and starts the node as a service.
+     key sealed under a passphrase file (`/var/lib/maya2c/validator.pass`,
+     owner-only), and starts the node as a service. **Back up
+     `validator.pass`: without it the key cannot be opened.** Keep it off
+     the key's volume, and never send it (ADR-049).
    - Watch it catch up with `journalctl -u maya2c-node -f` until it
      follows the tip.
 5. **Give the VM its own small wallet.** Your main wallet key stays on
@@ -59,15 +62,16 @@ bootnode (`p2p.maya2c.dev`) outward. Leave the cloud firewalls at
 6. **Fund it from the PC** with exactly the bond plus 1,000,000 for fees:
    `l1-wallet --rpc-url https://rpc.maya2c.dev/rpc send --to <vm address> --amount <bond + 1000000>`
 7. **Register, on the VM:**
-   `sudo -u maya2c l1-wallet --rpc-url http://127.0.0.1:8545 register-validator --validator-key /var/lib/maya2c/validator.key --bond <bond>`
+   `sudo -u maya2c env MAYA2C_VALIDATOR_PASSPHRASE_FILE=/var/lib/maya2c/validator.pass l1-wallet --rpc-url http://127.0.0.1:8545 register-validator --validator-key /var/lib/maya2c/validator.key --bond <bond>`
    - The testnet seed only proposes registrations at or above
      `--min-register-bond` (10^9), so use that bond.
    - The validator joins the committee at the next epoch boundary, within
      about an hour.
-8. **Restart the node as a validator**: add `--validator-key
-   /var/lib/maya2c/validator.key` to `ExecStart` in
-   `/etc/systemd/system/maya2c-node.service`, then
-   `sudo systemctl daemon-reload && sudo systemctl restart maya2c-node`.
+8. **Check the node already uses the key.** The installer's
+   `/var/lib/maya2c/run-node.sh` passes `--validator-key` and exports the
+   passphrase file on every start, so there is nothing to add to
+   `/etc/systemd/system/maya2c-node.service`. If you ever edit the unit,
+   keep `ExecStart=/var/lib/maya2c/run-node.sh`.
 9. **Check it signs:** status.maya2c.dev and the explorer show the
    committee size, and `get_bft_status` on the VM shows it as a validator,
    not an observer.

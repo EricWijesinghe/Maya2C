@@ -150,6 +150,7 @@ $LogDir      = Join-Path $DataDir 'logs'
 $NodeExe     = Join-Path $InstallDir 'maya2c-node.exe'
 $GenesisPath = Join-Path $DataDir 'genesis.json'
 $KeyPath     = Join-Path $DataDir 'validator.key'
+$PassPath    = Join-Path $DataDir 'validator.pass'  # ADR-049: unseals the key; back it up
 $NodeDataDir = Join-Path $DataDir 'v0'
 $TaskName    = 'Maya2C Validator'
 $ServiceDesc = 'Maya2C testnet validator (single-operator node). Logs: ' + $LogDir
@@ -219,17 +220,20 @@ function Remove-Install {
         if (Test-Path $d) { Remove-Item $d -Recurse -Force; Write-Note "removed $d" }
     }
     if (-not $Everything -and (Test-Path $DataDir)) {
-        Write-Note "your keys are kept in $DataDir (delete it only if you will never validate again)"
+        Write-Note "your keys and their passphrase file are kept in $DataDir (delete it only if you will never validate again)"
     }
     Write-Host 'Uninstalled.' -ForegroundColor Green
     exit 0
 }
 
 # Keys readable by SYSTEM and Administrators only. ProgramData otherwise
-# lets every local user read what is under it.
+# lets every local user read what is under it. The grant comes first: cutting
+# inheritance before it leaves a file that nothing but a later grant can open.
 function Protect-Secret($path) {
-    & icacls $path /inheritance:r /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
+    & icacls $path /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
     if ($LASTEXITCODE -ne 0) { Die "could not restrict access to $path (icacls exit $LASTEXITCODE)" }
+    & icacls $path /inheritance:r | Out-Null
+    if ($LASTEXITCODE -ne 0) { Die "could not remove inherited access on $path (icacls exit $LASTEXITCODE)" }
 }
 
 function Show-Consent {
@@ -330,12 +334,36 @@ function Install-Genesis {
     Write-Note 'genesis verified against the published sha256'
 }
 
+# The passphrase that seals the key (ADR-049): 32 bytes from the OS CSPRNG, as
+# hex. Created empty and locked before the secret is written, so it is never
+# readable by other users. Kept on reinstall; only -Everything removes it.
+function New-PassphraseFile {
+    if (Test-Path $PassPath) { Protect-Secret $PassPath; return }
+    $bytes = New-Object byte[] 32
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+    [System.IO.File]::Create($PassPath).Dispose()
+    Protect-Secret $PassPath
+    [System.IO.File]::WriteAllText($PassPath, ([System.BitConverter]::ToString($bytes) -replace '-', '').ToLower())
+    Write-Note "validator passphrase file: $PassPath"
+    Write-Note 'Losing that file means losing your validator key. Back it up now, somewhere safe.'
+}
+
 function New-ValidatorKey {
     # An older install left the key readable by every local user; fix that too.
-    if (Test-Path $KeyPath) { Protect-Secret $KeyPath; Write-Note 'validator key already present; keeping it'; return }
+    if (Test-Path $KeyPath) {
+        if (-not (Test-Path $PassPath)) { Die "found a validator key but no passphrase file ($PassPath). The key cannot be opened without the passphrase it was sealed with: restore that file from your backup" }
+        Protect-Secret $PassPath
+        Protect-Secret $KeyPath
+        Write-Note 'validator key already present; keeping it'
+        return
+    }
     Write-Step 'Generating validator key'
-    $pub = (& $NodeExe --generate-validator-key $KeyPath).Trim()
-    if ($LASTEXITCODE -ne 0 -or -not $pub) { Die 'making the validator key failed' }
+    New-PassphraseFile
+    # "$( )" never yields $null, so a failed keygen reaches Die instead of a
+    # method call on null.
+    $pub = "$(& $NodeExe --generate-validator-key $KeyPath --validator-passphrase-file $PassPath)".Trim()
+    if ($LASTEXITCODE -ne 0 -or -not $pub) { Die 'making the validator key failed (the node message is above)' }
     Protect-Secret $KeyPath
     Set-Content -Path $PubPath -Value $pub
     Write-Note 'made a new validator key. It never leaves this computer.'
@@ -412,6 +440,8 @@ if ($flag) { Write-Output $flag } else { [Console]::Error.WriteLine('trusted blo
     @"
 @echo off
 rem Maya2C validator launcher. Started at boot by the "$TaskName" task.
+rem The node unseals its key from the passphrase file named here (ADR-049).
+set MAYA2C_VALIDATOR_PASSPHRASE_FILE=$PassPath
 :run
 set TRUSTED=
 powershell -NoProfile -ExecutionPolicy Bypass -File "$helper" -Url "$Bootstrap" -Second "$TrustedSource" -Override "$TrustedBlock" > "$InstallDir\trusted.flag" 2>> "$LogDir\node.log"
@@ -508,6 +538,7 @@ function Show-Status {
 
 function Invoke-Wallet {
     $env:L1_WALLET_KEYSTORE = $WalletPath
+    $env:MAYA2C_VALIDATOR_PASSPHRASE_FILE = $PassPath
     & $WalletExe --rpc-url $PublicRpc @args
     if ($LASTEXITCODE -ne 0) { Die "l1-wallet $($args[0]) failed (exit $LASTEXITCODE)" }
 }
