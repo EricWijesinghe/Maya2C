@@ -217,6 +217,7 @@ fn block_of(transactions: Vec<Transaction>) -> Block {
             nonce: 0,
             difficulty_target: target_from_leading_zero_bits(0),
             tx_root: [0u8; 32],
+            version: custom_l1_node::core::block::HEADER_VERSION,
         },
         transactions,
     )
