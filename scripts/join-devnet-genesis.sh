@@ -30,6 +30,8 @@ cat > "$OUT/genesis.json" <<JSON
    "staking":{"epoch_blocks":20,"bonds":[{"operator":"$ADDR","bond":$BOND}]}}}
 JSON
 
-if command -v sha256sum >/dev/null; then SUM=$(sha256sum "$OUT/genesis.json" | cut -d' ' -f1)
-else SUM=$(shasum -a 256 "$OUT/genesis.json" | cut -d' ' -f1); fi
+# Hash from stdin: sha256sum prefixes a backslash when the file NAME has one,
+# which a Windows path always does, and that would corrupt the value.
+if command -v sha256sum >/dev/null; then SUM=$(sha256sum < "$OUT/genesis.json" | cut -d' ' -f1)
+else SUM=$(shasum -a 256 < "$OUT/genesis.json" | cut -d' ' -f1); fi
 echo "$OUT/genesis.json $SUM"
