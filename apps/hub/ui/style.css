@@ -238,3 +238,39 @@ h2 small { text-transform: none; letter-spacing: 0; font: 400 12px var(--body); 
   .power, .power:hover { right: auto; left: 50%; bottom: 20px; transform: translateX(-50%); }
 }
 .form .check { display: flex; align-items: center; gap: 10px; }
+.form select { display: block; width: 100%; margin-top: 6px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--panel-solid); color: var(--text); font: 500 14px var(--body); }
+.form fieldset.pick { border: 1px solid var(--line); border-radius: 10px; margin: 14px 0; padding: 8px 14px 12px; }
+.form fieldset.pick legend { font: 600 11px var(--display); color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em; padding: 0 6px; }
+.form fieldset.pick .check { margin: 8px 0; }
+.form fieldset.pick input[type=checkbox] { display: inline-block; width: auto; margin: 0; accent-color: var(--teal); }
+
+/* Rigs: one card per device, and the watchdog's phase as a chip. */
+.device { cursor: pointer; }
+.device:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+.device h3 { align-items: center; gap: 10px; }
+.device .rig-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.device .chip { flex: none; font-size: 10px; padding: 3px 9px; }
+.chip.warn { background: rgb(217 185 122 / 0.18); color: var(--gold); }
+.chip.crit { background: rgb(255 107 91 / 0.16); color: var(--hot); }
+.chip.idle { background: var(--track); color: var(--dim); }
+.device .spark { display: block; width: 100%; height: 56px; margin: 4px 0 8px; }
+.device[hidden] { display: none; }
+.device .meta { display: grid; gap: 3px; font-size: 12px; color: var(--dim); }
+.device .meta span { font-variant-numeric: tabular-nums; }
+.rig-btn { margin-top: 10px; padding: 7px 16px; border-radius: 999px; border: 1px solid var(--line); background: transparent;
+  color: var(--teal-glow); font: 700 12px var(--display); cursor: pointer; }
+.rig-btn:hover { border-color: var(--teal); }
+.rig-btn[hidden] { display: none; }
+
+/* Alerts: a level, the message, the time. Each row opens its explanation. */
+.alerts { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; }
+.alerts li { display: grid; grid-template-columns: 84px 1fr auto; gap: 10px; align-items: center; padding: 8px 4px;
+  border-bottom: 1px solid var(--line); cursor: pointer; font-size: 13px; }
+.alerts li:hover, .alerts li:focus-visible { background: rgb(126 234 240 / 0.05); outline: none; }
+.alerts li.empty { display: block; color: var(--dim); cursor: default; border: 0; }
+.alerts time { font: 11px var(--mono); color: var(--dim); }
+.lvl { font: 700 10px var(--display); text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 8px; border-radius: 999px; text-align: center; }
+.lvl.info { background: rgb(126 234 240 / 0.12); color: var(--teal-glow); }
+.lvl.warn { background: rgb(217 185 122 / 0.18); color: var(--gold); }
+.lvl.critical { background: rgb(255 107 91 / 0.16); color: var(--hot); }

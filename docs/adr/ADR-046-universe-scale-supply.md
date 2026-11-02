@@ -1,6 +1,7 @@
 # ADR-046: Universe-scale supply headroom — u256 balances, 18-decimal precision, cap decoupled from emission
 
 - Status: Accepted (Eric, 2026-10-12)
+- Amended 2026-11-03 (doc audit): decimals 18 -> 24 (ADR-068 decision 4) and the emission tail are set by [ADR-068](ADR-068-forever-mining.md). Code: `crates/amount` `COIN_DECIMALS = 24`, `ONE_COIN = 10^24` base units. The decision text below is kept as the original record.
 - Supersedes: the Cap, decimals, and `INITIAL_EPOCH_REWARD` rows of [ADR-044](ADR-044-mining-rewards-lane.md)
 - Scope: consensus-critical, pre-genesis only. Requires `rust-reviewer` + `security-reviewer`,
   a spec update, conformance vectors, and its own testnet soak before mainnet genesis.
@@ -44,10 +45,10 @@ miner-reward value stay healthy regardless of how large the ceiling is.
    stays banned in consensus). New core dependency → must pass `cargo deny` and land in
    `[workspace.dependencies]` ([ADR-005](ADR-005-dependency-unification.md)).
 
-2. **Decimals = 18** (convention, not a hard constant — `supply.rs` already fixes none). Ties the
+2. *Superseded by [ADR-068](ADR-068-forever-mining.md) decision 4: 24 decimals (`maya_amount::COIN_DECIMALS`). The rationale below is the 2026-10-12 original.* **Decimals = 18** (convention, not a hard constant — `supply.rs` already fixes none). Ties the
    highest mainstream (Ethereum). **Not higher:** >18 breaks wallet/exchange/explorer interop for
    zero real benefit (nothing transacts below 10^-18). u256 + 18 dp gives ~1.16×10^59 whole coins
-   of headroom.
+   of headroom. At 24 dp (current): ~1.16×10^53 whole coins.
 
 3. **`MAX_SUPPLY` = `U256::MAX`** — an unreachable, unbeatable ceiling. `check_supply` still
    enforces `total ≤ MAX_SUPPLY` (vacuous today, kept for the day something mints to a limit).
