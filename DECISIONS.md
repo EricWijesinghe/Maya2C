@@ -629,6 +629,47 @@ Two more from the same security review, fixed in the freeze:
 Residual: "usable" means spot is not 0, not "every size clears". At spot near 1, small base sells
 round to 0 and are refunded until a buyer moves the price. That is a refund, not a lock.
 
+## 2026-11-02 — Sentinel Recovery Network proposed (MIP-0001, ADR-077)
+
+Eric asked for a protocol-level disaster-recovery upgrade. The design is written as
+MIP-0001, with ADR-077 Proposed and seven open decisions (D1–D7). Departures from
+the brief, each argued in MIP-0001 §0.1:
+- no rewind of finalized blocks; recovery is a forward restitution of tainted
+  balances;
+- AI is advisory only (invariant 20);
+- quarantine is per cell, never chain-wide, except a bounded T5;
+- penalties fall only on posted bonds;
+- recovery stays off until the committee passes an independence floor, so it is
+  off at launch (ADR-047).
+
+The prior-art search (2026-11-02) found Sui, Berachain, Flow and BNB Chain
+interventions, Cosmos `x/circuit` and Forta, so no "first" claim is made.
+Nothing enters the launch binary.
+
+Eric approved D1–D7 as recommended the same day ("I approve all you recomended"). ADR-077 is Accepted, and ADR-050 is amended for tainted balances once SRN activates. D5's exact fee share comes back to him as a number with R6.
+
+## 2026-11-02 — Omega design proposed (MIP-0002, ADR-078)
+
+Eric asked what Maya2C must become so that no future protocol can surpass it.
+The answer, written honestly: no design can guarantee that, so MIP-0002 designs
+three things instead:
+- advantages a fork cannot take: track record, immunity corpus, identity graph,
+  proofs and decentralization, each with a published indicator;
+- an absorption pipeline for outside breakthroughs;
+- provable self-steering: bounded integer controllers, evolution searched off
+  chain and selected on chain.
+
+Decisions O1–O4 are proposed:
+- O1: three-speed evolution with pre-shipped, vote-activated code;
+- O2: bounded controllers;
+- O3: a test ratchet, which can start now;
+- O4: moat indicators.
+
+Prior art: Tezos and Polkadot already upgrade without hard forks. Maya2C's
+difference is that a vote selects only the activation height, never code from
+state (invariant 13).
+
+Eric approved O1–O4 the same day. ADR-078 is Accepted. O3 (test ratchet) starts now in CI.
 ## 2026-11-01 — Reviewed guards are marked in code, not P0 rows
 
 The three P0 rows judged guards on 2026-09-28 now carry a `reviewed-guard:` comment, and

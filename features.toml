@@ -2557,6 +2557,28 @@ status = "planned"
 tests = []
 
 [[subsystem]]
+id = "sentinel-recovery-network"
+name = "Sentinel Recovery Network (threat levels, cell quarantine, forward-only governed recovery)"
+domain = "Security and macro engines"
+paths = "—"
+tier = "core"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "MIP-0001 / ADR-077, accepted 2026-11-02 (Eric approved D1-D7). Design only; after mainnet; SRN_ACTIVATION_HEIGHT = u64::MAX. Builds on the invariant guard (invariant 28), the ADR-050 council pause and the threat-intel evidence model. No rewind of finalized blocks; recovery is a forward restitution of tainted balances under a bicameral vote, off until the committee passes an independence floor."
+
+[[subsystem]]
+id = "cybernetic-control-plane"
+name = "Cybernetic control plane (bounded integer controllers, three-speed evolution)"
+domain = "Security and macro engines"
+paths = "—"
+tier = "core"
+class = "RESEARCH"
+status = "planned"
+tests = []
+note = "MIP-0002 / ADR-078, accepted 2026-11-02. Every adaptive consensus parameter as an integer PI controller with a governed setpoint, a per-block step clamp and a machine-checked bound (invariant 20); code upgrades pre-shipped and vote-activated, never fetched from chain state (invariant 13). The base-fee clamp (ADR-076) is the existing instance."
+
+[[subsystem]]
 id = "iso-20022-xml-messaging-parser"
 name = "ISO 20022 XML messaging parser"
 domain = "Security and macro engines"

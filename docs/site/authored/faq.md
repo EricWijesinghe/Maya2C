@@ -63,6 +63,18 @@ stopped on purpose at 2026-10-28 07:36 UTC, so the next build can start from a n
 genesis. The faucet and transfers are offline until then. The soak report is in
 [`reports/sessions/2026-10-28-testnet-stopped.md`](https://github.com/EricWijesinghe/Maya2C/blob/master/reports/sessions/2026-10-28-testnet-stopped.md).
 
+## What happens if an app or bridge on Maya2C is exploited?
+
+**Today:** the invariant guard refuses any block that creates value from nothing,
+and halts a native module that behaves anomalously while transfers keep working.
+
+**Proposed, not built:** the Sentinel Recovery Network
+([MIP-0001](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/mip/MIP-0001-sentinel-recovery-network.md))
+would quarantine a compromised app or bridge on its own. Recovery would be a public,
+rule-bound vote that moves only funds traced to the incident, and it never rewrites
+finalized blocks. It switches on only after mainnet, an independent audit and a
+decentralized validator set.
+
 ## Is the code open source, and is it audited?
 
 **Open source:** yes. The code is Apache-2.0 at

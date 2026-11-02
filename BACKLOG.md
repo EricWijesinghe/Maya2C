@@ -149,6 +149,10 @@ band; move an item to PROGRESS.md when it starts.
 
 ## P5 — differentiators
 
+- [ ] **Omega design (Eric 2026-11-02)**: [MIP-0002](docs/mip/MIP-0002-omega-durable-advantage.md), decisions O1–O4 approved in [ADR-078](docs/adr/ADR-078-omega-durable-advantage.md). Ω1 test ratchet can start now (CI only); Ω2–Ω5 after mainnet (moat indicators, controller framework, vote-activated upgrades, seeded evolution in `econ`).
+
+- [ ] **Sentinel Recovery Network (Eric 2026-11-02)**: threat levels, per-cell quarantine, forward-only governed recovery. Design: [MIP-0001](docs/mip/MIP-0001-sentinel-recovery-network.md), ADR-077 Accepted (Eric approved D1–D7, 2026-11-02). Roadmap R1–R7 after mainnet, starting with the cell model and settlement gateway (R1).
+
 Eric 2026-10-29: build all of these after mainnet (each needs a dated `docs/prior-art/` search before any "first" claim, and an ADR):
 - [ ] **Decentralization-aware rewards**: per-epoch Nakamoto coefficient / Gini from `staking/concentration.rs`; rewards tilt toward small validators and miners when control concentrates.
 - [ ] **Cryptographic sunset schedule**: a suite deprecation announces a height, a migration window, wallet warnings and an automatic move to the successor suite (`crypto-pq/agility`, invariant 29).

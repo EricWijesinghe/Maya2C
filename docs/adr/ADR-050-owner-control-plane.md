@@ -56,6 +56,8 @@ So the answer is: **full, strong control over layer 1, and over layer 2 only bou
 
 Claude works through the repository, pull requests and commands that Eric's sessions approve. **Claude never holds a council key, a validator key, a wallet key, a passphrase or an account token,** and does not deploy to mainnet without `APPROVED:`. That keeps every irreversible power with a person who can be held to it.
 
+> **Amended 2026-11-02 (Eric approved ADR-077 D1):** once the Sentinel Recovery Network is built and activated, **tainted** balances may be frozen, only under a bicameral validator-and-holder vote with caps, a challenge window and a timelock, never by this council. Until SRN activates, this ADR's "no freeze of balances" stands in full.
+
 ## Consequences
 
 - Investors and users can be told exactly what the project can and cannot do to their funds, in one sentence that is true.
