@@ -1,8 +1,9 @@
 //! A user's side of chat: sessions keyed by peer, turned into envelopes and
-//! back. Transport-agnostic, so the same client runs over an in-process
-//! relay in tests and over libp2p in [`crate::net`].
+//! back, with the sender's outbox and delivery receipts (ADR-074).
+//! Transport-agnostic, so the same client runs over an in-process relay in
+//! tests and over libp2p in [`crate::net`].
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
@@ -10,7 +11,9 @@ use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
 use crate::identity::{Identity, PrekeyBundle};
-use crate::relay::{Envelope, Payload};
+use crate::outbox::{self, Pending};
+use crate::receipt;
+use crate::relay::{Envelope, MAX_ENVELOPE_VERSION, Payload};
 use crate::session::{self, MAX_HANDSHAKE_AGE, Session};
 use crate::{Address, ChatError};
 
@@ -26,19 +29,57 @@ pub struct Received {
     pub text: Vec<u8>,
 }
 
+/// What an envelope turned out to be.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Frame {
+    /// A message for the user.
+    Text(Received),
+    /// A receipt: these envelope ids of ours reached `from`'s device. Already
+    /// applied to the outbox; the list is for the caller's display.
+    Receipt {
+        /// Who signed it.
+        from: Address,
+        /// The ids that left the outbox.
+        ids: Vec<[u8; 32]>,
+    },
+}
+
 const STATE_DOMAIN: &str = "maya-chat 2026-09-28 local state v1";
 const STATE_NONCE: usize = 12;
+/// The state layout this build writes. Version 0 (absent) is the layout
+/// before the outbox, which loads with empty outbox and receipts on.
+const STATE_VERSION: u8 = 2;
+
+fn on() -> bool {
+    true
+}
+
+fn v1() -> u8 {
+    1
+}
 
 /// What [`Client::save`] keeps: without it every run starts with no
 /// sessions, so follow-up messages cannot be read and a replayed handshake
 /// is accepted again.
 #[derive(Serialize, Deserialize)]
 struct State {
+    #[serde(default)]
+    version: u8,
     sessions: BTreeMap<Address, Session>,
     accepted: BTreeMap<[u8; 32], u64>,
+    #[serde(default)]
+    outbox: BTreeMap<[u8; 32], Pending>,
+    #[serde(default)]
+    owed: BTreeMap<Address, Vec<[u8; 32]>>,
+    #[serde(default = "on")]
+    receipts: bool,
+    #[serde(default)]
+    receipts_off: BTreeSet<Address>,
+    #[serde(default = "v1")]
+    send_version: u8,
 }
 
-/// One identity's sessions.
+/// One identity's sessions, outbox and receipt state.
 pub struct Client {
     identity: Identity,
     sessions: BTreeMap<Address, Session>,
@@ -48,6 +89,17 @@ pub struct Client {
     /// handshake older than [`MAX_HANDSHAKE_AGE`], so an id can be forgotten
     /// after that.
     accepted: BTreeMap<[u8; 32], u64>,
+    /// Sealed envelopes awaiting a receipt, by envelope id.
+    outbox: BTreeMap<[u8; 32], Pending>,
+    /// Envelope ids received in the current pass, by sender, to be receipted
+    /// in one batch by [`Client::end_pass`].
+    owed: BTreeMap<Address, Vec<[u8; 32]>>,
+    /// Global switch for sending receipts (ADR-074, decision 3).
+    receipts: bool,
+    /// Contacts whose receipts are switched off.
+    receipts_off: BTreeSet<Address>,
+    /// Envelope version for new messages, 1 unless raised.
+    send_version: u8,
 }
 
 impl Client {
@@ -58,6 +110,11 @@ impl Client {
             identity,
             sessions: BTreeMap::new(),
             accepted: BTreeMap::new(),
+            outbox: BTreeMap::new(),
+            owed: BTreeMap::new(),
+            receipts: true,
+            receipts_off: BTreeSet::new(),
+            send_version: v1(),
         }
     }
 
@@ -65,16 +122,22 @@ impl Client {
         Zeroizing::new(blake3::derive_key(STATE_DOMAIN, identity.seed()))
     }
 
-    /// The client's sessions and replay record, encrypted under a key
-    /// derived from the identity seed, for storing between runs.
+    /// The client's state, encrypted under a key derived from the identity
+    /// seed, for storing between runs.
     ///
     /// # Errors
     ///
     /// [`ChatError::Encoding`] or [`ChatError::Entropy`].
     pub fn save(&self) -> Result<Vec<u8>, ChatError> {
         let state = State {
+            version: STATE_VERSION,
             sessions: self.sessions.clone(),
             accepted: self.accepted.clone(),
+            outbox: self.outbox.clone(),
+            owed: self.owed.clone(),
+            receipts: self.receipts,
+            receipts_off: self.receipts_off.clone(),
+            send_version: self.send_version,
         };
         let mut plain = Zeroizing::new(Vec::new());
         ciborium::into_writer(&state, &mut *plain).map_err(|_| ChatError::Encoding)?;
@@ -92,7 +155,8 @@ impl Client {
     ///
     /// # Errors
     ///
-    /// [`ChatError::Decrypt`] if the bytes are not this identity's state.
+    /// [`ChatError::Decrypt`] if the bytes are not this identity's state, or
+    /// [`ChatError::Encoding`] for a state written by a newer build.
     pub fn restore(identity: Identity, saved: &[u8]) -> Result<Self, ChatError> {
         if saved.len() < STATE_NONCE {
             return Err(ChatError::Decrypt);
@@ -107,10 +171,18 @@ impl Client {
         );
         let state: State =
             ciborium::from_reader(plain.as_slice()).map_err(|_| ChatError::Encoding)?;
+        if state.version > STATE_VERSION {
+            return Err(ChatError::Encoding);
+        }
         Ok(Self {
             identity,
             sessions: state.sessions,
             accepted: state.accepted,
+            outbox: state.outbox,
+            owed: state.owed,
+            receipts: state.receipts,
+            receipts_off: state.receipts_off,
+            send_version: state.send_version,
         })
     }
 
@@ -133,6 +205,24 @@ impl Client {
         text: &[u8],
         now: u64,
     ) -> Result<Envelope, ChatError> {
+        self.seal_as(to, bundle, text, now, self.send_version)
+    }
+
+    /// [`Client::seal`] at an explicit envelope version.
+    pub(crate) fn seal_as(
+        &mut self,
+        to: Address,
+        bundle: Option<&PrekeyBundle>,
+        text: &[u8],
+        now: u64,
+        version: u8,
+    ) -> Result<Envelope, ChatError> {
+        // Refused before any state moves: receipts share the session's chain.
+        if receipt::is_receipt(text) {
+            return Err(ChatError::Refused(
+                "text cannot start with the receipt marker",
+            ));
+        }
         let payload = if let Some(session) = self.sessions.get_mut(&to) {
             Payload::Chat(session.encrypt(text)?)
         } else {
@@ -147,16 +237,33 @@ impl Client {
             expires_at: now + ENVELOPE_TTL,
             payload,
             stamp: 0,
+            version,
         })
     }
 
-    /// Opens an envelope addressed to this identity.
+    /// Opens an envelope addressed to this identity. A receipt is an error
+    /// here; use [`Client::open_frame`] to see receipts.
     ///
     /// # Errors
     ///
-    /// Not for this identity, an unknown session, or a message that fails
-    /// to authenticate.
+    /// Not for this identity, an unknown session, a message that fails to
+    /// authenticate, or [`ChatError::NotText`] for a receipt.
     pub fn open(&mut self, envelope: &Envelope, now: u64) -> Result<Received, ChatError> {
+        match self.open_frame(envelope, now)? {
+            Frame::Text(received) => Ok(received),
+            Frame::Receipt { .. } => Err(ChatError::NotText),
+        }
+    }
+
+    /// Opens an envelope and says whether it is a message or a receipt.
+    /// Received messages join this pass's receipt batch
+    /// ([`Client::end_pass`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`Client::open`], plus [`ChatError::BadSignature`] for a receipt
+    /// that does not verify, which changes nothing.
+    pub fn open_frame(&mut self, envelope: &Envelope, now: u64) -> Result<Frame, ChatError> {
         if envelope.to != self.identity.address() {
             return Err(ChatError::NotForMe);
         }
@@ -168,24 +275,310 @@ impl Client {
                 }
                 let (mut session, from) = session::accept(&self.identity, handshake, now)?;
                 let text = session.decrypt(first)?;
+                if receipt::is_receipt(&text) {
+                    return Err(ChatError::Refused("a receipt cannot open a session"));
+                }
                 self.accepted
                     .retain(|_, sent| now.saturating_sub(*sent) <= MAX_HANDSHAKE_AGE);
                 self.accepted.insert(id, handshake.sent_at);
                 // A new handshake from the same peer replaces the old session:
                 // that is how a peer re-keys.
                 self.sessions.insert(from, session);
-                Ok(Received { from, text })
+                self.note_received(from, envelope.id()?);
+                Ok(Frame::Text(Received { from, text }))
             }
             Payload::Chat(message) => {
-                let (from, session) = self
+                let from = self
                     .sessions
-                    .iter_mut()
+                    .iter()
                     .find(|(_, s)| s.id() == message.session)
+                    .map(|(peer, _)| *peer)
                     .ok_or(ChatError::NoSession)?;
-                let text = session.decrypt(message)?;
-                Ok(Received { from: *from, text })
+                let (text, peer_key) = {
+                    let session = self.sessions.get_mut(&from).ok_or(ChatError::NoSession)?;
+                    (session.decrypt(message)?, session.peer_key().to_vec())
+                };
+                if receipt::is_receipt(&text) {
+                    let ids = self.apply_receipt(&from, &peer_key, &message.session, &text)?;
+                    return Ok(Frame::Receipt { from, ids });
+                }
+                self.note_received(from, envelope.id()?);
+                Ok(Frame::Text(Received { from, text }))
             }
         }
+    }
+
+    fn note_received(&mut self, from: Address, id: [u8; 32]) {
+        if self.receipts_for(&from) {
+            self.owed.entry(from).or_default().push(id);
+        }
+    }
+
+    /// Verifies a receipt, then removes the outbox entries it names. The
+    /// signature is checked before the outbox is touched; an id that is not
+    /// there, or is for another peer, is ignored.
+    fn apply_receipt(
+        &mut self,
+        from: &Address,
+        peer_key: &[u8],
+        session: &[u8; 32],
+        plain: &[u8],
+    ) -> Result<Vec<[u8; 32]>, ChatError> {
+        let (ids, signature) = receipt::parse(plain)?;
+        receipt::verify(
+            peer_key,
+            from,
+            &self.identity.address(),
+            session,
+            &ids,
+            signature,
+        )?;
+        let mut removed = Vec::new();
+        for id in ids {
+            if self
+                .outbox
+                .get(&id)
+                .is_some_and(|p| !p.receipt && p.to == *from)
+            {
+                self.outbox.remove(&id);
+                removed.push(id);
+            }
+        }
+        Ok(removed)
+    }
+
+    /// Ends a collection pass: one receipt per sender, carrying every id
+    /// received from them in the pass. Queued, not sent; each is due after a
+    /// random delay ([`outbox::RECEIPT_DELAY_MAX`]). Every sender is tried even
+    /// when one fails; the first error is returned.
+    ///
+    /// # Errors
+    ///
+    /// The first receipt that could not be sealed or queued.
+    pub fn end_pass(&mut self, now: u64) -> Result<(), ChatError> {
+        let peers: Vec<Address> = self.owed.keys().copied().collect();
+        let mut first_error = None;
+        for peer in peers {
+            let ids = self.owed.remove(&peer).unwrap_or_default();
+            for chunk in ids.chunks(receipt::MAX_IDS) {
+                if let Err(e) = self.send_receipt(&peer, chunk, now) {
+                    first_error.get_or_insert(e);
+                }
+            }
+        }
+        first_error.map_or(Ok(()), Err)
+    }
+
+    fn send_receipt(
+        &mut self,
+        peer: &Address,
+        ids: &[[u8; 32]],
+        now: u64,
+    ) -> Result<(), ChatError> {
+        let me = self.identity.address();
+        let session = self.sessions.get_mut(peer).ok_or(ChatError::NoSession)?;
+        let statement = receipt::digest(&session.id(), &me, peer, ids);
+        let signature = self.identity.sign(&statement)?;
+        let message = session.encrypt(&receipt::encode(ids, &signature))?;
+        let envelope = Envelope {
+            to: *peer,
+            expires_at: now + ENVELOPE_TTL,
+            payload: Payload::Chat(message),
+            stamp: 0,
+            version: self.send_version,
+        };
+        let size = envelope.encode()?.len();
+        let id = envelope.id()?;
+        outbox::check_room(self.outbox.len(), self.outbox_bytes(), size)?;
+        let next_at = now + outbox::random_upto(outbox::RECEIPT_DELAY_MAX)?;
+        self.outbox.insert(
+            id,
+            Pending {
+                to: *peer,
+                envelope,
+                receipt: true,
+                size,
+                first_at: now,
+                attempts: 0,
+                next_at,
+                relayed: false,
+            },
+        );
+        Ok(())
+    }
+
+    /// Seals `text` for `to` and queues it in the outbox at `version`, due
+    /// now. Nothing leaves the client here: the caller saves
+    /// [`Client::save`] and then sends with [`crate::courier::flush`]. A
+    /// refusal leaves no session behind that the peer never received.
+    ///
+    /// # Errors
+    ///
+    /// As [`Client::seal`], or [`ChatError::OutboxFull`] or a size refusal.
+    pub fn queue(
+        &mut self,
+        to: Address,
+        bundle: Option<&PrekeyBundle>,
+        text: &[u8],
+        now: u64,
+        version: u8,
+    ) -> Result<[u8; 32], ChatError> {
+        let had_session = self.sessions.contains_key(&to);
+        let envelope = self.seal_as(to, bundle, text, now, version)?;
+        let size = envelope.encode()?.len();
+        let id = envelope.id()?;
+        if let Err(e) = outbox::check_room(self.outbox.len(), self.outbox_bytes(), size) {
+            if !had_session {
+                self.sessions.remove(&to);
+            }
+            return Err(e);
+        }
+        self.outbox.insert(
+            id,
+            Pending {
+                to,
+                envelope,
+                receipt: false,
+                size,
+                first_at: now,
+                attempts: 0,
+                next_at: now,
+                relayed: false,
+            },
+        );
+        Ok(id)
+    }
+
+    fn outbox_bytes(&self) -> usize {
+        self.outbox.values().map(|p| p.size).sum()
+    }
+
+    /// The outbox entries due for an attempt at `now`: not expired, and past
+    /// their next attempt time.
+    #[must_use]
+    pub fn due(&self, now: u64) -> Vec<[u8; 32]> {
+        self.outbox
+            .iter()
+            .filter(|(_, p)| p.next_at <= now && now < p.first_at + ENVELOPE_TTL)
+            .map(|(id, _)| *id)
+            .collect()
+    }
+
+    /// The envelope to deposit for `id` at `bits` of postage. Re-minted only
+    /// if the current stamp is short, so a retry sends the same bytes.
+    ///
+    /// # Errors
+    ///
+    /// Not in the outbox, or a minting failure.
+    pub fn envelope_for_send(&mut self, id: &[u8; 32], bits: u32) -> Result<Envelope, ChatError> {
+        let entry = self
+            .outbox
+            .get_mut(id)
+            .ok_or(ChatError::Refused("not in the outbox"))?;
+        if !entry.envelope.stamped(bits)? {
+            entry.envelope = entry.envelope.clone().mint(bits)?;
+        }
+        Ok(entry.envelope.clone())
+    }
+
+    /// The relay accepted `id`. A chat message stays queued for its receipt;
+    /// a receipt is done and leaves the outbox.
+    ///
+    /// # Errors
+    ///
+    /// Entropy for the next retry's jitter.
+    pub fn sent(&mut self, id: &[u8; 32], now: u64) -> Result<(), ChatError> {
+        let Some(entry) = self.outbox.get(id) else {
+            return Ok(());
+        };
+        if entry.receipt {
+            self.outbox.remove(id);
+            return Ok(());
+        }
+        self.reschedule(id, now, true)
+    }
+
+    /// An attempt for `id` failed; the next one is scheduled with backoff.
+    ///
+    /// # Errors
+    ///
+    /// Entropy for the next retry's jitter.
+    pub fn failed(&mut self, id: &[u8; 32], now: u64) -> Result<(), ChatError> {
+        self.reschedule(id, now, false)
+    }
+
+    fn reschedule(&mut self, id: &[u8; 32], now: u64, accepted: bool) -> Result<(), ChatError> {
+        let jitter = outbox::jitter()?;
+        if let Some(entry) = self.outbox.get_mut(id) {
+            entry.attempts = entry.attempts.saturating_add(1);
+            entry.relayed |= accepted;
+            entry.next_at = now + outbox::backoff(entry.attempts, jitter);
+        }
+        Ok(())
+    }
+
+    /// The outbox, for display: each entry's id and state.
+    pub fn outbox(&self) -> impl Iterator<Item = (&[u8; 32], &Pending)> {
+        self.outbox.iter()
+    }
+
+    /// The entry for `id`, if still queued.
+    #[must_use]
+    pub fn pending(&self, id: &[u8; 32]) -> Option<&Pending> {
+        self.outbox.get(id)
+    }
+
+    /// Whether `id` has expired unreceipted. Expired entries are kept and
+    /// shown; [`Client::dismiss`] removes one the user has seen.
+    #[must_use]
+    pub fn expired(&self, id: &[u8; 32], now: u64) -> bool {
+        self.outbox
+            .get(id)
+            .is_some_and(|p| now >= p.first_at + ENVELOPE_TTL)
+    }
+
+    /// Removes an outbox entry, for an expired one the user has seen.
+    pub fn dismiss(&mut self, id: &[u8; 32]) -> bool {
+        self.outbox.remove(id).is_some()
+    }
+
+    /// Turns receipts on or off for everyone (ADR-074, decision 3). Off still
+    /// receives every message.
+    pub fn set_receipts(&mut self, on: bool) {
+        self.receipts = on;
+    }
+
+    /// Turns receipts on or off for one contact.
+    pub fn set_contact_receipts(&mut self, peer: Address, on: bool) {
+        if on {
+            self.receipts_off.remove(&peer);
+        } else {
+            self.receipts_off.insert(peer);
+        }
+    }
+
+    fn receipts_for(&self, peer: &Address) -> bool {
+        self.receipts && !self.receipts_off.contains(peer)
+    }
+
+    /// The envelope version new messages are sealed at.
+    #[must_use]
+    pub fn send_version(&self) -> u8 {
+        self.send_version
+    }
+
+    /// Sets the envelope version for new messages (ADR-074, decision 4). Each
+    /// message is sent at the lower of this and the relay's maximum.
+    ///
+    /// # Errors
+    ///
+    /// [`ChatError::Refused`] for a version this build does not write.
+    pub fn set_send_version(&mut self, version: u8) -> Result<(), ChatError> {
+        if !(1..=MAX_ENVELOPE_VERSION).contains(&version) {
+            return Err(ChatError::Refused("unknown envelope version"));
+        }
+        self.send_version = version;
+        Ok(())
     }
 
     /// Whether a session with `peer` exists.

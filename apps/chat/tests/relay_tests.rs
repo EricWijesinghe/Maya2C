@@ -23,6 +23,7 @@ fn envelope(to: [u8; 32], n: u64, len: usize, expires_at: u64) -> Envelope {
             ciphertext: vec![0; len],
         }),
         stamp: 0,
+        version: 1,
     }
 }
 
