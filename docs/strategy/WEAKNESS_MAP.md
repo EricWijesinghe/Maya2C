@@ -1,5 +1,7 @@
 # Weakness map
 
+> **See also:** the red-team table in [MIP-0002 §9](../mip/MIP-0002-omega-durable-advantage.md) lists Maya2C's own weaknesses (bus factor, single-PC launch, no audit yet) against a rival with unlimited resources.
+
 Master Prompt 21 §1. Problems the large chains openly struggle with, with
 dated public sources, why legacy makes each hard for them, and what in Maya2C
 addresses it. **Researched 2026-09-26** by web search. The sources are

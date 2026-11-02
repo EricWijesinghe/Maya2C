@@ -91,3 +91,6 @@ The observation that would make this worth reopening.
 | [056](ADR-056-guardian-recovery-transactions.md) | Guardian recovery as four node transactions with a delay and an owner cancel | Accepted |
 | [073](ADR-073-hub-multi-rig-pool-profitability.md) | Hub multi-rig, pool view and on-chain profitability estimate | Proposed |
 | [074](ADR-074-chat-outbox-receipts-envelope-v2.md) | Chat sender outbox, signed delivery receipts, envelope v2 (and a send-path nonce-reuse fix) | Proposed |
+| [077](ADR-077-sentinel-recovery-network.md) | Sentinel Recovery Network: scoped quarantine and forward-only governed recovery (MIP-0001), after mainnet | Accepted |
+| [078](ADR-078-omega-durable-advantage.md) | Omega design: three-speed evolution (vote-activated, pre-shipped code), bounded integer controllers, test ratchet, moat indicators (MIP-0002) | Accepted |
+| [079](ADR-079-verifiable-compute.md) | Verifiable compute: a job market for useful work, a verification ladder, multi-GPU hardware plan, data sovereignty, phases R0 to R6 after mainnet | Proposed |

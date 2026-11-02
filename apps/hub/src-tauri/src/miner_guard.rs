@@ -27,7 +27,10 @@ pub enum GuardError {
     /// This build's checksums do not list the miner.
     Unpinned(String),
     /// The miner on disk is not the released file.
-    HashMismatch { expected: String, actual: String },
+    HashMismatch {
+        expected: String,
+        actual: String,
+    },
     /// The key file setting is empty or names no file.
     KeyNameMissing,
     /// The key file folder does not exist.
@@ -47,7 +50,11 @@ impl fmt::Display for GuardError {
                 path.display()
             ),
             Self::MinerMissing(path) => {
-                write!(f, "miner not found at {} (reinstall the Hub)", path.display())
+                write!(
+                    f,
+                    "miner not found at {} (reinstall the Hub)",
+                    path.display()
+                )
             }
             Self::Unpinned(name) => write!(
                 f,
@@ -265,7 +272,8 @@ mod tests {
 
     /// A fresh folder under the OS temp dir, unique per test name.
     fn scratch(test: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("maya-hub-guard-{test}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("maya-hub-guard-{test}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("create scratch folder");
         dir
@@ -294,7 +302,10 @@ mod tests {
     fn bundled_miner_with_a_matching_hash_is_accepted() {
         let (_base, install, sums) = bundle("good");
         let pinned = check_miner(&miner_file_name(), &install, &sums).expect("accepted");
-        assert_eq!(pinned.path.file_name().unwrap().to_str(), Some(miner_file_name().as_str()));
+        assert_eq!(
+            pinned.path.file_name().unwrap().to_str(),
+            Some(miner_file_name().as_str())
+        );
     }
 
     #[cfg(windows)]
@@ -308,7 +319,10 @@ mod tests {
             write.expect_err("a writer must be refused").raw_os_error(),
             Some(ERROR_SHARING_VIOLATION)
         );
-        assert!(fs::remove_file(&pinned.path).is_err(), "delete must be refused");
+        assert!(
+            fs::remove_file(&pinned.path).is_err(),
+            "delete must be refused"
+        );
         drop(pinned);
         OpenOptions::new()
             .write(true)

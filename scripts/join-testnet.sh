@@ -23,6 +23,12 @@
 # Options (environment): MAYA_HOME (where keys and chain data live),
 # MAYA_NO_SERVICE=1 to install without a service, MAYA_RPC_PORT (default 8545).
 #
+# Test-only overrides (CI and local devnets, never a real join): MAYA2C_OFFLINE=1
+# drops the bootnode and snapshot endpoint, so the node starts from the genesis
+# alone; MAYA2C_GENESIS_URL and MAYA2C_GENESIS_SHA256 point at another genesis
+# (a file:// URL works); MAYA2C_BINARY_DIR installs binaries from a local build
+# instead of the newest release.
+#
 # It never prints or sends a secret. Re-running it upgrades the binary and
 # leaves the keys and the chain data alone.
 #
@@ -31,10 +37,13 @@ set -euo pipefail
 
 REPO="EricWijesinghe/Maya2C"
 SCRIPT_URL="https://raw.githubusercontent.com/$REPO/master/scripts/join-testnet.sh"
-GENESIS_URL="https://maya2c.dev/testnet/genesis.json"
-GENESIS_SHA256="dd9bb356c94b7699e6e8d2595681faee48be435b02dc927677cbf833e55edd5d"
+GENESIS_URL="${MAYA2C_GENESIS_URL:-https://maya2c.dev/testnet/genesis.json}"
+GENESIS_SHA256="${MAYA2C_GENESIS_SHA256:-dd9bb356c94b7699e6e8d2595681faee48be435b02dc927677cbf833e55edd5d}"
 BOOTNODE="/dns4/p2p.maya2c.dev/tcp/443/wss/p2p/12D3KooWJqH5AUQ1zPkMke18rcc8VHN2TWQ5XudGX3tP8zPLuyjB"
 BOOTSTRAP="https://bootstrap.maya2c.dev/rpc"
+BINARY_DIR="${MAYA2C_BINARY_DIR:-}"
+# Empty means "no bootnode, no snapshot endpoint"; node_args then omits the flags.
+if [ -n "${MAYA2C_OFFLINE:-}" ]; then BOOTNODE=""; BOOTSTRAP=""; fi
 PUBLIC_RPC="https://rpc.maya2c.dev/rpc"
 APPLY_URL="https://github.com/$REPO/issues/new?template=validator-application.yml"
 RPC_PORT="${MAYA_RPC_PORT:-8545}"  # loopback only: the node's RPC is unauthenticated
@@ -57,6 +66,7 @@ case "$OS" in
   *) printf 'maya2c: this script is for Mac and Linux. On Windows see https://maya2c.dev/guides/help-run/\n' >&2; exit 1 ;;
 esac
 KEY="$HOME_DIR/validator.key"
+PASS="$HOME_DIR/validator.pass"   # ADR-049: unseals the key; back it up
 PUB="$HOME_DIR/validator.pub"
 WALLET="$HOME_DIR/wallet.key"
 DATA="$HOME_DIR/data"
@@ -114,6 +124,13 @@ find_release() {
 
 install_binaries() {
   local target tag base want have
+  if [ -n "$BINARY_DIR" ]; then
+    say "Step 1 of 4 — using the binaries in $BINARY_DIR (MAYA2C_BINARY_DIR, test only)"
+    $SUDO mkdir -p "$BIN_DIR"
+    $SUDO install -m 755 "$BINARY_DIR/maya2c-node" "$BINARY_DIR/l1-wallet" "$BIN_DIR/"
+    ok "installed maya2c-node and l1-wallet in $BIN_DIR"
+    return
+  fi
   target=$(release_target)
   tag=$(find_release "$target")
   say "Step 1 of 4 — downloading Maya2C $tag"
@@ -149,22 +166,110 @@ install_genesis() {
   ok "genesis verified"
 }
 
+# The passphrase that seals the key (ADR-049): 32 bytes from the kernel CSPRNG,
+# as hex. umask 077 means the file is never readable by anyone else, even for
+# an instant. Kept on reinstall; `uninstall` keeps it with the keys.
+make_passphrase() {
+  if $SUDO test -f "$PASS"; then ok "kept your key's passphrase file"; return; fi
+  $SUDO sh -c 'umask 077 && od -An -N32 -tx1 /dev/urandom | tr -d " \n" > "$1"' sh "$PASS" \
+    || die "could not write the passphrase file" "check the disk has room, then run the installer again"
+  $SUDO chmod 600 "$PASS"
+  note "validator passphrase file: $PASS"
+  note "Losing that file means losing your validator key. Back it up now, somewhere safe."
+}
+
 make_key() {
   say "Step 3 of 4 — your validator key"
-  if $SUDO test -f "$KEY"; then ok "kept your existing key"; return; fi
+  if $SUDO test -f "$KEY"; then
+    $SUDO test -f "$PASS" || die "found a validator key but no passphrase file ($PASS)" "restore that file from your backup; the key cannot be opened without it"
+    ok "kept your existing key"; return
+  fi
+  make_passphrase
   local pub
-  pub=$($SUDO "$BIN_DIR/maya2c-node" --generate-validator-key "$KEY")
+  pub=$($SUDO "$BIN_DIR/maya2c-node" --generate-validator-key "$KEY" --validator-passphrase-file "$PASS") \
+    || die "making the validator key failed" "the node message is above; run the installer again"
+  [ -n "$pub" ] || die "making the validator key gave no public key" "run the installer again"
   $SUDO chmod 600 "$KEY"
   printf '%s\n' "$pub" | $SUDO tee "$PUB" >/dev/null
   ok "made a new key. It never leaves this computer."
 }
 
 node_args() {
-  printf '%s\n' --genesis "$HOME_DIR/genesis.json" --data-dir "$DATA" \
-    --validator-key "$KEY" --rpc-addr "127.0.0.1:$RPC_PORT" --bootnode "$BOOTNODE" \
-    --prune-depth "$PRUNE_DEPTH" --bootstrap-from "$BOOTSTRAP" --catch-up-from "$BOOTSTRAP"
-  # --bootstrap-from loads a snapshot into an empty data dir only; the node
-  # ignores it once a chain is there, so the service can always pass it.
+  # Paths are quoted: the run script word-splits this line, and macOS keeps
+  # its data under "/Library/Application Support".
+  printf '%s\n' --genesis "\"$HOME_DIR/genesis.json\"" --data-dir "\"$DATA\"" \
+    --validator-key "\"$KEY\"" --rpc-addr "127.0.0.1:$RPC_PORT" \
+    --prune-depth "$PRUNE_DEPTH"
+  if [ -n "$BOOTNODE" ]; then printf '%s\n' --bootnode "$BOOTNODE"; fi
+  if [ -n "$BOOTSTRAP" ]; then
+    # --bootstrap-from loads a snapshot into an empty data dir only; the node
+    # ignores it once a chain is there, so the service can always pass it.
+    printf '%s\n' --bootstrap-from "$BOOTSTRAP" --catch-up-from "$BOOTSTRAP"
+  fi
+}
+
+# B49: every service start (boot, crash restart, update) runs this wrapper, which
+# takes a trusted block before the node starts. A flag written at install would
+# go stale. Without a block the node still starts, and refuses only if it is
+# behind the unbonding window. The wrapper's order: MAYA2C_TRUSTED_BLOCK from the
+# environment (the operator's explorer block, which always wins); otherwise a
+# block fetched from BOOTSTRAP_URLS. Two sources must agree on the block at the
+# lower tip. One source is a convenience for our own nodes, and it is warned about.
+write_run_script() {
+  local script="$HOME_DIR/run-node.sh"
+  # The node unseals its key from this file on every start (ADR-049). Only the
+  # path goes in the script, never the passphrase.
+  printf '#!/bin/sh\nBOOTSTRAP_URLS="%s %s"\nexport MAYA2C_VALIDATOR_PASSPHRASE_FILE="%s"\n' \
+    "$BOOTSTRAP" "${MAYA2C_TRUSTED_SOURCE:-}" "$PASS" | $SUDO tee "$script" >/dev/null
+  $SUDO tee -a "$script" >/dev/null <<'SCRIPT'
+# Maya2C node start (B49). Generated by join-testnet.sh; rewritten on install.
+rpc_post() { curl -fsS -m 10 -X POST "$1" -H 'content-type: application/json' -d "$2" 2>/dev/null; }
+tip_of() { rpc_post "$1" '{"jsonrpc":"2.0","id":1,"method":"get_chain_info","params":[]}' \
+  | sed -n 's/.*"height":\([0-9][0-9]*\).*/\1/p' | head -1; }
+id_at() { rpc_post "$1" "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"get_block_by_height\",\"params\":[$2]}" \
+  | sed -n 's/.*"id":"\([0-9a-f]\{64\}\)".*/\1/p' | head -1; }
+warn() { echo "run-node: $*" >&2; }
+trusted=""
+if [ -n "${MAYA2C_TRUSTED_BLOCK:-}" ]; then
+  if printf '%s' "$MAYA2C_TRUSTED_BLOCK" | grep -Eq '^[0-9]+:[0-9a-f]{64}$'; then
+    trusted="--trusted-block $MAYA2C_TRUSTED_BLOCK"
+    warn "trusted block from MAYA2C_TRUSTED_BLOCK (operator override)"
+  else
+    warn "MAYA2C_TRUSTED_BLOCK is not HEIGHT:HEX; ignored, fetching instead"
+  fi
+fi
+if [ -z "$trusted" ]; then
+  set -- $BOOTSTRAP_URLS
+  if [ "$#" -ge 2 ]; then
+    a=$1; b=$2
+    ta=$(tip_of "$a"); tb=$(tip_of "$b")
+    if [ -z "$ta" ] || [ -z "$tb" ]; then
+      warn "trusted block: a source did not answer; starting without one"
+    else
+      if [ "$ta" -le "$tb" ]; then m=$ta; else m=$tb; fi
+      ia=$(id_at "$a" "$m"); ib=$(id_at "$b" "$m")
+      if [ -n "$ia" ] && [ "$ia" = "$ib" ]; then
+        trusted="--trusted-block $m:$ia"
+        warn "trusted block at $m: both sources agree"
+      else
+        warn "trusted block: the sources disagree at height $m (or one gave no block); starting without one"
+      fi
+    fi
+  elif [ "$#" -eq 1 ]; then
+    ta=$(tip_of "$1")
+    if [ -n "$ta" ]; then
+      ia=$(id_at "$1" "$ta")
+      if [ -n "$ia" ]; then trusted="--trusted-block $ta:$ia"; fi
+    fi
+    warn "trusted block from a single source ($1). This is a convenience for our own nodes; an outside operator should set MAYA2C_TRUSTED_BLOCK from the explorer, or give two independent peers in MAYA2C_TRUSTED_SOURCE"
+  fi
+fi
+if [ -z "$trusted" ]; then
+  warn "no trusted block; starting without one (a node behind the window will refuse)"
+fi
+SCRIPT
+  printf 'exec "%s/maya2c-node" %s $trusted\n' "$BIN_DIR" "$1" | $SUDO tee -a "$script" >/dev/null
+  $SUDO chmod 755 "$script"
 }
 
 install_linux_service() {
@@ -172,6 +277,7 @@ install_linux_service() {
   args=$(node_args | tr '\n' ' ')
   id maya2c >/dev/null 2>&1 || $SUDO useradd --system --home "$HOME_DIR" --shell /usr/sbin/nologin maya2c
   $SUDO chown -R maya2c: "$HOME_DIR"; $SUDO chmod 700 "$HOME_DIR"
+  write_run_script "$args"
   $SUDO tee /etc/systemd/system/maya2c-node.service >/dev/null <<UNIT
 [Unit]
 Description=Maya2C node (maya-testnet-1)
@@ -180,7 +286,7 @@ Wants=network-online.target
 
 [Service]
 User=maya2c
-ExecStart=$BIN_DIR/maya2c-node $args
+ExecStart=$HOME_DIR/run-node.sh
 Restart=always
 RestartSec=5
 NoNewPrivileges=true
@@ -198,11 +304,9 @@ UNIT
 }
 
 install_mac_service() {
-  local arg items=""
-  while IFS= read -r arg; do items="$items    <string>$arg</string>
-"; done < <(node_args)
   $SUDO mkdir -p "$(dirname "$LOG_FILE")"; $SUDO touch "$LOG_FILE"
   $SUDO chown -R "$RUN_USER" "$HOME_DIR" "$(dirname "$LOG_FILE")"; $SUDO chmod 700 "$HOME_DIR"
+  write_run_script "$(node_args | tr '\n' ' ')"
   # caffeinate -s keeps the Mac awake while it is plugged in, so the node does
   # not drop out when the screen locks. On battery the Mac may still sleep.
   $SUDO tee "$MAC_PLIST" >/dev/null <<PLIST
@@ -216,8 +320,8 @@ install_mac_service() {
   <array>
     <string>/usr/bin/caffeinate</string>
     <string>-s</string>
-    <string>$BIN_DIR/maya2c-node</string>
-$items  </array>
+    <string>$HOME_DIR/run-node.sh</string>
+  </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>5</integer>
@@ -248,6 +352,9 @@ install_helper() {
 cmd_install() {
   need curl; need tar
   printf '\n\033[1mMaya2C testnet node — installer\033[0m\n'
+  if [ -n "${MAYA2C_OFFLINE:-}${MAYA2C_GENESIS_URL:-}${MAYA2C_BINARY_DIR:-}" ]; then
+    note "TEST MODE: MAYA2C_OFFLINE / MAYA2C_GENESIS_URL / MAYA2C_BINARY_DIR is set. Not a real join."
+  fi
   note "This installs a background program that helps run the Maya2C test network."
   note "Testnet coins have no value. You can remove everything with: maya2c-validator uninstall"
   [ -n "$SUDO" ] && note "Your computer password may be asked for. Nothing shows while you type it — that is normal."
@@ -298,7 +405,7 @@ cmd_status() {
   if [ "$OS" = Darwin ]; then note "log: $LOG_FILE (or: maya2c-validator logs)"; else note "log: maya2c-validator logs"; fi
 }
 
-wallet() { $SUDO env L1_WALLET_KEYSTORE="$WALLET" "$BIN_DIR/l1-wallet" --rpc-url "$PUBLIC_RPC" "$@"; }
+wallet() { $SUDO env L1_WALLET_KEYSTORE="$WALLET" MAYA2C_VALIDATOR_PASSPHRASE_FILE="$PASS" "$BIN_DIR/l1-wallet" --rpc-url "$PUBLIC_RPC" "$@"; }
 
 cmd_apply() {
   local address

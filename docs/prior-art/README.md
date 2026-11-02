@@ -17,3 +17,5 @@ exactly how Maya2C differs. A file marked "not searched" authorizes nothing.
 - [Developer platform with an MCP server for agents](agent-developer-platform.md) — not searched
 - [Post-quantum peer-to-peer messenger (Maya Chat)](p2p-chat.md) — partially searched 2026-09-28
 - [Post-quantum L1 comparison, 18 chains](pq-l1-comparison-2026-11.md) — searched 2026-11-01
+- [Chain-level exploit containment and recovery (Sentinel Recovery Network)](chain-level-exploit-recovery.md) — searched 2026-11-02
+- [Forkless upgrades and on-chain adaptive control (Omega design)](forkless-upgrades-and-adaptive-control.md) — searched 2026-11-02

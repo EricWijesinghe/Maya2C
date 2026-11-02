@@ -71,8 +71,20 @@
           </div>
 
           <div class="card">
-            <h2>Devices <small id="gpu-note"></small></h2>
+            <h2>Rigs <small id="gpu-note"></small></h2>
+            <p class="fine">One miner per device. A miner that crashes restarts itself with a growing wait. A GPU that runs above its temperature ceiling is stopped until it cools.</p>
             <div class="devices" id="devices"></div>
+          </div>
+
+          <div class="grid2">
+            <div class="card">
+              <h2>Alerts <small id="alert-count"></small></h2>
+              <ol class="alerts" id="alerts"><li class="empty">No alerts. Crashes, restarts and heat stops appear here.</li></ol>
+            </div>
+            <div class="card detail" id="rig-detail" hidden>
+              <h2 id="rd-title"></h2>
+              <p id="rd-text"></p>
+            </div>
           </div>
 
           <p class="fine" id="payout-line"></p>
@@ -129,11 +141,18 @@
             <label>JSON-RPC URL <input id="s-rpc" spellcheck="false" /></label>
             <div id="s-miner">
               <h2>Miner</h2>
+              <label>Pool <select id="s-pool"></select></label>
+              <p class="fine" id="s-pool-note"></p>
               <label>Miner program <input id="s-binary" spellcheck="false" /></label>
               <label>Payout key file <input id="s-key" spellcheck="false" /></label>
               <p class="fine">The key file is the wallet for what you mine. It is created on first start. Back it up and never share it.</p>
-              <label class="check"><input id="s-gpu" type="checkbox" /> Mine on the graphics card</label>
-              <label>CPU threads, when not on the graphics card <span id="s-threads-v"></span><input id="s-threads" type="range" min="1" max="64" /></label>
+              <fieldset class="pick">
+                <legend>Devices to mine on</legend>
+                <div id="s-devices"></div>
+              </fieldset>
+              <label>CPU threads <span id="s-threads-v"></span><input id="s-threads" type="range" min="1" max="64" /></label>
+              <label>Stop a GPU above (°C) <input id="s-ceiling" type="number" min="50" max="95" step="1" /></label>
+              <p class="fine">80 °C is the Hub's own default, not the driver's limit. A GPU above it is stopped, then restarted once it is 5 °C lower.</p>
             </div>
             <button class="save" id="s-save">Save</button>
             <p class="fine" id="s-msg"></p>
