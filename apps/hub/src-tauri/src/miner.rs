@@ -334,7 +334,8 @@ mod tests {
         let err = miner
             .start(
                 &MinerConfig {
-                    binary: "Z:/nope/maya2c-gpu-miner.exe".into(),
+                    // The platform's own file name: a `.exe` name is not the miner on Linux.
+                    binary: format!("Z:/nope/{}", miner_guard::miner_file_name()),
                     rpc: "http://127.0.0.1:8545".into(),
                     key_file: "k".into(),
                     threads: 2,

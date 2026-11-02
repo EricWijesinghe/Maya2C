@@ -211,6 +211,7 @@ pub fn pinned_hash(sums: &str, file: &str) -> Result<String, GuardError> {
 #[derive(Debug)]
 pub struct PinnedMiner {
     pub path: PathBuf,
+    #[cfg(not(unix))]
     pub file: File,
     #[cfg(unix)]
     _scratch: Scratch,
@@ -236,7 +237,7 @@ impl Drop for Scratch {
 /// shortcut: a fork on another thread during the copy can hold the write
 /// handle and make the exec fail with ETXTBSY; the start fails closed, retry it.
 #[cfg(unix)]
-fn stage_copy(bytes: &[u8], expected: &str) -> Result<(PathBuf, File, Scratch), GuardError> {
+fn stage_copy(bytes: &[u8], expected: &str) -> Result<(PathBuf, Scratch), GuardError> {
     use std::io::Write;
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
     let nonce = std::time::SystemTime::now()
@@ -264,7 +265,7 @@ fn stage_copy(bytes: &[u8], expected: &str) -> Result<(PathBuf, File, Scratch), 
             actual,
         });
     }
-    Ok((copy, file, scratch))
+    Ok((copy, scratch))
 }
 
 /// Builds the handle the Hub runs. Windows keeps the locked install file.
@@ -275,10 +276,9 @@ fn pin(
     bytes: &[u8],
     expected: &str,
 ) -> Result<PinnedMiner, GuardError> {
-    let (path, file, scratch) = stage_copy(bytes, expected)?;
+    let (path, scratch) = stage_copy(bytes, expected)?;
     Ok(PinnedMiner {
         path,
-        file,
         _scratch: scratch,
     })
 }
