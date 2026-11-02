@@ -11,7 +11,7 @@ use custom_l1_node::core::payload::{
     ChannelClosure, ChannelId, ChannelOpen, RevocationProof, channel_state_signing_bytes,
     derive_channel_id, revocation_commitment,
 };
-use custom_l1_node::core::{Block, BlockHeader, Transaction, TxKind};
+use custom_l1_node::core::{Block, BlockHeader, ChainTag, Transaction, TxKind};
 use custom_l1_node::crypto::hybrid::generate_signing_key;
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::error::NodeError;
@@ -73,7 +73,7 @@ fn signed_tx(kind: TxKind, nonce: u64, key: &HybridSigningKey) -> Transaction {
     tx
 }
 
-/// Builds a closure signed by both participants.
+/// Builds a closure signed by both participants for the test chain.
 fn signed_closure(
     channel_id: ChannelId,
     seq: u64,
@@ -83,7 +83,32 @@ fn signed_closure(
     key_a: &HybridSigningKey,
     key_b: &HybridSigningKey,
 ) -> ChannelClosure {
+    signed_closure_on(
+        &common::test_chain(),
+        channel_id,
+        seq,
+        balance_a,
+        balance_b,
+        commitment,
+        key_a,
+        key_b,
+    )
+}
+
+/// Builds a closure signed by both participants for `chain` (ADR-036 binding).
+#[allow(clippy::too_many_arguments)]
+fn signed_closure_on(
+    chain: &ChainTag,
+    channel_id: ChannelId,
+    seq: u64,
+    balance_a: u64,
+    balance_b: u64,
+    commitment: [u8; 32],
+    key_a: &HybridSigningKey,
+    key_b: &HybridSigningKey,
+) -> ChannelClosure {
     let message = channel_state_signing_bytes(
+        chain,
         &channel_id,
         seq,
         primitive_types::U256::from(balance_a),
@@ -277,6 +302,35 @@ fn a_closure_that_does_not_conserve_capacity_is_rejected() {
         ),
         Err(NodeError::ChannelCapacityMismatch { .. })
     ));
+}
+
+/// Cross-chain replay (audit finding 1): both signatures are genuine, over the
+/// same channel id, but were produced for a different chain. Must not settle.
+#[test]
+fn a_closure_signed_for_another_chain_is_rejected() {
+    let alice = generate_signing_key().expect("keygen");
+    let bob = generate_signing_key().expect("keygen");
+    let f = fixture(&[(address_of(&alice), 10_000)]);
+
+    let id = open_channel(&f, &alice, address_of(&bob), 4_000, 50, 0);
+    let foreign = ChainTag::from_genesis([0xee; 32]);
+    let closure = signed_closure_on(&foreign, id, 7, 1_500, 2_500, [1u8; 32], &alice, &bob);
+
+    assert!(matches!(
+        f.db.apply_block(
+            &block_of(vec![signed_tx(
+                TxKind::CooperativeClose(closure),
+                1,
+                &alice
+            )]),
+            BlockContext::at_height(2)
+        ),
+        Err(NodeError::ClosureSignature { party: "a", .. })
+    ));
+    assert_eq!(
+        f.db.get_channel(&id).expect("read").expect("exists").status,
+        ChannelStatus::Open
+    );
 }
 
 #[test]

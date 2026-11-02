@@ -152,18 +152,18 @@ impl Miner {
     ///
     /// Already running, a bad setting, a failed check, or a binary that will not start.
     pub fn start(&self, config: &MinerConfig, install: &Path, data: &Path) -> Result<(), String> {
-        crate::node::check_url(&config.rpc)?;
+        let rpc = crate::node::check_url(&config.rpc)?;
         let pinned = miner_guard::check_miner(&config.binary, install, PINNED_SUMS)
             .map_err(|e| e.to_string())?;
-        let key_file = miner_guard::resolve_key_file(&config.key_file, data)
-            .map_err(|e| e.to_string())?;
+        let key_file =
+            miner_guard::resolve_key_file(&config.key_file, data).map_err(|e| e.to_string())?;
         let threads = config.threads.clamp(1, MAX_THREADS);
         let mut slot = self.child.lock().unwrap_or_else(PoisonError::into_inner);
         if slot.is_some() {
             return Err("the miner is already running".into());
         }
         let mut child = Command::new(&pinned.path)
-            .args(["--mine", "--json", "--rpc", &config.rpc, "--threads"])
+            .args(["--mine", "--json", "--rpc", rpc, "--threads"])
             .arg(threads.to_string())
             .arg("--key-file")
             .arg(&key_file)
@@ -245,7 +245,9 @@ impl Miner {
 /// never spent.
 fn units(value: &serde_json::Value) -> Option<u128> {
     match value {
-        serde_json::Value::String(text) if !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()) => {
+        serde_json::Value::String(text)
+            if !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()) =>
+        {
             Some(text.parse::<u128>().unwrap_or(u128::MAX))
         }
         other => other.as_u64().map(u128::from),
